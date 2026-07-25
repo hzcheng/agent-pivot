@@ -1,222 +1,144 @@
-# Task 10 Report: Atomic Open-Workspace v2 Cutover
+# Task 10 Report: Production Conversation Composition
 
-## Status and commit
+## Status and commits
 
-Complete. The implementation, verification updates, generated Webview asset,
-and this report were delivered as the main cutover commit plus one focused
-archive-authorization fix commit. The main commit message was:
+Complete on branch `docs/active-session-conversation-outline-design`, based on
+`10824ae`. The production implementation and tests were committed as:
 
-`feat: publish workspaces through bridge protocol v2`
+```text
+82a61b4 feat: wire Active Session conversation history
+```
 
 Nothing was pushed, merged, or cleaned up.
 
 ## Outcome
 
-- Cut the desktop UI Bridge and main extension to the exact
-  `_projectStewardOpenWorkspaces.*` handshake, publish, unregister, aggregate,
-  and diagnostic commands.
-- Added an exact v2 capability handshake for `workspaces`, `atomicReplace`, and
-  `focusLeases`; mismatches return `accepted: false` with `update-required`.
-- Added the `open-workspaces/v2/instances` owner-file store and coordinator,
-  preserving atomic writes, bounded payloads/scans, symlink and regular-file
-  defenses, malformed-owner isolation, high-water sequence checks, leases,
-  one bridge clock, focus stamps, retry delivery, and unregister cleanup.
-- Preserved main-extension workspace/root identities while the UI Bridge
-  replaces host-authoritative URIs by root ordinal. Saved workspace URIs and
-  untitled navigation URIs remain intact; `workspace: null` is never expanded
-  from `workspaceFolders`.
-- Added the main v2 bridge client, one-workspace publication controller, and
-  dashboard controller. Publications contain zero or one workspace; aggregate
-  projection emits one current card and one lightweight navigation card per
-  other navigation identity.
-- Cut the live dashboard, incremental OPEN update, TODO/search catalog, and AI
-  incremental update to workspace cards and v2 search catalogs. OTHER WINDOWS
-  cards expose metadata and attention only, with no root chips or session
-  controls.
-- Routed current-card toggle/provider, create, resume, focus/detach, and batch
-  archive actions directly through a `WorkspaceAiSessionActionTarget` containing
-  the current `OpenWorkspace` and hydrated session surface. The live v2 path
-  never selects or synthesizes a member `Project`.
-- Kept saved-project data and actions unchanged. Retained v1 source files and
-  legacy controller options only for the planned Task 14 deletion; neither
-  production extension loads or calls the v1 bridge path.
-- Removed the remaining production dependency from the workspace search view
-  model to `openProjects/projection`, while preserving saved-project identity
-  normalization semantics locally.
+- Added `createConversationCapability(options)` as the extension-host
+  composition boundary for one Codex app-server client, one adapter per
+  provider, one coordinator, one reusable viewer, and one Host controller.
+- Bound the viewer directly to the coordinator's authoritative
+  `readOutline`, `readPage`, and `watch` operations. Codex content uses only
+  the private app-server stdio client; Kimi and Claude continue to resolve
+  sources through their existing provider services.
+- Added a narrow optional second factory argument for integration tests. The
+  documented one-argument production overload and `ConversationCapabilityOptions`
+  surface remain unchanged.
+- Kept partial construction failure inside the composition factory. It
+  releases already-created resources, reports exactly one sanitized
+  `conversation-read/unavailable` diagnostic, and returns an idempotent
+  unavailable capability that publishes only the public unavailable error.
+- Wired the three exact ordinary Dashboard router keys for outline, open, and
+  cancel messages. No provider-specialized router field or parallel route was
+  added.
+- Resolved authority through the exact current workspace card and exact
+  provider/session active row. The Host continues to require focus for
+  sidebar outline reads and projects stopped lifecycle state through the
+  coordinator.
+- Reconciled conversation state after authoritative AI-session refresh and
+  active-terminal focus changes.
+- Released sidebar-owned subscriptions when the sidebar hides or its Webview
+  is disposed, while leaving the independent conversation viewer alive.
+- Registered viewer/capability lifecycle ownership with extension
+  subscriptions. Capability disposal is idempotent and transitively closes
+  coordinator, adapters, and the lazy Codex child.
+- Preserved older test/activation Webview doubles by feature-detecting
+  `onDidDispose`; real VS Code Webview views register the disposal callback.
+- Added a composed Kimi flow that requests an outline through the public
+  message path, opens one selected interaction in one `AI Conversation`
+  panel, closes it, and proves private prompt text never reaches diagnostics.
 
 ## TDD evidence
 
 ### RED
 
-The initial Task 10 command compiled both existing projects, then the new safety
-contract failed because the v2 main client did not exist:
+Tests and safety contracts were added before production composition:
 
 ```text
 npm run test-compile
-npm run attention:bridge:compile
-node scripts/run-open-project-safety-checks.js
+  exit 0
 
-Error: Cannot find module '../out/openWorkspaces/bridgeClient'
+node --test tests/integration/dashboard/conversationRouting.test.js
+  exit 1: Cannot find module '../../../out/aiSessions/conversation/composition'
+
+node --test tests/integration/dashboard/errorRecovery.test.js
+  exit 1: Cannot find module '../../../out/aiSessions/conversation/composition'
+
+node scripts/run-ai-session-safety-checks.js
+  exit 1: composition.ts did not exist
 ```
 
-Focused RED cycles also demonstrated:
+The first full deterministic run after implementation exposed five activation
+harness failures because older Webview test doubles did not implement
+`onDidDispose`. The production provider was then made compatible with those
+doubles while retaining disposal registration for real VS Code views. The
+focused activation regression tests and a fresh full deterministic run passed.
 
-- the AI incremental builder still emitted version 1 instead of version 2;
-- `dashboardViewModel.ts` still loaded `openProjects/projection`;
-- the AI Webview replacement did not restore batch-management state; and
-- an active-only workspace session could not be focused through the opaque v2
-  current-card ID.
+### GREEN
 
-Each failure was observed before its production fix.
-
-### GREEN coverage
-
-Added or ported checks for:
-
-- exact handshake success/mismatch, publish/focus/heartbeat/dispose ordering,
-  queued unregister, and aggregate/diagnostic routing;
-- v2 registry namespace, owner isolation, atomic replacement, v1 registry
-  exclusion, malformed/oversized/symlink defenses, lease expiry, sequence
-  rollback rejection, bounded aggregate size, focus ordering, null workspace,
-  and heartbeat-stable semantic revisions;
-- host URI replacement for saved, single-folder, untitled, remote, root-ordinal,
-  and null publications;
-- one current publication, duplicate navigation-identity collapse, current
-  identity reservation, lightweight navigation rendering, workspace counts,
-  v2 search results, and rendered acknowledgements;
-- workspace-native AI incremental HTML/catalog updates and semantic suppression;
-- direct v2-card routing for toggle/provider, create, resume, active-only focus,
-  and batch archive, with an exact assertion that the integration performs zero
-  legacy member-project reads; and
-- production source scans covering the main dashboard, workspace client and
-  controllers, AI incremental controller, search/update modules, UI Bridge
-  entrypoint/modules, and bridge TypeScript inputs.
-
-## Fresh verification
-
-The final implementation passed:
+The final focused gate passed:
 
 ```text
 npm run test-compile
-npm run attention:bridge:compile
-node scripts/run-open-project-safety-checks.js
-node scripts/run-dashboard-webview-checks.js
+node --test tests/integration/dashboard/conversationRouting.test.js
+node --test tests/integration/dashboard/errorRecovery.test.js
 node scripts/run-ai-session-safety-checks.js
-node scripts/run-ai-session-tmux-checks.js
-npm run webpack
-npm run attention:bridge:bundle
-npm run lint
-cmp -s src/webview/webviewProjectScripts.js media/webviewProjectScripts.js
 git diff --check
 ```
 
-Observed suite output:
+Observed results:
 
 ```text
-Open project safety checks passed.
-Dashboard Webview checks passed.
+conversationRouting.test.js: 6/6 passed
+errorRecovery.test.js: 14/14 passed
 AI session safety checks passed.
-AI session tmux checks passed.
-webpack compiled successfully
-attention UI Bridge webpack compiled successfully
 ```
 
-Repository-wide lint exited `0` with the established warning baseline. A
-focused lint over every new `src/openWorkspaces` file and every modified AI,
-update-message, and search TypeScript file emitted no warnings.
+The broader regression gates also passed:
+
+```text
+npm run test:deterministic       189/189 integration tests passed
+npm run test:browser:run         59/59 passed
+npm run test:dashboard:run       passed
+npm run test:architecture-baseline
+npm run test:architecture-guards
+npm run test:safety:run
+```
+
+The complete safety command reported:
+
+```text
+Workspace parity checks passed.
+AI session tmux checks passed.
+AI session safety checks passed.
+Open workspace safety checks passed.
+```
+
+## Lint and diff review
+
+A focused TSLint invocation over all changed TypeScript files exited `0`.
+It emitted only unchanged legacy Dashboard warnings outside the modified
+hunks. `git diff --check` passed.
+
+`npm run lint:ci` still reports:
+
+```text
+src/aiSessions/conversation/codexAppServerClient.ts semicolon 0=5
+```
+
+Those five warnings pre-date Task 10, are in an unchanged Task 5 file, and are
+not introduced by this commit. No Task 10 file increased the warning set.
 
 ## Self-review
 
-- Critical finding fixed: current workspace cards use opaque workspace IDs, so
-  legacy `Project.id` lookup would have made session controls silently no-op.
-  All live action controllers now resolve the workspace target first and the
-  integration test rejects any member-project access.
-- Important finding fixed: AI incremental updates initially retained a v1
-  project-shaped message/catalog adapter. They now replace the validated current
-  workspace section and publish only the v2 workspace search catalog.
-- Important finding fixed: full current-workspace AI replacement now restores
-  batch-management DOM state as well as tabs and active-terminal highlighting.
-- Important finding fixed: a production workspace search module still imported
-  the v1 projection solely for saved-project identity normalization. That
-  dependency is removed without changing saved-project fields or behavior.
-- Confirmed no v2 bridge/dashboard/navigation card contains `hostPath`, provider
-  detail, session detail, or a member-root navigation fallback.
-- Confirmed source and generated Webview scripts are byte-identical.
-- Confirmed the worktree contains only Task 10 production, test, generated
-  asset, and report changes.
-
-## Deferred scope
-
-- Task 11 owns explicit OTHER WINDOWS degradation UI and additional retry/
-  lifecycle hardening.
-- Task 12 owns the navigation feasibility gate and actual opaque-card switching;
-  current navigation clicks refresh safely and never open a root URI.
-- Task 14 owns deletion of retained v1 source and legacy controller branches.
-
----
-
-## Review follow-up: scope single-session archive to the current workspace
-
-Status: complete in a focused follow-up commit.
-
-### Critical finding resolved
-
-Single-session archive discarded the Webview card ID at the dashboard boundary
-and authorized only by provider/session ID. The context-menu route also omitted
-the card ID entirely. A forged or stale message could therefore reach the
-provider archive service without proving that the session still belonged to
-the hydrated current workspace surface.
-
-The single-archive controller now requires `(projectId, providerId, sessionId)`.
-For the production v2 route it:
-
-1. resolves the opaque card ID to the current `WorkspaceAiSessionActionTarget`;
-2. verifies card identity, workspace/surface scope and navigation identities,
-   and provider/session membership before runtime refresh, focus, or confirmation;
-3. re-resolves the authorization after the initial runtime refresh;
-4. re-resolves it again after confirmation and forced runtime refresh;
-5. performs a final synchronous revalidation after runtime blocking, at the
-   literal last point before the provider archive call; and
-6. performs no member-`Project` lookup when the v2 card/session is unknown or
-   stale.
-
-Legacy single-archive authorization is available only through the explicit
-optional `getLegacyArchiveProject` dependency when no workspace resolver is
-configured. The production workspace controller does not configure that path.
-
-The Webview inline and context-menu routes now both carry `projectId`, and the
-dashboard forwards it without substitution.
-
-### TDD evidence
-
-The focused tests were changed first. The RED run exited `1` because the old
-two-argument controller interpreted the card ID as the provider and entered
-confirmation instead of blocking/focusing the active runtime:
-
-```text
-AssertionError: an active detached tmux runtime blocks archive before confirmation
-1 !== 0
-```
-
-GREEN coverage proves:
-
-- a valid v2 current-card single archive reaches the provider;
-- unknown session and unknown opaque card IDs perform no archive;
-- v2 single/batch actions perform zero legacy project reads;
-- a changed workspace scope during confirmation performs no archive;
-- a session disappearing from the hydrated surface during confirmation
-  performs no archive;
-- active, conflict, stopped, pre-confirm-refresh, and post-confirm-refresh
-  runtime focus/block semantics remain intact; and
-- context-menu archive preserves the owning card ID.
-
-### Verification
-
-Fresh follow-up verification passed main compile, UI Bridge compile, AI safety,
-Dashboard Webview, open-workspace safety, and the tmux suite. Source/generated
-Webview scripts remain byte-identical and `git diff --check` is clean.
-
-The first tmux invocation was run concurrently with the other suites and hit
-the suite's cross-host ordering race at `runTmuxStoreChecks` line 2591. An
-immediate standalone rerun exited `0` with `AI session tmux checks passed.` No
-tmux source or test was changed by this follow-up.
+- Confirmed the production factory constructs exactly one provider graph and
+  the Codex process remains lazy, so two viewer opens use at most one child.
+- Confirmed partial-construction cleanup tolerates nested and repeated
+  disposal without leaking or surfacing caught error text.
+- Confirmed Dashboard authority rejects wrong project/provider/session
+  identities and the Host rejects unfocused outline targets.
+- Confirmed sidebar hiding disposes only the card subscription; viewer
+  ownership remains independent until panel or extension disposal.
+- Confirmed source checks prohibit Codex JSONL fallback, provider-specific
+  routing branches, and private diagnostic fields.
+- Confirmed only the seven Task 10 implementation/test files and this report
+  are included.

@@ -10,6 +10,8 @@ DONE
   `c79db33123bb4f7624c90d68f30a93a223ef73e9 feat: expand focused Active Session cards`
 - Review-fix commit:
   `6486d602d4d91f833f3928dcb9f70a34fc472e1b fix: harden Active Session expansion recovery`
+- Test-stability commit:
+  `c55700c26f29d590eb1a2580bdcf7680e55d15bd test: wait for Active Session layout convergence`
 - Review: two independent read-only review rounds completed; no Critical or
   Important Task 8 issue remains.
 - No push was performed.
@@ -86,6 +88,22 @@ layout bug. Removing 17 of 18 markers without resizing the viewport left both
 `clientHeight` and `scrollHeight` at `432` instead of shrinking to `24`.
 That regression was also captured as RED before adding content mutation
 observation.
+
+A final review found the browser owner itself was flaky while production
+geometry converged correctly. Four consecutive runs of the unchanged focused
+file produced `PASS, PASS, FAIL, FAIL`; both failures read the prior constrained
+rail geometry immediately after returning to the 900 px viewport:
+
+```text
+actual:   clientHeight=108, scrollHeight=432
+expected: clientHeight=432, scrollHeight=432
+```
+
+The test now waits for the rail to reach nonzero natural height and for the
+panel to be fully inside the viewport before retaining the exact geometry
+assertions. The marker-shrink check likewise waits for exact `24/24` geometry
+instead of sleeping for 100 ms. This is test-only determinism work; production
+code and timing remain unchanged.
 
 ## Implementation
 
@@ -209,6 +227,8 @@ cmp src/webview/webviewProjectScripts.js media/webviewProjectScripts.js
 - Safety, architecture guards, and architecture baseline checks passed.
 - The complete browser suite reported `50/50`; the focused Task 8 file reported
   `5/5`.
+- The focused Task 8 browser file also passed 10 consecutive post-fix runs
+  (`10/10`) after the unchanged test reproduced the flake in two of four runs.
 - Behavior catalog and main-capability unit checks reported `40/40`.
 - Task-owned TypeScript lint reported no warnings.
 - Diff whitespace and generated JS parity checks passed.
@@ -243,10 +263,11 @@ Task 8 did not modify it.
 
 `npm run test:behavior-contracts` completes its catalog/capability unit tests
 but its final currency audit exits `1` because the branch already contains the
-unaudited Task 1–8 implementation lineage from `115a4f1` through the original
-Task 8 feature commit `c79db33`. This follow-up adds the two P0 automated
-behavior entries and owner/evidence paths; the branch-wide commit assignment
-belongs to the later capability-audit task rather than this scoped fix.
+unaudited Task 1–8 implementation lineage from `115a4f1` through the Task 8
+implementation and owner commits, including `6486d60` and `c55700c`. The
+follow-up adds the two P0 automated behavior entries and owner/evidence paths;
+the branch-wide commit assignment belongs to the later capability-audit task
+rather than this scoped fix.
 
 ## Concerns
 

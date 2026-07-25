@@ -482,6 +482,10 @@ test('WEBVIEW-MULTI-PROVIDER-SESSION-MENU-001 keeps the generated provider-menu 
     assert.match(projectSource, /selectedProviders: providers/);
     assert.match(projectSource, /pendingAiSessionProviderSelectionProjectId/);
     assert.match(projectSource, /pendingAiSessionProviderSelectionRequestId/);
+    assert.match(
+        fs.readFileSync(path.join(root, 'src', 'dashboard.ts'), 'utf8'),
+        /e\.selectedProviders,\s*e\.requestId,\s*e\.version/
+    );
     assert.doesNotMatch(projectSource, /type: 'select-ai-session-provider'/);
 });
 

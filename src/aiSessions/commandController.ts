@@ -226,17 +226,23 @@ export class AiSessionCommandController {
     }
 
     async selectProviders(
-        projectId: string,
+        projectId: unknown,
         providerIds: unknown,
-        requestId: unknown
+        requestId: unknown,
+        version: unknown
     ): Promise<void> {
-        if (!Array.isArray(providerIds) || providerIds.length === 0
+        if (typeof projectId !== 'string' || !projectId
             || !Number.isSafeInteger(requestId) || (requestId as number) < 1) {
+            return;
+        }
+        if (version !== 1 || !Array.isArray(providerIds) || providerIds.length === 0) {
+            await this.rejectProviderSelection(projectId, requestId as number);
             return;
         }
 
         const target = this.options.getWorkspaceTarget(projectId);
         if (!target) {
+            await this.rejectProviderSelection(projectId, requestId as number);
             return;
         }
         const normalized = normalizeAiSessionProviderSelection({
@@ -255,14 +261,7 @@ export class AiSessionCommandController {
             );
         } catch (error) {
             this.options.logError('Failed to update AI session provider selection.', error);
-            this.options.showErrorMessage('Could not update AI session providers. Try again.');
-            await this.options.postProviderSelectionResult({
-                type: 'ai-session-provider-selection-result',
-                version: 1,
-                requestId: requestId as number,
-                projectId,
-                success: false,
-            });
+            await this.rejectProviderSelection(projectId, requestId as number);
             return;
         }
         this.options.refresh();
@@ -272,6 +271,20 @@ export class AiSessionCommandController {
             requestId: requestId as number,
             projectId,
             success: true,
+        });
+    }
+
+    private async rejectProviderSelection(
+        projectId: string,
+        requestId: number
+    ): Promise<void> {
+        this.options.showErrorMessage('Could not update AI session providers. Try again.');
+        await this.options.postProviderSelectionResult({
+            type: 'ai-session-provider-selection-result',
+            version: 1,
+            requestId,
+            projectId,
+            success: false,
         });
     }
 

@@ -1259,7 +1259,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                 await aiSessionCommandController.selectProviders(
                     e.projectId as string,
                     e.selectedProviders,
-                    e.requestId
+                    e.requestId,
+                    e.version
                 );
             },
             'focus-ai-session-terminal': async e => {

@@ -148,9 +148,7 @@ test('SESSION-AI-SESSION-COMMAND-CONTROLLER-001 exposes validated command effect
         showInformationMessage: message => effects.push(['message', message]), refresh: () => effects.push(['refresh']),
     });
     await controller.toggleSessionsExpanded('project', true);
-    await controller.selectProviders('project', ['claude', 'codex', 'claude', 'unknown'], 7);
-    await controller.selectProviders('project', []);
-    await controller.selectProviders('missing', ['codex']);
+    await controller.selectProviders('project', ['claude', 'codex', 'claude', 'unknown'], 7, 1);
     await controller.renameSession('codex', 'session');
     await controller.copySessionId('session');
     assert.deepEqual(effects, [
@@ -210,8 +208,8 @@ test('SESSION-AI-SESSION-COMMAND-CONTROLLER-002 settles correlated persistence f
         refresh: () => effects.push(['refresh']),
     });
 
-    await controller.selectProviders('project', ['codex', 'claude'], 41);
-    await controller.selectProviders('project', ['codex', 'claude'], 42);
+    await controller.selectProviders('project', ['codex', 'claude'], 41, 1);
+    await controller.selectProviders('project', ['codex', 'claude'], 42, 1);
 
     assert.deepEqual(effects, [
         ['providers', 'scope:/work', {
@@ -238,6 +236,76 @@ test('SESSION-AI-SESSION-COMMAND-CONTROLLER-002 settles correlated persistence f
             requestId: 42,
             projectId: 'project',
             success: true,
+        }],
+    ]);
+});
+
+test('SESSION-AI-SESSION-COMMAND-CONTROLLER-003 rejects unsupported protocols and settles correlated invalid targets', async () => {
+    const effects = [];
+    const controller = new AiSessionCommandController({
+        getWorkspaceTarget: cardId => cardId === 'project' ? {
+            cardId: 'project',
+            workspace: { scopeIdentity: 'scope:/work' },
+            sessions: {
+                activeProvider: 'codex',
+                providers: [{ id: 'codex', label: 'Codex', count: 1 }],
+            },
+        } : null,
+        isProviderId: value => value === 'codex',
+        setExpanded: async () => undefined,
+        setProviderSelection: async () => effects.push(['providers']),
+        postProviderSelectionResult: async result => effects.push(['provider-result', result]),
+        showErrorMessage: message => effects.push(['error', message]),
+        logError: () => effects.push(['log-error']),
+        togglePin: () => true,
+        getAliases: () => ({}),
+        saveAliases: () => undefined,
+        getOriginalName: () => null,
+        getSessionKey: (provider, id) => `${provider}:${id}`,
+        showInputBox: async () => undefined,
+        writeClipboard: async () => undefined,
+        showInformationMessage: () => undefined,
+        refresh: () => effects.push(['refresh']),
+    });
+
+    await controller.selectProviders('missing', ['codex'], 51, 1);
+    await controller.selectProviders('project', [], 52, 1);
+    await controller.selectProviders('project', ['codex'], 53, 2);
+    await controller.selectProviders('project', ['codex'], 54, undefined);
+    await controller.selectProviders('project', ['codex'], 'malformed', 1);
+
+    assert.deepEqual(effects, [
+        ['error', 'Could not update AI session providers. Try again.'],
+        ['provider-result', {
+            type: 'ai-session-provider-selection-result',
+            version: 1,
+            requestId: 51,
+            projectId: 'missing',
+            success: false,
+        }],
+        ['error', 'Could not update AI session providers. Try again.'],
+        ['provider-result', {
+            type: 'ai-session-provider-selection-result',
+            version: 1,
+            requestId: 52,
+            projectId: 'project',
+            success: false,
+        }],
+        ['error', 'Could not update AI session providers. Try again.'],
+        ['provider-result', {
+            type: 'ai-session-provider-selection-result',
+            version: 1,
+            requestId: 53,
+            projectId: 'project',
+            success: false,
+        }],
+        ['error', 'Could not update AI session providers. Try again.'],
+        ['provider-result', {
+            type: 'ai-session-provider-selection-result',
+            version: 1,
+            requestId: 54,
+            projectId: 'project',
+            success: false,
         }],
     ]);
 });

@@ -2108,7 +2108,7 @@ async function runAiSessionCommandControllerChecks() {
     await controller.toggleSessionsExpanded('workspace-a', true);
     assert.deepStrictEqual(expanded, [['scope-a', true]]);
 
-    await controller.selectProviders('workspace-a', ['kimi', 'codex', 'kimi', 'unknown'], 1);
+    await controller.selectProviders('workspace-a', ['kimi', 'codex', 'kimi', 'unknown'], 1, 1);
     assert.deepStrictEqual(providerSelections, [['scope-a', {
         primaryProvider: 'codex',
         selectedProviders: ['codex', 'kimi'],
@@ -3570,7 +3570,7 @@ async function runWorkspaceCardActionControllerIntegrationChecks() {
         showWarningMessage: () => undefined, refresh: () => undefined,
     });
     await commandController.toggleSessionsExpanded(target.cardId, true);
-    await commandController.selectProviders(target.cardId, ['codex'], 1);
+    await commandController.selectProviders(target.cardId, ['codex'], 1, 1);
     assert.deepStrictEqual(expandedWrites, [[workspace.scopeIdentity, true]]);
     assert.deepStrictEqual(providerWrites, [[workspace.scopeIdentity, {
         primaryProvider: 'codex',

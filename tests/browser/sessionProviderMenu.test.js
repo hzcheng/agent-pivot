@@ -320,7 +320,7 @@ test('AI-SESSION-PROVIDER-MENU-010 unlocks success only after a matching authori
         version: 1,
         requestId: 1,
         projectId: 'project-b',
-        success: true,
+        success: false,
     } })));
     await postAiSessionsUpdate(page, ['kimi', 'claude'], 1);
     assert.equal(await trigger.isDisabled(), true);
@@ -345,7 +345,7 @@ test('AI-SESSION-PROVIDER-MENU-010 unlocks success only after a matching authori
     );
 });
 
-test('AI-SESSION-PROVIDER-MENU-011 correlated failure unlocks unchanged state and permits retry', async t => {
+test('AI-SESSION-PROVIDER-MENU-011 correlated stale-target failure unlocks unchanged state and permits retry', async t => {
     const page = await openMenuPage(t);
     const project = page.locator('.project[data-id="project-a"]');
     const trigger = project.locator('[data-ai-provider-menu-trigger]');

@@ -36,6 +36,8 @@ function createFixture({ terminal = createTerminal(), snapshot = createSnapshot(
     const quickPickCalls = [];
     const warnings = [];
     const information = [];
+    const availabilityChecks = [];
+    const availableTerminals = new Set(terminal ? [terminal] : []);
     let snapshotReads = 0;
     let opened = 0;
     const fixture = {
@@ -43,6 +45,8 @@ function createFixture({ terminal = createTerminal(), snapshot = createSnapshot(
         quickPickCalls,
         warnings,
         information,
+        availabilityChecks,
+        availableTerminals,
         get snapshotReads() { return snapshotReads; },
         get opened() { return opened; },
         onQuickPick: () => undefined,
@@ -56,6 +60,10 @@ function createFixture({ terminal = createTerminal(), snapshot = createSnapshot(
             },
         },
         getActiveTerminal: () => fixture.activeTerminal,
+        isTerminalAvailable: candidate => {
+            availabilityChecks.push(candidate);
+            return availableTerminals.has(candidate);
+        },
         showQuickPick: async (items, options) => {
             quickPickCalls.push({ items, options });
             return fixture.onQuickPick(items, options);
@@ -200,6 +208,27 @@ test('SESSION-AI-PROMPT-TERMINAL-INSERTION-001 warns once when the captured term
     assert.deepEqual(replacement.sent, []);
 });
 
+test('SESSION-AI-PROMPT-TERMINAL-INSERTION-001 warns without sending when the captured terminal closes while the picker is open', async () => {
+    const original = createTerminal();
+    const replacement = createTerminal();
+    const fixture = createFixture({ terminal: original });
+    fixture.onQuickPick = items => {
+        fixture.availableTerminals.delete(original);
+        fixture.availableTerminals.add(replacement);
+        fixture.activeTerminal = replacement;
+        return items[0];
+    };
+
+    await fixture.controller.insertPromptToActiveTerminal();
+
+    assert.deepEqual(fixture.availabilityChecks, [original]);
+    assert.deepEqual(fixture.warnings, ['The selected terminal is no longer available.']);
+    assert.deepEqual(original.sent, []);
+    assert.equal(original.shown, 0);
+    assert.deepEqual(replacement.sent, []);
+    assert.equal(replacement.shown, 0);
+});
+
 test('SESSION-AI-PROMPT-TERMINAL-INSERTION-001 preserves multiline text and never changes the service', async () => {
     const snapshot = createSnapshot({
         selectedPromptId: 'multiline',
@@ -217,6 +246,7 @@ test('SESSION-AI-PROMPT-TERMINAL-INSERTION-001 preserves multiline text and neve
             selectDefault: () => { mutations += 1; },
         },
         getActiveTerminal: () => terminal,
+        isTerminalAvailable: candidate => candidate === terminal,
         showQuickPick: async () => assert.fail('default should not open picker'),
         showWarningMessage: message => assert.fail(`unexpected warning: ${message}`),
         showInformationMessage: async () => assert.fail('unexpected information message'),

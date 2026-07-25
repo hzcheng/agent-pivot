@@ -19,6 +19,7 @@ export interface PromptQuickPickItem {
 export interface PromptTerminalCommandControllerOptions {
     service: Pick<PromptService, 'getSnapshot'>;
     getActiveTerminal: () => PromptTerminalLike | null | undefined;
+    isTerminalAvailable: (terminal: PromptTerminalLike) => boolean;
     showQuickPick: (
         items: readonly PromptQuickPickItem[],
         options: { placeHolder: string; matchOnDescription: boolean },
@@ -84,6 +85,11 @@ export class PromptTerminalCommandController {
         }
 
         if (!prompt) {
+            return;
+        }
+
+        if (!this.options.isTerminalAvailable(terminal)) {
+            this.options.showWarningMessage('The selected terminal is no longer available.');
             return;
         }
 

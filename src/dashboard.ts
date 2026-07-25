@@ -1752,6 +1752,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const promptTerminalCommandController = new PromptTerminalCommandController({
         service: promptService,
         getActiveTerminal: () => vscode.window.activeTerminal,
+        isTerminalAvailable: terminal =>
+            vscode.window.terminals.indexOf(terminal as vscode.Terminal) >= 0,
         showQuickPick: async (items, options) => vscode.window.showQuickPick<{
             label: string;
             description: string;

@@ -1,5 +1,7 @@
 'use strict';
 
+import { CONVERSATION_LIMITS } from './types';
+
 type Segmenter = { segment(value: string): Iterable<{ segment: string }> };
 
 function graphemes(value: string): string[] {
@@ -40,7 +42,13 @@ export function normalizeVisibleText(value: string): string {
 }
 
 export function buildUserPreview(value: string): string {
-    return truncateGraphemes(normalizeVisibleText(value), 160);
+    const normalized = normalizeVisibleText(value);
+    return countGraphemes(normalized) <= CONVERSATION_LIMITS.previewGraphemes
+        ? normalized
+        : truncateGraphemes(
+            normalized,
+            CONVERSATION_LIMITS.previewGraphemes - 1
+        );
 }
 
 export function attachmentLabel(count: number): string {

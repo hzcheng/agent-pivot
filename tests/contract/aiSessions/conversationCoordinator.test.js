@@ -1,13 +1,25 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 const test = require('node:test');
+const {
+    ClaudeConversationAdapter,
+} = require('../../../out/aiSessions/conversation/claudeAdapter');
+const {
+    CodexConversationAdapter,
+} = require('../../../out/aiSessions/conversation/codexAdapter');
 const { ConversationCoordinator } = require(
     '../../../out/aiSessions/conversation/coordinator'
 );
 const {
     ConversationHostController,
 } = require('../../../out/aiSessions/conversation/conversationHostController');
+const {
+    KimiConversationAdapter,
+} = require('../../../out/aiSessions/conversation/kimiAdapter');
 
 function deferred() {
     let resolve;
@@ -843,6 +855,116 @@ test('SESSION-CONVERSATION-COORDINATOR-001 a superseded late outline cannot inva
         expectedRevision: publishedRevision,
     });
     assert.equal(page.sourceRevision, publishedRevision);
+});
+
+test('SESSION-CONVERSATION-COORDINATOR-001 accepts bounded long-prompt previews from every production adapter', async t => {
+    const providerRoot = await fs.promises.mkdtemp(
+        path.join(os.tmpdir(), 'steward-coordinator-preview-')
+    );
+    t.after(() => fs.promises.rm(providerRoot, {
+        recursive: true,
+        force: true,
+    }));
+    const prompt = '🙂'.repeat(161);
+    const expectedPreview = `${'🙂'.repeat(159)}…`;
+    const kimiSourcePath = path.join(providerRoot, 'kimi.jsonl');
+    const claudeSourcePath = path.join(providerRoot, 'claude.jsonl');
+    await fs.promises.writeFile(kimiSourcePath, [
+        JSON.stringify({
+            type: 'TurnBegin',
+            timestamp: 1,
+            payload: { user_input: prompt },
+        }),
+        JSON.stringify({ type: 'TurnEnd', payload: {} }),
+        '',
+    ].join('\n'));
+    await fs.promises.writeFile(claudeSourcePath, [
+        JSON.stringify({
+            type: 'user',
+            uuid: 'claude-long-user',
+            message: {
+                role: 'user',
+                content: [{ type: 'text', text: prompt }],
+            },
+        }),
+        '',
+    ].join('\n'));
+    const noWatch = () => ({ dispose() {} });
+    const immediateTimer = callback => {
+        callback();
+        return 1;
+    };
+    const coordinator = new ConversationCoordinator({
+        adapters: {
+            codex: new CodexConversationAdapter({
+                client: {
+                    async request(_method, params) {
+                        return {
+                            thread: {
+                                id: params.threadId,
+                                turns: [{
+                                    id: 'codex-long-turn',
+                                    status: 'completed',
+                                    items: [{
+                                        id: 'codex-long-user',
+                                        type: 'userMessage',
+                                        content: [{
+                                            type: 'text',
+                                            text: prompt,
+                                        }],
+                                    }],
+                                }],
+                            },
+                        };
+                    },
+                    dispose() {},
+                },
+                watchSessionChanges: noWatch,
+                setTimeout: immediateTimer,
+                clearTimeout() {},
+            }),
+            kimi: new KimiConversationAdapter({
+                resolveSource: () => ({
+                    providerHome: providerRoot,
+                    sourcePath: kimiSourcePath,
+                }),
+                watchSessionChanges: noWatch,
+                now: Date.now,
+                setTimeout: immediateTimer,
+                clearTimeout() {},
+            }),
+            claude: new ClaudeConversationAdapter({
+                resolveSource: () => ({
+                    providerHome: providerRoot,
+                    sourcePath: claudeSourcePath,
+                }),
+                watchSessionChanges: noWatch,
+                now: Date.now,
+                setTimeout: immediateTimer,
+                clearTimeout() {},
+            }),
+        },
+    });
+    t.after(() => coordinator.dispose());
+
+    const results = await Promise.all([
+        ['codex', 'codex-long-session'],
+        ['kimi', 'kimi-long-session'],
+        ['claude', 'claude-long-session'],
+    ].map(async ([provider, sessionId]) => {
+        try {
+            const outline = await coordinator.readOutline(provider, sessionId);
+            return [provider, outline.interactions[0].userPreview];
+        } catch (error) {
+            return [provider, error.code];
+        }
+    }));
+
+    assert.deepEqual(results, [
+        ['codex', expectedPreview],
+        ['kimi', expectedPreview],
+        ['claude', expectedPreview],
+    ]);
 });
 
 test('SESSION-CONVERSATION-COORDINATOR-001 invalidation during initial publication triggers a second revision read', async t => {

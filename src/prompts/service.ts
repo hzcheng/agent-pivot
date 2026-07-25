@@ -32,6 +32,11 @@ export class PromptMutationError extends Error {
 
 type PromptMutation = (data: PromptDataV1) => PromptDataV1;
 
+interface PendingLocalWriteEcho {
+    id: number;
+    fingerprint: string;
+}
+
 const EMPTY_PROMPT_DATA: PromptDataV1 = {
     version: 1,
     revision: 0,
@@ -200,7 +205,8 @@ export function normalizePromptSetting(value: unknown): PromptReadResult {
 
 export class PromptService {
     private mutationQueue: Promise<void> = Promise.resolve();
-    private pendingLocalWriteEchoes: string[] = [];
+    private pendingLocalWriteEchoes: PendingLocalWriteEcho[] = [];
+    private nextLocalWriteEchoId = 0;
 
     constructor(private readonly options: PromptServiceOptions) {}
 
@@ -311,7 +317,10 @@ export class PromptService {
                 this.pendingLocalWriteEchoes = [];
                 return false;
             }
-            const echoIndex = this.pendingLocalWriteEchoes.indexOf(fingerprint(current.snapshot));
+            const currentFingerprint = fingerprint(current.snapshot);
+            const echoIndex = this.pendingLocalWriteEchoes.findIndex(
+                echo => echo.fingerprint === currentFingerprint
+            );
             if (echoIndex < 0) {
                 this.pendingLocalWriteEchoes = [];
                 return false;
@@ -347,15 +356,21 @@ export class PromptService {
             }
 
             const nextData = mutation(current.snapshot);
+            const echo: PendingLocalWriteEcho = {
+                id: ++this.nextLocalWriteEchoId,
+                fingerprint: fingerprint(nextData),
+            };
+            this.pendingLocalWriteEchoes.push(echo);
             try {
                 await this.options.writeGlobalSetting(nextData);
             } catch (_error) {
+                this.pendingLocalWriteEchoes = this.pendingLocalWriteEchoes
+                    .filter(candidate => candidate.id !== echo.id);
                 this.getSnapshot();
                 this.logDiagnostic({ category: 'prompt-write-failed', revision: current.snapshot.revision });
                 throw new PromptMutationError('storage', 'Could not save the Prompt library.');
             }
 
-            this.pendingLocalWriteEchoes.push(fingerprint(nextData));
             this.logDiagnostic({ category: `prompt-${operation}`, revision: nextData.revision });
             return cloneAndFreezeSnapshot(nextData);
         });

@@ -250,6 +250,26 @@ test('PERSIST-AI-PROMPT-STORE-001 serializes local mutations and re-reads before
     });
 });
 
+test('PERSIST-AI-PROMPT-STORE-001 stages a local echo before the awaited Settings writer settles', async () => {
+    let stored;
+    let service;
+    let consumedDuringWrite;
+    service = new PromptService({
+        readSetting: () => stored,
+        writeGlobalSetting: async data => {
+            stored = structuredClone(data);
+            consumedDuringWrite = service.consumeCurrentSettingsDataLocalWriteEcho();
+        },
+        createId: () => 'prompt-a',
+        logDiagnostic: () => undefined,
+    });
+
+    await service.createPrompt(0, { name: 'Private', text: 'body' });
+
+    assert.equal(consumedDuringWrite, true);
+    assert.equal(service.consumeCurrentSettingsDataLocalWriteEcho(), false);
+});
+
 test('PERSIST-AI-PROMPT-STORE-001 wraps failed writes, refreshes afterwards, and consumes only successful local echoes', async () => {
     const failed = createFixture(undefined, { writeError: new Error('setting unavailable') });
     await assert.rejects(

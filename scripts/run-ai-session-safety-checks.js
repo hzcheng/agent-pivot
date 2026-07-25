@@ -3328,6 +3328,7 @@ async function runSidebarStewardViewProviderOrderingChecks() {
             onDidReceiveMessage: listener => { messageListeners.push(listener); return { dispose() {} }; },
         },
         onDidChangeVisibility: listener => { visibilityListeners.push(listener); return { dispose() {} }; },
+        onDidDispose: () => ({ dispose() {} }),
     };
     const provider = new SidebarStewardViewProvider({
         getWebviewOptions: () => ({}),
@@ -3362,6 +3363,7 @@ async function runSidebarStewardViewProviderOrderingChecks() {
             onDidReceiveMessage: listener => { messageListeners.push(listener); return { dispose() {} }; },
         },
         onDidChangeVisibility: () => ({ dispose() {} }),
+        onDidDispose: () => ({ dispose() {} }),
     };
     const failedProvider = new SidebarStewardViewProvider({
         getWebviewOptions: () => ({}),
@@ -3390,6 +3392,7 @@ async function runSidebarStewardViewProviderOrderingChecks() {
             onDidReceiveMessage: listener => { messageListeners.push(listener); return { dispose() {} }; },
         },
         onDidChangeVisibility: () => ({ dispose() {} }),
+        onDidDispose: () => ({ dispose() {} }),
     };
     const secretProvider = new SidebarStewardViewProvider({
         getWebviewOptions: () => ({}), renderContent: () => '<main>stale</main>',
@@ -7115,6 +7118,174 @@ function runAiSessionIncrementalRefreshSourceChecks() {
     assert.ok(readCoordinatorSource.includes('scanBudget: normalizedOptions.maxFiles || null'));
 }
 
+function runConversationProductionSafetyChecks() {
+    const root = path.join(__dirname, '..');
+    const composition = fs.readFileSync(path.join(
+        root,
+        'src',
+        'aiSessions',
+        'conversation',
+        'composition.ts'
+    ), 'utf8');
+    const dashboard = fs.readFileSync(
+        path.join(root, 'src', 'dashboard.ts'),
+        'utf8'
+    );
+    const codexAdapter = fs.readFileSync(path.join(
+        root,
+        'src',
+        'aiSessions',
+        'conversation',
+        'codexAdapter.ts'
+    ), 'utf8');
+    const codexClient = fs.readFileSync(path.join(
+        root,
+        'src',
+        'aiSessions',
+        'conversation',
+        'codexAppServerClient.ts'
+    ), 'utf8');
+    const conversationTypes = fs.readFileSync(path.join(
+        root,
+        'src',
+        'aiSessions',
+        'conversation',
+        'types.ts'
+    ), 'utf8');
+
+    for (const constructorName of [
+        'CodexConversationAdapter',
+        'KimiConversationAdapter',
+        'ClaudeConversationAdapter',
+        'ConversationCoordinator',
+        'ConversationViewer',
+        'ConversationHostController',
+    ]) {
+        assert.ok(
+            composition.includes(constructorName),
+            `production composition must construct ${constructorName}`
+        );
+    }
+    assert.ok(composition.includes('new CodexAppServerClient'));
+    assert.ok(composition.includes('readOutline: coordinator.readOutline.bind(coordinator)'));
+    assert.ok(composition.includes('readPage: coordinator.readPage.bind(coordinator)'));
+    assert.ok(composition.includes('watch: coordinator.watch.bind(coordinator)'));
+    assert.ok(codexClient.includes("['app-server', '--listen', 'stdio://']"));
+    assert.ok(codexClient.includes("stdio: ['pipe', 'pipe', 'pipe']"));
+    assert.strictEqual(
+        /jsonlReader|resolveConversationSource|readConversationJsonl|readFile/.test(
+            codexAdapter
+        ),
+        false,
+        'Codex content must remain app-server-only with no transcript fallback'
+    );
+    assert.strictEqual(
+        /\.jsonl|jsonlReader|readConversationJsonl/.test(composition),
+        false,
+        'production composition must not add a Codex JSONL fallback'
+    );
+
+    for (const messageType of [
+        'request-ai-session-conversation-outline',
+        'open-ai-session-conversation',
+        'cancel-ai-session-conversation',
+    ]) {
+        assert.ok(
+            dashboard.includes(`'${messageType}':`),
+            `Dashboard must register exact ordinary handler ${messageType}`
+        );
+    }
+    assert.strictEqual(
+        /(?:request|open|cancel)-(?:codex|kimi|claude)-session-conversation/.test(
+            dashboard
+        ),
+        false,
+        'production routing must not branch by conversation provider'
+    );
+    assert.ok(dashboard.includes('conversationCapability.controller.reconcile()'));
+    assert.ok(dashboard.includes(
+        'conversationCapability.controller.setVisible(visible)'
+    ));
+    assert.ok(dashboard.includes('onDisposed: () =>'));
+
+    assert.ok(conversationTypes.includes('count?: number;'));
+    assert.ok(conversationTypes.includes('durationMs?: number;'));
+    assert.strictEqual(
+        /caught|\\.message|String\\(_?error\\)/.test(composition),
+        false,
+        'composition diagnostics must never include caught exception text'
+    );
+
+    const secret = [
+        '/home/private/transcript.jsonl',
+        'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        'private prompt',
+        'private response',
+    ].join(' ');
+    const diagnostics = [];
+    const service = {
+        getSessions: () => ({
+            available: true,
+            sessions: [],
+            scannedFiles: 0,
+            parsedFiles: 0,
+        }),
+        getLifecycleSignals: () => ({}),
+        watchSessionChanges: () => ({ dispose() {} }),
+        archiveSession: () => false,
+        invalidateCache() {},
+        resolveConversationSource: () => null,
+    };
+    const previousLoad = Module._load;
+    let createConversationCapability;
+    try {
+        Module._load = function (request, parent, isMain) {
+            if (request === 'vscode') {
+                return {
+                    ViewColumn: { Beside: 2 },
+                    Uri: {
+                        file: createTestFileUri,
+                        parse: createTestUri,
+                    },
+                };
+            }
+            return previousLoad.call(this, request, parent, isMain);
+        };
+        createConversationCapability = require(
+            '../out/aiSessions/conversation/composition'
+        ).createConversationCapability;
+    } finally {
+        Module._load = previousLoad;
+    }
+    const capability = createConversationCapability({
+        services: { codex: service, kimi: service, claude: service },
+        resolveTarget: () => null,
+        publish: async () => true,
+        createPanel: () => {
+            throw new Error('must not create a panel');
+        },
+        openExternal: async () => true,
+        spawnCodex: () => {
+            throw new Error('must not spawn Codex');
+        },
+        now: () => 1,
+        setTimer: () => 1,
+        clearTimer: () => undefined,
+        onDiagnostic: event => diagnostics.push(event),
+    }, {
+        createCoordinator: () => {
+            throw new Error(secret);
+        },
+    });
+    assert.strictEqual(capability.availability, 'unavailable');
+    assert.deepStrictEqual(diagnostics, [{
+        event: 'conversation-read',
+        category: 'unavailable',
+    }]);
+    assert.strictEqual(JSON.stringify(diagnostics).includes(secret), false);
+    capability.dispose();
+}
+
 function runAiSessionReadCoordinatorChecks() {
     const calls = [];
     const diagnostics = [];
@@ -9648,6 +9819,7 @@ async function main() {
     runFavoriteDndChecks();
     runBatchAiSessionWebviewChecks();
     runAiSessionIncrementalRefreshSourceChecks();
+    runConversationProductionSafetyChecks();
     runAiSessionReadCoordinatorChecks();
     runAiSessionDashboardControllerChecks();
     runAiSessionDashboardWatcherCoalescingChecks();

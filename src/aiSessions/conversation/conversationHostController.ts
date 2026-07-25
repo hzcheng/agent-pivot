@@ -67,9 +67,9 @@ export interface ConversationAuthoritativeTarget {
     projectId?: string;
     provider: AiSessionProviderId;
     sessionId?: string;
+    name?: string;
     focused: boolean;
     executionState?: string;
-    [key: string]: unknown;
 }
 
 export interface ConversationHostControllerOptions {

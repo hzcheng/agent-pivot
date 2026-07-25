@@ -10,6 +10,7 @@ export interface SidebarStewardViewProviderOptions {
     renderError: (error: unknown) => string;
     onMessage: (message: unknown) => Promise<void>;
     onVisibleChanged: (visible: boolean) => void | Thenable<void> | Promise<void>;
+    onDisposed: () => void | Thenable<void> | Promise<void>;
     logError: (message: string, error: unknown) => void;
 }
 
@@ -39,6 +40,24 @@ export class SidebarStewardViewProvider implements vscode.WebviewViewProvider {
         webviewView.onDidChangeVisibility(async () => {
             await this.prepareVisibility(webviewView);
         });
+        let disposed = false;
+        if (typeof webviewView.onDidDispose === 'function') {
+            webviewView.onDidDispose(async () => {
+                if (disposed || this._view !== webviewView) {
+                    return;
+                }
+                disposed = true;
+                this._view = undefined;
+                try {
+                    await this.options.onDisposed();
+                } catch (_error) {
+                    this.options.logError(
+                        'Failed to dispose Project Steward view.',
+                        sanitizedViewFailure()
+                    );
+                }
+            });
+        }
         await this.prepareVisibility(webviewView);
     }
 

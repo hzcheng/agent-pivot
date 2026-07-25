@@ -463,6 +463,23 @@ test('ACTIVE-SESSION-CONVERSATION-LAYOUT-001 measures one row delta synchronousl
     assert.equal(await list.evaluate(node => getComputedStyle(node).overflowY), 'auto');
 
     await page.setViewportSize({ width: 360, height: 900 });
+    await page.waitForFunction(() => {
+        const expandedRow = document.querySelector(
+            '.active-ai-session-row[data-conversation-expanded]'
+        );
+        const panelNode = expandedRow?.querySelector(
+            '[data-ai-session-conversation-panel]'
+        );
+        const railNode = expandedRow?.querySelector(
+            '[data-ai-session-conversation-rail]'
+        );
+        if (!panelNode || !railNode) return false;
+        const panelRect = panelNode.getBoundingClientRect();
+        return railNode.clientHeight > 0
+            && railNode.clientHeight === railNode.scrollHeight
+            && panelRect.top >= 0
+            && panelRect.bottom <= window.innerHeight;
+    });
     assert.equal(await isFullyInsideViewport(page, conversationPanel), true);
     assert.deepEqual(await conversationRail.evaluate(node => ({
         clientHeight: node.clientHeight,
@@ -477,7 +494,15 @@ test('ACTIVE-SESSION-CONVERSATION-LAYOUT-001 measures one row delta synchronousl
             '[data-ai-session-conversation-marker]'
         )).slice(1).forEach(marker => marker.remove());
     });
-    await page.waitForTimeout(100);
+    await page.waitForFunction(() => {
+        const railNode = document.querySelector(
+            '.active-ai-session-row[data-conversation-expanded] '
+            + '[data-ai-session-conversation-rail]'
+        );
+        return railNode
+            && railNode.clientHeight === 24
+            && railNode.scrollHeight === 24;
+    });
     assert.deepEqual(await conversationRail.evaluate(node => ({
         clientHeight: node.clientHeight,
         scrollHeight: node.scrollHeight,

@@ -1039,6 +1039,92 @@ test('WEBVIEW-AI-DASHBOARD-001 installs one revision-matched Prompt surface befo
     assert.equal(harness.runNextTimer(), false);
 });
 
+test('WEBVIEW-AI-DASHBOARD-001 queues only the newest Prompt refresh until lazy AI mount succeeds', () => {
+    const harness = createDashboardHarness({ initialTab: 'ai' });
+    const request = harness.messages[0];
+    const refreshAt = authoritySequence => ({
+        type: 'prompt-panel-updated',
+        version: 1,
+        authoritySequence,
+        target: 'global-prompt-library',
+        snapshot: makePromptSnapshot(authoritySequence),
+        html: `<div data-prompt-surface data-prompt-revision="${authoritySequence}"></div>`,
+    });
+    const refresh2 = refreshAt(2);
+    const refresh3 = refreshAt(3);
+
+    harness.windowListeners.message({
+        data: { ...refreshAt(99), target: 'another-library' },
+    });
+    harness.windowListeners.message({ data: refresh2 });
+    harness.windowListeners.message({ data: refresh3 });
+    harness.windowListeners.message({ data: refresh2 });
+    assert.deepEqual(
+        harness.promptRefreshes,
+        [],
+        'Prompt refreshes must wait until the Prompt controller has a mounted root'
+    );
+
+    assert.equal(harness.controller.applyAiPanelMessage({
+        type: 'ai-panel-content',
+        version: 1,
+        authoritySequence: 1,
+        requestId: request.requestId,
+        target: 'global-prompt-library',
+        snapshot: makePromptSnapshot(),
+        html: makeAiPanelHtml(0),
+    }), true);
+    assert.equal(harness.controller.getAiState(), 'mounted');
+    assert.equal(harness.promptMounts.length, 1);
+    assert.equal(harness.promptMounts[0].message.authoritySequence, 1);
+    assert.deepEqual(toPlain(harness.promptRefreshes), [refresh3]);
+});
+
+test('WEBVIEW-AI-DASHBOARD-001 retains a queued Prompt refresh across a failed mount retry', () => {
+    const harness = createDashboardHarness({ initialTab: 'ai' });
+    const firstRequest = harness.messages[0];
+    const promptController = harness.context.window.__projectStewardPrompts;
+    const refresh = {
+        type: 'prompt-panel-updated',
+        version: 1,
+        authoritySequence: 3,
+        target: 'global-prompt-library',
+        snapshot: makePromptSnapshot(3),
+        html: '<div data-prompt-surface data-prompt-revision="3"></div>',
+    };
+    harness.windowListeners.message({ data: refresh });
+    harness.context.window.__projectStewardPrompts = {
+        mount() {
+            return false;
+        },
+    };
+
+    assert.equal(harness.controller.applyAiPanelMessage({
+        type: 'ai-panel-content',
+        version: 1,
+        authoritySequence: 1,
+        requestId: firstRequest.requestId,
+        target: 'global-prompt-library',
+        snapshot: makePromptSnapshot(),
+        html: makeAiPanelHtml(0),
+    }), false);
+    assert.deepEqual(harness.promptRefreshes, []);
+
+    harness.controller.activateTab('ai');
+    const retryRequest = harness.messages[1];
+    harness.context.window.__projectStewardPrompts = promptController;
+    assert.equal(harness.controller.applyAiPanelMessage({
+        type: 'ai-panel-content',
+        version: 1,
+        authoritySequence: 2,
+        requestId: retryRequest.requestId,
+        target: 'global-prompt-library',
+        snapshot: makePromptSnapshot(),
+        html: makeAiPanelHtml(0),
+    }), true);
+    assert.deepEqual(toPlain(harness.promptRefreshes), [refresh]);
+});
+
 test('WEBVIEW-AI-DASHBOARD-001 receives select-dashboard-tab and delegates external Prompt refreshes while preserving the search catalog', () => {
     const harness = createDashboardHarness();
     harness.controller.replaceSearchCatalog(makeCatalog('prompt-refresh'));

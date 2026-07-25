@@ -345,6 +345,7 @@ function initDashboard(options) {
     var aiRequestSequence = 0;
     var issuedAiRequestIds = new Set();
     var pendingAiSubtab = null;
+    var pendingPromptRefresh = null;
     var pendingTodoSearchTarget = null;
     var pendingScrollRestoreTab = null;
     var panelRequestTimeoutMs = Number(options.panelRequestTimeoutMs) > 0
@@ -1072,6 +1073,7 @@ function initDashboard(options) {
         }
         aiRequestAttempts = 0;
         aiState = 'mounted';
+        drainPendingPromptRefresh();
         applyPendingAiSubtab();
         if (pendingScrollRestoreTab === 'ai') {
             pendingScrollRestoreTab = null;
@@ -1099,12 +1101,28 @@ function initDashboard(options) {
     }
 
     function applyPromptPanelUpdatedMessage(message) {
-        if (!validatePromptPanelUpdatedMessage(message)
-            || !window.__projectStewardPrompts
+        if (!validatePromptPanelUpdatedMessage(message)) {
+            return false;
+        }
+        if (aiState !== 'mounted') {
+            if (pendingPromptRefresh
+                && message.authoritySequence <= pendingPromptRefresh.authoritySequence) {
+                return false;
+            }
+            pendingPromptRefresh = message;
+            return true;
+        }
+        if (!window.__projectStewardPrompts
             || typeof window.__projectStewardPrompts.applyRefresh !== 'function') {
             return false;
         }
         return window.__projectStewardPrompts.applyRefresh(message) === true;
+    }
+
+    function drainPendingPromptRefresh() {
+        var refresh = pendingPromptRefresh;
+        pendingPromptRefresh = null;
+        return refresh ? applyPromptPanelUpdatedMessage(refresh) : false;
     }
 
     tabButtons.forEach(button => {

@@ -151,6 +151,7 @@ function validateSharinganAnimations(source) {
         ]);
     assertDeclarations(findSharinganSharedRule(source, ':hover .project-kind-icon', 'background: transparent'),
         'SHARINGAN-RUNNING-ANIMATION-001', [
+            'color: var(--steward-foreground)',
             'background: transparent',
             'border-color: transparent',
         ]);

@@ -2596,6 +2596,7 @@ body.steward-sidebar {
         }
 
         &[data-session-fx^="sharingan-"]:hover .project-kind-icon {
+            color: var(--steward-foreground);
             background: transparent;
             border-color: transparent;
         }

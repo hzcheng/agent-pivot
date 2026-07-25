@@ -262,3 +262,4 @@ npm run install-local
 - Project Steward started as a fork of [Kruemelkatze/vscode-dashboard](https://github.com/Kruemelkatze/vscode-dashboard).
 - Icons are based on [Font Awesome](http://fontawesome.io) assets and the original project icon set.
 - Color names are generated using the [Name that Color](http://chir.ag/projects/name-that-color/#6195ED) library.
+- Mangekyō Sharingan running-animation assets are attributed in [Third-Party Notices](THIRD_PARTY_NOTICES.md).

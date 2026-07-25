@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+	xmlns:dc="http://purl.org/dc/elements/1.1/"
+	xmlns:cc="http://creativecommons.org/ns#"
+	xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+	xmlns:svg="http://www.w3.org/2000/svg"
+	xmlns="http://www.w3.org/2000/svg"
+	xmlns:xlink="http://www.w3.org/1999/xlink"
+	id="sharingan"
+	width="300"
+	height="300">
+	<defs
+		id="defs">
+		<radialGradient
+			id="gr">
+			<stop
+				offset="0"
+				style="stop-color:#660000; stop-opacity: 1;"
+				id="st1" />
+			<stop
+				style="stop-color:#c30000; stop-opacity: 1;"
+				offset="0.5"
+				id="st2"/>
+			<stop
+				style="stop-color:#a00000; stop-opacity: 1;"
+				offset="1"
+				id="st3"/>
+		</radialGradient>
+	</defs>
+	<circle
+		style="fill: url(#gr); stroke:#000; stroke-width:10;"
+		cx="150"
+		cy="150"
+		r="145"
+		id="iris" />
+	<g
+		id="tomoe 1">
+		<path
+			style="fill:none; stroke:#000; stroke-width: 5;"
+			d="M200,150 C 200,215 170,275 150,295 C 130,275 100,215 100,150 C 100,85 130,25 150,5 C 170,25 200,85 200,150 z"
+			id="tomoe 1a" />
+		<path
+			style="fill:#000;"
+			d="M 275,77.5 C 260,40 200,0 150,5 C 170,30 183.4,55.1 190,80 C 215,75 244.2,71.7 275,77.5 z"
+			id="tomoe 1b" />
+		<use
+			xlink:href="#tomoe 1b"
+			transform="rotate(180 150 150)"
+			id="tomoe 1c" />
+	</g>
+	<use
+		xlink:href="#tomoe 1"
+		transform="rotate(120 150 150)"
+		id="tomoe 2" />
+	<use
+		xlink:href="#tomoe 1"
+		transform="rotate(-120 150 150)"
+		id="tomoe 3" />
+	<circle
+		style="fill:#000;"
+		cx="150"
+		cy="150"
+		r="20"
+		id="center"/>
+</svg>

@@ -13,6 +13,15 @@ const { createDashboardMessageRouter } = require(
 const {
     ConversationCoordinator,
 } = require('../../../out/aiSessions/conversation/coordinator');
+const {
+    withConversationDisplayMetadata,
+} = require('../../../out/aiSessions/conversation/conversationHostController');
+const ClaudeSessionService = require(
+    '../../../out/services/claudeSessionService'
+).default;
+
+const executedCommands = [];
+let focusCommandFailure = null;
 
 function fakeUri(value) {
     return {
@@ -29,6 +38,14 @@ function loadConversationComposition() {
         Uri: {
             file: value => fakeUri(`file://${value}`),
             parse: value => fakeUri(value),
+        },
+        commands: {
+            async executeCommand(command) {
+                executedCommands.push(command);
+                if (focusCommandFailure) {
+                    throw focusCommandFailure;
+                }
+            },
         },
     };
     const previousLoad = Module._load;
@@ -101,6 +118,7 @@ function fakePanel() {
     const panel = {
         title: '',
         visible: true,
+        postedMessages: [],
         webview: {
             html: '',
             cspSource: 'fixture-csp',
@@ -108,7 +126,10 @@ function fakePanel() {
                 messageListeners.add(listener);
                 return { dispose: () => messageListeners.delete(listener) };
             },
-            postMessage: async () => true,
+            postMessage: async message => {
+                panel.postedMessages.push(message);
+                return true;
+            },
             asWebviewUri: uri => fakeUri(
                 uri.toString().replace('file://', 'webview://fixture/')
             ),
@@ -200,6 +221,7 @@ function createFakeAdapter(provider, options, events) {
     let codexConnected = false;
     return {
         async readOutline(sessionId) {
+            events.push(`read-outline:${provider}`);
             if (provider === 'codex' && !codexConnected) {
                 codexConnected = true;
                 await options.client.request('thread/read', {
@@ -210,6 +232,7 @@ function createFakeAdapter(provider, options, events) {
             return fakeConversationOutline(provider, sessionId);
         },
         async readPage(request) {
+            events.push(`read-page:${provider}`);
             return fakeConversationPage(
                 provider,
                 request.sessionId,
@@ -242,6 +265,7 @@ function createDashboardConversationHarness(options = {}) {
     const panels = [];
     const viewerTargets = [];
     const authorityCalls = [];
+    const kimiSourceCalls = [];
     const focusedSession = options.focusedSession || {
         key: 'codex:session-a',
         provider: 'codex',
@@ -257,18 +281,19 @@ function createDashboardConversationHarness(options = {}) {
     };
     const providerHomes = options.providerHomes || {};
     const services = {
-        codex: makeService('codex'),
-        kimi: makeService('kimi', {
-            resolveConversationSource: sessionId => (
-                providerHomes.kimi && sessionId === focusedSession.sessionId
+        codex: options.codexService || makeService('codex'),
+        kimi: options.kimiService || makeService('kimi', {
+            resolveConversationSource: (sessionId, ...candidateArgs) => {
+                kimiSourceCalls.push([sessionId, ...candidateArgs]);
+                return providerHomes.kimi && sessionId === focusedSession.sessionId
                     ? {
                         providerHome: providerHomes.kimi,
                         sourcePath: path.join(providerHomes.kimi, 'wire.jsonl'),
                     }
-                    : null
-            ),
+                    : null;
+            },
         }),
-        claude: makeService('claude'),
+        claude: options.claudeService || makeService('claude'),
     };
     let capability;
     let router;
@@ -281,7 +306,9 @@ function createDashboardConversationHarness(options = {}) {
             ? { createKimiAdapter: createAdapter('kimi') }
             : {}),
         createCodexAdapter: createAdapter('codex'),
-        createClaudeAdapter: createAdapter('claude'),
+        ...(!options.useConcreteClaude
+            ? { createClaudeAdapter: createAdapter('claude') }
+            : {}),
         createCoordinator: coordinatorOptions => {
             events.push('coordinator');
             const coordinator = new ConversationCoordinator(coordinatorOptions);
@@ -322,6 +349,7 @@ function createDashboardConversationHarness(options = {}) {
         panels,
         viewerTargets,
         authorityCalls,
+        kimiSourceCalls,
         get capability() {
             return capability;
         },
@@ -330,7 +358,8 @@ function createDashboardConversationHarness(options = {}) {
                 services,
                 resolveTarget(projectId, provider, sessionId) {
                     authorityCalls.push({ projectId, provider, sessionId });
-                    return projectId === 'project-a'
+                    return (options.isTargetAvailable?.() ?? true)
+                        && projectId === 'project-a'
                         && provider === focusedSession.provider
                         && sessionId === focusedSession.sessionId
                         ? focusedSession
@@ -338,7 +367,7 @@ function createDashboardConversationHarness(options = {}) {
                 },
                 publish: async message => {
                     publications.push(message);
-                    return true;
+                    return options.publishResult ?? true;
                 },
                 createPanel: (...args) => {
                     const panel = fakePanel();
@@ -354,6 +383,8 @@ function createDashboardConversationHarness(options = {}) {
                 setTimer: (callback, delayMs) => setTimeout(callback, delayMs),
                 clearTimer: handle => clearTimeout(handle),
                 onDiagnostic: event => diagnostics.push(event),
+                getWorkspaceRootHostPaths:
+                    options.getWorkspaceRootHostPaths,
             }, internalFactories);
             router = createDashboardMessageRouter({
                 handlers: {
@@ -369,10 +400,11 @@ function createDashboardConversationHarness(options = {}) {
         route(message) {
             return router(message);
         },
-        async requestOutline(session = focusedSession) {
+        async requestOutline(session = focusedSession, overrides = {}) {
             await router(makeOutlineRequest({
                 provider: session.provider,
                 sessionId: session.sessionId,
+                ...overrides,
             }));
             return publications.at(-1);
         },
@@ -387,32 +419,31 @@ function createDashboardConversationHarness(options = {}) {
         setVisible(visible) {
             capability.controller.setVisible(visible);
         },
+        reconcile() {
+            return capability.reconcile();
+        },
         async dispose() {
             capability.dispose();
         },
     };
 }
 
-async function createKimiConversationFixture(t, exchanges) {
+async function createKimiConversationFixture(t) {
     const providerHome = await fs.promises.mkdtemp(
         path.join(os.tmpdir(), 'steward-kimi-composed-')
     );
     const sourcePath = path.join(providerHome, 'wire.jsonl');
-    const records = exchanges.flatMap((exchange, index) => [
-        {
-            type: 'TurnBegin',
-            timestamp: 1000 + index,
-            payload: { user_input: exchange.user },
-        },
-        {
-            type: 'ContentPart',
-            payload: { type: 'text', text: exchange.assistant },
-        },
-        { type: 'TurnEnd', payload: {} },
-    ]);
-    await fs.promises.writeFile(
-        sourcePath,
-        `${records.map(record => JSON.stringify(record)).join('\n')}\n`
+    await fs.promises.copyFile(
+        path.join(
+            __dirname,
+            '..',
+            '..',
+            'fixtures',
+            'conversations',
+            'kimi',
+            'wire.jsonl'
+        ),
+        sourcePath
     );
     t.after(() => fs.promises.rm(
         providerHome,
@@ -426,6 +457,77 @@ async function createKimiConversationFixture(t, exchanges) {
             sessionId: '22222222-2222-4222-8222-222222222222',
             name: 'Composed Kimi session',
             executionState: 'running',
+            status: 'focused',
+            focused: true,
+            needsAttention: false,
+            pending: false,
+            backend: 'vscode',
+            attached: true,
+        },
+    };
+}
+
+async function createScopedClaudeDuplicateFixture(t) {
+    const providerHome = await fs.promises.mkdtemp(
+        path.join(os.tmpdir(), 'steward-claude-composed-')
+    );
+    const sessionId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const roots = {
+        a: path.join(providerHome, 'workspace-a'),
+        b: path.join(providerHome, 'workspace-b'),
+        wrong: path.join(providerHome, 'workspace-wrong'),
+    };
+    await Promise.all(Object.values(roots).map(root =>
+        fs.promises.mkdir(root, { recursive: true })
+    ));
+    for (const [key, root] of Object.entries({ a: roots.a, b: roots.b })) {
+        const projectDirectory = path.join(providerHome, 'projects', key);
+        await fs.promises.mkdir(projectDirectory, { recursive: true });
+        const records = [
+            { sessionId, cwd: root },
+            {
+                type: 'user',
+                uuid: `claude-user-${key}`,
+                message: {
+                    role: 'user',
+                    content: [{
+                        type: 'text',
+                        text: `Visible ${key.toUpperCase()} prompt`,
+                    }],
+                },
+            },
+            {
+                type: 'assistant',
+                uuid: `claude-assistant-${key}`,
+                message: {
+                    role: 'assistant',
+                    content: [{
+                        type: 'text',
+                        text: `Visible ${key.toUpperCase()} response`,
+                    }],
+                },
+            },
+        ];
+        await fs.promises.writeFile(
+            path.join(projectDirectory, `${sessionId}.jsonl`),
+            `${records.map(record => JSON.stringify(record)).join('\n')}\n`
+        );
+    }
+    t.after(() => fs.promises.rm(
+        providerHome,
+        { recursive: true, force: true }
+    ));
+    const service = new ClaudeSessionService();
+    service.getClaudeHome = () => providerHome;
+    return {
+        roots,
+        service,
+        session: {
+            key: `claude:${sessionId}`,
+            provider: 'claude',
+            sessionId,
+            name: 'Scoped Claude session',
+            executionState: 'stopped',
             status: 'focused',
             focused: true,
             needsAttention: false,
@@ -609,13 +711,261 @@ test('PRODUCTION-CONVERSATION-COMPOSITION-002 keeps exact current-workspace auth
     await harness.dispose();
 });
 
-test('opens one read-only AI Conversation panel through the composed Kimi flow', async t => {
-    const fixture = await createKimiConversationFixture(t, [
+test('PRODUCTION-CONVERSATION-LIFECYCLE-001 hidden sidebar keeps the exact viewer authority lifecycle live', async () => {
+    let targetAvailable = true;
+    const focusedSession = {
+        key: 'codex:session-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+        name: 'Focused session',
+        executionState: 'running',
+        status: 'focused',
+        focused: true,
+        needsAttention: false,
+        pending: false,
+        backend: 'vscode',
+        attached: true,
+    };
+    const harness = createDashboardConversationHarness({
+        focusedSession,
+        isTargetAvailable: () => targetAvailable,
+        useConcreteViewer: true,
+    });
+    await harness.activate();
+    await harness.route(makeOutlineRequest());
+    await harness.route(makeOpenRequest());
+    const readsBeforeLifecycle = harness.events.filter(event =>
+        event === 'read-outline:codex' || event === 'read-page:codex'
+    ).length;
+
+    harness.setVisible(false);
+    focusedSession.executionState = 'stopped';
+    await harness.reconcile();
+    const readsAfterStopped = harness.events.filter(event =>
+        event === 'read-outline:codex' || event === 'read-page:codex'
+    ).length;
+    assert.equal(readsAfterStopped, readsBeforeLifecycle + 2);
+    assert.equal(harness.panels.length, 1);
+
+    targetAvailable = false;
+    await harness.reconcile();
+    assert.ok(harness.events.includes('watch-dispose:codex'));
+    const stale = harness.panels[0].postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page').at(-1);
+    assert.equal(stale.stale, true);
+    const readsWhileUnavailable = harness.events.filter(event =>
+        event === 'read-outline:codex' || event === 'read-page:codex'
+    ).length;
+
+    targetAvailable = true;
+    await harness.reconcile();
+    assert.equal(
+        harness.events.filter(event =>
+            event === 'read-outline:codex' || event === 'read-page:codex'
+        ).length,
+        readsWhileUnavailable + 2
+    );
+    assert.equal(
+        harness.panels[0].postedMessages.filter(message =>
+            message.type === 'conversation-viewer-page'
+        ).at(-1).stale,
+        false
+    );
+    await harness.dispose();
+});
+
+test('PRODUCTION-CONVERSATION-DISPLAY-001 derives duplicate metadata only from normalized same-provider active names', async () => {
+    const focused = {
+        key: 'codex:session-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+        name: '  Shared Name  ',
+        executionState: 'running',
+        status: 'focused',
+        focused: true,
+        needsAttention: false,
+        pending: false,
+        backend: 'vscode',
+        attached: true,
+    };
+    const sameProviderDuplicate = {
+        ...focused,
+        key: 'codex:session-b',
+        sessionId: 'session-b',
+        name: 'shared name',
+        focused: false,
+    };
+    const crossProviderDuplicate = {
+        ...focused,
+        key: 'kimi:session-c',
+        provider: 'kimi',
+        sessionId: 'session-c',
+        name: 'SHARED NAME',
+        focused: false,
+    };
+    const different = {
+        ...focused,
+        key: 'codex:session-d',
+        sessionId: 'session-d',
+        name: 'Different',
+        focused: false,
+    };
+    const activeSessions = [
+        focused,
+        sameProviderDuplicate,
+        crossProviderDuplicate,
+        different,
+    ];
+
+    assert.deepEqual(
+        withConversationDisplayMetadata(focused, activeSessions),
         {
-            user: 'extension-host-private-prompt',
-            assistant: 'visible response',
-        },
+            ...focused,
+            conversationDisplayName: 'Shared Name',
+            duplicateConversationDisplayName: true,
+        }
+    );
+    assert.equal(
+        withConversationDisplayMetadata(different, activeSessions)
+            .duplicateConversationDisplayName,
+        false
+    );
+    assert.equal(
+        withConversationDisplayMetadata(crossProviderDuplicate, [
+            crossProviderDuplicate,
+            focused,
+        ]).duplicateConversationDisplayName,
+        false
+    );
+
+    const authoritative = withConversationDisplayMetadata(
+        focused,
+        activeSessions
+    );
+    const harness = createDashboardConversationHarness({
+        focusedSession: authoritative,
+    });
+    await harness.activate();
+    await harness.route(makeOutlineRequest());
+    await harness.route(makeOpenRequest());
+    assert.deepEqual(harness.viewerTargets, [{
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+        interactionId: 'input-a',
+        expectedRevision: 'r1',
+        displayName: 'Shared Name',
+        duplicateDisplayName: true,
+    }]);
+    await harness.dispose();
+});
+
+test('PRODUCTION-CONVERSATION-CLAUDE-SCOPE-001 dynamically resolves duplicate UUID sources only from current workspace roots', async t => {
+    const fixture = await createScopedClaudeDuplicateFixture(t);
+    let currentRoots = [fixture.roots.a];
+    const harness = createDashboardConversationHarness({
+        claudeService: fixture.service,
+        focusedSession: fixture.session,
+        getWorkspaceRootHostPaths: () => currentRoots,
+        useConcreteClaude: true,
+    });
+    await harness.activate();
+    t.after(() => harness.dispose());
+
+    const outlineA = await harness.requestOutline(fixture.session);
+    assert.equal(outlineA.error, undefined);
+    assert.equal(outlineA.payload.interactions[0].userPreview, 'Visible A prompt');
+
+    currentRoots = [fixture.roots.b];
+    const outlineB = await harness.requestOutline(fixture.session, {
+        requestId: 2,
+        subscriptionGeneration: 1,
+    });
+    assert.equal(outlineB.error, undefined);
+    assert.equal(outlineB.payload.interactions[0].userPreview, 'Visible B prompt');
+
+    currentRoots = [fixture.roots.wrong];
+    const unavailable = await harness.requestOutline(fixture.session, {
+        requestId: 3,
+        subscriptionGeneration: 2,
+    });
+    assert.equal(unavailable.error.code, 'unavailable');
+    assert.equal(unavailable.payload, undefined);
+});
+
+test('PRODUCTION-CONVERSATION-FOCUS-001 panel close reveals the sidebar before publishing one exact focus origin', async () => {
+    executedCommands.length = 0;
+    focusCommandFailure = null;
+    const harness = createDashboardConversationHarness({
+        useConcreteViewer: true,
+    });
+    await harness.activate();
+    await harness.route(makeOutlineRequest());
+    await harness.route(makeOpenRequest());
+    harness.panels[0].dispose();
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.deepEqual(executedCommands, ['projectSteward.steward.focus']);
+    const focusMessage = harness.publications.at(-1);
+    assert.deepEqual(focusMessage, {
+        type: 'focus-ai-session-conversation-origin',
+        version: 1,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+        interactionId: 'input-a',
+    });
+    assert.deepEqual(Object.keys(focusMessage).sort(), [
+        'interactionId',
+        'projectId',
+        'provider',
+        'sessionId',
+        'type',
+        'version',
     ]);
+    await harness.dispose();
+});
+
+test('PRODUCTION-CONVERSATION-FOCUS-002 rejected reveal and hidden delivery remain isolated while publishing the fallback', async t => {
+    executedCommands.length = 0;
+    focusCommandFailure = new Error([
+        '/private/focus/path',
+        'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        'private prompt',
+    ].join(' '));
+    t.after(() => {
+        focusCommandFailure = null;
+    });
+    const harness = createDashboardConversationHarness({
+        publishResult: false,
+        useConcreteViewer: true,
+    });
+    await harness.activate();
+    await harness.route(makeOutlineRequest());
+    await harness.route(makeOpenRequest());
+    harness.setVisible(false);
+    harness.panels[0].dispose();
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.deepEqual(executedCommands, ['projectSteward.steward.focus']);
+    assert.deepEqual(harness.publications.at(-1), {
+        type: 'focus-ai-session-conversation-origin',
+        version: 1,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+        interactionId: 'input-a',
+    });
+    assert.equal(
+        JSON.stringify(harness.diagnostics)
+            .includes('private prompt'),
+        false
+    );
+    await harness.dispose();
+});
+
+test('opens one read-only AI Conversation panel through the composed Kimi flow', async t => {
+    const fixture = await createKimiConversationFixture(t);
     const harness = createDashboardConversationHarness({
         providerHomes: { kimi: fixture.providerHome },
         focusedSession: fixture.session,
@@ -626,7 +976,7 @@ test('opens one read-only AI Conversation panel through the composed Kimi flow',
     t.after(() => harness.dispose());
 
     const outline = await harness.requestOutline(fixture.session);
-    assert.equal(outline.payload.interactions.length, 1);
+    assert.equal(outline.payload.interactions.length, 3);
     await harness.openInteraction(
         fixture.session,
         outline.payload.interactions[0].id,
@@ -636,10 +986,28 @@ test('opens one read-only AI Conversation panel through the composed Kimi flow',
         harness.panels.filter(panel => panel.title === 'AI Conversation').length,
         1
     );
+    const panelHtml = harness.panels[0].webview.html;
+    assert.equal(panelHtml.includes('The parser reads visible tokens.'), true);
+    assert.equal(panelHtml.includes('Explain the parser'), true);
+    assert.equal(
+        panelHtml.includes(outline.payload.interactions[0].id),
+        true
+    );
+    assert.equal(panelHtml.includes('contenteditable'), false);
+    assert.equal(panelHtml.includes('<textarea'), false);
+    assert.equal(panelHtml.includes('secret-thought'), false);
+    assert.equal(panelHtml.includes('local/path'), false);
+    assert.ok(harness.kimiSourceCalls.length >= 1);
+    assert.equal(
+        harness.kimiSourceCalls.every(call =>
+            call.length === 1 && call[0] === fixture.session.sessionId
+        ),
+        true
+    );
     harness.panels[0].dispose();
     assert.equal(
         JSON.stringify(harness.diagnostics)
-            .includes('extension-host-private-prompt'),
+            .includes('secret-thought'),
         false
     );
 });

@@ -68,6 +68,8 @@ export interface ConversationAuthoritativeTarget {
     provider: AiSessionProviderId;
     sessionId?: string;
     name?: string;
+    conversationDisplayName?: string;
+    duplicateConversationDisplayName?: boolean;
     focused: boolean;
     executionState?: string;
 }
@@ -240,6 +242,7 @@ export class ConversationHostController {
                 state.request.sessionId,
                 target.executionState === 'stopped'
             );
+            void this.refreshState(state, false);
         }
     }
 
@@ -468,6 +471,37 @@ export class ConversationHostController {
             this.cancelState(state);
         }
     }
+}
+
+export function withConversationDisplayMetadata<
+    TTarget extends ConversationAuthoritativeTarget
+>(
+    target: TTarget,
+    activeTargets: readonly ConversationAuthoritativeTarget[]
+): TTarget & {
+    conversationDisplayName: string;
+    duplicateConversationDisplayName: boolean;
+} {
+    const conversationDisplayName = String(target.name || '').trim();
+    const normalizedName = normalizeConversationDisplayName(
+        conversationDisplayName
+    );
+    const duplicateConversationDisplayName = Boolean(normalizedName)
+        && activeTargets.filter(candidate =>
+            candidate.provider === target.provider
+            && normalizeConversationDisplayName(candidate.name) === normalizedName
+        ).length > 1;
+    return {
+        ...target,
+        conversationDisplayName,
+        duplicateConversationDisplayName,
+    };
+}
+
+function normalizeConversationDisplayName(value: unknown): string {
+    return typeof value === 'string'
+        ? value.trim().replace(/\s+/g, ' ').toLowerCase()
+        : '';
 }
 
 function parseOutlineRequest(

@@ -49,6 +49,7 @@ export interface ConversationCapability {
     controller: ConversationHostController;
     viewer: ConversationViewerApi;
     availability: 'available' | 'unavailable';
+    reconcile(): Promise<void>;
     dispose(): void;
 }
 
@@ -67,6 +68,7 @@ export interface ConversationCapabilityOptions {
     setTimer: typeof setTimeout;
     clearTimer: typeof clearTimeout;
     onDiagnostic: (event: SanitizedConversationDiagnostic) => void;
+    getWorkspaceRootHostPaths?: () => readonly string[];
 }
 
 interface ConversationCapabilityInternalFactories {
@@ -106,21 +108,17 @@ export function createConversationCapability(
 ): ConversationCapability;
 export function createConversationCapability(
     options: ConversationCapabilityOptions,
-    internalFactories?: Partial<ConversationCapabilityInternalFactories>
-): ConversationCapability;
-export function createConversationCapability(
-    options: ConversationCapabilityOptions,
     internalFactories: Partial<ConversationCapabilityInternalFactories> = {}
 ): ConversationCapability {
-    const ownedDuringConstruction: AiSessionDisposable[] = [];
+    const ownership = createConstructionOwnership();
     try {
         return createAvailableConversationCapability(
             options,
             { ...DEFAULT_FACTORIES, ...internalFactories },
-            ownedDuringConstruction
+            ownership
         );
     } catch (_error) {
-        disposeAll(ownedDuringConstruction.reverse());
+        ownership.dispose();
         reportUnavailable(options.onDiagnostic);
         return createUnavailableConversationCapability(options);
     }
@@ -129,96 +127,117 @@ export function createConversationCapability(
 function createAvailableConversationCapability(
     options: ConversationCapabilityOptions,
     factories: ConversationCapabilityInternalFactories,
-    ownedDuringConstruction: AiSessionDisposable[]
+    ownership: ConstructionOwnership
 ): ConversationCapability {
-    const codexClient = factories.createCodexClient({
+    const codexClient = ownership.own(factories.createCodexClient({
         spawn: options.spawnCodex as unknown as CodexAppServerClientOptions['spawn'],
         resolveExecutable: () => 'codex',
         now: options.now,
         setTimeout: options.setTimer,
         clearTimeout: options.clearTimer,
         onDiagnostic: options.onDiagnostic,
-    });
-    ownedDuringConstruction.push(codexClient);
+    }));
+    const codexAdapter = ownership.own(factories.createCodexAdapter({
+        client: codexClient,
+        watchSessionChanges: onDidChange =>
+            options.services.codex.watchSessionChanges(onDidChange),
+        setTimeout: options.setTimer,
+        clearTimeout: options.clearTimer,
+    }));
+    ownership.transfer(codexClient);
+    const kimiAdapter = ownership.own(factories.createKimiAdapter({
+        resolveSource: sessionId =>
+            options.services.kimi.resolveConversationSource?.(sessionId)
+            || null,
+        watchSessionChanges: onDidChange =>
+            options.services.kimi.watchSessionChanges(onDidChange),
+        now: options.now,
+        setTimeout: options.setTimer,
+        clearTimeout: options.clearTimer,
+    }));
+    const claudeAdapter = ownership.own(factories.createClaudeAdapter({
+        resolveSource: sessionId =>
+            options.services.claude.resolveConversationSource?.(
+                sessionId,
+                getWorkspaceRootHostPaths(options)
+            ) || null,
+        watchSessionChanges: onDidChange =>
+            options.services.claude.watchSessionChanges(onDidChange),
+        now: options.now,
+        setTimeout: options.setTimer,
+        clearTimeout: options.clearTimer,
+    }));
     const adapters: Record<AiSessionProviderId, ConversationProviderAdapter> = {
-        codex: factories.createCodexAdapter({
-            client: codexClient,
-            watchSessionChanges: onDidChange =>
-                options.services.codex.watchSessionChanges(onDidChange),
-            setTimeout: options.setTimer,
-            clearTimeout: options.clearTimer,
-        }),
-        kimi: factories.createKimiAdapter({
-            resolveSource: sessionId =>
-                options.services.kimi.resolveConversationSource?.(sessionId)
-                || null,
-            watchSessionChanges: onDidChange =>
-                options.services.kimi.watchSessionChanges(onDidChange),
-            now: options.now,
-            setTimeout: options.setTimer,
-            clearTimeout: options.clearTimer,
-        }),
-        claude: factories.createClaudeAdapter({
-            resolveSource: sessionId =>
-                options.services.claude.resolveConversationSource?.(sessionId)
-                || null,
-            watchSessionChanges: onDidChange =>
-                options.services.claude.watchSessionChanges(onDidChange),
-            now: options.now,
-            setTimeout: options.setTimer,
-            clearTimeout: options.clearTimer,
-        }),
+        codex: codexAdapter,
+        kimi: kimiAdapter,
+        claude: claudeAdapter,
     };
-    ownedDuringConstruction.push(
-        adapters.codex,
-        adapters.kimi,
-        adapters.claude
-    );
-    const coordinator = factories.createCoordinator({
+    const coordinator = ownership.own(factories.createCoordinator({
         adapters,
         now: options.now,
         setTimeout: options.setTimer,
         clearTimeout: options.clearTimer,
         onDiagnostic: options.onDiagnostic,
-    });
-    ownedDuringConstruction.push(coordinator);
-    const viewer = factories.createViewer({
+    }));
+    ownership.transfer(codexAdapter);
+    ownership.transfer(kimiAdapter);
+    ownership.transfer(claudeAdapter);
+    const viewer = ownership.own(factories.createViewer({
         createPanel: options.createPanel,
         readOutline: coordinator.readOutline.bind(coordinator),
         readPage: coordinator.readPage.bind(coordinator),
         watch: coordinator.watch.bind(coordinator),
-        restoreFocus: () => undefined,
+        restoreFocus: target => restoreConversationFocus(options, target),
         openExternal: options.openExternal,
         mediaUri: getConversationMediaUri,
-    });
-    ownedDuringConstruction.push(viewer);
-    const controller = factories.createController({
+    }));
+    const controller = ownership.own(factories.createController({
         coordinator,
         resolveTarget: options.resolveTarget,
         publish: message => options.publish(message),
         openViewer: async (target, authoritativeTarget) => {
             await viewer.open({
                 ...target,
-                displayName: typeof authoritativeTarget.name === 'string'
-                    && authoritativeTarget.name.trim()
-                    ? authoritativeTarget.name
-                    : `${target.provider} conversation`,
-                duplicateDisplayName: false,
+                displayName: authoritativeTarget.conversationDisplayName
+                    || (typeof authoritativeTarget.name === 'string'
+                        && authoritativeTarget.name.trim()
+                        ? authoritativeTarget.name.trim()
+                        : `${target.provider} conversation`),
+                duplicateDisplayName:
+                    authoritativeTarget.duplicateConversationDisplayName
+                    === true,
             });
         },
-    });
-    ownedDuringConstruction.push(controller);
+    }));
     let disposed = false;
     return {
         controller,
         viewer,
         availability: 'available',
+        async reconcile(): Promise<void> {
+            if (disposed) {
+                return;
+            }
+            controller.reconcile();
+            await viewer.reconcileAuthority(target => {
+                const authoritativeTarget = resolveExactTarget(options, target);
+                if (!authoritativeTarget) {
+                    return false;
+                }
+                coordinator.setSessionStopped(
+                    target.provider,
+                    target.sessionId,
+                    authoritativeTarget.executionState === 'stopped'
+                );
+                return true;
+            });
+        },
         dispose(): void {
             if (disposed) {
                 return;
             }
             disposed = true;
-            disposeAll([controller, viewer, coordinator]);
+            ownership.dispose();
         },
     };
 }
@@ -239,6 +258,7 @@ function createUnavailableConversationCapability(
     const viewer: ConversationViewerApi = {
         async open() {},
         async refresh() {},
+        async reconcileAuthority() {},
         dispose() {},
     };
     const controller = new ConversationHostController({
@@ -252,6 +272,11 @@ function createUnavailableConversationCapability(
         controller,
         viewer,
         availability: 'unavailable',
+        async reconcile(): Promise<void> {
+            if (!disposed) {
+                controller.reconcile();
+            }
+        },
         dispose(): void {
             if (disposed) {
                 return;
@@ -261,6 +286,78 @@ function createUnavailableConversationCapability(
             viewer.dispose();
         },
     };
+}
+
+function resolveExactTarget(
+    options: ConversationCapabilityOptions,
+    target: {
+        projectId: string;
+        provider: AiSessionProviderId;
+        sessionId: string;
+    }
+): ActiveAiSessionViewModel | null {
+    let authoritativeTarget: ActiveAiSessionViewModel | null;
+    try {
+        authoritativeTarget = options.resolveTarget(
+            target.projectId,
+            target.provider,
+            target.sessionId
+        );
+    } catch (_error) {
+        return null;
+    }
+    const projectedTarget = authoritativeTarget as
+        | (ActiveAiSessionViewModel & { projectId?: string })
+        | null;
+    if (!projectedTarget
+        || authoritativeTarget.provider !== target.provider
+        || authoritativeTarget.sessionId !== target.sessionId
+        || (projectedTarget.projectId !== undefined
+            && projectedTarget.projectId !== target.projectId)) {
+        return null;
+    }
+    return authoritativeTarget;
+}
+
+async function restoreConversationFocus(
+    options: ConversationCapabilityOptions,
+    target: {
+        projectId: string;
+        provider: AiSessionProviderId;
+        sessionId: string;
+        interactionId: string;
+    }
+): Promise<void> {
+    try {
+        await vscode.commands.executeCommand('projectSteward.steward.focus');
+    } catch (_error) {
+        // Publishing the semantic fallback remains useful if reveal fails.
+    }
+    try {
+        await options.publish({
+            type: 'focus-ai-session-conversation-origin',
+            version: 1,
+            projectId: target.projectId,
+            provider: target.provider,
+            sessionId: target.sessionId,
+            interactionId: target.interactionId,
+        });
+    } catch (_error) {
+        // Hidden or disposed sidebar delivery is an expected no-op.
+    }
+}
+
+function getWorkspaceRootHostPaths(
+    options: ConversationCapabilityOptions
+): readonly string[] {
+    try {
+        const paths = options.getWorkspaceRootHostPaths?.();
+        return Array.isArray(paths)
+            ? paths.filter(candidate => typeof candidate === 'string')
+            : [];
+    } catch (_error) {
+        return [];
+    }
 }
 
 function getConversationMediaUri(fileName: string): vscode.Uri {
@@ -296,4 +393,39 @@ function disposeAll(disposables: readonly AiSessionDisposable[]): void {
             // One optional capability resource cannot block the remaining cleanup.
         }
     }
+}
+
+interface ConstructionOwnership {
+    own<TDisposable extends AiSessionDisposable>(
+        disposable: TDisposable
+    ): TDisposable;
+    transfer(disposable: AiSessionDisposable): void;
+    dispose(): void;
+}
+
+function createConstructionOwnership(): ConstructionOwnership {
+    const owned: AiSessionDisposable[] = [];
+    let disposed = false;
+    return {
+        own<TDisposable extends AiSessionDisposable>(
+            disposable: TDisposable
+        ): TDisposable {
+            owned.push(disposable);
+            return disposable;
+        },
+        transfer(disposable: AiSessionDisposable): void {
+            const index = owned.indexOf(disposable);
+            if (index >= 0) {
+                owned.splice(index, 1);
+            }
+        },
+        dispose(): void {
+            if (disposed) {
+                return;
+            }
+            disposed = true;
+            disposeAll(owned.slice().reverse());
+            owned.length = 0;
+        },
+    };
 }

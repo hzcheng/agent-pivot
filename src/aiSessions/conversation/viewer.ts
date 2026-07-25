@@ -43,7 +43,9 @@ export interface ConversationViewerOptions {
         sessionId: string,
         onChange: () => void
     ) => AiSessionDisposable;
-    restoreFocus: (target: ConversationViewerTarget) => void;
+    restoreFocus: (
+        target: ConversationViewerTarget
+    ) => void | PromiseLike<void>;
     openExternal: (uri: vscode.Uri) => Thenable<boolean>;
     mediaUri: (fileName: string) => vscode.Uri;
 }
@@ -51,6 +53,9 @@ export interface ConversationViewerOptions {
 export interface ConversationViewerApi extends AiSessionDisposable {
     open(target: ConversationViewerTarget): Promise<void>;
     refresh(): Promise<void>;
+    reconcileAuthority(
+        resolveAuthority: (target: ConversationViewerTarget) => boolean
+    ): Promise<void>;
 }
 
 interface RetainedConversationPage {
@@ -115,6 +120,7 @@ export class ConversationViewer implements ConversationViewerApi {
     private stale = false;
     private latestPublication?: ConversationViewerPageMessage;
     private panelWasVisible = false;
+    private suspended = false;
 
     constructor(private readonly options: ConversationViewerOptions) {}
 
@@ -128,25 +134,64 @@ export class ConversationViewer implements ConversationViewerApi {
         panel.title = 'AI Conversation';
         panel.reveal(vscode.ViewColumn.Beside);
         panel.webview.html = this.renderDocument(undefined, 'Loading conversation…');
-        this.watch = this.options.watch(
-            target.provider,
-            target.sessionId,
-            () => {
-                if (generation !== this.subscriptionGeneration) {
-                    return;
-                }
-                void this.refresh();
-            }
-        );
+        this.ensureWatch(generation);
         await this.loadAuthoritative('initial', true);
     }
 
     async refresh(): Promise<void> {
         const target = this.target;
-        if (!target || !this.panel) {
+        if (!target || !this.panel || this.suspended) {
             return;
         }
         await this.loadAuthoritative('refresh', false);
+    }
+
+    async reconcileAuthority(
+        resolveAuthority: (target: ConversationViewerTarget) => boolean
+    ): Promise<void> {
+        const target = this.target;
+        const panel = this.panel;
+        if (!target || !panel) {
+            return;
+        }
+        let available = false;
+        try {
+            available = resolveAuthority({ ...target }) === true;
+        } catch (_error) {
+            available = false;
+        }
+        if (!available) {
+            if (this.suspended) {
+                return;
+            }
+            this.suspended = true;
+            this.abortController?.abort();
+            this.abortController = undefined;
+            this.watch?.dispose();
+            this.watch = undefined;
+            this.subscriptionGeneration += 1;
+            this.currentRequestId = this.allocateRequestId();
+            if (this.pages.length && this.outline) {
+                this.stale = true;
+                await this.deliverPublication(this.createPublication(
+                    this.currentRequestId,
+                    this.subscriptionGeneration,
+                    'refresh'
+                ), false);
+            } else {
+                panel.webview.html = this.renderDocument(
+                    undefined,
+                    'Conversation history unavailable.'
+                );
+            }
+            return;
+        }
+        const wasSuspended = this.suspended;
+        this.suspended = false;
+        if (wasSuspended) {
+            this.ensureWatch(this.subscriptionGeneration);
+        }
+        await this.refresh();
     }
 
     dispose(): void {
@@ -168,6 +213,7 @@ export class ConversationViewer implements ConversationViewerApi {
         this.latestPublication = undefined;
         this.target = { ...target };
         this.selectedInteractionId = target.interactionId;
+        this.suspended = false;
         this.subscriptionGeneration += 1;
         this.currentRequestId = 0;
         return this.subscriptionGeneration;
@@ -209,7 +255,13 @@ export class ConversationViewer implements ConversationViewerApi {
             this.panel = undefined;
             this.clear(restoreTarget);
             if (restoreTarget) {
-                this.options.restoreFocus(restoreTarget);
+                try {
+                    void Promise.resolve(
+                        this.options.restoreFocus(restoreTarget)
+                    ).catch(() => undefined);
+                } catch (_error) {
+                    // Focus restoration is optional and never blocks disposal.
+                }
             }
         });
         return panel;
@@ -233,6 +285,7 @@ export class ConversationViewer implements ConversationViewerApi {
         this.stale = false;
         this.latestPublication = undefined;
         this.panelWasVisible = false;
+        this.suspended = false;
         this.subscriptionGeneration += 1;
         this.currentRequestId = 0;
     }
@@ -354,7 +407,7 @@ export class ConversationViewer implements ConversationViewerApi {
     ): Promise<boolean> {
         const target = this.target;
         const panel = this.panel;
-        if (!target || !panel) {
+        if (!target || !panel || this.suspended) {
             return false;
         }
         this.abortController?.abort();
@@ -500,7 +553,7 @@ export class ConversationViewer implements ConversationViewerApi {
     ): Promise<boolean> {
         const target = this.target;
         const panel = this.panel;
-        if (!target || !panel) {
+        if (!target || !panel || this.suspended) {
             return false;
         }
         this.abortController?.abort();
@@ -690,6 +743,7 @@ export class ConversationViewer implements ConversationViewerApi {
     ): boolean {
         return this.panel === panel
             && this.target === target
+            && !this.suspended
             && this.subscriptionGeneration === generation
             && this.currentRequestId === requestId;
     }
@@ -700,6 +754,24 @@ export class ConversationViewer implements ConversationViewerApi {
             ? CONVERSATION_LIMITS.minRequestId
             : requestId + 1;
         return requestId;
+    }
+
+    private ensureWatch(generation: number): void {
+        const target = this.target;
+        if (!target || this.watch || this.suspended) {
+            return;
+        }
+        this.watch = this.options.watch(
+            target.provider,
+            target.sessionId,
+            () => {
+                if (generation !== this.subscriptionGeneration
+                    || this.suspended) {
+                    return;
+                }
+                void this.refresh();
+            }
+        );
     }
 
     private retain(

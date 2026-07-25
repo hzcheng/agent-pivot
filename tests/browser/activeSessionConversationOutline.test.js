@@ -272,6 +272,18 @@ function outlineError(error, overrides = {}) {
     };
 }
 
+function focusOrigin(overrides = {}) {
+    return {
+        type: 'focus-ai-session-conversation-origin',
+        version: 1,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+        interactionId: 'interaction-1',
+        ...overrides,
+    };
+}
+
 async function conversationMessages(page) {
     return (await postedMessages(page)).filter(message =>
         message.type === 'request-ai-session-conversation-outline'
@@ -1687,6 +1699,91 @@ test('ACTIVE-SESSION-CONVERSATION-RESTORE-001 preserves or cancels expansion thr
         mutationObserver: null,
         disconnects: disconnectsBeforeMismatch + 1,
     });
+});
+
+test('ACTIVE-SESSION-CONVERSATION-FOCUS-001 restores ACTIVE and the exact marker then the same-row header without focusing another session', async t => {
+    const page = await openConversationPage(t, [
+        session('codex', 'session-a', true),
+        session('kimi', 'session-b', false),
+    ]);
+    const focused = row(page, 'codex', 'session-a');
+    await focused.locator('.ai-session-primary-action').click();
+    const request = (await conversationMessages(page)).at(-1);
+    await postHostMessage(page, outlineResult({
+        requestId: request.requestId,
+        subscriptionGeneration: request.subscriptionGeneration,
+        interactions: [
+            summary('interaction-0', 1, 'First'),
+            summary('interaction-1', 2, 'Second'),
+        ],
+    }));
+    const activeTab = page.locator('[data-ai-session-tab="active"]');
+    const sessionsTab = page.locator('[data-ai-session-tab="sessions"]');
+    await sessionsTab.click();
+    assert.equal(await sessionsTab.getAttribute('aria-selected'), 'true');
+    assert.equal(
+        await focused.getAttribute('data-conversation-expanded'),
+        ''
+    );
+
+    await postHostMessage(page, focusOrigin());
+    assert.equal(await activeTab.getAttribute('aria-selected'), 'true');
+    assert.equal(
+        await focused.locator('[data-interaction-id="interaction-1"]')
+            .evaluate(marker => document.activeElement === marker),
+        true
+    );
+
+    await postHostMessage(page, focusOrigin({
+        interactionId: 'opaque-missing-interaction',
+    }));
+    assert.equal(
+        await focused.locator('.ai-session-primary-action')
+            .evaluate(header => document.activeElement === header),
+        true
+    );
+    assert.equal(
+        await row(page, 'kimi', 'session-b')
+            .locator('.ai-session-primary-action')
+            .evaluate(header => document.activeElement === header),
+        false
+    );
+});
+
+test('ACTIVE-SESSION-CONVERSATION-FOCUS-002 falls back to ACTIVE for a stale same-project origin and ignores malformed or wrong-project messages', async t => {
+    const page = await openConversationPage(t, [
+        session('codex', 'session-a', true),
+        session('kimi', 'session-b', false),
+    ]);
+    const sessionsTab = page.locator('[data-ai-session-tab="sessions"]');
+    const activeTab = page.locator('[data-ai-session-tab="active"]');
+    await sessionsTab.focus();
+
+    await postHostMessage(page, focusOrigin({
+        sessionId: 'stale-session',
+    }));
+    assert.equal(
+        await activeTab.evaluate(tab => document.activeElement === tab),
+        true
+    );
+
+    await sessionsTab.focus();
+    await postHostMessage(page, focusOrigin({
+        projectId: 'other-project',
+    }));
+    assert.equal(
+        await sessionsTab.evaluate(tab => document.activeElement === tab),
+        true
+    );
+
+    await postHostMessage(page, {
+        ...focusOrigin(),
+        unexpected: true,
+    });
+    assert.equal(
+        await sessionsTab.evaluate(tab => document.activeElement === tab),
+        true
+    );
 });
 
 async function expectClosed(card, header, panel, expectsShell) {

@@ -589,6 +589,104 @@ test('CONVERSATION-VIEWER-REFRESH-001 retains stale content after a watched fail
     assert.equal(publication.partial, true);
 });
 
+test('CONVERSATION-VIEWER-AUTHORITY-003 suspends exact authority without clearing the snapshot and resumes with a fresh watch/read', async () => {
+    let outlineReads = 0;
+    let pageReads = 0;
+    let watchCreates = 0;
+    const watchDisposals = [];
+    const pendingOutline = deferred();
+    let pendingSignal;
+    const { viewer, panel } = createViewer({
+        watch: (_provider, sessionId) => {
+            watchCreates += 1;
+            let active = true;
+            return {
+                dispose() {
+                    if (!active) return;
+                    active = false;
+                    watchDisposals.push(sessionId);
+                },
+            };
+        },
+        readOutline: async (_provider, sessionId, signal) => {
+            outlineReads += 1;
+            if (outlineReads === 2) {
+                pendingSignal = signal;
+                return pendingOutline.promise;
+            }
+            return outline(sessionId, ['input-1', 'input-2']);
+        },
+        readPage: async request => {
+            pageReads += 1;
+            return page(
+                request.sessionId,
+                request.anchorInteractionId,
+                `visible-${pageReads}`,
+                {
+                    sourceRevision: request.expectedRevision,
+                    nextCursor: request.anchorInteractionId === 'input-1'
+                        ? 'next-input'
+                        : undefined,
+                }
+            );
+        },
+    });
+
+    await viewer.open(target('session-a', 'input-1'));
+    const inFlightRefresh = viewer.refresh();
+    await new Promise(resolve => setImmediate(resolve));
+    let authorityCalls = 0;
+    await viewer.reconcileAuthority(candidate => {
+        authorityCalls += 1;
+        assert.deepEqual(candidate, target('session-a', 'input-1'));
+        return false;
+    });
+
+    assert.equal(authorityCalls, 1);
+    assert.equal(pendingSignal.aborted, true);
+    assert.equal(watchCreates, 1);
+    assert.deepEqual(watchDisposals, ['session-a']);
+    assert.equal(viewer.snapshotSize, 1);
+    let publication = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page').at(-1);
+    assert.equal(publication.stale, true);
+    assert.equal(publication.html.includes('visible-1'), true);
+
+    const readsWhileSuspended = pageReads;
+    await panel.receive({ type: 'conversation-viewer-next', version: 1 });
+    assert.equal(pageReads, readsWhileSuspended);
+    pendingOutline.resolve(outline('session-a', ['input-1', 'input-2']));
+    await inFlightRefresh;
+
+    await viewer.reconcileAuthority(() => true);
+    publication = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page').at(-1);
+    assert.equal(watchCreates, 2);
+    assert.equal(outlineReads, 3);
+    assert.equal(pageReads, readsWhileSuspended + 1);
+    assert.equal(publication.stale, false);
+    assert.equal(publication.html.includes('visible-2'), true);
+});
+
+test('CONVERSATION-VIEWER-AUTHORITY-004 reconciliation after panel close is an idempotent no-op', async () => {
+    const { viewer, panel } = createViewer();
+    await viewer.open(target('session-a'));
+    panel.dispose();
+    let authorityCalls = 0;
+
+    await viewer.reconcileAuthority(() => {
+        authorityCalls += 1;
+        return true;
+    });
+    await viewer.reconcileAuthority(() => {
+        authorityCalls += 1;
+        return false;
+    });
+
+    assert.equal(authorityCalls, 0);
+    assert.equal(viewer.snapshotSize, 0);
+});
+
 test('CONVERSATION-VIEWER-AUTHORITY-001 fails closed when an initial marker no longer exists', async () => {
     let pageReads = 0;
     const { viewer, panel } = createViewer({

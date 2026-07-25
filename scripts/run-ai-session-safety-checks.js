@@ -6,6 +6,7 @@ const fs = require('fs');
 const Module = require('module');
 const os = require('os');
 const path = require('path');
+const ts = require('typescript');
 const { validateSafetyScripts } = require('./lib/ciContracts');
 const vm = require('vm');
 const commands = require('../out/aiSessions/commandBuilders');
@@ -7152,6 +7153,189 @@ function runConversationProductionSafetyChecks() {
         'conversation',
         'types.ts'
     ), 'utf8');
+    const compositionAst = ts.createSourceFile(
+        'composition.ts',
+        composition,
+        ts.ScriptTarget.Latest,
+        true,
+        ts.ScriptKind.TS
+    );
+    const dashboardAst = ts.createSourceFile(
+        'dashboard.ts',
+        dashboard,
+        ts.ScriptTarget.Latest,
+        true,
+        ts.ScriptKind.TS
+    );
+    const codexClientAst = ts.createSourceFile(
+        'codexAppServerClient.ts',
+        codexClient,
+        ts.ScriptTarget.Latest,
+        true,
+        ts.ScriptKind.TS
+    );
+    const collectNodes = (rootNode, predicate) => {
+        const matches = [];
+        const visit = node => {
+            if (predicate(node)) {
+                matches.push(node);
+            }
+            ts.forEachChild(node, visit);
+        };
+        visit(rootNode);
+        return matches;
+    };
+    const propertyName = property => {
+        if (!property?.name) {
+            return undefined;
+        }
+        return ts.isIdentifier(property.name)
+            || ts.isStringLiteral(property.name)
+            || ts.isNumericLiteral(property.name)
+            ? property.name.text
+            : undefined;
+    };
+    const propertyAccessPath = expression => {
+        if (ts.isIdentifier(expression)) {
+            return expression.text;
+        }
+        return ts.isPropertyAccessExpression(expression)
+            ? [
+                propertyAccessPath(expression.expression),
+                expression.name.text,
+            ].filter(Boolean).join('.')
+            : undefined;
+    };
+
+    const capabilityDeclarations = collectNodes(
+        compositionAst,
+        node => ts.isFunctionDeclaration(node)
+            && node.name?.text === 'createConversationCapability'
+    );
+    assert.strictEqual(
+        capabilityDeclarations.length,
+        2,
+        'composition exposes one public overload plus one runtime implementation'
+    );
+    assert.strictEqual(
+        capabilityDeclarations.filter(node => !node.body).length,
+        1,
+        'composition must expose only the documented one-argument overload'
+    );
+    assert.strictEqual(capabilityDeclarations[0].parameters.length, 1);
+    assert.strictEqual(
+        capabilityDeclarations.find(node => node.body).parameters.length,
+        2,
+        'the runtime implementation may retain the JavaScript test seam'
+    );
+
+    const conversationHandlerDeclarations = collectNodes(
+        dashboardAst,
+        node => ts.isVariableDeclaration(node)
+            && ts.isIdentifier(node.name)
+            && node.name.text === 'conversationHandlers'
+            && ts.isObjectLiteralExpression(node.initializer)
+    );
+    assert.strictEqual(conversationHandlerDeclarations.length, 1);
+    const handlerProperties = conversationHandlerDeclarations[0]
+        .initializer.properties;
+    assert.deepStrictEqual(handlerProperties.map(propertyName), [
+        'request-ai-session-conversation-outline',
+        'open-ai-session-conversation',
+        'cancel-ai-session-conversation',
+    ]);
+    assert.deepStrictEqual(
+        handlerProperties.map(property => {
+            assert.ok(ts.isPropertyAssignment(property));
+            assert.ok(ts.isArrowFunction(property.initializer));
+            assert.ok(ts.isCallExpression(property.initializer.body));
+            assert.strictEqual(property.initializer.body.arguments.length, 1);
+            assert.ok(ts.isIdentifier(property.initializer.body.arguments[0]));
+            assert.strictEqual(
+                property.initializer.body.arguments[0].text,
+                property.initializer.parameters[0].name.text
+            );
+            return propertyAccessPath(
+                property.initializer.body.expression
+            );
+        }),
+        [
+            'conversationCapability.controller.handleOutline',
+            'conversationCapability.controller.handleOpen',
+            'conversationCapability.controller.cancel',
+        ]
+    );
+
+    const capabilityCalls = collectNodes(
+        dashboardAst,
+        node => ts.isCallExpression(node)
+            && ts.isIdentifier(node.expression)
+            && node.expression.text === 'createConversationCapability'
+    );
+    assert.strictEqual(capabilityCalls.length, 1);
+    assert.ok(ts.isObjectLiteralExpression(capabilityCalls[0].arguments[0]));
+    const capabilityOptions = Object.fromEntries(
+        capabilityCalls[0].arguments[0].properties.map(property => [
+            propertyName(property),
+            property.initializer,
+        ])
+    );
+    assert.ok(ts.isArrowFunction(capabilityOptions.resolveTarget));
+    assert.strictEqual(
+        collectNodes(
+            capabilityOptions.resolveTarget,
+            node => ts.isCallExpression(node)
+                && ts.isIdentifier(node.expression)
+                && node.expression.text === 'withConversationDisplayMetadata'
+        ).length,
+        1,
+        'Dashboard exact authority must add active-session display metadata'
+    );
+    assert.ok(ts.isArrowFunction(
+        capabilityOptions.getWorkspaceRootHostPaths
+    ));
+    assert.strictEqual(
+        collectNodes(
+            capabilityOptions.getWorkspaceRootHostPaths,
+            node => ts.isPropertyAccessExpression(node)
+                && node.name.text === 'hostPath'
+        ).length,
+        1,
+        'Claude source scope must come from current workspace root host paths'
+    );
+
+    const spawnCalls = collectNodes(
+        codexClientAst,
+        node => ts.isCallExpression(node)
+            && ts.isPropertyAccessExpression(node.expression)
+            && node.expression.name.text === 'spawn'
+            && ts.isPropertyAccessExpression(node.expression.expression)
+            && node.expression.expression.name.text === 'options'
+    );
+    assert.strictEqual(spawnCalls.length, 1);
+    const spawnArguments = spawnCalls[0].arguments;
+    assert.ok(ts.isArrayLiteralExpression(spawnArguments[1]));
+    assert.deepStrictEqual(
+        spawnArguments[1].elements.map(element => element.text),
+        ['app-server', '--listen', 'stdio://']
+    );
+    assert.ok(ts.isObjectLiteralExpression(spawnArguments[2]));
+    const spawnOptions = Object.fromEntries(
+        spawnArguments[2].properties.map(property => [
+            propertyName(property),
+            property.initializer,
+        ])
+    );
+    assert.strictEqual(spawnOptions.shell.kind, ts.SyntaxKind.FalseKeyword);
+    assert.strictEqual(
+        spawnOptions.windowsHide.kind,
+        ts.SyntaxKind.TrueKeyword
+    );
+    assert.ok(ts.isArrayLiteralExpression(spawnOptions.stdio));
+    assert.deepStrictEqual(
+        spawnOptions.stdio.elements.map(element => element.text),
+        ['pipe', 'pipe', 'pipe']
+    );
 
     for (const constructorName of [
         'CodexConversationAdapter',
@@ -7202,7 +7386,19 @@ function runConversationProductionSafetyChecks() {
         false,
         'production routing must not branch by conversation provider'
     );
-    assert.ok(dashboard.includes('conversationCapability.controller.reconcile()'));
+    const capabilityReconcileCalls = collectNodes(
+        dashboardAst,
+        node => ts.isCallExpression(node)
+            && ts.isPropertyAccessExpression(node.expression)
+            && node.expression.name.text === 'reconcile'
+            && ts.isIdentifier(node.expression.expression)
+            && node.expression.expression.text === 'conversationCapability'
+    );
+    assert.strictEqual(
+        capabilityReconcileCalls.length,
+        2,
+        'Dashboard lifecycle hooks must use the unified conversation reconcile'
+    );
     assert.ok(dashboard.includes(
         'conversationCapability.controller.setVisible(visible)'
     ));

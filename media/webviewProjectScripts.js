@@ -429,6 +429,87 @@ function getCurrentActiveAiSessionConversationRow(state) {
     }) || null;
 }
 
+function parseAiSessionConversationFocusOrigin(message) {
+    var expectedKeys = [
+        'type',
+        'version',
+        'projectId',
+        'provider',
+        'sessionId',
+        'interactionId',
+    ];
+    if (!message || typeof message !== 'object' || Array.isArray(message)
+        || Object.keys(message).length !== expectedKeys.length
+        || !expectedKeys.every(key =>
+            Object.prototype.hasOwnProperty.call(message, key))
+        || message.type !== 'focus-ai-session-conversation-origin'
+        || message.version !== 1
+        || (message.provider !== 'codex'
+            && message.provider !== 'kimi'
+            && message.provider !== 'claude')
+        || !['projectId', 'sessionId', 'interactionId'].every(key =>
+            typeof message[key] === 'string' && message[key].trim())) {
+        return null;
+    }
+    return message;
+}
+
+function focusAiSessionConversationOrigin(message) {
+    var origin = parseAiSessionConversationFocusOrigin(message);
+    if (!origin || typeof document === 'undefined'
+        || typeof document.querySelectorAll !== 'function') {
+        return false;
+    }
+    var projectDiv = Array.from(document.querySelectorAll(
+        '.workspace-card[data-current-workspace][data-id]'
+    )).find(candidate =>
+        candidate.getAttribute('data-id') === origin.projectId
+    );
+    if (!projectDiv) {
+        return false;
+    }
+    selectAiSessionTabDom(projectDiv, 'active');
+    writeAiSessionTabState(window.vscode, origin.projectId, 'active');
+    var row = Array.from(projectDiv.querySelectorAll(
+        '.active-ai-session-row[data-conversation-expanded]'
+        + '[data-session-focused][data-session-provider][data-session-id]'
+    )).find(candidate =>
+        candidate.getAttribute('data-session-provider') === origin.provider
+        && candidate.getAttribute('data-session-id') === origin.sessionId
+    );
+    if (row) {
+        var marker = Array.from(row.querySelectorAll(
+            '[data-ai-session-conversation-marker][data-interaction-id]'
+        )).find(candidate =>
+            candidate.getAttribute('data-interaction-id')
+                === origin.interactionId
+        );
+        var header = row.querySelector('.ai-session-primary-action');
+        if (marker && typeof marker.focus === 'function') {
+            marker.focus({ preventScroll: true });
+        }
+        if (marker && document.activeElement === marker) {
+            return true;
+        }
+        if (header && typeof header.focus === 'function') {
+            header.focus({ preventScroll: true });
+        }
+        if (header && document.activeElement === header) {
+            return true;
+        }
+    }
+    var activeTab = Array.from(projectDiv.querySelectorAll(
+        '[data-ai-session-tab]'
+    )).find(candidate =>
+        candidate.getAttribute('data-ai-session-tab') === 'active'
+    );
+    if (activeTab && typeof activeTab.focus === 'function') {
+        activeTab.focus({ preventScroll: true });
+        return document.activeElement === activeTab;
+    }
+    return false;
+}
+
 function setConversationMarkerSelection(markers, index, shouldFocus) {
     if (!markers.length) return;
     var bounded = Math.max(0, Math.min(markers.length - 1, index));
@@ -3228,6 +3309,11 @@ function initProjects() {
 
     function onWindowMessage(e) {
         var message = e && e.data;
+        if (message
+            && message.type === 'focus-ai-session-conversation-origin') {
+            focusAiSessionConversationOrigin(message);
+            return;
+        }
         if (message
             && message.type === 'ai-session-conversation-outline-result') {
             applyAiSessionConversationOutlineResult(message);

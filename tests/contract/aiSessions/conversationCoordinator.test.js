@@ -715,6 +715,81 @@ test('SESSION-CONVERSATION-HOST-009 hide and dispose release established watches
     }
 });
 
+test('SESSION-CONVERSATION-HOST-LIFECYCLE-001 reconcile republishes the exact running outline with stopped projection', async t => {
+    let executionState = 'running';
+    const harness = createControllerHarness({
+        resolveTarget: (projectId, provider, sessionId) => ({
+            projectId,
+            provider,
+            sessionId,
+            focused: true,
+            executionState,
+        }),
+    });
+    t.after(() => harness.controller.dispose());
+
+    await harness.controller.handleOutline(makeOutlineRequest());
+    assert.equal(
+        harness.publications.at(-1).payload.interactions.at(-1).responseState,
+        'inProgress'
+    );
+    const readsBeforeReconcile = harness.calls.codex;
+
+    executionState = 'stopped';
+    harness.controller.reconcile();
+    await settle();
+
+    assert.equal(harness.calls.codex, readsBeforeReconcile + 1);
+    assert.equal(harness.publications.length, 2);
+    assert.equal(
+        harness.publications.at(-1).payload.interactions.at(-1).responseState,
+        'interrupted'
+    );
+    assert.equal(
+        harness.publications.at(-1).subscriptionGeneration,
+        makeOutlineRequest().subscriptionGeneration
+    );
+});
+
+test('SESSION-CONVERSATION-HOST-LIFECYCLE-002 a later reconcile suppresses an older lifecycle read', async t => {
+    const stoppedRead = deferred();
+    const runningRead = deferred();
+    let executionState = 'running';
+    const harness = createControllerHarness({
+        outlineResults: [
+            makeOutline('codex', 'session-a'),
+            stoppedRead.promise,
+            runningRead.promise,
+        ],
+        resolveTarget: (projectId, provider, sessionId) => ({
+            projectId,
+            provider,
+            sessionId,
+            focused: true,
+            executionState,
+        }),
+    });
+    t.after(() => harness.controller.dispose());
+
+    await harness.controller.handleOutline(makeOutlineRequest());
+    harness.publications.length = 0;
+    executionState = 'stopped';
+    harness.controller.reconcile();
+    executionState = 'running';
+    harness.controller.reconcile();
+    runningRead.resolve(makeOutline('codex', 'session-a', 'native-running'));
+    await settle();
+    stoppedRead.resolve(makeOutline('codex', 'session-a', 'native-stopped'));
+    await settle();
+
+    assert.equal(harness.calls.codex, 3);
+    assert.equal(harness.publications.length, 1);
+    assert.equal(
+        harness.publications[0].payload.interactions.at(-1).responseState,
+        'inProgress'
+    );
+});
+
 test('SESSION-CONVERSATION-HOST-010 opens only an authoritative known interaction', async t => {
     const harness = createControllerHarness();
     t.after(() => harness.controller.dispose());

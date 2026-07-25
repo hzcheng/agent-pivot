@@ -67,6 +67,90 @@ function unavailableService() {
     };
 }
 
+function constructionFailureHarness(throwAt) {
+    const creations = [];
+    const disposals = new Map();
+    const diagnostics = [];
+    const incrementDisposal = name => {
+        disposals.set(name, (disposals.get(name) || 0) + 1);
+    };
+    const createResource = (name, owned = []) => {
+        creations.push(name);
+        return {
+            dispose() {
+                incrementDisposal(name);
+                owned.forEach(resource => resource.dispose());
+            },
+        };
+    };
+    const maybeThrow = name => {
+        creations.push(`${name}:throw`);
+        throw new Error([
+            `/private/${name}/conversation.jsonl`,
+            'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+            'private prompt',
+            'private response',
+        ].join(' '));
+    };
+    const service = unavailableService();
+    const capability = createConversationCapability({
+        services: { codex: service, kimi: service, claude: service },
+        resolveTarget: () => null,
+        publish: async () => true,
+        createPanel: () => {
+            throw new Error('must not create panel');
+        },
+        openExternal: async () => true,
+        spawnCodex: () => {
+            throw new Error('must not spawn Codex');
+        },
+        now: () => 1000,
+        setTimer: () => 1,
+        clearTimer: () => undefined,
+        onDiagnostic: event => diagnostics.push(event),
+    }, {
+        createCodexClient: () => createResource('client'),
+        createCodexAdapter: options => throwAt === 'codex'
+            ? maybeThrow('codex')
+            : createResource('codex', [options.client]),
+        createKimiAdapter: () => throwAt === 'kimi'
+            ? maybeThrow('kimi')
+            : createResource('kimi'),
+        createClaudeAdapter: () => throwAt === 'claude'
+            ? maybeThrow('claude')
+            : createResource('claude'),
+        createCoordinator: options => {
+            if (throwAt === 'coordinator') {
+                return maybeThrow('coordinator');
+            }
+            return {
+                ...createResource(
+                    'coordinator',
+                    Object.values(options.adapters)
+                ),
+                async readOutline() {},
+                async readPage() {},
+                watch() {
+                    return { dispose() {} };
+                },
+                releaseSubscription() {},
+                setSessionStopped() {},
+            };
+        },
+        createViewer: () => throwAt === 'viewer'
+            ? maybeThrow('viewer')
+            : {
+                ...createResource('viewer'),
+                async open() {},
+                async refresh() {},
+            },
+        createController: () => throwAt === 'controller'
+            ? maybeThrow('controller')
+            : createResource('controller'),
+    });
+    return { capability, creations, diagnostics, disposals };
+}
+
 function makeConfigurationEvent(...sections) {
     return {
         affectsConfiguration(candidate) {
@@ -316,6 +400,90 @@ test('PRODUCTION-CONVERSATION-UNAVAILABLE-001 isolates constructor failures from
     capability.dispose();
     capability.dispose();
 });
+
+for (const scenario of [
+    {
+        throwAt: 'kimi',
+        created: ['client', 'codex', 'kimi:throw'],
+        disposed: ['client', 'codex'],
+    },
+    {
+        throwAt: 'claude',
+        created: ['client', 'codex', 'kimi', 'claude:throw'],
+        disposed: ['client', 'codex', 'kimi'],
+    },
+    {
+        throwAt: 'coordinator',
+        created: [
+            'client',
+            'codex',
+            'kimi',
+            'claude',
+            'coordinator:throw',
+        ],
+        disposed: ['client', 'codex', 'kimi', 'claude'],
+    },
+    {
+        throwAt: 'viewer',
+        created: [
+            'client',
+            'codex',
+            'kimi',
+            'claude',
+            'coordinator',
+            'viewer:throw',
+        ],
+        disposed: ['client', 'codex', 'kimi', 'claude', 'coordinator'],
+    },
+    {
+        throwAt: 'controller',
+        created: [
+            'client',
+            'codex',
+            'kimi',
+            'claude',
+            'coordinator',
+            'viewer',
+            'controller:throw',
+        ],
+        disposed: [
+            'client',
+            'codex',
+            'kimi',
+            'claude',
+            'coordinator',
+            'viewer',
+        ],
+    },
+]) {
+    test(`PRODUCTION-CONVERSATION-OWNERSHIP-001 releases each completed owner exactly once when ${scenario.throwAt} construction throws`, () => {
+        const harness = constructionFailureHarness(scenario.throwAt);
+
+        assert.equal(harness.capability.availability, 'unavailable');
+        assert.deepEqual(harness.creations, scenario.created);
+        assert.deepEqual(
+            Object.fromEntries(
+                scenario.disposed.map(name => [
+                    name,
+                    harness.disposals.get(name) || 0,
+                ])
+            ),
+            Object.fromEntries(scenario.disposed.map(name => [name, 1]))
+        );
+        assert.deepEqual(harness.diagnostics, [{
+            event: 'conversation-read',
+            category: 'unavailable',
+        }]);
+        assert.equal(
+            JSON.stringify(harness.diagnostics).includes('private prompt'),
+            false
+        );
+        const beforeUnavailableDispose = new Map(harness.disposals);
+        harness.capability.dispose();
+        harness.capability.dispose();
+        assert.deepEqual(harness.disposals, beforeUnavailableDispose);
+    });
+}
 
 test('WEBVIEW-DASHBOARD-MESSAGE-ROUTER-001 ignores invalid Webview messages without mutating host state', async () => {
     const mutations = [];

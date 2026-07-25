@@ -78,6 +78,9 @@ import {
     ConversationCapability,
     createConversationCapability,
 } from './aiSessions/conversation/composition';
+import {
+    withConversationDisplayMetadata,
+} from './aiSessions/conversation/conversationHostController';
 import { AiSessionDashboardController } from './aiSessions/dashboardController';
 import { AiSessionCommandController } from './aiSessions/commandController';
 import { AiSessionCreationController } from './aiSessions/creationController';
@@ -1057,7 +1060,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         },
         afterRefresh: () => {
             currentAiSessionRefreshReason = 'refresh';
-            conversationCapability.controller.reconcile();
+            void conversationCapability.reconcile();
         },
         debounceMs: AI_SESSION_REFRESH_DEBOUNCE_MS,
         watcherRefreshMinIntervalMs: AI_SESSION_WATCHER_REFRESH_MIN_INTERVAL_MS,
@@ -1069,11 +1072,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         services: aiSessionServices,
         resolveTarget: (projectId, providerId, sessionId) => {
             const target = getCurrentWorkspaceActionTarget(projectId);
-            return target?.sessions.activeSessions.find(session =>
+            const activeSessions = target?.sessions.activeSessions || [];
+            const activeSession = activeSessions.find(session =>
                 session.provider === providerId
                 && session.sessionId === sessionId
-            ) || null;
+            );
+            return activeSession
+                ? withConversationDisplayMetadata(
+                    activeSession,
+                    activeSessions
+                )
+                : null;
         },
+        getWorkspaceRootHostPaths: () =>
+            getCurrentWorkspaceActionTargetWithoutCardId()
+                ?.workspace.roots.map(root => root.hostPath) || [],
         publish: message => provider.postMessage(message),
         createPanel: vscode.window.createWebviewPanel,
         openExternal: vscode.env.openExternal,
@@ -2156,7 +2169,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
 
     function postActiveAiSessionTerminalChanged(identity: ActiveAiSessionTerminalIdentity | null) {
-        conversationCapability.controller.reconcile();
+        void conversationCapability.reconcile();
         dashboardRuntimeController.postActiveAiSessionTerminalChanged(identity);
     }
 

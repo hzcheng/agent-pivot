@@ -40,6 +40,7 @@ test('ARCH-REPOSITORY-SKILL-GUIDANCE-001 keeps regression audits path-based and 
         ['literal behavior IDs', /literal behavior IDs/i],
         ['behavior-contract validation', /npm run test:behavior-contracts/i],
         ['audit-head currency', /audit.head/i],
+        ['skill and owner-test implementation paths', /\.codex\/skills\/[\s\S]*skill-owner tests[\s\S]*implementation paths/i],
     ]);
 });
 

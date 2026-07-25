@@ -43,7 +43,7 @@ Read each SKILL.md as UTF-8. Use separate tests for:
 
 1. versioned/correlated Host-authoritative Webview mutation and replacement,
    mirrored persistence repair, composite identity, and partial result rules;
-2. path-based audit classification, literal owner IDs, behavior-contract
+2. path-based audit classification, literal behavior IDs, behavior-contract
    validation, and audit-head currency;
 3. stale `VSCODE_IPC_HOOK_CLI`, active `code-server`, host-specific
    installation, and representative hash comparison; and

@@ -2,11 +2,12 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "883616d8f0cd5edad7eca71553afedcbee560604",
+        "head": "d80ae0dbd5bdc362216c9f5614b887f6a43b8373",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
-            "f762285e06f13c198e3cc7156097050c575da619"
+            "f762285e06f13c198e3cc7156097050c575da619",
+            "3d9733c505dad40cd332e277603c8f4b662aad0c"
         ]
     },
     "capabilities": [
@@ -586,7 +587,8 @@
                 "b6ea24adadfa6db91dccfe508ffe9caf84ffc948",
                 "b61e031d86fb859ae7e2a7d0176dbae5a253b01e",
                 "90302c5c0a9e8794174955368d72307c2303abd1",
-                "883616d8f0cd5edad7eca71553afedcbee560604"
+                "883616d8f0cd5edad7eca71553afedcbee560604",
+                "d80ae0dbd5bdc362216c9f5614b887f6a43b8373"
             ],
             "behaviors": [
                 "RUNTIME-TMUX-BACKEND-001",

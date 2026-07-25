@@ -118,12 +118,46 @@ export default class AiSessionWorkspaceStateStore {
             primaryProvider: selection?.primaryProvider,
             selectedProviders: selection?.selectedProviders,
         });
+        const previousSelections = this.state.get<unknown>(
+            WORKSPACE_AI_SESSION_PROVIDER_SELECTION_KEY
+        );
+        const previousActiveProviders = this.state.get<unknown>(
+            WORKSPACE_ACTIVE_AI_SESSION_PROVIDER_KEY
+        );
         const selections = this.getProviderSelections();
         selections[workspaceScopeIdentity] = normalizedSelection;
-        await this.state.update(WORKSPACE_AI_SESSION_PROVIDER_SELECTION_KEY, selections);
-
         const activeProviders = this.getActiveProviders();
         activeProviders[workspaceScopeIdentity] = normalizedSelection.primaryProvider;
-        await this.state.update(WORKSPACE_ACTIVE_AI_SESSION_PROVIDER_KEY, activeProviders);
+
+        let selectionWriteAttempted = false;
+        let activeProviderWriteAttempted = false;
+        try {
+            selectionWriteAttempted = true;
+            await this.state.update(WORKSPACE_AI_SESSION_PROVIDER_SELECTION_KEY, selections);
+            activeProviderWriteAttempted = true;
+            await this.state.update(WORKSPACE_ACTIVE_AI_SESSION_PROVIDER_KEY, activeProviders);
+        } catch (error) {
+            if (activeProviderWriteAttempted) {
+                try {
+                    await this.state.update(
+                        WORKSPACE_ACTIVE_AI_SESSION_PROVIDER_KEY,
+                        previousActiveProviders
+                    );
+                } catch (_rollbackError) {
+                    // Continue repairing the authoritative combined record.
+                }
+            }
+            if (selectionWriteAttempted) {
+                try {
+                    await this.state.update(
+                        WORKSPACE_AI_SESSION_PROVIDER_SELECTION_KEY,
+                        previousSelections
+                    );
+                } catch (_rollbackError) {
+                    // The controller refreshes whichever combined record remains authoritative.
+                }
+            }
+            throw error;
+        }
     }
 }

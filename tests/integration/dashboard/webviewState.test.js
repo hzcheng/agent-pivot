@@ -471,6 +471,59 @@ test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-002 summarizes one or two selected 
     assert.match(html, /data-provider="claude"[\s\S]*?ai-session-provider-count">1/);
 });
 
+test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-001 renders one named availability summary alongside available provider rows', () => {
+    const html = webviewModules.content.getAiSessionsDiv({
+        id: 'mixed-availability',
+        activeAiSessionProvider: 'codex',
+        selectedAiSessionProviders: ['codex', 'claude'],
+        providers: [
+            { id: 'codex', label: 'Codex', count: 1 },
+            { id: 'kimi', label: 'Kimi', count: 0 },
+            { id: 'claude', label: 'Claude', count: 0, unavailable: true },
+        ],
+        codexSessions: [{ id: 'codex-history', name: 'Codex history', provider: 'codex' }],
+        kimiSessions: [],
+        claudeSessions: [],
+        activeAiSessions: [],
+    });
+
+    assert.equal((html.match(/class="ai-session-availability-summary"/g) || []).length, 1);
+    assert.match(
+        html,
+        /class="ai-session-availability-summary" role="status"[\s\S]*?Claude/
+    );
+    assert.match(html, /data-session-id="codex-history"/);
+    assert.doesNotMatch(html, /ai-session-provider-section/);
+});
+
+test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-001 renders one availability summary for an all-unavailable empty selection', () => {
+    const html = webviewModules.content.getAiSessionsDiv({
+        id: 'all-unavailable',
+        activeAiSessionProvider: 'codex',
+        selectedAiSessionProviders: ['codex', 'claude'],
+        providers: [
+            { id: 'codex', label: 'Codex', count: 0, unavailable: true },
+            { id: 'kimi', label: 'Kimi', count: 0 },
+            { id: 'claude', label: 'Claude', count: 0, unavailable: true },
+        ],
+        codexSessions: [],
+        kimiSessions: [],
+        claudeSessions: [],
+        activeAiSessions: [],
+    });
+
+    assert.equal((html.match(/class="ai-session-availability-summary"/g) || []).length, 1);
+    assert.match(
+        html,
+        /class="ai-session-availability-summary" role="status"[\s\S]*?Codex[\s\S]*?Claude/
+    );
+    assert.match(html, /No selected AI sessions yet/);
+    assert.equal(
+        (html.match(/Selected AI session history is unavailable in this environment/g) || []).length,
+        0
+    );
+});
+
 test('WEBVIEW-MULTI-PROVIDER-SESSION-MENU-001 keeps the generated provider-menu controller boundary exact', () => {
     assert.equal(generatedProjectSource, projectSource);
     assert.match(projectSource, /function getSelectedAiSessionProviders\(projectDiv\)/);
@@ -1054,6 +1107,7 @@ function createCrossProviderBatchProject() {
     const manageButton = createElement();
     const count = { textContent: '' };
     const archiveButton = { disabled: false };
+    const liveRegion = { textContent: '' };
     const createRow = (provider, sessionId, { pinned = false, active = false } = {}) => ({
         getAttribute: name => name === 'data-session-provider' ? provider
             : name === 'data-session-id' ? sessionId : null,
@@ -1082,6 +1136,7 @@ function createCrossProviderBatchProject() {
             if (selector === '[data-action="manage-ai-sessions"]') return manageButton;
             if (selector === '.ai-session-batch-count') return count;
             if (selector === '[data-action="archive-selected-ai-sessions"]') return archiveButton;
+            if (selector === '[data-ai-session-live-region]') return liveRegion;
             return null;
         },
         querySelectorAll(selector) {
@@ -1096,6 +1151,7 @@ function createCrossProviderBatchProject() {
                 { pinned: item.pinned, active: item.active }
             ));
         },
+        liveRegion,
     };
 }
 
@@ -1218,6 +1274,93 @@ test('PERSIST-MULTI-PROVIDER-BATCH-ARCHIVE-001 WEBVIEW-MULTI-PROVIDER-SESSION-HI
             "message.type !== 'ai-session-batch-archive-completed'"
         )
     ));
+});
+
+test('PERSIST-MULTI-PROVIDER-BATCH-ARCHIVE-001 announces bounded aggregate outcomes without exposing session IDs', () => {
+    const project = createCrossProviderBatchProject();
+    const harness = createProjectVm({
+        querySelectorAll: selector =>
+            selector === '.workspace-card[data-current-workspace][data-id]' ? [project] : [],
+    });
+    const manager = harness.context.window.__projectStewardBatchAiSessions;
+
+    manager.enter('workspace-a');
+    manager.toggle('codex', 'codex-sensitive-id');
+    manager.toggle('claude', 'claude-sensitive-id');
+    manager.submit();
+    harness.windowListeners.message({ data: {
+        type: 'ai-session-batch-archive-completed',
+        version: 1,
+        requestId: 1,
+        projectId: 'workspace-a',
+        status: 'finished',
+        result: {
+            archived: [{ provider: 'codex', sessionId: 'codex-sensitive-id' }],
+            running: [],
+            missing: [],
+            rejected: [],
+            rejectedCount: 0,
+            failed: [{ provider: 'claude', sessionId: 'claude-sensitive-id' }],
+            malformedCount: 0,
+        },
+    } });
+    assert.equal(project.liveRegion.textContent, 'Archived 1 AI session; 1 session failed.');
+    assert.equal(project.liveRegion.textContent.includes('sensitive-id'), false);
+    assert.equal(manager.snapshot().projectId, null);
+
+    manager.enter('workspace-a');
+    manager.toggle('codex', 'same');
+    manager.submit();
+    harness.windowListeners.message({ data: {
+        type: 'ai-session-batch-archive-completed',
+        version: 1,
+        requestId: 2,
+        projectId: 'workspace-a',
+        status: 'finished',
+        result: {
+            archived: new Array(101).fill({ provider: 'codex', sessionId: 'same' }),
+            running: [],
+            missing: [],
+            rejected: [],
+            rejectedCount: 0,
+            failed: [],
+            malformedCount: 0,
+        },
+    } });
+    assert.equal(
+        project.liveRegion.textContent,
+        'Archive completed, but its result summary was unavailable.'
+    );
+    assert.equal(manager.snapshot().projectId, null);
+
+    manager.enter('workspace-a');
+    manager.toggle('codex', 'same');
+    manager.submit();
+    harness.windowListeners.message({ data: {
+        type: 'ai-session-batch-archive-completed',
+        version: 1,
+        requestId: 3,
+        projectId: 'workspace-a',
+        status: 'cancelled',
+    } });
+    assert.equal(project.liveRegion.textContent, 'Archive cancelled. No sessions were archived.');
+    assert.equal(manager.snapshot().projectId, 'workspace-a');
+    assert.equal(manager.snapshot().selectedItems.length, 1);
+
+    manager.submit();
+    harness.windowListeners.message({ data: {
+        type: 'ai-session-batch-archive-completed',
+        version: 1,
+        requestId: 4,
+        projectId: 'workspace-a',
+        status: 'rejected',
+    } });
+    assert.equal(
+        project.liveRegion.textContent,
+        'Archive request was rejected. No sessions were archived.'
+    );
+    assert.equal(manager.snapshot().projectId, 'workspace-a');
+    assert.equal(manager.snapshot().selectedItems.length, 1);
 });
 
 function assertBatchSelectionReconcilesAuthoritativeRows(source = projectSource) {

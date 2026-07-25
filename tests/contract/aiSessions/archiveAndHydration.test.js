@@ -170,6 +170,82 @@ test('PERSIST-BATCH-AI-SESSION-ARCHIVE-HOST-001 archives aggregate items with on
     assert.equal(errors.length, 1);
 });
 
+test('PERSIST-MULTI-PROVIDER-BATCH-ARCHIVE-001 executes interleaved items in selected-provider order while preserving stable composite results', async () => {
+    const effects = [];
+    const completions = [];
+    const sessionsByProvider = {
+        codex: [
+            { id: 'codex-first', provider: 'codex' },
+            { id: 'codex-second', provider: 'codex' },
+        ],
+        claude: [{ id: 'claude-middle', provider: 'claude' }],
+    };
+    const controller = new AiSessionArchiveController({
+        isProviderId: value => value === 'codex' || value === 'claude',
+        getProvider: provider => ({
+            label: provider === 'claude' ? 'Claude' : 'Codex',
+            service: {
+                archiveSession: sessionId => {
+                    effects.push(['archive', provider, sessionId]);
+                    return true;
+                },
+            },
+        }),
+        getProviderLabel: provider => provider === 'claude' ? 'Claude' : 'Codex',
+        getWorkspaceTarget: () => ({
+            cardId: 'workspace-a',
+            workspace: {
+                scopeIdentity: 'scope:a',
+                navigationIdentity: 'navigation:a',
+            },
+            sessions: {
+                workspaceScopeIdentity: 'scope:a',
+                workspaceNavigationIdentity: 'navigation:a',
+                selectedProviders: ['codex', 'claude'],
+                sessionsByProvider,
+            },
+        }),
+        getRuntimeById: () => null,
+        refreshRuntimeGuard: async () => undefined,
+        isRuntimeComplete: () => false,
+        focusRuntime: () => undefined,
+        deleteRuntimeMarker: () => undefined,
+        untrackRuntime: () => undefined,
+        deletePin: () => undefined,
+        deleteAlias: () => undefined,
+        confirmSingleArchive: async () => 'Archive',
+        confirmBatchArchive: async () => 'Archive',
+        showWarningMessage: () => undefined,
+        showErrorMessage: () => undefined,
+        showInformationMessage: () => undefined,
+        appendLine: () => undefined,
+        postCompletion: completion => completions.push(completion),
+        refresh: () => effects.push('refresh'),
+        syncActiveRuntime: () => effects.push('sync'),
+        logUnexpectedError: () => undefined,
+    });
+
+    await controller.archiveSessions('workspace-a', [
+        { provider: 'codex', sessionId: 'codex-first' },
+        { provider: 'claude', sessionId: 'claude-middle' },
+        { provider: 'codex', sessionId: 'codex-second' },
+    ], 12, 1);
+
+    assert.deepEqual(effects, [
+        ['archive', 'codex', 'codex-first'],
+        ['archive', 'codex', 'codex-second'],
+        ['archive', 'claude', 'claude-middle'],
+        'refresh',
+        'sync',
+    ]);
+    assert.equal(completions.length, 1);
+    assert.deepEqual(completions[0].result.archived, [
+        { provider: 'codex', sessionId: 'codex-first' },
+        { provider: 'codex', sessionId: 'codex-second' },
+        { provider: 'claude', sessionId: 'claude-middle' },
+    ]);
+});
+
 test('PERSIST-BATCH-AI-SESSION-ARCHIVE-HOST-001 settles an initial runtime guard failure exactly once without archiving or duplicate refresh', async () => {
     const completions = [];
     const effects = [];

@@ -289,10 +289,17 @@ function validateMultiProviderSessionHistoryStyles(source) {
         '.ai-session-provider-option[aria-checked=true]',
         '.ai-session-provider-option:focus-visible',
         '.ai-session-provider-badge',
+        '.ai-session-availability-summary',
         '.ai-session-pinned-heading',
     ]) {
         assert.ok(ruleWithSelector(selector, ''), `${id} missing ${selector}`);
     }
+    assert.ok(ruleWithSelector('.ai-session-availability-summary', 'font-size:9px'),
+        `${id} availability summary must remain compact`);
+    assert.ok(ruleWithSelector(
+        '.ai-session-availability-summary',
+        'color:var(--vscode-descriptionForeground)'
+    ), `${id} availability summary must use readable theme text`);
     assert.ok(source.includes('@media (forced-colors: active)'), `${id} missing forced-colors styles`);
     assert.equal(source.includes('ai-session-provider-section'), false,
         `${id} must not reintroduce provider-section containers`);

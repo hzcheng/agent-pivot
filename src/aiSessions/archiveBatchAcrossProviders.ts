@@ -94,6 +94,16 @@ export function resolveAggregateAiSessionArchiveSelection(
         eligible.push({ ...item, session });
     }
 
+    const providerOrder = new Map(
+        scope.selectedProviders
+            .filter(isAiSessionProviderId)
+            .map((provider, index) => [provider, index])
+    );
+    eligible.sort((left, right) =>
+        (providerOrder.get(left.provider) ?? Number.MAX_SAFE_INTEGER)
+        - (providerOrder.get(right.provider) ?? Number.MAX_SAFE_INTEGER)
+    );
+
     return { eligible, rejected, rejectedCount, malformedCount };
 }
 

@@ -170,7 +170,7 @@ test('SESSION-AI-SESSION-COMMAND-CONTROLLER-001 exposes validated command effect
     ]);
 });
 
-test('SESSION-AI-SESSION-COMMAND-CONTROLLER-002 settles correlated persistence failures and permits retry', async () => {
+test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-001 SESSION-AI-SESSION-COMMAND-CONTROLLER-002 refreshes authority before settling correlated persistence failures and permits retry', async () => {
     const effects = [];
     let rejectPersistence = true;
     const controller = new AiSessionCommandController({
@@ -217,6 +217,7 @@ test('SESSION-AI-SESSION-COMMAND-CONTROLLER-002 settles correlated persistence f
             selectedProviders: ['codex', 'claude'],
         }],
         ['log-error', 'Failed to update AI session provider selection.', 'sensitive persistence detail'],
+        ['refresh'],
         ['error', 'Could not update AI session providers. Try again.'],
         ['provider-result', {
             type: 'ai-session-provider-selection-result',

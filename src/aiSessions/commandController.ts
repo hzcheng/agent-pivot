@@ -261,6 +261,7 @@ export class AiSessionCommandController {
             );
         } catch (error) {
             this.options.logError('Failed to update AI session provider selection.', error);
+            this.options.refresh();
             await this.rejectProviderSelection(projectId, requestId as number);
             return;
         }

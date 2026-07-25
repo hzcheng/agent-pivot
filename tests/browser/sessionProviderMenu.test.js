@@ -124,6 +124,18 @@ async function postAiSessionsUpdate(page, selectedProviders, sequence) {
     }, { html, sequence });
 }
 
+async function postWorkspaceUpdate(page, selectedProviders) {
+    const html = getAiSessionsUpdateHtml(selectedProviders);
+    await page.evaluate(html => {
+        window.dispatchEvent(new MessageEvent('message', { data: {
+            type: 'workspace-updated',
+            version: 2,
+            currentWorkspaceCount: 1,
+            html,
+        } }));
+    }, html);
+}
+
 test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-001 AI-SESSION-PROVIDER-MENU-001 opens and posts the complete selected provider set', async t => {
     const page = await openMenuPage(t);
     const project = page.locator('.project[data-id="project-a"]');
@@ -387,4 +399,119 @@ test('AI-SESSION-PROVIDER-MENU-011 correlated stale-target failure unlocks uncha
         projectId: 'project-a',
         selectedProviders: ['codex', 'kimi'],
     });
+});
+
+test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-001 preserves an open provider popup and matching focus across authoritative replacements', async t => {
+    const page = await openMenuPage(t, ['codex', 'claude']);
+    const project = page.locator('.project[data-id="project-a"]');
+    const trigger = project.locator('[data-ai-provider-menu-trigger]');
+
+    await trigger.click();
+    await postWorkspaceUpdate(page, ['codex', 'claude']);
+    assert.equal(await trigger.getAttribute('aria-expanded'), 'true');
+    assert.equal(await project.locator('[data-ai-provider-menu]').isHidden(), false);
+    assert.equal(await trigger.evaluate(element => document.activeElement === element), true);
+
+    const claude = project.locator('[data-ai-provider-option][data-provider="claude"]');
+    await claude.focus();
+    await postAiSessionsUpdate(page, ['codex', 'claude'], 1);
+    assert.equal(await trigger.getAttribute('aria-expanded'), 'true');
+    assert.equal(await project.locator('[data-ai-provider-menu]').isHidden(), false);
+    assert.equal(await claude.evaluate(element => document.activeElement === element), true);
+});
+
+test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-001 does not restore a provider popup or hidden focus after selection submission', async t => {
+    const page = await openMenuPage(t);
+    const project = page.locator('.project[data-id="project-a"]');
+    const trigger = project.locator('[data-ai-provider-menu-trigger]');
+    const kimi = project.locator('[data-ai-provider-option][data-provider="kimi"]');
+
+    await trigger.click();
+    await project.locator('[data-ai-provider-option][data-provider="claude"]').click();
+    await page.evaluate(() => {
+        const projectElement = document.querySelector('.project[data-id="project-a"]');
+        const staleTrigger = projectElement.querySelector('[data-ai-provider-menu-trigger]');
+        staleTrigger.setAttribute('aria-expanded', 'true');
+        projectElement.querySelector('[data-ai-provider-menu]').hidden = false;
+        projectElement.querySelector('[data-ai-provider-option][data-provider="kimi"]').focus();
+    });
+    await postAiSessionsUpdate(page, ['codex', 'claude'], 1);
+
+    assert.equal(await trigger.getAttribute('aria-expanded'), 'false');
+    assert.equal(await project.locator('[data-ai-provider-menu]').isHidden(), true);
+    assert.equal(await kimi.evaluate(element => document.activeElement === element), false);
+});
+
+test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-001 does not restore a provider popup or hidden focus while batch archive is pending', async t => {
+    const page = await openMenuPage(t);
+    const project = page.locator('.project[data-id="project-a"]');
+    const trigger = project.locator('[data-ai-provider-menu-trigger]');
+    const kimi = project.locator('[data-ai-provider-option][data-provider="kimi"]');
+
+    await project.locator('[data-action="manage-ai-sessions"]').click();
+    await project.locator('.codex-session-row[data-session-id="project-a-codex"]').click();
+    await project.locator('[data-action="archive-selected-ai-sessions"]').click();
+    await page.evaluate(() => {
+        const projectElement = document.querySelector('.project[data-id="project-a"]');
+        const staleTrigger = projectElement.querySelector('[data-ai-provider-menu-trigger]');
+        staleTrigger.setAttribute('aria-expanded', 'true');
+        projectElement.querySelector('[data-ai-provider-menu]').hidden = false;
+        projectElement.querySelector('[data-ai-provider-option][data-provider="kimi"]').focus();
+    });
+    await postWorkspaceUpdate(page, ['codex']);
+
+    assert.equal(await trigger.getAttribute('aria-expanded'), 'false');
+    assert.equal(await project.locator('[data-ai-provider-menu]').isHidden(), true);
+    assert.equal(await kimi.evaluate(element => document.activeElement === element), false);
+});
+
+test('PERSIST-MULTI-PROVIDER-BATCH-ARCHIVE-001 announces partial and malformed aggregate outcomes in the polite live region', async t => {
+    const page = await openMenuPage(t, ['codex', 'claude']);
+    const project = page.locator('.project[data-id="project-a"]');
+    const liveRegion = project.locator('[data-ai-session-live-region]');
+
+    await project.locator('[data-action="manage-ai-sessions"]').click();
+    await project.locator('[data-action="select-unpinned-ai-sessions"]').click();
+    await project.locator('[data-action="archive-selected-ai-sessions"]').click();
+    await page.evaluate(() => window.dispatchEvent(new MessageEvent('message', { data: {
+        type: 'ai-session-batch-archive-completed',
+        version: 1,
+        requestId: 1,
+        projectId: 'project-a',
+        status: 'finished',
+        result: {
+            archived: [{ provider: 'codex', sessionId: 'codex-sensitive-id' }],
+            running: [],
+            missing: [],
+            rejected: [],
+            rejectedCount: 0,
+            failed: [{ provider: 'claude', sessionId: 'claude-sensitive-id' }],
+            malformedCount: 0,
+        },
+    } })));
+    assert.equal(await liveRegion.textContent(), 'Archived 1 AI session; 1 session failed.');
+
+    await project.locator('[data-action="manage-ai-sessions"]').click();
+    await project.locator('[data-action="select-unpinned-ai-sessions"]').click();
+    await project.locator('[data-action="archive-selected-ai-sessions"]').click();
+    await page.evaluate(() => window.dispatchEvent(new MessageEvent('message', { data: {
+        type: 'ai-session-batch-archive-completed',
+        version: 1,
+        requestId: 2,
+        projectId: 'project-a',
+        status: 'finished',
+        result: {
+            archived: { length: 1 },
+            running: [],
+            missing: [],
+            rejected: [],
+            rejectedCount: 0,
+            failed: [],
+            malformedCount: 0,
+        },
+    } })));
+    assert.equal(
+        await liveRegion.textContent(),
+        'Archive completed, but its result summary was unavailable.'
+    );
 });

@@ -182,6 +182,104 @@ test('PERSIST-PROJECT-STATE-STORE-001 sanitizes workspace state and ignores inva
     );
 });
 
+test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-001 rolls back both provider records when the legacy write fails', async () => {
+    const combinedKey = 'workspaceAiSessionProviderSelection.v1';
+    const legacyKey = 'workspaceActiveAiSessionProvider.v2';
+    const values = {
+        [combinedKey]: {
+            'scope-a': {
+                primaryProvider: 'codex',
+                selectedProviders: ['codex'],
+            },
+        },
+        [legacyKey]: { 'scope-a': 'codex' },
+    };
+    const updates = [];
+    let legacyWriteFailed = false;
+    const store = new AiSessionWorkspaceStateStore({
+        get: key => values[key],
+        async update(key, value) {
+            updates.push([key, value]);
+            values[key] = value;
+            if (key === legacyKey && !legacyWriteFailed) {
+                legacyWriteFailed = true;
+                throw new Error('controlled legacy write failure');
+            }
+        },
+    }, value => value === 'codex' || value === 'kimi' || value === 'claude');
+
+    await assert.rejects(
+        store.setProviderSelection('scope-a', {
+            primaryProvider: 'claude',
+            selectedProviders: ['claude', 'codex'],
+        }),
+        /controlled legacy write failure/
+    );
+
+    assert.deepEqual(values[combinedKey], {
+        'scope-a': {
+            primaryProvider: 'codex',
+            selectedProviders: ['codex'],
+        },
+    });
+    assert.deepEqual(values[legacyKey], { 'scope-a': 'codex' });
+    assert.deepEqual(updates.map(([key]) => key), [
+        combinedKey,
+        legacyKey,
+        legacyKey,
+        combinedKey,
+    ]);
+});
+
+test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-001 rejects without false success when provider-record rollback also fails', async () => {
+    const combinedKey = 'workspaceAiSessionProviderSelection.v1';
+    const legacyKey = 'workspaceActiveAiSessionProvider.v2';
+    const values = {
+        [combinedKey]: {
+            'scope-a': {
+                primaryProvider: 'codex',
+                selectedProviders: ['codex'],
+            },
+        },
+        [legacyKey]: { 'scope-a': 'codex' },
+    };
+    let combinedWrites = 0;
+    let legacyWrites = 0;
+    const store = new AiSessionWorkspaceStateStore({
+        get: key => values[key],
+        async update(key, value) {
+            if (key === combinedKey) {
+                combinedWrites += 1;
+                if (combinedWrites === 2) {
+                    throw new Error('controlled rollback failure');
+                }
+                values[key] = value;
+                return;
+            }
+            legacyWrites += 1;
+            values[key] = value;
+            if (legacyWrites === 1) {
+                throw new Error('controlled legacy write failure');
+            }
+        },
+    }, value => value === 'codex' || value === 'kimi' || value === 'claude');
+
+    await assert.rejects(
+        store.setProviderSelection('scope-a', {
+            primaryProvider: 'claude',
+            selectedProviders: ['claude', 'codex'],
+        })
+    );
+
+    assert.deepEqual(values[combinedKey]['scope-a'], {
+        primaryProvider: 'claude',
+        selectedProviders: ['claude', 'codex'],
+    });
+    assert.deepEqual(values[legacyKey], { 'scope-a': 'codex' });
+    assert.equal(combinedWrites, 2);
+    assert.equal(legacyWrites, 2);
+});
+
 test('TODO-TODO-STORE-001 preserves unversioned V1 data while dropping duplicate, orphaned, and missing-field records', () => {
     const normalized = normalizeTodoData({
         groups: [

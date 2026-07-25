@@ -867,13 +867,15 @@ function getAiSessionHistoryPanel(
         (provider): provider is AiSessionProviderSummary => !!provider
     );
     var providerMenuId = `ai-session-provider-menu-${projectId}`;
-    var allSelectedProvidersUnavailable = selectedProviderSummaries.length > 0
-        && selectedProviderSummaries.every(provider => provider.unavailable === true);
+    var unavailableProviderLabels = selectedProviderSummaries
+        .filter(provider => provider.unavailable === true)
+        .map(provider => escapeAttribute(provider.label));
+    var availabilitySummary = unavailableProviderLabels.length
+        ? `<div class="ai-session-availability-summary" role="status">History unavailable: ${unavailableProviderLabels.join(', ')}.</div>`
+        : '';
     var sessionRows = projection.pinned.length || projection.unpinned.length
         ? `${projection.pinned.length ? `<div class="ai-session-pinned-heading">PINNED</div>${historyRows(projection.pinned)}` : ''}${historyRows(projection.unpinned)}`
-        : `<div class="codex-sessions-empty"><span>${allSelectedProvidersUnavailable
-            ? 'Selected AI session history is unavailable in this environment'
-            : 'No selected AI sessions yet'}</span></div>`;
+        : '<div class="codex-sessions-empty"><span>No selected AI sessions yet</span></div>';
 
     return `<div id="ai-session-history-${projectId}" class="ai-session-tab-panel ai-session-history-panel" role="tabpanel" data-ai-session-panel="sessions" aria-labelledby="ai-session-sessions-tab-${projectId}"${selected ? '' : ' hidden'}>
     <div class="ai-session-provider-controls">
@@ -885,6 +887,7 @@ function getAiSessionHistoryPanel(
         </div>
         ${getManageAiSessionsButton(activeProvider)}
     </div>
+    ${availabilitySummary}
     <div class="codex-sessions-list">
         ${sessionRows}
     </div>

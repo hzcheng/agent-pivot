@@ -12,7 +12,7 @@ function escapeHtml(value: string): string {
 }
 
 function getPromptPreview(text: string): string {
-    const firstLine = text.split(/\r?\n/, 1)[0].replace(/\s+/g, ' ').trim();
+    const firstLine = text.split(/\r\n|\r|\n/, 1)[0].replace(/\s+/g, ' ').trim();
     return firstLine.length > PROMPT_PREVIEW_MAX_LENGTH
         ? `${firstLine.slice(0, PROMPT_PREVIEW_MAX_LENGTH)}…`
         : firstLine;

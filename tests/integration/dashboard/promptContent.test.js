@@ -96,6 +96,25 @@ test('AI Prompt content renders bounded plain-text previews and full editable va
     assert.match(html, /second line private tail<\/textarea>/);
 });
 
+test('WEBVIEW-AI-PROMPT-INTERACTION-001 AI Prompt content bounds CR and CRLF previews to the first line', async t => {
+    for (const [name, separator] of [
+        ['bare CR', '\r'],
+        ['CRLF', '\r\n'],
+    ]) {
+        await t.test(name, () => {
+            const body = `First line${separator}private ${name} tail`;
+            const html = getPromptSurfaceContent(snapshot({
+                prompts: [{ id: `prompt-${name}`, name, text: body }],
+            }));
+            const preview = html.match(/<p class="prompt-preview"[^>]*>([^<]*)<\/p>/);
+
+            assert.ok(preview);
+            assert.equal(preview[1], 'First line');
+            assert.ok(preview[1].length <= 160);
+        });
+    }
+});
+
 test('AI Prompt content renders ordered items with accessible independent actions', () => {
     const html = getPromptSurfaceContent(snapshot({
         selectedPromptId: 'prompt-b',

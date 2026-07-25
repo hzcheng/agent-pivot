@@ -99,6 +99,11 @@ class PromptCommandValidationError extends Error {
 
 type UnknownRecord = { [key: string]: unknown };
 
+interface PromptContentSnapshot {
+    readonly snapshot: PromptPanelSnapshot;
+    readonly readFailed: boolean;
+}
+
 function isRecord(value: unknown): value is UnknownRecord {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -158,12 +163,21 @@ function mapError(error: unknown): PromptMutationErrorCode {
     return 'storage';
 }
 
+function correlationKey(message: PromptCommandMessage): string {
+    return JSON.stringify([
+        message.version,
+        message.requestId,
+        message.target,
+        message.operation,
+    ]);
+}
+
 export class PromptDashboardController {
     private readonly service: PromptService;
     private readonly confirmDelete: (prompt: PromptDeleteConfirmation) => Promise<boolean>;
     private readonly renderPromptSurface: (snapshot: PromptPanelSnapshot) => string;
     private readonly renderAiPanel: (snapshot: PromptPanelSnapshot) => string;
-    private readonly claimedRequestIds = new Set<string>();
+    private readonly claimedCorrelationKeys = new Set<string>();
 
     constructor(options: PromptDashboardControllerOptions) {
         this.service = options.service;
@@ -178,10 +192,11 @@ export class PromptDashboardController {
             return undefined;
         }
 
-        if (this.claimedRequestIds.has(message.requestId)) {
+        const key = correlationKey(message);
+        if (this.claimedCorrelationKeys.has(key)) {
             return undefined;
         }
-        this.claimedRequestIds.add(message.requestId);
+        this.claimedCorrelationKeys.add(key);
         return this.handleCorrelated(message);
     }
 
@@ -235,12 +250,17 @@ export class PromptDashboardController {
     }
 
     getPanelContent(requestId: string): PromptPanelContentMessage {
-        const snapshot = this.getSnapshotForContent();
+        const content = this.getSnapshotForContent();
+        const snapshot = content.snapshot;
         let html: string;
-        try {
-            html = this.renderAiPanel(snapshot);
-        } catch (_error) {
+        if (content.readFailed) {
             html = getAiPanelRecoveryContent(snapshot);
+        } else {
+            try {
+                html = this.renderAiPanel(snapshot);
+            } catch (_error) {
+                html = getAiPanelRecoveryContent(snapshot);
+            }
         }
         return {
             type: 'ai-panel-content',
@@ -253,12 +273,17 @@ export class PromptDashboardController {
     }
 
     getRefreshContent(): PromptPanelRefreshMessage {
-        const snapshot = this.getSnapshotForContent();
+        const content = this.getSnapshotForContent();
+        const snapshot = content.snapshot;
         let html: string;
-        try {
-            html = this.renderPromptSurface(snapshot);
-        } catch (_error) {
+        if (content.readFailed) {
             html = getPromptRecoveryContent(snapshot);
+        } else {
+            try {
+                html = this.renderPromptSurface(snapshot);
+            } catch (_error) {
+                html = getPromptRecoveryContent(snapshot);
+            }
         }
         return {
             type: 'prompt-panel-updated',
@@ -374,11 +399,11 @@ export class PromptDashboardController {
             && snapshot.prompts.every(prompt => requestedIds.has(prompt.id));
     }
 
-    private getSnapshotForContent(): PromptPanelSnapshot {
+    private getSnapshotForContent(): PromptContentSnapshot {
         try {
-            return this.service.getSnapshot();
+            return { snapshot: this.service.getSnapshot(), readFailed: false };
         } catch (_error) {
-            return UNAVAILABLE_SNAPSHOT;
+            return { snapshot: UNAVAILABLE_SNAPSHOT, readFailed: true };
         }
     }
 }

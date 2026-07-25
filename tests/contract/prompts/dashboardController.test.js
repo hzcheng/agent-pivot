@@ -74,6 +74,11 @@ function createController(options = {}) {
         }
         return getPromptSurfaceContent(snapshot);
     };
+    let aiRenderCalls = 0;
+    const renderAiPanel = snapshot => {
+        aiRenderCalls += 1;
+        return options.renderAiPanel(snapshot);
+    };
     const controller = new PromptDashboardController({
         service,
         confirmDelete: async prompt => {
@@ -84,6 +89,7 @@ function createController(options = {}) {
             return options.confirmDelete === undefined ? true : options.confirmDelete;
         },
         renderPromptSurface,
+        ...(options.renderAiPanel ? { renderAiPanel } : {}),
     });
 
     return {
@@ -93,6 +99,7 @@ function createController(options = {}) {
         confirmations,
         getStored: () => clone(stored),
         getRenderCalls: () => renderCalls,
+        getAiRenderCalls: () => aiRenderCalls,
     };
 }
 
@@ -349,6 +356,31 @@ test('WEBVIEW-AI-PROMPT-MUTATION-001 ignores a reused request ID without a secon
     ]);
 });
 
+test('WEBVIEW-AI-PROMPT-MUTATION-001 treats the operation as part of the correlation identity', async () => {
+    const fixture = createController();
+    const created = await fixture.controller.handle(
+        command('create', { name: 'First', text: 'First body' })
+    );
+    const selected = await fixture.controller.handle(command(
+        'select-default',
+        { promptId: 'prompt-a' },
+        { expectedRevision: 1 }
+    ));
+    const replay = await fixture.controller.handle(command(
+        'select-default',
+        { promptId: 'prompt-a' },
+        { expectedRevision: 1 }
+    ));
+
+    assert.equal(created.success, true);
+    assert.equal(selected.success, true);
+    assert.equal(selected.operation, 'select-default');
+    assert.equal(selected.snapshot.revision, 2);
+    assert.equal(selected.snapshot.selectedPromptId, 'prompt-a');
+    assert.equal(replay, undefined);
+    assert.equal(fixture.writes.length, 2);
+});
+
 test('WEBVIEW-AI-PROMPT-MUTATION-001 uses recovery HTML when the authoritative reread fails after mutation', async () => {
     const fixture = createController({ snapshotErrorCall: 2 });
     const result = await fixture.controller.handle(
@@ -472,4 +504,58 @@ test('WEBVIEW-AI-PROMPT-MUTATION-001 creates correlated initial and refresh cont
     });
     assert.match(refresh.html, /data-prompt-surface/);
     assert.doesNotMatch(refresh.html, /data-ai-panel/);
+});
+
+test('WEBVIEW-AI-PROMPT-MUTATION-001 returns safe AI recovery content when the initial read throws', () => {
+    const fixture = createController({
+        snapshotErrorCall: 1,
+        renderAiPanel: () => {
+            throw new Error('ordinary AI renderer should not run');
+        },
+    });
+    const panel = fixture.controller.getPanelContent('load-request-1');
+
+    assert.deepEqual({
+        type: panel.type,
+        version: panel.version,
+        requestId: panel.requestId,
+        target: panel.target,
+        revision: panel.snapshot.revision,
+        readOnlyReason: panel.snapshot.readOnlyReason,
+    }, {
+        type: 'ai-panel-content',
+        version: 1,
+        requestId: 'load-request-1',
+        target: 'global-prompt-library',
+        revision: 0,
+        readOnlyReason: 'invalid-data',
+    });
+    assert.match(panel.html, /data-ai-panel/);
+    assert.match(panel.html, /data-prompt-recovery/);
+    assert.match(panel.html, /data-prompt-revision="0"/);
+    assert.doesNotMatch(panel.html, /private snapshot read failure|saved Prompt data is invalid/i);
+    assert.equal(fixture.getAiRenderCalls(), 0);
+});
+
+test('WEBVIEW-AI-PROMPT-MUTATION-001 returns safe Prompt recovery content when a refresh read throws', () => {
+    const fixture = createController({ snapshotErrorCall: 1 });
+    const refresh = fixture.controller.getRefreshContent();
+
+    assert.deepEqual({
+        type: refresh.type,
+        version: refresh.version,
+        target: refresh.target,
+        revision: refresh.snapshot.revision,
+        readOnlyReason: refresh.snapshot.readOnlyReason,
+    }, {
+        type: 'prompt-panel-updated',
+        version: 1,
+        target: 'global-prompt-library',
+        revision: 0,
+        readOnlyReason: 'invalid-data',
+    });
+    assert.match(refresh.html, /data-prompt-recovery/);
+    assert.match(refresh.html, /data-prompt-revision="0"/);
+    assert.doesNotMatch(refresh.html, /data-ai-panel|private snapshot read failure|saved Prompt data is invalid/i);
+    assert.equal(fixture.getRenderCalls(), 0);
 });

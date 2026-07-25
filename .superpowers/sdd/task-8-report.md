@@ -8,8 +8,10 @@ DONE
 - Branch: `docs/active-session-conversation-outline-design`
 - Feature commit:
   `c79db33123bb4f7624c90d68f30a93a223ef73e9 feat: expand focused Active Session cards`
-- Review: scoped self-review completed; no Critical or Important Task 8 issue
-  remains.
+- Review-fix commit:
+  `6486d602d4d91f833f3928dcb9f70a34fc472e1b fix: harden Active Session expansion recovery`
+- Review: two independent read-only review rounds completed; no Critical or
+  Important Task 8 issue remains.
 - No push was performed.
 
 ## Files
@@ -22,6 +24,8 @@ DONE
 - Modified `tests/integration/dashboard/sessionCardInteraction.test.js`
 - Created `tests/integration/dashboard/sessionConversationContent.test.js`
 - Created `tests/browser/activeSessionConversationOutline.test.js`
+- Modified `docs/testing/behavior-contracts.json`
+- Modified `scripts/run-ai-session-safety-checks.js`
 - Created `.superpowers/sdd/task-8-report.md`
 
 ## TDD RED Evidence
@@ -66,6 +70,23 @@ verification:
   card lacked `querySelector`; capture/restore helpers now fail closed on
   incomplete DOM capabilities.
 
+An independent review later found two real regressions in the originally
+committed feature. Tightened Chromium tests reproduced both before the
+follow-up implementation:
+
+- the rail reported `scrollHeight=432` but `clientHeight=0` because the height
+  variable only capped `max-height`; the strengthened geometry assertion
+  failed at `clientHeight > 0`;
+- a valid `open-workspaces-updated` replacement removed the expanded DOM
+  without restoring or cancelling it; the new test found no expanded row and
+  retained the detached observer/subscription state.
+
+After those fixes, a second read-only review found one additional dynamic
+layout bug. Removing 17 of 18 markers without resizing the viewport left both
+`clientHeight` and `scrollHeight` at `432` instead of shrinking to `24`.
+That regression was also captured as RED before adding content mutation
+observation.
+
 ## Implementation
 
 - Only a focused, non-pending Active Session row renders the chevron, closed
@@ -77,12 +98,14 @@ verification:
   panel, header, chevron, single expanded key, list height, and nearest scroll
   position in one call.
 - `syncActiveAiSessionConversationListHeight` measures the collapsed row and
-  list, removes the prior rail cap to recover natural content height, applies
-  one measured expansion delta, and constrains short viewports to a minimum
-  72 px rail.
-- A `ResizeObserver` watches the active row/list and a window resize listener
-  provides the viewport/fallback path. Collapse, replacement mismatch, and
-  cancellation disconnect the old observer and clear local expansion state.
+  list, removes the prior rail height to recover natural rail/loading content,
+  applies one measured expansion delta, gives the rail a real height, and
+  constrains short viewports to a minimum 72 px rail.
+- A `ResizeObserver` watches the active row/list, a panel-scoped
+  `MutationObserver` remeasures marker and loading/rail visibility changes,
+  and a window resize listener provides the viewport/fallback path. Collapse,
+  replacement capture/mismatch, and cancellation disconnect both observers
+  and clear local expansion state.
 - The outer Active Sessions list retains `overflow-y: auto`; only the
   Conversation rail owns constrained internal scrolling.
 - Enter and Space use the primary button's native activation. Escape from an
@@ -95,6 +118,11 @@ verification:
   scroll/focus, and issues a fresh correlated outline request.
 - A missing, changed-provider, changed-session, or no-longer-focused target
   stays closed and posts an exact newer-generation cancel.
+- `applyWorkspaceUpdate` and `applyOpenWorkspacesUpdate` share the same
+  current-workspace capture/restore/cancel lifecycle. A valid full replacement
+  restores only the exact still-focused identity; an invalid full replacement
+  rolls its DOM back, restores local focus/scroll, and issues a fresh request
+  for the newly mounted rollback DOM.
 - Expansion is held only in the live document. No conversation state is added
   to `vscode.setState`, workspace state, or global state, so a recreated
   Webview starts closed.
@@ -115,9 +143,9 @@ The browser test injects inert marker buttons only to prove nested controls and
 local scroll/focus restoration. No production marker rendering or Task 9
 styling was added.
 
-## Self-Review
+## Review
 
-The scoped review checked:
+The scoped self-review and independent reviews checked:
 
 - only the eight Task 8 feature/test/generated files changed in the feature
   commit;
@@ -129,48 +157,59 @@ The scoped review checked:
 - observers and local keys are cleared when the authoritative identity cannot
   be restored;
 - natural height is remeasured when moving from a constrained viewport back to
-  a spacious viewport;
+  a spacious viewport and when conversation content shrinks in place;
+- both authoritative current-workspace replacement paths disconnect detached
+  observers and either issue a fresh request or an exact newer cancel;
+- invalid full replacement rollback restores expansion, rail offset, marker
+  focus, and a live observer pair;
 - no `setState` call persists expansion;
 - Task 9 result/marker rendering and Task 10 production Host wiring are absent.
 
-The review found and fixed:
+The reviews found and fixed:
 
 1. detached resize-observer and expanded-key cleanup on replacement mismatch;
 2. natural-height remeasurement after a prior rail cap;
 3. focus-induced rail-scroll drift during restoration;
 4. missing DOM-capability guards required by the dashboard harness.
+5. a zero-height rail hidden by the original max-height-only browser assertion;
+6. lifecycle bypass through `open-workspaces-updated`;
+7. stale fixed height after marker content shrank without a viewport resize;
+8. an AI-session safety check that still asserted the pre-Task-8 list-height
+   formula.
+
+The final independent read-only re-review reported no Critical or Important
+findings.
 
 ## Final GREEN Evidence
 
-The final fresh verification command was:
+The final fresh verification covered:
 
 ```bash
-npm run test-compile \
-  && npx gulp --production \
-  && node --test \
-    tests/integration/dashboard/sessionCardInteraction.test.js \
-    tests/integration/dashboard/sessionConversationContent.test.js \
-  && node --test --test-concurrency=1 \
-    tests/integration/dashboard/webviewState.test.js \
-    tests/integration/dashboard/styles.test.js \
-    tests/integration/dashboard/sessionRuntimeFlow.test.js \
-  && npm run test:dashboard:run \
-  && npm run test:browser:run \
-  && npx tslint -c tslint.json \
-    src/webview/webviewContent.ts --format stylish \
-  && git diff --check \
-  && cmp src/webview/webviewProjectScripts.js \
-    media/webviewProjectScripts.js
+npm run test-compile
+npx gulp --production
+npm run test:deterministic:run
+npm run test:browser:run
+npm run test:safety:run
+npm run test:dashboard:run
+npm run test:architecture-guards
+npm run test:architecture-baseline
+npm run test:behavior-contracts
+npm run lint
+npm run lint:ci
+npx tslint -c tslint.json src/webview/webviewContent.ts --format stylish
+git diff --check
+cmp src/webview/webviewProjectScripts.js media/webviewProjectScripts.js
 ```
-
-Output: exit `0`.
 
 - TypeScript and the attention bridge compiled.
 - Production Gulp assets built.
-- Focused integration tests reported `4/4`.
-- Related dashboard integration tests reported `72/72`.
+- The complete deterministic unit/contract/integration chain passed; its final
+  integration stage reported `183/183`.
 - Dashboard Webview checks passed.
-- The complete browser suite reported `49/49`.
+- Safety, architecture guards, and architecture baseline checks passed.
+- The complete browser suite reported `50/50`; the focused Task 8 file reported
+  `5/5`.
+- Behavior catalog and main-capability unit checks reported `40/40`.
 - Task-owned TypeScript lint reported no warnings.
 - Diff whitespace and generated JS parity checks passed.
 
@@ -184,11 +223,17 @@ Additional focused browser coverage verified:
 - nested action and marker controls do not toggle;
 - a recreated document starts closed;
 - a 900 px viewport applies exactly one measured row delta and fully exposes
-  the panel;
+  the panel and all rail content;
 - a 260 px viewport keeps both headers visible and makes only the rail scroll;
+- returning to 900 px removes the prior constraint, and reducing 18 markers to
+  one without a viewport resize shrinks the rail from 432 px to 24 px;
 - matching authoritative replacement preserves expansion, rail offset, and
   focused marker while issuing a fresh request;
-- a focus/identity mismatch remains closed and emits the exact newer cancel.
+- valid full replacement does the same and disconnects the detached observer;
+- invalid full replacement rollback restores expansion/scroll/focus and issues
+  a fresh exact request;
+- a focus/identity mismatch remains closed, clears both observers and the
+  ephemeral key, and emits the exact newer cancel.
 
 `npm run lint` also exited `0`, while reporting only repository-wide existing
 warnings outside Task 8 files. `npm run lint:ci` still exits `1` for the
@@ -196,8 +241,15 @@ pre-existing `src/aiSessions/conversation/codexAppServerClient.ts` semicolon
 baseline (`0=5`). `git diff --exit-code 227f28c --` for that file is empty;
 Task 8 did not modify it.
 
+`npm run test:behavior-contracts` completes its catalog/capability unit tests
+but its final currency audit exits `1` because the branch already contains the
+unaudited Task 1–8 implementation lineage from `115a4f1` through the original
+Task 8 feature commit `c79db33`. This follow-up adds the two P0 automated
+behavior entries and owner/evidence paths; the branch-wide commit assignment
+belongs to the later capability-audit task rather than this scoped fix.
+
 ## Concerns
 
-No Task 8 implementation concern remains. The repository-wide
-`lint:ci` baseline mismatch above remains pre-existing and is intentionally not
-changed by this task.
+No Task 8 implementation concern remains. The repository-wide `lint:ci`
+baseline mismatch and branch capability-audit currency issue above remain
+pre-existing and are intentionally not broadened into this task.

@@ -626,6 +626,33 @@ test('WEBVIEW-MULTI-PROVIDER-SESSION-MENU-001 keeps the generated provider-menu 
     assert.doesNotMatch(projectSource, /type: 'select-ai-session-provider'/);
 });
 
+test('ACTIVE-SESSION-CONVERSATION-OUTLINE-001 keeps correlated outline rendering and safe marker construction in the generated controller', () => {
+    assert.equal(generatedProjectSource, projectSource);
+    assert.match(
+        projectSource,
+        /function applyAiSessionConversationOutlineResult\(message\)/
+    );
+    assert.match(
+        projectSource,
+        /function renderActiveAiSessionConversationOutline\(row, state, outline/
+    );
+    assert.match(projectSource, /message\.type !== 'ai-session-conversation-outline-result'/);
+    assert.match(projectSource, /message\.requestId !== state\.outlineRequestId/);
+    assert.match(
+        projectSource,
+        /message\.subscriptionGeneration !== state\.subscriptionGeneration/
+    );
+    assert.match(projectSource, /document\.createElement\('button'\)/);
+    assert.match(projectSource, /marker\.textContent = preview/);
+    assert.match(projectSource, /marker\.style\.setProperty\(\s*'--ai-input-ratio'/);
+    assert.match(projectSource, /type: 'open-ai-session-conversation'/);
+    assert.match(projectSource, /expectedRevision: state\.sourceRevision/);
+    assert.doesNotMatch(
+        projectSource,
+        /open-ai-session-conversation'[\s\S]{0,500}(userPreview|prompt)/
+    );
+});
+
 test('WEBVIEW-AI-PROMPT-ASSET-001 keeps the generated Prompt controller byte-identical to source', () => {
     assert.ok(fs.existsSync(generatedPromptPath), 'missing media/webviewPromptScripts.js');
     assert.equal(fs.readFileSync(generatedPromptPath, 'utf8'), promptSource);

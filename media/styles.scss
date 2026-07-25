@@ -3343,7 +3343,7 @@ body.steward-sidebar {
 
         .ai-session-conversation-panel {
             display: grid;
-            grid-template-rows: auto minmax(0, auto);
+            grid-template-rows: auto auto minmax(0, auto);
             min-height: 0;
             margin: 0 7px 7px;
             padding: 6px 7px 7px;
@@ -3367,11 +3367,23 @@ body.steward-sidebar {
         }
 
         .ai-session-conversation-loading {
-            min-height: 72px;
+            display: grid;
+            gap: 5px;
+            align-content: start;
+            min-height: 24px;
             padding: 8px 0;
             box-sizing: border-box;
             color: var(--vscode-descriptionForeground);
             font-size: 10px;
+
+            &[data-state="loading"] {
+                min-height: 72px;
+            }
+
+            &[data-state="partial"] {
+                padding: 2px 0 5px;
+                color: var(--vscode-editorWarning-foreground, var(--vscode-descriptionForeground));
+            }
         }
 
         .ai-session-conversation-loading[hidden],
@@ -3380,6 +3392,9 @@ body.steward-sidebar {
         }
 
         .ai-session-conversation-rail {
+            display: grid;
+            align-content: start;
+            gap: 1px;
             min-height: 0;
             height: var(
                 --steward-ai-session-conversation-rail-height,
@@ -3392,6 +3407,92 @@ body.steward-sidebar {
             overflow-x: hidden;
             overflow-y: auto;
             overscroll-behavior: contain;
+        }
+
+        .ai-session-conversation-marker {
+            position: relative;
+            display: block;
+            justify-self: start;
+            width: calc(var(--ai-input-ratio) * 100%);
+            min-width: 18%;
+            min-height: 24px;
+            padding: 0;
+            border: 0;
+            outline: none;
+            overflow: hidden;
+            color: transparent;
+            background: transparent;
+            font-size: 0;
+            text-align: left;
+            cursor: pointer;
+
+            &::before {
+                content: "";
+                position: absolute;
+                top: 50%;
+                left: 0;
+                width: 100%;
+                height: 2px;
+                border-radius: 999px;
+                background: var(--steward-ai-accent, var(--vscode-focusBorder));
+                opacity: .48;
+                transform: translateY(-50%);
+            }
+
+            &:hover::before,
+            &:focus-visible::before,
+            &[aria-selected="true"]::before {
+                opacity: .78;
+            }
+
+            &:focus-visible {
+                outline: 1px solid var(--vscode-focusBorder);
+                outline-offset: -2px;
+            }
+
+            &[data-latest]::before {
+                height: 3px;
+                opacity: .9;
+            }
+
+            &[data-current]::after {
+                content: "";
+                position: absolute;
+                top: 50%;
+                right: 0;
+                width: 4px;
+                height: 4px;
+                border-radius: 50%;
+                background: var(--steward-ai-accent, var(--vscode-focusBorder));
+                opacity: .65;
+                transform: translateY(-50%);
+            }
+        }
+
+        .ai-session-conversation-state-hint {
+            color: var(--vscode-descriptionForeground);
+            line-height: 1.35;
+        }
+
+        .ai-session-conversation-retry {
+            justify-self: start;
+            min-height: 24px;
+            padding: 2px 8px;
+            border: 1px solid var(--vscode-button-border, transparent);
+            border-radius: 4px;
+            color: var(--vscode-button-foreground);
+            background: var(--vscode-button-background);
+            font: inherit;
+            cursor: pointer;
+
+            &:hover:not(:disabled) {
+                background: var(--vscode-button-hoverBackground);
+            }
+
+            &:disabled {
+                cursor: default;
+                opacity: .55;
+            }
         }
 
         .codex-session-row[data-session-provider="kimi"] {

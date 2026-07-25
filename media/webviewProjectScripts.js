@@ -83,6 +83,268 @@ var activeAiSessionConversationGeneration = 0;
 var activeAiSessionConversationResizeObserver = null;
 var activeAiSessionConversationMutationObserver = null;
 var activeAiSessionConversationResizeFallbackInstalled = false;
+var activeAiSessionConversationRetryTimer = null;
+var activeAiSessionConversationRetryDeadline = 0;
+
+var ACTIVE_AI_SESSION_CONVERSATION_PREVIEW_GRAPHEMES = 160;
+var ACTIVE_AI_SESSION_CONVERSATION_MAX_INTERACTIONS = 2000;
+var ACTIVE_AI_SESSION_CONVERSATION_MAX_MESSAGE_GRAPHEMES = 64 * 1000;
+var ACTIVE_AI_SESSION_CONVERSATION_MAX_PREVIEW_CODE_UNITS = 4096;
+var ACTIVE_AI_SESSION_CONVERSATION_MAX_RETRY_AFTER_MS = 60 * 1000;
+var ACTIVE_AI_SESSION_CONVERSATION_RESPONSE_STATES = [
+    'complete', 'inProgress', 'interrupted', 'unknown',
+];
+var ACTIVE_AI_SESSION_CONVERSATION_ERROR_CODES = [
+    'unavailable', 'staleRevision', 'unsupportedVersion', 'tooLarge', 'timeout',
+];
+var ACTIVE_AI_SESSION_CONVERSATION_ERROR_REASONS = [
+    'missingSource', 'updateCodex', 'unsupportedCodexProtocol',
+    'reconnectingCodex', 'codexRetryExhausted',
+];
+var activeAiSessionConversationSegmenter = null;
+
+function isPlainConversationObject(value) {
+    return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function hasExactConversationKeys(value, required, optional) {
+    if (!isPlainConversationObject(value)) return false;
+    var requiredKeys = required || [];
+    var allowed = new Set(requiredKeys.concat(optional || []));
+    var keys = Object.keys(value);
+    return requiredKeys.every(key => Object.prototype.hasOwnProperty.call(value, key))
+        && keys.every(key => allowed.has(key));
+}
+
+function isBoundedConversationIdentity(value) {
+    return typeof value === 'string'
+        && value.trim().length > 0
+        && value.length <= 1024;
+}
+
+function conversationGraphemes(value) {
+    value = typeof value === 'string' ? value : '';
+    if (typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function') {
+        activeAiSessionConversationSegmenter =
+            activeAiSessionConversationSegmenter
+            || new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+        return Array.from(
+            activeAiSessionConversationSegmenter.segment(value),
+            segment => segment.segment
+        );
+    }
+    return Array.from(value);
+}
+
+function truncateConversationPreview(value) {
+    if (value.length <= ACTIVE_AI_SESSION_CONVERSATION_PREVIEW_GRAPHEMES) {
+        return value;
+    }
+    return conversationGraphemes(value)
+        .slice(0, ACTIVE_AI_SESSION_CONVERSATION_PREVIEW_GRAPHEMES)
+        .join('');
+}
+
+function isValidConversationSummary(summary) {
+    if (!hasExactConversationKeys(
+        summary,
+        ['id', 'userPreview', 'userGraphemeCount', 'responseState'],
+        ['providerTurnId', 'timestamp']
+    )
+        || !isBoundedConversationIdentity(summary.id)
+        || typeof summary.userPreview !== 'string'
+        || summary.userPreview.length
+            > ACTIVE_AI_SESSION_CONVERSATION_MAX_PREVIEW_CODE_UNITS
+        || conversationGraphemes(summary.userPreview).length
+            > ACTIVE_AI_SESSION_CONVERSATION_PREVIEW_GRAPHEMES
+        || !Number.isSafeInteger(summary.userGraphemeCount)
+        || summary.userGraphemeCount < 0
+        || summary.userGraphemeCount
+            > ACTIVE_AI_SESSION_CONVERSATION_MAX_MESSAGE_GRAPHEMES
+        || !ACTIVE_AI_SESSION_CONVERSATION_RESPONSE_STATES.includes(
+            summary.responseState
+        )
+        || (summary.providerTurnId !== undefined
+            && !isBoundedConversationIdentity(summary.providerTurnId))
+        || (summary.timestamp !== undefined
+            && (!Number.isFinite(summary.timestamp) || summary.timestamp < 0))) {
+        return false;
+    }
+    return true;
+}
+
+function isValidConversationOutline(outline, state) {
+    if (!hasExactConversationKeys(
+        outline,
+        [
+            'provider', 'sessionId', 'sourceRevision',
+            'totalInteractions', 'partial', 'interactions',
+        ],
+        []
+    )
+        || outline.provider !== state.provider
+        || outline.sessionId !== state.sessionId
+        || !isBoundedConversationIdentity(outline.sourceRevision)
+        || !Number.isSafeInteger(outline.totalInteractions)
+        || outline.totalInteractions < 0
+        || typeof outline.partial !== 'boolean'
+        || !Array.isArray(outline.interactions)
+        || outline.interactions.length > ACTIVE_AI_SESSION_CONVERSATION_MAX_INTERACTIONS
+        || outline.totalInteractions < outline.interactions.length
+        || (!outline.partial
+            && outline.totalInteractions !== outline.interactions.length)
+        || !outline.interactions.every(isValidConversationSummary)) {
+        return false;
+    }
+    var ids = new Set(outline.interactions.map(summary => summary.id));
+    return ids.size === outline.interactions.length;
+}
+
+function isValidConversationError(error, state) {
+    if (!hasExactConversationKeys(error, ['code'], ['reason', 'retryAfterMs'])
+        || !ACTIVE_AI_SESSION_CONVERSATION_ERROR_CODES.includes(error.code)
+        || (error.reason !== undefined
+            && !ACTIVE_AI_SESSION_CONVERSATION_ERROR_REASONS.includes(error.reason))
+        || (error.retryAfterMs !== undefined
+            && (!Number.isSafeInteger(error.retryAfterMs)
+                || error.retryAfterMs < 0
+                || error.retryAfterMs
+                    > ACTIVE_AI_SESSION_CONVERSATION_MAX_RETRY_AFTER_MS))) {
+        return false;
+    }
+    if ([
+        'updateCodex', 'unsupportedCodexProtocol',
+        'reconnectingCodex', 'codexRetryExhausted',
+    ].includes(error.reason)
+        && state.provider !== 'codex') {
+        return false;
+    }
+    if ((error.reason === 'updateCodex'
+            || error.reason === 'reconnectingCodex'
+            || error.reason === 'codexRetryExhausted')
+        && error.code !== 'unavailable') {
+        return false;
+    }
+    if (error.reason === 'unsupportedCodexProtocol'
+        && error.code !== 'unsupportedVersion') {
+        return false;
+    }
+    if (error.reason === 'codexRetryExhausted'
+        && (!Number.isSafeInteger(error.retryAfterMs)
+            || error.retryAfterMs <= 0)) {
+        return false;
+    }
+    return true;
+}
+
+function clearActiveAiSessionConversationRetryTimer() {
+    if (activeAiSessionConversationRetryTimer !== null) {
+        window.clearTimeout(activeAiSessionConversationRetryTimer);
+        activeAiSessionConversationRetryTimer = null;
+    }
+    activeAiSessionConversationRetryDeadline = 0;
+}
+
+function clearConversationElement(element) {
+    if (!element) return;
+    while (element.firstChild) {
+        element.removeChild(element.firstChild);
+    }
+}
+
+function setActiveAiSessionConversationStatus(
+    row,
+    stateName,
+    text,
+    hint,
+    retryAfterMs
+) {
+    var panel = row && row.querySelector('[data-ai-session-conversation-panel]');
+    var status = panel && panel.querySelector('.ai-session-conversation-loading');
+    if (!status) return null;
+    clearConversationElement(status);
+    status.hidden = false;
+    status.setAttribute('data-ai-session-conversation-state', '');
+    status.setAttribute('data-state', stateName);
+    var textNode = document.createElement('span');
+    textNode.textContent = text;
+    status.appendChild(textNode);
+    if (hint) {
+        var hintNode = document.createElement('span');
+        hintNode.className = 'ai-session-conversation-state-hint';
+        hintNode.textContent = hint;
+        status.appendChild(hintNode);
+    }
+    if (stateName !== 'loading' && stateName !== 'empty'
+        && stateName !== 'partial') {
+        var retry = document.createElement('button');
+        retry.type = 'button';
+        retry.className = 'ai-session-conversation-retry';
+        retry.setAttribute('data-action', 'retry-ai-session-conversation');
+        retry.textContent = 'Retry';
+        var delay = Number.isSafeInteger(retryAfterMs) && retryAfterMs > 0
+            ? retryAfterMs
+            : 0;
+        retry.disabled = delay > 0;
+        retry.addEventListener('click', event => {
+            event.preventDefault();
+            event.stopPropagation();
+            if (retry.disabled
+                || activeAiSessionConversationSubscription === null) return;
+            var currentRow = getCurrentActiveAiSessionConversationRow(
+                activeAiSessionConversationSubscription
+            );
+            if (currentRow === row) {
+                requestActiveAiSessionConversation(row);
+            }
+        });
+        status.appendChild(retry);
+        if (delay > 0) {
+            activeAiSessionConversationRetryDeadline = Date.now() + delay;
+            var retryState = activeAiSessionConversationSubscription;
+            var enableRetry = () => {
+                if (activeAiSessionConversationSubscription !== retryState
+                    || !retry.isConnected) {
+                    clearActiveAiSessionConversationRetryTimer();
+                    return;
+                }
+                var remaining = activeAiSessionConversationRetryDeadline - Date.now();
+                if (remaining > 0) {
+                    activeAiSessionConversationRetryTimer = window.setTimeout(
+                        enableRetry,
+                        remaining
+                    );
+                    return;
+                }
+                retry.disabled = false;
+                activeAiSessionConversationRetryTimer = null;
+                activeAiSessionConversationRetryDeadline = 0;
+            };
+            activeAiSessionConversationRetryTimer = window.setTimeout(
+                enableRetry,
+                delay
+            );
+        }
+    }
+    return status;
+}
+
+function prepareActiveAiSessionConversationLoading(row) {
+    clearActiveAiSessionConversationRetryTimer();
+    var panel = row && row.querySelector('[data-ai-session-conversation-panel]');
+    var rail = panel && panel.querySelector('[data-ai-session-conversation-rail]');
+    var count = panel && panel.querySelector('[data-ai-session-conversation-count]');
+    if (!panel || !rail || !count) return false;
+    clearConversationElement(rail);
+    rail.hidden = true;
+    count.textContent = '0';
+    setActiveAiSessionConversationStatus(
+        row,
+        'loading',
+        'Loading conversation…'
+    );
+    return true;
+}
 
 function getActiveAiSessionConversationTarget(row) {
     if (!row || typeof row.closest !== 'function') return null;
@@ -116,13 +378,22 @@ function nextActiveAiSessionConversationEnvelope(target) {
     };
 }
 
-function requestActiveAiSessionConversation(row) {
+function requestActiveAiSessionConversation(row, restoreState) {
     var target = getActiveAiSessionConversationTarget(row);
     if (!target || !window.vscode || typeof window.vscode.postMessage !== 'function') {
         return false;
     }
+    prepareActiveAiSessionConversationLoading(row);
     var envelope = nextActiveAiSessionConversationEnvelope(target);
-    activeAiSessionConversationSubscription = Object.assign({}, target, envelope);
+    activeAiSessionConversationSubscription = Object.assign({}, target, envelope, {
+        outlineRequestId: envelope.requestId,
+        requestId: activeAiSessionConversationRequestId,
+        expanded: true,
+        sourceRevision: null,
+        interactionIds: new Set(),
+        hasRenderedOutline: false,
+        restoreState: restoreState || null,
+    });
     window.vscode.postMessage(Object.assign({
         type: 'request-ai-session-conversation-outline',
     }, envelope));
@@ -131,6 +402,7 @@ function requestActiveAiSessionConversation(row) {
 
 function cancelActiveAiSessionConversation(target) {
     target = target || activeAiSessionConversationSubscription;
+    clearActiveAiSessionConversationRetryTimer();
     if (!target || !window.vscode || typeof window.vscode.postMessage !== 'function') {
         activeAiSessionConversationSubscription = null;
         expandedActiveAiSessionConversationKey = null;
@@ -145,6 +417,369 @@ function cancelActiveAiSessionConversation(target) {
     expandedActiveAiSessionConversationKey = null;
     disconnectActiveAiSessionConversationResizeObserver();
     return true;
+}
+
+function getCurrentActiveAiSessionConversationRow(state) {
+    if (!state
+        || typeof document === 'undefined'
+        || typeof document.querySelectorAll !== 'function') return null;
+    return Array.from(document.querySelectorAll(
+        '.workspace-card[data-current-workspace][data-id] '
+        + '.active-ai-session-row[data-conversation-expanded][data-session-focused]'
+    )).find(row => {
+        var target = getActiveAiSessionConversationTarget(row);
+        return target
+            && target.projectId === state.projectId
+            && target.provider === state.provider
+            && target.sessionId === state.sessionId
+            && getActiveAiSessionConversationKey(target)
+                === expandedActiveAiSessionConversationKey;
+    }) || null;
+}
+
+function setConversationMarkerSelection(markers, index, shouldFocus) {
+    if (!markers.length) return;
+    var bounded = Math.max(0, Math.min(markers.length - 1, index));
+    markers.forEach((marker, markerIndex) => {
+        var selected = markerIndex === bounded;
+        marker.tabIndex = selected ? 0 : -1;
+        marker.setAttribute('aria-selected', selected ? 'true' : 'false');
+    });
+    if (shouldFocus) {
+        markers[bounded]?.focus({ preventScroll: true });
+    }
+}
+
+function focusConversationMarker(markers, index) {
+    setConversationMarkerSelection(markers, index, true);
+}
+
+function activateConversationMarker(marker, state, vscode) {
+    if (!marker || !state || !state.expanded || !state.sourceRevision
+        || state !== activeAiSessionConversationSubscription
+        || getCurrentActiveAiSessionConversationRow(state) === null
+        || !vscode || typeof vscode.postMessage !== 'function') return;
+    var interactionId = marker.getAttribute('data-interaction-id') || '';
+    if (!state.interactionIds.has(interactionId)) return;
+    activeAiSessionConversationRequestId += 1;
+    state.requestId = activeAiSessionConversationRequestId;
+    vscode.postMessage({
+        type: 'open-ai-session-conversation',
+        version: 1,
+        requestId: state.requestId,
+        subscriptionGeneration: state.subscriptionGeneration,
+        projectId: state.projectId,
+        provider: state.provider,
+        sessionId: state.sessionId,
+        interactionId: interactionId,
+        expectedRevision: state.sourceRevision,
+    });
+}
+
+function getConversationTimestampLabel(timestamp) {
+    if (timestamp === undefined) return 'Time unavailable';
+    try {
+        return new Date(timestamp).toISOString();
+    } catch (_error) {
+        return 'Time unavailable';
+    }
+}
+
+function getConversationAutoScrollThreshold(rail) {
+    var value = rail && rail.getAttribute('data-auto-scroll-threshold');
+    if (typeof value !== 'string'
+        || !/^(?:\d+|\d*\.\d+)$/.test(value.trim())) return null;
+    var threshold = Number(value);
+    return Number.isFinite(threshold) && threshold >= 0 ? threshold : null;
+}
+
+function revealConversationMarker(rail, marker) {
+    if (!rail || !marker || rail.scrollHeight <= rail.clientHeight) return;
+    var railRect = rail.getBoundingClientRect();
+    var markerRect = marker.getBoundingClientRect();
+    if (markerRect.bottom > railRect.bottom) {
+        rail.scrollTop += markerRect.bottom - railRect.bottom;
+    } else if (markerRect.top < railRect.top) {
+        rail.scrollTop -= railRect.top - markerRect.top;
+    }
+}
+
+function handleConversationMarkerKeydown(event, marker, state) {
+    var rail = marker && marker.closest('[data-ai-session-conversation-rail]');
+    var markers = rail ? Array.from(rail.querySelectorAll(
+        '[data-ai-session-conversation-marker]'
+    )) : [];
+    var index = markers.indexOf(marker);
+    if (index < 0) return;
+    var destination = null;
+    if (event.key === 'ArrowUp') destination = index - 1;
+    else if (event.key === 'ArrowDown') destination = index + 1;
+    else if (event.key === 'Home') destination = 0;
+    else if (event.key === 'End') destination = markers.length - 1;
+    else if (event.key === 'Enter') {
+        event.preventDefault();
+        event.stopPropagation();
+        activateConversationMarker(marker, state, window.vscode);
+        return;
+    } else {
+        return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    focusConversationMarker(markers, destination);
+    revealConversationMarker(
+        rail,
+        markers[Math.max(0, Math.min(markers.length - 1, destination))]
+    );
+}
+
+function renderActiveAiSessionConversationOutline(row, state, outline) {
+    var panel = row && row.querySelector('[data-ai-session-conversation-panel]');
+    var rail = panel && panel.querySelector('[data-ai-session-conversation-rail]');
+    var count = panel && panel.querySelector('[data-ai-session-conversation-count]');
+    var status = panel && panel.querySelector('.ai-session-conversation-loading');
+    if (!panel || !rail || !count || !status) return false;
+
+    clearActiveAiSessionConversationRetryTimer();
+    var previousScrollTop = rail.scrollTop;
+    var focusedMarker = rail.querySelector(
+        '[data-ai-session-conversation-marker]:focus'
+    );
+    var focusedInteractionId = focusedMarker
+        ? focusedMarker.getAttribute('data-interaction-id') || ''
+        : '';
+    var threshold = getConversationAutoScrollThreshold(rail);
+    var wasAtEnd = state.hasRenderedOutline
+        && threshold !== null
+        && rail.scrollHeight - rail.clientHeight - rail.scrollTop <= threshold;
+    var restoreState = state.restoreState;
+    state.restoreState = null;
+
+    clearConversationElement(rail);
+    state.sourceRevision = outline.sourceRevision;
+    state.interactionIds = new Set(outline.interactions.map(summary => summary.id));
+    var longest = Math.max(
+        1,
+        ...outline.interactions.map(summary => summary.userGraphemeCount)
+    );
+    var selectedInteractionId = restoreState?.focusedInteractionId
+        || focusedInteractionId
+        || outline.interactions.at(-1)?.id
+        || '';
+
+    outline.interactions.forEach((summary, index) => {
+        var marker = document.createElement('button');
+        var preview = truncateConversationPreview(summary.userPreview);
+        var ratio = Math.max(
+            0.18,
+            Math.min(1, summary.userGraphemeCount / longest)
+        );
+        marker.type = 'button';
+        marker.className = 'ai-session-conversation-marker';
+        marker.setAttribute('data-ai-session-conversation-marker', '');
+        marker.setAttribute('data-interaction-id', summary.id);
+        marker.setAttribute('data-response-state', summary.responseState);
+        marker.setAttribute('role', 'option');
+        marker.textContent = preview;
+        var label = getConversationTimestampLabel(summary.timestamp)
+            + ' — ' + preview;
+        marker.title = label;
+        marker.setAttribute('aria-label', label);
+        marker.style.setProperty(
+            '--ai-input-ratio',
+            String(ratio)
+        );
+        if (index === outline.interactions.length - 1) {
+            marker.setAttribute('data-latest', '');
+        }
+        if (summary.responseState === 'inProgress') {
+            marker.setAttribute('data-current', '');
+        }
+        marker.addEventListener('click', event => {
+            event.preventDefault();
+            event.stopPropagation();
+            activateConversationMarker(marker, state, window.vscode);
+        });
+        marker.addEventListener('keydown', event => {
+            handleConversationMarkerKeydown(event, marker, state);
+        });
+        rail.appendChild(marker);
+    });
+
+    var markers = Array.from(rail.querySelectorAll(
+        '[data-ai-session-conversation-marker]'
+    ));
+    var selectedIndex = markers.findIndex(marker =>
+        marker.getAttribute('data-interaction-id') === selectedInteractionId
+    );
+    setConversationMarkerSelection(
+        markers,
+        selectedIndex >= 0 ? selectedIndex : markers.length - 1,
+        false
+    );
+
+    count.textContent = outline.partial
+        && outline.totalInteractions > ACTIVE_AI_SESSION_CONVERSATION_MAX_INTERACTIONS
+        ? '2,000+'
+        : String(outline.totalInteractions);
+    if (!markers.length) {
+        rail.hidden = true;
+        setActiveAiSessionConversationStatus(
+            row,
+            'empty',
+            'No user inputs yet'
+        );
+        state.hasRenderedOutline = true;
+        syncActiveAiSessionConversationListHeight(row);
+        return true;
+    }
+
+    rail.hidden = false;
+    if (outline.partial) {
+        setActiveAiSessionConversationStatus(
+            row,
+            'partial',
+            'Older inputs omitted'
+        );
+    } else {
+        status.hidden = true;
+        status.removeAttribute('data-state');
+    }
+    syncActiveAiSessionConversationListHeight(row);
+
+    var restoredMarker = restoreState?.focusedInteractionId
+        ? markers.find(marker =>
+            marker.getAttribute('data-interaction-id')
+                === restoreState.focusedInteractionId
+        )
+        : null;
+    var retainedFocusedMarker = !restoredMarker && focusedInteractionId
+        ? markers.find(marker =>
+            marker.getAttribute('data-interaction-id') === focusedInteractionId
+        )
+        : null;
+    if (restoreState) {
+        rail.scrollTop = restoreState.railScrollTop || 0;
+        if (restoredMarker) {
+            focusConversationMarker(markers, markers.indexOf(restoredMarker));
+            rail.scrollTop = restoreState.railScrollTop || 0;
+        }
+    } else if (!state.hasRenderedOutline) {
+        var latest = markers.at(-1);
+        revealConversationMarker(rail, latest);
+    } else if (wasAtEnd) {
+        if (retainedFocusedMarker) {
+            focusConversationMarker(
+                markers,
+                markers.indexOf(retainedFocusedMarker)
+            );
+        }
+        rail.scrollTop = Math.max(0, rail.scrollHeight - rail.clientHeight);
+    } else {
+        rail.scrollTop = previousScrollTop;
+        if (retainedFocusedMarker) {
+            focusConversationMarker(
+                markers,
+                markers.indexOf(retainedFocusedMarker)
+            );
+            rail.scrollTop = previousScrollTop;
+        }
+    }
+    state.hasRenderedOutline = true;
+    return true;
+}
+
+function renderActiveAiSessionConversationError(row, state, error) {
+    clearActiveAiSessionConversationRetryTimer();
+    var panel = row && row.querySelector('[data-ai-session-conversation-panel]');
+    var rail = panel && panel.querySelector('[data-ai-session-conversation-rail]');
+    var count = panel && panel.querySelector('[data-ai-session-conversation-count]');
+    if (!panel || !rail || !count) return false;
+    clearConversationElement(rail);
+    rail.hidden = true;
+    count.textContent = '0';
+    state.sourceRevision = null;
+    state.interactionIds = new Set();
+    state.hasRenderedOutline = false;
+
+    var stateName = error.code === 'staleRevision' ? 'stale' : 'unavailable';
+    var text = error.code === 'staleRevision'
+        ? 'Conversation history changed'
+        : error.code === 'tooLarge'
+            ? 'Conversation history is too large'
+            : error.code === 'timeout'
+                ? 'Conversation history timed out'
+                : 'Conversation history unavailable';
+    var hint = '';
+    if (error.reason === 'reconnectingCodex') {
+        stateName = 'reconnecting';
+        text = 'Reconnecting to Codex…';
+    } else if (error.reason === 'codexRetryExhausted') {
+        text = 'Codex conversation history unavailable';
+    } else if (error.reason === 'updateCodex') {
+        text = 'Update Codex to view conversation history';
+    } else if (error.reason === 'unsupportedCodexProtocol') {
+        text = 'Installed Codex protocol is not supported';
+        hint = 'Compare your installed Codex and Project Steward versions';
+    }
+    setActiveAiSessionConversationStatus(
+        row,
+        stateName,
+        text,
+        hint,
+        error.retryAfterMs
+    );
+    syncActiveAiSessionConversationListHeight(row);
+    return true;
+}
+
+function applyAiSessionConversationOutlineResult(message) {
+    var state = activeAiSessionConversationSubscription;
+    var hasPayload = isPlainConversationObject(message)
+        && Object.prototype.hasOwnProperty.call(message, 'payload');
+    var hasError = isPlainConversationObject(message)
+        && Object.prototype.hasOwnProperty.call(message, 'error');
+    var messageKeys = [
+        'type', 'version', 'requestId', 'subscriptionGeneration',
+        'projectId', 'provider', 'sessionId',
+    ];
+    if (!state
+        || !hasExactConversationKeys(
+            message,
+            messageKeys.concat(hasPayload ? ['payload'] : ['error']),
+            []
+        )
+        || hasPayload === hasError
+        || message.type !== 'ai-session-conversation-outline-result'
+        || message.version !== 1
+        || !Number.isSafeInteger(message.requestId)
+        || message.requestId < 1
+        || !Number.isSafeInteger(message.subscriptionGeneration)
+        || message.subscriptionGeneration < 0
+        || !isBoundedConversationIdentity(message.projectId)
+        || (message.provider !== 'codex'
+            && message.provider !== 'kimi'
+            && message.provider !== 'claude')
+        || !isBoundedConversationIdentity(message.sessionId)
+        || message.requestId !== state.outlineRequestId
+        || message.subscriptionGeneration !== state.subscriptionGeneration
+        || message.projectId !== state.projectId
+        || message.provider !== state.provider
+        || message.sessionId !== state.sessionId) {
+        return false;
+    }
+    var row = getCurrentActiveAiSessionConversationRow(state);
+    if (!row) return false;
+    if (hasPayload) {
+        return isValidConversationOutline(message.payload, state)
+            && renderActiveAiSessionConversationOutline(
+                row,
+                state,
+                message.payload
+            );
+    }
+    return isValidConversationError(message.error, state)
+        && renderActiveAiSessionConversationError(row, state, message.error);
 }
 
 function disconnectActiveAiSessionConversationResizeObserver() {
@@ -337,6 +972,7 @@ function applyActiveAiSessionConversationState(row, expanded) {
     )) {
         expandedActiveAiSessionConversationKey = null;
     }
+    prepareActiveAiSessionConversationLoading(row);
     disconnectActiveAiSessionConversationResizeObserver();
     return true;
 }
@@ -367,6 +1003,16 @@ function collapseActiveAiSessionConversation() {
     applyActiveAiSessionConversationState(row, false);
     cancelActiveAiSessionConversation(target);
     return true;
+}
+
+function disposeActiveAiSessionConversation() {
+    clearActiveAiSessionConversationRetryTimer();
+    if (activeAiSessionConversationSubscription) {
+        activeAiSessionConversationSubscription.expanded = false;
+    }
+    activeAiSessionConversationSubscription = null;
+    expandedActiveAiSessionConversationKey = null;
+    disconnectActiveAiSessionConversationResizeObserver();
 }
 
 function captureExpandedConversationState(projectDiv) {
@@ -406,20 +1052,7 @@ function restoreExpandedConversationState(row, state) {
     if (!row || !state || !applyActiveAiSessionConversationState(row, true)) {
         return false;
     }
-    var rail = row.querySelector('[data-ai-session-conversation-rail]');
-    if (rail) {
-        var marker = state.focusedInteractionId
-            ? Array.from(rail.querySelectorAll(
-                '[data-ai-session-conversation-marker][data-interaction-id]'
-            )).find(candidate =>
-                candidate.getAttribute('data-interaction-id')
-                    === state.focusedInteractionId
-            )
-            : null;
-        marker?.focus({ preventScroll: true });
-        rail.scrollTop = state.railScrollTop || 0;
-    }
-    requestActiveAiSessionConversation(row);
+    requestActiveAiSessionConversation(row, state);
     return true;
 }
 
@@ -1101,6 +1734,7 @@ function initProjects() {
     var pendingAiSessionProviderSelectionProjectId = null;
     var pendingAiSessionProviderSelectionRequestId = null;
     var pendingAiSessionProviderSelectionProviders = [];
+    window.addEventListener('pagehide', disposeActiveAiSessionConversation);
 
     function isDedicatedTodoTarget(target) {
         return Boolean(window.__projectStewardTodo
@@ -2599,6 +3233,11 @@ function initProjects() {
 
     function onWindowMessage(e) {
         var message = e && e.data;
+        if (message
+            && message.type === 'ai-session-conversation-outline-result') {
+            applyAiSessionConversationOutlineResult(message);
+            return;
+        }
         if (message && message.type === 'todo-mutation-result') {
             applyTodoMutationResult(message, document);
             return;

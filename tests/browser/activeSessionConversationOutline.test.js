@@ -141,6 +141,7 @@ function documentMarkup(activeAiSessions) {
 async function openConversationPage(t, activeAiSessions, viewport = { width: 360, height: 900 }) {
     const page = await browser.newPage({ viewport });
     t.after(() => page.close());
+    page.setDefaultTimeout(BROWSER_CONDITION_TIMEOUT_MS);
     await page.setContent(documentMarkup(activeAiSessions));
     await page.evaluate(() => {
         window.__postedMessages = [];
@@ -183,6 +184,73 @@ function row(page, provider, sessionId) {
 
 async function postedMessages(page) {
     return page.evaluate(() => window.__postedMessages);
+}
+
+async function postHostMessage(page, message) {
+    await page.evaluate(value => {
+        window.dispatchEvent(new MessageEvent('message', { data: value }));
+    }, message);
+}
+
+function summary(id, userGraphemeCount, userPreview, overrides = {}) {
+    return {
+        id,
+        timestamp: 1_767_225_600_000,
+        userPreview,
+        userGraphemeCount,
+        responseState: 'complete',
+        ...overrides,
+    };
+}
+
+function summaries(count, prefix = 'interaction') {
+    return Array.from({ length: count }, (_, index) =>
+        summary(`${prefix}-${index}`, index + 1, `Input ${index + 1}`)
+    );
+}
+
+function outlineResult({
+    requestId = 1,
+    subscriptionGeneration = 1,
+    projectId = 'project-a',
+    provider = 'codex',
+    sessionId = 'session-a',
+    sourceRevision = 'r1',
+    interactions = [],
+    totalInteractions = interactions.length,
+    partial = false,
+} = {}) {
+    return {
+        type: 'ai-session-conversation-outline-result',
+        version: 1,
+        requestId,
+        subscriptionGeneration,
+        projectId,
+        provider,
+        sessionId,
+        payload: {
+            provider,
+            sessionId,
+            sourceRevision,
+            totalInteractions,
+            partial,
+            interactions,
+        },
+    };
+}
+
+function outlineError(error, overrides = {}) {
+    return {
+        type: 'ai-session-conversation-outline-result',
+        version: 1,
+        requestId: 1,
+        subscriptionGeneration: 1,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+        error,
+        ...overrides,
+    };
 }
 
 async function conversationMessages(page) {
@@ -298,6 +366,626 @@ async function postInvalidOpenWorkspacesUpdate(page, semanticRevision) {
     }, semanticRevision);
 }
 
+test('ACTIVE-SESSION-CONVERSATION-OUTLINE-001 renders only an exact current focused expansion result', async t => {
+    const page = await openConversationPage(t, [
+        session('codex', 'session-a', true),
+    ]);
+    const focused = row(page, 'codex', 'session-a');
+    await focused.locator('.ai-session-primary-action').click();
+    const rail = focused.locator('[data-ai-session-conversation-rail]');
+
+    const invalidResults = [
+        { ...outlineResult({ interactions: [summary('version', 1, 'Version')] }), version: 2 },
+        { ...outlineResult({ interactions: [summary('fractional-request', 1, 'Request')] }), requestId: 1.5 },
+        { ...outlineResult({ interactions: [summary('unsafe-request', 1, 'Request')] }), requestId: Number.MAX_SAFE_INTEGER + 1 },
+        { ...outlineResult({ interactions: [summary('future', 1, 'Future')] }), requestId: 2 },
+        { ...outlineResult({ interactions: [summary('generation', 1, 'Generation')] }), subscriptionGeneration: 0 },
+        { ...outlineResult({ interactions: [summary('fractional-generation', 1, 'Generation')] }), subscriptionGeneration: 1.5 },
+        outlineResult({ projectId: 'project-b', interactions: [summary('project', 1, 'Project')] }),
+        outlineResult({ provider: 'kimi', interactions: [summary('provider', 1, 'Provider')] }),
+        outlineResult({ sessionId: 'session-b', interactions: [summary('session', 1, 'Session')] }),
+        { ...outlineResult({ interactions: [summary('extra-envelope', 1, 'Extra')] }), undocumented: true },
+        {
+            ...outlineResult({ interactions: [summary('both', 1, 'Both')] }),
+            error: { code: 'unavailable' },
+        },
+        {
+            ...outlineResult({ interactions: [summary('payload-provider', 1, 'Payload')] }),
+            payload: {
+                ...outlineResult().payload,
+                provider: 'kimi',
+                interactions: [summary('payload-provider', 1, 'Payload')],
+                totalInteractions: 1,
+            },
+        },
+        {
+            ...outlineResult({ interactions: [summary('payload-session', 1, 'Payload')] }),
+            payload: {
+                ...outlineResult().payload,
+                sessionId: 'session-b',
+                interactions: [summary('payload-session', 1, 'Payload')],
+                totalInteractions: 1,
+            },
+        },
+        {
+            ...outlineResult({ interactions: [summary('revision', 1, 'Revision')] }),
+            payload: {
+                ...outlineResult().payload,
+                sourceRevision: '',
+                interactions: [summary('revision', 1, 'Revision')],
+                totalInteractions: 1,
+            },
+        },
+        outlineResult({
+            interactions: [{ ...summary('malformed', 1, 'Malformed'), userGraphemeCount: -1 }],
+        }),
+        outlineResult({
+            interactions: [summary('oversized-count', 64_001, 'Oversized count')],
+        }),
+        outlineResult({
+            interactions: [summary('oversized-preview', 161, 'x'.repeat(161))],
+        }),
+        outlineResult({
+            interactions: [summary('oversized-code-units', 1, 'e\u0301'.repeat(2_049))],
+        }),
+        outlineResult({
+            interactions: [{ ...summary('response', 1, 'Response'), responseState: 'streaming' }],
+        }),
+        outlineResult({
+            interactions: [
+                summary('duplicate', 1, 'First'),
+                summary('duplicate', 2, 'Second'),
+            ],
+        }),
+        {
+            ...outlineResult({ interactions: [summary('extra', 1, 'Extra')] }),
+            payload: {
+                ...outlineResult().payload,
+                interactions: [summary('extra', 1, 'Extra')],
+                totalInteractions: 1,
+                undocumented: true,
+            },
+        },
+        outlineError({ code: 'unknown' }),
+        outlineError({
+            code: 'unavailable',
+            reason: 'unsupportedCodexProtocol',
+        }),
+        outlineError({
+            code: 'unavailable',
+            reason: 'codexRetryExhausted',
+            retryAfterMs: 0,
+        }),
+        outlineError({
+            code: 'unavailable',
+            reason: 'reconnectingCodex',
+            retryAfterMs: 60_001,
+        }),
+        {
+            ...outlineError({ code: 'unavailable' }),
+            error: { code: 'unavailable', undocumented: true },
+        },
+    ];
+    for (const result of invalidResults) {
+        await postHostMessage(page, result);
+    }
+    assert.equal(await rail.locator('[data-ai-session-conversation-marker]').count(), 0);
+    assert.equal(
+        await focused.locator('.ai-session-conversation-loading').textContent(),
+        'Loading conversation…'
+    );
+
+    await postHostMessage(page, outlineResult({
+        interactions: [summary('current', 12, 'Current input')],
+    }));
+    assert.equal(await rail.locator('[data-ai-session-conversation-marker]').count(), 1);
+    assert.equal(
+        await rail.locator('[data-ai-session-conversation-marker]').getAttribute(
+            'data-interaction-id'
+        ),
+        'current'
+    );
+
+    const closedPage = await openConversationPage(t, [
+        session('codex', 'session-a', true),
+    ]);
+    const closedRow = row(closedPage, 'codex', 'session-a');
+    await closedRow.locator('.ai-session-primary-action').click();
+    await closedRow.locator('.ai-session-primary-action').click();
+    await postHostMessage(closedPage, outlineResult({
+        interactions: [summary('closed', 4, 'Closed input')],
+    }));
+    assert.equal(
+        await closedRow.locator('[data-ai-session-conversation-marker]').count(),
+        0
+    );
+
+    const unfocusedPage = await openConversationPage(t, [
+        session('codex', 'session-a', true),
+    ]);
+    const unfocusedRow = row(unfocusedPage, 'codex', 'session-a');
+    await unfocusedRow.locator('.ai-session-primary-action').click();
+    await unfocusedRow.evaluate(node => node.removeAttribute('data-session-focused'));
+    await postHostMessage(unfocusedPage, outlineResult({
+        interactions: [summary('unfocused', 4, 'Unfocused input')],
+    }));
+    assert.equal(
+        await unfocusedRow.locator('[data-ai-session-conversation-marker]').count(),
+        0
+    );
+
+    const replacedPage = await openConversationPage(t, [
+        session('codex', 'session-a', true),
+    ]);
+    await row(replacedPage, 'codex', 'session-a')
+        .locator('.ai-session-primary-action').click();
+    await postWorkspaceUpdate(replacedPage, [
+        session('codex', 'session-a', true),
+    ]);
+    const replacedRow = row(replacedPage, 'codex', 'session-a');
+    await postHostMessage(replacedPage, outlineResult({
+        requestId: 1,
+        subscriptionGeneration: 1,
+        interactions: [summary('older-request', 3, 'Older request')],
+    }));
+    await postHostMessage(replacedPage, outlineResult({
+        requestId: 2,
+        subscriptionGeneration: 1,
+        interactions: [summary('older-generation', 3, 'Older generation')],
+    }));
+    assert.equal(
+        await replacedRow.locator('[data-ai-session-conversation-marker]').count(),
+        0
+    );
+    await postHostMessage(replacedPage, outlineResult({
+        requestId: 2,
+        subscriptionGeneration: 2,
+        interactions: [summary('replacement-current', 3, 'Replacement current')],
+    }));
+    assert.equal(
+        await replacedRow.locator('[data-interaction-id="replacement-current"]').count(),
+        1
+    );
+});
+
+test('ACTIVE-SESSION-CONVERSATION-STATES-001 distinguishes loading, empty, stale, partial, and exact Codex errors', async t => {
+    const page = await openConversationPage(t, [
+        session('codex', 'session-a', true),
+    ]);
+    const focused = row(page, 'codex', 'session-a');
+    await focused.locator('.ai-session-primary-action').click();
+    const panel = focused.locator('[data-ai-session-conversation-panel]');
+    const state = panel.locator('.ai-session-conversation-loading');
+    const count = panel.locator('[data-ai-session-conversation-count]');
+
+    assert.equal(await state.getAttribute('data-state'), 'loading');
+    assert.equal(await state.textContent(), 'Loading conversation…');
+
+    await postHostMessage(page, outlineResult());
+    assert.equal(await state.getAttribute('data-state'), 'empty');
+    assert.equal(await state.textContent(), 'No user inputs yet');
+    assert.equal(await count.textContent(), '0');
+
+    await postHostMessage(page, outlineError({
+        code: 'unavailable',
+        reason: 'missingSource',
+    }));
+    assert.equal(await state.getAttribute('data-state'), 'unavailable');
+    assert.match(await state.textContent(), /Conversation history unavailable/);
+
+    await postHostMessage(page, outlineError({ code: 'staleRevision' }));
+    assert.equal(await state.getAttribute('data-state'), 'stale');
+    assert.match(await state.textContent(), /Conversation history changed/);
+
+    await postHostMessage(page, outlineResult({
+        totalInteractions: 2_001,
+        partial: true,
+        interactions: [
+            summary('recent-1', 2, 'Recent one'),
+            summary('recent-2', 3, 'Recent two'),
+        ],
+    }));
+    assert.equal(await state.getAttribute('data-state'), 'partial');
+    assert.match(await state.textContent(), /Older inputs omitted/);
+    assert.equal(await count.textContent(), '2,000+');
+
+    await postHostMessage(page, outlineError({
+        code: 'unavailable',
+        reason: 'updateCodex',
+    }));
+    assert.equal(await state.textContent(), 'Update Codex to view conversation historyRetry');
+
+    await postHostMessage(page, outlineError({
+        code: 'unsupportedVersion',
+        reason: 'unsupportedCodexProtocol',
+    }));
+    assert.match(await state.textContent(), /Installed Codex protocol is not supported/);
+    assert.match(
+        await state.textContent(),
+        /Compare your installed Codex and Project Steward versions/
+    );
+
+    await postHostMessage(page, outlineError({
+        code: 'unavailable',
+        reason: 'reconnectingCodex',
+    }));
+    assert.match(await state.textContent(), /Reconnecting to Codex…/);
+    const reconnectRetry = state.locator('button', { hasText: 'Retry' });
+    assert.equal(await reconnectRetry.isEnabled(), true);
+    await reconnectRetry.click();
+    assert.deepEqual((await conversationMessages(page)).at(-1), {
+        type: 'request-ai-session-conversation-outline',
+        version: 1,
+        requestId: 2,
+        subscriptionGeneration: 2,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    });
+
+    await postHostMessage(page, outlineError({
+        code: 'unavailable',
+        reason: 'codexRetryExhausted',
+        retryAfterMs: 25,
+    }, {
+        requestId: 2,
+        subscriptionGeneration: 2,
+    }));
+    assert.match(await state.textContent(), /Codex conversation history unavailable/);
+    const exhaustedRetry = state.locator('button', { hasText: 'Retry' });
+    assert.equal(await exhaustedRetry.isDisabled(), true);
+    await waitForPageCondition(page, () => {
+        const button = document.querySelector(
+            '[data-ai-session-conversation-state] [data-action="retry-ai-session-conversation"]'
+        );
+        return button && !button.disabled;
+    });
+    assert.equal(await exhaustedRetry.isEnabled(), true);
+});
+
+test('ACTIVE-SESSION-CONVERSATION-MARKER-001 safely renders markers and posts exact opaque navigation', async t => {
+    const page = await openConversationPage(t, [
+        session('codex', 'session-a', true),
+    ]);
+    const focused = row(page, 'codex', 'session-a');
+    await focused.locator('.ai-session-primary-action').click();
+    const hostilePreview = ');background:url(javascript:alert(1))';
+    await postHostMessage(page, {
+        type: 'ai-session-conversation-outline-result',
+        version: 1,
+        requestId: 1,
+        subscriptionGeneration: 1,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+        payload: {
+            provider: 'codex',
+            sessionId: 'session-a',
+            sourceRevision: 'r1',
+            totalInteractions: 3,
+            partial: false,
+            interactions: [
+                summary('input-1', 10, 'First input'),
+                summary('input-2', 40, hostilePreview),
+                summary('input-3', 20, 'Latest input', {
+                    responseState: 'inProgress',
+                }),
+            ],
+        },
+    });
+    const markers = focused.locator('[data-ai-session-conversation-marker]');
+    assert.equal(await markers.count(), 3);
+    assert.equal(await markers.nth(0).getAttribute('data-interaction-id'), 'input-1');
+    assert.equal(await markers.nth(2).getAttribute('data-interaction-id'), 'input-3');
+    assert.deepEqual(await markers.evaluateAll(nodes => nodes.map(node => ({
+        ratio: node.style.getPropertyValue('--ai-input-ratio'),
+        tabIndex: node.tabIndex,
+        selected: node.getAttribute('aria-selected'),
+        role: node.getAttribute('role'),
+        minHeight: getComputedStyle(node).minHeight,
+    }))), [
+        { ratio: '0.25', tabIndex: -1, selected: 'false', role: 'option', minHeight: '24px' },
+        { ratio: '1', tabIndex: -1, selected: 'false', role: 'option', minHeight: '24px' },
+        { ratio: '0.5', tabIndex: 0, selected: 'true', role: 'option', minHeight: '24px' },
+    ]);
+    assert.notEqual(await markers.nth(2).getAttribute('data-latest'), null);
+    assert.notEqual(await markers.nth(2).getAttribute('data-current'), null);
+    assert.equal(await markers.nth(1).textContent(), hostilePreview);
+    assert.match(await markers.nth(1).getAttribute('title'), /background:url/);
+    assert.doesNotMatch(
+        await markers.nth(1).getAttribute('style'),
+        /javascript|background/i
+    );
+    assert.match(await markers.nth(0).getAttribute('aria-label'), /First input/);
+    assert.match(await markers.nth(0).getAttribute('aria-label'), /2026/);
+
+    await markers.nth(0).focus();
+    await page.keyboard.press('End');
+    assert.equal(await markers.nth(2).evaluate(node => document.activeElement === node), true);
+    await page.keyboard.press('Enter');
+    assert.deepEqual((await postedMessages(page)).at(-1), {
+        type: 'open-ai-session-conversation',
+        version: 1,
+        requestId: 2,
+        subscriptionGeneration: 1,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+        interactionId: 'input-3',
+        expectedRevision: 'r1',
+    });
+    await page.keyboard.press('ArrowUp');
+    assert.equal(await markers.nth(1).evaluate(node => document.activeElement === node), true);
+    await page.keyboard.press('Home');
+    assert.equal(await markers.nth(0).evaluate(node => document.activeElement === node), true);
+    await page.keyboard.press('ArrowDown');
+    assert.equal(await markers.nth(1).evaluate(node => document.activeElement === node), true);
+    await markers.nth(0).click();
+    assert.deepEqual((await postedMessages(page)).at(-1), {
+        type: 'open-ai-session-conversation',
+        version: 1,
+        requestId: 3,
+        subscriptionGeneration: 1,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+        interactionId: 'input-1',
+        expectedRevision: 'r1',
+    });
+    assert.notEqual(await focused.getAttribute('data-conversation-expanded'), null);
+
+    const longPreview = '👨‍👩‍👧‍👦'.repeat(160);
+    await postHostMessage(page, outlineResult({
+        sourceRevision: 'r2',
+        interactions: [summary('long-preview', 160, longPreview)],
+    }));
+    const truncatedMarker = focused.locator('[data-interaction-id="long-preview"]');
+    assert.equal(await truncatedMarker.evaluate(node =>
+        Array.from(new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+            .segment(node.textContent)).length
+    ), 160);
+    assert.equal(await truncatedMarker.evaluate(node =>
+        Array.from(new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+            .segment(node.title.split(' — ').at(-1))).length
+    ), 160);
+
+    await page.evaluate(() => { window.__postedMessages.length = 0; });
+    await truncatedMarker.focus();
+    await page.keyboard.press('Home');
+    await page.keyboard.press('End');
+    assert.equal(await truncatedMarker.evaluate(node => document.activeElement === node), true);
+    assert.deepEqual(await postedMessages(page), []);
+});
+
+test('ACTIVE-SESSION-CONVERSATION-SCROLL-001 reveals first and live latest markers only under bounded rules', async t => {
+    const spaciousPage = await openConversationPage(t, [
+        session('codex', 'session-a', true),
+    ]);
+    const spaciousRow = row(spaciousPage, 'codex', 'session-a');
+    await spaciousRow.locator('.ai-session-primary-action').click();
+    const shortOutline = [
+        summary('fits-1', 2, 'Fits one'),
+        summary('fits-2', 3, 'Fits two'),
+        summary('fits-3', 4, 'Fits three'),
+    ];
+    await postHostMessage(spaciousPage, outlineResult({ interactions: shortOutline }));
+    assert.equal(
+        await spaciousRow.locator('[data-ai-session-conversation-rail]')
+            .evaluate(node => node.scrollTop),
+        0
+    );
+
+    const page = await openConversationPage(t, [
+        session('codex', 'session-a', true),
+    ], { width: 360, height: 260 });
+    const focused = row(page, 'codex', 'session-a');
+    await focused.locator('.ai-session-primary-action').click();
+    const rail = focused.locator('[data-ai-session-conversation-rail]');
+    const interactions = Array.from({ length: 18 }, (_, index) =>
+        summary(`scroll-${index}`, index + 1, `Scroll input ${index}`)
+    );
+    await postHostMessage(page, outlineResult({ interactions }));
+    await waitForPageCondition(page, () => {
+        const node = document.querySelector('[data-ai-session-conversation-rail]');
+        const latest = node?.querySelector('[data-latest]');
+        if (!node || !latest || node.scrollTop <= 0) return false;
+        return latest.getBoundingClientRect().bottom
+            <= node.getBoundingClientRect().bottom + 1;
+    });
+
+    const initialMarkers = focused.locator('[data-ai-session-conversation-marker]');
+    await initialMarkers.nth(17).focus();
+    await page.keyboard.press('Home');
+    assert.equal(await initialMarkers.nth(0).evaluate(node => {
+        const railNode = node.closest('[data-ai-session-conversation-rail]');
+        const nodeRect = node.getBoundingClientRect();
+        const railRect = railNode.getBoundingClientRect();
+        return document.activeElement === node
+            && nodeRect.top >= railRect.top - 1
+            && nodeRect.bottom <= railRect.bottom + 1;
+    }), true);
+    await page.keyboard.press('End');
+    assert.equal(await initialMarkers.nth(17).evaluate(node => {
+        const railNode = node.closest('[data-ai-session-conversation-rail]');
+        const nodeRect = node.getBoundingClientRect();
+        const railRect = railNode.getBoundingClientRect();
+        return document.activeElement === node
+            && nodeRect.top >= railRect.top - 1
+            && nodeRect.bottom <= railRect.bottom + 1;
+    }), true);
+
+    const atEndBefore = await rail.evaluate(node => {
+        node.scrollTop = node.scrollHeight - node.clientHeight;
+        return node.scrollTop;
+    });
+    await postHostMessage(page, outlineResult({
+        sourceRevision: 'r2',
+        interactions: [
+            ...interactions,
+            summary('scroll-18', 19, 'New live input'),
+        ],
+    }));
+    assert.ok(atEndBefore > 0);
+    assert.equal(await rail.evaluate(node =>
+        node.scrollHeight - node.clientHeight - node.scrollTop
+    ), 0);
+    assert.equal(await focused.locator('[data-interaction-id="scroll-17"]')
+        .evaluate(node => document.activeElement === node), true);
+    assert.equal(await focused.locator('[data-interaction-id="scroll-18"]')
+        .evaluate(node => {
+            const railNode = node.closest('[data-ai-session-conversation-rail]');
+            return node.getBoundingClientRect().bottom
+                <= railNode.getBoundingClientRect().bottom + 1;
+        }), true);
+
+    const historicalScrollTop = await rail.evaluate(node => {
+        node.scrollTop = 24;
+        return node.scrollTop;
+    });
+    await postHostMessage(page, outlineResult({
+        sourceRevision: 'r3',
+        interactions: [
+            ...interactions,
+            summary('scroll-18', 19, 'New live input'),
+            summary('scroll-19', 20, 'Unread input'),
+        ],
+    }));
+    assert.equal(await rail.evaluate(node => node.scrollTop), historicalScrollTop);
+
+    const invalidThresholdScrollTop = await rail.evaluate(node => {
+        node.scrollTop = node.scrollHeight - node.clientHeight;
+        node.setAttribute('data-auto-scroll-threshold', '8px');
+        return node.scrollTop;
+    });
+    await postHostMessage(page, outlineResult({
+        sourceRevision: 'r4',
+        interactions: [
+            ...interactions,
+            summary('scroll-18', 19, 'New live input'),
+            summary('scroll-19', 20, 'Unread input'),
+            summary('scroll-20', 21, 'Invalid threshold input'),
+        ],
+    }));
+    assert.equal(await rail.evaluate(node => node.scrollTop), invalidThresholdScrollTop);
+});
+
+test('ACTIVE-SESSION-CONVERSATION-RESTORE-002 retains rendered history scroll and focus after matching HTML replacement', async t => {
+    const page = await openConversationPage(t, [
+        session('codex', 'session-a', true),
+    ], { width: 360, height: 260 });
+    const focused = row(page, 'codex', 'session-a');
+    await focused.locator('.ai-session-primary-action').click();
+    const interactions = Array.from({ length: 18 }, (_, index) =>
+        summary(`restore-${index}`, index + 1, `Restore input ${index}`)
+    );
+    await postHostMessage(page, outlineResult({ interactions }));
+    const rail = focused.locator('[data-ai-session-conversation-rail]');
+    await waitForPageCondition(page, () => {
+        const node = document.querySelector('[data-ai-session-conversation-rail]');
+        return node && node.scrollHeight > node.clientHeight;
+    });
+    const capturedScrollTop = await rail.evaluate(node => {
+        node.scrollTop = 64;
+        node.querySelector('[data-interaction-id="restore-6"]').focus();
+        return node.scrollTop;
+    });
+    assert.ok(capturedScrollTop > 0);
+
+    await postWorkspaceUpdate(page, [
+        session('codex', 'session-a', true),
+    ]);
+    assert.deepEqual((await conversationMessages(page)).at(-1), {
+        type: 'request-ai-session-conversation-outline',
+        version: 1,
+        requestId: 2,
+        subscriptionGeneration: 2,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    });
+    await postHostMessage(page, outlineResult({
+        requestId: 2,
+        subscriptionGeneration: 2,
+        sourceRevision: 'r2',
+        interactions: [
+            ...interactions,
+            summary('restore-18', 19, 'Replacement input'),
+        ],
+    }));
+    const restored = row(page, 'codex', 'session-a');
+    assert.equal(
+        await restored.locator('[data-ai-session-conversation-rail]')
+            .evaluate(node => node.scrollTop),
+        capturedScrollTop
+    );
+    assert.equal(
+        await restored.locator('[data-interaction-id="restore-6"]')
+            .evaluate(node => document.activeElement === node),
+        true
+    );
+});
+
+test('ACTIVE-SESSION-CONVERSATION-RETRY-001 clears Retry timers on collapse, replacement, and disposal', async t => {
+    const page = await openConversationPage(t, [
+        session('codex', 'session-a', true),
+    ]);
+    const focused = row(page, 'codex', 'session-a');
+    await focused.locator('.ai-session-primary-action').click();
+    await postHostMessage(page, outlineError({
+        code: 'unavailable',
+        reason: 'codexRetryExhausted',
+        retryAfterMs: 60_000,
+    }));
+    assert.equal(await page.evaluate(() =>
+        typeof activeAiSessionConversationRetryTimer
+    ), 'number');
+    await focused.locator('.ai-session-primary-action').click();
+    assert.equal(await page.evaluate(() =>
+        typeof activeAiSessionConversationRetryTimer === 'undefined'
+            ? undefined
+            : activeAiSessionConversationRetryTimer
+    ), null);
+
+    await focused.locator('.ai-session-primary-action').click();
+    await postHostMessage(page, outlineError({
+        code: 'unavailable',
+        reason: 'codexRetryExhausted',
+        retryAfterMs: 60_000,
+    }, {
+        requestId: 3,
+        subscriptionGeneration: 3,
+    }));
+    assert.equal(await page.evaluate(() =>
+        typeof activeAiSessionConversationRetryTimer
+    ), 'number');
+    await postWorkspaceUpdate(page, [
+        session('codex', 'session-a', true),
+    ]);
+    assert.equal(await page.evaluate(() =>
+        typeof activeAiSessionConversationRetryTimer === 'undefined'
+            ? undefined
+            : activeAiSessionConversationRetryTimer
+    ), null);
+
+    await postHostMessage(page, outlineError({
+        code: 'unavailable',
+        reason: 'codexRetryExhausted',
+        retryAfterMs: 60_000,
+    }, {
+        requestId: 4,
+        subscriptionGeneration: 4,
+    }));
+    assert.equal(await page.evaluate(() =>
+        typeof activeAiSessionConversationRetryTimer
+    ), 'number');
+    await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+    assert.equal(await page.evaluate(() =>
+        typeof activeAiSessionConversationRetryTimer === 'undefined'
+            ? undefined
+            : activeAiSessionConversationRetryTimer
+    ), null);
+});
+
 test('ACTIVE-SESSION-CONVERSATION-EXPANSION-001 focuses first, toggles one focused card, consumes actions, and starts a new document closed', async t => {
     const page = await openConversationPage(t, [
         session('codex', 'session-a', true),
@@ -407,7 +1095,6 @@ test('ACTIVE-SESSION-CONVERSATION-LAYOUT-001 measures one row delta synchronousl
     const conversationPanel = focusedCard.locator('[data-ai-session-conversation-panel]');
     const conversationRail = focusedCard.locator('[data-ai-session-conversation-rail]');
     const list = page.locator('.ai-session-active-panel .codex-sessions-list');
-    await seedConversationRail(page, 'codex', 'session-a');
     const collapsed = await page.evaluate(() => {
         const listNode = document.querySelector('.ai-session-active-panel .codex-sessions-list');
         const rowNode = document.querySelector('.active-ai-session-row[data-session-focused]');
@@ -419,6 +1106,9 @@ test('ACTIVE-SESSION-CONVERSATION-LAYOUT-001 measures one row delta synchronousl
 
     await page.setViewportSize({ width: 360, height: 900 });
     await focusedCard.click();
+    await postHostMessage(page, outlineResult({
+        interactions: summaries(18),
+    }));
     await assertExpanded(focusedCard, focusedHeader, conversationPanel);
     assert.equal(await isFullyInsideViewport(page, conversationPanel), true);
     const spaciousRail = await conversationRail.evaluate(node => ({
@@ -549,7 +1239,9 @@ test('ACTIVE-SESSION-CONVERSATION-RESTORE-001 restores only the same still-focus
     ]);
     const focused = row(page, 'codex', 'session-a');
     await focused.locator('.ai-session-primary-action').click();
-    await seedConversationRail(page, 'codex', 'session-a');
+    await postHostMessage(page, outlineResult({
+        interactions: summaries(18),
+    }));
     await page.setViewportSize({ width: 360, height: 260 });
     await waitForPageCondition(page, () => {
         const rail = document.querySelector(
@@ -569,7 +1261,7 @@ test('ACTIVE-SESSION-CONVERSATION-RESTORE-001 restores only the same still-focus
     await postWorkspaceUpdate(page, [
         session('codex', 'session-a', true),
         session('kimi', 'session-b', false),
-    ], 18);
+    ]);
     const restored = row(page, 'codex', 'session-a');
     await assertExpanded(
         restored,
@@ -585,6 +1277,12 @@ test('ACTIVE-SESSION-CONVERSATION-RESTORE-001 restores only the same still-focus
         provider: 'codex',
         sessionId: 'session-a',
     });
+    await postHostMessage(page, outlineResult({
+        requestId: 2,
+        subscriptionGeneration: 2,
+        sourceRevision: 'r2',
+        interactions: summaries(18),
+    }));
     assert.equal(
         await restored.locator('[data-ai-session-conversation-rail]').evaluate(
             rail => rail.scrollTop
@@ -625,7 +1323,9 @@ test('ACTIVE-SESSION-CONVERSATION-RESTORE-001 preserves or cancels expansion thr
     ]);
     const focused = row(page, 'codex', 'session-a');
     await focused.locator('.ai-session-primary-action').click();
-    await seedConversationRail(page, 'codex', 'session-a');
+    await postHostMessage(page, outlineResult({
+        interactions: summaries(18),
+    }));
     await page.setViewportSize({ width: 360, height: 260 });
     await waitForPageCondition(page, () => {
         const rail = document.querySelector(
@@ -650,7 +1350,6 @@ test('ACTIVE-SESSION-CONVERSATION-RESTORE-001 preserves or cancels expansion thr
             session('codex', 'session-a', true),
             session('kimi', 'session-b', false),
         ],
-        markerCount: 18,
     });
     const restored = row(page, 'codex', 'session-a');
     await assertExpanded(
@@ -667,6 +1366,12 @@ test('ACTIVE-SESSION-CONVERSATION-RESTORE-001 preserves or cancels expansion thr
         provider: 'codex',
         sessionId: 'session-a',
     });
+    await postHostMessage(page, outlineResult({
+        requestId: 2,
+        subscriptionGeneration: 2,
+        sourceRevision: 'r2',
+        interactions: summaries(18),
+    }));
     assert.equal(
         await restored.locator('[data-ai-session-conversation-rail]').evaluate(
             rail => rail.scrollTop
@@ -706,6 +1411,12 @@ test('ACTIVE-SESSION-CONVERSATION-RESTORE-001 preserves or cancels expansion thr
         provider: 'codex',
         sessionId: 'session-a',
     });
+    await postHostMessage(page, outlineResult({
+        requestId: 3,
+        subscriptionGeneration: 3,
+        sourceRevision: 'r3',
+        interactions: summaries(18),
+    }));
     assert.equal(
         await rolledBack.locator('[data-ai-session-conversation-rail]').evaluate(
             rail => rail.scrollTop

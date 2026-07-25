@@ -403,6 +403,7 @@
         "publish-marketplace": "./scripts/publish-marketplace.sh"
     },
     "devDependencies": {
+        "@types/markdown-it": "14.1.2",
         "@types/mocha": "^8.0.4",
         "@types/node": "^14.14.8",
         "@types/vscode": "^1.51.0",
@@ -423,7 +424,9 @@
     },
     "dependencies": {
         "dom-autoscroller": "^2.3.4",
+        "dompurify": "3.4.12",
         "dragula": "^3.7.3",
-        "fitty": "^2.3.5"
+        "fitty": "^2.3.5",
+        "markdown-it": "14.3.0"
     }
 }

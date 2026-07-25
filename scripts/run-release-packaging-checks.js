@@ -271,6 +271,7 @@ function runRealVsixArchiveChecks(mainPackage, bridgePackage) {
         '[Content_Types].xml',
         'extension.vsixmanifest',
         'extension/LICENSE.md',
+        'extension/THIRD_PARTY_NOTICES.md',
         'extension/changelog.md',
         'extension/package.json',
         'extension/readme.md',
@@ -280,6 +281,10 @@ function runRealVsixArchiveChecks(mainPackage, bridgePackage) {
         'extension/media/extension_icon.png',
         'extension/media/fitty.min.js',
         'extension/media/icon.svg',
+        'extension/media/sharingan/mangekyou-sharingan-itachi.svg',
+        'extension/media/sharingan/mangekyou-sharingan-obito-kakashi.svg',
+        'extension/media/sharingan/mangekyou-sharingan-sasuke.svg',
+        'extension/media/sharingan/mangekyou-sharingan-shisui.svg',
         'extension/media/styles.css',
         'extension/media/webviewDashboardScripts.js',
         'extension/media/webviewDnDScripts.js',
@@ -314,6 +319,20 @@ function runRealVsixArchiveChecks(mainPackage, bridgePackage) {
     }
     assertExactEntries(mainEntries, expectedMainEntries, 'main VSIX');
     assertExactEntries(bridgeEntries, expectedBridgeEntries, 'UI Bridge VSIX');
+
+    for (const relativePath of [
+        'THIRD_PARTY_NOTICES.md',
+        'media/sharingan/mangekyou-sharingan-itachi.svg',
+        'media/sharingan/mangekyou-sharingan-obito-kakashi.svg',
+        'media/sharingan/mangekyou-sharingan-sasuke.svg',
+        'media/sharingan/mangekyou-sharingan-shisui.svg',
+    ]) {
+        assert.deepStrictEqual(
+            mainEntries.get(`extension/${relativePath}`),
+            fs.readFileSync(path.join(repositoryRoot, relativePath)),
+            `main VSIX must preserve ${relativePath} byte-for-byte`,
+        );
+    }
 
     const embeddedMainPackage = JSON.parse(mainEntries.get('extension/package.json').toString('utf8'));
     const embeddedBridgePackage = JSON.parse(bridgeEntries.get('extension/package.json').toString('utf8'));

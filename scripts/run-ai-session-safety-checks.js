@@ -3668,7 +3668,7 @@ async function runWorkspaceCardActionControllerIntegrationChecks() {
     });
     await archive.archiveSessions(target.cardId, [
         { provider: 'codex', sessionId: session.id },
-    ]);
+    ], 1, 1);
     assert.deepStrictEqual(archived, [session.id]);
     archived.length = 0;
 
@@ -5284,7 +5284,10 @@ function runWebviewContentChecks() {
         'archive confirmation must rescan every runtime backend so a newly external tmux runtime cannot be missed'
     );
     assert.ok(dashboard.includes('await aiSessionArchiveController.archiveSessions('));
-    assert.match(dashboard, /archiveSessions\(\s*e\.projectId as string,\s*e\.items\s*\)/);
+    assert.match(
+        dashboard,
+        /archiveSessions\(\s*e\.projectId,\s*e\.items,\s*e\.requestId,\s*e\.version\s*\)/
+    );
     assert.ok(dashboard.includes('await aiSessionArchiveController.archiveSession('));
     assert.match(dashboard, /archiveSession\(\s*e\.projectId as string,\s*providerId as AiSessionProviderId \| null,\s*e\.sessionId as string\s*\)/);
     assert.ok(!dashboard.includes('async function archiveAiSession('));
@@ -6824,6 +6827,8 @@ function runBatchAiSessionWebviewChecks() {
     manager.submit();
     assert.deepStrictEqual(JSON.parse(JSON.stringify(messages.pop())), {
         type: 'archive-ai-sessions',
+        version: 1,
+        requestId: 1,
         projectId: 'project-a',
         items: [
             { provider: 'codex', sessionId: 'pinned' },
@@ -6872,6 +6877,8 @@ function runBatchAiSessionWebviewChecks() {
 
     windowEventListeners.message({ data: {
         type: 'ai-session-batch-archive-completed',
+        version: 1,
+        requestId: 1,
         projectId: 'project-a',
         status: 'cancelled',
     } });
@@ -6892,14 +6899,35 @@ function runBatchAiSessionWebviewChecks() {
         { provider: 'codex', sessionId: 'pinned' },
         { provider: 'claude', sessionId: 'plain' },
     ]);
-    manager.complete('rejected');
+    manager.complete({
+        type: 'ai-session-batch-archive-completed',
+        version: 1,
+        requestId: 1,
+        projectId: 'project-a',
+        status: 'finished',
+    });
+    assert.strictEqual(manager.snapshot().pending, true);
+    manager.complete({
+        type: 'ai-session-batch-archive-completed',
+        version: 1,
+        requestId: 2,
+        projectId: 'project-a',
+        status: 'rejected',
+    });
     assert.strictEqual(manager.snapshot().pending, false);
     assert.deepStrictEqual(JSON.parse(JSON.stringify(manager.snapshot().selectedItems)), [
         { provider: 'codex', sessionId: 'pinned' },
         { provider: 'claude', sessionId: 'plain' },
     ]);
 
-    manager.complete('finished');
+    manager.submit();
+    manager.complete({
+        type: 'ai-session-batch-archive-completed',
+        version: 1,
+        requestId: 3,
+        projectId: 'project-a',
+        status: 'finished',
+    });
     assert.strictEqual(manager.snapshot().projectId, null);
 
     const manageProjectA = {

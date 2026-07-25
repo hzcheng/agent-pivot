@@ -182,6 +182,8 @@ export interface AiSessionAssignmentCandidate<TProject = { id: string }> {
 
 export interface AiSessionBatchArchiveCompletedMessage {
     type: 'ai-session-batch-archive-completed';
+    version: 1;
+    requestId: number;
     projectId: string;
     status: 'cancelled' | 'rejected' | 'finished';
     result?: AggregateAiSessionArchiveResult;

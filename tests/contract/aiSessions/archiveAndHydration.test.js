@@ -136,16 +136,29 @@ test('PERSIST-BATCH-AI-SESSION-ARCHIVE-HOST-001 archives aggregate items with on
         },
     });
 
-    await controller.archiveSessions('workspace-a', [
-        { provider: 'claude', sessionId: 'same' },
-        { provider: 'codex', sessionId: 'same' },
-    ]);
+    await controller.archiveSessions(
+        'workspace-a',
+        [
+            { provider: 'claude', sessionId: 'same' },
+            { provider: 'codex', sessionId: 'same' },
+        ],
+        7,
+        1
+    );
 
     assert.deepEqual(confirmations, [
         'Archive 2 selected AI sessions? 1 selected session is pinned.',
     ]);
     assert.equal(completions.length, 1);
-    assert.equal(completions[0].status, 'finished');
+    assert.deepEqual(
+        {
+            version: completions[0].version,
+            requestId: completions[0].requestId,
+            projectId: completions[0].projectId,
+            status: completions[0].status,
+        },
+        { version: 1, requestId: 7, projectId: 'workspace-a', status: 'finished' }
+    );
     assert.deepEqual(completions[0].result.archived, [
         { provider: 'codex', sessionId: 'same' },
     ]);
@@ -155,6 +168,118 @@ test('PERSIST-BATCH-AI-SESSION-ARCHIVE-HOST-001 archives aggregate items with on
     assert.equal(effects.filter(item => item === 'refresh').length, 1);
     assert.equal(effects.filter(item => item === 'sync').length, 1);
     assert.equal(errors.length, 1);
+});
+
+test('PERSIST-BATCH-AI-SESSION-ARCHIVE-HOST-001 settles an initial runtime guard failure exactly once without archiving or duplicate refresh', async () => {
+    const completions = [];
+    const effects = [];
+    const controller = new AiSessionArchiveController({
+        isProviderId: value => value === 'codex',
+        getProvider: () => ({
+            label: 'Codex',
+            service: { archiveSession: () => { effects.push('archive'); return true; } },
+        }),
+        getProviderLabel: () => 'Codex',
+        getWorkspaceTarget: () => {
+            effects.push('target');
+            return null;
+        },
+        getRuntimeById: () => null,
+        refreshRuntimeGuard: async () => {
+            effects.push('guard');
+            throw new Error('refresh failed');
+        },
+        isRuntimeComplete: () => false,
+        focusRuntime: () => undefined,
+        deleteRuntimeMarker: () => undefined,
+        untrackRuntime: () => undefined,
+        deletePin: () => undefined,
+        deleteAlias: () => undefined,
+        confirmSingleArchive: async () => 'Archive',
+        confirmBatchArchive: async () => {
+            effects.push('confirm');
+            return 'Archive';
+        },
+        showWarningMessage: () => undefined,
+        showErrorMessage: () => effects.push('error'),
+        showInformationMessage: () => undefined,
+        appendLine: () => undefined,
+        postCompletion: completion => completions.push(completion),
+        refresh: () => effects.push('refresh'),
+        syncActiveRuntime: () => effects.push('sync'),
+        logUnexpectedError: operation => effects.push(operation),
+    });
+
+    await controller.archiveSessions(
+        'workspace-a',
+        [{ provider: 'codex', sessionId: 'same' }],
+        9,
+        1
+    );
+
+    assert.deepEqual(completions, [{
+        type: 'ai-session-batch-archive-completed',
+        version: 1,
+        requestId: 9,
+        projectId: 'workspace-a',
+        status: 'rejected',
+        result: undefined,
+    }]);
+    assert.deepEqual(effects, [
+        'guard',
+        'refresh-runtime-guard',
+        'error',
+        'refresh',
+        'sync',
+    ]);
+});
+
+test('PERSIST-BATCH-AI-SESSION-ARCHIVE-HOST-001 rejects correlated malformed aggregate protocol before mutation', async () => {
+    const completions = [];
+    const effects = [];
+    const controller = new AiSessionArchiveController({
+        isProviderId: value => value === 'codex',
+        getProvider: () => ({
+            label: 'Codex',
+            service: { archiveSession: () => { effects.push('archive'); return true; } },
+        }),
+        getProviderLabel: () => 'Codex',
+        getWorkspaceTarget: () => { effects.push('target'); return null; },
+        getRuntimeById: () => null,
+        refreshRuntimeGuard: async () => { effects.push('guard'); },
+        isRuntimeComplete: () => false,
+        focusRuntime: () => undefined,
+        deleteRuntimeMarker: () => undefined,
+        untrackRuntime: () => undefined,
+        deletePin: () => undefined,
+        deleteAlias: () => undefined,
+        confirmSingleArchive: async () => 'Archive',
+        confirmBatchArchive: async () => 'Archive',
+        showWarningMessage: () => undefined,
+        showErrorMessage: () => undefined,
+        showInformationMessage: () => undefined,
+        appendLine: () => undefined,
+        postCompletion: completion => completions.push(completion),
+        refresh: () => effects.push('refresh'),
+        syncActiveRuntime: () => effects.push('sync'),
+        logUnexpectedError: () => undefined,
+    });
+
+    await controller.archiveSessions('workspace-a', { item: 'not-an-array' }, 11, 2);
+
+    assert.deepEqual(completions, [{
+        type: 'ai-session-batch-archive-completed',
+        version: 1,
+        requestId: 11,
+        projectId: 'workspace-a',
+        status: 'rejected',
+        result: undefined,
+    }]);
+    assert.deepEqual(effects, []);
+
+    await controller.archiveSessions('workspace-a', [], 0, 1);
+    assert.equal(completions.length, 1, 'an unsafe correlation must not receive a completion');
+    assert.deepEqual(effects, []);
 });
 
 test('PERSIST-AI-SESSION-PROJECT-HYDRATION-001 projects assignment, pin, alias, provider availability, and attention without input mutation leaks', () => {

@@ -192,8 +192,27 @@ export class AiSessionArchiveController<TRuntime extends AiSessionArchiveRuntime
         });
     }
 
-    async archiveSessions(projectId: string, items: unknown): Promise<void> {
-        if (!await this.refreshRuntimeGuard()) {
+    async archiveSessions(
+        projectId: unknown,
+        items: unknown,
+        requestId: unknown,
+        version: unknown
+    ): Promise<void> {
+        if (typeof projectId !== 'string' || !projectId
+            || !Number.isSafeInteger(requestId) || (requestId as number) < 1) {
+            return;
+        }
+        const correlatedProjectId = projectId;
+        const correlatedRequestId = requestId as number;
+        if (version !== 1 || !Array.isArray(items)) {
+            this.options.postCompletion({
+                type: 'ai-session-batch-archive-completed',
+                version: 1,
+                requestId: correlatedRequestId,
+                projectId: correlatedProjectId,
+                status: 'rejected',
+                result: undefined,
+            });
             return;
         }
         let completed = false;
@@ -210,7 +229,9 @@ export class AiSessionArchiveController<TRuntime extends AiSessionArchiveRuntime
             completed = true;
             this.options.postCompletion({
                 type: 'ai-session-batch-archive-completed',
-                projectId,
+                version: 1,
+                requestId: correlatedRequestId,
+                projectId: correlatedProjectId,
                 status,
                 result: completionResult,
             });
@@ -224,7 +245,12 @@ export class AiSessionArchiveController<TRuntime extends AiSessionArchiveRuntime
         };
 
         try {
-            const target = this.resolveAggregateArchiveTarget(projectId);
+            if (!await this.refreshRuntimeGuard()) {
+                complete('rejected');
+                return;
+            }
+
+            const target = this.resolveAggregateArchiveTarget(correlatedProjectId);
             if (!target) {
                 this.options.showWarningMessage(
                     'The selected AI sessions are no longer in the active workspace.'
@@ -259,7 +285,7 @@ export class AiSessionArchiveController<TRuntime extends AiSessionArchiveRuntime
                 return;
             }
 
-            const currentTarget = this.resolveAggregateArchiveTarget(projectId);
+            const currentTarget = this.resolveAggregateArchiveTarget(correlatedProjectId);
             if (!currentTarget
                 || currentTarget.workspace.scopeIdentity !== target.workspace.scopeIdentity
                 || currentTarget.workspace.navigationIdentity !== target.workspace.navigationIdentity

@@ -296,8 +296,7 @@ test('AI-SESSION-PROVIDER-MENU-009 forced Manage cannot bypass provider-selectio
 
     assert.deepEqual(await page.evaluate(() => window.__projectStewardBatchAiSessions.snapshot()), {
         projectId: null,
-        provider: null,
-        selectedIds: [],
+        selectedItems: [],
         pending: false,
     });
     assert.equal(await project.getAttribute('data-ai-session-managing'), null);

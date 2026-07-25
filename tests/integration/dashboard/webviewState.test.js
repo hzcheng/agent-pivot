@@ -1062,7 +1062,7 @@ function createCrossProviderBatchProject() {
         toggleAttribute: () => undefined,
         querySelector: () => null,
     });
-    const rows = [
+    let rows = [
         createRow('codex', 'same'),
         createRow('claude', 'same'),
         createRow('codex', 'pinned', { pinned: true }),
@@ -1089,12 +1089,23 @@ function createCrossProviderBatchProject() {
             if (selector === '.ai-session-batch-actions button') return [];
             return [];
         },
+        replaceRows(nextRows) {
+            rows = nextRows.map(item => createRow(
+                item.provider,
+                item.sessionId,
+                { pinned: item.pinned, active: item.active }
+            ));
+        },
     };
 }
 
 function assertCrossProviderBatchScope(source = projectSource) {
     const project = createCrossProviderBatchProject();
-    const harness = createProjectVm({ source });
+    const harness = createProjectVm({
+        source,
+        querySelectorAll: selector =>
+            selector === '.workspace-card[data-current-workspace][data-id]' ? [project] : [],
+    });
     const targetFor = action => ({
         closest(selector) {
             if (selector === '.project' || selector === '.project[data-id]') return project;
@@ -1120,12 +1131,77 @@ function assertCrossProviderBatchScope(source = projectSource) {
     harness.documentListeners.click({ button: 0, target: targetFor('archive-selected-ai-sessions') });
     assert.deepEqual(toPlain(harness.messages), [{
         type: 'archive-ai-sessions',
+        version: 1,
+        requestId: 1,
         projectId: 'workspace-a',
         items: [
             { provider: 'codex', sessionId: 'same' },
             { provider: 'claude', sessionId: 'same' },
         ],
     }]);
+
+    const manager = harness.context.window.__projectStewardBatchAiSessions;
+    harness.windowListeners.message({ data: {
+        type: 'ai-session-batch-archive-completed',
+        version: 1,
+        requestId: 2,
+        projectId: 'workspace-a',
+        status: 'finished',
+    } });
+    assert.equal(manager.snapshot().pending, true);
+    harness.windowListeners.message({ data: {
+        type: 'ai-session-batch-archive-completed',
+        requestId: 1,
+        projectId: 'workspace-a',
+        status: 'finished',
+    } });
+    assert.equal(manager.snapshot().pending, true);
+    harness.windowListeners.message({ data: {
+        type: 'ai-session-batch-archive-completed',
+        version: 1,
+        requestId: 1,
+        projectId: 'workspace-b',
+        status: 'finished',
+    } });
+    assert.equal(manager.snapshot().pending, true);
+    harness.windowListeners.message({ data: {
+        type: 'ai-session-batch-archive-completed',
+        version: 1,
+        requestId: 1,
+        projectId: 'workspace-a',
+        status: 'unknown',
+    } });
+    assert.equal(manager.snapshot().pending, true);
+
+    harness.windowListeners.message({ data: {
+        type: 'ai-session-batch-archive-completed',
+        version: 1,
+        requestId: 1,
+        projectId: 'workspace-a',
+        status: 'cancelled',
+    } });
+    assert.equal(manager.snapshot().pending, false);
+    assert.equal(manager.snapshot().selectedItems.length, 2);
+
+    manager.submit();
+    assert.equal(harness.messages[1].requestId, 2);
+    harness.windowListeners.message({ data: {
+        type: 'ai-session-batch-archive-completed',
+        version: 1,
+        requestId: 1,
+        projectId: 'workspace-a',
+        status: 'finished',
+    } });
+    assert.equal(manager.snapshot().pending, true);
+    assert.equal(manager.snapshot().projectId, 'workspace-a');
+    harness.windowListeners.message({ data: {
+        type: 'ai-session-batch-archive-completed',
+        version: 1,
+        requestId: 2,
+        projectId: 'workspace-a',
+        status: 'finished',
+    } });
+    assert.equal(manager.snapshot().projectId, null);
 }
 
 test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-002 archives visible unpinned inactive rows across selected providers', () => {
@@ -1134,6 +1210,81 @@ test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-002 archives visible unpinned inact
         projectSource.replace(
             'return JSON.stringify([provider, sessionId]);',
             'return sessionId;'
+        )
+    ));
+    assert.throws(() => assertCrossProviderBatchScope(
+        projectSource.replace(
+            "message.type !== 'ai-session-batch-archive-completed'\n            || message.version !== 1",
+            "message.type !== 'ai-session-batch-archive-completed'"
+        )
+    ));
+});
+
+function assertBatchSelectionReconcilesAuthoritativeRows(source = projectSource) {
+    const project = createCrossProviderBatchProject();
+    const harness = createProjectVm({
+        source,
+        querySelectorAll: selector =>
+            selector === '.workspace-card[data-current-workspace][data-id]' ? [project] : [],
+    });
+    const manager = harness.context.window.__projectStewardBatchAiSessions;
+    manager.enter('workspace-a');
+    manager.toggle('codex', 'same');
+    manager.toggle('codex', 'pinned');
+    manager.toggle('claude', 'same');
+
+    project.replaceRows([
+        { provider: 'codex', sessionId: 'pinned', pinned: true },
+        { provider: 'claude', sessionId: 'same', active: true },
+    ]);
+    harness.context.applyWorkspaceUpdate = () => true;
+    harness.windowListeners.message({ data: {
+        type: 'workspace-updated',
+        version: 2,
+        currentWorkspaceCount: 1,
+        html: '<div class="open-current-workspace-group"></div>',
+    } });
+    assert.deepEqual(toPlain(manager.snapshot().selectedItems), [
+        { provider: 'codex', sessionId: 'pinned' },
+    ]);
+
+    manager.toggle('claude', 'same');
+    manager.toggle('codex', 'removed');
+    project.replaceRows([
+        { provider: 'codex', sessionId: 'pinned', pinned: true },
+        { provider: 'claude', sessionId: 'same', active: true },
+    ]);
+    harness.context.applyWorkspaceUpdate = () => true;
+    harness.windowListeners.message({ data: {
+        type: 'ai-sessions-updated',
+        version: 2,
+        sequence: 1,
+        currentWorkspaceCount: 1,
+        html: '<div class="open-current-workspace-group"></div>',
+        searchCatalog: makeCatalog('batch'),
+    } });
+    assert.deepEqual(toPlain(manager.snapshot().selectedItems), [
+        { provider: 'codex', sessionId: 'pinned' },
+    ]);
+
+    manager.submit();
+    assert.deepEqual(toPlain(harness.messages[harness.messages.length - 1].items), [
+        { provider: 'codex', sessionId: 'pinned' },
+    ]);
+}
+
+test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-002 reconciles batch selection after authoritative replacements', () => {
+    assertBatchSelectionReconcilesAuthoritativeRows();
+    assert.throws(() => assertBatchSelectionReconcilesAuthoritativeRows(
+        projectSource.replace(
+            "&& !row.hasAttribute('data-session-active')",
+            ''
+        )
+    ));
+    assert.throws(() => assertBatchSelectionReconcilesAuthoritativeRows(
+        projectSource.replace(
+            'batchAiSessionManager.reconcileVisible(projectDiv);',
+            ''
         )
     ));
 });

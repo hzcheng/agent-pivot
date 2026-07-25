@@ -498,9 +498,11 @@ function initProjects() {
         projectId: null,
         selectedItems: new Map(),
         pending: false,
+        requestId: null,
     };
     var activeAiSessionTerminalState = { provider: null, sessionId: null };
     var pendingWorkspaceSessionReveal = null;
+    var nextAiSessionBatchArchiveRequestId = 0;
     var nextAiSessionProviderSelectionRequestId = 0;
     var pendingAiSessionProviderSelectionProjectId = null;
     var pendingAiSessionProviderSelectionRequestId = null;
@@ -523,6 +525,7 @@ function initProjects() {
         batchAiSessionState.projectId = projectId;
         batchAiSessionState.selectedItems = new Map();
         batchAiSessionState.pending = false;
+        batchAiSessionState.requestId = null;
     }
 
     function toggle(provider, sessionId, active) {
@@ -572,29 +575,68 @@ function initProjects() {
         );
     }
 
+    function reconcileVisible(projectDiv) {
+        if (!projectDiv)
+            return;
+        var projectId = projectDiv.getAttribute('data-id');
+        var remainingItems = Array.from(
+            projectDiv.querySelectorAll('.ai-session-history-panel .codex-session-row[data-session-id]')
+        )
+            .filter(row => isAiSessionProvider(row.getAttribute('data-session-provider') || 'codex')
+                && row.getAttribute('data-session-id')
+                && !row.hasAttribute('data-session-active'))
+            .map(row => ({
+                provider: row.getAttribute('data-session-provider') || 'codex',
+                sessionId: row.getAttribute('data-session-id'),
+            }));
+        reconcile(projectId, remainingItems);
+    }
+
     function submit() {
         if (batchAiSessionState.pending || !batchAiSessionState.selectedItems.size)
             return;
+        nextAiSessionBatchArchiveRequestId = nextAiSessionBatchArchiveRequestId >= Number.MAX_SAFE_INTEGER
+            ? 1
+            : nextAiSessionBatchArchiveRequestId + 1;
+        var requestId = nextAiSessionBatchArchiveRequestId;
         batchAiSessionState.pending = true;
+        batchAiSessionState.requestId = requestId;
         window.vscode.postMessage({
             type: 'archive-ai-sessions',
+            version: 1,
+            requestId: requestId,
             projectId: batchAiSessionState.projectId,
             items: Array.from(batchAiSessionState.selectedItems.values()),
         });
     }
 
-    function complete(status) {
-        if (status === 'finished') {
+    function complete(message) {
+        if (!message
+            || message.type !== 'ai-session-batch-archive-completed'
+            || message.version !== 1
+            || !Number.isSafeInteger(message.requestId)
+            || message.requestId < 1
+            || typeof message.projectId !== 'string'
+            || !['cancelled', 'rejected', 'finished'].includes(message.status)
+            || !batchAiSessionState.pending
+            || message.projectId !== batchAiSessionState.projectId
+            || message.requestId !== batchAiSessionState.requestId) {
+            return false;
+        }
+        if (message.status === 'finished') {
             exit();
-            return;
+            return true;
         }
         batchAiSessionState.pending = false;
+        batchAiSessionState.requestId = null;
+        return true;
     }
 
     function exit() {
         batchAiSessionState.projectId = null;
         batchAiSessionState.selectedItems = new Map();
         batchAiSessionState.pending = false;
+        batchAiSessionState.requestId = null;
     }
 
     function snapshot() {
@@ -606,7 +648,8 @@ function initProjects() {
     }
 
     var batchAiSessionManager = {
-        enter, toggle, selectUnpinned, clear, reconcile, submit, complete, exit, snapshot,
+        enter, toggle, selectUnpinned, clear, reconcile, reconcileVisible,
+        submit, complete, exit, snapshot,
     };
     window.__projectStewardBatchAiSessions = batchAiSessionManager;
 
@@ -1970,7 +2013,13 @@ function initProjects() {
                 return;
             }
             if (batchAiSessionState.projectId) {
-                syncAiSessionBatchManagementDom(findCurrentWorkspaceDiv(batchAiSessionState.projectId));
+                var managedProjectDiv = findCurrentWorkspaceDiv(batchAiSessionState.projectId);
+                if (managedProjectDiv) {
+                    batchAiSessionManager.reconcileVisible(managedProjectDiv);
+                    syncAiSessionBatchManagementDom(managedProjectDiv);
+                } else {
+                    exitAiSessionBatchManagement();
+                }
             }
             reconcilePendingAiSessionProviderSelectionDom();
             syncActiveAiSessionTerminalDom();
@@ -2045,8 +2094,7 @@ function initProjects() {
         }
 
         if (message && message.type === 'ai-session-batch-archive-completed') {
-            if (message.projectId === batchAiSessionState.projectId) {
-                batchAiSessionManager.complete(message.status);
+            if (batchAiSessionManager.complete(message)) {
                 syncAiSessionBatchManagementDom(findCurrentWorkspaceDiv(message.projectId));
             }
             return;
@@ -2089,6 +2137,7 @@ function initProjects() {
         if (batchAiSessionState.projectId) {
             var projectDiv = findCurrentWorkspaceDiv(batchAiSessionState.projectId);
             if (projectDiv) {
+                batchAiSessionManager.reconcileVisible(projectDiv);
                 syncAiSessionBatchManagementDom(projectDiv);
             } else {
                 exitAiSessionBatchManagement();

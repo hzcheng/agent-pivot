@@ -3606,6 +3606,7 @@ async function runDashboardCommandRegistrationChecks() {
             removeGroup: async () => calls.push('removeGroup'),
             addProjectsFromFolder: async () => calls.push('addProjectsFromFolder'),
             addFileToActiveTerminal: async () => calls.push('addFileToActiveTerminal'),
+            insertPromptToActiveTerminal: async () => calls.push('insertPromptToActiveTerminal'),
         },
     });
 
@@ -3621,6 +3622,7 @@ async function runDashboardCommandRegistrationChecks() {
         'projectSteward.removeGroup',
         'projectSteward.addProjectsFromFolder',
         'projectSteward.addFileToActiveTerminal',
+        'projectSteward.insertPromptToActiveTerminal',
     ]);
     assert.deepStrictEqual(subscriptions.map(disposable => disposable.command), registered.map(([command]) => command));
 
@@ -3638,6 +3640,7 @@ async function runDashboardCommandRegistrationChecks() {
         'removeGroup',
         'addProjectsFromFolder',
         'addFileToActiveTerminal',
+        'insertPromptToActiveTerminal',
     ]);
 }
 

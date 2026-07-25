@@ -725,6 +725,14 @@ test('WEBVIEW-WEBVIEW-CONTENT-001 renders OPEN PROJECTS TODO and lazy AI tab she
     assert.match(html, /data-session-icon-fx="sharingan-shisui"/);
     assert.match(html, /id="dashboard-search-catalog"/);
     assert.match(html, /webviewPromptScripts\.js/);
+    assert.ok(
+        html.indexOf('webviewPromptScripts.js') > html.indexOf('webviewDashboardScripts.js'),
+        'Prompt interactions must install after the Dashboard lazy loader'
+    );
+    assert.ok(
+        html.indexOf('webviewPromptScripts.js') < html.indexOf('window.onload'),
+        'Prompt interactions must install before the lazy AI panel can mount'
+    );
     assert.match(html, /webviewTodoScripts\.js/);
     assert.match(html, /initTodos\(/);
     assert.equal(html.includes('data-id="hidden"'), false);

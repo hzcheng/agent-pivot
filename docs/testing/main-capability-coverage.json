@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "72c0771cd7ac2916f551447139c1725a85b590a1",
+        "head": "571e77374fd9ee6fd0d687bdee44b15e32295390",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -15,7 +15,9 @@
             "7bd85872da60d3f024f01c9fca78d22fded3641b",
             "4c5870e15fe4f81e493adb8a83b940e580e282ed",
             "601f4b200ff05903edb872b17b28f7daba2f1351",
-            "e32f2f72be6b8e228fc4cc2bf284cb1126a08968"
+            "e32f2f72be6b8e228fc4cc2bf284cb1126a08968",
+            "51e6fddf21373ffb553a6eae2db92d1ab0c33546",
+            "22685ae7337576fb277d967dc401564566586b9a"
         ]
     },
     "capabilities": [
@@ -734,7 +736,8 @@
                 "68c49fb51284d758a0afd83c41f83f2ea2f09466",
                 "423d811afa2013c77e04975df11dbf5ee68160c8",
                 "ff920bf7a1d82ec334dd6081cf2f0e2a8eaf54d2",
-                "72c0771cd7ac2916f551447139c1725a85b590a1"
+                "72c0771cd7ac2916f551447139c1725a85b590a1",
+                "571e77374fd9ee6fd0d687bdee44b15e32295390"
             ],
             "behaviors": [
                 "PERSIST-AI-PROMPT-STORE-001",

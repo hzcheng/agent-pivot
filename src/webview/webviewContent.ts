@@ -26,7 +26,13 @@ import {
     serializeDashboardSearchCatalog,
 } from './dashboardViewModel';
 import * as Icons from './webviewIcons';
-import type { ActiveAiSessionViewModel, AiSessionTabId } from '../aiSessions/types';
+import type {
+    ActiveAiSessionViewModel,
+    AiSessionProviderSummary,
+    AiSessionTabId,
+    AiSessionViewModel,
+} from '../aiSessions/types';
+import { projectAiSessionHistory } from '../aiSessions/historyProjection';
 import type { OpenWorkspaceBridgeStatus } from '../openWorkspaces/bridgeClient';
 import { removeWorkspaceWindowDecorations } from '../workspaces/contextResolver';
 
@@ -92,6 +98,8 @@ interface RootLabeledAiSession extends CodexSession {
 interface AiSessionSurfaceViewModel {
     id: string;
     activeAiSessionProvider?: AiSessionProviderId;
+    selectedAiSessionProviders?: AiSessionProviderId[];
+    providers?: AiSessionProviderSummary[];
     activeAiSessionTab?: AiSessionTabId;
     codexSessions?: RootLabeledAiSession[];
     kimiSessions?: RootLabeledAiSession[];
@@ -459,6 +467,8 @@ function getWorkspaceAiSessionSurface(card: WorkspaceCardViewModel): AiSessionSu
         return {
             id: card.id,
             activeAiSessionProvider: 'codex',
+            selectedAiSessionProviders: ['codex'],
+            providers: getLegacyAiSessionProviderSummaries({}),
             activeAiSessionTab: 'sessions',
             codexSessions: [],
             kimiSessions: [],
@@ -470,6 +480,8 @@ function getWorkspaceAiSessionSurface(card: WorkspaceCardViewModel): AiSessionSu
     return {
         id: card.id,
         activeAiSessionProvider: aiSessions.activeProvider,
+        selectedAiSessionProviders: aiSessions.selectedProviders,
+        providers: aiSessions.providers,
         activeAiSessionTab: aiSessions.defaultTab,
         codexSessions: aiSessions.sessionsByProvider.codex || [],
         kimiSessions: aiSessions.sessionsByProvider.kimi || [],
@@ -761,16 +773,14 @@ export function getAiSessionsDiv(project: AiSessionSurfaceViewModel, options: Ai
     var kimiSessions = project.kimiSessions || [];
     var claudeSessions = project.claudeSessions || [];
     var activeProvider = getActiveAiSessionProvider(project);
-    var historySessionsForProvider = activeProvider === 'kimi'
-        ? kimiSessions
-        : activeProvider === 'claude' ? claudeSessions : codexSessions;
+    var selectedProviders = getSelectedAiSessionProviders(project, activeProvider);
     var activeSessions = project.activeAiSessions || [];
     var selectedTab: AiSessionTabId = project.activeAiSessionTab || (activeSessions.length ? 'active' : 'sessions');
     project = { ...project, activeAiSessionTab: selectedTab };
     var totalSessionCount = codexSessions.length + kimiSessions.length + claudeSessions.length;
 
     return `
-<div class="codex-sessions" data-ai-session-region data-selected-ai-session-tab="${selectedTab}">
+<div class="codex-sessions" data-ai-session-region data-selected-ai-session-tab="${selectedTab}" data-selected-ai-session-providers="${escapeAttribute(selectedProviders.join(','))}">
     <div class="ai-session-module-header">
         <span class="ai-session-module-title">AI SESSIONS</span>
         <span class="ai-session-create-actions">
@@ -782,7 +792,7 @@ export function getAiSessionsDiv(project: AiSessionSurfaceViewModel, options: Ai
         ${getAiSessionTabButton(project, 'sessions', totalSessionCount)}
     </div>
     ${getActiveAiSessionPanel(project, activeSessions, options)}
-    ${getAiSessionHistoryPanel(project, activeProvider, historySessionsForProvider, options)}
+    ${getAiSessionHistoryPanel(project, activeProvider, selectedProviders, options)}
     <div class="ai-session-live-region" data-ai-session-live-region aria-live="polite" aria-atomic="true"></div>
 </div>`;
 }
@@ -831,7 +841,7 @@ function getActiveAiSessionPanel(
 function getAiSessionHistoryPanel(
     project: AiSessionSurfaceViewModel,
     activeProvider: AiSessionProviderId,
-    sessions: CodexSession[],
+    selectedProviders: readonly AiSessionProviderId[],
     options: AiSessionRenderOptions
 ): string {
     var projectId = escapeAttribute(project.id || 'project');
@@ -839,35 +849,39 @@ function getAiSessionHistoryPanel(
     var codexSessions = project.codexSessions || [];
     var kimiSessions = project.kimiSessions || [];
     var claudeSessions = project.claudeSessions || [];
-    var unavailable = activeProvider === 'kimi'
-        ? project.kimiSessionsUnavailable
-        : activeProvider === 'claude' ? project.claudeSessionsUnavailable : project.codexSessionsUnavailable;
-    var providerName = getAiProviderLabel(activeProvider);
-    var otherProviderHasHistory = activeProvider !== 'codex' && codexSessions.length
-        || activeProvider !== 'kimi' && kimiSessions.length
-        || activeProvider !== 'claude' && claudeSessions.length;
-    var emptyText = unavailable
-        ? `${providerName} session history is unavailable in this environment`
-        : `No ${providerName} sessions yet`;
-    var sessionRows = sessions.length
-        ? sessions.map(session => getCodexSessionRow(
+    var providers = project.providers || getLegacyAiSessionProviderSummaries(project);
+    var providersById = new Map(providers.map(provider => [provider.id, provider]));
+    var projection = projectAiSessionHistory(selectedProviders, {
+        codex: codexSessions.map(session => ({ ...session, provider: 'codex' })),
+        kimi: kimiSessions.map(session => ({ ...session, provider: 'kimi' })),
+        claude: claudeSessions.map(session => ({ ...session, provider: 'claude' })),
+    });
+    var historyRows = (sessions: AiSessionViewModel[]) => sessions.map(session => getCodexSessionRow(
             session,
-            activeProvider,
+            session.provider,
             (project.activeAiSessions || []).find(runtime =>
-                runtime.provider === activeProvider && runtime.sessionId === session.id),
+                runtime.provider === session.provider && runtime.sessionId === session.id),
             options.showRootChips
-        )).join('\n')
-        : `<div class="codex-sessions-empty"><span>${emptyText}</span>${otherProviderHasHistory ? '<small>Other providers have sessions.</small>' : ''}</div>`;
+        )).join('\n');
+    var selectedProviderSummaries = selectedProviders.map(provider => providersById.get(provider)).filter(
+        (provider): provider is AiSessionProviderSummary => !!provider
+    );
+    var allSelectedProvidersUnavailable = selectedProviderSummaries.length > 0
+        && selectedProviderSummaries.every(provider => provider.unavailable === true);
+    var sessionRows = projection.pinned.length || projection.unpinned.length
+        ? `${projection.pinned.length ? `<div class="ai-session-pinned-heading">PINNED</div>${historyRows(projection.pinned)}` : ''}${historyRows(projection.unpinned)}`
+        : `<div class="codex-sessions-empty"><span>${allSelectedProvidersUnavailable
+            ? 'Selected AI session history is unavailable in this environment'
+            : 'No selected AI sessions yet'}</span></div>`;
 
     return `<div id="ai-session-history-${projectId}" class="ai-session-tab-panel ai-session-history-panel" role="tabpanel" data-ai-session-panel="sessions" aria-labelledby="ai-session-sessions-tab-${projectId}"${selected ? '' : ' hidden'}>
     <div class="ai-session-provider-controls">
-        <label class="ai-session-provider-select-wrapper" title="AI Provider">
-            <select class="ai-session-provider-select" data-action="select-ai-provider" aria-label="AI Provider">
-                ${getAiProviderOption('codex', 'Codex', codexSessions.length, activeProvider)}
-                ${getAiProviderOption('kimi', 'Kimi', kimiSessions.length, activeProvider)}
-                ${getAiProviderOption('claude', 'Claude', claudeSessions.length, activeProvider)}
-            </select>
-        </label>
+        <div class="ai-session-provider-menu-wrapper">
+            <button type="button" class="ai-session-provider-menu-trigger" data-ai-provider-menu-trigger aria-haspopup="menu" aria-expanded="false" aria-label="Select AI providers">Providers (${selectedProviders.length})</button>
+            <div class="ai-session-provider-menu" data-ai-provider-menu role="menu" aria-label="AI providers" hidden>
+                ${providers.map(provider => getAiProviderOption(provider, selectedProviders)).join('\n')}
+            </div>
+        </div>
         ${getManageAiSessionsButton(activeProvider)}
     </div>
     <div class="codex-sessions-list">
@@ -886,9 +900,23 @@ function getAiSessionHistoryPanel(
 </div>`;
 }
 
-function getAiProviderOption(providerId: AiSessionProviderId, label: string, count: number, activeProvider: AiSessionProviderId): string {
-    var isActive = providerId === activeProvider;
-    return `<option value="${providerId}"${isActive ? ' selected' : ''}>${label} (${count})</option>`;
+function getAiProviderOption(
+    provider: AiSessionProviderSummary,
+    selectedProviders: readonly AiSessionProviderId[],
+): string {
+    const selected = selectedProviders.includes(provider.id);
+    const unavailable = provider.unavailable === true;
+    return `<button type="button" role="menuitemcheckbox"
+        class="ai-session-provider-option"
+        data-ai-provider-option data-provider="${provider.id}"
+        aria-checked="${selected}"
+        aria-disabled="${selected && selectedProviders.length === 1}"
+        ${unavailable ? 'data-provider-unavailable' : ''}>
+        <span class="ai-session-provider-check" aria-hidden="true">${selected ? '✓' : ''}</span>
+        <span>${escapeAttribute(provider.label)}</span>
+        <span class="ai-session-provider-count">${provider.count}</span>
+        ${unavailable ? '<span class="ai-session-provider-unavailable">Unavailable</span>' : ''}
+    </button>`;
 }
 
 function getManageAiSessionsButton(activeProvider: AiSessionProviderId): string {
@@ -910,6 +938,30 @@ function getActiveAiSessionProvider(project: AiSessionSurfaceViewModel): AiSessi
     }
 
     return 'codex';
+}
+
+function getSelectedAiSessionProviders(
+    project: AiSessionSurfaceViewModel,
+    activeProvider: AiSessionProviderId,
+): AiSessionProviderId[] {
+    const selected: AiSessionProviderId[] = [];
+    for (const provider of project.selectedAiSessionProviders || [activeProvider]) {
+        if (isAiProvider(provider) && !selected.includes(provider)) {
+            selected.push(provider);
+        }
+    }
+    return selected.length ? selected : [activeProvider];
+}
+
+function getLegacyAiSessionProviderSummaries(project: Pick<AiSessionSurfaceViewModel,
+    'codexSessions' | 'kimiSessions' | 'claudeSessions' |
+    'codexSessionsUnavailable' | 'kimiSessionsUnavailable' | 'claudeSessionsUnavailable'>
+): AiSessionProviderSummary[] {
+    return [
+        { id: 'codex', label: 'Codex', count: (project.codexSessions || []).length, unavailable: project.codexSessionsUnavailable },
+        { id: 'kimi', label: 'Kimi', count: (project.kimiSessions || []).length, unavailable: project.kimiSessionsUnavailable },
+        { id: 'claude', label: 'Claude', count: (project.claudeSessions || []).length, unavailable: project.claudeSessionsUnavailable },
+    ];
 }
 
 function isAiProvider(providerId: string): providerId is AiSessionProviderId {
@@ -981,6 +1033,7 @@ function getCodexSessionRow(
     var rootChip = showRootChip && primaryRootLabel
         ? `<span class="ai-session-root-chip">${escapeAttribute(sanitizeProjectName(primaryRootLabel))}</span>`
         : '';
+    var providerBadge = `<span class="ai-session-provider-badge">${providerLabel}</span>`;
 
     return `
 <div class="codex-session-row" role="group" aria-label="${providerLabel} session ${sessionName}"${runtimeAttributes}${rootAttributes}${pinned ? ' data-session-pinned' : ''}${active ? ' data-session-active' : ''}${needsAttention ? ' data-ai-session-attention data-session-event-id="' + escapeAttribute(session.attention.eventId) + '"' : ''} data-session-id="${sessionId}" data-session-provider="${provider}">
@@ -989,7 +1042,7 @@ function getCodexSessionRow(
         ${attentionIndicator}
         <span class="codex-session-icon">${Icons.terminalLine}</span>
         <span class="codex-session-text">
-            ${rootChip ? `<span class="codex-session-title-line"><span class="codex-session-name">${sessionName}</span>${rootChip}</span>` : `<span class="codex-session-name">${sessionName}</span>`}
+            <span class="codex-session-title-line"><span class="codex-session-name">${sessionName}</span>${providerBadge}${rootChip}</span>
             <span class="codex-session-meta">${activeStatus}${active && metadata ? ' · ' : ''}${metadata}</span>
         </span>
     </button>

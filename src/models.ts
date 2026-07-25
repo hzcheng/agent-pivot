@@ -41,6 +41,7 @@ export class Project {
     kimiSessionsUnavailable?: boolean;
     claudeSessionsUnavailable?: boolean;
     activeAiSessionProvider?: AiSessionProviderId;
+    selectedAiSessionProviders?: AiSessionProviderId[];
     aiSessionAttentionCount?: number;
     aiSessionAttentionEventIds?: string[];
     activeAiSessions?: ActiveAiSessionViewModel[];

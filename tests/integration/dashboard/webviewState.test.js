@@ -406,6 +406,47 @@ test('WEBVIEW-CURRENT-WORKSPACE-RENDERING-001 WEBVIEW-DISPLAY-001 distinguishes 
     assert.equal(html.includes('Leaked'), false);
 });
 
+test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-002 renders a pinned-first selected-provider history list', () => {
+    const html = webviewModules.content.getOpenWorkspacesGroupContent([
+        makeWorkspaceCard({
+            aiSessions: {
+                activeProvider: 'kimi',
+                selectedProviders: ['kimi', 'codex', 'claude'],
+                providers: [
+                    { id: 'kimi', label: 'Kimi', count: 2 },
+                    { id: 'codex', label: 'Codex', count: 2 },
+                    { id: 'claude', label: 'Claude', count: 1 },
+                ],
+                sessionsByProvider: {
+                    kimi: [
+                        { id: 'k-pin', name: 'Kimi pinned', provider: 'kimi', pinned: true },
+                        { id: 'k-new', name: 'Kimi new', provider: 'kimi' },
+                    ],
+                    codex: [
+                        { id: 'c-pin', name: 'Codex pinned', provider: 'codex', pinned: true },
+                        { id: 'c-new', name: 'Codex new', provider: 'codex' },
+                    ],
+                    claude: [{ id: 'a-new', name: 'Claude new', provider: 'claude' }],
+                },
+                unavailableProviders: [],
+                expanded: true,
+                defaultTab: 'sessions',
+                activeSessions: [],
+            },
+        }),
+    ], false, 'ready');
+
+    assert.match(html, /data-selected-ai-session-providers="kimi,codex,claude"/);
+    assert.match(html, /data-ai-provider-menu-trigger/);
+    assert.match(html, /role="menuitemcheckbox"/);
+    assert.match(html, /aria-checked="true"/);
+    assert.ok(html.indexOf('k-pin') < html.indexOf('c-pin'));
+    assert.ok(html.indexOf('c-pin') < html.indexOf('k-new'));
+    assert.ok(html.indexOf('k-new') < html.indexOf('c-new'));
+    assert.ok(html.indexOf('c-new') < html.indexOf('a-new'));
+    assert.doesNotMatch(html, /ai-session-provider-section/);
+});
+
 test('ACTIVE-SESSION-ICON-ANIMATION-001 renders effects only for running Active Session rows', () => {
     const surface = {
         id: 'active-session-icons',

@@ -4894,6 +4894,13 @@ function runWebviewContentChecks() {
     assert.ok(sessionTabsHtml.includes('class="ai-session-module-header"'));
     assert.ok(sessionTabsHtml.includes('data-action="create-ai-session"'));
     assert.ok(!sessionTabsHtml.includes('data-action="create-ai-session" data-provider='));
+    assert.ok(sessionTabsHtml.includes('data-selected-ai-session-providers="codex"'));
+    assert.ok(sessionTabsHtml.includes('data-ai-provider-menu-trigger'));
+    assert.ok(sessionTabsHtml.includes('data-ai-provider-menu'));
+    assert.ok(sessionTabsHtml.includes('data-ai-provider-option data-provider="codex"'));
+    assert.ok(sessionTabsHtml.includes('class="ai-session-provider-badge"'));
+    assert.ok(webviewContent.includes('class="ai-session-pinned-heading"'));
+    assert.ok(!sessionTabsHtml.includes('ai-session-provider-section'));
     const workspaceHtml = webviewContentModule.getCurrentWorkspaceGroupContent({
         id: 'workspace-a', kind: 'current', navigationIdentity: 'navigation-a', scopeIdentity: 'scope-a',
         name: 'Workspace A', environment: 'local', environmentLabel: 'Local', attentionCount: 0,

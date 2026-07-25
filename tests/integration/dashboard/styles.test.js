@@ -274,6 +274,30 @@ function validateCollapsePresentation(source) {
         ['transform: rotate(-90deg)']);
 }
 
+function validateMultiProviderSessionHistoryStyles(source) {
+    const id = 'WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-003';
+    const compiled = compileStyles(source);
+    const ruleWithSelector = (selectorSuffix, declaration) => cssRules(compiled).some(rule =>
+        rule.selectors.some(selector => selector.endsWith(selectorSuffix))
+        && rule.body.replace(/\s+/g, '').includes(declaration)
+    );
+    assert.ok(ruleWithSelector('.ai-session-provider-menu', 'position:absolute'),
+        `${id} missing .ai-session-provider-menu { position: absolute }`);
+    assert.ok(ruleWithSelector('.ai-session-provider-menu', 'z-index:80'),
+        `${id} missing .ai-session-provider-menu { z-index: 80 }`);
+    for (const selector of [
+        '.ai-session-provider-option[aria-checked=true]',
+        '.ai-session-provider-option:focus-visible',
+        '.ai-session-provider-badge',
+        '.ai-session-pinned-heading',
+    ]) {
+        assert.ok(ruleWithSelector(selector, ''), `${id} missing ${selector}`);
+    }
+    assert.ok(source.includes('@media (forced-colors: active)'), `${id} missing forced-colors styles`);
+    assert.equal(source.includes('ai-session-provider-section'), false,
+        `${id} must not reintroduce provider-section containers`);
+}
+
 function compileStyles(source) {
     return sass.compileString(source, {
         loadPaths: [path.join(root, 'media'), path.join(root, 'node_modules')],
@@ -362,6 +386,12 @@ test('WEBVIEW-COLLAPSE-PRESENTATION-001 rotates group and TODO collapse indicato
     assert.throws(() => validateCollapsePresentation(compileStyles(styles.replace(
         'transform: rotate(-90deg);', 'transform: rotate(0deg);'))),
         /WEBVIEW-COLLAPSE-PRESENTATION-001/);
+});
+
+test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-003 styles the menu, rows, and forced-colors state', () => {
+    validateMultiProviderSessionHistoryStyles(styles);
+    assert.throws(() => validateMultiProviderSessionHistoryStyles(styles.replace('z-index: 80;', 'z-index: 79;')),
+        /WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-003/);
 });
 
 test('SHARINGAN-RUNNING-ANIMATION-001 maps and rotates each authentic eye', () => {

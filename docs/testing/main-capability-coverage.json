@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "bfc9591242d7a1aaeef0287ffbe30af1cbb35beb",
+        "head": "645442a9985995ee1b4d43b9fdeeb1a06352b478",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -665,12 +665,21 @@
                 "56b80868dca5092bc87813d2c8a8e400a93de436",
                 "d51fa0d228e381dafd213b07d8be858281a8d24b",
                 "e756a78e1fabdec0d7a811260505952c9ff0ba5b",
-                "7ac45e6c37e9aa3a6d1cabcffa0fe5a789a157dd"
+                "7ac45e6c37e9aa3a6d1cabcffa0fe5a789a157dd",
+                "ee48bb24cf4ebe7b08313d55d1ff0667a2b4b28c",
+                "1680e921be772f48e227b26af5dd80c7c2cef168",
+                "c037fc2c4626b4f1e8c06af9cc936cfd990799ac",
+                "4a7aeb1aba4bd38f3cdf2d6b21018bbe6a8f76ad",
+                "c50efdd2d8be54dcdba97fde56462a7bb9758bae",
+                "b978f6ba6a420048487654d1410d4d628f3ae096",
+                "6e9c3dc61843d13eac8b6d3327c3e2e0d8b07b5e",
+                "645442a9985995ee1b4d43b9fdeeb1a06352b478"
             ],
             "behaviors": [
                 "ARCH-CI-QUALITY-GATE-001",
                 "ARCH-MAIN-CAPABILITY-COVERAGE-001",
                 "ARCH-MAIN-CAPABILITY-CURRENCY-001",
+                "ARCH-REPOSITORY-SKILL-GUIDANCE-001",
                 "RELEASE-VSIX-PACKAGING-001"
             ],
             "prGates": [

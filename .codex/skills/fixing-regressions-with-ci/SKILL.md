@@ -35,6 +35,11 @@ Turn every confirmed regression into a CI-owned behavior before changing product
 6. **Verify GREEN**
    - Run the focused test, `npm run test:behavior-contracts`, the affected layered suite, and the relevant platform/environment gate.
    - Review the final diff and run the branch-level CI equivalent before push or PR.
+7. **Maintain audit currency**
+   - In every automated owner file, use literal behavior IDs for the behaviors it owns. After any implementation, owner, catalog, or audit change, run `npm run test:behavior-contracts`.
+   - Classify commits by changed paths and protected behavior, never by a subject prefix. Treat `.codex/skills/` and skill-owner tests as implementation paths: tests and owner-marker commits remain implementation evidence even with a `docs:` subject.
+   - Advance `audit.head` only after every implementation commit has a complete main-capability assignment with CI-reachable behavior ownership. Only genuine documentation-only commits may remain after the audit head.
+   - Treat audit-currency failures as immediate failures. A later audit commit cannot create missing RED evidence or retroactively make an implementation commit documentation-only.
 
 ## Automation Boundary
 

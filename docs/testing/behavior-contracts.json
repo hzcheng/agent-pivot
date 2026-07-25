@@ -3152,5 +3152,21 @@
       "src/aiSessions/archiveController.ts",
       "scripts/run-ai-session-safety-checks.js"
     ]
+  },
+  {
+    "id": "ARCH-REPOSITORY-SKILL-GUIDANCE-001",
+    "domain": "architecture",
+    "title": "Repository skills retain validated engineering workflows",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/tooling/repositorySkills.test.js"
+    ],
+    "evidence": [
+      ".codex/skills/resilient-webview-mutation-protocols/SKILL.md",
+      ".codex/skills/fixing-regressions-with-ci/SKILL.md",
+      ".codex/skills/installing-vscode-extensions-locally/SKILL.md",
+      ".codex/skills/review-fix-commit-loop/SKILL.md"
+    ]
   }
 ]

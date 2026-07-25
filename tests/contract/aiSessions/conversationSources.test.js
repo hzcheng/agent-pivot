@@ -160,6 +160,64 @@ test('SECURITY-AI-SESSION-CONVERSATION-SOURCE-002 revalidates opened files and d
     ), null);
 });
 
+test('SECURITY-AI-SESSION-CONVERSATION-SOURCE-004 rejects an opened handle after an ancestor symlink race is restored', async t => {
+    const sandbox = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'steward-conversation-ancestor-race-'));
+    t.after(() => fs.promises.rm(sandbox, { recursive: true, force: true }));
+    const providerHome = path.join(sandbox, 'provider-home');
+    const sourceDirectory = path.join(providerHome, 'nested');
+    const sourcePath = path.join(sourceDirectory, 'conversation.jsonl');
+    const outsideDirectory = path.join(sandbox, 'outside');
+    const preservedDirectory = path.join(providerHome, 'nested-preserved');
+    await fs.promises.mkdir(sourceDirectory, { recursive: true });
+    await fs.promises.mkdir(outsideDirectory, { recursive: true });
+    await fs.promises.writeFile(sourcePath, '{"inside":true}\n');
+    await fs.promises.writeFile(path.join(outsideDirectory, 'conversation.jsonl'), '{"outside":true}\n');
+
+    const swapAncestorOnlyWhileOpening = async (resolvedPath, flags) => {
+        await fs.promises.rename(sourceDirectory, preservedDirectory);
+        await fs.promises.symlink(outsideDirectory, sourceDirectory);
+        const handle = await fs.promises.open(resolvedPath, flags);
+        await fs.promises.unlink(sourceDirectory);
+        await fs.promises.rename(preservedDirectory, sourceDirectory);
+        return handle;
+    };
+    const opened = await openValidatedConversationSource(
+        { providerHome, sourcePath },
+        {
+            noFollowFlag: fs.constants.O_NOFOLLOW || 1,
+            openFile: swapAncestorOnlyWhileOpening,
+        }
+    );
+    await opened?.handle.close();
+    assert.equal(opened, null);
+});
+
+test('SECURITY-AI-SESSION-CONVERSATION-SOURCE-005 rejects an in-place same-inode rewrite that regrows', async t => {
+    const sandbox = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'steward-conversation-inode-rewrite-'));
+    t.after(() => fs.promises.rm(sandbox, { recursive: true, force: true }));
+    const providerHome = path.join(sandbox, 'provider-home');
+    const sourcePath = path.join(providerHome, 'conversation.jsonl');
+    const original = Buffer.concat([
+        Buffer.alloc(64 * 1024, 'a'),
+        Buffer.alloc(8 * 1024, 'b'),
+    ]);
+    await fs.promises.mkdir(providerHome, { recursive: true });
+    await fs.promises.writeFile(sourcePath, original);
+
+    const before = await openValidatedConversationSource({ providerHome, sourcePath });
+    const rewriteHandle = await fs.promises.open(sourcePath, 'w');
+    await rewriteHandle.write(Buffer.alloc(original.length + 1024, 'z'));
+    await rewriteHandle.close();
+    const after = await openValidatedConversationSource({ providerHome, sourcePath });
+    assert.equal(before.device, after.device);
+    assert.equal(before.inode, after.inode);
+    assert.equal(before.birthtimeMs, after.birthtimeMs);
+    assert.equal(after.size >= before.size, true);
+    assert.equal(await isConversationSourceContinuation(before, after), false);
+    await before.handle.close();
+    await after.handle.close();
+});
+
 test('SECURITY-AI-SESSION-CONVERSATION-SOURCE-003 resolves only extension-host provider homes', async t => {
     await withProviderFixture(t, 'codex', async extensionHostHome => {
         const uiSideHome = path.join(path.dirname(extensionHostHome), 'ui-machine-codex-home');

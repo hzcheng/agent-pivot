@@ -40,6 +40,49 @@ async function hashRange(
         .digest('hex');
 }
 
+function hasStableFileIdentity(stat: fs.Stats): boolean {
+    return Number.isFinite(stat.dev) && stat.dev > 0
+        && Number.isFinite(stat.ino) && stat.ino > 0
+        && Number.isFinite(stat.birthtimeMs);
+}
+
+function hasMatchingStableFileIdentity(left: fs.Stats, right: fs.Stats): boolean {
+    return left.dev === right.dev
+        && left.ino === right.ino
+        && left.birthtimeMs === right.birthtimeMs;
+}
+
+async function hasMatchingPortableEdges(
+    handle: fs.promises.FileHandle,
+    stat: fs.Stats,
+    sourcePath: string,
+    noFollowFlag: number
+): Promise<boolean> {
+    let verificationHandle: fs.promises.FileHandle;
+    try {
+        verificationHandle = await fs.promises.open(
+            sourcePath,
+            fs.constants.O_RDONLY | noFollowFlag
+        );
+        const verificationStat = await verificationHandle.stat();
+        if (!verificationStat.isFile() || verificationStat.size !== stat.size) {
+            return false;
+        }
+        const edgeBytes = Math.min(64 * 1024, stat.size);
+        const [firstHash, lastHash, verificationFirstHash, verificationLastHash] = await Promise.all([
+            hashRange(handle, 0, edgeBytes),
+            hashRange(handle, Math.max(0, stat.size - edgeBytes), edgeBytes),
+            hashRange(verificationHandle, 0, edgeBytes),
+            hashRange(verificationHandle, Math.max(0, verificationStat.size - edgeBytes), edgeBytes),
+        ]);
+        return firstHash === verificationFirstHash && lastHash === verificationLastHash;
+    } catch (_error) {
+        return false;
+    } finally {
+        await verificationHandle?.close().catch(() => undefined);
+    }
+}
+
 export async function openValidatedConversationSource(
     candidate: AiSessionConversationSourceCandidate,
     options: {
@@ -84,25 +127,23 @@ export async function openValidatedConversationSource(
             await handle.close();
             return null;
         }
-        if (noFollowFlag === 0
-            && Number.isFinite(stat.dev) && stat.dev > 0
-            && Number.isFinite(stat.ino) && stat.ino > 0
-            && (stat.dev !== pathStat.dev
-                || stat.ino !== pathStat.ino
-                || stat.birthtimeMs !== pathStat.birthtimeMs)) {
+        const hasStableIdentity = hasStableFileIdentity(stat)
+            && hasStableFileIdentity(pathStat);
+        if (hasStableIdentity
+            ? !hasMatchingStableFileIdentity(stat, pathStat)
+            : !await hasMatchingPortableEdges(handle, stat, pathAfterOpen, noFollowFlag)) {
             await handle.close();
             return null;
         }
         const hasStableInode = !options.forcePortableIdentity
-            && Number.isFinite(stat.dev) && stat.dev > 0
-            && Number.isFinite(stat.ino) && stat.ino > 0;
+            && hasStableFileIdentity(stat);
         const edgeBytes = Math.min(64 * 1024, stat.size);
-        const firstHash = hasStableInode
-            ? ''
-            : await hashRange(handle, 0, edgeBytes);
-        const lastHash = hasStableInode
-            ? ''
-            : await hashRange(handle, Math.max(0, stat.size - edgeBytes), edgeBytes);
+        const firstHash = await hashRange(handle, 0, edgeBytes);
+        const lastHash = await hashRange(
+            handle,
+            Math.max(0, stat.size - edgeBytes),
+            edgeBytes
+        );
         const identity = hasStableInode
             ? `inode:${canonicalPath}:${stat.dev}:${stat.ino}:${stat.birthtimeMs}:${stat.size}:${stat.mtimeMs}`
             : `portable:${canonicalPath}:${stat.size}:${stat.mtimeMs}:${firstHash}:${lastHash}`;
@@ -115,8 +156,8 @@ export async function openValidatedConversationSource(
             device: hasStableInode ? stat.dev : undefined,
             inode: hasStableInode ? stat.ino : undefined,
             birthtimeMs: hasStableInode ? stat.birthtimeMs : undefined,
-            portableFirstHash: hasStableInode ? undefined : firstHash,
-            portableLastHash: hasStableInode ? undefined : lastHash,
+            portableFirstHash: firstHash,
+            portableLastHash: lastHash,
             identity,
         };
     } catch (_error) {
@@ -133,17 +174,8 @@ export async function isConversationSourceContinuation(
         || current.size < previous.size) {
         return false;
     }
-    if (previous.device !== undefined && previous.inode !== undefined
-        && previous.birthtimeMs !== undefined
-        && current.device !== undefined && current.inode !== undefined
-        && current.birthtimeMs !== undefined) {
-        return previous.device === current.device
-            && previous.inode === current.inode
-            && previous.birthtimeMs === current.birthtimeMs;
-    }
     if (previous.portableFirstHash === undefined
-        || previous.portableLastHash === undefined
-        || current.portableFirstHash === undefined) {
+        || previous.portableLastHash === undefined) {
         return false;
     }
     const edgeBytes = Math.min(64 * 1024, previous.size);
@@ -153,6 +185,17 @@ export async function isConversationSourceContinuation(
         Math.max(0, previous.size - edgeBytes),
         edgeBytes
     );
-    return currentOldFirstHash === previous.portableFirstHash
-        && currentOldLastHash === previous.portableLastHash;
+    if (currentOldFirstHash !== previous.portableFirstHash
+        || currentOldLastHash !== previous.portableLastHash) {
+        return false;
+    }
+    if (previous.device !== undefined && previous.inode !== undefined
+        && previous.birthtimeMs !== undefined
+        && current.device !== undefined && current.inode !== undefined
+        && current.birthtimeMs !== undefined) {
+        return previous.device === current.device
+            && previous.inode === current.inode
+            && previous.birthtimeMs === current.birthtimeMs;
+    }
+    return true;
 }

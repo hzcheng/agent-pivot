@@ -3042,5 +3042,62 @@
       "docs/manual-tests/cross-platform-remote-matrix.md"
     ],
     "manualReason": "Requires real operating-system sleep and remote transport interruption outside deterministic CI control."
+  },
+  {
+    "id": "SHARINGAN-RUNNING-ANIMATION-001",
+    "domain": "webview",
+    "title": "Running workspace cards render character-specific Sharingan animation",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/integration/dashboard/styles.test.js"
+    ],
+    "evidence": [
+      "src/webview/webviewContent.ts",
+      "media/styles.scss",
+      "media/styles.css"
+    ]
+  },
+  {
+    "id": "SHARINGAN-ASSET-INTEGRITY-001",
+    "domain": "release",
+    "title": "Bundled Sharingan SVG assets retain reviewed source bytes",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/unit/tooling/sharinganAssets.test.js"
+    ],
+    "evidence": [
+      "media/sharingan/mangekyou-sharingan-itachi.svg",
+      "media/sharingan/mangekyou-sharingan-obito-kakashi.svg",
+      "media/sharingan/mangekyou-sharingan-sasuke.svg",
+      "media/sharingan/mangekyou-sharingan-shisui.svg"
+    ]
+  },
+  {
+    "id": "SHARINGAN-ASSET-INTEGRITY-002",
+    "domain": "release",
+    "title": "Sharingan SVG byte preservation stays scoped to those assets",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/unit/tooling/sharinganAssets.test.js"
+    ],
+    "evidence": [
+      ".gitattributes"
+    ]
+  },
+  {
+    "id": "SHARINGAN-ASSET-ATTRIBUTION-001",
+    "domain": "release",
+    "title": "Bundled Sharingan SVG assets retain third-party attribution",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/unit/tooling/sharinganAssets.test.js"
+    ],
+    "evidence": [
+      "THIRD_PARTY_NOTICES.md"
+    ]
   }
 ]

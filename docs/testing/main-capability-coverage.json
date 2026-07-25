@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "2fcfb60b427f037c0e6427c2dcfc93ce8f34f0bc",
+        "head": "9b00110b3b08464c11b552330b54be764180bf45",
         "ignoredDocumentationCommits": []
     },
     "capabilities": [
@@ -179,7 +179,7 @@
         {
             "id": "MAIN-WORKSPACE-WEBVIEW",
             "title": "Workspace card webview behavior",
-            "requirement": "Workspace cards retain their markup, layout, click targets, responsive containment, and running-state animations.",
+            "requirement": "Workspace cards retain their markup, layout, click targets, responsive containment, and running-state animations, including character-specific Sharingan running indicators.",
             "commits": [
                 "d97793431d296cb625d6fd93bceb1fb27c502465",
                 "e96db2c7fa49c33e1237a50e821dec95b71fdd4d",
@@ -195,11 +195,19 @@
                 "c11f28c83cd6ceaba804eb9b2d03a19674e16ba0",
                 "d632069fea58b3602c9a25676590f5e5936cf6f0",
                 "be6f937a385f3da27faab3293c30efeeb31f5580",
-                "fef633201c415628fd61668641804e343c082c68"
+                "fef633201c415628fd61668641804e343c082c68",
+                "1bf2636d88e9715d3a6f5e769d1997c56f692b28",
+                "2cbf8013c6fcfde70f4e24bcd8887707ea0cc961",
+                "fe6c084fed2c8ffdeab4f902de2ffaf761b4e3fa",
+                "6ecef7dafbe23279270944708fbabe57b8f70a62"
             ],
             "behaviors": [
                 "WEBVIEW-CURRENT-WORKSPACE-RENDERING-001",
-                "WEBVIEW-SHARED-CARD-STATE-001"
+                "WEBVIEW-SHARED-CARD-STATE-001",
+                "SHARINGAN-RUNNING-ANIMATION-001",
+                "SHARINGAN-ASSET-INTEGRITY-001",
+                "SHARINGAN-ASSET-INTEGRITY-002",
+                "SHARINGAN-ASSET-ATTRIBUTION-001"
             ],
             "prGates": [
                 "test:deterministic:run"
@@ -339,7 +347,8 @@
                 "88d366ce6292a66ec39c5980d1875bbe5c16d6a1",
                 "1ae927aef9cde0e5a6c9e067dd9de3f8477aceea",
                 "a17c97bc68f44b67a827637788f908e11f5611ed",
-                "2fcfb60b427f037c0e6427c2dcfc93ce8f34f0bc"
+                "2fcfb60b427f037c0e6427c2dcfc93ce8f34f0bc",
+                "9b00110b3b08464c11b552330b54be764180bf45"
             ],
             "behaviors": [
                 "RELEASE-VSIX-PACKAGING-001",

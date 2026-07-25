@@ -25,6 +25,9 @@ media/*.scss
 !media/webviewProjectScripts.js
 !media/webviewPromptScripts.js
 !media/webviewTodoScripts.js
+!media/conversationViewerScripts.js
+!media/conversationViewer.css
+!media/purify.min.js
 !media/styles.css
 webpack.config.json
 *.gif

@@ -3381,6 +3381,10 @@ body.steward-sidebar {
 
         .ai-session-conversation-rail {
             min-height: 0;
+            height: var(
+                --steward-ai-session-conversation-rail-height,
+                auto
+            );
             max-height: var(
                 --steward-ai-session-conversation-rail-height,
                 none

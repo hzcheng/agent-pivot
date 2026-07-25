@@ -3234,6 +3234,33 @@
     ]
   },
   {
+    "id": "ACTIVE-SESSION-CONVERSATION-LAYOUT-001",
+    "domain": "webview",
+    "title": "Focused conversation expansion measures visible content and bounds only its rail",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/browser/activeSessionConversationOutline.test.js"
+    ],
+    "evidence": [
+      "src/webview/webviewProjectScripts.js",
+      "media/styles.scss"
+    ]
+  },
+  {
+    "id": "ACTIVE-SESSION-CONVERSATION-RESTORE-001",
+    "domain": "webview",
+    "title": "Authoritative current-workspace replacement restores or cancels ephemeral conversation expansion",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/browser/activeSessionConversationOutline.test.js"
+    ],
+    "evidence": [
+      "src/webview/webviewProjectScripts.js"
+    ]
+  },
+  {
     "id": "SESSION-CONVERSATION-COORDINATOR-001",
     "domain": "session",
     "title": "Conversation reads publish only correlated revisions through bounded validated refreshes",

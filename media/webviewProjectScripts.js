@@ -81,6 +81,7 @@ var activeAiSessionConversationSubscription = null;
 var activeAiSessionConversationRequestId = 0;
 var activeAiSessionConversationGeneration = 0;
 var activeAiSessionConversationResizeObserver = null;
+var activeAiSessionConversationMutationObserver = null;
 var activeAiSessionConversationResizeFallbackInstalled = false;
 
 function getActiveAiSessionConversationTarget(row) {
@@ -151,6 +152,10 @@ function disconnectActiveAiSessionConversationResizeObserver() {
         activeAiSessionConversationResizeObserver.disconnect();
         activeAiSessionConversationResizeObserver = null;
     }
+    if (activeAiSessionConversationMutationObserver) {
+        activeAiSessionConversationMutationObserver.disconnect();
+        activeAiSessionConversationMutationObserver = null;
+    }
 }
 
 function getExpandedActiveAiSessionConversationRow() {
@@ -188,7 +193,11 @@ function syncActiveAiSessionConversationListHeight(row) {
         ? getComputedStyle(panel)
         : null;
     var panelVerticalChrome = panelStyle
-        ? ['paddingTop', 'paddingBottom', 'borderTopWidth', 'borderBottomWidth']
+        ? [
+            'marginTop', 'marginBottom',
+            'paddingTop', 'paddingBottom',
+            'borderTopWidth', 'borderBottomWidth',
+        ]
             .reduce((total, property) =>
                 total + (parseFloat(panelStyle[property]) || 0), 0)
         : 0;
@@ -196,7 +205,28 @@ function syncActiveAiSessionConversationListHeight(row) {
     row.style.removeProperty(
         '--steward-ai-session-conversation-rail-height'
     );
-    var naturalExpandedHeight = collapsedRowHeight + panel.scrollHeight;
+    var rail = panel.querySelector('[data-ai-session-conversation-rail]');
+    var visiblePanelContent = Array.from(panel.children).filter(child =>
+        child !== conversationHeader
+        && !child.hidden
+        && (typeof getComputedStyle !== 'function'
+            || getComputedStyle(child).display !== 'none')
+    );
+    var naturalContentHeight = visiblePanelContent.reduce((total, child) =>
+        total + Math.max(
+            child.scrollHeight || 0,
+            child.getBoundingClientRect().height || 0
+        ), 0);
+    var naturalRailHeight = rail && visiblePanelContent.includes(rail)
+        ? Math.max(
+            rail.scrollHeight || 0,
+            rail.getBoundingClientRect().height || 0
+        )
+        : 0;
+    var naturalPanelHeight = conversationHeaderHeight
+        + naturalContentHeight
+        + panelVerticalChrome;
+    var naturalExpandedHeight = collapsedRowHeight + naturalPanelHeight;
     var expansionDelta = Math.max(
         0,
         naturalExpandedHeight - collapsedRowHeight
@@ -220,22 +250,38 @@ function syncActiveAiSessionConversationListHeight(row) {
         '--steward-ai-session-expanded-extra-height',
         Math.max(0, renderedListHeight - collapsedListHeight) + 'px'
     );
-    row.style.setProperty(
-        '--steward-ai-session-conversation-rail-height',
-        railHeight + 'px'
-    );
+    if (naturalRailHeight > 0) {
+        row.style.setProperty(
+            '--steward-ai-session-conversation-rail-height',
+            Math.min(naturalRailHeight, railHeight) + 'px'
+        );
+    }
     return true;
 }
 
 function observeActiveAiSessionConversationSize(row) {
     disconnectActiveAiSessionConversationResizeObserver();
     var list = row && row.closest('.codex-sessions-list');
+    var panel = row && row.querySelector(
+        '[data-ai-session-conversation-panel]'
+    );
     if (typeof ResizeObserver !== 'undefined' && row && list) {
         activeAiSessionConversationResizeObserver = new ResizeObserver(() => {
             syncActiveAiSessionConversationListHeight(row);
         });
         activeAiSessionConversationResizeObserver.observe(row);
         activeAiSessionConversationResizeObserver.observe(list);
+    }
+    if (typeof MutationObserver !== 'undefined' && panel) {
+        activeAiSessionConversationMutationObserver = new MutationObserver(
+            () => syncActiveAiSessionConversationListHeight(row)
+        );
+        activeAiSessionConversationMutationObserver.observe(panel, {
+            attributes: true,
+            attributeFilter: ['hidden'],
+            childList: true,
+            subtree: true,
+        });
     }
     if (!activeAiSessionConversationResizeFallbackInstalled
         && typeof window !== 'undefined'
@@ -354,6 +400,9 @@ function canRestoreExpandedConversation(projectDiv, state) {
 }
 
 function restoreExpandedConversationState(row, state) {
+    if (row?.hasAttribute('data-conversation-expanded')) {
+        applyActiveAiSessionConversationState(row, false);
+    }
     if (!row || !state || !applyActiveAiSessionConversationState(row, true)) {
         return false;
     }
@@ -372,6 +421,63 @@ function restoreExpandedConversationState(row, state) {
     }
     requestActiveAiSessionConversation(row);
     return true;
+}
+
+function captureCurrentWorkspaceConversationStates(root) {
+    var states = new Map();
+    if (!root || typeof root.querySelectorAll !== 'function') return states;
+    root.querySelectorAll(
+        '.workspace-card[data-current-workspace][data-id]'
+    ).forEach(projectDiv => {
+        var state = captureExpandedConversationState(projectDiv);
+        var projectId = projectDiv.getAttribute('data-id');
+        if (state && projectId) {
+            states.set(projectId, state);
+        }
+    });
+    if (states.size) {
+        disconnectActiveAiSessionConversationResizeObserver();
+    }
+    return states;
+}
+
+function restoreCurrentWorkspaceConversationStates(root, states) {
+    states = states || new Map();
+    if (!root || typeof root.querySelectorAll !== 'function') {
+        states.forEach((state, projectId) => {
+            cancelActiveAiSessionConversation({
+                projectId: projectId,
+                provider: state.provider,
+                sessionId: state.sessionId,
+            });
+        });
+        return;
+    }
+    root.querySelectorAll(
+        '.workspace-card[data-current-workspace][data-id]'
+    ).forEach(projectDiv => {
+        var projectId = projectDiv.getAttribute('data-id');
+        var state = states.get(projectId);
+        if (!state) return;
+        var row = canRestoreExpandedConversation(projectDiv, state);
+        if (row) {
+            restoreExpandedConversationState(row, state);
+        } else {
+            cancelActiveAiSessionConversation({
+                projectId: projectId,
+                provider: state.provider,
+                sessionId: state.sessionId,
+            });
+        }
+        states.delete(projectId);
+    });
+    states.forEach((state, projectId) => {
+        cancelActiveAiSessionConversation({
+            projectId: projectId,
+            provider: state.provider,
+            sessionId: state.sessionId,
+        });
+    });
 }
 
 function getAdjacentAiSessionTab(tab, key) {
@@ -589,11 +695,6 @@ function applyWorkspaceUpdate(message, options) {
         typeof card.getAttribute === 'function' ? card.getAttribute('data-id') : null,
         captureAiSessionProviderMenuState(card),
     ]));
-    var expandedConversationStates = new Map(currentCards.map(card => [
-        typeof card.getAttribute === 'function' ? card.getAttribute('data-id') : null,
-        captureExpandedConversationState(card),
-    ]));
-
     var holder = document.createElement('div');
     holder.innerHTML = message.html.trim();
     var replacement = holder.firstElementChild;
@@ -604,6 +705,8 @@ function applyWorkspaceUpdate(message, options) {
         return false;
     }
 
+    var expandedConversationStates =
+        captureCurrentWorkspaceConversationStates(currentGroup);
     currentGroup.replaceWith(replacement);
     if (typeof restoreAiSessionTabsFromState === 'function') {
         restoreAiSessionTabsFromState(replacement, window.vscode);
@@ -619,31 +722,12 @@ function applyWorkspaceUpdate(message, options) {
                 providerMenuStates.get(projectId),
                 allowed
             );
-            var expandedState = expandedConversationStates.get(projectId);
-            var conversationRow = canRestoreExpandedConversation(
-                projectDiv,
-                expandedState
-            );
-            if (conversationRow) {
-                restoreExpandedConversationState(conversationRow, expandedState);
-            } else if (expandedState) {
-                cancelActiveAiSessionConversation({
-                    projectId: projectId,
-                    provider: expandedState.provider,
-                    sessionId: expandedState.sessionId,
-                });
-            }
-            expandedConversationStates.delete(projectId);
         }
     );
-    expandedConversationStates.forEach((expandedState, projectId) => {
-        if (!expandedState) return;
-        cancelActiveAiSessionConversation({
-            projectId: projectId,
-            provider: expandedState.provider,
-            sessionId: expandedState.sessionId,
-        });
-    });
+    restoreCurrentWorkspaceConversationStates(
+        replacement,
+        expandedConversationStates
+    );
     if (typeof window.__projectStewardSyncCollapseButton === 'function') {
         window.__projectStewardSyncCollapseButton();
     }
@@ -679,9 +763,18 @@ function applyOpenWorkspacesUpdate(message) {
     var wrapper = document.querySelector('.sticky-groups-wrapper');
     if (!wrapper) return false;
     var previousHtml = wrapper.innerHTML;
+    var expandedConversationStates =
+        captureCurrentWorkspaceConversationStates(wrapper);
     wrapper.innerHTML = message.html;
     if (!isOpenWorkspacesUpdateDomConsistent(message)) {
         wrapper.innerHTML = previousHtml;
+        if (typeof restoreAiSessionTabsFromState === 'function') {
+            restoreAiSessionTabsFromState(document, window.vscode);
+        }
+        restoreCurrentWorkspaceConversationStates(
+            wrapper,
+            expandedConversationStates
+        );
         return false;
     }
     if (window.__projectStewardDashboard) {
@@ -690,6 +783,10 @@ function applyOpenWorkspacesUpdate(message) {
     if (typeof restoreAiSessionTabsFromState === 'function') {
         restoreAiSessionTabsFromState(document, window.vscode);
     }
+    restoreCurrentWorkspaceConversationStates(
+        wrapper,
+        expandedConversationStates
+    );
     if (typeof window.__projectStewardSyncCollapseButton === 'function') {
         window.__projectStewardSyncCollapseButton();
     }

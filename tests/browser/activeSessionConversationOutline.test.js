@@ -61,7 +61,7 @@ function session(provider, sessionId, focused) {
     };
 }
 
-function projectMarkup(activeAiSessions, markerCount = 0) {
+function sessionSurfaceMarkup(activeAiSessions, markerCount = 0) {
     let sessionsMarkup = getAiSessionsDiv({
         id: 'project-a',
         activeAiSessionProvider: 'codex',
@@ -83,12 +83,25 @@ function projectMarkup(activeAiSessions, markerCount = 0) {
             `$1>${markers}</div>`
         );
     }
+    return sessionsMarkup;
+}
+
+function projectMarkup(activeAiSessions, markerCount = 0) {
     return `<div class="project workspace-card" data-id="project-a" data-current-workspace
         data-codex-expanded
         data-workspace-scope-identity="scope-project-a"
         data-workspace-navigation-identity="navigation-project-a"
         style="--steward-ai-session-list-max-height: 130px">
-        ${sessionsMarkup}
+        ${sessionSurfaceMarkup(activeAiSessions, markerCount)}
+    </div>`;
+}
+
+function navigationProjectMarkup(activeAiSessions) {
+    return `<div class="project workspace-card" data-id="project-a" data-other-workspace
+        data-codex-expanded
+        data-workspace-navigation-identity="navigation-other"
+        style="--steward-ai-session-list-max-height: 130px">
+        ${sessionSurfaceMarkup(activeAiSessions)}
     </div>`;
 }
 
@@ -114,6 +127,20 @@ async function openConversationPage(t, activeAiSessions, viewport = { width: 360
     await page.evaluate(() => {
         window.__postedMessages = [];
         window.__setStateCalls = [];
+        window.__conversationObserverDisconnects = 0;
+        const NativeResizeObserver = window.ResizeObserver;
+        window.ResizeObserver = class {
+            constructor(callback) {
+                this.observer = new NativeResizeObserver(callback);
+            }
+            observe(target) {
+                this.observer.observe(target);
+            }
+            disconnect() {
+                window.__conversationObserverDisconnects += 1;
+                this.observer.disconnect();
+            }
+        };
         window.normalizeDashboardSearchCatalog = catalog => catalog;
         window.vscode = {
             getState: () => undefined,
@@ -187,6 +214,70 @@ async function postWorkspaceUpdate(page, activeAiSessions, markerCount = 0) {
             html: htmlValue,
         } }));
     }, html);
+}
+
+async function postOpenWorkspacesUpdate(page, options) {
+    const currentMarkup = options.currentSessions
+        ? `<div class="open-current-workspace-group">
+            ${projectMarkup(options.currentSessions, options.markerCount || 0)}
+        </div>`
+        : '<div class="open-current-workspace-group"></div>';
+    const navigationMarkup = options.navigationSessions
+        ? `<div class="open-other-windows-group" data-other-windows-status="ready">
+            ${navigationProjectMarkup(options.navigationSessions)}
+        </div>`
+        : '';
+    const currentWorkspaceCount = options.currentSessions ? 1 : 0;
+    const navigationWorkspaceCount = options.navigationSessions ? 1 : 0;
+    await page.evaluate(value => {
+        window.dispatchEvent(new MessageEvent('message', { data: {
+            type: 'open-workspaces-updated',
+            version: 2,
+            semanticRevision: value.semanticRevision,
+            currentWorkspaceCount: value.currentWorkspaceCount,
+            navigationWorkspaceCount: value.navigationWorkspaceCount,
+            otherWindowsStatus: 'ready',
+            html: value.html,
+            searchCatalog: {
+                version: 2,
+                sessions: [],
+                openWorkspaces: Array.from(
+                    { length: value.currentWorkspaceCount + value.navigationWorkspaceCount },
+                    (_, index) => ({ identity: `workspace-${index}` })
+                ),
+                savedProjects: [],
+                todos: [],
+            },
+        } }));
+    }, {
+        semanticRevision: options.semanticRevision,
+        currentWorkspaceCount,
+        navigationWorkspaceCount,
+        html: currentMarkup + navigationMarkup,
+    });
+}
+
+async function postInvalidOpenWorkspacesUpdate(page, semanticRevision) {
+    await page.evaluate(revision => {
+        window.dispatchEvent(new MessageEvent('message', { data: {
+            type: 'open-workspaces-updated',
+            version: 2,
+            semanticRevision: revision,
+            currentWorkspaceCount: 1,
+            navigationWorkspaceCount: 0,
+            otherWindowsStatus: 'ready',
+            html: `<div class="open-current-workspace-group"></div>
+                <div class="open-other-windows-group"
+                    data-other-windows-status="ready"></div>`,
+            searchCatalog: {
+                version: 2,
+                sessions: [],
+                openWorkspaces: [{ identity: 'missing-current-workspace' }],
+                savedProjects: [],
+                todos: [],
+            },
+        } }));
+    }, semanticRevision);
 }
 
 test('ACTIVE-SESSION-CONVERSATION-EXPANSION-001 focuses first, toggles one focused card, consumes actions, and starts a new document closed', async t => {
@@ -312,6 +403,27 @@ test('ACTIVE-SESSION-CONVERSATION-LAYOUT-001 measures one row delta synchronousl
     await focusedCard.click();
     await assertExpanded(focusedCard, focusedHeader, conversationPanel);
     assert.equal(await isFullyInsideViewport(page, conversationPanel), true);
+    const spaciousRail = await conversationRail.evaluate(node => ({
+        clientHeight: node.clientHeight,
+        scrollHeight: node.scrollHeight,
+        firstMarkerVisible: (() => {
+            const marker = node.querySelector('[data-ai-session-conversation-marker]');
+            const railRect = node.getBoundingClientRect();
+            const markerRect = marker.getBoundingClientRect();
+            return markerRect.top >= railRect.top && markerRect.bottom <= railRect.bottom;
+        })(),
+        lastMarkerVisible: (() => {
+            const markers = node.querySelectorAll('[data-ai-session-conversation-marker]');
+            const marker = markers[markers.length - 1];
+            const railRect = node.getBoundingClientRect();
+            const markerRect = marker.getBoundingClientRect();
+            return markerRect.top >= railRect.top && markerRect.bottom <= railRect.bottom;
+        })(),
+    }));
+    assert.ok(spaciousRail.clientHeight > 0);
+    assert.equal(spaciousRail.clientHeight, spaciousRail.scrollHeight);
+    assert.equal(spaciousRail.firstMarkerVisible, true);
+    assert.equal(spaciousRail.lastMarkerVisible, true);
     const expanded = await page.evaluate(() => {
         const listNode = document.querySelector('.ai-session-active-panel .codex-sessions-list');
         const rowNode = document.querySelector('.active-ai-session-row[data-session-focused]');
@@ -329,14 +441,62 @@ test('ACTIVE-SESSION-CONVERSATION-LAYOUT-001 measures one row delta synchronousl
     await focusedHeader.scrollIntoViewIfNeeded();
     assert.equal(await focusedHeader.isVisible(), true);
     assert.equal(await conversationPanel.locator('header').isVisible(), true);
-    assert.equal(await conversationRail.evaluate(node =>
-        node.scrollHeight > node.clientHeight
-        && getComputedStyle(node).overflowY === 'auto'
-    ), true);
+    const constrainedRail = await conversationRail.evaluate(node => {
+        const marker = node.querySelector('[data-ai-session-conversation-marker]');
+        const railRect = node.getBoundingClientRect();
+        const markerRect = marker.getBoundingClientRect();
+        return {
+            clientHeight: node.clientHeight,
+            scrollHeight: node.scrollHeight,
+            overflowY: getComputedStyle(node).overflowY,
+            markerVisible: markerRect.top >= railRect.top
+                && markerRect.bottom <= railRect.bottom,
+        };
+    });
+    assert.ok(constrainedRail.clientHeight >= 72);
+    assert.ok(constrainedRail.clientHeight < constrainedRail.scrollHeight);
+    assert.equal(constrainedRail.overflowY, 'auto');
+    assert.equal(constrainedRail.markerVisible, true);
     assert.equal(await conversationPanel.evaluate(node =>
         getComputedStyle(node).overflowY !== 'auto'
     ), true);
     assert.equal(await list.evaluate(node => getComputedStyle(node).overflowY), 'auto');
+
+    await page.setViewportSize({ width: 360, height: 900 });
+    assert.equal(await isFullyInsideViewport(page, conversationPanel), true);
+    assert.deepEqual(await conversationRail.evaluate(node => ({
+        clientHeight: node.clientHeight,
+        scrollHeight: node.scrollHeight,
+    })), {
+        clientHeight: spaciousRail.scrollHeight,
+        scrollHeight: spaciousRail.scrollHeight,
+    });
+
+    await conversationRail.evaluate(node => {
+        Array.from(node.querySelectorAll(
+            '[data-ai-session-conversation-marker]'
+        )).slice(1).forEach(marker => marker.remove());
+    });
+    await page.waitForTimeout(100);
+    assert.deepEqual(await conversationRail.evaluate(node => ({
+        clientHeight: node.clientHeight,
+        scrollHeight: node.scrollHeight,
+    })), {
+        clientHeight: 24,
+        scrollHeight: 24,
+    });
+
+    const loadingPage = await openConversationPage(t, [
+        session('codex', 'loading-session', true),
+    ]);
+    const loadingRow = row(loadingPage, 'codex', 'loading-session');
+    await loadingRow.locator('.ai-session-primary-action').click();
+    const loadingPanel = loadingRow.locator('[data-ai-session-conversation-panel]');
+    assert.equal(await loadingPanel.locator('.ai-session-conversation-loading').isVisible(), true);
+    assert.ok(await loadingPanel.evaluate(node =>
+        node.getBoundingClientRect().height > 0
+        && node.getBoundingClientRect().height < 160
+    ));
 });
 
 test('ACTIVE-SESSION-CONVERSATION-RESTORE-001 restores only the same still-focused identity and otherwise sends a newer exact cancel', async t => {
@@ -348,6 +508,12 @@ test('ACTIVE-SESSION-CONVERSATION-RESTORE-001 restores only the same still-focus
     await focused.locator('.ai-session-primary-action').click();
     await seedConversationRail(page, 'codex', 'session-a');
     await page.setViewportSize({ width: 360, height: 260 });
+    await page.waitForFunction(() => {
+        const rail = document.querySelector(
+            '[data-conversation-expanded] [data-ai-session-conversation-rail]'
+        );
+        return rail && rail.clientHeight < rail.scrollHeight;
+    });
     const capturedScrollTop = await focused
         .locator('[data-ai-session-conversation-rail]')
         .evaluate(rail => {
@@ -407,6 +573,158 @@ test('ACTIVE-SESSION-CONVERSATION-RESTORE-001 restores only the same still-focus
         sessionId: 'session-a',
     });
     assert.deepEqual(await page.evaluate(() => window.__setStateCalls), []);
+});
+
+test('ACTIVE-SESSION-CONVERSATION-RESTORE-001 preserves or cancels expansion through authoritative open-workspaces replacement', async t => {
+    const page = await openConversationPage(t, [
+        session('codex', 'session-a', true),
+        session('kimi', 'session-b', false),
+    ]);
+    const focused = row(page, 'codex', 'session-a');
+    await focused.locator('.ai-session-primary-action').click();
+    await seedConversationRail(page, 'codex', 'session-a');
+    await page.setViewportSize({ width: 360, height: 260 });
+    await page.waitForFunction(() => {
+        const rail = document.querySelector(
+            '[data-conversation-expanded] [data-ai-session-conversation-rail]'
+        );
+        return rail && rail.clientHeight < rail.scrollHeight;
+    });
+    const captured = await focused
+        .locator('[data-ai-session-conversation-rail]')
+        .evaluate(rail => {
+            rail.scrollTop = 64;
+            rail.querySelector('[data-interaction-id="interaction-6"]').focus();
+            return {
+                scrollTop: rail.scrollTop,
+                disconnects: window.__conversationObserverDisconnects,
+            };
+        });
+
+    await postOpenWorkspacesUpdate(page, {
+        semanticRevision: 'same-focused',
+        currentSessions: [
+            session('codex', 'session-a', true),
+            session('kimi', 'session-b', false),
+        ],
+        markerCount: 18,
+    });
+    const restored = row(page, 'codex', 'session-a');
+    await assertExpanded(
+        restored,
+        restored.locator('.ai-session-primary-action'),
+        restored.locator('[data-ai-session-conversation-panel]')
+    );
+    assert.deepEqual((await conversationMessages(page)).at(-1), {
+        type: 'request-ai-session-conversation-outline',
+        version: 1,
+        requestId: 2,
+        subscriptionGeneration: 2,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    });
+    assert.equal(
+        await restored.locator('[data-ai-session-conversation-rail]').evaluate(
+            rail => rail.scrollTop
+        ),
+        captured.scrollTop
+    );
+    assert.equal(
+        await restored.locator('[data-interaction-id="interaction-6"]').evaluate(
+            marker => document.activeElement === marker
+        ),
+        true
+    );
+    assert.ok(await page.evaluate(
+        count => window.__conversationObserverDisconnects > count,
+        captured.disconnects
+    ));
+
+    const restoredScrollTop = await restored
+        .locator('[data-ai-session-conversation-rail]')
+        .evaluate(rail => rail.scrollTop);
+    const disconnectsBeforeRollback = await page.evaluate(
+        () => window.__conversationObserverDisconnects
+    );
+    await postInvalidOpenWorkspacesUpdate(page, 'invalid-missing-current');
+    const rolledBack = row(page, 'codex', 'session-a');
+    await assertExpanded(
+        rolledBack,
+        rolledBack.locator('.ai-session-primary-action'),
+        rolledBack.locator('[data-ai-session-conversation-panel]')
+    );
+    assert.deepEqual((await conversationMessages(page)).at(-1), {
+        type: 'request-ai-session-conversation-outline',
+        version: 1,
+        requestId: 3,
+        subscriptionGeneration: 3,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    });
+    assert.equal(
+        await rolledBack.locator('[data-ai-session-conversation-rail]').evaluate(
+            rail => rail.scrollTop
+        ),
+        restoredScrollTop
+    );
+    assert.equal(
+        await rolledBack.locator('[data-interaction-id="interaction-6"]').evaluate(
+            marker => document.activeElement === marker
+        ),
+        true
+    );
+    assert.ok(await page.evaluate(
+        count => window.__conversationObserverDisconnects > count,
+        disconnectsBeforeRollback
+    ));
+
+    const disconnectsBeforeMismatch = await page.evaluate(
+        () => window.__conversationObserverDisconnects
+    );
+    await postOpenWorkspacesUpdate(page, {
+        semanticRevision: 'changed-current-identity',
+        currentSessions: [
+            session('codex', 'session-a', false),
+            session('kimi', 'session-b', true),
+        ],
+        navigationSessions: [
+            session('codex', 'session-a', true),
+        ],
+    });
+    assert.equal(
+        await page.locator(
+            '.workspace-card[data-current-workspace] [data-conversation-expanded]'
+        ).count(),
+        0
+    );
+    assert.equal(
+        await page.locator(
+            '.workspace-card[data-other-workspace] [data-conversation-expanded]'
+        ).count(),
+        0
+    );
+    assert.deepEqual((await conversationMessages(page)).at(-1), {
+        type: 'cancel-ai-session-conversation',
+        version: 1,
+        requestId: 4,
+        subscriptionGeneration: 4,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    });
+    assert.deepEqual(await page.evaluate(() => ({
+        expandedKey: expandedActiveAiSessionConversationKey,
+        observer: activeAiSessionConversationResizeObserver,
+        mutationObserver: activeAiSessionConversationMutationObserver,
+        disconnects: window.__conversationObserverDisconnects,
+    })), {
+        expandedKey: null,
+        observer: null,
+        mutationObserver: null,
+        disconnects: disconnectsBeforeMismatch + 1,
+    });
 });
 
 async function expectClosed(card, header, panel, expectsShell) {

@@ -4962,12 +4962,20 @@ function runWebviewContentChecks() {
     const sharedItemAccentBlock = extractExactScssBlock(sidebarStyles, '.steward-item-accent');
     const sharedItemAccentHoverBlock = extractScssBlock(sidebarStyles, '.steward-item-card:hover .steward-item-accent');
     const projectStyleBlock = extractExactScssBlock(sidebarStyles, '.project');
+    const aiSessionListStyleBlock = extractExactScssBlock(
+        projectStyleBlock,
+        '.codex-sessions-list'
+    );
     const currentWorkspaceStyleBlock = extractExactScssBlock(projectStyleBlock, '&[data-current-workspace]');
     const expandedProjectHoverBlock = extractExactScssBlock(currentWorkspaceStyleBlock, '&[data-codex-expanded]:hover');
     const expandedProjectAccentBlock = extractExactScssBlock(expandedProjectHoverBlock, '.steward-item-accent');
     const compiledSharedItemAccentBlock = extractExactCssBlock(compiledStyles, 'body.steward-sidebar .steward-item-accent');
     const compiledSharedItemAccentHoverBlock = extractExactCssBlock(compiledStyles, 'body.steward-sidebar .steward-item-card:hover .steward-item-accent');
     const compiledExpandedProjectAccentBlock = extractExactCssBlock(compiledStyles, 'body.steward-sidebar .project[data-current-workspace][data-codex-expanded]:hover .steward-item-accent');
+    const compiledAiSessionListStyleBlock = extractExactCssBlock(
+        compiledStyles,
+        'body.steward-sidebar .project .codex-sessions-list'
+    );
     const currentItemCardShellBlock = extractExactScssBlock(sidebarStyles, '&[data-current-workspace]');
     const currentItemCardVisualBlock = extractExactScssBlock(sharedItemCardBlock, '&.selected');
     const compiledCurrentItemCardShellBlock = extractScssBlock(
@@ -5630,7 +5638,17 @@ function runWebviewContentChecks() {
     assert.ok(!/\bheight\s*:/.test(compiledExpandedProjectAccentBlock));
     assert.ok(webviewContent.includes('--steward-ai-session-list-max-height: ${getAiSessionListMaxHeight(config)}px;'));
     assert.ok(webviewContent.includes('Number.isFinite(visibleRows)'));
-    assert.ok(styles.includes('height: var(--steward-ai-session-list-max-height, calc(3 * 42px + 2 * 2px));'));
+    assert.ok(aiSessionListStyleBlock.includes('height: calc('));
+    assert.ok(aiSessionListStyleBlock.includes(
+        'var(--steward-ai-session-list-max-height, calc(3 * 42px + 2 * 2px))'
+    ));
+    assert.ok(aiSessionListStyleBlock.includes(
+        '+ var(--steward-ai-session-expanded-extra-height, 0px)'
+    ));
+    assert.ok(compiledAiSessionListStyleBlock.includes(
+        'height:calc(var(--steward-ai-session-list-max-height,130px) + '
+        + 'var(--steward-ai-session-expanded-extra-height,0px))'
+    ));
 }
 
 function runTmuxSmokeHarnessSafetyChecks() {

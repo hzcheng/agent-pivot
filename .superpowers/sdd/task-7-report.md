@@ -7,6 +7,7 @@ DONE
 - Base: `a2bc701ae8b5cb39515ad0fe89059d9f6f3fe384`
 - Branch: `docs/active-session-conversation-outline-design`
 - Feature commit: `d73886e feat: add safe AI conversation viewer`
+- Root-review fix: `92eb3f5 fix: harden conversation viewer refresh recovery`
 - Final scoped review verdict: `READY`
 - No push was performed.
 
@@ -215,3 +216,147 @@ Task 7 did not modify it.
 
 No Task 7 implementation concern remains. Dashboard construction and
 registration are intentionally deferred to Task 10, as required by the brief.
+
+## Root Review Follow-up
+
+An independent root review after the initial Task 7 commits found four
+Important defects. All four were reproduced with tests before production
+changes:
+
+1. Hidden or non-live Webviews could lose a publication because the boolean
+   result of `postMessage` was ignored and no panel view-state replay existed.
+2. `staleRevision` from a page read was treated as a generic failure instead
+   of performing one bounded authoritative outline/page retry.
+3. A live tail refresh replaced the retained 20-interaction window, dropping
+   the oldest visible interaction. The original browser fixture bypassed this
+   Host behavior by sending 21 interactions directly.
+4. A partial 2,000-interaction tail used its local selected index rather than
+   the authoritative global position.
+
+### Follow-up RED Evidence
+
+After adding the first six Host regressions:
+
+```bash
+npm run test-compile \
+  && node --test tests/integration/dashboard/conversationViewer.test.js
+```
+
+Compilation passed. The integration run exited `1`, reporting `10` pass and
+`6` expected failures:
+
+- view-state listener count was `0`, expected `1`;
+- initial, navigation, and persistent-stale cases each read one outline rather
+  than the expected two;
+- refresh publication omitted `input-1`;
+- the final partial-tail position was `2,000`, expected `2,001`.
+
+The real Host-to-browser regression was then run:
+
+```bash
+node --test --test-concurrency=1 \
+  tests/browser/conversationViewer.test.js
+```
+
+It exited `1`, reporting `7` pass and `1` expected failure: after the Host
+refreshed a 20-item tail to interactions 2–21, the DOM contained zero copies of
+`host-input-1`, expected one.
+
+The final product ruling required exact-ID fail-closed behavior rather than
+nearest-index fallback when an interaction disappears during the retry race.
+Two more tests were added and observed RED:
+
+```bash
+node --test tests/integration/dashboard/conversationViewer.test.js
+```
+
+It exited `1`, reporting `16` pass and `2` expected failures:
+
+- initial `r1[input-1]` → stale page → `r2[input-2]` performed two page reads,
+  expected one and unavailable state;
+- an established `input-1` selection removed by refresh performed a second
+  page read, expected retention of the old stale snapshot.
+
+### Follow-up Fixes
+
+- The Host retains only the latest current-generation/current-request
+  publication. A failed delivery immediately rebuilds a bootstrap document,
+  and a hidden-to-visible transition rebuilds the latest bootstrap again.
+  The view-state listener is disposed with the panel.
+- Only exact `ConversationError('staleRevision')` triggers recovery. The same
+  generation/request may read one fresh outline and perform one cursor-free
+  authoritative `around` page read. A second stale error is not retried.
+- Initial targets, established selections, and requested navigation targets
+  must remain present by exact interaction ID. Missing initial IDs render
+  unavailable without another page read; missing established IDs retain and
+  publish the previous snapshot as stale.
+- Refresh reconstructs retained data in authoritative outline order, keeps
+  only loaded IDs still present in the outline, replaces refreshed messages by
+  interaction ID, reconstructs exact public message/state fields, drops old
+  revision cursors, and then applies the existing 100-interaction/4 MiB
+  eviction.
+- Partial-tail positions add the omitted authoritative prefix
+  (`totalInteractions - interactions.length`) to the local selected index.
+  The display denominator remains bounded as `2,000+`.
+- The browser boundary test now obtains its initial and refresh publications
+  from the real compiled `ConversationViewer`, then verifies retained history,
+  a stable 9 px historical scroll with pending content, and 8 px auto-follow.
+
+The follow-up implementation and tests were committed as:
+
+```text
+92eb3f5 fix: harden conversation viewer refresh recovery
+```
+
+### Follow-up GREEN Evidence
+
+The exact focused command was rerun after the final exact-ID change:
+
+```bash
+npm run test-compile \
+  && npx gulp --production \
+  && node --test tests/unit/aiSessions/conversationMarkdown.test.js \
+  && node --test tests/integration/dashboard/conversationViewer.test.js \
+  && node --test --test-concurrency=1 \
+    tests/browser/conversationViewer.test.js \
+  && cmp src/webview/conversationViewerScripts.js \
+    media/conversationViewerScripts.js \
+  && cmp node_modules/dompurify/dist/purify.min.js media/purify.min.js \
+  && git diff --check
+```
+
+Output: exit `0`; compilation and production asset build passed, Markdown
+reported `2/2`, Host viewer integration `18/18`, browser viewer `8/8`, both
+asset comparisons matched, and the diff check was clean.
+
+Fresh full relevant regression:
+
+```bash
+node --test \
+  tests/unit/aiSessions/conversation*.test.js \
+  tests/contract/aiSessions/conversation*.test.js \
+  tests/integration/dashboard/conversation*.test.js
+
+node --test --test-concurrency=1 tests/browser/*.test.js
+```
+
+Output: exit `0`; conversation tests reported `77/77`, and the complete browser
+suite reported `45/45`.
+
+Fresh architecture and Dashboard checks:
+
+```bash
+npm run test:architecture-guards
+npm run test:dashboard:run
+```
+
+Both exited `0`.
+
+Task-owned TypeScript lint and `git diff --check` exited `0`. Repository lint
+remains classified exactly as before: its only failure is the unchanged
+`codexAppServerClient.ts` semicolon baseline (`0=5`).
+
+The final tightly scoped read-only review returned `READY`: exact-ID initial
+failure, established-selection stale retention, and one bounded retry for
+present IDs were all confirmed. No proven Critical or Important finding
+remains.

@@ -51,6 +51,7 @@ export interface PromptCommandMessage {
 export interface PromptCommandResultMessage {
     readonly type: 'prompt-command-result';
     readonly version: 1;
+    readonly authoritySequence: number;
     readonly requestId: string;
     readonly target: 'global-prompt-library';
     readonly operation: PromptMutationOperation;
@@ -63,6 +64,7 @@ export interface PromptCommandResultMessage {
 export interface PromptPanelContentMessage {
     readonly type: 'ai-panel-content';
     readonly version: 1;
+    readonly authoritySequence: number;
     readonly requestId: string;
     readonly target: 'global-prompt-library';
     readonly snapshot: PromptPanelSnapshot;
@@ -72,6 +74,7 @@ export interface PromptPanelContentMessage {
 export interface PromptPanelRefreshMessage {
     readonly type: 'prompt-panel-updated';
     readonly version: 1;
+    readonly authoritySequence: number;
     readonly target: 'global-prompt-library';
     readonly snapshot: PromptPanelSnapshot;
     readonly html: string;
@@ -178,6 +181,7 @@ export class PromptDashboardController {
     private readonly renderPromptSurface: (snapshot: PromptPanelSnapshot) => string;
     private readonly renderAiPanel: (snapshot: PromptPanelSnapshot) => string;
     private readonly claimedCorrelationKeys = new Set<string>();
+    private authoritySequence = 0;
 
     constructor(options: PromptDashboardControllerOptions) {
         this.service = options.service;
@@ -243,6 +247,7 @@ export class PromptDashboardController {
         return {
             type: 'prompt-command-result',
             version: PROMPT_COMMAND_VERSION,
+            authoritySequence: this.nextAuthoritySequence(),
             requestId: message.requestId,
             target: PROMPT_TARGET,
             operation: message.operation,
@@ -269,6 +274,7 @@ export class PromptDashboardController {
         return {
             type: 'ai-panel-content',
             version: PROMPT_COMMAND_VERSION,
+            authoritySequence: this.nextAuthoritySequence(),
             requestId,
             target: PROMPT_TARGET,
             snapshot,
@@ -292,6 +298,7 @@ export class PromptDashboardController {
         return {
             type: 'prompt-panel-updated',
             version: PROMPT_COMMAND_VERSION,
+            authoritySequence: this.nextAuthoritySequence(),
             target: PROMPT_TARGET,
             snapshot,
             html,
@@ -409,5 +416,10 @@ export class PromptDashboardController {
         } catch (_error) {
             return { snapshot: UNAVAILABLE_SNAPSHOT, readFailed: true };
         }
+    }
+
+    private nextAuthoritySequence(): number {
+        this.authoritySequence += 1;
+        return this.authoritySequence;
     }
 }

@@ -383,7 +383,11 @@ function createPromptHarness(options = {}) {
     };
     vm.runInNewContext(source, context, { filename: 'webviewPromptScripts.js' });
     const controller = context.window.__projectStewardPrompts;
-    controller.mount(root);
+    const initialRevision = Number(initialHtml.match(/data-prompt-revision="(\d+)"/)?.[1] || 0);
+    controller.mount(root, {
+        authoritySequence: options.authoritySequence || 1,
+        snapshot: options.snapshot || snapshotAt(initialRevision),
+    });
     return {
         context,
         controller,
@@ -405,6 +409,7 @@ function resultFor(request, revision, overrides = {}) {
     return {
         type: 'prompt-command-result',
         version: 1,
+        authoritySequence: overrides.authoritySequence || Math.max(2, revision + 1),
         requestId: request.requestId,
         target: request.target,
         operation: request.operation,
@@ -512,6 +517,7 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 keeps one tracked edit form across switc
     assert.equal(harness.controller.applyRefresh({
         type: 'prompt-panel-updated',
         version: 1,
+        authoritySequence: 2,
         target: 'global-prompt-library',
         snapshot: snapshotAt(1),
         html: surfaceHtml(1),
@@ -660,7 +666,9 @@ test('WEBVIEW-AI-PROMPT-MUTATION-001 rejects stale, duplicate, unrelated, and ou
     assert.equal(harness.controller.applyCommandResult(resultFor(first, 3, {
         operation: 'delete',
     })), false);
-    assert.equal(harness.controller.applyCommandResult(resultFor(first, 1)), false);
+    assert.equal(harness.controller.applyCommandResult(resultFor(first, 1, {
+        authoritySequence: 1,
+    })), false);
     assert.equal(harness.controller.applyCommandResult(resultFor(first, 3, {
         html: surfaceHtml(4),
     })), false);
@@ -675,6 +683,68 @@ test('WEBVIEW-AI-PROMPT-MUTATION-001 rejects stale, duplicate, unrelated, and ou
     assert.equal(harness.controller.applyCommandResult(resultFor(second, 4)), true);
 });
 
+test('WEBVIEW-AI-PROMPT-MUTATION-001 accepts newer Host authority after persisted revision rollback and rejects older authority', () => {
+    const withoutPending = createPromptHarness({
+        revision: 5,
+        initialHtml: surfaceHtml(5),
+        authoritySequence: 10,
+    });
+    assert.equal(withoutPending.controller.applyRefresh({
+        type: 'prompt-panel-updated',
+        version: 1,
+        authoritySequence: 10,
+        target: 'global-prompt-library',
+        snapshot: snapshotAt(6),
+        html: surfaceHtml(6),
+    }), false);
+    assert.equal(withoutPending.controller.applyRefresh({
+        type: 'prompt-panel-updated',
+        version: 1,
+        authoritySequence: 11,
+        target: 'global-prompt-library',
+        snapshot: snapshotAt(3),
+        html: surfaceHtml(3, ['prompt-a', 'prompt-b'], '<span>rolled back</span>'),
+    }), true);
+    assert.equal(withoutPending.controller.getState().snapshot.revision, 3);
+    assert.match(withoutPending.root.innerHTML, /rolled back/);
+    assert.equal(withoutPending.controller.applyRefresh({
+        type: 'prompt-panel-updated',
+        version: 1,
+        authoritySequence: 10,
+        target: 'global-prompt-library',
+        snapshot: snapshotAt(6),
+        html: surfaceHtml(6, ['prompt-a', 'prompt-b'], '<span>stale authority</span>'),
+    }), false);
+    assert.equal(withoutPending.controller.getState().snapshot.revision, 3);
+    assert.doesNotMatch(withoutPending.root.innerHTML, /stale authority/);
+
+    const withPending = createPromptHarness({
+        revision: 5,
+        initialHtml: surfaceHtml(5),
+        authoritySequence: 20,
+    });
+    withPending.controller.dispatch('select-default', { promptId: 'prompt-a' });
+    const request = withPending.messages[0];
+    assert.equal(withPending.controller.applyCommandResult(resultFor(request, 3, {
+        authoritySequence: 21,
+        success: false,
+        errorCode: 'conflict',
+        marker: '<span>matching rollback</span>',
+    })), true);
+    assert.equal(withPending.controller.getState().pending.size, 0);
+    assert.equal(withPending.controller.getState().snapshot.revision, 3);
+    assert.match(withPending.root.innerHTML, /matching rollback/);
+    assert.equal(withPending.controller.applyRefresh({
+        type: 'prompt-panel-updated',
+        version: 1,
+        authoritySequence: 20,
+        target: 'global-prompt-library',
+        snapshot: snapshotAt(7),
+        html: surfaceHtml(7),
+    }), false);
+    assert.equal(withPending.controller.getState().snapshot.revision, 3);
+});
+
 test('WEBVIEW-AI-PROMPT-MUTATION-001 settles matching nonzero recovery without weakening stale rejection', () => {
     const harness = createPromptHarness({
         revision: 7,
@@ -685,6 +755,7 @@ test('WEBVIEW-AI-PROMPT-MUTATION-001 settles matching nonzero recovery without w
     const recovery = {
         type: 'prompt-command-result',
         version: 1,
+        authoritySequence: 2,
         requestId: request.requestId,
         target: request.target,
         operation: request.operation,
@@ -704,6 +775,7 @@ test('WEBVIEW-AI-PROMPT-MUTATION-001 settles matching nonzero recovery without w
 
     assert.equal(harness.controller.applyCommandResult({
         ...recovery,
+        authoritySequence: 1,
         snapshot: { ...recovery.snapshot, revision: 6 },
         html: recovery.html.replace('revision="7"', 'revision="6"'),
     }), false);
@@ -721,6 +793,7 @@ test('WEBVIEW-AI-PROMPT-MUTATION-001 retains only the newest external refresh un
     assert.equal(harness.controller.applyRefresh({
         type: 'prompt-panel-updated',
         version: 1,
+        authoritySequence: 3,
         target: 'global-prompt-library',
         snapshot: snapshotAt(2),
         html: surfaceHtml(2, ['prompt-a', 'prompt-b'], '<span>older refresh</span>'),
@@ -728,6 +801,7 @@ test('WEBVIEW-AI-PROMPT-MUTATION-001 retains only the newest external refresh un
     assert.equal(harness.controller.applyRefresh({
         type: 'prompt-panel-updated',
         version: 1,
+        authoritySequence: 4,
         target: 'global-prompt-library',
         snapshot: snapshotAt(3),
         html: surfaceHtml(3, ['prompt-a', 'prompt-b'], '<span>newest refresh</span>'),
@@ -735,13 +809,16 @@ test('WEBVIEW-AI-PROMPT-MUTATION-001 retains only the newest external refresh un
     assert.equal(harness.controller.applyRefresh({
         type: 'prompt-panel-updated',
         version: 1,
+        authoritySequence: 5,
         target: 'global-prompt-library',
         snapshot: snapshotAt(4),
         html: surfaceHtml(5, ['prompt-a', 'prompt-b'], '<span>malformed refresh</span>'),
     }), false);
     assert.equal(harness.root.innerHTML, harness.initialHtml);
 
-    harness.controller.applyCommandResult(resultFor(request, 1));
+    harness.controller.applyCommandResult(resultFor(request, 1, {
+        authoritySequence: 2,
+    }));
     assert.match(harness.root.innerHTML, /newest refresh/);
     assert.equal(harness.controller.getState().snapshot.revision, 3);
     assert.equal(harness.controller.getState().pending.size, 0);
@@ -759,6 +836,7 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 keeps an unsaved draft local across an e
     assert.equal(harness.controller.applyRefresh({
         type: 'prompt-panel-updated',
         version: 1,
+        authoritySequence: 2,
         target: 'global-prompt-library',
         snapshot: snapshotAt(1),
         html: surfaceHtml(1),
@@ -837,6 +915,7 @@ test('WEBVIEW-AI-PROMPT-MUTATION-001 bounds settled identities and announces map
     harness.controller.dispatch('delete', { promptId: 'prompt-a' });
     const request = harness.messages.at(-1);
     harness.send(resultFor(request, 105, {
+        authoritySequence: 107,
         success: false,
         errorCode: 'cancelled',
     }));

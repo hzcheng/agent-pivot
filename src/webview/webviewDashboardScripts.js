@@ -144,6 +144,7 @@ function validateAiPanelMessage(message) {
     return hasExactObjectKeys(message, [
         'type',
         'version',
+        'authoritySequence',
         'requestId',
         'target',
         'snapshot',
@@ -151,6 +152,8 @@ function validateAiPanelMessage(message) {
     ])
         && message.type === 'ai-panel-content'
         && message.version === 1
+        && Number.isSafeInteger(message.authoritySequence)
+        && message.authoritySequence > 0
         && typeof message.requestId === 'string'
         && message.requestId.length > 0
         && message.requestId.length <= 128
@@ -163,12 +166,15 @@ function validatePromptPanelUpdatedMessage(message) {
     return hasExactObjectKeys(message, [
         'type',
         'version',
+        'authoritySequence',
         'target',
         'snapshot',
         'html',
     ])
         && message.type === 'prompt-panel-updated'
         && message.version === 1
+        && Number.isSafeInteger(message.authoritySequence)
+        && message.authoritySequence > 0
         && message.target === 'global-prompt-library'
         && validatePromptPanelSnapshot(message.snapshot)
         && typeof message.html === 'string';
@@ -1018,7 +1024,7 @@ function initDashboard(options) {
         aiState = 'mounted';
         if (window.__projectStewardPrompts
             && typeof window.__projectStewardPrompts.mount === 'function') {
-            window.__projectStewardPrompts.mount(panels.ai);
+            window.__projectStewardPrompts.mount(panels.ai, message);
         }
         applyPendingAiSubtab();
         if (pendingScrollRestoreTab === 'ai') {

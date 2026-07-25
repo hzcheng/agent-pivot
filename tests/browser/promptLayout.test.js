@@ -115,8 +115,11 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 keeps Prompt controls and text usable in
                 window.vscode = { postMessage() {} };
             });
             await page.addScriptTag({ content: promptScript });
-            assert.equal(await page.evaluate(() =>
-                window.__projectStewardPrompts.mount(document.getElementById('ai-host'))
+            assert.equal(await page.evaluate(snapshot =>
+                window.__projectStewardPrompts.mount(document.getElementById('ai-host'), {
+                    authoritySequence: 1,
+                    snapshot,
+                }), initialSnapshot
             ), true);
 
             await assertNoHorizontalOverflow(page, width, 'initial');
@@ -193,6 +196,7 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 keeps Prompt controls and text usable in
                 window.__projectStewardPrompts.applyRefresh({
                     type: 'prompt-panel-updated',
                     version: 1,
+                    authoritySequence: 2,
                     target: 'global-prompt-library',
                     snapshot,
                     html,

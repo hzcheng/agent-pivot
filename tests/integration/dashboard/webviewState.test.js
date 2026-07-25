@@ -238,8 +238,9 @@ function createDashboardHarness({ initialTab = 'open', initialSearchQuery = '', 
             scrollTo: (_x, y) => { context.window.scrollY = y; },
             addEventListener: (type, listener) => { windowListeners[type] = listener; },
             __projectStewardPrompts: {
-                mount(root) {
-                    promptMounts.push({ root, html: root.innerHTML });
+                mount(root, message) {
+                    promptMounts.push({ root, html: root.innerHTML, message });
+                    return true;
                 },
                 applyRefresh(message) {
                     promptRefreshes.push(message);
@@ -856,6 +857,7 @@ test('WEBVIEW-AI-DASHBOARD-001 restores AI and lazily mounts one correlated auth
     const content = {
         type: 'ai-panel-content',
         version: 1,
+        authoritySequence: 1,
         requestId: aiRequest.requestId,
         target: 'global-prompt-library',
         snapshot: makePromptSnapshot(),
@@ -882,6 +884,8 @@ test('WEBVIEW-AI-DASHBOARD-001 restores AI and lazily mounts one correlated auth
     assert.equal(harness.promptMounts.length, 1);
     assert.equal(harness.promptMounts[0].root, harness.aiPanel);
     assert.equal(harness.promptMounts[0].html, content.html);
+    assert.equal(harness.promptMounts[0].message.authoritySequence, 1);
+    assert.deepEqual(toPlain(harness.promptMounts[0].message.snapshot), content.snapshot);
 
     harness.controller.activateTab('open');
     harness.controller.activateTab('ai');
@@ -949,6 +953,7 @@ test('WEBVIEW-AI-DASHBOARD-001 receives select-dashboard-tab and delegates exter
     assert.equal(harness.controller.applyAiPanelMessage({
         type: 'ai-panel-content',
         version: 1,
+        authoritySequence: 1,
         requestId: aiRequest.requestId,
         target: 'global-prompt-library',
         snapshot: makePromptSnapshot(),
@@ -969,6 +974,7 @@ test('WEBVIEW-AI-DASHBOARD-001 receives select-dashboard-tab and delegates exter
     const refresh = {
         type: 'prompt-panel-updated',
         version: 1,
+        authoritySequence: 2,
         target: 'global-prompt-library',
         snapshot: makePromptSnapshot(1),
         html: '<div data-prompt-surface data-prompt-revision="1"></div>',
@@ -1000,6 +1006,7 @@ test('WEBVIEW-AI-DASHBOARD-001 retries AI with fresh opaque identities and unloc
     assert.equal(harness.controller.applyAiPanelMessage({
         type: 'ai-panel-content',
         version: 1,
+        authoritySequence: 1,
         requestId: third.requestId,
         target: 'global-prompt-library',
         snapshot: makePromptSnapshot(),

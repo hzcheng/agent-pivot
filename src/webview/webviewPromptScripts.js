@@ -30,6 +30,7 @@
     };
     var root = null;
     var currentRevision = 0;
+    var currentAuthoritySequence = 0;
     var pendingRefresh = null;
     var lockedControls = [];
     var requestSequence = 0;
@@ -70,6 +71,10 @@
         return typeof value === 'string'
             && value.length > 0
             && value.length <= MAX_REQUEST_ID_LENGTH;
+    }
+
+    function isAuthoritySequence(value) {
+        return Number.isSafeInteger(value) && value > 0;
     }
 
     function isSnapshot(snapshot) {
@@ -115,6 +120,7 @@
         return hasExactKeys(message, [
             'type',
             'version',
+            'authoritySequence',
             'requestId',
             'target',
             'operation',
@@ -124,6 +130,7 @@
         ], ['errorCode'])
             && message.type === 'prompt-command-result'
             && message.version === PROMPT_VERSION
+            && isAuthoritySequence(message.authoritySequence)
             && isRequestId(message.requestId)
             && message.target === PROMPT_TARGET
             && OPERATIONS.has(message.operation)
@@ -139,12 +146,14 @@
         return hasExactKeys(message, [
             'type',
             'version',
+            'authoritySequence',
             'target',
             'snapshot',
             'html',
         ])
             && message.type === 'prompt-panel-updated'
             && message.version === PROMPT_VERSION
+            && isAuthoritySequence(message.authoritySequence)
             && message.target === PROMPT_TARGET
             && isSnapshot(message.snapshot)
             && typeof message.html === 'string';
@@ -421,6 +430,7 @@
             return false;
         }
         currentRevision = message.snapshot.revision;
+        currentAuthoritySequence = message.authoritySequence;
         state.snapshot = clone(message.snapshot);
         lockedControls = [];
         configurePromptForms();
@@ -509,7 +519,7 @@
     function applyQueuedRefresh() {
         var refresh = pendingRefresh;
         pendingRefresh = null;
-        if (!refresh || refresh.snapshot.revision < currentRevision) {
+        if (!refresh || refresh.authoritySequence <= currentAuthoritySequence) {
             return false;
         }
         return installAuthoritative(refresh, captureLocalState());
@@ -583,8 +593,7 @@
         }
         var pending = state.pending.get(key);
         if (!pending
-            || message.snapshot.revision < currentRevision
-            || message.snapshot.revision < pending.expectedRevision) {
+            || message.authoritySequence <= currentAuthoritySequence) {
             return false;
         }
 
@@ -627,21 +636,23 @@
 
     function applyRefresh(message) {
         if (!isRefresh(message)
-            || message.snapshot.revision < currentRevision
+            || message.authoritySequence <= currentAuthoritySequence
             || !surfaceHtmlHasRevision(message.html, message.snapshot.revision)) {
             return false;
         }
         if (state.pending.size > 0) {
-            if (!pendingRefresh
-                || message.snapshot.revision >= pendingRefresh.snapshot.revision) {
-                pendingRefresh = {
-                    type: message.type,
-                    version: message.version,
-                    target: message.target,
-                    snapshot: clone(message.snapshot),
-                    html: message.html,
-                };
+            if (pendingRefresh
+                && message.authoritySequence <= pendingRefresh.authoritySequence) {
+                return false;
             }
+            pendingRefresh = {
+                type: message.type,
+                version: message.version,
+                authoritySequence: message.authoritySequence,
+                target: message.target,
+                snapshot: clone(message.snapshot),
+                html: message.html,
+            };
             return true;
         }
         var applied = installAuthoritative(message, captureLocalState());
@@ -967,17 +978,24 @@
         }
     }
 
-    function mount(nextRoot) {
-        if (!nextRoot || typeof nextRoot.querySelector !== 'function') {
+    function mount(nextRoot, initialAuthority) {
+        if (!nextRoot
+            || typeof nextRoot.querySelector !== 'function'
+            || !initialAuthority
+            || !isAuthoritySequence(initialAuthority.authoritySequence)
+            || initialAuthority.authoritySequence <= currentAuthoritySequence
+            || !isSnapshot(initialAuthority.snapshot)) {
+            return false;
+        }
+        var surface = nextRoot.querySelector('[data-prompt-surface]');
+        var revision = readSurfaceRevision(surface);
+        if (revision === null || revision !== initialAuthority.snapshot.revision) {
             return false;
         }
         root = nextRoot;
-        var surface = getSurface();
-        var revision = readSurfaceRevision(surface);
-        if (revision === null) {
-            return false;
-        }
+        currentAuthoritySequence = initialAuthority.authoritySequence;
         currentRevision = revision;
+        state.snapshot = clone(initialAuthority.snapshot);
         configurePromptForms();
         var selectedTab = typeof root.querySelectorAll === 'function'
             ? Array.from(root.querySelectorAll('[role="tab"]')).find(function (tab) {

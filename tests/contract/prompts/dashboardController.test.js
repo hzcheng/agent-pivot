@@ -525,6 +525,25 @@ test('WEBVIEW-AI-PROMPT-MUTATION-001 creates correlated initial and refresh cont
     assert.doesNotMatch(refresh.html, /data-ai-panel/);
 });
 
+test('WEBVIEW-AI-PROMPT-MUTATION-001 issues one monotonic Host authority sequence across every Prompt publication', async () => {
+    const fixture = createController();
+
+    const panel = fixture.controller.getPanelContent('load-request-1');
+    const refresh = fixture.controller.getRefreshContent();
+    const result = await fixture.controller.handle(
+        command('create', { name: 'Review', text: 'Review this.' })
+    );
+
+    assert.deepEqual([
+        panel.authoritySequence,
+        refresh.authoritySequence,
+        result.authoritySequence,
+    ], [1, 2, 3]);
+
+    const otherController = createController().controller;
+    assert.equal(otherController.getPanelContent('other-load').authoritySequence, 1);
+});
+
 test('WEBVIEW-AI-PROMPT-MUTATION-001 returns safe AI recovery content when the initial read throws', () => {
     const fixture = createController({
         snapshotErrorCall: 1,

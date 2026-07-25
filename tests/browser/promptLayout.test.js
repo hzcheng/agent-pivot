@@ -639,7 +639,7 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 moves successful Prompt form focus to st
     }
 });
 
-test('WEBVIEW-AI-PROMPT-INTERACTION-001 balances the complete four-tab Dashboard shell responsively', async t => {
+test('WEBVIEW-AI-PROMPT-INTERACTION-001 keeps the complete four-tab Dashboard shell on one row', async t => {
     const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
     t.after(() => browser.close());
     const dashboardHtml = renderDashboardShell();
@@ -724,7 +724,7 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 balances the complete four-tab Dashboard
                         `${control.label} clips at ${width}px: ${JSON.stringify(control)}`
                     );
                 }
-                assert.deepEqual(layout.rowCounts, width < 480 ? [2, 2] : [4]);
+                assert.deepEqual(layout.rowCounts, [4]);
             } finally {
                 await page.close();
             }

@@ -2,6 +2,26 @@
 
 All notable changes to the "Project Steward" extension will be documented in this file. It follows the [Keep a Changelog](http://keepachangelog.com/) recommendations.
 
+## [2.1.7] 2026-07-26
+
+### Added
+
+-   Add an AI Dashboard tab with Prompt management and reserved Skills, MCP, and Hooks sections.
+-   Add a synchronized global Prompt library with create, edit, delete, reorder, and default-selection controls.
+-   Add a command to insert the selected Prompt into the active terminal, falling back to a Prompt picker when no default is selected.
+
+### Changed
+
+-   Keep the four Dashboard tabs on one row with fixed-size icons, hiding labels instead of shrinking controls in narrow sidebars.
+-   Persist Prompt data through VS Code synchronized extension state instead of writing user settings directly.
+-   Batch tmux metadata reads and skip idle pending-runtime promotion refreshes to reduce Extension Host work while the Dashboard is visible.
+
+### Fixed
+
+-   Keep Prompt mutations authoritative across concurrent refreshes while preserving drafts, focus, scroll position, and accurate save feedback.
+-   Preserve VS Code configuration methods during activation so Prompt storage initializes without preventing the extension from loading.
+-   Normalize Dashboard tab icon sizing and recover lazy AI panel loading with coherent, revision-matched Prompt content.
+
 ## [2.1.6] 2026-07-25
 
 ### Added

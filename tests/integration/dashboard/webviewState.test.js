@@ -139,6 +139,13 @@ function makePromptSnapshot(revision = 0) {
     };
 }
 
+function makeAiPanelHtml(revision, surfaceCount = 1) {
+    const surfaces = Array.from({ length: surfaceCount }, () =>
+        `<div data-prompt-surface data-prompt-revision="${revision}"></div>`
+    ).join('');
+    return `<div data-ai-panel>${surfaces}</div>`;
+}
+
 function makeWorkspaceCard(overrides = {}) {
     const kind = overrides.kind || 'current';
     return {
@@ -199,6 +206,17 @@ function createDashboardHarness({
         : selector === '#ai-tab-prompts'
             ? promptSubtab
             : null;
+    aiPanel.querySelectorAll = selector => {
+        if (selector !== '[data-prompt-surface]') return [];
+        return Array.from(aiPanel.innerHTML.matchAll(
+            /<[^>]*\bdata-prompt-surface(?:\s|=|>)[^>]*>/g
+        )).map(match => {
+            const surface = createElement();
+            const revision = match[0].match(/\bdata-prompt-revision="([^"]*)"/);
+            if (revision) surface.setAttribute('data-prompt-revision', revision[1]);
+            return surface;
+        });
+    };
     const tablist = createElement();
     const collapseButton = createElement();
     collapseButton.disabled = false;
@@ -871,7 +889,7 @@ test('WEBVIEW-AI-DASHBOARD-001 restores AI and lazily mounts one correlated auth
         requestId: aiRequest.requestId,
         target: 'global-prompt-library',
         snapshot: makePromptSnapshot(),
-        html: '<div data-ai-panel>authoritative</div>',
+        html: makeAiPanelHtml(0),
     };
     assert.equal(harness.controller.applyAiPanelMessage({
         ...content,
@@ -942,6 +960,85 @@ test('WEBVIEW-AI-DASHBOARD-001 supports mouse and roving Arrow/Home/End top-leve
     assert.equal(harness.context.getAdjacentDashboardTab('projects', 'End'), 'ai');
 });
 
+test('WEBVIEW-AI-DASHBOARD-001 keeps AI retryable when coherent Prompt mounting fails', async t => {
+    const cases = [
+        ['missing controller', makeAiPanelHtml(0), null, 0],
+        ['mount returns false', makeAiPanelHtml(0), () => false, 1],
+        ['missing surface', '<div data-ai-panel></div>', () => true, 0],
+        ['duplicate surfaces', makeAiPanelHtml(0, 2), () => true, 0],
+        ['mismatched surface revision', makeAiPanelHtml(1), () => true, 0],
+    ];
+
+    for (const [name, html, mount, expectedMounts] of cases) {
+        await t.test(name, () => {
+            const harness = createDashboardHarness({ initialTab: 'ai' });
+            const request = harness.messages[0];
+            let mountCalls = 0;
+            harness.context.window.__projectStewardPrompts = mount === null
+                ? undefined
+                : {
+                    mount(root, message) {
+                        mountCalls += 1;
+                        return mount(root, message);
+                    },
+                };
+
+            assert.equal(harness.controller.applyAiPanelMessage({
+                type: 'ai-panel-content',
+                version: 1,
+                authoritySequence: 1,
+                requestId: request.requestId,
+                target: 'global-prompt-library',
+                snapshot: makePromptSnapshot(),
+                html,
+            }), false);
+            assert.equal(mountCalls, expectedMounts);
+            assert.equal(harness.controller.getAiState(), 'unloaded');
+            assert.match(harness.aiLoading.textContent, /temporarily unavailable/i);
+            assert.equal(harness.aiLoading.hidden, false);
+            assert.equal(harness.runNextTimer(), false, 'failed mount must cancel its recovery timer');
+
+            harness.controller.activateTab('ai');
+            assert.equal(harness.messages.length, 2);
+            assert.notEqual(harness.messages[1].requestId, request.requestId);
+        });
+    }
+});
+
+test('WEBVIEW-AI-DASHBOARD-001 installs one revision-matched Prompt surface before marking AI mounted', () => {
+    const harness = createDashboardHarness({ initialTab: 'ai' });
+    const request = harness.messages[0];
+    const html = makeAiPanelHtml(0);
+    let observed = null;
+    harness.context.window.__projectStewardPrompts = {
+        mount(root, message) {
+            observed = {
+                html: root.innerHTML,
+                state: harness.controller.getAiState(),
+                authoritySequence: message.authoritySequence,
+            };
+            return true;
+        },
+    };
+
+    assert.equal(harness.controller.applyAiPanelMessage({
+        type: 'ai-panel-content',
+        version: 1,
+        authoritySequence: 1,
+        requestId: request.requestId,
+        target: 'global-prompt-library',
+        snapshot: makePromptSnapshot(),
+        html,
+    }), true);
+    assert.deepEqual(observed, {
+        html,
+        state: 'loading',
+        authoritySequence: 1,
+    });
+    assert.equal(harness.controller.getAiState(), 'mounted');
+    assert.equal(harness.runNextTimer(), false);
+});
+
 test('WEBVIEW-AI-DASHBOARD-001 receives select-dashboard-tab and delegates external Prompt refreshes while preserving the search catalog', () => {
     const harness = createDashboardHarness();
     harness.controller.replaceSearchCatalog(makeCatalog('prompt-refresh'));
@@ -967,7 +1064,7 @@ test('WEBVIEW-AI-DASHBOARD-001 receives select-dashboard-tab and delegates exter
         requestId: aiRequest.requestId,
         target: 'global-prompt-library',
         snapshot: makePromptSnapshot(),
-        html: '<div data-ai-panel></div>',
+        html: makeAiPanelHtml(0),
     }), true);
     assert.equal(harness.promptSubtabSelections, 1);
 
@@ -1020,7 +1117,7 @@ test('WEBVIEW-AI-DASHBOARD-001 retries AI with fresh opaque identities and unloc
         requestId: third.requestId,
         target: 'global-prompt-library',
         snapshot: makePromptSnapshot(),
-        html: '<div data-ai-panel>recovered</div>',
+        html: makeAiPanelHtml(0),
     }), true);
     assert.equal(harness.controller.getAiState(), 'mounted');
 });

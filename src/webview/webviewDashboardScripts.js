@@ -1007,6 +1007,39 @@ function initDashboard(options) {
         return true;
     }
 
+    function failAiPanelMount(previousHtml) {
+        if (aiRequestTimer !== null) {
+            cancelTimeout(aiRequestTimer);
+            aiRequestTimer = null;
+        }
+        panels.ai.innerHTML = previousHtml;
+        aiState = 'unloaded';
+        aiRequestAttempts = 0;
+        showPanelUnavailable('ai');
+        return false;
+    }
+
+    function getInstalledPromptSurface(message) {
+        if (!panels.ai
+            || typeof panels.ai.querySelectorAll !== 'function'
+            || !message
+            || !message.snapshot) {
+            return null;
+        }
+        var surfaces = Array.from(panels.ai.querySelectorAll('[data-prompt-surface]'));
+        if (surfaces.length !== 1 || typeof surfaces[0].getAttribute !== 'function') {
+            return null;
+        }
+        var revisionValue = surfaces[0].getAttribute('data-prompt-revision');
+        if (typeof revisionValue !== 'string' || !/^(0|[1-9]\d*)$/.test(revisionValue)) {
+            return null;
+        }
+        var revision = Number(revisionValue);
+        return Number.isSafeInteger(revision) && revision === message.snapshot.revision
+            ? surfaces[0]
+            : null;
+    }
+
     function applyAiPanelMessage(message) {
         if (!validateAiPanelMessage(message)
             || aiState !== 'loading'
@@ -1015,17 +1048,30 @@ function initDashboard(options) {
             return false;
         }
 
+        var previousHtml = panels.ai.innerHTML;
+        try {
+            panels.ai.innerHTML = message.html;
+        } catch (_error) {
+            return failAiPanelMount(previousHtml);
+        }
+        if (!getInstalledPromptSurface(message)
+            || !window.__projectStewardPrompts
+            || typeof window.__projectStewardPrompts.mount !== 'function') {
+            return failAiPanelMount(previousHtml);
+        }
+        try {
+            if (window.__projectStewardPrompts.mount(panels.ai, message) !== true) {
+                return failAiPanelMount(previousHtml);
+            }
+        } catch (_error) {
+            return failAiPanelMount(previousHtml);
+        }
         if (aiRequestTimer !== null) {
             cancelTimeout(aiRequestTimer);
             aiRequestTimer = null;
         }
         aiRequestAttempts = 0;
-        panels.ai.innerHTML = message.html;
         aiState = 'mounted';
-        if (window.__projectStewardPrompts
-            && typeof window.__projectStewardPrompts.mount === 'function') {
-            window.__projectStewardPrompts.mount(panels.ai, message);
-        }
         applyPendingAiSubtab();
         if (pendingScrollRestoreTab === 'ai') {
             pendingScrollRestoreTab = null;

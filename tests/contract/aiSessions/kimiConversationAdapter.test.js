@@ -163,6 +163,11 @@ test('SESSION-AI-SESSION-KIMI-CONVERSATION-004 returns completed prefix as parti
     const completePrefix = await fs.promises.readFile(source.sourcePath);
     await fs.promises.writeFile(source.sourcePath, Buffer.concat([
         completePrefix,
+        Buffer.from(`${JSON.stringify({
+            type: 'TurnBegin',
+            timestamp: 5000,
+            payload: { user_input: 'Discard this open input' },
+        })}\n`),
         Buffer.alloc(CONVERSATION_LIMITS.readChunkBytes, 0x20),
     ]));
     let clockReads = 0;
@@ -177,4 +182,10 @@ test('SESSION-AI-SESSION-KIMI-CONVERSATION-004 returns completed prefix as parti
     const outline = await adapter.readOutline(sessionId);
     assert.equal(outline.partial, true);
     assert.equal(outline.totalInteractions > 0, true);
+    assert.equal(
+        outline.interactions.some(item =>
+            item.userPreview === 'Discard this open input'
+        ),
+        false
+    );
 });

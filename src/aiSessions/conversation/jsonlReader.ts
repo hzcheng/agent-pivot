@@ -1,5 +1,6 @@
 'use strict';
 
+import type { AiSessionDisposable } from '../types';
 import { CONVERSATION_LIMITS, ConversationAbortError, ConversationAbortSignal, ConversationError } from './types';
 import { isConversationSourceContinuation, OpenConversationSource } from './source';
 
@@ -7,6 +8,7 @@ export interface ConversationJsonlReadOptions {
     startOffset?: number;
     signal?: ConversationAbortSignal;
     now?: () => number;
+    onRecord?: (record: ConversationJsonlRecord) => void;
 }
 
 export interface ConversationJsonlRecord {
@@ -114,14 +116,19 @@ export async function readConversationJsonl(
             resetLine(readOffset);
             return;
         }
+        let record: ConversationJsonlRecord;
         try {
-            records.push({
+            record = {
                 offset: lineStart,
                 value: JSON.parse(Buffer.concat(fragments).toString('utf8')),
-            });
+            };
         } catch (_error) {
             malformedLines += 1;
+            resetLine(readOffset);
+            return;
         }
+        records.push(record);
+        normalizedOptions.onRecord?.(record);
         resetLine(readOffset);
     };
 
@@ -170,13 +177,19 @@ export async function readConversationJsonl(
         if (oversized) {
             oversizedLines += 1;
         } else {
+            let record: ConversationJsonlRecord;
             try {
-                records.push({
+                record = {
                     offset: lineStart,
                     value: JSON.parse(Buffer.concat(fragments).toString('utf8')),
-                });
+                };
             } catch (_error) {
                 malformedLines += 1;
+                record = undefined;
+            }
+            if (record) {
+                records.push(record);
+                normalizedOptions.onRecord?.(record);
             }
         }
     }
@@ -187,4 +200,68 @@ export async function readConversationJsonl(
         oversizedLines,
         partial: startOffset > 0,
     };
+}
+
+export class ConversationIndexCache<T extends { dispose(): void }> {
+    private readonly entries = new Map<string, {
+        value: T;
+        lastUsedAt: number;
+        retainCount: number;
+    }>();
+
+    constructor(private readonly now: () => number) {}
+
+    set(key: string, value: T): void {
+        this.delete(key);
+        this.entries.set(key, { value, lastUsedAt: this.now(), retainCount: 0 });
+        this.evict();
+    }
+
+    get(key: string): T | undefined {
+        const entry = this.entries.get(key);
+        if (entry) {
+            entry.lastUsedAt = this.now();
+        }
+        return entry?.value;
+    }
+
+    retain(key: string): AiSessionDisposable {
+        const entry = this.entries.get(key);
+        if (entry) {
+            entry.retainCount += 1;
+        }
+        return {
+            dispose: () => {
+                const current = this.entries.get(key);
+                if (current) {
+                    current.retainCount = Math.max(0, current.retainCount - 1);
+                    current.lastUsedAt = this.now();
+                    this.evict();
+                }
+            },
+        };
+    }
+
+    clear(): void {
+        Array.from(this.entries.values()).forEach(entry => entry.value.dispose());
+        this.entries.clear();
+    }
+
+    private delete(key: string): void {
+        this.entries.get(key)?.value.dispose();
+        this.entries.delete(key);
+    }
+
+    private evict(): void {
+        const inactive = Array.from(this.entries.entries())
+            .filter(([, entry]) => entry.retainCount === 0)
+            .sort((a, b) => a[1].lastUsedAt - b[1].lastUsedAt);
+        inactive
+            .filter(([, entry], index) =>
+                this.now() - entry.lastUsedAt > CONVERSATION_LIMITS.inactiveIndexTtlMs
+                || index < inactive.length
+                    - CONVERSATION_LIMITS.inactiveIndexLimitPerProvider
+            )
+            .forEach(([key]) => this.delete(key));
+    }
 }

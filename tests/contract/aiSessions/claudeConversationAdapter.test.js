@@ -169,3 +169,47 @@ test('SESSION-AI-SESSION-CLAUDE-CONVERSATION-005 keeps provider caches and watch
     adapter.dispose();
     assert.equal(providerDisposeCount, 1);
 });
+
+test('SESSION-AI-SESSION-CLAUDE-CONVERSATION-006 attaches a later assistant suffix to the completed EOF interaction', async t => {
+    const source = await createFixture(t);
+    await fs.promises.writeFile(
+        source.sourcePath,
+        `${JSON.stringify({
+            type: 'user',
+            uuid: 'claude-live-user',
+            message: {
+                role: 'user',
+                content: [{ type: 'text', text: 'Follow the response' }],
+            },
+        })}\n`
+    );
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+    const first = await adapter.readOutline(sessionId);
+    assert.equal(first.interactions[0].responseState, 'complete');
+
+    await fs.promises.appendFile(
+        source.sourcePath,
+        `${JSON.stringify({
+            type: 'assistant',
+            uuid: 'claude-live-assistant',
+            message: {
+                role: 'assistant',
+                content: [{ type: 'text', text: 'Visible suffix response' }],
+            },
+        })}\n`
+    );
+    const second = await adapter.readPage({
+        provider: 'claude',
+        sessionId,
+        anchorInteractionId: 'claude-live-user',
+        direction: 'around',
+    });
+    assert.deepEqual(
+        second.messages.map(message => [message.role, message.markdown]),
+        [
+            ['user', 'Follow the response'],
+            ['assistant', 'Visible suffix response'],
+        ]
+    );
+});

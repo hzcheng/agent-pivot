@@ -216,3 +216,55 @@ test('SESSION-AI-SESSION-CONVERSATION-JSONL-004 reports timeout from the injecte
         error => error.name === 'ConversationError' && error.code === 'timeout'
     );
 });
+
+test('SESSION-AI-SESSION-CONVERSATION-JSONL-008 reports valid records to an internal callback in source order', async t => {
+    const fixture = await createJsonlFixture(t, [
+        '{"kind":"first"}\n',
+        'malformed\n',
+        '{"kind":"second"}\n',
+    ]);
+    const source = await fixture.open();
+    const seen = [];
+    try {
+        const result = await reader.readConversationJsonl(source, {
+            startOffset: 0,
+            onRecord(record) {
+                seen.push([record.offset, record.value.kind]);
+            },
+        });
+        assert.deepEqual(seen, [
+            [0, 'first'],
+            [Buffer.byteLength('{"kind":"first"}\nmalformed\n'), 'second'],
+        ]);
+        assert.equal(result.malformedLines, 1);
+    } finally {
+        await source.handle.close();
+    }
+});
+
+test('SESSION-AI-SESSION-CONVERSATION-JSONL-009 bounds inactive indexes while retaining viewed entries', () => {
+    let now = 0;
+    const disposed = [];
+    const cache = new reader.ConversationIndexCache(() => now);
+    const value = key => ({
+        dispose() {
+            disposed.push(key);
+        },
+    });
+    cache.set('retained', value('retained'));
+    const retained = cache.retain('retained');
+    for (let index = 0; index < CONVERSATION_LIMITS.inactiveIndexLimitPerProvider + 1; index++) {
+        now += 1;
+        cache.set(`inactive-${index}`, value(`inactive-${index}`));
+    }
+    assert.deepEqual(disposed, ['inactive-0']);
+    assert.ok(cache.get('retained'));
+
+    retained.dispose();
+    now += CONVERSATION_LIMITS.inactiveIndexTtlMs + 1;
+    cache.set('fresh', value('fresh'));
+    assert.equal(cache.get('retained'), undefined);
+    assert.equal(disposed.includes('retained'), true);
+    cache.clear();
+    assert.equal(disposed.includes('fresh'), true);
+});

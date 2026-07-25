@@ -127,6 +127,15 @@ function makeCatalog(suffix = '') {
     };
 }
 
+function makePromptSnapshot(revision = 0) {
+    return {
+        version: 1,
+        revision,
+        selectedPromptId: null,
+        prompts: [],
+    };
+}
+
 function makeWorkspaceCard(overrides = {}) {
     const kind = overrides.kind || 'current';
     return {
@@ -154,17 +163,35 @@ function createDashboardHarness({ initialTab = 'open', initialSearchQuery = '', 
     projectsButton.setAttribute('data-dashboard-tab', 'projects');
     const todoButton = createElement('dashboard-tab-todo-button');
     todoButton.setAttribute('data-dashboard-tab', 'todo');
+    const aiButton = createElement('dashboard-tab-ai-button');
+    aiButton.setAttribute('data-dashboard-tab', 'ai');
     const openPanel = createElement('dashboard-tab-open');
     const projectsPanel = createElement('dashboard-tab-projects');
     const todoPanel = createElement('dashboard-tab-todo');
+    const aiPanel = createElement('dashboard-panel-ai');
     const projectsLoading = createElement();
     const todoLoading = createElement();
+    const aiLoading = createElement();
+    let promptSubtabSelections = 0;
+    const promptSubtab = {
+        click() {
+            promptSubtabSelections += 1;
+        },
+    };
     projectsPanel.querySelector = selector => selector === '.dashboard-projects-loading'
         ? projectsLoading
         : null;
     todoPanel.querySelector = selector => selector === '.dashboard-todo-loading'
         ? todoLoading
         : null;
+    aiPanel.querySelector = selector => selector === '.dashboard-ai-loading'
+        ? aiLoading
+        : selector === '#ai-tab-prompts'
+            ? promptSubtab
+            : null;
+    const tablist = createElement();
+    const collapseButton = createElement();
+    collapseButton.disabled = false;
     const searchResults = createSearchElement();
     searchResults.id = 'dashboard-search-results';
     const catalogElement = { textContent: JSON.stringify(makeCatalog()) };
@@ -172,6 +199,7 @@ function createDashboardHarness({ initialTab = 'open', initialSearchQuery = '', 
         'dashboard-tab-open': openPanel,
         'dashboard-tab-projects': projectsPanel,
         'dashboard-tab-todo': todoPanel,
+        'dashboard-panel-ai': aiPanel,
         'dashboard-search-results': searchResults,
         'dashboard-search-catalog': catalogElement,
     };
@@ -180,6 +208,8 @@ function createDashboardHarness({ initialTab = 'open', initialSearchQuery = '', 
     const frames = [];
     const timers = [];
     const windowListeners = {};
+    const promptMounts = [];
+    const promptRefreshes = [];
     let nextTimerId = 1;
     const context = {
         document: {
@@ -187,9 +217,13 @@ function createDashboardHarness({ initialTab = 'open', initialSearchQuery = '', 
             body: { classList: createClassList() },
             createElement: createSearchElement,
             getElementById: id => elements[id] || null,
-            querySelector: () => null,
+            querySelector: selector => selector === '[role="tablist"]'
+                ? tablist
+                : selector === '[data-action="toggle-all-groups"]'
+                    ? collapseButton
+                    : null,
             querySelectorAll: selector => selector === '[data-dashboard-tab]'
-                ? [openButton, projectsButton, todoButton]
+                ? [openButton, projectsButton, todoButton, aiButton]
                 : [],
         },
         sessionStorage: {
@@ -200,6 +234,15 @@ function createDashboardHarness({ initialTab = 'open', initialSearchQuery = '', 
             scrollY: 0,
             scrollTo: (_x, y) => { context.window.scrollY = y; },
             addEventListener: (type, listener) => { windowListeners[type] = listener; },
+            __projectStewardPrompts: {
+                mount(root) {
+                    promptMounts.push({ root, html: root.innerHTML });
+                },
+                applyRefresh(message) {
+                    promptRefreshes.push(message);
+                    return true;
+                },
+            },
         },
         requestAnimationFrame(callback) {
             if (synchronousFrames) callback();
@@ -239,11 +282,20 @@ function createDashboardHarness({ initialTab = 'open', initialSearchQuery = '', 
         openButton,
         projectsButton,
         todoButton,
+        aiButton,
         openPanel,
         projectsPanel,
         todoPanel,
+        aiPanel,
         projectsLoading,
         todoLoading,
+        aiLoading,
+        collapseButton,
+        promptMounts,
+        promptRefreshes,
+        get promptSubtabSelections() {
+            return promptSubtabSelections;
+        },
         searchResults,
     };
 }
@@ -635,7 +687,7 @@ test('WEBVIEW-FAVORITE-RENDERING-001 renders favorites in explicit order before 
     assert.deepEqual(ids, ['favorite-b', 'favorite-a', 'favorite-a', 'favorite-b', 'plain']);
 });
 
-test('WEBVIEW-WEBVIEW-CONTENT-001 renders OPEN PROJECTS and lazy PROJECTS TODO tab shells', () => {
+test('WEBVIEW-WEBVIEW-CONTENT-001 renders OPEN PROJECTS TODO and lazy AI tab shells', () => {
     const config = {
         get: (key, fallback) => key === 'aiSessionRunningIconAnimation'
             ? 'sharingan-shisui'
@@ -668,8 +720,11 @@ test('WEBVIEW-WEBVIEW-CONTENT-001 renders OPEN PROJECTS and lazy PROJECTS TODO t
         assert.match(html, new RegExp(`data-dashboard-tab="${tab}"`));
         assert.match(html, new RegExp(`id="dashboard-tab-${tab}"`));
     }
+    assert.match(html, /data-dashboard-tab="ai"/);
+    assert.match(html, /id="dashboard-panel-ai"/);
     assert.match(html, /data-session-icon-fx="sharingan-shisui"/);
     assert.match(html, /id="dashboard-search-catalog"/);
+    assert.match(html, /webviewPromptScripts\.js/);
     assert.match(html, /webviewTodoScripts\.js/);
     assert.match(html, /initTodos\(/);
     assert.equal(html.includes('data-id="hidden"'), false);
@@ -725,6 +780,7 @@ test('WEBVIEW-RESOURCE-RECOVERY-001 gives every rendered document fresh versione
         'dom-autoscroller.min.js',
         'webviewProjectScripts.js',
         'webviewDashboardScripts.js',
+        'webviewPromptScripts.js',
         'webviewTodoScripts.js',
         'webviewDnDScripts.js',
         'webviewFilterScripts.js',
@@ -760,6 +816,176 @@ test('WEBVIEW-DASHBOARD-UPDATE-MESSAGE-001 SESSION-CONTROLLER-001 preserves OPEN
     assert.equal(harness.messages.filter(message => message.type === 'request-projects-panel').length, 1);
     assert.equal(harness.messages.filter(message => message.type === 'request-todo-panel').length, 1);
     assert.equal(harness.storage.get('projectSteward.activeDashboardTab'), 'todo');
+});
+
+test('WEBVIEW-AI-DASHBOARD-001 restores AI and lazily mounts one correlated authoritative panel', () => {
+    const harness = createDashboardHarness({ initialTab: 'ai' });
+    const aiRequests = harness.messages.filter(message => message.type === 'request-ai-panel');
+    assert.equal(aiRequests.length, 1);
+    const aiRequest = aiRequests[0];
+    assert.equal(aiRequest.type, 'request-ai-panel');
+    assert.equal(aiRequest.version, 1);
+    assert.equal(typeof aiRequest.requestId, 'string');
+    assert.ok(aiRequest.requestId.length > 0);
+    assert.equal(aiRequest.target, 'global-prompt-library');
+    assert.equal(harness.controller.getActiveTab(), 'ai');
+    assert.equal(harness.storage.get('projectSteward.activeDashboardTab'), 'ai');
+    assert.equal(harness.controller.getAiState(), 'loading');
+    assert.equal(harness.collapseButton.disabled, true);
+
+    const content = {
+        type: 'ai-panel-content',
+        version: 1,
+        requestId: aiRequest.requestId,
+        target: 'global-prompt-library',
+        snapshot: makePromptSnapshot(),
+        html: '<div data-ai-panel>authoritative</div>',
+    };
+    assert.equal(harness.controller.applyAiPanelMessage({
+        ...content,
+        requestId: `${aiRequest.requestId}-stale`,
+    }), false);
+    assert.equal(harness.controller.applyAiPanelMessage({
+        ...content,
+        target: 'another-library',
+    }), false);
+    assert.equal(harness.controller.applyAiPanelMessage({
+        ...content,
+        snapshot: { ...content.snapshot, revision: -1 },
+    }), false);
+    assert.equal(harness.aiPanel.innerHTML, '');
+    assert.deepEqual(harness.promptMounts, []);
+
+    assert.equal(harness.controller.applyAiPanelMessage(content), true);
+    assert.equal(harness.aiPanel.innerHTML, content.html);
+    assert.equal(harness.controller.getAiState(), 'mounted');
+    assert.equal(harness.promptMounts.length, 1);
+    assert.equal(harness.promptMounts[0].root, harness.aiPanel);
+    assert.equal(harness.promptMounts[0].html, content.html);
+
+    harness.controller.activateTab('open');
+    harness.controller.activateTab('ai');
+    assert.equal(harness.messages.filter(message => message.type === 'request-ai-panel').length, 1);
+});
+
+test('WEBVIEW-AI-DASHBOARD-001 supports mouse and roving Arrow/Home/End top-level tab navigation', () => {
+    const harness = createDashboardHarness();
+    let prevented = 0;
+
+    harness.aiButton.dispatch('click');
+    assert.equal(harness.controller.getActiveTab(), 'ai');
+    assert.equal(harness.collapseButton.disabled, true);
+
+    harness.openButton.dispatch('keydown', {
+        key: 'ArrowLeft',
+        preventDefault: () => { prevented += 1; },
+    });
+    assert.equal(harness.aiButton.classList.contains('focused'), false);
+    harness.aiButton.focus = () => harness.aiButton.classList.add('focused');
+    harness.openButton.dispatch('keydown', {
+        key: 'ArrowLeft',
+        preventDefault: () => { prevented += 1; },
+    });
+    assert.equal(harness.aiButton.classList.contains('focused'), true);
+
+    harness.openButton.focus = () => harness.openButton.classList.add('focused');
+    harness.todoButton.dispatch('keydown', {
+        key: 'Home',
+        preventDefault: () => { prevented += 1; },
+    });
+    assert.equal(harness.openButton.classList.contains('focused'), true);
+
+    harness.aiButton.classList.remove('focused');
+    harness.projectsButton.dispatch('keydown', {
+        key: 'End',
+        preventDefault: () => { prevented += 1; },
+    });
+    assert.equal(harness.aiButton.classList.contains('focused'), true);
+    assert.equal(prevented, 4);
+    assert.equal(harness.context.getAdjacentDashboardTab('todo', 'ArrowRight'), 'ai');
+    assert.equal(harness.context.getAdjacentDashboardTab('ai', 'ArrowRight'), 'open');
+    assert.equal(harness.context.getAdjacentDashboardTab('projects', 'Home'), 'open');
+    assert.equal(harness.context.getAdjacentDashboardTab('projects', 'End'), 'ai');
+});
+
+test('WEBVIEW-AI-DASHBOARD-001 receives select-dashboard-tab and delegates external Prompt refreshes while preserving the search catalog', () => {
+    const harness = createDashboardHarness();
+    harness.controller.replaceSearchCatalog(makeCatalog('prompt-refresh'));
+    harness.controller.setSearchQuery('prompt-refresh');
+    const searchBefore = JSON.stringify(toPlain(harness.searchResults.children));
+
+    harness.windowListeners.message({
+        data: {
+            type: 'select-dashboard-tab',
+            version: 1,
+            tab: 'ai',
+            aiSubtab: 'prompts',
+        },
+    });
+    assert.equal(harness.controller.getActiveTab(), 'ai');
+    assert.equal(harness.controller.isSearchActive(), false);
+    const aiRequest = harness.messages.find(message => message.type === 'request-ai-panel');
+    assert.ok(aiRequest);
+    assert.equal(harness.controller.applyAiPanelMessage({
+        type: 'ai-panel-content',
+        version: 1,
+        requestId: aiRequest.requestId,
+        target: 'global-prompt-library',
+        snapshot: makePromptSnapshot(),
+        html: '<div data-ai-panel></div>',
+    }), true);
+    assert.equal(harness.promptSubtabSelections, 1);
+
+    harness.windowListeners.message({
+        data: {
+            type: 'select-dashboard-tab',
+            version: 1,
+            tab: 'ai',
+            aiSubtab: 'prompts',
+        },
+    });
+    assert.equal(harness.promptSubtabSelections, 2);
+
+    const refresh = {
+        type: 'prompt-panel-updated',
+        version: 1,
+        target: 'global-prompt-library',
+        snapshot: makePromptSnapshot(1),
+        html: '<div data-prompt-surface data-prompt-revision="1"></div>',
+    };
+    harness.windowListeners.message({ data: refresh });
+    assert.deepEqual(toPlain(harness.promptRefreshes), [refresh]);
+
+    harness.controller.setSearchQuery('prompt-refresh');
+    assert.equal(JSON.stringify(toPlain(harness.searchResults.children)), searchBefore);
+});
+
+test('WEBVIEW-AI-DASHBOARD-001 retries AI with fresh opaque identities and unlocks later retries', () => {
+    const harness = createDashboardHarness({ initialTab: 'ai' });
+    const first = harness.messages[0];
+    assert.equal(harness.runNextTimer(), true);
+    const second = harness.messages[1];
+    assert.equal(second.type, 'request-ai-panel');
+    assert.notEqual(second.requestId, first.requestId);
+    assert.equal(typeof second.requestId, 'string');
+
+    assert.equal(harness.runNextTimer(), true);
+    assert.equal(harness.controller.getAiState(), 'unloaded');
+    assert.match(harness.aiLoading.textContent, /temporarily unavailable/i);
+
+    harness.controller.activateTab('ai');
+    const third = harness.messages[2];
+    assert.equal(third.type, 'request-ai-panel');
+    assert.notEqual(third.requestId, second.requestId);
+    assert.equal(harness.controller.applyAiPanelMessage({
+        type: 'ai-panel-content',
+        version: 1,
+        requestId: third.requestId,
+        target: 'global-prompt-library',
+        snapshot: makePromptSnapshot(),
+        html: '<div data-ai-panel>recovered</div>',
+    }), true);
+    assert.equal(harness.controller.getAiState(), 'mounted');
 });
 
 test('WEBVIEW-LAZY-PANEL-RECOVERY-001 retries one missing response and unlocks later tab retries', () => {
@@ -929,8 +1155,8 @@ test('PROJECT-INCREMENTAL-REFRESH-001 ignores stale window messages without requ
 test('SESSION-CONTROLLER-001 validates lazy responses and preserves independent background-tab scroll state', () => {
     const harness = createDashboardHarness();
     assert.equal(harness.context.normalizeDashboardTab('unknown'), 'open');
-    assert.equal(harness.context.getAdjacentDashboardTab('open', 'ArrowLeft'), 'todo');
-    assert.equal(harness.context.getAdjacentDashboardTab('todo', 'ArrowRight'), 'open');
+    assert.equal(harness.context.getAdjacentDashboardTab('open', 'ArrowLeft'), 'ai');
+    assert.equal(harness.context.getAdjacentDashboardTab('todo', 'ArrowRight'), 'ai');
     assert.equal(harness.context.validateProjectsPanelMessage({
         type: 'projects-panel-content', version: 1, requestId: 1, html: '',
     }), true);

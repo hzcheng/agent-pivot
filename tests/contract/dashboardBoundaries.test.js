@@ -6,6 +6,7 @@ const { spawnSync } = require('node:child_process');
 const test = require('node:test');
 const configuration = require('../../out/dashboard/configuration');
 const { shouldOpenStewardOnStartup } = require('../../out/dashboard/startup');
+const { DashboardLifecycleController } = require('../../out/dashboard/lifecycleController');
 const { DashboardRuntimeController } = require('../../out/dashboard/runtimeController');
 const { DashboardCommandRegistration } = require('../../out/dashboard/commandRegistration');
 const {
@@ -28,6 +29,16 @@ function configured(values = {}, members = {}) {
 
 function flushAsync() {
     return new Promise(resolve => setImmediate(resolve));
+}
+
+function makeConfigurationEvent(...sections) {
+    return {
+        affectsConfiguration(candidate) {
+            return sections.some(section => (
+                section === candidate || section.startsWith(`${candidate}.`)
+            ));
+        },
+    };
 }
 
 test('SESSION-CONFIGURATION-001 preserves primary precedence, legacy fallback, defaults, properties, and bound passthrough methods', async () => {
@@ -197,6 +208,35 @@ test('RUNTIME-DASHBOARD-RUNTIME-CONTROLLER-001 maps rejected promises and synchr
             ['Failed to apply project color to current window.', `${mode} failure`],
         ]);
     }
+});
+
+test('WEBVIEW-AI-DASHBOARD-001 refreshes external Prompt configuration incrementally and consumes local echoes', async () => {
+    const events = [];
+    let localEcho = true;
+    const controller = new DashboardLifecycleController({
+        checkDataMigration: async () => events.push('migrate'),
+        consumePromptDataWriteEcho: () => {
+            events.push('consume-prompt');
+            return localEcho;
+        },
+        applyProjectColorToCurrentWindow: () => events.push('color'),
+        refresh: reason => events.push(['refresh', reason]),
+        refreshPrompts: reason => events.push(['prompts', reason]),
+        publishOpenWorkspace: () => events.push('publish'),
+        evaluateAiSessionAttention: () => undefined,
+    });
+    const promptChange = makeConfigurationEvent('projectSteward.promptData');
+
+    await controller.handleConfigurationChanged(promptChange);
+    assert.deepEqual(events, ['consume-prompt']);
+
+    events.length = 0;
+    localEcho = false;
+    await controller.handleConfigurationChanged(promptChange);
+    assert.deepEqual(events, [
+        'consume-prompt',
+        ['prompts', 'configuration-changed'],
+    ]);
 });
 
 const DASHBOARD_COMMANDS = [

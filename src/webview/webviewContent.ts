@@ -146,6 +146,12 @@ export function getStewardContent(
         'webviewDashboardScripts.js',
         assetRevision,
     );
+    var promptScriptsPath = getMediaResource(
+        context,
+        webview,
+        'webviewPromptScripts.js',
+        assetRevision,
+    );
     var todoScriptsPath = getMediaResource(
         context,
         webview,
@@ -213,6 +219,7 @@ export function getStewardContent(
                 <button type="button" id="dashboard-tab-open-button" class="dashboard-tab-button active" role="tab" aria-selected="true" aria-controls="dashboard-tab-open" tabindex="0" data-dashboard-tab="open">OPEN</button>
                 <button type="button" id="dashboard-tab-projects-button" class="dashboard-tab-button" role="tab" aria-selected="false" aria-controls="dashboard-tab-projects" tabindex="-1" data-dashboard-tab="projects">PROJECTS</button>
                 <button type="button" id="dashboard-tab-todo-button" class="dashboard-tab-button" role="tab" aria-selected="false" aria-controls="dashboard-tab-todo" tabindex="-1" data-dashboard-tab="todo">TODO</button>
+                <button type="button" id="dashboard-tab-ai-button" class="dashboard-tab-button" role="tab" aria-selected="false" aria-controls="dashboard-panel-ai" tabindex="-1" data-dashboard-tab="ai">AI</button>
             </div>
         </div>
         <main class="dashboard-content">
@@ -226,6 +233,9 @@ export function getStewardContent(
             </section>
             <section id="dashboard-tab-todo" class="dashboard-tab-panel" role="tabpanel" aria-labelledby="dashboard-tab-todo-button" hidden>
                 <div class="dashboard-todo-loading" role="status" hidden>Loading todos…</div>
+            </section>
+            <section id="dashboard-panel-ai" class="dashboard-tab-panel" role="tabpanel" aria-labelledby="dashboard-tab-ai-button" hidden>
+                <div class="dashboard-ai-loading" role="status" hidden>Loading AI configuration…</div>
             </section>
             <section id="dashboard-search-results" class="dashboard-search-results" aria-label="Search results" hidden></section>
         </main>
@@ -241,6 +251,7 @@ export function getStewardContent(
     <script src="${autoScrollerPath}"></script>
     <script src="${projectScriptsPath}"></script>
     <script src="${dashboardScriptsPath}"></script>
+    <script src="${promptScriptsPath}"></script>
     <script src="${todoScriptsPath}"></script>
     <script src="${dndScriptsPath}"></script>
     <script src="${filterScriptsPath}"></script>

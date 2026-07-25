@@ -12,8 +12,10 @@ import ColorService from './services/colorService';
 import ProjectService from './services/projectService';
 import { TodoCommandController } from './todos/commandController';
 import { TodoService } from './todos/service';
+import { PromptDashboardController } from './prompts/dashboardController';
 import { PromptService } from './prompts/service';
 import { PromptTerminalCommandController } from './prompts/terminalCommandController';
+import { getAiPanelContent, getPromptSurfaceContent } from './prompts/webviewContent';
 import {
     deleteTodoWithConfirmation,
     renameTodoGroupWithPrompt,
@@ -230,12 +232,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                 .update('promptData', data, vscode.ConfigurationTarget.Global);
         },
         createId: () => randomBytes(16).toString('hex'),
-        logDiagnostic: event => logDashboardDiagnostic({
-            event: 'prompt-store',
-            category: event.category,
-            revision: event.revision,
-            promptId: event.promptId,
-        }),
+        logDiagnostic: event => logDashboardDiagnostic({ event: 'prompt-store', ...event }),
+    });
+    const promptDashboardController = new PromptDashboardController({
+        service: promptService,
+        confirmDelete: async prompt => {
+            const choice = await vscode.window.showWarningMessage(
+                `Delete Prompt "${prompt.name}"?`,
+                { modal: true },
+                'Delete'
+            );
+            return choice === 'Delete';
+        },
+        renderPromptSurface: getPromptSurfaceContent,
+        renderAiPanel: getAiPanelContent,
     });
     const todoViewState = todoService.getViewState();
     let revealedTodoId: string | undefined;
@@ -1066,6 +1076,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                 }
                 await postTodoPanelContent(e.requestId as number);
             },
+            'request-ai-panel': async e => {
+                if (Object.keys(e).length !== 4
+                    || e.version !== 1
+                    || typeof e.requestId !== 'string'
+                    || e.requestId.length < 1
+                    || e.requestId.length > 128
+                    || e.target !== 'global-prompt-library') {
+                    return;
+                }
+                await provider.postMessage(
+                    promptDashboardController.getPanelContent(e.requestId)
+                );
+            },
+            'prompt-command': async e => {
+                const result = await promptDashboardController.handle(e);
+                if (result !== undefined) {
+                    await provider.postMessage(result);
+                }
+            },
             'todo-command': async e => {
                 await todoStorageMigration.ready;
                 const result = await todoCommandController.handle(e);
@@ -1701,9 +1730,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         consumeTodoDataWriteEcho: () => todoService.consumeCurrentSettingsDataLocalWriteEcho(),
         consumeProjectCatalogWriteEcho: change =>
             projectService.consumeProjectCatalogWriteEcho(change),
+        consumePromptDataWriteEcho: () =>
+            promptService.consumeCurrentSettingsDataLocalWriteEcho(),
         applyProjectColorToCurrentWindow,
         refresh: refreshStewardViews,
         refreshProjects: () => postProjectSurfacesUpdated('replace'),
+        refreshPrompts: () => {
+            void provider.postMessage(promptDashboardController.getRefreshContent());
+        },
         publishOpenWorkspace: followsFocusEvent => openWorkspaceController.publish(followsFocusEvent),
         evaluateAiSessionAttention: () => runSafeAiSessionRuntimeLifecycleTask(
             'evaluate-attention-window-state', evaluateAiSessionAttention

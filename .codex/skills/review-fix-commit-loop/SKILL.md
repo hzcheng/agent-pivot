@@ -32,12 +32,34 @@ Turn review findings into focused fixes without losing traceability: inspect, fi
    - Add or tighten tests for every behavior bug found.
    - Preserve user changes in dirty worktrees.
 
-5. Verify after fixes, not before only.
-   - Run the smallest commands that prove the fix.
-   - Also run the branch-level checks needed for the PR.
+5. Reproduce and classify every failing check before deferring it.
+   - A failure is blocking until its result is reproduced and classified as a
+     behavior regression, test/harness problem, environment issue, or valid
+     audit-currency exception.
+   - Do not call a real harness or integration regression "audit currency".
+     That label requires matching audit-currency evidence, not an assertion or
+     a commit subject.
+   - Unexplained CI or harness failures block PR creation, push-for-review,
+     and merge.
+
+6. Verify after fixes, not before only.
+   - Run the smallest focused commands that prove each fix.
+   - Also run fresh branch-level checks needed for the PR; do not reuse results
+     from before the final fix.
    - Include `git diff --check` when code or docs changed.
 
-6. Commit intentionally.
+7. Complete final integration review after all task-level reviews.
+   - Run one final, read-only review of the complete merge-base-to-HEAD diff;
+     provide the merge base and HEAD to the reviewer and forbid checkout
+     mutations.
+   - Review cross-task protocols, shared state, partial failures, rollback
+     paths, accessibility announcements, and replacement lifecycles as well as
+     individual task changes.
+   - Critical and Important integration findings remain blocking until fixed.
+     After the final fix, run fresh focused and branch-level verification, then
+     re-review the complete merge-base-to-HEAD diff before PR creation or merge.
+
+8. Commit intentionally.
    - Stage explicit paths.
    - Use a commit message that names the fixed issue, e.g. `fix: tighten open projects update consistency`.
    - Re-check `git status -sb`.

@@ -181,7 +181,7 @@ function validateActiveSessionIconAnimation(source) {
         ['position: relative', 'border-radius: 50%']);
     assertDeclarations(ruleForSelector(source,
         'body.steward-sidebar .project .codex-session-icon', 'width: 26px'), id,
-    ['width: 26px', 'height: 26px', 'border-radius: 7px']);
+    ['width: 26px', 'height: 26px', 'border-radius: 50%']);
     assertDeclarations(ruleForSelector(source,
         'body.steward-sidebar .project .codex-session-icon svg', 'width: 17px'), id,
     ['width: 17px', 'height: 17px']);
@@ -375,8 +375,8 @@ test('SHARINGAN-RUNNING-ANIMATION-001 maps and rotates each authentic eye', () =
 test('ACTIVE-SESSION-ICON-ANIMATION-001 scopes all nine Active Session icon modes', () => {
     validateActiveSessionIconAnimation(compiledStyles);
     assert.throws(() => validateActiveSessionIconAnimation(compileStyles(styles.replace(
-        'width: 26px;\n            height: 26px;\n            border: 1px solid var(--vscode-panel-border);\n            border-radius: 7px;',
-        'width: 26px;\n            height: 26px;\n            border: 1px solid var(--vscode-panel-border);\n            border-radius: 50%;'
+        'width: 26px;\n            height: 26px;\n            border: 1px solid var(--vscode-panel-border);\n            border-radius: 50%;',
+        'width: 26px;\n            height: 26px;\n            border: 1px solid var(--vscode-panel-border);\n            border-radius: 7px;'
     ))), /ACTIVE-SESSION-ICON-ANIMATION-001/);
     assert.throws(() => validateActiveSessionIconAnimation(compileStyles(styles.replace(
         'animation: steward-session-icon-spin 2.6s linear infinite;',

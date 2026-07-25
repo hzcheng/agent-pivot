@@ -32,15 +32,14 @@ its behavior remain independent and unchanged.
 
 ## Geometry and scope
 
-The current session icon surface is a 26px rounded square, reduced to 21px in a
-narrow sidebar. Change only icons inside `.active-ai-session-row` to a circle
-with `border-radius: 50%`. Apply the circular shape in every Active Session
-execution state so the icon does not jump between a square and a circle when
-its state changes.
+The current session icon surface is 26px, reduced to 21px in a narrow sidebar.
+Use `border-radius: 50%` for the shared session icon so Active and
+History/SESSIONS rows have the same circular geometry. Apply the circular shape
+in every execution state so the icon does not jump between a square and a
+circle when its state changes.
 
-History/SESSIONS rows retain their existing rounded-square icon. Icon width,
-height, terminal SVG size, grid geometry, actions, and responsive dimensions
-remain unchanged.
+Icon width, height, terminal SVG size, grid geometry, actions, and responsive
+dimensions remain unchanged.
 
 Only a row whose `data-execution-state` is `running` receives a normalized
 `data-session-icon-fx` value and an animation. `starting` and `stopped` rows
@@ -68,8 +67,7 @@ or cross-window protocol field is introduced.
 ### `current`
 
 Preserve the existing 2.6-second linear blue conic border animation and terminal
-SVG. Adapt only its geometry from a rounded square to the Active Session
-circle.
+SVG on the shared circular session-icon geometry.
 
 ### `halo`
 
@@ -120,7 +118,7 @@ keyboard behavior.
 - Unknown configuration values fall back to `current`.
 - Missing Sharingan assets reveal the unchanged terminal SVG underneath.
 - Non-running rows ignore the configured effect.
-- History rows do not acquire the circular Active Session geometry or the new
+- History rows share the circular icon geometry but do not acquire the new
   effect attribute.
 
 ## Verification
@@ -131,8 +129,8 @@ Add focused automated coverage for:
 - unknown-value normalization;
 - full webview rendering and AI-session incremental refresh propagation;
 - `data-session-icon-fx` appearing only on running Active Session rows;
-- circular Active Session geometry at 26px and responsive 21px sizes;
-- unchanged rounded-square History/SESSIONS geometry;
+- circular Active and History/SESSIONS geometry at 26px and responsive 21px
+  sizes;
 - `current`, `halo`, six Sharingan mappings, and `none`;
 - the 2.6-second current animation and 1.8-second Sharingan rotation;
 - terminal SVG fallback, hover behavior, reduced motion, and forced colors;

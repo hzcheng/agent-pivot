@@ -4,7 +4,7 @@
 
 **Goal:** Add an independent machine-scoped animation selector for the circular icon at the start of a running Active Session row, with the existing blue border, a halo, all six bundled Sharingan variants, and no animation.
 
-**Architecture:** Normalize the new setting at the HTML renderer boundary, pass it through full rendering and every incremental message that can replace the current workspace card, and emit `data-session-icon-fx` only on running Active Session rows. Keep History rows and message protocols unchanged. Implement all visuals with scoped SCSS pseudo-elements over the existing terminal icon and reuse the already packaged Sharingan assets.
+**Architecture:** Normalize the new setting at the HTML renderer boundary, pass it through full rendering and every incremental message that can replace the current workspace card, and emit `data-session-icon-fx` only on running Active Session rows. Keep History-row behavior and message protocols unchanged while using the shared circular session-icon geometry. Implement all visuals with scoped SCSS pseudo-elements over the existing terminal icon and reuse the already packaged Sharingan assets.
 
 **Tech Stack:** TypeScript, VS Code contribution configuration, HTML string rendering, SCSS/CSS, Node.js test runner and assertion scripts, Gulp.
 
@@ -14,7 +14,7 @@
 - The setting is exactly `projectSteward.aiSessionRunningIconAnimation`, defaults to `current`, and has machine scope.
 - Its exact values, in order, are `current`, `halo`, `sharingan-itachi`, `sharingan-obito-kakashi`, `sharingan-sasuke`, `sharingan-shisui`, `sharingan-madara`, `sharingan-madara-eternal`, and `none`.
 - The new setting remains independent from `projectSteward.aiSessionRunningCardAnimation`.
-- Only `.active-ai-session-row` icons become circular; History/SESSIONS icons retain their 7px rounded-square geometry.
+- Active and History/SESSIONS icons use the same circular geometry.
 - Only `data-execution-state="running"` rows receive `data-session-icon-fx`. Starting, stopped, and defensive unknown states remain unanimated.
 - Keep icon dimensions at 26px, responsive dimensions at 21px, and terminal SVG dimensions at 17px/14px.
 - Unknown setting values normalize to `current`.
@@ -350,7 +350,7 @@ Add an `ACTIVE-SESSION-ICON-ANIMATION-001` validator to
 validator fails after controlled mutations. Lock these declarations:
 
 - `.active-ai-session-row .codex-session-icon` has `border-radius: 50%`;
-- the base `.codex-session-icon` still has `border-radius: 7px`, `width: 26px`,
+- the base `.codex-session-icon` has `border-radius: 50%`, `width: 26px`,
   `height: 26px`, and 17px SVG dimensions;
 - the narrow rule still has 21px icon and 14px SVG dimensions;
 - `current` has a circular border mask and
@@ -381,12 +381,13 @@ node --test tests/integration/dashboard/styles.test.js
 node scripts/run-ai-session-safety-checks.js
 ```
 
-Expected: failures identify square Active icons, the old unscoped current
-animation selector, and missing halo/Sharingan icon mappings.
+Expected: failures identify non-circular session icons, the old unscoped
+current animation selector, and missing halo/Sharingan icon mappings.
 
-- [ ] **Step 3: Scope circular geometry to Active rows**
+- [ ] **Step 3: Use circular geometry for all session rows**
 
-Keep the existing base History icon rule unchanged and add:
+Change the shared icon rule to `border-radius: 50%` and retain the Active-row
+positioning rule:
 
 ```scss
 .active-ai-session-row .codex-session-icon {

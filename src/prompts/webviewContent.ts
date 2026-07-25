@@ -31,8 +31,8 @@ function renderCreateForm(): string {
             <span id="prompt-create-text-error" class="prompt-field-error" data-prompt-field-error="text"></span>
         </div>
         <div class="prompt-form-actions">
-            <button type="submit" class="steward-button steward-button-primary">Save Prompt</button>
-            <button type="button" class="steward-button" data-action="prompt-cancel-create">Cancel</button>
+            <button type="submit" class="steward-button steward-button-primary" data-prompt-form-action="submit">Save Prompt</button>
+            <button type="button" class="steward-button" data-action="prompt-cancel-create" data-prompt-form-action="cancel">Cancel</button>
         </div>
     </form>`;
 }
@@ -53,8 +53,8 @@ function renderEditForm(prompt: PromptV1, index: number): string {
             <span id="${textId}-error" class="prompt-field-error" data-prompt-field-error="text"></span>
         </div>
         <div class="prompt-form-actions">
-            <button type="submit" class="steward-button steward-button-primary">Save changes</button>
-            <button type="button" class="steward-button" data-action="prompt-cancel-edit" data-prompt-id="${promptId}">Cancel</button>
+            <button type="submit" class="steward-button steward-button-primary" data-prompt-form-action="submit">Save changes</button>
+            <button type="button" class="steward-button" data-action="prompt-cancel-edit" data-prompt-form-action="cancel" data-prompt-id="${promptId}">Cancel</button>
         </div>
     </form>`;
 }

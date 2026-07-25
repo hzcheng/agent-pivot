@@ -35,6 +35,8 @@ function surfaceHtml(revision, promptIds = ['prompt-a', 'prompt-b'], marker = ''
             <textarea name="text">${promptId} body</textarea>
             <span data-prompt-field-error="name"></span>
             <span data-prompt-field-error="text"></span>
+            <button type="submit" data-prompt-form-action="submit">Save</button>
+            <button type="button" data-action="prompt-cancel-edit" data-prompt-form-action="cancel">Cancel</button>
         </form>
     </li>`).join('');
     return `<div data-prompt-surface data-prompt-revision="${revision}">
@@ -43,6 +45,8 @@ function surfaceHtml(revision, promptIds = ['prompt-a', 'prompt-b'], marker = ''
             <input name="name"><textarea name="text"></textarea>
             <span data-prompt-field-error="name"></span>
             <span data-prompt-field-error="text"></span>
+            <button type="submit" data-prompt-form-action="submit">Save</button>
+            <button type="button" data-action="prompt-cancel-create" data-prompt-form-action="cancel">Cancel</button>
         </form>
         <ol data-prompt-list>${items}</ol>
         <div data-prompt-status role="status" aria-live="polite"></div>${marker}
@@ -58,6 +62,9 @@ function matches(element, selector) {
     }
     if (selector === '[data-prompt-form]') {
         return element.getAttribute('data-prompt-form') !== null;
+    }
+    if (selector === '[data-prompt-form-action]') {
+        return element.getAttribute('data-prompt-form-action') !== null;
     }
     if (selector === '[role="tab"]') return element.getAttribute('role') === 'tab';
     return false;
@@ -137,17 +144,29 @@ function createForm(document, kind, promptId) {
     });
     const cancelAction = createElement(document, {
         'data-action': kind === 'create' ? 'prompt-cancel-create' : 'prompt-cancel-edit',
+        'data-prompt-form-action': 'cancel',
         ...(promptId ? { 'data-prompt-id': promptId } : {}),
     });
+    const submitAction = createElement(document, {
+        type: 'submit',
+        'data-prompt-form-action': 'submit',
+    });
     cancelAction.parentElement = form;
+    submitAction.parentElement = form;
     form.querySelector = selector => {
         const name = selector.match(/^\[name="([^"]+)"\]$/);
         if (name) return fields[name[1]] || null;
         const error = selector.match(/^\[data-prompt-field-error="([^"]+)"\]$/);
-        return error ? errors[error[1]] || null : null;
+        if (error) return errors[error[1]] || null;
+        const action = selector.match(/^\[data-prompt-form-action="([^"]+)"\]$/);
+        if (action) {
+            return action[1] === 'submit' ? submitAction
+                : action[1] === 'cancel' ? cancelAction : null;
+        }
+        return null;
     };
     form.querySelectorAll = selector => selector === 'button, input, textarea, select'
-        ? [cancelAction].concat(Object.values(fields))
+        ? [submitAction, cancelAction].concat(Object.values(fields))
         : [];
     form.reset = () => {
         Object.values(fields).forEach(field => {
@@ -157,6 +176,7 @@ function createForm(document, kind, promptId) {
     form.fields = fields;
     form.errors = errors;
     form.cancelAction = cancelAction;
+    form.submitAction = submitAction;
     return form;
 }
 
@@ -184,6 +204,7 @@ function createPromptRoot(document, initialHtml) {
             if (selector === '[data-prompt-status]') return root.status;
             if (selector === '[data-prompt-list]') return root.list;
             if (selector === '[data-prompt-form="create"]') return root.forms.get('create') || null;
+            if (selector === '[data-action="prompt-new"]') return root.newButton || null;
             const edit = selector.match(/^\[data-prompt-form="edit"\]\[data-prompt-id="([^"]+)"\]$/);
             if (edit) return root.forms.get(`edit:${edit[1]}`) || null;
             return root.tabs.find(tab => `#${tab.id}` === selector) || null;
@@ -225,6 +246,9 @@ function createPromptRoot(document, initialHtml) {
     });
 
     function rebuild(html) {
+        if (root.controls.indexOf(document.activeElement) >= 0) {
+            document.activeElement = document.body;
+        }
         root._html = html;
         root.controls = [];
         root.items = [];
@@ -262,7 +286,8 @@ function createPromptRoot(document, initialHtml) {
         const create = createForm(document, 'create');
         create.ownerRoot = root;
         create.cancelAction.ownerRoot = root;
-        root.controls.push(create.cancelAction);
+        create.submitAction.ownerRoot = root;
+        root.controls.push(create.submitAction, create.cancelAction);
         Object.values(create.fields).forEach(field => {
             field.ownerRoot = root;
             root.controls.push(field);
@@ -306,7 +331,8 @@ function createPromptRoot(document, initialHtml) {
             edit.fields.name.defaultValue = promptId;
             edit.fields.text.defaultValue = `${promptId} body`;
             edit.cancelAction.ownerRoot = root;
-            root.controls.push(edit.cancelAction);
+            edit.submitAction.ownerRoot = root;
+            root.controls.push(edit.submitAction, edit.cancelAction);
             Object.values(edit.fields).forEach(field => {
                 field.ownerRoot = root;
                 root.controls.push(field);
@@ -372,6 +398,10 @@ function createPromptHarness(options = {}) {
             },
             addEventListener(type, listener) {
                 (windowListeners[type] || (windowListeners[type] = [])).push(listener);
+            },
+            scrollY: options.scrollY || 0,
+            scrollTo(_x, y) {
+                this.scrollY = y;
             },
         },
         crypto: {
@@ -863,6 +893,93 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 restores list scroll and semantic Prompt
     assert.equal(restored.getAttribute('data-prompt-id'), 'prompt-b');
     assert.equal(restored.getAttribute('data-action'), 'prompt-edit');
     assert.notEqual(restored, focused);
+});
+
+test('WEBVIEW-AI-PROMPT-INTERACTION-001 restores the real viewport and semantic create edit and New focus', () => {
+    const createField = createPromptHarness();
+    createField.root.dispatch('click', eventFor(createField.root.newButton));
+    let form = createField.root.getForm('create');
+    form.fields.name.value = 'Local create';
+    form.fields.text.value = 'Local create body';
+    createField.root.dispatch('input', eventFor(form.fields.name));
+    createField.root.dispatch('input', eventFor(form.fields.text));
+    createField.document.activeElement = form.fields.text;
+    createField.context.window.scrollY = 91;
+    createField.controller.dispatch('create', {
+        name: form.fields.name.value,
+        text: form.fields.text.value,
+    });
+    assert.equal(createField.controller.applyCommandResult(resultFor(
+        createField.messages[0],
+        0,
+        { success: false, errorCode: 'storage' }
+    )), true);
+    form = createField.root.getForm('create');
+    assert.equal(createField.document.activeElement, form.fields.text);
+    assert.equal(createField.context.window.scrollY, 91);
+
+    const createAction = createPromptHarness();
+    createAction.root.dispatch('click', eventFor(createAction.root.newButton));
+    form = createAction.root.getForm('create');
+    createAction.document.activeElement = form.submitAction;
+    createAction.context.window.scrollY = 83;
+    createAction.controller.dispatch('create', { name: 'Create', text: 'Body' });
+    createAction.controller.applyCommandResult(resultFor(
+        createAction.messages[0],
+        0,
+        { success: false, errorCode: 'storage' }
+    ));
+    form = createAction.root.getForm('create');
+    assert.equal(createAction.document.activeElement, form.submitAction);
+    assert.equal(createAction.context.window.scrollY, 83);
+
+    const editField = createPromptHarness();
+    editField.root.dispatch('click', eventFor(editField.root.getItem('prompt-a').actions[2]));
+    form = editField.root.getForm('edit', 'prompt-a');
+    editField.document.activeElement = form.fields.name;
+    editField.context.window.scrollY = 77;
+    editField.controller.applyRefresh({
+        type: 'prompt-panel-updated',
+        version: 1,
+        authoritySequence: 2,
+        target: 'global-prompt-library',
+        snapshot: snapshotAt(1),
+        html: surfaceHtml(1),
+    });
+    form = editField.root.getForm('edit', 'prompt-a');
+    assert.equal(editField.document.activeElement, form.fields.name);
+    assert.equal(editField.context.window.scrollY, 77);
+
+    const editAction = createPromptHarness();
+    editAction.root.dispatch('click', eventFor(editAction.root.getItem('prompt-a').actions[2]));
+    form = editAction.root.getForm('edit', 'prompt-a');
+    editAction.document.activeElement = form.cancelAction;
+    editAction.context.window.scrollY = 69;
+    editAction.controller.applyRefresh({
+        type: 'prompt-panel-updated',
+        version: 1,
+        authoritySequence: 2,
+        target: 'global-prompt-library',
+        snapshot: snapshotAt(1),
+        html: surfaceHtml(1),
+    });
+    form = editAction.root.getForm('edit', 'prompt-a');
+    assert.equal(editAction.document.activeElement, form.cancelAction);
+    assert.equal(editAction.context.window.scrollY, 69);
+
+    const newAction = createPromptHarness();
+    newAction.document.activeElement = newAction.root.newButton;
+    newAction.context.window.scrollY = 61;
+    newAction.controller.applyRefresh({
+        type: 'prompt-panel-updated',
+        version: 1,
+        authoritySequence: 2,
+        target: 'global-prompt-library',
+        snapshot: snapshotAt(1),
+        html: surfaceHtml(1),
+    });
+    assert.equal(newAction.document.activeElement, newAction.root.newButton);
+    assert.equal(newAction.context.window.scrollY, 61);
 });
 
 test('WEBVIEW-AI-PROMPT-INTERACTION-001 preserves an explicit focus change while pending', () => {

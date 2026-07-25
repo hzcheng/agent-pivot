@@ -306,17 +306,46 @@
         if (!active || !root || typeof root.contains !== 'function' || !root.contains(active)) {
             return null;
         }
-        var promptElement = closest(active, '[data-prompt-id]');
-        if (!promptElement) {
-            return null;
+        var form = closest(active, '[data-prompt-form]');
+        if (form) {
+            var formKind = form.getAttribute('data-prompt-form');
+            var formPromptId = form.getAttribute('data-prompt-id');
+            var fieldName = typeof active.getAttribute === 'function'
+                ? active.getAttribute('name')
+                : null;
+            var formActionElement = closest(active, '[data-prompt-form-action]');
+            var formAction = formActionElement
+                ? formActionElement.getAttribute('data-prompt-form-action')
+                : null;
+            if ((formKind === 'create' || formKind === 'edit')
+                && (formKind === 'create' || formPromptId)
+                && (fieldName === 'name' || fieldName === 'text')) {
+                return {
+                    formKind: formKind,
+                    promptId: formPromptId,
+                    fieldName: fieldName,
+                };
+            }
+            if ((formKind === 'create' || formKind === 'edit')
+                && (formKind === 'create' || formPromptId)
+                && (formAction === 'submit' || formAction === 'cancel')) {
+                return {
+                    formKind: formKind,
+                    promptId: formPromptId,
+                    formAction: formAction,
+                };
+            }
         }
-        var promptId = promptElement.getAttribute('data-prompt-id');
+        var promptElement = closest(active, '[data-prompt-id]');
+        var promptId = promptElement ? promptElement.getAttribute('data-prompt-id') : null;
         var actionElement = closest(active, '[data-action]');
         var action = actionElement ? actionElement.getAttribute('data-action') : null;
         if (!action && closest(active, '[data-drag-prompt-id]')) {
             action = 'prompt-drag';
         }
-        return promptId && action ? { promptId: promptId, action: action } : null;
+        return action && (promptId || action === 'prompt-new')
+            ? { promptId: promptId, action: action }
+            : null;
     }
 
     function findPromptItem(promptId) {
@@ -332,6 +361,35 @@
 
     function restoreSemanticFocus(target) {
         if (!target) {
+            return;
+        }
+        if (target.formKind) {
+            var form = target.formKind === 'create'
+                ? getSurface().querySelector('[data-prompt-form="create"]')
+                : findEditForm(target.promptId);
+            if (!form
+                || form.hidden === true
+                || typeof form.hasAttribute === 'function' && form.hasAttribute('hidden')) {
+                return;
+            }
+            var formControl = target.fieldName
+                ? form.querySelector('[name="' + target.fieldName + '"]')
+                : form.querySelector(
+                    '[data-prompt-form-action="' + target.formAction + '"]'
+                );
+            if (formControl && typeof formControl.focus === 'function') {
+                formControl.focus();
+            }
+            return;
+        }
+        if (target.action === 'prompt-new') {
+            var surface = getSurface();
+            var newPrompt = surface && typeof surface.querySelector === 'function'
+                ? surface.querySelector('[data-action="prompt-new"]')
+                : null;
+            if (newPrompt && typeof newPrompt.focus === 'function') {
+                newPrompt.focus();
+            }
             return;
         }
         var item = findPromptItem(target.promptId);
@@ -364,6 +422,7 @@
         return {
             focus: captureSemanticFocus(),
             scrollTop: list && typeof list.scrollTop === 'number' ? list.scrollTop : 0,
+            scrollY: typeof window.scrollY === 'number' ? window.scrollY : 0,
             draft: clone(state.draft),
             activeSubtab: state.activeSubtab,
         };
@@ -379,6 +438,9 @@
             list.scrollTop = local.scrollTop;
         }
         restoreSemanticFocus(local.focus);
+        if (typeof window.scrollTo === 'function') {
+            window.scrollTo(0, local.scrollY);
+        }
     }
 
     function surfaceHtmlHasRevision(html, revision) {
@@ -411,7 +473,7 @@
         return Boolean(revisionMatch) && Number(revisionMatch[1]) === revision;
     }
 
-    function installAuthoritative(message, local) {
+    function installAuthoritative(message) {
         if (!surfaceHtmlHasRevision(message.html, message.snapshot.revision)) {
             return false;
         }
@@ -434,7 +496,6 @@
         state.snapshot = clone(message.snapshot);
         lockedControls = [];
         configurePromptForms();
-        restoreLocalState(local);
         return true;
     }
 
@@ -522,7 +583,7 @@
         if (!refresh || refresh.authoritySequence <= currentAuthoritySequence) {
             return false;
         }
-        return installAuthoritative(refresh, captureLocalState());
+        return installAuthoritative(refresh);
     }
 
     function dispatch(operation, payload) {
@@ -568,6 +629,7 @@
             draft: local.draft,
             focus: local.focus,
             scrollTop: local.scrollTop,
+            scrollY: local.scrollY,
             activeSubtab: local.activeSubtab,
         });
         setMutationLock(true);
@@ -604,7 +666,7 @@
             && local.activeSubtab === pending.activeSubtab) {
             local.focus = clone(pending.focus);
         }
-        if (!installAuthoritative(message, local)) {
+        if (!installAuthoritative(message)) {
             setMutationLock(true);
             return false;
         }
@@ -628,6 +690,7 @@
         if (state.draft) {
             applyDraft(state.draft);
         }
+        restoreLocalState(local);
         announce(message.success
             ? successAnnouncement(message.operation)
             : errorAnnouncement(message.errorCode));
@@ -655,9 +718,13 @@
             };
             return true;
         }
-        var applied = installAuthoritative(message, captureLocalState());
+        var local = captureLocalState();
+        var applied = installAuthoritative(message);
         if (applied && state.draft) {
             applyDraft(state.draft);
+        }
+        if (applied) {
+            restoreLocalState(local);
         }
         return applied;
     }

@@ -31,6 +31,57 @@ function snapshotAt(revision) {
     };
 }
 
+async function openPromptPage(browser, snapshot) {
+    const page = await browser.newPage({ viewport: { width: 320, height: 420 } });
+    await page.setContent(`<!doctype html>
+        <html>
+            <head><style>${styles}</style></head>
+            <body class="steward-sidebar">
+                <main id="ai-host">${getAiPanelContent(snapshot)}</main>
+                <div style="height: 1200px" aria-hidden="true"></div>
+            </body>
+        </html>`);
+    await page.evaluate(() => {
+        window.__promptMessages = [];
+        window.vscode = {
+            postMessage(message) {
+                window.__promptMessages.push(message);
+            },
+        };
+    });
+    await page.addScriptTag({ content: promptScript });
+    assert.equal(await page.evaluate(initialSnapshot =>
+        window.__projectStewardPrompts.mount(document.getElementById('ai-host'), {
+            authoritySequence: 1,
+            snapshot: initialSnapshot,
+        }), snapshot
+    ), true);
+    return page;
+}
+
+async function captureFocusAndViewport(page) {
+    return page.evaluate(() => {
+        const active = document.activeElement;
+        const form = active && active.closest
+            ? active.closest('[data-prompt-form]')
+            : null;
+        return {
+            action: active && active.getAttribute
+                ? active.getAttribute('data-action')
+                : null,
+            fieldName: active && active.getAttribute
+                ? active.getAttribute('name')
+                : null,
+            formAction: active && active.getAttribute
+                ? active.getAttribute('data-prompt-form-action')
+                : null,
+            formKind: form ? form.getAttribute('data-prompt-form') : null,
+            promptId: form ? form.getAttribute('data-prompt-id') : null,
+            scrollY: Math.round(window.scrollY),
+        };
+    });
+}
+
 async function assertNoHorizontalOverflow(page, width, label) {
     const layout = await page.evaluate(() => {
         const viewportWidth = document.documentElement.clientWidth;
@@ -214,6 +265,206 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 keeps Prompt controls and text usable in
             });
             await assertReachable(page, '[data-action="prompt-edit"]', width);
             await assertNoHorizontalOverflow(page, width, 'authoritative replacement');
+        });
+    }
+});
+
+test('WEBVIEW-AI-PROMPT-INTERACTION-001 restores form and New Prompt focus with the real viewport in Chromium', async t => {
+    const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
+    t.after(() => browser.close());
+
+    for (const scenario of [
+        {
+            name: 'create textarea after failed result',
+            setup: async page => {
+                await page.locator('[data-action="prompt-new"]').click();
+                await page.locator('[data-prompt-form="create"] [name="name"]').fill('Local create');
+                await page.locator('[data-prompt-form="create"] [name="text"]').fill('Local body');
+                await page.locator('[data-prompt-form="create"] [name="text"]').focus();
+            },
+            replace: async (page, snapshot) => {
+                await page.locator('[data-prompt-form="create"]').evaluate(form => {
+                    form.dispatchEvent(new Event('submit', {
+                        bubbles: true,
+                        cancelable: true,
+                    }));
+                });
+                const request = await page.evaluate(() => window.__promptMessages[0]);
+                assert.ok(request);
+                assert.equal(await page.evaluate(({ request, snapshot, html }) =>
+                    window.__projectStewardPrompts.applyCommandResult({
+                        type: 'prompt-command-result',
+                        version: request.version,
+                        authoritySequence: 2,
+                        requestId: request.requestId,
+                        target: request.target,
+                        operation: request.operation,
+                        success: false,
+                        errorCode: 'storage',
+                        snapshot,
+                        html,
+                    }), {
+                    request,
+                    snapshot,
+                    html: getPromptSurfaceContent(snapshot),
+                }), true);
+            },
+            expected: {
+                action: null,
+                fieldName: 'text',
+                formAction: null,
+                formKind: 'create',
+                promptId: null,
+            },
+        },
+        {
+            name: 'create submit after failed result',
+            setup: async page => {
+                await page.locator('[data-action="prompt-new"]').click();
+                await page.locator('[data-prompt-form="create"] [name="name"]').fill('Local create');
+                await page.locator('[data-prompt-form="create"] [name="text"]').fill('Local body');
+                await page.locator('[data-prompt-form="create"] [type="submit"]').focus();
+            },
+            replace: async (page, snapshot) => {
+                await page.locator('[data-prompt-form="create"]').evaluate(form => {
+                    form.dispatchEvent(new Event('submit', {
+                        bubbles: true,
+                        cancelable: true,
+                    }));
+                });
+                const request = await page.evaluate(() => window.__promptMessages[0]);
+                assert.ok(request);
+                assert.equal(await page.evaluate(({ request, snapshot, html }) =>
+                    window.__projectStewardPrompts.applyCommandResult({
+                        type: 'prompt-command-result',
+                        version: request.version,
+                        authoritySequence: 2,
+                        requestId: request.requestId,
+                        target: request.target,
+                        operation: request.operation,
+                        success: false,
+                        errorCode: 'storage',
+                        snapshot,
+                        html,
+                    }), {
+                    request,
+                    snapshot,
+                    html: getPromptSurfaceContent(snapshot),
+                }), true);
+            },
+            expected: {
+                action: null,
+                fieldName: null,
+                formAction: 'submit',
+                formKind: 'create',
+                promptId: null,
+            },
+        },
+        {
+            name: 'edit name after external refresh',
+            setup: async page => {
+                await page.locator('[data-action="prompt-edit"]').click();
+                await page.locator('[data-prompt-form="edit"] [name="name"]').focus();
+            },
+            replace: async page => {
+                const snapshot = snapshotAt(2);
+                assert.equal(await page.evaluate(({ snapshot, html }) =>
+                    window.__projectStewardPrompts.applyRefresh({
+                        type: 'prompt-panel-updated',
+                        version: 1,
+                        authoritySequence: 2,
+                        target: 'global-prompt-library',
+                        snapshot,
+                        html,
+                    }), {
+                    snapshot,
+                    html: getPromptSurfaceContent(snapshot),
+                }), true);
+            },
+            expected: {
+                action: null,
+                fieldName: 'name',
+                formAction: null,
+                formKind: 'edit',
+                promptId: 'prompt-a',
+            },
+        },
+        {
+            name: 'edit cancel after external refresh',
+            setup: async page => {
+                await page.locator('[data-action="prompt-edit"]').click();
+                await page.locator('[data-action="prompt-cancel-edit"]').focus();
+            },
+            replace: async page => {
+                const snapshot = snapshotAt(2);
+                assert.equal(await page.evaluate(({ snapshot, html }) =>
+                    window.__projectStewardPrompts.applyRefresh({
+                        type: 'prompt-panel-updated',
+                        version: 1,
+                        authoritySequence: 2,
+                        target: 'global-prompt-library',
+                        snapshot,
+                        html,
+                    }), {
+                    snapshot,
+                    html: getPromptSurfaceContent(snapshot),
+                }), true);
+            },
+            expected: {
+                action: 'prompt-cancel-edit',
+                fieldName: null,
+                formAction: 'cancel',
+                formKind: 'edit',
+                promptId: 'prompt-a',
+            },
+        },
+        {
+            name: 'New Prompt after external refresh',
+            setup: async page => {
+                await page.locator('[data-action="prompt-new"]').focus();
+            },
+            replace: async page => {
+                const snapshot = snapshotAt(2);
+                assert.equal(await page.evaluate(({ snapshot, html }) =>
+                    window.__projectStewardPrompts.applyRefresh({
+                        type: 'prompt-panel-updated',
+                        version: 1,
+                        authoritySequence: 2,
+                        target: 'global-prompt-library',
+                        snapshot,
+                        html,
+                    }), {
+                    snapshot,
+                    html: getPromptSurfaceContent(snapshot),
+                }), true);
+            },
+            expected: {
+                action: 'prompt-new',
+                fieldName: null,
+                formAction: null,
+                formKind: null,
+                promptId: null,
+            },
+        },
+    ]) {
+        await t.test(scenario.name, async () => {
+            const snapshot = snapshotAt(1);
+            const page = await openPromptPage(browser, snapshot);
+            try {
+                await scenario.setup(page);
+                const beforeScrollY = await page.evaluate(() => {
+                    window.scrollTo(0, 167);
+                    return Math.round(window.scrollY);
+                });
+                assert.ok(beforeScrollY > 0);
+                await scenario.replace(page, snapshot);
+                assert.deepEqual(await captureFocusAndViewport(page), {
+                    ...scenario.expected,
+                    scrollY: beforeScrollY,
+                });
+            } finally {
+                await page.close();
+            }
         });
     }
 });

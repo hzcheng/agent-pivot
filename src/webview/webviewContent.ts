@@ -43,6 +43,8 @@ const AI_SESSION_RUNNING_CARD_ANIMATIONS = new Set([
     'sharingan-obito-kakashi',
     'sharingan-sasuke',
     'sharingan-shisui',
+    'sharingan-madara',
+    'sharingan-madara-eternal',
     'ripple',
     'breath',
     'none',

@@ -5313,15 +5313,19 @@ function runWebviewContentChecks() {
         'sharingan-obito-kakashi',
         'sharingan-sasuke',
         'sharingan-shisui',
+        'sharingan-madara',
+        'sharingan-madara-eternal',
         'ripple',
         'breath',
         'none',
     ]);
-    assert.deepStrictEqual(runningAnimation.enumDescriptions.slice(4, 8), [
+    assert.deepStrictEqual(runningAnimation.enumDescriptions.slice(4, 10), [
         "Itachi Uchiha's Mangekyo Sharingan replaces and rotates over the project kind icon.",
         "Obito Uchiha and Kakashi Hatake's Mangekyo Sharingan replaces and rotates over the project kind icon.",
         "Sasuke Uchiha's Mangekyo Sharingan replaces and rotates over the project kind icon.",
         "Shisui Uchiha's Mangekyo Sharingan replaces and rotates over the project kind icon.",
+        "Madara Uchiha's Mangekyo Sharingan replaces and rotates over the project kind icon.",
+        "Madara Uchiha's Eternal Mangekyo Sharingan replaces and rotates over the project kind icon.",
     ]);
     assert.strictEqual(
         runningAnimation.description,
@@ -5470,7 +5474,7 @@ function runTmuxSmokeHarnessSafetyChecks() {
 
 function runCurrentWorkspaceRenderingChecks() {
     const config = {
-        get: (key, defaultValue) => key === 'aiSessionRunningCardAnimation' ? 'sharingan-itachi' : defaultValue,
+        get: (key, defaultValue) => key === 'aiSessionRunningCardAnimation' ? 'sharingan-madara' : defaultValue,
         displayProjectPath: false,
         searchIsActiveByDefault: false,
         showAddGroupButtonTile: false,
@@ -5578,7 +5582,7 @@ function runCurrentWorkspaceRenderingChecks() {
     assert.ok(currentTags[0].includes('data-current-workspace'));
     assert.ok(currentTags[0].includes('data-workspace-card-kind="current"'));
     assert.ok(currentTags[0].includes('session-running'));
-    assert.ok(currentTags[0].includes('data-session-fx="sharingan-itachi"'),
+    assert.ok(currentTags[0].includes('data-session-fx="sharingan-madara"'),
         'the full Webview render must use the configured running animation');
     assert.ok(html.includes('title="Workspace — 1 active session running"'));
     assert.strictEqual((html.match(/class="project-session-fx"/g) || []).length, 1);

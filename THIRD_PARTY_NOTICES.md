@@ -8,6 +8,8 @@ distributed under the
 | Bundled file | Original source |
 | --- | --- |
 | `media/sharingan/mangekyou-sharingan-itachi.svg` | https://commons.wikimedia.org/wiki/File:Mangekyou_Sharingan_Itachi.svg |
+| `media/sharingan/mangekyou-sharingan-madara-eternal.svg` | https://commons.wikimedia.org/wiki/File:Mangekyou_Sharingan_Madara_(Eternal).svg |
+| `media/sharingan/mangekyou-sharingan-madara.svg` | https://commons.wikimedia.org/wiki/File:Mangekyou_Sharingan_Madara.svg |
 | `media/sharingan/mangekyou-sharingan-obito-kakashi.svg` | https://commons.wikimedia.org/wiki/File:Mangekyou_Sharingan_Kakashi.svg |
 | `media/sharingan/mangekyou-sharingan-sasuke.svg` | https://commons.wikimedia.org/wiki/File:Mangekyou_Sharingan_Sasuke.svg |
 | `media/sharingan/mangekyou-sharingan-shisui.svg` | https://commons.wikimedia.org/wiki/File:Mangekyou_Sharingan_Shisui.svg |

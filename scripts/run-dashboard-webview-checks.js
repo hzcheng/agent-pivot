@@ -297,7 +297,7 @@ function runDashboardUpdateMessageChecks() {
     });
     const workspaceMessage = dashboardUpdateMessages.buildWorkspaceUpdatedMessage({
         card: workspaceCard,
-        runningCardAnimation: 'sharingan-sasuke',
+        runningCardAnimation: 'sharingan-madara',
     });
     const navigationCard = {
         ...makeWorkspaceCardFixture(2),
@@ -317,7 +317,7 @@ function runDashboardUpdateMessageChecks() {
         semanticRevision: 'b'.repeat(64),
         otherWindowsStatus: 'ready',
         todoSearchItems,
-        runningCardAnimation: 'sharingan-obito-kakashi',
+        runningCardAnimation: 'sharingan-madara-eternal',
     });
     const workspaceSearchCatalog = buildWorkspaceDashboardSearchCatalog([], [workspaceCard], todoSearchItems);
 
@@ -338,7 +338,7 @@ function runDashboardUpdateMessageChecks() {
     assert.deepStrictEqual(workspaceSearchCatalog.todos, todoSearchItems);
     assert.strictEqual(workspaceMessage.currentWorkspaceCount, 1);
     assert.ok(workspaceMessage.html.includes('data-workspace-scope-identity="scope-dashboard"'));
-    assert.ok(workspaceMessage.html.includes('data-session-fx="sharingan-sasuke"'),
+    assert.ok(workspaceMessage.html.includes('data-session-fx="sharingan-madara"'),
         'workspace incremental updates must use the configured running animation');
     const emptyWorkspaceMessage = dashboardUpdateMessages.buildWorkspaceUpdatedMessage({ card: null });
     assert.strictEqual(emptyWorkspaceMessage.currentWorkspaceCount, 0);
@@ -354,7 +354,7 @@ function runDashboardUpdateMessageChecks() {
         ['show-current-workspace', 'switch-open-workspace'],
     );
     assert.ok(openWorkspacesMessage.html.includes('OTHER WINDOWS'));
-    assert.ok(openWorkspacesMessage.html.includes('data-session-fx="sharingan-obito-kakashi"'),
+    assert.ok(openWorkspacesMessage.html.includes('data-session-fx="sharingan-madara-eternal"'),
         'open-workspace incremental updates must use the configured running animation');
 }
 
@@ -503,6 +503,8 @@ function runWorkspaceCardRenderingChecks() {
         'sharingan-obito-kakashi',
         'sharingan-sasuke',
         'sharingan-shisui',
+        'sharingan-madara',
+        'sharingan-madara-eternal',
         'ripple',
         'breath',
     ]) {

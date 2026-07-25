@@ -32,6 +32,18 @@ const assets = [
         sha256: '10c540d932e9546afaf07f8a59b117ffd3346cb89febe2a5a810bf2d33dff377',
         source: 'https://commons.wikimedia.org/wiki/File:Mangekyou_Sharingan_Shisui.svg',
     },
+    {
+        name: 'Madara',
+        file: 'media/sharingan/mangekyou-sharingan-madara.svg',
+        sha256: '88f2e23d621ce3170514afbe38491bdcff289e988d15664d67574bf2575b36e7',
+        source: 'https://commons.wikimedia.org/wiki/File:Mangekyou_Sharingan_Madara.svg',
+    },
+    {
+        name: 'Madara Eternal',
+        file: 'media/sharingan/mangekyou-sharingan-madara-eternal.svg',
+        sha256: '2afd4d1ffa8f32b61eb9a2060ec75dfd262b4abfe26edf7f57f3ec7973292d3c',
+        source: 'https://commons.wikimedia.org/wiki/File:Mangekyou_Sharingan_Madara_(Eternal).svg',
+    },
 ];
 
 test('SHARINGAN-ASSET-INTEGRITY-002 retains the default text rule and scopes the SVG exception', () => {

@@ -107,6 +107,8 @@ const sharinganAssets = [
     ['sharingan-obito-kakashi', 'sharingan/mangekyou-sharingan-obito-kakashi.svg'],
     ['sharingan-sasuke', 'sharingan/mangekyou-sharingan-sasuke.svg'],
     ['sharingan-shisui', 'sharingan/mangekyou-sharingan-shisui.svg'],
+    ['sharingan-madara', 'sharingan/mangekyou-sharingan-madara.svg'],
+    ['sharingan-madara-eternal', 'sharingan/mangekyou-sharingan-madara-eternal.svg'],
 ];
 
 function findSharinganRule(source, mode) {

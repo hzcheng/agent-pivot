@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "d80ae0dbd5bdc362216c9f5614b887f6a43b8373",
+        "head": "bfc9591242d7a1aaeef0287ffbe30af1cbb35beb",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -518,7 +518,7 @@
         {
             "id": "MAIN-RUNTIME-SESSION-RECOVERY",
             "title": "Runtime session recovery and activation",
-            "requirement": "Direct, tmux, pending, aliased, and resumed AI sessions preserve identity and can be activated from their cards.",
+            "requirement": "Direct, tmux, pending, aliased, and resumed AI sessions preserve identity, apply configured launch policy, and can be activated from their cards.",
             "commits": [
                 "4e69826dd7f4da3776e0b550e5cfe802af39e108",
                 "d5b2cd4449555bc67eff6d5074372f2de3fa0ba4",
@@ -588,7 +588,11 @@
                 "b61e031d86fb859ae7e2a7d0176dbae5a253b01e",
                 "90302c5c0a9e8794174955368d72307c2303abd1",
                 "883616d8f0cd5edad7eca71553afedcbee560604",
-                "d80ae0dbd5bdc362216c9f5614b887f6a43b8373"
+                "d80ae0dbd5bdc362216c9f5614b887f6a43b8373",
+                "a7201b8107f6b9f42862a77f8264f8ee5b361192",
+                "b8e0f8039c4927fc2783951e9d5759ab73b0494d",
+                "37aa1c0a06466d3ae7be3e66af50c1dc71f19508",
+                "bfc9591242d7a1aaeef0287ffbe30af1cbb35beb"
             ],
             "behaviors": [
                 "RUNTIME-TMUX-BACKEND-001",
@@ -596,13 +600,18 @@
                 "RUNTIME-TMUX-DISCOVERY-001",
                 "SESSION-AI-SESSION-TERMINAL-COMMAND-CONTROLLER-001",
                 "SESSION-ALIAS-THREAD-SWITCH-001",
+                "SESSION-COMMAND-BUILDER-001",
+                "SESSION-AI-SESSION-CREATION-CONTROLLER-001",
+                "SESSION-AI-SESSION-RESUME-CONTROLLER-001",
+                "RUNTIME-AI-SESSION-RUNTIME-CONTROLLER-001",
                 "WEBVIEW-AI-SESSION-CARD-ACTIVATION-001",
                 "ACTIVE-SESSION-ICON-ANIMATION-001",
                 "WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-001",
                 "PERSIST-MULTI-PROVIDER-BATCH-ARCHIVE-001"
             ],
             "prGates": [
-                "test:ci:linux"
+                "test:ci:linux",
+                "test:ci:windows"
             ],
             "scheduledJobs": [
                 "tmux-smoke-linux"

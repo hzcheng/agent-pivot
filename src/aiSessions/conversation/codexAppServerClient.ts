@@ -19,6 +19,7 @@ interface CodexReadableStream {
 interface CodexWritableStream {
     readonly writable: boolean;
     write(bytes: Buffer): boolean;
+    on(event: 'error', listener: (error: Error) => void): unknown;
     once(event: 'drain', listener: () => void): unknown;
     once(event: 'error', listener: (error: Error) => void): unknown;
     removeListener(event: 'drain', listener: () => void): unknown;
@@ -29,11 +30,13 @@ export interface CodexAppServerChild {
     readonly stdin: CodexWritableStream;
     readonly stdout: CodexReadableStream;
     readonly stderr: CodexReadableStream;
+    on(event: 'spawn', listener: () => void): unknown;
     on(
         event: 'exit',
         listener: (code: number | null, signal: string | null) => void
     ): unknown;
     on(event: 'error', listener: (error: Error) => void): unknown;
+    removeListener(event: 'spawn', listener: () => void): unknown;
     removeListener(
         event: 'exit',
         listener: (code: number | null, signal: string | null) => void
@@ -117,11 +120,28 @@ export class CodexAppServerClient implements AiSessionDisposable {
     private restartAttempts: number[] = [];
     private restartDelay?: RestartDelay;
     private serverVersion?: string;
+    private childSpawned = false;
 
     private readonly onStdoutData = (chunk: Buffer): void => {
         this.acceptStdoutChunk(chunk);
     };
     private readonly onStderrData = (_chunk: Buffer): void => undefined;
+    private readonly onStdinError = (_error: Error): void => {
+        if (!this.child) {
+            return;
+        }
+        this.report('exit');
+        this.releaseChild(
+            this.child,
+            new ConversationError('unavailable', 'reconnectingCodex'),
+            true
+        );
+    };
+    private readonly onChildSpawn = (): void => {
+        if (this.child) {
+            this.childSpawned = true;
+        }
+    };
     private readonly onChildExit = (
         _code: number | null,
         _signal: string | null
@@ -140,11 +160,16 @@ export class CodexAppServerClient implements AiSessionDisposable {
         if (!this.child) {
             return;
         }
-        this.report('exit');
+        const spawnFailure = !this.childSpawned;
+        this.report(spawnFailure ? 'spawn' : 'exit');
         this.releaseChild(
             this.child,
-            new ConversationError('unavailable', 'reconnectingCodex'),
-            true
+            new ConversationError(
+                'unavailable',
+                spawnFailure ? 'updateCodex' : 'reconnectingCodex'
+            ),
+            true,
+            !spawnFailure
         );
     };
 
@@ -296,10 +321,13 @@ export class CodexAppServerClient implements AiSessionDisposable {
             throw new ConversationError('unavailable', 'updateCodex');
         }
         this.child = child;
+        this.childSpawned = false;
         this.initialized = false;
         this.stdoutRemainder = Buffer.alloc(0);
+        child.stdin.on('error', this.onStdinError);
         child.stdout.on('data', this.onStdoutData);
         child.stderr.on('data', this.onStderrData);
+        child.on('spawn', this.onChildSpawn);
         child.on('exit', this.onChildExit);
         child.on('error', this.onChildError);
 
@@ -659,9 +687,12 @@ export class CodexAppServerClient implements AiSessionDisposable {
         }
         child.stdout.removeListener('data', this.onStdoutData);
         child.stderr.removeListener('data', this.onStderrData);
+        child.stdin.removeListener('error', this.onStdinError);
+        child.removeListener('spawn', this.onChildSpawn);
         child.removeListener('exit', this.onChildExit);
         child.removeListener('error', this.onChildError);
         this.child = undefined;
+        this.childSpawned = false;
         this.initialized = false;
         this.stdoutRemainder = Buffer.alloc(0);
         this.serverVersion = undefined;

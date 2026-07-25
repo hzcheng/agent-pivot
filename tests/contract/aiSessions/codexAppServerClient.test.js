@@ -34,12 +34,15 @@ class FakeStdin extends EventEmitter {
 }
 
 class FakeChild extends EventEmitter {
-    constructor() {
+    constructor(options = {}) {
         super();
         this.stdin = new FakeStdin();
         this.stdout = new EventEmitter();
         this.stderr = new EventEmitter();
         this.killCount = 0;
+        if (options.spawn !== false) {
+            queueMicrotask(() => this.emit('spawn'));
+        }
     }
 
     kill() {
@@ -732,4 +735,189 @@ test('SESSION-AI-SESSION-CODEX-APP-SERVER-012 never retains an unbounded server 
         SESSION_ID,
     ]);
     harness.client.dispose();
+});
+
+test('SESSION-AI-SESSION-CODEX-APP-SERVER-013 owns accepted-write stdin errors and keeps reconnects bounded', async t => {
+    const children = [];
+    const timers = fakeTimers({
+        autoRun(delayMs) {
+            return delayMs === 1_000 || delayMs === 4_000;
+        },
+    });
+    const harness = createHarness({
+        timers,
+        spawn() {
+            const child = new FakeChild();
+            child.stdin.onWrite = bytes => {
+                const message = JSON.parse(
+                    bytes.subarray(0, bytes.length - 1).toString('utf8')
+                );
+                if (message.method === 'initialize') {
+                    queueMicrotask(() => emitResponse(child, {
+                        id: message.id,
+                        result: {},
+                    }));
+                } else if (message.method === 'thread/read'
+                    && children.indexOf(child) === 1) {
+                    child.stdin.writeResults.push(false);
+                }
+            };
+            children.push(child);
+            return child;
+        },
+    });
+    t.after(() => harness.client.dispose());
+
+    for (let index = 0; index < 3; index++) {
+        const request = harness.client.request('thread/read', {
+            threadId: `${SESSION_ID}-${index}`,
+        });
+        request.catch(() => undefined);
+        await settle();
+        const child = children[index];
+        assert.ok(child);
+        assert.equal(
+            parsedWrites(child).some(message =>
+                message.method === 'thread/read'
+            ),
+            true
+        );
+        const runtimeError = new Error(
+            `RAW-RUNTIME-ERROR-${index} /private/codex-${index}`
+        );
+        runtimeError.code = index === 0 ? 'EPIPE' : 'ERUNTIME';
+        assert.doesNotThrow(() => {
+            if (index < 2) {
+                child.stdin.emit('error', runtimeError);
+            } else {
+                child.emit('error', runtimeError);
+            }
+        });
+        await assert.rejects(request, error =>
+            error.name === 'ConversationError'
+            && error.code === 'unavailable'
+            && error.reason === 'reconnectingCodex'
+            && !error.message.includes('EPIPE')
+        );
+        assert.equal(child.killCount, 1);
+        assert.equal(child.stdin.listenerCount('drain'), 0);
+        assert.equal(child.stdin.listenerCount('error'), 0);
+        assert.equal(child.stdout.listenerCount('data'), 0);
+        assert.equal(child.stderr.listenerCount('data'), 0);
+        assert.equal(child.listenerCount('spawn'), 0);
+        assert.equal(child.listenerCount('exit'), 0);
+        assert.equal(child.listenerCount('error'), 0);
+        assert.equal(timers.activeCount(), 0);
+    }
+    await assert.rejects(
+        harness.client.request('thread/read', { threadId: SESSION_ID }),
+        error => error.name === 'ConversationError'
+            && error.code === 'unavailable'
+            && error.reason === 'codexRetryExhausted'
+            && error.retryAfterMs > 0
+    );
+    assert.deepEqual(
+        timers.scheduledDelays.filter(delay => delay !== 10_000),
+        [1_000, 4_000]
+    );
+    assert.deepEqual(
+        harness.diagnostics.map(item => item.category),
+        ['exit', 'exit', 'exit']
+    );
+    assertSanitizedDiagnostics(harness.diagnostics, [
+        'RAW-STDIN-ERROR',
+        'RAW-RUNTIME-ERROR',
+        '/private/codex',
+        'EPIPE',
+        SESSION_ID,
+    ]);
+});
+
+test('SESSION-AI-SESSION-CODEX-APP-SERVER-014 classifies asynchronous pre-spawn errors without charging restart budget', async t => {
+    const children = [];
+    const timers = fakeTimers({
+        autoRun(delayMs) {
+            return delayMs === 1_000 || delayMs === 4_000;
+        },
+    });
+    const failures = ['ENOENT', 'EACCES'];
+    const harness = createHarness({
+        timers,
+        spawn() {
+            const failureCode = failures[children.length];
+            const child = new FakeChild({
+                spawn: failureCode === undefined,
+            });
+            if (failureCode) {
+                queueMicrotask(() => {
+                    const error = new Error(
+                        `RAW-${failureCode} /private/missing-codex`
+                    );
+                    error.code = failureCode;
+                    child.emit('error', error);
+                });
+            } else {
+                child.stdin.onWrite = bytes => {
+                    const message = JSON.parse(
+                        bytes.subarray(0, bytes.length - 1).toString('utf8')
+                    );
+                    if (message.method === 'initialize') {
+                        queueMicrotask(() => emitResponse(child, {
+                            id: message.id,
+                            result: {},
+                        }));
+                    } else if (message.id) {
+                        queueMicrotask(() => emitResponse(child, {
+                            id: message.id,
+                            result: { recovered: true },
+                        }));
+                    }
+                };
+            }
+            children.push(child);
+            return child;
+        },
+    });
+    t.after(() => harness.client.dispose());
+
+    for (const failureCode of failures) {
+        await assert.rejects(
+            harness.client.request('thread/read', { threadId: SESSION_ID }),
+            error => error.name === 'ConversationError'
+                && error.code === 'unavailable'
+                && error.reason === 'updateCodex'
+                && !error.message.includes(failureCode)
+        );
+        const failedChild = children[children.length - 1];
+        assert.equal(failedChild.killCount, 1);
+        assert.equal(failedChild.stdin.listenerCount('error'), 0);
+        assert.equal(failedChild.stdout.listenerCount('data'), 0);
+        assert.equal(failedChild.stderr.listenerCount('data'), 0);
+        assert.equal(failedChild.listenerCount('spawn'), 0);
+        assert.equal(failedChild.listenerCount('exit'), 0);
+        assert.equal(failedChild.listenerCount('error'), 0);
+        assert.equal(timers.activeCount(), 0);
+    }
+    assert.deepEqual(
+        await harness.client.request('thread/read', {
+            threadId: SESSION_ID,
+        }),
+        { recovered: true }
+    );
+    assert.deepEqual(
+        timers.scheduledDelays.filter(delay => delay !== 10_000),
+        []
+    );
+    assert.deepEqual(
+        harness.diagnostics.map(item => item.category),
+        ['spawn', 'spawn']
+    );
+    assertSanitizedDiagnostics(harness.diagnostics, [
+        'RAW-ENOENT',
+        'RAW-EACCES',
+        '/private/missing-codex',
+        'ENOENT',
+        'EACCES',
+        SESSION_ID,
+    ]);
 });

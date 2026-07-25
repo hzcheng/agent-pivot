@@ -3101,5 +3101,21 @@
     "evidence": [
       "THIRD_PARTY_NOTICES.md"
     ]
+  },
+  {
+    "id": "ACTIVE-SESSION-ICON-ANIMATION-001",
+    "domain": "webview",
+    "title": "Running Active Session rows render the selected circular icon animation",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/integration/dashboard/webviewState.test.js",
+      "tests/integration/dashboard/styles.test.js"
+    ],
+    "evidence": [
+      "src/webview/webviewContent.ts",
+      "media/styles.scss",
+      "media/styles.css"
+    ]
   }
 ]

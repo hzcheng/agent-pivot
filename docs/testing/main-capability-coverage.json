@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "b142ac70a044d81230a29b4e1cc8cb658cfad1fa",
+        "head": "3b86a429fd29edbcc076db2a5e02e7a46bdd5cc1",
         "ignoredDocumentationCommits": []
     },
     "capabilities": [
@@ -567,7 +567,11 @@
                 "9a344806a1846d2c1e6996a93dafa0e18f97492a",
                 "71fc7e40c24515b4a3616ef1b5d4d790647c93b2",
                 "e942284864c939c8ee65d74a6581aebd193b5ecf",
-                "dfb81f1fa68651407fe1f7d3958a67688478d301"
+                "dfb81f1fa68651407fe1f7d3958a67688478d301",
+                "6c8e5a28f8f3205f52eaee21e51b3091a71590d5",
+                "5c9a6677a5993e4eea57617662ccf29dbf8d7295",
+                "a3ba259920cfc5ccf420aaf86f112e30a76c0921",
+                "3b86a429fd29edbcc076db2a5e02e7a46bdd5cc1"
             ],
             "behaviors": [
                 "RUNTIME-TMUX-BACKEND-001",
@@ -575,7 +579,8 @@
                 "RUNTIME-TMUX-DISCOVERY-001",
                 "SESSION-AI-SESSION-TERMINAL-COMMAND-CONTROLLER-001",
                 "SESSION-ALIAS-THREAD-SWITCH-001",
-                "WEBVIEW-AI-SESSION-CARD-ACTIVATION-001"
+                "WEBVIEW-AI-SESSION-CARD-ACTIVATION-001",
+                "ACTIVE-SESSION-ICON-ANIMATION-001"
             ],
             "prGates": [
                 "test:ci:linux"

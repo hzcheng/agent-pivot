@@ -630,7 +630,7 @@ function runWorkspaceSessionHydrationChecks() {
         getSessionComparableCwd: (providerId, session) => providerId === 'kimi' ? session.workDir : session.cwd,
         getPinnedSessions: () => new Set(),
         getAliases: () => ({}),
-        getActiveProvider: () => 'codex',
+        getProviderSelection: () => ({ primaryProvider: 'codex', selectedProviders: ['codex'] }),
         getExpanded: () => true,
         getActiveRuntimes: () => activeRuntimes,
         getPendingRuntimes: () => pendingRuntimes,
@@ -650,6 +650,8 @@ function runWorkspaceSessionHydrationChecks() {
     assert.strictEqual(readNotifications[0].sessionResults.codex.sessions[0].id, 'api-history');
     assert.strictEqual(result.workspaceScopeIdentity, workspace.scopeIdentity);
     assert.strictEqual(result.workspaceNavigationIdentity, workspace.navigationIdentity);
+    assert.strictEqual(result.activeProvider, 'codex');
+    assert.deepStrictEqual(result.selectedProviders, ['codex']);
     assert.deepStrictEqual(result.sessionsByProvider.codex.map(value => [value.id, value.primaryRootId]), [
         ['api-history', 'root-api'],
         ['web-history', 'root-web'],
@@ -4895,6 +4897,7 @@ function runWebviewContentChecks() {
     assert.ok(sessionTabsHtml.includes('data-action="create-ai-session"'));
     assert.ok(!sessionTabsHtml.includes('data-action="create-ai-session" data-provider='));
     assert.ok(sessionTabsHtml.includes('data-selected-ai-session-providers="codex"'));
+    assert.ok(sessionTabsHtml.includes('data-active-ai-session-provider="codex"'));
     assert.ok(sessionTabsHtml.includes('data-ai-provider-menu-trigger'));
     assert.ok(sessionTabsHtml.includes('data-ai-provider-menu'));
     assert.ok(sessionTabsHtml.includes('data-ai-provider-option data-provider="codex"'));
@@ -6041,6 +6044,13 @@ function runBatchAiSessionWebviewChecks() {
         let rows = [];
         let replacementRows = null;
         const sessionSection = {};
+        const sessionRegion = {
+            getAttribute: attribute => attribute === 'data-active-ai-session-provider'
+                ? provider
+                : attribute === 'data-selected-ai-session-providers'
+                    ? provider
+                    : null,
+        };
         Object.defineProperty(sessionSection, 'outerHTML', {
             set: () => {
                 if (replacementRows) {
@@ -6087,9 +6097,7 @@ function runBatchAiSessionWebviewChecks() {
                 }
             },
             querySelector: selector => {
-                if (selector === 'select[data-action="select-ai-provider"]') {
-                    return { value: provider };
-                }
+                if (selector === '[data-ai-session-region]') return sessionRegion;
                 if (selector === '[data-action="archive-selected-ai-sessions"]') {
                     return batchButtons.find(button => button.action === 'archive-selected-ai-sessions');
                 }
@@ -6881,7 +6889,7 @@ function runAiSessionIncrementalRefreshSourceChecks() {
     assert.ok(workspaceHydrationSource.includes('getWorkspaceAiSessionCandidatePaths(workspace)'));
     assert.ok(workspaceHydrationSource.includes('this.options.readCoordinator.getResults({ candidatePaths, reason, maxFiles })'));
     assert.ok(workspaceHydrationSource.includes('hydrateWorkspaceAiSessions({'));
-    assert.ok(workspaceHydrationSource.includes('activeProvider: this.options.getActiveProvider(workspace.scopeIdentity)'));
+    assert.ok(workspaceHydrationSource.includes('providerSelection: this.options.getProviderSelection(workspace.scopeIdentity)'));
     assert.ok(workspaceHydrationSource.includes('expanded: this.options.getExpanded(workspace.scopeIdentity)'));
 
     assert.ok(projectCandidatesSource.includes("from '../workspaces/sessionHydration'"));

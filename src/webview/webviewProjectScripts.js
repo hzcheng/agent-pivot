@@ -908,8 +908,13 @@ function initProjects() {
         if (!projectDiv)
             return null;
 
-        var providerSelect = projectDiv.querySelector('select[data-action="select-ai-provider"]');
-        return providerSelect && providerSelect.value;
+        var region = projectDiv.querySelector('[data-ai-session-region]');
+        var activeProvider = region && region.getAttribute('data-active-ai-session-provider');
+        if (isAiSessionProvider(activeProvider))
+            return activeProvider;
+
+        var selectedProviders = region && region.getAttribute('data-selected-ai-session-providers') || '';
+        return selectedProviders.split(',').find(isAiSessionProvider) || null;
     }
 
     function syncActiveAiSessionTerminalDom() {

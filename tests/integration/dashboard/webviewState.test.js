@@ -437,7 +437,11 @@ test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-002 renders a pinned-first selected
     ], false, 'ready');
 
     assert.match(html, /data-selected-ai-session-providers="kimi,codex,claude"/);
+    assert.match(html, /data-active-ai-session-provider="kimi"/);
     assert.match(html, /data-ai-provider-menu-trigger/);
+    assert.match(html, /aria-controls="ai-session-provider-menu-current"/);
+    assert.match(html, /id="ai-session-provider-menu-current"/);
+    assert.match(html, />3 providers<\/button>/);
     assert.match(html, /role="menuitemcheckbox"/);
     assert.match(html, /aria-checked="true"/);
     assert.ok(html.indexOf('k-pin') < html.indexOf('c-pin'));
@@ -445,6 +449,25 @@ test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-002 renders a pinned-first selected
     assert.ok(html.indexOf('k-new') < html.indexOf('c-new'));
     assert.ok(html.indexOf('c-new') < html.indexOf('a-new'));
     assert.doesNotMatch(html, /ai-session-provider-section/);
+});
+
+test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-002 summarizes one or two selected providers and retains legacy provider summaries', () => {
+    const html = webviewModules.content.getAiSessionsDiv({
+        id: 'legacy-providers',
+        activeAiSessionProvider: 'codex',
+        selectedAiSessionProviders: ['codex', 'claude'],
+        codexSessions: [{ id: 'codex-history', name: 'Codex history', provider: 'codex' }],
+        kimiSessions: [],
+        claudeSessions: [{ id: 'claude-history', name: 'Claude history', provider: 'claude' }],
+        activeAiSessions: [],
+    });
+
+    assert.match(html, /data-active-ai-session-provider="codex"/);
+    assert.match(html, />Codex \+ Claude<\/button>/);
+    assert.match(html, /aria-controls="ai-session-provider-menu-legacy-providers"/);
+    assert.match(html, /id="ai-session-provider-menu-legacy-providers"/);
+    assert.match(html, /data-provider="codex"[\s\S]*?ai-session-provider-count">1/);
+    assert.match(html, /data-provider="claude"[\s\S]*?ai-session-provider-count">1/);
 });
 
 test('ACTIVE-SESSION-ICON-ANIMATION-001 renders effects only for running Active Session rows', () => {
@@ -1003,6 +1026,76 @@ function createProjectVm({ querySelector, querySelectorAll, activeElement, sourc
     messages.length = 0;
     return { context, documentListeners, windowListeners, messages, replacedCatalogs, getWebviewState: () => webviewState };
 }
+
+function createSingleProviderBatchProject() {
+    const attributes = new Map([['data-id', 'workspace-a']]);
+    const region = createElement();
+    region.setAttribute('data-active-ai-session-provider', 'codex');
+    const manageButton = createElement();
+    const count = { textContent: '' };
+    const archiveButton = { disabled: false };
+    const row = {
+        getAttribute: name => name === 'data-session-provider' ? 'codex'
+            : name === 'data-session-id' ? 'session-1' : null,
+        hasAttribute: () => false,
+        toggleAttribute: () => undefined,
+        querySelector: () => null,
+    };
+    return {
+        getAttribute: name => attributes.get(name) || null,
+        hasAttribute: name => attributes.has(name),
+        setAttribute: (name, value) => attributes.set(name, String(value)),
+        removeAttribute: name => attributes.delete(name),
+        toggleAttribute(name, enabled) {
+            if (enabled) attributes.set(name, '');
+            else attributes.delete(name);
+        },
+        querySelector(selector) {
+            if (selector === '[data-ai-session-region]') return region;
+            if (selector === '[data-action="manage-ai-sessions"]') return manageButton;
+            if (selector === '.ai-session-batch-count') return count;
+            if (selector === '[data-action="archive-selected-ai-sessions"]') return archiveButton;
+            return null;
+        },
+        querySelectorAll(selector) {
+            if (selector === '.ai-session-history-panel .codex-session-row[data-session-id]') return [row];
+            if (selector === '.ai-session-batch-actions button') return [];
+            return [];
+        },
+    };
+}
+
+function assertSingleProviderBatchScope(source = projectSource) {
+    const project = createSingleProviderBatchProject();
+    const harness = createProjectVm({ source });
+    const targetFor = action => ({
+        closest(selector) {
+            if (selector === '.project' || selector === '.project[data-id]') return project;
+            if (selector === `[data-action="${action}"]`) return { getAttribute: () => action };
+            if (action === 'manage-ai-sessions'
+                && selector === '[data-action="manage-ai-sessions"][data-provider]') {
+                return { getAttribute: name => name === 'data-provider' ? 'codex' : 'manage-ai-sessions' };
+            }
+            return null;
+        },
+    });
+
+    harness.documentListeners.click({ button: 0, target: targetFor('manage-ai-sessions') });
+    assert.equal(project.hasAttribute('data-ai-session-managing'), true);
+    harness.documentListeners.click({ button: 0, target: targetFor('select-unpinned-ai-sessions') });
+    assert.deepEqual(toPlain(harness.context.window.__projectStewardBatchAiSessions.snapshot().selectedIds), ['session-1']);
+    harness.documentListeners.click({ button: 0, target: targetFor('archive-selected-ai-sessions') });
+    assert.deepEqual(toPlain(harness.messages), [{
+        type: 'archive-ai-sessions', projectId: 'workspace-a', provider: 'codex', sessionIds: ['session-1'],
+    }]);
+}
+
+test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-002 retains the single-primary batch scope without a native select', () => {
+    assertSingleProviderBatchScope();
+    assert.throws(() => assertSingleProviderBatchScope(
+        projectSource.replace('data-active-ai-session-provider', 'data-retired-ai-session-provider')
+    ));
+});
 
 test('SESSION-CONTROLLER-001 preserves AI tab helpers, persisted state, and hidden-list scroll offsets', () => {
     const harness = createProjectVm();

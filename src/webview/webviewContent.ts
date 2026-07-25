@@ -780,7 +780,7 @@ export function getAiSessionsDiv(project: AiSessionSurfaceViewModel, options: Ai
     var totalSessionCount = codexSessions.length + kimiSessions.length + claudeSessions.length;
 
     return `
-<div class="codex-sessions" data-ai-session-region data-selected-ai-session-tab="${selectedTab}" data-selected-ai-session-providers="${escapeAttribute(selectedProviders.join(','))}">
+<div class="codex-sessions" data-ai-session-region data-active-ai-session-provider="${escapeAttribute(activeProvider)}" data-selected-ai-session-tab="${selectedTab}" data-selected-ai-session-providers="${escapeAttribute(selectedProviders.join(','))}">
     <div class="ai-session-module-header">
         <span class="ai-session-module-title">AI SESSIONS</span>
         <span class="ai-session-create-actions">
@@ -866,6 +866,7 @@ function getAiSessionHistoryPanel(
     var selectedProviderSummaries = selectedProviders.map(provider => providersById.get(provider)).filter(
         (provider): provider is AiSessionProviderSummary => !!provider
     );
+    var providerMenuId = `ai-session-provider-menu-${projectId}`;
     var allSelectedProvidersUnavailable = selectedProviderSummaries.length > 0
         && selectedProviderSummaries.every(provider => provider.unavailable === true);
     var sessionRows = projection.pinned.length || projection.unpinned.length
@@ -877,8 +878,8 @@ function getAiSessionHistoryPanel(
     return `<div id="ai-session-history-${projectId}" class="ai-session-tab-panel ai-session-history-panel" role="tabpanel" data-ai-session-panel="sessions" aria-labelledby="ai-session-sessions-tab-${projectId}"${selected ? '' : ' hidden'}>
     <div class="ai-session-provider-controls">
         <div class="ai-session-provider-menu-wrapper">
-            <button type="button" class="ai-session-provider-menu-trigger" data-ai-provider-menu-trigger aria-haspopup="menu" aria-expanded="false" aria-label="Select AI providers">Providers (${selectedProviders.length})</button>
-            <div class="ai-session-provider-menu" data-ai-provider-menu role="menu" aria-label="AI providers" hidden>
+            <button type="button" class="ai-session-provider-menu-trigger" data-ai-provider-menu-trigger aria-haspopup="menu" aria-expanded="false" aria-controls="${providerMenuId}" aria-label="Select AI providers">${getAiProviderSelectionSummary(selectedProviders, providersById)}</button>
+            <div id="${providerMenuId}" class="ai-session-provider-menu" data-ai-provider-menu role="menu" aria-label="AI providers" hidden>
                 ${providers.map(provider => getAiProviderOption(provider, selectedProviders)).join('\n')}
             </div>
         </div>
@@ -898,6 +899,17 @@ function getAiSessionHistoryPanel(
         </div>
     </div>
 </div>`;
+}
+
+function getAiProviderSelectionSummary(
+    selectedProviders: readonly AiSessionProviderId[],
+    providersById: ReadonlyMap<AiSessionProviderId, AiSessionProviderSummary>,
+): string {
+    if (selectedProviders.length >= 3) {
+        return `${selectedProviders.length} providers`;
+    }
+
+    return selectedProviders.map(provider => providersById.get(provider)?.label || getAiProviderLabel(provider)).join(' + ');
 }
 
 function getAiProviderOption(

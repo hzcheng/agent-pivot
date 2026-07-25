@@ -34,6 +34,7 @@ const AsyncFunction = Object.getPrototypeOf(async function () { return undefined
 const root = path.join(__dirname, '..');
 const dashboardScriptPath = path.join(root, 'src', 'webview', 'webviewDashboardScripts.js');
 const projectScriptPath = path.join(root, 'src', 'webview', 'webviewProjectScripts.js');
+const promptScriptPath = path.join(root, 'src', 'webview', 'webviewPromptScripts.js');
 const extensionHostPath = path.join(root, 'src', 'dashboard.ts');
 
 function compileDashboardStyles(source) {
@@ -4313,6 +4314,11 @@ function runTodoComposePendingInteractionChecks() {
 
 function runSourceContractChecks(source) {
     const projectSource = fs.readFileSync(projectScriptPath, 'utf8');
+    assert.deepStrictEqual(
+        fs.readFileSync(path.join(root, 'media', 'webviewPromptScripts.js')),
+        fs.readFileSync(promptScriptPath),
+        'generated media/webviewPromptScripts.js must match its source byte-for-byte'
+    );
     const dndSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewDnDScripts.js'), 'utf8');
     const filterSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewFilterScripts.js'), 'utf8');
     const extensionHostSource = fs.readFileSync(extensionHostPath, 'utf8');

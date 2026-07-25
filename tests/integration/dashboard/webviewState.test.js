@@ -16,6 +16,8 @@ const root = path.join(__dirname, '..', '..', '..');
 const dashboardSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewDashboardScripts.js'), 'utf8');
 const projectSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewProjectScripts.js'), 'utf8');
 const generatedProjectSource = fs.readFileSync(path.join(root, 'media', 'webviewProjectScripts.js'), 'utf8');
+const promptSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewPromptScripts.js'), 'utf8');
+const generatedPromptPath = path.join(root, 'media', 'webviewPromptScripts.js');
 const dndSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewDnDScripts.js'), 'utf8');
 const NOW = '2026-07-23T00:00:00.000Z';
 
@@ -592,6 +594,11 @@ test('WEBVIEW-MULTI-PROVIDER-SESSION-MENU-001 keeps the generated provider-menu 
         /e\.selectedProviders,\s*e\.requestId,\s*e\.version/
     );
     assert.doesNotMatch(projectSource, /type: 'select-ai-session-provider'/);
+});
+
+test('WEBVIEW-AI-PROMPT-ASSET-001 keeps the generated Prompt controller byte-identical to source', () => {
+    assert.ok(fs.existsSync(generatedPromptPath), 'missing media/webviewPromptScripts.js');
+    assert.equal(fs.readFileSync(generatedPromptPath, 'utf8'), promptSource);
 });
 
 test('ACTIVE-SESSION-ICON-ANIMATION-001 renders effects only for running Active Session rows', () => {

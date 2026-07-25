@@ -215,11 +215,23 @@ export function getStewardContent(
                     ${Icons.settings}
                 </button>
             </div>
-            <div class="dashboard-tab-list" role="tablist" aria-label="Project views">
-                <button type="button" id="dashboard-tab-open-button" class="dashboard-tab-button active" role="tab" aria-selected="true" aria-controls="dashboard-tab-open" tabindex="0" data-dashboard-tab="open">OPEN</button>
-                <button type="button" id="dashboard-tab-projects-button" class="dashboard-tab-button" role="tab" aria-selected="false" aria-controls="dashboard-tab-projects" tabindex="-1" data-dashboard-tab="projects">PROJECTS</button>
-                <button type="button" id="dashboard-tab-todo-button" class="dashboard-tab-button" role="tab" aria-selected="false" aria-controls="dashboard-tab-todo" tabindex="-1" data-dashboard-tab="todo">TODO</button>
-                <button type="button" id="dashboard-tab-ai-button" class="dashboard-tab-button" role="tab" aria-selected="false" aria-controls="dashboard-panel-ai" tabindex="-1" data-dashboard-tab="ai">AI</button>
+            <div class="dashboard-tab-list" role="tablist" aria-label="Dashboard views">
+                <button type="button" id="dashboard-tab-open-button" class="dashboard-tab-button active" role="tab" aria-selected="true" aria-controls="dashboard-tab-open" tabindex="0" data-dashboard-tab="open" aria-label="Open" title="Open">
+                    <span class="dashboard-tab-icon" aria-hidden="true">${Icons.openNewWindow}</span>
+                    <span class="dashboard-tab-label">OPEN</span>
+                </button>
+                <button type="button" id="dashboard-tab-projects-button" class="dashboard-tab-button" role="tab" aria-selected="false" aria-controls="dashboard-tab-projects" tabindex="-1" data-dashboard-tab="projects" aria-label="Projects" title="Projects">
+                    <span class="dashboard-tab-icon" aria-hidden="true">${Icons.folder}</span>
+                    <span class="dashboard-tab-label">PROJECTS</span>
+                </button>
+                <button type="button" id="dashboard-tab-todo-button" class="dashboard-tab-button" role="tab" aria-selected="false" aria-controls="dashboard-tab-todo" tabindex="-1" data-dashboard-tab="todo" aria-label="Todo" title="Todo">
+                    <span class="dashboard-tab-icon" aria-hidden="true">${Icons.manage}</span>
+                    <span class="dashboard-tab-label">TODO</span>
+                </button>
+                <button type="button" id="dashboard-tab-ai-button" class="dashboard-tab-button" role="tab" aria-selected="false" aria-controls="dashboard-panel-ai" tabindex="-1" data-dashboard-tab="ai" aria-label="AI" title="AI">
+                    <span class="dashboard-tab-icon" aria-hidden="true">${Icons.terminalLine}</span>
+                    <span class="dashboard-tab-label">AI</span>
+                </button>
             </div>
         </div>
         <main class="dashboard-content">

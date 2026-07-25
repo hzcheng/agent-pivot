@@ -316,3 +316,37 @@ test('PERSIST-AI-PROMPT-STORE-001 wraps failed writes, refreshes afterwards, and
     assert.ok(successful.diagnostics.every(event => !JSON.stringify(event).includes('body that must not be logged')));
     assert.ok(failed.diagnostics.every(event => !JSON.stringify(event).includes('body that must not be logged')));
 });
+
+test('PERSIST-AI-PROMPT-STORE-001 classifies dirty or newer User Settings without exposing Prompt data', async t => {
+    const settingsErrors = [
+        'Unable to write into user settings because the file has unsaved changes. Please save the user settings file first and then try again.',
+        'Unable to write into user settings because the content of the file is newer.',
+    ];
+    for (const message of settingsErrors) {
+        await t.test(message.includes('unsaved') ? 'unsaved settings' : 'newer settings', async () => {
+            const privateBody = 'sensitive body must never escape';
+            const fixture = createFixture(undefined, {
+                writeError: Object.assign(new Error(message), { name: 'CodeExpectedError' }),
+            });
+            await assert.rejects(
+                () => fixture.service.createPrompt(0, {
+                    name: 'Private prompt name',
+                    text: privateBody,
+                }),
+                error => {
+                    assert.ok(error instanceof PromptMutationError);
+                    assert.equal(error.code, 'settings-write-conflict');
+                    assert.doesNotMatch(error.message, /Private prompt name|sensitive body/);
+                    return true;
+                }
+            );
+            assert.ok(fixture.diagnostics.some(
+                event => event.category === 'prompt-write-settings-conflict'
+            ));
+            assert.doesNotMatch(
+                JSON.stringify(fixture.diagnostics),
+                /Private prompt name|sensitive body must never escape|Unable to write/
+            );
+        });
+    }
+});

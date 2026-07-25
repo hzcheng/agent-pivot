@@ -1083,4 +1083,16 @@ test('WEBVIEW-AI-PROMPT-MUTATION-001 bounds settled identities and announces map
         errorCode: 'cancelled',
     }));
     assert.match(harness.root.status.textContent, /cancelled/i);
+
+    harness.controller.dispatch('create', { name: 'Private', text: 'Private body' });
+    const settingsRequest = harness.messages.at(-1);
+    harness.send(resultFor(settingsRequest, 105, {
+        authoritySequence: 108,
+        success: false,
+        errorCode: 'settings-write-conflict',
+    }));
+    assert.match(harness.root.status.textContent, /User Settings/i);
+    assert.match(harness.root.status.textContent, /save or revert/i);
+    assert.match(harness.root.status.textContent, /draft is still here/i);
+    assert.doesNotMatch(harness.root.status.textContent, /Private body/);
 });

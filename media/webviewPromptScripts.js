@@ -17,6 +17,7 @@
         'not-found',
         'conflict',
         'storage',
+        'settings-write-conflict',
         'unsupported-version',
         'cancelled',
     ]);
@@ -241,6 +242,9 @@
         if (code === 'invalid') return 'Check the Prompt fields and try again.';
         if (code === 'unsupported-version') {
             return 'This Prompt library needs a newer version of Project Steward.';
+        }
+        if (code === 'settings-write-conflict') {
+            return 'Save or revert User Settings, then try again. Your Prompt draft is still here.';
         }
         return 'Could not save the Prompt change. The latest saved library is shown.';
     }

@@ -677,6 +677,7 @@ body .project {
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    gap: 6px;
     min-width: 0;
     min-height: 34px;
     padding: 7px 8px 8px;
@@ -749,6 +750,18 @@ body .project {
     height: 19px;
     stroke-width: 2;
     vector-effect: non-scaling-stroke;
+}
+
+.dashboard-tab-icon svg:not([fill="none"]) {
+    fill: currentColor;
+}
+
+.dashboard-tab-label {
+    display: inline;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .dashboard-tab-button[aria-selected="true"] .dashboard-tab-icon {
@@ -1912,9 +1925,16 @@ body .project {
     }
 
     .dashboard-tab-button {
-        padding-right: 3px;
-        padding-left: 3px;
-        font-size: 11px;
+        gap: 3px;
+        padding-right: 2px;
+        padding-left: 2px;
+        font-size: 10.5px;
+    }
+
+    .dashboard-tab-icon,
+    .dashboard-tab-icon svg {
+        width: 15px;
+        height: 15px;
     }
 
     .todo-compose-meta {
@@ -1931,6 +1951,16 @@ body .project {
 
     .todo-item-actions {
         opacity: .65;
+    }
+}
+
+@media (max-width: 280px) {
+    .dashboard-tab-button {
+        gap: 0;
+    }
+
+    .dashboard-tab-label {
+        display: none;
     }
 }
 

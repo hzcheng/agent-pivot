@@ -311,6 +311,20 @@ test('WEBVIEW-AI-PROMPT-MUTATION-001 maps expected storage and unexpected mutati
         assert.equal(result.snapshot.revision, 0);
     });
 
+    await t.test('dirty User Settings error', async () => {
+        const fixture = createController({
+            writeError: Object.assign(new Error(
+                'Unable to write into user settings because the file has unsaved changes.'
+            ), { name: 'CodeExpectedError' }),
+        });
+        const result = await fixture.controller.handle(
+            command('create', { name: 'Review', text: 'Private body' })
+        );
+        assertFailure(result, 'settings-write-conflict');
+        assert.doesNotMatch(result.html, /unsaved changes|Private body/);
+        assert.equal(result.snapshot.revision, 0);
+    });
+
     await t.test('unexpected mutation error', async () => {
         const fixture = createController({ mutationError: new Error('unexpected private error') });
         const result = await fixture.controller.handle(

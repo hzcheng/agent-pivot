@@ -48,6 +48,20 @@ function isRecord(value: unknown): value is { [key: string]: unknown } {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function isSettingsWriteConflict(error: unknown): boolean {
+    const message = error instanceof Error
+        ? error.message
+        : isRecord(error) && typeof error.message === 'string'
+            ? error.message
+            : '';
+    const normalized = message.toLowerCase();
+    return normalized.includes('user settings')
+        && (
+            normalized.includes('unsaved changes')
+            || normalized.includes('content of the file is newer')
+        );
+}
+
 function hasOnlyKeys(value: { [key: string]: unknown }, keys: readonly string[]): boolean {
     return Object.keys(value).every(key => keys.indexOf(key) >= 0)
         && keys.every(key => Object.prototype.hasOwnProperty.call(value, key));
@@ -360,11 +374,23 @@ export class PromptService {
             this.pendingLocalWriteEchoes.push(echo);
             try {
                 await this.options.writeGlobalSetting(nextData);
-            } catch (_error) {
+            } catch (error) {
                 this.pendingLocalWriteEchoes = this.pendingLocalWriteEchoes
                     .filter(candidate => candidate.id !== echo.id);
                 this.getSnapshot();
-                this.logDiagnostic({ category: 'prompt-write-failed', revision: current.snapshot.revision });
+                const settingsConflict = isSettingsWriteConflict(error);
+                this.logDiagnostic({
+                    category: settingsConflict
+                        ? 'prompt-write-settings-conflict'
+                        : 'prompt-write-failed',
+                    revision: current.snapshot.revision,
+                });
+                if (settingsConflict) {
+                    throw new PromptMutationError(
+                        'settings-write-conflict',
+                        'User Settings must be saved or reverted before Prompt data can be written.'
+                    );
+                }
                 throw new PromptMutationError('storage', 'Could not save the Prompt library.');
             }
 

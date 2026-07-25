@@ -644,7 +644,7 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 keeps the complete four-tab Dashboard sh
     t.after(() => browser.close());
     const dashboardHtml = renderDashboardShell();
 
-    for (const width of [240, 320, 600]) {
+    for (const width of [240, 280, 320, 600]) {
         await t.test(`${width}px`, async () => {
             const page = await browser.newPage({ viewport: { width, height: 700 } });
             try {
@@ -663,6 +663,17 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 keeps the complete four-tab Dashboard sh
                         };
                     };
                     const tabs = Array.from(document.querySelectorAll('[data-dashboard-tab]'));
+                    const tabDetails = tabs.map(tab => {
+                        const icon = tab.querySelector('.dashboard-tab-icon');
+                        const label = tab.querySelector('.dashboard-tab-label');
+                        return {
+                            ariaLabel: tab.getAttribute('aria-label'),
+                            title: tab.getAttribute('title'),
+                            iconDisplay: icon ? getComputedStyle(icon).display : null,
+                            iconWidth: icon ? icon.getBoundingClientRect().width : 0,
+                            labelDisplay: label ? getComputedStyle(label).display : null,
+                        };
+                    });
                     const rowTops = [];
                     const rowCounts = [];
                     tabs.forEach(tab => {
@@ -688,6 +699,7 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 keeps the complete four-tab Dashboard sh
                         documentClientWidth: viewportWidth,
                         documentScrollWidth: document.documentElement.scrollWidth,
                         labels: tabs.map(tab => tab.textContent.trim()),
+                        tabDetails,
                         rowCounts,
                         tabList: boundsOf(document.querySelector('.dashboard-tab-list')),
                         filterWrapper: boundsOf(document.querySelector('.filter-wrapper')),
@@ -696,6 +708,25 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 keeps the complete four-tab Dashboard sh
                 });
 
                 assert.deepEqual(layout.labels, ['OPEN', 'PROJECTS', 'TODO', 'AI']);
+                assert.deepEqual(
+                    layout.tabDetails.map(tab => tab.ariaLabel),
+                    ['Open', 'Projects', 'Todo', 'AI']
+                );
+                assert.deepEqual(
+                    layout.tabDetails.map(tab => tab.title),
+                    ['Open', 'Projects', 'Todo', 'AI']
+                );
+                assert.ok(
+                    layout.tabDetails.every(tab => tab.iconDisplay !== 'none' && tab.iconWidth > 0),
+                    `Dashboard tab icons must be visible at ${width}px: ${JSON.stringify(layout)}`
+                );
+                assert.ok(
+                    layout.tabDetails.every(tab =>
+                        width <= 280
+                            ? tab.labelDisplay === 'none'
+                            : tab.labelDisplay !== 'none'),
+                    `Dashboard tab labels have the wrong visibility at ${width}px: ${JSON.stringify(layout)}`
+                );
                 assert.ok(
                     layout.documentScrollWidth <= layout.documentClientWidth,
                     `Dashboard document overflows at ${width}px: ${JSON.stringify(layout)}`

@@ -763,6 +763,22 @@ test('WEBVIEW-WEBVIEW-CONTENT-001 renders OPEN PROJECTS TODO and lazy AI tab she
     }
     assert.match(html, /data-dashboard-tab="ai"/);
     assert.match(html, /id="dashboard-panel-ai"/);
+    assert.match(html, /class="dashboard-tab-list" role="tablist" aria-label="Dashboard views"/);
+    for (const [tab, label] of [
+        ['open', 'Open'],
+        ['projects', 'Projects'],
+        ['todo', 'Todo'],
+        ['ai', 'AI'],
+    ]) {
+        assert.match(
+            html,
+            new RegExp(
+                `data-dashboard-tab="${tab}"[^>]*aria-label="${label}"[^>]*title="${label}"[^>]*>`
+                + `\\s*<span class="dashboard-tab-icon" aria-hidden="true">[\\s\\S]*?<\\/span>`
+                + `\\s*<span class="dashboard-tab-label">${label.toUpperCase()}<\\/span>`
+            )
+        );
+    }
     assert.match(html, /data-session-icon-fx="sharingan-shisui"/);
     assert.match(html, /id="dashboard-search-catalog"/);
     assert.match(html, /webviewPromptScripts\.js/);

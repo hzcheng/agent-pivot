@@ -15,7 +15,7 @@ export type PromptMutationOperation =
     | 'create' | 'update' | 'delete' | 'reorder' | 'select-default';
 
 export type PromptMutationErrorCode =
-    | 'invalid' | 'not-found' | 'conflict' | 'storage'
+    | 'invalid' | 'not-found' | 'conflict' | 'storage' | 'settings-write-conflict'
     | 'unsupported-version' | 'cancelled';
 
 export interface PromptPanelSnapshot extends PromptDataV1 {

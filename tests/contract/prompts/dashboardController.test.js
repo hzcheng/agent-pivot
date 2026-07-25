@@ -49,12 +49,13 @@ function createController(options = {}) {
         },
         createId: () => ids.shift(),
     });
-    if (options.snapshotErrorCall) {
+    if (options.snapshotErrorCall || options.snapshotErrorCalls) {
         const getSnapshot = service.getSnapshot.bind(service);
         let snapshotCalls = 0;
+        const errorCalls = new Set(options.snapshotErrorCalls || [options.snapshotErrorCall]);
         service.getSnapshot = () => {
             snapshotCalls += 1;
-            if (snapshotCalls === options.snapshotErrorCall) {
+            if (errorCalls.has(snapshotCalls)) {
                 throw new Error('private snapshot read failure');
             }
             return getSnapshot();
@@ -393,6 +394,24 @@ test('WEBVIEW-AI-PROMPT-MUTATION-001 uses recovery HTML when the authoritative r
     assert.match(result.html, /data-prompt-recovery/);
     assert.match(result.html, /data-prompt-revision="1"/);
     assert.doesNotMatch(result.html, /Review|Private body/);
+    assert.equal(fixture.getRenderCalls(), 0);
+});
+
+test('WEBVIEW-AI-PROMPT-MUTATION-001 keeps double-read recovery monotonic with the recognized request', async () => {
+    const fixture = createController({ snapshotErrorCalls: [1, 2] });
+    const result = await fixture.controller.handle(command(
+        'create',
+        { name: 'Review', text: 'Private body' },
+        { expectedRevision: 7 }
+    ));
+
+    assertFailure(result, 'storage');
+    assert.equal(fixture.writes.length, 0);
+    assert.equal(result.snapshot.revision, 7);
+    assert.equal(result.snapshot.readOnlyReason, 'invalid-data');
+    assert.match(result.html, /data-prompt-recovery/);
+    assert.match(result.html, /data-prompt-revision="7"/);
+    assert.doesNotMatch(result.html, /Review|Private body|private snapshot read failure/);
     assert.equal(fixture.getRenderCalls(), 0);
 });
 

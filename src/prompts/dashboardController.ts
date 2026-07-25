@@ -219,7 +219,11 @@ export class PromptDashboardController {
         } catch (_error) {
             success = false;
             errorCode = 'storage';
-            snapshot = snapshot || UNAVAILABLE_SNAPSHOT;
+            snapshot = snapshot || (
+                isNonNegativeInteger(message.expectedRevision)
+                    ? { ...UNAVAILABLE_SNAPSHOT, revision: message.expectedRevision }
+                    : UNAVAILABLE_SNAPSHOT
+            );
             requiresRecovery = true;
         }
 

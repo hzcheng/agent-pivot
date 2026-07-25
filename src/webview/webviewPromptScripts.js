@@ -175,10 +175,10 @@
             : null;
     }
 
-    function configurePromptForms() {
+    function getPromptForms() {
         var surface = getSurface();
         if (!surface) {
-            return;
+            return [];
         }
         var createForm = typeof surface.querySelector === 'function'
             ? surface.querySelector('[data-prompt-form="create"]')
@@ -186,7 +186,11 @@
         var editForms = typeof surface.querySelectorAll === 'function'
             ? Array.from(surface.querySelectorAll('[data-prompt-form="edit"]'))
             : [];
-        [createForm].concat(editForms).filter(Boolean).forEach(function (form) {
+        return [createForm].concat(editForms).filter(Boolean);
+    }
+
+    function configurePromptForms() {
+        getPromptForms().forEach(function (form) {
             form.noValidate = true;
         });
     }
@@ -459,12 +463,47 @@
         if (!form) {
             return false;
         }
+        getPromptForms().forEach(function (candidate) {
+            if (candidate !== form) {
+                resetPromptForm(candidate);
+            }
+        });
         form.hidden = false;
         var name = form.querySelector('[name="name"]');
         var text = form.querySelector('[name="text"]');
         if (name) name.value = draft.name;
         if (text) text.value = draft.text;
         return true;
+    }
+
+    function resetPromptForm(form) {
+        if (!form) {
+            return;
+        }
+        if (typeof form.reset === 'function') {
+            form.reset();
+        }
+        clearFieldError(form, 'name');
+        clearFieldError(form, 'text');
+        form.hidden = true;
+    }
+
+    function resetOpenDraft() {
+        getPromptForms().forEach(resetPromptForm);
+        state.draft = null;
+        state.blockedDraft = false;
+    }
+
+    function formMatchesDraft(form, draft) {
+        if (!form || !draft) {
+            return false;
+        }
+        var kind = form.getAttribute('data-prompt-form');
+        if (kind !== draft.kind) {
+            return false;
+        }
+        return kind === 'create'
+            || form.getAttribute('data-prompt-id') === draft.promptId;
     }
 
     function applyQueuedRefresh() {
@@ -680,7 +719,7 @@
         var retained = state.blockedDraft && state.draft && state.draft.kind === 'create'
             ? clone(state.draft)
             : { kind: 'create', promptId: null, name: '', text: '' };
-        state.blockedDraft = false;
+        resetOpenDraft();
         state.draft = retained;
         applyDraft(retained);
         var name = form.querySelector('[name="name"]');
@@ -698,13 +737,14 @@
             && state.draft.kind === 'edit'
             && state.draft.promptId === promptId
             ? clone(state.draft)
-            : {
-                kind: 'edit',
-                promptId: promptId,
-                name: readField(form, 'name'),
-                text: readField(form, 'text'),
-            };
-        state.blockedDraft = false;
+            : null;
+        resetOpenDraft();
+        retained = retained || {
+            kind: 'edit',
+            promptId: promptId,
+            name: readField(form, 'name'),
+            text: readField(form, 'text'),
+        };
         state.draft = retained;
         applyDraft(retained);
         var name = form.querySelector('[name="name"]');
@@ -713,9 +753,13 @@
     }
 
     function closeDraft(form) {
-        if (form) form.hidden = true;
+        if (!formMatchesDraft(form, state.draft)) {
+            return false;
+        }
+        resetPromptForm(form);
         state.draft = null;
         state.blockedDraft = false;
+        return true;
     }
 
     function onClick(event) {

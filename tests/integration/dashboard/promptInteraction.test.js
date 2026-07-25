@@ -132,6 +132,14 @@ function createForm(document, kind, promptId) {
     Object.values(fields).concat(Object.values(errors)).forEach(child => {
         child.parentElement = form;
     });
+    Object.values(fields).forEach(field => {
+        field.defaultValue = '';
+    });
+    const cancelAction = createElement(document, {
+        'data-action': kind === 'create' ? 'prompt-cancel-create' : 'prompt-cancel-edit',
+        ...(promptId ? { 'data-prompt-id': promptId } : {}),
+    });
+    cancelAction.parentElement = form;
     form.querySelector = selector => {
         const name = selector.match(/^\[name="([^"]+)"\]$/);
         if (name) return fields[name[1]] || null;
@@ -139,10 +147,16 @@ function createForm(document, kind, promptId) {
         return error ? errors[error[1]] || null : null;
     };
     form.querySelectorAll = selector => selector === 'button, input, textarea, select'
-        ? Object.values(fields)
+        ? [cancelAction].concat(Object.values(fields))
         : [];
+    form.reset = () => {
+        Object.values(fields).forEach(field => {
+            field.value = field.defaultValue;
+        });
+    };
     form.fields = fields;
     form.errors = errors;
+    form.cancelAction = cancelAction;
     return form;
 }
 
@@ -247,6 +261,8 @@ function createPromptRoot(document, initialHtml) {
         root.controls.push(newButton);
         const create = createForm(document, 'create');
         create.ownerRoot = root;
+        create.cancelAction.ownerRoot = root;
+        root.controls.push(create.cancelAction);
         Object.values(create.fields).forEach(field => {
             field.ownerRoot = root;
             root.controls.push(field);
@@ -287,6 +303,10 @@ function createPromptRoot(document, initialHtml) {
             edit.parentElement = item;
             edit.fields.name.value = promptId;
             edit.fields.text.value = `${promptId} body`;
+            edit.fields.name.defaultValue = promptId;
+            edit.fields.text.defaultValue = `${promptId} body`;
+            edit.cancelAction.ownerRoot = root;
+            root.controls.push(edit.cancelAction);
             Object.values(edit.fields).forEach(field => {
                 field.ownerRoot = root;
                 root.controls.push(field);
@@ -463,6 +483,83 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 validates forms and posts exact create a
     assert.equal(harness.messages.length, 2);
 });
 
+test('WEBVIEW-AI-PROMPT-INTERACTION-001 keeps one tracked edit form across switching cancellation and refresh', () => {
+    const harness = createPromptHarness();
+    harness.root.dispatch('click', eventFor(harness.root.getItem('prompt-a').actions[2]));
+    const editA = harness.root.getForm('edit', 'prompt-a');
+    editA.fields.name.value = 'Untracked if left open';
+    editA.fields.text.value = 'First local edit';
+    harness.root.dispatch('input', eventFor(editA.fields.name));
+    harness.root.dispatch('input', eventFor(editA.fields.text));
+
+    harness.root.dispatch('click', eventFor(harness.root.getItem('prompt-b').actions[2]));
+    let editB = harness.root.getForm('edit', 'prompt-b');
+    assert.equal(editA.hidden, true);
+    assert.equal(editA.fields.name.value, 'prompt-a');
+    assert.equal(editA.fields.text.value, 'prompt-a body');
+    assert.equal(editB.hidden, false);
+    assert.equal(harness.controller.getState().draft.promptId, 'prompt-b');
+
+    editB.fields.name.value = 'Tracked Bravo draft';
+    editB.fields.text.value = 'Second local edit';
+    harness.root.dispatch('input', eventFor(editB.fields.name));
+    harness.root.dispatch('input', eventFor(editB.fields.text));
+    harness.root.dispatch('click', eventFor(editA.cancelAction));
+    assert.equal(editB.hidden, false);
+    assert.equal(harness.controller.getState().draft.promptId, 'prompt-b');
+    assert.equal(harness.controller.getState().draft.name, 'Tracked Bravo draft');
+
+    assert.equal(harness.controller.applyRefresh({
+        type: 'prompt-panel-updated',
+        version: 1,
+        target: 'global-prompt-library',
+        snapshot: snapshotAt(1),
+        html: surfaceHtml(1),
+    }), true);
+    assert.equal(harness.root.getForm('edit', 'prompt-a').hidden, true);
+    editB = harness.root.getForm('edit', 'prompt-b');
+    assert.equal(editB.hidden, false);
+    assert.equal(editB.fields.name.value, 'Tracked Bravo draft');
+    assert.equal(editB.fields.text.value, 'Second local edit');
+
+    harness.root.dispatch('click', eventFor(editB.cancelAction));
+    assert.equal(editB.hidden, true);
+    assert.equal(harness.controller.getState().draft, null);
+});
+
+test('WEBVIEW-AI-PROMPT-INTERACTION-001 resets singleton draft state when switching create and edit forms', () => {
+    const harness = createPromptHarness();
+    harness.root.dispatch('click', eventFor(harness.root.newButton));
+    const create = harness.root.getForm('create');
+    create.fields.name.value = 'Discarded create draft';
+    create.fields.text.value = 'Discarded create body';
+    harness.root.dispatch('input', eventFor(create.fields.name));
+    harness.root.dispatch('input', eventFor(create.fields.text));
+
+    harness.root.dispatch('click', eventFor(harness.root.getItem('prompt-a').actions[2]));
+    const editA = harness.root.getForm('edit', 'prompt-a');
+    assert.equal(create.hidden, true);
+    assert.equal(create.fields.name.value, '');
+    assert.equal(create.fields.text.value, '');
+    assert.equal(editA.hidden, false);
+    assert.equal(harness.controller.getState().draft.kind, 'edit');
+    assert.equal(harness.controller.getState().draft.promptId, 'prompt-a');
+
+    editA.fields.name.value = 'Discarded edit draft';
+    harness.root.dispatch('input', eventFor(editA.fields.name));
+    harness.root.dispatch('click', eventFor(harness.root.newButton));
+    assert.equal(editA.hidden, true);
+    assert.equal(editA.fields.name.value, 'prompt-a');
+    assert.equal(create.hidden, false);
+    assert.equal(create.fields.name.value, '');
+    assert.equal(harness.controller.getState().draft.kind, 'create');
+    assert.equal(harness.controller.getState().draft.name, '');
+
+    harness.root.dispatch('click', eventFor(editA.cancelAction));
+    assert.equal(create.hidden, false);
+    assert.equal(harness.controller.getState().draft.kind, 'create');
+});
+
 test('WEBVIEW-AI-PROMPT-INTERACTION-001 sends set, replace, clear, delete, and exact reorder intent', () => {
     const actions = [
         ['prompt-a', false, { promptId: 'prompt-a' }],
@@ -576,6 +673,45 @@ test('WEBVIEW-AI-PROMPT-MUTATION-001 rejects stale, duplicate, unrelated, and ou
     assert.equal(harness.controller.applyCommandResult(resultFor(first, 4)), false);
     assert.equal(harness.controller.getState().pending.size, 1);
     assert.equal(harness.controller.applyCommandResult(resultFor(second, 4)), true);
+});
+
+test('WEBVIEW-AI-PROMPT-MUTATION-001 settles matching nonzero recovery without weakening stale rejection', () => {
+    const harness = createPromptHarness({
+        revision: 7,
+        initialHtml: surfaceHtml(7),
+    });
+    harness.controller.dispatch('create', { name: 'Review', text: 'Private body' });
+    const request = harness.messages[0];
+    const recovery = {
+        type: 'prompt-command-result',
+        version: 1,
+        requestId: request.requestId,
+        target: request.target,
+        operation: request.operation,
+        success: false,
+        errorCode: 'storage',
+        snapshot: {
+            version: 1,
+            revision: 7,
+            selectedPromptId: null,
+            prompts: [],
+            readOnlyReason: 'invalid-data',
+        },
+        html: `<div data-prompt-surface data-prompt-revision="7" data-prompt-recovery>
+            <div data-prompt-status role="status" aria-live="polite"></div>
+        </div>`,
+    };
+
+    assert.equal(harness.controller.applyCommandResult({
+        ...recovery,
+        snapshot: { ...recovery.snapshot, revision: 6 },
+        html: recovery.html.replace('revision="7"', 'revision="6"'),
+    }), false);
+    assert.equal(harness.controller.getState().pending.size, 1);
+    assert.equal(harness.controller.applyCommandResult(recovery), true);
+    assert.equal(harness.controller.getState().pending.size, 0);
+    assert.match(harness.root.innerHTML, /data-prompt-recovery/);
+    assert.equal(harness.controller.getState().snapshot.revision, 7);
 });
 
 test('WEBVIEW-AI-PROMPT-MUTATION-001 retains only the newest external refresh until settlement', () => {

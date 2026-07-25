@@ -7,6 +7,7 @@ const test = require('node:test');
 const commandBuilders = require('../../../out/aiSessions/commandBuilders');
 const launchSpec = require('../../../out/aiSessions/launchSpec');
 const runtimeConfiguration = require('../../../out/aiSessions/runtimeConfiguration');
+const launchOptions = require('../../../out/aiSessions/launchOptions');
 const runtimeTypes = require('../../../out/aiSessions/runtimeTypes');
 const tmuxLayout = require('../../../out/aiSessions/tmuxLayout');
 
@@ -58,6 +59,33 @@ test('RUNTIME-RUNTIME-CONFIGURATION-001 reads supported settings and fails close
     assert.equal(layout.scope, 'machine');
     assert.equal(executable.scope, 'machine');
     assert.equal(mode.enum.includes('remote'), false);
+});
+
+test('SESSION-AI-SESSION-YOLO-CONFIGURATION-001 reads only literal true and declares a safe machine setting', () => {
+    assert.deepEqual(
+        launchOptions.readAiSessionLaunchOptions(configuration({})),
+        { yolo: false }
+    );
+    assert.deepEqual(
+        launchOptions.readAiSessionLaunchOptions(configuration({ aiSessionYoloMode: true })),
+        { yolo: true }
+    );
+    for (const invalid of [false, null, 1, 'true', 'false', {}]) {
+        assert.deepEqual(
+            launchOptions.readAiSessionLaunchOptions(configuration({ aiSessionYoloMode: invalid })),
+            { yolo: false }
+        );
+    }
+
+    const manifest = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../../package.json'), 'utf8'));
+    const setting = manifest.contributes.configuration.properties[
+        'projectSteward.aiSessionYoloMode'
+    ];
+    assert.equal(setting.type, 'boolean');
+    assert.equal(setting.default, false);
+    assert.equal(setting.scope, 'machine');
+    assert.match(setting.description, /bypass/i);
+    assert.match(setting.description, /newly created and resumed/i);
 });
 
 test('RUNTIME-LAUNCH-SPEC-001 preserves argv boundaries and renders hostile values as inert shell data', () => {

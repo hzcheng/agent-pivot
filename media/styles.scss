@@ -3210,7 +3210,10 @@ body.steward-sidebar {
             gap: 2px;
             margin-top: 5px;
             margin-left: 0;
-            height: var(--steward-ai-session-list-max-height, calc(3 * 42px + 2 * 2px));
+            height: calc(
+                var(--steward-ai-session-list-max-height, calc(3 * 42px + 2 * 2px))
+                + var(--steward-ai-session-expanded-extra-height, 0px)
+            );
             overflow-y: auto;
             overflow-x: hidden;
             padding-right: 2px;
@@ -3306,6 +3309,85 @@ body.steward-sidebar {
                 outline: 2px solid var(--vscode-focusBorder);
                 outline-offset: -2px;
             }
+        }
+
+        .active-ai-session-row[data-session-focused] .ai-session-primary-action[aria-controls] {
+            grid-template-columns: 28px minmax(0, 1fr) 14px;
+        }
+
+        .ai-session-conversation-chevron {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 14px;
+            color: var(--vscode-descriptionForeground);
+            font-size: 18px;
+            line-height: 1;
+            transform: rotate(0);
+            transform-origin: center;
+            transition: transform $defaultTransition;
+        }
+
+        .ai-session-conversation-chevron[data-expanded] {
+            transform: rotate(90deg);
+        }
+
+        .active-ai-session-row[data-conversation-expanded] {
+            display: grid;
+            grid-template-rows: auto minmax(0, auto);
+
+            .codex-session-actions {
+                top: 20px;
+            }
+        }
+
+        .ai-session-conversation-panel {
+            display: grid;
+            grid-template-rows: auto minmax(0, auto);
+            min-height: 0;
+            margin: 0 7px 7px;
+            padding: 6px 7px 7px;
+            border-top: 1px solid var(--vscode-panel-border);
+            overflow: hidden;
+
+            &[hidden] {
+                display: none;
+            }
+
+            > header {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                min-height: 22px;
+                color: var(--vscode-descriptionForeground);
+                font-size: 10px;
+                font-weight: 650;
+                letter-spacing: .04em;
+            }
+        }
+
+        .ai-session-conversation-loading {
+            min-height: 72px;
+            padding: 8px 0;
+            box-sizing: border-box;
+            color: var(--vscode-descriptionForeground);
+            font-size: 10px;
+        }
+
+        .ai-session-conversation-loading[hidden],
+        .ai-session-conversation-rail[hidden] {
+            display: none;
+        }
+
+        .ai-session-conversation-rail {
+            min-height: 0;
+            max-height: var(
+                --steward-ai-session-conversation-rail-height,
+                none
+            );
+            overflow-x: hidden;
+            overflow-y: auto;
+            overscroll-behavior: contain;
         }
 
         .codex-session-row[data-session-provider="kimi"] {

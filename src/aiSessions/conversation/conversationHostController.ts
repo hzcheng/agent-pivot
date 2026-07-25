@@ -165,6 +165,7 @@ export class ConversationHostController {
             request.sessionId,
             target.executionState === 'stopped'
         );
+        this.ensureSubscription(state);
         await this.refreshState(state, true);
     }
 
@@ -265,9 +266,9 @@ export class ConversationHostController {
     private async refreshState(
         state: OutlineSubscriptionState,
         initial: boolean
-    ): Promise<void> {
+    ): Promise<boolean> {
         if (!this.isCurrent(state)) {
-            return;
+            return false;
         }
         state.abortController.abort();
         const abortController = new ConversationAbortController();
@@ -282,12 +283,12 @@ export class ConversationHostController {
             if (!this.isCurrent(state, readSequence)
                 || outline.provider !== state.request.provider
                 || outline.sessionId !== state.request.sessionId) {
-                return;
+                return false;
             }
             const target = this.resolveFocusedTarget(state.request);
             if (!target || !this.isCurrent(state, readSequence)) {
                 this.removeStateIfCurrent(state);
-                return;
+                return false;
             }
             this.options.coordinator.setSessionStopped(
                 state.request.provider,
@@ -295,39 +296,49 @@ export class ConversationHostController {
                 target.executionState === 'stopped'
             );
             const delivered = await this.publishIfCurrent(state, outline, readSequence);
-            if (!delivered || !this.isCurrent(state, readSequence)) {
-                if (initial) {
+            if (!delivered) {
+                if (initial && this.isCurrent(state, readSequence)) {
                     this.removeStateIfCurrent(state);
                 }
-                return;
+                return false;
+            }
+            if (!this.isCurrent(state, readSequence)) {
+                return false;
             }
             state.outline = outline;
-            if (initial && !state.subscription) {
-                try {
-                    state.subscription = this.options.coordinator.watch(
-                        state.request.provider,
-                        state.request.sessionId,
-                        () => {
-                            void this.refreshState(state, false);
-                        }
-                    );
-                } catch (_error) {
-                    // A watch failure does not invalidate a successful bounded read.
-                }
-            }
+            return true;
         } catch (error) {
             if (!this.isCurrent(state, readSequence)
                 || isAbortError(error)) {
-                return;
+                return false;
             }
             if (!this.resolveFocusedTarget(state.request)) {
                 this.removeStateIfCurrent(state);
-                return;
+                return false;
             }
-            await this.publishErrorIfCurrent(state, toPublicConversationError(error));
+            const delivered = await this.publishErrorIfCurrent(
+                state,
+                toPublicConversationError(error)
+            );
             if (initial) {
                 this.removeStateIfCurrent(state);
             }
+            return delivered;
+        }
+    }
+
+    private ensureSubscription(state: OutlineSubscriptionState): void {
+        if (state.subscription || !this.isCurrent(state)) {
+            return;
+        }
+        try {
+            state.subscription = this.options.coordinator.watch(
+                state.request.provider,
+                state.request.sessionId,
+                () => this.refreshState(state, false)
+            );
+        } catch (_error) {
+            // A watch failure does not invalidate a successful bounded read.
         }
     }
 

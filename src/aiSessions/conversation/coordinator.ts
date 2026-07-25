@@ -5,6 +5,7 @@ import type { AiSessionProviderId } from '../../models';
 import { getAiSessionKey } from '../sessionHelpers';
 import type { AiSessionDisposable } from '../types';
 import { applyStoppedLifecycleToResponseState } from './model';
+import { countGraphemes } from './text';
 import {
     CONVERSATION_LIMITS,
     ConversationAbortError,
@@ -33,7 +34,7 @@ interface StoredCursor {
 }
 
 interface WatchListener {
-    callback: () => void;
+    callback: () => void | boolean | PromiseLike<void | boolean>;
 }
 
 interface SharedWatch {
@@ -43,7 +44,9 @@ interface SharedWatch {
     listeners: Set<WatchListener>;
     adapterSubscription: AiSessionDisposable;
     timer?: TimerHandle;
-    lastEmissionAtMs?: number;
+    dirtySinceMs?: number;
+    inFlight?: Promise<void>;
+    lastCompletionAtMs?: number;
 }
 
 export interface ConversationCoordinatorSubscription extends AiSessionDisposable {
@@ -99,6 +102,7 @@ export class ConversationCoordinator implements AiSessionDisposable {
         const adapter = this.getAdapter(provider);
         try {
             const outline = await adapter.readOutline(sessionId, signal);
+            throwIfAborted(signal);
             this.validateOutline(outline, provider, sessionId);
             const revision = this.observeRevision(
                 getAiSessionKey(provider, sessionId),
@@ -168,6 +172,7 @@ export class ConversationCoordinator implements AiSessionDisposable {
                 limit,
                 expectedRevision: revision?.nativeRevision,
             }, signal);
+            throwIfAborted(signal);
             this.validatePage(page, request.provider, request.sessionId);
             const observed = this.observeRevision(key, page.sourceRevision);
             if (revision && observed.nativeRevision !== revision.nativeRevision) {
@@ -226,7 +231,7 @@ export class ConversationCoordinator implements AiSessionDisposable {
     watch(
         provider: AiSessionProviderId,
         sessionId: string,
-        onChange: () => void
+        onChange: () => void | boolean | PromiseLike<void | boolean>
     ): ConversationCoordinatorSubscription {
         const adapter = this.getAdapter(provider);
         const key = getAiSessionKey(provider, sessionId);
@@ -368,15 +373,31 @@ export class ConversationCoordinator implements AiSessionDisposable {
     }
 
     private scheduleInvalidation(watch: SharedWatch): void {
-        if (this.disposed || this.watches.get(watch.key) !== watch
-            || watch.timer !== undefined) {
+        if (this.disposed || this.watches.get(watch.key) !== watch) {
+            return;
+        }
+        if (watch.dirtySinceMs === undefined) {
+            watch.dirtySinceMs = this.now();
+        }
+        if (watch.timer !== undefined || watch.inFlight) {
+            return;
+        }
+        this.scheduleDirtyWatch(watch);
+    }
+
+    private scheduleDirtyWatch(watch: SharedWatch): void {
+        if (watch.dirtySinceMs === undefined
+            || this.disposed
+            || this.watches.get(watch.key) !== watch) {
             return;
         }
         const now = this.now();
-        const debounceDeadline = now + CONVERSATION_LIMITS.invalidationDebounceMs;
-        const rateFloor = watch.lastEmissionAtMs === undefined
+        const debounceDeadline = watch.dirtySinceMs
+            + CONVERSATION_LIMITS.invalidationDebounceMs;
+        const rateFloor = watch.lastCompletionAtMs === undefined
             ? debounceDeadline
-            : watch.lastEmissionAtMs + CONVERSATION_LIMITS.invalidationMinIntervalMs;
+            : watch.lastCompletionAtMs
+                + CONVERSATION_LIMITS.invalidationMinIntervalMs;
         const deadline = Math.max(debounceDeadline, rateFloor);
         let firedSynchronously = false;
         const timer = this.setTimer(() => {
@@ -385,17 +406,47 @@ export class ConversationCoordinator implements AiSessionDisposable {
             if (this.disposed || this.watches.get(watch.key) !== watch) {
                 return;
             }
-            watch.lastEmissionAtMs = this.now();
-            Array.from(watch.listeners).forEach(listener => {
-                try {
-                    listener.callback();
-                } catch (_error) {
-                    this.emitDiagnostic(watch.provider, 'unavailable');
-                }
-            });
+            void this.runDirtyWatch(watch);
         }, Math.max(0, deadline - now));
         if (!firedSynchronously) {
             watch.timer = timer;
+        }
+    }
+
+    private async runDirtyWatch(watch: SharedWatch): Promise<void> {
+        if (watch.dirtySinceMs === undefined
+            || watch.inFlight
+            || this.disposed
+            || this.watches.get(watch.key) !== watch) {
+            return;
+        }
+        watch.dirtySinceMs = undefined;
+        const inFlight = Promise.resolve().then(() => Promise.all(
+            Array.from(watch.listeners).map(async listener => {
+                try {
+                    return await listener.callback() !== false;
+                } catch (_error) {
+                    this.emitDiagnostic(watch.provider, 'unavailable');
+                    return false;
+                }
+            })
+        )).then(completed => {
+            if (completed.some(Boolean)
+                && !this.disposed
+                && this.watches.get(watch.key) === watch) {
+                watch.lastCompletionAtMs = this.now();
+            }
+        });
+        watch.inFlight = inFlight;
+        await inFlight;
+        if (watch.inFlight !== inFlight) {
+            return;
+        }
+        watch.inFlight = undefined;
+        if (watch.dirtySinceMs !== undefined
+            && !this.disposed
+            && this.watches.get(watch.key) === watch) {
+            this.scheduleDirtyWatch(watch);
         }
     }
 
@@ -404,6 +455,7 @@ export class ConversationCoordinator implements AiSessionDisposable {
             this.clearTimer(watch.timer);
             watch.timer = undefined;
         }
+        watch.dirtySinceMs = undefined;
         try {
             watch.adapterSubscription.dispose();
         } catch (_error) {
@@ -428,7 +480,7 @@ export class ConversationCoordinator implements AiSessionDisposable {
             || outline.sessionId !== sessionId
             || typeof outline.sourceRevision !== 'string'
             || !outline.sourceRevision
-            || !Array.isArray(outline.interactions)
+            || !isDenseOwnArray(outline.interactions)
             || outline.interactions.length
                 > CONVERSATION_LIMITS.maxOutlineInteractions
             || !outline.interactions.every(interaction => (
@@ -441,14 +493,23 @@ export class ConversationCoordinator implements AiSessionDisposable {
                     || (typeof interaction.timestamp === 'number'
                         && Number.isFinite(interaction.timestamp)))
                 && typeof interaction.userPreview === 'string'
+                && countGraphemes(interaction.userPreview)
+                    <= CONVERSATION_LIMITS.previewGraphemes
                 && Number.isSafeInteger(interaction.userGraphemeCount)
                 && interaction.userGraphemeCount >= 0
+                && interaction.userGraphemeCount
+                    <= CONVERSATION_LIMITS.maxMessageGraphemes
                 && isResponseState(interaction.responseState)
             ))
             || !Number.isSafeInteger(outline.totalInteractions)
             || outline.totalInteractions < 0
             || outline.totalInteractions < outline.interactions.length
             || typeof outline.partial !== 'boolean') {
+            throw new ConversationError('unavailable');
+        }
+        if (!hasUniqueValues(outline.interactions.map(
+            interaction => interaction.id
+        ))) {
             throw new ConversationError('unavailable');
         }
     }
@@ -465,7 +526,7 @@ export class ConversationCoordinator implements AiSessionDisposable {
             || !page.sourceRevision
             || typeof page.anchorInteractionId !== 'string'
             || !page.anchorInteractionId
-            || !Array.isArray(page.messages)
+            || !isDenseOwnArray(page.messages)
             || !page.messages.every(message => (
                 Boolean(message)
                 && typeof message.id === 'string'
@@ -477,8 +538,10 @@ export class ConversationCoordinator implements AiSessionDisposable {
                     || (typeof message.timestamp === 'number'
                         && Number.isFinite(message.timestamp)))
                 && typeof message.markdown === 'string'
+                && countGraphemes(message.markdown)
+                    <= CONVERSATION_LIMITS.maxMessageGraphemes
             ))
-            || !Array.isArray(page.interactionStates)
+            || !isDenseOwnArray(page.interactionStates)
             || !page.interactionStates.length
             || page.interactionStates.length > CONVERSATION_LIMITS.maxPageInteractions
             || !page.interactionStates.every(state => (
@@ -493,6 +556,20 @@ export class ConversationCoordinator implements AiSessionDisposable {
                 && typeof page.nextCursor !== 'string')
             || typeof page.isStart !== 'boolean'
             || typeof page.isEnd !== 'boolean') {
+            throw new ConversationError('unavailable');
+        }
+        const interactionIds = page.interactionStates.map(
+            state => state.interactionId
+        );
+        const messageIds = page.messages.map(message => message.id);
+        const interactionIdSet = new Set(interactionIds);
+        if (!hasUniqueValues(interactionIds)
+            || !hasUniqueValues(messageIds)
+            || !interactionIdSet.has(page.anchorInteractionId)
+            || !page.messages.every(message =>
+                interactionIdSet.has(message.interactionId))
+            || page.isStart !== (page.previousCursor === undefined)
+            || page.isEnd !== (page.nextCursor === undefined)) {
             throw new ConversationError('unavailable');
         }
     }
@@ -577,4 +654,26 @@ function isResponseState(value: unknown): boolean {
         || value === 'inProgress'
         || value === 'interrupted'
         || value === 'unknown';
+}
+
+function isDenseOwnArray(value: unknown): value is unknown[] {
+    if (!Array.isArray(value)) {
+        return false;
+    }
+    for (let index = 0; index < value.length; index += 1) {
+        if (!Object.prototype.hasOwnProperty.call(value, index)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+function hasUniqueValues(values: readonly string[]): boolean {
+    return new Set(values).size === values.length;
+}
+
+function throwIfAborted(signal?: ConversationAbortSignal): void {
+    if (signal?.aborted) {
+        throw new ConversationAbortError();
+    }
 }

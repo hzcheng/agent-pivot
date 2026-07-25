@@ -144,9 +144,9 @@ function createClock(startMs = 0) {
 }
 
 async function settle() {
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
+    for (let turn = 0; turn < 12; turn += 1) {
+        await Promise.resolve();
+    }
 }
 
 function adapterReturning(calls, provider, overrides = {}) {
@@ -236,6 +236,7 @@ function createControllerHarness(overrides = {}) {
                     return await result || makeOutline('codex', sessionId);
                 }
                 : overrides.readOutline,
+            readPage: overrides.readPage,
         }),
         kimi: adapterReturning(calls, 'kimi'),
         claude: adapterReturning(calls, 'claude'),
@@ -439,7 +440,7 @@ test('SESSION-CONVERSATION-COORDINATOR-004 coalesces invalidations and applies t
     assert.equal(harness.publications.length, 2);
 });
 
-test('SESSION-CONVERSATION-COORDINATOR-005 releases only the exact opaque watch ownership', () => {
+test('SESSION-CONVERSATION-COORDINATOR-005 releases only the exact opaque watch ownership', async () => {
     const { adapters, clock, coordinator } = createCoordinatorHarness();
     const calls = [];
     const codexSubscription = coordinator.watch(
@@ -458,6 +459,7 @@ test('SESSION-CONVERSATION-COORDINATOR-005 releases only the exact opaque watch 
     adapters.codex.invalidate('same-session');
     adapters.kimi.invalidate('same-session');
     clock.advanceBy(250);
+    await settle();
 
     assert.deepEqual(calls, ['kimi']);
     assert.deepEqual(adapters.codex.disposedWatches, ['same-session']);
@@ -673,23 +675,29 @@ test('SESSION-CONVERSATION-HOST-008 cancel affects only the exact provider/sessi
     );
 });
 
-test('SESSION-CONVERSATION-HOST-009 hide and dispose cancel timers, watches, and deferred reads', async () => {
+test('SESSION-CONVERSATION-HOST-009 hide and dispose release established watches and pending debounce timers', async () => {
     for (const action of ['hide', 'dispose']) {
-        const pending = deferred();
-        const harness = createControllerHarness({
-            outlineResults: [pending.promise],
-        });
-        const request = harness.controller.handleOutline(makeOutlineRequest());
+        const harness = createControllerHarness();
+        await harness.controller.handleOutline(makeOutlineRequest());
+        harness.publications.length = 0;
+        const readsBeforeInvalidation = harness.calls.codex;
+        harness.invalidate();
+        assert.equal(harness.clock.pendingCount, 1);
+
         if (action === 'hide') {
             harness.controller.setVisible(false);
         } else {
             harness.controller.dispose();
         }
-        pending.resolve(makeOutline('codex', 'session-a'));
-        await request;
+        assert.equal(harness.clock.pendingCount, 0);
+        assert.deepEqual(
+            harness.adapters.codex.disposedWatches,
+            ['session-a']
+        );
         harness.clock.advanceBy(2_000);
         await settle();
 
+        assert.equal(harness.calls.codex, readsBeforeInvalidation, action);
         assert.deepEqual(harness.publications, [], action);
         harness.controller.dispose();
     }
@@ -798,4 +806,332 @@ test('SESSION-CONVERSATION-HOST-013 malformed cancel envelopes cannot release a 
     await settle();
 
     assert.equal(harness.publications.length, 1);
+});
+
+test('SESSION-CONVERSATION-COORDINATOR-001 a superseded late outline cannot invalidate its published revision', async t => {
+    const first = deferred();
+    const second = deferred();
+    const harness = createControllerHarness({
+        outlineResults: [first.promise, second.promise],
+        readPage: async request => makePage(
+            'codex',
+            request.sessionId,
+            'native-b'
+        ),
+    });
+    t.after(() => harness.controller.dispose());
+
+    const request9 = harness.controller.handleOutline(makeOutlineRequest({
+        requestId: 9,
+        subscriptionGeneration: 3,
+    }));
+    const request10 = harness.controller.handleOutline(makeOutlineRequest({
+        requestId: 10,
+        subscriptionGeneration: 4,
+    }));
+    second.resolve(makeOutline('codex', 'session-a', 'native-b'));
+    await request10;
+    const publishedRevision = harness.publications[0].payload.sourceRevision;
+    first.resolve(makeOutline('codex', 'session-a', 'native-a'));
+    await request9;
+
+    const page = await harness.coordinator.readPage({
+        provider: 'codex',
+        sessionId: 'session-a',
+        anchorInteractionId: 'input-a',
+        direction: 'around',
+        expectedRevision: publishedRevision,
+    });
+    assert.equal(page.sourceRevision, publishedRevision);
+});
+
+test('SESSION-CONVERSATION-COORDINATOR-001 invalidation during initial publication triggers a second revision read', async t => {
+    const firstPublication = deferred();
+    const publications = [];
+    const harness = createControllerHarness({
+        outlineResults: [
+            makeOutline('codex', 'session-a', 'native-a'),
+            makeOutline('codex', 'session-a', 'native-b'),
+        ],
+        publish: message => {
+            publications.push(message);
+            return publications.length === 1
+                ? firstPublication.promise
+                : Promise.resolve();
+        },
+    });
+    t.after(() => harness.controller.dispose());
+
+    const request = harness.controller.handleOutline(makeOutlineRequest());
+    await settle();
+    assert.equal(publications.length, 1);
+    harness.invalidate();
+    harness.clock.advanceTo(250);
+    await settle();
+    firstPublication.resolve();
+    await request;
+    await settle();
+
+    assert.equal(harness.calls.codex, 2);
+    assert.deepEqual(
+        publications.map(message => message.payload.sourceRevision),
+        ['r1', 'r2']
+    );
+});
+
+test('SESSION-CONVERSATION-COORDINATOR-001 rate floor starts when a slow refresh publication completes', async t => {
+    const firstPublication = deferred();
+    const harness = createCoordinatorHarness();
+    t.after(() => harness.coordinator.dispose());
+    const publicationTimes = [];
+    let refreshes = 0;
+    harness.coordinator.watch('codex', 'session-a', async () => {
+        refreshes += 1;
+        if (refreshes === 1) {
+            await firstPublication.promise;
+        }
+        publicationTimes.push(harness.clock.now());
+        return true;
+    });
+
+    harness.adapters.codex.invalidate('session-a');
+    harness.clock.advanceTo(250);
+    await settle();
+    assert.equal(refreshes, 1);
+    harness.clock.advanceTo(1050);
+    harness.adapters.codex.invalidate('session-a');
+    harness.clock.advanceTo(1299);
+    firstPublication.resolve();
+    await settle();
+    assert.deepEqual(publicationTimes, [1299]);
+    harness.clock.advanceTo(1300);
+    await settle();
+    assert.deepEqual(publicationTimes, [1299]);
+    harness.clock.advanceTo(2298);
+    await settle();
+    assert.deepEqual(publicationTimes, [1299]);
+    harness.clock.advanceTo(2299);
+    await settle();
+    assert.deepEqual(publicationTimes, [1299, 2299]);
+});
+
+test('SESSION-CONVERSATION-COORDINATOR-001 synchronously reentrant invalidation is merged behind the completed floor', async t => {
+    const harness = createCoordinatorHarness();
+    t.after(() => harness.coordinator.dispose());
+    const publicationTimes = [];
+    harness.coordinator.watch('codex', 'session-a', () => {
+        publicationTimes.push(harness.clock.now());
+        if (publicationTimes.length === 1) {
+            harness.adapters.codex.invalidate('session-a');
+        }
+        return true;
+    });
+
+    harness.adapters.codex.invalidate('session-a');
+    harness.clock.advanceTo(250);
+    await settle();
+    assert.deepEqual(publicationTimes, [250]);
+    harness.clock.advanceTo(1249);
+    await settle();
+    assert.deepEqual(publicationTimes, [250]);
+    harness.clock.advanceTo(1250);
+    await settle();
+    assert.deepEqual(publicationTimes, [250, 1250]);
+});
+
+test('SESSION-CONVERSATION-COORDINATOR-001 rejects sparse or inherited response array elements', async t => {
+    const validInteraction = makeOutline(
+        'codex',
+        'session-a'
+    ).interactions[0];
+    const sparseInteractions = new Array(1);
+    const inheritedInteractions = [];
+    inheritedInteractions.length = 1;
+    const inheritedPrototype = Object.create(Array.prototype);
+    inheritedPrototype[0] = validInteraction;
+    Object.setPrototypeOf(inheritedInteractions, inheritedPrototype);
+
+    await t.test('outline interactions', async () => {
+        let result = makeOutline('codex', 'session-a', 'native-a', {
+            interactions: sparseInteractions,
+            totalInteractions: 1,
+        });
+        const harness = createCoordinatorHarness({
+            codex: {
+                readOutline: async () => result,
+                readPage: async request => makePage('codex', request.sessionId),
+                watch: () => ({ dispose() {} }),
+                dispose() {},
+            },
+        });
+        t.after(() => harness.coordinator.dispose());
+        await assert.rejects(
+            harness.coordinator.readOutline('codex', 'session-a'),
+            error => error.code === 'unavailable'
+        );
+        result = makeOutline('codex', 'session-a', 'native-a', {
+            interactions: inheritedInteractions,
+            totalInteractions: 1,
+        });
+        await assert.rejects(
+            harness.coordinator.readOutline('codex', 'session-a'),
+            error => error.code === 'unavailable'
+        );
+    });
+
+    for (const [name, pageOverrides] of [
+        ['page messages', { messages: new Array(1) }],
+        ['page interaction states', {
+            interactionStates: new Array(1),
+            previousCursor: undefined,
+            nextCursor: undefined,
+        }],
+    ]) {
+        await t.test(name, async () => {
+            const harness = createCoordinatorHarness({
+                codex: {
+                    readOutline: async sessionId => makeOutline(
+                        'codex',
+                        sessionId
+                    ),
+                    readPage: async () => makePage(
+                        'codex',
+                        'session-a',
+                        'native-a',
+                        pageOverrides
+                    ),
+                    watch: () => ({ dispose() {} }),
+                    dispose() {},
+                },
+            });
+            t.after(() => harness.coordinator.dispose());
+            const outline = await harness.coordinator.readOutline(
+                'codex',
+                'session-a'
+            );
+            await assert.rejects(
+                harness.coordinator.readPage({
+                    provider: 'codex',
+                    sessionId: 'session-a',
+                    anchorInteractionId: 'input-a',
+                    direction: 'around',
+                    expectedRevision: outline.sourceRevision,
+                }),
+                error => error.code === 'unavailable'
+            );
+        });
+    }
+});
+
+test('SESSION-CONVERSATION-COORDINATOR-001 rejects deep outline and page bound violations', async t => {
+    async function rejectOutline(interactionOverrides) {
+        const baseInteraction = makeOutline(
+            'codex',
+            'session-a'
+        ).interactions[0];
+        const harness = createCoordinatorHarness({
+            codex: {
+                readOutline: async () => makeOutline(
+                    'codex',
+                    'session-a',
+                    'native-a',
+                    {
+                        interactions: [{
+                            ...baseInteraction,
+                            ...interactionOverrides,
+                        }],
+                        totalInteractions: 1,
+                    }
+                ),
+                readPage: async request => makePage('codex', request.sessionId),
+                watch: () => ({ dispose() {} }),
+                dispose() {},
+            },
+        });
+        t.after(() => harness.coordinator.dispose());
+        await assert.rejects(
+            harness.coordinator.readOutline('codex', 'session-a'),
+            error => error.code === 'unavailable'
+        );
+    }
+
+    await t.test('preview exceeds 160 graphemes', async () => {
+        await rejectOutline({ userPreview: '🙂'.repeat(161) });
+    });
+    await t.test('user count exceeds the visible-message bound', async () => {
+        await rejectOutline({ userGraphemeCount: 64_001 });
+    });
+
+    async function rejectPage(pageOverrides) {
+        const harness = createCoordinatorHarness({
+            codex: {
+                readOutline: async sessionId => makeOutline(
+                    'codex',
+                    sessionId
+                ),
+                readPage: async () => makePage(
+                    'codex',
+                    'session-a',
+                    'native-a',
+                    pageOverrides
+                ),
+                watch: () => ({ dispose() {} }),
+                dispose() {},
+            },
+        });
+        t.after(() => harness.coordinator.dispose());
+        const outline = await harness.coordinator.readOutline(
+            'codex',
+            'session-a'
+        );
+        await assert.rejects(
+            harness.coordinator.readPage({
+                provider: 'codex',
+                sessionId: 'session-a',
+                anchorInteractionId: 'input-a',
+                direction: 'around',
+                expectedRevision: outline.sourceRevision,
+            }),
+            error => error.code === 'unavailable'
+                || error.code === 'tooLarge'
+        );
+    }
+
+    await t.test('message exceeds 64,000 graphemes', async () => {
+        await rejectPage({
+            messages: [{
+                id: 'input-a:user',
+                interactionId: 'input-a',
+                role: 'user',
+                markdown: '🙂'.repeat(64_001),
+            }],
+        });
+    });
+    await t.test('message references an interaction outside the page', async () => {
+        await rejectPage({
+            messages: [{
+                id: 'unknown:user',
+                interactionId: 'unknown',
+                role: 'user',
+                markdown: 'Unknown',
+            }],
+        });
+    });
+    await t.test('page anchor is outside the interaction states', async () => {
+        await rejectPage({ anchorInteractionId: 'unknown' });
+    });
+    await t.test('duplicate interaction state IDs are rejected', async () => {
+        await rejectPage({
+            interactionStates: [
+                { interactionId: 'input-a', responseState: 'complete' },
+                { interactionId: 'input-a', responseState: 'complete' },
+            ],
+        });
+    });
+    await t.test('cursor presence must agree with page boundaries', async () => {
+        await rejectPage({
+            isStart: true,
+            previousCursor: 'native-before',
+        });
+    });
 });

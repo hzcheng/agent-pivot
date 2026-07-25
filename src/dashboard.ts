@@ -1525,7 +1525,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             await dashboardRuntimeController.handleAiSessionViewVisibilityChanged(visible);
         },
         onDisposed: () => {
-            conversationCapability.controller.setVisible(false);
+            conversationCapability.controller.resetView();
         },
         logError,
     });

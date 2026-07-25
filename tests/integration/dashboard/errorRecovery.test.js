@@ -332,6 +332,7 @@ test('SESSION-SIDEBAR-STEWARD-VIEW-PROVIDER-ORDERING-001 releases sidebar-owned 
 test('SESSION-SIDEBAR-STEWARD-VIEW-PROVIDER-OWNERSHIP-001 ignores stale visibility and disposal callbacks after view replacement', async () => {
     const visibility = [];
     const renders = [];
+    const disposalVisibility = [];
     let disposed = 0;
     let holdNextVisibility = false;
     const visibilityGate = deferred();
@@ -383,6 +384,7 @@ test('SESSION-SIDEBAR-STEWARD-VIEW-PROVIDER-OWNERSHIP-001 ignores stale visibili
             }
         },
         onDisposed: () => {
+            disposalVisibility.push(provider.visible);
             disposed += 1;
         },
         logError: () => undefined,
@@ -396,6 +398,8 @@ test('SESSION-SIDEBAR-STEWARD-VIEW-PROVIDER-OWNERSHIP-001 ignores stale visibili
     await new Promise(resolve => setImmediate(resolve));
     await provider.resolveWebviewView(viewB.view, {}, {});
     assert.deepEqual(renders, ['a', 'b']);
+    assert.equal(disposed, 1);
+    assert.deepEqual(disposalVisibility, [false]);
 
     visibilityGate.resolve();
     await staleInFlight;
@@ -410,7 +414,7 @@ test('SESSION-SIDEBAR-STEWARD-VIEW-PROVIDER-OWNERSHIP-001 ignores stale visibili
     await viewA.fireVisibility();
     await viewA.fireDispose();
     assert.deepEqual(visibility, visibilityBeforeOldCallbacks);
-    assert.equal(disposed, 0);
+    assert.equal(disposed, 1);
     assert.equal(provider.visible, true);
     assert.equal(await provider.postMessage({ type: 'current-b' }), true);
     assert.deepEqual(viewB.posted, [{ type: 'current-b' }]);
@@ -423,7 +427,8 @@ test('SESSION-SIDEBAR-STEWARD-VIEW-PROVIDER-OWNERSHIP-001 ignores stale visibili
     assert.equal(provider.visible, true);
     assert.deepEqual(renders, ['a', 'b', 'b']);
     await viewB.fireDispose();
-    assert.equal(disposed, 1);
+    assert.equal(disposed, 2);
+    assert.deepEqual(disposalVisibility, [false, false]);
     assert.equal(provider.visible, false);
     assert.equal(await provider.postMessage({ type: 'after-b' }), false);
 });

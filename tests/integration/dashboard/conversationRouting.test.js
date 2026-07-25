@@ -422,6 +422,9 @@ function createDashboardConversationHarness(options = {}) {
         setVisible(visible) {
             capability.controller.setVisible(visible);
         },
+        resetView() {
+            capability.controller.resetView();
+        },
         reconcile() {
             return capability.reconcile();
         },
@@ -798,6 +801,40 @@ test('PRODUCTION-CONVERSATION-LIFECYCLE-002 fire-and-forget reconcile isolates v
     assert.equal(
         JSON.stringify(harness.diagnostics).includes(secret),
         false
+    );
+    await harness.dispose();
+});
+
+test('PRODUCTION-CONVERSATION-LIFECYCLE-003 accepts a fresh Webview generation after replacement teardown', async () => {
+    const harness = createDashboardConversationHarness();
+    await harness.activate();
+    await harness.route(makeOutlineRequest({
+        requestId: 9,
+        subscriptionGeneration: 7,
+    }));
+    const publicationsBeforeReplacement = harness.publications.length;
+
+    harness.resetView();
+    harness.setVisible(true);
+    await harness.route(makeOutlineRequest({
+        requestId: 1,
+        subscriptionGeneration: 1,
+    }));
+
+    assert.equal(
+        harness.publications.length,
+        publicationsBeforeReplacement + 1
+    );
+    assert.deepEqual(
+        {
+            requestId: harness.publications.at(-1).requestId,
+            subscriptionGeneration:
+                harness.publications.at(-1).subscriptionGeneration,
+        },
+        {
+            requestId: 1,
+            subscriptionGeneration: 1,
+        }
     );
     await harness.dispose();
 });

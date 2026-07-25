@@ -256,6 +256,15 @@ export class ConversationHostController {
         }
     }
 
+    resetView(): void {
+        if (this.disposed) {
+            return;
+        }
+        this.visible = false;
+        this.cancelAll();
+        this.generationFloors.clear();
+    }
+
     dispose(): void {
         if (this.disposed) {
             return;

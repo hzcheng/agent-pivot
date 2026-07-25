@@ -7419,6 +7419,9 @@ function runConversationProductionSafetyChecks() {
         'conversationCapability.controller.setVisible(visible)'
     ));
     assert.ok(dashboard.includes('onDisposed: () =>'));
+    assert.ok(dashboard.includes(
+        'conversationCapability.controller.resetView()'
+    ));
 
     assert.ok(conversationTypes.includes('count?: number;'));
     assert.ok(conversationTypes.includes('durationMs?: number;'));

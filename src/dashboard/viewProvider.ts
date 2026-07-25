@@ -19,13 +19,50 @@ export class SidebarStewardViewProvider implements vscode.WebviewViewProvider {
     public static readonly viewType = 'projectSteward.steward';
 
     private _view?: vscode.WebviewView;
+    private viewGeneration = 0;
+    private releaseCurrent?: () => Promise<void>;
+    private releaseBarrier: Promise<void> = Promise.resolve();
 
     constructor(private readonly options: SidebarStewardViewProviderOptions) {
     }
 
     async resolveWebviewView(webviewView: vscode.WebviewView, webviewContext: vscode.WebviewViewResolveContext<unknown>, token: vscode.CancellationToken): Promise<void> {
+        const viewGeneration = ++this.viewGeneration;
+        const previousRelease = this.releaseCurrent;
+        this.releaseCurrent = undefined;
+        this._view = undefined;
+        if (previousRelease) {
+            this.releaseBarrier = previousRelease();
+        }
+        await this.releaseBarrier;
+        if (viewGeneration !== this.viewGeneration) {
+            return;
+        }
+
         this._view = webviewView;
         let disposed = false;
+        let release: () => Promise<void>;
+        release = async () => {
+            if (disposed) {
+                return;
+            }
+            disposed = true;
+            if (this._view === webviewView) {
+                this._view = undefined;
+            }
+            if (this.releaseCurrent === release) {
+                this.releaseCurrent = undefined;
+            }
+            try {
+                await this.options.onDisposed();
+            } catch (_error) {
+                this.options.logError(
+                    'Failed to dispose Project Steward view.',
+                    sanitizedViewFailure()
+                );
+            }
+        };
+        this.releaseCurrent = release;
         const isCurrent = () =>
             !disposed && this._view === webviewView;
         webviewView.webview.options = this.options.getWebviewOptions();
@@ -51,22 +88,7 @@ export class SidebarStewardViewProvider implements vscode.WebviewViewProvider {
         });
         if (typeof webviewView.onDidDispose === 'function') {
             webviewView.onDidDispose(async () => {
-                if (disposed) {
-                    return;
-                }
-                disposed = true;
-                if (this._view !== webviewView) {
-                    return;
-                }
-                this._view = undefined;
-                try {
-                    await this.options.onDisposed();
-                } catch (_error) {
-                    this.options.logError(
-                        'Failed to dispose Project Steward view.',
-                        sanitizedViewFailure()
-                    );
-                }
+                await release();
             });
         }
         await this.prepareVisibility(webviewView, isCurrent);

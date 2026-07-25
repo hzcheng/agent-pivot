@@ -191,8 +191,6 @@ function isValidConversationOutline(outline, state) {
         || !Array.isArray(outline.interactions)
         || outline.interactions.length > ACTIVE_AI_SESSION_CONVERSATION_MAX_INTERACTIONS
         || outline.totalInteractions < outline.interactions.length
-        || (!outline.partial
-            && outline.totalInteractions !== outline.interactions.length)
         || !outline.interactions.every(isValidConversationSummary)) {
         return false;
     }
@@ -204,13 +202,11 @@ function isValidConversationError(error, state) {
     if (!hasExactConversationKeys(error, ['code'], ['reason', 'retryAfterMs'])
         || !ACTIVE_AI_SESSION_CONVERSATION_ERROR_CODES.includes(error.code)
         || (error.reason !== undefined
-            && !ACTIVE_AI_SESSION_CONVERSATION_ERROR_REASONS.includes(error.reason))
-        || (error.retryAfterMs !== undefined
-            && (!Number.isSafeInteger(error.retryAfterMs)
-                || error.retryAfterMs < 0
-                || error.retryAfterMs
-                    > ACTIVE_AI_SESSION_CONVERSATION_MAX_RETRY_AFTER_MS))) {
+            && !ACTIVE_AI_SESSION_CONVERSATION_ERROR_REASONS.includes(error.reason))) {
         return false;
+    }
+    if (error.reason === undefined) {
+        return error.retryAfterMs === undefined;
     }
     if ([
         'updateCodex', 'unsupportedCodexProtocol',
@@ -219,22 +215,18 @@ function isValidConversationError(error, state) {
         && state.provider !== 'codex') {
         return false;
     }
-    if ((error.reason === 'updateCodex'
-            || error.reason === 'reconnectingCodex'
-            || error.reason === 'codexRetryExhausted')
-        && error.code !== 'unavailable') {
-        return false;
+    if (error.reason === 'codexRetryExhausted') {
+        return error.code === 'unavailable'
+            && Number.isSafeInteger(error.retryAfterMs)
+            && error.retryAfterMs > 0
+            && error.retryAfterMs
+                <= ACTIVE_AI_SESSION_CONVERSATION_MAX_RETRY_AFTER_MS;
     }
-    if (error.reason === 'unsupportedCodexProtocol'
-        && error.code !== 'unsupportedVersion') {
-        return false;
+    if (error.retryAfterMs !== undefined) return false;
+    if (error.reason === 'unsupportedCodexProtocol') {
+        return error.code === 'unsupportedVersion';
     }
-    if (error.reason === 'codexRetryExhausted'
-        && (!Number.isSafeInteger(error.retryAfterMs)
-            || error.retryAfterMs <= 0)) {
-        return false;
-    }
-    return true;
+    return error.code === 'unavailable';
 }
 
 function clearActiveAiSessionConversationRetryTimer() {
@@ -598,6 +590,7 @@ function renderActiveAiSessionConversationOutline(row, state, outline) {
         marker.addEventListener('click', event => {
             event.preventDefault();
             event.stopPropagation();
+            focusConversationMarker(markers, index);
             activateConversationMarker(marker, state, window.vscode);
         });
         marker.addEventListener('keydown', event => {
@@ -618,7 +611,9 @@ function renderActiveAiSessionConversationOutline(row, state, outline) {
         false
     );
 
-    count.textContent = outline.partial
+    var hasOmittedInteractions = outline.partial
+        || outline.totalInteractions > outline.interactions.length;
+    count.textContent = hasOmittedInteractions
         && outline.totalInteractions > ACTIVE_AI_SESSION_CONVERSATION_MAX_INTERACTIONS
         ? '2,000+'
         : String(outline.totalInteractions);
@@ -635,7 +630,7 @@ function renderActiveAiSessionConversationOutline(row, state, outline) {
     }
 
     rail.hidden = false;
-    if (outline.partial) {
+    if (hasOmittedInteractions) {
         setActiveAiSessionConversationStatus(
             row,
             'partial',

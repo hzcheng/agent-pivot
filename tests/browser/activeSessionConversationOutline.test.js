@@ -7,6 +7,9 @@ const path = require('node:path');
 const test = require('node:test');
 const { chromium } = require('playwright-chromium');
 const { createFakeVscode } = require('../helpers/fakeVscode');
+const {
+    buildConversationOutline,
+} = require('../../out/aiSessions/conversation/model');
 
 function loadWebviewContent() {
     const vscode = createFakeVscode({});
@@ -207,6 +210,22 @@ function summaries(count, prefix = 'interaction') {
     return Array.from({ length: count }, (_, index) =>
         summary(`${prefix}-${index}`, index + 1, `Input ${index + 1}`)
     );
+}
+
+function modelInteractions(count) {
+    return Array.from({ length: count }, (_, index) => {
+        const number = index + 1;
+        return {
+            id: `model-${number}`,
+            providerTurnId: `turn-${number}`,
+            timestamp: 1_767_225_600_000 + number,
+            userMarkdown: `Model input ${number}`,
+            userPreview: `Model input ${number}`,
+            userGraphemeCount: 12,
+            assistantMarkdown: [`Model response ${number}`],
+            responseState: number === count ? 'inProgress' : 'complete',
+        };
+    });
 }
 
 function outlineResult({
@@ -548,6 +567,182 @@ test('ACTIVE-SESSION-CONVERSATION-OUTLINE-001 renders only an exact current focu
     );
 });
 
+test('ACTIVE-SESSION-CONVERSATION-OUTLINE-001 renders the actual Task 6 capped shape on first and live results', async t => {
+    const page = await openConversationPage(t, [
+        session('codex', 'session-a', true),
+    ]);
+    const focused = row(page, 'codex', 'session-a');
+    await focused.locator('.ai-session-primary-action').click();
+    const rail = focused.locator('[data-ai-session-conversation-rail]');
+    const state = focused.locator('.ai-session-conversation-loading');
+    const count = focused.locator('[data-ai-session-conversation-count]');
+    const initialOutline = buildConversationOutline(
+        'codex',
+        'session-a',
+        'model-r2000',
+        modelInteractions(2_000),
+        false
+    );
+    assert.equal(initialOutline.partial, false);
+    assert.equal(initialOutline.totalInteractions, 2_000);
+    assert.equal(initialOutline.interactions.length, 2_000);
+    await postHostMessage(page, outlineResult({
+        sourceRevision: initialOutline.sourceRevision,
+        interactions: initialOutline.interactions,
+        totalInteractions: initialOutline.totalInteractions,
+        partial: initialOutline.partial,
+    }));
+    assert.equal(
+        await rail.locator('[data-ai-session-conversation-marker]').count(),
+        2_000
+    );
+    assert.equal(await count.textContent(), '2000');
+    assert.equal(await state.isHidden(), true);
+
+    const liveOutline = buildConversationOutline(
+        'codex',
+        'session-a',
+        'model-r2001',
+        modelInteractions(2_001),
+        false
+    );
+    assert.equal(liveOutline.partial, false);
+    assert.equal(liveOutline.totalInteractions, 2_001);
+    assert.equal(liveOutline.interactions.length, 2_000);
+    assert.equal(liveOutline.interactions[0].id, 'model-2');
+    await postHostMessage(page, outlineResult({
+        sourceRevision: liveOutline.sourceRevision,
+        interactions: liveOutline.interactions,
+        totalInteractions: liveOutline.totalInteractions,
+        partial: liveOutline.partial,
+    }));
+    assert.equal(
+        await rail.locator('[data-ai-session-conversation-marker]').count(),
+        2_000
+    );
+    assert.equal(
+        await rail.locator('[data-ai-session-conversation-marker]')
+            .first().getAttribute('data-interaction-id'),
+        'model-2'
+    );
+    assert.equal(
+        await rail.locator('[data-ai-session-conversation-marker]')
+            .last().getAttribute('data-interaction-id'),
+        'model-2001'
+    );
+    assert.equal(await count.textContent(), '2,000+');
+    assert.equal(await state.getAttribute('data-state'), 'partial');
+    assert.equal(await state.textContent(), 'Older inputs omitted');
+});
+
+test('ACTIVE-SESSION-CONVERSATION-STATES-001 rejects every invalid public error pairing without changing rendered state', async t => {
+    const page = await openConversationPage(t, [
+        session('codex', 'session-a', true),
+    ]);
+    const focused = row(page, 'codex', 'session-a');
+    await focused.locator('.ai-session-primary-action').click();
+    const rail = focused.locator('[data-ai-session-conversation-rail]');
+    const state = focused.locator('.ai-session-conversation-loading');
+    const codes = [
+        'unavailable', 'staleRevision', 'unsupportedVersion', 'tooLarge', 'timeout',
+    ];
+    const reasons = [
+        undefined,
+        'missingSource',
+        'updateCodex',
+        'unsupportedCodexProtocol',
+        'reconnectingCodex',
+        'codexRetryExhausted',
+    ];
+    const isAllowed = (code, reason, retryAfterMs) => {
+        if (reason === undefined) {
+            return retryAfterMs === undefined;
+        }
+        if (reason === 'missingSource'
+            || reason === 'updateCodex'
+            || reason === 'reconnectingCodex') {
+            return code === 'unavailable' && retryAfterMs === undefined;
+        }
+        if (reason === 'unsupportedCodexProtocol') {
+            return code === 'unsupportedVersion' && retryAfterMs === undefined;
+        }
+        return reason === 'codexRetryExhausted'
+            && code === 'unavailable'
+            && Number.isSafeInteger(retryAfterMs)
+            && retryAfterMs > 0
+            && retryAfterMs <= 60_000;
+    };
+    const invalidErrors = [];
+    for (const code of codes) {
+        for (const reason of reasons) {
+            for (const retryAfterMs of [undefined, 1]) {
+                if (isAllowed(code, reason, retryAfterMs)) continue;
+                invalidErrors.push({
+                    label: `${code}/${reason || 'none'}/${retryAfterMs ?? 'none'}`,
+                    error: {
+                        code,
+                        ...(reason === undefined ? {} : { reason }),
+                        ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
+                    },
+                });
+            }
+        }
+    }
+    for (const retryAfterMs of [0, -1, 1.5, 60_001]) {
+        invalidErrors.push({
+            label: `unavailable/codexRetryExhausted/${retryAfterMs}`,
+            error: {
+                code: 'unavailable',
+                reason: 'codexRetryExhausted',
+                retryAfterMs,
+            },
+        });
+    }
+
+    const violations = [];
+    for (const [index, candidate] of invalidErrors.entries()) {
+        const baselineId = `error-baseline-${index}`;
+        await postHostMessage(page, outlineResult({
+            sourceRevision: `error-r${index}`,
+            interactions: [summary(baselineId, 3, `Baseline ${index}`)],
+        }));
+        await postHostMessage(page, outlineError(candidate.error));
+        const markerIds = await rail
+            .locator('[data-ai-session-conversation-marker]')
+            .evaluateAll(nodes => nodes.map(node =>
+                node.getAttribute('data-interaction-id')
+            ));
+        const unchanged = markerIds.length === 1
+            && markerIds[0] === baselineId
+            && await state.isHidden()
+            && await page.evaluate(() =>
+                activeAiSessionConversationRetryTimer === null
+                && activeAiSessionConversationRetryDeadline === 0
+            );
+        if (!unchanged) {
+            violations.push(candidate.label);
+        }
+    }
+    assert.deepEqual(violations, []);
+
+    for (const [index, code] of codes.entries()) {
+        await postHostMessage(page, outlineResult({
+            sourceRevision: `generic-r${index}`,
+            interactions: [summary(`generic-baseline-${index}`, 3, 'Generic')],
+        }));
+        await postHostMessage(page, outlineError({ code }));
+        assert.equal(
+            await rail.locator('[data-ai-session-conversation-marker]').count(),
+            0,
+            `generic ${code} must be accepted`
+        );
+        assert.equal(
+            await page.evaluate(() => activeAiSessionConversationRetryTimer),
+            null
+        );
+    }
+});
+
 test('ACTIVE-SESSION-CONVERSATION-STATES-001 distinguishes loading, empty, stale, partial, and exact Codex errors', async t => {
     const page = await openConversationPage(t, [
         session('codex', 'session-a', true),
@@ -577,17 +772,22 @@ test('ACTIVE-SESSION-CONVERSATION-STATES-001 distinguishes loading, empty, stale
     assert.equal(await state.getAttribute('data-state'), 'stale');
     assert.match(await state.textContent(), /Conversation history changed/);
 
+    const sourcePartialOutline = buildConversationOutline(
+        'codex',
+        'session-a',
+        'source-partial',
+        modelInteractions(2),
+        true
+    );
     await postHostMessage(page, outlineResult({
-        totalInteractions: 2_001,
-        partial: true,
-        interactions: [
-            summary('recent-1', 2, 'Recent one'),
-            summary('recent-2', 3, 'Recent two'),
-        ],
+        sourceRevision: sourcePartialOutline.sourceRevision,
+        totalInteractions: sourcePartialOutline.totalInteractions,
+        partial: sourcePartialOutline.partial,
+        interactions: sourcePartialOutline.interactions,
     }));
     assert.equal(await state.getAttribute('data-state'), 'partial');
     assert.match(await state.textContent(), /Older inputs omitted/);
-    assert.equal(await count.textContent(), '2,000+');
+    assert.equal(await count.textContent(), '2');
 
     await postHostMessage(page, outlineError({
         code: 'unavailable',
@@ -721,6 +921,14 @@ test('ACTIVE-SESSION-CONVERSATION-MARKER-001 safely renders markers and posts ex
     await page.keyboard.press('ArrowDown');
     assert.equal(await markers.nth(1).evaluate(node => document.activeElement === node), true);
     await markers.nth(0).click();
+    assert.deepEqual(await markers.evaluateAll(nodes => nodes.map(node => ({
+        tabIndex: node.tabIndex,
+        selected: node.getAttribute('aria-selected'),
+    }))), [
+        { tabIndex: 0, selected: 'true' },
+        { tabIndex: -1, selected: 'false' },
+        { tabIndex: -1, selected: 'false' },
+    ]);
     assert.deepEqual((await postedMessages(page)).at(-1), {
         type: 'open-ai-session-conversation',
         version: 1,

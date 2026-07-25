@@ -34,6 +34,15 @@ const assets = [
     },
 ];
 
+test('SHARINGAN-ASSET-INTEGRITY-002 retains the default text rule and scopes the SVG exception', () => {
+    const attributes = fs.readFileSync(path.join(root, '.gitattributes'), 'utf8');
+    assert.match(attributes, /^\* text=auto$/m);
+    assert.match(
+        attributes,
+        /^media\/sharingan\/\*\.svg -text whitespace=cr-at-eol$/m
+    );
+});
+
 for (const asset of assets) {
     test(`SHARINGAN-ASSET-INTEGRITY-001 preserves the reviewed ${asset.name} SVG`, () => {
         const bytes = fs.readFileSync(path.join(root, asset.file));

@@ -112,6 +112,13 @@ test('PERSIST-PROJECT-STATE-STORE-001 sanitizes workspace state and ignores inva
             'scope-b': 'unknown',
             'scope-c': 'kimi',
         },
+        'workspaceAiSessionProviderSelection.v1': {
+            'scope-a': {
+                primaryProvider: 'codex',
+                selectedProviders: ['codex', 'claude', 'claude', 'unknown'],
+            },
+            'scope-b': { primaryProvider: 'unknown', selectedProviders: [] },
+        },
     });
     const store = new AiSessionWorkspaceStateStore(
         state.memento,
@@ -120,16 +127,157 @@ test('PERSIST-PROJECT-STATE-STORE-001 sanitizes workspace state and ignores inva
 
     assert.deepEqual(Array.from(store.getExpandedWorkspaces()), ['scope-a', 'scope-b']);
     assert.deepEqual(store.getActiveProviders(), { 'scope-a': 'codex', 'scope-c': 'kimi' });
+    assert.deepEqual(store.getProviderSelections(), {
+        'scope-a': {
+            primaryProvider: 'codex',
+            selectedProviders: ['codex', 'claude'],
+        },
+    });
     await store.setExpanded('scope-c', true);
     await store.setExpanded('', true);
     await store.setActiveProvider('scope-d', 'claude');
     await store.setActiveProvider('scope-e', 'unknown');
+    await store.setProviderSelection('scope-d', {
+        primaryProvider: 'claude',
+        selectedProviders: ['claude', 'kimi'],
+    });
+    await store.setProviderSelection('scope-e', {
+        primaryProvider: 'codex',
+        selectedProviders: ['codex', 'claude', 'unknown', 'claude', 'kimi'],
+    });
+    await store.setProviderSelection('scope-f', {
+        primaryProvider: 'unknown',
+        selectedProviders: [],
+    });
     assert.deepEqual(state.values['workspaceExpandedAiSessions.v2'], [
         'scope-a', 'scope-b', 'scope-c',
     ]);
     assert.deepEqual(state.values['workspaceActiveAiSessionProvider.v2'], {
         'scope-a': 'codex', 'scope-c': 'kimi', 'scope-d': 'claude',
+        'scope-e': 'codex', 'scope-f': 'codex',
     });
+    assert.deepEqual(state.values['workspaceAiSessionProviderSelection.v1']['scope-d'], {
+        primaryProvider: 'claude',
+        selectedProviders: ['claude', 'kimi'],
+    });
+    assert.equal(
+        state.values['workspaceActiveAiSessionProvider.v2']['scope-d'],
+        'claude'
+    );
+    assert.deepEqual(state.values['workspaceAiSessionProviderSelection.v1']['scope-e'], {
+        primaryProvider: 'codex',
+        selectedProviders: ['codex', 'kimi', 'claude'],
+    });
+    assert.equal(
+        state.values['workspaceActiveAiSessionProvider.v2']['scope-e'],
+        'codex'
+    );
+    assert.deepEqual(state.values['workspaceAiSessionProviderSelection.v1']['scope-f'], {
+        primaryProvider: 'codex',
+        selectedProviders: ['codex'],
+    });
+    assert.equal(
+        state.values['workspaceActiveAiSessionProvider.v2']['scope-f'],
+        'codex'
+    );
+});
+
+test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-001 rolls back both provider records when the legacy write fails', async () => {
+    const combinedKey = 'workspaceAiSessionProviderSelection.v1';
+    const legacyKey = 'workspaceActiveAiSessionProvider.v2';
+    const values = {
+        [combinedKey]: {
+            'scope-a': {
+                primaryProvider: 'codex',
+                selectedProviders: ['codex'],
+            },
+        },
+        [legacyKey]: { 'scope-a': 'codex' },
+    };
+    const updates = [];
+    let legacyWriteFailed = false;
+    const store = new AiSessionWorkspaceStateStore({
+        get: key => values[key],
+        async update(key, value) {
+            updates.push([key, value]);
+            values[key] = value;
+            if (key === legacyKey && !legacyWriteFailed) {
+                legacyWriteFailed = true;
+                throw new Error('controlled legacy write failure');
+            }
+        },
+    }, value => value === 'codex' || value === 'kimi' || value === 'claude');
+
+    await assert.rejects(
+        store.setProviderSelection('scope-a', {
+            primaryProvider: 'claude',
+            selectedProviders: ['claude', 'codex'],
+        }),
+        /controlled legacy write failure/
+    );
+
+    assert.deepEqual(values[combinedKey], {
+        'scope-a': {
+            primaryProvider: 'codex',
+            selectedProviders: ['codex'],
+        },
+    });
+    assert.deepEqual(values[legacyKey], { 'scope-a': 'codex' });
+    assert.deepEqual(updates.map(([key]) => key), [
+        combinedKey,
+        legacyKey,
+        legacyKey,
+        combinedKey,
+    ]);
+});
+
+test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-001 rejects without false success when provider-record rollback also fails', async () => {
+    const combinedKey = 'workspaceAiSessionProviderSelection.v1';
+    const legacyKey = 'workspaceActiveAiSessionProvider.v2';
+    const values = {
+        [combinedKey]: {
+            'scope-a': {
+                primaryProvider: 'codex',
+                selectedProviders: ['codex'],
+            },
+        },
+        [legacyKey]: { 'scope-a': 'codex' },
+    };
+    let combinedWrites = 0;
+    let legacyWrites = 0;
+    const store = new AiSessionWorkspaceStateStore({
+        get: key => values[key],
+        async update(key, value) {
+            if (key === combinedKey) {
+                combinedWrites += 1;
+                if (combinedWrites === 2) {
+                    throw new Error('controlled rollback failure');
+                }
+                values[key] = value;
+                return;
+            }
+            legacyWrites += 1;
+            values[key] = value;
+            if (legacyWrites === 1) {
+                throw new Error('controlled legacy write failure');
+            }
+        },
+    }, value => value === 'codex' || value === 'kimi' || value === 'claude');
+
+    await assert.rejects(
+        store.setProviderSelection('scope-a', {
+            primaryProvider: 'claude',
+            selectedProviders: ['claude', 'codex'],
+        })
+    );
+
+    assert.deepEqual(values[combinedKey]['scope-a'], {
+        primaryProvider: 'claude',
+        selectedProviders: ['claude', 'codex'],
+    });
+    assert.deepEqual(values[legacyKey], { 'scope-a': 'codex' });
+    assert.equal(combinedWrites, 2);
+    assert.equal(legacyWrites, 2);
 });
 
 test('TODO-TODO-STORE-001 preserves unversioned V1 data while dropping duplicate, orphaned, and missing-field records', () => {

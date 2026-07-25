@@ -39,6 +39,7 @@ function createOptions(overrides = {}) {
         }],
         getCollapsed: () => false,
         getRunningCardAnimation: () => undefined,
+        getRunningIconAnimation: () => undefined,
         getAttentionAggregate: () => ({
             protocolVersion: 1,
             aggregateRevision: 'a'.repeat(64),

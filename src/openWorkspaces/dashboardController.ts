@@ -27,6 +27,7 @@ export interface OpenWorkspaceDashboardControllerOptions {
     getTodoSearchItems: () => TodoSearchCatalogItem[];
     getCollapsed: () => boolean;
     getRunningCardAnimation: () => string | undefined;
+    getRunningIconAnimation: () => string | undefined;
     getAttentionAggregate: () => AttentionAggregate | null;
     getBridgeInstanceId: () => string;
     postMessage: (message: unknown) => Thenable<boolean>;
@@ -116,6 +117,7 @@ export class OpenWorkspaceDashboardController {
             otherWindowsStatus: this.bridgeStatus,
             todoSearchItems: this.options.getTodoSearchItems(),
             runningCardAnimation: this.options.getRunningCardAnimation(),
+            runningIconAnimation: this.options.getRunningIconAnimation(),
         });
         this.lastPostedSemanticRevision = message.semanticRevision;
         const deliveryGeneration = this.deliveryGeneration;
@@ -217,6 +219,7 @@ export class OpenWorkspaceDashboardController {
             this.aggregate?.semanticRevision || null,
             this.options.getAttentionAggregate()?.aggregateRevision || null,
             this.options.getRunningCardAnimation(),
+            this.options.getRunningIconAnimation(),
             this.options.getGroups(),
             this.options.getTodoSearchItems(),
         ])).digest('hex');

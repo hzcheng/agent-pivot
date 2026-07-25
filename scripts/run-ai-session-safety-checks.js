@@ -12,6 +12,7 @@ const commands = require('../out/aiSessions/commandBuilders');
 const launchSpec = require('../out/aiSessions/launchSpec');
 const helpers = require('../out/aiSessions/sessionHelpers');
 const archiveBatch = require('../out/aiSessions/archiveBatch');
+const aggregateArchive = require('../out/aiSessions/archiveBatchAcrossProviders');
 const activeTerminalHighlight = require('../out/aiSessions/activeTerminalHighlight');
 const lifecycle = require('../out/aiSessions/lifecycle');
 const IncrementalJsonlLifecycleReader = require('../out/aiSessions/incrementalJsonlLifecycleReader').default;
@@ -630,7 +631,7 @@ function runWorkspaceSessionHydrationChecks() {
         getSessionComparableCwd: (providerId, session) => providerId === 'kimi' ? session.workDir : session.cwd,
         getPinnedSessions: () => new Set(),
         getAliases: () => ({}),
-        getActiveProvider: () => 'codex',
+        getProviderSelection: () => ({ primaryProvider: 'codex', selectedProviders: ['codex'] }),
         getExpanded: () => true,
         getActiveRuntimes: () => activeRuntimes,
         getPendingRuntimes: () => pendingRuntimes,
@@ -650,6 +651,8 @@ function runWorkspaceSessionHydrationChecks() {
     assert.strictEqual(readNotifications[0].sessionResults.codex.sessions[0].id, 'api-history');
     assert.strictEqual(result.workspaceScopeIdentity, workspace.scopeIdentity);
     assert.strictEqual(result.workspaceNavigationIdentity, workspace.navigationIdentity);
+    assert.strictEqual(result.activeProvider, 'codex');
+    assert.deepStrictEqual(result.selectedProviders, ['codex']);
     assert.deepStrictEqual(result.sessionsByProvider.codex.map(value => [value.id, value.primaryRootId]), [
         ['api-history', 'root-api'],
         ['web-history', 'root-web'],
@@ -2052,9 +2055,18 @@ async function runAiSessionCommandControllerChecks() {
             navigationIdentity: 'navigation-a',
             roots: [{ id: 'root-a', name: 'A', uri: 'file:///work/a', ordinal: 0 }],
         },
+        sessions: {
+            activeProvider: 'codex',
+            providers: [
+                { id: 'codex', label: 'Codex', count: 2 },
+                { id: 'kimi', label: 'Kimi', count: 1 },
+                { id: 'claude', label: 'Claude', count: 0 },
+            ],
+        },
     };
     const expanded = [];
-    const activeProviders = [];
+    const providerSelections = [];
+    const providerSelectionResults = [];
     const refreshes = [];
     const clipboardWrites = [];
     const infoMessages = [];
@@ -2067,9 +2079,12 @@ async function runAiSessionCommandControllerChecks() {
         getWorkspaceTarget: cardId => cardId === workspaceTarget.cardId ? workspaceTarget : null,
         isProviderId: value => value === 'codex' || value === 'kimi' || value === 'claude',
         setExpanded: async (workspaceScopeIdentity, value) => expanded.push([workspaceScopeIdentity, value]),
-        setActiveProvider: async (workspaceScopeIdentity, providerId) => {
-            activeProviders.push([workspaceScopeIdentity, providerId]);
+        setProviderSelection: async (workspaceScopeIdentity, selection) => {
+            providerSelections.push([workspaceScopeIdentity, selection]);
         },
+        postProviderSelectionResult: async result => providerSelectionResults.push(result),
+        showErrorMessage: message => assert.fail(`unexpected provider selection error: ${message}`),
+        logError: (message, error) => assert.fail(`${message}: ${error}`),
         togglePin: (providerId, sessionId) => {
             pinToggles.push([providerId, sessionId]);
             return pinToggleResult;
@@ -2094,13 +2109,24 @@ async function runAiSessionCommandControllerChecks() {
     await controller.toggleSessionsExpanded('workspace-a', true);
     assert.deepStrictEqual(expanded, [['scope-a', true]]);
 
-    await controller.selectProvider('workspace-a', 'kimi');
-    assert.deepStrictEqual(activeProviders, [['scope-a', 'kimi']]);
+    await controller.selectProviders('workspace-a', ['kimi', 'codex', 'kimi', 'unknown'], 1, 1);
+    assert.deepStrictEqual(providerSelections, [['scope-a', {
+        primaryProvider: 'codex',
+        selectedProviders: ['codex', 'kimi'],
+    }]]);
     assert.strictEqual(refreshes.length, 1);
+    assert.deepStrictEqual(providerSelectionResults, [{
+        type: 'ai-session-provider-selection-result',
+        version: 1,
+        requestId: 1,
+        projectId: 'workspace-a',
+        success: true,
+    }]);
 
-    await controller.selectProvider('missing', 'codex');
-    await controller.selectProvider('workspace-a', 'invalid');
-    assert.strictEqual(activeProviders.length, 1);
+    await controller.selectProviders('missing', ['codex']);
+    await controller.selectProviders('workspace-a', []);
+    await controller.selectProviders('workspace-a', 'codex');
+    assert.strictEqual(providerSelections.length, 1);
 
     await controller.togglePin('codex', 'session-1');
     assert.deepStrictEqual(pinToggles, [['codex', 'session-1']]);
@@ -2419,7 +2445,7 @@ async function runWorkspaceLaunchPreflightControllerChecks() {
         showWarningMessage: message => warnings.push(message),
         isProviderId: value => value === 'codex',
         setExpanded: async () => undefined,
-        setActiveProvider: async () => undefined,
+        setProviderSelection: async () => undefined,
         togglePin: () => false,
         getAliases: () => ({}),
         saveAliases: () => undefined,
@@ -3507,7 +3533,7 @@ async function runWorkspaceCardActionControllerIntegrationChecks() {
         sessions: {
             workspaceScopeIdentity: workspace.scopeIdentity,
             workspaceNavigationIdentity: workspace.navigationIdentity,
-            activeProvider: 'codex', expanded: false,
+            activeProvider: 'codex', selectedProviders: ['codex'], expanded: false,
             providers: [{ id: 'codex', label: 'Codex', count: 1 }],
             sessionsByProvider: { codex: [session] }, unavailableProviders: [],
             aiSessionCount: 1, attentionCount: 0, defaultTab: 'sessions', activeSessions: [{
@@ -3535,16 +3561,22 @@ async function runWorkspaceCardActionControllerIntegrationChecks() {
         isDirectory: () => true,
         isProviderId: value => value === 'codex',
         setExpanded: async (...args) => expandedWrites.push(args),
-        setActiveProvider: async (...args) => providerWrites.push(args),
+        setProviderSelection: async (...args) => providerWrites.push(args),
+        postProviderSelectionResult: async () => undefined,
+        showErrorMessage: message => assert.fail(`unexpected provider selection error: ${message}`),
+        logError: (message, error) => assert.fail(`${message}: ${error}`),
         togglePin: () => false, getAliases: () => ({}), saveAliases: () => undefined,
         getOriginalName: () => null, getSessionKey: () => '', showInputBox: async () => undefined,
         writeClipboard: async () => undefined, showInformationMessage: () => undefined,
         showWarningMessage: () => undefined, refresh: () => undefined,
     });
     await commandController.toggleSessionsExpanded(target.cardId, true);
-    await commandController.selectProvider(target.cardId, 'codex');
+    await commandController.selectProviders(target.cardId, ['codex'], 1, 1);
     assert.deepStrictEqual(expandedWrites, [[workspace.scopeIdentity, true]]);
-    assert.deepStrictEqual(providerWrites, [[workspace.scopeIdentity, 'codex']]);
+    assert.deepStrictEqual(providerWrites, [[workspace.scopeIdentity, {
+        primaryProvider: 'codex',
+        selectedProviders: ['codex'],
+    }]]);
 
     const createRequests = [];
     const creation = new AiSessionCreationController({
@@ -3631,9 +3663,12 @@ async function runWorkspaceCardActionControllerIntegrationChecks() {
         showWarningMessage: () => undefined, showErrorMessage: () => undefined,
         showInformationMessage: () => undefined, appendLine: () => undefined,
         postCompletion: () => undefined, refresh: () => undefined,
-        syncActiveRuntime: () => undefined, logUnexpectedError: error => { throw error; },
+        syncActiveRuntime: () => undefined,
+        logUnexpectedError: (_operation, error) => { throw error; },
     });
-    await archive.archiveSessions(target.cardId, 'codex', [session.id]);
+    await archive.archiveSessions(target.cardId, [
+        { provider: 'codex', sessionId: session.id },
+    ], 1, 1);
     assert.deepStrictEqual(archived, [session.id]);
     archived.length = 0;
 
@@ -4637,6 +4672,59 @@ function runBatchAiSessionArchiveChecks() {
         archiveBatch.formatBatchAiSessionArchiveSummary(success),
         'Archived 1 session.'
     );
+
+    const aggregateSelection = aggregateArchive.resolveAggregateAiSessionArchiveSelection([
+        { provider: 'codex', sessionId: 'same' },
+        { provider: 'claude', sessionId: 'same' },
+        { provider: 'codex', sessionId: 'same' },
+        { provider: 'codex', sessionId: 'active' },
+        { provider: 'kimi', sessionId: 'outside-selection' },
+        { provider: 'unknown', sessionId: 'same' },
+        { provider: 'codex', sessionId: '' },
+    ], {
+        selectedProviders: ['codex', 'claude'],
+        sessionsByProvider: {
+            codex: [{ id: 'same' }, { id: 'active', active: true }],
+            claude: [{ id: 'same', pinned: true }],
+            kimi: [{ id: 'outside-selection' }],
+        },
+    });
+    assert.deepStrictEqual(
+        aggregateSelection.eligible.map(item => [item.provider, item.sessionId]),
+        [['codex', 'same'], ['claude', 'same']]
+    );
+    assert.strictEqual(aggregateSelection.eligible[1].session.pinned, true);
+    assert.strictEqual(aggregateSelection.rejectedCount, 3);
+    assert.strictEqual(aggregateSelection.malformedCount, 1);
+
+    const aggregateOverflow = Array.from(
+        { length: archiveBatch.MAX_BATCH_AI_SESSION_ARCHIVE_REQUEST_ENTRIES + 2 },
+        (_, index) => ({ provider: 'codex', sessionId: `bounded-${index}` })
+    );
+    const boundedAggregate = aggregateArchive.resolveAggregateAiSessionArchiveSelection(
+        aggregateOverflow,
+        {
+            selectedProviders: ['codex'],
+            sessionsByProvider: {
+                codex: aggregateOverflow.map(item => ({ id: item.sessionId })),
+            },
+        }
+    );
+    assert.strictEqual(
+        boundedAggregate.eligible.length,
+        archiveBatch.MAX_BATCH_AI_SESSION_ARCHIVE_REQUEST_ENTRIES
+    );
+    assert.strictEqual(boundedAggregate.malformedCount, 2);
+    assert.strictEqual(
+        aggregateArchive.resolveAggregateAiSessionArchiveSelection(
+            [{
+                provider: 'codex',
+                sessionId: 'x'.repeat(archiveBatch.MAX_BATCH_AI_SESSION_ID_LENGTH + 1),
+            }],
+            { selectedProviders: ['codex'], sessionsByProvider: { codex: [] } }
+        ).malformedCount,
+        1
+    );
 }
 
 async function runBatchAiSessionArchiveHostChecks() {
@@ -4801,7 +4889,8 @@ function runWebviewContentChecks() {
     const singleArchiveFunction = extractMethodBody(archiveControllerSource, 'archiveSession');
     const batchArchiveFunction = extractMethodBody(archiveControllerSource, 'archiveSessions');
     const archiveItemFunction = extractMethodBody(archiveControllerSource, 'archiveSessionItem');
-    const batchArchiveLogFunction = extractMethodBody(archiveControllerSource, 'logBatchAiSessionArchiveResult');
+    const aggregateArchiveLogFunction = extractMethodBody(archiveControllerSource, 'logAggregateAiSessionArchiveResult');
+    const aggregateArchiveItemLogFunction = extractMethodBody(archiveControllerSource, 'formatAggregateAiSessionItemForLog');
     const projectWindowColorService = fs.readFileSync(path.join(__dirname, '..', 'src', 'services', 'projectWindowColorService.ts'), 'utf8');
     const packageJson = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
     const settingsFunction = extractFunctionBody(dashboard, 'showProjectStewardSettings');
@@ -4890,10 +4979,18 @@ function runWebviewContentChecks() {
                 backend: 'vscode', attached: true,
             },
         ],
-    });
+    }, { runningIconAnimation: 'sharingan-madara-eternal' });
     assert.ok(sessionTabsHtml.includes('class="ai-session-module-header"'));
     assert.ok(sessionTabsHtml.includes('data-action="create-ai-session"'));
     assert.ok(!sessionTabsHtml.includes('data-action="create-ai-session" data-provider='));
+    assert.ok(sessionTabsHtml.includes('data-selected-ai-session-providers="codex"'));
+    assert.ok(sessionTabsHtml.includes('data-active-ai-session-provider="codex"'));
+    assert.ok(sessionTabsHtml.includes('data-ai-provider-menu-trigger'));
+    assert.ok(sessionTabsHtml.includes('data-ai-provider-menu'));
+    assert.ok(sessionTabsHtml.includes('data-ai-provider-option data-provider="codex"'));
+    assert.ok(sessionTabsHtml.includes('class="ai-session-provider-badge"'));
+    assert.ok(webviewContent.includes('class="ai-session-pinned-heading"'));
+    assert.ok(!sessionTabsHtml.includes('ai-session-provider-section'));
     const workspaceHtml = webviewContentModule.getCurrentWorkspaceGroupContent({
         id: 'workspace-a', kind: 'current', navigationIdentity: 'navigation-a', scopeIdentity: 'scope-a',
         name: 'Workspace A', environment: 'local', environmentLabel: 'Local', attentionCount: 0,
@@ -4956,6 +5053,15 @@ function runWebviewContentChecks() {
     const activeRows = Array.from(sessionTabsHtml.matchAll(
         /<div class="codex-session-row active-ai-session-row"[\s\S]*?<\/div>/g
     ), match => match[0]);
+    const runningRows = activeRows.filter(row => row.includes('data-execution-state="running"'));
+    const stoppedOrStartingRows = activeRows.filter(row =>
+        row.includes('data-execution-state="stopped"') || row.includes('data-execution-state="starting"')
+    );
+    assert.strictEqual(runningRows.length, 2, 'the fixture must render two running Active Session rows');
+    assert.ok(runningRows.every(row => row.includes('data-session-icon-fx="sharingan-madara-eternal"')),
+        'running Active Session rows must expose the configured icon effect');
+    assert.ok(stoppedOrStartingRows.every(row => !row.includes('data-session-icon-fx')),
+        'stopped and starting Active Session rows must not expose an icon effect');
     const attentionRows = activeRows.filter(row => row.includes('data-session-needs-attention'));
     assert.strictEqual(attentionRows.length, 1, 'the fixture must render one attention Active Session row');
     assert.ok(attentionRows[0].includes(
@@ -5178,6 +5284,10 @@ function runWebviewContentChecks() {
         'archive confirmation must rescan every runtime backend so a newly external tmux runtime cannot be missed'
     );
     assert.ok(dashboard.includes('await aiSessionArchiveController.archiveSessions('));
+    assert.match(
+        dashboard,
+        /archiveSessions\(\s*e\.projectId,\s*e\.items,\s*e\.requestId,\s*e\.version\s*\)/
+    );
     assert.ok(dashboard.includes('await aiSessionArchiveController.archiveSession('));
     assert.match(dashboard, /archiveSession\(\s*e\.projectId as string,\s*providerId as AiSessionProviderId \| null,\s*e\.sessionId as string\s*\)/);
     assert.ok(!dashboard.includes('async function archiveAiSession('));
@@ -5186,14 +5296,19 @@ function runWebviewContentChecks() {
     assert.ok(!dashboard.includes('function logRejectedBatchAiSessionSelections('));
     assert.ok(!dashboard.includes('function logBatchAiSessionArchiveResult('));
     assert.ok(singleArchiveFunction.includes('this.archiveSessionItem(providerId, sessionId)'));
-    assert.ok(batchArchiveFunction.includes('executeBatchAiSessionArchiveRequest('));
+    assert.ok(batchArchiveFunction.includes('resolveAggregateAiSessionArchiveSelection('));
+    assert.ok(batchArchiveFunction.includes('this.archiveSessionItem(item.provider, item.sessionId)'));
     assert.strictEqual((singleArchiveFunction.match(/syncActiveRuntime\(\)/g) || []).length, 1);
     assert.strictEqual((batchArchiveFunction.match(/syncActiveRuntime\(\)/g) || []).length, 1);
     assert.ok(!archiveItemFunction.includes('activeAiSessionTerminalHighlighter.sync()'));
     assert.ok(!archiveItemFunction.includes('refreshAiSessionViewsIncrementally()'));
     assert.ok(!archiveItemFunction.includes('invalidateAiSessionCache('));
     assert.ok(archiveItemFunction.includes('archiveBatchAiSessionItem('));
-    assert.strictEqual((batchArchiveLogFunction.match(/formatBatchAiSessionIdForLog\(sessionId\)/g) || []).length, 3);
+    assert.ok(aggregateArchiveLogFunction.includes('this.formatAggregateAiSessionItemForLog(item)'));
+    assert.strictEqual(
+        (aggregateArchiveItemLogFunction.match(/formatBatchAiSessionIdForLog\(item\.sessionId\)/g) || []).length,
+        1
+    );
     assert.ok(webviewContent.includes('.settings-button,'));
     assert.ok(styles.includes('max-width: calc(100% - 76px);'));
     assert.ok(styles.includes('margin-left: 4px;'));
@@ -5261,6 +5376,7 @@ function runWebviewContentChecks() {
         'steward-session-running-sweep',
         'steward-session-running-orbit',
         'steward-session-running-halo',
+        'steward-session-running-sharingan',
         'steward-session-running-ripple',
         'steward-session-running-breath',
     ]) {
@@ -5274,10 +5390,16 @@ function runWebviewContentChecks() {
     const reducedMotionStyles = styles.slice(styles.indexOf('@media (prefers-reduced-motion: reduce)'));
     assert.ok(reducedMotionStyles.includes('.project-session-fx'));
     assert.ok(reducedMotionStyles.includes('.project.session-running[data-session-fx="breath"]'));
+    assert.ok(reducedMotionStyles.includes('data-session-fx^="sharingan-"'));
     assert.ok(reducedMotionStyles.includes('animation: none !important'));
-    assert.ok(styles.includes('[data-execution-state="running"] .codex-session-icon'));
+    assert.ok(styles.includes('.active-ai-session-row[data-execution-state="running"][data-session-icon-fx="current"] .codex-session-icon'));
+    assert.ok(styles.includes('.active-ai-session-row[data-execution-state="running"][data-session-icon-fx="halo"] .codex-session-icon'));
+    assert.ok(styles.includes('.active-ai-session-row[data-execution-state="running"][data-session-icon-fx^="sharingan-"] .codex-session-icon'));
+    assert.ok(!styles.includes('.codex-session-row[data-execution-state="running"] .codex-session-icon'));
     assert.ok(styles.includes('@keyframes steward-session-icon-spin'));
-    assert.ok(compiledStyles.includes('[data-execution-state=running] .codex-session-icon::before'));
+    assert.ok(compiledStyles.includes('.active-ai-session-row[data-execution-state=running][data-session-icon-fx=current] .codex-session-icon::before'));
+    assert.ok(compiledStyles.includes('.active-ai-session-row[data-execution-state=running][data-session-icon-fx=halo] .codex-session-icon::before'));
+    assert.ok(compiledStyles.includes('.active-ai-session-row[data-execution-state=running][data-session-icon-fx^=sharingan-] .codex-session-icon::after'));
     assert.ok(compiledStyles.includes('@keyframes steward-session-icon-spin'));
     assert.ok(styles.includes('[data-ai-session-managing]'));
     assert.ok(styles.includes('grid-template-columns: minmax(0, 1fr) 24px;'));
@@ -5299,12 +5421,55 @@ function runWebviewContentChecks() {
         packageJson.contributes.configuration.properties['projectSteward.aiSessionTerminalMode'].enum,
         ['vscode', 'tmux']
     );
-    assert.deepStrictEqual(
-        packageJson.contributes.configuration.properties[
-            'projectSteward.aiSessionRunningCardAnimation'
-        ].enum,
-        ['current', 'sweep', 'orbit', 'halo', 'ripple', 'breath', 'none']
+    const runningAnimation = packageJson.contributes.configuration.properties[
+        'projectSteward.aiSessionRunningCardAnimation'
+    ];
+    assert.deepStrictEqual(runningAnimation.enum, [
+        'current',
+        'sweep',
+        'orbit',
+        'halo',
+        'sharingan-itachi',
+        'sharingan-obito-kakashi',
+        'sharingan-sasuke',
+        'sharingan-shisui',
+        'sharingan-madara',
+        'sharingan-madara-eternal',
+        'ripple',
+        'breath',
+        'none',
+    ]);
+    assert.deepStrictEqual(runningAnimation.enumDescriptions.slice(4, 10), [
+        "Itachi Uchiha's Mangekyo Sharingan replaces and rotates over the project kind icon.",
+        "Obito Uchiha and Kakashi Hatake's Mangekyo Sharingan replaces and rotates over the project kind icon.",
+        "Sasuke Uchiha's Mangekyo Sharingan replaces and rotates over the project kind icon.",
+        "Shisui Uchiha's Mangekyo Sharingan replaces and rotates over the project kind icon.",
+        "Madara Uchiha's Mangekyo Sharingan replaces and rotates over the project kind icon.",
+        "Madara Uchiha's Eternal Mangekyo Sharingan replaces and rotates over the project kind icon.",
+    ]);
+    assert.strictEqual(
+        runningAnimation.description,
+        'Animation shown on a workspace card while one or more AI sessions are executing. '
+            + 'OTHER WINDOWS uses only its existing aggregate running state and does not '
+            + 'expose provider or session identities.',
     );
+    const runningIconAnimation = packageJson.contributes.configuration.properties[
+        'projectSteward.aiSessionRunningIconAnimation'
+    ];
+    assert.deepStrictEqual(runningIconAnimation.enum, [
+        'current',
+        'halo',
+        'sharingan-itachi',
+        'sharingan-obito-kakashi',
+        'sharingan-sasuke',
+        'sharingan-shisui',
+        'sharingan-madara',
+        'sharingan-madara-eternal',
+        'none',
+    ]);
+    assert.strictEqual(runningIconAnimation.default, 'current');
+    assert.strictEqual(runningIconAnimation.scope, 'machine');
+    assert.strictEqual(runningIconAnimation.enumDescriptions.length, 9);
     assert.ok(!fs.existsSync(path.join(__dirname, '..', 'src', 'aiSessions', 'projectHydrationController.ts')));
     assert.ok(!fs.existsSync(path.join(__dirname, '..', 'src', 'aiSessions', 'projectHydration.ts')));
     assert.ok(!fs.existsSync(path.join(__dirname, '..', 'src', 'aiSessions', 'activeSessionProjection.ts')));
@@ -5326,7 +5491,7 @@ function runWebviewContentChecks() {
     assert.ok(dashboard.includes('aiSessionWorkspaceStateStore.getExpandedWorkspaces()'));
     assert.ok(dashboard.includes('aiSessionWorkspaceStateStore.setExpanded('));
     assert.ok(dashboard.includes('aiSessionWorkspaceStateStore.getActiveProviders()'));
-    assert.ok(dashboard.includes('aiSessionWorkspaceStateStore.setActiveProvider('));
+    assert.ok(dashboard.includes('aiSessionWorkspaceStateStore.setProviderSelection('));
     assert.ok(!dashboard.includes('async function toggleCodexSessions('));
     assert.ok(!dashboard.includes('async function selectAiSessionProvider('));
     assert.ok(!dashboard.includes('async function toggleAiSessionPin('));
@@ -5336,7 +5501,7 @@ function runWebviewContentChecks() {
     assert.ok(!dashboard.includes('async function queryNewAiSessionFields('));
     assert.ok(!dashboard.includes('async function createProviderAiSession('));
     assert.ok(dashboard.includes('await aiSessionCommandController.toggleSessionsExpanded('));
-    assert.ok(dashboard.includes('await aiSessionCommandController.selectProvider('));
+    assert.ok(dashboard.includes('await aiSessionCommandController.selectProviders('));
     assert.ok(dashboard.includes('await aiSessionCommandController.togglePin('));
     assert.ok(dashboard.includes('await aiSessionCommandController.renameSession('));
     assert.ok(dashboard.includes('await aiSessionCommandController.copySessionId('));
@@ -5446,7 +5611,7 @@ function runTmuxSmokeHarnessSafetyChecks() {
 
 function runCurrentWorkspaceRenderingChecks() {
     const config = {
-        get: (key, defaultValue) => key === 'aiSessionRunningCardAnimation' ? 'breath' : defaultValue,
+        get: (key, defaultValue) => key === 'aiSessionRunningCardAnimation' ? 'sharingan-madara' : defaultValue,
         displayProjectPath: false,
         searchIsActiveByDefault: false,
         showAddGroupButtonTile: false,
@@ -5554,7 +5719,7 @@ function runCurrentWorkspaceRenderingChecks() {
     assert.ok(currentTags[0].includes('data-current-workspace'));
     assert.ok(currentTags[0].includes('data-workspace-card-kind="current"'));
     assert.ok(currentTags[0].includes('session-running'));
-    assert.ok(currentTags[0].includes('data-session-fx="breath"'),
+    assert.ok(currentTags[0].includes('data-session-fx="sharingan-madara"'),
         'the full Webview render must use the configured running animation');
     assert.ok(html.includes('title="Workspace — 1 active session running"'));
     assert.strictEqual((html.match(/class="project-session-fx"/g) || []).length, 1);
@@ -5975,6 +6140,13 @@ function runBatchAiSessionWebviewChecks() {
         let rows = [];
         let replacementRows = null;
         const sessionSection = {};
+        const sessionRegion = {
+            getAttribute: attribute => attribute === 'data-active-ai-session-provider'
+                ? provider
+                : attribute === 'data-selected-ai-session-providers'
+                    ? provider
+                    : null,
+        };
         Object.defineProperty(sessionSection, 'outerHTML', {
             set: () => {
                 if (replacementRows) {
@@ -6021,9 +6193,7 @@ function runBatchAiSessionWebviewChecks() {
                 }
             },
             querySelector: selector => {
-                if (selector === 'select[data-action="select-ai-provider"]') {
-                    return { value: provider };
-                }
+                if (selector === '[data-ai-session-region]') return sessionRegion;
                 if (selector === '[data-action="archive-selected-ai-sessions"]') {
                     return batchButtons.find(button => button.action === 'archive-selected-ai-sessions');
                 }
@@ -6626,26 +6796,44 @@ function runBatchAiSessionWebviewChecks() {
     assert.strictEqual(activeRow.hasAttribute('data-ai-session-active-terminal'), true);
 
     const manager = context.window.__projectStewardBatchAiSessions;
-    manager.enter('project-a', 'codex');
-    manager.toggle('plain', false);
+    manager.enter('project-a');
+    manager.toggle('codex', 'plain');
     manager.selectUnpinned([
-        { id: 'plain', pinned: false },
-        { id: 'pinned', pinned: true },
-        { id: 'second', pinned: false },
-        { id: 'active', pinned: false, active: true },
+        { provider: 'codex', id: 'plain', pinned: false },
+        { provider: 'codex', id: 'pinned', pinned: true },
+        { provider: 'claude', id: 'plain', pinned: false },
+        { provider: 'claude', id: 'active', pinned: false, active: true },
     ]);
     assert.deepStrictEqual(JSON.parse(JSON.stringify(manager.snapshot())), {
-        projectId: 'project-a', provider: 'codex', selectedIds: ['plain', 'second'], pending: false,
+        projectId: 'project-a',
+        selectedItems: [
+            { provider: 'codex', sessionId: 'plain' },
+            { provider: 'claude', sessionId: 'plain' },
+        ],
+        pending: false,
     });
 
-    manager.toggle('pinned', true);
-    manager.reconcile('project-a', 'codex', ['pinned', 'second']);
-    assert.deepStrictEqual(Array.from(manager.snapshot().selectedIds), ['pinned', 'second']);
+    manager.toggle('codex', 'pinned');
+    manager.toggle('claude', 'active', true);
+    manager.reconcile('project-a', [
+        { provider: 'codex', sessionId: 'pinned' },
+        { provider: 'claude', sessionId: 'plain' },
+    ]);
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(manager.snapshot().selectedItems)), [
+        { provider: 'codex', sessionId: 'pinned' },
+        { provider: 'claude', sessionId: 'plain' },
+    ]);
 
     manager.submit();
     assert.deepStrictEqual(JSON.parse(JSON.stringify(messages.pop())), {
-        type: 'archive-ai-sessions', projectId: 'project-a', provider: 'codex',
-        sessionIds: ['pinned', 'second'],
+        type: 'archive-ai-sessions',
+        version: 1,
+        requestId: 1,
+        projectId: 'project-a',
+        items: [
+            { provider: 'codex', sessionId: 'pinned' },
+            { provider: 'claude', sessionId: 'plain' },
+        ],
     });
     assert.strictEqual(manager.snapshot().pending, true);
     const archiveProjectA = {
@@ -6660,7 +6848,7 @@ function runBatchAiSessionWebviewChecks() {
     assert.strictEqual(projectA.manageButton.disabled, true);
 
     const pendingSnapshot = JSON.parse(JSON.stringify(manager.snapshot()));
-    manager.enter('project-b', 'kimi');
+    manager.enter('project-b');
     assert.deepStrictEqual(JSON.parse(JSON.stringify(manager.snapshot())), pendingSnapshot);
     manager.submit();
     assert.strictEqual(messages.length, 0);
@@ -6689,26 +6877,57 @@ function runBatchAiSessionWebviewChecks() {
 
     windowEventListeners.message({ data: {
         type: 'ai-session-batch-archive-completed',
+        version: 1,
+        requestId: 1,
         projectId: 'project-a',
-        provider: 'codex',
         status: 'cancelled',
     } });
     assert.strictEqual(manager.snapshot().pending, false);
-    assert.deepStrictEqual(Array.from(manager.snapshot().selectedIds), ['pinned', 'second']);
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(manager.snapshot().selectedItems)), [
+        { provider: 'codex', sessionId: 'pinned' },
+        { provider: 'claude', sessionId: 'plain' },
+    ]);
     assert.ok(projectA.batchButtons.every(button => !button.disabled));
     assert.strictEqual(projectA.manageButton.disabled, false);
 
     manager.submit();
-    manager.toggle('plain');
+    manager.toggle('codex', 'plain');
     manager.clear();
-    manager.selectUnpinned([{ id: 'plain', pinned: false }]);
+    manager.selectUnpinned([{ provider: 'codex', id: 'plain', pinned: false }]);
     assert.strictEqual(manager.snapshot().pending, true);
-    assert.deepStrictEqual(Array.from(manager.snapshot().selectedIds), ['pinned', 'second']);
-    manager.complete('rejected');
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(manager.snapshot().selectedItems)), [
+        { provider: 'codex', sessionId: 'pinned' },
+        { provider: 'claude', sessionId: 'plain' },
+    ]);
+    manager.complete({
+        type: 'ai-session-batch-archive-completed',
+        version: 1,
+        requestId: 1,
+        projectId: 'project-a',
+        status: 'finished',
+    });
+    assert.strictEqual(manager.snapshot().pending, true);
+    manager.complete({
+        type: 'ai-session-batch-archive-completed',
+        version: 1,
+        requestId: 2,
+        projectId: 'project-a',
+        status: 'rejected',
+    });
     assert.strictEqual(manager.snapshot().pending, false);
-    assert.deepStrictEqual(Array.from(manager.snapshot().selectedIds), ['pinned', 'second']);
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(manager.snapshot().selectedItems)), [
+        { provider: 'codex', sessionId: 'pinned' },
+        { provider: 'claude', sessionId: 'plain' },
+    ]);
 
-    manager.complete('finished');
+    manager.submit();
+    manager.complete({
+        type: 'ai-session-batch-archive-completed',
+        version: 1,
+        requestId: 3,
+        projectId: 'project-a',
+        status: 'finished',
+    });
     assert.strictEqual(manager.snapshot().projectId, null);
 
     const manageProjectA = {
@@ -6731,12 +6950,13 @@ function runBatchAiSessionWebviewChecks() {
     assert.strictEqual(manager.snapshot().projectId, null);
     assert.strictEqual(projectA.manageButton.ariaPressed, 'false');
 
-    const providerChange = extractFunctionBody(source, 'selectAiSessionProvider');
+    const providerChange = extractFunctionBody(source, 'submitAiSessionProviderSelection');
     const providerExitIndex = providerChange.indexOf('exitAiSessionBatchManagement()');
-    const providerMessageIndex = providerChange.indexOf("type: 'select-ai-session-provider'");
+    const providerMessageIndex = providerChange.indexOf("type: 'select-ai-session-providers'");
     assert.notStrictEqual(providerExitIndex, -1);
     assert.notStrictEqual(providerMessageIndex, -1);
     assert.ok(providerExitIndex < providerMessageIndex);
+    assert.ok(providerChange.includes('selectedProviders: providers'));
     const projectCollapse = extractFunctionBody(source, 'toggleCodexSessions');
     const collapseExitIndex = projectCollapse.indexOf('exitAiSessionBatchManagement()');
     const collapseToggleIndex = projectCollapse.indexOf('toggleAttribute("data-codex-expanded", expanded)');
@@ -6815,7 +7035,7 @@ function runAiSessionIncrementalRefreshSourceChecks() {
     assert.ok(workspaceHydrationSource.includes('getWorkspaceAiSessionCandidatePaths(workspace)'));
     assert.ok(workspaceHydrationSource.includes('this.options.readCoordinator.getResults({ candidatePaths, reason, maxFiles })'));
     assert.ok(workspaceHydrationSource.includes('hydrateWorkspaceAiSessions({'));
-    assert.ok(workspaceHydrationSource.includes('activeProvider: this.options.getActiveProvider(workspace.scopeIdentity)'));
+    assert.ok(workspaceHydrationSource.includes('providerSelection: this.options.getProviderSelection(workspace.scopeIdentity)'));
     assert.ok(workspaceHydrationSource.includes('expanded: this.options.getExpanded(workspace.scopeIdentity)'));
 
     assert.ok(projectCandidatesSource.includes("from '../workspaces/sessionHydration'"));
@@ -6950,6 +7170,7 @@ function runAiSessionDashboardControllerChecks() {
         getTodoSearchItems: () => TODO_SEARCH_ITEMS,
         getCards: () => [],
         getRunningCardAnimation: () => 'halo',
+        getRunningIconAnimation: () => undefined,
         nextSequence: () => 1,
         postMessage: message => {
             messages.push(message);
@@ -7013,6 +7234,7 @@ function runAiSessionDashboardWatcherCoalescingChecks() {
         getTodoSearchItems: () => TODO_SEARCH_ITEMS,
         getCards: () => [],
         getRunningCardAnimation: () => 'ripple',
+        getRunningIconAnimation: () => undefined,
         nextSequence: () => messages.length + 1,
         postMessage: message => {
             messages.push(message);
@@ -7060,7 +7282,8 @@ async function runAiSessionDashboardUnchangedMessageSkipChecks() {
     const messages = [];
     const diagnostics = [];
     let sessionName = 'Codex One';
-    let runningCardAnimation = 'halo';
+    let runningCardAnimation = 'sharingan-itachi';
+    let runningIconAnimation = 'sharingan-madara';
     const workspace = () => ({
         id: 'workspace-a',
         kind: 'current',
@@ -7102,6 +7325,7 @@ async function runAiSessionDashboardUnchangedMessageSkipChecks() {
         getTodoSearchItems: () => TODO_SEARCH_ITEMS,
         getCards: () => [workspace()],
         getRunningCardAnimation: () => runningCardAnimation,
+        getRunningIconAnimation: () => runningIconAnimation,
         nextSequence: () => messages.length + 1,
         postMessage: message => {
             messages.push(message);
@@ -7122,15 +7346,17 @@ async function runAiSessionDashboardUnchangedMessageSkipChecks() {
     await controller.refreshNow('watcher');
     await controller.refreshNow('watcher');
     assert.strictEqual(messages.length, 1, 'unchanged watcher messages should not be posted twice');
-    assert.ok(messages[0].html.includes('data-session-fx="halo"'),
-        'AI session controller updates must use the configured running animation');
+    assert.ok(messages[0].html.includes('data-session-fx="sharingan-itachi"'),
+        'AI session controller updates must preserve the independent running card animation');
+    assert.ok(messages[0].html.includes('data-session-icon-fx="sharingan-madara"'),
+        'AI session controller updates must use the configured running icon animation');
     assert.strictEqual(diagnostics.some(event => event.event === 'ai-session-message-skip' && event.reason === 'watcher'), true);
 
-    runningCardAnimation = 'orbit';
+    runningIconAnimation = 'sharingan-madara-eternal';
     await controller.refreshNow('watcher');
     assert.strictEqual(messages.length, 2,
-        'changing only the running animation must not be suppressed by incremental message dedupe');
-    assert.ok(messages[1].html.includes('data-session-fx="orbit"'));
+        'changing only the running icon animation must not be suppressed by incremental message dedupe');
+    assert.ok(messages[1].html.includes('data-session-icon-fx="sharingan-madara-eternal"'));
 
     sessionName = 'Codex Two';
     await controller.refreshNow('watcher');

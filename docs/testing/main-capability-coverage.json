@@ -2,8 +2,13 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "2fcfb60b427f037c0e6427c2dcfc93ce8f34f0bc",
-        "ignoredDocumentationCommits": []
+        "head": "d80ae0dbd5bdc362216c9f5614b887f6a43b8373",
+        "ignoredDocumentationCommits": [
+            "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
+            "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
+            "f762285e06f13c198e3cc7156097050c575da619",
+            "3d9733c505dad40cd332e277603c8f4b662aad0c"
+        ]
     },
     "capabilities": [
         {
@@ -179,7 +184,7 @@
         {
             "id": "MAIN-WORKSPACE-WEBVIEW",
             "title": "Workspace card webview behavior",
-            "requirement": "Workspace cards retain their markup, layout, click targets, responsive containment, and running-state animations.",
+            "requirement": "Workspace cards retain their markup, layout, click targets, responsive containment, and running-state animations, including character-specific Sharingan running indicators.",
             "commits": [
                 "d97793431d296cb625d6fd93bceb1fb27c502465",
                 "e96db2c7fa49c33e1237a50e821dec95b71fdd4d",
@@ -195,11 +200,21 @@
                 "c11f28c83cd6ceaba804eb9b2d03a19674e16ba0",
                 "d632069fea58b3602c9a25676590f5e5936cf6f0",
                 "be6f937a385f3da27faab3293c30efeeb31f5580",
-                "fef633201c415628fd61668641804e343c082c68"
+                "fef633201c415628fd61668641804e343c082c68",
+                "1bf2636d88e9715d3a6f5e769d1997c56f692b28",
+                "2cbf8013c6fcfde70f4e24bcd8887707ea0cc961",
+                "fe6c084fed2c8ffdeab4f902de2ffaf761b4e3fa",
+                "6ecef7dafbe23279270944708fbabe57b8f70a62",
+                "d58a88f8ba490cc3c31651fc27fe0c587b8965c9",
+                "ed456da6b0979899eb2228da7d72fd6f64ed4382"
             ],
             "behaviors": [
                 "WEBVIEW-CURRENT-WORKSPACE-RENDERING-001",
-                "WEBVIEW-SHARED-CARD-STATE-001"
+                "WEBVIEW-SHARED-CARD-STATE-001",
+                "SHARINGAN-RUNNING-ANIMATION-001",
+                "SHARINGAN-ASSET-INTEGRITY-001",
+                "SHARINGAN-ASSET-INTEGRITY-002",
+                "SHARINGAN-ASSET-ATTRIBUTION-001"
             ],
             "prGates": [
                 "test:deterministic:run"
@@ -339,7 +354,9 @@
                 "88d366ce6292a66ec39c5980d1875bbe5c16d6a1",
                 "1ae927aef9cde0e5a6c9e067dd9de3f8477aceea",
                 "a17c97bc68f44b67a827637788f908e11f5611ed",
-                "2fcfb60b427f037c0e6427c2dcfc93ce8f34f0bc"
+                "2fcfb60b427f037c0e6427c2dcfc93ce8f34f0bc",
+                "9b00110b3b08464c11b552330b54be764180bf45",
+                "b142ac70a044d81230a29b4e1cc8cb658cfad1fa"
             ],
             "behaviors": [
                 "RELEASE-VSIX-PACKAGING-001",
@@ -555,7 +572,23 @@
                 "9a344806a1846d2c1e6996a93dafa0e18f97492a",
                 "71fc7e40c24515b4a3616ef1b5d4d790647c93b2",
                 "e942284864c939c8ee65d74a6581aebd193b5ecf",
-                "dfb81f1fa68651407fe1f7d3958a67688478d301"
+                "dfb81f1fa68651407fe1f7d3958a67688478d301",
+                "6c8e5a28f8f3205f52eaee21e51b3091a71590d5",
+                "5c9a6677a5993e4eea57617662ccf29dbf8d7295",
+                "a3ba259920cfc5ccf420aaf86f112e30a76c0921",
+                "3b86a429fd29edbcc076db2a5e02e7a46bdd5cc1",
+                "990c2ef58ed185ecfa50ebc213ef7c5f44c1d807",
+                "7f6e57ee3d4f30b4f09c810e0dfd9fdc046e84ed",
+                "df83938dc99878d977e91934a1fe2458e669c93d",
+                "e893a8d0b23be53089103d9295a9492f03a3bafe",
+                "019cb942ab50bb9fa175bdfbceb27fd293849633",
+                "3ba62d3ac1ba240558dd8533efa9865309c67d65",
+                "12d8104251fefa8438fff6b3a9d9bd1de814618c",
+                "b6ea24adadfa6db91dccfe508ffe9caf84ffc948",
+                "b61e031d86fb859ae7e2a7d0176dbae5a253b01e",
+                "90302c5c0a9e8794174955368d72307c2303abd1",
+                "883616d8f0cd5edad7eca71553afedcbee560604",
+                "d80ae0dbd5bdc362216c9f5614b887f6a43b8373"
             ],
             "behaviors": [
                 "RUNTIME-TMUX-BACKEND-001",
@@ -563,7 +596,10 @@
                 "RUNTIME-TMUX-DISCOVERY-001",
                 "SESSION-AI-SESSION-TERMINAL-COMMAND-CONTROLLER-001",
                 "SESSION-ALIAS-THREAD-SWITCH-001",
-                "WEBVIEW-AI-SESSION-CARD-ACTIVATION-001"
+                "WEBVIEW-AI-SESSION-CARD-ACTIVATION-001",
+                "ACTIVE-SESSION-ICON-ANIMATION-001",
+                "WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-001",
+                "PERSIST-MULTI-PROVIDER-BATCH-ARCHIVE-001"
             ],
             "prGates": [
                 "test:ci:linux"

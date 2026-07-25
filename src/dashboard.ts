@@ -516,7 +516,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             getProviderAiSessionComparableCwd(providerId, session, aiSessionProviders),
         getPinnedSessions: () => aiSessionPinController.getAll(),
         getAliases: () => aiSessionAliasController.getAll(),
-        getActiveProvider: scopeIdentity => aiSessionWorkspaceStateStore.getActiveProviders()[scopeIdentity],
+        getProviderSelection: scopeIdentity => {
+            const stored = aiSessionWorkspaceStateStore.getProviderSelections()[scopeIdentity];
+            if (stored) {
+                return stored;
+            }
+            const legacy = aiSessionWorkspaceStateStore.getActiveProviders()[scopeIdentity];
+            return legacy
+                ? { primaryProvider: legacy, selectedProviders: [legacy] }
+                : undefined;
+        },
         getExpanded: scopeIdentity => aiSessionWorkspaceStateStore.getExpandedWorkspaces().has(scopeIdentity),
         getActiveRuntimes: () => aiSessionRuntimeCoordinator.getActive(),
         getPendingRuntimes: () => aiSessionRuntimeCoordinator.getPending(),
@@ -583,7 +592,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         showWarningMessage: message => vscode.window.showWarningMessage(message),
         isProviderId: isAiSessionProviderId,
         setExpanded: (workspaceScopeIdentity, expanded) => aiSessionWorkspaceStateStore.setExpanded(workspaceScopeIdentity, expanded),
-        setActiveProvider: (workspaceScopeIdentity, providerId) => aiSessionWorkspaceStateStore.setActiveProvider(workspaceScopeIdentity, providerId),
+        setProviderSelection: (workspaceScopeIdentity, selection) =>
+            aiSessionWorkspaceStateStore.setProviderSelection(workspaceScopeIdentity, selection),
+        postProviderSelectionResult: result => provider.postMessage(result),
+        showErrorMessage: message => vscode.window.showErrorMessage(message),
+        logError,
         togglePin: (providerId, sessionId) => aiSessionPinController.toggle(providerId, sessionId),
         getAliases: () => aiSessionAliasController.getAll(),
         saveAliases: aliases => aiSessionAliasController.saveAll(aliases),
@@ -992,6 +1005,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         getCards: getOpenWorkspaceCards,
         getRunningCardAnimation: () => getStewardConfiguration()
             .get<string>('aiSessionRunningCardAnimation', 'current'),
+        getRunningIconAnimation: () => getStewardConfiguration()
+            .get<string>('aiSessionRunningIconAnimation', 'current'),
         nextSequence: () => ++aiSessionUpdateSequence,
         postMessage: message => provider.postMessage(message),
         refresh: refreshStewardViews,
@@ -1240,8 +1255,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             'toggle-codex-sessions': async e => {
                 await aiSessionCommandController.toggleSessionsExpanded(e.projectId as string, Boolean(e.expanded));
             },
-            'select-ai-session-provider': async e => {
-                await aiSessionCommandController.selectProvider(e.projectId as string, e.provider as string);
+            'select-ai-session-providers': async e => {
+                await aiSessionCommandController.selectProviders(
+                    e.projectId as string,
+                    e.selectedProviders,
+                    e.requestId,
+                    e.version
+                );
             },
             'focus-ai-session-terminal': async e => {
                 await aiSessionTerminalCommandController.focusActive(
@@ -1333,9 +1353,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             },
             'archive-ai-sessions': async e => {
                 await aiSessionArchiveController.archiveSessions(
-                    e.projectId as string,
-                    e.provider as string,
-                    e.sessionIds
+                    e.projectId,
+                    e.items,
+                    e.requestId,
+                    e.version
                 );
             },
             'edit-group': async e => {
@@ -1443,6 +1464,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         getCollapsed: () => Boolean(groupCollapseController.getOpenWorkspacesCollapsed()),
         getRunningCardAnimation: () => getStewardConfiguration()
             .get<string>('aiSessionRunningCardAnimation', 'current'),
+        getRunningIconAnimation: () => getStewardConfiguration()
+            .get<string>('aiSessionRunningIconAnimation', 'current'),
         getAttentionAggregate: () => aiSessionAttentionController.getEffectiveAggregate(),
         getBridgeInstanceId: () => openWorkspaceBridgeClient.instanceId,
         postMessage: message => provider.postMessage(message),

@@ -15,7 +15,13 @@ import {
 import type { ActiveEditorUri } from '../workspaces/sessionScope';
 import type { OpenWorkspace } from '../workspaces/types';
 import { sanitizeAiSessionAlias } from './aliasStore';
-import type { AiSessionDirectoryScope, WorkspaceAiSessionActionTarget } from './types';
+import { normalizeAiSessionProviderSelection } from './providerSelection';
+import type { AiSessionProviderSelection } from './providerSelection';
+import type {
+    AiSessionDirectoryScope,
+    AiSessionProviderSelectionResultMessage,
+    WorkspaceAiSessionActionTarget,
+} from './types';
 
 export type AiSessionWorkspaceLaunchAction = 'create' | 'resume';
 
@@ -151,7 +157,15 @@ export interface AiSessionCommandControllerOptions {
     showWarningMessage?: (message: string) => unknown;
     isProviderId: (value: string) => value is AiSessionProviderId;
     setExpanded: (workspaceScopeIdentity: string, expanded: boolean) => Thenable<unknown>;
-    setActiveProvider: (workspaceScopeIdentity: string, providerId: AiSessionProviderId) => Thenable<unknown>;
+    setProviderSelection: (
+        workspaceScopeIdentity: string,
+        selection: AiSessionProviderSelection
+    ) => Thenable<unknown>;
+    postProviderSelectionResult: (
+        result: AiSessionProviderSelectionResultMessage
+    ) => Thenable<unknown>;
+    showErrorMessage: (message: string) => unknown;
+    logError: (message: string, error: unknown) => void;
     togglePin: (providerId: AiSessionProviderId, sessionId: string) => boolean;
     getAliases: () => Record<string, string>;
     saveAliases: (aliases: Record<string, string>) => unknown;
@@ -211,17 +225,68 @@ export class AiSessionCommandController {
         await this.options.setExpanded(workspaceTarget.workspace.scopeIdentity, expanded);
     }
 
-    async selectProvider(projectId: string, providerId: string): Promise<void> {
-        if (!this.options.isProviderId(providerId)) {
+    async selectProviders(
+        projectId: unknown,
+        providerIds: unknown,
+        requestId: unknown,
+        version: unknown
+    ): Promise<void> {
+        if (typeof projectId !== 'string' || !projectId
+            || !Number.isSafeInteger(requestId) || (requestId as number) < 1) {
+            return;
+        }
+        if (version !== 1 || !Array.isArray(providerIds) || providerIds.length === 0) {
+            await this.rejectProviderSelection(projectId, requestId as number);
             return;
         }
 
-        const workspaceTarget = this.options.getWorkspaceTarget(projectId);
-        if (!workspaceTarget) {
+        const target = this.options.getWorkspaceTarget(projectId);
+        if (!target) {
+            await this.rejectProviderSelection(projectId, requestId as number);
             return;
         }
-        await this.options.setActiveProvider(workspaceTarget.workspace.scopeIdentity, providerId);
+        const normalized = normalizeAiSessionProviderSelection({
+            registeredProviders: target.sessions.providers.map(provider => provider.id),
+            primaryProvider: target.sessions.activeProvider,
+            selectedProviders: providerIds,
+            sessionCounts: target.sessions.providers.reduce((counts, provider) => {
+                counts[provider.id] = provider.count;
+                return counts;
+            }, {} as Partial<Record<AiSessionProviderId, number>>),
+        });
+        try {
+            await this.options.setProviderSelection(
+                target.workspace.scopeIdentity,
+                normalized
+            );
+        } catch (error) {
+            this.options.logError('Failed to update AI session provider selection.', error);
+            this.options.refresh();
+            await this.rejectProviderSelection(projectId, requestId as number);
+            return;
+        }
         this.options.refresh();
+        await this.options.postProviderSelectionResult({
+            type: 'ai-session-provider-selection-result',
+            version: 1,
+            requestId: requestId as number,
+            projectId,
+            success: true,
+        });
+    }
+
+    private async rejectProviderSelection(
+        projectId: string,
+        requestId: number
+    ): Promise<void> {
+        this.options.showErrorMessage('Could not update AI session providers. Try again.');
+        await this.options.postProviderSelectionResult({
+            type: 'ai-session-provider-selection-result',
+            version: 1,
+            requestId,
+            projectId,
+            success: false,
+        });
     }
 
     async togglePin(providerId: string, sessionId: string): Promise<void> {

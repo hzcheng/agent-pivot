@@ -182,7 +182,8 @@ AI runtime options (all machine-scoped):
 - `projectSteward.aiSessionTerminalMode`: `vscode` (default) or `tmux`; affects creation only and never migrates a live runtime.
 - `projectSteward.aiSessionTmuxLayout`: `project` (default, one project session with AI windows) or `session` (one tmux session per AI session).
 - `projectSteward.aiSessionTmuxPath`: one executable name resolved through the extension host's `PATH`, or one absolute executable path. Do not add arguments or shell syntax.
-- `projectSteward.aiSessionRunningCardAnimation`: animation shown on the `CURRENT WORKSPACE` card while a local AI session executes: `current` (default), `sweep`, `orbit`, `halo`, `ripple`, `breath`, or `none`. `OTHER WINDOWS` cards do not expose provider or session details.
+- `projectSteward.aiSessionRunningCardAnimation`: animation shown on a workspace card while an AI session executes: `current` (default), `sweep`, `orbit`, `halo`, `sharingan-itachi`, `sharingan-obito-kakashi`, `sharingan-sasuke`, `sharingan-shisui`, `sharingan-madara`, `sharingan-madara-eternal`, `ripple`, `breath`, or `none`.
+- `projectSteward.aiSessionRunningIconAnimation`: animation shown on a running Active Session terminal icon: `current` (default), `halo`, `sharingan-itachi`, `sharingan-obito-kakashi`, `sharingan-sasuke`, `sharingan-shisui`, `sharingan-madara`, `sharingan-madara-eternal`, or `none`.
 
 Example:
 
@@ -262,3 +263,4 @@ npm run install-local
 - Project Steward started as a fork of [Kruemelkatze/vscode-dashboard](https://github.com/Kruemelkatze/vscode-dashboard).
 - Icons are based on [Font Awesome](http://fontawesome.io) assets and the original project icon set.
 - Color names are generated using the [Name that Color](http://chir.ag/projects/name-that-color/#6195ED) library.
+- Mangekyō Sharingan running-animation assets are attributed in [Third-Party Notices](THIRD_PARTY_NOTICES.md).

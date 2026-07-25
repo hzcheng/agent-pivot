@@ -3,8 +3,12 @@
 import type { AiSessionProviderId } from '../models';
 import {
     WORKSPACE_ACTIVE_AI_SESSION_PROVIDER_KEY,
+    WORKSPACE_AI_SESSION_PROVIDER_SELECTION_KEY,
     WORKSPACE_EXPANDED_AI_SESSIONS_KEY,
 } from '../constants';
+import { AI_SESSION_PROVIDER_IDS } from './providers';
+import { normalizeAiSessionProviderSelection } from './providerSelection';
+import type { AiSessionProviderSelection } from './providerSelection';
 
 interface MementoLike {
     get<T>(key: string): T;
@@ -57,6 +61,38 @@ export default class AiSessionWorkspaceStateStore {
         }, {} as Record<string, AiSessionProviderId>);
     }
 
+    getProviderSelections(): Record<string, AiSessionProviderSelection> {
+        const storedSelections = this.state.get<unknown>(WORKSPACE_AI_SESSION_PROVIDER_SELECTION_KEY);
+        if (!storedSelections || typeof storedSelections !== 'object' || Array.isArray(storedSelections)) {
+            return {};
+        }
+
+        const registeredProviders = AI_SESSION_PROVIDER_IDS.filter(provider => this.isProviderId(provider));
+        return Object.keys(storedSelections as Record<string, unknown>).reduce((result, workspaceScopeIdentity) => {
+            const stored = (storedSelections as Record<string, unknown>)[workspaceScopeIdentity];
+            if (!workspaceScopeIdentity || !stored || typeof stored !== 'object' || Array.isArray(stored)) {
+                return result;
+            }
+            const { primaryProvider, selectedProviders } = stored as {
+                primaryProvider?: unknown;
+                selectedProviders?: unknown;
+            };
+            const hasRegisteredProvider = [primaryProvider]
+                .concat(Array.isArray(selectedProviders) ? selectedProviders : [])
+                .some((provider): provider is string =>
+                    typeof provider === 'string' && this.isProviderId(provider));
+            if (!hasRegisteredProvider) {
+                return result;
+            }
+            result[workspaceScopeIdentity] = normalizeAiSessionProviderSelection({
+                registeredProviders,
+                primaryProvider,
+                selectedProviders,
+            });
+            return result;
+        }, {} as Record<string, AiSessionProviderSelection>);
+    }
+
     async setActiveProvider(
         workspaceScopeIdentity: string,
         providerId: AiSessionProviderId
@@ -68,5 +104,60 @@ export default class AiSessionWorkspaceStateStore {
         const selectedProviders = this.getActiveProviders();
         selectedProviders[workspaceScopeIdentity] = providerId;
         await this.state.update(WORKSPACE_ACTIVE_AI_SESSION_PROVIDER_KEY, selectedProviders);
+    }
+
+    async setProviderSelection(
+        workspaceScopeIdentity: string,
+        selection: AiSessionProviderSelection
+    ): Promise<void> {
+        if (!workspaceScopeIdentity) {
+            return;
+        }
+        const normalizedSelection = normalizeAiSessionProviderSelection({
+            registeredProviders: AI_SESSION_PROVIDER_IDS.filter(provider => this.isProviderId(provider)),
+            primaryProvider: selection?.primaryProvider,
+            selectedProviders: selection?.selectedProviders,
+        });
+        const previousSelections = this.state.get<unknown>(
+            WORKSPACE_AI_SESSION_PROVIDER_SELECTION_KEY
+        );
+        const previousActiveProviders = this.state.get<unknown>(
+            WORKSPACE_ACTIVE_AI_SESSION_PROVIDER_KEY
+        );
+        const selections = this.getProviderSelections();
+        selections[workspaceScopeIdentity] = normalizedSelection;
+        const activeProviders = this.getActiveProviders();
+        activeProviders[workspaceScopeIdentity] = normalizedSelection.primaryProvider;
+
+        let selectionWriteAttempted = false;
+        let activeProviderWriteAttempted = false;
+        try {
+            selectionWriteAttempted = true;
+            await this.state.update(WORKSPACE_AI_SESSION_PROVIDER_SELECTION_KEY, selections);
+            activeProviderWriteAttempted = true;
+            await this.state.update(WORKSPACE_ACTIVE_AI_SESSION_PROVIDER_KEY, activeProviders);
+        } catch (error) {
+            if (activeProviderWriteAttempted) {
+                try {
+                    await this.state.update(
+                        WORKSPACE_ACTIVE_AI_SESSION_PROVIDER_KEY,
+                        previousActiveProviders
+                    );
+                } catch (_rollbackError) {
+                    // Continue repairing the authoritative combined record.
+                }
+            }
+            if (selectionWriteAttempted) {
+                try {
+                    await this.state.update(
+                        WORKSPACE_AI_SESSION_PROVIDER_SELECTION_KEY,
+                        previousSelections
+                    );
+                } catch (_rollbackError) {
+                    // The controller refreshes whichever combined record remains authoritative.
+                }
+            }
+            throw error;
+        }
     }
 }

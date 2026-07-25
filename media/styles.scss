@@ -2561,6 +2561,54 @@ body.steward-sidebar {
             }
         }
 
+        &[data-session-fx^="sharingan-"] .project-kind-icon {
+            position: relative;
+            background: transparent;
+            border-color: transparent;
+
+            &::after {
+                content: "";
+                position: absolute;
+                inset: 0;
+                z-index: 1;
+                background-position: center;
+                background-repeat: no-repeat;
+                background-size: 100% 100%;
+                animation: steward-session-running-sharingan 1.8s linear infinite;
+                pointer-events: none;
+            }
+        }
+
+        &[data-session-fx="sharingan-itachi"] .project-kind-icon::after {
+            background-image: url("sharingan/mangekyou-sharingan-itachi.svg");
+        }
+
+        &[data-session-fx="sharingan-obito-kakashi"] .project-kind-icon::after {
+            background-image: url("sharingan/mangekyou-sharingan-obito-kakashi.svg");
+        }
+
+        &[data-session-fx="sharingan-sasuke"] .project-kind-icon::after {
+            background-image: url("sharingan/mangekyou-sharingan-sasuke.svg");
+        }
+
+        &[data-session-fx="sharingan-shisui"] .project-kind-icon::after {
+            background-image: url("sharingan/mangekyou-sharingan-shisui.svg");
+        }
+
+        &[data-session-fx="sharingan-madara"] .project-kind-icon::after {
+            background-image: url("sharingan/mangekyou-sharingan-madara.svg");
+        }
+
+        &[data-session-fx="sharingan-madara-eternal"] .project-kind-icon::after {
+            background-image: url("sharingan/mangekyou-sharingan-madara-eternal.svg");
+        }
+
+        &[data-session-fx^="sharingan-"]:hover .project-kind-icon {
+            color: var(--steward-foreground);
+            background: transparent;
+            border-color: transparent;
+        }
+
         &[data-session-fx="breath"] {
             animation: steward-session-running-breath 2.4s ease-in-out infinite;
         }
@@ -2865,7 +2913,7 @@ body.steward-sidebar {
             margin-left: 0;
         }
 
-        .ai-session-provider-select,
+        .ai-session-provider-menu-trigger,
         .ai-session-manage-button {
             display: inline-flex;
             align-items: center;
@@ -2888,7 +2936,7 @@ body.steward-sidebar {
                 box-shadow $defaultTransition;
 
             &:hover,
-            &:focus {
+            &:focus-visible {
                 color: var(--steward-foreground);
                 border-color: var(--vscode-focusBorder);
                 background: var(--vscode-list-hoverBackground);
@@ -2896,15 +2944,114 @@ body.steward-sidebar {
             }
         }
 
-        .ai-session-provider-select-wrapper {
+        .ai-session-provider-menu-wrapper {
+            position: relative;
             min-width: 0;
         }
 
-        .ai-session-provider-select {
+        .ai-session-provider-menu-trigger {
             width: 100%;
             padding: 0 7px;
-            outline: none;
-            appearance: auto;
+            text-align: left;
+        }
+
+        .ai-session-provider-menu {
+            position: absolute;
+            z-index: 80;
+            top: calc(100% + 4px);
+            left: 0;
+            display: grid;
+            min-width: 100%;
+            padding: 3px;
+            border: 1px solid var(--vscode-menu-border, var(--vscode-panel-border));
+            border-radius: 7px;
+            background: var(--vscode-menu-background);
+            box-shadow: 0 4px 12px var(--vscode-widget-shadow);
+
+            &[hidden] {
+                display: none;
+            }
+        }
+
+        .ai-session-provider-option {
+            display: grid;
+            grid-template-columns: 14px minmax(0, 1fr) auto;
+            align-items: center;
+            gap: 5px;
+            min-width: 0;
+            min-height: 23px;
+            padding: 3px 5px;
+            border: 1px solid transparent;
+            border-radius: 4px;
+            color: var(--vscode-menu-foreground, var(--steward-foreground));
+            background: transparent;
+            font: inherit;
+            font-size: 10px;
+            text-align: left;
+            cursor: pointer;
+
+            &:hover,
+            &:focus-visible {
+                border-color: var(--vscode-focusBorder);
+                outline: none;
+                background: var(--vscode-menu-selectionBackground, var(--vscode-list-hoverBackground));
+            }
+
+            &[aria-checked="true"] {
+                color: var(--vscode-menu-selectionForeground, var(--steward-foreground));
+                background: var(--vscode-list-inactiveSelectionBackground, transparent);
+            }
+
+            &[aria-disabled="true"] {
+                cursor: default;
+                opacity: .7;
+            }
+        }
+
+        .ai-session-provider-check,
+        .ai-session-provider-count,
+        .ai-session-provider-unavailable {
+            color: var(--vscode-descriptionForeground);
+            font-size: 9px;
+            line-height: 1;
+        }
+
+        .ai-session-provider-check {
+            color: var(--vscode-terminal-ansiGreen, var(--steward-foreground));
+            font-weight: 700;
+        }
+
+        .ai-session-provider-unavailable {
+            grid-column: 2 / -1;
+        }
+
+        .ai-session-availability-summary {
+            margin: 5px 2px 0;
+            color: var(--vscode-descriptionForeground);
+            font-size: 9px;
+            line-height: 1.3;
+        }
+
+        .ai-session-pinned-heading {
+            margin-top: 2px;
+            padding: 2px 4px 0;
+            color: var(--vscode-descriptionForeground);
+            font-size: 9px;
+            font-weight: 700;
+            letter-spacing: .08em;
+        }
+
+        .ai-session-provider-badge {
+            display: inline-flex;
+            align-items: center;
+            min-height: 14px;
+            padding: 0 4px;
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 999px;
+            color: var(--vscode-descriptionForeground);
+            font-size: 8px;
+            font-weight: 700;
+            line-height: 1;
         }
 
         .ai-session-manage-button {
@@ -3236,7 +3383,7 @@ body.steward-sidebar {
             width: 26px;
             height: 26px;
             border: 1px solid var(--vscode-panel-border);
-            border-radius: 7px;
+            border-radius: 50%;
             background: var(--vscode-sideBar-background);
             box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
 
@@ -3254,14 +3401,18 @@ body.steward-sidebar {
             color: var(--steward-ai-accent);
         }
 
-        .codex-session-row[data-execution-state="running"] .codex-session-icon {
+        .active-ai-session-row .codex-session-icon {
             position: relative;
+            border-radius: 50%;
+        }
+
+        .active-ai-session-row[data-execution-state="running"][data-session-icon-fx="current"] .codex-session-icon {
 
             &::before {
                 content: "";
                 position: absolute;
                 inset: -1px;
-                border-radius: 7px;
+                border-radius: 50%;
                 padding: 2px;
                 background:
                     conic-gradient(from var(--steward-spin-angle, 0deg),
@@ -3283,6 +3434,70 @@ body.steward-sidebar {
                 animation: steward-session-icon-spin 2.6s linear infinite;
                 pointer-events: none;
             }
+        }
+
+        .active-ai-session-row[data-execution-state="running"][data-session-icon-fx="halo"] .codex-session-icon {
+
+            &::before {
+                content: "";
+                position: absolute;
+                inset: -1px;
+                border-radius: 50%;
+                background:
+                    conic-gradient(from var(--steward-spin-angle, 0deg),
+                        transparent 0deg 210deg,
+                        rgba(110, 195, 255, .32) 250deg,
+                        rgba(205, 238, 255, .95) 315deg,
+                        #ffffff 345deg,
+                        transparent 360deg),
+                    radial-gradient(circle,
+                        transparent 53%,
+                        rgba(150, 215, 255, .18) 64%,
+                        rgba(95, 175, 255, .55) 76%,
+                        transparent 78%);
+                filter: drop-shadow(0 0 3px rgba(145, 205, 255, .9));
+                animation: steward-session-icon-spin 2.6s linear infinite;
+                pointer-events: none;
+            }
+        }
+
+        .active-ai-session-row[data-execution-state="running"][data-session-icon-fx^="sharingan-"] .codex-session-icon {
+
+            &::after {
+                content: "";
+                position: absolute;
+                inset: 0;
+                border-radius: 50%;
+                background-position: center;
+                background-repeat: no-repeat;
+                background-size: 100% 100%;
+                animation: steward-session-running-sharingan 1.8s linear infinite;
+                pointer-events: none;
+            }
+        }
+
+        .active-ai-session-row[data-execution-state="running"][data-session-icon-fx="sharingan-itachi"] .codex-session-icon::after {
+            background-image: url("sharingan/mangekyou-sharingan-itachi.svg");
+        }
+
+        .active-ai-session-row[data-execution-state="running"][data-session-icon-fx="sharingan-obito-kakashi"] .codex-session-icon::after {
+            background-image: url("sharingan/mangekyou-sharingan-obito-kakashi.svg");
+        }
+
+        .active-ai-session-row[data-execution-state="running"][data-session-icon-fx="sharingan-sasuke"] .codex-session-icon::after {
+            background-image: url("sharingan/mangekyou-sharingan-sasuke.svg");
+        }
+
+        .active-ai-session-row[data-execution-state="running"][data-session-icon-fx="sharingan-shisui"] .codex-session-icon::after {
+            background-image: url("sharingan/mangekyou-sharingan-shisui.svg");
+        }
+
+        .active-ai-session-row[data-execution-state="running"][data-session-icon-fx="sharingan-madara"] .codex-session-icon::after {
+            background-image: url("sharingan/mangekyou-sharingan-madara.svg");
+        }
+
+        .active-ai-session-row[data-execution-state="running"][data-session-icon-fx="sharingan-madara-eternal"] .codex-session-icon::after {
+            background-image: url("sharingan/mangekyou-sharingan-madara-eternal.svg");
         }
 
         .codex-session-pin,
@@ -3693,6 +3908,12 @@ body.steward-sidebar .project .project-codex-badge.attention-animate {
     }
 }
 
+@keyframes steward-session-running-sharingan {
+    to {
+        transform: rotate(1turn);
+    }
+}
+
 @keyframes steward-session-running-breath {
     0%,
     100% {
@@ -3826,11 +4047,19 @@ body.steward-sidebar .project .ai-session-attention-indicator {
                 }
             }
 
-            .codex-session-meta {
-                max-width: calc(100vw - 112px);
-            }
+        .codex-session-meta {
+            max-width: calc(100vw - 112px);
+        }
+
+        .ai-session-provider-menu {
+            max-width: calc(100vw - 42px);
+        }
+
+        .ai-session-provider-option {
+            grid-template-columns: 12px minmax(0, 1fr) auto;
         }
     }
+}
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -3844,7 +4073,10 @@ body.steward-sidebar .project .ai-session-attention-indicator {
     .project-session-fx::after,
     .project.session-running[data-session-fx="breath"],
     .project.session-running[data-session-fx="halo"] .project-kind-icon::before,
-    .codex-session-row[data-execution-state="running"] .codex-session-icon::before {
+    .project.session-running[data-session-fx^="sharingan-"] .project-kind-icon::after,
+    .active-ai-session-row[data-execution-state="running"][data-session-icon-fx="current"] .codex-session-icon::before,
+    .active-ai-session-row[data-execution-state="running"][data-session-icon-fx="halo"] .codex-session-icon::before,
+    .active-ai-session-row[data-execution-state="running"][data-session-icon-fx^="sharingan-"] .codex-session-icon::after {
         animation: none !important;
         transition: none !important;
     }
@@ -3852,6 +4084,16 @@ body.steward-sidebar .project .ai-session-attention-indicator {
 
 @media (forced-colors: active) {
     body.steward-sidebar .project {
+        .ai-session-provider-menu,
+        .ai-session-provider-option,
+        .ai-session-provider-badge {
+            border-color: CanvasText;
+        }
+
+        .ai-session-provider-option:focus-visible {
+            outline: 1px solid Highlight;
+        }
+
         .ai-session-primary-action:focus-visible {
             outline-color: Highlight;
         }
@@ -3859,6 +4101,10 @@ body.steward-sidebar .project .ai-session-attention-indicator {
         .codex-session-row[data-session-conflict],
         .ai-session-runtime-badge,
         .ai-session-close-terminal {
+            border: 1px solid CanvasText;
+        }
+
+        .active-ai-session-row .codex-session-icon {
             border: 1px solid CanvasText;
         }
     }

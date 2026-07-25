@@ -1,6 +1,8 @@
 'use strict';
 
 import type { AiSessionProviderId } from '../models';
+import { normalizeAiSessionProviderSelection } from '../aiSessions/providerSelection';
+import type { AiSessionProviderSelection } from '../aiSessions/providerSelection';
 import type {
     ActiveAiSessionViewModel,
     AiSessionProviderDefinition,
@@ -16,6 +18,7 @@ export interface BuildWorkspaceAiSessionViewModelInput {
     unavailableProviders: readonly AiSessionProviderId[];
     activeSessions: readonly ActiveAiSessionViewModel[];
     activeProvider?: AiSessionProviderId;
+    providerSelection?: AiSessionProviderSelection;
     expanded?: boolean;
 }
 
@@ -35,14 +38,21 @@ export function buildWorkspaceAiSessionViewModel(
         };
     });
     const activeSessions = input.activeSessions.map(session => ({ ...session }));
-    const activeProvider = input.providers.some(provider => provider.id === input.activeProvider)
-        ? input.activeProvider
-        : providers.find(provider => provider.count > 0)?.id || input.providers[0]?.id || 'codex';
+    const selection = normalizeAiSessionProviderSelection({
+        registeredProviders: input.providers.map(provider => provider.id),
+        primaryProvider: input.providerSelection?.primaryProvider || input.activeProvider,
+        selectedProviders: input.providerSelection?.selectedProviders,
+        sessionCounts: providers.reduce((counts, provider) => {
+            counts[provider.id] = provider.count;
+            return counts;
+        }, {} as Partial<Record<AiSessionProviderId, number>>),
+    });
 
     return {
         workspaceScopeIdentity: input.workspace.scopeIdentity,
         workspaceNavigationIdentity: input.workspace.navigationIdentity,
-        activeProvider,
+        activeProvider: selection.primaryProvider,
+        selectedProviders: selection.selectedProviders,
         expanded: Boolean(input.expanded),
         providers,
         sessionsByProvider,

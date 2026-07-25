@@ -15,6 +15,7 @@ const { getDashboardWebviewOptions } = require('../../../out/dashboard/webviewOp
 const root = path.join(__dirname, '..', '..', '..');
 const dashboardSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewDashboardScripts.js'), 'utf8');
 const projectSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewProjectScripts.js'), 'utf8');
+const generatedProjectSource = fs.readFileSync(path.join(root, 'media', 'webviewProjectScripts.js'), 'utf8');
 const dndSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewDnDScripts.js'), 'utf8');
 const NOW = '2026-07-23T00:00:00.000Z';
 
@@ -406,6 +407,187 @@ test('WEBVIEW-CURRENT-WORKSPACE-RENDERING-001 WEBVIEW-DISPLAY-001 distinguishes 
     assert.equal(html.includes('Leaked'), false);
 });
 
+test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-001 WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-002 renders a pinned-first selected-provider history list', () => {
+    const html = webviewModules.content.getOpenWorkspacesGroupContent([
+        makeWorkspaceCard({
+            aiSessions: {
+                activeProvider: 'kimi',
+                selectedProviders: ['kimi', 'codex', 'claude'],
+                providers: [
+                    { id: 'kimi', label: 'Kimi', count: 2 },
+                    { id: 'codex', label: 'Codex', count: 2 },
+                    { id: 'claude', label: 'Claude', count: 1 },
+                ],
+                sessionsByProvider: {
+                    kimi: [
+                        { id: 'k-pin', name: 'Kimi pinned', provider: 'kimi', pinned: true },
+                        { id: 'k-new', name: 'Kimi new', provider: 'kimi' },
+                    ],
+                    codex: [
+                        { id: 'c-pin', name: 'Codex pinned', provider: 'codex', pinned: true },
+                        { id: 'c-new', name: 'Codex new', provider: 'codex' },
+                    ],
+                    claude: [{ id: 'a-new', name: 'Claude new', provider: 'claude' }],
+                },
+                unavailableProviders: [],
+                expanded: true,
+                defaultTab: 'sessions',
+                activeSessions: [],
+            },
+        }),
+    ], false, 'ready');
+
+    assert.match(html, /data-selected-ai-session-providers="kimi,codex,claude"/);
+    assert.match(html, /data-active-ai-session-provider="kimi"/);
+    assert.match(html, /data-ai-provider-menu-trigger/);
+    assert.match(html, /aria-controls="ai-session-provider-menu-current"/);
+    assert.match(html, /id="ai-session-provider-menu-current"/);
+    assert.match(html, />3 providers<\/button>/);
+    assert.match(html, /role="menuitemcheckbox"/);
+    assert.match(html, /aria-checked="true"/);
+    assert.ok(html.indexOf('k-pin') < html.indexOf('c-pin'));
+    assert.ok(html.indexOf('c-pin') < html.indexOf('k-new'));
+    assert.ok(html.indexOf('k-new') < html.indexOf('c-new'));
+    assert.ok(html.indexOf('c-new') < html.indexOf('a-new'));
+    assert.doesNotMatch(html, /ai-session-provider-section/);
+});
+
+test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-002 summarizes one or two selected providers and retains legacy provider summaries', () => {
+    const html = webviewModules.content.getAiSessionsDiv({
+        id: 'legacy-providers',
+        activeAiSessionProvider: 'codex',
+        selectedAiSessionProviders: ['codex', 'claude'],
+        codexSessions: [{ id: 'codex-history', name: 'Codex history', provider: 'codex' }],
+        kimiSessions: [],
+        claudeSessions: [{ id: 'claude-history', name: 'Claude history', provider: 'claude' }],
+        activeAiSessions: [],
+    });
+
+    assert.match(html, /data-active-ai-session-provider="codex"/);
+    assert.match(html, />Codex \+ Claude<\/button>/);
+    assert.match(html, /aria-controls="ai-session-provider-menu-legacy-providers"/);
+    assert.match(html, /id="ai-session-provider-menu-legacy-providers"/);
+    assert.match(html, /data-provider="codex"[\s\S]*?ai-session-provider-count">1/);
+    assert.match(html, /data-provider="claude"[\s\S]*?ai-session-provider-count">1/);
+});
+
+test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-001 renders one named availability summary alongside available provider rows', () => {
+    const html = webviewModules.content.getAiSessionsDiv({
+        id: 'mixed-availability',
+        activeAiSessionProvider: 'codex',
+        selectedAiSessionProviders: ['codex', 'claude'],
+        providers: [
+            { id: 'codex', label: 'Codex', count: 1 },
+            { id: 'kimi', label: 'Kimi', count: 0 },
+            { id: 'claude', label: 'Claude', count: 0, unavailable: true },
+        ],
+        codexSessions: [{ id: 'codex-history', name: 'Codex history', provider: 'codex' }],
+        kimiSessions: [],
+        claudeSessions: [],
+        activeAiSessions: [],
+    });
+
+    assert.equal((html.match(/class="ai-session-availability-summary"/g) || []).length, 1);
+    assert.match(
+        html,
+        /class="ai-session-availability-summary" role="status"[\s\S]*?Claude/
+    );
+    assert.match(html, /data-session-id="codex-history"/);
+    assert.doesNotMatch(html, /ai-session-provider-section/);
+});
+
+test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-001 renders one availability summary for an all-unavailable empty selection', () => {
+    const html = webviewModules.content.getAiSessionsDiv({
+        id: 'all-unavailable',
+        activeAiSessionProvider: 'codex',
+        selectedAiSessionProviders: ['codex', 'claude'],
+        providers: [
+            { id: 'codex', label: 'Codex', count: 0, unavailable: true },
+            { id: 'kimi', label: 'Kimi', count: 0 },
+            { id: 'claude', label: 'Claude', count: 0, unavailable: true },
+        ],
+        codexSessions: [],
+        kimiSessions: [],
+        claudeSessions: [],
+        activeAiSessions: [],
+    });
+
+    assert.equal((html.match(/class="ai-session-availability-summary"/g) || []).length, 1);
+    assert.match(
+        html,
+        /class="ai-session-availability-summary" role="status"[\s\S]*?Codex[\s\S]*?Claude/
+    );
+    assert.match(html, /No selected AI sessions yet/);
+    assert.equal(
+        (html.match(/Selected AI session history is unavailable in this environment/g) || []).length,
+        0
+    );
+});
+
+test('WEBVIEW-MULTI-PROVIDER-SESSION-MENU-001 keeps the generated provider-menu controller boundary exact', () => {
+    assert.equal(generatedProjectSource, projectSource);
+    assert.match(projectSource, /function getSelectedAiSessionProviders\(projectDiv\)/);
+    assert.match(projectSource, /function submitAiSessionProviderSelection\(projectDiv, providers\)/);
+    assert.match(projectSource, /type: 'select-ai-session-providers'/);
+    assert.match(projectSource, /function applyAiSessionProviderSelectionResult\(message\)/);
+    assert.match(projectSource, /message\.type !== 'ai-session-provider-selection-result'/);
+    assert.match(projectSource, /requestId: requestId/);
+    assert.match(projectSource, /selectedProviders: providers/);
+    assert.match(projectSource, /pendingAiSessionProviderSelectionProjectId/);
+    assert.match(projectSource, /pendingAiSessionProviderSelectionRequestId/);
+    assert.match(
+        fs.readFileSync(path.join(root, 'src', 'dashboard.ts'), 'utf8'),
+        /e\.selectedProviders,\s*e\.requestId,\s*e\.version/
+    );
+    assert.doesNotMatch(projectSource, /type: 'select-ai-session-provider'/);
+});
+
+test('ACTIVE-SESSION-ICON-ANIMATION-001 renders effects only for running Active Session rows', () => {
+    const surface = {
+        id: 'active-session-icons',
+        activeAiSessionProvider: 'codex',
+        activeAiSessionTab: 'active',
+        codexSessions: [{ id: 'history', name: 'History', provider: 'codex' }],
+        kimiSessions: [],
+        claudeSessions: [],
+        activeAiSessions: [
+            {
+                key: 'codex:running', provider: 'codex', sessionId: 'running', name: 'Running',
+                executionState: 'running', backend: 'vscode', attached: true,
+            },
+            {
+                key: 'codex:starting', provider: 'codex', sessionId: 'starting', name: 'Starting',
+                executionState: 'starting', backend: 'vscode', attached: true,
+            },
+            {
+                key: 'codex:stopped', provider: 'codex', sessionId: 'stopped', name: 'Stopped',
+                executionState: 'stopped', backend: 'vscode', attached: true,
+            },
+        ],
+    };
+    const getRow = (html, sessionId) => html.match(new RegExp(
+        `<div class="codex-session-row active-ai-session-row"[^>]*data-session-id="${sessionId}"[^>]*>`
+    ))[0];
+
+    const itachi = webviewModules.content.getAiSessionsDiv(surface, {
+        runningIconAnimation: 'sharingan-itachi',
+    });
+    assert.match(getRow(itachi, 'running'), /data-session-icon-fx="sharingan-itachi"/);
+    assert.doesNotMatch(getRow(itachi, 'starting'), /data-session-icon-fx/);
+    assert.doesNotMatch(getRow(itachi, 'stopped'), /data-session-icon-fx/);
+    const historyRow = itachi.match(/<div class="codex-session-row"[^>]*data-session-id="history"[^>]*>/)[0];
+    assert.doesNotMatch(historyRow, /data-session-icon-fx|active-ai-session-row/);
+
+    const invalid = webviewModules.content.getAiSessionsDiv(surface, {
+        runningIconAnimation: 'invalid',
+    });
+    assert.match(getRow(invalid, 'running'), /data-session-icon-fx="current"/);
+    const none = webviewModules.content.getAiSessionsDiv(surface, {
+        runningIconAnimation: 'none',
+    });
+    assert.match(getRow(none, 'running'), /data-session-icon-fx="none"/);
+});
+
 test('RUNTIME-TMUX-WEBVIEW-EXPERIENCE-001 renders semantic tmux, direct, stale, attached, and conflict controls', () => {
     const base = {
         id: 'p', name: 'App', path: '/work/app', activeAiSessionTab: 'active',
@@ -454,7 +636,20 @@ test('WEBVIEW-FAVORITE-RENDERING-001 renders favorites in explicit order before 
 });
 
 test('WEBVIEW-WEBVIEW-CONTENT-001 renders OPEN PROJECTS and lazy PROJECTS TODO tab shells', () => {
-    const config = { get: (_key, fallback) => fallback };
+    const config = {
+        get: (key, fallback) => key === 'aiSessionRunningIconAnimation'
+            ? 'sharingan-shisui'
+            : fallback,
+    };
+    const runningCard = makeWorkspaceCard({
+        aiSessions: {
+            activeProvider: 'codex', expanded: true, sessionsByProvider: { codex: [] },
+            activeSessions: [{
+                key: 'codex:full-render', provider: 'codex', sessionId: 'full-render', name: 'Full render',
+                executionState: 'running', backend: 'vscode', attached: true,
+            }],
+        },
+    });
     const html = webviewModules.content.getStewardContent(
         { extensionPath: '/extension' },
         { cspSource: 'test', asWebviewUri: uri => uri.toString() },
@@ -466,13 +661,14 @@ test('WEBVIEW-WEBVIEW-CONTENT-001 renders OPEN PROJECTS and lazy PROJECTS TODO t
             todoSearchItems: makeCatalog().todos,
         },
         true,
-        [makeWorkspaceCard()],
+        [runningCard],
         'ready',
     );
     for (const tab of ['open', 'projects', 'todo']) {
         assert.match(html, new RegExp(`data-dashboard-tab="${tab}"`));
         assert.match(html, new RegExp(`id="dashboard-tab-${tab}"`));
     }
+    assert.match(html, /data-session-icon-fx="sharingan-shisui"/);
     assert.match(html, /id="dashboard-search-catalog"/);
     assert.match(html, /webviewTodoScripts\.js/);
     assert.match(html, /initTodos\(/);
@@ -902,6 +1098,339 @@ function createProjectVm({ querySelector, querySelectorAll, activeElement, sourc
     messages.length = 0;
     return { context, documentListeners, windowListeners, messages, replacedCatalogs, getWebviewState: () => webviewState };
 }
+
+function createCrossProviderBatchProject() {
+    const attributes = new Map([['data-id', 'workspace-a']]);
+    const region = createElement();
+    region.setAttribute('data-active-ai-session-provider', 'codex');
+    region.setAttribute('data-selected-ai-session-providers', 'codex,claude');
+    const manageButton = createElement();
+    const count = { textContent: '' };
+    const archiveButton = { disabled: false };
+    const liveRegion = { textContent: '' };
+    const createRow = (provider, sessionId, { pinned = false, active = false } = {}) => ({
+        getAttribute: name => name === 'data-session-provider' ? provider
+            : name === 'data-session-id' ? sessionId : null,
+        hasAttribute: name => (name === 'data-session-pinned' && pinned)
+            || (name === 'data-session-active' && active),
+        toggleAttribute: () => undefined,
+        querySelector: () => null,
+    });
+    let rows = [
+        createRow('codex', 'same'),
+        createRow('claude', 'same'),
+        createRow('codex', 'pinned', { pinned: true }),
+        createRow('claude', 'active', { active: true }),
+    ];
+    return {
+        getAttribute: name => attributes.get(name) || null,
+        hasAttribute: name => attributes.has(name),
+        setAttribute: (name, value) => attributes.set(name, String(value)),
+        removeAttribute: name => attributes.delete(name),
+        toggleAttribute(name, enabled) {
+            if (enabled) attributes.set(name, '');
+            else attributes.delete(name);
+        },
+        querySelector(selector) {
+            if (selector === '[data-ai-session-region]') return region;
+            if (selector === '[data-action="manage-ai-sessions"]') return manageButton;
+            if (selector === '.ai-session-batch-count') return count;
+            if (selector === '[data-action="archive-selected-ai-sessions"]') return archiveButton;
+            if (selector === '[data-ai-session-live-region]') return liveRegion;
+            return null;
+        },
+        querySelectorAll(selector) {
+            if (selector === '.ai-session-history-panel .codex-session-row[data-session-id]') return rows;
+            if (selector === '.ai-session-batch-actions button') return [];
+            return [];
+        },
+        replaceRows(nextRows) {
+            rows = nextRows.map(item => createRow(
+                item.provider,
+                item.sessionId,
+                { pinned: item.pinned, active: item.active }
+            ));
+        },
+        liveRegion,
+    };
+}
+
+function assertCrossProviderBatchScope(source = projectSource) {
+    const project = createCrossProviderBatchProject();
+    const harness = createProjectVm({
+        source,
+        querySelectorAll: selector =>
+            selector === '.workspace-card[data-current-workspace][data-id]' ? [project] : [],
+    });
+    const targetFor = action => ({
+        closest(selector) {
+            if (selector === '.project' || selector === '.project[data-id]') return project;
+            if (selector === `[data-action="${action}"]`) return { getAttribute: () => action };
+            if (action === 'manage-ai-sessions'
+                && selector === '[data-action="manage-ai-sessions"][data-provider]') {
+                return { getAttribute: name => name === 'data-provider' ? 'codex' : 'manage-ai-sessions' };
+            }
+            return null;
+        },
+    });
+
+    harness.documentListeners.click({ button: 0, target: targetFor('manage-ai-sessions') });
+    assert.equal(project.hasAttribute('data-ai-session-managing'), true);
+    harness.documentListeners.click({ button: 0, target: targetFor('select-unpinned-ai-sessions') });
+    assert.deepEqual(
+        toPlain(harness.context.window.__projectStewardBatchAiSessions.snapshot().selectedItems),
+        [
+            { provider: 'codex', sessionId: 'same' },
+            { provider: 'claude', sessionId: 'same' },
+        ]
+    );
+    harness.documentListeners.click({ button: 0, target: targetFor('archive-selected-ai-sessions') });
+    assert.deepEqual(toPlain(harness.messages), [{
+        type: 'archive-ai-sessions',
+        version: 1,
+        requestId: 1,
+        projectId: 'workspace-a',
+        items: [
+            { provider: 'codex', sessionId: 'same' },
+            { provider: 'claude', sessionId: 'same' },
+        ],
+    }]);
+
+    const manager = harness.context.window.__projectStewardBatchAiSessions;
+    harness.windowListeners.message({ data: {
+        type: 'ai-session-batch-archive-completed',
+        version: 1,
+        requestId: 2,
+        projectId: 'workspace-a',
+        status: 'finished',
+    } });
+    assert.equal(manager.snapshot().pending, true);
+    harness.windowListeners.message({ data: {
+        type: 'ai-session-batch-archive-completed',
+        requestId: 1,
+        projectId: 'workspace-a',
+        status: 'finished',
+    } });
+    assert.equal(manager.snapshot().pending, true);
+    harness.windowListeners.message({ data: {
+        type: 'ai-session-batch-archive-completed',
+        version: 1,
+        requestId: 1,
+        projectId: 'workspace-b',
+        status: 'finished',
+    } });
+    assert.equal(manager.snapshot().pending, true);
+    harness.windowListeners.message({ data: {
+        type: 'ai-session-batch-archive-completed',
+        version: 1,
+        requestId: 1,
+        projectId: 'workspace-a',
+        status: 'unknown',
+    } });
+    assert.equal(manager.snapshot().pending, true);
+
+    harness.windowListeners.message({ data: {
+        type: 'ai-session-batch-archive-completed',
+        version: 1,
+        requestId: 1,
+        projectId: 'workspace-a',
+        status: 'cancelled',
+    } });
+    assert.equal(manager.snapshot().pending, false);
+    assert.equal(manager.snapshot().selectedItems.length, 2);
+
+    manager.submit();
+    assert.equal(harness.messages[1].requestId, 2);
+    harness.windowListeners.message({ data: {
+        type: 'ai-session-batch-archive-completed',
+        version: 1,
+        requestId: 1,
+        projectId: 'workspace-a',
+        status: 'finished',
+    } });
+    assert.equal(manager.snapshot().pending, true);
+    assert.equal(manager.snapshot().projectId, 'workspace-a');
+    harness.windowListeners.message({ data: {
+        type: 'ai-session-batch-archive-completed',
+        version: 1,
+        requestId: 2,
+        projectId: 'workspace-a',
+        status: 'finished',
+    } });
+    assert.equal(manager.snapshot().projectId, null);
+}
+
+test('PERSIST-MULTI-PROVIDER-BATCH-ARCHIVE-001 WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-002 archives visible unpinned inactive rows across selected providers', () => {
+    assertCrossProviderBatchScope();
+    assert.throws(() => assertCrossProviderBatchScope(
+        projectSource.replace(
+            'return JSON.stringify([provider, sessionId]);',
+            'return sessionId;'
+        )
+    ));
+    assert.throws(() => assertCrossProviderBatchScope(
+        projectSource.replace(
+            "message.type !== 'ai-session-batch-archive-completed'\n            || message.version !== 1",
+            "message.type !== 'ai-session-batch-archive-completed'"
+        )
+    ));
+});
+
+test('PERSIST-MULTI-PROVIDER-BATCH-ARCHIVE-001 announces bounded aggregate outcomes without exposing session IDs', () => {
+    const project = createCrossProviderBatchProject();
+    const harness = createProjectVm({
+        querySelectorAll: selector =>
+            selector === '.workspace-card[data-current-workspace][data-id]' ? [project] : [],
+    });
+    const manager = harness.context.window.__projectStewardBatchAiSessions;
+
+    manager.enter('workspace-a');
+    manager.toggle('codex', 'codex-sensitive-id');
+    manager.toggle('claude', 'claude-sensitive-id');
+    manager.submit();
+    harness.windowListeners.message({ data: {
+        type: 'ai-session-batch-archive-completed',
+        version: 1,
+        requestId: 1,
+        projectId: 'workspace-a',
+        status: 'finished',
+        result: {
+            archived: [{ provider: 'codex', sessionId: 'codex-sensitive-id' }],
+            running: [],
+            missing: [],
+            rejected: [],
+            rejectedCount: 0,
+            failed: [{ provider: 'claude', sessionId: 'claude-sensitive-id' }],
+            malformedCount: 0,
+        },
+    } });
+    assert.equal(project.liveRegion.textContent, 'Archived 1 AI session; 1 session failed.');
+    assert.equal(project.liveRegion.textContent.includes('sensitive-id'), false);
+    assert.equal(manager.snapshot().projectId, null);
+
+    manager.enter('workspace-a');
+    manager.toggle('codex', 'same');
+    manager.submit();
+    harness.windowListeners.message({ data: {
+        type: 'ai-session-batch-archive-completed',
+        version: 1,
+        requestId: 2,
+        projectId: 'workspace-a',
+        status: 'finished',
+        result: {
+            archived: new Array(101).fill({ provider: 'codex', sessionId: 'same' }),
+            running: [],
+            missing: [],
+            rejected: [],
+            rejectedCount: 0,
+            failed: [],
+            malformedCount: 0,
+        },
+    } });
+    assert.equal(
+        project.liveRegion.textContent,
+        'Archive completed, but its result summary was unavailable.'
+    );
+    assert.equal(manager.snapshot().projectId, null);
+
+    manager.enter('workspace-a');
+    manager.toggle('codex', 'same');
+    manager.submit();
+    harness.windowListeners.message({ data: {
+        type: 'ai-session-batch-archive-completed',
+        version: 1,
+        requestId: 3,
+        projectId: 'workspace-a',
+        status: 'cancelled',
+    } });
+    assert.equal(project.liveRegion.textContent, 'Archive cancelled. No sessions were archived.');
+    assert.equal(manager.snapshot().projectId, 'workspace-a');
+    assert.equal(manager.snapshot().selectedItems.length, 1);
+
+    manager.submit();
+    harness.windowListeners.message({ data: {
+        type: 'ai-session-batch-archive-completed',
+        version: 1,
+        requestId: 4,
+        projectId: 'workspace-a',
+        status: 'rejected',
+    } });
+    assert.equal(
+        project.liveRegion.textContent,
+        'Archive request was rejected. No sessions were archived.'
+    );
+    assert.equal(manager.snapshot().projectId, 'workspace-a');
+    assert.equal(manager.snapshot().selectedItems.length, 1);
+});
+
+function assertBatchSelectionReconcilesAuthoritativeRows(source = projectSource) {
+    const project = createCrossProviderBatchProject();
+    const harness = createProjectVm({
+        source,
+        querySelectorAll: selector =>
+            selector === '.workspace-card[data-current-workspace][data-id]' ? [project] : [],
+    });
+    const manager = harness.context.window.__projectStewardBatchAiSessions;
+    manager.enter('workspace-a');
+    manager.toggle('codex', 'same');
+    manager.toggle('codex', 'pinned');
+    manager.toggle('claude', 'same');
+
+    project.replaceRows([
+        { provider: 'codex', sessionId: 'pinned', pinned: true },
+        { provider: 'claude', sessionId: 'same', active: true },
+    ]);
+    harness.context.applyWorkspaceUpdate = () => true;
+    harness.windowListeners.message({ data: {
+        type: 'workspace-updated',
+        version: 2,
+        currentWorkspaceCount: 1,
+        html: '<div class="open-current-workspace-group"></div>',
+    } });
+    assert.deepEqual(toPlain(manager.snapshot().selectedItems), [
+        { provider: 'codex', sessionId: 'pinned' },
+    ]);
+
+    manager.toggle('claude', 'same');
+    manager.toggle('codex', 'removed');
+    project.replaceRows([
+        { provider: 'codex', sessionId: 'pinned', pinned: true },
+        { provider: 'claude', sessionId: 'same', active: true },
+    ]);
+    harness.context.applyWorkspaceUpdate = () => true;
+    harness.windowListeners.message({ data: {
+        type: 'ai-sessions-updated',
+        version: 2,
+        sequence: 1,
+        currentWorkspaceCount: 1,
+        html: '<div class="open-current-workspace-group"></div>',
+        searchCatalog: makeCatalog('batch'),
+    } });
+    assert.deepEqual(toPlain(manager.snapshot().selectedItems), [
+        { provider: 'codex', sessionId: 'pinned' },
+    ]);
+
+    manager.submit();
+    assert.deepEqual(toPlain(harness.messages[harness.messages.length - 1].items), [
+        { provider: 'codex', sessionId: 'pinned' },
+    ]);
+}
+
+test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-002 reconciles batch selection after authoritative replacements', () => {
+    assertBatchSelectionReconcilesAuthoritativeRows();
+    assert.throws(() => assertBatchSelectionReconcilesAuthoritativeRows(
+        projectSource.replace(
+            "&& !row.hasAttribute('data-session-active')",
+            ''
+        )
+    ));
+    assert.throws(() => assertBatchSelectionReconcilesAuthoritativeRows(
+        projectSource.replace(
+            'batchAiSessionManager.reconcileVisible(projectDiv);',
+            ''
+        )
+    ));
+});
 
 test('SESSION-CONTROLLER-001 preserves AI tab helpers, persisted state, and hidden-list scroll offsets', () => {
     const harness = createProjectVm();

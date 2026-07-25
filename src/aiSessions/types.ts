@@ -2,7 +2,7 @@
 
 import type { AiSessionProviderId, CodexSession } from '../models';
 import type { OpenWorkspace } from '../workspaces/types';
-import type { BatchAiSessionArchiveResult } from './archiveBatch';
+import type { AggregateAiSessionArchiveResult } from './archiveBatchAcrossProviders';
 import type {
     AiSessionAttentionReason,
     AiSessionExecutionState,
@@ -140,6 +140,7 @@ export interface WorkspaceAiSessionViewModel {
     workspaceScopeIdentity: string;
     workspaceNavigationIdentity: string;
     activeProvider: AiSessionProviderId;
+    selectedProviders: AiSessionProviderId[];
     expanded: boolean;
     providers: AiSessionProviderSummary[];
     sessionsByProvider: Partial<Record<AiSessionProviderId, AiSessionViewModel[]>>;
@@ -181,8 +182,17 @@ export interface AiSessionAssignmentCandidate<TProject = { id: string }> {
 
 export interface AiSessionBatchArchiveCompletedMessage {
     type: 'ai-session-batch-archive-completed';
+    version: 1;
+    requestId: number;
     projectId: string;
-    provider: AiSessionProviderId;
     status: 'cancelled' | 'rejected' | 'finished';
-    result?: BatchAiSessionArchiveResult;
+    result?: AggregateAiSessionArchiveResult;
+}
+
+export interface AiSessionProviderSelectionResultMessage {
+    type: 'ai-session-provider-selection-result';
+    version: 1;
+    requestId: number;
+    projectId: string;
+    success: boolean;
 }

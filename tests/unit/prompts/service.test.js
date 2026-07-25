@@ -270,6 +270,16 @@ test('PERSIST-AI-PROMPT-STORE-001 stages a local echo before the awaited Setting
     assert.equal(service.consumeCurrentSettingsDataLocalWriteEcho(), false);
 });
 
+test('PERSIST-AI-PROMPT-STORE-001 retires older echoes after a newer coalesced Settings value', async () => {
+    const fixture = createFixture(undefined);
+    await fixture.service.createPrompt(0, { name: 'First', text: 'one' });
+    await fixture.service.createPrompt(1, { name: 'Second', text: 'two' });
+
+    assert.equal(fixture.service.consumeCurrentSettingsDataLocalWriteEcho(), true);
+    fixture.setStored(fixture.writes[0]);
+    assert.equal(fixture.service.consumeCurrentSettingsDataLocalWriteEcho(), false);
+});
+
 test('PERSIST-AI-PROMPT-STORE-001 wraps failed writes, refreshes afterwards, and consumes only successful local echoes', async () => {
     const failed = createFixture(undefined, { writeError: new Error('setting unavailable') });
     await assert.rejects(

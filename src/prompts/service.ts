@@ -325,7 +325,7 @@ export class PromptService {
                 this.pendingLocalWriteEchoes = [];
                 return false;
             }
-            this.pendingLocalWriteEchoes.splice(echoIndex, 1);
+            this.pendingLocalWriteEchoes.splice(0, echoIndex + 1);
             return true;
         } catch (_error) {
             this.pendingLocalWriteEchoes = [];

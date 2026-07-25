@@ -24,19 +24,24 @@ Build and install the Project Steward extension that matches the current VS Code
 
 3. Use a deterministic remote fallback when the IPC socket is stale or the
    target is a Dev Container/SSH workspace:
-   - discover the active `code-server` process, its executable or arguments,
+   - discover the active code-server process, its executable or arguments,
      and its active Server commit; do not guess a commit or reuse an arbitrary
      `code` binary
-   - derive the remote CLI belonging to that active code-server installation
-     (for example by resolving the discovered Server installation and its
-     `remote-cli` sibling), then confirm its reported version/commit matches
-     the active Server commit
    - discover any Server data and extensions directories from that active
      process, CLI configuration, or environment. Do not hard-code a home
      directory, Server root, extension directory, version, or commit.
-   - if the active process, matching CLI, or installed-extension location
-     cannot be discovered, stop short of claiming a verified remote install
-     and report the missing evidence
+   - from the active process or installation, discover a **socket-independent
+     extension-management entry point**. The installation's `bin/code-server`
+     command or an equivalent wrapper is common, but do not assume either a
+     fixed name or layout. Prove that the chosen entry point accepts extension
+     management without inheriting `VSCODE_IPC_HOOK_CLI`.
+   - use `remote-cli` only after replacing or validating its inherited hook
+     with a reachable socket and proving that request reaches the active host.
+     Matching `--version` output alone does not prove its socket target or make
+     `remote-cli` a stale-IPC fallback.
+   - if the active process, socket-independent entry point, Server data or
+     extensions directory cannot be discovered, stop short of claiming a
+     verified remote install and report the missing evidence
 
 4. Run relevant checks first when the build is not already fresh:
    - compile or test scripts used by the repo
@@ -44,10 +49,14 @@ Build and install the Project Steward extension that matches the current VS Code
 
 5. Package and route each extension through the host that owns it.
    - Example: `npm run install-local`
-   - If manual installation is needed, use the discovered active Server CLI to
-     install the workspace extension into the active remote Server host, for
-     example: `<active-server-cli> --install-extension <workspace.vsix>`.
-     Never substitute a local or arbitrary PATH CLI for this step.
+   - If manual installation is needed, use the discovered socket-independent
+     extension-management entry point to install the workspace extension into
+     the active remote Server host. Supply its discovered Server-data location
+     by that entry point's supported option or environment and explicitly
+     target the discovered extensions directory, for example:
+     `<verified-entry-point> --extensions-dir <active-extensions-dir>
+     --install-extension <workspace.vsix>`. Never substitute a local,
+     arbitrary PATH, or inherited-IPC CLI for this step.
    - A UI-only bridge belongs to the local UI host. When that host is
      unreachable from the remote environment, report it as **packaged but not
      installed** and provide the artifact and required local-host handoff; do
@@ -61,8 +70,9 @@ Build and install the Project Steward extension that matches the current VS Code
 
 7. Verify installed bytes, not just command exit status:
    - read the extension ID and version from the packaged VSIX manifest, then
-     use the **same active Server CLI** to list the installed extension ID and
-     version. A matching list entry alone is insufficient.
+     use the **same verified extension-management entry point** and the same
+     explicit discovered extensions directory to list the installed extension
+     ID and version. A matching list entry alone is insufficient.
    - locate the installed directory for that ID/version in the discovered
      active Server extension location. Select representative files that exist
      in both the VSIX and installed directory (the manifest plus the main
@@ -82,7 +92,8 @@ Always tell the user:
 - which extension id/version was installed
 - which host received it, if known
 - whether `VSCODE_IPC_HOOK_CLI` was usable or stale, and how the active
-  code-server CLI and extension directory were discovered
+  code-server process, socket-independent entry point, Server-data directory,
+  and extension directory were discovered
 - representative VSIX-to-installed file hash evidence for the workspace
   extension, or why that evidence could not be collected
 - which checks were run
@@ -94,6 +105,12 @@ Always tell the user:
 - Do not use the first `code` binary on PATH when multiple hosts are present and the target host is unclear.
 - Do not use a stale IPC socket or an arbitrary VS Code Server commit as proof
   of the active remote host.
+- Do not use `remote-cli` as the stale-IPC fallback merely because its version
+  matches; it is eligible only after its reachable socket is proven to reach
+  the active host.
+- Do not install through one entry point or extensions directory and list from
+  another; both commands must use the same verified entry point and explicit
+  discovered extensions directory.
 - Do not claim that the current VSIX was installed without ID/version and
   representative hash comparison against the active Server installation.
 - Do not claim install success from packaging success alone.

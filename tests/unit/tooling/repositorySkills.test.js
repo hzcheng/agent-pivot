@@ -51,6 +51,8 @@ test('ARCH-REPOSITORY-SKILL-GUIDANCE-001 verifies remote extension installation 
         ['stale VSCODE_IPC_HOOK_CLI handling', /stale[\s\S]*VSCODE_IPC_HOOK_CLI/i],
         ['active code-server selection', /active code-server/i],
         ['host-specific workspace installation', /workspace extension[\s\S]*active remote Server host/i],
+        ['socket-independent extension-management entry point', /socket-independent[\s\S]*extension-management entry point/i],
+        ['remote-cli active IPC gate', /remote-cli[\s\S]*(?:only|unless)[\s\S]*reachable[\s\S]*active host/i],
         ['representative hash comparison', /representative[\s\S]*hash/i],
     ]);
 });

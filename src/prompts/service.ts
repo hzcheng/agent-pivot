@@ -19,6 +19,42 @@ export interface PromptServiceOptions {
     }) => void;
 }
 
+const PROMPT_DATA_SYNC_KEY = 'promptData.v1';
+
+interface PromptMemento {
+    get<T>(key: string): T | undefined;
+    update(key: string, value: unknown): PromiseLike<void>;
+    setKeysForSync(keys: string[]): void;
+}
+
+export interface PromptMementoStoreOptions {
+    globalState: PromptMemento;
+    readLegacySetting: () => unknown;
+}
+
+export interface PromptMementoStore {
+    readSetting: () => unknown;
+    writeGlobalSetting: (data: PromptDataV1) => Promise<void>;
+}
+
+export async function initializePromptMementoStore(
+    options: PromptMementoStoreOptions
+): Promise<PromptMementoStore> {
+    options.globalState.setKeysForSync([PROMPT_DATA_SYNC_KEY]);
+    if (options.globalState.get(PROMPT_DATA_SYNC_KEY) === undefined) {
+        const legacyData = options.readLegacySetting();
+        if (legacyData !== undefined) {
+            await options.globalState.update(PROMPT_DATA_SYNC_KEY, legacyData);
+        }
+    }
+    return {
+        readSetting: () => options.globalState.get(PROMPT_DATA_SYNC_KEY),
+        writeGlobalSetting: async data => {
+            await options.globalState.update(PROMPT_DATA_SYNC_KEY, data);
+        },
+    };
+}
+
 export class PromptMutationError extends Error {
     constructor(
         readonly code: PromptMutationErrorCode,

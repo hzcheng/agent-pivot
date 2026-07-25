@@ -13,7 +13,7 @@ import ProjectService from './services/projectService';
 import { TodoCommandController } from './todos/commandController';
 import { TodoService } from './todos/service';
 import { PromptDashboardController } from './prompts/dashboardController';
-import { PromptService } from './prompts/service';
+import { initializePromptMementoStore, PromptService } from './prompts/service';
 import { PromptTerminalCommandController } from './prompts/terminalCommandController';
 import { getAiPanelContent, getPromptSurfaceContent } from './prompts/webviewContent';
 import {
@@ -225,12 +225,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         },
     });
     const todoService = new TodoService(context);
+    const promptConfiguration = getStewardConfiguration();
+    const promptStore = await initializePromptMementoStore({
+        globalState: context.globalState,
+        readLegacySetting: () =>
+            promptConfiguration.inspect<unknown>('promptData')?.globalValue,
+    });
     const promptService = new PromptService({
-        readSetting: () => getStewardConfiguration().get('promptData'),
-        writeGlobalSetting: async data => {
-            await getStewardConfiguration()
-                .update('promptData', data, vscode.ConfigurationTarget.Global);
-        },
+        readSetting: promptStore.readSetting,
+        writeGlobalSetting: promptStore.writeGlobalSetting,
         createId: () => randomBytes(16).toString('hex'),
         logDiagnostic: event => logDashboardDiagnostic({ event: 'prompt-store', ...event }),
     });

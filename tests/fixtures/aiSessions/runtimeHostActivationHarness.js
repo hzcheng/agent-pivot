@@ -67,6 +67,7 @@ async function main() {
     let simulatedAliasRebind = false;
     let dashboardCommandRegistrationInvocations = 0;
     let attentionShutdownCalls = 0;
+    const synchronizedGlobalStateKeySets = [];
     const patch = (prototype, name, replacement) => {
         const original = prototype[name];
         prototype[name] = replacement;
@@ -89,11 +90,17 @@ async function main() {
         }
         return loaded;
     };
-    const state = () => ({ get: (_key, fallback) => fallback, update: async () => undefined });
+    const state = (synchronized = false) => ({
+        get: (_key, fallback) => fallback,
+        update: async () => undefined,
+        ...(synchronized
+            ? { setKeysForSync: keys => synchronizedGlobalStateKeySets.push(keys.slice()) }
+            : {}),
+    });
     const uri = value => ({ scheme: 'file', fsPath: value, path: value, toString: () => value });
     const context = {
         globalStoragePath: storageRoot, globalStorageUri: uri(storageRoot), extensionPath: root,
-        extensionUri: uri(root), subscriptions: [], globalState: state(), workspaceState: state(),
+        extensionUri: uri(root), subscriptions: [], globalState: state(true), workspaceState: state(),
         extension: { packageJSON: { version: '2.1.3' } }, extensionMode: 3,
     };
 
@@ -190,6 +197,7 @@ async function main() {
             dashboardCommandRegistrationInvocations,
             aliasRebinds,
             attentionShutdownCalls,
+            synchronizedGlobalStateKeySets,
         }));
     } finally {
         for (const subscription of context.subscriptions.slice().reverse()) subscription.dispose?.();

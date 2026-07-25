@@ -643,8 +643,9 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 keeps the complete four-tab Dashboard sh
     const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
     t.after(() => browser.close());
     const dashboardHtml = renderDashboardShell();
+    let fullWidthFontSize;
 
-    for (const width of [240, 280, 320, 600]) {
+    for (const width of [600, 480, 460, 320, 280, 240]) {
         await t.test(`${width}px`, async () => {
             const page = await browser.newPage({ viewport: { width, height: 700 } });
             try {
@@ -671,7 +672,9 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 keeps the complete four-tab Dashboard sh
                             title: tab.getAttribute('title'),
                             iconDisplay: icon ? getComputedStyle(icon).display : null,
                             iconWidth: icon ? icon.getBoundingClientRect().width : 0,
+                            iconHeight: icon ? icon.getBoundingClientRect().height : 0,
                             labelDisplay: label ? getComputedStyle(label).display : null,
+                            fontSize: getComputedStyle(tab).fontSize,
                         };
                     });
                     const rowTops = [];
@@ -717,12 +720,22 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 keeps the complete four-tab Dashboard sh
                     ['Open', 'Projects', 'Todo', 'AI']
                 );
                 assert.ok(
-                    layout.tabDetails.every(tab => tab.iconDisplay !== 'none' && tab.iconWidth > 0),
-                    `Dashboard tab icons must be visible at ${width}px: ${JSON.stringify(layout)}`
+                    layout.tabDetails.every(tab =>
+                        tab.iconDisplay !== 'none'
+                        && tab.iconWidth === 19
+                        && tab.iconHeight === 19),
+                    `Dashboard tab icons must remain 19px at ${width}px: ${JSON.stringify(layout)}`
+                );
+                if (fullWidthFontSize === undefined) {
+                    fullWidthFontSize = layout.tabDetails[0].fontSize;
+                }
+                assert.ok(
+                    layout.tabDetails.every(tab => tab.fontSize === fullWidthFontSize),
+                    `Dashboard tab text must not shrink at ${width}px: ${JSON.stringify(layout)}`
                 );
                 assert.ok(
                     layout.tabDetails.every(tab =>
-                        width <= 280
+                        width <= 460
                             ? tab.labelDisplay === 'none'
                             : tab.labelDisplay !== 'none'),
                     `Dashboard tab labels have the wrong visibility at ${width}px: ${JSON.stringify(layout)}`

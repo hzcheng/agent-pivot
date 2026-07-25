@@ -113,7 +113,8 @@
                 "projectSteward.promptData": {
                     "type": "object",
                     "scope": "application",
-                    "markdownDescription": "Stores the global synchronized Prompt library. Prompt text is ordinary Settings Sync data; do not store credentials or other secrets.",
+                    "markdownDescription": "Legacy Prompt library storage. Project Steward migrates this value into synchronized extension state. Do not store credentials or other secrets in Prompts.",
+                    "deprecationMessage": "Prompt data is now stored in synchronized Project Steward extension state. This setting is retained only for migration.",
                     "default": {
                         "version": 1,
                         "revision": 0,

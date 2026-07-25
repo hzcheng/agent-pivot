@@ -1925,16 +1925,8 @@ body .project {
     }
 
     .dashboard-tab-button {
-        gap: 3px;
         padding-right: 2px;
         padding-left: 2px;
-        font-size: 10.5px;
-    }
-
-    .dashboard-tab-icon,
-    .dashboard-tab-icon svg {
-        width: 15px;
-        height: 15px;
     }
 
     .todo-compose-meta {
@@ -1954,7 +1946,7 @@ body .project {
     }
 }
 
-@media (max-width: 280px) {
+@media (max-width: 460px) {
     .dashboard-tab-button {
         gap: 0;
     }
@@ -1966,10 +1958,8 @@ body .project {
 
 @media (max-width: 240px) {
     .dashboard-tab-button {
-        min-height: 32px;
         padding-right: 2px;
         padding-left: 2px;
-        font-size: 10px;
     }
 
     .dashboard-search-result-meta,

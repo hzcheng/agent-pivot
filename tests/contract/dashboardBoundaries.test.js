@@ -292,6 +292,7 @@ test('WEBVIEW-DASHBOARD-COMMAND-REGISTRATION-001 production activation installs 
     const activation = JSON.parse(result.stdout);
     assert.equal(activation.failure, null);
     assert.equal(activation.dashboardCommandRegistrationInvocations, 1);
+    assert.deepEqual(activation.synchronizedGlobalStateKeySets, [['promptData.v1']]);
     assert.deepEqual(
         activation.registeredCommands.filter(command => command.startsWith('projectSteward.')),
         DASHBOARD_COMMANDS

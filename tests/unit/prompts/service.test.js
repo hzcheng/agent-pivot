@@ -3,6 +3,7 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const {
+    initializePromptMementoStore,
     PromptMutationError,
     PromptService,
     normalizePromptSetting,
@@ -49,6 +50,35 @@ function readyData(overrides = {}) {
 function assertErrorCode(code) {
     return error => error instanceof PromptMutationError && error.code === code;
 }
+
+test('PERSIST-AI-PROMPT-STORE-001 migrates Prompt data into synchronized extension state and saves there', async () => {
+    assert.equal(typeof initializePromptMementoStore, 'function');
+    const values = new Map();
+    const writes = [];
+    const synchronizedKeySets = [];
+    const legacy = readyData({ revision: 7 });
+    const globalState = {
+        get: key => values.get(key),
+        update: async (key, value) => {
+            writes.push([key, structuredClone(value)]);
+            values.set(key, structuredClone(value));
+        },
+        setKeysForSync: keys => synchronizedKeySets.push(keys.slice()),
+    };
+
+    const store = await initializePromptMementoStore({
+        globalState,
+        readLegacySetting: () => legacy,
+    });
+    assert.deepEqual(synchronizedKeySets, [['promptData.v1']]);
+    assert.deepEqual(store.readSetting(), legacy);
+    assert.deepEqual(writes, [['promptData.v1', legacy]]);
+
+    const next = readyData({ revision: 8, selectedPromptId: 'prompt-a' });
+    await store.writeGlobalSetting(next);
+    assert.deepEqual(store.readSetting(), next);
+    assert.deepEqual(writes.at(-1), ['promptData.v1', next]);
+});
 
 test('PERSIST-AI-PROMPT-STORE-001 starts with immutable empty V1 data', () => {
     const fixture = createFixture(undefined);

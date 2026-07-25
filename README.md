@@ -77,7 +77,7 @@ To assign a keyboard shortcut, run `Preferences: Open Keyboard Shortcuts`, searc
 
 The insert command uses the terminal that was active when you invoked it. When the library has a default, the command inserts that prompt directly. With no default, it opens a one-time QuickPick in your saved order and inserts the prompt you choose without changing the default. Project Steward never appends Enter and never creates a terminal for this command; start or focus a terminal first.
 
-AI Prompts are stored globally in the `projectSteward.promptData` user setting, so VS Code Settings Sync can synchronize the library between machines. Do not store passwords, tokens, private keys, or other secrets in prompts.
+AI Prompts are stored in Project Steward's synchronized extension state, so VS Code Settings Sync can synchronize the library between machines without writing your User Settings file. Existing `projectSteward.promptData` values are migrated automatically. Do not store passwords, tokens, private keys, or other secrets in prompts.
 
 The `SKILLS`, `MCP`, and `HOOKS` tabs are Coming Soon.
 

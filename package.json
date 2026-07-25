@@ -106,6 +106,37 @@
                     "markdownDescription": "Stores the global Project Steward TODO list if the ```projectSteward.storeProjectsInSettings``` option is set to ```true```.",
                     "default": null
                 },
+                "projectSteward.promptData": {
+                    "type": "object",
+                    "scope": "application",
+                    "markdownDescription": "Stores the global synchronized Prompt library. Prompt text is ordinary Settings Sync data; do not store credentials or other secrets.",
+                    "default": {
+                        "version": 1,
+                        "revision": 0,
+                        "selectedPromptId": null,
+                        "prompts": []
+                    },
+                    "additionalProperties": false,
+                    "required": ["version", "revision", "selectedPromptId", "prompts"],
+                    "properties": {
+                        "version": { "type": "number", "enum": [1] },
+                        "revision": { "type": "number", "minimum": 0 },
+                        "selectedPromptId": { "type": ["string", "null"] },
+                        "prompts": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "required": ["id", "name", "text"],
+                                "properties": {
+                                    "id": { "type": "string", "minLength": 1 },
+                                    "name": { "type": "string", "minLength": 1 },
+                                    "text": { "type": "string", "minLength": 1 }
+                                }
+                            }
+                        }
+                    }
+                },
                 "projectSteward.searchIsActiveByDefault": {
                     "type": "boolean",
                     "default": true

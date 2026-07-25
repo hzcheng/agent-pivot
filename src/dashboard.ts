@@ -12,6 +12,8 @@ import ColorService from './services/colorService';
 import ProjectService from './services/projectService';
 import { TodoCommandController } from './todos/commandController';
 import { TodoService } from './todos/service';
+import { PromptService } from './prompts/service';
+import { PromptTerminalCommandController } from './prompts/terminalCommandController';
 import {
     deleteTodoWithConfirmation,
     renameTodoGroupWithPrompt,
@@ -221,6 +223,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         },
     });
     const todoService = new TodoService(context);
+    const promptService = new PromptService({
+        readSetting: () => getStewardConfiguration().get('promptData'),
+        writeGlobalSetting: async data => {
+            await getStewardConfiguration()
+                .update('promptData', data, vscode.ConfigurationTarget.Global);
+        },
+        createId: () => randomBytes(16).toString('hex'),
+        logDiagnostic: event => logDashboardDiagnostic({
+            event: 'prompt-store',
+            category: event.category,
+            revision: event.revision,
+            promptId: event.promptId,
+        }),
+    });
     const todoViewState = todoService.getViewState();
     let revealedTodoId: string | undefined;
     const todoCommandController = new TodoCommandController({
@@ -1699,6 +1715,26 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         asRelativePath: uri => vscode.workspace.asRelativePath(uri as vscode.Uri, false),
         showWarningMessage: message => vscode.window.showWarningMessage(message),
     });
+    const promptTerminalCommandController = new PromptTerminalCommandController({
+        service: promptService,
+        getActiveTerminal: () => vscode.window.activeTerminal,
+        showQuickPick: async (items, options) => vscode.window.showQuickPick<{
+            label: string;
+            description: string;
+            promptId: string;
+        }>([...items], options),
+        showWarningMessage: message => vscode.window.showWarningMessage(message),
+        showInformationMessage: async (message, action) => vscode.window.showInformationMessage(message, action),
+        openAiPrompts: async () => {
+            await showSteward();
+            await provider.postMessage({
+                type: 'select-dashboard-tab',
+                version: 1,
+                tab: 'ai',
+                aiSubtab: 'prompts',
+            });
+        },
+    });
 
     new DashboardCommandRegistration<vscode.Disposable>({
         registerCommand: (command, callback) => vscode.commands.registerCommand(command, callback),
@@ -1713,6 +1749,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             removeGroup: () => groupCommandController.removeGroupPerCommand(),
             addProjectsFromFolder: () => addProjectsFromFolderController.addProjectsFromFolder(),
             addFileToActiveTerminal: () => activeTerminalFileReferenceController.addFileToActiveTerminal(),
+            insertPromptToActiveTerminal: () => promptTerminalCommandController.insertPromptToActiveTerminal(),
         },
     }).register();
 

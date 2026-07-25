@@ -69,6 +69,10 @@
             {
                 "command": "projectSteward.addFileToActiveTerminal",
                 "title": "Project Steward: Add File to Active Terminal"
+            },
+            {
+                "command": "projectSteward.insertPromptToActiveTerminal",
+                "title": "Project Steward: Insert Prompt into Active Terminal"
             }
         ],
         "keybindings": [

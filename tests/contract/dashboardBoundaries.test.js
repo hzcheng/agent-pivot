@@ -203,7 +203,7 @@ const DASHBOARD_COMMANDS = [
     'projectSteward.open', 'projectSteward.addProject', 'projectSteward.saveProject',
     'projectSteward.removeProject', 'projectSteward.editProjects', 'projectSteward.addGroup',
     'projectSteward.removeGroup', 'projectSteward.addProjectsFromFolder',
-    'projectSteward.addFileToActiveTerminal',
+    'projectSteward.addFileToActiveTerminal', 'projectSteward.insertPromptToActiveTerminal',
 ];
 
 test('WEBVIEW-DASHBOARD-COMMAND-REGISTRATION-001 registers exact callbacks and subscriptions', async () => {
@@ -212,7 +212,7 @@ test('WEBVIEW-DASHBOARD-COMMAND-REGISTRATION-001 registers exact callbacks and s
     const calls = [];
     const handlerNames = [
         'open', 'addProject', 'saveProject', 'removeProject', 'editProjects', 'addGroup', 'removeGroup',
-        'addProjectsFromFolder', 'addFileToActiveTerminal',
+        'addProjectsFromFolder', 'addFileToActiveTerminal', 'insertPromptToActiveTerminal',
     ];
     const handlers = Object.fromEntries(handlerNames.map(name => [name, (...args) => calls.push([name, ...args])]));
     new DashboardCommandRegistration({
@@ -228,6 +228,19 @@ test('WEBVIEW-DASHBOARD-COMMAND-REGISTRATION-001 registers exact callbacks and s
     for (const callback of registered.values()) await callback('ignored');
     assert.deepEqual(calls, handlerNames.map(name => [name, 'ignored']));
     assert.deepEqual(subscriptions.map(value => value.command), DASHBOARD_COMMANDS);
+});
+
+test('WEBVIEW-DASHBOARD-COMMAND-REGISTRATION-001 contributes the Prompt terminal command exactly once without a default keybinding', () => {
+    const manifest = require('../../package.json');
+    const commands = manifest.contributes.commands
+        .filter(command => command.command === 'projectSteward.insertPromptToActiveTerminal');
+    assert.deepEqual(commands, [{
+        command: 'projectSteward.insertPromptToActiveTerminal',
+        title: 'Project Steward: Insert Prompt into Active Terminal',
+    }]);
+    assert.equal(manifest.contributes.keybindings.some(
+        keybinding => keybinding.command === 'projectSteward.insertPromptToActiveTerminal'
+    ), false);
 });
 
 test('WEBVIEW-DASHBOARD-COMMAND-REGISTRATION-001 production activation installs the exact Dashboard public command surface', () => {

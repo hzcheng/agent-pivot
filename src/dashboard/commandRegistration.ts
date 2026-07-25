@@ -14,6 +14,7 @@ export interface DashboardCommandHandlers {
     removeGroup: () => unknown;
     addProjectsFromFolder: () => unknown;
     addFileToActiveTerminal: () => unknown;
+    insertPromptToActiveTerminal: () => unknown;
 }
 
 export interface DashboardCommandRegistrationOptions<TDisposable extends DisposableLike = DisposableLike> {
@@ -36,6 +37,7 @@ export class DashboardCommandRegistration<TDisposable extends DisposableLike = D
         this.registerCommand('projectSteward.removeGroup', this.options.handlers.removeGroup);
         this.registerCommand('projectSteward.addProjectsFromFolder', this.options.handlers.addProjectsFromFolder);
         this.registerCommand('projectSteward.addFileToActiveTerminal', this.options.handlers.addFileToActiveTerminal);
+        this.registerCommand('projectSteward.insertPromptToActiveTerminal', this.options.handlers.insertPromptToActiveTerminal);
     }
 
     private registerCommand(command: string, callback: () => unknown): void {

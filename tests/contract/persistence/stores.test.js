@@ -141,11 +141,20 @@ test('PERSIST-PROJECT-STATE-STORE-001 sanitizes workspace state and ignores inva
         primaryProvider: 'claude',
         selectedProviders: ['claude', 'kimi'],
     });
+    await store.setProviderSelection('scope-e', {
+        primaryProvider: 'codex',
+        selectedProviders: ['codex', 'claude', 'unknown', 'claude', 'kimi'],
+    });
+    await store.setProviderSelection('scope-f', {
+        primaryProvider: 'unknown',
+        selectedProviders: [],
+    });
     assert.deepEqual(state.values['workspaceExpandedAiSessions.v2'], [
         'scope-a', 'scope-b', 'scope-c',
     ]);
     assert.deepEqual(state.values['workspaceActiveAiSessionProvider.v2'], {
         'scope-a': 'codex', 'scope-c': 'kimi', 'scope-d': 'claude',
+        'scope-e': 'codex', 'scope-f': 'codex',
     });
     assert.deepEqual(state.values['workspaceAiSessionProviderSelection.v1']['scope-d'], {
         primaryProvider: 'claude',
@@ -154,6 +163,22 @@ test('PERSIST-PROJECT-STATE-STORE-001 sanitizes workspace state and ignores inva
     assert.equal(
         state.values['workspaceActiveAiSessionProvider.v2']['scope-d'],
         'claude'
+    );
+    assert.deepEqual(state.values['workspaceAiSessionProviderSelection.v1']['scope-e'], {
+        primaryProvider: 'codex',
+        selectedProviders: ['codex', 'kimi', 'claude'],
+    });
+    assert.equal(
+        state.values['workspaceActiveAiSessionProvider.v2']['scope-e'],
+        'codex'
+    );
+    assert.deepEqual(state.values['workspaceAiSessionProviderSelection.v1']['scope-f'], {
+        primaryProvider: 'codex',
+        selectedProviders: ['codex'],
+    });
+    assert.equal(
+        state.values['workspaceActiveAiSessionProvider.v2']['scope-f'],
+        'codex'
     );
 });
 

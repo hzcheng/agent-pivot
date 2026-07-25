@@ -113,15 +113,17 @@ export default class AiSessionWorkspaceStateStore {
         if (!workspaceScopeIdentity) {
             return;
         }
+        const normalizedSelection = normalizeAiSessionProviderSelection({
+            registeredProviders: AI_SESSION_PROVIDER_IDS.filter(provider => this.isProviderId(provider)),
+            primaryProvider: selection?.primaryProvider,
+            selectedProviders: selection?.selectedProviders,
+        });
         const selections = this.getProviderSelections();
-        selections[workspaceScopeIdentity] = {
-            primaryProvider: selection.primaryProvider,
-            selectedProviders: [...selection.selectedProviders],
-        };
+        selections[workspaceScopeIdentity] = normalizedSelection;
         await this.state.update(WORKSPACE_AI_SESSION_PROVIDER_SELECTION_KEY, selections);
 
         const activeProviders = this.getActiveProviders();
-        activeProviders[workspaceScopeIdentity] = selection.primaryProvider;
+        activeProviders[workspaceScopeIdentity] = normalizedSelection.primaryProvider;
         await this.state.update(WORKSPACE_ACTIVE_AI_SESSION_PROVIDER_KEY, activeProviders);
     }
 }

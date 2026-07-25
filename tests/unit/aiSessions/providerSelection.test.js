@@ -28,6 +28,15 @@ test('SESSION-MULTI-PROVIDER-SELECTION-001 migrates one primary provider and nor
 
     assert.deepEqual(normalizeAiSessionProviderSelection({
         registeredProviders,
+        primaryProvider: 'codex',
+        selectedProviders: ['codex', 'claude', 'kimi'],
+    }), {
+        primaryProvider: 'codex',
+        selectedProviders: ['codex', 'kimi', 'claude'],
+    });
+
+    assert.deepEqual(normalizeAiSessionProviderSelection({
+        registeredProviders,
         primaryProvider: 'unknown',
         selectedProviders: [],
         sessionCounts: { codex: 0, kimi: 3, claude: 1 },

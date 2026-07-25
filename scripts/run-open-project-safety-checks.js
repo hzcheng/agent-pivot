@@ -1983,7 +1983,7 @@ async function runOpenWorkspaceHardeningChecks() {
     const posted = [];
     const refreshes = [];
     let deliveryResult = true;
-    let runningCardAnimation = 'halo';
+    let runningCardAnimation = 'sharingan-shisui';
     const dashboard = new OpenWorkspaceDashboardController({
         getCurrentWorkspace: () => current,
         isWorkspaceSavedAsProject: () => true,
@@ -2047,14 +2047,14 @@ async function runOpenWorkspaceHardeningChecks() {
     await flush();
     assert.strictEqual(posted.length, 1, 'identical semantic workspace updates must be suppressed');
     assert.strictEqual(posted[0].otherWindowsStatus, 'update-required');
-    assert.ok(posted[0].html.includes('data-session-fx="halo"'),
+    assert.ok(posted[0].html.includes('data-session-fx="sharingan-shisui"'),
         'open-workspace controller updates must use the configured running animation');
-    runningCardAnimation = 'orbit';
+    runningCardAnimation = 'sharingan-sasuke';
     dashboard.postUpdated();
     await flush();
     assert.strictEqual(posted.length, 2,
         'changing only the running animation must not be suppressed as an unchanged workspace update');
-    assert.ok(posted[1].html.includes('data-session-fx="orbit"'));
+    assert.ok(posted[1].html.includes('data-session-fx="sharingan-sasuke"'));
     deliveryResult = false;
     dashboard.setBridgeStatus('unavailable');
     dashboard.postUpdated();

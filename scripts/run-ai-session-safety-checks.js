@@ -5299,11 +5299,33 @@ function runWebviewContentChecks() {
         packageJson.contributes.configuration.properties['projectSteward.aiSessionTerminalMode'].enum,
         ['vscode', 'tmux']
     );
-    assert.deepStrictEqual(
-        packageJson.contributes.configuration.properties[
-            'projectSteward.aiSessionRunningCardAnimation'
-        ].enum,
-        ['current', 'sweep', 'orbit', 'halo', 'ripple', 'breath', 'none']
+    const runningAnimation = packageJson.contributes.configuration.properties[
+        'projectSteward.aiSessionRunningCardAnimation'
+    ];
+    assert.deepStrictEqual(runningAnimation.enum, [
+        'current',
+        'sweep',
+        'orbit',
+        'halo',
+        'sharingan-itachi',
+        'sharingan-obito-kakashi',
+        'sharingan-sasuke',
+        'sharingan-shisui',
+        'ripple',
+        'breath',
+        'none',
+    ]);
+    assert.deepStrictEqual(runningAnimation.enumDescriptions.slice(4, 8), [
+        "Itachi Uchiha's Mangekyo Sharingan replaces and rotates over the project kind icon.",
+        "Obito Uchiha and Kakashi Hatake's Mangekyo Sharingan replaces and rotates over the project kind icon.",
+        "Sasuke Uchiha's Mangekyo Sharingan replaces and rotates over the project kind icon.",
+        "Shisui Uchiha's Mangekyo Sharingan replaces and rotates over the project kind icon.",
+    ]);
+    assert.strictEqual(
+        runningAnimation.description,
+        'Animation shown on a workspace card while one or more AI sessions are executing. '
+            + 'OTHER WINDOWS uses only its existing aggregate running state and does not '
+            + 'expose provider or session identities.',
     );
     assert.ok(!fs.existsSync(path.join(__dirname, '..', 'src', 'aiSessions', 'projectHydrationController.ts')));
     assert.ok(!fs.existsSync(path.join(__dirname, '..', 'src', 'aiSessions', 'projectHydration.ts')));
@@ -5446,7 +5468,7 @@ function runTmuxSmokeHarnessSafetyChecks() {
 
 function runCurrentWorkspaceRenderingChecks() {
     const config = {
-        get: (key, defaultValue) => key === 'aiSessionRunningCardAnimation' ? 'breath' : defaultValue,
+        get: (key, defaultValue) => key === 'aiSessionRunningCardAnimation' ? 'sharingan-itachi' : defaultValue,
         displayProjectPath: false,
         searchIsActiveByDefault: false,
         showAddGroupButtonTile: false,
@@ -5554,7 +5576,7 @@ function runCurrentWorkspaceRenderingChecks() {
     assert.ok(currentTags[0].includes('data-current-workspace'));
     assert.ok(currentTags[0].includes('data-workspace-card-kind="current"'));
     assert.ok(currentTags[0].includes('session-running'));
-    assert.ok(currentTags[0].includes('data-session-fx="breath"'),
+    assert.ok(currentTags[0].includes('data-session-fx="sharingan-itachi"'),
         'the full Webview render must use the configured running animation');
     assert.ok(html.includes('title="Workspace — 1 active session running"'));
     assert.strictEqual((html.match(/class="project-session-fx"/g) || []).length, 1);
@@ -7060,7 +7082,7 @@ async function runAiSessionDashboardUnchangedMessageSkipChecks() {
     const messages = [];
     const diagnostics = [];
     let sessionName = 'Codex One';
-    let runningCardAnimation = 'halo';
+    let runningCardAnimation = 'sharingan-itachi';
     const workspace = () => ({
         id: 'workspace-a',
         kind: 'current',
@@ -7122,15 +7144,15 @@ async function runAiSessionDashboardUnchangedMessageSkipChecks() {
     await controller.refreshNow('watcher');
     await controller.refreshNow('watcher');
     assert.strictEqual(messages.length, 1, 'unchanged watcher messages should not be posted twice');
-    assert.ok(messages[0].html.includes('data-session-fx="halo"'),
+    assert.ok(messages[0].html.includes('data-session-fx="sharingan-itachi"'),
         'AI session controller updates must use the configured running animation');
     assert.strictEqual(diagnostics.some(event => event.event === 'ai-session-message-skip' && event.reason === 'watcher'), true);
 
-    runningCardAnimation = 'orbit';
+    runningCardAnimation = 'sharingan-obito-kakashi';
     await controller.refreshNow('watcher');
     assert.strictEqual(messages.length, 2,
         'changing only the running animation must not be suppressed by incremental message dedupe');
-    assert.ok(messages[1].html.includes('data-session-fx="orbit"'));
+    assert.ok(messages[1].html.includes('data-session-fx="sharingan-obito-kakashi"'));
 
     sessionName = 'Codex Two';
     await controller.refreshNow('watcher');

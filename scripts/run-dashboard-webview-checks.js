@@ -293,11 +293,11 @@ function runDashboardUpdateMessageChecks() {
         sequence: 7,
         generatedAt: '2026-07-17T00:00:00.000Z',
         todoSearchItems,
-        runningCardAnimation: 'ripple',
+        runningCardAnimation: 'sharingan-itachi',
     });
     const workspaceMessage = dashboardUpdateMessages.buildWorkspaceUpdatedMessage({
         card: workspaceCard,
-        runningCardAnimation: 'sweep',
+        runningCardAnimation: 'sharingan-sasuke',
     });
     const navigationCard = {
         ...makeWorkspaceCardFixture(2),
@@ -317,7 +317,7 @@ function runDashboardUpdateMessageChecks() {
         semanticRevision: 'b'.repeat(64),
         otherWindowsStatus: 'ready',
         todoSearchItems,
-        runningCardAnimation: 'halo',
+        runningCardAnimation: 'sharingan-obito-kakashi',
     });
     const workspaceSearchCatalog = buildWorkspaceDashboardSearchCatalog([], [workspaceCard], todoSearchItems);
 
@@ -328,7 +328,7 @@ function runDashboardUpdateMessageChecks() {
     assert.strictEqual(aiMessage.searchCatalog.version, 2);
     assert.deepStrictEqual(aiMessage.searchCatalog.openWorkspaces.map(item => item.current), [true]);
     assert.ok(aiMessage.html.includes('data-current-workspace'));
-    assert.ok(aiMessage.html.includes('data-session-fx="ripple"'),
+    assert.ok(aiMessage.html.includes('data-session-fx="sharingan-itachi"'),
         'AI session incremental updates must use the configured running animation');
     assert.strictEqual(workspaceMessage.type, 'workspace-updated');
     assert.strictEqual(workspaceMessage.version, 2);
@@ -338,7 +338,7 @@ function runDashboardUpdateMessageChecks() {
     assert.deepStrictEqual(workspaceSearchCatalog.todos, todoSearchItems);
     assert.strictEqual(workspaceMessage.currentWorkspaceCount, 1);
     assert.ok(workspaceMessage.html.includes('data-workspace-scope-identity="scope-dashboard"'));
-    assert.ok(workspaceMessage.html.includes('data-session-fx="sweep"'),
+    assert.ok(workspaceMessage.html.includes('data-session-fx="sharingan-sasuke"'),
         'workspace incremental updates must use the configured running animation');
     const emptyWorkspaceMessage = dashboardUpdateMessages.buildWorkspaceUpdatedMessage({ card: null });
     assert.strictEqual(emptyWorkspaceMessage.currentWorkspaceCount, 0);
@@ -354,7 +354,7 @@ function runDashboardUpdateMessageChecks() {
         ['show-current-workspace', 'switch-open-workspace'],
     );
     assert.ok(openWorkspacesMessage.html.includes('OTHER WINDOWS'));
-    assert.ok(openWorkspacesMessage.html.includes('data-session-fx="halo"'),
+    assert.ok(openWorkspacesMessage.html.includes('data-session-fx="sharingan-obito-kakashi"'),
         'open-workspace incremental updates must use the configured running animation');
 }
 
@@ -494,7 +494,18 @@ function runWorkspaceCardRenderingChecks() {
     assert.ok(orbitHtml.indexOf('project-session-fx') > orbitHtml.indexOf('steward-item-accent'));
     assert.ok(orbitHtml.includes('title="Workspace — 1 active session running"'));
 
-    for (const animation of ['current', 'sweep', 'orbit', 'halo', 'ripple', 'breath']) {
+    for (const animation of [
+        'current',
+        'sweep',
+        'orbit',
+        'halo',
+        'sharingan-itachi',
+        'sharingan-obito-kakashi',
+        'sharingan-sasuke',
+        'sharingan-shisui',
+        'ripple',
+        'breath',
+    ]) {
         const animationHtml = webviewContent.getCurrentWorkspaceGroupContent(runningCard, false, animation);
         assert.ok(animationHtml.includes(`data-session-fx="${animation}"`),
             `the current workspace card must accept the ${animation} running animation`);
@@ -618,7 +629,7 @@ function runWorkspaceCardRenderingChecks() {
         [makeWorkspaceCardFixture(3), navigationCard],
         false,
         'ready',
-        'halo',
+        'sharingan-shisui',
     );
     const otherWindowsHtml = workspaceHtml.slice(workspaceHtml.indexOf('OTHER WINDOWS'));
     assert.strictEqual((otherWindowsHtml.match(/class="workspace-card/g) || []).length, 1);
@@ -626,7 +637,7 @@ function runWorkspaceCardRenderingChecks() {
     assert.ok(otherWindowsHtml.includes('style="--project-color: #abcdef;"'));
     assert.ok(otherWindowsHtml.includes('class="project-border steward-item-accent" style="background: #abcdef;"'));
     assert.ok(otherWindowsHtml.includes('class="workspace-card project steward-item-card session-running"'));
-    assert.ok(otherWindowsHtml.includes('data-session-fx="halo"'));
+    assert.ok(otherWindowsHtml.includes('data-session-fx="sharingan-shisui"'));
     assert.ok(otherWindowsHtml.includes('title="Workspace — 2 active sessions running"'));
     assert.ok(otherWindowsHtml.includes('<span class="ai-session-active-count" aria-label="2 active AI sessions">●2</span>'));
     assert.ok(otherWindowsHtml.includes('<h2 class="project-header">App</h2>'));

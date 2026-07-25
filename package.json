@@ -168,6 +168,10 @@
                         "sweep",
                         "orbit",
                         "halo",
+                        "sharingan-itachi",
+                        "sharingan-obito-kakashi",
+                        "sharingan-sasuke",
+                        "sharingan-shisui",
                         "ripple",
                         "breath",
                         "none"
@@ -177,13 +181,17 @@
                         "A diagonal light beam sweeps across the card periodically.",
                         "A glowing dot with a comet tail orbits along the card edge.",
                         "A rotating glowing halo surrounds the project kind icon.",
+                        "Itachi Uchiha's Mangekyo Sharingan replaces and rotates over the project kind icon.",
+                        "Obito Uchiha and Kakashi Hatake's Mangekyo Sharingan replaces and rotates over the project kind icon.",
+                        "Sasuke Uchiha's Mangekyo Sharingan replaces and rotates over the project kind icon.",
+                        "Shisui Uchiha's Mangekyo Sharingan replaces and rotates over the project kind icon.",
                         "Sonar ripples expand from the project kind icon.",
                         "The whole card glow breathes softly.",
                         "No animation; only a static tinted border."
                     ],
                     "default": "current",
                     "scope": "machine",
-                    "description": "Animation shown on the CURRENT WORKSPACE card while a local AI session is executing. OTHER WINDOWS cards do not expose provider or session details."
+                    "description": "Animation shown on a workspace card while one or more AI sessions are executing. OTHER WINDOWS uses only its existing aggregate running state and does not expose provider or session identities."
                 },
                 "projectSteward.maxVisibleTodosPerGroup": {
                     "type": "number",

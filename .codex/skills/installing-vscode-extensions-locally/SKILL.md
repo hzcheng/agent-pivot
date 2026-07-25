@@ -35,6 +35,11 @@ Build and install the Project Steward extension that matches the current VS Code
      command or an equivalent wrapper is common, but do not assume either a
      fixed name or layout. Prove that the chosen entry point accepts extension
      management without inheriting `VSCODE_IPC_HOOK_CLI`.
+   - independently verify that the chosen extension-management entry point
+     reports a version/commit matching the active Server commit derived from
+     the running active code-server process. If it is a wrapper, resolve the
+     wrapper and verify that it invokes that active Server installation. This
+     installation-identity check is required in addition to IPC-host proof.
    - use `remote-cli` only after replacing or validating its inherited hook
      with a reachable socket and proving that request reaches the active host.
      Matching `--version` output alone does not prove its socket target or make

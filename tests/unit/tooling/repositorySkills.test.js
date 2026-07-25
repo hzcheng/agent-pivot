@@ -52,6 +52,8 @@ test('ARCH-REPOSITORY-SKILL-GUIDANCE-001 verifies remote extension installation 
         ['active code-server selection', /active code-server/i],
         ['host-specific workspace installation', /workspace extension[\s\S]*active remote Server host/i],
         ['socket-independent extension-management entry point', /socket-independent[\s\S]*extension-management entry point/i],
+        ['entry point matches active Server commit', /extension-management entry point[\s\S]*reports? (?:a )?version\/commit[\s\S]*active Server commit/i],
+        ['wrapper resolves to active Server installation', /wrapper[\s\S]*resolve[\s\S]*verify[\s\S]*active Server installation/i],
         ['remote-cli active IPC gate', /remote-cli[\s\S]*(?:only|unless)[\s\S]*reachable[\s\S]*active host/i],
         ['representative hash comparison', /representative[\s\S]*hash/i],
     ]);

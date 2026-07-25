@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "ff920bf7a1d82ec334dd6081cf2f0e2a8eaf54d2",
+        "head": "72c0771cd7ac2916f551447139c1725a85b590a1",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -733,10 +733,12 @@
                 "b649d7d59ed3fddd8aeff86d58e66ee887369fa7",
                 "68c49fb51284d758a0afd83c41f83f2ea2f09466",
                 "423d811afa2013c77e04975df11dbf5ee68160c8",
-                "ff920bf7a1d82ec334dd6081cf2f0e2a8eaf54d2"
+                "ff920bf7a1d82ec334dd6081cf2f0e2a8eaf54d2",
+                "72c0771cd7ac2916f551447139c1725a85b590a1"
             ],
             "behaviors": [
                 "PERSIST-AI-PROMPT-STORE-001",
+                "SESSION-CONFIGURATION-001",
                 "SESSION-AI-PROMPT-TERMINAL-INSERTION-001",
                 "WEBVIEW-AI-PROMPT-INTERACTION-001",
                 "WEBVIEW-AI-PROMPT-MUTATION-001"

@@ -3302,14 +3302,18 @@ body.steward-sidebar {
             color: var(--steward-ai-accent);
         }
 
-        .codex-session-row[data-execution-state="running"] .codex-session-icon {
+        .active-ai-session-row .codex-session-icon {
             position: relative;
+            border-radius: 50%;
+        }
+
+        .active-ai-session-row[data-execution-state="running"][data-session-icon-fx="current"] .codex-session-icon {
 
             &::before {
                 content: "";
                 position: absolute;
                 inset: -1px;
-                border-radius: 7px;
+                border-radius: 50%;
                 padding: 2px;
                 background:
                     conic-gradient(from var(--steward-spin-angle, 0deg),
@@ -3331,6 +3335,70 @@ body.steward-sidebar {
                 animation: steward-session-icon-spin 2.6s linear infinite;
                 pointer-events: none;
             }
+        }
+
+        .active-ai-session-row[data-execution-state="running"][data-session-icon-fx="halo"] .codex-session-icon {
+
+            &::before {
+                content: "";
+                position: absolute;
+                inset: -1px;
+                border-radius: 50%;
+                background:
+                    conic-gradient(from var(--steward-spin-angle, 0deg),
+                        transparent 0deg 210deg,
+                        rgba(110, 195, 255, .32) 250deg,
+                        rgba(205, 238, 255, .95) 315deg,
+                        #ffffff 345deg,
+                        transparent 360deg),
+                    radial-gradient(circle,
+                        transparent 53%,
+                        rgba(150, 215, 255, .18) 64%,
+                        rgba(95, 175, 255, .55) 76%,
+                        transparent 78%);
+                filter: drop-shadow(0 0 3px rgba(145, 205, 255, .9));
+                animation: steward-session-icon-spin 2.6s linear infinite;
+                pointer-events: none;
+            }
+        }
+
+        .active-ai-session-row[data-execution-state="running"][data-session-icon-fx^="sharingan-"] .codex-session-icon {
+
+            &::after {
+                content: "";
+                position: absolute;
+                inset: 0;
+                border-radius: 50%;
+                background-position: center;
+                background-repeat: no-repeat;
+                background-size: 100% 100%;
+                animation: steward-session-running-sharingan 1.8s linear infinite;
+                pointer-events: none;
+            }
+        }
+
+        .active-ai-session-row[data-execution-state="running"][data-session-icon-fx="sharingan-itachi"] .codex-session-icon::after {
+            background-image: url("sharingan/mangekyou-sharingan-itachi.svg");
+        }
+
+        .active-ai-session-row[data-execution-state="running"][data-session-icon-fx="sharingan-obito-kakashi"] .codex-session-icon::after {
+            background-image: url("sharingan/mangekyou-sharingan-obito-kakashi.svg");
+        }
+
+        .active-ai-session-row[data-execution-state="running"][data-session-icon-fx="sharingan-sasuke"] .codex-session-icon::after {
+            background-image: url("sharingan/mangekyou-sharingan-sasuke.svg");
+        }
+
+        .active-ai-session-row[data-execution-state="running"][data-session-icon-fx="sharingan-shisui"] .codex-session-icon::after {
+            background-image: url("sharingan/mangekyou-sharingan-shisui.svg");
+        }
+
+        .active-ai-session-row[data-execution-state="running"][data-session-icon-fx="sharingan-madara"] .codex-session-icon::after {
+            background-image: url("sharingan/mangekyou-sharingan-madara.svg");
+        }
+
+        .active-ai-session-row[data-execution-state="running"][data-session-icon-fx="sharingan-madara-eternal"] .codex-session-icon::after {
+            background-image: url("sharingan/mangekyou-sharingan-madara-eternal.svg");
         }
 
         .codex-session-pin,
@@ -3899,7 +3967,9 @@ body.steward-sidebar .project .ai-session-attention-indicator {
     .project.session-running[data-session-fx="breath"],
     .project.session-running[data-session-fx="halo"] .project-kind-icon::before,
     .project.session-running[data-session-fx^="sharingan-"] .project-kind-icon::after,
-    .codex-session-row[data-execution-state="running"] .codex-session-icon::before {
+    .active-ai-session-row[data-execution-state="running"][data-session-icon-fx="current"] .codex-session-icon::before,
+    .active-ai-session-row[data-execution-state="running"][data-session-icon-fx="halo"] .codex-session-icon::before,
+    .active-ai-session-row[data-execution-state="running"][data-session-icon-fx^="sharingan-"] .codex-session-icon::after {
         animation: none !important;
         transition: none !important;
     }
@@ -3914,6 +3984,10 @@ body.steward-sidebar .project .ai-session-attention-indicator {
         .codex-session-row[data-session-conflict],
         .ai-session-runtime-badge,
         .ai-session-close-terminal {
+            border: 1px solid CanvasText;
+        }
+
+        .active-ai-session-row .codex-session-icon {
             border: 1px solid CanvasText;
         }
     }

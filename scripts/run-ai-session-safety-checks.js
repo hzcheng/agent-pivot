@@ -5286,9 +5286,14 @@ function runWebviewContentChecks() {
     assert.ok(reducedMotionStyles.includes('.project.session-running[data-session-fx="breath"]'));
     assert.ok(reducedMotionStyles.includes('data-session-fx^="sharingan-"'));
     assert.ok(reducedMotionStyles.includes('animation: none !important'));
-    assert.ok(styles.includes('[data-execution-state="running"] .codex-session-icon'));
+    assert.ok(styles.includes('.active-ai-session-row[data-execution-state="running"][data-session-icon-fx="current"] .codex-session-icon'));
+    assert.ok(styles.includes('.active-ai-session-row[data-execution-state="running"][data-session-icon-fx="halo"] .codex-session-icon'));
+    assert.ok(styles.includes('.active-ai-session-row[data-execution-state="running"][data-session-icon-fx^="sharingan-"] .codex-session-icon'));
+    assert.ok(!styles.includes('.codex-session-row[data-execution-state="running"] .codex-session-icon'));
     assert.ok(styles.includes('@keyframes steward-session-icon-spin'));
-    assert.ok(compiledStyles.includes('[data-execution-state=running] .codex-session-icon::before'));
+    assert.ok(compiledStyles.includes('.active-ai-session-row[data-execution-state=running][data-session-icon-fx=current] .codex-session-icon::before'));
+    assert.ok(compiledStyles.includes('.active-ai-session-row[data-execution-state=running][data-session-icon-fx=halo] .codex-session-icon::before'));
+    assert.ok(compiledStyles.includes('.active-ai-session-row[data-execution-state=running][data-session-icon-fx^=sharingan-] .codex-session-icon::after'));
     assert.ok(compiledStyles.includes('@keyframes steward-session-icon-spin'));
     assert.ok(styles.includes('[data-ai-session-managing]'));
     assert.ok(styles.includes('grid-template-columns: minmax(0, 1fr) 24px;'));

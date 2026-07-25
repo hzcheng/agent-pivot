@@ -5261,6 +5261,7 @@ function runWebviewContentChecks() {
         'steward-session-running-sweep',
         'steward-session-running-orbit',
         'steward-session-running-halo',
+        'steward-session-running-sharingan',
         'steward-session-running-ripple',
         'steward-session-running-breath',
     ]) {
@@ -5274,6 +5275,7 @@ function runWebviewContentChecks() {
     const reducedMotionStyles = styles.slice(styles.indexOf('@media (prefers-reduced-motion: reduce)'));
     assert.ok(reducedMotionStyles.includes('.project-session-fx'));
     assert.ok(reducedMotionStyles.includes('.project.session-running[data-session-fx="breath"]'));
+    assert.ok(reducedMotionStyles.includes('data-session-fx^="sharingan-"'));
     assert.ok(reducedMotionStyles.includes('animation: none !important'));
     assert.ok(styles.includes('[data-execution-state="running"] .codex-session-icon'));
     assert.ok(styles.includes('@keyframes steward-session-icon-spin'));

@@ -2561,6 +2561,45 @@ body.steward-sidebar {
             }
         }
 
+        &[data-session-fx^="sharingan-"] .project-kind-icon {
+            position: relative;
+            background: transparent;
+            border-color: transparent;
+
+            &::after {
+                content: "";
+                position: absolute;
+                inset: 0;
+                z-index: 1;
+                background-position: center;
+                background-repeat: no-repeat;
+                background-size: 100% 100%;
+                animation: steward-session-running-sharingan 1.8s linear infinite;
+                pointer-events: none;
+            }
+        }
+
+        &[data-session-fx="sharingan-itachi"] .project-kind-icon::after {
+            background-image: url("sharingan/mangekyou-sharingan-itachi.svg");
+        }
+
+        &[data-session-fx="sharingan-obito-kakashi"] .project-kind-icon::after {
+            background-image: url("sharingan/mangekyou-sharingan-obito-kakashi.svg");
+        }
+
+        &[data-session-fx="sharingan-sasuke"] .project-kind-icon::after {
+            background-image: url("sharingan/mangekyou-sharingan-sasuke.svg");
+        }
+
+        &[data-session-fx="sharingan-shisui"] .project-kind-icon::after {
+            background-image: url("sharingan/mangekyou-sharingan-shisui.svg");
+        }
+
+        &[data-session-fx^="sharingan-"]:hover .project-kind-icon {
+            background: transparent;
+            border-color: transparent;
+        }
+
         &[data-session-fx="breath"] {
             animation: steward-session-running-breath 2.4s ease-in-out infinite;
         }
@@ -3693,6 +3732,12 @@ body.steward-sidebar .project .project-codex-badge.attention-animate {
     }
 }
 
+@keyframes steward-session-running-sharingan {
+    to {
+        transform: rotate(1turn);
+    }
+}
+
 @keyframes steward-session-running-breath {
     0%,
     100% {
@@ -3844,6 +3889,7 @@ body.steward-sidebar .project .ai-session-attention-indicator {
     .project-session-fx::after,
     .project.session-running[data-session-fx="breath"],
     .project.session-running[data-session-fx="halo"] .project-kind-icon::before,
+    .project.session-running[data-session-fx^="sharingan-"] .project-kind-icon::after,
     .codex-session-row[data-execution-state="running"] .codex-session-icon::before {
         animation: none !important;
         transition: none !important;

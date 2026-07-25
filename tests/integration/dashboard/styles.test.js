@@ -34,7 +34,12 @@ function validateReducedMotion(source) {
         assert.ok(dashboardMotion.includes(value), `WEBVIEW-REDUCED-MOTION-001 missing ${value}`);
     }
     const sessionMotion = extractBlock(source, '@media (prefers-reduced-motion: reduce)', 1);
-    for (const value of ['.ai-session-attention-indicator', 'animation: none !important', 'transition: none !important']) {
+    for (const value of [
+        '.ai-session-attention-indicator',
+        '.project.session-running[data-session-fx^="sharingan-"] .project-kind-icon::after',
+        'animation: none !important',
+        'transition: none !important',
+    ]) {
         assert.ok(sessionMotion.includes(value), `WEBVIEW-REDUCED-MOTION-001 missing ${value}`);
     }
 }
@@ -95,6 +100,68 @@ function assertDeclarations(rule, id, declarations) {
     for (const declaration of declarations) {
         assert.ok(rule.body.includes(declaration), `${id} missing ${declaration}`);
     }
+}
+
+const sharinganAssets = [
+    ['sharingan-itachi', 'sharingan/mangekyou-sharingan-itachi.svg'],
+    ['sharingan-obito-kakashi', 'sharingan/mangekyou-sharingan-obito-kakashi.svg'],
+    ['sharingan-sasuke', 'sharingan/mangekyou-sharingan-sasuke.svg'],
+    ['sharingan-shisui', 'sharingan/mangekyou-sharingan-shisui.svg'],
+];
+
+function findSharinganRule(source, mode) {
+    const matches = cssRules(source).filter(rule => rule.selectors.some(selector =>
+        (
+            selector.includes(`[data-session-fx="${mode}"]`)
+            || selector.includes(`[data-session-fx=${mode}]`)
+        )
+        && selector.endsWith('.project-kind-icon::after')));
+    assert.equal(matches.length, 1,
+        `SHARINGAN-RUNNING-ANIMATION-001 expected one rule for ${mode}`);
+    return matches[0];
+}
+
+function findSharinganSharedRule(source, suffix, requiredDeclaration) {
+    const matches = cssRules(source).filter(rule => rule.selectors.some(selector =>
+        (
+            selector.includes('[data-session-fx^="sharingan-"]')
+            || selector.includes('[data-session-fx^=sharingan-]')
+        )
+        && selector.endsWith(suffix))
+        && (!requiredDeclaration || rule.body.includes(requiredDeclaration)));
+    assert.equal(matches.length, 1,
+        `SHARINGAN-RUNNING-ANIMATION-001 expected one shared rule for ${suffix}`);
+    return matches[0];
+}
+
+function validateSharinganAnimations(source) {
+    for (const [mode, asset] of sharinganAssets) {
+        assertDeclarations(findSharinganRule(source, mode),
+            'SHARINGAN-RUNNING-ANIMATION-001', [`background-image: url("${asset}")`]);
+    }
+    assertDeclarations(findSharinganSharedRule(source, '.project-kind-icon::after', 'position: absolute'),
+        'SHARINGAN-RUNNING-ANIMATION-001', [
+            'position: absolute',
+            'inset: 0',
+            'background-position: center',
+            'background-repeat: no-repeat',
+            'background-size: 100% 100%',
+            'animation: steward-session-running-sharingan 1.8s linear infinite',
+            'pointer-events: none',
+        ]);
+    assertDeclarations(findSharinganSharedRule(source, ':hover .project-kind-icon', 'background: transparent'),
+        'SHARINGAN-RUNNING-ANIMATION-001', [
+            'background: transparent',
+            'border-color: transparent',
+        ]);
+    assert.equal(cssRules(source).some(rule => rule.selectors.some(selector =>
+        (
+            selector.includes('[data-session-fx^="sharingan-"]')
+            || selector.includes('[data-session-fx^=sharingan-]')
+        )
+        && selector.endsWith('.project-kind-icon svg'))), false,
+    'SHARINGAN-RUNNING-ANIMATION-001 must retain the ordinary SVG fallback');
+    assert.ok(source.includes('@keyframes steward-session-running-sharingan'));
 }
 
 function validateSharedCardPresentation(source) {
@@ -231,4 +298,12 @@ test('WEBVIEW-COLLAPSE-PRESENTATION-001 rotates group and TODO collapse indicato
     assert.throws(() => validateCollapsePresentation(compileStyles(styles.replace(
         'transform: rotate(-90deg);', 'transform: rotate(0deg);'))),
         /WEBVIEW-COLLAPSE-PRESENTATION-001/);
+});
+
+test('SHARINGAN-RUNNING-ANIMATION-001 maps and rotates each authentic eye', () => {
+    validateSharinganAnimations(compiledStyles);
+    assert.throws(() => validateSharinganAnimations(compileStyles(styles.replace(
+        'animation: steward-session-running-sharingan 1.8s linear infinite;',
+        'animation: none;'
+    ))), /SHARINGAN-RUNNING-ANIMATION-001/);
 });

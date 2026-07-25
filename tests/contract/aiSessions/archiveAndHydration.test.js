@@ -47,7 +47,7 @@ test('PERSIST-BATCH-AI-SESSION-ARCHIVE-HOST-001 emits one terminal completion fo
     assert.equal(effects.filter(item => item === 'refresh').length, 1);
 });
 
-test('PERSIST-BATCH-AI-SESSION-ARCHIVE-HOST-001 keeps cross-provider collisions distinct and validates authoritative scope', () => {
+test('PERSIST-MULTI-PROVIDER-BATCH-ARCHIVE-001 PERSIST-BATCH-AI-SESSION-ARCHIVE-HOST-001 keeps cross-provider collisions distinct and validates authoritative scope', () => {
     const selection = aggregateArchive.resolveAggregateAiSessionArchiveSelection(
         [
             { provider: 'codex', sessionId: 'same' },

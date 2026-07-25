@@ -124,7 +124,7 @@ async function postAiSessionsUpdate(page, selectedProviders, sequence) {
     }, { html, sequence });
 }
 
-test('AI-SESSION-PROVIDER-MENU-001 opens and posts the complete selected provider set', async t => {
+test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-001 AI-SESSION-PROVIDER-MENU-001 opens and posts the complete selected provider set', async t => {
     const page = await openMenuPage(t);
     const project = page.locator('.project[data-id="project-a"]');
     const trigger = project.locator('[data-ai-provider-menu-trigger]');

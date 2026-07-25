@@ -407,7 +407,7 @@ test('WEBVIEW-CURRENT-WORKSPACE-RENDERING-001 WEBVIEW-DISPLAY-001 distinguishes 
     assert.equal(html.includes('Leaked'), false);
 });
 
-test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-002 renders a pinned-first selected-provider history list', () => {
+test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-001 WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-002 renders a pinned-first selected-provider history list', () => {
     const html = webviewModules.content.getOpenWorkspacesGroupContent([
         makeWorkspaceCard({
             aiSessions: {
@@ -1204,7 +1204,7 @@ function assertCrossProviderBatchScope(source = projectSource) {
     assert.equal(manager.snapshot().projectId, null);
 }
 
-test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-002 archives visible unpinned inactive rows across selected providers', () => {
+test('PERSIST-MULTI-PROVIDER-BATCH-ARCHIVE-001 WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-002 archives visible unpinned inactive rows across selected providers', () => {
     assertCrossProviderBatchScope();
     assert.throws(() => assertCrossProviderBatchScope(
         projectSource.replace(

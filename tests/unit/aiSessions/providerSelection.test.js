@@ -8,7 +8,7 @@ const {
 
 const registeredProviders = ['codex', 'kimi', 'claude'];
 
-test('SESSION-MULTI-PROVIDER-SELECTION-001 migrates one primary provider and normalizes ordered selections', () => {
+test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-001 SESSION-MULTI-PROVIDER-SELECTION-001 migrates one primary provider and normalizes ordered selections', () => {
     assert.deepEqual(normalizeAiSessionProviderSelection({
         registeredProviders,
         primaryProvider: 'kimi',

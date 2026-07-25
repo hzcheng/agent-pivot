@@ -103,6 +103,8 @@ test('SESSION-AI-SESSION-CLAUDE-CONVERSATION-003 parses append-only suffixes wit
     t.after(() => adapter.dispose());
 
     const first = await adapter.readOutline(sessionId);
+    const unchanged = await adapter.readOutline(sessionId);
+    assert.equal(unchanged.sourceRevision, first.sourceRevision);
     const originalIds = first.interactions.map(item => item.id);
     await fs.promises.appendFile(
         source.sourcePath,
@@ -113,6 +115,7 @@ test('SESSION-AI-SESSION-CLAUDE-CONVERSATION-003 parses append-only suffixes wit
         })}\n`
     );
     const appended = await adapter.readOutline(sessionId);
+    assert.notEqual(appended.sourceRevision, first.sourceRevision);
     assert.deepEqual(
         appended.interactions.slice(0, originalIds.length).map(item => item.id),
         originalIds
@@ -212,4 +215,44 @@ test('SESSION-AI-SESSION-CLAUDE-CONVERSATION-006 attaches a later assistant suff
             ['assistant', 'Visible suffix response'],
         ]
     );
+    assert.notEqual(second.sourceRevision, first.sourceRevision);
+});
+
+test('SESSION-AI-SESSION-CLAUDE-CONVERSATION-007 changes revision after a same-size same-mtime source rewrite', async t => {
+    const source = await createFixture(t);
+    const firstRecord = {
+        type: 'user',
+        uuid: 'claude-rewritten-user',
+        message: {
+            role: 'user',
+            content: [{ type: 'text', text: 'Alpha' }],
+        },
+    };
+    await fs.promises.writeFile(
+        source.sourcePath,
+        `${JSON.stringify(firstRecord)}\n`
+    );
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+    const first = await adapter.readOutline(sessionId);
+    const statBeforeReset = await fs.promises.stat(source.sourcePath);
+
+    await fs.promises.writeFile(
+        source.sourcePath,
+        `${JSON.stringify({
+            ...firstRecord,
+            message: {
+                role: 'user',
+                content: [{ type: 'text', text: 'Bravo' }],
+            },
+        })}\n`
+    );
+    await fs.promises.utimes(
+        source.sourcePath,
+        statBeforeReset.atimeMs / 1000,
+        statBeforeReset.mtimeMs / 1000
+    );
+    const rebuilt = await adapter.readOutline(sessionId);
+    assert.equal(rebuilt.interactions[0].userPreview, 'Bravo');
+    assert.notEqual(rebuilt.sourceRevision, first.sourceRevision);
 });

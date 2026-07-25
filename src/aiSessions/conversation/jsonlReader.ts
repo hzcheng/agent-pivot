@@ -219,14 +219,24 @@ export class ConversationIndexCache<T extends { dispose(): void }> {
 
     get(key: string): T | undefined {
         const entry = this.entries.get(key);
-        if (entry) {
-            entry.lastUsedAt = this.now();
+        if (!entry) {
+            return undefined;
         }
-        return entry?.value;
+        const now = this.now();
+        if (this.isExpired(entry, now)) {
+            this.delete(key);
+            return undefined;
+        }
+        entry.lastUsedAt = now;
+        return entry.value;
     }
 
     retain(key: string): AiSessionDisposable {
-        const entry = this.entries.get(key);
+        let entry = this.entries.get(key);
+        if (entry && this.isExpired(entry, this.now())) {
+            this.delete(key);
+            entry = undefined;
+        }
         if (entry) {
             entry.retainCount += 1;
         }
@@ -252,13 +262,23 @@ export class ConversationIndexCache<T extends { dispose(): void }> {
         this.entries.delete(key);
     }
 
+    private isExpired(
+        entry: { lastUsedAt: number; retainCount: number },
+        now: number
+    ): boolean {
+        return entry.retainCount === 0
+            && now - entry.lastUsedAt
+                > CONVERSATION_LIMITS.inactiveIndexTtlMs;
+    }
+
     private evict(): void {
+        const now = this.now();
         const inactive = Array.from(this.entries.entries())
             .filter(([, entry]) => entry.retainCount === 0)
             .sort((a, b) => a[1].lastUsedAt - b[1].lastUsedAt);
         inactive
             .filter(([, entry], index) =>
-                this.now() - entry.lastUsedAt > CONVERSATION_LIMITS.inactiveIndexTtlMs
+                this.isExpired(entry, now)
                 || index < inactive.length
                     - CONVERSATION_LIMITS.inactiveIndexLimitPerProvider
             )

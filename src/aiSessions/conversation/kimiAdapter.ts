@@ -340,9 +340,15 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                     partial: true,
                 };
             }
+            const partial = continuing ? previous.partial : result.partial;
             const changed = !previous
                 || previous.source.identity !== source.identity
-                || previous.partial !== result.partial;
+                || previous.source.portableFirstHash
+                    !== source.portableFirstHash
+                || previous.source.portableLastHash
+                    !== source.portableLastHash
+                || previous.nextOffset !== result.nextOffset
+                || previous.partial !== partial;
             const revision = changed
                 ? (this.revisionCounters.get(sessionId) || previous?.revision || 0) + 1
                 : previous.revision;
@@ -353,7 +359,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                 previous.interactions = interactions;
                 previous.openInteractionIndex = openInteractionIndex;
                 previous.revision = revision;
-                previous.partial = result.partial;
+                previous.partial = partial;
             } else {
                 this.cache.set(sessionId, {
                     source,
@@ -361,7 +367,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                     interactions,
                     openInteractionIndex,
                     revision,
-                    partial: result.partial,
+                    partial,
                     dispose() {},
                 });
                 const retainCount =
@@ -373,7 +379,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
             return {
                 interactions,
                 sourceRevision: `r${revision}`,
-                partial: result.partial,
+                partial,
             };
         } finally {
             await source.handle.close().catch(() => undefined);

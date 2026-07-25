@@ -337,9 +337,15 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
             }
             const appendInteractionIndex = openInteractionIndex;
             finishInteraction();
+            const partial = continuing ? previous.partial : result.partial;
             const changed = !previous
                 || previous.source.identity !== source.identity
-                || previous.partial !== result.partial;
+                || previous.source.portableFirstHash
+                    !== source.portableFirstHash
+                || previous.source.portableLastHash
+                    !== source.portableLastHash
+                || previous.nextOffset !== result.nextOffset
+                || previous.partial !== partial;
             const revision = changed
                 ? (this.revisionCounters.get(sessionId) || previous?.revision || 0) + 1
                 : previous.revision;
@@ -350,7 +356,7 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
                 previous.interactions = interactions;
                 previous.appendInteractionIndex = appendInteractionIndex;
                 previous.revision = revision;
-                previous.partial = result.partial;
+                previous.partial = partial;
             } else {
                 this.cache.set(sessionId, {
                     source,
@@ -358,7 +364,7 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
                     interactions,
                     appendInteractionIndex,
                     revision,
-                    partial: result.partial,
+                    partial,
                     dispose() {},
                 });
                 const retainCount =
@@ -370,7 +376,7 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
             return {
                 interactions,
                 sourceRevision: `r${revision}`,
-                partial: result.partial,
+                partial,
             };
         } finally {
             await source.handle.close().catch(() => undefined);

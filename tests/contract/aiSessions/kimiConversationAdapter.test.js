@@ -62,6 +62,8 @@ test('SESSION-AI-SESSION-KIMI-CONVERSATION-001 normalizes only visible turns and
     t.after(() => adapter.dispose());
 
     const first = await readWholeConversation(adapter);
+    const unchanged = await adapter.readOutline(sessionId);
+    assert.equal(unchanged.sourceRevision, first.outline.sourceRevision);
     assert.deepEqual(first.outline.interactions.map(item => item.userPreview), [
         'Explain the parser',
         'Review [Attachment]',
@@ -89,6 +91,7 @@ test('SESSION-AI-SESSION-KIMI-CONVERSATION-001 normalizes only visible turns and
         })}\n`
     );
     const appended = await adapter.readOutline(sessionId);
+    assert.notEqual(appended.sourceRevision, first.outline.sourceRevision);
     assert.deepEqual(
         appended.interactions.slice(0, originalIds.length).map(item => item.id),
         originalIds
@@ -112,17 +115,25 @@ test('SESSION-AI-SESSION-KIMI-CONVERSATION-002 deduplicates a reread and changes
 
     const first = await adapter.readOutline(sessionId);
     const duplicate = await adapter.readOutline(sessionId);
+    assert.equal(duplicate.sourceRevision, first.sourceRevision);
     assert.equal(duplicate.totalInteractions, first.totalInteractions);
     assert.deepEqual(
         duplicate.interactions.map(item => item.id),
         first.interactions.map(item => item.id)
     );
 
+    const statBeforeReset = await fs.promises.stat(source.sourcePath);
     const reset = (await fs.promises.readFile(source.sourcePath, 'utf8'))
         .replace('"timestamp":1000', '"timestamp":1001');
     await fs.promises.writeFile(source.sourcePath, reset);
+    await fs.promises.utimes(
+        source.sourcePath,
+        statBeforeReset.atimeMs / 1000,
+        statBeforeReset.mtimeMs / 1000
+    );
     const rebuilt = await adapter.readOutline(sessionId);
     assert.notEqual(rebuilt.interactions[0].id, first.interactions[0].id);
+    assert.notEqual(rebuilt.sourceRevision, first.sourceRevision);
     assert.equal(new Set(rebuilt.interactions.map(item => item.id)).size, 3);
 });
 

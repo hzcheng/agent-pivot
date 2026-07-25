@@ -268,3 +268,35 @@ test('SESSION-AI-SESSION-CONVERSATION-JSONL-009 bounds inactive indexes while re
     cache.clear();
     assert.equal(disposed.includes('fresh'), true);
 });
+
+test('SESSION-AI-SESSION-CONVERSATION-JSONL-010 expires inactive entries before get or retain can touch them', () => {
+    let now = 0;
+    const disposed = [];
+    const cache = new reader.ConversationIndexCache(() => now);
+    const value = key => ({
+        dispose() {
+            disposed.push(key);
+        },
+    });
+
+    cache.set('get-expired', value('get-expired'));
+    now += CONVERSATION_LIMITS.inactiveIndexTtlMs + 1;
+    assert.equal(cache.get('get-expired'), undefined);
+    assert.deepEqual(disposed, ['get-expired']);
+
+    cache.set('retain-expired', value('retain-expired'));
+    now += CONVERSATION_LIMITS.inactiveIndexTtlMs + 1;
+    const expiredRetain = cache.retain('retain-expired');
+    assert.equal(cache.get('retain-expired'), undefined);
+    assert.deepEqual(disposed, ['get-expired', 'retain-expired']);
+    expiredRetain.dispose();
+
+    cache.set('active', value('active'));
+    const retained = cache.retain('active');
+    now += CONVERSATION_LIMITS.inactiveIndexTtlMs + 1;
+    assert.ok(cache.get('active'));
+    retained.dispose();
+    now += CONVERSATION_LIMITS.inactiveIndexTtlMs + 1;
+    assert.equal(cache.get('active'), undefined);
+    assert.equal(disposed.includes('active'), true);
+});

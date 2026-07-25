@@ -30,9 +30,9 @@ export async function getConversationReadStart(
     }
 ): Promise<number> {
     const coldStart = Math.max(0, current.size - CONVERSATION_LIMITS.maxSourceBytes);
-    if (!previous || !Number.isFinite(previous.nextOffset)
-        || Math.floor(previous.nextOffset) !== previous.nextOffset
-        || previous.nextOffset < 0 || previous.nextOffset > current.size) {
+    if (!previous || !Number.isSafeInteger(previous.nextOffset)
+        || previous.nextOffset < 0 || previous.nextOffset > previous.source.size
+        || previous.nextOffset > current.size || previous.nextOffset < coldStart) {
         return coldStart;
     }
     return await isConversationSourceContinuation(previous.source, current)

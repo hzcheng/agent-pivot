@@ -139,6 +139,67 @@ test('SESSION-AI-SESSION-CONVERSATION-JSONL-005 resumes only a verified bounded 
     }), 0);
 });
 
+test('SESSION-AI-SESSION-CONVERSATION-JSONL-006 rejects a checkpoint beyond the previous source', async () => {
+    const priorContents = 'a'.repeat(10);
+    const priorHash = crypto.createHash('sha256').update(priorContents).digest('hex');
+    let continuationReads = 0;
+    const previous = {
+        canonicalPath: '/provider/history.jsonl',
+        size: 10,
+        portableFirstHash: priorHash,
+        portableLastHash: priorHash,
+        handle: { async read() { return { bytesRead: 0 }; } },
+    };
+    const current = {
+        ...previous,
+        size: 20,
+        handle: {
+            async read(buffer, offset, length) {
+                continuationReads += 1;
+                return { bytesRead: length, buffer: buffer.fill('a', offset, offset + length) };
+            },
+        },
+    };
+    assert.equal(await reader.getConversationReadStart(current, {
+        source: previous,
+        nextOffset: 11,
+    }), 0);
+    assert.equal(continuationReads, 0);
+});
+
+test('SESSION-AI-SESSION-CONVERSATION-JSONL-007 rejects a checkpoint below the current cold start', async () => {
+    const edge = Buffer.alloc(64 * 1024, 'a');
+    const edgeHash = crypto.createHash('sha256').update(edge).digest('hex');
+    const previous = {
+        canonicalPath: '/provider/history.jsonl',
+        size: CONVERSATION_LIMITS.maxSourceBytes + 5,
+        portableFirstHash: edgeHash,
+        portableLastHash: edgeHash,
+        handle: { async read() { return { bytesRead: 0 }; } },
+    };
+    let continuationReads = 0;
+    const current = {
+        ...previous,
+        size: CONVERSATION_LIMITS.maxSourceBytes + 10,
+        handle: {
+            async read(buffer, offset, length) {
+                continuationReads += 1;
+                return { bytesRead: length, buffer: buffer.fill('a', offset, offset + length) };
+            },
+        },
+    };
+    const coldStart = 10;
+    assert.equal(await reader.getConversationReadStart(current, {
+        source: previous,
+        nextOffset: coldStart - 1,
+    }), coldStart);
+    assert.equal(continuationReads, 0);
+    assert.equal(await reader.getConversationReadStart(current, {
+        source: previous,
+        nextOffset: coldStart,
+    }), coldStart);
+});
+
 test('SESSION-AI-SESSION-CONVERSATION-JSONL-004 reports timeout from the injected monotonic clock without an ambient timer', async () => {
     let clock = 0;
     const source = {

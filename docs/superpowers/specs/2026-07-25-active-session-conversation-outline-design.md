@@ -105,6 +105,11 @@ clusters. Implementations use `Intl.Segmenter` when available and fall back to
 Unicode code-point iteration; they never slice UTF-8 bytes or UTF-16 surrogate
 pairs.
 
+Visible-text normalization removes C0 controls except tab/newline/carriage
+return before whitespace normalization, plus DEL and the U+FFFE/U+FFFF
+noncharacters. It preserves valid Unicode scalar content, including CJK,
+emoji, and combining sequences.
+
 ## Success Measures
 
 Functional and privacy correctness are release gates:
@@ -180,7 +185,8 @@ but must not reuse or compete with the card's primary running animation.
 A newly expanded outline scrolls only when necessary to reveal the latest
 marker. A single marker or a set that already fits produces no artificial
 scroll movement. Subsequent live updates do not force the rail to the bottom
-after the user has intentionally scrolled upward.
+after the user has intentionally scrolled upward. "At the bottom" means within
+8 CSS pixels for both this rail and the viewer message list.
 
 Keyboard navigation within the rail supports:
 
@@ -352,17 +358,20 @@ message.
 
 The request contract is:
 
+`requestId` is a positive safe integer scoped to the current Webview document;
+zero, negative, fractional, and unsafe values fail closed.
+
 ```ts
 interface ConversationRequestEnvelope<T> {
     version: 1;
-    requestId: string;
+    requestId: number;
     subscriptionGeneration: number;
     payload: T;
 }
 
 interface ConversationResponseEnvelope<T> {
     version: 1;
-    requestId: string;
+    requestId: number;
     subscriptionGeneration: number;
     payload?: T;
     error?: ConversationPublicError;
@@ -582,8 +591,8 @@ or invalid continuation resets the index and performs a bounded rebuild.
 Malformed individual lines are skipped and counted; they do not invalidate
 otherwise readable turns.
 
-On POSIX, the signature includes canonical path, device, inode, size, and
-high-resolution modification time. Where stable device/inode data is
+On POSIX, the signature includes canonical path, device, inode, birth time,
+size, and high-resolution modification time. Where stable device/inode data is
 unavailable, including Windows filesystems, the fallback adds bounded first and
 last chunk hashes to canonical path, size, and modification time. Platform
 fixture tests verify both paths.

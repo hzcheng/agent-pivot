@@ -26,7 +26,11 @@
   64,000 grapheme clusters, viewer retention at 100 interactions or 4 MiB, and
   Codex responses at 16 MiB/10 seconds.
 - Coalesce invalidations for 250 ms, publish no more than once per session per second, and reuse each provider service's existing three-second poller.
+- Keep the eight-inactive-index/ten-minute cache independently per provider;
+  no provider can evict or retain another provider's indexes.
 - Truncate previews to 160 grapheme clusters before escaping; use `Intl.Segmenter` when present and code-point iteration otherwise.
+- Treat a marker rail or viewer message list as at-bottom only within 8 CSS
+  pixels; both Webviews receive this value from the Host-owned limits.
 - Render Markdown with `markdown-it` configured with `html: false` and `linkify: false`, then sanitize in the viewer with DOMPurify and an HTTPS-only URL policy.
 - Clear card subscriptions on collapse/hide/destroy, viewer subscriptions and snapshots on panel disposal/session change, and all adapters/app-server state on extension deactivation.
 - SCSS and `src/webview/*.js` are source files; regenerate `media/*.css` and copied Webview scripts through Gulp.
@@ -46,7 +50,9 @@
 - Create `src/aiSessions/conversation/codexAppServerClient.ts`: private stdio JSON-RPC lifecycle, bounds, and restart budget.
 - Create `src/aiSessions/conversation/codexAdapter.ts`: app-server thread/item normalization.
 - Create `src/aiSessions/conversation/coordinator.ts`: authority, adapter isolation, public revisions, cursors, subscriptions, and stale-result rejection.
-- Create `src/aiSessions/conversation/dashboardController.ts`: versioned sidebar request validation and publication.
+- Create `src/aiSessions/conversation/conversationHostController.ts`:
+  versioned sidebar request validation and publication without colliding with
+  the existing `src/aiSessions/dashboardController.ts`.
 - Create `src/aiSessions/conversation/composition.ts`: construct the three
   adapters, coordinator, controller, and viewer behind injectable production
   dependencies.
@@ -61,6 +67,22 @@
 - Modify `media/styles.scss`: Active Session outline/card layout; Gulp regenerates `media/styles.css`.
 - Modify `src/dashboard.ts`, `src/dashboard/viewProvider.ts`, and `src/dashboard/messageRouter.ts`: compose and dispose the conversation capability.
 - Modify `gulpfile.js`, `.vscodeignore`, and release checks: package the viewer script, CSS, and pinned DOMPurify asset.
+
+---
+
+## Execution Order
+
+Execute Tasks 1–11 sequentially. Task 2 consumes Task 1 contracts; Task 3
+consumes Tasks 1–2; Tasks 4–5 consume the normalized reader/model; Task 6
+consumes all three adapters; Tasks 7–9 consume the coordinator protocol; Task
+10 composes them; Task 11 audits the resulting real commit hashes. Fresh
+subagents may implement individual tasks, but two implementation tasks must not
+run concurrently against this shared worktree.
+
+Before Task 1 and again before Task 11, compare `origin/main..HEAD` and
+`HEAD..origin/main`. If upstream changed any listed shared file, stop and
+review/reconcile that overlap in this worktree before continuing; never resolve
+it by overwriting the primary checkout or the user's `.vscode/settings.json`.
 
 ---
 
@@ -101,7 +123,8 @@ const types = require('../../../out/aiSessions/conversation/types');
 test('SESSION-AI-SESSION-CONVERSATION-TEXT-001 counts and truncates visible input without splitting graphemes', () => {
     assert.equal(text.countGraphemes('A👨‍👩‍👧‍👦e\u0301中'), 4);
     assert.equal(text.truncateGraphemes('A👨‍👩‍👧‍👦e\u0301中', 3), 'A👨‍👩‍👧‍👦e\u0301…');
-    assert.equal(text.normalizeVisibleText('  hello\\r\\n\\tworld  '), 'hello\\nworld');
+    assert.equal(text.normalizeVisibleText('  hello\r\n\tworld  '), 'hello\nworld');
+    assert.equal(text.normalizeVisibleText('safe\u0000\u0007 text\ufffe'), 'safe text');
     assert.equal(text.attachmentLabel(1), '[Attachment]');
     assert.equal(text.attachmentLabel(3), '[3 Attachments]');
     assert.equal(text.buildVisibleUserInput([
@@ -113,6 +136,9 @@ test('SESSION-AI-SESSION-CONVERSATION-TEXT-001 counts and truncates visible inpu
     assert.equal(types.CONVERSATION_LIMITS.previewGraphemes, 160);
     assert.equal(types.CONVERSATION_LIMITS.maxPageInteractions, 20);
     assert.equal(types.CONVERSATION_LIMITS.maxOutlineInteractions, 2000);
+    assert.equal(types.CONVERSATION_LIMITS.autoScrollThresholdPx, 8);
+    assert.equal(types.CONVERSATION_LIMITS.minRequestId, 1);
+    assert.equal(types.CONVERSATION_LIMITS.inactiveIndexLimitPerProvider, 8);
     let cancelled = 0;
     const controller = new types.ConversationAbortController();
     controller.signal.onAbort(() => { cancelled += 1; });
@@ -143,7 +169,10 @@ npm install --save-dev --save-exact @types/markdown-it@14.1.2
 ```
 
 Expected: `package.json` contains exact versions without `^` or `~`, and
-`package-lock.json` records the same resolved packages.
+`package-lock.json` records the same resolved packages. `dompurify` remains a
+production dependency because Gulp copies its browser distribution into the
+VSIX; no extension-host TypeScript file imports or executes it, so no DOM shim
+or `@types/dompurify` dependency is added.
 
 - [ ] **Step 4: Add the normalized types and exact limits**
 
@@ -172,7 +201,9 @@ export const CONVERSATION_LIMITS = Object.freeze({
     codexRequestTimeoutMs: 10_000,
     invalidationDebounceMs: 250,
     invalidationMinIntervalMs: 1_000,
-    inactiveIndexLimit: 8,
+    autoScrollThresholdPx: 8,
+    minRequestId: 1,
+    inactiveIndexLimitPerProvider: 8,
     inactiveIndexTtlMs: 10 * 60 * 1000,
 });
 
@@ -286,7 +317,7 @@ export interface ConversationResponseEnvelope<T> {
 export interface SanitizedConversationDiagnostic {
     event: 'conversation-source' | 'conversation-read'
         | 'codex-conversation-app-server';
-    provider: AiSessionProviderId;
+    provider?: AiSessionProviderId;
     category: 'spawn' | 'timeout' | 'protocol' | 'oversized' | 'exit'
         | 'unavailable' | 'malformed' | 'partial';
     count?: number;
@@ -395,11 +426,12 @@ export function truncateGraphemes(value: string, limit: number): string {
 
 export function normalizeVisibleText(value: string): string {
     return String(value || '')
-        .replace(/\\r\\n?/g, '\\n')
-        .split('\\n')
-        .map(line => line.replace(/[\\t ]+/g, ' ').trim())
-        .join('\\n')
-        .replace(/\\n{3,}/g, '\\n\\n')
+        .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\ufffe\uffff]/g, '')
+        .replace(/\r\n?/g, '\n')
+        .split('\n')
+        .map(line => line.replace(/[\t ]+/g, ' ').trim())
+        .join('\n')
+        .replace(/\n{3,}/g, '\n\n')
         .trim();
 }
 
@@ -508,7 +540,7 @@ test('SECURITY-AI-SESSION-CONVERSATION-SOURCE-001 resolves known sources and rej
         '11111111-1111-4111-8111-111111111111',
         ['/fixtures/project']
     );
-    assert.match(kimiSource.sourcePath, /wire\\.jsonl$/);
+    assert.match(kimiSource.sourcePath, /wire\.jsonl$/);
 
     const opened = await openValidatedConversationSource(kimiSource);
     assert.equal(opened.canonicalPath.startsWith(opened.canonicalProviderHome), true);
@@ -559,10 +591,12 @@ export interface AiSessionConversationSourceCandidate {
     sourcePath: string;
 }
 
-resolveConversationSource?(
-    sessionId: string,
-    candidatePaths?: readonly string[]
-): AiSessionConversationSourceCandidate | null;
+export interface AiSessionService {
+    resolveConversationSource?(
+        sessionId: string,
+        candidatePaths?: readonly string[]
+    ): AiSessionConversationSourceCandidate | null;
+}
 ```
 
 Implement service methods:
@@ -570,20 +604,24 @@ Implement service methods:
 ```ts
 // CodexSessionService: content remains app-server-owned; this path is only
 // an invalidation signal.
-resolveConversationSource(sessionId: string): AiSessionConversationSourceCandidate | null {
-    const codexHome = this.getCodexHome();
-    const sourcePath = codexHome && this.getSessionFiles(codexHome).get(sessionId);
-    return sourcePath ? { providerHome: codexHome, sourcePath } : null;
+class CodexSessionService {
+    resolveConversationSource(sessionId: string): AiSessionConversationSourceCandidate | null {
+        const codexHome = this.getCodexHome();
+        const sourcePath = codexHome && this.getSessionFiles(codexHome).get(sessionId);
+        return sourcePath ? { providerHome: codexHome, sourcePath } : null;
+    }
 }
 
 // KimiSessionService
-resolveConversationSource(sessionId: string): AiSessionConversationSourceCandidate | null {
-    const kimiHome = this.getKimiHome();
-    const sessionDir = kimiHome && this.findSessionDir(kimiHome, sessionId);
-    const sourcePath = sessionDir && path.join(sessionDir, 'wire.jsonl');
-    return sourcePath && fs.existsSync(sourcePath)
-        ? { providerHome: kimiHome, sourcePath }
-        : null;
+class KimiSessionService {
+    resolveConversationSource(sessionId: string): AiSessionConversationSourceCandidate | null {
+        const kimiHome = this.getKimiHome();
+        const sessionDir = kimiHome && this.findSessionDir(kimiHome, sessionId);
+        const sourcePath = sessionDir && path.join(sessionDir, 'wire.jsonl');
+        return sourcePath && fs.existsSync(sourcePath)
+            ? { providerHome: kimiHome, sourcePath }
+            : null;
+    }
 }
 ```
 
@@ -604,6 +642,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import type { AiSessionConversationSourceCandidate } from '../types';
 
+const NO_FOLLOW_FLAG =
+    (fs.constants as Record<string, number>).O_NOFOLLOW || 0;
+
 export interface OpenConversationSource {
     canonicalProviderHome: string;
     canonicalPath: string;
@@ -612,6 +653,7 @@ export interface OpenConversationSource {
     mtimeMs: number;
     device?: number;
     inode?: number;
+    birthtimeMs?: number;
     portableFirstHash?: string;
     portableLastHash?: string;
     identity: string;
@@ -639,6 +681,7 @@ export async function openValidatedConversationSource(
     candidate: AiSessionConversationSourceCandidate,
     options: {
         forcePortableIdentity?: boolean;
+        noFollowFlag?: number;
         openFile?: (
             sourcePath: string,
             flags: number
@@ -658,13 +701,13 @@ export async function openValidatedConversationSource(
     }
     let handle: fs.promises.FileHandle;
     try {
-        const noFollow = typeof fs.constants.O_NOFOLLOW === 'number'
-            ? fs.constants.O_NOFOLLOW
-            : 0;
+        const noFollowFlag = options.noFollowFlag === undefined
+            ? NO_FOLLOW_FLAG
+            : options.noFollowFlag;
         const openFile = options.openFile || fs.promises.open;
         handle = await openFile(
             canonicalPath,
-            fs.constants.O_RDONLY | noFollow
+            fs.constants.O_RDONLY | noFollowFlag
         );
         const pathAfterOpen = await fs.promises.realpath(canonicalPath);
         if (pathAfterOpen !== canonicalPath
@@ -673,7 +716,17 @@ export async function openValidatedConversationSource(
             return null;
         }
         const stat = await handle.stat();
+        const pathStat = await fs.promises.stat(pathAfterOpen);
         if (!stat.isFile()) {
+            await handle.close();
+            return null;
+        }
+        if (noFollowFlag === 0
+            && Number.isFinite(stat.dev) && stat.dev > 0
+            && Number.isFinite(stat.ino) && stat.ino > 0
+            && (stat.dev !== pathStat.dev
+                || stat.ino !== pathStat.ino
+                || stat.birthtimeMs !== pathStat.birthtimeMs)) {
             await handle.close();
             return null;
         }
@@ -688,7 +741,7 @@ export async function openValidatedConversationSource(
             ? ''
             : await hashRange(handle, Math.max(0, stat.size - edgeBytes), edgeBytes);
         const identity = hasStableInode
-            ? `inode:${canonicalPath}:${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}`
+            ? `inode:${canonicalPath}:${stat.dev}:${stat.ino}:${stat.birthtimeMs}:${stat.size}:${stat.mtimeMs}`
             : `portable:${canonicalPath}:${stat.size}:${stat.mtimeMs}:${firstHash}:${lastHash}`;
         return {
             canonicalProviderHome,
@@ -698,6 +751,7 @@ export async function openValidatedConversationSource(
             mtimeMs: stat.mtimeMs,
             device: hasStableInode ? stat.dev : undefined,
             inode: hasStableInode ? stat.ino : undefined,
+            birthtimeMs: hasStableInode ? stat.birthtimeMs : undefined,
             portableFirstHash: hasStableInode ? undefined : firstHash,
             portableLastHash: hasStableInode ? undefined : lastHash,
             identity,
@@ -717,9 +771,12 @@ export async function isConversationSourceContinuation(
         return false;
     }
     if (previous.device !== undefined && previous.inode !== undefined
-        && current.device !== undefined && current.inode !== undefined) {
+        && previous.birthtimeMs !== undefined
+        && current.device !== undefined && current.inode !== undefined
+        && current.birthtimeMs !== undefined) {
         return previous.device === current.device
-            && previous.inode === current.inode;
+            && previous.inode === current.inode
+            && previous.birthtimeMs === current.birthtimeMs;
     }
     if (previous.portableFirstHash === undefined
         || previous.portableLastHash === undefined
@@ -743,9 +800,14 @@ In the contract, open the same-size replacement with
 assert the portable identity changes and
 `isConversationSourceContinuation` returns false. Append another same-source
 record and assert the helper returns true for both forced-portable and native
-inode modes. Use the injected `openFile` once to replace the resolved target
+inode modes; a native snapshot with the same device/inode but a changed
+`birthtimeMs` must return false. Use the injected `openFile` once to replace
+the resolved target
 with an outside-home symlink immediately before delegating to
 `fs.promises.open`; assert the no-follow/revalidation path returns `null`.
+Run that case once with `{ noFollowFlag: 0 }` so Windows proves the
+realpath plus handle/path-stat fallback rather than silently relying on the
+POSIX flag.
 Add a second test in which the injected extension-host home
 differs from a UI-side home string; only the extension-host provider home may
 resolve. This covers Remote SSH, WSL, and Dev Container ownership without
@@ -787,9 +849,10 @@ git commit -m "feat: resolve conversation sources safely"
 
 **Interfaces:**
 - Produces `readConversationJsonl`, `getConversationReadStart`,
-  `ConversationJsonlRecord`, and `ConversationJsonlReadResult`.
+  `ConversationJsonlReadOptions`, `ConversationJsonlRecord`, and
+  `ConversationJsonlReadResult`.
 - Produces `buildConversationOutline`, `buildConversationPage`, and
-  `projectStoppedResponseState`.
+  `applyStoppedLifecycleToResponseState`.
 - Provider adapters consume parsed records with original byte offsets and use
   the shared page/outline limits.
 
@@ -855,7 +918,9 @@ temporary source with `open()` and `append()` methods and registers cleanup on
 `t`; `makeInteractions(30)` returns IDs `i-1` through `i-30` with one user and
 one assistant message each. Add a delayed fake `FileHandle.read` case that
 advances an injected clock beyond 5,000 ms and expects the typed `timeout`
-failure.
+failure. Add exact boundary fixtures: a file of exactly
+`CONVERSATION_LIMITS.maxSourceBytes` starts at offset `0`, while one additional
+byte starts at offset `1` and discards the first partial physical line.
 
 - [ ] **Step 2: Run the focused tests and observe RED**
 
@@ -888,6 +953,12 @@ Expected: both new modules are missing.
 Use this record shape:
 
 ```ts
+export interface ConversationJsonlReadOptions {
+    startOffset?: number;
+    signal?: ConversationAbortSignal;
+    now?: () => number;
+}
+
 export interface ConversationJsonlRecord {
     offset: number;
     value: unknown;
@@ -900,7 +971,28 @@ export interface ConversationJsonlReadResult {
     oversizedLines: number;
     partial: boolean;
 }
+
+export function readConversationJsonl(
+    source: OpenConversationSource,
+    options?: ConversationJsonlReadOptions
+): Promise<ConversationJsonlReadResult>;
 ```
+
+At function entry use:
+
+```ts
+const normalizedOptions = options || {};
+const now = normalizedOptions.now || Date.now;
+const deadline = now() + CONVERSATION_LIMITS.jsonlScanTimeoutMs;
+const checkDeadline = (): void => {
+    if (now() >= deadline) {
+        throw new ConversationError('timeout');
+    }
+};
+```
+
+Call `checkDeadline()` before each `handle.read` and immediately after each
+event-loop yield; do not schedule a real timeout timer for JSONL scanning.
 
 - [ ] **Step 4: Implement immutable outline and page projection**
 
@@ -910,7 +1002,7 @@ clamps `limit` to 1–20, enforces 512 KiB after UTF-8 serialization, creates
 opaque cursor payloads only through injected `encodeCursor`, and throws a typed
 `staleRevision` error before slicing.
 
-`projectStoppedResponseState('inProgress', true)` returns `interrupted`;
+`applyStoppedLifecycleToResponseState('inProgress', true)` returns `interrupted`;
 other states remain unchanged.
 
 Use these exact exported signatures and state projection:
@@ -946,7 +1038,7 @@ export function buildConversationOutline(
     };
 }
 
-export function projectStoppedResponseState(
+export function applyStoppedLifecycleToResponseState(
     state: ConversationResponseState,
     stopped: boolean
 ): ConversationResponseState {
@@ -1113,7 +1205,10 @@ visible `ContentPart`, `think`, `encrypted`, tool, `SubagentEvent`, malformed,
 interrupt, and `TurnEnd` records. The Claude fixture must include visible
 `user`/`assistant` text, `sourceToolAssistantUUID`, `toolUseResult`,
 `tool_result`, `tool_use`, sidechain, queue, attachment-only, mixed attachment,
-and malformed records.
+and malformed records. Assert separately that assistant `tool_use` blocks
+produce no visible assistant message and synthetic user-role `tool_result`
+records produce no interaction; do not call either shape a "`tool_use` user
+message."
 
 Assert exact normalized output:
 
@@ -1124,13 +1219,16 @@ assert.deepEqual(outline.interactions.map(item => item.userPreview), [
     '[2 Attachments]',
 ]);
 assert.equal(
-    page.messages.some(message => /tool_result|secret-thought|local\\/path/.test(message.markdown)),
+    page.messages.some(message => /tool_result|secret-thought|local\/path/.test(message.markdown)),
     false
 );
 ```
 
 Also append one fixture record, reread, and assert prior interaction IDs do not
-change and only the suffix is parsed.
+change and only the suffix is parsed. For Kimi, duplicate the same
+session/TurnBegin offset/timestamp and assert one interaction; reset the source
+at the same byte offset with a different timestamp and assert the rebuilt
+interaction ID differs.
 
 - [ ] **Step 2: Run the adapter contracts and observe RED**
 
@@ -1276,7 +1374,8 @@ export class ConversationIndexCache<T extends { dispose(): void }> {
         inactive
             .filter(([, entry], index) =>
                 this.now() - entry.lastUsedAt > CONVERSATION_LIMITS.inactiveIndexTtlMs
-                || index < inactive.length - CONVERSATION_LIMITS.inactiveIndexLimit
+                || index < inactive.length
+                    - CONVERSATION_LIMITS.inactiveIndexLimitPerProvider
             )
             .forEach(([key]) => this.delete(key));
     }
@@ -1359,7 +1458,21 @@ with one-/four-second delays. A separate capability-mapping test asserts a
 missing `thread/read` method becomes `unavailable` with reason
 `updateCodex`, while handshake or response-schema mismatch becomes
 `unsupportedVersion` with reason `unsupportedCodexProtocol`; neither error may
-include raw protocol text.
+include raw protocol text. Add transport cases proving:
+
+- stdout objects split across arbitrary Buffer chunks and terminated by either
+  `\n` or `\r\n` are framed once;
+- an unterminated line is rejected as soon as its retained Buffer exceeds
+  16 MiB, before `JSON.parse`;
+- every write ends with exactly one `\n`, and a `false` return from
+  `stdin.write` pauses the serialized write queue until `drain`;
+- stderr is continuously drained as bytes but never decoded, retained, or sent
+  to diagnostics, so a noisy child cannot block on a full pipe;
+- executable resolution calls the existing extension-host
+  `resolveAiProviderExecutable('codex')`; `null` does not guess a home-relative
+  executable;
+- the third restart request inside 60 seconds returns `unavailable` with
+  `codexRetryExhausted` and a positive `retryAfterMs`, never `updateCodex`.
 
 - [ ] **Step 2: Write the failing Codex normalization test**
 
@@ -1381,7 +1494,37 @@ assert.deepEqual(outline.interactions.map(item => item.providerTurnId), [
 assert.equal(JSON.stringify(page).includes('reasoning-secret'), false);
 assert.equal(JSON.stringify(page).includes('command-output'), false);
 assert.equal(JSON.stringify(page).includes('/private/local-image.png'), false);
-assert.match(page.messages[0].markdown, /\\[Attachment\\]/);
+assert.match(page.messages[0].markdown, /\[Attachment\]/);
+```
+
+Document the consumed stable app-server shape directly in
+`tests/fixtures/conversations/codex/thread-read.json`; add ignored item
+variants to this skeleton rather than inventing transcript fields:
+
+```json
+{
+  "thread": {
+    "id": "33333333-3333-4333-8333-333333333333",
+    "turns": [
+      {
+        "id": "turn-1",
+        "status": "completed",
+        "items": [
+          {
+            "id": "user-item-1",
+            "type": "userMessage",
+            "content": [{"type": "text", "text": "Visible request"}]
+          },
+          {
+            "id": "agent-item-1",
+            "type": "agentMessage",
+            "text": "Visible response"
+          }
+        ]
+      }
+    ]
+  }
+}
 ```
 
 - [ ] **Step 3: Run the contracts and observe RED**
@@ -1401,11 +1544,84 @@ Expected: client and adapter modules are missing.
 Spawn without a shell:
 
 ```ts
+const executable = resolveExecutable('codex');
+if (!executable) {
+    throw new ConversationError('unavailable', 'updateCodex');
+}
 spawn(executable, ['app-server', '--listen', 'stdio://'], {
     shell: false,
     windowsHide: true,
     stdio: ['pipe', 'pipe', 'pipe'],
 });
+```
+
+Do not call `setEncoding` or use `readline`, because both hide the byte count
+needed for the 16 MiB boundary. Keep a Buffer remainder and frame it directly:
+
+```ts
+class CodexAppServerClient {
+private acceptStdoutChunk(chunk: Buffer): void {
+    this.stdoutRemainder = Buffer.concat([this.stdoutRemainder, chunk]);
+    let newline = this.stdoutRemainder.indexOf(0x0a);
+    while (newline >= 0) {
+        if (newline > CONVERSATION_LIMITS.maxCodexResponseBytes) {
+            this.failChild(new ConversationError('tooLarge'));
+            return;
+        }
+        let line = this.stdoutRemainder.subarray(0, newline);
+        this.stdoutRemainder = this.stdoutRemainder.subarray(newline + 1);
+        if (line.length > 0 && line[line.length - 1] === 0x0d) {
+            line = line.subarray(0, line.length - 1);
+        }
+        try {
+            this.acceptResponse(JSON.parse(line.toString('utf8')));
+        } catch (_error) {
+            this.failChild(
+                new ConversationError('unsupportedVersion',
+                    'unsupportedCodexProtocol')
+            );
+            return;
+        }
+        newline = this.stdoutRemainder.indexOf(0x0a);
+    }
+    if (this.stdoutRemainder.length
+        > CONVERSATION_LIMITS.maxCodexResponseBytes) {
+        this.failChild(new ConversationError('tooLarge'));
+    }
+}
+
+private enqueueWrite(message: unknown): Promise<void> {
+    const bytes = Buffer.from(`${JSON.stringify(message)}\n`, 'utf8');
+    this.writeTail = this.writeTail.then(() => new Promise<void>(
+        (resolve, reject) => {
+            const stdin = this.child?.stdin;
+            if (!stdin?.writable) {
+                reject(new ConversationError('unavailable'));
+                return;
+            }
+            if (stdin.write(bytes)) {
+                resolve();
+                return;
+            }
+            const onDrain = (): void => {
+                cleanup();
+                resolve();
+            };
+            const onError = (error: Error): void => {
+                cleanup();
+                reject(error);
+            };
+            const cleanup = (): void => {
+                stdin.removeListener('drain', onDrain);
+                stdin.removeListener('error', onError);
+            };
+            stdin.once('drain', onDrain);
+            stdin.once('error', onError);
+        }
+    ));
+    return this.writeTail;
+}
+}
 ```
 
 Send one JSON object per line, perform exactly one stable
@@ -1427,6 +1643,8 @@ function report(
 ```
 
 Do not copy raw stderr, response bodies, paths, or full session IDs.
+Attach `child.stderr.on('data', () => undefined)` immediately after spawn and
+remove all owned stream listeners when the child exits or the client disposes.
 
 - [ ] **Step 5: Implement Codex interaction normalization**
 
@@ -1477,7 +1695,7 @@ git commit -m "feat: read Codex conversations through app server"
 
 **Files:**
 - Create: `src/aiSessions/conversation/coordinator.ts`
-- Create: `src/aiSessions/conversation/dashboardController.ts`
+- Create: `src/aiSessions/conversation/conversationHostController.ts`
 - Create: `tests/contract/aiSessions/conversationCoordinator.test.js`
 - Create: `tests/integration/dashboard/conversationRouting.test.js`
 - Modify: `src/dashboard/messageRouter.ts`
@@ -1485,7 +1703,7 @@ git commit -m "feat: read Codex conversations through app server"
 **Interfaces:**
 - Produces `ConversationCoordinator.readOutline`, `readPage`, `watch`,
   `releaseSubscription`, `setSessionStopped`, and `dispose`.
-- Produces `ConversationDashboardController.handleOutline`,
+- Produces `ConversationHostController.handleOutline`,
   `handleOpen`, `cancel`, `reconcile`, `setVisible`, and `dispose`.
 - Produces `AiSessionConversationOutlineRequestMessage` and
   `AiSessionConversationOutlineResultMessage`; both carry `projectId`,
@@ -1498,6 +1716,8 @@ git commit -m "feat: read Codex conversations through app server"
 
 Assert:
 
+- request IDs `0`, `-1`, `1.5`, and `Number.MAX_SAFE_INTEGER + 1` fail closed
+  before target resolution;
 - unsupported provider/session/project returns no adapter call;
 - outline requires the active session to remain focused;
 - request `9` cannot publish after request `10`;
@@ -1508,6 +1728,10 @@ Assert:
 - forged or stale cursors return `staleRevision`;
 - ten invalidations in 250 ms schedule one read, and publication is never more
   frequent than once per second;
+- after a publish at `t=250`, an invalidation at `t=1,050` publishes at
+  `t=1,300`—the later of its debounce deadline and the one-second rate floor;
+- collapse/release during the 250 ms debounce cancels the scheduled read and
+  publishes nothing;
 - `setVisible(false)` and `dispose()` cancel subscriptions and publications.
 
 Write the race and isolation assertions in
@@ -1561,7 +1785,27 @@ Define `deferred`, `makeOutlineRequest`, `makeOutline`,
 `adapterThrowing` as local test helpers in the same file. Each harness injects
 fake timers, `resolveTarget`, adapters, and `publish`; it must expose timer
 advancement so the same file can assert 250 ms coalescing and the one-second
-publication floor without wall-clock sleeps.
+publication floor without wall-clock sleeps:
+
+```js
+harness.invalidate();
+harness.clock.advanceTo(250);
+assert.equal(harness.publications.length, 1);
+harness.clock.advanceTo(1050);
+harness.invalidate();
+harness.clock.advanceTo(1249);
+assert.equal(harness.publications.length, 1);
+harness.clock.advanceTo(1299);
+assert.equal(harness.publications.length, 1);
+harness.clock.advanceTo(1300);
+assert.equal(harness.publications.length, 2);
+
+const releaseHarness = createControllerHarness();
+releaseHarness.invalidate();
+releaseHarness.releaseSubscription();
+releaseHarness.clock.advanceBy(250);
+assert.equal(releaseHarness.adapterReadsAfterRelease, 0);
+```
 
 - [ ] **Step 2: Run focused tests and observe RED**
 
@@ -1609,8 +1853,10 @@ export interface AiSessionConversationOutlineRequestMessage {
 }
 ```
 
-Enforce `Number.isSafeInteger`, positivity/non-negativity, and trimmed
-non-empty strings in the runtime parser before constructing this interface.
+Enforce `Number.isSafeInteger`,
+`requestId >= CONVERSATION_LIMITS.minRequestId`,
+non-negative `subscriptionGeneration`, and trimmed non-empty strings in the
+runtime parser before constructing this interface.
 
 Publish `ai-session-conversation-outline-result` with the same request ID and
 generation, plus the authoritative `projectId`, provider, and session ID.
@@ -1648,7 +1894,7 @@ git diff --check
 
 ```bash
 git add src/aiSessions/conversation/coordinator.ts \
-  src/aiSessions/conversation/dashboardController.ts \
+  src/aiSessions/conversation/conversationHostController.ts \
   src/dashboard/messageRouter.ts \
   tests/contract/aiSessions/conversationCoordinator.test.js \
   tests/integration/dashboard/conversationRouting.test.js
@@ -1720,7 +1966,10 @@ constructor.
 - [ ] **Step 1: Write failing Markdown and viewer ownership tests**
 
 Assert `renderConversationMarkdown` preserves headings, lists, fenced code, and
-text while rendering raw `<script>` as text and removing non-HTTPS hrefs.
+text while `markdown-it` with `html: false` escapes raw `<script>` as text and
+its link validator removes non-HTTPS hrefs. This unit test does not import
+DOMPurify or create a Node-side DOM; hostile post-render HTML is tested in the
+Playwright Webview test below.
 Create a fake `createWebviewPanel` and assert two `open()` calls reuse one panel,
 the second session replaces and clears the first snapshot, and panel disposal
 disposes its watch and calls the injected focus fallback. Hold the first
@@ -1777,7 +2026,8 @@ Load `node_modules/dompurify/dist/purify.min.js` and
 - `Input 4 of 12` updates to `Input 4 of 13`;
 - historical scroll remains fixed on appended content;
 - `New response content` focuses the first appended message;
-- a latest-bottom viewer auto-follows;
+- a latest viewer auto-follows at exactly the Host-rendered 8 px threshold but
+  not at 9 px;
 - Escape/close posts `conversation-viewer-closed`.
 
 Use Playwright assertions against the rendered DOM, not implementation
@@ -1857,6 +2107,16 @@ style-src {{cspSource}};
 script-src 'nonce-{{nonce}}';
 ```
 
+This CSP belongs to the standalone viewer panel; do not reuse the sidebar
+Webview CSP and do not add `'unsafe-inline'` to either `script-src` or
+`style-src`.
+
+Render the shared scroll threshold from the Host contract:
+
+```html
+<body data-auto-scroll-threshold="{{CONVERSATION_LIMITS.autoScrollThresholdPx}}">
+```
+
 Load nonce-bearing `purify.min.js` before
 `conversationViewerScripts.js`. Render provider/display name, shortened ID only
 for a duplicate display name, `Input X of Y`, navigation buttons, bounded
@@ -1867,7 +2127,9 @@ message container, stale/error state, and `New response content`.
 Add to `gulpfile.js` `copyNodeAssets`:
 
 ```js
-'node_modules/dompurify/dist/purify.min.js',
+const browserNodeAssets = [
+    'node_modules/dompurify/dist/purify.min.js',
+];
 ```
 
 Gulp already copies `src/webview/*.js`. Add explicit VSIX allowlist lines:
@@ -1930,12 +2192,12 @@ Extend `sessionCardInteraction.test.js` so a non-focused active row still posts
 `focus-ai-session-terminal`, while a focused active row returns:
 
 ```js
-{
+const focusedActivation = {
     handled: true,
     sessionRow: focusedRow,
     message: null,
     toggleConversation: true,
-}
+};
 ```
 
 Nested pin/close/marker controls remain consumed with no activation or toggle.
@@ -2021,6 +2283,7 @@ In `getActiveAiSessionRow`, render the shell only when
   <div class="ai-session-conversation-loading" role="status">Loading conversation…</div>
   <div class="ai-session-conversation-rail"
     data-ai-session-conversation-rail
+    data-auto-scroll-threshold="${CONVERSATION_LIMITS.autoScrollThresholdPx}"
     role="listbox"
     aria-label="User inputs"
     hidden></div>
@@ -2070,6 +2333,12 @@ Set `--steward-ai-session-expanded-extra-height` to
 Keep the outer list scrollable so following cards remain reachable; only the
 marker rail scrolls within the expanded card. Recalculate both variables after
 row, list, or viewport resize.
+
+`applyActiveAiSessionConversationState` must call
+`syncActiveAiSessionConversationListHeight` synchronously immediately after it
+unhides the panel; `ResizeObserver` handles only subsequent size changes. The
+initial layout therefore does not wait for an observer callback or introduce a
+one-frame unconstrained expansion.
 
 - [ ] **Step 6: Capture and restore across authoritative replacements**
 
@@ -2178,7 +2447,7 @@ git commit -m "feat: expand focused Active Session cards"
 Assert expanding posts:
 
 ```js
-{
+const expectedOutlineRequest = {
     type: 'request-ai-session-conversation-outline',
     version: 1,
     requestId: 1,
@@ -2186,7 +2455,7 @@ Assert expanding posts:
     projectId: 'project-a',
     provider: 'codex',
     sessionId: 'session-a',
-}
+};
 ```
 
 Then assert an older request, older generation, wrong provider/session, closed
@@ -2208,11 +2477,14 @@ to bounded CSS widths, latest emphasis, current low-noise state, 24 px hit
 targets, 160-grapheme preview/title, and:
 
 - ArrowUp/ArrowDown/Home/End move roving focus;
+- with one marker, Home/End keep that marker focused and post nothing;
 - Enter posts `open-ai-session-conversation`;
 - a new live marker auto-reveals only when the rail was already at the end;
 - first expansion scrolls only enough to reveal the latest marker and leaves
   `scrollTop` unchanged when all markers already fit;
 - historical scroll and marker focus survive a matching HTML replacement.
+- a preview containing `);background:url(javascript:...)` remains text/title
+  only, while `--ai-input-ratio` is still a numeric string in `[0.18, 1]`.
 
 Use a literal correlated result and assert the DOM/API surface:
 
@@ -2296,7 +2568,10 @@ render.
 Use roving `tabindex`, `role="option"`, `aria-label` containing timestamp plus
 preview, and `aria-selected`. Marker activation posts only the opaque
 interaction ID and current public revision; no prompt text goes back to Host.
-Preserve `scrollTop` unless the rail was within 8 px of its end.
+Parse the rail's numeric `data-auto-scroll-threshold` and preserve `scrollTop`
+unless it was within that distance of its end. The Host always renders the
+value from `CONVERSATION_LIMITS.autoScrollThresholdPx`; invalid/missing values
+fail closed to no auto-scroll.
 Retry posts a new correlated request only when enabled; keep it disabled until
 the Host-provided `retryAfterMs` has elapsed.
 
@@ -2357,7 +2632,7 @@ git commit -m "feat: render Active Session conversation outlines"
 - Create: `src/aiSessions/conversation/composition.ts`
 - Modify: `src/dashboard.ts`
 - Modify: `src/dashboard/viewProvider.ts`
-- Modify: `src/aiSessions/conversation/dashboardController.ts`
+- Modify: `src/aiSessions/conversation/conversationHostController.ts`
 - Modify: `tests/integration/dashboard/conversationRouting.test.js`
 - Modify: `tests/integration/dashboard/errorRecovery.test.js`
 - Modify: `scripts/run-ai-session-safety-checks.js`
@@ -2374,8 +2649,9 @@ Use this composition surface:
 
 ```ts
 export interface ConversationCapability {
-    controller: ConversationDashboardController;
-    viewer: ConversationViewer;
+    controller: ConversationHostController;
+    viewer: ConversationViewerApi;
+    availability: 'available' | 'unavailable';
     dispose(): void;
 }
 
@@ -2416,6 +2692,9 @@ Assert production composition:
 - extension disposal closes viewer, coordinator, adapters, and app-server;
 - diagnostics contain provider/category/count/duration but no prompt, response,
   absolute path, or full UUID.
+- a constructor dependency that throws produces one sanitized diagnostic and
+  an `availability: 'unavailable'` capability whose handlers return public
+  `unavailable`; extension activation and unrelated Dashboard routes continue.
 
 The production test stubs constructors through
 `createConversationCapability(options)` and asserts lifecycle counts:
@@ -2485,7 +2764,31 @@ Expected: production dashboard has no conversation imports or handlers.
 - [ ] **Step 3: Compose adapters and authoritative target resolution**
 
 In `composition.ts`, instantiate concrete adapters with the existing provider
-services; `dashboard.ts` calls this factory once. Resolve a target only when:
+services; `dashboard.ts` calls this factory once. Keep optional capability
+failure inside the factory:
+
+```ts
+export function createConversationCapability(
+    options: ConversationCapabilityOptions
+): ConversationCapability {
+    try {
+        return createAvailableConversationCapability(options);
+    } catch (_error) {
+        options.onDiagnostic({
+            event: 'conversation-read',
+            category: 'unavailable',
+        });
+        return createUnavailableConversationCapability(options);
+    }
+}
+```
+
+The unavailable capability registers the same three exact message handlers,
+publishes only `ConversationError('unavailable').toPublicError()`, never starts
+an adapter or panel, and has an idempotent `dispose()`. It does not include the
+caught error text.
+
+Resolve a target only when:
 
 ```ts
 const target = getCurrentWorkspaceActionTarget(projectId);
@@ -2504,17 +2807,22 @@ exists. Pass `active.executionState === 'stopped'` to response-state projection.
 Add exact router handlers:
 
 ```ts
+const conversationHandlers = {
 'request-ai-session-conversation-outline': message =>
-    conversationDashboardController.handleOutline(message),
+    conversationHostController.handleOutline(message),
 'open-ai-session-conversation': message =>
-    conversationDashboardController.handleOpen(message),
+    conversationHostController.handleOpen(message),
 'cancel-ai-session-conversation': message =>
-    conversationDashboardController.cancel(message),
+    conversationHostController.cancel(message),
+};
 ```
+
+Place these keys in the existing `DashboardMessageHandlers.handlers` record;
+do not add new provider-specialized optional fields or a parallel router branch.
 
 Extend `SidebarStewardViewProviderOptions` with `onDisposed`, register
 `webviewView.onDidDispose`, and make `onVisibleChanged(false)` call
-`conversationDashboardController.setVisible(false)`. Add the coordinator and
+`conversationHostController.setVisible(false)`. Add the coordinator and
 viewer to `context.subscriptions`. Reconcile after AI-session refresh and after
 active-terminal focus changes.
 
@@ -2557,8 +2865,10 @@ test('opens one read-only AI Conversation panel through the composed Kimi flow',
 ```
 
 `createKimiConversationFixture` writes only inside a temporary Kimi provider
-home registered with `t.after`; the composition harness uses the concrete Kimi
-adapter and fake panel/publication dependencies.
+home registered with `t.after`, using the committed
+`tests/fixtures/conversations/kimi/wire.jsonl` schema from Task 4 rather than a
+lifecycle fixture. The composition harness uses the concrete Kimi adapter and
+fake panel/publication dependencies.
 
 - [ ] **Step 6: Run focused integration and safety tests**
 
@@ -2581,7 +2891,7 @@ Codex content and sanitized diagnostics.
 git add src/dashboard.ts \
   src/aiSessions/conversation/composition.ts \
   src/dashboard/viewProvider.ts \
-  src/aiSessions/conversation/dashboardController.ts \
+  src/aiSessions/conversation/conversationHostController.ts \
   tests/integration/dashboard/conversationRouting.test.js \
   tests/integration/dashboard/errorRecovery.test.js \
   scripts/run-ai-session-safety-checks.js
@@ -2616,21 +2926,26 @@ git commit -m "feat: wire Active Session conversation history"
 Require these VSIX entries:
 
 ```js
-'extension/media/conversationViewer.css',
-'extension/media/conversationViewerScripts.js',
-'extension/media/purify.min.js',
+const requiredConversationViewerEntries = [
+    'extension/media/conversationViewer.css',
+    'extension/media/conversationViewerScripts.js',
+    'extension/media/purify.min.js',
+];
 ```
 
 Add `ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001` to reject:
 
 - Codex adapter imports of `fs` or transcript JSONL readers;
-- missing 64 MiB/5 s/1 MiB/20/512 KiB/16 MiB/10 s constants;
+- extension-host TypeScript imports of `dompurify` or `purify.min.js`;
+- missing 64 MiB/5 s/1 MiB/20/512 KiB/16 MiB/10 s/8 px/minimum
+  request ID/per-provider cache constants;
 - Webview marker rendering through prompt-bearing `innerHTML`;
 - raw app-server stderr or response logging;
 - unbounded provider watchers.
 
 Add controlled-mutation unit tests for each guard. Windows tests force the
-portable hash signature; macOS tests assert device/inode identity. The remote
+portable hash signature and `noFollowFlag: 0` realpath/stat fallback; macOS
+tests assert device/inode/birth-time identity. The remote
 test runs the same provider service three times with environment labels
 `ssh-remote`, `wsl`, and `dev-container`, injecting distinct UI-side and
 extension-host homes; every case must resolve only the file beneath the
@@ -2667,7 +2982,11 @@ Append `tests/platform/windows/conversationSources.test.js` to
   run: npm run test-compile && node --test tests/platform/macos/conversationSources.test.js
 ```
 
-Keep the existing stable Extension Host smoke.
+Insert it before the existing stable Extension Host smoke. Update
+`scripts/run-release-packaging-checks.js` so the scheduled-macOS contract
+requires exactly five steps, requires this exact command at index 3 and the
+stable Extension Host smoke at index 4, and retains the controlled mutations
+that reject added/removed/reordered steps.
 
 - [ ] **Step 4: Register behavior contracts**
 

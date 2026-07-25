@@ -63,6 +63,17 @@ test('SESSION-CONFIGURATION-001 preserves primary precedence, legacy fallback, d
     assert.equal(await steward.update('color', '#fff'), 'updated');
     assert.deepEqual(calls, [['primary-marker', 'color', '#fff']]);
 
+    const permissivePrimary = {
+        get: (_key, fallback) => fallback,
+        inspect: key => ({ key }),
+    };
+    const inspectableSteward = configuration.createStewardConfiguration(
+        permissivePrimary,
+        configured()
+    );
+    assert.equal(typeof inspectableSteward.inspect, 'function');
+    assert.deepEqual(inspectableSteward.inspect('promptData'), { key: 'promptData' });
+
     for (const field of [
         'globalValue', 'workspaceValue', 'workspaceFolderValue',
         'globalLanguageValue', 'workspaceLanguageValue', 'workspaceFolderLanguageValue',

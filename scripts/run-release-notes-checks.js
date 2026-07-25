@@ -15,8 +15,8 @@ function runReleaseContentChecks() {
     const readme = read('README.md');
     const changelog = read('CHANGELOG.md');
     const packageMetadata = JSON.parse(read('package.json'));
-    assert.strictEqual(packageMetadata.version, '2.1.6',
-        'the TODO, attention, and tmux reload release must increment the Project Steward patch version');
+    assert.strictEqual(packageMetadata.version, '2.1.7',
+        'the AI Prompt library release must increment the Project Steward patch version');
     const currentReleaseMarker = `## [${packageMetadata.version}]`;
     assert.ok(changelog.includes(currentReleaseMarker),
         'CHANGELOG must contain the package.json release version');
@@ -41,14 +41,26 @@ function runReleaseContentChecks() {
         assert.match(workspaceFirstRelease, pattern, `2.1.4 CHANGELOG release must document ${label}`);
     }
 
-    assert.match(currentRelease, /TODO[\s\S]{0,160}(?:inline|incremental)/i,
-        'current CHANGELOG release must document the continuous TODO workflow');
-    assert.match(currentRelease, /Session exit[\s\S]{0,200}(?:red|attention)/i,
-        'current CHANGELOG release must document attention-neutral Session exit');
-    assert.match(currentRelease, /terminal PID[\s\S]{0,160}tmux client session/i,
-        'current CHANGELOG release must document tmux viewer recovery after reload');
-    assert.match(currentRelease, /behavior[\s-]+contract/i,
-        'current CHANGELOG release must document regression coverage');
+    const previousReleaseMarker = '## [2.1.6]';
+    assert.ok(changelog.includes(previousReleaseMarker),
+        'CHANGELOG must retain the TODO, attention, and tmux reload release');
+    const previousRelease = changelog.split(previousReleaseMarker)[1].split(/\n## \[/)[0];
+    assert.match(previousRelease, /TODO[\s\S]{0,160}(?:inline|incremental)/i,
+        '2.1.6 CHANGELOG release must document the continuous TODO workflow');
+    assert.match(previousRelease, /Session exit[\s\S]{0,200}(?:red|attention)/i,
+        '2.1.6 CHANGELOG release must document attention-neutral Session exit');
+    assert.match(previousRelease, /terminal PID[\s\S]{0,160}tmux client session/i,
+        '2.1.6 CHANGELOG release must document tmux viewer recovery after reload');
+    assert.match(previousRelease, /behavior[\s-]+contract/i,
+        '2.1.6 CHANGELOG release must document regression coverage');
+    assert.match(currentRelease, /AI Dashboard tab[\s\S]{0,160}Prompt/i,
+        'current CHANGELOG release must document the AI Prompt panel');
+    assert.match(currentRelease, /insert[\s\S]{0,160}Prompt[\s\S]{0,160}active terminal/i,
+        'current CHANGELOG release must document Prompt insertion into the active terminal');
+    assert.match(currentRelease, /synchronized[\s\S]{0,160}Prompt library/i,
+        'current CHANGELOG release must document synchronized Prompt storage');
+    assert.match(currentRelease, /Batch tmux metadata reads/i,
+        'current CHANGELOG release must document tmux metadata batching');
     assert.match(packageMetadata.description, /workspace/i,
         'package metadata must describe the workspace-first product boundary');
 }

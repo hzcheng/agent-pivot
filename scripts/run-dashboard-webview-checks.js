@@ -34,6 +34,7 @@ const AsyncFunction = Object.getPrototypeOf(async function () { return undefined
 const root = path.join(__dirname, '..');
 const dashboardScriptPath = path.join(root, 'src', 'webview', 'webviewDashboardScripts.js');
 const projectScriptPath = path.join(root, 'src', 'webview', 'webviewProjectScripts.js');
+const promptScriptPath = path.join(root, 'src', 'webview', 'webviewPromptScripts.js');
 const extensionHostPath = path.join(root, 'src', 'dashboard.ts');
 
 function compileDashboardStyles(source) {
@@ -3606,6 +3607,7 @@ async function runDashboardCommandRegistrationChecks() {
             removeGroup: async () => calls.push('removeGroup'),
             addProjectsFromFolder: async () => calls.push('addProjectsFromFolder'),
             addFileToActiveTerminal: async () => calls.push('addFileToActiveTerminal'),
+            insertPromptToActiveTerminal: async () => calls.push('insertPromptToActiveTerminal'),
         },
     });
 
@@ -3621,6 +3623,7 @@ async function runDashboardCommandRegistrationChecks() {
         'projectSteward.removeGroup',
         'projectSteward.addProjectsFromFolder',
         'projectSteward.addFileToActiveTerminal',
+        'projectSteward.insertPromptToActiveTerminal',
     ]);
     assert.deepStrictEqual(subscriptions.map(disposable => disposable.command), registered.map(([command]) => command));
 
@@ -3638,6 +3641,7 @@ async function runDashboardCommandRegistrationChecks() {
         'removeGroup',
         'addProjectsFromFolder',
         'addFileToActiveTerminal',
+        'insertPromptToActiveTerminal',
     ]);
 }
 
@@ -4310,6 +4314,11 @@ function runTodoComposePendingInteractionChecks() {
 
 function runSourceContractChecks(source) {
     const projectSource = fs.readFileSync(projectScriptPath, 'utf8');
+    assert.deepStrictEqual(
+        fs.readFileSync(path.join(root, 'media', 'webviewPromptScripts.js')),
+        fs.readFileSync(promptScriptPath),
+        'generated media/webviewPromptScripts.js must match its source byte-for-byte'
+    );
     const dndSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewDnDScripts.js'), 'utf8');
     const filterSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewFilterScripts.js'), 'utf8');
     const extensionHostSource = fs.readFileSync(extensionHostPath, 'utf8');
@@ -4382,7 +4391,14 @@ function runSourceContractChecks(source) {
     assert.ok(webviewContentSource.includes('onTodoMounted: (panel, message) =>'));
     assert.ok(webviewContentSource.includes('todos.mount(panel, message.snapshot)'));
     assert.ok(webviewContentSource.includes("'webviewTodoScripts.js'"));
-    assert.ok(webviewContentSource.includes("window.__projectStewardSyncCollapseButton('todo')"));
+    assert.match(
+        webviewContentSource,
+        /onTodoMounted: \(panel, message\) => \{[\s\S]*?todos\.mount\(panel, message\.snapshot\);[\s\S]*?window\.__projectStewardSyncCollapseButton\(\);[\s\S]*?\}/
+    );
+    assert.strictEqual(
+        webviewContentSource.includes("window.__projectStewardSyncCollapseButton('todo')"),
+        false
+    );
     assert.ok(source.includes("setAttribute('aria-selected'"));
     assert.ok(source.includes("setAttribute('tabindex'"));
     assert.ok(source.includes('scrollPositions'));

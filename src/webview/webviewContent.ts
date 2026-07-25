@@ -146,6 +146,12 @@ export function getStewardContent(
         'webviewDashboardScripts.js',
         assetRevision,
     );
+    var promptScriptsPath = getMediaResource(
+        context,
+        webview,
+        'webviewPromptScripts.js',
+        assetRevision,
+    );
     var todoScriptsPath = getMediaResource(
         context,
         webview,
@@ -209,10 +215,23 @@ export function getStewardContent(
                     ${Icons.settings}
                 </button>
             </div>
-            <div class="dashboard-tab-list" role="tablist" aria-label="Project views">
-                <button type="button" id="dashboard-tab-open-button" class="dashboard-tab-button active" role="tab" aria-selected="true" aria-controls="dashboard-tab-open" tabindex="0" data-dashboard-tab="open">OPEN</button>
-                <button type="button" id="dashboard-tab-projects-button" class="dashboard-tab-button" role="tab" aria-selected="false" aria-controls="dashboard-tab-projects" tabindex="-1" data-dashboard-tab="projects">PROJECTS</button>
-                <button type="button" id="dashboard-tab-todo-button" class="dashboard-tab-button" role="tab" aria-selected="false" aria-controls="dashboard-tab-todo" tabindex="-1" data-dashboard-tab="todo">TODO</button>
+            <div class="dashboard-tab-list" role="tablist" aria-label="Dashboard views">
+                <button type="button" id="dashboard-tab-open-button" class="dashboard-tab-button active" role="tab" aria-selected="true" aria-controls="dashboard-tab-open" tabindex="0" data-dashboard-tab="open" aria-label="Open" title="Open">
+                    <span class="dashboard-tab-icon" aria-hidden="true">${Icons.openNewWindow}</span>
+                    <span class="dashboard-tab-label">OPEN</span>
+                </button>
+                <button type="button" id="dashboard-tab-projects-button" class="dashboard-tab-button" role="tab" aria-selected="false" aria-controls="dashboard-tab-projects" tabindex="-1" data-dashboard-tab="projects" aria-label="Projects" title="Projects">
+                    <span class="dashboard-tab-icon" aria-hidden="true">${Icons.folder}</span>
+                    <span class="dashboard-tab-label">PROJECTS</span>
+                </button>
+                <button type="button" id="dashboard-tab-todo-button" class="dashboard-tab-button" role="tab" aria-selected="false" aria-controls="dashboard-tab-todo" tabindex="-1" data-dashboard-tab="todo" aria-label="Todo" title="Todo">
+                    <span class="dashboard-tab-icon" aria-hidden="true">${Icons.manage}</span>
+                    <span class="dashboard-tab-label">TODO</span>
+                </button>
+                <button type="button" id="dashboard-tab-ai-button" class="dashboard-tab-button" role="tab" aria-selected="false" aria-controls="dashboard-panel-ai" tabindex="-1" data-dashboard-tab="ai" aria-label="AI" title="AI">
+                    <span class="dashboard-tab-icon" aria-hidden="true">${Icons.terminalLine}</span>
+                    <span class="dashboard-tab-label">AI</span>
+                </button>
             </div>
         </div>
         <main class="dashboard-content">
@@ -226,6 +245,9 @@ export function getStewardContent(
             </section>
             <section id="dashboard-tab-todo" class="dashboard-tab-panel" role="tabpanel" aria-labelledby="dashboard-tab-todo-button" hidden>
                 <div class="dashboard-todo-loading" role="status" hidden>Loading todos…</div>
+            </section>
+            <section id="dashboard-panel-ai" class="dashboard-tab-panel" role="tabpanel" aria-labelledby="dashboard-tab-ai-button" hidden>
+                <div class="dashboard-ai-loading" role="status" hidden>Loading AI configuration…</div>
             </section>
             <section id="dashboard-search-results" class="dashboard-search-results" aria-label="Search results" hidden></section>
         </main>
@@ -241,6 +263,7 @@ export function getStewardContent(
     <script src="${autoScrollerPath}"></script>
     <script src="${projectScriptsPath}"></script>
     <script src="${dashboardScriptsPath}"></script>
+    <script src="${promptScriptsPath}"></script>
     <script src="${todoScriptsPath}"></script>
     <script src="${dndScriptsPath}"></script>
     <script src="${filterScriptsPath}"></script>
@@ -286,9 +309,9 @@ export function getStewardContent(
                     },
                     onTodoMounted: (panel, message) => {
                         todos.mount(panel, message.snapshot);
-                        window.__projectStewardSyncCollapseButton('todo');
+                        window.__projectStewardSyncCollapseButton();
                     },
-                    onActiveTabChanged: activeTab => window.__projectStewardSyncCollapseButton(activeTab),
+                    onActiveTabChanged: () => window.__projectStewardSyncCollapseButton(),
                 });
                 window.__projectStewardDashboard = dashboard;
                 fitProjectHeaders(document.getElementById('dashboard-tab-open'));

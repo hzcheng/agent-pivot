@@ -6,6 +6,7 @@ const { spawnSync } = require('node:child_process');
 const test = require('node:test');
 const configuration = require('../../out/dashboard/configuration');
 const { shouldOpenStewardOnStartup } = require('../../out/dashboard/startup');
+const { DashboardLifecycleController } = require('../../out/dashboard/lifecycleController');
 const { DashboardRuntimeController } = require('../../out/dashboard/runtimeController');
 const { DashboardCommandRegistration } = require('../../out/dashboard/commandRegistration');
 const {
@@ -30,6 +31,16 @@ function flushAsync() {
     return new Promise(resolve => setImmediate(resolve));
 }
 
+function makeConfigurationEvent(...sections) {
+    return {
+        affectsConfiguration(candidate) {
+            return sections.some(section => (
+                section === candidate || section.startsWith(`${candidate}.`)
+            ));
+        },
+    };
+}
+
 test('SESSION-CONFIGURATION-001 preserves primary precedence, legacy fallback, defaults, properties, and bound passthrough methods', async () => {
     const calls = [];
     const primary = configured({ customCss: '.primary{}', falseValue: false }, {
@@ -51,6 +62,17 @@ test('SESSION-CONFIGURATION-001 preserves primary precedence, legacy fallback, d
     assert.equal(steward.marker, 'primary-marker');
     assert.equal(await steward.update('color', '#fff'), 'updated');
     assert.deepEqual(calls, [['primary-marker', 'color', '#fff']]);
+
+    const permissivePrimary = {
+        get: (_key, fallback) => fallback,
+        inspect: key => ({ key }),
+    };
+    const inspectableSteward = configuration.createStewardConfiguration(
+        permissivePrimary,
+        configured()
+    );
+    assert.equal(typeof inspectableSteward.inspect, 'function');
+    assert.deepEqual(inspectableSteward.inspect('promptData'), { key: 'promptData' });
 
     for (const field of [
         'globalValue', 'workspaceValue', 'workspaceFolderValue',
@@ -199,11 +221,40 @@ test('RUNTIME-DASHBOARD-RUNTIME-CONTROLLER-001 maps rejected promises and synchr
     }
 });
 
+test('WEBVIEW-AI-DASHBOARD-001 refreshes external Prompt configuration incrementally and consumes local echoes', async () => {
+    const events = [];
+    let localEcho = true;
+    const controller = new DashboardLifecycleController({
+        checkDataMigration: async () => events.push('migrate'),
+        consumePromptDataWriteEcho: () => {
+            events.push('consume-prompt');
+            return localEcho;
+        },
+        applyProjectColorToCurrentWindow: () => events.push('color'),
+        refresh: reason => events.push(['refresh', reason]),
+        refreshPrompts: reason => events.push(['prompts', reason]),
+        publishOpenWorkspace: () => events.push('publish'),
+        evaluateAiSessionAttention: () => undefined,
+    });
+    const promptChange = makeConfigurationEvent('projectSteward.promptData');
+
+    await controller.handleConfigurationChanged(promptChange);
+    assert.deepEqual(events, ['consume-prompt']);
+
+    events.length = 0;
+    localEcho = false;
+    await controller.handleConfigurationChanged(promptChange);
+    assert.deepEqual(events, [
+        'consume-prompt',
+        ['prompts', 'configuration-changed'],
+    ]);
+});
+
 const DASHBOARD_COMMANDS = [
     'projectSteward.open', 'projectSteward.addProject', 'projectSteward.saveProject',
     'projectSteward.removeProject', 'projectSteward.editProjects', 'projectSteward.addGroup',
     'projectSteward.removeGroup', 'projectSteward.addProjectsFromFolder',
-    'projectSteward.addFileToActiveTerminal',
+    'projectSteward.addFileToActiveTerminal', 'projectSteward.insertPromptToActiveTerminal',
 ];
 
 test('WEBVIEW-DASHBOARD-COMMAND-REGISTRATION-001 registers exact callbacks and subscriptions', async () => {
@@ -212,7 +263,7 @@ test('WEBVIEW-DASHBOARD-COMMAND-REGISTRATION-001 registers exact callbacks and s
     const calls = [];
     const handlerNames = [
         'open', 'addProject', 'saveProject', 'removeProject', 'editProjects', 'addGroup', 'removeGroup',
-        'addProjectsFromFolder', 'addFileToActiveTerminal',
+        'addProjectsFromFolder', 'addFileToActiveTerminal', 'insertPromptToActiveTerminal',
     ];
     const handlers = Object.fromEntries(handlerNames.map(name => [name, (...args) => calls.push([name, ...args])]));
     new DashboardCommandRegistration({
@@ -230,6 +281,19 @@ test('WEBVIEW-DASHBOARD-COMMAND-REGISTRATION-001 registers exact callbacks and s
     assert.deepEqual(subscriptions.map(value => value.command), DASHBOARD_COMMANDS);
 });
 
+test('WEBVIEW-DASHBOARD-COMMAND-REGISTRATION-001 contributes the Prompt terminal command exactly once without a default keybinding', () => {
+    const manifest = require('../../package.json');
+    const commands = manifest.contributes.commands
+        .filter(command => command.command === 'projectSteward.insertPromptToActiveTerminal');
+    assert.deepEqual(commands, [{
+        command: 'projectSteward.insertPromptToActiveTerminal',
+        title: 'Project Steward: Insert Prompt into Active Terminal',
+    }]);
+    assert.equal(manifest.contributes.keybindings.some(
+        keybinding => keybinding.command === 'projectSteward.insertPromptToActiveTerminal'
+    ), false);
+});
+
 test('WEBVIEW-DASHBOARD-COMMAND-REGISTRATION-001 production activation installs the exact Dashboard public command surface', () => {
     const environment = { ...process.env, NODE_V8_COVERAGE: '' };
     const result = spawnSync(process.execPath, [
@@ -239,6 +303,7 @@ test('WEBVIEW-DASHBOARD-COMMAND-REGISTRATION-001 production activation installs 
     const activation = JSON.parse(result.stdout);
     assert.equal(activation.failure, null);
     assert.equal(activation.dashboardCommandRegistrationInvocations, 1);
+    assert.deepEqual(activation.synchronizedGlobalStateKeySets, [['promptData.v1']]);
     assert.deepEqual(
         activation.registeredCommands.filter(command => command.startsWith('projectSteward.')),
         DASHBOARD_COMMANDS

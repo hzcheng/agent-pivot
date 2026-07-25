@@ -28,6 +28,7 @@ const MAX_TARGET_FIELD_LENGTH = 512;
 const MAX_ENCODED_METADATA_VALUE_LENGTH = 8192;
 const METADATA_ENCODING_PREFIX = 'psb64v1.';
 const METADATA_CHECKSUM_LENGTH = 16;
+const METADATA_READ_MARKER_PREFIX = '__project_steward_metadata__:';
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;
 const REQUIRED_COMMANDS = [
     'new-session',
@@ -498,24 +499,11 @@ export class TmuxClient {
         operation: TmuxOperation,
         baseArgs: string[]
     ): Promise<Record<string, string>> {
-        const entries = await Promise.all(metadataOptionKeys().map(async key => {
-            const result = await this.invoke(operation, [...baseArgs, TMUX_METADATA_OPTIONS[key]]);
-            if (result.exitCode !== 0) {
-                throw resultError(operation, result);
-            }
-            const value = parseMetadataOptionValue(result.stdout, operation);
-            return [
-                key,
-                value === null ? null : decodeMetadataValue(value, key, operation),
-            ] as const;
-        }));
-        const values: Record<string, string> = {};
-        for (const [key, value] of entries) {
-            if (value !== null) {
-                values[key] = value;
-            }
+        const result = await this.invoke(operation, metadataReadArgs(baseArgs));
+        if (result.exitCode !== 0) {
+            throw resultError(operation, result);
         }
-        return values;
+        return parseMetadataSequence(result.stdout, operation);
     }
 
     private async invokeForAvailability(args: string[]): Promise<TmuxCommandResult> {
@@ -782,16 +770,63 @@ function parseClientSessions(stdout: string): Map<number, string> {
     return sessions;
 }
 
-function parseMetadataOptionValue(stdout: string, operation: TmuxOperation): string | null {
-    if (!stdout) {
-        return null;
+function metadataReadArgs(baseArgs: string[]): string[] {
+    const args: string[] = [];
+    for (const key of metadataOptionKeys()) {
+        if (args.length) {
+            args.push(';');
+        }
+        args.push(
+            ...baseArgs,
+            TMUX_METADATA_OPTIONS[key],
+            ';',
+            'display-message',
+            '-p',
+            metadataReadMarker(key)
+        );
     }
-    const value = stdout.endsWith('\n') ? stdout.slice(0, -1) : stdout;
-    if (!value || value.length > MAX_ENCODED_METADATA_VALUE_LENGTH
-        || CONTROL_CHARACTERS.test(value)) {
+    return args;
+}
+
+function parseMetadataSequence(
+    stdout: string,
+    operation: TmuxOperation
+): Record<string, string> {
+    if (stdout.length > MAX_LIST_OUTPUT_LENGTH) {
         throw new TmuxClientError(operation, 'invalid-output');
     }
-    return value;
+    if (!stdout) {
+        throw new TmuxClientError(operation, 'invalid-output');
+    }
+    const lines = stdout.endsWith('\n') ? stdout.slice(0, -1).split('\n') : stdout.split('\n');
+    if (lines.length > MAX_LIST_ROWS) {
+        throw new TmuxClientError(operation, 'invalid-output');
+    }
+    const values: Record<string, string> = {};
+    let lineIndex = 0;
+    for (const key of metadataOptionKeys()) {
+        const marker = metadataReadMarker(key);
+        if (lines[lineIndex] !== marker) {
+            const value = lines[lineIndex++];
+            if (!value || value.length > MAX_ENCODED_METADATA_VALUE_LENGTH
+                || CONTROL_CHARACTERS.test(value)) {
+                throw new TmuxClientError(operation, 'invalid-output');
+            }
+            values[key] = decodeMetadataValue(value, key, operation);
+        }
+        if (lines[lineIndex] !== marker) {
+            throw new TmuxClientError(operation, 'invalid-output');
+        }
+        lineIndex++;
+    }
+    if (lineIndex !== lines.length) {
+        throw new TmuxClientError(operation, 'invalid-output');
+    }
+    return values;
+}
+
+function metadataReadMarker(key: MetadataOptionKey): string {
+    return `${METADATA_READ_MARKER_PREFIX}${key}`;
 }
 
 function parseTargetWindow(stdout: string): TmuxTargetWindowRecord {

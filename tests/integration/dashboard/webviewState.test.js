@@ -14,8 +14,11 @@ const { getDashboardWebviewOptions } = require('../../../out/dashboard/webviewOp
 
 const root = path.join(__dirname, '..', '..', '..');
 const dashboardSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewDashboardScripts.js'), 'utf8');
+const generatedDashboardSource = fs.readFileSync(path.join(root, 'media', 'webviewDashboardScripts.js'), 'utf8');
 const projectSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewProjectScripts.js'), 'utf8');
 const generatedProjectSource = fs.readFileSync(path.join(root, 'media', 'webviewProjectScripts.js'), 'utf8');
+const promptSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewPromptScripts.js'), 'utf8');
+const generatedPromptPath = path.join(root, 'media', 'webviewPromptScripts.js');
 const dndSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewDnDScripts.js'), 'utf8');
 const NOW = '2026-07-23T00:00:00.000Z';
 
@@ -127,6 +130,22 @@ function makeCatalog(suffix = '') {
     };
 }
 
+function makePromptSnapshot(revision = 0) {
+    return {
+        version: 1,
+        revision,
+        selectedPromptId: null,
+        prompts: [],
+    };
+}
+
+function makeAiPanelHtml(revision, surfaceCount = 1) {
+    const surfaces = Array.from({ length: surfaceCount }, () =>
+        `<div data-prompt-surface data-prompt-revision="${revision}"></div>`
+    ).join('');
+    return `<div data-ai-panel>${surfaces}</div>`;
+}
+
 function makeWorkspaceCard(overrides = {}) {
     const kind = overrides.kind || 'current';
     return {
@@ -147,24 +166,60 @@ function makeWorkspaceCard(overrides = {}) {
     };
 }
 
-function createDashboardHarness({ initialTab = 'open', initialSearchQuery = '', synchronousFrames = true } = {}) {
+function createDashboardHarness({
+    initialTab = 'open',
+    initialSearchQuery = '',
+    synchronousFrames = true,
+    onProjectsMounted,
+    onTodoMounted,
+    onActiveTabChanged,
+} = {}) {
     const openButton = createElement('dashboard-tab-open-button');
     openButton.setAttribute('data-dashboard-tab', 'open');
     const projectsButton = createElement('dashboard-tab-projects-button');
     projectsButton.setAttribute('data-dashboard-tab', 'projects');
     const todoButton = createElement('dashboard-tab-todo-button');
     todoButton.setAttribute('data-dashboard-tab', 'todo');
+    const aiButton = createElement('dashboard-tab-ai-button');
+    aiButton.setAttribute('data-dashboard-tab', 'ai');
     const openPanel = createElement('dashboard-tab-open');
     const projectsPanel = createElement('dashboard-tab-projects');
     const todoPanel = createElement('dashboard-tab-todo');
+    const aiPanel = createElement('dashboard-panel-ai');
     const projectsLoading = createElement();
     const todoLoading = createElement();
+    const aiLoading = createElement();
+    let promptSubtabSelections = 0;
+    const promptSubtab = {
+        click() {
+            promptSubtabSelections += 1;
+        },
+    };
     projectsPanel.querySelector = selector => selector === '.dashboard-projects-loading'
         ? projectsLoading
         : null;
     todoPanel.querySelector = selector => selector === '.dashboard-todo-loading'
         ? todoLoading
         : null;
+    aiPanel.querySelector = selector => selector === '.dashboard-ai-loading'
+        ? aiLoading
+        : selector === '#ai-tab-prompts'
+            ? promptSubtab
+            : null;
+    aiPanel.querySelectorAll = selector => {
+        if (selector !== '[data-prompt-surface]') return [];
+        return Array.from(aiPanel.innerHTML.matchAll(
+            /<[^>]*\bdata-prompt-surface(?:\s|=|>)[^>]*>/g
+        )).map(match => {
+            const surface = createElement();
+            const revision = match[0].match(/\bdata-prompt-revision="([^"]*)"/);
+            if (revision) surface.setAttribute('data-prompt-revision', revision[1]);
+            return surface;
+        });
+    };
+    const tablist = createElement();
+    const collapseButton = createElement();
+    collapseButton.disabled = false;
     const searchResults = createSearchElement();
     searchResults.id = 'dashboard-search-results';
     const catalogElement = { textContent: JSON.stringify(makeCatalog()) };
@@ -172,6 +227,7 @@ function createDashboardHarness({ initialTab = 'open', initialSearchQuery = '', 
         'dashboard-tab-open': openPanel,
         'dashboard-tab-projects': projectsPanel,
         'dashboard-tab-todo': todoPanel,
+        'dashboard-panel-ai': aiPanel,
         'dashboard-search-results': searchResults,
         'dashboard-search-catalog': catalogElement,
     };
@@ -180,6 +236,8 @@ function createDashboardHarness({ initialTab = 'open', initialSearchQuery = '', 
     const frames = [];
     const timers = [];
     const windowListeners = {};
+    const promptMounts = [];
+    const promptRefreshes = [];
     let nextTimerId = 1;
     const context = {
         document: {
@@ -187,9 +245,13 @@ function createDashboardHarness({ initialTab = 'open', initialSearchQuery = '', 
             body: { classList: createClassList() },
             createElement: createSearchElement,
             getElementById: id => elements[id] || null,
-            querySelector: () => null,
+            querySelector: selector => selector === '[role="tablist"]'
+                ? tablist
+                : selector === '[data-action="toggle-all-groups"]'
+                    ? collapseButton
+                    : null,
             querySelectorAll: selector => selector === '[data-dashboard-tab]'
-                ? [openButton, projectsButton, todoButton]
+                ? [openButton, projectsButton, todoButton, aiButton]
                 : [],
         },
         sessionStorage: {
@@ -200,6 +262,16 @@ function createDashboardHarness({ initialTab = 'open', initialSearchQuery = '', 
             scrollY: 0,
             scrollTo: (_x, y) => { context.window.scrollY = y; },
             addEventListener: (type, listener) => { windowListeners[type] = listener; },
+            __projectStewardPrompts: {
+                mount(root, message) {
+                    promptMounts.push({ root, html: root.innerHTML, message });
+                    return true;
+                },
+                applyRefresh(message) {
+                    promptRefreshes.push(message);
+                    return true;
+                },
+            },
         },
         requestAnimationFrame(callback) {
             if (synchronousFrames) callback();
@@ -220,6 +292,9 @@ function createDashboardHarness({ initialTab = 'open', initialSearchQuery = '', 
     const controller = context.initDashboard({
         initialSearchQuery,
         postMessage: message => messages.push(message),
+        onProjectsMounted,
+        onTodoMounted,
+        onActiveTabChanged,
     });
     return {
         context,
@@ -239,11 +314,20 @@ function createDashboardHarness({ initialTab = 'open', initialSearchQuery = '', 
         openButton,
         projectsButton,
         todoButton,
+        aiButton,
         openPanel,
         projectsPanel,
         todoPanel,
+        aiPanel,
         projectsLoading,
         todoLoading,
+        aiLoading,
+        collapseButton,
+        promptMounts,
+        promptRefreshes,
+        get promptSubtabSelections() {
+            return promptSubtabSelections;
+        },
         searchResults,
     };
 }
@@ -542,6 +626,15 @@ test('WEBVIEW-MULTI-PROVIDER-SESSION-MENU-001 keeps the generated provider-menu 
     assert.doesNotMatch(projectSource, /type: 'select-ai-session-provider'/);
 });
 
+test('WEBVIEW-AI-PROMPT-ASSET-001 keeps the generated Prompt controller byte-identical to source', () => {
+    assert.ok(fs.existsSync(generatedPromptPath), 'missing media/webviewPromptScripts.js');
+    assert.equal(fs.readFileSync(generatedPromptPath, 'utf8'), promptSource);
+});
+
+test('WEBVIEW-WEBVIEW-CONTENT-001 keeps the generated Dashboard controller byte-identical to source', () => {
+    assert.equal(generatedDashboardSource, dashboardSource);
+});
+
 test('ACTIVE-SESSION-ICON-ANIMATION-001 renders effects only for running Active Session rows', () => {
     const surface = {
         id: 'active-session-icons',
@@ -635,7 +728,7 @@ test('WEBVIEW-FAVORITE-RENDERING-001 renders favorites in explicit order before 
     assert.deepEqual(ids, ['favorite-b', 'favorite-a', 'favorite-a', 'favorite-b', 'plain']);
 });
 
-test('WEBVIEW-WEBVIEW-CONTENT-001 renders OPEN PROJECTS and lazy PROJECTS TODO tab shells', () => {
+test('WEBVIEW-WEBVIEW-CONTENT-001 renders OPEN PROJECTS TODO and lazy AI tab shells', () => {
     const config = {
         get: (key, fallback) => key === 'aiSessionRunningIconAnimation'
             ? 'sharingan-shisui'
@@ -668,8 +761,35 @@ test('WEBVIEW-WEBVIEW-CONTENT-001 renders OPEN PROJECTS and lazy PROJECTS TODO t
         assert.match(html, new RegExp(`data-dashboard-tab="${tab}"`));
         assert.match(html, new RegExp(`id="dashboard-tab-${tab}"`));
     }
+    assert.match(html, /data-dashboard-tab="ai"/);
+    assert.match(html, /id="dashboard-panel-ai"/);
+    assert.match(html, /class="dashboard-tab-list" role="tablist" aria-label="Dashboard views"/);
+    for (const [tab, label] of [
+        ['open', 'Open'],
+        ['projects', 'Projects'],
+        ['todo', 'Todo'],
+        ['ai', 'AI'],
+    ]) {
+        assert.match(
+            html,
+            new RegExp(
+                `data-dashboard-tab="${tab}"[^>]*aria-label="${label}"[^>]*title="${label}"[^>]*>`
+                + `\\s*<span class="dashboard-tab-icon" aria-hidden="true">[\\s\\S]*?<\\/span>`
+                + `\\s*<span class="dashboard-tab-label">${label.toUpperCase()}<\\/span>`
+            )
+        );
+    }
     assert.match(html, /data-session-icon-fx="sharingan-shisui"/);
     assert.match(html, /id="dashboard-search-catalog"/);
+    assert.match(html, /webviewPromptScripts\.js/);
+    assert.ok(
+        html.indexOf('webviewPromptScripts.js') > html.indexOf('webviewDashboardScripts.js'),
+        'Prompt interactions must install after the Dashboard lazy loader'
+    );
+    assert.ok(
+        html.indexOf('webviewPromptScripts.js') < html.indexOf('window.onload'),
+        'Prompt interactions must install before the lazy AI panel can mount'
+    );
     assert.match(html, /webviewTodoScripts\.js/);
     assert.match(html, /initTodos\(/);
     assert.equal(html.includes('data-id="hidden"'), false);
@@ -725,6 +845,7 @@ test('WEBVIEW-RESOURCE-RECOVERY-001 gives every rendered document fresh versione
         'dom-autoscroller.min.js',
         'webviewProjectScripts.js',
         'webviewDashboardScripts.js',
+        'webviewPromptScripts.js',
         'webviewTodoScripts.js',
         'webviewDnDScripts.js',
         'webviewFilterScripts.js',
@@ -760,6 +881,347 @@ test('WEBVIEW-DASHBOARD-UPDATE-MESSAGE-001 SESSION-CONTROLLER-001 preserves OPEN
     assert.equal(harness.messages.filter(message => message.type === 'request-projects-panel').length, 1);
     assert.equal(harness.messages.filter(message => message.type === 'request-todo-panel').length, 1);
     assert.equal(harness.storage.get('projectSteward.activeDashboardTab'), 'todo');
+});
+
+test('WEBVIEW-AI-DASHBOARD-001 restores AI and lazily mounts one correlated authoritative panel', () => {
+    const harness = createDashboardHarness({ initialTab: 'ai' });
+    const aiRequests = harness.messages.filter(message => message.type === 'request-ai-panel');
+    assert.equal(aiRequests.length, 1);
+    const aiRequest = aiRequests[0];
+    assert.equal(aiRequest.type, 'request-ai-panel');
+    assert.equal(aiRequest.version, 1);
+    assert.equal(typeof aiRequest.requestId, 'string');
+    assert.ok(aiRequest.requestId.length > 0);
+    assert.equal(aiRequest.target, 'global-prompt-library');
+    assert.equal(harness.controller.getActiveTab(), 'ai');
+    assert.equal(harness.storage.get('projectSteward.activeDashboardTab'), 'ai');
+    assert.equal(harness.controller.getAiState(), 'loading');
+    assert.equal(harness.collapseButton.disabled, true);
+
+    const content = {
+        type: 'ai-panel-content',
+        version: 1,
+        authoritySequence: 1,
+        requestId: aiRequest.requestId,
+        target: 'global-prompt-library',
+        snapshot: makePromptSnapshot(),
+        html: makeAiPanelHtml(0),
+    };
+    assert.equal(harness.controller.applyAiPanelMessage({
+        ...content,
+        requestId: `${aiRequest.requestId}-stale`,
+    }), false);
+    assert.equal(harness.controller.applyAiPanelMessage({
+        ...content,
+        target: 'another-library',
+    }), false);
+    assert.equal(harness.controller.applyAiPanelMessage({
+        ...content,
+        snapshot: { ...content.snapshot, revision: -1 },
+    }), false);
+    assert.equal(harness.aiPanel.innerHTML, '');
+    assert.deepEqual(harness.promptMounts, []);
+
+    assert.equal(harness.controller.applyAiPanelMessage(content), true);
+    assert.equal(harness.aiPanel.innerHTML, content.html);
+    assert.equal(harness.controller.getAiState(), 'mounted');
+    assert.equal(harness.promptMounts.length, 1);
+    assert.equal(harness.promptMounts[0].root, harness.aiPanel);
+    assert.equal(harness.promptMounts[0].html, content.html);
+    assert.equal(harness.promptMounts[0].message.authoritySequence, 1);
+    assert.deepEqual(toPlain(harness.promptMounts[0].message.snapshot), content.snapshot);
+
+    harness.controller.activateTab('open');
+    harness.controller.activateTab('ai');
+    assert.equal(harness.messages.filter(message => message.type === 'request-ai-panel').length, 1);
+});
+
+test('WEBVIEW-AI-DASHBOARD-001 supports mouse and roving Arrow/Home/End top-level tab navigation', () => {
+    const harness = createDashboardHarness();
+    let prevented = 0;
+
+    harness.aiButton.dispatch('click');
+    assert.equal(harness.controller.getActiveTab(), 'ai');
+    assert.equal(harness.collapseButton.disabled, true);
+
+    harness.openButton.dispatch('keydown', {
+        key: 'ArrowLeft',
+        preventDefault: () => { prevented += 1; },
+    });
+    assert.equal(harness.aiButton.classList.contains('focused'), false);
+    harness.aiButton.focus = () => harness.aiButton.classList.add('focused');
+    harness.openButton.dispatch('keydown', {
+        key: 'ArrowLeft',
+        preventDefault: () => { prevented += 1; },
+    });
+    assert.equal(harness.aiButton.classList.contains('focused'), true);
+
+    harness.openButton.focus = () => harness.openButton.classList.add('focused');
+    harness.todoButton.dispatch('keydown', {
+        key: 'Home',
+        preventDefault: () => { prevented += 1; },
+    });
+    assert.equal(harness.openButton.classList.contains('focused'), true);
+
+    harness.aiButton.classList.remove('focused');
+    harness.projectsButton.dispatch('keydown', {
+        key: 'End',
+        preventDefault: () => { prevented += 1; },
+    });
+    assert.equal(harness.aiButton.classList.contains('focused'), true);
+    assert.equal(prevented, 4);
+    assert.equal(harness.context.getAdjacentDashboardTab('todo', 'ArrowRight'), 'ai');
+    assert.equal(harness.context.getAdjacentDashboardTab('ai', 'ArrowRight'), 'open');
+    assert.equal(harness.context.getAdjacentDashboardTab('projects', 'Home'), 'open');
+    assert.equal(harness.context.getAdjacentDashboardTab('projects', 'End'), 'ai');
+});
+
+test('WEBVIEW-AI-DASHBOARD-001 keeps AI retryable when coherent Prompt mounting fails', async t => {
+    const cases = [
+        ['missing controller', makeAiPanelHtml(0), null, 0],
+        ['mount returns false', makeAiPanelHtml(0), () => false, 1],
+        ['missing surface', '<div data-ai-panel></div>', () => true, 0],
+        ['duplicate surfaces', makeAiPanelHtml(0, 2), () => true, 0],
+        ['mismatched surface revision', makeAiPanelHtml(1), () => true, 0],
+    ];
+
+    for (const [name, html, mount, expectedMounts] of cases) {
+        await t.test(name, () => {
+            const harness = createDashboardHarness({ initialTab: 'ai' });
+            const request = harness.messages[0];
+            let mountCalls = 0;
+            harness.context.window.__projectStewardPrompts = mount === null
+                ? undefined
+                : {
+                    mount(root, message) {
+                        mountCalls += 1;
+                        return mount(root, message);
+                    },
+                };
+
+            assert.equal(harness.controller.applyAiPanelMessage({
+                type: 'ai-panel-content',
+                version: 1,
+                authoritySequence: 1,
+                requestId: request.requestId,
+                target: 'global-prompt-library',
+                snapshot: makePromptSnapshot(),
+                html,
+            }), false);
+            assert.equal(mountCalls, expectedMounts);
+            assert.equal(harness.controller.getAiState(), 'unloaded');
+            assert.match(harness.aiLoading.textContent, /temporarily unavailable/i);
+            assert.equal(harness.aiLoading.hidden, false);
+            assert.equal(harness.runNextTimer(), false, 'failed mount must cancel its recovery timer');
+
+            harness.controller.activateTab('ai');
+            assert.equal(harness.messages.length, 2);
+            assert.notEqual(harness.messages[1].requestId, request.requestId);
+        });
+    }
+});
+
+test('WEBVIEW-AI-DASHBOARD-001 installs one revision-matched Prompt surface before marking AI mounted', () => {
+    const harness = createDashboardHarness({ initialTab: 'ai' });
+    const request = harness.messages[0];
+    const html = makeAiPanelHtml(0);
+    let observed = null;
+    harness.context.window.__projectStewardPrompts = {
+        mount(root, message) {
+            observed = {
+                html: root.innerHTML,
+                state: harness.controller.getAiState(),
+                authoritySequence: message.authoritySequence,
+            };
+            return true;
+        },
+    };
+
+    assert.equal(harness.controller.applyAiPanelMessage({
+        type: 'ai-panel-content',
+        version: 1,
+        authoritySequence: 1,
+        requestId: request.requestId,
+        target: 'global-prompt-library',
+        snapshot: makePromptSnapshot(),
+        html,
+    }), true);
+    assert.deepEqual(observed, {
+        html,
+        state: 'loading',
+        authoritySequence: 1,
+    });
+    assert.equal(harness.controller.getAiState(), 'mounted');
+    assert.equal(harness.runNextTimer(), false);
+});
+
+test('WEBVIEW-AI-DASHBOARD-001 queues only the newest Prompt refresh until lazy AI mount succeeds', () => {
+    const harness = createDashboardHarness({ initialTab: 'ai' });
+    const request = harness.messages[0];
+    const refreshAt = authoritySequence => ({
+        type: 'prompt-panel-updated',
+        version: 1,
+        authoritySequence,
+        target: 'global-prompt-library',
+        snapshot: makePromptSnapshot(authoritySequence),
+        html: `<div data-prompt-surface data-prompt-revision="${authoritySequence}"></div>`,
+    });
+    const refresh2 = refreshAt(2);
+    const refresh3 = refreshAt(3);
+
+    harness.windowListeners.message({
+        data: { ...refreshAt(99), target: 'another-library' },
+    });
+    harness.windowListeners.message({ data: refresh2 });
+    harness.windowListeners.message({ data: refresh3 });
+    harness.windowListeners.message({ data: refresh2 });
+    assert.deepEqual(
+        harness.promptRefreshes,
+        [],
+        'Prompt refreshes must wait until the Prompt controller has a mounted root'
+    );
+
+    assert.equal(harness.controller.applyAiPanelMessage({
+        type: 'ai-panel-content',
+        version: 1,
+        authoritySequence: 1,
+        requestId: request.requestId,
+        target: 'global-prompt-library',
+        snapshot: makePromptSnapshot(),
+        html: makeAiPanelHtml(0),
+    }), true);
+    assert.equal(harness.controller.getAiState(), 'mounted');
+    assert.equal(harness.promptMounts.length, 1);
+    assert.equal(harness.promptMounts[0].message.authoritySequence, 1);
+    assert.deepEqual(toPlain(harness.promptRefreshes), [refresh3]);
+});
+
+test('WEBVIEW-AI-DASHBOARD-001 retains a queued Prompt refresh across a failed mount retry', () => {
+    const harness = createDashboardHarness({ initialTab: 'ai' });
+    const firstRequest = harness.messages[0];
+    const promptController = harness.context.window.__projectStewardPrompts;
+    const refresh = {
+        type: 'prompt-panel-updated',
+        version: 1,
+        authoritySequence: 3,
+        target: 'global-prompt-library',
+        snapshot: makePromptSnapshot(3),
+        html: '<div data-prompt-surface data-prompt-revision="3"></div>',
+    };
+    harness.windowListeners.message({ data: refresh });
+    harness.context.window.__projectStewardPrompts = {
+        mount() {
+            return false;
+        },
+    };
+
+    assert.equal(harness.controller.applyAiPanelMessage({
+        type: 'ai-panel-content',
+        version: 1,
+        authoritySequence: 1,
+        requestId: firstRequest.requestId,
+        target: 'global-prompt-library',
+        snapshot: makePromptSnapshot(),
+        html: makeAiPanelHtml(0),
+    }), false);
+    assert.deepEqual(harness.promptRefreshes, []);
+
+    harness.controller.activateTab('ai');
+    const retryRequest = harness.messages[1];
+    harness.context.window.__projectStewardPrompts = promptController;
+    assert.equal(harness.controller.applyAiPanelMessage({
+        type: 'ai-panel-content',
+        version: 1,
+        authoritySequence: 2,
+        requestId: retryRequest.requestId,
+        target: 'global-prompt-library',
+        snapshot: makePromptSnapshot(),
+        html: makeAiPanelHtml(0),
+    }), true);
+    assert.deepEqual(toPlain(harness.promptRefreshes), [refresh]);
+});
+
+test('WEBVIEW-AI-DASHBOARD-001 receives select-dashboard-tab and delegates external Prompt refreshes while preserving the search catalog', () => {
+    const harness = createDashboardHarness();
+    harness.controller.replaceSearchCatalog(makeCatalog('prompt-refresh'));
+    harness.controller.setSearchQuery('prompt-refresh');
+    const searchBefore = JSON.stringify(toPlain(harness.searchResults.children));
+
+    harness.windowListeners.message({
+        data: {
+            type: 'select-dashboard-tab',
+            version: 1,
+            tab: 'ai',
+            aiSubtab: 'prompts',
+        },
+    });
+    assert.equal(harness.controller.getActiveTab(), 'ai');
+    assert.equal(harness.controller.isSearchActive(), false);
+    const aiRequest = harness.messages.find(message => message.type === 'request-ai-panel');
+    assert.ok(aiRequest);
+    assert.equal(harness.controller.applyAiPanelMessage({
+        type: 'ai-panel-content',
+        version: 1,
+        authoritySequence: 1,
+        requestId: aiRequest.requestId,
+        target: 'global-prompt-library',
+        snapshot: makePromptSnapshot(),
+        html: makeAiPanelHtml(0),
+    }), true);
+    assert.equal(harness.promptSubtabSelections, 1);
+
+    harness.windowListeners.message({
+        data: {
+            type: 'select-dashboard-tab',
+            version: 1,
+            tab: 'ai',
+            aiSubtab: 'prompts',
+        },
+    });
+    assert.equal(harness.promptSubtabSelections, 2);
+
+    const refresh = {
+        type: 'prompt-panel-updated',
+        version: 1,
+        authoritySequence: 2,
+        target: 'global-prompt-library',
+        snapshot: makePromptSnapshot(1),
+        html: '<div data-prompt-surface data-prompt-revision="1"></div>',
+    };
+    harness.windowListeners.message({ data: refresh });
+    assert.deepEqual(toPlain(harness.promptRefreshes), [refresh]);
+
+    harness.controller.setSearchQuery('prompt-refresh');
+    assert.equal(JSON.stringify(toPlain(harness.searchResults.children)), searchBefore);
+});
+
+test('WEBVIEW-AI-DASHBOARD-001 retries AI with fresh opaque identities and unlocks later retries', () => {
+    const harness = createDashboardHarness({ initialTab: 'ai' });
+    const first = harness.messages[0];
+    assert.equal(harness.runNextTimer(), true);
+    const second = harness.messages[1];
+    assert.equal(second.type, 'request-ai-panel');
+    assert.notEqual(second.requestId, first.requestId);
+    assert.equal(typeof second.requestId, 'string');
+
+    assert.equal(harness.runNextTimer(), true);
+    assert.equal(harness.controller.getAiState(), 'unloaded');
+    assert.match(harness.aiLoading.textContent, /temporarily unavailable/i);
+
+    harness.controller.activateTab('ai');
+    const third = harness.messages[2];
+    assert.equal(third.type, 'request-ai-panel');
+    assert.notEqual(third.requestId, second.requestId);
+    assert.equal(harness.controller.applyAiPanelMessage({
+        type: 'ai-panel-content',
+        version: 1,
+        authoritySequence: 1,
+        requestId: third.requestId,
+        target: 'global-prompt-library',
+        snapshot: makePromptSnapshot(),
+        html: makeAiPanelHtml(0),
+    }), true);
+    assert.equal(harness.controller.getAiState(), 'mounted');
 });
 
 test('WEBVIEW-LAZY-PANEL-RECOVERY-001 retries one missing response and unlocks later tab retries', () => {
@@ -929,8 +1391,8 @@ test('PROJECT-INCREMENTAL-REFRESH-001 ignores stale window messages without requ
 test('SESSION-CONTROLLER-001 validates lazy responses and preserves independent background-tab scroll state', () => {
     const harness = createDashboardHarness();
     assert.equal(harness.context.normalizeDashboardTab('unknown'), 'open');
-    assert.equal(harness.context.getAdjacentDashboardTab('open', 'ArrowLeft'), 'todo');
-    assert.equal(harness.context.getAdjacentDashboardTab('todo', 'ArrowRight'), 'open');
+    assert.equal(harness.context.getAdjacentDashboardTab('open', 'ArrowLeft'), 'ai');
+    assert.equal(harness.context.getAdjacentDashboardTab('todo', 'ArrowRight'), 'ai');
     assert.equal(harness.context.validateProjectsPanelMessage({
         type: 'projects-panel-content', version: 1, requestId: 1, html: '',
     }), true);
@@ -1045,7 +1507,13 @@ test('TODO-TODO-SEARCH-RESULT-RENDERING-001 search reveal requests host data the
     assert.equal(focused, 0);
 });
 
-function createProjectVm({ querySelector, querySelectorAll, activeElement, source = projectSource } = {}) {
+function createProjectVm({
+    querySelector,
+    querySelectorAll,
+    activeElement,
+    activeTab = 'open',
+    source = projectSource,
+} = {}) {
     const documentListeners = {};
     const windowListeners = {};
     const messages = [];
@@ -1089,7 +1557,7 @@ function createProjectVm({ querySelector, querySelectorAll, activeElement, sourc
             },
             __projectStewardDashboard: {
                 replaceSearchCatalog: catalog => replacedCatalogs.push(catalog),
-                getActiveTab: () => 'open',
+                getActiveTab: () => activeTab,
             },
         },
     };
@@ -1508,12 +1976,124 @@ function assertCollapseButtonBehavior(context) {
     assert.equal(context.getCollapseButtonState('open', [true]).title, 'Expand Other Windows');
     assert.equal(context.getCollapseButtonState('projects', [false, true]).title, 'Collapse All Groups');
     assert.equal(context.getCollapseButtonState('todo', [true, true]).title, 'Expand TODO Groups');
+    assert.deepEqual(toPlain(context.getCollapseButtonState('ai', [false])), {
+        disabled: true, collapsed: false, title: 'No groups to collapse in AI',
+    });
 }
 
 test('WEBVIEW-COLLAPSE-BUTTON-STATE-001 exposes disabled and exact action labels for each dashboard tab', () => {
     assertCollapseButtonBehavior(createProjectVm().context);
     const mutated = projectSource.replace('No other windows to collapse', 'Nothing to collapse');
     assert.throws(() => assertCollapseButtonBehavior(createProjectVm({ source: mutated }).context));
+});
+
+test('WEBVIEW-AI-DASHBOARD-001 keeps Collapse disabled across late Projects and TODO mounts while AI stays active', () => {
+    const collapseButton = createElement();
+    const selectedAiButton = createElement();
+    selectedAiButton.setAttribute('data-dashboard-tab', 'ai');
+    selectedAiButton.setAttribute('aria-selected', 'true');
+    const openGroup = { classList: createClassList() };
+    const todoGroup = { classList: createClassList() };
+    const harness = createProjectVm({
+        activeTab: 'ai',
+        querySelector: selector => selector === '[data-action="toggle-all-groups"]'
+            ? collapseButton
+            : selector === '[data-dashboard-tab][aria-selected="true"]'
+                ? selectedAiButton
+                : null,
+        querySelectorAll: selector => selector === '#dashboard-tab-open .open-other-windows-group[data-group-id]'
+            ? [openGroup]
+            : selector === '#dashboard-tab-todo .todo-group[data-todo-group-id]'
+                ? [todoGroup]
+                : [],
+    });
+
+    collapseButton.disabled = false;
+    harness.context.window.__projectStewardSyncCollapseButton();
+    assert.equal(collapseButton.disabled, true, 'late Projects mount must preserve AI state');
+    assert.equal(collapseButton.getAttribute('aria-disabled'), 'true');
+    assert.equal(collapseButton.getAttribute('title'), 'No groups to collapse in AI');
+
+    collapseButton.disabled = false;
+    harness.context.window.__projectStewardSyncCollapseButton('todo');
+    assert.equal(collapseButton.disabled, true, 'late TODO update must use the active AI tab');
+    assert.equal(collapseButton.getAttribute('aria-disabled'), 'true');
+    assert.equal(collapseButton.getAttribute('title'), 'No groups to collapse in AI');
+
+    harness.context.window.__projectStewardDashboard = null;
+    collapseButton.disabled = false;
+    harness.context.window.__projectStewardSyncCollapseButton();
+    assert.equal(collapseButton.disabled, true, 'initial mount must read the selected AI tab element');
+    assert.equal(collapseButton.getAttribute('title'), 'No groups to collapse in AI');
+});
+
+test('WEBVIEW-AI-DASHBOARD-001 preserves AI Collapse state after actual late Projects and TODO responses and updates', () => {
+    const collapseButton = createElement();
+    const projectVm = createProjectVm({
+        querySelector: selector => selector === '[data-action="toggle-all-groups"]'
+            ? collapseButton
+            : null,
+        querySelectorAll: selector => selector === '#dashboard-tab-open .open-other-windows-group[data-group-id]'
+            || selector === '#dashboard-tab-projects .group[data-group-id]'
+            || selector === '#dashboard-tab-todo .todo-group[data-todo-group-id]'
+            ? [{ classList: createClassList() }]
+            : [],
+    });
+    const syncCollapse = () => projectVm.context.window.__projectStewardSyncCollapseButton();
+    const dashboard = createDashboardHarness({
+        initialTab: 'projects',
+        onProjectsMounted: syncCollapse,
+        onTodoMounted: syncCollapse,
+    });
+    projectVm.context.window.__projectStewardDashboard = dashboard.controller;
+
+    dashboard.controller.activateTab('ai');
+    collapseButton.disabled = false;
+    assert.equal(dashboard.controller.applyProjectsPanelMessage({
+        type: 'projects-panel-content',
+        version: 1,
+        requestId: 1,
+        html: '<div>late projects</div>',
+    }), true);
+    assert.equal(collapseButton.disabled, true);
+    assert.equal(collapseButton.getAttribute('title'), 'No groups to collapse in AI');
+
+    collapseButton.disabled = false;
+    assert.equal(dashboard.controller.applyProjectsPanelUpdatedMessage({
+        type: 'projects-panel-updated',
+        version: 1,
+        sequence: 1,
+        mode: 'replace',
+        html: '<div>late projects update</div>',
+        searchCatalog: makeCatalog('late-projects'),
+        groupOrders: [],
+        favoriteProjectIds: [],
+    }), true);
+    assert.equal(collapseButton.disabled, true);
+    assert.equal(collapseButton.getAttribute('title'), 'No groups to collapse in AI');
+
+    dashboard.controller.activateTab('todo');
+    dashboard.controller.activateTab('ai');
+    collapseButton.disabled = false;
+    assert.equal(dashboard.controller.applyTodoPanelMessage({
+        type: 'todo-panel-content',
+        version: 1,
+        requestId: 1,
+        html: '<div>late todos</div>',
+        searchCatalog: makeCatalog('late-todos'),
+    }), true);
+    assert.equal(collapseButton.disabled, true);
+    assert.equal(collapseButton.getAttribute('title'), 'No groups to collapse in AI');
+
+    collapseButton.disabled = false;
+    assert.equal(dashboard.controller.applyTodoPanelUpdatedMessage({
+        type: 'todo-panel-updated',
+        version: 1,
+        html: '<div>late todo update</div>',
+        searchCatalog: makeCatalog('late-todo-update'),
+    }), true);
+    assert.equal(collapseButton.disabled, true);
+    assert.equal(collapseButton.getAttribute('title'), 'No groups to collapse in AI');
 });
 
 test('WEBVIEW-BATCH-AI-SESSION-WEBVIEW-001 rejects stale AI session update sequences', () => {

@@ -36,6 +36,11 @@ export function createStewardConfiguration(
                 return (key: string, defaultValue?: unknown) => getStewardConfigValue(key, defaultValue);
             }
 
+            if (property === 'has' || property === 'inspect' || property === 'update') {
+                const method = primaryConfig[property];
+                return method.bind(primaryConfig);
+            }
+
             if (typeof property === 'string'
                 && (primaryConfig.inspect(property) || legacyConfig.inspect(property))) {
                 return getStewardConfigValue(property);

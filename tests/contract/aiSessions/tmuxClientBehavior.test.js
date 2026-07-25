@@ -26,6 +26,30 @@ function encodedMetadata(value) {
     return `psb64v1.${payload}.${checksum}`;
 }
 
+function metadataSequenceResult(args, getValue) {
+    const stdout = [];
+    for (let start = 0; start < args.length;) {
+        const separator = args.indexOf(';', start);
+        const end = separator < 0 ? args.length : separator;
+        const command = args.slice(start, end);
+        if (command[0] === 'show-options') {
+            const option = command.at(-1);
+            const key = Object.keys(TMUX_METADATA_OPTIONS)
+                .find(name => TMUX_METADATA_OPTIONS[name] === option);
+            const value = key && getValue(key);
+            if (value !== undefined) {
+                stdout.push(value);
+            }
+        } else if (command[0] === 'display-message') {
+            stdout.push(command.at(-1));
+        } else {
+            throw new Error(`Unexpected tmux metadata command: ${command[0]}`);
+        }
+        start = end + 1;
+    }
+    return { exitCode: 0, stdout: stdout.length ? `${stdout.join('\n')}\n` : '', stderr: '' };
+}
+
 test('RUNTIME-TMUX-CLIENT-001 caches availability and sends exact argv without shell interpolation', async () => {
     const calls = [];
     const runner = {
@@ -242,16 +266,19 @@ test('RUNTIME-TMUX-CLIENT-001 reads and writes metadata options and maps runner 
             }
             if (args[0] === 'show-options') {
                 const target = args[args.indexOf('-t') + 1];
-                const option = args.at(-1);
-                const key = Object.keys(TMUX_METADATA_OPTIONS).find(name => TMUX_METADATA_OPTIONS[name] === option);
-                const value = values[`${target}|${key}`];
-                return { exitCode: 0, stdout: value === undefined ? '' : `${value}\n`, stderr: '' };
+                return metadataSequenceResult(args, key => {
+                    const value = values[`${target}|${key}`];
+                    return value === undefined ? undefined : encodedMetadata(value);
+                });
             }
             return { exitCode: 0, stdout: '', stderr: '' };
         },
     };
     const client = new TmuxClient('tmux', runner);
     const windows = await client.listWindows();
+    assert.equal(calls.filter(call => call.args[0] === 'show-options').length, 3);
+    assert.ok(calls.filter(call => call.args[0] === 'show-options')
+        .every(call => call.args.includes(';')));
     assert.deepEqual(calls.find(call => call.args[0] === 'list-panes').args, [
         'list-panes', '-a', '-F',
         '#{window_id}|:ps-field:|#{pane_id}|:ps-field:|#{pane_active}|:ps-field:|#{pane_pid}',
@@ -274,11 +301,6 @@ test('RUNTIME-TMUX-CLIENT-001 reads and writes metadata options and maps runner 
             marker: '/tmp/done-13 marker', workspaceScopeIdentity: 'scope-identity',
         },
     ]);
-    for (const windowId of ['@12', '@13']) {
-        assert.ok(calls.some(call => JSON.stringify(call.args) === JSON.stringify([
-            'show-options', '-qvw', '-t', windowId, '@project-steward-provider',
-        ])));
-    }
     assert.deepEqual(await client.getSessionOptions('session-a'), {
         managed: '1',
         version: '2',
@@ -361,6 +383,9 @@ test('RUNTIME-TMUX-CLIENT-001 fails closed on missing, ambiguous, or malformed a
                 };
             }
             if (args[0] === 'list-panes') return paneResult;
+            if (args[0] === 'show-options') {
+                return metadataSequenceResult(args, () => undefined);
+            }
             return { exitCode: 0, stdout: '', stderr: '' };
         },
     });
@@ -404,31 +429,34 @@ test('RUNTIME-TMUX-CLIENT-001 preserves metadata that tmux 3.4 would escape', as
     };
     const calls = [];
     let corruptTransport = false;
+    let legacyTransport = false;
     const client = new TmuxClient('/private/tmux', {
         run: async (_file, args) => {
             calls.push(args);
             const available = availabilityResult(args);
             if (available) return available;
             if (args[0] === 'show-options') {
-                const option = args.at(-1);
-                const key = Object.keys(TMUX_METADATA_OPTIONS)
-                    .find(name => TMUX_METADATA_OPTIONS[name] === option);
-                const value = key && raw[key];
-                return {
-                    exitCode: 0,
-                    stdout: value === undefined
-                        ? ''
-                        : `${corruptTransport && key === 'cwd'
+                return metadataSequenceResult(args, key => {
+                    const value = raw[key];
+                    return value === undefined
+                        ? undefined
+                        : legacyTransport && key === 'managed'
+                            ? value
+                            : corruptTransport && key === 'cwd'
                             ? 'psb64v1.invalid.deadbeefdeadbeef'
-                            : encodedMetadata(value)}\n`,
-                    stderr: '',
-                };
+                            : encodedMetadata(value);
+                });
             }
             return { exitCode: 0, stdout: '', stderr: '' };
         },
     });
 
     assert.deepEqual(await client.getSessionOptions('session-a'), raw);
+    legacyTransport = true;
+    const callsBeforeLegacyRead = calls.length;
+    assert.deepEqual(await client.getSessionOptions('session-a'), raw);
+    assert.equal(calls.length - callsBeforeLegacyRead, 1);
+    legacyTransport = false;
     await client.setWindowOptions('session-a', 'window-a', raw);
     const writes = calls.filter(args => args[0] === 'set-option');
     assert.deepEqual(writes, [

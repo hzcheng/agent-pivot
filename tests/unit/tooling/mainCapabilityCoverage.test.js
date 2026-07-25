@@ -188,6 +188,17 @@ test('ARCH-MAIN-CAPABILITY-CURRENCY-001 permits documentation-only commits after
     assert.deepEqual(validateMainCapabilityCoverage(fixture.manifest, fixture), []);
 });
 
+test('ARCH-MAIN-CAPABILITY-CURRENCY-001 treats the repository README as documentation', t => {
+    const fixture = validFixture(t);
+    fixture.unauditedCommits.push({
+        hash: 'd'.repeat(40),
+        subject: 'docs: explain user-facing behavior',
+        files: ['README.md', 'docs/testing/main-capability-coverage.json'],
+    });
+
+    assert.deepEqual(validateMainCapabilityCoverage(fixture.manifest, fixture), []);
+});
+
 test('ARCH-MAIN-CAPABILITY-CURRENCY-001 rejects implementation commits after the audit head', t => {
     const fixture = validFixture(t);
     const hash = 'd'.repeat(40);

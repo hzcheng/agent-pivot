@@ -2,7 +2,7 @@
     "name": "project-steward",
     "displayName": "Project Steward",
     "description": "Manage each local, SSH, WSL, or Dev Container workspace as one live card with workspace-scoped AI sessions.",
-    "version": "2.1.6",
+    "version": "2.1.7",
     "publisher": "hzcheng",
     "license": "MIT",
     "icon": "media/extension_icon.png",
@@ -69,6 +69,10 @@
             {
                 "command": "projectSteward.addFileToActiveTerminal",
                 "title": "Project Steward: Add File to Active Terminal"
+            },
+            {
+                "command": "projectSteward.insertPromptToActiveTerminal",
+                "title": "Project Steward: Insert Prompt into Active Terminal"
             }
         ],
         "keybindings": [
@@ -105,6 +109,38 @@
                     ],
                     "markdownDescription": "Stores the global Project Steward TODO list if the ```projectSteward.storeProjectsInSettings``` option is set to ```true```.",
                     "default": null
+                },
+                "projectSteward.promptData": {
+                    "type": "object",
+                    "scope": "application",
+                    "markdownDescription": "Legacy Prompt library storage. Project Steward migrates this value into synchronized extension state. Do not store credentials or other secrets in Prompts.",
+                    "deprecationMessage": "Prompt data is now stored in synchronized Project Steward extension state. This setting is retained only for migration.",
+                    "default": {
+                        "version": 1,
+                        "revision": 0,
+                        "selectedPromptId": null,
+                        "prompts": []
+                    },
+                    "additionalProperties": false,
+                    "required": ["version", "revision", "selectedPromptId", "prompts"],
+                    "properties": {
+                        "version": { "type": "number", "enum": [1] },
+                        "revision": { "type": "number", "minimum": 0 },
+                        "selectedPromptId": { "type": ["string", "null"] },
+                        "prompts": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "required": ["id", "name", "text"],
+                                "properties": {
+                                    "id": { "type": "string", "minLength": 1 },
+                                    "name": { "type": "string", "minLength": 1 },
+                                    "text": { "type": "string", "minLength": 1 }
+                                }
+                            }
+                        }
+                    }
                 },
                 "projectSteward.searchIsActiveByDefault": {
                     "type": "boolean",

@@ -76,11 +76,15 @@ async function runTodoPanelContract(transform) {
         if (request === 'vscode') return vscode;
         return previousLoad.call(this, request, parent, isMain);
     };
-    const state = () => ({ get: (_key, fallback) => fallback, update: async () => undefined });
+    const state = (synchronized = false) => ({
+        get: (_key, fallback) => fallback,
+        update: async () => undefined,
+        ...(synchronized ? { setKeysForSync: () => undefined } : {}),
+    });
     const uri = value => ({ scheme: 'file', fsPath: value, path: value, toString: () => value });
     const context = {
         globalStoragePath: storageRoot, globalStorageUri: uri(storageRoot), extensionPath: root, extensionUri: uri(root),
-        subscriptions: [], globalState: state(), workspaceState: state(),
+        subscriptions: [], globalState: state(true), workspaceState: state(),
         extension: { packageJSON: { version: '2.1.3' } }, extensionMode: 3,
     };
     let armed = false;

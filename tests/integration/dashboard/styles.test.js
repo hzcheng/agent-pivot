@@ -338,6 +338,19 @@ test('WEBVIEW-STYLES-ARTIFACT-001 committed CSS exactly matches compiled and min
     assert.throws(() => assertStyleArtifact(mutatedScss, generatedStyles), /WEBVIEW-STYLES-ARTIFACT-001/);
 });
 
+test('WEBVIEW-AI-PROMPT-STYLES-001 exposes every Prompt styling boundary', () => {
+    for (const selector of [
+        '.ai-subtabs',
+        '.prompt-command-bar',
+        '.prompt-list',
+        '.prompt-item',
+        '.prompt-form',
+        '.prompt-live-region',
+    ]) {
+        assert.doesNotThrow(() => extractBlock(styles, selector));
+    }
+});
+
 test('WEBVIEW-REDUCED-MOTION-001 disables dashboard and session animation for reduced motion', () => {
     validateReducedMotion(styles);
     assert.throws(() => validateReducedMotion(styles.replace(

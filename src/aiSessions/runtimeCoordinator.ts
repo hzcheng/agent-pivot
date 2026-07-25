@@ -138,6 +138,16 @@ export class AiSessionRuntimeCoordinator<TTerminal = vscode.Terminal> {
     }
 
     async getPendingForPromotion(): Promise<AiSessionPendingPromotionCandidate<TTerminal>[]> {
+        const cachedPending = [
+            ...this.dependencies.direct.getPending(),
+            ...this.dependencies.tmux.getPending(),
+        ];
+        const initialDurableTmux = typeof this.dependencies.tmux.listRecoverablePending === 'function'
+            ? await this.dependencies.tmux.listRecoverablePending()
+            : [];
+        if (!cachedPending.length && !initialDurableTmux.length) {
+            return [];
+        }
         const refresh = await this.refreshBackends(true);
         this.throwRefreshFailure(refresh);
         const durableTmux = typeof this.dependencies.tmux.listRecoverablePending === 'function'

@@ -39,6 +39,7 @@ function assertOpenCommandRegistration(transform = source => source) {
             open: noop, addProject: noop, saveProject: noop, removeProject: noop,
             editProjects: noop, addGroup: noop, removeGroup: noop,
             addProjectsFromFolder: noop, addFileToActiveTerminal: noop,
+            insertPromptToActiveTerminal: noop,
         },
     }).register();
     assert.ok(commands.includes('projectSteward.open'),

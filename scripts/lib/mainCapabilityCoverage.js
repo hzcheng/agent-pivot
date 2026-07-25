@@ -12,7 +12,8 @@ function loadMainCapabilityCoverage(filePath) {
 }
 
 function isDocumentationPath(filePath) {
-    return filePath === 'docs'
+    return filePath === 'README.md'
+        || filePath === 'docs'
         || filePath.startsWith('docs/')
         || filePath === '.superpowers'
         || filePath.startsWith('.superpowers/');

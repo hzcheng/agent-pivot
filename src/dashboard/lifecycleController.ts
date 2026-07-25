@@ -41,9 +41,11 @@ export interface DashboardLifecycleControllerOptions {
     consumeProjectCatalogWriteEcho?: (
         change: { syncData: boolean; legacyGroups: boolean }
     ) => boolean;
+    consumePromptDataWriteEcho?: () => boolean;
     applyProjectColorToCurrentWindow: () => void;
     refresh: (reason: string) => void;
     refreshProjects?: (reason: string) => void;
+    refreshPrompts?: (reason: string) => void;
     publishOpenWorkspace: (followsFocusEvent?: boolean) => void;
     evaluateAiSessionAttention: () => unknown;
 }
@@ -64,6 +66,9 @@ export class DashboardLifecycleController {
             || projectCatalogChange.legacyGroups;
         const localProjectCatalogWriteEcho = projectCatalogChanged
             && this.options.consumeProjectCatalogWriteEcho?.(projectCatalogChange) === true;
+        const promptDataChanged = event.affectsConfiguration('projectSteward.promptData');
+        const localPromptDataWriteEcho = promptDataChanged
+            && this.options.consumePromptDataWriteEcho?.() === true;
         const nonTodoDashboardConfigurationChanged = event.affectsConfiguration('dashboard')
             || NON_TODO_DASHBOARD_CONFIGURATION_SECTIONS.some(
                 section => event.affectsConfiguration(section)
@@ -78,23 +83,23 @@ export class DashboardLifecycleController {
             await this.options.reconcileProjectCatalog?.();
         }
 
-        if (event.affectsConfiguration('projectSteward')
-            || event.affectsConfiguration('dashboard')) {
-            if ((todoDataChanged || projectCatalogChanged)
-                && !nonTodoDashboardConfigurationChanged
-                && (!todoDataChanged || localTodoDataWriteEcho)
-                && (!projectCatalogChanged || localProjectCatalogWriteEcho)) {
-                return;
-            }
-            if (projectCatalogChanged
-                && !localProjectCatalogWriteEcho
-                && !nonTodoDashboardConfigurationChanged
-                && (!todoDataChanged || localTodoDataWriteEcho)) {
+        const trackedDataChanged = todoDataChanged || projectCatalogChanged || promptDataChanged;
+        const fullDashboardRefreshRequired = nonTodoDashboardConfigurationChanged
+            || (todoDataChanged && !localTodoDataWriteEcho);
+        if (trackedDataChanged && !fullDashboardRefreshRequired) {
+            if (projectCatalogChanged && !localProjectCatalogWriteEcho) {
                 this.options.refreshProjects?.('configuration-changed');
                 this.options.applyProjectColorToCurrentWindow();
                 this.options.publishOpenWorkspace();
-                return;
             }
+            if (promptDataChanged && !localPromptDataWriteEcho) {
+                this.options.refreshPrompts?.('configuration-changed');
+            }
+            return;
+        }
+
+        if (event.affectsConfiguration('projectSteward')
+            || event.affectsConfiguration('dashboard')) {
             this.options.applyProjectColorToCurrentWindow();
             this.options.refresh('configuration-changed');
             this.options.publishOpenWorkspace();

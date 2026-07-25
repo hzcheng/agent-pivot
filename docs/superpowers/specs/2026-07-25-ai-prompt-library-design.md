@@ -228,9 +228,10 @@ The modules own:
 - result announcements and error display;
 - Coming Soon panels.
 
-The host remains authoritative for persistence. The Webview may optimistically
-retain local focus and drafts, but it does not treat DOM order or form state as
-persisted until the host acknowledges the mutation.
+The host remains authoritative for persistence. The Webview may retain local
+focus and drafts while a request is pending, but it does not treat DOM order or
+form state as persisted until the correlated authoritative replacement is
+applied.
 
 ## Message Contract
 
@@ -240,9 +241,10 @@ Prompt mutations use a versioned envelope:
 interface PromptCommandMessage {
     type: 'prompt-command';
     version: 1;
-    requestId: number;
+    requestId: string;
+    target: 'global-prompt-library';
     expectedRevision: number;
-    action: 'create' | 'update' | 'delete' | 'reorder' | 'select-default';
+    operation: 'create' | 'update' | 'delete' | 'reorder' | 'select-default';
     payload: unknown;
 }
 ```
@@ -253,18 +255,39 @@ The host responds with:
 interface PromptCommandResultMessage {
     type: 'prompt-command-result';
     version: 1;
-    requestId: number;
+    requestId: string;
+    target: 'global-prompt-library';
+    operation: PromptCommandMessage['operation'];
     success: boolean;
     snapshot: PromptPanelSnapshot;
+    html: string;
     errorCode?: 'invalid' | 'not-found' | 'conflict' | 'storage'
         | 'unsupported-version' | 'cancelled';
 }
 ```
 
 `PromptPanelSnapshot` contains only normalized Prompt fields required by the
-page plus a read-only reason when applicable. Invalid message envelopes are
-ignored without mutation. Every recognized request produces at most one result
-message.
+page plus a read-only reason when applicable. `html` is the Host-rendered
+authoritative Prompt surface for that snapshot.
+
+The Webview generates a fresh opaque `requestId` for every intent and keys
+pending state by the full `version + requestId + target + operation`
+correlation identity. It disables only the affected controls and announces
+pending without changing the persisted list, default, or order optimistically.
+Every request with a recognizable V1 correlation envelope produces exactly one
+success or failure result, including validation, confirmation cancellation,
+revision conflict, persistence failure, and render failure. Messages without a
+recognizable correlation envelope are ignored without mutation.
+
+On success, the Webview first validates the matching result, captures local
+semantic focus, editor draft, and Prompt-list scroll, replaces the Prompt
+surface with `html`, and only then clears the matching pending state. On
+failure, it applies the returned authoritative HTML before clearing only the
+matching pending request and restoring any applicable local draft and semantic
+focus. Stale, duplicate, wrong-target, and out-of-order results do not clear
+current pending state or replace the current authoritative surface. Popup,
+focus, draft, and scroll state remain Webview-local and are never sent to the
+Host.
 
 ## Error Handling
 
@@ -277,14 +300,15 @@ message.
   expose the invalid selection in Dashboard diagnostics.
 - Unsupported data version: keep Prompt management read-only and insert
   nothing.
-- Invalid create or edit fields: retain the inline draft and show field-level
-  feedback.
+- Invalid create or edit fields: apply the returned authoritative surface,
+  retain the inline draft locally, and show field-level feedback.
 - Missing mutation target: return the current snapshot and announce that the
   Prompt changed elsewhere.
 - Stale revision: reject the write, refresh authoritative list state, retain
   the draft, and require reopening before save.
-- Settings write failure: retain the draft and previous authoritative
-  snapshot; do not announce success.
+- Settings write or Host render failure: settle the matching request as failed,
+  retain the draft, refresh from the actually observed authoritative setting,
+  and do not announce success.
 - Terminal input failure: warn once and do not select another terminal.
 
 Diagnostics must not log complete Prompt bodies because they can contain
@@ -345,8 +369,13 @@ names are sufficient.
 - Mouse and keyboard navigation select the AI top-level tab and all four AI
   subtabs with correct ARIA relationships.
 - Prompt create, edit, delete confirmation, reorder, and default-toggle
-  messages use the V1 contract.
-- Acknowledged snapshots update only the Prompt surface.
+  messages use fresh correlated V1 envelopes.
+- Correlated results replace only the Prompt surface with Host-rendered
+  authoritative HTML before clearing pending state.
+- Malformed, stale, duplicate, wrong-target, and out-of-order results preserve
+  the current authoritative surface and unrelated pending requests.
+- Authoritative replacement preserves Webview-local draft, semantic focus, and
+  list scroll where the matching element still exists.
 - Conflict and storage failures retain drafts without false success.
 - Prompt dragging posts an exact ID permutation.
 - Empty, populated, read-only, narrow-width, and theme-variable states render

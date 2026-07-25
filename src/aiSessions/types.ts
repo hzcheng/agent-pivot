@@ -86,12 +86,21 @@ export interface AiSessionDisposable {
     dispose(): void;
 }
 
+export interface AiSessionConversationSourceCandidate {
+    providerHome: string;
+    sourcePath: string;
+}
+
 export interface AiSessionService {
     getSessions(options?: boolean | AiSessionQueryOptions): AiSessionReadResult;
     getLifecycleSignals(requests: readonly AiSessionLifecycleRequest[]): Record<string, AiSessionLifecycleSignal>;
     watchSessionChanges(onDidChange: () => void): AiSessionDisposable;
     archiveSession(sessionId: string): boolean;
     invalidateCache(): void;
+    resolveConversationSource?(
+        sessionId: string,
+        candidatePaths?: readonly string[]
+    ): AiSessionConversationSourceCandidate | null;
 }
 
 export interface AiSessionProviderDefinition {

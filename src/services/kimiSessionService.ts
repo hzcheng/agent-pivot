@@ -8,7 +8,7 @@ import * as path from 'path';
 import { CodexSession } from '../models';
 import { aiSessionPathContains, filterAiSessionsByCandidatePaths, normalizeAiSessionCandidatePaths } from '../aiSessions/sessionHelpers';
 import IncrementalJsonlLifecycleReader from '../aiSessions/incrementalJsonlLifecycleReader';
-import type { AiSessionQueryOptions } from '../aiSessions/types';
+import type { AiSessionConversationSourceCandidate, AiSessionQueryOptions } from '../aiSessions/types';
 import { createKimiLifecycleAccumulator, AiSessionLifecycleRequest, AiSessionLifecycleSignal } from '../aiSessions/lifecycle';
 import { Disposable } from './codexSessionService';
 
@@ -50,6 +50,15 @@ export default class KimiSessionService {
     private readonly lifecycleReader = new IncrementalJsonlLifecycleReader();
     private readonly cacheTtlMs = 5000;
     private readonly changePollIntervalMs = 3000;
+
+    resolveConversationSource(sessionId: string): AiSessionConversationSourceCandidate | null {
+        const kimiHome = this.getKimiHome();
+        const sessionDir = kimiHome && this.findSessionDir(kimiHome, sessionId);
+        const sourcePath = sessionDir && path.join(sessionDir, 'wire.jsonl');
+        return sourcePath && fs.existsSync(sourcePath)
+            ? { providerHome: kimiHome, sourcePath }
+            : null;
+    }
 
     getSessions(options: boolean | AiSessionQueryOptions = false): KimiSessionReadResult {
         let { forceRefresh, candidatePaths, maxFiles } = this.getQueryOptions(options);

@@ -7,7 +7,7 @@ import * as path from 'path';
 import { CodexSession } from '../models';
 import IncrementalJsonlLifecycleReader from '../aiSessions/incrementalJsonlLifecycleReader';
 import { filterAiSessionsByCandidatePaths, normalizeAiSessionCandidatePaths } from '../aiSessions/sessionHelpers';
-import type { AiSessionQueryOptions } from '../aiSessions/types';
+import type { AiSessionConversationSourceCandidate, AiSessionQueryOptions } from '../aiSessions/types';
 import { createCodexLifecycleAccumulator, AiSessionLifecycleRequest, AiSessionLifecycleSignal } from '../aiSessions/lifecycle';
 
 interface CodexSessionIndexEntry {
@@ -44,6 +44,12 @@ export default class CodexSessionService {
     private readonly lifecycleReader = new IncrementalJsonlLifecycleReader();
     private readonly cacheTtlMs = 5000;
     private readonly changePollIntervalMs = 3000;
+
+    resolveConversationSource(sessionId: string): AiSessionConversationSourceCandidate | null {
+        const codexHome = this.getCodexHome();
+        const sourcePath = codexHome && this.getSessionFiles(codexHome).get(sessionId);
+        return sourcePath ? { providerHome: codexHome, sourcePath } : null;
+    }
 
     getSessions(options: boolean | AiSessionQueryOptions = false): CodexSessionReadResult {
         let { forceRefresh, candidatePaths, maxFiles } = this.getQueryOptions(options);

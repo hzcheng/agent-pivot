@@ -293,10 +293,12 @@ function runDashboardUpdateMessageChecks() {
         sequence: 7,
         generatedAt: '2026-07-17T00:00:00.000Z',
         todoSearchItems,
+        runningCardAnimation: 'sharingan-itachi',
         runningIconAnimation: 'sharingan-itachi',
     });
     const workspaceMessage = dashboardUpdateMessages.buildWorkspaceUpdatedMessage({
         card: workspaceCard,
+        runningCardAnimation: 'sharingan-madara',
         runningIconAnimation: 'sharingan-sasuke',
     });
     const navigationCard = {
@@ -317,6 +319,7 @@ function runDashboardUpdateMessageChecks() {
         semanticRevision: 'b'.repeat(64),
         otherWindowsStatus: 'ready',
         todoSearchItems,
+        runningCardAnimation: 'sharingan-madara-eternal',
         runningIconAnimation: 'sharingan-obito-kakashi',
     });
     const workspaceSearchCatalog = buildWorkspaceDashboardSearchCatalog([], [workspaceCard], todoSearchItems);
@@ -330,6 +333,8 @@ function runDashboardUpdateMessageChecks() {
     assert.ok(aiMessage.html.includes('data-current-workspace'));
     assert.ok(aiMessage.html.includes('data-session-icon-fx="sharingan-itachi"'),
         'AI session incremental updates must use the configured running icon animation');
+    assert.ok(aiMessage.html.includes('data-session-fx="sharingan-itachi"'),
+        'AI session incremental updates must preserve the independent running card animation');
     assert.strictEqual(workspaceMessage.type, 'workspace-updated');
     assert.strictEqual(workspaceMessage.version, 2);
     assert.strictEqual(workspaceSearchCatalog.version, 2);
@@ -340,6 +345,8 @@ function runDashboardUpdateMessageChecks() {
     assert.ok(workspaceMessage.html.includes('data-workspace-scope-identity="scope-dashboard"'));
     assert.ok(workspaceMessage.html.includes('data-session-icon-fx="sharingan-sasuke"'),
         'workspace incremental updates must use the configured running icon animation');
+    assert.ok(workspaceMessage.html.includes('data-session-fx="sharingan-madara"'),
+        'workspace incremental updates must preserve the independent running card animation');
     const emptyWorkspaceMessage = dashboardUpdateMessages.buildWorkspaceUpdatedMessage({ card: null });
     assert.strictEqual(emptyWorkspaceMessage.currentWorkspaceCount, 0);
     assert.strictEqual(emptyWorkspaceMessage.html.includes('class="workspace-card'), false);
@@ -356,6 +363,8 @@ function runDashboardUpdateMessageChecks() {
     assert.ok(openWorkspacesMessage.html.includes('OTHER WINDOWS'));
     assert.ok(openWorkspacesMessage.html.includes('data-session-icon-fx="sharingan-obito-kakashi"'),
         'open-workspace incremental updates must use the configured running icon animation');
+    assert.ok(openWorkspacesMessage.html.includes('data-session-fx="sharingan-madara-eternal"'),
+        'open-workspace incremental updates must preserve the independent running card animation');
 }
 
 function makeWorkspaceCardFixture(rootCount) {

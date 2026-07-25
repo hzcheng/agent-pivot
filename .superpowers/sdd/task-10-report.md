@@ -3,108 +3,161 @@
 ## Status and commits
 
 Complete on branch `docs/active-session-conversation-outline-design`, based on
-`10824ae`. The production implementation and tests were committed as:
+`10824ae`. The implementation history is:
 
 ```text
 82a61b4 feat: wire Active Session conversation history
+ee7663a docs: report production conversation composition
+5740729 fix: harden conversation production lifecycle
 ```
 
 Nothing was pushed, merged, or cleaned up.
 
 ## Outcome
 
-- Added `createConversationCapability(options)` as the extension-host
-  composition boundary for one Codex app-server client, one adapter per
-  provider, one coordinator, one reusable viewer, and one Host controller.
+- Added `createConversationCapability(options)` as the extension-host boundary
+  for one lazy Codex app-server client, one adapter per provider, one
+  coordinator, one reusable viewer, and one Host controller.
+- Kept the documented TypeScript surface to one public one-argument overload.
+  The implementation retains a second JavaScript argument only as the
+  integration-test constructor seam.
 - Bound the viewer directly to the coordinator's authoritative
-  `readOutline`, `readPage`, and `watch` operations. Codex content uses only
-  the private app-server stdio client; Kimi and Claude continue to resolve
-  sources through their existing provider services.
-- Added a narrow optional second factory argument for integration tests. The
-  documented one-argument production overload and `ConversationCapabilityOptions`
-  surface remain unchanged.
-- Kept partial construction failure inside the composition factory. It
-  releases already-created resources, reports exactly one sanitized
-  `conversation-read/unavailable` diagnostic, and returns an idempotent
-  unavailable capability that publishes only the public unavailable error.
-- Wired the three exact ordinary Dashboard router keys for outline, open, and
-  cancel messages. No provider-specialized router field or parallel route was
-  added.
-- Resolved authority through the exact current workspace card and exact
-  provider/session active row. The Host continues to require focus for
-  sidebar outline reads and projects stopped lifecycle state through the
-  coordinator.
-- Reconciled conversation state after authoritative AI-session refresh and
-  active-terminal focus changes.
-- Released sidebar-owned subscriptions when the sidebar hides or its Webview
-  is disposed, while leaving the independent conversation viewer alive.
-- Registered viewer/capability lifecycle ownership with extension
-  subscriptions. Capability disposal is idempotent and transitively closes
-  coordinator, adapters, and the lazy Codex child.
-- Preserved older test/activation Webview doubles by feature-detecting
-  `onDidDispose`; real VS Code Webview views register the disposal callback.
-- Added a composed Kimi flow that requests an outline through the public
-  message path, opens one selected interaction in one `AI Conversation`
-  panel, closes it, and proves private prompt text never reaches diagnostics.
+  `readOutline`, `readPage`, and `watch` operations. Codex remains
+  app-server-only; no transcript fallback was added.
+- Added a unified capability reconcile used by both existing Dashboard
+  lifecycle hooks. The Host now rereads and republishes current outline state
+  with generation-safe suppression after lifecycle changes.
+- Kept the viewer independent of sidebar visibility. When its exact
+  current-workspace active authority disappears, it aborts the read, releases
+  the watch, retains a stale snapshot, and prohibits new source reads. When
+  authority returns, it establishes a fresh watch and authoritative read.
+  Reconcile after panel closure is an idempotent no-op.
+- Restored panel-close focus by first revealing Project Steward and then
+  publishing one exact version-1 origin message. The Webview rejects malformed
+  or wrong-project messages and restores ACTIVE before focusing the exact
+  expanded marker, the same-row header, or the ACTIVE tab fallback. It never
+  focuses another session.
+- Derived trimmed conversation display names and deterministic normalized
+  same-provider duplicate metadata from only the current workspace's active
+  sessions. The existing viewer appends the first eight session-ID characters
+  only for duplicates.
+- Passed current workspace `workspace.roots[].hostPath` dynamically only to
+  Claude source resolution. Duplicate Claude UUIDs follow workspace root
+  changes and fail unavailable outside the current roots. Kimi and Codex source
+  contracts are unchanged.
+- Made construction ownership immediate and explicit. Successful resources
+  transfer to their aggregate owner only after that owner is created, so
+  Kimi, Claude, coordinator, viewer, and controller constructor failures
+  release all earlier resources exactly once and produce one sanitized
+  unavailable diagnostic.
+- Kept the three exact ordinary Dashboard router keys and added structural AST
+  guards for their production call targets, the single public factory
+  overload, current-root/metadata wiring, and the structured Codex app-server
+  spawn.
+- Strengthened the composed Kimi flow to copy the committed
+  `tests/fixtures/conversations/kimi/wire.jsonl` fixture and assert visible
+  panel content, selected interaction, read-only HTML, source-call arity, and
+  absence of fixture secrets, paths, and diagnostic leaks.
 
 ## TDD evidence
 
-### RED
+### Initial production composition RED
 
-Tests and safety contracts were added before production composition:
+The original Task 10 tests and safety contracts were written before the
+production composition existed:
 
 ```text
-npm run test-compile
-  exit 0
-
 node --test tests/integration/dashboard/conversationRouting.test.js
-  exit 1: Cannot find module '../../../out/aiSessions/conversation/composition'
+  exit 1: composition module missing
 
 node --test tests/integration/dashboard/errorRecovery.test.js
-  exit 1: Cannot find module '../../../out/aiSessions/conversation/composition'
+  exit 1: composition module missing
 
 node scripts/run-ai-session-safety-checks.js
-  exit 1: composition.ts did not exist
+  exit 1: production composition missing
 ```
 
-The first full deterministic run after implementation exposed five activation
-harness failures because older Webview test doubles did not implement
-`onDidDispose`. The production provider was then made compatible with those
-doubles while retaining disposal registration for real VS Code views. The
-focused activation regression tests and a fresh full deterministic run passed.
+The first implementation was committed in `82a61b4`.
+
+### Review-fix RED
+
+The five Important and two Minor review findings were converted to focused
+tests before follow-up production changes:
+
+```text
+Host lifecycle reconcile                  0/2
+Viewer authority suspend/resume           0/2
+Composition focus restoration             0/2
+Browser focus restoration                 0/2
+Constructor-boundary ownership            0/5
+```
+
+Additional focused failures proved:
+
+- the production capability had no unified `reconcile`;
+- display metadata and the metadata helper were absent;
+- duplicate Claude UUID resolution did not follow current workspace roots;
+- the TypeScript AST exposed two public overload declarations plus the
+  implementation;
+- production panel close never executed the focus command or published the
+  correlated origin message.
+
+The committed Kimi fixture flow already passed when strengthened, confirming
+the real Kimi adapter path while the other production gaps remained RED.
+
+The scoped follow-up reviewer then found one additional focus race: an expanded
+ACTIVE row can remain in the DOM after the user selects SESSIONS. The new
+browser scenario actually selected SESSIONS and observed:
+
+```text
+ACTIVE-SESSION-CONVERSATION-FOCUS-001      0/1
+actual ACTIVE aria-selected: false
+expected ACTIVE aria-selected: true
+```
+
+Production now restores and persists ACTIVE before focusing the exact marker
+or header and verifies the actual focused element.
 
 ### GREEN
 
-The final focused gate passed:
+The focused follow-up groups passed:
 
 ```text
-npm run test-compile
-node --test tests/integration/dashboard/conversationRouting.test.js
-node --test tests/integration/dashboard/errorRecovery.test.js
-node scripts/run-ai-session-safety-checks.js
-git diff --check
+Host lifecycle reconcile                  2/2
+Viewer authority                          4/4
+Production routing/lifecycle/display/
+Claude roots/focus/Kimi                    6/6
+Constructor recovery                      passed
+Browser focus restoration                 2/2
+AI session safety checks                  passed
 ```
 
-Observed results:
+The complete related files also passed:
 
 ```text
-conversationRouting.test.js: 6/6 passed
-errorRecovery.test.js: 14/14 passed
-AI session safety checks passed.
+conversationCoordinator.test.js           37/37
+conversationRouting/viewer/errorRecovery  50/50
+activeSessionConversationOutline.test.js  16/16
 ```
 
-The broader regression gates also passed:
+## Final verification
+
+Fresh verification after the final review fix:
 
 ```text
-npm run test:deterministic       189/189 integration tests passed
-npm run test:browser:run         59/59 passed
-npm run test:dashboard:run       passed
-npm run test:architecture-baseline
-npm run test:architecture-guards
-npm run test:safety:run
+npm run test-compile                       passed
+npm run test:deterministic:run             passed
+npm run test:browser:run                   61/61
+npm run test:safety:run                    passed
+npm run test:dashboard:run                 passed
+npm run test:architecture-baseline         passed
+npm run test:architecture-guards           passed
+git diff --check                           passed
+src/media Webview script parity            passed
 ```
 
-The complete safety command reported:
+The final deterministic integration segment reported `201/201`. The complete
+safety command reported:
 
 ```text
 Workspace parity checks passed.
@@ -113,11 +166,10 @@ AI session safety checks passed.
 Open workspace safety checks passed.
 ```
 
-## Lint and diff review
+## Lint classification
 
-A focused TSLint invocation over all changed TypeScript files exited `0`.
-It emitted only unchanged legacy Dashboard warnings outside the modified
-hunks. `git diff --check` passed.
+A focused TSLint invocation over all changed TypeScript files exited `0`. Its
+only warnings are unchanged legacy lines in `src/dashboard.ts`.
 
 `npm run lint:ci` still reports:
 
@@ -125,20 +177,30 @@ hunks. `git diff --check` passed.
 src/aiSessions/conversation/codexAppServerClient.ts semicolon 0=5
 ```
 
-Those five warnings pre-date Task 10, are in an unchanged Task 5 file, and are
-not introduced by this commit. No Task 10 file increased the warning set.
+That file is byte-identical to `HEAD` before the follow-up and the same five
+warnings pre-date Task 10. No changed file increased the warning baseline.
 
-## Self-review
+## Review
 
-- Confirmed the production factory constructs exactly one provider graph and
-  the Codex process remains lazy, so two viewer opens use at most one child.
-- Confirmed partial-construction cleanup tolerates nested and repeated
-  disposal without leaking or surfacing caught error text.
-- Confirmed Dashboard authority rejects wrong project/provider/session
-  identities and the Host rejects unfocused outline targets.
-- Confirmed sidebar hiding disposes only the card subscription; viewer
-  ownership remains independent until panel or extension disposal.
-- Confirmed source checks prohibit Codex JSONL fallback, provider-specific
-  routing branches, and private diagnostic fields.
-- Confirmed only the seven Task 10 implementation/test files and this report
-  are included.
+The initial root review reported five Important and two Minor findings. All
+were reproduced, fixed, and verified.
+
+The first read-only follow-up review reported:
+
+```text
+Critical:  0
+Important: 1 (hidden ACTIVE panel focus restoration)
+Minor:     1 (locale-dependent duplicate normalization)
+```
+
+Both were fixed. The second read-only scoped review of those fixes reported:
+
+```text
+Critical:  0
+Important: 0
+Minor:     0
+Verdict:   Ready
+```
+
+The reviewer also confirmed source/media Webview scripts are byte-identical
+and made no checkout changes.

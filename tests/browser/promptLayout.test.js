@@ -2,6 +2,7 @@
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const Module = require('node:module');
 const path = require('node:path');
 const test = require('node:test');
 const { chromium } = require('playwright-chromium');
@@ -29,6 +30,63 @@ function snapshotAt(revision) {
             text: longBody,
         }],
     };
+}
+
+function renderDashboardShell() {
+    const vscode = {
+        Uri: {
+            file(value) {
+                return {
+                    fsPath: value,
+                    path: value,
+                    toString() {
+                        return `file://${value}`;
+                    },
+                };
+            },
+        },
+    };
+    const contentPath = require.resolve('../../out/webview/webviewContent');
+    const previousLoad = Module._load;
+    let getStewardContent;
+    try {
+        Module._load = function (request, parent, isMain) {
+            if (request === 'vscode') return vscode;
+            return previousLoad.call(this, request, parent, isMain);
+        };
+        ({ getStewardContent } = require(contentPath));
+    } finally {
+        Module._load = previousLoad;
+    }
+    const html = getStewardContent(
+        { extensionPath: '/extension' },
+        {
+            cspSource: 'test',
+            asWebviewUri: resource => resource,
+        },
+        [],
+        {
+            config: {
+                get(_key, fallback) {
+                    return fallback;
+                },
+                displayProjectPath: true,
+                searchIsActiveByDefault: false,
+                showAddGroupButtonTile: false,
+            },
+            relevantExtensionsInstalls: {
+                remoteSSH: false,
+                remoteContainers: false,
+            },
+            otherStorageHasData: false,
+            todoSearchItems: [],
+        },
+        true,
+    );
+    return html
+        .replace(/<link\b[^>]*>/gi, '')
+        .replace(/<script\b[\s\S]*?<\/script>/gi, '')
+        .replace('</head>', `<style>${styles}</style></head>`);
 }
 
 async function openPromptPage(browser, snapshot) {
@@ -462,6 +520,99 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 restores form and New Prompt focus with 
                     ...scenario.expected,
                     scrollY: beforeScrollY,
                 });
+            } finally {
+                await page.close();
+            }
+        });
+    }
+});
+
+test('WEBVIEW-AI-PROMPT-INTERACTION-001 balances the complete four-tab Dashboard shell responsively', async t => {
+    const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
+    t.after(() => browser.close());
+    const dashboardHtml = renderDashboardShell();
+
+    for (const width of [240, 320, 600]) {
+        await t.test(`${width}px`, async () => {
+            const page = await browser.newPage({ viewport: { width, height: 700 } });
+            try {
+                await page.setContent(dashboardHtml);
+                const layout = await page.evaluate(() => {
+                    const viewportWidth = document.documentElement.clientWidth;
+                    const boundsOf = element => {
+                        const bounds = element.getBoundingClientRect();
+                        return {
+                            left: bounds.left,
+                            right: bounds.right,
+                            top: bounds.top,
+                            bottom: bounds.bottom,
+                            width: bounds.width,
+                            height: bounds.height,
+                        };
+                    };
+                    const tabs = Array.from(document.querySelectorAll('[data-dashboard-tab]'));
+                    const rowTops = [];
+                    const rowCounts = [];
+                    tabs.forEach(tab => {
+                        const top = tab.getBoundingClientRect().top;
+                        let row = rowTops.findIndex(candidate => Math.abs(candidate - top) < 1);
+                        if (row < 0) {
+                            rowTops.push(top);
+                            rowCounts.push(0);
+                            row = rowCounts.length - 1;
+                        }
+                        rowCounts[row] += 1;
+                    });
+                    const controls = Array.from(document.querySelectorAll(
+                        '#filter, .toggle-all-groups-button, .settings-button, [data-dashboard-tab]'
+                    )).map(element => ({
+                        label: element.getAttribute('aria-label')
+                            || element.textContent.trim(),
+                        bounds: boundsOf(element),
+                        clientWidth: element.clientWidth,
+                        scrollWidth: element.scrollWidth,
+                    }));
+                    return {
+                        documentClientWidth: viewportWidth,
+                        documentScrollWidth: document.documentElement.scrollWidth,
+                        labels: tabs.map(tab => tab.textContent.trim()),
+                        rowCounts,
+                        tabList: boundsOf(document.querySelector('.dashboard-tab-list')),
+                        filterWrapper: boundsOf(document.querySelector('.filter-wrapper')),
+                        controls,
+                    };
+                });
+
+                assert.deepEqual(layout.labels, ['OPEN', 'PROJECTS', 'TODO', 'AI']);
+                assert.ok(
+                    layout.documentScrollWidth <= layout.documentClientWidth,
+                    `Dashboard document overflows at ${width}px: ${JSON.stringify(layout)}`
+                );
+                for (const [shellName, shell] of [
+                    ['filter wrapper', layout.filterWrapper],
+                    ['tab list', layout.tabList],
+                ]) {
+                    assert.ok(
+                        shell.width > 0
+                            && shell.left >= -0.5
+                            && shell.right <= width + 0.5,
+                        `${shellName} must fit at ${width}px: ${JSON.stringify(shell)}`
+                    );
+                }
+                for (const control of layout.controls) {
+                    assert.ok(
+                        control.bounds.width > 0
+                            && control.bounds.height > 0
+                            && control.bounds.left >= -0.5
+                            && control.bounds.right <= width + 0.5,
+                        `${control.label} must fit at ${width}px: ${JSON.stringify(control)}`
+                    );
+                    assert.ok(
+                        control.scrollWidth <= control.clientWidth,
+                        `${control.label} clips at ${width}px: ${JSON.stringify(control)}`
+                    );
+                }
+                assert.deepEqual(layout.rowCounts, width < 480 ? [2, 2] : [4]);
             } finally {
                 await page.close();
             }

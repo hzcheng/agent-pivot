@@ -667,12 +667,23 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 keeps the complete four-tab Dashboard sh
                     const tabDetails = tabs.map(tab => {
                         const icon = tab.querySelector('.dashboard-tab-icon');
                         const label = tab.querySelector('.dashboard-tab-label');
+                        const svg = icon ? icon.querySelector('svg') : null;
+                        const svgBounds = svg ? svg.getBoundingClientRect() : null;
+                        const artworkBounds = svg ? svg.getBBox() : null;
+                        const viewBox = svg ? svg.viewBox.baseVal : null;
+                        const artworkWidth = svg && viewBox.width
+                            ? artworkBounds.width / viewBox.width * svgBounds.width
+                            : 0;
+                        const artworkHeight = svg && viewBox.height
+                            ? artworkBounds.height / viewBox.height * svgBounds.height
+                            : 0;
                         return {
                             ariaLabel: tab.getAttribute('aria-label'),
                             title: tab.getAttribute('title'),
                             iconDisplay: icon ? getComputedStyle(icon).display : null,
                             iconWidth: icon ? icon.getBoundingClientRect().width : 0,
                             iconHeight: icon ? icon.getBoundingClientRect().height : 0,
+                            artworkArea: artworkWidth * artworkHeight,
                             labelDisplay: label ? getComputedStyle(label).display : null,
                             fontSize: getComputedStyle(tab).fontSize,
                         };
@@ -725,6 +736,12 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 keeps the complete four-tab Dashboard sh
                         && tab.iconWidth === 19
                         && tab.iconHeight === 19),
                     `Dashboard tab icons must remain 19px at ${width}px: ${JSON.stringify(layout)}`
+                );
+                const artworkAreas = layout.tabDetails.map(tab => tab.artworkArea);
+                assert.ok(
+                    Math.max(...artworkAreas) / Math.min(...artworkAreas) <= 1.03,
+                    `Dashboard tab artwork must have consistent optical area at ${width}px: `
+                    + JSON.stringify(layout)
                 );
                 if (fullWidthFontSize === undefined) {
                     fullWidthFontSize = layout.tabDetails[0].fontSize;

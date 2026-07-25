@@ -749,7 +749,24 @@ body .project {
     width: 19px;
     height: 19px;
     stroke-width: 2;
+    transform-origin: center;
     vector-effect: non-scaling-stroke;
+}
+
+.dashboard-tab-button[data-dashboard-tab="open"] .dashboard-tab-icon svg {
+    transform: scale(.84);
+}
+
+.dashboard-tab-button[data-dashboard-tab="projects"] .dashboard-tab-icon svg {
+    transform: scale(.97);
+}
+
+.dashboard-tab-button[data-dashboard-tab="todo"] .dashboard-tab-icon svg {
+    transform: scale(1.284);
+}
+
+.dashboard-tab-button[data-dashboard-tab="ai"] .dashboard-tab-icon svg {
+    transform: scale(1.26);
 }
 
 .dashboard-tab-icon svg:not([fill="none"]) {

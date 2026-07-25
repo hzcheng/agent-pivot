@@ -12,6 +12,8 @@ DONE
   `6486d602d4d91f833f3928dcb9f70a34fc472e1b fix: harden Active Session expansion recovery`
 - Test-stability commit:
   `c55700c26f29d590eb1a2580bdcf7680e55d15bd test: wait for Active Session layout convergence`
+- Bounded-wait commit:
+  `3046835ef05033612f44d34982a914836c41312f test: bound Active Session browser waits`
 - Review: two independent read-only review rounds completed; no Critical or
   Important Task 8 issue remains.
 - No push was performed.
@@ -104,6 +106,14 @@ panel to be fully inside the viewport before retaining the exact geometry
 assertions. The marker-shrink check likewise waits for exact `24/24` geometry
 instead of sleeping for 100 ms. This is test-only determinism work; production
 code and timing remain unchanged.
+
+The final gate review then found that Playwright's `waitForFunction` defaults
+to no timeout. A static owner test was added first and failed with `4 !== 1`
+because the file contained four direct, potentially unbounded calls. All four
+now use one helper with an explicit 5000 ms timeout. The same static test
+requires exactly one underlying Playwright call and the bounded helper shape,
+so a future direct unbounded wait fails deterministically instead of hanging
+the browser gate.
 
 ## Implementation
 
@@ -225,10 +235,12 @@ cmp src/webview/webviewProjectScripts.js media/webviewProjectScripts.js
   integration stage reported `183/183`.
 - Dashboard Webview checks passed.
 - Safety, architecture guards, and architecture baseline checks passed.
-- The complete browser suite reported `50/50`; the focused Task 8 file reported
-  `5/5`.
+- The complete browser suite reported `51/51`; the focused Task 8 file reported
+  `6/6`, including the bounded-wait static contract.
 - The focused Task 8 browser file also passed 10 consecutive post-fix runs
   (`10/10`) after the unchanged test reproduced the flake in two of four runs.
+- After bounding all waits, the focused Task 8 browser file passed three more
+  consecutive runs (`3/3`).
 - Behavior catalog and main-capability unit checks reported `40/40`.
 - Task-owned TypeScript lint reported no warnings.
 - Diff whitespace and generated JS parity checks passed.
@@ -265,7 +277,8 @@ Task 8 did not modify it.
 but its final currency audit exits `1` because the branch already contains the
 unaudited Task 1–8 implementation lineage from `115a4f1` through the Task 8
 implementation and owner commits, including `6486d60` and `c55700c`. The
-follow-up adds the two P0 automated behavior entries and owner/evidence paths;
+follow-up adds the two P0 automated behavior entries and owner/evidence paths.
+The bounded-wait owner commit `3046835` is likewise implementation evidence;
 the branch-wide commit assignment belongs to the later capability-audit task
 rather than this scoped fix.
 

@@ -327,6 +327,32 @@ test('RUNTIME-RUNTIME-COORDINATOR-001 promotes the unique pending backend and pr
     assert.ok(conflicted.every(runtime => runtime.state === 'conflict'));
 });
 
+test('RUNTIME-RUNTIME-COORDINATOR-001 skips promotion refresh when no pending runtime exists', async () => {
+    const direct = createFakeRuntimeBackend('vscode');
+    const tmux = createFakeRuntimeBackend('tmux');
+    const coordinator = createCoordinator(direct, tmux);
+
+    assert.deepEqual(await coordinator.getPendingForPromotion(), []);
+    assert.deepEqual(direct.refreshCalls, []);
+    assert.deepEqual(tmux.refreshCalls, []);
+
+    tmux.pending.push(fakeRuntime('tmux', undefined, {
+        identity: workspaceIdentity({ pendingId: 'promotion-refresh' }),
+        state: 'pending',
+        createdAt: '2026-07-18T10:00:00.000Z',
+        excludedSessionIds: [],
+        attached: false,
+        tmux: {
+            layout: 'project',
+            sessionName: 'managed',
+            windowName: 'promotion-refresh',
+        },
+    }));
+    assert.equal((await coordinator.getPendingForPromotion()).length, 1);
+    assert.deepEqual(direct.refreshCalls, [true]);
+    assert.deepEqual(tmux.refreshCalls, [true]);
+});
+
 test('RUNTIME-TMUX-FOCUS-FAST-PATH-001 focuses a unique cached tmux target without full discovery', async () => {
     const direct = createFakeRuntimeBackend('vscode');
     const tmux = createFakeRuntimeBackend('tmux');

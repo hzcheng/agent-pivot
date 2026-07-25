@@ -30,6 +30,31 @@ function encodeExpectedTmuxMetadata(value) {
         .digest('hex').slice(0, 16);
     return `psb64v1.${payload}.${checksum}`;
 }
+
+function metadataSequenceResult(args, getValue) {
+    const stdout = [];
+    for (let start = 0; start < args.length;) {
+        const separator = args.indexOf(';', start);
+        const end = separator < 0 ? args.length : separator;
+        const command = args.slice(start, end);
+        if (command[0] === 'show-options') {
+            const option = command[command.length - 1];
+            const key = Object.keys(tmuxLayout.TMUX_METADATA_OPTIONS)
+                .find(name => tmuxLayout.TMUX_METADATA_OPTIONS[name] === option);
+            const value = key && getValue(key);
+            if (value !== undefined) {
+                stdout.push(value);
+            }
+        } else if (command[0] === 'display-message') {
+            stdout.push(command[command.length - 1]);
+        } else {
+            throw new Error(`Unexpected tmux metadata command: ${command[0]}`);
+        }
+        start = end + 1;
+    }
+    return { exitCode: 0, stdout: stdout.length ? `${stdout.join('\n')}\n` : '', stderr: '' };
+}
+
 const CreationController = require('../out/aiSessions/creationController').AiSessionCreationController;
 const ResumeController = require('../out/aiSessions/resumeController').AiSessionResumeController;
 const TerminalCommandController = require('../out/aiSessions/terminalCommandController').AiSessionTerminalCommandController;
@@ -1510,11 +1535,10 @@ async function runTmuxClientChecks() {
             }
             if (args[0] === 'show-options') {
                 const target = args[args.indexOf('-t') + 1];
-                const optionName = args[args.length - 1];
-                const key = Object.keys(tmuxLayout.TMUX_METADATA_OPTIONS)
-                    .find(name => tmuxLayout.TMUX_METADATA_OPTIONS[name] === optionName);
-                const value = optionValues[`${target}|${key}`];
-                return { exitCode: 0, stdout: value === undefined ? '' : `${value}\n`, stderr: '' };
+                return metadataSequenceResult(args, key => {
+                    const value = optionValues[`${target}|${key}`];
+                    return value === undefined ? undefined : encodeExpectedTmuxMetadata(value);
+                });
             }
             return { exitCode: 0, stdout: '', stderr: '' };
         },
@@ -1599,11 +1623,14 @@ async function runTmuxClientChecks() {
         },
     ]);
     const listingMetadataCalls = metadataCalls.slice();
-    for (const windowId of ['@12', '@13']) {
-        assert.ok(listingMetadataCalls.some(call => JSON.stringify(call.args) === JSON.stringify([
-            'show-options', '-qvw', '-t', windowId, '@project-steward-provider',
-        ])));
-    }
+    assert.strictEqual(
+        listingMetadataCalls.filter(call => call.args[0] === 'show-options').length,
+        3,
+        'one session and two windows must require only three batched metadata reads'
+    );
+    assert.ok(listingMetadataCalls.filter(call => call.args[0] === 'show-options')
+        .every(call => call.args.includes(';')),
+    'each metadata read must stay inside one tmux command sequence');
     assert.deepStrictEqual(await metadataClient.getSessionOptions('session-a'), {
         managed: '1', version: '2', layout: 'project', workspaceScopeIdentity: 'project-key',
         workspaceNavigationIdentity: 'nav-1', workspaceRootHostPaths: '["/work"]', cwd: '/work',
@@ -1649,7 +1676,7 @@ async function runTmuxClientChecks() {
 
     let inFlightOptions = 0;
     let peakOptions = 0;
-    let failedOption = null;
+    let failOptions = false;
     const parallelClient = new tmuxClientModule.TmuxClient('tmux', {
         run: async (_file, args) => {
             if (args[0] === '-V') return { exitCode: 0, stdout: 'tmux 3.4\n', stderr: '' };
@@ -1657,15 +1684,16 @@ async function runTmuxClientChecks() {
                 return { exitCode: 0, stdout: requiredCommands.join('\n'), stderr: '' };
             }
             if (args[0] === 'show-options') {
-                const option = args[args.length - 1];
                 inFlightOptions++;
                 peakOptions = Math.max(peakOptions, inFlightOptions);
                 await new Promise(resolve => setImmediate(resolve));
                 inFlightOptions--;
-                if (option === failedOption) {
+                if (failOptions) {
                     return { exitCode: 2, stdout: 'private stdout', stderr: 'private stderr' };
                 }
-                return { exitCode: 0, stdout: 'value\n', stderr: '' };
+                return metadataSequenceResult(
+                    args, () => encodeExpectedTmuxMetadata('value')
+                );
             }
             return { exitCode: 0, stdout: '', stderr: '' };
         },
@@ -1673,10 +1701,10 @@ async function runTmuxClientChecks() {
     const parallelMetadata = await parallelClient.getSessionOptions('managed-session');
     assert.strictEqual(Object.keys(parallelMetadata).length,
         Object.keys(tmuxLayout.TMUX_METADATA_OPTIONS).length);
-    assert.strictEqual(peakOptions, Object.keys(tmuxLayout.TMUX_METADATA_OPTIONS).length,
-        'one target must read its fixed metadata option set concurrently');
+    assert.strictEqual(peakOptions, 1,
+        'one target must read its fixed metadata option set in one command');
 
-    failedOption = tmuxLayout.TMUX_METADATA_OPTIONS.provider;
+    failOptions = true;
     await assert.rejects(parallelClient.getWindowOptions('managed-session', 'managed-window'), error =>
         error.operation === 'get-window-options' && error.category === 'nonzero-exit');
 

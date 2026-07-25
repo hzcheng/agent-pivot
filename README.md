@@ -69,6 +69,18 @@ For a multi-root workspace, Project Steward chooses one primary working director
 
 Direct Terminal remains the default. In this mode, selecting a session opens a VS Code terminal and runs the matching resume command for that provider. Project Steward avoids opening duplicate terminals for the same session. If a matching terminal is still running, it focuses that terminal; if the prior session terminal has completed, it reuses the terminal and runs the resume command again.
 
+### AI Prompt Library
+
+Open `AI > PROMPTS` in the Project Steward sidebar to create, edit, and delete reusable prompts. Drag the prompt handles to arrange them manually. You can mark one prompt as the default; selecting that default again clears it, so the library always has zero or one default.
+
+To assign a keyboard shortcut, run `Preferences: Open Keyboard Shortcuts`, search for `Project Steward: Insert Prompt into Active Terminal`, select the edit control, and press the key combination you want.
+
+The insert command uses the terminal that was active when you invoked it. When the library has a default, the command inserts that prompt directly. With no default, it opens a one-time QuickPick in your saved order and inserts the prompt you choose without changing the default. Project Steward never appends Enter and never creates a terminal for this command; start or focus a terminal first.
+
+AI Prompts are stored globally in the `projectSteward.promptData` user setting, so VS Code Settings Sync can synchronize the library between machines. Do not store passwords, tokens, private keys, or other secrets in prompts.
+
+The `SKILLS`, `MCP`, and `HOOKS` tabs are Coming Soon.
+
 ### Persistent tmux runtimes
 
 Set `projectSteward.aiSessionTerminalMode` to `tmux` to run new and resumed AI sessions in managed tmux targets. A quiet `tmux` badge identifies these runtimes in `ACTIVE`, even after the global mode or layout changes. Project Steward always reuses a live runtime before consulting the current creation preference.

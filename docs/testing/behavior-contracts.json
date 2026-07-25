@@ -3168,5 +3168,66 @@
       ".codex/skills/installing-vscode-extensions-locally/SKILL.md",
       ".codex/skills/review-fix-commit-loop/SKILL.md"
     ]
+  },
+  {
+    "id": "PERSIST-AI-PROMPT-STORE-001",
+    "domain": "persistence",
+    "title": "Global Prompt data remains versioned, ordered, synchronized, and revision guarded",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/prompts/service.test.js"
+    ],
+    "evidence": [
+      "src/prompts/types.ts",
+      "src/prompts/service.ts",
+      "package.json"
+    ]
+  },
+  {
+    "id": "SESSION-AI-PROMPT-TERMINAL-INSERTION-001",
+    "domain": "session",
+    "title": "Prompt insertion targets the terminal captured at invocation without appending Enter",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/prompts/terminalCommandController.test.js"
+    ],
+    "evidence": [
+      "src/prompts/terminalCommandController.ts",
+      "src/dashboard/commandRegistration.ts",
+      "package.json"
+    ]
+  },
+  {
+    "id": "WEBVIEW-AI-PROMPT-INTERACTION-001",
+    "domain": "webview",
+    "title": "AI Prompt management remains accessible and responsive",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/integration/dashboard/promptInteraction.test.js",
+      "tests/browser/promptLayout.test.js"
+    ],
+    "evidence": [
+      "src/prompts/webviewContent.ts",
+      "src/webview/webviewPromptScripts.js",
+      "media/styles.scss"
+    ]
+  },
+  {
+    "id": "WEBVIEW-AI-PROMPT-MUTATION-001",
+    "domain": "webview",
+    "title": "Prompt mutations settle by full correlation identity after authoritative replacement",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/prompts/dashboardController.test.js",
+      "tests/integration/dashboard/promptInteraction.test.js"
+    ],
+    "evidence": [
+      "src/prompts/dashboardController.ts",
+      "src/webview/webviewPromptScripts.js"
+    ]
   }
 ]

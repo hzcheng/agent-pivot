@@ -2,12 +2,15 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "645442a9985995ee1b4d43b9fdeeb1a06352b478",
+        "head": "bb4eeed52f0e656ad585ce716142b50b48d536ea",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
             "f762285e06f13c198e3cc7156097050c575da619",
-            "3d9733c505dad40cd332e277603c8f4b662aad0c"
+            "3d9733c505dad40cd332e277603c8f4b662aad0c",
+            "49c2f7774c7575cba41a26d0af02ef4c944e35e0",
+            "2a29e3e4be1f25be3334fb0e1c9c96bb907c3d3c",
+            "49860e7ca0f94fa39828a7271ca683d5c8eb7c55"
         ]
     },
     "capabilities": [
@@ -673,7 +676,8 @@
                 "c50efdd2d8be54dcdba97fde56462a7bb9758bae",
                 "b978f6ba6a420048487654d1410d4d628f3ae096",
                 "6e9c3dc61843d13eac8b6d3327c3e2e0d8b07b5e",
-                "645442a9985995ee1b4d43b9fdeeb1a06352b478"
+                "645442a9985995ee1b4d43b9fdeeb1a06352b478",
+                "2a4e481e4f58ceb6f9770323ef1b011fd371847d"
             ],
             "behaviors": [
                 "ARCH-CI-QUALITY-GATE-001",
@@ -692,6 +696,40 @@
                 "tmux-smoke-linux"
             ],
             "realEnvironmentRequired": true
+        },
+        {
+            "id": "MAIN-AI-PROMPT-LIBRARY",
+            "title": "Synchronized AI Prompt library",
+            "requirement": "Global AI Prompts remain ordered, revision guarded, accessible, and insert only into the invocation-time active terminal without Enter.",
+            "commits": [
+                "e92fe7c4a2678646e37cc25330a6ba47dd97d64b",
+                "92e856b286377efb433788b3dd97efa1eaae028a",
+                "0045ea264ffeeb08269148147058e6e316b1ca41",
+                "62f81a06e374c8ae1274696046ef9791e80cd8fa",
+                "22a98c380350bf9bbde6d7f79c004c8436e86546",
+                "b05a4b07b77e1ee3d28c7179954eceb4f5c403d5",
+                "170f448804517d78176395f1949a2c721dd1e3ff",
+                "042634bc5f2a8735628c409735a4cb04647abab4",
+                "c673007ae84bb275d4b7922f8d1332a426cda55c",
+                "1f59af8ed262d0bbf2e26c2a89ab572aeb646eaa",
+                "bbe563e68283f3a7576af5f9a1b89da4ba7a0df3",
+                "c55eab093435ec5bb6932f8743a7ff7ca625f71f",
+                "c2c7bb3083aa0cadc162d9109bd445b84ec5982d",
+                "bb4eeed52f0e656ad585ce716142b50b48d536ea"
+            ],
+            "behaviors": [
+                "PERSIST-AI-PROMPT-STORE-001",
+                "SESSION-AI-PROMPT-TERMINAL-INSERTION-001",
+                "WEBVIEW-AI-PROMPT-INTERACTION-001",
+                "WEBVIEW-AI-PROMPT-MUTATION-001"
+            ],
+            "prGates": [
+                "test:deterministic:run",
+                "test:browser:run",
+                "test:dashboard:run"
+            ],
+            "scheduledJobs": [],
+            "realEnvironmentRequired": false
         }
     ]
 }

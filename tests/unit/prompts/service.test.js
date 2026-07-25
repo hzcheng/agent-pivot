@@ -144,6 +144,25 @@ test('PERSIST-AI-PROMPT-STORE-001 rejects invalid stored records but repairs onl
     });
 });
 
+test('PERSIST-AI-PROMPT-STORE-001 uses locale-independent Prompt-name identity', () => {
+    const originalToLocaleLowerCase = String.prototype.toLocaleLowerCase;
+    String.prototype.toLocaleLowerCase = function () {
+        return String(this) === 'I' ? '\u0131' : originalToLocaleLowerCase.call(this);
+    };
+    try {
+        const result = normalizePromptSetting(readyData({
+            prompts: [
+                { id: 'upper-i', name: 'I', text: 'Uppercase Latin I' },
+                { id: 'lower-i', name: 'i', text: 'Lowercase Latin i' },
+            ],
+        }));
+        assert.equal(result.status, 'read-only');
+        assert.equal(result.snapshot.readOnlyReason, 'invalid-data');
+    } finally {
+        String.prototype.toLocaleLowerCase = originalToLocaleLowerCase;
+    }
+});
+
 test('PERSIST-AI-PROMPT-STORE-001 exposes positive unsupported versions as read-only', async () => {
     const fixture = createFixture({ version: 2, revision: 0, selectedPromptId: null, prompts: [] });
     assert.deepEqual(fixture.service.getSnapshot(), {

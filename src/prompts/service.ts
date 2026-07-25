@@ -111,14 +111,19 @@ function normalizePrompt(value: unknown): PromptV1 | undefined {
     return { id: value.id, name, text: value.text };
 }
 
+function promptNameKey(name: string): string {
+    // Prompt identity must remain stable for globally synchronized settings.
+    return name.toLowerCase();
+}
+
 function namesEqual(left: string, right: string): boolean {
-    return left.toLocaleLowerCase() === right.toLocaleLowerCase();
+    return promptNameKey(left) === promptNameKey(right);
 }
 
 function hasDuplicateNames(prompts: readonly PromptV1[]): boolean {
     const names = new Set<string>();
     for (const prompt of prompts) {
-        const key = prompt.name.toLocaleLowerCase();
+        const key = promptNameKey(prompt.name);
         if (names.has(key)) {
             return true;
         }

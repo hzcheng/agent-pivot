@@ -214,14 +214,17 @@ function validateActiveSessionIconAnimation(source) {
     assert.equal(cssRules(source).some(rule => rule.selectors.some(selector =>
         selector.includes('[data-session-icon-fx') && !selector.includes('.active-ai-session-row'))), false,
     `${id} icon effects must not target History rows`);
-    const reducedMotion = cssRules(source).filter(rule =>
-        (rule.selectors.includes(activeCurrentIconMotionSelector)
-        || rule.selectors.includes(activeHaloIconMotionSelector)
-        || rule.selectors.includes(activeSharinganIconMotionSelector))
-        && rule.body.includes('animation: none !important'));
-    assert.equal(reducedMotion.length, 1, `${id} reduced motion must cover all animated icon layers`);
-    assertDeclarations(reducedMotion[0], id, ['animation: none !important', 'transition: none !important']);
-    assertDeclarations(ruleForSelector(source, activeSessionIconSelector, 'border: 1px solid CanvasText'), id,
+    const reducedMotion = extractBlock(source, '@media (prefers-reduced-motion: reduce)', 1);
+    for (const selector of [
+        activeCurrentIconMotionSelector,
+        activeHaloIconMotionSelector,
+        activeSharinganIconMotionSelector,
+    ]) {
+        assertDeclarations(ruleForSelector(reducedMotion, selector), id,
+            ['animation: none !important', 'transition: none !important']);
+    }
+    const forcedColors = extractBlock(source, '@media (forced-colors: active)');
+    assertDeclarations(ruleForSelector(forcedColors, activeSessionIconSelector, 'border: 1px solid CanvasText'), id,
         ['border: 1px solid CanvasText']);
 }
 
@@ -379,4 +382,26 @@ test('ACTIVE-SESSION-ICON-ANIMATION-001 scopes all nine Active Session icon mode
         'animation: steward-session-icon-spin 2.6s linear infinite;',
         'animation: none;'
     ))), /ACTIVE-SESSION-ICON-ANIMATION-001/);
+    const currentReducedMotionSelector = '    .active-ai-session-row[data-execution-state="running"][data-session-icon-fx="current"] .codex-session-icon::before,\n';
+    const haloReducedMotionSelector = '    .active-ai-session-row[data-execution-state="running"][data-session-icon-fx="halo"] .codex-session-icon::before,\n';
+    const sharinganReducedMotionSelector = '    .active-ai-session-row[data-execution-state="running"][data-session-icon-fx^="sharingan-"] .codex-session-icon::after {\n';
+    for (const mutatedStyles of [
+        styles.replace(currentReducedMotionSelector, ''),
+        styles.replace(haloReducedMotionSelector, ''),
+        styles.replace(`${haloReducedMotionSelector}${sharinganReducedMotionSelector}`,
+            `${haloReducedMotionSelector.slice(0, -2)} {\n`),
+    ]) {
+        assert.notEqual(mutatedStyles, styles, 'controlled reduced-motion mutation must alter the SCSS');
+        assert.throws(() => validateActiveSessionIconAnimation(compileStyles(mutatedStyles)));
+    }
+    const forcedColorsIconRule = '        .active-ai-session-row .codex-session-icon {\n            border: 1px solid CanvasText;\n        }\n';
+    const withoutForcedColorsIconRule = styles.replace(forcedColorsIconRule, '');
+    assert.notEqual(withoutForcedColorsIconRule, styles,
+        'controlled forced-colors removal must alter the SCSS');
+    assert.throws(() => validateActiveSessionIconAnimation(compileStyles(withoutForcedColorsIconRule)));
+    const compiledForcedColorsIconRule = `  ${activeSessionIconSelector} {\n    border: 1px solid CanvasText;\n  }\n`;
+    const movedForcedColors = `${compiledStyles.replace(compiledForcedColorsIconRule, '')}\n${compiledForcedColorsIconRule}`;
+    assert.notEqual(movedForcedColors, compiledStyles,
+        'controlled forced-colors move must alter the compiled CSS');
+    assert.throws(() => validateActiveSessionIconAnimation(movedForcedColors));
 });

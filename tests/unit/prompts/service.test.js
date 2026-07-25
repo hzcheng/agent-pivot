@@ -144,6 +144,24 @@ test('PERSIST-AI-PROMPT-STORE-001 rejects invalid stored records but repairs onl
     });
 });
 
+test('PERSIST-AI-PROMPT-STORE-001 diagnoses a repaired stale selection without Prompt text', () => {
+    const fixture = createFixture(readyData({
+        selectedPromptId: `missing-${'x'.repeat(150)}`,
+        prompts: [
+            { id: 'prompt-a', name: 'Private', text: 'body that must not be logged' },
+        ],
+    }));
+
+    assert.equal(fixture.service.getSnapshot().selectedPromptId, null);
+    assert.deepEqual(fixture.diagnostics, [{
+        category: 'prompt-stale-selection',
+        revision: 2,
+        promptId: `missing-${'x'.repeat(112)}`,
+        promptName: undefined,
+    }]);
+    assert.equal(JSON.stringify(fixture.diagnostics).includes('body that must not be logged'), false);
+});
+
 test('PERSIST-AI-PROMPT-STORE-001 uses locale-independent Prompt-name identity', () => {
     const originalToLocaleLowerCase = String.prototype.toLocaleLowerCase;
     String.prototype.toLocaleLowerCase = function () {

@@ -211,9 +211,7 @@ export class PromptService {
     constructor(private readonly options: PromptServiceOptions) {}
 
     getSnapshot(): PromptPanelSnapshot {
-        const result = normalizePromptSetting(this.options.readSetting());
-        this.logReadOnlyResult(result);
-        return result.snapshot;
+        return this.readCurrentSetting().snapshot;
     }
 
     createPrompt(
@@ -312,7 +310,7 @@ export class PromptService {
 
     consumeCurrentSettingsDataLocalWriteEcho(): boolean {
         try {
-            const current = normalizePromptSetting(this.options.readSetting());
+            const current = this.readCurrentSetting();
             if (current.status !== 'ready') {
                 this.pendingLocalWriteEchoes = [];
                 return false;
@@ -343,8 +341,7 @@ export class PromptService {
                 throw new PromptMutationError('invalid', 'Expected revision must be a non-negative integer.');
             }
 
-            const current = normalizePromptSetting(this.options.readSetting());
-            this.logReadOnlyResult(current);
+            const current = this.readCurrentSetting();
             if (current.status === 'read-only') {
                 throw new PromptMutationError(
                     current.snapshot.readOnlyReason === 'unsupported-version' ? 'unsupported-version' : 'invalid',
@@ -402,6 +399,23 @@ export class PromptService {
             throw new PromptMutationError('invalid', 'Prompt ID must be a non-empty string.');
         }
         return value;
+    }
+
+    private readCurrentSetting(): PromptReadResult {
+        const value = this.options.readSetting();
+        const result = normalizePromptSetting(value);
+        this.logReadOnlyResult(result);
+        if (result.status === 'ready'
+            && isRecord(value)
+            && isPromptId(value.selectedPromptId)
+            && value.selectedPromptId !== result.snapshot.selectedPromptId) {
+            this.logDiagnostic({
+                category: 'prompt-stale-selection',
+                revision: result.snapshot.revision,
+                promptId: value.selectedPromptId,
+            });
+        }
+        return result;
     }
 
     private logReadOnlyResult(result: PromptReadResult): void {

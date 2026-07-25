@@ -282,6 +282,8 @@ function runRealVsixArchiveChecks(mainPackage, bridgePackage) {
         'extension/media/fitty.min.js',
         'extension/media/icon.svg',
         'extension/media/sharingan/mangekyou-sharingan-itachi.svg',
+        'extension/media/sharingan/mangekyou-sharingan-madara-eternal.svg',
+        'extension/media/sharingan/mangekyou-sharingan-madara.svg',
         'extension/media/sharingan/mangekyou-sharingan-obito-kakashi.svg',
         'extension/media/sharingan/mangekyou-sharingan-sasuke.svg',
         'extension/media/sharingan/mangekyou-sharingan-shisui.svg',
@@ -323,6 +325,8 @@ function runRealVsixArchiveChecks(mainPackage, bridgePackage) {
     for (const relativePath of [
         'THIRD_PARTY_NOTICES.md',
         'media/sharingan/mangekyou-sharingan-itachi.svg',
+        'media/sharingan/mangekyou-sharingan-madara-eternal.svg',
+        'media/sharingan/mangekyou-sharingan-madara.svg',
         'media/sharingan/mangekyou-sharingan-obito-kakashi.svg',
         'media/sharingan/mangekyou-sharingan-sasuke.svg',
         'media/sharingan/mangekyou-sharingan-shisui.svg',

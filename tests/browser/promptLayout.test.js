@@ -94,7 +94,7 @@ async function assertReachable(page, selector, width) {
     );
 }
 
-test('WEBVIEW-AI-PROMPT-LAYOUT-001 keeps Prompt controls and text usable in narrow sidebars', async t => {
+test('WEBVIEW-AI-PROMPT-INTERACTION-001 keeps Prompt controls and text usable in narrow sidebars', async t => {
     const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
     t.after(() => browser.close());
 

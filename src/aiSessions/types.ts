@@ -187,3 +187,11 @@ export interface AiSessionBatchArchiveCompletedMessage {
     status: 'cancelled' | 'rejected' | 'finished';
     result?: BatchAiSessionArchiveResult;
 }
+
+export interface AiSessionProviderSelectionResultMessage {
+    type: 'ai-session-provider-selection-result';
+    version: 1;
+    requestId: number;
+    projectId: string;
+    success: boolean;
+}

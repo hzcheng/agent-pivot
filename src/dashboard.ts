@@ -594,6 +594,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         setExpanded: (workspaceScopeIdentity, expanded) => aiSessionWorkspaceStateStore.setExpanded(workspaceScopeIdentity, expanded),
         setProviderSelection: (workspaceScopeIdentity, selection) =>
             aiSessionWorkspaceStateStore.setProviderSelection(workspaceScopeIdentity, selection),
+        postProviderSelectionResult: result => provider.postMessage(result),
+        showErrorMessage: message => vscode.window.showErrorMessage(message),
+        logError,
         togglePin: (providerId, sessionId) => aiSessionPinController.toggle(providerId, sessionId),
         getAliases: () => aiSessionAliasController.getAll(),
         saveAliases: aliases => aiSessionAliasController.saveAll(aliases),
@@ -1255,7 +1258,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             'select-ai-session-providers': async e => {
                 await aiSessionCommandController.selectProviders(
                     e.projectId as string,
-                    e.selectedProviders
+                    e.selectedProviders,
+                    e.requestId
                 );
             },
             'focus-ai-session-terminal': async e => {

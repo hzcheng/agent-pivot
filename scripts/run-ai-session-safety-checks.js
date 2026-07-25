@@ -2065,6 +2065,7 @@ async function runAiSessionCommandControllerChecks() {
     };
     const expanded = [];
     const providerSelections = [];
+    const providerSelectionResults = [];
     const refreshes = [];
     const clipboardWrites = [];
     const infoMessages = [];
@@ -2080,6 +2081,9 @@ async function runAiSessionCommandControllerChecks() {
         setProviderSelection: async (workspaceScopeIdentity, selection) => {
             providerSelections.push([workspaceScopeIdentity, selection]);
         },
+        postProviderSelectionResult: async result => providerSelectionResults.push(result),
+        showErrorMessage: message => assert.fail(`unexpected provider selection error: ${message}`),
+        logError: (message, error) => assert.fail(`${message}: ${error}`),
         togglePin: (providerId, sessionId) => {
             pinToggles.push([providerId, sessionId]);
             return pinToggleResult;
@@ -2104,12 +2108,19 @@ async function runAiSessionCommandControllerChecks() {
     await controller.toggleSessionsExpanded('workspace-a', true);
     assert.deepStrictEqual(expanded, [['scope-a', true]]);
 
-    await controller.selectProviders('workspace-a', ['kimi', 'codex', 'kimi', 'unknown']);
+    await controller.selectProviders('workspace-a', ['kimi', 'codex', 'kimi', 'unknown'], 1);
     assert.deepStrictEqual(providerSelections, [['scope-a', {
         primaryProvider: 'codex',
         selectedProviders: ['codex', 'kimi'],
     }]]);
     assert.strictEqual(refreshes.length, 1);
+    assert.deepStrictEqual(providerSelectionResults, [{
+        type: 'ai-session-provider-selection-result',
+        version: 1,
+        requestId: 1,
+        projectId: 'workspace-a',
+        success: true,
+    }]);
 
     await controller.selectProviders('missing', ['codex']);
     await controller.selectProviders('workspace-a', []);
@@ -3550,13 +3561,16 @@ async function runWorkspaceCardActionControllerIntegrationChecks() {
         isProviderId: value => value === 'codex',
         setExpanded: async (...args) => expandedWrites.push(args),
         setProviderSelection: async (...args) => providerWrites.push(args),
+        postProviderSelectionResult: async () => undefined,
+        showErrorMessage: message => assert.fail(`unexpected provider selection error: ${message}`),
+        logError: (message, error) => assert.fail(`${message}: ${error}`),
         togglePin: () => false, getAliases: () => ({}), saveAliases: () => undefined,
         getOriginalName: () => null, getSessionKey: () => '', showInputBox: async () => undefined,
         writeClipboard: async () => undefined, showInformationMessage: () => undefined,
         showWarningMessage: () => undefined, refresh: () => undefined,
     });
     await commandController.toggleSessionsExpanded(target.cardId, true);
-    await commandController.selectProviders(target.cardId, ['codex']);
+    await commandController.selectProviders(target.cardId, ['codex'], 1);
     assert.deepStrictEqual(expandedWrites, [[workspace.scopeIdentity, true]]);
     assert.deepStrictEqual(providerWrites, [[workspace.scopeIdentity, {
         primaryProvider: 'codex',

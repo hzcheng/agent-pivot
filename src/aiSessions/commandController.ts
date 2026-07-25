@@ -17,7 +17,11 @@ import type { OpenWorkspace } from '../workspaces/types';
 import { sanitizeAiSessionAlias } from './aliasStore';
 import { normalizeAiSessionProviderSelection } from './providerSelection';
 import type { AiSessionProviderSelection } from './providerSelection';
-import type { AiSessionDirectoryScope, WorkspaceAiSessionActionTarget } from './types';
+import type {
+    AiSessionDirectoryScope,
+    AiSessionProviderSelectionResultMessage,
+    WorkspaceAiSessionActionTarget,
+} from './types';
 
 export type AiSessionWorkspaceLaunchAction = 'create' | 'resume';
 
@@ -157,6 +161,11 @@ export interface AiSessionCommandControllerOptions {
         workspaceScopeIdentity: string,
         selection: AiSessionProviderSelection
     ) => Thenable<unknown>;
+    postProviderSelectionResult: (
+        result: AiSessionProviderSelectionResultMessage
+    ) => Thenable<unknown>;
+    showErrorMessage: (message: string) => unknown;
+    logError: (message: string, error: unknown) => void;
     togglePin: (providerId: AiSessionProviderId, sessionId: string) => boolean;
     getAliases: () => Record<string, string>;
     saveAliases: (aliases: Record<string, string>) => unknown;
@@ -216,8 +225,13 @@ export class AiSessionCommandController {
         await this.options.setExpanded(workspaceTarget.workspace.scopeIdentity, expanded);
     }
 
-    async selectProviders(projectId: string, providerIds: unknown): Promise<void> {
-        if (!Array.isArray(providerIds) || providerIds.length === 0) {
+    async selectProviders(
+        projectId: string,
+        providerIds: unknown,
+        requestId: unknown
+    ): Promise<void> {
+        if (!Array.isArray(providerIds) || providerIds.length === 0
+            || !Number.isSafeInteger(requestId) || (requestId as number) < 1) {
             return;
         }
 
@@ -234,11 +248,31 @@ export class AiSessionCommandController {
                 return counts;
             }, {} as Partial<Record<AiSessionProviderId, number>>),
         });
-        await this.options.setProviderSelection(
-            target.workspace.scopeIdentity,
-            normalized
-        );
+        try {
+            await this.options.setProviderSelection(
+                target.workspace.scopeIdentity,
+                normalized
+            );
+        } catch (error) {
+            this.options.logError('Failed to update AI session provider selection.', error);
+            this.options.showErrorMessage('Could not update AI session providers. Try again.');
+            await this.options.postProviderSelectionResult({
+                type: 'ai-session-provider-selection-result',
+                version: 1,
+                requestId: requestId as number,
+                projectId,
+                success: false,
+            });
+            return;
+        }
         this.options.refresh();
+        await this.options.postProviderSelectionResult({
+            type: 'ai-session-provider-selection-result',
+            version: 1,
+            requestId: requestId as number,
+            projectId,
+            success: true,
+        });
     }
 
     async togglePin(providerId: string, sessionId: string): Promise<void> {

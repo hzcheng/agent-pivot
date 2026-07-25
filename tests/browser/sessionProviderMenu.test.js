@@ -65,15 +65,21 @@ async function openMenuPage(t, selectedProviders = ['codex']) {
         <html>
             <body class="steward-sidebar">
                 <div class="steward-sticky-header"></div>
-                <div class="project workspace-card" data-id="project-a" data-current-workspace
-                    data-workspace-navigation-identity="navigation-project-a">${firstPanel}</div>
-                <div class="project workspace-card" data-id="project-b" data-current-workspace
-                    data-workspace-navigation-identity="navigation-project-b">${secondPanel}</div>
+                <div class="sticky-groups-wrapper">
+                    <div class="open-current-workspace-group">
+                        <div class="project workspace-card" data-id="project-a" data-current-workspace
+                            data-workspace-scope-identity="scope-project-a"
+                            data-workspace-navigation-identity="navigation-project-a">${firstPanel}</div>
+                    </div>
+                    <div class="project workspace-card" data-id="project-b"
+                        data-workspace-navigation-identity="navigation-project-b">${secondPanel}</div>
+                </div>
                 <button type="button" id="outside">Outside</button>
             </body>
         </html>`);
     await page.evaluate(() => {
         window.__postedMessages = [];
+        window.normalizeDashboardSearchCatalog = catalog => catalog;
         window.vscode = {
             getState: () => undefined,
             setState: () => undefined,
@@ -88,6 +94,36 @@ async function openMenuPage(t, selectedProviders = ['codex']) {
     return page;
 }
 
+function getAiSessionsUpdateHtml(selectedProviders) {
+    return `<div class="open-current-workspace-group">
+        <div class="project workspace-card" data-id="project-a" data-current-workspace
+            data-workspace-scope-identity="scope-project-a"
+            data-workspace-navigation-identity="navigation-project-a">
+            ${getAiSessionsDiv(getSessionSurface('project-a', selectedProviders))}
+        </div>
+    </div>`;
+}
+
+async function postAiSessionsUpdate(page, selectedProviders, sequence) {
+    const html = getAiSessionsUpdateHtml(selectedProviders);
+    await page.evaluate(({ html, sequence }) => {
+        window.dispatchEvent(new MessageEvent('message', { data: {
+            type: 'ai-sessions-updated',
+            version: 2,
+            sequence,
+            currentWorkspaceCount: 1,
+            html,
+            searchCatalog: {
+                version: 2,
+                sessions: [],
+                openWorkspaces: [],
+                savedProjects: [],
+                todos: [],
+            },
+        } }));
+    }, { html, sequence });
+}
+
 test('AI-SESSION-PROVIDER-MENU-001 opens and posts the complete selected provider set', async t => {
     const page = await openMenuPage(t);
     const project = page.locator('.project[data-id="project-a"]');
@@ -98,6 +134,8 @@ test('AI-SESSION-PROVIDER-MENU-001 opens and posts the complete selected provide
     await project.locator('[data-ai-provider-option][data-provider="claude"]').click();
     assert.deepEqual(await page.evaluate(() => window.__postedMessages.at(-1)), {
         type: 'select-ai-session-providers',
+        version: 1,
+        requestId: 1,
         projectId: 'project-a',
         selectedProviders: ['codex', 'claude'],
     });
@@ -152,6 +190,8 @@ test('AI-SESSION-PROVIDER-MENU-004 activates options with Space and Enter', asyn
     await spaceKimi.press('Space');
     assert.deepEqual(await spacePage.evaluate(() => window.__postedMessages.at(-1)), {
         type: 'select-ai-session-providers',
+        version: 1,
+        requestId: 1,
         projectId: 'project-a',
         selectedProviders: ['codex', 'kimi'],
     });
@@ -165,6 +205,8 @@ test('AI-SESSION-PROVIDER-MENU-004 activates options with Space and Enter', asyn
     await enterKimi.press('Enter');
     assert.deepEqual(await enterPage.evaluate(() => window.__postedMessages.at(-1)), {
         type: 'select-ai-session-providers',
+        version: 1,
+        requestId: 1,
         projectId: 'project-a',
         selectedProviders: ['codex', 'kimi'],
     });
@@ -214,6 +256,8 @@ test('AI-SESSION-PROVIDER-MENU-007 selects a hidden search-result provider befor
     )), true);
     assert.deepEqual(await page.evaluate(() => window.__postedMessages.at(-1)), {
         type: 'select-ai-session-providers',
+        version: 1,
+        requestId: 1,
         projectId: 'project-a',
         selectedProviders: ['codex', 'claude'],
     });
@@ -233,7 +277,115 @@ test('AI-SESSION-PROVIDER-MENU-008 locks stale provider choices until authoritat
     await kimi.dispatchEvent('click');
     assert.deepEqual(await page.evaluate(() => window.__postedMessages), [{
         type: 'select-ai-session-providers',
+        version: 1,
+        requestId: 1,
         projectId: 'project-a',
         selectedProviders: ['codex', 'claude'],
     }]);
+});
+
+test('AI-SESSION-PROVIDER-MENU-009 forced Manage cannot bypass provider-selection pending', async t => {
+    const page = await openMenuPage(t);
+    const project = page.locator('.project[data-id="project-a"]');
+    const trigger = project.locator('[data-ai-provider-menu-trigger]');
+    const options = project.locator('[data-ai-provider-option]');
+
+    await trigger.click();
+    await project.locator('[data-ai-provider-option][data-provider="claude"]').click();
+    await project.locator('[data-action="manage-ai-sessions"]').click({ force: true });
+
+    assert.deepEqual(await page.evaluate(() => window.__projectStewardBatchAiSessions.snapshot()), {
+        projectId: null,
+        provider: null,
+        selectedIds: [],
+        pending: false,
+    });
+    assert.equal(await project.getAttribute('data-ai-session-managing'), null);
+    assert.equal(await trigger.isDisabled(), true);
+    assert.equal(await trigger.getAttribute('aria-disabled'), 'true');
+    assert.deepEqual(await options.evaluateAll(elements =>
+        elements.map(element => [element.disabled, element.getAttribute('aria-disabled')])
+    ), [[true, 'true'], [true, 'true'], [true, 'true']]);
+});
+
+test('AI-SESSION-PROVIDER-MENU-010 unlocks success only after a matching authoritative replacement', async t => {
+    const page = await openMenuPage(t, ['kimi', 'claude']);
+    const project = page.locator('.project[data-id="project-a"]');
+    const trigger = project.locator('[data-ai-provider-menu-trigger]');
+    await trigger.click();
+    await project.locator('[data-ai-provider-option][data-provider="codex"]').click();
+
+    await page.evaluate(() => window.dispatchEvent(new MessageEvent('message', { data: {
+        type: 'ai-session-provider-selection-result',
+        version: 1,
+        requestId: 1,
+        projectId: 'project-b',
+        success: true,
+    } })));
+    await postAiSessionsUpdate(page, ['kimi', 'claude'], 1);
+    assert.equal(await trigger.isDisabled(), true);
+    assert.equal(await trigger.getAttribute('aria-disabled'), 'true');
+
+    await page.evaluate(() => window.dispatchEvent(new MessageEvent('message', { data: {
+        type: 'ai-session-provider-selection-result',
+        version: 1,
+        requestId: 1,
+        projectId: 'project-a',
+        success: true,
+    } })));
+    assert.equal(await trigger.isDisabled(), true);
+
+    await postAiSessionsUpdate(page, ['kimi', 'codex', 'claude'], 2);
+    assert.equal(await trigger.isDisabled(), false);
+    assert.equal(await trigger.getAttribute('aria-disabled'), 'false');
+    assert.equal(
+        await project.locator('[data-ai-session-region]')
+            .getAttribute('data-selected-ai-session-providers'),
+        'kimi,codex,claude'
+    );
+});
+
+test('AI-SESSION-PROVIDER-MENU-011 correlated failure unlocks unchanged state and permits retry', async t => {
+    const page = await openMenuPage(t);
+    const project = page.locator('.project[data-id="project-a"]');
+    const trigger = project.locator('[data-ai-provider-menu-trigger]');
+    await trigger.click();
+    await project.locator('[data-ai-provider-option][data-provider="claude"]').click();
+
+    await page.evaluate(() => window.dispatchEvent(new MessageEvent('message', { data: {
+        type: 'ai-session-provider-selection-result',
+        version: 1,
+        requestId: 99,
+        projectId: 'project-a',
+        success: false,
+    } })));
+    assert.equal(await trigger.isDisabled(), true);
+
+    await page.evaluate(() => window.dispatchEvent(new MessageEvent('message', { data: {
+        type: 'ai-session-provider-selection-result',
+        version: 1,
+        requestId: 1,
+        projectId: 'project-a',
+        success: false,
+    } })));
+    assert.equal(await trigger.isDisabled(), false);
+    assert.equal(
+        await project.locator('[data-ai-session-region]')
+            .getAttribute('data-selected-ai-session-providers'),
+        'codex'
+    );
+    assert.equal(
+        await project.locator('[data-ai-session-live-region]').textContent(),
+        'Could not update AI session providers. Try again.'
+    );
+
+    await trigger.click();
+    await project.locator('[data-ai-provider-option][data-provider="kimi"]').click();
+    assert.deepEqual(await page.evaluate(() => window.__postedMessages.at(-1)), {
+        type: 'select-ai-session-providers',
+        version: 1,
+        requestId: 2,
+        projectId: 'project-a',
+        selectedProviders: ['codex', 'kimi'],
+    });
 });

@@ -502,7 +502,10 @@ function initProjects() {
     };
     var activeAiSessionTerminalState = { provider: null, sessionId: null };
     var pendingWorkspaceSessionReveal = null;
+    var nextAiSessionProviderSelectionRequestId = 0;
     var pendingAiSessionProviderSelectionProjectId = null;
+    var pendingAiSessionProviderSelectionRequestId = null;
+    var pendingAiSessionProviderSelectionProviders = [];
 
     function isDedicatedTodoTarget(target) {
         return Boolean(window.__projectStewardTodo
@@ -692,7 +695,8 @@ function initProjects() {
 
         var manageAction = target.closest('[data-action="manage-ai-sessions"][data-provider]');
         if (manageAction) {
-            if (batchAiSessionState.pending)
+            if (batchAiSessionState.pending
+                || pendingAiSessionProviderSelectionProjectId)
                 return true;
 
             var manageProvider = manageAction.getAttribute("data-provider");
@@ -869,10 +873,16 @@ function initProjects() {
             return;
 
         exitAiSessionBatchManagement();
+        nextAiSessionProviderSelectionRequestId += 1;
+        var requestId = nextAiSessionProviderSelectionRequestId;
         pendingAiSessionProviderSelectionProjectId = projectId;
+        pendingAiSessionProviderSelectionRequestId = requestId;
+        pendingAiSessionProviderSelectionProviders = providers.slice();
         syncAiSessionProviderMenuDisabledDom(projectDiv, true);
         window.vscode.postMessage({
             type: 'select-ai-session-providers',
+            version: 1,
+            requestId: requestId,
             projectId,
             selectedProviders: providers,
         });
@@ -1067,15 +1077,19 @@ function initProjects() {
         }
     }
 
-    function syncAiSessionProviderMenuDisabledDom(projectDiv, pending) {
+    function syncAiSessionProviderMenuDisabledDom(projectDiv, batchPending) {
+        var projectId = projectDiv?.getAttribute('data-id');
+        var providerSelectionPending = projectId
+            === pendingAiSessionProviderSelectionProjectId;
+        var pending = Boolean(
+            batchPending || batchAiSessionState.pending || providerSelectionPending
+        );
         var trigger = projectDiv && projectDiv.querySelector('[data-ai-provider-menu-trigger]');
         if (trigger) {
             trigger.disabled = pending;
             trigger.setAttribute('aria-disabled', pending ? 'true' : 'false');
         }
         var selectedProviders = getSelectedAiSessionProviders(projectDiv);
-        pending = pending || projectDiv?.getAttribute('data-id')
-            === pendingAiSessionProviderSelectionProjectId;
         getAiSessionProviderOptions(projectDiv).forEach(option => {
             var provider = option.getAttribute('data-provider');
             var lastSelectedProvider = selectedProviders.length === 1
@@ -1089,6 +1103,63 @@ function initProjects() {
         if (pending) {
             closeAiSessionProviderMenu(projectDiv, false);
         }
+    }
+
+    function clearPendingAiSessionProviderSelection() {
+        pendingAiSessionProviderSelectionProjectId = null;
+        pendingAiSessionProviderSelectionRequestId = null;
+        pendingAiSessionProviderSelectionProviders = [];
+    }
+
+    function selectedAiSessionProvidersMatch(projectDiv, expectedProviders) {
+        var selectedProviders = getSelectedAiSessionProviders(projectDiv);
+        return selectedProviders.length === expectedProviders.length
+            && selectedProviders.every(provider =>
+                expectedProviders.includes(provider)
+            );
+    }
+
+    function reconcilePendingAiSessionProviderSelectionDom() {
+        if (!pendingAiSessionProviderSelectionProjectId)
+            return;
+        var projectDiv = findCurrentWorkspaceDiv(
+            pendingAiSessionProviderSelectionProjectId
+        );
+        if (!projectDiv)
+            return;
+        if (selectedAiSessionProvidersMatch(
+            projectDiv,
+            pendingAiSessionProviderSelectionProviders
+        )) {
+            clearPendingAiSessionProviderSelection();
+        }
+        syncAiSessionProviderMenuDisabledDom(projectDiv, false);
+    }
+
+    function applyAiSessionProviderSelectionResult(message) {
+        if (!message
+            || message.type !== 'ai-session-provider-selection-result'
+            || message.version !== 1
+            || !Number.isSafeInteger(message.requestId)
+            || message.requestId < 1
+            || typeof message.projectId !== 'string'
+            || typeof message.success !== 'boolean'
+            || message.projectId !== pendingAiSessionProviderSelectionProjectId
+            || message.requestId !== pendingAiSessionProviderSelectionRequestId) {
+            return false;
+        }
+        if (message.success) {
+            return true;
+        }
+
+        var projectDiv = findCurrentWorkspaceDiv(message.projectId);
+        clearPendingAiSessionProviderSelection();
+        syncAiSessionProviderMenuDisabledDom(projectDiv, false);
+        var liveRegion = projectDiv?.querySelector('[data-ai-session-live-region]');
+        if (liveRegion) {
+            liveRegion.textContent = 'Could not update AI session providers. Try again.';
+        }
+        return true;
     }
 
     function exitAiSessionBatchManagement() {
@@ -1859,6 +1930,10 @@ function initProjects() {
             applyTodoMutationResult(message, document);
             return;
         }
+        if (message && message.type === 'ai-session-provider-selection-result') {
+            applyAiSessionProviderSelectionResult(message);
+            return;
+        }
         if (message && (message.type === 'todo-panel-content' || message.type === 'todo-panel-updated')) {
             window.setTimeout(() => {
                 var todoRoot = document.querySelector('#dashboard-tab-todo');
@@ -1874,10 +1949,10 @@ function initProjects() {
                 requestFullRefresh('invalid-workspace-update');
                 return;
             }
-            pendingAiSessionProviderSelectionProjectId = null;
             if (batchAiSessionState.projectId) {
                 syncAiSessionBatchManagementDom(findCurrentWorkspaceDiv(batchAiSessionState.projectId));
             }
+            reconcilePendingAiSessionProviderSelectionDom();
             syncActiveAiSessionTerminalDom();
             updateStickyGroupHeaderOffset();
             var renderedWorkspaceState = getWorkspaceUpdateDomState(document);
@@ -1991,7 +2066,6 @@ function initProjects() {
             return;
         }
 
-        pendingAiSessionProviderSelectionProjectId = null;
         latestAiSessionUpdateSequence = message.sequence;
         if (batchAiSessionState.projectId) {
             var projectDiv = findCurrentWorkspaceDiv(batchAiSessionState.projectId);
@@ -2001,6 +2075,7 @@ function initProjects() {
                 exitAiSessionBatchManagement();
             }
         }
+        reconcilePendingAiSessionProviderSelectionDom();
         syncActiveAiSessionTerminalDom();
         updateStickyGroupHeaderOffset();
         if (window.__projectStewardDashboard) {

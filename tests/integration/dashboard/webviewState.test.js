@@ -476,7 +476,12 @@ test('WEBVIEW-MULTI-PROVIDER-SESSION-MENU-001 keeps the generated provider-menu 
     assert.match(projectSource, /function getSelectedAiSessionProviders\(projectDiv\)/);
     assert.match(projectSource, /function submitAiSessionProviderSelection\(projectDiv, providers\)/);
     assert.match(projectSource, /type: 'select-ai-session-providers'/);
+    assert.match(projectSource, /function applyAiSessionProviderSelectionResult\(message\)/);
+    assert.match(projectSource, /message\.type !== 'ai-session-provider-selection-result'/);
+    assert.match(projectSource, /requestId: requestId/);
     assert.match(projectSource, /selectedProviders: providers/);
+    assert.match(projectSource, /pendingAiSessionProviderSelectionProjectId/);
+    assert.match(projectSource, /pendingAiSessionProviderSelectionRequestId/);
     assert.doesNotMatch(projectSource, /type: 'select-ai-session-provider'/);
 });
 

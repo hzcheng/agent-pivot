@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "d58a88f8ba490cc3c31651fc27fe0c587b8965c9",
+        "head": "b142ac70a044d81230a29b4e1cc8cb658cfad1fa",
         "ignoredDocumentationCommits": []
     },
     "capabilities": [
@@ -200,7 +200,8 @@
                 "2cbf8013c6fcfde70f4e24bcd8887707ea0cc961",
                 "fe6c084fed2c8ffdeab4f902de2ffaf761b4e3fa",
                 "6ecef7dafbe23279270944708fbabe57b8f70a62",
-                "d58a88f8ba490cc3c31651fc27fe0c587b8965c9"
+                "d58a88f8ba490cc3c31651fc27fe0c587b8965c9",
+                "ed456da6b0979899eb2228da7d72fd6f64ed4382"
             ],
             "behaviors": [
                 "WEBVIEW-CURRENT-WORKSPACE-RENDERING-001",
@@ -349,7 +350,8 @@
                 "1ae927aef9cde0e5a6c9e067dd9de3f8477aceea",
                 "a17c97bc68f44b67a827637788f908e11f5611ed",
                 "2fcfb60b427f037c0e6427c2dcfc93ce8f34f0bc",
-                "9b00110b3b08464c11b552330b54be764180bf45"
+                "9b00110b3b08464c11b552330b54be764180bf45",
+                "b142ac70a044d81230a29b4e1cc8cb658cfad1fa"
             ],
             "behaviors": [
                 "RELEASE-VSIX-PACKAGING-001",

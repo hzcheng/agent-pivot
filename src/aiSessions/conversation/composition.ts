@@ -218,19 +218,26 @@ function createAvailableConversationCapability(
             if (disposed) {
                 return;
             }
-            controller.reconcile();
-            await viewer.reconcileAuthority(target => {
-                const authoritativeTarget = resolveExactTarget(options, target);
-                if (!authoritativeTarget) {
-                    return false;
-                }
-                coordinator.setSessionStopped(
-                    target.provider,
-                    target.sessionId,
-                    authoritativeTarget.executionState === 'stopped'
-                );
-                return true;
-            });
+            try {
+                controller.reconcile();
+                await viewer.reconcileAuthority(target => {
+                    const authoritativeTarget = resolveExactTarget(
+                        options,
+                        target
+                    );
+                    if (!authoritativeTarget) {
+                        return false;
+                    }
+                    coordinator.setSessionStopped(
+                        target.provider,
+                        target.sessionId,
+                        authoritativeTarget.executionState === 'stopped'
+                    );
+                    return true;
+                });
+            } catch (_error) {
+                reportUnavailable(options.onDiagnostic);
+            }
         },
         dispose(): void {
             if (disposed) {

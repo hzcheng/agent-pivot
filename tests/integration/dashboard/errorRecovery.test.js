@@ -21,6 +21,14 @@ const {
     makePublication,
 } = require('../../contract/openProjects/helpers');
 
+function deferred() {
+    let resolve;
+    const promise = new Promise(resolvePromise => {
+        resolve = resolvePromise;
+    });
+    return { promise, resolve };
+}
+
 function loadConversationComposition() {
     const fakeUri = value => ({
         scheme: value.split(':', 1)[0],
@@ -321,6 +329,105 @@ test('SESSION-SIDEBAR-STEWARD-VIEW-PROVIDER-ORDERING-001 releases sidebar-owned 
     assert.equal(await provider.postMessage({ type: 'after-dispose' }), false);
 });
 
+test('SESSION-SIDEBAR-STEWARD-VIEW-PROVIDER-OWNERSHIP-001 ignores stale visibility and disposal callbacks after view replacement', async () => {
+    const visibility = [];
+    const renders = [];
+    let disposed = 0;
+    let holdNextVisibility = false;
+    const visibilityGate = deferred();
+    const makeView = name => {
+        let visibilityChanged;
+        let disposeView;
+        const posted = [];
+        const view = {
+            visible: true,
+            webview: {
+                name,
+                html: '',
+                options: {},
+                onDidReceiveMessage: () => ({ dispose() {} }),
+                postMessage: async message => {
+                    posted.push(message);
+                    return true;
+                },
+            },
+            onDidChangeVisibility(callback) {
+                visibilityChanged = callback;
+                return { dispose() {} };
+            },
+            onDidDispose(callback) {
+                disposeView = callback;
+                return { dispose() {} };
+            },
+        };
+        return {
+            view,
+            posted,
+            fireVisibility: () => visibilityChanged(),
+            fireDispose: () => disposeView(),
+        };
+    };
+    const provider = new SidebarStewardViewProvider({
+        getWebviewOptions: () => ({}),
+        renderContent: webview => {
+            renders.push(webview.name);
+            return `<main>${webview.name}</main>`;
+        },
+        renderError: () => '<main>safe error</main>',
+        onMessage: async () => undefined,
+        onVisibleChanged: async visible => {
+            visibility.push(visible);
+            if (holdNextVisibility) {
+                holdNextVisibility = false;
+                await visibilityGate.promise;
+            }
+        },
+        onDisposed: () => {
+            disposed += 1;
+        },
+        logError: () => undefined,
+    });
+    const viewA = makeView('a');
+    const viewB = makeView('b');
+
+    await provider.resolveWebviewView(viewA.view, {}, {});
+    holdNextVisibility = true;
+    const staleInFlight = viewA.fireVisibility();
+    await new Promise(resolve => setImmediate(resolve));
+    await provider.resolveWebviewView(viewB.view, {}, {});
+    assert.deepEqual(renders, ['a', 'b']);
+
+    visibilityGate.resolve();
+    await staleInFlight;
+    assert.deepEqual(
+        renders,
+        ['a', 'b'],
+        'an old post-await continuation must not refresh the current view'
+    );
+
+    const visibilityBeforeOldCallbacks = visibility.slice();
+    viewA.view.visible = false;
+    await viewA.fireVisibility();
+    await viewA.fireDispose();
+    assert.deepEqual(visibility, visibilityBeforeOldCallbacks);
+    assert.equal(disposed, 0);
+    assert.equal(provider.visible, true);
+    assert.equal(await provider.postMessage({ type: 'current-b' }), true);
+    assert.deepEqual(viewB.posted, [{ type: 'current-b' }]);
+
+    viewB.view.visible = false;
+    await viewB.fireVisibility();
+    assert.equal(provider.visible, false);
+    viewB.view.visible = true;
+    await viewB.fireVisibility();
+    assert.equal(provider.visible, true);
+    assert.deepEqual(renders, ['a', 'b', 'b']);
+    await viewB.fireDispose();
+    assert.equal(disposed, 1);
+    assert.equal(provider.visible, false);
+    assert.equal(await provider.postMessage({ type: 'after-b' }), false);
+});
+
 test('PRODUCTION-CONVERSATION-UNAVAILABLE-001 isolates constructor failures from dashboard activation and unrelated routes', async () => {
     const privateFailure = [
         '/home/private/conversation.jsonl',
@@ -403,6 +510,11 @@ test('PRODUCTION-CONVERSATION-UNAVAILABLE-001 isolates constructor failures from
 
 for (const scenario of [
     {
+        throwAt: 'codex',
+        created: ['client', 'codex:throw'],
+        disposed: ['client'],
+    },
+    {
         throwAt: 'kimi',
         created: ['client', 'codex', 'kimi:throw'],
         disposed: ['client', 'codex'],
@@ -484,6 +596,31 @@ for (const scenario of [
         assert.deepEqual(harness.disposals, beforeUnavailableDispose);
     });
 }
+
+test('PRODUCTION-CONVERSATION-OWNERSHIP-002 disposes each steady-state capability resource exactly once', () => {
+    const harness = constructionFailureHarness();
+    const resources = [
+        'client',
+        'codex',
+        'kimi',
+        'claude',
+        'coordinator',
+        'viewer',
+        'controller',
+    ];
+
+    assert.equal(harness.capability.availability, 'available');
+    assert.deepEqual(harness.creations, resources);
+    harness.capability.dispose();
+    harness.capability.dispose();
+    assert.deepEqual(
+        Object.fromEntries(resources.map(name => [
+            name,
+            harness.disposals.get(name) || 0,
+        ])),
+        Object.fromEntries(resources.map(name => [name, 1]))
+    );
+});
 
 test('WEBVIEW-DASHBOARD-MESSAGE-ROUTER-001 ignores invalid Webview messages without mutating host state', async () => {
     const mutations = [];

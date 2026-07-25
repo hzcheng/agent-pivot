@@ -7304,6 +7304,22 @@ function runConversationProductionSafetyChecks() {
         'Claude source scope must come from current workspace root host paths'
     );
 
+    const conversationSubscriptionRoots = collectNodes(
+        dashboardAst,
+        node => ts.isCallExpression(node)
+            && propertyAccessPath(node.expression)
+                === 'context.subscriptions.push'
+    ).flatMap(call => call.arguments)
+        .map(propertyAccessPath)
+        .filter(candidate => candidate?.startsWith(
+            'conversationCapability'
+        ));
+    assert.deepStrictEqual(
+        conversationSubscriptionRoots,
+        ['conversationCapability'],
+        'production must register only the aggregate conversation capability'
+    );
+
     const spawnCalls = collectNodes(
         codexClientAst,
         node => ts.isCallExpression(node)

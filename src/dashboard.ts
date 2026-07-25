@@ -1717,7 +1717,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }));
     context.subscriptions.push(activeAiSessionTerminalHighlighter);
     context.subscriptions.push(tmuxFocusedRuntimeMonitor);
-    context.subscriptions.push(conversationCapability.viewer);
     context.subscriptions.push(conversationCapability);
     context.subscriptions.push(openWorkspaceBridgeClient);
     context.subscriptions.push(aiSessionAttentionBridgeClient);

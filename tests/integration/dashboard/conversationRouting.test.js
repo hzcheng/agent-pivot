@@ -332,6 +332,9 @@ function createDashboardConversationHarness(options = {}) {
                             viewerTargets.push(target);
                         },
                         refresh: async () => undefined,
+                        reconcileAuthority:
+                            options.viewerReconcileAuthority
+                            || (async () => undefined),
                         dispose() {
                             if (disposed) return;
                             disposed = true;
@@ -769,6 +772,31 @@ test('PRODUCTION-CONVERSATION-LIFECYCLE-001 hidden sidebar keeps the exact viewe
         harness.panels[0].postedMessages.filter(message =>
             message.type === 'conversation-viewer-page'
         ).at(-1).stale,
+        false
+    );
+    await harness.dispose();
+});
+
+test('PRODUCTION-CONVERSATION-LIFECYCLE-002 fire-and-forget reconcile isolates viewer failures to one sanitized diagnostic', async () => {
+    const secret = [
+        '/private/viewer/reconcile',
+        'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        'private prompt',
+    ].join(' ');
+    const harness = createDashboardConversationHarness({
+        viewerReconcileAuthority: async () => {
+            throw new Error(secret);
+        },
+    });
+    await harness.activate();
+
+    await assert.doesNotReject(harness.capability.reconcile());
+    assert.deepEqual(harness.diagnostics, [{
+        event: 'conversation-read',
+        category: 'unavailable',
+    }]);
+    assert.equal(
+        JSON.stringify(harness.diagnostics).includes(secret),
         false
     );
     await harness.dispose();

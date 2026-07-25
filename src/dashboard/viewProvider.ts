@@ -25,12 +25,21 @@ export class SidebarStewardViewProvider implements vscode.WebviewViewProvider {
 
     async resolveWebviewView(webviewView: vscode.WebviewView, webviewContext: vscode.WebviewViewResolveContext<unknown>, token: vscode.CancellationToken): Promise<void> {
         this._view = webviewView;
+        let disposed = false;
+        const isCurrent = () =>
+            !disposed && this._view === webviewView;
         webviewView.webview.options = this.options.getWebviewOptions();
 
         webviewView.webview.onDidReceiveMessage(async message => {
+            if (!isCurrent()) {
+                return;
+            }
             try {
                 await this.options.onMessage(message);
             } catch (_error) {
+                if (!isCurrent()) {
+                    return;
+                }
                 this.options.logError(
                     'Failed to handle a Project Steward message.', sanitizedViewFailure()
                 );
@@ -38,15 +47,17 @@ export class SidebarStewardViewProvider implements vscode.WebviewViewProvider {
         });
 
         webviewView.onDidChangeVisibility(async () => {
-            await this.prepareVisibility(webviewView);
+            await this.prepareVisibility(webviewView, isCurrent);
         });
-        let disposed = false;
         if (typeof webviewView.onDidDispose === 'function') {
             webviewView.onDidDispose(async () => {
-                if (disposed || this._view !== webviewView) {
+                if (disposed) {
                     return;
                 }
                 disposed = true;
+                if (this._view !== webviewView) {
+                    return;
+                }
                 this._view = undefined;
                 try {
                     await this.options.onDisposed();
@@ -58,7 +69,7 @@ export class SidebarStewardViewProvider implements vscode.WebviewViewProvider {
                 }
             });
         }
-        await this.prepareVisibility(webviewView);
+        await this.prepareVisibility(webviewView, isCurrent);
     }
 
     get visible() {
@@ -85,13 +96,25 @@ export class SidebarStewardViewProvider implements vscode.WebviewViewProvider {
         return this._view.webview.postMessage(message);
     }
 
-    private async prepareVisibility(webviewView: vscode.WebviewView): Promise<void> {
+    private async prepareVisibility(
+        webviewView: vscode.WebviewView,
+        isCurrent: () => boolean
+    ): Promise<void> {
+        if (!isCurrent()) {
+            return;
+        }
         try {
             await this.options.onVisibleChanged(webviewView.visible);
+            if (!isCurrent()) {
+                return;
+            }
             if (webviewView.visible) {
                 this.refresh();
             }
         } catch (_error) {
+            if (!isCurrent()) {
+                return;
+            }
             const failure = sanitizedViewFailure();
             this.options.logError('Failed to prepare Project Steward view.', failure);
             if (webviewView.visible) {

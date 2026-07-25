@@ -668,6 +668,88 @@ test('CONVERSATION-VIEWER-AUTHORITY-003 suspends exact authority without clearin
     assert.equal(publication.html.includes('visible-2'), true);
 });
 
+test('CONVERSATION-VIEWER-AUTHORITY-005 keeps a failed watch rebuild suspended and retries it on later authority', async () => {
+    let outlineReads = 0;
+    let pageReads = 0;
+    let watchCreates = 0;
+    let liveInvalidation;
+    const { viewer, panel } = createViewer({
+        watch: (_provider, _sessionId, onChange) => {
+            watchCreates += 1;
+            if (watchCreates === 2) {
+                throw new Error([
+                    '/private/watch/rebuild',
+                    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+                    'private prompt',
+                ].join(' '));
+            }
+            liveInvalidation = onChange;
+            return { dispose() {} };
+        },
+        readOutline: async (_provider, sessionId) => {
+            outlineReads += 1;
+            return outline(sessionId, ['input-1', 'input-2']);
+        },
+        readPage: async request => {
+            pageReads += 1;
+            return page(
+                request.sessionId,
+                request.anchorInteractionId,
+                `visible-${pageReads}`,
+                {
+                    sourceRevision: request.expectedRevision,
+                    nextCursor: 'next-input',
+                }
+            );
+        },
+    });
+
+    await viewer.open(target('session-a', 'input-1'));
+    await viewer.reconcileAuthority(() => false);
+    const stalePublication = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page').at(-1);
+    assert.equal(stalePublication.stale, true);
+    const readsBeforeFailedResume = {
+        outline: outlineReads,
+        page: pageReads,
+    };
+
+    await assert.doesNotReject(
+        viewer.reconcileAuthority(() => true)
+    );
+    assert.equal(watchCreates, 2);
+    assert.deepEqual({
+        outline: outlineReads,
+        page: pageReads,
+    }, readsBeforeFailedResume);
+    await panel.receive({ type: 'conversation-viewer-next', version: 1 });
+    assert.equal(pageReads, readsBeforeFailedResume.page);
+    assert.equal(
+        panel.postedMessages.filter(message =>
+            message.type === 'conversation-viewer-page'
+        ).at(-1).stale,
+        true
+    );
+
+    await viewer.reconcileAuthority(() => true);
+    let publication = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page').at(-1);
+    assert.equal(watchCreates, 3);
+    assert.equal(outlineReads, readsBeforeFailedResume.outline + 1);
+    assert.equal(pageReads, readsBeforeFailedResume.page + 1);
+    assert.equal(publication.stale, false);
+    assert.equal(publication.html.includes('visible-2'), true);
+
+    liveInvalidation();
+    await new Promise(resolve => setImmediate(resolve));
+    publication = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page').at(-1);
+    assert.equal(outlineReads, readsBeforeFailedResume.outline + 2);
+    assert.equal(pageReads, readsBeforeFailedResume.page + 2);
+    assert.equal(publication.stale, false);
+    assert.equal(publication.html.includes('visible-3'), true);
+});
+
 test('CONVERSATION-VIEWER-AUTHORITY-004 reconciliation after panel close is an idempotent no-op', async () => {
     const { viewer, panel } = createViewer();
     await viewer.open(target('session-a'));

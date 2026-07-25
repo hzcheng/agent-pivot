@@ -187,10 +187,11 @@ export class ConversationViewer implements ConversationViewerApi {
             return;
         }
         const wasSuspended = this.suspended;
-        this.suspended = false;
-        if (wasSuspended) {
-            this.ensureWatch(this.subscriptionGeneration);
+        if (wasSuspended
+            && !this.ensureWatch(this.subscriptionGeneration, true)) {
+            return;
         }
+        this.suspended = false;
         await this.refresh();
     }
 
@@ -756,22 +757,39 @@ export class ConversationViewer implements ConversationViewerApi {
         return requestId;
     }
 
-    private ensureWatch(generation: number): void {
+    private ensureWatch(
+        generation: number,
+        isolateFailure = false
+    ): boolean {
         const target = this.target;
-        if (!target || this.watch || this.suspended) {
-            return;
+        if (!target || this.watch || (this.suspended && !isolateFailure)) {
+            return false;
         }
-        this.watch = this.options.watch(
-            target.provider,
-            target.sessionId,
-            () => {
-                if (generation !== this.subscriptionGeneration
-                    || this.suspended) {
-                    return;
+        try {
+            const watch = this.options.watch(
+                target.provider,
+                target.sessionId,
+                () => {
+                    if (generation !== this.subscriptionGeneration
+                        || this.suspended) {
+                        return;
+                    }
+                    void this.refresh();
                 }
-                void this.refresh();
+            );
+            if (this.target !== target
+                || generation !== this.subscriptionGeneration) {
+                watch.dispose();
+                return false;
             }
-        );
+            this.watch = watch;
+            return true;
+        } catch (error) {
+            if (!isolateFailure) {
+                throw error;
+            }
+            return false;
+        }
     }
 
     private retain(

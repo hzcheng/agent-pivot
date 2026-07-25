@@ -1,11 +1,17 @@
-function normalizeDashboardTab(tab) {
-    return tab === 'projects' || tab === 'todo' ? tab : 'open';
+function normalizeDashboardTab(value) {
+    return value === 'projects' || value === 'todo' || value === 'ai' ? value : 'open';
 }
 
 function getAdjacentDashboardTab(tab, key) {
     tab = normalizeDashboardTab(tab);
-    var tabs = ['open', 'projects', 'todo'];
+    var tabs = ['open', 'projects', 'todo', 'ai'];
     var currentIndex = tabs.indexOf(tab);
+    if (key === 'Home') {
+        return tabs[0];
+    }
+    if (key === 'End') {
+        return tabs[tabs.length - 1];
+    }
     if (key === 'ArrowRight') {
         return tabs[(currentIndex + 1) % tabs.length];
     }
@@ -84,6 +90,88 @@ function validateTodoPanelUpdatedMessage(message) {
         && message.version === 1
         && typeof message.html === 'string'
         && normalizeDashboardSearchCatalog(message.searchCatalog) === message.searchCatalog;
+}
+
+function hasExactObjectKeys(value, requiredKeys, optionalKeys) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        return false;
+    }
+    var allowedKeys = requiredKeys.concat(optionalKeys || []);
+    var keys = Object.keys(value);
+    return requiredKeys.every(key => Object.prototype.hasOwnProperty.call(value, key))
+        && keys.every(key => allowedKeys.indexOf(key) >= 0);
+}
+
+function validatePromptPanelSnapshot(snapshot) {
+    if (!hasExactObjectKeys(
+        snapshot,
+        ['version', 'revision', 'selectedPromptId', 'prompts'],
+        ['readOnlyReason']
+    )
+        || snapshot.version !== 1
+        || !Number.isSafeInteger(snapshot.revision)
+        || snapshot.revision < 0
+        || (snapshot.selectedPromptId !== null
+            && (typeof snapshot.selectedPromptId !== 'string' || !snapshot.selectedPromptId))
+        || !Array.isArray(snapshot.prompts)
+        || (snapshot.readOnlyReason !== undefined
+            && snapshot.readOnlyReason !== 'invalid-data'
+            && snapshot.readOnlyReason !== 'unsupported-version')) {
+        return false;
+    }
+
+    var promptIds = new Set();
+    var promptNames = new Set();
+    for (var prompt of snapshot.prompts) {
+        if (!hasExactObjectKeys(prompt, ['id', 'name', 'text'])
+            || typeof prompt.id !== 'string'
+            || !prompt.id
+            || typeof prompt.name !== 'string'
+            || !prompt.name.trim()
+            || typeof prompt.text !== 'string'
+            || !prompt.text.trim()
+            || promptIds.has(prompt.id)
+            || promptNames.has(prompt.name.toLowerCase())) {
+            return false;
+        }
+        promptIds.add(prompt.id);
+        promptNames.add(prompt.name.toLowerCase());
+    }
+    return snapshot.selectedPromptId === null || promptIds.has(snapshot.selectedPromptId);
+}
+
+function validateAiPanelMessage(message) {
+    return hasExactObjectKeys(message, [
+        'type',
+        'version',
+        'requestId',
+        'target',
+        'snapshot',
+        'html',
+    ])
+        && message.type === 'ai-panel-content'
+        && message.version === 1
+        && typeof message.requestId === 'string'
+        && message.requestId.length > 0
+        && message.requestId.length <= 128
+        && message.target === 'global-prompt-library'
+        && validatePromptPanelSnapshot(message.snapshot)
+        && typeof message.html === 'string';
+}
+
+function validatePromptPanelUpdatedMessage(message) {
+    return hasExactObjectKeys(message, [
+        'type',
+        'version',
+        'target',
+        'snapshot',
+        'html',
+    ])
+        && message.type === 'prompt-panel-updated'
+        && message.version === 1
+        && message.target === 'global-prompt-library'
+        && validatePromptPanelSnapshot(message.snapshot)
+        && typeof message.html === 'string';
 }
 
 function normalizeDashboardSearchCatalog(value) {
@@ -231,7 +319,7 @@ function renderDashboardSearchResults(container, sections) {
 function initDashboard(options) {
     options = options || {};
     var storageKey = 'projectSteward.activeDashboardTab';
-    var scrollPositions = { open: 0, projects: 0, todo: 0 };
+    var scrollPositions = { open: 0, projects: 0, todo: 0, ai: 0 };
     var activeTab = normalizeDashboardTab(sessionStorage.getItem(storageKey));
     var projectsState = 'unloaded';
     var projectsRequestId = 0;
@@ -244,6 +332,13 @@ function initDashboard(options) {
     var acceptedTodoRequestId = 0;
     var todoRequestAttempts = 0;
     var todoRequestTimer = null;
+    var aiState = 'unloaded';
+    var aiRequestId = null;
+    var aiRequestAttempts = 0;
+    var aiRequestTimer = null;
+    var aiRequestSequence = 0;
+    var issuedAiRequestIds = new Set();
+    var pendingAiSubtab = null;
     var pendingTodoSearchTarget = null;
     var pendingScrollRestoreTab = null;
     var panelRequestTimeoutMs = Number(options.panelRequestTimeoutMs) > 0
@@ -260,6 +355,7 @@ function initDashboard(options) {
         open: document.getElementById('dashboard-tab-open'),
         projects: document.getElementById('dashboard-tab-projects'),
         todo: document.getElementById('dashboard-tab-todo'),
+        ai: document.getElementById('dashboard-panel-ai'),
     };
     var tablist = document.querySelector ? document.querySelector('[role="tablist"]') : null;
     var collapseButton = document.querySelector ? document.querySelector('[data-action="toggle-all-groups"]') : null;
@@ -311,6 +407,12 @@ function initDashboard(options) {
         if (typeof options.onActiveTabChanged === 'function') {
             options.onActiveTabChanged(activeTab);
         }
+        if (collapseButton && activeTab === 'ai') {
+            collapseButton.disabled = true;
+            collapseButton.setAttribute('aria-disabled', 'true');
+            collapseButton.setAttribute('title', 'No groups to collapse in AI');
+            collapseButton.setAttribute('aria-label', 'No groups to collapse in AI');
+        }
     }
 
     function getPanelLoadingElement(tab) {
@@ -320,7 +422,9 @@ function initDashboard(options) {
         }
         return panel.querySelector(tab === 'projects'
             ? '.dashboard-projects-loading'
-            : '.dashboard-todo-loading');
+            : tab === 'todo'
+                ? '.dashboard-todo-loading'
+                : '.dashboard-ai-loading');
     }
 
     function showPanelLoading(tab) {
@@ -328,7 +432,11 @@ function initDashboard(options) {
         if (!loadingElement) {
             return;
         }
-        loadingElement.textContent = tab === 'projects' ? 'Loading projects…' : 'Loading todos…';
+        loadingElement.textContent = tab === 'projects'
+            ? 'Loading projects…'
+            : tab === 'todo'
+                ? 'Loading todos…'
+                : 'Loading AI configuration…';
         loadingElement.hidden = false;
     }
 
@@ -337,7 +445,11 @@ function initDashboard(options) {
         if (!loadingElement) {
             return;
         }
-        loadingElement.textContent = (tab === 'projects' ? 'Projects' : 'TODO')
+        loadingElement.textContent = (tab === 'projects'
+            ? 'Projects'
+            : tab === 'todo'
+                ? 'TODO'
+                : 'AI configuration')
             + ' are temporarily unavailable. Select this tab to retry.';
         loadingElement.hidden = false;
     }
@@ -384,6 +496,50 @@ function initDashboard(options) {
         }, panelRequestTimeoutMs);
     }
 
+    function scheduleAiRequestTimeout(requestId) {
+        if (!scheduleTimeout) {
+            return;
+        }
+        if (aiRequestTimer !== null) {
+            cancelTimeout(aiRequestTimer);
+        }
+        aiRequestTimer = scheduleTimeout(function () {
+            aiRequestTimer = null;
+            if (aiState !== 'loading' || requestId !== aiRequestId) {
+                return;
+            }
+            aiState = 'unloaded';
+            if (aiRequestAttempts < 2 && activeTab === 'ai' && !searchQuery) {
+                ensureAiPanel();
+                return;
+            }
+            showPanelUnavailable('ai');
+        }, panelRequestTimeoutMs);
+    }
+
+    function createFreshAiRequestId() {
+        aiRequestSequence += 1;
+        var randomId = '';
+        try {
+            if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+                randomId = crypto.randomUUID();
+            }
+        } catch (_error) {
+            randomId = '';
+        }
+        if (!randomId) {
+            randomId = Date.now().toString(36)
+                + '-' + Math.random().toString(36).slice(2);
+        }
+        var requestId = randomId + '-' + aiRequestSequence.toString(36);
+        while (issuedAiRequestIds.has(requestId)) {
+            aiRequestSequence += 1;
+            requestId = randomId + '-' + aiRequestSequence.toString(36);
+        }
+        issuedAiRequestIds.add(requestId);
+        return requestId;
+    }
+
     function ensureProjectsPanel() {
         if (projectsState !== 'unloaded') {
             return;
@@ -416,6 +572,23 @@ function initDashboard(options) {
         scheduleTodoRequestTimeout(todoRequestId);
     }
 
+    function ensureAiPanel() {
+        if (aiState !== 'unloaded') {
+            return;
+        }
+        aiState = 'loading';
+        aiRequestAttempts += 1;
+        aiRequestId = createFreshAiRequestId();
+        showPanelLoading('ai');
+        options.postMessage({
+            type: 'request-ai-panel',
+            version: 1,
+            requestId: aiRequestId,
+            target: 'global-prompt-library',
+        });
+        scheduleAiRequestTimeout(aiRequestId);
+    }
+
     function activateTab(tab, saveScroll) {
         tab = normalizeDashboardTab(tab);
         saveScroll = saveScroll !== false;
@@ -446,6 +619,13 @@ function initDashboard(options) {
                 pendingScrollRestoreTab = 'todo';
                 ensureTodoPanel();
             }
+        } else if (activeTab === 'ai') {
+            if (aiState === 'mounted') {
+                restoreScroll('ai');
+            } else {
+                pendingScrollRestoreTab = 'ai';
+                ensureAiPanel();
+            }
         } else {
             restoreScroll('open');
         }
@@ -468,6 +648,9 @@ function initDashboard(options) {
             } else if (activeTab === 'todo' && todoState !== 'mounted') {
                 pendingScrollRestoreTab = 'todo';
                 ensureTodoPanel();
+            } else if (activeTab === 'ai' && aiState !== 'mounted') {
+                pendingScrollRestoreTab = 'ai';
+                ensureAiPanel();
             } else {
                 restoreScroll(activeTab);
             }
@@ -818,13 +1001,70 @@ function initDashboard(options) {
         return true;
     }
 
+    function applyAiPanelMessage(message) {
+        if (!validateAiPanelMessage(message)
+            || aiState !== 'loading'
+            || message.requestId !== aiRequestId
+            || !panels.ai) {
+            return false;
+        }
+
+        if (aiRequestTimer !== null) {
+            cancelTimeout(aiRequestTimer);
+            aiRequestTimer = null;
+        }
+        aiRequestAttempts = 0;
+        panels.ai.innerHTML = message.html;
+        aiState = 'mounted';
+        if (window.__projectStewardPrompts
+            && typeof window.__projectStewardPrompts.mount === 'function') {
+            window.__projectStewardPrompts.mount(panels.ai);
+        }
+        applyPendingAiSubtab();
+        if (pendingScrollRestoreTab === 'ai') {
+            pendingScrollRestoreTab = null;
+            if (activeTab === 'ai' && !searchQuery) {
+                restoreScroll('ai');
+            }
+        }
+        return true;
+    }
+
+    function applyPendingAiSubtab() {
+        if (pendingAiSubtab !== 'prompts'
+            || aiState !== 'mounted'
+            || !panels.ai
+            || typeof panels.ai.querySelector !== 'function') {
+            return false;
+        }
+        var promptTab = panels.ai.querySelector('#ai-tab-prompts');
+        if (!promptTab || typeof promptTab.click !== 'function') {
+            return false;
+        }
+        pendingAiSubtab = null;
+        promptTab.click();
+        return true;
+    }
+
+    function applyPromptPanelUpdatedMessage(message) {
+        if (!validatePromptPanelUpdatedMessage(message)
+            || !window.__projectStewardPrompts
+            || typeof window.__projectStewardPrompts.applyRefresh !== 'function') {
+            return false;
+        }
+        return window.__projectStewardPrompts.applyRefresh(message) === true;
+    }
+
     tabButtons.forEach(button => {
         button.addEventListener('click', () => {
             activateTab(button.getAttribute('data-dashboard-tab'));
         });
         button.addEventListener('keydown', event => {
             var tab = normalizeDashboardTab(button.getAttribute('data-dashboard-tab'));
-            if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+            if (event.key === 'ArrowLeft'
+                || event.key === 'ArrowRight'
+                || event.key === 'Home'
+                || event.key === 'End') {
                 event.preventDefault();
                 var adjacentTab = getAdjacentDashboardTab(tab, event.key);
                 var adjacentButton = tabButtons.find(candidate =>
@@ -864,6 +1104,27 @@ function initDashboard(options) {
         if (event && event.data && event.data.type === 'todo-panel-updated') {
             applyTodoPanelUpdatedMessage(event.data);
         }
+        if (event && event.data && event.data.type === 'ai-panel-content') {
+            applyAiPanelMessage(event.data);
+        }
+        if (event && event.data && event.data.type === 'prompt-panel-updated') {
+            applyPromptPanelUpdatedMessage(event.data);
+        }
+        if (event && event.data
+            && event.data.type === 'select-dashboard-tab'
+            && event.data.version === 1
+            && event.data.tab === 'ai'
+            && event.data.aiSubtab === 'prompts') {
+            if (searchQuery && typeof options.clearSearch === 'function') {
+                options.clearSearch();
+            }
+            if (searchQuery) {
+                setSearchQuery('');
+            }
+            pendingAiSubtab = 'prompts';
+            activateTab('ai');
+            applyPendingAiSubtab();
+        }
     });
     if (searchResults) {
         searchResults.addEventListener('click', onSearchResultClick);
@@ -877,6 +1138,9 @@ function initDashboard(options) {
     } else if (activeTab === 'todo') {
         pendingScrollRestoreTab = 'todo';
         ensureTodoPanel();
+    } else if (activeTab === 'ai') {
+        pendingScrollRestoreTab = 'ai';
+        ensureAiPanel();
     }
     document.body.classList.remove('preload');
     notifyActiveTabChanged();
@@ -887,11 +1151,15 @@ function initDashboard(options) {
         applyProjectsPanelUpdatedMessage,
         applyTodoPanelMessage,
         applyTodoPanelUpdatedMessage,
+        applyAiPanelMessage,
+        applyPromptPanelUpdatedMessage,
         ensureProjectsPanel,
         ensureTodoPanel,
+        ensureAiPanel,
         getActiveTab: () => activeTab,
         getProjectsState: () => projectsState,
         getTodoState: () => todoState,
+        getAiState: () => aiState,
         getScrollPosition: tab => scrollPositions[normalizeDashboardTab(tab)],
         isSearchActive: () => searchQuery.length > 0,
         replaceSearchCatalog,

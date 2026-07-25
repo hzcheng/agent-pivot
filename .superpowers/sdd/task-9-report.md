@@ -8,8 +8,8 @@ DONE
 - Branch: `docs/active-session-conversation-outline-design`
 - Feature commit:
   `b596147 feat: render Active Session conversation outlines`
-- Review fixes were reproduced as RED and incorporated before the feature
-  commit; no separate fix commit was needed.
+- Root-review fix commit:
+  `11ee86a fix: align conversation outlines with host contracts`
 - Independent final review: Critical 0, Important 0, Minor 0.
 - No push was performed.
 
@@ -72,6 +72,27 @@ One intermediate retry test also reproduced a real Web timer risk:
 `retryAfterMs: 60_001` was initially accepted and rendered a reconnecting
 state. The envelope now rejects retry delays above 60 seconds.
 
+A later root review required two Important corrections and one Minor
+interaction correction. All three were specified before implementation, and
+the unchanged production code reported `0/3` in the focused browser slice:
+
+```bash
+node --test --test-concurrency=1 \
+  --test-name-pattern='renders the actual Task 6 capped shape|rejects every invalid public error pairing|safely renders markers' \
+  tests/browser/activeSessionConversationOutline.test.js
+```
+
+The RED output showed:
+
+1. Task 6's actual 2,001-interaction `buildConversationOutline` result retained
+   `model-1` instead of applying the live capped tail beginning at `model-2`;
+2. 17 invalid code/reason/retry combinations cleared the existing marker,
+   changed its state, or installed a timer;
+3. clicking a marker left `tabindex="0"` and `aria-selected="true"` on the
+   previously keyboard-selected marker.
+
+The same focused slice reported `3/3` after the minimal fixes.
+
 ## Implementation
 
 - The Webview consumes only the exact Task 6 result envelope for the current
@@ -81,15 +102,26 @@ state. The envelope now rejects retry delays above 60 seconds.
   IDs/revisions are bounded nonblank strings; interactions are unique and
   capped at 2,000; counts are capped at 64,000; previews are capped at 160
   graphemes and 4,096 code units.
+- A Task 6 outline may legitimately report more total interactions than its
+  2,000 retained summaries even when source `partial` is false. The Webview
+  accepts `totalInteractions >= interactions.length` and derives visible
+  omission from `partial || totalInteractions > interactions.length`, yielding
+  the exact `2,000+` count and `Older inputs omitted` state.
+- Public errors use an exact semantic matrix: generic errors have no reason or
+  retry deadline; missing-source, update, and reconnect reasons pair only with
+  unavailable and no deadline; unsupported protocol pairs only with
+  unsupported version and no deadline; retry-exhausted pairs only with
+  unavailable and a positive safe deadline at most 60 seconds.
 - Markers are built with `document.createElement`, populated with
   `textContent`, and receive only a numeric CSS ratio clamped to `[0.18, 1]`.
   Prompt text is never returned to the Host.
 - The rail exposes oldest-to-newest markers, latest/current state, a 24 px
   target, roving `tabindex`, `role="option"`, `aria-selected`, and timestamp
   plus preview labels.
-- Click and Enter post only the opaque interaction ID and current public
-  revision. Arrow keys and Home/End move focus and minimally reveal the
-  destination without posting navigation.
+- Click first updates the same roving focus/selection state used by the
+  keyboard, then click and Enter post only the opaque interaction ID and
+  current public revision. Arrow keys and Home/End move focus and minimally
+  reveal the destination without posting navigation.
 - First render reveals the latest marker only when necessary. Live results
   follow the tail only if the prior rail was within a valid numeric threshold;
   otherwise historical scroll is retained. Matching authoritative HTML
@@ -127,6 +159,17 @@ and fixed before commit:
 
 The final independent re-review reported Critical 0, Important 0, Minor 0.
 
+The later root review reported two Important findings and one Minor finding:
+
+1. the Webview rejected Task 6's real 2,001-total/2,000-summary capped shape;
+2. public error code/reason/retry pairing was not fully fail-closed;
+3. pointer activation did not update roving marker selection.
+
+After RED-first fixes, the original scoped reviewer rechecked the complete
+follow-up diff and reported Critical 0, Important 0, Minor 0. It also confirmed
+that the auto-scroll threshold was not expanded and no Task 10 Host wiring was
+added.
+
 ## Final GREEN Evidence
 
 Fresh verification covered:
@@ -158,11 +201,10 @@ node --check media/webviewProjectScripts.js
 - TypeScript and the attention bridge compiled.
 - Production Gulp assets built.
 - Focused integration reported `54/54`.
-- Focused browser reported `12/12`, then passed three additional consecutive
-  complete runs (`3/3`).
+- Focused browser reported `14/14`.
 - The deterministic unit/contract/integration chain passed; its final
   integration stage reported `184/184`.
-- The complete browser suite reported `57/57`.
+- The complete browser suite reported `59/59`.
 - Safety, Dashboard Webview, architecture baseline, and architecture guards
   passed.
 - Behavior catalog and main-capability unit checks reported `40/40`.
@@ -176,5 +218,6 @@ Two repository-baseline checks remain intentionally unchanged:
   `src/aiSessions/conversation/codexAppServerClient.ts semicolon 0=5`; Task 9
   does not modify that file.
 - `node scripts/check-behavior-contracts.js` reports the existing unaudited
-  Task 1–8 implementation commits after the catalog audit head. Per Task 9
-  scope, the audit head was not advanced.
+  Task 1–8 implementation commits plus Task 9's already committed feature
+  commit after the catalog audit head. Per Task 9 scope, the audit head was not
+  advanced.

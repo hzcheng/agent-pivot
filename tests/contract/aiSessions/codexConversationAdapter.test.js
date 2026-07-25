@@ -264,6 +264,22 @@ test('SESSION-AI-SESSION-CODEX-CONVERSATION-004 fails closed on malformed stable
                 };
             },
         },
+        {
+            name: 'remote attachment URL',
+            mutate(value) {
+                value.thread.turns[0].items[0].content[1].url = {
+                    raw: 'RAW-URL-SECRET',
+                };
+            },
+        },
+        {
+            name: 'local attachment path',
+            mutate(value) {
+                value.thread.turns[0].items[12].content[1].path = {
+                    raw: 'RAW-PATH-SECRET',
+                };
+            },
+        },
     ];
     for (const invalid of malformed) {
         await t.test(invalid.name, async () => {

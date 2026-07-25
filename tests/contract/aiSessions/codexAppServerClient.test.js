@@ -173,6 +173,9 @@ function assertSanitizedDiagnostics(diagnostics, forbidden = []) {
         );
         assert.equal(diagnostic.event, 'codex-conversation-app-server');
         assert.equal(diagnostic.provider, 'codex');
+        if (diagnostic.version !== undefined) {
+            assert.match(diagnostic.version, /^[0-9]{1,6}\.[0-9]{1,6}$/);
+        }
     }
     const serialized = JSON.stringify(diagnostics);
     forbidden.forEach(secret => assert.equal(serialized.includes(secret), false));
@@ -403,6 +406,35 @@ test('SESSION-AI-SESSION-CODEX-APP-SERVER-006 rejects timeout and abort while cl
         emitResponse(harness.child, { id: 3, result: { fresh: true } });
         assert.deepEqual(await next, { fresh: true });
     });
+
+    await t.test('abort while the shared handshake is pending', async () => {
+        const harness = createHarness();
+        const controller = new ConversationAbortController();
+        let rejected;
+        const request = harness.client.request(
+            'thread/read',
+            { threadId: SESSION_ID },
+            controller.signal
+        );
+        request.catch(error => {
+            rejected = error;
+        });
+        await settle();
+        controller.abort();
+        await settle();
+        assert.equal(rejected?.name, 'AbortError');
+        emitResponse(harness.child, {
+            id: 1,
+            result: {
+                serverInfo: {
+                    name: 'codex-app-server',
+                    version: '1.42.7',
+                },
+            },
+        });
+        await settle();
+        harness.client.dispose();
+    });
 });
 
 test('SESSION-AI-SESSION-CODEX-APP-SERVER-007 maps capability and protocol failures without raw leakage', async t => {
@@ -601,6 +633,7 @@ test('SESSION-AI-SESSION-CODEX-APP-SERVER-010 rejects every pending request when
         threadId: SESSION_ID,
     });
     await finishHandshake(harness.child);
+    harness.child.stdin.writeResults.push(false);
     const second = harness.client.request('thread/read', {
         threadId: 'second-pending',
     });
@@ -617,10 +650,86 @@ test('SESSION-AI-SESSION-CODEX-APP-SERVER-010 rejects every pending request when
         && error.reason === 'reconnectingCodex'
     );
     assert.equal(harness.timers.activeCount(), 0);
+    assert.equal(harness.child.stdin.listenerCount('drain'), 0);
+    assert.equal(harness.child.stdin.listenerCount('error'), 0);
+    assert.equal(harness.child.stdout.listenerCount('data'), 0);
+    assert.equal(harness.child.stderr.listenerCount('data'), 0);
     assertSanitizedDiagnostics(harness.diagnostics, [
         SESSION_ID,
         'second-pending',
         '73',
+    ]);
+    harness.client.dispose();
+});
+
+test('SESSION-AI-SESSION-CODEX-APP-SERVER-011 supports synchronous injected restart timers', async () => {
+    const children = [];
+    const baseTimers = fakeTimers();
+    const timers = {
+        ...baseTimers,
+        setTimeout(callback, delayMs) {
+            if (delayMs === 1_000 || delayMs === 4_000) {
+                callback();
+                return `sync-${delayMs}`;
+            }
+            return baseTimers.setTimeout(callback, delayMs);
+        },
+    };
+    const harness = createHarness({
+        timers,
+        spawn() {
+            const child = new FakeChild();
+            child.stdin.onWrite = bytes => {
+                const message = JSON.parse(
+                    bytes.subarray(0, bytes.length - 1).toString('utf8')
+                );
+                if (message.method === 'initialize') {
+                    queueMicrotask(() => emitResponse(child, {
+                        id: message.id,
+                        result: {},
+                    }));
+                } else if (message.id) {
+                    queueMicrotask(() => emitResponse(child, {
+                        id: message.id,
+                        result: { child: children.indexOf(child) + 1 },
+                    }));
+                }
+            };
+            children.push(child);
+            return child;
+        },
+    });
+    await harness.client.request('thread/read', { threadId: SESSION_ID });
+    children[0].emit('exit', 1, null);
+    assert.deepEqual(
+        await harness.client.request('thread/read', { threadId: SESSION_ID }),
+        { child: 2 }
+    );
+    harness.client.dispose();
+});
+
+test('SESSION-AI-SESSION-CODEX-APP-SERVER-012 never retains an unbounded server version in diagnostics', async () => {
+    const harness = createHarness();
+    const request = harness.client.request('thread/read', {
+        threadId: SESSION_ID,
+    });
+    await settle();
+    emitResponse(harness.child, {
+        id: 1,
+        result: {
+            serverInfo: {
+                name: 'codex-app-server',
+                version: `${'7'.repeat(10_000)}.2.3-private`,
+            },
+        },
+    });
+    await settle();
+    emitResponse(harness.child, { id: 2, result: {} });
+    await request;
+    harness.child.emit('exit', 1, null);
+    assertSanitizedDiagnostics(harness.diagnostics, [
+        '7777777777',
+        SESSION_ID,
     ]);
     harness.client.dispose();
 });

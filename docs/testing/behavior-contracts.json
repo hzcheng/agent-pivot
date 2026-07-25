@@ -3117,5 +3117,40 @@
       "media/styles.scss",
       "media/styles.css"
     ]
+  },
+  {
+    "id": "WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-001",
+    "domain": "webview",
+    "title": "Sessions renders an accessible pinned-first multi-provider history",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/providerSelection.test.js",
+      "tests/unit/aiSessions/historyProjection.test.js",
+      "tests/integration/dashboard/webviewState.test.js",
+      "tests/browser/sessionProviderMenu.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/providerSelection.ts",
+      "src/aiSessions/historyProjection.ts",
+      "src/webview/webviewContent.ts",
+      "src/webview/webviewProjectScripts.js"
+    ]
+  },
+  {
+    "id": "PERSIST-MULTI-PROVIDER-BATCH-ARCHIVE-001",
+    "domain": "persistence",
+    "title": "Batch archive validates and executes composite sessions across providers",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/contract/aiSessions/archiveAndHydration.test.js",
+      "tests/integration/dashboard/webviewState.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/archiveBatchAcrossProviders.ts",
+      "src/aiSessions/archiveController.ts",
+      "scripts/run-ai-session-safety-checks.js"
+    ]
   }
 ]

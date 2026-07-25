@@ -3,6 +3,7 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const commands = require('../../../out/aiSessions/commandBuilders');
+const { serializeDirectLaunchCommand } = require('../../../out/aiSessions/launchSpec');
 
 // SESSION-COMMAND-BUILDER-001
 
@@ -110,6 +111,21 @@ for (const provider of providers) {
         );
     });
 }
+
+test('SESSION-AI-SESSION-YOLO-LAUNCH-001 serializes provider flags as Windows CLI syntax', () => {
+    const yolo = { yolo: true };
+    const specs = [
+        commands.buildCodexNewSessionLaunchSpec(directoryScope(cwd), null, null, yolo),
+        commands.buildKimiNewSessionLaunchSpec(directoryScope(cwd), null, null, yolo),
+        commands.buildClaudeNewSessionLaunchSpec(directoryScope(cwd), null, null, yolo),
+    ];
+    const payloads = specs.map(spec =>
+        decodePowerShellPayload(serializeDirectLaunchCommand(spec, 'win32'))
+    );
+    assert.match(payloads[0], /codex --dangerously-bypass-approvals-and-sandbox/);
+    assert.match(payloads[1], /kimi .*--yolo/);
+    assert.match(payloads[2], /claude --dangerously-skip-permissions/);
+});
 
 test('SESSION-COMMAND-BUILDER-001 doubles PowerShell single quotes alongside ampersands and percents', () => {
     assert.equal(commands.quotePowerShellArg(value), "'Owner''s \"quoted\" & 100%'");

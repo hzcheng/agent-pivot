@@ -90,6 +90,34 @@ for (const provider of providers) {
     });
 }
 
+test('SESSION-AI-SESSION-YOLO-LAUNCH-001 adds the exact provider flag to New and Resume argv', () => {
+    const yolo = { yolo: true };
+    assert.deepEqual(
+        commands.buildCodexNewSessionLaunchSpec(directoryScope, title, markerPath, yolo).args,
+        ['--dangerously-bypass-approvals-and-sandbox', '--cd', cwd, title]
+    );
+    assert.deepEqual(
+        commands.buildCodexResumeLaunchSpec(sessionId, directoryScope, markerPath, yolo).args,
+        ['resume', '--dangerously-bypass-approvals-and-sandbox', '--cd', cwd, sessionId]
+    );
+    assert.deepEqual(
+        commands.buildKimiNewSessionLaunchSpec(directoryScope, title, markerPath, yolo).args,
+        ['--work-dir', cwd, '--yolo', '--prompt', title]
+    );
+    assert.deepEqual(
+        commands.buildKimiResumeLaunchSpec(sessionId, directoryScope, markerPath, yolo).args,
+        ['--work-dir', cwd, '--yolo', '--resume', sessionId]
+    );
+    assert.deepEqual(
+        commands.buildClaudeNewSessionLaunchSpec(directoryScope, title, markerPath, yolo).args,
+        ['--dangerously-skip-permissions', '--name', title]
+    );
+    assert.deepEqual(
+        commands.buildClaudeResumeLaunchSpec(sessionId, directoryScope, markerPath, yolo).args,
+        ['--dangerously-skip-permissions', '--resume', sessionId]
+    );
+});
+
 test('SESSION-COMMAND-BUILDER-001 quotes PowerShell single quotes without interpolation', () => {
     assert.equal(commands.quotePowerShellArg("O'Brien & 100%"), "'O''Brien & 100%'");
 });

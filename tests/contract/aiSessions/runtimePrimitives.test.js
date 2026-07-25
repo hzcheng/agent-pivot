@@ -136,6 +136,23 @@ test('RUNTIME-LAUNCH-SPEC-001 preserves argv boundaries and renders hostile valu
         executable: 'claude', args: ['--name', 'Title'], cwd: '/work/app',
         markerPath: '/tmp/claude-new.done', windowsDirectShell: 'powershell',
     });
+    const yoloSpecs = [
+        commandBuilders.buildCodexNewSessionLaunchSpec(
+            directoryScope('/work/codex'), null, null, { yolo: true }
+        ),
+        commandBuilders.buildKimiResumeLaunchSpec(
+            'kimi-session', directoryScope('/work/kimi'), null, { yolo: true }
+        ),
+        commandBuilders.buildClaudeNewSessionLaunchSpec(
+            directoryScope('/work/claude'), null, null, { yolo: true }
+        ),
+    ];
+    for (const spec of yoloSpecs) {
+        const direct = launchSpec.serializeDirectLaunchCommand(spec, 'linux');
+        const tmux = launchSpec.serializeTmuxLaunchCommand(spec);
+        assert.match(direct, /--(?:dangerously-bypass-approvals-and-sandbox|yolo|dangerously-skip-permissions)/);
+        assert.match(tmux, /--(?:dangerously-bypass-approvals-and-sandbox|yolo|dangerously-skip-permissions)/);
+    }
 
     const hostile = `Prompt "quoted"; Set-Content C:\\tmp\\pwned 1; #`;
     const windows = launchSpec.serializeDirectLaunchCommand(

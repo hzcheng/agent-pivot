@@ -1,0 +1,4 @@
+interface:
+  display_name: "Resilient Webview Mutation Protocols"
+  short_description: "Keep Host-owned Webview mutations consistent"
+  default_prompt: "Use $resilient-webview-mutation-protocols to design and verify this Host-owned Webview mutation."

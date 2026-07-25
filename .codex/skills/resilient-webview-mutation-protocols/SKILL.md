@@ -1,0 +1,154 @@
+---
+name: resilient-webview-mutation-protocols
+description: Use when VS Code Webviews submit Host-owned mutations or authoritative HTML replacement, mirrored persistence, stale acknowledgements, stuck pending UI, focus loss, or partial batch failures are in scope.
+---
+
+# Resilient Webview Mutation Protocols
+
+## Overview
+
+Treat a Webview mutation as one correlated lifecycle across protocol, Host
+persistence, authoritative DOM replacement, and UI recovery. Keep the Host
+authoritative; let the Webview submit intent and display only transient pending
+state until authoritative state is applied.
+
+## Core Invariants
+
+- Keep persistent state Host-authoritative. Never make optimistic Webview state
+  appear committed.
+- Define domain validity independently of current UI availability. Permit a
+  selected-but-unavailable provider when the domain permits it.
+- Correlate every request and settlement with a schema version, fresh
+  `requestId`, operation, and authoritative target identity.
+- Settle every recognized request exactly once. Clear success pending only
+  after its correlated authoritative replacement is applied; clear failure
+  pending only through its correlated failure.
+- Keep popup openness, focus, and scroll local to the Webview replacement.
+- Treat mirrored-state partial writes and composite-batch partial results as
+  explicit failures or partial outcomes, never full success.
+
+## Workflow
+
+Use this checklist for each Host-owned mutation:
+
+1. Define the versioned request, correlated settlements, authoritative target,
+   operation payload, and validation rules.
+2. Store the exact pending identity without changing persistent Webview state.
+3. Resolve identity and domain rules from Host state, not DOM labels,
+   availability, row indexes, or client snapshots.
+4. Route every Host validation, guard, persistence, execution, and refresh
+   outcome to exactly one settlement.
+5. Apply correlated authoritative HTML before clearing success pending; on a
+   correlated failure, clear only the matching pending entry.
+6. Capture and restore local popup, semantic focus, and scroll around DOM
+   replacement without sending them across the Host boundary.
+7. Snapshot, write, and repair all mirrored persistence records as one logical
+   mutation.
+8. Use composite identities for batch items, preserve explicit partial results,
+   refresh once, and settle aggregate pending once.
+9. Test correlation, every settlement path, replacement and focus recovery,
+   both mirrored writes and repair, composite collisions, partial results, and
+   accessible announcements.
+
+## Protocol Contract
+
+Require every request and settlement to carry:
+
+```ts
+type MutationEnvelope = {
+  version: 1;
+  requestId: string;
+  projectId: string;
+  operation: 'selectProviders' | 'archiveSessions';
+  payload: unknown;
+};
+```
+
+Generate a fresh `requestId` per intent. Use the authoritative target identity,
+such as `projectId`, plus exactly one operation-specific payload. Return the
+same schema version, `requestId`, target, and operation on success and failure.
+
+Validate the complete shape, bounds, and operation discriminant. Reject unknown
+fields when practical. Resolve targets and permissions from Host state. Never
+trust display labels, DOM data, or client-provided state as authority. Fail
+closed on malformed, wrong-target, stale, duplicate, or out-of-order messages.
+
+## Pending And Replacement Lifecycle
+
+- Key pending state by the full correlation identity. Do not let rapid input
+  overwrite an in-flight `requestId`; lock the control or represent later
+  intent with a separate correlated request.
+- Disable controls and announce pending without mutating persistent UI state.
+- Make every recognized Host request reach exactly one settlement, including
+  validation failures, guard failures, early returns, thrown errors,
+  persistence failures, and refresh failures.
+- Treat a standalone acknowledgement as progress, not success. Keep pending
+  until either a matching failure arrives or the matching authoritative
+  replacement has been validated and applied.
+- Before replacement, capture only local transient state: popup openness,
+  focused semantic item, and relevant scroll position. Apply authoritative
+  HTML first, then clear matching pending.
+- Restore popup state only if the matching control still exists and the pending
+  lifecycle permits reopening it. Restore focus by semantic key, never by a
+  detached node or row index. Keep transient popup state out of Host messages.
+- Ignore stale or duplicate settlements without changing current pending state.
+  On correlated failure, clear only the matching operation and leave or
+  restore the authoritative UI.
+
+## Mirrored Persistence
+
+Treat canonical and compatibility records as one logical write:
+
+1. Snapshot both authoritative records.
+2. Validate the complete intended state before writing.
+3. Write the canonical record, then the compatibility mirror.
+4. If either write fails, restore or repair both records from the snapshot when
+   possible.
+5. Report the mutation as failed, including repair failure without exposing
+   sensitive identity.
+6. Refresh from actual authoritative store state, not in-memory assumptions.
+
+A first-write failure, second-write failure, or repair failure is never full
+success. Ensure reload observes the same state the refreshed Webview renders.
+
+## Composite Batch Operations
+
+Use a composite identity such as `{ provider, sessionId }`; a bare `sessionId`
+is insufficient across providers. Bound and deduplicate inputs by the composite
+key, resolve each item against authoritative Host state, group execution by
+provider, and collect every group result. Refresh authoritative HTML once after
+all groups settle.
+
+Keep partial results explicit. Report bounded success and failure counts plus
+provider-safe summaries in logs and polite live-region announcements. Do not
+expose full session identifiers. Settle pending once for the aggregate request,
+not once per provider.
+
+## Verification Matrix
+
+| Exercise | Required assertion |
+|---|---|
+| Malformed, unknown, or wrong-target input | Reject closed; settle a recognized request exactly once |
+| Stale, duplicate, or out-of-order settlement | Preserve current pending and authoritative UI |
+| Every early return and thrown error | Emit one correlated failure; never leave stuck pending UI |
+| Success acknowledgement before replacement | Keep pending until correlated authoritative HTML is applied |
+| Replacement with open popup or focus | Keep popup state local; restore only an existing semantic target |
+| Selected provider currently unavailable | Accept it when domain rules allow selected-but-unavailable state |
+| First or second mirrored write fails | Repair from snapshot, report failure, and refresh actual store state |
+| Mirrored repair also fails | Expose failure safely and render observed authoritative state |
+| Duplicate session IDs across providers | Distinguish composite keys and execute the correct provider group |
+| Some batch groups fail | Preserve partial results, refresh once, and announce bounded counts |
+| Keyboard operation and status updates | Preserve focus-visible behavior and use a polite live region |
+
+## Common Mistakes
+
+| Mistake | Correction |
+|---|---|
+| Update persistent controls optimistically | Show pending only; render committed state from the Host |
+| Require every selected provider to be available | Enforce domain invariants, not transient availability |
+| Clear pending on a generic acknowledgement | Wait for correlated failure or applied authoritative replacement |
+| Send popup or focus state to the Host | Capture and restore it locally around replacement |
+| Reuse one mutable pending slot | Lock input or track each later intent with its own `requestId` |
+| Identify targets by label, row index, or bare session ID | Resolve Host identities and use semantic or composite keys |
+| Treat one successful mirrored write as success | Repair from the snapshot, fail the mutation, and refresh |
+| Collapse a partial batch into success or failure | Preserve per-group results and announce bounded totals |

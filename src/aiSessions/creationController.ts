@@ -4,6 +4,7 @@ import type * as vscode from 'vscode';
 
 import type { AiSessionProviderId } from '../models';
 import { sanitizeAiSessionAlias } from './aliasStore';
+import type { AiSessionLaunchOptions } from './launchOptions';
 import type { AiSessionLaunchSpec } from './launchSpec';
 import { isValidAiSessionRuntimeIdentityId } from './runtimeTypes';
 import type {
@@ -30,7 +31,8 @@ export interface AiSessionCreationProvider {
     buildNewSessionLaunchSpec?: (
         scope: AiSessionDirectoryScope,
         title: string,
-        markerPath: string
+        markerPath: string,
+        launchOptions: AiSessionLaunchOptions
     ) => AiSessionLaunchSpec;
 }
 
@@ -48,6 +50,7 @@ export interface AiSessionCreationControllerCommonOptions {
     ) => Thenable<string | undefined> | Promise<string | undefined>;
     pickProvider: () => Thenable<AiSessionProviderId | undefined>;
     getProviderLabel: (providerId: AiSessionProviderId) => string;
+    getLaunchOptions: () => AiSessionLaunchOptions;
     getProvider: (providerId: AiSessionProviderId) => AiSessionCreationProvider;
     resolveWorkspaceDirectoryScope: (
         target: WorkspaceAiSessionActionTarget,
@@ -184,8 +187,14 @@ export class AiSessionCreationController {
         const createdAt = new Date(options.nowMs()).toISOString();
         const markerPath = options.getPendingMarkerPath(providerId);
         const terminalName = `${sessionProvider.terminalNamePrefix}: ${target.name || 'New Session'}`;
+        const launchOptions = options.getLaunchOptions();
         const launch = cloneLaunchSpec(
-            sessionProvider.buildNewSessionLaunchSpec(directoryScope, fields.title, markerPath)
+            sessionProvider.buildNewSessionLaunchSpec(
+                directoryScope,
+                fields.title,
+                markerPath,
+                launchOptions
+            )
         );
         const request: AiSessionCreateRuntimeRequest = {
             identity: {
@@ -257,6 +266,7 @@ function validateControllerOptions(options: AiSessionCreationControllerOptions):
         || typeof options.getWorkspaceTarget !== 'function'
         || typeof options.pickWorkspaceRoot !== 'function'
         || typeof options.resolveWorkspaceDirectoryScope !== 'function'
+        || typeof options.getLaunchOptions !== 'function'
         || typeof options.createPendingId !== 'function'
         || typeof options.announceStatus !== 'function') {
         throw new Error('AI session creation runtime controller options are invalid.');

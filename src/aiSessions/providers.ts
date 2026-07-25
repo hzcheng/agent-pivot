@@ -31,7 +31,8 @@ export const AI_SESSION_PROVIDER_DEFINITIONS: Record<AiSessionProviderId, AiSess
         projectSessionsUnavailableKey: 'codexSessionsUnavailable',
         terminalCwdFields: ['cwd'],
         buildResumeLaunchSpec: buildCodexResumeLaunchSpec,
-        buildNewSessionLaunchSpec: (scope, _title, markerPath) => buildCodexNewSessionLaunchSpec(scope, null, markerPath),
+        buildNewSessionLaunchSpec: (scope, _title, markerPath, launchOptions) =>
+            buildCodexNewSessionLaunchSpec(scope, null, markerPath, launchOptions),
         buildResumeCommand: buildCodexResumeCommand,
         buildNewSessionCommand: (scope, _title, markerPath) => buildCodexNewSessionCommand(scope, null, markerPath),
     },
@@ -46,7 +47,8 @@ export const AI_SESSION_PROVIDER_DEFINITIONS: Record<AiSessionProviderId, AiSess
         projectSessionsUnavailableKey: 'kimiSessionsUnavailable',
         terminalCwdFields: ['workDir', 'cwd'],
         buildResumeLaunchSpec: buildKimiResumeLaunchSpec,
-        buildNewSessionLaunchSpec: (scope, _title, markerPath) => buildKimiNewSessionLaunchSpec(scope, null, markerPath),
+        buildNewSessionLaunchSpec: (scope, _title, markerPath, launchOptions) =>
+            buildKimiNewSessionLaunchSpec(scope, null, markerPath, launchOptions),
         buildResumeCommand: buildKimiResumeCommand,
         buildNewSessionCommand: (scope, _title, markerPath) => buildKimiNewSessionCommand(scope, null, markerPath),
     },

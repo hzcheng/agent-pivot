@@ -41,15 +41,20 @@ function makeWorkspaceTarget(sessions = []) {
 test('SESSION-AI-SESSION-CREATION-CONTROLLER-001 creates one tracked pending terminal from validated public input', async () => {
     const effects = [];
     const requests = [];
+    const receivedLaunchOptions = [];
     const controller = new AiSessionCreationController({
         isProviderId: value => value === 'codex',
         getWorkspaceTarget: id => id === 'p' ? makeWorkspaceTarget() : null,
         pickWorkspaceRoot: async () => undefined,
         pickProvider: async () => 'codex', getProviderLabel: () => 'Codex',
+        getLaunchOptions: () => ({ yolo: true }),
         getProvider: () => ({
             label: 'Codex',
             terminalNamePrefix: 'Codex',
-            buildNewSessionLaunchSpec: () => ({ executable: 'codex', args: ['--new'], cwd: '/work' }),
+            buildNewSessionLaunchSpec: (_scope, _title, _markerPath, launchOptions) => {
+                receivedLaunchOptions.push(launchOptions);
+                return { executable: 'codex', args: ['--new'], cwd: '/work' };
+            },
         }),
         resolveWorkspaceDirectoryScope: () => directoryScope,
         showInputBox: async () => '  Fixture title  ', showActiveTab: async id => effects.push(['tab', id]),
@@ -70,6 +75,7 @@ test('SESSION-AI-SESSION-CREATION-CONTROLLER-001 creates one tracked pending ter
     assert.equal(requests[0].identity.provider, 'codex');
     assert.equal(requests[0].identity.workspaceScopeIdentity, 'scope:fixture');
     assert.deepEqual(requests[0].excludedSessionIds, ['existing']);
+    assert.deepEqual(receivedLaunchOptions, [{ yolo: true }]);
     const before = effects.length;
     await controller.createSession('missing');
     assert.equal(effects.length, before + 1);
@@ -79,14 +85,19 @@ test('SESSION-AI-SESSION-CREATION-CONTROLLER-001 creates one tracked pending ter
 test('SESSION-AI-SESSION-RESUME-CONTROLLER-001 delegates scoped resume and reveals successful runtime results', async () => {
     const effects = [];
     const requests = [];
+    const receivedLaunchOptions = [];
     const controller = new AiSessionResumeController({
         getWorkspaceTarget: id => id === 'p'
             ? makeWorkspaceTarget([{ id: 's', name: 'Session', cwd: '/work' }])
             : null,
+        getLaunchOptions: () => ({ yolo: true }),
         getProvider: () => ({
             label: 'Codex',
             terminalEnvKey: 'CODEX',
-            buildResumeLaunchSpec: () => ({ executable: 'codex', args: ['resume', 's'], cwd: '/work' }),
+            buildResumeLaunchSpec: (_id, _scope, _markerPath, launchOptions) => {
+                receivedLaunchOptions.push(launchOptions);
+                return { executable: 'codex', args: ['resume', 's'], cwd: '/work' };
+            },
         }),
         resolveWorkspaceDirectoryScope: () => directoryScope,
         getTerminalName: () => 'Codex: Session', getMarkerPath: () => '/tmp/new', showWarningMessage: message => effects.push(message),
@@ -101,6 +112,7 @@ test('SESSION-AI-SESSION-RESUME-CONTROLLER-001 delegates scoped resume and revea
     assert.equal(requests.length, 1);
     assert.equal(requests[0].identity.sessionId, 's');
     assert.equal(requests[0].identity.workspaceScopeIdentity, 'scope:fixture');
+    assert.deepEqual(receivedLaunchOptions, [{ yolo: true }]);
 });
 
 test('SESSION-AI-SESSION-TERMINAL-COMMAND-CONTROLLER-001 ATTENTION-EXPLICIT-SESSION-CLOSE-001 focuses and closes only project-owned terminals', async () => {

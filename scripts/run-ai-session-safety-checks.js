@@ -2194,6 +2194,7 @@ async function runWorkspaceCreationDirectoryFirstChecks() {
             return 'codex';
         },
         getProviderLabel: () => 'Codex',
+        getLaunchOptions: () => ({ yolo: false }),
         getProvider: () => ({
             label: 'Codex',
             terminalNamePrefix: 'Codex',
@@ -2291,6 +2292,7 @@ async function runWorkspaceScopeControllerLaunchChecks() {
             pickWorkspaceRoot: async () => undefined,
             pickProvider: async () => providerId,
             getProviderLabel: () => providerId,
+            getLaunchOptions: () => ({ yolo: false }),
             getProvider: () => ({
                 label: providerId,
                 terminalNamePrefix: providerId,
@@ -2350,6 +2352,7 @@ async function runWorkspaceScopeControllerLaunchChecks() {
         });
         const resume = new AiSessionResumeController({
             getWorkspaceTarget: cardId => cardId === workspaceTarget.cardId ? workspaceTarget : null,
+            getLaunchOptions: () => ({ yolo: false }),
             getProvider: () => ({
                 label: providerId,
                 terminalEnvKey: `${providerId}_SESSION_ID`,
@@ -2486,6 +2489,7 @@ async function runWorkspaceLaunchPreflightControllerChecks() {
         pickWorkspaceRoot: async () => creationRootId,
         pickProvider: async () => 'codex',
         getProviderLabel: () => 'Codex',
+        getLaunchOptions: () => ({ yolo: false }),
         getProvider: () => ({
             label: 'Codex',
             terminalNamePrefix: 'Codex',
@@ -2564,6 +2568,7 @@ async function runWorkspaceLaunchPreflightControllerChecks() {
     let resumeError = null;
     const resume = new AiSessionResumeController({
         getWorkspaceTarget: cardId => cardId === workspaceTarget.cardId ? workspaceTarget : null,
+        getLaunchOptions: () => ({ yolo: false }),
         getProvider: () => providerPresent ? ({
             label: 'Codex',
             terminalEnvKey: 'CODEX_SESSION_ID',
@@ -3584,6 +3589,7 @@ async function runWorkspaceCardActionControllerIntegrationChecks() {
         getWorkspaceTarget: cardId => cardId === target.cardId ? target : null,
         pickWorkspaceRoot: async () => 'root-web',
         pickProvider: async () => 'codex', getProviderLabel: () => 'Codex',
+        getLaunchOptions: () => ({ yolo: false }),
         getProvider: () => ({ label: 'Codex', terminalNamePrefix: 'Codex',
             buildNewSessionLaunchSpec: scope => ({ executable: 'codex', args: [], cwd: scope.primaryCwd }) }),
         resolveDirectoryScope: () => { throw new Error('must not resolve a root Project'); },
@@ -3607,6 +3613,7 @@ async function runWorkspaceCardActionControllerIntegrationChecks() {
     const resume = new AiSessionResumeController({
         getOpenProjects: () => { legacyProjectReads++; return []; },
         getWorkspaceTarget: cardId => cardId === target.cardId ? target : null,
+        getLaunchOptions: () => ({ yolo: false }),
         getProvider: () => ({ label: 'Codex', terminalEnvKey: 'CODEX_SESSION_ID',
             buildResumeLaunchSpec: (_id, scope) => ({ executable: 'codex', args: [], cwd: scope.primaryCwd }) }),
         getProjectSession: () => { throw new Error('must not select a root Project session'); },
@@ -5159,6 +5166,16 @@ function runWebviewContentChecks() {
     assert.ok(dashboard.includes('const aiSessionCommandController = new AiSessionCommandController({'));
     assert.ok(dashboard.includes('const aiSessionCreationController = new AiSessionCreationController({'));
     assert.ok(dashboard.includes('const aiSessionResumeController = new AiSessionResumeController<vscode.Terminal>({'));
+    assert.ok(dashboard.includes(
+        "import { readAiSessionLaunchOptions } from './aiSessions/launchOptions';"
+    ));
+    assert.strictEqual(
+        (dashboard.match(/getLaunchOptions: \(\) =>/g) || []).length,
+        2
+    );
+    assert.ok(dashboard.includes(
+        'readAiSessionLaunchOptions(getStewardConfiguration())'
+    ));
     assert.ok(dashboard.includes('new AiSessionPinController({'));
     assert.ok(dashboard.includes('aiSessionPinController.getAll()'));
     assert.ok(dashboard.includes('aiSessionPinController.toggle('));

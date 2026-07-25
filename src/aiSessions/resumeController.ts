@@ -1,6 +1,7 @@
 'use strict';
 
 import type { AiSessionProviderId, CodexSession } from '../models';
+import type { AiSessionLaunchOptions } from './launchOptions';
 import type { AiSessionLaunchSpec } from './launchSpec';
 import type {
     AiSessionResumeRuntimeRequest,
@@ -26,7 +27,8 @@ export interface AiSessionResumeProvider {
     buildResumeLaunchSpec?: (
         sessionId: string,
         scope: AiSessionDirectoryScope,
-        markerPath: string
+        markerPath: string,
+        launchOptions: AiSessionLaunchOptions
     ) => AiSessionLaunchSpec;
 }
 
@@ -36,6 +38,7 @@ export interface AiSessionResumeRuntimeCoordinator<TTerminal> {
 
 export interface AiSessionResumeControllerCommonOptions {
     getWorkspaceTarget: (cardId: string) => WorkspaceAiSessionActionTarget | null;
+    getLaunchOptions: () => AiSessionLaunchOptions;
     getProvider: (providerId: AiSessionProviderId) => AiSessionResumeProvider | null;
     resolveWorkspaceDirectoryScope: (
         target: WorkspaceAiSessionActionTarget,
@@ -142,8 +145,14 @@ export class AiSessionResumeController<
         }
         const cwd = directoryScope.primaryCwd;
         const markerPath = options.getMarkerPath(providerId, session.id);
+        const launchOptions = options.getLaunchOptions();
         const launch = cloneLaunchSpec(
-            sessionProvider.buildResumeLaunchSpec(session.id, directoryScope, markerPath)
+            sessionProvider.buildResumeLaunchSpec(
+                session.id,
+                directoryScope,
+                markerPath,
+                launchOptions
+            )
         );
         const request: AiSessionResumeRuntimeRequest = {
             identity: {
@@ -213,6 +222,7 @@ function validateControllerOptions<TTerminal extends AiSessionResumeTerminal>(
     if (typeof options?.runtimeCoordinator?.resume !== 'function'
         || typeof options.getWorkspaceTarget !== 'function'
         || typeof options.resolveWorkspaceDirectoryScope !== 'function'
+        || typeof options.getLaunchOptions !== 'function'
         || typeof options.announceStatus !== 'function') {
         throw new Error('AI session resume runtime controller options are invalid.');
     }

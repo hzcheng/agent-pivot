@@ -7854,6 +7854,7 @@ async function runRuntimeCoordinatorChecks() {
         getWorkspaceTarget: cardId => cardId === scopedWorkspaceTarget.cardId
             ? scopedWorkspaceTarget
             : null,
+        getLaunchOptions: () => ({ yolo: false }),
         getProvider: () => ({
             label: 'Codex',
             terminalEnvKey: 'CODEX_SESSION_ID',
@@ -9133,6 +9134,7 @@ async function runRuntimeControllerChecks() {
         pickWorkspaceRoot: async () => undefined,
         pickProvider: async () => 'codex',
         getProviderLabel: () => 'Codex',
+        getLaunchOptions: () => ({ yolo: false }),
         getProvider: () => ({
             label: 'Codex', terminalNamePrefix: 'Codex',
             buildNewSessionLaunchSpec: (scope, title, markerPath) => ({
@@ -9182,6 +9184,7 @@ async function runRuntimeControllerChecks() {
     const resume = new ResumeController({
         getWorkspaceTarget: cardId => cardId === project.id
             ? createWorkspaceActionTarget(project, 'pk') : null,
+        getLaunchOptions: () => ({ yolo: false }),
         getProvider: () => ({
             label: 'Codex', terminalEnvKey: 'CODEX_SESSION_ID',
             buildResumeLaunchSpec: (sessionId, scope, markerPath) => ({
@@ -9222,6 +9225,7 @@ async function runRuntimeControllerChecks() {
     const collisionResume = new ResumeController({
         getWorkspaceTarget: cardId => cardId === project.id
             ? createWorkspaceActionTarget(project, 'pk') : null,
+        getLaunchOptions: () => ({ yolo: false }),
         getProvider: () => ({
             label: 'Codex', terminalEnvKey: 'CODEX_SESSION_ID',
             buildResumeLaunchSpec: (sessionId, scope, markerPath) => ({
@@ -9299,6 +9303,7 @@ async function runRuntimeControllerChecks() {
             ? createWorkspaceActionTarget(project, 'pk') : null,
         pickWorkspaceRoot: async () => undefined,
         pickProvider: async () => 'codex', getProviderLabel: () => 'Codex',
+        getLaunchOptions: () => ({ yolo: false }),
         getProvider: () => ({
             label: 'Codex', terminalNamePrefix: 'Codex',
             buildNewSessionLaunchSpec: (scope, title, markerPath) => ({
@@ -9339,6 +9344,7 @@ async function runRuntimeControllerChecks() {
                     id: 'rejected', name: 'Rejected', cwd: '/work', updatedAt: createdAt,
                 }),
             }, 'pk') : null,
+        getLaunchOptions: () => ({ yolo: false }),
         getProvider: () => ({
             label: 'Codex', terminalEnvKey: 'CODEX_SESSION_ID',
             buildResumeLaunchSpec: (sessionId, scope, markerPath) => ({
@@ -9374,6 +9380,7 @@ async function runRuntimeControllerChecks() {
             ? createWorkspaceActionTarget(project, 'pk') : null,
         pickWorkspaceRoot: async () => undefined,
         pickProvider: async () => 'codex', getProviderLabel: () => 'Codex',
+        getLaunchOptions: () => ({ yolo: false }),
         getProvider: () => ({
             label: 'Codex', terminalNamePrefix: 'Codex',
             buildNewSessionLaunchSpec: (scope, title, markerPath) => ({

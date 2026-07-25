@@ -222,7 +222,10 @@ async function runShapeLifecycle(shape, index) {
             session.workDir || session.cwd,
         getPinnedSessions: () => new Set(),
         getAliases: () => ({}),
-        getActiveProvider: () => 'codex',
+        getProviderSelection: () => ({
+            primaryProvider: 'codex',
+            selectedProviders: ['codex'],
+        }),
         getExpanded: () => true,
         getActiveRuntimes: () => active,
         getPendingRuntimes: () => pending,

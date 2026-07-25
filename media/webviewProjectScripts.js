@@ -502,6 +502,7 @@ function initProjects() {
     };
     var activeAiSessionTerminalState = { provider: null, sessionId: null };
     var pendingWorkspaceSessionReveal = null;
+    var pendingAiSessionProviderSelectionProjectId = null;
 
     function isDedicatedTodoTarget(target) {
         return Boolean(window.__projectStewardTodo
@@ -667,12 +668,15 @@ function initProjects() {
             return true;
         }
 
-        var providerAction = target.closest('[data-action="select-ai-provider"]');
-        if (providerAction) {
-            if (providerAction.tagName !== "SELECT") {
-                selectAiSessionProvider(projectId, providerAction.getAttribute("data-provider"));
-            }
+        var providerMenuTrigger = target.closest('[data-ai-provider-menu-trigger]');
+        if (providerMenuTrigger) {
+            toggleAiSessionProviderMenu(projectDiv);
+            return true;
+        }
 
+        var providerOption = target.closest('[data-ai-provider-option][data-provider]');
+        if (providerOption) {
+            activateAiSessionProviderOption(projectDiv, providerOption);
             return true;
         }
 
@@ -851,16 +855,90 @@ function initProjects() {
         }
     };
 
-    function selectAiSessionProvider(projectId, provider) {
-        if (!projectId || !isAiSessionProvider(provider))
+    function getSelectedAiSessionProviders(projectDiv) {
+        var region = projectDiv && projectDiv.querySelector('[data-ai-session-region]');
+        return (region && region.getAttribute('data-selected-ai-session-providers') || '')
+            .split(',')
+            .filter(isAiSessionProvider);
+    }
+
+    function submitAiSessionProviderSelection(projectDiv, providers) {
+        var projectId = projectDiv && projectDiv.getAttribute('data-id');
+        if (!projectId || !providers.length || batchAiSessionState.pending
+            || pendingAiSessionProviderSelectionProjectId)
             return;
 
         exitAiSessionBatchManagement();
+        pendingAiSessionProviderSelectionProjectId = projectId;
+        syncAiSessionProviderMenuDisabledDom(projectDiv, true);
         window.vscode.postMessage({
-            type: 'select-ai-session-provider',
+            type: 'select-ai-session-providers',
             projectId,
-            provider,
+            selectedProviders: providers,
         });
+    }
+
+    function setAiSessionProviderMenuOpen(projectDiv, open) {
+        var trigger = projectDiv && projectDiv.querySelector('[data-ai-provider-menu-trigger]');
+        var menu = projectDiv && projectDiv.querySelector('[data-ai-provider-menu]');
+        if (!trigger || !menu)
+            return;
+        if (open && (batchAiSessionState.pending
+            || pendingAiSessionProviderSelectionProjectId))
+            return;
+
+        trigger.setAttribute('aria-expanded', open ? 'true' : 'false');
+        menu.hidden = !open;
+    }
+
+    function closeAiSessionProviderMenus(exceptProjectDiv) {
+        document.querySelectorAll('.project[data-id]').forEach(projectDiv => {
+            if (projectDiv !== exceptProjectDiv) {
+                setAiSessionProviderMenuOpen(projectDiv, false);
+            }
+        });
+    }
+
+    function closeAiSessionProviderMenu(projectDiv, restoreFocus) {
+        setAiSessionProviderMenuOpen(projectDiv, false);
+        if (restoreFocus) {
+            projectDiv?.querySelector('[data-ai-provider-menu-trigger]')?.focus();
+        }
+    }
+
+    function toggleAiSessionProviderMenu(projectDiv) {
+        if (!projectDiv || batchAiSessionState.pending
+            || pendingAiSessionProviderSelectionProjectId)
+            return;
+        var trigger = projectDiv.querySelector('[data-ai-provider-menu-trigger]');
+        var open = trigger?.getAttribute('aria-expanded') !== 'true';
+        closeAiSessionProviderMenus(projectDiv);
+        setAiSessionProviderMenuOpen(projectDiv, open);
+    }
+
+    function activateAiSessionProviderOption(projectDiv, option) {
+        if (!projectDiv || !option || batchAiSessionState.pending
+            || pendingAiSessionProviderSelectionProjectId)
+            return;
+        var provider = option.getAttribute('data-provider');
+        if (!isAiSessionProvider(provider))
+            return;
+        var selectedProviders = getSelectedAiSessionProviders(projectDiv);
+        var selected = selectedProviders.includes(provider);
+        if (selected && selectedProviders.length === 1)
+            return;
+        submitAiSessionProviderSelection(
+            projectDiv,
+            selected
+                ? selectedProviders.filter(candidate => candidate !== provider)
+                : selectedProviders.concat(provider)
+        );
+    }
+
+    function getAiSessionProviderOptions(projectDiv) {
+        return projectDiv
+            ? Array.from(projectDiv.querySelectorAll('[data-ai-provider-option][data-provider]'))
+            : [];
     }
 
     function isAiSessionProvider(provider) {
@@ -935,6 +1013,7 @@ function initProjects() {
             if (project !== projectDiv || project.getAttribute("data-id") !== snapshot.projectId) {
                 project.removeAttribute("data-ai-session-managing");
                 project.removeAttribute("data-ai-session-pending");
+                syncAiSessionProviderMenuDisabledDom(project, false);
                 var inactiveManageButton = project.querySelector('[data-action="manage-ai-sessions"]');
                 if (inactiveManageButton) {
                     inactiveManageButton.setAttribute('aria-pressed', 'false');
@@ -951,6 +1030,7 @@ function initProjects() {
         var isScoped = projectId === snapshot.projectId && activeProvider === snapshot.provider;
         projectDiv.toggleAttribute("data-ai-session-managing", isScoped);
         projectDiv.toggleAttribute("data-ai-session-pending", isScoped && snapshot.pending);
+        syncAiSessionProviderMenuDisabledDom(projectDiv, isScoped && snapshot.pending);
         var manageButton = projectDiv.querySelector('[data-action="manage-ai-sessions"]');
         if (manageButton) {
             manageButton.setAttribute('aria-pressed', isScoped ? 'true' : 'false');
@@ -984,6 +1064,30 @@ function initProjects() {
         var archiveButton = projectDiv.querySelector('[data-action="archive-selected-ai-sessions"]');
         if (archiveButton) {
             archiveButton.disabled = !isScoped || snapshot.pending || count === 0;
+        }
+    }
+
+    function syncAiSessionProviderMenuDisabledDom(projectDiv, pending) {
+        var trigger = projectDiv && projectDiv.querySelector('[data-ai-provider-menu-trigger]');
+        if (trigger) {
+            trigger.disabled = pending;
+            trigger.setAttribute('aria-disabled', pending ? 'true' : 'false');
+        }
+        var selectedProviders = getSelectedAiSessionProviders(projectDiv);
+        pending = pending || projectDiv?.getAttribute('data-id')
+            === pendingAiSessionProviderSelectionProjectId;
+        getAiSessionProviderOptions(projectDiv).forEach(option => {
+            var provider = option.getAttribute('data-provider');
+            var lastSelectedProvider = selectedProviders.length === 1
+                && selectedProviders[0] === provider;
+            option.disabled = pending;
+            option.setAttribute(
+                'aria-disabled',
+                pending || lastSelectedProvider ? 'true' : 'false'
+            );
+        });
+        if (pending) {
+            closeAiSessionProviderMenu(projectDiv, false);
         }
     }
 
@@ -1664,6 +1768,9 @@ function initProjects() {
         }
 
         closeContextMenus();
+        if (!e.target.closest('.ai-session-provider-menu-wrapper')) {
+            closeAiSessionProviderMenus();
+        }
 
         if (e.target.closest('[data-action="toggle-all-groups"]')) {
             toggleAllGroups();
@@ -1736,13 +1843,6 @@ function initProjects() {
             return;
         }
 
-        var providerSelect = e.target.closest('select[data-action="select-ai-provider"]');
-        if (!providerSelect)
-            return;
-
-        var projectDiv = providerSelect.closest('.project[data-id]');
-        var projectId = projectDiv && projectDiv.getAttribute("data-id");
-        selectAiSessionProvider(projectId, providerSelect.value);
     }
 
     function updateStickyGroupHeaderOffset() {
@@ -1774,6 +1874,7 @@ function initProjects() {
                 requestFullRefresh('invalid-workspace-update');
                 return;
             }
+            pendingAiSessionProviderSelectionProjectId = null;
             if (batchAiSessionState.projectId) {
                 syncAiSessionBatchManagementDom(findCurrentWorkspaceDiv(batchAiSessionState.projectId));
             }
@@ -1890,6 +1991,7 @@ function initProjects() {
             return;
         }
 
+        pendingAiSessionProviderSelectionProjectId = null;
         latestAiSessionUpdateSequence = message.sequence;
         if (batchAiSessionState.projectId) {
             var projectDiv = findCurrentWorkspaceDiv(batchAiSessionState.projectId);
@@ -1972,9 +2074,13 @@ function initProjects() {
             focusSearchRevealTarget(sessionRow);
             return true;
         }
-        if (getProjectActiveAiSessionProvider(workspaceDiv) !== provider) {
+        var selectedProviders = getSelectedAiSessionProviders(workspaceDiv);
+        if (!selectedProviders.includes(provider)) {
             pendingWorkspaceSessionReveal = { navigationIdentity, provider, sessionId };
-            selectAiSessionProvider(workspaceId, provider);
+            submitAiSessionProviderSelection(
+                workspaceDiv,
+                selectedProviders.concat(provider)
+            );
             return true;
         }
         pendingWorkspaceSessionReveal = null;
@@ -2042,6 +2148,64 @@ function initProjects() {
     });
 
     document.addEventListener("keydown", e => {
+        var aiSessionProviderTrigger = e.target && e.target.closest
+            ? e.target.closest('[data-ai-provider-menu-trigger]')
+            : null;
+        if (aiSessionProviderTrigger
+            && (e.key === 'ArrowDown' || e.key === 'ArrowUp'
+                || e.key === 'Home' || e.key === 'End')) {
+            e.preventDefault();
+            var triggerProject = aiSessionProviderTrigger.closest('.project[data-id]');
+            closeAiSessionProviderMenus(triggerProject);
+            setAiSessionProviderMenuOpen(triggerProject, true);
+            var triggerOptions = getAiSessionProviderOptions(triggerProject);
+            var triggerOptionIndex = e.key === 'ArrowUp' || e.key === 'End'
+                ? triggerOptions.length - 1
+                : 0;
+            triggerOptions[triggerOptionIndex]?.focus();
+            return;
+        }
+        if (aiSessionProviderTrigger && e.key === 'Escape') {
+            e.preventDefault();
+            closeAiSessionProviderMenu(
+                aiSessionProviderTrigger.closest('.project[data-id]'),
+                true
+            );
+            return;
+        }
+
+        var aiSessionProviderOption = e.target && e.target.closest
+            ? e.target.closest('[data-ai-provider-option][data-provider]')
+            : null;
+        if (aiSessionProviderOption) {
+            var providerProject = aiSessionProviderOption.closest('.project[data-id]');
+            var providerOptions = getAiSessionProviderOptions(providerProject);
+            var providerOptionIndex = providerOptions.indexOf(aiSessionProviderOption);
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp'
+                || e.key === 'Home' || e.key === 'End') {
+                e.preventDefault();
+                var nextProviderOptionIndex = e.key === 'Home' ? 0
+                    : e.key === 'End' ? providerOptions.length - 1
+                        : (providerOptionIndex + (e.key === 'ArrowDown' ? 1 : -1)
+                            + providerOptions.length) % providerOptions.length;
+                providerOptions[nextProviderOptionIndex]?.focus();
+                return;
+            }
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                activateAiSessionProviderOption(providerProject, aiSessionProviderOption);
+                return;
+            }
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                closeAiSessionProviderMenu(providerProject, true);
+                return;
+            }
+            if (e.key === 'Tab') {
+                closeAiSessionProviderMenu(providerProject, false);
+            }
+        }
+
         var aiSessionMenuItem = e.target && e.target.closest
             ? e.target.closest('#aiSessionContextMenu [role="menuitem"]')
             : null;

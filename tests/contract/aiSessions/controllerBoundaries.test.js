@@ -123,13 +123,21 @@ test('SESSION-AI-SESSION-COMMAND-CONTROLLER-001 exposes validated command effect
     const workspaceTarget = {
         cardId: 'project',
         workspace: { scopeIdentity: 'scope:/work' },
-        sessions: {},
+        sessions: {
+            activeProvider: 'codex',
+            providers: [
+                { id: 'codex', label: 'Codex', count: 2 },
+                { id: 'kimi', label: 'Kimi', count: 0 },
+                { id: 'claude', label: 'Claude', count: 1 },
+            ],
+        },
     };
     const controller = new AiSessionCommandController({
         getWorkspaceTarget: cardId => cardId === 'project' ? workspaceTarget : null,
         isProviderId: value => value === 'codex',
         setExpanded: async (key, value) => effects.push(['expanded', key, value]),
-        setActiveProvider: async (key, value) => effects.push(['provider', key, value]),
+        setProviderSelection: async (scope, selection) =>
+            effects.push(['providers', scope, selection]),
         togglePin: () => true,
         getAliases: () => ({}), saveAliases: aliases => effects.push(['aliases', aliases]),
         getOriginalName: () => 'Original', getSessionKey: (provider, id) => `${provider}:${id}`,
@@ -137,12 +145,18 @@ test('SESSION-AI-SESSION-COMMAND-CONTROLLER-001 exposes validated command effect
         showInformationMessage: message => effects.push(['message', message]), refresh: () => effects.push(['refresh']),
     });
     await controller.toggleSessionsExpanded('project', true);
-    await controller.selectProvider('project', 'codex');
-    await controller.selectProvider('missing', 'codex');
+    await controller.selectProviders('project', ['claude', 'codex', 'claude', 'unknown']);
+    await controller.selectProviders('project', []);
+    await controller.selectProviders('missing', ['codex']);
     await controller.renameSession('codex', 'session');
     await controller.copySessionId('session');
     assert.deepEqual(effects, [
-        ['expanded', 'scope:/work', true], ['provider', 'scope:/work', 'codex'], ['refresh'],
+        ['expanded', 'scope:/work', true],
+        ['providers', 'scope:/work', {
+            primaryProvider: 'codex',
+            selectedProviders: ['codex', 'claude'],
+        }],
+        ['refresh'],
         ['aliases', { 'codex:session': 'Alias' }], ['refresh'],
         ['clipboard', 'session'], ['message', 'Chat ID copied to clipboard.'],
     ]);

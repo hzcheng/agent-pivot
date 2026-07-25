@@ -15,6 +15,7 @@ const { getDashboardWebviewOptions } = require('../../../out/dashboard/webviewOp
 const root = path.join(__dirname, '..', '..', '..');
 const dashboardSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewDashboardScripts.js'), 'utf8');
 const projectSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewProjectScripts.js'), 'utf8');
+const generatedProjectSource = fs.readFileSync(path.join(root, 'media', 'webviewProjectScripts.js'), 'utf8');
 const dndSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewDnDScripts.js'), 'utf8');
 const NOW = '2026-07-23T00:00:00.000Z';
 
@@ -468,6 +469,15 @@ test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-002 summarizes one or two selected 
     assert.match(html, /id="ai-session-provider-menu-legacy-providers"/);
     assert.match(html, /data-provider="codex"[\s\S]*?ai-session-provider-count">1/);
     assert.match(html, /data-provider="claude"[\s\S]*?ai-session-provider-count">1/);
+});
+
+test('WEBVIEW-MULTI-PROVIDER-SESSION-MENU-001 keeps the generated provider-menu controller boundary exact', () => {
+    assert.equal(generatedProjectSource, projectSource);
+    assert.match(projectSource, /function getSelectedAiSessionProviders\(projectDiv\)/);
+    assert.match(projectSource, /function submitAiSessionProviderSelection\(projectDiv, providers\)/);
+    assert.match(projectSource, /type: 'select-ai-session-providers'/);
+    assert.match(projectSource, /selectedProviders: providers/);
+    assert.doesNotMatch(projectSource, /type: 'select-ai-session-provider'/);
 });
 
 test('ACTIVE-SESSION-ICON-ANIMATION-001 renders effects only for running Active Session rows', () => {

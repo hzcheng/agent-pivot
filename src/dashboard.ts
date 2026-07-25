@@ -592,7 +592,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         showWarningMessage: message => vscode.window.showWarningMessage(message),
         isProviderId: isAiSessionProviderId,
         setExpanded: (workspaceScopeIdentity, expanded) => aiSessionWorkspaceStateStore.setExpanded(workspaceScopeIdentity, expanded),
-        setActiveProvider: (workspaceScopeIdentity, providerId) => aiSessionWorkspaceStateStore.setActiveProvider(workspaceScopeIdentity, providerId),
+        setProviderSelection: (workspaceScopeIdentity, selection) =>
+            aiSessionWorkspaceStateStore.setProviderSelection(workspaceScopeIdentity, selection),
         togglePin: (providerId, sessionId) => aiSessionPinController.toggle(providerId, sessionId),
         getAliases: () => aiSessionAliasController.getAll(),
         saveAliases: aliases => aiSessionAliasController.saveAll(aliases),
@@ -1251,8 +1252,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             'toggle-codex-sessions': async e => {
                 await aiSessionCommandController.toggleSessionsExpanded(e.projectId as string, Boolean(e.expanded));
             },
-            'select-ai-session-provider': async e => {
-                await aiSessionCommandController.selectProvider(e.projectId as string, e.provider as string);
+            'select-ai-session-providers': async e => {
+                await aiSessionCommandController.selectProviders(
+                    e.projectId as string,
+                    e.selectedProviders
+                );
             },
             'focus-ai-session-terminal': async e => {
                 await aiSessionTerminalCommandController.focusActive(

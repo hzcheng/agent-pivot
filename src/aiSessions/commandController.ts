@@ -15,6 +15,8 @@ import {
 import type { ActiveEditorUri } from '../workspaces/sessionScope';
 import type { OpenWorkspace } from '../workspaces/types';
 import { sanitizeAiSessionAlias } from './aliasStore';
+import { normalizeAiSessionProviderSelection } from './providerSelection';
+import type { AiSessionProviderSelection } from './providerSelection';
 import type { AiSessionDirectoryScope, WorkspaceAiSessionActionTarget } from './types';
 
 export type AiSessionWorkspaceLaunchAction = 'create' | 'resume';
@@ -151,7 +153,10 @@ export interface AiSessionCommandControllerOptions {
     showWarningMessage?: (message: string) => unknown;
     isProviderId: (value: string) => value is AiSessionProviderId;
     setExpanded: (workspaceScopeIdentity: string, expanded: boolean) => Thenable<unknown>;
-    setActiveProvider: (workspaceScopeIdentity: string, providerId: AiSessionProviderId) => Thenable<unknown>;
+    setProviderSelection: (
+        workspaceScopeIdentity: string,
+        selection: AiSessionProviderSelection
+    ) => Thenable<unknown>;
     togglePin: (providerId: AiSessionProviderId, sessionId: string) => boolean;
     getAliases: () => Record<string, string>;
     saveAliases: (aliases: Record<string, string>) => unknown;
@@ -211,16 +216,28 @@ export class AiSessionCommandController {
         await this.options.setExpanded(workspaceTarget.workspace.scopeIdentity, expanded);
     }
 
-    async selectProvider(projectId: string, providerId: string): Promise<void> {
-        if (!this.options.isProviderId(providerId)) {
+    async selectProviders(projectId: string, providerIds: unknown): Promise<void> {
+        if (!Array.isArray(providerIds) || providerIds.length === 0) {
             return;
         }
 
-        const workspaceTarget = this.options.getWorkspaceTarget(projectId);
-        if (!workspaceTarget) {
+        const target = this.options.getWorkspaceTarget(projectId);
+        if (!target) {
             return;
         }
-        await this.options.setActiveProvider(workspaceTarget.workspace.scopeIdentity, providerId);
+        const normalized = normalizeAiSessionProviderSelection({
+            registeredProviders: target.sessions.providers.map(provider => provider.id),
+            primaryProvider: target.sessions.activeProvider,
+            selectedProviders: providerIds,
+            sessionCounts: target.sessions.providers.reduce((counts, provider) => {
+                counts[provider.id] = provider.count;
+                return counts;
+            }, {} as Partial<Record<AiSessionProviderId, number>>),
+        });
+        await this.options.setProviderSelection(
+            target.workspace.scopeIdentity,
+            normalized
+        );
         this.options.refresh();
     }
 

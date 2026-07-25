@@ -2054,9 +2054,17 @@ async function runAiSessionCommandControllerChecks() {
             navigationIdentity: 'navigation-a',
             roots: [{ id: 'root-a', name: 'A', uri: 'file:///work/a', ordinal: 0 }],
         },
+        sessions: {
+            activeProvider: 'codex',
+            providers: [
+                { id: 'codex', label: 'Codex', count: 2 },
+                { id: 'kimi', label: 'Kimi', count: 1 },
+                { id: 'claude', label: 'Claude', count: 0 },
+            ],
+        },
     };
     const expanded = [];
-    const activeProviders = [];
+    const providerSelections = [];
     const refreshes = [];
     const clipboardWrites = [];
     const infoMessages = [];
@@ -2069,8 +2077,8 @@ async function runAiSessionCommandControllerChecks() {
         getWorkspaceTarget: cardId => cardId === workspaceTarget.cardId ? workspaceTarget : null,
         isProviderId: value => value === 'codex' || value === 'kimi' || value === 'claude',
         setExpanded: async (workspaceScopeIdentity, value) => expanded.push([workspaceScopeIdentity, value]),
-        setActiveProvider: async (workspaceScopeIdentity, providerId) => {
-            activeProviders.push([workspaceScopeIdentity, providerId]);
+        setProviderSelection: async (workspaceScopeIdentity, selection) => {
+            providerSelections.push([workspaceScopeIdentity, selection]);
         },
         togglePin: (providerId, sessionId) => {
             pinToggles.push([providerId, sessionId]);
@@ -2096,13 +2104,17 @@ async function runAiSessionCommandControllerChecks() {
     await controller.toggleSessionsExpanded('workspace-a', true);
     assert.deepStrictEqual(expanded, [['scope-a', true]]);
 
-    await controller.selectProvider('workspace-a', 'kimi');
-    assert.deepStrictEqual(activeProviders, [['scope-a', 'kimi']]);
+    await controller.selectProviders('workspace-a', ['kimi', 'codex', 'kimi', 'unknown']);
+    assert.deepStrictEqual(providerSelections, [['scope-a', {
+        primaryProvider: 'codex',
+        selectedProviders: ['codex', 'kimi'],
+    }]]);
     assert.strictEqual(refreshes.length, 1);
 
-    await controller.selectProvider('missing', 'codex');
-    await controller.selectProvider('workspace-a', 'invalid');
-    assert.strictEqual(activeProviders.length, 1);
+    await controller.selectProviders('missing', ['codex']);
+    await controller.selectProviders('workspace-a', []);
+    await controller.selectProviders('workspace-a', 'codex');
+    assert.strictEqual(providerSelections.length, 1);
 
     await controller.togglePin('codex', 'session-1');
     assert.deepStrictEqual(pinToggles, [['codex', 'session-1']]);
@@ -2421,7 +2433,7 @@ async function runWorkspaceLaunchPreflightControllerChecks() {
         showWarningMessage: message => warnings.push(message),
         isProviderId: value => value === 'codex',
         setExpanded: async () => undefined,
-        setActiveProvider: async () => undefined,
+        setProviderSelection: async () => undefined,
         togglePin: () => false,
         getAliases: () => ({}),
         saveAliases: () => undefined,
@@ -3537,16 +3549,19 @@ async function runWorkspaceCardActionControllerIntegrationChecks() {
         isDirectory: () => true,
         isProviderId: value => value === 'codex',
         setExpanded: async (...args) => expandedWrites.push(args),
-        setActiveProvider: async (...args) => providerWrites.push(args),
+        setProviderSelection: async (...args) => providerWrites.push(args),
         togglePin: () => false, getAliases: () => ({}), saveAliases: () => undefined,
         getOriginalName: () => null, getSessionKey: () => '', showInputBox: async () => undefined,
         writeClipboard: async () => undefined, showInformationMessage: () => undefined,
         showWarningMessage: () => undefined, refresh: () => undefined,
     });
     await commandController.toggleSessionsExpanded(target.cardId, true);
-    await commandController.selectProvider(target.cardId, 'codex');
+    await commandController.selectProviders(target.cardId, ['codex']);
     assert.deepStrictEqual(expandedWrites, [[workspace.scopeIdentity, true]]);
-    assert.deepStrictEqual(providerWrites, [[workspace.scopeIdentity, 'codex']]);
+    assert.deepStrictEqual(providerWrites, [[workspace.scopeIdentity, {
+        primaryProvider: 'codex',
+        selectedProviders: ['codex'],
+    }]]);
 
     const createRequests = [];
     const creation = new AiSessionCreationController({
@@ -5395,7 +5410,7 @@ function runWebviewContentChecks() {
     assert.ok(dashboard.includes('aiSessionWorkspaceStateStore.getExpandedWorkspaces()'));
     assert.ok(dashboard.includes('aiSessionWorkspaceStateStore.setExpanded('));
     assert.ok(dashboard.includes('aiSessionWorkspaceStateStore.getActiveProviders()'));
-    assert.ok(dashboard.includes('aiSessionWorkspaceStateStore.setActiveProvider('));
+    assert.ok(dashboard.includes('aiSessionWorkspaceStateStore.setProviderSelection('));
     assert.ok(!dashboard.includes('async function toggleCodexSessions('));
     assert.ok(!dashboard.includes('async function selectAiSessionProvider('));
     assert.ok(!dashboard.includes('async function toggleAiSessionPin('));
@@ -5405,7 +5420,7 @@ function runWebviewContentChecks() {
     assert.ok(!dashboard.includes('async function queryNewAiSessionFields('));
     assert.ok(!dashboard.includes('async function createProviderAiSession('));
     assert.ok(dashboard.includes('await aiSessionCommandController.toggleSessionsExpanded('));
-    assert.ok(dashboard.includes('await aiSessionCommandController.selectProvider('));
+    assert.ok(dashboard.includes('await aiSessionCommandController.selectProviders('));
     assert.ok(dashboard.includes('await aiSessionCommandController.togglePin('));
     assert.ok(dashboard.includes('await aiSessionCommandController.renameSession('));
     assert.ok(dashboard.includes('await aiSessionCommandController.copySessionId('));
@@ -6805,12 +6820,13 @@ function runBatchAiSessionWebviewChecks() {
     assert.strictEqual(manager.snapshot().projectId, null);
     assert.strictEqual(projectA.manageButton.ariaPressed, 'false');
 
-    const providerChange = extractFunctionBody(source, 'selectAiSessionProvider');
+    const providerChange = extractFunctionBody(source, 'submitAiSessionProviderSelection');
     const providerExitIndex = providerChange.indexOf('exitAiSessionBatchManagement()');
-    const providerMessageIndex = providerChange.indexOf("type: 'select-ai-session-provider'");
+    const providerMessageIndex = providerChange.indexOf("type: 'select-ai-session-providers'");
     assert.notStrictEqual(providerExitIndex, -1);
     assert.notStrictEqual(providerMessageIndex, -1);
     assert.ok(providerExitIndex < providerMessageIndex);
+    assert.ok(providerChange.includes('selectedProviders: providers'));
     const projectCollapse = extractFunctionBody(source, 'toggleCodexSessions');
     const collapseExitIndex = projectCollapse.indexOf('exitAiSessionBatchManagement()');
     const collapseToggleIndex = projectCollapse.indexOf('toggleAttribute("data-codex-expanded", expanded)');

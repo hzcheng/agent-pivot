@@ -4391,7 +4391,14 @@ function runSourceContractChecks(source) {
     assert.ok(webviewContentSource.includes('onTodoMounted: (panel, message) =>'));
     assert.ok(webviewContentSource.includes('todos.mount(panel, message.snapshot)'));
     assert.ok(webviewContentSource.includes("'webviewTodoScripts.js'"));
-    assert.ok(webviewContentSource.includes("window.__projectStewardSyncCollapseButton('todo')"));
+    assert.match(
+        webviewContentSource,
+        /onTodoMounted: \(panel, message\) => \{[\s\S]*?todos\.mount\(panel, message\.snapshot\);[\s\S]*?window\.__projectStewardSyncCollapseButton\(\);[\s\S]*?\}/
+    );
+    assert.strictEqual(
+        webviewContentSource.includes("window.__projectStewardSyncCollapseButton('todo')"),
+        false
+    );
     assert.ok(source.includes("setAttribute('aria-selected'"));
     assert.ok(source.includes("setAttribute('tabindex'"));
     assert.ok(source.includes('scrollPositions'));

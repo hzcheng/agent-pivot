@@ -159,7 +159,14 @@ function makeWorkspaceCard(overrides = {}) {
     };
 }
 
-function createDashboardHarness({ initialTab = 'open', initialSearchQuery = '', synchronousFrames = true } = {}) {
+function createDashboardHarness({
+    initialTab = 'open',
+    initialSearchQuery = '',
+    synchronousFrames = true,
+    onProjectsMounted,
+    onTodoMounted,
+    onActiveTabChanged,
+} = {}) {
     const openButton = createElement('dashboard-tab-open-button');
     openButton.setAttribute('data-dashboard-tab', 'open');
     const projectsButton = createElement('dashboard-tab-projects-button');
@@ -267,6 +274,9 @@ function createDashboardHarness({ initialTab = 'open', initialSearchQuery = '', 
     const controller = context.initDashboard({
         initialSearchQuery,
         postMessage: message => messages.push(message),
+        onProjectsMounted,
+        onTodoMounted,
+        onActiveTabChanged,
     });
     return {
         context,
@@ -1298,7 +1308,13 @@ test('TODO-TODO-SEARCH-RESULT-RENDERING-001 search reveal requests host data the
     assert.equal(focused, 0);
 });
 
-function createProjectVm({ querySelector, querySelectorAll, activeElement, source = projectSource } = {}) {
+function createProjectVm({
+    querySelector,
+    querySelectorAll,
+    activeElement,
+    activeTab = 'open',
+    source = projectSource,
+} = {}) {
     const documentListeners = {};
     const windowListeners = {};
     const messages = [];
@@ -1342,7 +1358,7 @@ function createProjectVm({ querySelector, querySelectorAll, activeElement, sourc
             },
             __projectStewardDashboard: {
                 replaceSearchCatalog: catalog => replacedCatalogs.push(catalog),
-                getActiveTab: () => 'open',
+                getActiveTab: () => activeTab,
             },
         },
     };
@@ -1761,12 +1777,124 @@ function assertCollapseButtonBehavior(context) {
     assert.equal(context.getCollapseButtonState('open', [true]).title, 'Expand Other Windows');
     assert.equal(context.getCollapseButtonState('projects', [false, true]).title, 'Collapse All Groups');
     assert.equal(context.getCollapseButtonState('todo', [true, true]).title, 'Expand TODO Groups');
+    assert.deepEqual(toPlain(context.getCollapseButtonState('ai', [false])), {
+        disabled: true, collapsed: false, title: 'No groups to collapse in AI',
+    });
 }
 
 test('WEBVIEW-COLLAPSE-BUTTON-STATE-001 exposes disabled and exact action labels for each dashboard tab', () => {
     assertCollapseButtonBehavior(createProjectVm().context);
     const mutated = projectSource.replace('No other windows to collapse', 'Nothing to collapse');
     assert.throws(() => assertCollapseButtonBehavior(createProjectVm({ source: mutated }).context));
+});
+
+test('WEBVIEW-AI-DASHBOARD-001 keeps Collapse disabled across late Projects and TODO mounts while AI stays active', () => {
+    const collapseButton = createElement();
+    const selectedAiButton = createElement();
+    selectedAiButton.setAttribute('data-dashboard-tab', 'ai');
+    selectedAiButton.setAttribute('aria-selected', 'true');
+    const openGroup = { classList: createClassList() };
+    const todoGroup = { classList: createClassList() };
+    const harness = createProjectVm({
+        activeTab: 'ai',
+        querySelector: selector => selector === '[data-action="toggle-all-groups"]'
+            ? collapseButton
+            : selector === '[data-dashboard-tab][aria-selected="true"]'
+                ? selectedAiButton
+                : null,
+        querySelectorAll: selector => selector === '#dashboard-tab-open .open-other-windows-group[data-group-id]'
+            ? [openGroup]
+            : selector === '#dashboard-tab-todo .todo-group[data-todo-group-id]'
+                ? [todoGroup]
+                : [],
+    });
+
+    collapseButton.disabled = false;
+    harness.context.window.__projectStewardSyncCollapseButton();
+    assert.equal(collapseButton.disabled, true, 'late Projects mount must preserve AI state');
+    assert.equal(collapseButton.getAttribute('aria-disabled'), 'true');
+    assert.equal(collapseButton.getAttribute('title'), 'No groups to collapse in AI');
+
+    collapseButton.disabled = false;
+    harness.context.window.__projectStewardSyncCollapseButton('todo');
+    assert.equal(collapseButton.disabled, true, 'late TODO update must use the active AI tab');
+    assert.equal(collapseButton.getAttribute('aria-disabled'), 'true');
+    assert.equal(collapseButton.getAttribute('title'), 'No groups to collapse in AI');
+
+    harness.context.window.__projectStewardDashboard = null;
+    collapseButton.disabled = false;
+    harness.context.window.__projectStewardSyncCollapseButton();
+    assert.equal(collapseButton.disabled, true, 'initial mount must read the selected AI tab element');
+    assert.equal(collapseButton.getAttribute('title'), 'No groups to collapse in AI');
+});
+
+test('WEBVIEW-AI-DASHBOARD-001 preserves AI Collapse state after actual late Projects and TODO responses and updates', () => {
+    const collapseButton = createElement();
+    const projectVm = createProjectVm({
+        querySelector: selector => selector === '[data-action="toggle-all-groups"]'
+            ? collapseButton
+            : null,
+        querySelectorAll: selector => selector === '#dashboard-tab-open .open-other-windows-group[data-group-id]'
+            || selector === '#dashboard-tab-projects .group[data-group-id]'
+            || selector === '#dashboard-tab-todo .todo-group[data-todo-group-id]'
+            ? [{ classList: createClassList() }]
+            : [],
+    });
+    const syncCollapse = () => projectVm.context.window.__projectStewardSyncCollapseButton();
+    const dashboard = createDashboardHarness({
+        initialTab: 'projects',
+        onProjectsMounted: syncCollapse,
+        onTodoMounted: syncCollapse,
+    });
+    projectVm.context.window.__projectStewardDashboard = dashboard.controller;
+
+    dashboard.controller.activateTab('ai');
+    collapseButton.disabled = false;
+    assert.equal(dashboard.controller.applyProjectsPanelMessage({
+        type: 'projects-panel-content',
+        version: 1,
+        requestId: 1,
+        html: '<div>late projects</div>',
+    }), true);
+    assert.equal(collapseButton.disabled, true);
+    assert.equal(collapseButton.getAttribute('title'), 'No groups to collapse in AI');
+
+    collapseButton.disabled = false;
+    assert.equal(dashboard.controller.applyProjectsPanelUpdatedMessage({
+        type: 'projects-panel-updated',
+        version: 1,
+        sequence: 1,
+        mode: 'replace',
+        html: '<div>late projects update</div>',
+        searchCatalog: makeCatalog('late-projects'),
+        groupOrders: [],
+        favoriteProjectIds: [],
+    }), true);
+    assert.equal(collapseButton.disabled, true);
+    assert.equal(collapseButton.getAttribute('title'), 'No groups to collapse in AI');
+
+    dashboard.controller.activateTab('todo');
+    dashboard.controller.activateTab('ai');
+    collapseButton.disabled = false;
+    assert.equal(dashboard.controller.applyTodoPanelMessage({
+        type: 'todo-panel-content',
+        version: 1,
+        requestId: 1,
+        html: '<div>late todos</div>',
+        searchCatalog: makeCatalog('late-todos'),
+    }), true);
+    assert.equal(collapseButton.disabled, true);
+    assert.equal(collapseButton.getAttribute('title'), 'No groups to collapse in AI');
+
+    collapseButton.disabled = false;
+    assert.equal(dashboard.controller.applyTodoPanelUpdatedMessage({
+        type: 'todo-panel-updated',
+        version: 1,
+        html: '<div>late todo update</div>',
+        searchCatalog: makeCatalog('late-todo-update'),
+    }), true);
+    assert.equal(collapseButton.disabled, true);
+    assert.equal(collapseButton.getAttribute('title'), 'No groups to collapse in AI');
 });
 
 test('WEBVIEW-BATCH-AI-SESSION-WEBVIEW-001 rejects stale AI session update sequences', () => {

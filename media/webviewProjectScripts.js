@@ -404,7 +404,14 @@ function isOpenWorkspacesUpdateDomConsistent(message) {
 }
 
 function getCollapseButtonState(tab, collapsedStates) {
-    tab = tab === 'projects' || tab === 'todo' ? tab : 'open';
+    tab = tab === 'projects' || tab === 'todo' || tab === 'ai' ? tab : 'open';
+    if (tab === 'ai') {
+        return {
+            disabled: true,
+            collapsed: false,
+            title: 'No groups to collapse in AI',
+        };
+    }
     var labels = tab === 'todo'
         ? {
             empty: 'No TODO groups to collapse',
@@ -1485,7 +1492,7 @@ function initProjects() {
                 groupId: todoGroup.getAttribute('data-todo-group-id'),
                 collapsed: todoGroup.classList.contains('collapsed'),
             });
-            syncCollapseButton('todo');
+            syncCollapseButton();
             return true;
         }
 
@@ -1970,16 +1977,31 @@ function initProjects() {
         button.setAttribute("aria-label", state.title);
     }
 
-    function getActiveCollapsibleGroups(activeTab) {
+    function getActiveDashboardTab() {
         var dashboard = window.__projectStewardDashboard;
-        activeTab = activeTab || (dashboard && typeof dashboard.getActiveTab === 'function'
+        var selectedTab = !dashboard && document.querySelector
+            ? document.querySelector('[data-dashboard-tab][aria-selected="true"]')
+            : null;
+        var activeTab = dashboard && typeof dashboard.getActiveTab === 'function'
             ? dashboard.getActiveTab()
-            : 'open');
+            : selectedTab && selectedTab.getAttribute('data-dashboard-tab');
+        return activeTab === 'projects' || activeTab === 'todo' || activeTab === 'ai'
+            ? activeTab
+            : 'open';
+    }
+
+    function getActiveCollapsibleGroups() {
+        var activeTab = getActiveDashboardTab();
         var selector = activeTab === 'projects'
             ? '#dashboard-tab-projects .group[data-group-id]'
             : activeTab === 'todo'
                 ? '#dashboard-tab-todo .todo-group[data-todo-group-id]'
-                : '#dashboard-tab-open .open-other-windows-group[data-group-id]';
+                : activeTab === 'open'
+                    ? '#dashboard-tab-open .open-other-windows-group[data-group-id]'
+                    : null;
+        if (!selector) {
+            return [];
+        }
         return [...document.querySelectorAll(selector)];
     }
 
@@ -1997,12 +2019,9 @@ function initProjects() {
         }
     }
 
-    function syncCollapseButton(activeTab) {
-        var dashboard = window.__projectStewardDashboard;
-        activeTab = activeTab || (dashboard && typeof dashboard.getActiveTab === 'function'
-            ? dashboard.getActiveTab()
-            : 'open');
-        var groups = getActiveCollapsibleGroups(activeTab);
+    function syncCollapseButton() {
+        var activeTab = getActiveDashboardTab();
+        var groups = getActiveCollapsibleGroups();
         updateToggleAllGroupsButton(getCollapseButtonState(
             activeTab,
             groups.map(group => group.classList.contains('collapsed'))
@@ -2010,10 +2029,7 @@ function initProjects() {
     }
 
     function toggleAllGroups() {
-        var dashboard = window.__projectStewardDashboard;
-        var activeTab = dashboard && typeof dashboard.getActiveTab === 'function'
-            ? dashboard.getActiveTab()
-            : 'open';
+        var activeTab = getActiveDashboardTab();
         var groups = getActiveCollapsibleGroups();
         var shouldCollapse = groups.some(group => !group.classList.contains("collapsed"));
 
@@ -2160,7 +2176,7 @@ function initProjects() {
                 if (todoRoot && typeof initDnD === 'function' && typeof disposeDnD === 'function') {
                     disposeDnD(todoRoot);
                     initDnD(todoRoot);
-                    syncCollapseButton('todo');
+                    syncCollapseButton();
                 }
             }, 0);
         }

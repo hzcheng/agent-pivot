@@ -297,9 +297,9 @@ export function getStewardContent(
                     },
                     onTodoMounted: (panel, message) => {
                         todos.mount(panel, message.snapshot);
-                        window.__projectStewardSyncCollapseButton('todo');
+                        window.__projectStewardSyncCollapseButton();
                     },
-                    onActiveTabChanged: activeTab => window.__projectStewardSyncCollapseButton(activeTab),
+                    onActiveTabChanged: () => window.__projectStewardSyncCollapseButton(),
                 });
                 window.__projectStewardDashboard = dashboard;
                 fitProjectHeaders(document.getElementById('dashboard-tab-open'));

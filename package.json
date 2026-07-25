@@ -197,6 +197,34 @@
                     "scope": "machine",
                     "description": "Animation shown on a workspace card while one or more AI sessions are executing. OTHER WINDOWS uses only its existing aggregate running state and does not expose provider or session identities."
                 },
+                "projectSteward.aiSessionRunningIconAnimation": {
+                    "type": "string",
+                    "enum": [
+                        "current",
+                        "halo",
+                        "sharingan-itachi",
+                        "sharingan-obito-kakashi",
+                        "sharingan-sasuke",
+                        "sharingan-shisui",
+                        "sharingan-madara",
+                        "sharingan-madara-eternal",
+                        "none"
+                    ],
+                    "enumDescriptions": [
+                        "A rotating blue border surrounds the running Active Session terminal icon.",
+                        "A bright rotating halo surrounds the running Active Session terminal icon.",
+                        "Itachi Uchiha's Mangekyo Sharingan replaces and rotates over the running Active Session icon.",
+                        "Obito Uchiha and Kakashi Hatake's Mangekyo Sharingan replaces and rotates over the running Active Session icon.",
+                        "Sasuke Uchiha's Mangekyo Sharingan replaces and rotates over the running Active Session icon.",
+                        "Shisui Uchiha's Mangekyo Sharingan replaces and rotates over the running Active Session icon.",
+                        "Madara Uchiha's Mangekyo Sharingan replaces and rotates over the running Active Session icon.",
+                        "Madara Uchiha's Eternal Mangekyo Sharingan replaces and rotates over the running Active Session icon.",
+                        "No animation; show the ordinary circular terminal icon."
+                    ],
+                    "default": "current",
+                    "scope": "machine",
+                    "description": "Animation shown on the icon of an Active Session row while that session is executing."
+                },
                 "projectSteward.maxVisibleTodosPerGroup": {
                     "type": "number",
                     "default": 5,

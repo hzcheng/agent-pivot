@@ -10,6 +10,7 @@ const NON_TODO_DASHBOARD_CONFIGURATION_SECTIONS = [
     'projectSteward.aiSessionTmuxLayout',
     'projectSteward.aiSessionTmuxPath',
     'projectSteward.aiSessionRunningCardAnimation',
+    'projectSteward.aiSessionRunningIconAnimation',
     'projectSteward.maxVisibleTodosPerGroup',
     'projectSteward.maxVisibleProjectsPerGroup',
     'projectSteward.aiSessionAttention.enabled',

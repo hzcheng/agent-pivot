@@ -282,6 +282,7 @@ async function runShapeLifecycle(shape, index) {
         getTodoSearchItems: () => [],
         getCollapsed: () => collapsed,
         getRunningCardAnimation: () => 'current',
+        getRunningIconAnimation: () => undefined,
         getAttentionAggregate: () => attention,
         getBridgeInstanceId: () => SELF_INSTANCE,
         postMessage: async message => { posts.push(message); return true; },

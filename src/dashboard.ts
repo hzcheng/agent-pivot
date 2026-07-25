@@ -992,6 +992,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         getCards: getOpenWorkspaceCards,
         getRunningCardAnimation: () => getStewardConfiguration()
             .get<string>('aiSessionRunningCardAnimation', 'current'),
+        getRunningIconAnimation: () => getStewardConfiguration()
+            .get<string>('aiSessionRunningIconAnimation', 'current'),
         nextSequence: () => ++aiSessionUpdateSequence,
         postMessage: message => provider.postMessage(message),
         refresh: refreshStewardViews,
@@ -1443,6 +1445,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         getCollapsed: () => Boolean(groupCollapseController.getOpenWorkspacesCollapsed()),
         getRunningCardAnimation: () => getStewardConfiguration()
             .get<string>('aiSessionRunningCardAnimation', 'current'),
+        getRunningIconAnimation: () => getStewardConfiguration()
+            .get<string>('aiSessionRunningIconAnimation', 'current'),
         getAttentionAggregate: () => aiSessionAttentionController.getEffectiveAggregate(),
         getBridgeInstanceId: () => openWorkspaceBridgeClient.instanceId,
         postMessage: message => provider.postMessage(message),

@@ -50,8 +50,24 @@ const AI_SESSION_RUNNING_CARD_ANIMATIONS = new Set([
     'none',
 ]);
 
+const AI_SESSION_RUNNING_ICON_ANIMATIONS = new Set([
+    'current',
+    'halo',
+    'sharingan-itachi',
+    'sharingan-obito-kakashi',
+    'sharingan-sasuke',
+    'sharingan-shisui',
+    'sharingan-madara',
+    'sharingan-madara-eternal',
+    'none',
+]);
+
 function normalizeRunningCardAnimation(value: string | undefined): string {
     return value && AI_SESSION_RUNNING_CARD_ANIMATIONS.has(value) ? value : 'current';
+}
+
+function normalizeRunningIconAnimation(value: string | undefined): string {
+    return value && AI_SESSION_RUNNING_ICON_ANIMATIONS.has(value) ? value : 'current';
 }
 
 interface GroupSectionOptions {
@@ -65,6 +81,7 @@ interface GroupSectionOptions {
 
 interface AiSessionRenderOptions {
     showRootChips?: boolean;
+    runningIconAnimation?: string;
 }
 
 interface RootLabeledAiSession extends CodexSession {
@@ -144,6 +161,7 @@ export function getStewardContent(
         infos.openWorkspacesGroupCollapsed,
         otherWindowsStatus,
         infos.config.get<string>('aiSessionRunningCardAnimation', 'current'),
+        infos.config.get<string>('aiSessionRunningIconAnimation', 'current'),
     );
 
     return `
@@ -280,6 +298,7 @@ export function getCurrentWorkspaceGroupContent(
     card: WorkspaceCardViewModel | null,
     hasOtherWindows: boolean = false,
     runningCardAnimation?: string,
+    runningIconAnimation?: string,
 ): string {
     const currentCard = card && card.kind === 'current' && card.roots.length > 0 ? card : null;
     return `
@@ -290,7 +309,7 @@ export function getCurrentWorkspaceGroupContent(
     </div>
     <div class="group-list">
         <div class="drop-signal"></div>
-        ${currentCard ? getWorkspaceCardDiv(currentCard, runningCardAnimation) : getOpenCurrentWorkspaceEmptyState(hasOtherWindows)}
+        ${currentCard ? getWorkspaceCardDiv(currentCard, runningCardAnimation, runningIconAnimation) : getOpenCurrentWorkspaceEmptyState(hasOtherWindows)}
     </div>
 </div>`;
 }
@@ -300,6 +319,7 @@ export function getOpenWorkspacesGroupContent(
     collapsed: boolean,
     otherWindowsStatus: OpenWorkspaceBridgeStatus = 'ready',
     runningCardAnimation?: string,
+    runningIconAnimation?: string,
 ): string {
     const current = (cards || []).find(card => card.kind === 'current') || null;
     const navigationCards = (cards || []).filter(card => card.kind === 'navigation');
@@ -307,6 +327,7 @@ export function getOpenWorkspacesGroupContent(
         current,
         navigationCards.length > 0,
         runningCardAnimation,
+        runningIconAnimation,
     );
     if (!navigationCards.length && otherWindowsStatus === 'ready') {
         return currentSection;
@@ -320,7 +341,7 @@ export function getOpenWorkspacesGroupContent(
             ? `<div class="open-other-windows-state" role="status">
                 <p>OTHER WINDOWS is temporarily unavailable. Project Steward will retry automatically.</p>
             </div>`
-            : navigationCards.map(card => getWorkspaceCardDiv(card, runningCardAnimation)).join('\n');
+            : navigationCards.map(card => getWorkspaceCardDiv(card, runningCardAnimation, runningIconAnimation)).join('\n');
     const otherWindowsCollapsed = otherWindowsStatus === 'ready' && collapsed;
     return `${currentSection}
 <div class="group steward-section open-other-windows-group ${otherWindowsCollapsed ? 'collapsed' : ''}" data-group-id="${OPEN_WORKSPACES_GROUP_ID}" data-virtual-group data-system-group="${OPEN_WORKSPACES_GROUP_ID}" data-other-windows-status="${otherWindowsStatus}">
@@ -338,7 +359,11 @@ export function getOpenWorkspacesGroupContent(
 </div>`;
 }
 
-function getWorkspaceCardDiv(card: WorkspaceCardViewModel, runningCardAnimation?: string): string {
+function getWorkspaceCardDiv(
+    card: WorkspaceCardViewModel,
+    runningCardAnimation?: string,
+    runningIconAnimation?: string,
+): string {
     const roots = card.roots.slice().sort((left, right) => left.ordinal - right.ordinal);
     const rootCount = roots.length;
     const compactWorkspaceName = rootCount === 1
@@ -395,6 +420,7 @@ function getWorkspaceCardDiv(card: WorkspaceCardViewModel, runningCardAnimation?
     const sessionSection = isCurrent
         ? getAiSessionsDiv(getWorkspaceAiSessionSurface(card), {
             showRootChips: rootCount > 1,
+            runningIconAnimation,
         })
         : '';
     const colorStyles = getCardColorStyles(card.color);
@@ -784,7 +810,11 @@ function getActiveAiSessionPanel(
     var projectId = escapeAttribute(project.id || 'project');
     var selected = project.activeAiSessionTab === 'active';
     var rows = sessions.length
-        ? sessions.map(session => getActiveAiSessionRow(session, options.showRootChips)).join('\n')
+        ? sessions.map(session => getActiveAiSessionRow(
+            session,
+            options.showRootChips,
+            options.runningIconAnimation,
+        )).join('\n')
         : `<div class="codex-sessions-empty ai-session-active-empty">
             <strong>No active sessions</strong>
             <span>Start a new AI session or open one from Sessions.</span>
@@ -970,7 +1000,11 @@ function getCodexSessionRow(
 </div>`;
 }
 
-function getActiveAiSessionRow(model: ActiveAiSessionViewModel, showRootChip: boolean = false): string {
+function getActiveAiSessionRow(
+    model: ActiveAiSessionViewModel,
+    showRootChip: boolean = false,
+    runningIconAnimation?: string,
+): string {
     var providerLabel = getAiProviderLabel(model.provider);
     var sessionName = escapeAttribute(sanitizeProjectName(model.name || model.sessionId || `New ${providerLabel} session`));
     var sessionId = escapeAttribute(model.sessionId || '');
@@ -982,6 +1016,9 @@ function getActiveAiSessionRow(model: ActiveAiSessionViewModel, showRootChip: bo
     var executionAriaLabel = model.executionState === 'running' ? 'AI is currently executing'
         : model.executionState === 'starting' ? 'Waiting for AI activity'
             : 'AI is not currently executing';
+    var iconFx = model.executionState === 'running'
+        ? normalizeRunningIconAnimation(runningIconAnimation)
+        : '';
     var executionStatus = `<span class="ai-session-execution-status" aria-label="${executionAriaLabel}"><span class="ai-session-execution-dot" aria-hidden="true"></span>${executionLabel}</span>`;
     var runtimeStatusLabel = model.status === 'conflict' || model.conflict ? 'Runtime conflict' : '';
     var runtimeBadgeDescription = model.backend === 'tmux'
@@ -1030,7 +1067,7 @@ function getActiveAiSessionRow(model: ActiveAiSessionViewModel, showRootChip: bo
     var rootChip = showRootChip && model.primaryRootLabel
         ? `<span class="ai-session-root-chip">${escapeAttribute(sanitizeProjectName(model.primaryRootLabel))}</span>`
         : '';
-    return `<div class="codex-session-row active-ai-session-row" role="group" aria-label="${providerLabel} session ${sessionName}" data-session-provider="${model.provider}" data-execution-state="${model.executionState}"${runtimeAttributes}${rootAttributes}${pendingAttributes}${model.pinned ? ' data-session-pinned' : ''}${model.focused ? ' data-session-focused' : ''}${model.needsAttention ? ' data-session-needs-attention' : ''}${attentionAttributes}>
+    return `<div class="codex-session-row active-ai-session-row" role="group" aria-label="${providerLabel} session ${sessionName}" data-session-provider="${model.provider}" data-execution-state="${model.executionState}"${iconFx ? ` data-session-icon-fx="${iconFx}"` : ''}${runtimeAttributes}${rootAttributes}${pendingAttributes}${model.pinned ? ' data-session-pinned' : ''}${model.focused ? ' data-session-focused' : ''}${model.needsAttention ? ' data-session-needs-attention' : ''}${attentionAttributes}>
         <button type="button" class="ai-session-primary-action" data-action="activate-ai-session" aria-label="${primaryAriaLabel}" title="${primaryAction} ${providerLabel} Session">
             ${attentionIndicator}
             <span class="codex-session-icon">${Icons.terminalLine}</span>

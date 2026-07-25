@@ -13,7 +13,7 @@ export type AiSessionCommandPlatform = NodeJS.Platform;
 const SAFE_LAUNCH_OPTIONS: AiSessionLaunchOptions = Object.freeze({ yolo: false });
 
 function yoloArg(options: AiSessionLaunchOptions, argument: string): string[] {
-    return options.yolo ? [argument] : [];
+    return options?.yolo === true ? [argument] : [];
 }
 
 function buildRepeatedAdditionalDirectoryArgs(scope: AiSessionDirectoryScope): string[] {

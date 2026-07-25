@@ -118,6 +118,20 @@ test('SESSION-AI-SESSION-YOLO-LAUNCH-001 adds the exact provider flag to New and
     );
 });
 
+test('SESSION-AI-SESSION-YOLO-LAUNCH-002 rejects malformed truthy launch options at the flag boundary', () => {
+    const malformed = { yolo: 'true' };
+    for (const provider of providers) {
+        assert.deepEqual(
+            provider.resumeSpec(sessionId, directoryScope, markerPath, malformed),
+            provider.expectedResume
+        );
+        assert.deepEqual(
+            provider.newSpec(directoryScope, title, markerPath, malformed),
+            provider.expectedNew
+        );
+    }
+});
+
 test('SESSION-COMMAND-BUILDER-001 quotes PowerShell single quotes without interpolation', () => {
     assert.equal(commands.quotePowerShellArg("O'Brien & 100%"), "'O''Brien & 100%'");
 });

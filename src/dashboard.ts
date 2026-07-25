@@ -648,7 +648,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         pickProvider: pickAiSessionProvider,
         getProviderLabel: getAiSessionProviderLabel,
         getLaunchOptions: () =>
-            readAiSessionLaunchOptions(getStewardConfiguration()),
+            readAiSessionLaunchOptions(vscode.workspace),
         getProvider: getRegisteredAiSessionProvider,
         resolveWorkspaceDirectoryScope: (target, providerId, explicitRootId) =>
             aiSessionCommandController.resolveWorkspaceDirectoryScope(
@@ -777,7 +777,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const aiSessionResumeController = new AiSessionResumeController<vscode.Terminal>({
         getWorkspaceTarget: getCurrentWorkspaceActionTarget,
         getLaunchOptions: () =>
-            readAiSessionLaunchOptions(getStewardConfiguration()),
+            readAiSessionLaunchOptions(vscode.workspace),
         getProvider: getRegisteredAiSessionProvider,
         resolveWorkspaceDirectoryScope: (target, session, providerId, explicitRootId) =>
             aiSessionCommandController.resolveWorkspaceDirectoryScope(

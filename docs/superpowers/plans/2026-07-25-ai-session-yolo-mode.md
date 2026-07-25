@@ -4,7 +4,7 @@
 
 **Goal:** Add a safe-by-default machine setting that applies each provider's approval-bypassing CLI argument whenever Project Steward creates or resumes an AI session process.
 
-**Architecture:** A focused configuration reader converts VS Code settings into a provider-neutral `AiSessionLaunchOptions` snapshot. Creation and resume controllers inject that snapshot into pure provider launch-spec builders, so Direct Terminal and tmux keep sharing the same serialized launch request and already-live runtimes remain unchanged.
+**Architecture:** A focused reader accesses `projectSteward` directly and converts the literal setting into provider-neutral `AiSessionLaunchOptions`. Creation and resume controllers carry a single-use launch-spec factory through the coordinator. Direct Terminal or tmux evaluates that factory exactly once at its final provider-dispatch boundary, so no-dispatch branches never read the setting or build a launch, both backends still share `AiSessionLaunchSpec`, and already-live runtimes remain unchanged.
 
 **Tech Stack:** TypeScript, VS Code extension configuration, Node.js 22.12 test runner, POSIX/PowerShell command serialization, npm scripts.
 
@@ -12,11 +12,13 @@
 
 - Add `projectSteward.aiSessionYoloMode` as a machine-scoped boolean with default `false`.
 - Only the literal boolean value `true` enables YOLO mode; missing or malformed values fail closed to `false`.
+- Read the security-sensitive option directly from `vscode.workspace.getConfiguration('projectSteward')`; the legacy `dashboard.*` fallback must never enable it.
 - Apply the setting to both New and Resume process launches for Codex, Kimi, and Claude.
 - Use `--dangerously-bypass-approvals-and-sandbox` for Codex, `--yolo` for Kimi, and `--dangerously-skip-permissions` for Claude.
 - Do not add a per-launch picker, per-session persistence, runtime badge, intermediate permission preset, or live-runtime migration.
-- Changing the setting affects the next process launch without requiring a VS Code reload.
+- Changing the setting affects every process launched after the change while enabled, without requiring a VS Code reload.
 - Keep Direct Terminal and tmux behavior unified through `AiSessionLaunchSpec`.
+- Read launch configuration and call a provider builder exactly once on provider dispatch and zero times for focused, blocked, conflict, cancelled, settings, duplicate, unavailable, or collision exits.
 - Work only in `.worktree/ai-session-yolo-mode` on `feat/ai-session-yolo-mode`; do not modify the primary checkout.
 
 ## File Structure
@@ -25,9 +27,15 @@
 - Modify `src/aiSessions/commandBuilders.ts`: translate the provider-neutral YOLO value into provider-specific argv.
 - Modify `src/aiSessions/types.ts`: expose launch options in provider New and Resume launch-spec contracts.
 - Modify `src/aiSessions/providers.ts`: forward launch options through provider-specific wrappers.
-- Modify `src/aiSessions/creationController.ts`: snapshot and pass launch options for New.
-- Modify `src/aiSessions/resumeController.ts`: snapshot and pass launch options for Resume.
-- Modify `src/dashboard.ts`: read the current Project Steward configuration for each actual controller launch.
+- Create `src/aiSessions/runtimeLaunch.ts`: snapshot deferred launch intent, enforce single use, and materialize a common launch spec.
+- Modify `src/aiSessions/runtimeTypes.ts`: represent deferred and materialized runtime launch requests.
+- Modify `src/aiSessions/creationController.ts`: capture a defensive New launch factory.
+- Modify `src/aiSessions/resumeController.ts`: capture a defensive Resume launch factory.
+- Modify `src/aiSessions/runtimeCoordinator.ts`: snapshot and route the factory without evaluating it.
+- Modify `src/aiSessions/directTerminalRuntimeBackend.ts`: materialize only at direct provider dispatch.
+- Modify `src/aiSessions/tmuxRuntimeBackend.ts`: materialize after final target checks and make pending ambiguity identity launch-option-independent.
+- Modify `src/aiSessions/tmuxRuntimeBindingStore.ts`: accept new `v3` and legacy pending fingerprints.
+- Modify `src/dashboard.ts`: supply the VS Code workspace so the reader accesses `projectSteward` directly.
 - Modify `package.json`: declare the public setting contract.
 - Modify `README.md`: document risk, scope, and next-launch semantics.
 - Modify `tests/contract/aiSessions/runtimePrimitives.test.js`: verify configuration and serialized launch boundaries.
@@ -36,6 +44,10 @@
 - Modify `tests/contract/aiSessions/sessionControllers.test.js`: verify New and Resume propagate a launch-options snapshot.
 - Modify `scripts/run-ai-session-safety-checks.js`: preserve production-wiring guards and supply safe launch options in controller fixtures.
 - Modify `scripts/run-ai-session-tmux-checks.js`: supply safe launch options in tmux controller fixtures and retain backend parity coverage.
+
+Tasks 1–4 preserve the original implementation sequence. Task 5 is the
+binding post-review correction and supersedes any earlier eager-construction
+snippet.
 
 ---
 
@@ -48,8 +60,8 @@
 - Test: `tests/contract/aiSessions/runtimePrimitives.test.js`
 
 **Interfaces:**
-- Consumes: a VS Code-compatible configuration reader with `get<T>(key: string, fallback: T): T`.
-- Produces: `AiSessionLaunchOptions { yolo: boolean }` and `readAiSessionLaunchOptions(configuration): AiSessionLaunchOptions`.
+- Consumes: a VS Code-compatible workspace configuration provider with `getConfiguration(section)`.
+- Produces: `AiSessionLaunchOptions { yolo: boolean }` and `readAiSessionLaunchOptions(workspace): AiSessionLaunchOptions`, reading only `projectSteward`.
 
 - [ ] **Step 1: Write the failing configuration contract test**
 
@@ -66,19 +78,29 @@ Add this test immediately after
 ```js
 test('SESSION-AI-SESSION-YOLO-CONFIGURATION-001 reads only literal true and declares a safe machine setting', () => {
     assert.deepEqual(
-        launchOptions.readAiSessionLaunchOptions(configuration({})),
+        launchOptions.readAiSessionLaunchOptions(workspaceConfiguration({})),
         { yolo: false }
     );
     assert.deepEqual(
-        launchOptions.readAiSessionLaunchOptions(configuration({ aiSessionYoloMode: true })),
+        launchOptions.readAiSessionLaunchOptions(
+            workspaceConfiguration({ aiSessionYoloMode: true })
+        ),
         { yolo: true }
     );
     for (const invalid of [false, null, 1, 'true', 'false', {}]) {
         assert.deepEqual(
-            launchOptions.readAiSessionLaunchOptions(configuration({ aiSessionYoloMode: invalid })),
+            launchOptions.readAiSessionLaunchOptions(
+                workspaceConfiguration({ aiSessionYoloMode: invalid })
+            ),
             { yolo: false }
         );
     }
+    assert.deepEqual(
+        launchOptions.readAiSessionLaunchOptions(
+            workspaceConfiguration({}, { aiSessionYoloMode: true })
+        ),
+        { yolo: false }
+    );
 
     const manifest = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../../package.json'), 'utf8'));
     const setting = manifest.contributes.configuration.properties[
@@ -119,9 +141,14 @@ interface ConfigurationReader {
     get<T>(key: string, fallback: T): T;
 }
 
+interface WorkspaceConfigurationProvider {
+    getConfiguration(section: string): ConfigurationReader;
+}
+
 export function readAiSessionLaunchOptions(
-    configuration: ConfigurationReader
+    workspace: WorkspaceConfigurationProvider
 ): AiSessionLaunchOptions {
+    const configuration = workspace.getConfiguration('projectSteward');
     return {
         yolo: configuration.get<unknown>('aiSessionYoloMode', false) === true,
     };
@@ -146,7 +173,7 @@ Add this bullet under `AI runtime options (all machine-scoped)` in
 `README.md`:
 
 ```markdown
-- `projectSteward.aiSessionYoloMode`: `false` by default. When `true`, newly created and resumed Codex, Kimi, and Claude processes bypass their normal approval protections. This is dangerous, affects only the next process launch, and never changes an already live runtime.
+- `projectSteward.aiSessionYoloMode`: `false` by default. When `true`, newly created and resumed Codex, Kimi, and Claude processes bypass their normal approval protections. This is dangerous, affects every process launched after the change while enabled, and never changes an already live runtime.
 ```
 
 Extend the nearby JSON example:
@@ -306,7 +333,7 @@ Add a safe default and helper:
 const SAFE_LAUNCH_OPTIONS: AiSessionLaunchOptions = Object.freeze({ yolo: false });
 
 function yoloArg(options: AiSessionLaunchOptions, argument: string): string[] {
-    return options.yolo ? [argument] : [];
+    return options?.yolo === true ? [argument] : [];
 }
 ```
 
@@ -406,8 +433,8 @@ git commit -m "feat: add provider yolo launch arguments"
 - Test: `scripts/run-ai-session-tmux-checks.js`
 
 **Interfaces:**
-- Consumes: `readAiSessionLaunchOptions(getStewardConfiguration())` and the optional fourth builder argument introduced in Task 2.
-- Produces: both controller option types require `getLaunchOptions: () => AiSessionLaunchOptions`, and both provider launch-spec contracts require an explicit `AiSessionLaunchOptions` value.
+- Consumes: `readAiSessionLaunchOptions(vscode.workspace)` and the optional fourth builder argument introduced in Task 2.
+- Produces: both controller option types require `getLaunchOptions: () => AiSessionLaunchOptions`; controllers close over it in a single-use factory, and provider launch-spec contracts require an explicit `AiSessionLaunchOptions` value.
 
 - [ ] **Step 1: Write failing controller propagation assertions**
 
@@ -459,6 +486,10 @@ After the resume request assertions, add:
 assert.deepEqual(receivedLaunchOptions, [{ yolo: true }]);
 ```
 
+For a stub that returns `started`, invoke `request.createLaunchSpec()` once to
+model the backend's final dispatch. Stubs returning `focused`, `blocked`,
+`conflict`, `cancelled`, or `settings` must not invoke it.
+
 - [ ] **Step 2: Run the focused controller contract to verify it fails**
 
 Run:
@@ -493,33 +524,31 @@ Add `launchOptions: AiSessionLaunchOptions` as the fourth parameter of
 `AiSessionCreationProvider.buildNewSessionLaunchSpec`, and
 `AiSessionResumeProvider.buildResumeLaunchSpec`.
 
-In `AiSessionCreationController.createRuntimeSession`, snapshot once and pass
-the snapshot to the builder:
+In `AiSessionCreationController.createRuntimeSession`, capture a single-use
+factory over a defensive scope snapshot:
 
 ```ts
-const launchOptions = options.getLaunchOptions();
-const launch = cloneLaunchSpec(
+launchMarkerPath: markerPath,
+createLaunchSpec: createSingleUseLaunchSpecFactory(() =>
     sessionProvider.buildNewSessionLaunchSpec(
-        directoryScope,
+        launchScope,
         fields.title,
         markerPath,
-        launchOptions
-    )
-);
+        options.getLaunchOptions()
+    )),
 ```
 
 In `AiSessionResumeController.resumeRuntime`, do the same:
 
 ```ts
-const launchOptions = options.getLaunchOptions();
-const launch = cloneLaunchSpec(
+launchMarkerPath: markerPath,
+createLaunchSpec: createSingleUseLaunchSpecFactory(() =>
     sessionProvider.buildResumeLaunchSpec(
         session.id,
-        directoryScope,
+        launchScope,
         markerPath,
-        launchOptions
-    )
-);
+        options.getLaunchOptions()
+    )),
 ```
 
 Require `getLaunchOptions` in both `validateControllerOptions` functions:
@@ -559,7 +588,7 @@ Add this dependency to both `AiSessionCreationController` and
 
 ```ts
 getLaunchOptions: () =>
-    readAiSessionLaunchOptions(getStewardConfiguration()),
+    readAiSessionLaunchOptions(vscode.workspace),
 ```
 
 Do not add `projectSteward.aiSessionYoloMode` to the runtime-configuration
@@ -597,7 +626,8 @@ assert.strictEqual(
     (dashboard.match(/getLaunchOptions: \(\) =>/g) || []).length,
     2
 );
-assert.ok(dashboard.includes(
+assert.ok(dashboard.includes('readAiSessionLaunchOptions(vscode.workspace)'));
+assert.ok(!dashboard.includes(
     'readAiSessionLaunchOptions(getStewardConfiguration())'
 ));
 ```
@@ -678,5 +708,60 @@ git status -sb
 git log --oneline --decorate origin/main..HEAD
 ```
 
-Expected: no whitespace errors; the worktree is clean; the branch contains the
-design commit, plan commit, and three focused implementation commits only.
+Expected: no whitespace errors; the worktree is clean; the post-review fixes
+and documentation are contained in one focused review-fix commit after the
+previous implementation history.
+
+### Task 5: Binding Post-Review Lazy-Dispatch Fix
+
+**Files:**
+- Modify the configuration reader and dashboard wiring.
+- Add deferred launch request types and `runtimeLaunch.ts`.
+- Modify both controllers, the coordinator, and both runtime backends.
+- Modify tmux pending ambiguity fingerprint validation and recovery.
+- Extend focused contracts, safety checks, tmux checks, README, design, and this plan.
+
+**Interfaces:**
+- Controllers produce `launchMarkerPath` plus a single-use
+  `createLaunchSpec()` factory.
+- The coordinator and backends preserve that factory without reading a legacy
+  concrete `launch` property.
+- Only the final direct/tmux provider-dispatch boundary materializes
+  `AiSessionLaunchSpec`.
+- New pending ambiguity records use a stable, launch-option-independent `v3`
+  fingerprint; matching legacy hashes remain recoverable.
+
+- [ ] **Step 1: Record focused RED evidence**
+
+Add regressions for direct configuration reads, malformed truthy options,
+controller/coordinator/backend no-dispatch branches, fallback-time setting
+changes, stable pending fingerprints, and legacy ambiguity recovery. Run
+`npm run test-compile` followed by each focused command and retain the failing
+totals in the final review report.
+
+- [ ] **Step 2: Implement the final lazy boundary**
+
+Carry the single-use factory through immutable request snapshots. Materialize
+it once immediately before Direct Terminal sends the provider launch or tmux
+calls `create-session`/`create-window`, after every availability, ownership,
+lifecycle, duplicate, conflict, fallback, lock, and target check.
+
+- [ ] **Step 3: Run focused GREEN verification**
+
+Run the configuration/options, builder unit/contract/Windows,
+creation/resume-controller, coordinator-all-branches, and backend-boundary
+tests after `npm run test-compile`.
+
+- [ ] **Step 4: Run required regression verification**
+
+```bash
+node scripts/run-ai-session-safety-checks.js
+node scripts/run-ai-session-tmux-checks.js
+npm run test:deterministic
+```
+
+- [ ] **Step 5: Self-review and create one post-review commit**
+
+Inspect the complete diff, run `git diff --check`, write
+`.superpowers/sdd/final-review-fix-report.md`, stage all post-review code,
+tests, and documentation together, and create one focused review-fix commit.

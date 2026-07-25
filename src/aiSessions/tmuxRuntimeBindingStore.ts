@@ -1193,7 +1193,7 @@ function validateAmbiguousRecord(value: unknown): TmuxAmbiguousRuntimeBinding | 
             || (record.markerPath !== undefined
                 && !isBoundedString(record.markerPath, MAX_PATH_LENGTH))
             || typeof record.requestFingerprint !== 'string'
-            || !/^[a-f0-9]{64}$/.test(record.requestFingerprint)))) {
+            || !/^(?:v3:)?[a-f0-9]{64}$/.test(record.requestFingerprint)))) {
         return null;
     }
     return {

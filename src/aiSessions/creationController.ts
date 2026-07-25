@@ -6,6 +6,7 @@ import type { AiSessionProviderId } from '../models';
 import { sanitizeAiSessionAlias } from './aliasStore';
 import type { AiSessionLaunchOptions } from './launchOptions';
 import type { AiSessionLaunchSpec } from './launchSpec';
+import { createSingleUseLaunchSpecFactory } from './runtimeLaunch';
 import { isValidAiSessionRuntimeIdentityId } from './runtimeTypes';
 import type {
     AiSessionCreateRuntimeRequest,
@@ -187,15 +188,7 @@ export class AiSessionCreationController {
         const createdAt = new Date(options.nowMs()).toISOString();
         const markerPath = options.getPendingMarkerPath(providerId);
         const terminalName = `${sessionProvider.terminalNamePrefix}: ${target.name || 'New Session'}`;
-        const launchOptions = options.getLaunchOptions();
-        const launch = cloneLaunchSpec(
-            sessionProvider.buildNewSessionLaunchSpec(
-                directoryScope,
-                fields.title,
-                markerPath,
-                launchOptions
-            )
-        );
+        const launchScope = cloneDirectoryScope(directoryScope);
         const request: AiSessionCreateRuntimeRequest = {
             identity: {
                 provider: providerId,
@@ -210,7 +203,14 @@ export class AiSessionCreationController {
             createdAt,
             excludedSessionIds: existingSessionIds,
             title: fields.title,
-            launch,
+            launchMarkerPath: markerPath,
+            createLaunchSpec: createSingleUseLaunchSpecFactory(() =>
+                sessionProvider.buildNewSessionLaunchSpec!(
+                    launchScope,
+                    fields.title,
+                    markerPath,
+                    options.getLaunchOptions()
+                )),
             directoryScope,
         };
         let result: AiSessionRuntimeActionResult<vscode.Terminal>;
@@ -251,10 +251,11 @@ export class AiSessionCreationController {
     }
 }
 
-function cloneLaunchSpec(launch: AiSessionLaunchSpec): AiSessionLaunchSpec {
+function cloneDirectoryScope(scope: AiSessionDirectoryScope): AiSessionDirectoryScope {
     return {
-        ...launch,
-        args: [...launch.args],
+        ...scope,
+        workspaceRootHostPaths: [...scope.workspaceRootHostPaths],
+        additionalDirectories: [...scope.additionalDirectories],
     };
 }
 

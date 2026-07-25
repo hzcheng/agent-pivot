@@ -2219,6 +2219,7 @@ async function runWorkspaceCreationDirectoryFirstChecks() {
         runtimeCoordinator: {
             create: async request => {
                 requests.push(request);
+                request.launch = request.createLaunchSpec();
                 return { status: 'started', runtime: {} };
             },
             getActive: () => [],
@@ -2317,6 +2318,7 @@ async function runWorkspaceScopeControllerLaunchChecks() {
             nowMs: () => Date.parse('2026-07-20T10:00:00.000Z'),
             runtimeCoordinator: {
                 create: async request => {
+                    request.launch = request.createLaunchSpec();
                     createRequests.push(request);
                     return { status: 'started', runtime: {} };
                 },
@@ -2325,8 +2327,10 @@ async function runWorkspaceScopeControllerLaunchChecks() {
             },
         });
         await creation.createSession(workspaceTarget.cardId);
-        assert.strictEqual(createScopes[0], scope,
-            `${providerId} creation must pass the injected complete scope unchanged to its builder`);
+        assert.deepStrictEqual(createScopes[0], scope,
+            `${providerId} creation must pass the complete scope snapshot to its builder`);
+        assert.notStrictEqual(createScopes[0], scope,
+            `${providerId} creation must defensively snapshot the builder scope`);
         assert.deepStrictEqual(createRequests[0].launch, {
             executable: providerId,
             args: ['create', providerId],
@@ -2375,14 +2379,17 @@ async function runWorkspaceScopeControllerLaunchChecks() {
             showActiveTab: async () => undefined,
             runtimeCoordinator: {
                 resume: async request => {
+                    request.launch = request.createLaunchSpec();
                     resumeRequests.push(request);
                     return { status: 'started', runtime: {} };
                 },
             },
         });
         await resume.resumeProjectSession(workspaceTarget.cardId, providerId, session.id);
-        assert.strictEqual(resumeScopes[0], scope,
-            `${providerId} resume must pass the injected complete scope unchanged to its builder`);
+        assert.deepStrictEqual(resumeScopes[0], scope,
+            `${providerId} resume must pass the complete scope snapshot to its builder`);
+        assert.notStrictEqual(resumeScopes[0], scope,
+            `${providerId} resume must defensively snapshot the builder scope`);
         assert.deepStrictEqual(resumeRequests[0].launch, {
             executable: providerId,
             args: ['resume', session.id],
@@ -2513,6 +2520,9 @@ async function runWorkspaceLaunchPreflightControllerChecks() {
                     createError = null;
                     throw error;
                 }
+                if (createResult.status === 'started') {
+                    request.launch = request.createLaunchSpec();
+                }
                 return createResult;
             },
             getActive: () => [],
@@ -2537,7 +2547,8 @@ async function runWorkspaceLaunchPreflightControllerChecks() {
     await creation.createSession(workspaceTarget.cardId);
     assert.deepStrictEqual(createRequests[0].directoryScope, activeEditorScope);
     assert.strictEqual(createRequests[0].identity.cwd, activeEditorScope.primaryCwd);
-    assert.strictEqual(createScopes[0], createRequests[0].directoryScope);
+    assert.deepStrictEqual(createScopes[0], createRequests[0].directoryScope);
+    assert.notStrictEqual(createScopes[0], createRequests[0].directoryScope);
     assert.deepStrictEqual(primaryRootWrites, [[workspace.scopeIdentity, activeEditorScope.primaryRootId]]);
 
     creationRootId = 'root-web';
@@ -2592,6 +2603,9 @@ async function runWorkspaceLaunchPreflightControllerChecks() {
                     resumeError = null;
                     throw error;
                 }
+                if (resumeResult.status === 'started') {
+                    request.launch = request.createLaunchSpec();
+                }
                 return resumeResult;
             },
         },
@@ -2622,7 +2636,8 @@ async function runWorkspaceLaunchPreflightControllerChecks() {
     assert.strictEqual(resumeRequests[0].launch.cwd, '/work/api/packages/service',
         'the provider launch spec must consume the same exact historical cwd');
     assert.strictEqual(resumeRequests[0].identity.cwd, resumeRequests[0].directoryScope.primaryCwd);
-    assert.strictEqual(resumeScopes[0], resumeRequests[0].directoryScope);
+    assert.deepStrictEqual(resumeScopes[0], resumeRequests[0].directoryScope);
+    assert.notStrictEqual(resumeScopes[0], resumeRequests[0].directoryScope);
     assert.deepStrictEqual(primaryRootWrites[2], [workspace.scopeIdentity, 'root-api']);
 
     session.cwd = '/historical/outside-workspace';
@@ -3595,7 +3610,11 @@ async function runWorkspaceCardActionControllerIntegrationChecks() {
         resolveDirectoryScope: () => { throw new Error('must not resolve a root Project'); },
         resolveWorkspaceDirectoryScope: (resolved, providerId, rootId) =>
             commandController.resolveWorkspaceDirectoryScope(resolved.workspace, providerId, undefined, rootId),
-        runtimeCoordinator: { create: async request => { createRequests.push(request); return { status: 'started', runtime: {} }; },
+        runtimeCoordinator: { create: async request => {
+            request.launch = request.createLaunchSpec();
+            createRequests.push(request);
+            return { status: 'started', runtime: {} };
+        },
             getActive: () => [], getPending: () => [] },
         createPendingId: () => 'pending-workspace-card',
         showInputBox: async () => 'Investigate replication',
@@ -3620,7 +3639,11 @@ async function runWorkspaceCardActionControllerIntegrationChecks() {
         resolveDirectoryScope: () => { throw new Error('must not resolve a root Project'); },
         resolveWorkspaceDirectoryScope: (resolved, resolvedSession, providerId, rootId) =>
             commandController.resolveWorkspaceDirectoryScope(resolved.workspace, providerId, resolvedSession, rootId),
-        runtimeCoordinator: { resume: async request => { resumeRequests.push(request); return { status: 'started', runtime: {} }; } },
+        runtimeCoordinator: { resume: async request => {
+            request.launch = request.createLaunchSpec();
+            resumeRequests.push(request);
+            return { status: 'started', runtime: {} };
+        } },
         getTerminalName: () => 'Codex: Card Session', getMarkerPath: () => '/tmp/card.marker',
         showWarningMessage: () => undefined, refresh: () => undefined,
         showActiveTab: async () => undefined, announceStatus: async () => undefined,
@@ -5174,8 +5197,11 @@ function runWebviewContentChecks() {
         2
     );
     assert.ok(dashboard.includes(
-        'readAiSessionLaunchOptions(getStewardConfiguration())'
+        'readAiSessionLaunchOptions(vscode.workspace)'
     ));
+    assert.ok(!dashboard.includes(
+        'readAiSessionLaunchOptions(getStewardConfiguration())'
+    ), 'YOLO configuration must not pass through the legacy dashboard fallback');
     assert.ok(dashboard.includes('new AiSessionPinController({'));
     assert.ok(dashboard.includes('aiSessionPinController.getAll()'));
     assert.ok(dashboard.includes('aiSessionPinController.toggle('));

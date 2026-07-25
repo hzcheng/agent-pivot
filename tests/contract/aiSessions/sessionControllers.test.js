@@ -41,13 +41,18 @@ function makeWorkspaceTarget(sessions = []) {
 test('SESSION-AI-SESSION-CREATION-CONTROLLER-001 creates one tracked pending terminal from validated public input', async () => {
     const effects = [];
     const requests = [];
+    const launchSpecs = [];
     const receivedLaunchOptions = [];
+    let launchOptionReads = 0;
     const controller = new AiSessionCreationController({
         isProviderId: value => value === 'codex',
         getWorkspaceTarget: id => id === 'p' ? makeWorkspaceTarget() : null,
         pickWorkspaceRoot: async () => undefined,
         pickProvider: async () => 'codex', getProviderLabel: () => 'Codex',
-        getLaunchOptions: () => ({ yolo: true }),
+        getLaunchOptions: () => {
+            launchOptionReads += 1;
+            return { yolo: true };
+        },
         getProvider: () => ({
             label: 'Codex',
             terminalNamePrefix: 'Codex',
@@ -64,7 +69,13 @@ test('SESSION-AI-SESSION-CREATION-CONTROLLER-001 creates one tracked pending ter
         createPendingId: () => 'pending-fixture',
         announceStatus: async () => undefined,
         runtimeCoordinator: {
-            create: async request => { requests.push(request); return { status: 'started', backend: 'vscode' }; },
+            create: async request => {
+                requests.push(request);
+                if (typeof request.createLaunchSpec === 'function') {
+                    launchSpecs.push(request.createLaunchSpec());
+                }
+                return { status: 'started', backend: 'vscode' };
+            },
             getActive: () => [],
             getPending: () => [],
         },
@@ -75,6 +86,12 @@ test('SESSION-AI-SESSION-CREATION-CONTROLLER-001 creates one tracked pending ter
     assert.equal(requests[0].identity.provider, 'codex');
     assert.equal(requests[0].identity.workspaceScopeIdentity, 'scope:fixture');
     assert.deepEqual(requests[0].excludedSessionIds, ['existing']);
+    assert.equal(requests[0].launch, undefined);
+    assert.equal(typeof requests[0].createLaunchSpec, 'function');
+    assert.deepEqual(launchSpecs, [{
+        executable: 'codex', args: ['--new'], cwd: '/work',
+    }]);
+    assert.equal(launchOptionReads, 1);
     assert.deepEqual(receivedLaunchOptions, [{ yolo: true }]);
     const before = effects.length;
     await controller.createSession('missing');
@@ -85,12 +102,17 @@ test('SESSION-AI-SESSION-CREATION-CONTROLLER-001 creates one tracked pending ter
 test('SESSION-AI-SESSION-RESUME-CONTROLLER-001 delegates scoped resume and reveals successful runtime results', async () => {
     const effects = [];
     const requests = [];
+    const launchSpecs = [];
     const receivedLaunchOptions = [];
+    let launchOptionReads = 0;
     const controller = new AiSessionResumeController({
         getWorkspaceTarget: id => id === 'p'
             ? makeWorkspaceTarget([{ id: 's', name: 'Session', cwd: '/work' }])
             : null,
-        getLaunchOptions: () => ({ yolo: true }),
+        getLaunchOptions: () => {
+            launchOptionReads += 1;
+            return { yolo: true };
+        },
         getProvider: () => ({
             label: 'Codex',
             terminalEnvKey: 'CODEX',
@@ -104,7 +126,13 @@ test('SESSION-AI-SESSION-RESUME-CONTROLLER-001 delegates scoped resume and revea
         refresh: () => effects.push('refresh'), showActiveTab: id => effects.push(`tab:${id}`),
         announceStatus: async () => undefined,
         runtimeCoordinator: {
-            resume: async request => { requests.push(request); return { status: 'started', backend: 'vscode' }; },
+            resume: async request => {
+                requests.push(request);
+                if (typeof request.createLaunchSpec === 'function') {
+                    launchSpecs.push(request.createLaunchSpec());
+                }
+                return { status: 'started', backend: 'vscode' };
+            },
         },
     });
     await controller.resumeProjectSession('p', 'codex', 's');
@@ -112,7 +140,105 @@ test('SESSION-AI-SESSION-RESUME-CONTROLLER-001 delegates scoped resume and revea
     assert.equal(requests.length, 1);
     assert.equal(requests[0].identity.sessionId, 's');
     assert.equal(requests[0].identity.workspaceScopeIdentity, 'scope:fixture');
+    assert.equal(requests[0].launch, undefined);
+    assert.equal(typeof requests[0].createLaunchSpec, 'function');
+    assert.deepEqual(launchSpecs, [{
+        executable: 'codex', args: ['resume', 's'], cwd: '/work',
+    }]);
+    assert.equal(launchOptionReads, 1);
     assert.deepEqual(receivedLaunchOptions, [{ yolo: true }]);
+});
+
+test('SESSION-AI-SESSION-YOLO-LAZY-001 does not read options or build specs for non-dispatch controller results', async () => {
+    for (const status of ['focused', 'blocked', 'conflict', 'cancelled', 'settings']) {
+        let creationReads = 0;
+        let creationBuilds = 0;
+        let creationRequest;
+        const creation = new AiSessionCreationController({
+            isProviderId: value => value === 'codex',
+            getWorkspaceTarget: id => id === 'p' ? makeWorkspaceTarget() : null,
+            pickWorkspaceRoot: async () => undefined,
+            pickProvider: async () => 'codex',
+            getProviderLabel: () => 'Codex',
+            getLaunchOptions: () => {
+                creationReads += 1;
+                return { yolo: true };
+            },
+            getProvider: () => ({
+                label: 'Codex',
+                terminalNamePrefix: 'Codex',
+                buildNewSessionLaunchSpec: () => {
+                    creationBuilds += 1;
+                    return { executable: 'codex', args: [] };
+                },
+            }),
+            resolveWorkspaceDirectoryScope: () => directoryScope,
+            showInputBox: async () => '',
+            showActiveTab: async () => undefined,
+            showWarningMessage: async () => undefined,
+            refresh: () => undefined,
+            getExistingSessionIdsForCwd: () => [],
+            getPendingMarkerPath: () => '/tmp/pending',
+            scheduleNewSessionRefresh: () => undefined,
+            nowMs: () => 1000,
+            createPendingId: () => `pending-${status}`,
+            announceStatus: async () => undefined,
+            runtimeCoordinator: {
+                create: async request => {
+                    creationRequest = request;
+                    return { status };
+                },
+                getActive: () => [],
+                getPending: () => [],
+            },
+        });
+
+        await creation.createSession('p');
+
+        assert.equal(typeof creationRequest.createLaunchSpec, 'function');
+        assert.equal(creationReads, 0, `creation ${status} must not read configuration`);
+        assert.equal(creationBuilds, 0, `creation ${status} must not build a launch spec`);
+
+        let resumeReads = 0;
+        let resumeBuilds = 0;
+        let resumeRequest;
+        const resume = new AiSessionResumeController({
+            getWorkspaceTarget: id => id === 'p'
+                ? makeWorkspaceTarget([{ id: 's', name: 'Session', cwd: '/work' }])
+                : null,
+            getLaunchOptions: () => {
+                resumeReads += 1;
+                return { yolo: true };
+            },
+            getProvider: () => ({
+                label: 'Codex',
+                terminalEnvKey: 'CODEX',
+                buildResumeLaunchSpec: () => {
+                    resumeBuilds += 1;
+                    return { executable: 'codex', args: ['resume', 's'] };
+                },
+            }),
+            resolveWorkspaceDirectoryScope: () => directoryScope,
+            getTerminalName: () => 'Codex: Session',
+            getMarkerPath: () => '/tmp/resume',
+            showWarningMessage: () => undefined,
+            refresh: () => undefined,
+            showActiveTab: () => undefined,
+            announceStatus: async () => undefined,
+            runtimeCoordinator: {
+                resume: async request => {
+                    resumeRequest = request;
+                    return { status };
+                },
+            },
+        });
+
+        await resume.resumeProjectSession('p', 'codex', 's');
+
+        assert.equal(typeof resumeRequest.createLaunchSpec, 'function');
+        assert.equal(resumeReads, 0, `resume ${status} must not read configuration`);
+        assert.equal(resumeBuilds, 0, `resume ${status} must not build a launch spec`);
+    }
 });
 
 test('SESSION-AI-SESSION-TERMINAL-COMMAND-CONTROLLER-001 ATTENTION-EXPLICIT-SESSION-CLOSE-001 focuses and closes only project-owned terminals', async () => {

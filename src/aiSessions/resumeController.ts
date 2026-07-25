@@ -3,6 +3,7 @@
 import type { AiSessionProviderId, CodexSession } from '../models';
 import type { AiSessionLaunchOptions } from './launchOptions';
 import type { AiSessionLaunchSpec } from './launchSpec';
+import { createSingleUseLaunchSpecFactory } from './runtimeLaunch';
 import type {
     AiSessionResumeRuntimeRequest,
     AiSessionRuntimeActionResult,
@@ -145,15 +146,7 @@ export class AiSessionResumeController<
         }
         const cwd = directoryScope.primaryCwd;
         const markerPath = options.getMarkerPath(providerId, session.id);
-        const launchOptions = options.getLaunchOptions();
-        const launch = cloneLaunchSpec(
-            sessionProvider.buildResumeLaunchSpec(
-                session.id,
-                directoryScope,
-                markerPath,
-                launchOptions
-            )
-        );
+        const launchScope = cloneDirectoryScope(directoryScope);
         const request: AiSessionResumeRuntimeRequest = {
             identity: {
                 provider: providerId,
@@ -166,7 +159,14 @@ export class AiSessionResumeController<
             projectName: target.name || 'AI Session',
             sessionName: session.name || session.id,
             terminalName: options.getTerminalName(providerId, session),
-            launch,
+            launchMarkerPath: markerPath,
+            createLaunchSpec: createSingleUseLaunchSpecFactory(() =>
+                sessionProvider.buildResumeLaunchSpec!(
+                    session.id,
+                    launchScope,
+                    markerPath,
+                    options.getLaunchOptions()
+                )),
             directoryScope,
         };
         let result: AiSessionRuntimeActionResult<TTerminal>;
@@ -209,10 +209,11 @@ export class AiSessionResumeController<
     }
 }
 
-function cloneLaunchSpec(launch: AiSessionLaunchSpec): AiSessionLaunchSpec {
+function cloneDirectoryScope(scope: AiSessionDirectoryScope): AiSessionDirectoryScope {
     return {
-        ...launch,
-        args: [...launch.args],
+        ...scope,
+        workspaceRootHostPaths: [...scope.workspaceRootHostPaths],
+        additionalDirectories: [...scope.additionalDirectories],
     };
 }
 

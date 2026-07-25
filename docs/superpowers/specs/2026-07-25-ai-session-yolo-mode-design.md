@@ -14,8 +14,11 @@ Add the machine-scoped boolean setting
 - The default is `false`.
 - Only the literal boolean value `true` enables YOLO mode. A missing or invalid
   value falls back to the safe, provider-default launch behavior.
-- The setting is read for every new process launch, so changing it affects the
-  next New or Resume action without reloading VS Code.
+- The setting is read directly from the `projectSteward` configuration
+  namespace for every provider process dispatch. It never passes through the
+  legacy `dashboard.*` compatibility fallback.
+- Changing the setting affects every process launched after the change while
+  it remains enabled, without reloading VS Code.
 - The setting is machine-scoped to match the existing AI runtime settings and
   to prevent Settings Sync from unintentionally enabling approval bypass on
   another execution host.
@@ -33,9 +36,11 @@ interface AiSessionLaunchOptions {
 }
 ```
 
-The creation and resume controllers obtain the current options immediately
-before building the provider launch specification. Each provider builder owns
-the translation from the provider-neutral option to its CLI argument:
+The creation and resume controllers capture a single-use launch-spec factory,
+not a concrete launch specification. The factory reads the current options and
+calls the provider builder only at the runtime backend's final provider
+dispatch boundary. Each provider builder owns the translation from the
+provider-neutral option to its CLI argument:
 
 | Provider | YOLO argument |
 | --- | --- |
@@ -50,6 +55,13 @@ new-session and resume forms.
 The launch specification remains the common boundary for Direct Terminal and
 tmux execution. Both runtime backends therefore receive identical provider
 semantics without backend-specific YOLO logic.
+
+The runtime coordinator snapshots identity, directory scope, marker path, and
+the factory without evaluating it. Focused, blocked, conflict, cancelled, and
+settings results therefore perform zero configuration reads and zero provider
+builder calls. A direct or tmux dispatch evaluates the factory exactly once.
+This also means a setting changed while a tmux fallback prompt is open is the
+value used by the eventual accepted direct launch.
 
 ## Existing Runtime Semantics
 
@@ -76,12 +88,23 @@ new-launch-only behavior.
 ### Controllers
 
 `AiSessionCreationController` and `AiSessionResumeController` receive an
-injected launch-options reader. They snapshot its result once for each actual
-launch and pass it to the selected provider builder.
+injected launch-options reader. They capture a defensive directory-scope
+snapshot and a single-use factory that will read the option and call the
+selected provider builder.
 
-The reader is not called for an action that is cancelled during root, provider,
-title, or preflight selection. Existing-runtime focus or attach paths do not
-need the option because they do not launch a provider process.
+The coordinator and both runtime backends carry that factory without invoking
+it through selection, refresh, lifecycle, duplicate, conflict, availability,
+fallback, lock, and tmux target-collision checks. Direct Terminal invokes it
+immediately before sending the provider launch. tmux invokes it after its final
+target-occupancy check and immediately before `create-session` or
+`create-window`.
+
+For pending tmux ambiguity recovery, the durable request fingerprint is
+versioned and deliberately excludes process launch options. YOLO is a launch
+preference, not pending-runtime identity. New records use the stable `v3`
+fingerprint; recovery still accepts legacy fingerprints after all non-launch
+identity, request, marker, and locator fields match, without rebuilding or
+redispatching the provider command.
 
 ### Provider definitions and command builders
 
@@ -95,6 +118,9 @@ backends from acquiring provider-specific branching.
 ## Error Handling and Safety
 
 - Missing or malformed configuration is treated as `false`.
+- The final provider-argument boundary also requires
+  `options?.yolo === true`; truthy malformed values such as `"true"` cannot add
+  a bypass flag.
 - Existing workspace trust, provider availability, directory capability, and
   runtime-conflict checks remain unchanged and run before process creation.
 - YOLO mode does not weaken Project Steward's own launch validation, command
@@ -111,10 +137,17 @@ Automated checks cover:
 
 - manifest type, `false` default, machine scope, and warning text;
 - safe fallback for missing, false, and malformed configuration values;
+- direct `projectSteward` namespace reads and proof that legacy
+  `dashboard.*` values cannot enable YOLO;
 - New and Resume launch specifications for Codex, Kimi, and Claude with YOLO
   disabled and enabled;
 - unchanged non-YOLO argument order and exact provider-specific YOLO arguments;
-- creation and resume controller propagation of the current launch options;
+- zero option reads and builder calls on every no-dispatch controller and
+  coordinator result, and exactly one of each on direct and tmux dispatch;
+- setting changes made while a tmux fallback choice is pending;
+- launch-option-independent pending ambiguity fingerprints plus legacy
+  recovery compatibility;
+- malformed truthy values rejected at the final flag boundary;
 - Direct Terminal, tmux, POSIX, PowerShell, and Windows current-shell
   serialization regressions;
 - no restart or mode mutation when an existing runtime is focused or attached;
@@ -140,5 +173,8 @@ Automated checks cover:
   Terminal and tmux modes.
 - Toggling the setting affects the next process launch without a VS Code reload
   and does not alter already live runtimes.
+- Focus, block, conflict, cancel, settings, duplicate, unavailable, and target
+  collision paths do not read launch configuration or build a provider launch
+  specification.
 - The main checkout and its existing user changes remain untouched; all work
   occurs on `feat/ai-session-yolo-mode` in the isolated worktree.

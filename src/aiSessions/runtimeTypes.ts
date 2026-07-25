@@ -291,25 +291,63 @@ export interface AiSessionRuntimeBackend<TTerminal = unknown> {
     detach(runtime: AiSessionRuntimeSnapshot<TTerminal>): Promise<void>;
 }
 
-export interface AiSessionResumeRuntimeRequest {
+interface AiSessionResumeRuntimeRequestBase {
     identity: AiSessionRuntimeIdentity & { sessionId: string };
     projectName: string;
     sessionName: string;
     terminalName: string;
-    launch: AiSessionLaunchSpec;
     directoryScope: AiSessionDirectoryScope;
 }
 
-export interface AiSessionCreateRuntimeRequest {
+interface AiSessionCreateRuntimeRequestBase {
     identity: AiSessionRuntimeIdentity & { pendingId: string };
     projectName: string;
     terminalName: string;
     createdAt: string;
     excludedSessionIds: string[];
     title?: string;
-    launch: AiSessionLaunchSpec;
     directoryScope: AiSessionDirectoryScope;
 }
+
+export interface AiSessionLazyRuntimeLaunch {
+    launchMarkerPath: string;
+    createLaunchSpec: () => AiSessionLaunchSpec;
+    launch?: never;
+}
+
+export interface AiSessionLegacyRuntimeLaunch {
+    launch: AiSessionLaunchSpec;
+    launchMarkerPath?: string;
+    createLaunchSpec?: never;
+}
+
+export type AiSessionRuntimeLaunchInput =
+    | AiSessionLazyRuntimeLaunch
+    | AiSessionLegacyRuntimeLaunch;
+
+export type AiSessionResumeRuntimeRequest =
+    AiSessionResumeRuntimeRequestBase & AiSessionRuntimeLaunchInput;
+
+export type AiSessionCreateRuntimeRequest =
+    AiSessionCreateRuntimeRequestBase & AiSessionRuntimeLaunchInput;
+
+export type AiSessionDeferredResumeRuntimeRequest =
+    AiSessionResumeRuntimeRequestBase & AiSessionLazyRuntimeLaunch;
+
+export type AiSessionDeferredCreateRuntimeRequest =
+    AiSessionCreateRuntimeRequestBase & AiSessionLazyRuntimeLaunch;
+
+export type AiSessionMaterializedResumeRuntimeRequest =
+    AiSessionResumeRuntimeRequestBase & {
+        launchMarkerPath: string;
+        launch: AiSessionLaunchSpec;
+    };
+
+export type AiSessionMaterializedCreateRuntimeRequest =
+    AiSessionCreateRuntimeRequestBase & {
+        launchMarkerPath: string;
+        launch: AiSessionLaunchSpec;
+    };
 
 export interface AiSessionRuntimeActionResult<TTerminal = unknown> {
     status: 'started' | 'focused' | 'cancelled' | 'settings' | 'conflict' | 'blocked';

@@ -15,6 +15,25 @@ function configuration(values) {
     return { get: (key, fallback) => Object.prototype.hasOwnProperty.call(values, key) ? values[key] : fallback };
 }
 
+function workspaceConfiguration(primaryValues, legacyValues = {}) {
+    const requestedSections = [];
+    return {
+        requestedSections,
+        get: (key, fallback) => {
+            if (Object.prototype.hasOwnProperty.call(primaryValues, key)) {
+                return primaryValues[key];
+            }
+            return Object.prototype.hasOwnProperty.call(legacyValues, key)
+                ? legacyValues[key]
+                : fallback;
+        },
+        getConfiguration: section => {
+            requestedSections.push(section);
+            return configuration(section === 'projectSteward' ? primaryValues : legacyValues);
+        },
+    };
+}
+
 function directoryScope(primaryCwd) {
     return {
         workspaceNavigationIdentity: 'navigation:fixture', workspaceScopeIdentity: 'scope:fixture',
@@ -63,19 +82,28 @@ test('RUNTIME-RUNTIME-CONFIGURATION-001 reads supported settings and fails close
 
 test('SESSION-AI-SESSION-YOLO-CONFIGURATION-001 reads only literal true and declares a safe machine setting', () => {
     assert.deepEqual(
-        launchOptions.readAiSessionLaunchOptions(configuration({})),
+        launchOptions.readAiSessionLaunchOptions(workspaceConfiguration({})),
         { yolo: false }
     );
     assert.deepEqual(
-        launchOptions.readAiSessionLaunchOptions(configuration({ aiSessionYoloMode: true })),
+        launchOptions.readAiSessionLaunchOptions(workspaceConfiguration({ aiSessionYoloMode: true })),
         { yolo: true }
     );
     for (const invalid of [false, null, 1, 'true', 'false', {}]) {
         assert.deepEqual(
-            launchOptions.readAiSessionLaunchOptions(configuration({ aiSessionYoloMode: invalid })),
+            launchOptions.readAiSessionLaunchOptions(workspaceConfiguration({
+                aiSessionYoloMode: invalid,
+            })),
             { yolo: false }
         );
     }
+    const legacyOnly = workspaceConfiguration({}, { aiSessionYoloMode: true });
+    assert.deepEqual(
+        launchOptions.readAiSessionLaunchOptions(legacyOnly),
+        { yolo: false },
+        'legacy dashboard user/workspace values must not enable YOLO'
+    );
+    assert.deepEqual(legacyOnly.requestedSections, ['projectSteward']);
 
     const manifest = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../../package.json'), 'utf8'));
     const setting = manifest.contributes.configuration.properties[

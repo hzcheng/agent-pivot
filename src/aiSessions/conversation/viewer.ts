@@ -10,6 +10,7 @@ import {
     CONVERSATION_LIMITS,
     ConversationAbortController,
     ConversationAbortSignal,
+    ConversationError,
     ConversationMessage,
     ConversationOutline,
     ConversationPage,
@@ -103,6 +104,7 @@ export class ConversationViewer implements ConversationViewerApi {
     private watch?: AiSessionDisposable;
     private messageListener?: vscode.Disposable;
     private panelDisposeListener?: vscode.Disposable;
+    private viewStateListener?: vscode.Disposable;
     private abortController?: ConversationAbortController;
     private outline?: ConversationOutline;
     private pages: RetainedConversationPage[] = [];
@@ -111,6 +113,8 @@ export class ConversationViewer implements ConversationViewerApi {
     private currentRequestId = 0;
     private selectedInteractionId?: string;
     private stale = false;
+    private latestPublication?: ConversationViewerPageMessage;
+    private panelWasVisible = false;
 
     constructor(private readonly options: ConversationViewerOptions) {}
 
@@ -161,6 +165,7 @@ export class ConversationViewer implements ConversationViewerApi {
         this.pages = [];
         this.outline = undefined;
         this.stale = false;
+        this.latestPublication = undefined;
         this.target = { ...target };
         this.selectedInteractionId = target.interactionId;
         this.subscriptionGeneration += 1;
@@ -182,9 +187,20 @@ export class ConversationViewer implements ConversationViewerApi {
             }
         );
         this.panel = panel;
+        this.panelWasVisible = panel.visible;
         this.messageListener = panel.webview.onDidReceiveMessage(
             message => this.handleMessage(message)
         );
+        this.viewStateListener = panel.onDidChangeViewState(event => {
+            if (this.panel !== panel || event.webviewPanel !== panel) {
+                return;
+            }
+            const becameVisible = !this.panelWasVisible && panel.visible;
+            this.panelWasVisible = panel.visible;
+            if (becameVisible) {
+                this.rebuildLatestDocument();
+            }
+        });
         this.panelDisposeListener = panel.onDidDispose(() => {
             if (this.panel !== panel) {
                 return;
@@ -208,11 +224,15 @@ export class ConversationViewer implements ConversationViewerApi {
         this.messageListener = undefined;
         this.panelDisposeListener?.dispose();
         this.panelDisposeListener = undefined;
+        this.viewStateListener?.dispose();
+        this.viewStateListener = undefined;
         this.pages = [];
         this.outline = undefined;
         this.target = undefined;
         this.selectedInteractionId = undefined;
         this.stale = false;
+        this.latestPublication = undefined;
+        this.panelWasVisible = false;
         this.subscriptionGeneration += 1;
         this.currentRequestId = 0;
     }
@@ -284,7 +304,7 @@ export class ConversationViewer implements ConversationViewerApi {
         const anchorInteractionId = direction === 'before'
             ? states[0]?.interactionId
             : states[states.length - 1]?.interactionId;
-        if (cursor === undefined || !anchorInteractionId) {
+        if (!cursor || !anchorInteractionId) {
             return this.read({
                 provider: target.provider,
                 sessionId: target.sessionId,
@@ -292,7 +312,7 @@ export class ConversationViewer implements ConversationViewerApi {
                 direction: 'around',
                 expectedRevision: outline.sourceRevision,
                 limit: CONVERSATION_LIMITS.maxPageInteractions,
-            }, 'replace', false, 'navigation');
+            }, 'replace', false, 'navigation', nextInteractionId);
         }
         return this.read({
             provider: target.provider,
@@ -302,7 +322,7 @@ export class ConversationViewer implements ConversationViewerApi {
             cursor,
             expectedRevision: outline.sourceRevision,
             limit: CONVERSATION_LIMITS.maxPageInteractions,
-        }, direction, false, 'navigation');
+        }, direction, false, 'navigation', nextInteractionId);
     }
 
     private async navigateLatest(): Promise<void> {
@@ -325,7 +345,7 @@ export class ConversationViewer implements ConversationViewerApi {
             direction: 'around',
             expectedRevision: outline.sourceRevision,
             limit: CONVERSATION_LIMITS.maxPageInteractions,
-        }, 'replace', false, 'navigation');
+        }, 'replace', false, 'navigation', latestInteractionId);
     }
 
     private async loadAuthoritative(
@@ -353,7 +373,7 @@ export class ConversationViewer implements ConversationViewerApi {
             ]?.id === previousSelectedInteractionId
         );
         try {
-            const outline = await this.options.readOutline(
+            let outline = await this.options.readOutline(
                 target.provider,
                 target.sessionId,
                 abortController.signal
@@ -364,7 +384,7 @@ export class ConversationViewer implements ConversationViewerApi {
             if (outline.provider !== target.provider
                 || outline.sessionId !== target.sessionId
                 || !outline.interactions.length) {
-                this.publishFailure(replaceDocument, updateKind);
+                await this.publishFailure(replaceDocument, updateKind);
                 return false;
             }
             const interactionIds = outline.interactions.map(
@@ -372,69 +392,97 @@ export class ConversationViewer implements ConversationViewerApi {
             );
             if (updateKind === 'initial'
                 && !interactionIds.includes(target.interactionId)) {
-                this.publishFailure(replaceDocument, updateKind);
+                await this.publishFailure(replaceDocument, updateKind);
                 return false;
             }
-            let selectedInteractionId = updateKind === 'initial'
+            if (updateKind === 'refresh'
+                && (!previousSelectedInteractionId
+                    || !interactionIds.includes(previousSelectedInteractionId))) {
+                await this.publishFailure(replaceDocument, updateKind);
+                return false;
+            }
+            const selectedInteractionId = updateKind === 'initial'
                 ? target.interactionId
                 : previousWasLatest
                     ? interactionIds[interactionIds.length - 1]
-                    : previousSelectedInteractionId;
-            if (!selectedInteractionId
-                || !interactionIds.includes(selectedInteractionId)) {
-                const previousIndex = previousOutline
-                    ? previousOutline.interactions.findIndex(
-                        interaction => interaction.id
-                            === previousSelectedInteractionId
-                    )
-                    : -1;
-                selectedInteractionId = interactionIds[
-                    Math.max(0, Math.min(
-                        previousIndex < 0
-                            ? interactionIds.length - 1
-                            : previousIndex,
-                        interactionIds.length - 1
-                    ))
-                ];
+                    : previousSelectedInteractionId as string;
+            let page: ConversationPage;
+            try {
+                page = await this.options.readPage({
+                    provider: target.provider,
+                    sessionId: target.sessionId,
+                    anchorInteractionId: selectedInteractionId,
+                    direction: 'around',
+                    expectedRevision: outline.sourceRevision,
+                    limit: CONVERSATION_LIMITS.maxPageInteractions,
+                }, abortController.signal);
+            } catch (error) {
+                if (!isStaleRevision(error)) {
+                    throw error;
+                }
+                if (!this.canPublish(panel, target, generation, requestId)
+                    || abortController.signal.aborted) {
+                    return false;
+                }
+                outline = await this.options.readOutline(
+                    target.provider,
+                    target.sessionId,
+                    abortController.signal
+                );
+                if (!this.canPublish(panel, target, generation, requestId)) {
+                    return false;
+                }
+                if (outline.provider !== target.provider
+                    || outline.sessionId !== target.sessionId
+                    || !outline.interactions.length) {
+                    await this.publishFailure(replaceDocument, updateKind);
+                    return false;
+                }
+                if (!outline.interactions.some(
+                    interaction => interaction.id === selectedInteractionId
+                )) {
+                    await this.publishFailure(replaceDocument, updateKind);
+                    return false;
+                }
+                page = await this.options.readPage({
+                    provider: target.provider,
+                    sessionId: target.sessionId,
+                    anchorInteractionId: selectedInteractionId,
+                    direction: 'around',
+                    expectedRevision: outline.sourceRevision,
+                    limit: CONVERSATION_LIMITS.maxPageInteractions,
+                }, abortController.signal);
             }
-            const page = await this.options.readPage({
-                provider: target.provider,
-                sessionId: target.sessionId,
-                anchorInteractionId: selectedInteractionId,
-                direction: 'around',
-                expectedRevision: outline.sourceRevision,
-                limit: CONVERSATION_LIMITS.maxPageInteractions,
-            }, abortController.signal);
             if (!this.canPublish(panel, target, generation, requestId)) {
                 return false;
             }
             if (page.provider !== target.provider
                 || page.sessionId !== target.sessionId
                 || page.sourceRevision !== outline.sourceRevision) {
-                this.publishFailure(replaceDocument, updateKind);
+                await this.publishFailure(replaceDocument, updateKind);
                 return false;
             }
             this.outline = outline;
             this.selectedInteractionId = page.anchorInteractionId;
             this.stale = false;
-            this.retain(page, 'replace');
+            if (updateKind === 'refresh') {
+                this.mergeRefreshPage(page, outline);
+            } else {
+                this.retain(page, 'replace');
+            }
             const publication = this.createPublication(
                 requestId,
                 generation,
                 updateKind
             );
-            if (replaceDocument) {
-                panel.webview.html = this.renderDocument(publication);
-            } else {
-                await panel.webview.postMessage(publication);
-            }
+            await this.deliverPublication(publication, replaceDocument);
             return true;
         } catch (_error) {
             if (!this.canPublish(panel, target, generation, requestId)
                 || abortController.signal.aborted) {
                 return false;
             }
-            this.publishFailure(replaceDocument, updateKind);
+            await this.publishFailure(replaceDocument, updateKind);
             return false;
         } finally {
             if (this.abortController === abortController) {
@@ -447,7 +495,8 @@ export class ConversationViewer implements ConversationViewerApi {
         request: ConversationPageRequest,
         placement: 'replace' | 'before' | 'after',
         replaceDocument: boolean,
-        updateKind: ConversationViewerPageMessage['updateKind']
+        updateKind: ConversationViewerPageMessage['updateKind'],
+        preferredInteractionId: string
     ): Promise<boolean> {
         const target = this.target;
         const panel = this.panel;
@@ -460,37 +509,83 @@ export class ConversationViewer implements ConversationViewerApi {
         const generation = this.subscriptionGeneration;
         const requestId = this.allocateRequestId();
         this.currentRequestId = requestId;
+        const previousOutline = this.outline;
         try {
-            const page = await this.options.readPage(request, abortController.signal);
+            let outline = previousOutline;
+            let page: ConversationPage;
+            let retriedStaleRevision = false;
+            try {
+                page = await this.options.readPage(request, abortController.signal);
+            } catch (error) {
+                if (!isStaleRevision(error)) {
+                    throw error;
+                }
+                if (!this.canPublish(panel, target, generation, requestId)
+                    || abortController.signal.aborted) {
+                    return false;
+                }
+                outline = await this.options.readOutline(
+                    target.provider,
+                    target.sessionId,
+                    abortController.signal
+                );
+                if (!this.canPublish(panel, target, generation, requestId)) {
+                    return false;
+                }
+                if (outline.provider !== target.provider
+                    || outline.sessionId !== target.sessionId
+                    || !outline.interactions.length) {
+                    await this.publishFailure(replaceDocument, updateKind);
+                    return false;
+                }
+                if (!outline.interactions.some(
+                    interaction => interaction.id === preferredInteractionId
+                )) {
+                    await this.publishFailure(replaceDocument, updateKind);
+                    return false;
+                }
+                retriedStaleRevision = true;
+                page = await this.options.readPage({
+                    provider: target.provider,
+                    sessionId: target.sessionId,
+                    anchorInteractionId: preferredInteractionId,
+                    direction: 'around',
+                    expectedRevision: outline.sourceRevision,
+                    limit: CONVERSATION_LIMITS.maxPageInteractions,
+                }, abortController.signal);
+            }
             if (!this.canPublish(panel, target, generation, requestId)) {
                 return false;
             }
             if (page.provider !== target.provider
                 || page.sessionId !== target.sessionId
-                || page.sourceRevision !== this.outline?.sourceRevision) {
-                this.publishFailure(replaceDocument, updateKind);
+                || page.sourceRevision !== outline?.sourceRevision) {
+                await this.publishFailure(replaceDocument, updateKind);
                 return false;
+            }
+            if (retriedStaleRevision && outline) {
+                this.outline = outline;
             }
             this.stale = false;
             this.selectedInteractionId = page.anchorInteractionId;
-            this.retain(page, placement);
+            if (retriedStaleRevision && outline) {
+                this.mergeRefreshPage(page, outline);
+            } else {
+                this.retain(page, placement);
+            }
             const publication = this.createPublication(
                 requestId,
                 generation,
                 updateKind
             );
-            if (replaceDocument) {
-                panel.webview.html = this.renderDocument(publication);
-            } else {
-                await panel.webview.postMessage(publication);
-            }
+            await this.deliverPublication(publication, replaceDocument);
             return true;
         } catch (_error) {
             if (!this.canPublish(panel, target, generation, requestId)
                 || abortController.signal.aborted) {
                 return false;
             }
-            this.publishFailure(replaceDocument, updateKind);
+            await this.publishFailure(replaceDocument, updateKind);
             return false;
         } finally {
             if (this.abortController === abortController) {
@@ -514,18 +609,18 @@ export class ConversationViewer implements ConversationViewerApi {
         this.selectedInteractionId = interactionId;
         const requestId = this.allocateRequestId();
         this.currentRequestId = requestId;
-        await panel.webview.postMessage(this.createPublication(
+        await this.deliverPublication(this.createPublication(
             requestId,
             this.subscriptionGeneration,
             updateKind
-        ));
+        ), false);
         return true;
     }
 
-    private publishFailure(
+    private async publishFailure(
         replaceDocument: boolean,
         updateKind: ConversationViewerPageMessage['updateKind']
-    ): void {
+    ): Promise<void> {
         const panel = this.panel;
         if (!panel) {
             return;
@@ -537,17 +632,54 @@ export class ConversationViewer implements ConversationViewerApi {
                 this.subscriptionGeneration,
                 updateKind
             );
-            if (replaceDocument) {
-                panel.webview.html = this.renderDocument(publication);
-            } else {
-                void panel.webview.postMessage(publication);
-            }
+            await this.deliverPublication(publication, replaceDocument);
             return;
         }
+        this.latestPublication = undefined;
         panel.webview.html = this.renderDocument(
             undefined,
             'Conversation history unavailable.'
         );
+    }
+
+    private async deliverPublication(
+        publication: ConversationViewerPageMessage,
+        replaceDocument: boolean
+    ): Promise<void> {
+        const panel = this.panel;
+        if (!panel || !this.isCurrentPublication(publication)) {
+            return;
+        }
+        this.latestPublication = publication;
+        if (replaceDocument) {
+            panel.webview.html = this.renderDocument(publication);
+            return;
+        }
+        let delivered = false;
+        try {
+            delivered = await panel.webview.postMessage(publication);
+        } catch (_error) {
+            delivered = false;
+        }
+        if (!delivered && this.isCurrentPublication(publication)) {
+            this.rebuildLatestDocument();
+        }
+    }
+
+    private rebuildLatestDocument(): void {
+        const panel = this.panel;
+        const publication = this.latestPublication;
+        if (!panel || !publication || !this.isCurrentPublication(publication)) {
+            return;
+        }
+        panel.webview.html = this.renderDocument(publication);
+    }
+
+    private isCurrentPublication(
+        publication: ConversationViewerPageMessage
+    ): boolean {
+        return publication.subscriptionGeneration === this.subscriptionGeneration
+            && publication.requestId === this.currentRequestId;
     }
 
     private canPublish(
@@ -582,6 +714,76 @@ export class ConversationViewer implements ConversationViewerApi {
         } else {
             this.pages.push(retained);
         }
+        this.evict();
+    }
+
+    private mergeRefreshPage(
+        page: ConversationPage,
+        outline: ConversationOutline
+    ): void {
+        const outlineIds = new Set(
+            outline.interactions.map(interaction => interaction.id)
+        );
+        const loadedIds = new Set<string>();
+        const messagesByInteraction = new Map<string, ConversationMessage[]>();
+        this.pages.forEach(retained => {
+            retained.page.interactionStates.forEach(state => {
+                if (outlineIds.has(state.interactionId)) {
+                    loadedIds.add(state.interactionId);
+                }
+            });
+            retained.page.messages.forEach(message => {
+                if (!outlineIds.has(message.interactionId)) {
+                    return;
+                }
+                const messages = messagesByInteraction.get(message.interactionId)
+                    || [];
+                messages.push(copyMessage(message));
+                messagesByInteraction.set(message.interactionId, messages);
+            });
+        });
+        const refreshedIds = new Set<string>();
+        page.interactionStates.forEach(state => {
+            if (!outlineIds.has(state.interactionId)) {
+                return;
+            }
+            loadedIds.add(state.interactionId);
+            refreshedIds.add(state.interactionId);
+            messagesByInteraction.set(state.interactionId, []);
+        });
+        page.messages.forEach(message => {
+            if (!refreshedIds.has(message.interactionId)) {
+                return;
+            }
+            const messages = messagesByInteraction.get(message.interactionId)
+                || [];
+            messages.push(copyMessage(message));
+            messagesByInteraction.set(message.interactionId, messages);
+        });
+        this.pages = outline.interactions.reduce(
+            (retainedPages: RetainedConversationPage[], interaction, index) => {
+                if (!loadedIds.has(interaction.id)) {
+                    return retainedPages;
+                }
+                retainedPages.push({
+                    page: {
+                        provider: outline.provider,
+                        sessionId: outline.sessionId,
+                        sourceRevision: outline.sourceRevision,
+                        anchorInteractionId: interaction.id,
+                        messages: messagesByInteraction.get(interaction.id) || [],
+                        interactionStates: [{
+                            interactionId: interaction.id,
+                            responseState: interaction.responseState,
+                        }],
+                        isStart: index === 0,
+                        isEnd: index === outline.interactions.length - 1,
+                    },
+                });
+                return retainedPages;
+            },
+            []
+        );
         this.evict();
     }
 
@@ -662,6 +864,9 @@ export class ConversationViewer implements ConversationViewerApi {
             interaction => interaction.id
         );
         const selectedIndex = interactionIds.indexOf(selectedInteractionId);
+        const omittedInteractions = outline.partial
+            ? Math.max(0, outline.totalInteractions - interactionIds.length)
+            : 0;
         const first = this.pages[0]?.page;
         const last = this.pages[this.pages.length - 1]?.page;
         return {
@@ -672,7 +877,9 @@ export class ConversationViewer implements ConversationViewerApi {
             updateKind,
             html: renderMessages(this.messages()),
             selectedInteractionId,
-            selectedInput: selectedIndex < 0 ? 0 : selectedIndex + 1,
+            selectedInput: selectedIndex < 0
+                ? 0
+                : omittedInteractions + selectedIndex + 1,
             totalInputs: outline.partial
                 ? Math.min(outline.totalInteractions,
                     CONVERSATION_LIMITS.maxOutlineInteractions)
@@ -788,6 +995,20 @@ function parseViewerMessage(message: unknown): ConversationViewerMessage | undef
 
 function hasOwn(value: object, key: string): boolean {
     return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+function isStaleRevision(error: unknown): error is ConversationError {
+    return error instanceof ConversationError && error.code === 'staleRevision';
+}
+
+function copyMessage(message: ConversationMessage): ConversationMessage {
+    return {
+        id: message.id,
+        interactionId: message.interactionId,
+        role: message.role,
+        timestamp: message.timestamp,
+        markdown: message.markdown,
+    };
 }
 
 function renderMessages(messages: ConversationMessage[]): string {

@@ -2,6 +2,7 @@
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const Module = require('node:module');
 const path = require('node:path');
 const test = require('node:test');
 const { chromium } = require('playwright-chromium');
@@ -107,6 +108,159 @@ function messageHtml(prefix, count, start = 0) {
             <section><p>${id}</p></section>
         </article>`;
     }).join('');
+}
+
+function fakeHostUri(value) {
+    return {
+        scheme: value.split(':', 1)[0],
+        path: value,
+        fsPath: value,
+        toString: () => value,
+    };
+}
+
+function loadHostConversationViewer() {
+    const fakeVscode = {
+        ViewColumn: { Beside: 2 },
+        Uri: { parse: value => fakeHostUri(value) },
+    };
+    const previousLoad = Module._load;
+    try {
+        Module._load = function (request, parent, isMain) {
+            if (request === 'vscode') return fakeVscode;
+            return previousLoad.call(this, request, parent, isMain);
+        };
+        return require('../../out/aiSessions/conversation/viewer')
+            .ConversationViewer;
+    } finally {
+        Module._load = previousLoad;
+    }
+}
+
+function decodeInitialPublication(html) {
+    const match = html.match(/data-initial-page="([^"]+)"/);
+    assert.ok(match, 'Host document must contain an initial publication');
+    return JSON.parse(match[1]
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/&gt;/g, '>')
+        .replace(/&lt;/g, '<')
+        .replace(/&amp;/g, '&'));
+}
+
+async function realHostAppendPublications() {
+    const ConversationViewer = loadHostConversationViewer();
+    const postedMessages = [];
+    const messageListeners = new Set();
+    const disposeListeners = new Set();
+    const viewStateListeners = new Set();
+    const panel = {
+        visible: true,
+        title: '',
+        webview: {
+            html: '',
+            cspSource: 'fixture-csp',
+            onDidReceiveMessage(listener) {
+                messageListeners.add(listener);
+                return { dispose: () => messageListeners.delete(listener) };
+            },
+            postMessage(message) {
+                postedMessages.push(message);
+                return Promise.resolve(true);
+            },
+            asWebviewUri(uri) {
+                return uri;
+            },
+        },
+        reveal() {},
+        onDidDispose(listener) {
+            disposeListeners.add(listener);
+            return { dispose: () => disposeListeners.delete(listener) };
+        },
+        onDidChangeViewState(listener) {
+            viewStateListeners.add(listener);
+            return { dispose: () => viewStateListeners.delete(listener) };
+        },
+        dispose() {
+            Array.from(disposeListeners).forEach(listener => listener());
+        },
+    };
+    let revision = 1;
+    let onChange;
+    const firstIds = Array.from(
+        { length: 20 },
+        (_item, index) => `host-input-${index + 1}`
+    );
+    const secondIds = Array.from(
+        { length: 20 },
+        (_item, index) => `host-input-${index + 2}`
+    );
+    const viewer = new ConversationViewer({
+        createPanel: () => panel,
+        readOutline: async () => ({
+            provider: 'codex',
+            sessionId: 'session-host',
+            sourceRevision: `r${revision}`,
+            interactions: (
+                revision === 1 ? firstIds : firstIds.concat('host-input-21')
+            ).map(id => ({
+                id,
+                userPreview: id,
+                userGraphemeCount: id.length,
+                responseState: 'complete',
+            })),
+            totalInteractions: revision === 1 ? 20 : 21,
+            partial: false,
+        }),
+        readPage: async request => {
+            const interactionIds = revision === 1 ? firstIds : secondIds;
+            return {
+                provider: 'codex',
+                sessionId: 'session-host',
+                sourceRevision: request.expectedRevision,
+                anchorInteractionId: request.anchorInteractionId,
+                messages: interactionIds.map(id => ({
+                    id: `${id}:user`,
+                    interactionId: id,
+                    role: 'user',
+                    markdown: `content-${id}`,
+                })),
+                interactionStates: interactionIds.map(id => ({
+                    interactionId: id,
+                    responseState: 'complete',
+                })),
+                previousCursor: revision === 1 ? undefined : 'r2-before',
+                nextCursor: undefined,
+                isStart: revision === 1,
+                isEnd: true,
+            };
+        },
+        watch: (_provider, _sessionId, callback) => {
+            onChange = callback;
+            return { dispose() {} };
+        },
+        restoreFocus() {},
+        openExternal: async () => true,
+        mediaUri: fileName => fakeHostUri(`file:///media/${fileName}`),
+    });
+
+    await viewer.open({
+        projectId: 'project-host',
+        provider: 'codex',
+        sessionId: 'session-host',
+        interactionId: 'host-input-20',
+        expectedRevision: 'r1',
+        displayName: 'Host conversation',
+        duplicateDisplayName: false,
+    });
+    const initial = decodeInitialPublication(panel.webview.html);
+    revision = 2;
+    onChange();
+    await new Promise(resolve => setImmediate(resolve));
+    const refresh = postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page').at(-1);
+    viewer.dispose();
+    return { initial, refresh };
 }
 
 test('CONVERSATION-VIEWER-BROWSER-SECURITY-001 sanitizes hostile HTML and posts exact version-1 navigation', async t => {
@@ -377,4 +531,45 @@ test('CONVERSATION-VIEWER-BROWSER-RACE-001 treats a refresh that wins initial lo
     assert.equal(await page.locator(
         '[data-interaction-id="input-4"].conversation-selected-interaction'
     ).count(), 1);
+});
+
+test('CONVERSATION-VIEWER-BROWSER-REFRESH-001 preserves a real Host history window at 9px and auto-follows at 8px', async t => {
+    const publications = await realHostAppendPublications();
+    for (const distance of [9, 8]) {
+        const page = await openViewerPage(t);
+        await sendPage(page, publications.initial);
+        const scroll = page.locator('[data-conversation-scroll]');
+        await scroll.evaluate((element, offset) => {
+            element.scrollTop = element.scrollHeight
+                - element.clientHeight
+                - offset;
+        }, distance);
+        const before = await scroll.evaluate(element => element.scrollTop);
+
+        await sendPage(page, publications.refresh);
+
+        assert.equal(await page.locator(
+            '[data-interaction-id="host-input-1"]'
+        ).count(), 1);
+        assert.equal(await page.locator(
+            '[data-interaction-id="host-input-21"]'
+        ).count(), 1);
+        if (distance === 9) {
+            assert.equal(
+                await scroll.evaluate(element => element.scrollTop),
+                before
+            );
+            assert.equal(await page.getByRole('button', {
+                name: 'New response content',
+            }).isVisible(), true);
+        } else {
+            assert.equal(await scroll.evaluate(element =>
+                Math.round(element.scrollHeight - element.scrollTop
+                    - element.clientHeight)
+            ), 0);
+            assert.equal(await page.getByRole('button', {
+                name: 'New response content',
+            }).isHidden(), true);
+        }
+    }
 });

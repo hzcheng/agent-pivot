@@ -31,6 +31,9 @@ function loadConversationViewer() {
 }
 
 const { ConversationViewer } = loadConversationViewer();
+const {
+    ConversationError,
+} = require('../../../out/aiSessions/conversation/types');
 
 function deferred() {
     let resolve;
@@ -118,15 +121,20 @@ function retainedPageInteractionIds(pageIndex, pageSize, prefix) {
     );
 }
 
-function fakePanel() {
+function fakePanel(options = {}) {
     const disposeListeners = new Set();
     const messageListeners = new Set();
+    const viewStateListeners = new Set();
     let disposed = false;
     const panel = {
         createCount: 0,
         revealCount: 0,
         postedMessages: [],
         createArguments: undefined,
+        visible: true,
+        get viewStateListenerCount() {
+            return viewStateListeners.size;
+        },
         webview: {
             html: '',
             cspSource: 'fixture-csp',
@@ -137,7 +145,10 @@ function fakePanel() {
             },
             postMessage(message) {
                 panel.postedMessages.push(message);
-                return Promise.resolve(true);
+                const delivered = typeof options.postMessageResult === 'function'
+                    ? options.postMessageResult(message, panel)
+                    : options.postMessageResult ?? true;
+                return Promise.resolve(delivered);
             },
             asWebviewUri(uri) {
                 return fakeUri(uri.toString().replace(
@@ -153,10 +164,20 @@ function fakePanel() {
             disposeListeners.add(listener);
             return { dispose: () => disposeListeners.delete(listener) };
         },
+        onDidChangeViewState(listener) {
+            viewStateListeners.add(listener);
+            return { dispose: () => viewStateListeners.delete(listener) };
+        },
         dispose() {
             if (disposed) return;
             disposed = true;
             Array.from(disposeListeners).forEach(listener => listener());
+        },
+        async setVisible(visible) {
+            panel.visible = visible;
+            await Promise.all(Array.from(viewStateListeners).map(listener =>
+                listener({ webviewPanel: panel })
+            ));
         },
         async receive(message) {
             await Promise.all(Array.from(messageListeners).map(listener => listener(message)));
@@ -334,8 +355,7 @@ test('CONVERSATION-VIEWER-NAVIGATION-002 moves within a loaded page without read
     const { viewer, panel } = createViewer({
         readOutline: async (_provider, sessionId) => outline(
             sessionId,
-            interactionIds,
-            { totalInteractions: 2_001, partial: true }
+            interactionIds
         ),
         readPage: request => {
             reads += 1;
@@ -363,8 +383,8 @@ test('CONVERSATION-VIEWER-NAVIGATION-002 moves within a loaded page without read
         message.type === 'conversation-viewer-page').at(-1);
     assert.equal(publication.selectedInteractionId, 'input-4');
     assert.equal(publication.selectedInput, 4);
-    assert.equal(publication.totalInputs, 2_000);
-    assert.equal(publication.partial, true);
+    assert.equal(publication.totalInputs, 12);
+    assert.equal(publication.partial, false);
 
     await panel.receive({ type: 'conversation-viewer-latest', version: 1 });
     publication = panel.postedMessages.filter(message =>
@@ -630,4 +650,367 @@ test('CONVERSATION-VIEWER-REFRESH-002 follows a new authoritative last input onl
     assert.equal(publication.selectedInput, 2);
     assert.equal(publication.totalInputs, 2);
     assert.equal(publication.atLatest, true);
+});
+
+test('CONVERSATION-VIEWER-DELIVERY-001 rebuilds the latest hidden publication when the panel becomes visible and disposes its listener', async () => {
+    let onChange;
+    let revision = 1;
+    const panel = fakePanel({
+        postMessageResult: (_message, currentPanel) => currentPanel.visible,
+    });
+    const { viewer } = createViewer({
+        panel,
+        watch: (_provider, _sessionId, callback) => {
+            onChange = callback;
+            return { dispose() {} };
+        },
+        readOutline: async (_provider, sessionId) => outline(
+            sessionId,
+            revision === 1 ? ['input-1'] : ['input-1', 'input-2'],
+            { sourceRevision: `r${revision}` }
+        ),
+        readPage: async request => page(
+            request.sessionId,
+            request.anchorInteractionId,
+            `visible-r${revision}`,
+            { sourceRevision: request.expectedRevision }
+        ),
+    });
+
+    await viewer.open(target('session-a', 'input-1'));
+    assert.equal(panel.viewStateListenerCount, 1);
+    await panel.setVisible(false);
+    revision = 2;
+    onChange();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(panel.webview.html.includes('visible-r2'), true);
+    panel.webview.html = 'simulated destroyed hidden document';
+    await panel.setVisible(true);
+
+    assert.equal(panel.webview.html.includes('visible-r2'), true);
+    assert.equal(panel.webview.html.includes('&quot;selectedInput&quot;:2'), true);
+    assert.equal(panel.webview.html.includes('&quot;subscriptionGeneration&quot;:1'), true);
+
+    panel.dispose();
+    assert.equal(panel.viewStateListenerCount, 0);
+});
+
+test('CONVERSATION-VIEWER-STALE-001 retries an initial stale revision once against a fresh outline', async () => {
+    let outlineReads = 0;
+    let pageReads = 0;
+    const requests = [];
+    const { viewer, panel } = createViewer({
+        readOutline: async (_provider, sessionId) => {
+            outlineReads += 1;
+            return outline(sessionId, ['input-1'], {
+                sourceRevision: `r${outlineReads}`,
+            });
+        },
+        readPage: async request => {
+            pageReads += 1;
+            requests.push(request);
+            if (pageReads === 1) {
+                throw new ConversationError('staleRevision');
+            }
+            return page(
+                request.sessionId,
+                request.anchorInteractionId,
+                'visible-current',
+                { sourceRevision: request.expectedRevision }
+            );
+        },
+    });
+
+    await viewer.open(target('session-a', 'input-1'));
+
+    assert.equal(outlineReads, 2);
+    assert.equal(pageReads, 2);
+    assert.deepEqual(requests.map(request => ({
+        anchorInteractionId: request.anchorInteractionId,
+        direction: request.direction,
+        expectedRevision: request.expectedRevision,
+        cursor: request.cursor,
+    })), [
+        {
+            anchorInteractionId: 'input-1',
+            direction: 'around',
+            expectedRevision: 'r1',
+            cursor: undefined,
+        },
+        {
+            anchorInteractionId: 'input-1',
+            direction: 'around',
+            expectedRevision: 'r2',
+            cursor: undefined,
+        },
+    ]);
+    assert.equal(panel.webview.html.includes('visible-current'), true);
+});
+
+test('CONVERSATION-VIEWER-STALE-004 fails an initial stale retry closed when the exact interaction disappears', async () => {
+    let outlineReads = 0;
+    let pageReads = 0;
+    const { viewer, panel } = createViewer({
+        readOutline: async (_provider, sessionId) => {
+            outlineReads += 1;
+            return outline(
+                sessionId,
+                [outlineReads === 1 ? 'input-1' : 'input-2'],
+                { sourceRevision: `r${outlineReads}` }
+            );
+        },
+        readPage: async request => {
+            pageReads += 1;
+            if (pageReads === 1) {
+                throw new ConversationError('staleRevision');
+            }
+            return page(
+                request.sessionId,
+                request.anchorInteractionId,
+                'must-not-publish-input-2',
+                { sourceRevision: request.expectedRevision }
+            );
+        },
+    });
+
+    await viewer.open(target('session-a', 'input-1'));
+
+    assert.equal(outlineReads, 2);
+    assert.equal(pageReads, 1);
+    assert.equal(viewer.snapshotSize, 0);
+    assert.equal(
+        panel.webview.html.includes('Conversation history unavailable.'),
+        true
+    );
+    assert.equal(panel.webview.html.includes('must-not-publish-input-2'), false);
+});
+
+test('CONVERSATION-VIEWER-STALE-002 recovers expired navigation cursors through one fresh authoritative around read', async () => {
+    let outlineReads = 0;
+    let pageReads = 0;
+    const requests = [];
+    const { viewer, panel } = createViewer({
+        readOutline: async (_provider, sessionId) => {
+            outlineReads += 1;
+            return outline(
+                sessionId,
+                outlineReads === 1
+                    ? ['input-1', 'input-2']
+                    : ['input-1', 'input-2', 'input-3'],
+                { sourceRevision: `r${outlineReads}` }
+            );
+        },
+        readPage: async request => {
+            pageReads += 1;
+            requests.push(request);
+            if (pageReads === 1) {
+                return page('session-a', 'input-1', 'visible-initial', {
+                    nextCursor: 'expired-cursor',
+                });
+            }
+            if (pageReads === 2) {
+                throw new ConversationError('staleRevision');
+            }
+            return page(
+                request.sessionId,
+                request.anchorInteractionId,
+                'visible-retried',
+                { sourceRevision: request.expectedRevision }
+            );
+        },
+    });
+
+    await viewer.open(target('session-a', 'input-1'));
+    await panel.receive({ type: 'conversation-viewer-next', version: 1 });
+
+    assert.equal(outlineReads, 2);
+    assert.equal(pageReads, 3);
+    assert.deepEqual({
+        anchorInteractionId: requests[2].anchorInteractionId,
+        direction: requests[2].direction,
+        expectedRevision: requests[2].expectedRevision,
+        cursor: requests[2].cursor,
+    }, {
+        anchorInteractionId: 'input-2',
+        direction: 'around',
+        expectedRevision: 'r2',
+        cursor: undefined,
+    });
+    const publication = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page').at(-1);
+    assert.equal(publication.selectedInteractionId, 'input-2');
+    assert.equal(publication.html.includes('visible-retried'), true);
+});
+
+test('CONVERSATION-VIEWER-STALE-003 bounds persistent stale revision recovery to one retry and retains stale content', async () => {
+    let outlineReads = 0;
+    let pageReads = 0;
+    const { viewer, panel } = createViewer({
+        readOutline: async (_provider, sessionId) => {
+            outlineReads += 1;
+            return outline(sessionId, ['input-1', 'input-2'], {
+                sourceRevision: `r${outlineReads}`,
+            });
+        },
+        readPage: async request => {
+            pageReads += 1;
+            if (pageReads === 1) {
+                return page('session-a', 'input-1', 'visible-retained', {
+                    nextCursor: 'expired-cursor',
+                });
+            }
+            throw new ConversationError('staleRevision');
+        },
+    });
+
+    await viewer.open(target('session-a', 'input-1'));
+    await panel.receive({ type: 'conversation-viewer-next', version: 1 });
+
+    assert.equal(outlineReads, 2);
+    assert.equal(pageReads, 3);
+    const publication = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page').at(-1);
+    assert.equal(publication.stale, true);
+    assert.equal(publication.html.includes('visible-retained'), true);
+});
+
+test('CONVERSATION-VIEWER-AUTHORITY-002 retains stale content when the established exact selection disappears', async () => {
+    let outlineReads = 0;
+    let pageReads = 0;
+    const { viewer, panel } = createViewer({
+        readOutline: async (_provider, sessionId) => {
+            outlineReads += 1;
+            return outline(
+                sessionId,
+                [outlineReads === 1 ? 'input-1' : 'input-2'],
+                { sourceRevision: `r${outlineReads}` }
+            );
+        },
+        readPage: async request => {
+            pageReads += 1;
+            return page(
+                request.sessionId,
+                request.anchorInteractionId,
+                pageReads === 1
+                    ? 'visible-established'
+                    : 'must-not-replace-established',
+                { sourceRevision: request.expectedRevision }
+            );
+        },
+    });
+
+    await viewer.open(target('session-a', 'input-1'));
+    await viewer.refresh();
+
+    assert.equal(outlineReads, 2);
+    assert.equal(pageReads, 1);
+    const publication = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page').at(-1);
+    assert.equal(publication.selectedInteractionId, 'input-1');
+    assert.equal(publication.stale, true);
+    assert.equal(publication.html.includes('visible-established'), true);
+    assert.equal(
+        publication.html.includes('must-not-replace-established'),
+        false
+    );
+});
+
+test('CONVERSATION-VIEWER-REFRESH-003 merges a new tail page into retained history by interaction ID', async () => {
+    let onChange;
+    let revision = 1;
+    const firstIds = Array.from(
+        { length: 20 },
+        (_item, index) => `input-${index + 1}`
+    );
+    const secondIds = Array.from(
+        { length: 20 },
+        (_item, index) => `input-${index + 2}`
+    );
+    const { viewer, panel } = createViewer({
+        watch: (_provider, _sessionId, callback) => {
+            onChange = callback;
+            return { dispose() {} };
+        },
+        readOutline: async (_provider, sessionId) => outline(
+            sessionId,
+            revision === 1 ? firstIds : firstIds.concat('input-21'),
+            { sourceRevision: `r${revision}` }
+        ),
+        readPage: async request => page(
+            request.sessionId,
+            request.anchorInteractionId,
+            revision === 1 ? 'initial' : 'refreshed',
+            {
+                interactionIds: revision === 1 ? firstIds : secondIds,
+                anchorInteractionId: request.anchorInteractionId,
+                sourceRevision: request.expectedRevision,
+                previousCursor: revision === 1 ? undefined : 'r2-before',
+            }
+        ),
+    });
+
+    await viewer.open(target('session-a', 'input-20'));
+    revision = 2;
+    onChange();
+    await new Promise(resolve => setImmediate(resolve));
+
+    const publication = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page').at(-1);
+    assert.equal(publication.selectedInteractionId, 'input-21');
+    assert.equal(publication.html.includes('data-interaction-id="input-1"'), true);
+    assert.equal(publication.html.includes('data-interaction-id="input-21"'), true);
+    assert.equal(
+        publication.html.match(/data-interaction-id="input-2"/g).length,
+        1
+    );
+    assert.equal(viewer.snapshotSize, 21);
+});
+
+test('CONVERSATION-VIEWER-PARTIAL-001 offsets capped-tail positions by omitted authoritative interactions', async () => {
+    const interactionIds = Array.from(
+        { length: 2_000 },
+        (_item, index) => `input-${index + 2}`
+    );
+    const { viewer, panel } = createViewer({
+        readOutline: async (_provider, sessionId) => outline(
+            sessionId,
+            interactionIds,
+            { totalInteractions: 2_001, partial: true }
+        ),
+        readPage: async request => page(
+            request.sessionId,
+            request.anchorInteractionId,
+            'visible-tail',
+            {
+                interactionIds: ['input-2000', 'input-2001'],
+                anchorInteractionId: request.anchorInteractionId,
+            }
+        ),
+    });
+
+    await viewer.open(target('session-a', 'input-2001'));
+    let publication = JSON.parse(
+        panel.webview.html.match(/data-initial-page="([^"]+)"/)[1]
+            .replace(/&quot;/g, '"')
+            .replace(/&#39;/g, "'")
+            .replace(/&gt;/g, '>')
+            .replace(/&lt;/g, '<')
+            .replace(/&amp;/g, '&')
+    );
+    assert.equal(publication.selectedInput, 2_001);
+    assert.equal(publication.totalInputs, 2_000);
+    assert.equal(publication.partial, true);
+
+    await panel.receive({ type: 'conversation-viewer-previous', version: 1 });
+    publication = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page').at(-1);
+    assert.equal(publication.selectedInteractionId, 'input-2000');
+    assert.equal(publication.selectedInput, 2_000);
+
+    await panel.receive({ type: 'conversation-viewer-next', version: 1 });
+    publication = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page').at(-1);
+    assert.equal(publication.selectedInteractionId, 'input-2001');
+    assert.equal(publication.selectedInput, 2_001);
+    assert.equal(publication.totalInputs, 2_000);
 });

@@ -35,7 +35,25 @@ const styles = fs.readFileSync(
     'utf8'
 );
 
+const BROWSER_CONDITION_TIMEOUT_MS = 5_000;
+
+function waitForPageCondition(page, condition) {
+    return page.waitForFunction(condition, undefined, {
+        timeout: BROWSER_CONDITION_TIMEOUT_MS,
+    });
+}
+
 let browser;
+
+test('ACTIVE-SESSION-CONVERSATION-LAYOUT-001 bounds every browser condition wait', () => {
+    const source = fs.readFileSync(__filename, 'utf8');
+    assert.equal((source.match(/\.waitForFunction\(/g) || []).length, 1);
+    assert.match(source, /const BROWSER_CONDITION_TIMEOUT_MS = 5_000;/);
+    assert.match(
+        source,
+        /return page\.waitForFunction\(condition, undefined, \{\s*timeout: BROWSER_CONDITION_TIMEOUT_MS,\s*\}\);/
+    );
+});
 
 test.before(async () => {
     browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
@@ -463,7 +481,7 @@ test('ACTIVE-SESSION-CONVERSATION-LAYOUT-001 measures one row delta synchronousl
     assert.equal(await list.evaluate(node => getComputedStyle(node).overflowY), 'auto');
 
     await page.setViewportSize({ width: 360, height: 900 });
-    await page.waitForFunction(() => {
+    await waitForPageCondition(page, () => {
         const expandedRow = document.querySelector(
             '.active-ai-session-row[data-conversation-expanded]'
         );
@@ -494,7 +512,7 @@ test('ACTIVE-SESSION-CONVERSATION-LAYOUT-001 measures one row delta synchronousl
             '[data-ai-session-conversation-marker]'
         )).slice(1).forEach(marker => marker.remove());
     });
-    await page.waitForFunction(() => {
+    await waitForPageCondition(page, () => {
         const railNode = document.querySelector(
             '.active-ai-session-row[data-conversation-expanded] '
             + '[data-ai-session-conversation-rail]'
@@ -533,7 +551,7 @@ test('ACTIVE-SESSION-CONVERSATION-RESTORE-001 restores only the same still-focus
     await focused.locator('.ai-session-primary-action').click();
     await seedConversationRail(page, 'codex', 'session-a');
     await page.setViewportSize({ width: 360, height: 260 });
-    await page.waitForFunction(() => {
+    await waitForPageCondition(page, () => {
         const rail = document.querySelector(
             '[data-conversation-expanded] [data-ai-session-conversation-rail]'
         );
@@ -609,7 +627,7 @@ test('ACTIVE-SESSION-CONVERSATION-RESTORE-001 preserves or cancels expansion thr
     await focused.locator('.ai-session-primary-action').click();
     await seedConversationRail(page, 'codex', 'session-a');
     await page.setViewportSize({ width: 360, height: 260 });
-    await page.waitForFunction(() => {
+    await waitForPageCondition(page, () => {
         const rail = document.querySelector(
             '[data-conversation-expanded] [data-ai-session-conversation-rail]'
         );

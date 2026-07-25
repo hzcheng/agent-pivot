@@ -134,10 +134,35 @@ async function captureFocusAndViewport(page) {
                 ? active.getAttribute('data-prompt-form-action')
                 : null,
             formKind: form ? form.getAttribute('data-prompt-form') : null,
-            promptId: form ? form.getAttribute('data-prompt-id') : null,
+            promptId: form
+                ? form.getAttribute('data-prompt-id')
+                : active && active.getAttribute
+                    ? active.getAttribute('data-prompt-id')
+                    : null,
             scrollY: Math.round(window.scrollY),
         };
     });
+}
+
+async function applyPostedCommandResult(page, snapshot) {
+    const request = await page.evaluate(() => window.__promptMessages[0]);
+    assert.ok(request);
+    assert.equal(await page.evaluate(({ request, snapshot, html }) =>
+        window.__projectStewardPrompts.applyCommandResult({
+            type: 'prompt-command-result',
+            version: request.version,
+            authoritySequence: 2,
+            requestId: request.requestId,
+            target: request.target,
+            operation: request.operation,
+            success: true,
+            snapshot,
+            html,
+        }), {
+        request,
+        snapshot,
+        html: getPromptSurfaceContent(snapshot),
+    }), true);
 }
 
 async function assertNoHorizontalOverflow(page, width, label) {
@@ -516,6 +541,93 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 restores form and New Prompt focus with 
                 });
                 assert.ok(beforeScrollY > 0);
                 await scenario.replace(page, snapshot);
+                assert.deepEqual(await captureFocusAndViewport(page), {
+                    ...scenario.expected,
+                    scrollY: beforeScrollY,
+                });
+            } finally {
+                await page.close();
+            }
+        });
+    }
+});
+
+test('WEBVIEW-AI-PROMPT-INTERACTION-001 moves successful Prompt form focus to stable controls in Chromium', async t => {
+    const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
+    t.after(() => browser.close());
+
+    for (const scenario of [
+        {
+            name: 'create success returns to New Prompt',
+            setup: async page => {
+                await page.locator('[data-action="prompt-new"]').click();
+                await page.locator('[data-prompt-form="create"] [name="name"]').fill('Created');
+                await page.locator('[data-prompt-form="create"] [name="text"]').fill('Created body');
+                await page.locator('[data-prompt-form="create"] [type="submit"]').focus();
+                await page.locator('[data-prompt-form="create"]').evaluate(form => {
+                    form.dispatchEvent(new Event('submit', {
+                        bubbles: true,
+                        cancelable: true,
+                    }));
+                });
+            },
+            savedSnapshot: snapshot => ({
+                ...snapshotAt(2),
+                prompts: snapshot.prompts.concat({
+                    id: 'prompt-created',
+                    name: 'Created',
+                    text: 'Created body',
+                }),
+            }),
+            expected: {
+                action: 'prompt-new',
+                fieldName: null,
+                formAction: null,
+                formKind: null,
+                promptId: null,
+            },
+        },
+        {
+            name: 'update success returns to the updated Edit action',
+            setup: async page => {
+                await page.locator('[data-action="prompt-edit"][data-prompt-id="prompt-a"]').click();
+                await page.locator('[data-prompt-form="edit"] [name="name"]').fill('Updated');
+                await page.locator('[data-prompt-form="edit"] [type="submit"]').focus();
+                await page.locator('[data-prompt-form="edit"]').evaluate(form => {
+                    form.dispatchEvent(new Event('submit', {
+                        bubbles: true,
+                        cancelable: true,
+                    }));
+                });
+            },
+            savedSnapshot: () => ({
+                ...snapshotAt(2),
+                prompts: [{
+                    id: 'prompt-a',
+                    name: 'Updated',
+                    text: longBody,
+                }],
+            }),
+            expected: {
+                action: 'prompt-edit',
+                fieldName: null,
+                formAction: null,
+                formKind: null,
+                promptId: 'prompt-a',
+            },
+        },
+    ]) {
+        await t.test(scenario.name, async () => {
+            const snapshot = snapshotAt(1);
+            const page = await openPromptPage(browser, snapshot);
+            try {
+                await scenario.setup(page);
+                const beforeScrollY = await page.evaluate(() => {
+                    window.scrollTo(0, 143);
+                    return Math.round(window.scrollY);
+                });
+                assert.ok(beforeScrollY > 0);
+                await applyPostedCommandResult(page, scenario.savedSnapshot(snapshot));
                 assert.deepEqual(await captureFocusAndViewport(page), {
                     ...scenario.expected,
                     scrollY: beforeScrollY,

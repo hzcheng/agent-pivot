@@ -666,6 +666,18 @@
             && local.activeSubtab === pending.activeSubtab) {
             local.focus = clone(pending.focus);
         }
+        if (message.success && local.focus && local.focus.formKind) {
+            if (message.operation === 'create') {
+                local.focus = { promptId: null, action: 'prompt-new' };
+            } else if (message.operation === 'update'
+                && pending.payload
+                && typeof pending.payload.promptId === 'string') {
+                local.focus = {
+                    promptId: pending.payload.promptId,
+                    action: 'prompt-edit',
+                };
+            }
+        }
         if (!installAuthoritative(message)) {
             setMutationLock(true);
             return false;

@@ -982,6 +982,52 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 restores the real viewport and semantic 
     assert.equal(newAction.context.window.scrollY, 61);
 });
 
+test('WEBVIEW-AI-PROMPT-INTERACTION-001 moves successful create and update focus to stable controls', () => {
+    const create = createPromptHarness();
+    create.root.dispatch('click', eventFor(create.root.newButton));
+    let form = create.root.getForm('create');
+    form.fields.name.value = 'Created';
+    form.fields.text.value = 'Created body';
+    create.root.dispatch('input', eventFor(form.fields.name));
+    create.root.dispatch('input', eventFor(form.fields.text));
+    create.document.activeElement = form.submitAction;
+    create.context.window.scrollY = 55;
+    create.controller.dispatch('create', {
+        name: form.fields.name.value,
+        text: form.fields.text.value,
+    });
+    create.controller.applyCommandResult(resultFor(create.messages[0], 1));
+    assert.equal(create.document.activeElement, create.root.newButton);
+    assert.equal(create.context.window.scrollY, 55);
+
+    const update = createPromptHarness();
+    update.root.dispatch('click', eventFor(update.root.getItem('prompt-a').actions[2]));
+    form = update.root.getForm('edit', 'prompt-a');
+    update.document.activeElement = form.fields.name;
+    update.context.window.scrollY = 47;
+    update.controller.dispatch('update', {
+        promptId: 'prompt-a',
+        name: 'Updated',
+        text: 'Updated body',
+    });
+    update.controller.applyCommandResult(resultFor(update.messages[0], 1));
+    assert.equal(update.document.activeElement, update.root.getItem('prompt-a').actions[2]);
+    assert.equal(update.context.window.scrollY, 47);
+
+    const explicit = createPromptHarness();
+    explicit.root.dispatch('click', eventFor(explicit.root.getItem('prompt-a').actions[2]));
+    form = explicit.root.getForm('edit', 'prompt-a');
+    explicit.document.activeElement = form.submitAction;
+    explicit.controller.dispatch('update', {
+        promptId: 'prompt-a',
+        name: 'Updated',
+        text: 'Updated body',
+    });
+    explicit.document.activeElement = explicit.root.tabs[0];
+    explicit.controller.applyCommandResult(resultFor(explicit.messages[0], 1));
+    assert.equal(explicit.document.activeElement, explicit.root.tabs[0]);
+});
+
 test('WEBVIEW-AI-PROMPT-INTERACTION-001 preserves an explicit focus change while pending', () => {
     const harness = createPromptHarness();
     harness.document.activeElement = harness.root.getItem('prompt-b').actions[2];

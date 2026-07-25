@@ -15,6 +15,7 @@ import type {
     AiSessionReadResult,
     WorkspaceAiSessionViewModel,
 } from '../aiSessions/types';
+import type { AiSessionProviderSelection } from '../aiSessions/providerSelection';
 import type { OpenWorkspace } from './types';
 import { getWorkspaceAiSessionCandidatePaths, hydrateWorkspaceAiSessions } from './sessionHydration';
 
@@ -36,7 +37,9 @@ export interface WorkspaceSessionHydrationControllerOptions<TTerminal = unknown>
     getSessionComparableCwd: (providerId: AiSessionProviderId, session: CodexSession) => string;
     getPinnedSessions: () => ReadonlySet<string>;
     getAliases: () => Readonly<Record<string, string>>;
-    getActiveProvider: (workspaceScopeIdentity: string) => AiSessionProviderId | undefined;
+    getProviderSelection: (
+        workspaceScopeIdentity: string
+    ) => AiSessionProviderSelection | undefined;
     getExpanded: (workspaceScopeIdentity: string) => boolean;
     getActiveRuntimes: () => readonly AiSessionRuntimeSnapshot<TTerminal>[];
     getPendingRuntimes: () => readonly AiSessionPendingRuntimeSnapshot<TTerminal>[];
@@ -88,7 +91,7 @@ export class WorkspaceSessionHydrationController<TTerminal = unknown> {
             executionSnapshot: this.options.getExecutionSnapshot(),
             focusedIdentity: this.options.getFocusedIdentity(),
             attentionAggregate: this.options.getAttentionAggregate(),
-            activeProvider: this.options.getActiveProvider(workspace.scopeIdentity),
+            providerSelection: this.options.getProviderSelection(workspace.scopeIdentity),
             expanded: this.options.getExpanded(workspace.scopeIdentity),
         });
         this.logDiagnostic({

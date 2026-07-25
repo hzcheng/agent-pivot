@@ -80,6 +80,7 @@ test('PERSIST-AI-SESSION-PROJECT-HYDRATION-001 projects assignment, pin, alias, 
     });
     assert.equal(result.expanded, true);
     assert.equal(result.activeProvider, 'codex');
+    assert.deepEqual(result.selectedProviders, ['codex']);
     assert.deepEqual(result.sessionsByProvider.codex.map(item => ({
         name: item.name, pinned: item.pinned, attention: item.attention,
     })), [{

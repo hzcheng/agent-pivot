@@ -64,7 +64,9 @@ test('PERSIST-AI-SESSION-PROJECT-HYDRATION-CONTROLLER-001 preserves scan, projec
         getSessionComparableCwd: (_provider, value) => value.cwd,
         getPinnedSessions: () => new Set(['codex:session-a']),
         getAliases: () => ({ 'codex:session-a': 'Renamed' }),
-        getActiveProvider: scope => scope === WORKSPACE.scopeIdentity ? 'codex' : undefined,
+        getProviderSelection: scope => scope === WORKSPACE.scopeIdentity
+            ? { primaryProvider: 'codex', selectedProviders: ['codex', 'kimi'] }
+            : undefined,
         getExpanded: scope => scope === WORKSPACE.scopeIdentity,
         getActiveRuntimes: () => [{
             identity: activeIdentity,
@@ -117,6 +119,7 @@ test('PERSIST-AI-SESSION-PROJECT-HYDRATION-CONTROLLER-001 preserves scan, projec
         maxFiles: 123,
     });
     assert.equal(hydrated.activeProvider, 'codex');
+    assert.deepEqual(hydrated.selectedProviders, ['codex', 'kimi']);
     assert.equal(hydrated.expanded, true);
     assert.deepEqual(hydrated.unavailableProviders, ['kimi']);
     assert.equal(hydrated.sessionsByProvider.codex[0].name, 'Renamed');

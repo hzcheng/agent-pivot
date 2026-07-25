@@ -516,7 +516,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             getProviderAiSessionComparableCwd(providerId, session, aiSessionProviders),
         getPinnedSessions: () => aiSessionPinController.getAll(),
         getAliases: () => aiSessionAliasController.getAll(),
-        getActiveProvider: scopeIdentity => aiSessionWorkspaceStateStore.getActiveProviders()[scopeIdentity],
+        getProviderSelection: scopeIdentity => {
+            const stored = aiSessionWorkspaceStateStore.getProviderSelections()[scopeIdentity];
+            if (stored) {
+                return stored;
+            }
+            const legacy = aiSessionWorkspaceStateStore.getActiveProviders()[scopeIdentity];
+            return legacy
+                ? { primaryProvider: legacy, selectedProviders: [legacy] }
+                : undefined;
+        },
         getExpanded: scopeIdentity => aiSessionWorkspaceStateStore.getExpandedWorkspaces().has(scopeIdentity),
         getActiveRuntimes: () => aiSessionRuntimeCoordinator.getActive(),
         getPendingRuntimes: () => aiSessionRuntimeCoordinator.getPending(),

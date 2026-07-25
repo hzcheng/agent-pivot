@@ -112,6 +112,13 @@ test('PERSIST-PROJECT-STATE-STORE-001 sanitizes workspace state and ignores inva
             'scope-b': 'unknown',
             'scope-c': 'kimi',
         },
+        'workspaceAiSessionProviderSelection.v1': {
+            'scope-a': {
+                primaryProvider: 'codex',
+                selectedProviders: ['codex', 'claude', 'claude', 'unknown'],
+            },
+            'scope-b': { primaryProvider: 'unknown', selectedProviders: [] },
+        },
     });
     const store = new AiSessionWorkspaceStateStore(
         state.memento,
@@ -120,16 +127,34 @@ test('PERSIST-PROJECT-STATE-STORE-001 sanitizes workspace state and ignores inva
 
     assert.deepEqual(Array.from(store.getExpandedWorkspaces()), ['scope-a', 'scope-b']);
     assert.deepEqual(store.getActiveProviders(), { 'scope-a': 'codex', 'scope-c': 'kimi' });
+    assert.deepEqual(store.getProviderSelections(), {
+        'scope-a': {
+            primaryProvider: 'codex',
+            selectedProviders: ['codex', 'claude'],
+        },
+    });
     await store.setExpanded('scope-c', true);
     await store.setExpanded('', true);
     await store.setActiveProvider('scope-d', 'claude');
     await store.setActiveProvider('scope-e', 'unknown');
+    await store.setProviderSelection('scope-d', {
+        primaryProvider: 'claude',
+        selectedProviders: ['claude', 'kimi'],
+    });
     assert.deepEqual(state.values['workspaceExpandedAiSessions.v2'], [
         'scope-a', 'scope-b', 'scope-c',
     ]);
     assert.deepEqual(state.values['workspaceActiveAiSessionProvider.v2'], {
         'scope-a': 'codex', 'scope-c': 'kimi', 'scope-d': 'claude',
     });
+    assert.deepEqual(state.values['workspaceAiSessionProviderSelection.v1']['scope-d'], {
+        primaryProvider: 'claude',
+        selectedProviders: ['claude', 'kimi'],
+    });
+    assert.equal(
+        state.values['workspaceActiveAiSessionProvider.v2']['scope-d'],
+        'claude'
+    );
 });
 
 test('TODO-TODO-STORE-001 preserves unversioned V1 data while dropping duplicate, orphaned, and missing-field records', () => {

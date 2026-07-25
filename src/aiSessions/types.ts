@@ -140,6 +140,7 @@ export interface WorkspaceAiSessionViewModel {
     workspaceScopeIdentity: string;
     workspaceNavigationIdentity: string;
     activeProvider: AiSessionProviderId;
+    selectedProviders: AiSessionProviderId[];
     expanded: boolean;
     providers: AiSessionProviderSummary[];
     sessionsByProvider: Partial<Record<AiSessionProviderId, AiSessionViewModel[]>>;

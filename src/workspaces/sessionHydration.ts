@@ -17,6 +17,7 @@ import type {
     AiSessionViewModel,
     WorkspaceAiSessionViewModel,
 } from '../aiSessions/types';
+import type { AiSessionProviderSelection } from '../aiSessions/providerSelection';
 import { getAiSessionKey, prepareAiSessionsForDisplay } from '../aiSessions/sessionHelpers';
 import {
     assignPathToWorkspaceRoot,
@@ -45,6 +46,7 @@ export interface HydrateWorkspaceAiSessionsInput<TTerminal = unknown> {
     focusedIdentity?: AiSessionRuntimeIdentity | ActiveAiSessionTerminalIdentity | null;
     attentionAggregate?: AttentionAggregate | null;
     activeProvider?: AiSessionProviderId;
+    providerSelection?: AiSessionProviderSelection;
     expanded?: boolean;
 }
 
@@ -152,6 +154,7 @@ export function hydrateWorkspaceAiSessions<TTerminal = unknown>(
         unavailableProviders,
         activeSessions,
         activeProvider: input.activeProvider,
+        providerSelection: input.providerSelection,
         expanded: input.expanded,
     });
 }

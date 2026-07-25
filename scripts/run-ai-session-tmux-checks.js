@@ -47,6 +47,26 @@ function config(values) {
     return { get: (key, fallback) => Object.prototype.hasOwnProperty.call(values, key) ? values[key] : fallback };
 }
 
+function legacyPendingRequestFingerprint(request, launch) {
+    return crypto.createHash('sha256').update(JSON.stringify([
+        2,
+        request.identity.provider,
+        request.identity.workspaceScopeIdentity,
+        request.identity.workspaceNavigationIdentity,
+        request.identity.workspaceRootHostPaths.slice().sort(),
+        request.identity.pendingId,
+        request.identity.cwd,
+        request.createdAt,
+        request.excludedSessionIds,
+        request.title ?? null,
+        launch.executable,
+        launch.args,
+        launch.cwd ?? null,
+        launch.markerPath ?? null,
+        launch.windowsDirectShell ?? null,
+    ]), 'utf8').digest('hex');
+}
+
 function decodePowerShellPayload(command) {
     const prefix = 'powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand ';
     assert.ok(command.startsWith(prefix));
@@ -3576,6 +3596,17 @@ async function runTmuxStoreChecks() {
         await store.setAmbiguous(pendingAmbiguousRecord);
         assert.deepStrictEqual(await restartedStore.getAmbiguous(pendingIdentity(pendingAmbiguousRecord)),
             pendingAmbiguousRecord);
+        const stablePendingAmbiguousRecord = {
+            ...pendingAmbiguousRecord,
+            pendingId: 'stable-ambiguous-fingerprint',
+            requestFingerprint: `v3:${'c'.repeat(64)}`,
+        };
+        await store.setAmbiguous(stablePendingAmbiguousRecord);
+        assert.deepStrictEqual(await restartedStore.getAmbiguous(
+            pendingIdentity(stablePendingAmbiguousRecord)
+        ), stablePendingAmbiguousRecord,
+        'stable launch-option-independent ambiguity fingerprints must persist');
+        await store.removeAmbiguous(pendingIdentity(stablePendingAmbiguousRecord));
         await assert.rejects(store.setAmbiguous({
             ...pendingAmbiguousRecord, pendingId: 'oversized-project-name',
             projectName: 'p'.repeat(201),
@@ -5932,6 +5963,114 @@ async function runTmuxBackendChecks() {
     assert.strictEqual(pendingRecoveryHarness.ambiguous.size, 0);
     assert.strictEqual(pendingRecoveryHarness.operations.filter(item => item.type === 'new-session').length, 1);
 
+    const stableFingerprints = [];
+    for (const [suffix, args] of [
+        ['safe', ['new']],
+        ['yolo', ['--yolo', 'new']],
+    ]) {
+        const stableHarness = createTmuxBackendHarness({ failSetPendingCount: 1 });
+        let builds = 0;
+        const stableRequest = {
+            identity: {
+                provider: 'kimi',
+                workspaceScopeIdentity: 'stable-pending-fingerprint',
+                workspaceNavigationIdentity: 'nav-stable-pending-fingerprint',
+                workspaceRootHostPaths: ['/work'],
+                cwd: '/work',
+                pendingId: 'stable-pending-fingerprint-id',
+            },
+            projectName: 'Stable',
+            terminalName: `Kimi: Stable ${suffix}`,
+            createdAt: '2026-07-18T09:59:00Z',
+            excludedSessionIds: ['old'],
+            title: 'Stable launch intent',
+            launchMarkerPath: '/tmp/stable-pending-fingerprint',
+            createLaunchSpec: () => {
+                builds += 1;
+                return {
+                    executable: 'kimi',
+                    args: [...args],
+                    markerPath: '/tmp/stable-pending-fingerprint',
+                };
+            },
+        };
+        await assert.rejects(
+            new backendModule.TmuxRuntimeBackend(stableHarness.dependencies)
+                .ensurePending(stableRequest, 'session'),
+            /pending persistence failed/
+        );
+        assert.strictEqual(builds, 1);
+        const ambiguous = Array.from(stableHarness.ambiguous.values())[0];
+        assert.match(ambiguous.requestFingerprint, /^v3:[a-f0-9]{64}$/);
+        stableFingerprints.push(ambiguous.requestFingerprint);
+    }
+    assert.strictEqual(
+        stableFingerprints[0],
+        stableFingerprints[1],
+        'pending recovery identity must not depend on process-launch YOLO options'
+    );
+
+    const legacyRecoveryHarness = createTmuxBackendHarness({ failSetPendingCount: 1 });
+    const legacyLaunch = {
+        executable: 'kimi',
+        args: ['new'],
+        markerPath: '/tmp/legacy-pending-fingerprint',
+    };
+    let initialLegacyBuilds = 0;
+    const legacyRecoveryRequest = {
+        identity: {
+            provider: 'kimi',
+            workspaceScopeIdentity: 'legacy-pending-fingerprint',
+            workspaceNavigationIdentity: 'nav-legacy-pending-fingerprint',
+            workspaceRootHostPaths: ['/work'],
+            cwd: '/work',
+            pendingId: 'legacy-pending-fingerprint-id',
+        },
+        projectName: 'Legacy',
+        terminalName: 'Kimi: Legacy',
+        createdAt: '2026-07-18T09:59:00Z',
+        excludedSessionIds: ['old'],
+        title: 'Legacy launch intent',
+        launchMarkerPath: legacyLaunch.markerPath,
+        createLaunchSpec: () => {
+            initialLegacyBuilds += 1;
+            return { ...legacyLaunch, args: [...legacyLaunch.args] };
+        },
+    };
+    await assert.rejects(
+        new backendModule.TmuxRuntimeBackend(legacyRecoveryHarness.dependencies)
+            .ensurePending(legacyRecoveryRequest, 'session'),
+        /pending persistence failed/
+    );
+    assert.strictEqual(initialLegacyBuilds, 1);
+    const legacyAmbiguous = Array.from(legacyRecoveryHarness.ambiguous.values())[0];
+    legacyAmbiguous.requestFingerprint = legacyPendingRequestFingerprint(
+        legacyRecoveryRequest, legacyLaunch
+    );
+    let legacyRecoveryBuilds = 0;
+    const legacyRecovered = await new backendModule.TmuxRuntimeBackend(
+        legacyRecoveryHarness.dependencies
+    ).ensurePending({
+        ...legacyRecoveryRequest,
+        createLaunchSpec: () => {
+            legacyRecoveryBuilds += 1;
+            return {
+                ...legacyLaunch,
+                args: ['--yolo', ...legacyLaunch.args],
+            };
+        },
+    }, 'session');
+    assert.strictEqual(legacyRecovered.identity.pendingId, 'legacy-pending-fingerprint-id');
+    assert.strictEqual(
+        legacyRecoveryBuilds, 0,
+        'legacy ambiguity recovery must not read current process-launch options'
+    );
+    assert.strictEqual(
+        legacyRecoveryHarness.operations.filter(item => item.type === 'new-session').length,
+        1,
+        'legacy ambiguity recovery must not redispatch the provider command'
+    );
+
     const projectPromotionHarness = createTmuxBackendHarness();
     const projectPromotionBackend = new backendModule.TmuxRuntimeBackend(projectPromotionHarness.dependencies);
     const projectPending = await projectPromotionBackend.ensurePending({
@@ -7270,7 +7409,8 @@ function createFakeRuntimeBackend(backend, options = {}) {
     fake.detach = async runtime => { fake.detachCalls.push(runtime); };
     fake.ensureResume = async (request, layout) => {
         fake.ensureResumeCalls++;
-        fake.ensureResumeRequests.push(request);
+        const capturedRequest = { ...request };
+        fake.ensureResumeRequests.push(capturedRequest);
         fake.ensureResumeLayouts.push(layout);
         if (options.resumeGate) await options.resumeGate.promise;
         if (remainingEnsureErrors > 0) {
@@ -7278,6 +7418,10 @@ function createFakeRuntimeBackend(backend, options = {}) {
             throw options.ensureError || new Error('ensure failed');
         }
         if (options.ensureError && options.ensureErrorCount === undefined) throw options.ensureError;
+        const launch = typeof request.createLaunchSpec === 'function'
+            ? request.createLaunchSpec()
+            : request.launch;
+        capturedRequest.launch = { ...launch, args: [...launch.args] };
         const runtime = fakeRuntime(backend, request.identity.sessionId,
             backend === 'tmux' ? { tmux: { layout, sessionName: 'managed' } } : {});
         fake.active.push(runtime);
@@ -7291,6 +7435,9 @@ function createFakeRuntimeBackend(backend, options = {}) {
             throw options.ensureError || new Error('ensure failed');
         }
         if (options.ensureError && options.ensureErrorCount === undefined) throw options.ensureError;
+        if (typeof request.createLaunchSpec === 'function') {
+            request.createLaunchSpec();
+        }
         const runtime = {
             ...fakeRuntime(backend, undefined),
             identity: { ...request.identity },
@@ -7854,6 +8001,7 @@ async function runRuntimeCoordinatorChecks() {
         getWorkspaceTarget: cardId => cardId === scopedWorkspaceTarget.cardId
             ? scopedWorkspaceTarget
             : null,
+        getLaunchOptions: () => ({ yolo: false }),
         getProvider: () => ({
             label: 'Codex',
             terminalEnvKey: 'CODEX_SESSION_ID',
@@ -9133,6 +9281,7 @@ async function runRuntimeControllerChecks() {
         pickWorkspaceRoot: async () => undefined,
         pickProvider: async () => 'codex',
         getProviderLabel: () => 'Codex',
+        getLaunchOptions: () => ({ yolo: false }),
         getProvider: () => ({
             label: 'Codex', terminalNamePrefix: 'Codex',
             buildNewSessionLaunchSpec: (scope, title, markerPath) => ({
@@ -9158,11 +9307,12 @@ async function runRuntimeControllerChecks() {
         runtimeCoordinator: {
             create: async request => {
                 createRequests.push(request);
+                const launch = request.createLaunchSpec();
                 return {
                     status: 'started',
                     runtime: {
                         identity: { ...request.identity }, backend: 'tmux', state: 'pending',
-                        markerPath: request.launch.markerPath, runStartedAtMs: Date.parse(request.createdAt),
+                        markerPath: launch.markerPath, runStartedAtMs: Date.parse(request.createdAt),
                         attached: false, createdAt: request.createdAt,
                         excludedSessionIds: [...request.excludedSessionIds], title: request.title,
                     },
@@ -9182,6 +9332,7 @@ async function runRuntimeControllerChecks() {
     const resume = new ResumeController({
         getWorkspaceTarget: cardId => cardId === project.id
             ? createWorkspaceActionTarget(project, 'pk') : null,
+        getLaunchOptions: () => ({ yolo: false }),
         getProvider: () => ({
             label: 'Codex', terminalEnvKey: 'CODEX_SESSION_ID',
             buildResumeLaunchSpec: (sessionId, scope, markerPath) => ({
@@ -9222,6 +9373,7 @@ async function runRuntimeControllerChecks() {
     const collisionResume = new ResumeController({
         getWorkspaceTarget: cardId => cardId === project.id
             ? createWorkspaceActionTarget(project, 'pk') : null,
+        getLaunchOptions: () => ({ yolo: false }),
         getProvider: () => ({
             label: 'Codex', terminalEnvKey: 'CODEX_SESSION_ID',
             buildResumeLaunchSpec: (sessionId, scope, markerPath) => ({
@@ -9299,6 +9451,7 @@ async function runRuntimeControllerChecks() {
             ? createWorkspaceActionTarget(project, 'pk') : null,
         pickWorkspaceRoot: async () => undefined,
         pickProvider: async () => 'codex', getProviderLabel: () => 'Codex',
+        getLaunchOptions: () => ({ yolo: false }),
         getProvider: () => ({
             label: 'Codex', terminalNamePrefix: 'Codex',
             buildNewSessionLaunchSpec: (scope, title, markerPath) => ({
@@ -9339,6 +9492,7 @@ async function runRuntimeControllerChecks() {
                     id: 'rejected', name: 'Rejected', cwd: '/work', updatedAt: createdAt,
                 }),
             }, 'pk') : null,
+        getLaunchOptions: () => ({ yolo: false }),
         getProvider: () => ({
             label: 'Codex', terminalEnvKey: 'CODEX_SESSION_ID',
             buildResumeLaunchSpec: (sessionId, scope, markerPath) => ({
@@ -9374,6 +9528,7 @@ async function runRuntimeControllerChecks() {
             ? createWorkspaceActionTarget(project, 'pk') : null,
         pickWorkspaceRoot: async () => undefined,
         pickProvider: async () => 'codex', getProviderLabel: () => 'Codex',
+        getLaunchOptions: () => ({ yolo: false }),
         getProvider: () => ({
             label: 'Codex', terminalNamePrefix: 'Codex',
             buildNewSessionLaunchSpec: (scope, title, markerPath) => ({
@@ -9397,9 +9552,10 @@ async function runRuntimeControllerChecks() {
         nowMs: () => Date.parse(createdAt),
         runtimeCoordinator: {
             create: async request => {
+                const launch = request.createLaunchSpec();
                 retainedPending = {
                     identity: { ...request.identity }, backend: 'tmux', state: 'pending',
-                    markerPath: request.launch.markerPath, runStartedAtMs: Date.parse(request.createdAt),
+                    markerPath: launch.markerPath, runStartedAtMs: Date.parse(request.createdAt),
                     attached: false, createdAt: request.createdAt, excludedSessionIds: [],
                     tmux: { layout: 'session', sessionName: 'pending-timeout' },
                 };

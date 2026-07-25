@@ -7,11 +7,31 @@ const test = require('node:test');
 const commandBuilders = require('../../../out/aiSessions/commandBuilders');
 const launchSpec = require('../../../out/aiSessions/launchSpec');
 const runtimeConfiguration = require('../../../out/aiSessions/runtimeConfiguration');
+const launchOptions = require('../../../out/aiSessions/launchOptions');
 const runtimeTypes = require('../../../out/aiSessions/runtimeTypes');
 const tmuxLayout = require('../../../out/aiSessions/tmuxLayout');
 
 function configuration(values) {
     return { get: (key, fallback) => Object.prototype.hasOwnProperty.call(values, key) ? values[key] : fallback };
+}
+
+function workspaceConfiguration(primaryValues, legacyValues = {}) {
+    const requestedSections = [];
+    return {
+        requestedSections,
+        get: (key, fallback) => {
+            if (Object.prototype.hasOwnProperty.call(primaryValues, key)) {
+                return primaryValues[key];
+            }
+            return Object.prototype.hasOwnProperty.call(legacyValues, key)
+                ? legacyValues[key]
+                : fallback;
+        },
+        getConfiguration: section => {
+            requestedSections.push(section);
+            return configuration(section === 'projectSteward' ? primaryValues : legacyValues);
+        },
+    };
 }
 
 function directoryScope(primaryCwd) {
@@ -58,6 +78,42 @@ test('RUNTIME-RUNTIME-CONFIGURATION-001 reads supported settings and fails close
     assert.equal(layout.scope, 'machine');
     assert.equal(executable.scope, 'machine');
     assert.equal(mode.enum.includes('remote'), false);
+});
+
+test('SESSION-AI-SESSION-YOLO-CONFIGURATION-001 reads only literal true and declares a safe machine setting', () => {
+    assert.deepEqual(
+        launchOptions.readAiSessionLaunchOptions(workspaceConfiguration({})),
+        { yolo: false }
+    );
+    assert.deepEqual(
+        launchOptions.readAiSessionLaunchOptions(workspaceConfiguration({ aiSessionYoloMode: true })),
+        { yolo: true }
+    );
+    for (const invalid of [false, null, 1, 'true', 'false', {}]) {
+        assert.deepEqual(
+            launchOptions.readAiSessionLaunchOptions(workspaceConfiguration({
+                aiSessionYoloMode: invalid,
+            })),
+            { yolo: false }
+        );
+    }
+    const legacyOnly = workspaceConfiguration({}, { aiSessionYoloMode: true });
+    assert.deepEqual(
+        launchOptions.readAiSessionLaunchOptions(legacyOnly),
+        { yolo: false },
+        'legacy dashboard user/workspace values must not enable YOLO'
+    );
+    assert.deepEqual(legacyOnly.requestedSections, ['projectSteward']);
+
+    const manifest = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../../package.json'), 'utf8'));
+    const setting = manifest.contributes.configuration.properties[
+        'projectSteward.aiSessionYoloMode'
+    ];
+    assert.equal(setting.type, 'boolean');
+    assert.equal(setting.default, false);
+    assert.equal(setting.scope, 'machine');
+    assert.match(setting.description, /bypass/i);
+    assert.match(setting.description, /newly created and resumed/i);
 });
 
 test('RUNTIME-LAUNCH-SPEC-001 preserves argv boundaries and renders hostile values as inert shell data', () => {
@@ -108,6 +164,23 @@ test('RUNTIME-LAUNCH-SPEC-001 preserves argv boundaries and renders hostile valu
         executable: 'claude', args: ['--name', 'Title'], cwd: '/work/app',
         markerPath: '/tmp/claude-new.done', windowsDirectShell: 'powershell',
     });
+    const yoloSpecs = [
+        commandBuilders.buildCodexNewSessionLaunchSpec(
+            directoryScope('/work/codex'), null, null, { yolo: true }
+        ),
+        commandBuilders.buildKimiResumeLaunchSpec(
+            'kimi-session', directoryScope('/work/kimi'), null, { yolo: true }
+        ),
+        commandBuilders.buildClaudeNewSessionLaunchSpec(
+            directoryScope('/work/claude'), null, null, { yolo: true }
+        ),
+    ];
+    for (const spec of yoloSpecs) {
+        const direct = launchSpec.serializeDirectLaunchCommand(spec, 'linux');
+        const tmux = launchSpec.serializeTmuxLaunchCommand(spec);
+        assert.match(direct, /--(?:dangerously-bypass-approvals-and-sandbox|yolo|dangerously-skip-permissions)/);
+        assert.match(tmux, /--(?:dangerously-bypass-approvals-and-sandbox|yolo|dangerously-skip-permissions)/);
+    }
 
     const hostile = `Prompt "quoted"; Set-Content C:\\tmp\\pwned 1; #`;
     const windows = launchSpec.serializeDirectLaunchCommand(

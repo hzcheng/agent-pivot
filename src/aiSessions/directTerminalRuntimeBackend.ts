@@ -5,12 +5,20 @@ import type { AiSessionProviderId } from '../models';
 import type { AiSessionLaunchSpec } from './launchSpec';
 import type {
     AiSessionCreateRuntimeRequest,
+    AiSessionDeferredCreateRuntimeRequest,
+    AiSessionDeferredResumeRuntimeRequest,
     AiSessionExecutableRuntimeBackend,
+    AiSessionMaterializedCreateRuntimeRequest,
+    AiSessionMaterializedResumeRuntimeRequest,
     AiSessionPendingRuntimeSnapshot,
     AiSessionResumeRuntimeRequest,
     AiSessionRuntimeIdentity,
     AiSessionRuntimeSnapshot,
 } from './runtimeTypes';
+import {
+    materializeAiSessionLaunchSpec,
+    snapshotAiSessionRuntimeLaunch,
+} from './runtimeLaunch';
 import { AiSessionRuntimeLifecycleBlockedError } from './runtimeTypes';
 import {
     cloneAiSessionRuntimeIdentity,
@@ -150,10 +158,11 @@ implements AiSessionExecutableRuntimeBackend<TTerminal> {
                 return cloneRuntime(runtime);
             }
             this.terminalService.focusTerminal(existing.terminal);
-            await this.terminalService.sendRuntimeLaunch(existing.terminal, input.launch, {
+            const dispatched = materializeResumeRequest(input);
+            await this.terminalService.sendRuntimeLaunch(existing.terminal, dispatched.launch, {
                 deleteMarkerBeforeLaunch: true,
             });
-            return this.retrackResume(input, existing.terminal);
+            return this.retrackResume(dispatched, existing.terminal);
         }
 
         const created = this.terminalService.createTerminal({
@@ -167,15 +176,16 @@ implements AiSessionExecutableRuntimeBackend<TTerminal> {
             logError: () => undefined,
         });
         this.terminalService.focusTerminal(created.terminal);
+        const dispatched = materializeResumeRequest(input);
         await this.terminalService.sendRuntimeLaunch(created.terminal,
-            input.launch, {
+            dispatched.launch, {
             deleteMarkerBeforeLaunch: true,
         });
-        return this.retrackResume(input, created.terminal);
+        return this.retrackResume(dispatched, created.terminal);
     }
 
     private retrackResume(
-        input: AiSessionResumeRuntimeRequest,
+        input: AiSessionMaterializedResumeRuntimeRequest,
         terminal: TTerminal
     ): AiSessionRuntimeSnapshot<TTerminal> {
         const runStartedAtMs = this.nowMs();
@@ -217,22 +227,23 @@ implements AiSessionExecutableRuntimeBackend<TTerminal> {
             cwdWarningMessage: 'Could not open the AI session terminal at the project directory. Starting without a working directory.',
             logError: () => undefined,
         });
+        const dispatched = materializeCreateRequest(input);
         const pending: DirectPendingTerminalEntry<TTerminal> = {
-            provider: input.identity.provider,
+            provider: dispatched.identity.provider,
             terminal: created.terminal,
-            markerPath: input.launch.markerPath || '',
-            cwd: input.identity.cwd,
-            createdAt: input.createdAt,
-            excludedSessionIds: input.excludedSessionIds.slice(),
-            projectName: input.projectName,
-            ...(input.title === undefined ? {} : { title: input.title }),
-            runtimeIdentity: cloneAiSessionRuntimeIdentity(input.identity),
+            markerPath: dispatched.launch.markerPath || '',
+            cwd: dispatched.identity.cwd,
+            createdAt: dispatched.createdAt,
+            excludedSessionIds: dispatched.excludedSessionIds.slice(),
+            projectName: dispatched.projectName,
+            ...(dispatched.title === undefined ? {} : { title: dispatched.title }),
+            runtimeIdentity: cloneAiSessionRuntimeIdentity(dispatched.identity),
         };
-        this.pendingMetadata.set(created.terminal, cloneAiSessionRuntimeIdentity(input.identity));
+        this.pendingMetadata.set(created.terminal, cloneAiSessionRuntimeIdentity(dispatched.identity));
         this.terminalService.trackPending(pending);
         this.terminalService.focusTerminal(created.terminal);
         await this.terminalService.sendRuntimeLaunch(created.terminal,
-            input.launch, {
+            dispatched.launch, {
             persistPendingBeforeLaunch: true,
         });
         return this.pendingSnapshot(pending);
@@ -374,22 +385,65 @@ function finiteDate(value: string): number {
     return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function snapshotResumeRequest(request: AiSessionResumeRuntimeRequest): AiSessionResumeRuntimeRequest {
+function snapshotResumeRequest(
+    request: AiSessionResumeRuntimeRequest
+): AiSessionDeferredResumeRuntimeRequest {
+    const launch = snapshotAiSessionRuntimeLaunch(request);
     return {
-        ...request,
         identity: cloneAiSessionRuntimeIdentity(request.identity),
+        projectName: request.projectName,
+        sessionName: request.sessionName,
+        terminalName: request.terminalName,
         directoryScope: cloneDirectoryScope(request.directoryScope),
-        launch: { ...request.launch, args: [...request.launch.args] },
+        launchMarkerPath: launch.launchMarkerPath,
+        createLaunchSpec: launch.createLaunchSpec,
     };
 }
 
-function snapshotCreateRequest(request: AiSessionCreateRuntimeRequest): AiSessionCreateRuntimeRequest {
+function snapshotCreateRequest(
+    request: AiSessionCreateRuntimeRequest
+): AiSessionDeferredCreateRuntimeRequest {
+    const launch = snapshotAiSessionRuntimeLaunch(request);
     return {
-        ...request,
         identity: cloneAiSessionRuntimeIdentity(request.identity),
+        projectName: request.projectName,
+        terminalName: request.terminalName,
+        createdAt: request.createdAt,
         directoryScope: cloneDirectoryScope(request.directoryScope),
         excludedSessionIds: [...request.excludedSessionIds],
-        launch: { ...request.launch, args: [...request.launch.args] },
+        ...(request.title === undefined ? {} : { title: request.title }),
+        launchMarkerPath: launch.launchMarkerPath,
+        createLaunchSpec: launch.createLaunchSpec,
+    };
+}
+
+function materializeResumeRequest(
+    request: AiSessionDeferredResumeRuntimeRequest
+): AiSessionMaterializedResumeRuntimeRequest {
+    return {
+        identity: cloneAiSessionRuntimeIdentity(request.identity),
+        projectName: request.projectName,
+        sessionName: request.sessionName,
+        terminalName: request.terminalName,
+        directoryScope: cloneDirectoryScope(request.directoryScope),
+        launchMarkerPath: request.launchMarkerPath,
+        launch: materializeAiSessionLaunchSpec(request),
+    };
+}
+
+function materializeCreateRequest(
+    request: AiSessionDeferredCreateRuntimeRequest
+): AiSessionMaterializedCreateRuntimeRequest {
+    return {
+        identity: cloneAiSessionRuntimeIdentity(request.identity),
+        projectName: request.projectName,
+        terminalName: request.terminalName,
+        createdAt: request.createdAt,
+        excludedSessionIds: [...request.excludedSessionIds],
+        ...(request.title === undefined ? {} : { title: request.title }),
+        directoryScope: cloneDirectoryScope(request.directoryScope),
+        launchMarkerPath: request.launchMarkerPath,
+        launch: materializeAiSessionLaunchSpec(request),
     };
 }
 

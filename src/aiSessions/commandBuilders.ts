@@ -5,9 +5,16 @@ import {
     quotePosixShellArg,
     serializeDirectLaunchCommand,
 } from './launchSpec';
+import type { AiSessionLaunchOptions } from './launchOptions';
 import type { AiSessionDirectoryScope } from './types';
 
 export type AiSessionCommandPlatform = NodeJS.Platform;
+
+const SAFE_LAUNCH_OPTIONS: AiSessionLaunchOptions = Object.freeze({ yolo: false });
+
+function yoloArg(options: AiSessionLaunchOptions, argument: string): string[] {
+    return options?.yolo === true ? [argument] : [];
+}
 
 function buildRepeatedAdditionalDirectoryArgs(scope: AiSessionDirectoryScope): string[] {
     return (scope?.additionalDirectories || []).reduce((args, directory) => [
@@ -22,11 +29,12 @@ function buildClaudeAdditionalDirectoryArgs(scope: AiSessionDirectoryScope): str
     return additionalDirectories.length ? ['--add-dir', ...additionalDirectories] : [];
 }
 
-export function buildCodexResumeLaunchSpec(sessionId: string, scope: AiSessionDirectoryScope, markerPath: string = null): AiSessionLaunchSpec {
+export function buildCodexResumeLaunchSpec(sessionId: string, scope: AiSessionDirectoryScope, markerPath: string = null, launchOptions: AiSessionLaunchOptions = SAFE_LAUNCH_OPTIONS): AiSessionLaunchSpec {
     return {
         executable: 'codex',
         args: [
             'resume',
+            ...yoloArg(launchOptions, '--dangerously-bypass-approvals-and-sandbox'),
             ...(scope?.primaryCwd ? ['--cd', scope.primaryCwd] : []),
             ...buildRepeatedAdditionalDirectoryArgs(scope),
             sessionId,
@@ -36,10 +44,11 @@ export function buildCodexResumeLaunchSpec(sessionId: string, scope: AiSessionDi
     };
 }
 
-export function buildCodexNewSessionLaunchSpec(scope: AiSessionDirectoryScope, prompt: string = null, markerPath: string = null): AiSessionLaunchSpec {
+export function buildCodexNewSessionLaunchSpec(scope: AiSessionDirectoryScope, prompt: string = null, markerPath: string = null, launchOptions: AiSessionLaunchOptions = SAFE_LAUNCH_OPTIONS): AiSessionLaunchSpec {
     return {
         executable: 'codex',
         args: [
+            ...yoloArg(launchOptions, '--dangerously-bypass-approvals-and-sandbox'),
             ...(scope?.primaryCwd ? ['--cd', scope.primaryCwd] : []),
             ...buildRepeatedAdditionalDirectoryArgs(scope),
             ...(prompt ? [prompt] : []),
@@ -49,12 +58,13 @@ export function buildCodexNewSessionLaunchSpec(scope: AiSessionDirectoryScope, p
     };
 }
 
-export function buildKimiResumeLaunchSpec(sessionId: string, scope: AiSessionDirectoryScope, markerPath: string = null): AiSessionLaunchSpec {
+export function buildKimiResumeLaunchSpec(sessionId: string, scope: AiSessionDirectoryScope, markerPath: string = null, launchOptions: AiSessionLaunchOptions = SAFE_LAUNCH_OPTIONS): AiSessionLaunchSpec {
     return {
         executable: 'kimi',
         args: [
             ...(scope?.primaryCwd ? ['--work-dir', scope.primaryCwd] : []),
             ...buildRepeatedAdditionalDirectoryArgs(scope),
+            ...yoloArg(launchOptions, '--yolo'),
             '--resume', sessionId,
         ],
         markerPath,
@@ -62,12 +72,13 @@ export function buildKimiResumeLaunchSpec(sessionId: string, scope: AiSessionDir
     };
 }
 
-export function buildKimiNewSessionLaunchSpec(scope: AiSessionDirectoryScope, prompt: string = null, markerPath: string = null): AiSessionLaunchSpec {
+export function buildKimiNewSessionLaunchSpec(scope: AiSessionDirectoryScope, prompt: string = null, markerPath: string = null, launchOptions: AiSessionLaunchOptions = SAFE_LAUNCH_OPTIONS): AiSessionLaunchSpec {
     return {
         executable: 'kimi',
         args: [
             ...(scope?.primaryCwd ? ['--work-dir', scope.primaryCwd] : []),
             ...buildRepeatedAdditionalDirectoryArgs(scope),
+            ...yoloArg(launchOptions, '--yolo'),
             ...(prompt ? ['--prompt', prompt] : []),
         ],
         markerPath,
@@ -75,20 +86,28 @@ export function buildKimiNewSessionLaunchSpec(scope: AiSessionDirectoryScope, pr
     };
 }
 
-export function buildClaudeResumeLaunchSpec(sessionId: string, scope: AiSessionDirectoryScope, markerPath: string = null): AiSessionLaunchSpec {
+export function buildClaudeResumeLaunchSpec(sessionId: string, scope: AiSessionDirectoryScope, markerPath: string = null, launchOptions: AiSessionLaunchOptions = SAFE_LAUNCH_OPTIONS): AiSessionLaunchSpec {
     return {
         executable: 'claude',
-        args: [...buildClaudeAdditionalDirectoryArgs(scope), '--resume', sessionId],
+        args: [
+            ...buildClaudeAdditionalDirectoryArgs(scope),
+            ...yoloArg(launchOptions, '--dangerously-skip-permissions'),
+            '--resume', sessionId,
+        ],
         cwd: scope?.primaryCwd || undefined,
         markerPath,
         windowsDirectShell: 'current',
     };
 }
 
-export function buildClaudeNewSessionLaunchSpec(scope: AiSessionDirectoryScope, title: string = null, markerPath: string = null): AiSessionLaunchSpec {
+export function buildClaudeNewSessionLaunchSpec(scope: AiSessionDirectoryScope, title: string = null, markerPath: string = null, launchOptions: AiSessionLaunchOptions = SAFE_LAUNCH_OPTIONS): AiSessionLaunchSpec {
     return {
         executable: 'claude',
-        args: [...buildClaudeAdditionalDirectoryArgs(scope), ...(title ? ['--name', title] : [])],
+        args: [
+            ...buildClaudeAdditionalDirectoryArgs(scope),
+            ...yoloArg(launchOptions, '--dangerously-skip-permissions'),
+            ...(title ? ['--name', title] : []),
+        ],
         cwd: scope?.primaryCwd || undefined,
         markerPath,
         windowsDirectShell: 'powershell',

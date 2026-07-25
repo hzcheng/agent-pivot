@@ -120,16 +120,24 @@ export default class AiSessionTerminalService {
 
     async sendNewSessionCommand(providerId: AiSessionProviderId, terminal: vscode.Terminal, scope: AiSessionDirectoryScope, title: string, markerPath: string) {
         let provider = this.getProvider(providerId);
-        await this.sendRuntimeLaunch(terminal, provider.buildNewSessionLaunchSpec(scope, title, markerPath), {
-            persistPendingBeforeLaunch: true,
-        });
+        await this.sendRuntimeLaunch(
+            terminal,
+            provider.buildNewSessionLaunchSpec(scope, title, markerPath, { yolo: false }),
+            {
+                persistPendingBeforeLaunch: true,
+            }
+        );
     }
 
     async sendResumeCommand(providerId: AiSessionProviderId, terminal: vscode.Terminal, sessionId: string, scope: AiSessionDirectoryScope, markerPath: string) {
         let provider = this.getProvider(providerId);
-        await this.sendRuntimeLaunch(terminal, provider.buildResumeLaunchSpec(sessionId, scope, markerPath), {
-            deleteMarkerBeforeLaunch: true,
-        });
+        await this.sendRuntimeLaunch(
+            terminal,
+            provider.buildResumeLaunchSpec(sessionId, scope, markerPath, { yolo: false }),
+            {
+                deleteMarkerBeforeLaunch: true,
+            }
+        );
     }
 
     async sendRuntimeLaunch(

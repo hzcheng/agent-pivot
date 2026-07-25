@@ -2194,6 +2194,7 @@ async function runWorkspaceCreationDirectoryFirstChecks() {
             return 'codex';
         },
         getProviderLabel: () => 'Codex',
+        getLaunchOptions: () => ({ yolo: false }),
         getProvider: () => ({
             label: 'Codex',
             terminalNamePrefix: 'Codex',
@@ -2218,6 +2219,7 @@ async function runWorkspaceCreationDirectoryFirstChecks() {
         runtimeCoordinator: {
             create: async request => {
                 requests.push(request);
+                request.launch = request.createLaunchSpec();
                 return { status: 'started', runtime: {} };
             },
             getActive: () => [],
@@ -2291,6 +2293,7 @@ async function runWorkspaceScopeControllerLaunchChecks() {
             pickWorkspaceRoot: async () => undefined,
             pickProvider: async () => providerId,
             getProviderLabel: () => providerId,
+            getLaunchOptions: () => ({ yolo: false }),
             getProvider: () => ({
                 label: providerId,
                 terminalNamePrefix: providerId,
@@ -2315,6 +2318,7 @@ async function runWorkspaceScopeControllerLaunchChecks() {
             nowMs: () => Date.parse('2026-07-20T10:00:00.000Z'),
             runtimeCoordinator: {
                 create: async request => {
+                    request.launch = request.createLaunchSpec();
                     createRequests.push(request);
                     return { status: 'started', runtime: {} };
                 },
@@ -2323,8 +2327,10 @@ async function runWorkspaceScopeControllerLaunchChecks() {
             },
         });
         await creation.createSession(workspaceTarget.cardId);
-        assert.strictEqual(createScopes[0], scope,
-            `${providerId} creation must pass the injected complete scope unchanged to its builder`);
+        assert.deepStrictEqual(createScopes[0], scope,
+            `${providerId} creation must pass the complete scope snapshot to its builder`);
+        assert.notStrictEqual(createScopes[0], scope,
+            `${providerId} creation must defensively snapshot the builder scope`);
         assert.deepStrictEqual(createRequests[0].launch, {
             executable: providerId,
             args: ['create', providerId],
@@ -2350,6 +2356,7 @@ async function runWorkspaceScopeControllerLaunchChecks() {
         });
         const resume = new AiSessionResumeController({
             getWorkspaceTarget: cardId => cardId === workspaceTarget.cardId ? workspaceTarget : null,
+            getLaunchOptions: () => ({ yolo: false }),
             getProvider: () => ({
                 label: providerId,
                 terminalEnvKey: `${providerId}_SESSION_ID`,
@@ -2372,14 +2379,17 @@ async function runWorkspaceScopeControllerLaunchChecks() {
             showActiveTab: async () => undefined,
             runtimeCoordinator: {
                 resume: async request => {
+                    request.launch = request.createLaunchSpec();
                     resumeRequests.push(request);
                     return { status: 'started', runtime: {} };
                 },
             },
         });
         await resume.resumeProjectSession(workspaceTarget.cardId, providerId, session.id);
-        assert.strictEqual(resumeScopes[0], scope,
-            `${providerId} resume must pass the injected complete scope unchanged to its builder`);
+        assert.deepStrictEqual(resumeScopes[0], scope,
+            `${providerId} resume must pass the complete scope snapshot to its builder`);
+        assert.notStrictEqual(resumeScopes[0], scope,
+            `${providerId} resume must defensively snapshot the builder scope`);
         assert.deepStrictEqual(resumeRequests[0].launch, {
             executable: providerId,
             args: ['resume', session.id],
@@ -2486,6 +2496,7 @@ async function runWorkspaceLaunchPreflightControllerChecks() {
         pickWorkspaceRoot: async () => creationRootId,
         pickProvider: async () => 'codex',
         getProviderLabel: () => 'Codex',
+        getLaunchOptions: () => ({ yolo: false }),
         getProvider: () => ({
             label: 'Codex',
             terminalNamePrefix: 'Codex',
@@ -2508,6 +2519,9 @@ async function runWorkspaceLaunchPreflightControllerChecks() {
                     const error = createError;
                     createError = null;
                     throw error;
+                }
+                if (createResult.status === 'started') {
+                    request.launch = request.createLaunchSpec();
                 }
                 return createResult;
             },
@@ -2533,7 +2547,8 @@ async function runWorkspaceLaunchPreflightControllerChecks() {
     await creation.createSession(workspaceTarget.cardId);
     assert.deepStrictEqual(createRequests[0].directoryScope, activeEditorScope);
     assert.strictEqual(createRequests[0].identity.cwd, activeEditorScope.primaryCwd);
-    assert.strictEqual(createScopes[0], createRequests[0].directoryScope);
+    assert.deepStrictEqual(createScopes[0], createRequests[0].directoryScope);
+    assert.notStrictEqual(createScopes[0], createRequests[0].directoryScope);
     assert.deepStrictEqual(primaryRootWrites, [[workspace.scopeIdentity, activeEditorScope.primaryRootId]]);
 
     creationRootId = 'root-web';
@@ -2564,6 +2579,7 @@ async function runWorkspaceLaunchPreflightControllerChecks() {
     let resumeError = null;
     const resume = new AiSessionResumeController({
         getWorkspaceTarget: cardId => cardId === workspaceTarget.cardId ? workspaceTarget : null,
+        getLaunchOptions: () => ({ yolo: false }),
         getProvider: () => providerPresent ? ({
             label: 'Codex',
             terminalEnvKey: 'CODEX_SESSION_ID',
@@ -2586,6 +2602,9 @@ async function runWorkspaceLaunchPreflightControllerChecks() {
                     const error = resumeError;
                     resumeError = null;
                     throw error;
+                }
+                if (resumeResult.status === 'started') {
+                    request.launch = request.createLaunchSpec();
                 }
                 return resumeResult;
             },
@@ -2617,7 +2636,8 @@ async function runWorkspaceLaunchPreflightControllerChecks() {
     assert.strictEqual(resumeRequests[0].launch.cwd, '/work/api/packages/service',
         'the provider launch spec must consume the same exact historical cwd');
     assert.strictEqual(resumeRequests[0].identity.cwd, resumeRequests[0].directoryScope.primaryCwd);
-    assert.strictEqual(resumeScopes[0], resumeRequests[0].directoryScope);
+    assert.deepStrictEqual(resumeScopes[0], resumeRequests[0].directoryScope);
+    assert.notStrictEqual(resumeScopes[0], resumeRequests[0].directoryScope);
     assert.deepStrictEqual(primaryRootWrites[2], [workspace.scopeIdentity, 'root-api']);
 
     session.cwd = '/historical/outside-workspace';
@@ -3584,12 +3604,17 @@ async function runWorkspaceCardActionControllerIntegrationChecks() {
         getWorkspaceTarget: cardId => cardId === target.cardId ? target : null,
         pickWorkspaceRoot: async () => 'root-web',
         pickProvider: async () => 'codex', getProviderLabel: () => 'Codex',
+        getLaunchOptions: () => ({ yolo: false }),
         getProvider: () => ({ label: 'Codex', terminalNamePrefix: 'Codex',
             buildNewSessionLaunchSpec: scope => ({ executable: 'codex', args: [], cwd: scope.primaryCwd }) }),
         resolveDirectoryScope: () => { throw new Error('must not resolve a root Project'); },
         resolveWorkspaceDirectoryScope: (resolved, providerId, rootId) =>
             commandController.resolveWorkspaceDirectoryScope(resolved.workspace, providerId, undefined, rootId),
-        runtimeCoordinator: { create: async request => { createRequests.push(request); return { status: 'started', runtime: {} }; },
+        runtimeCoordinator: { create: async request => {
+            request.launch = request.createLaunchSpec();
+            createRequests.push(request);
+            return { status: 'started', runtime: {} };
+        },
             getActive: () => [], getPending: () => [] },
         createPendingId: () => 'pending-workspace-card',
         showInputBox: async () => 'Investigate replication',
@@ -3607,13 +3632,18 @@ async function runWorkspaceCardActionControllerIntegrationChecks() {
     const resume = new AiSessionResumeController({
         getOpenProjects: () => { legacyProjectReads++; return []; },
         getWorkspaceTarget: cardId => cardId === target.cardId ? target : null,
+        getLaunchOptions: () => ({ yolo: false }),
         getProvider: () => ({ label: 'Codex', terminalEnvKey: 'CODEX_SESSION_ID',
             buildResumeLaunchSpec: (_id, scope) => ({ executable: 'codex', args: [], cwd: scope.primaryCwd }) }),
         getProjectSession: () => { throw new Error('must not select a root Project session'); },
         resolveDirectoryScope: () => { throw new Error('must not resolve a root Project'); },
         resolveWorkspaceDirectoryScope: (resolved, resolvedSession, providerId, rootId) =>
             commandController.resolveWorkspaceDirectoryScope(resolved.workspace, providerId, resolvedSession, rootId),
-        runtimeCoordinator: { resume: async request => { resumeRequests.push(request); return { status: 'started', runtime: {} }; } },
+        runtimeCoordinator: { resume: async request => {
+            request.launch = request.createLaunchSpec();
+            resumeRequests.push(request);
+            return { status: 'started', runtime: {} };
+        } },
         getTerminalName: () => 'Codex: Card Session', getMarkerPath: () => '/tmp/card.marker',
         showWarningMessage: () => undefined, refresh: () => undefined,
         showActiveTab: async () => undefined, announceStatus: async () => undefined,
@@ -5159,6 +5189,19 @@ function runWebviewContentChecks() {
     assert.ok(dashboard.includes('const aiSessionCommandController = new AiSessionCommandController({'));
     assert.ok(dashboard.includes('const aiSessionCreationController = new AiSessionCreationController({'));
     assert.ok(dashboard.includes('const aiSessionResumeController = new AiSessionResumeController<vscode.Terminal>({'));
+    assert.ok(dashboard.includes(
+        "import { readAiSessionLaunchOptions } from './aiSessions/launchOptions';"
+    ));
+    assert.strictEqual(
+        (dashboard.match(/getLaunchOptions: \(\) =>/g) || []).length,
+        2
+    );
+    assert.ok(dashboard.includes(
+        'readAiSessionLaunchOptions(vscode.workspace)'
+    ));
+    assert.ok(!dashboard.includes(
+        'readAiSessionLaunchOptions(getStewardConfiguration())'
+    ), 'YOLO configuration must not pass through the legacy dashboard fallback');
     assert.ok(dashboard.includes('new AiSessionPinController({'));
     assert.ok(dashboard.includes('aiSessionPinController.getAll()'));
     assert.ok(dashboard.includes('aiSessionPinController.toggle('));

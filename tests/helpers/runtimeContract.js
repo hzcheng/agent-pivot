@@ -108,7 +108,7 @@ function createFakeRuntimeBackend(backend, options = {}) {
     const fake = {
         active: [], pending: [], conflicts: [], lifecycleBlockers: [],
         refreshCalls: [], focusCalls: [], detachCalls: [], promoted: [], closed: [],
-        ensureResumeCalls: 0, ensurePendingCalls: 0,
+        launches: [], ensureResumeCalls: 0, ensurePendingCalls: 0,
     };
     fake.refresh = async force => {
         fake.refreshCalls.push(force);
@@ -128,6 +128,10 @@ function createFakeRuntimeBackend(backend, options = {}) {
         fake.ensureResumeCalls += 1;
         if (options.resumeGate) await options.resumeGate.promise;
         if (options.ensureError) throw options.ensureError;
+        const launch = typeof request.createLaunchSpec === 'function'
+            ? request.createLaunchSpec()
+            : request.launch;
+        fake.launches.push({ ...launch, args: [...launch.args] });
         const runtime = fakeRuntime(backend, request.identity.sessionId, backend === 'tmux' ? {
             attached: false,
             tmux: layout === 'project'
@@ -141,6 +145,10 @@ function createFakeRuntimeBackend(backend, options = {}) {
         fake.ensurePendingCalls += 1;
         if (options.pendingGate) await options.pendingGate.promise;
         if (options.ensureError) throw options.ensureError;
+        const launch = typeof request.createLaunchSpec === 'function'
+            ? request.createLaunchSpec()
+            : request.launch;
+        fake.launches.push({ ...launch, args: [...launch.args] });
         const runtime = fakeRuntime(backend, undefined, {
             identity: { ...request.identity }, state: 'pending',
             createdAt: request.createdAt,

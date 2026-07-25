@@ -51,6 +51,7 @@ import { getAiSessionTerminalCandidates } from './aiSessions/terminalCandidates'
 import { AiSessionReadCoordinator } from './aiSessions/readCoordinator';
 import AiSessionTerminalService from './aiSessions/terminalService';
 import AiSessionTerminalBindingStore from './aiSessions/terminalBindingStore';
+import { readAiSessionLaunchOptions } from './aiSessions/launchOptions';
 import { readAiSessionRuntimeConfiguration } from './aiSessions/runtimeConfiguration';
 import { DirectTerminalRuntimeBackend } from './aiSessions/directTerminalRuntimeBackend';
 import { AiSessionRuntimeCoordinator } from './aiSessions/runtimeCoordinator';
@@ -646,6 +647,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         pickWorkspaceRoot: workspace => pickAiSessionWorkspaceRoot(workspace, 'create'),
         pickProvider: pickAiSessionProvider,
         getProviderLabel: getAiSessionProviderLabel,
+        getLaunchOptions: () =>
+            readAiSessionLaunchOptions(vscode.workspace),
         getProvider: getRegisteredAiSessionProvider,
         resolveWorkspaceDirectoryScope: (target, providerId, explicitRootId) =>
             aiSessionCommandController.resolveWorkspaceDirectoryScope(
@@ -773,6 +776,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     });
     const aiSessionResumeController = new AiSessionResumeController<vscode.Terminal>({
         getWorkspaceTarget: getCurrentWorkspaceActionTarget,
+        getLaunchOptions: () =>
+            readAiSessionLaunchOptions(vscode.workspace),
         getProvider: getRegisteredAiSessionProvider,
         resolveWorkspaceDirectoryScope: (target, session, providerId, explicitRootId) =>
             aiSessionCommandController.resolveWorkspaceDirectoryScope(

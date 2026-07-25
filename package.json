@@ -141,6 +141,12 @@
                     "scope": "machine",
                     "description": "Choose whether new AI sessions run in VS Code terminals or managed tmux sessions. tmux preserves a process only while its execution host remains awake and running."
                 },
+                "projectSteward.aiSessionYoloMode": {
+                    "type": "boolean",
+                    "default": false,
+                    "scope": "machine",
+                    "description": "Bypass provider approval and sandbox protections for newly created and resumed AI session processes. This is dangerous and does not change already running sessions."
+                },
                 "projectSteward.aiSessionTmuxLayout": {
                     "type": "string",
                     "enum": [

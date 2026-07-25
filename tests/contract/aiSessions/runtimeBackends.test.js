@@ -6,8 +6,35 @@ const {
     createDirectRuntimeHarness,
     createTmuxRuntimeHarness,
     defineRuntimeContract,
+    fakeCreateRequest,
     fakeResumeRequest,
 } = require('../../helpers/runtimeContract');
+
+function createLaunchProbe(request) {
+    const { launch, ...requestWithoutLaunch } = request;
+    let builds = 0;
+    let eagerReads = 0;
+    const probedRequest = {
+        ...requestWithoutLaunch,
+        launchMarkerPath: launch.markerPath || '',
+        createLaunchSpec: () => {
+            builds += 1;
+            return { ...launch, args: [...launch.args] };
+        },
+    };
+    Object.defineProperty(probedRequest, 'launch', {
+        enumerable: true,
+        get: () => {
+            eagerReads += 1;
+            return { ...launch, args: [...launch.args] };
+        },
+    });
+    return {
+        request: probedRequest,
+        builds: () => builds,
+        eagerReads: () => eagerReads,
+    };
+}
 
 // SESSION-DIRECT-BACKEND-001
 defineRuntimeContract({
@@ -173,3 +200,70 @@ test('RUNTIME-TMUX-PROJECT-FIRST-WINDOW-001 creates the first project runtime in
     assert.equal(newSessionOperations[0].windowName, runtime.tmux.windowName);
     assert.notEqual(harness.windows[0].windowName, 'project-steward');
 });
+
+for (const runtime of [{
+    label: 'Direct',
+    layout: 'direct',
+    createHarness: createDirectRuntimeHarness,
+}, {
+    label: 'tmux project',
+    layout: 'project',
+    createHarness: () => createTmuxRuntimeHarness('project'),
+}, {
+    label: 'tmux session',
+    layout: 'session',
+    createHarness: () => createTmuxRuntimeHarness('session'),
+}]) {
+    const invoke = (backend, method, request) => runtime.layout === 'direct'
+        ? backend[method](request)
+        : backend[method](request, runtime.layout);
+
+    test(`SESSION-AI-SESSION-YOLO-LAZY-005 [${runtime.label}] materializes at final provider dispatch only`, async () => {
+        const resumeHarness = runtime.createHarness();
+        const firstResume = createLaunchProbe(fakeResumeRequest(`lazy-backend-${runtime.layout}`));
+        await invoke(resumeHarness.backend, 'ensureResume', firstResume.request);
+        assert.equal(firstResume.builds(), 1);
+        assert.equal(firstResume.eagerReads(), 0);
+        const reusedResume = createLaunchProbe(fakeResumeRequest(`lazy-backend-${runtime.layout}`));
+        await invoke(resumeHarness.backend, 'ensureResume', reusedResume.request);
+        assert.equal(reusedResume.builds(), 0, 'runtime reuse must not build a provider spec');
+        assert.equal(reusedResume.eagerReads(), 0);
+
+        const pendingHarness = runtime.createHarness();
+        const firstPending = createLaunchProbe(fakeCreateRequest(`lazy-pending-${runtime.layout}`));
+        await invoke(pendingHarness.backend, 'ensurePending', firstPending.request);
+        assert.equal(firstPending.builds(), 1);
+        assert.equal(firstPending.eagerReads(), 0);
+        const reusedPending = createLaunchProbe(fakeCreateRequest(`lazy-pending-${runtime.layout}`));
+        await invoke(pendingHarness.backend, 'ensurePending', reusedPending.request);
+        assert.equal(reusedPending.builds(), 0, 'pending reuse must not build a provider spec');
+        assert.equal(reusedPending.eagerReads(), 0);
+
+        const collisionHarness = runtime.createHarness();
+        const collision = createLaunchProbe(fakeResumeRequest(`lazy-collision-${runtime.layout}`));
+        collisionHarness.installCollision(collision.request.identity);
+        await assert.rejects(
+            invoke(collisionHarness.backend, 'ensureResume', collision.request),
+            /conflict|multiple/i
+        );
+        assert.equal(collision.builds(), 0, 'collision preflight must not build a provider spec');
+        assert.equal(collision.eagerReads(), 0);
+
+        if (runtime.layout !== 'direct') {
+            const unavailableHarness = runtime.createHarness();
+            unavailableHarness.setUnavailable();
+            const unavailable = createLaunchProbe(fakeResumeRequest(
+                `lazy-unavailable-${runtime.layout}`
+            ));
+            await assert.rejects(
+                invoke(unavailableHarness.backend, 'ensureResume', unavailable.request),
+                error => error?.name === 'TmuxRuntimeUnavailableError'
+            );
+            assert.equal(
+                unavailable.builds(), 0,
+                'tmux availability preflight must not build a provider spec'
+            );
+            assert.equal(unavailable.eagerReads(), 0);
+        }
+    });
+}

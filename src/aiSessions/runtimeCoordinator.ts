@@ -4,6 +4,8 @@ import type * as vscode from 'vscode';
 import type { AiSessionProviderId } from '../models';
 import type {
     AiSessionCreateRuntimeRequest,
+    AiSessionDeferredCreateRuntimeRequest,
+    AiSessionDeferredResumeRuntimeRequest,
     AiSessionDurablePendingPromotionCandidate,
     AiSessionExecutableRuntimeBackend,
     AiSessionPendingPromotionCandidate,
@@ -14,6 +16,7 @@ import type {
     AiSessionRuntimeIdentity,
     AiSessionRuntimeSnapshot,
 } from './runtimeTypes';
+import { snapshotAiSessionRuntimeLaunch } from './runtimeLaunch';
 import {
     aiSessionRuntimeIdentitiesEqual,
     AiSessionRuntimeConflictError,
@@ -587,22 +590,35 @@ function snapshotConfiguration(configuration: AiSessionRuntimeConfiguration): Ai
     };
 }
 
-function snapshotResumeRequest(request: AiSessionResumeRuntimeRequest): AiSessionResumeRuntimeRequest {
+function snapshotResumeRequest(
+    request: AiSessionResumeRuntimeRequest
+): AiSessionDeferredResumeRuntimeRequest {
+    const launch = snapshotAiSessionRuntimeLaunch(request);
     return {
-        ...request,
         identity: cloneAiSessionRuntimeIdentity(request.identity),
+        projectName: request.projectName,
+        sessionName: request.sessionName,
+        terminalName: request.terminalName,
         directoryScope: cloneDirectoryScope(request.directoryScope),
-        launch: { ...request.launch, args: [...request.launch.args] },
+        launchMarkerPath: launch.launchMarkerPath,
+        createLaunchSpec: launch.createLaunchSpec,
     };
 }
 
-function snapshotCreateRequest(request: AiSessionCreateRuntimeRequest): AiSessionCreateRuntimeRequest {
+function snapshotCreateRequest(
+    request: AiSessionCreateRuntimeRequest
+): AiSessionDeferredCreateRuntimeRequest {
+    const launch = snapshotAiSessionRuntimeLaunch(request);
     return {
-        ...request,
         identity: cloneAiSessionRuntimeIdentity(request.identity),
+        projectName: request.projectName,
+        terminalName: request.terminalName,
+        createdAt: request.createdAt,
         directoryScope: cloneDirectoryScope(request.directoryScope),
         excludedSessionIds: [...request.excludedSessionIds],
-        launch: { ...request.launch, args: [...request.launch.args] },
+        ...(request.title === undefined ? {} : { title: request.title }),
+        launchMarkerPath: launch.launchMarkerPath,
+        createLaunchSpec: launch.createLaunchSpec,
     };
 }
 

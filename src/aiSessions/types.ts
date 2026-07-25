@@ -10,6 +10,7 @@ import type {
     AiSessionLifecycleSignal,
 } from './lifecycle';
 import type { DashboardWorkspaceSearchCatalog } from '../webview/dashboardViewModel';
+import type { AiSessionLaunchOptions } from './launchOptions';
 import type { AiSessionLaunchSpec } from './launchSpec';
 import type { AiSessionRuntimeBackendId, AiSessionRuntimeIdentity, AiSessionTmuxLayout } from './runtimeTypes';
 
@@ -103,8 +104,18 @@ export interface AiSessionProviderDefinition {
     projectSessionsKey: 'codexSessions' | 'kimiSessions' | 'claudeSessions';
     projectSessionsUnavailableKey: 'codexSessionsUnavailable' | 'kimiSessionsUnavailable' | 'claudeSessionsUnavailable';
     terminalCwdFields: Array<'cwd' | 'workDir'>;
-    buildResumeLaunchSpec: (sessionId: string, scope: AiSessionDirectoryScope, markerPath: string) => AiSessionLaunchSpec;
-    buildNewSessionLaunchSpec: (scope: AiSessionDirectoryScope, title: string, markerPath: string) => AiSessionLaunchSpec;
+    buildResumeLaunchSpec: (
+        sessionId: string,
+        scope: AiSessionDirectoryScope,
+        markerPath: string,
+        launchOptions: AiSessionLaunchOptions
+    ) => AiSessionLaunchSpec;
+    buildNewSessionLaunchSpec: (
+        scope: AiSessionDirectoryScope,
+        title: string,
+        markerPath: string,
+        launchOptions: AiSessionLaunchOptions
+    ) => AiSessionLaunchSpec;
     buildResumeCommand: (sessionId: string, scope: AiSessionDirectoryScope, markerPath: string) => string;
     buildNewSessionCommand: (scope: AiSessionDirectoryScope, title: string, markerPath: string) => string;
 }

@@ -496,8 +496,7 @@ function initProjects() {
 
     var batchAiSessionState = {
         projectId: null,
-        provider: null,
-        selectedIds: new Set(),
+        selectedItems: new Map(),
         pending: false,
     };
     var activeAiSessionTerminalState = { provider: null, sessionId: null };
@@ -514,57 +513,73 @@ function initProjects() {
             && target.closest('#dashboard-tab-todo'));
     }
 
-    function enter(projectId, provider) {
+    function getAiSessionBatchItemKey(provider, sessionId) {
+        return JSON.stringify([provider, sessionId]);
+    }
+
+    function enter(projectId) {
         if (batchAiSessionState.pending)
             return;
         batchAiSessionState.projectId = projectId;
-        batchAiSessionState.provider = provider;
-        batchAiSessionState.selectedIds = new Set();
+        batchAiSessionState.selectedItems = new Map();
         batchAiSessionState.pending = false;
     }
 
-    function toggle(sessionId) {
-        if (!sessionId || batchAiSessionState.pending)
+    function toggle(provider, sessionId, active) {
+        if (!isAiSessionProvider(provider) || !sessionId || active || batchAiSessionState.pending)
             return;
-        if (batchAiSessionState.selectedIds.has(sessionId))
-            batchAiSessionState.selectedIds.delete(sessionId);
+        var key = getAiSessionBatchItemKey(provider, sessionId);
+        if (batchAiSessionState.selectedItems.has(key))
+            batchAiSessionState.selectedItems.delete(key);
         else
-            batchAiSessionState.selectedIds.add(sessionId);
+            batchAiSessionState.selectedItems.set(key, { provider, sessionId });
     }
 
     function selectUnpinned(sessions) {
         if (batchAiSessionState.pending)
             return;
-        sessions.filter(session => !session.pinned && !session.active).forEach(session =>
-            batchAiSessionState.selectedIds.add(session.id)
-        );
+        sessions
+            .filter(session => isAiSessionProvider(session.provider)
+                && session.id && !session.pinned && !session.active)
+            .forEach(session => {
+                var item = { provider: session.provider, sessionId: session.id };
+                batchAiSessionState.selectedItems.set(
+                    getAiSessionBatchItemKey(item.provider, item.sessionId),
+                    item
+                );
+            });
     }
 
     function clear() {
         if (!batchAiSessionState.pending)
-            batchAiSessionState.selectedIds.clear();
+            batchAiSessionState.selectedItems.clear();
     }
 
-    function reconcile(projectId, provider, remainingIds) {
-        if (projectId !== batchAiSessionState.projectId || provider !== batchAiSessionState.provider) {
+    function reconcile(projectId, remainingItems) {
+        if (projectId !== batchAiSessionState.projectId) {
             exit();
             return;
         }
-        let selectedIds = batchAiSessionState.selectedIds;
-        batchAiSessionState.selectedIds = new Set(
-            remainingIds.filter(sessionId => selectedIds.has(sessionId))
+        let selectedItems = batchAiSessionState.selectedItems;
+        batchAiSessionState.selectedItems = new Map(
+            remainingItems
+                .filter(item => item && isAiSessionProvider(item.provider) && item.sessionId)
+                .map(item => {
+                    var key = getAiSessionBatchItemKey(item.provider, item.sessionId);
+                    return [key, selectedItems.get(key)];
+                })
+                .filter(entry => entry[1])
         );
     }
 
     function submit() {
-        if (batchAiSessionState.pending || !batchAiSessionState.selectedIds.size)
+        if (batchAiSessionState.pending || !batchAiSessionState.selectedItems.size)
             return;
         batchAiSessionState.pending = true;
         window.vscode.postMessage({
             type: 'archive-ai-sessions',
             projectId: batchAiSessionState.projectId,
-            provider: batchAiSessionState.provider,
-            sessionIds: Array.from(batchAiSessionState.selectedIds),
+            items: Array.from(batchAiSessionState.selectedItems.values()),
         });
     }
 
@@ -578,16 +593,14 @@ function initProjects() {
 
     function exit() {
         batchAiSessionState.projectId = null;
-        batchAiSessionState.provider = null;
-        batchAiSessionState.selectedIds = new Set();
+        batchAiSessionState.selectedItems = new Map();
         batchAiSessionState.pending = false;
     }
 
     function snapshot() {
         return {
             projectId: batchAiSessionState.projectId,
-            provider: batchAiSessionState.provider,
-            selectedIds: Array.from(batchAiSessionState.selectedIds),
+            selectedItems: Array.from(batchAiSessionState.selectedItems.values()),
             pending: batchAiSessionState.pending,
         };
     }
@@ -704,7 +717,7 @@ function initProjects() {
                 if (isActiveAiSessionBatchScope(projectId, manageProvider)) {
                     exitAiSessionBatchManagement();
                 } else {
-                    batchAiSessionManager.enter(projectId, manageProvider);
+                    batchAiSessionManager.enter(projectId);
                     syncAiSessionBatchManagementDom(projectDiv);
                 }
             }
@@ -716,8 +729,8 @@ function initProjects() {
         if (selectUnpinnedAction) {
             if (isActiveAiSessionBatchScope(projectId, getProjectActiveAiSessionProvider(projectDiv))) {
                 var sessions = Array.from(projectDiv.querySelectorAll('.ai-session-history-panel .codex-session-row[data-session-id]'))
-                    .filter(row => (row.getAttribute("data-session-provider") || "codex") === batchAiSessionState.provider)
                     .map(row => ({
+                        provider: row.getAttribute("data-session-provider") || "codex",
                         id: row.getAttribute("data-session-id"),
                         pinned: row.hasAttribute("data-session-pinned"),
                         active: row.hasAttribute("data-session-active"),
@@ -778,7 +791,11 @@ function initProjects() {
             var managedSessionProvider = managedSessionRow.getAttribute("data-session-provider") || "codex";
             if (isActiveAiSessionBatchScope(projectId, managedSessionProvider)
                 && !managedSessionRow.hasAttribute('data-session-active')) {
-                batchAiSessionManager.toggle(managedSessionRow.getAttribute("data-session-id"));
+                batchAiSessionManager.toggle(
+                    managedSessionProvider,
+                    managedSessionRow.getAttribute("data-session-id"),
+                    managedSessionRow.hasAttribute('data-session-active')
+                );
                 syncAiSessionBatchManagementDom(projectDiv);
                 return true;
             }
@@ -988,8 +1005,8 @@ function initProjects() {
         });
     }
 
-    function isActiveAiSessionBatchScope(projectId, provider) {
-        return projectId === batchAiSessionState.projectId && provider === batchAiSessionState.provider;
+    function isActiveAiSessionBatchScope(projectId) {
+        return projectId === batchAiSessionState.projectId;
     }
 
     function getProjectActiveAiSessionProvider(projectDiv) {
@@ -1036,8 +1053,7 @@ function initProjects() {
             return;
 
         var projectId = projectDiv.getAttribute("data-id");
-        var activeProvider = getProjectActiveAiSessionProvider(projectDiv);
-        var isScoped = projectId === snapshot.projectId && activeProvider === snapshot.provider;
+        var isScoped = projectId === snapshot.projectId;
         projectDiv.toggleAttribute("data-ai-session-managing", isScoped);
         projectDiv.toggleAttribute("data-ai-session-pending", isScoped && snapshot.pending);
         syncAiSessionProviderMenuDisabledDom(projectDiv, isScoped && snapshot.pending);
@@ -1047,14 +1063,18 @@ function initProjects() {
             manageButton.disabled = isScoped && snapshot.pending;
         }
 
-        var selectedIds = new Set(snapshot.selectedIds);
+        var selectedItems = new Set(snapshot.selectedItems.map(item =>
+            getAiSessionBatchItemKey(item.provider, item.sessionId)
+        ));
         projectDiv.querySelectorAll('.ai-session-history-panel .codex-session-row[data-session-id]').forEach(row => {
             var rowProvider = row.getAttribute("data-session-provider") || "codex";
             var isActive = row.hasAttribute('data-session-active');
             var isSelected = isScoped
                 && !isActive
-                && rowProvider === snapshot.provider
-                && selectedIds.has(row.getAttribute("data-session-id"));
+                && selectedItems.has(getAiSessionBatchItemKey(
+                    rowProvider,
+                    row.getAttribute("data-session-id")
+                ));
             row.toggleAttribute("data-ai-session-selected", isSelected);
             var checkbox = row.querySelector('.ai-session-batch-checkbox');
             if (checkbox) {
@@ -1063,7 +1083,7 @@ function initProjects() {
             }
         });
 
-        var count = isScoped ? snapshot.selectedIds.length : 0;
+        var count = isScoped ? snapshot.selectedItems.length : 0;
         var countElement = projectDiv.querySelector('.ai-session-batch-count');
         if (countElement) {
             countElement.textContent = count + ' selected';
@@ -2025,8 +2045,7 @@ function initProjects() {
         }
 
         if (message && message.type === 'ai-session-batch-archive-completed') {
-            if (message.projectId === batchAiSessionState.projectId
-                && message.provider === batchAiSessionState.provider) {
+            if (message.projectId === batchAiSessionState.projectId) {
                 batchAiSessionManager.complete(message.status);
                 syncAiSessionBatchManagementDom(findCurrentWorkspaceDiv(message.projectId));
             }

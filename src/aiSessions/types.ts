@@ -2,7 +2,7 @@
 
 import type { AiSessionProviderId, CodexSession } from '../models';
 import type { OpenWorkspace } from '../workspaces/types';
-import type { BatchAiSessionArchiveResult } from './archiveBatch';
+import type { AggregateAiSessionArchiveResult } from './archiveBatchAcrossProviders';
 import type {
     AiSessionAttentionReason,
     AiSessionExecutionState,
@@ -183,9 +183,8 @@ export interface AiSessionAssignmentCandidate<TProject = { id: string }> {
 export interface AiSessionBatchArchiveCompletedMessage {
     type: 'ai-session-batch-archive-completed';
     projectId: string;
-    provider: AiSessionProviderId;
     status: 'cancelled' | 'rejected' | 'finished';
-    result?: BatchAiSessionArchiveResult;
+    result?: AggregateAiSessionArchiveResult;
 }
 
 export interface AiSessionProviderSelectionResultMessage {

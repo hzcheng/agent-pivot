@@ -1,18 +1,20 @@
 'use strict';
 
-import type { AiSessionProviderId, CodexSession } from '../models';
-import type { WorkspaceAiSessionActionTarget } from './types';
+import type { AiSessionProviderId } from '../models';
+import type { AiSessionBatchArchiveCompletedMessage, WorkspaceAiSessionActionTarget } from './types';
 import {
     archiveBatchAiSessionItem,
-    executeBatchAiSessionArchiveRequest,
-    formatBatchAiSessionArchiveSummary,
     formatBatchAiSessionIdForLog,
-    hasBatchAiSessionArchiveIssues,
     BatchAiSessionArchiveAttemptStatus,
-    BatchAiSessionArchiveCompletion,
-    BatchAiSessionArchiveResult,
-    BatchAiSessionArchiveSelection,
 } from './archiveBatch';
+import {
+    AggregateAiSessionArchiveResult,
+    AggregateAiSessionArchiveSelection,
+    AiSessionArchiveItem,
+    formatAggregateAiSessionArchiveSummary,
+    hasAggregateAiSessionArchiveIssues,
+    resolveAggregateAiSessionArchiveSelection,
+} from './archiveBatchAcrossProviders';
 
 export interface AiSessionArchiveRuntimeEntry {
     state: 'pending' | 'active' | 'completed' | 'stopped' | 'conflict';
@@ -50,7 +52,7 @@ export interface AiSessionArchiveControllerOptions<TRuntime extends AiSessionArc
     showErrorMessage: (message: string) => unknown;
     showInformationMessage: (message: string) => unknown;
     appendLine: (message: string) => void;
-    postCompletion: (completion: BatchAiSessionArchiveCompletion) => void;
+    postCompletion: (completion: AiSessionBatchArchiveCompletedMessage) => void;
     refresh: () => void;
     syncActiveRuntime: () => void;
     logUnexpectedError: (operation: string, error: unknown, failedSessionId?: string) => void;
@@ -190,78 +192,149 @@ export class AiSessionArchiveController<TRuntime extends AiSessionArchiveRuntime
         });
     }
 
-    async archiveSessions(projectId: string, providerId: string, sessionIds: unknown): Promise<void> {
-        const validProviderId = this.options.isProviderId(providerId) ? providerId : null;
+    async archiveSessions(projectId: string, items: unknown): Promise<void> {
         if (!await this.refreshRuntimeGuard()) {
             return;
         }
-        const getWorkspaceSessions = (): CodexSession[] | null => {
-            const target = this.options.getWorkspaceTarget?.(projectId);
-            if (!target || !validProviderId || target.sessions.activeProvider !== validProviderId) {
-                return null;
+        let completed = false;
+        let executionStarted = false;
+        let refreshed = false;
+        let result: AggregateAiSessionArchiveResult | undefined;
+        const complete = (
+            status: AiSessionBatchArchiveCompletedMessage['status'],
+            completionResult?: AggregateAiSessionArchiveResult
+        ) => {
+            if (completed) {
+                return;
             }
-            return (target.sessions.sessionsByProvider[validProviderId] || []).slice();
+            completed = true;
+            this.options.postCompletion({
+                type: 'ai-session-batch-archive-completed',
+                projectId,
+                status,
+                result: completionResult,
+            });
         };
-        await executeBatchAiSessionArchiveRequest({ projectId, provider: providerId, sessionIds }, {
-            resolveProject: requestedProjectId => {
-                const workspaceSessions = getWorkspaceSessions();
-                if (workspaceSessions) {
-                    return { id: requestedProjectId, activeAiSessionProvider: validProviderId };
-                }
-                return null;
-            },
-            getProjectSessions: project => {
-                const workspaceSessions = getWorkspaceSessions();
-                return workspaceSessions || [];
-            },
-            resolveCurrentSessions: () => {
-                const workspaceSessions = getWorkspaceSessions();
-                if (workspaceSessions) {
-                    return workspaceSessions;
-                }
-                return [];
-            },
-            archiveSession: sessionId => validProviderId ? this.archiveSessionItem(validProviderId, sessionId) : 'failed',
-            confirm: async confirmation => {
-                const providerLabel = validProviderId ? this.options.getProviderLabel(validProviderId) : providerId;
-                const pinnedText = confirmation.pinnedCount
-                    ? ` ${confirmation.pinnedCount} selected ${confirmation.pinnedCount === 1 ? 'session is' : 'sessions are'} pinned.`
-                    : '';
-                const accepted = await this.options.confirmBatchArchive(
-                    `Archive ${confirmation.eligibleCount} selected ${providerLabel} ${confirmation.eligibleCount === 1 ? 'session' : 'sessions'}?${pinnedText}`
+        const refresh = () => {
+            if (refreshed) {
+                return;
+            }
+            refreshed = true;
+            this.options.refresh();
+        };
+
+        try {
+            const target = this.resolveAggregateArchiveTarget(projectId);
+            if (!target) {
+                this.options.showWarningMessage(
+                    'The selected AI sessions are no longer in the active workspace.'
                 );
-                if (accepted && !await this.refreshRuntimeGuard()) {
-                    return false;
-                }
-                return Boolean(accepted);
-            },
-            reportScopeRejected: () => {
-                this.options.showWarningMessage('The selected AI sessions are no longer in the active project and provider.');
-            },
-            reportSelectionRejected: selection => {
-                if (validProviderId) {
-                    this.logRejectedBatchAiSessionSelections(validProviderId, selection);
-                }
+                complete('rejected');
+                return;
+            }
+
+            const selection = resolveAggregateAiSessionArchiveSelection(items, {
+                selectedProviders: target.sessions.selectedProviders,
+                sessionsByProvider: target.sessions.sessionsByProvider,
+            });
+            if (!selection.eligible.length) {
+                this.logRejectedAggregateAiSessionSelections(selection);
                 this.options.showWarningMessage('No eligible AI sessions were selected.');
-            },
-            reportResult: result => {
-                if (validProviderId) {
-                    this.logBatchAiSessionArchiveResult(validProviderId, result);
+                complete('rejected');
+                return;
+            }
+
+            const eligibleCount = selection.eligible.length;
+            const pinnedCount = selection.eligible.filter(item => item.session.pinned).length;
+            const accepted = await this.options.confirmBatchArchive(
+                `Archive ${eligibleCount} selected AI ${eligibleCount === 1 ? 'session' : 'sessions'}? `
+                + `${pinnedCount} selected ${pinnedCount === 1 ? 'session is' : 'sessions are'} pinned.`
+            );
+            if (!accepted) {
+                complete('cancelled');
+                return;
+            }
+            if (!await this.refreshRuntimeGuard()) {
+                complete('cancelled');
+                return;
+            }
+
+            const currentTarget = this.resolveAggregateArchiveTarget(projectId);
+            if (!currentTarget
+                || currentTarget.workspace.scopeIdentity !== target.workspace.scopeIdentity
+                || currentTarget.workspace.navigationIdentity !== target.workspace.navigationIdentity
+                || selection.eligible.some(item =>
+                    !currentTarget.sessions.selectedProviders.includes(item.provider)
+                )) {
+                this.options.showWarningMessage(
+                    'The selected AI sessions are no longer in the active workspace and provider scope.'
+                );
+                complete('rejected');
+                return;
+            }
+
+            executionStarted = true;
+            result = {
+                archived: [],
+                running: [],
+                missing: [],
+                rejected: [...selection.rejected],
+                rejectedCount: selection.rejectedCount,
+                failed: [],
+                malformedCount: selection.malformedCount,
+            };
+            for (const selectedItem of selection.eligible) {
+                const item = toArchiveItem(selectedItem);
+                const currentSession = (currentTarget.sessions.sessionsByProvider[item.provider] || [])
+                    .find(session => session.id === item.sessionId);
+                if (!currentSession) {
+                    result.missing.push(item);
+                    continue;
                 }
-                const summary = formatBatchAiSessionArchiveSummary(result);
-                if (hasBatchAiSessionArchiveIssues(result)) {
+                if (currentSession.active) {
+                    result.running.push(item);
+                    continue;
+                }
+
+                try {
+                    const status = this.archiveSessionItem(item.provider, item.sessionId);
+                    result[status === 'archived' ? 'archived' : status === 'running' ? 'running' : 'failed']
+                        .push(item);
+                } catch (error) {
+                    result.failed.push(item);
+                    this.options.logUnexpectedError(
+                        'archive-session',
+                        error,
+                        this.formatAggregateAiSessionItemForLog(item)
+                    );
+                }
+            }
+
+            try {
+                this.logAggregateAiSessionArchiveResult(result);
+                const summary = formatAggregateAiSessionArchiveSummary(result);
+                if (hasAggregateAiSessionArchiveIssues(result)) {
                     this.options.showWarningMessage(summary);
                 } else {
                     this.options.showInformationMessage(summary);
                 }
-            },
-            logUnexpectedError: (operation, error, failedSessionId) => {
-                this.options.logUnexpectedError(operation, error, failedSessionId);
-            },
-            postCompletion: completion => this.options.postCompletion(completion),
-            refresh: () => this.options.refresh(),
-        });
-        this.options.syncActiveRuntime();
+            } catch (error) {
+                this.options.logUnexpectedError('report-result', error);
+            }
+            complete('finished', result);
+            refresh();
+        } catch (error) {
+            this.options.logUnexpectedError(
+                executionStarted ? 'execute-request' : 'prepare-request',
+                error
+            );
+            complete(executionStarted ? 'finished' : 'rejected', result);
+            if (executionStarted) {
+                refresh();
+            }
+        } finally {
+            this.options.syncActiveRuntime();
+        }
     }
 
     private async refreshRuntimeGuard(
@@ -307,37 +380,58 @@ export class AiSessionArchiveController<TRuntime extends AiSessionArchiveRuntime
         return true;
     }
 
-    private logRejectedBatchAiSessionSelections(
-        providerId: AiSessionProviderId,
-        selection: Pick<BatchAiSessionArchiveSelection, 'rejectedIds' | 'rejectedIdCount' | 'malformedCount'>
-    ): void {
-        const label = this.options.getProviderLabel(providerId);
-        for (const sessionId of selection.rejectedIds) {
-            this.options.appendLine(`[Batch Archive] ${label} rejected out-of-scope session: ${formatBatchAiSessionIdForLog(sessionId)}`);
+    private resolveAggregateArchiveTarget(projectId: string): WorkspaceAiSessionActionTarget | null {
+        const target = this.options.getWorkspaceTarget(projectId);
+        if (!target
+            || target.cardId !== projectId
+            || target.sessions.workspaceScopeIdentity !== target.workspace.scopeIdentity
+            || target.sessions.workspaceNavigationIdentity !== target.workspace.navigationIdentity) {
+            return null;
         }
-        if (selection.rejectedIdCount > selection.rejectedIds.length) {
-            this.options.appendLine(`[Batch Archive] ${label} omitted ${selection.rejectedIdCount - selection.rejectedIds.length} additional out-of-scope session(s).`);
+        return target;
+    }
+
+    private logRejectedAggregateAiSessionSelections(
+        selection: Pick<AggregateAiSessionArchiveSelection, 'rejected' | 'rejectedCount' | 'malformedCount'>
+    ): void {
+        for (const item of selection.rejected) {
+            this.options.appendLine(
+                `[Batch Archive] Rejected out-of-scope session: ${this.formatAggregateAiSessionItemForLog(item)}`
+            );
+        }
+        if (selection.rejectedCount > selection.rejected.length) {
+            this.options.appendLine(
+                `[Batch Archive] Omitted ${selection.rejectedCount - selection.rejected.length} additional out-of-scope session(s).`
+            );
         }
         if (selection.malformedCount) {
-            this.options.appendLine(`[Batch Archive] ${label} rejected ${selection.malformedCount} malformed selection(s).`);
+            this.options.appendLine(
+                `[Batch Archive] Rejected ${selection.malformedCount} malformed selection(s).`
+            );
         }
     }
 
-    private logBatchAiSessionArchiveResult(
-        providerId: AiSessionProviderId,
-        result: BatchAiSessionArchiveResult
-    ): void {
-        const label = this.options.getProviderLabel(providerId);
-        this.logRejectedBatchAiSessionSelections(providerId, result);
-        for (const sessionId of result.runningIds) {
-            this.options.appendLine(`[Batch Archive] ${label} skipped running session: ${formatBatchAiSessionIdForLog(sessionId)}`);
+    private logAggregateAiSessionArchiveResult(result: AggregateAiSessionArchiveResult): void {
+        this.logRejectedAggregateAiSessionSelections(result);
+        for (const item of result.running) {
+            this.options.appendLine(
+                `[Batch Archive] Skipped running session: ${this.formatAggregateAiSessionItemForLog(item)}`
+            );
         }
-        for (const sessionId of result.missingIds) {
-            this.options.appendLine(`[Batch Archive] ${label} session no longer available: ${formatBatchAiSessionIdForLog(sessionId)}`);
+        for (const item of result.missing) {
+            this.options.appendLine(
+                `[Batch Archive] Session no longer available: ${this.formatAggregateAiSessionItemForLog(item)}`
+            );
         }
-        for (const sessionId of result.failedIds) {
-            this.options.appendLine(`[Batch Archive] ${label} archive failed: ${formatBatchAiSessionIdForLog(sessionId)}`);
+        for (const item of result.failed) {
+            this.options.appendLine(
+                `[Batch Archive] Archive failed: ${this.formatAggregateAiSessionItemForLog(item)}`
+            );
         }
+    }
+
+    private formatAggregateAiSessionItemForLog(item: AiSessionArchiveItem): string {
+        return `${this.options.getProviderLabel(item.provider)} / ${formatBatchAiSessionIdForLog(item.sessionId)}`;
     }
 }
 
@@ -345,4 +439,8 @@ interface SingleArchiveAuthorization {
     projectId: string;
     workspaceScopeIdentity: string;
     workspaceNavigationIdentity: string;
+}
+
+function toArchiveItem(item: AiSessionArchiveItem): AiSessionArchiveItem {
+    return { provider: item.provider, sessionId: item.sessionId };
 }

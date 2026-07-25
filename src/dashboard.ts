@@ -1354,8 +1354,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             'archive-ai-sessions': async e => {
                 await aiSessionArchiveController.archiveSessions(
                     e.projectId as string,
-                    e.provider as string,
-                    e.sessionIds
+                    e.items
                 );
             },
             'edit-group': async e => {

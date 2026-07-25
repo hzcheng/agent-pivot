@@ -12,6 +12,7 @@ const commands = require('../out/aiSessions/commandBuilders');
 const launchSpec = require('../out/aiSessions/launchSpec');
 const helpers = require('../out/aiSessions/sessionHelpers');
 const archiveBatch = require('../out/aiSessions/archiveBatch');
+const aggregateArchive = require('../out/aiSessions/archiveBatchAcrossProviders');
 const activeTerminalHighlight = require('../out/aiSessions/activeTerminalHighlight');
 const lifecycle = require('../out/aiSessions/lifecycle');
 const IncrementalJsonlLifecycleReader = require('../out/aiSessions/incrementalJsonlLifecycleReader').default;
@@ -3532,7 +3533,7 @@ async function runWorkspaceCardActionControllerIntegrationChecks() {
         sessions: {
             workspaceScopeIdentity: workspace.scopeIdentity,
             workspaceNavigationIdentity: workspace.navigationIdentity,
-            activeProvider: 'codex', expanded: false,
+            activeProvider: 'codex', selectedProviders: ['codex'], expanded: false,
             providers: [{ id: 'codex', label: 'Codex', count: 1 }],
             sessionsByProvider: { codex: [session] }, unavailableProviders: [],
             aiSessionCount: 1, attentionCount: 0, defaultTab: 'sessions', activeSessions: [{
@@ -3662,9 +3663,12 @@ async function runWorkspaceCardActionControllerIntegrationChecks() {
         showWarningMessage: () => undefined, showErrorMessage: () => undefined,
         showInformationMessage: () => undefined, appendLine: () => undefined,
         postCompletion: () => undefined, refresh: () => undefined,
-        syncActiveRuntime: () => undefined, logUnexpectedError: error => { throw error; },
+        syncActiveRuntime: () => undefined,
+        logUnexpectedError: (_operation, error) => { throw error; },
     });
-    await archive.archiveSessions(target.cardId, 'codex', [session.id]);
+    await archive.archiveSessions(target.cardId, [
+        { provider: 'codex', sessionId: session.id },
+    ]);
     assert.deepStrictEqual(archived, [session.id]);
     archived.length = 0;
 
@@ -4668,6 +4672,59 @@ function runBatchAiSessionArchiveChecks() {
         archiveBatch.formatBatchAiSessionArchiveSummary(success),
         'Archived 1 session.'
     );
+
+    const aggregateSelection = aggregateArchive.resolveAggregateAiSessionArchiveSelection([
+        { provider: 'codex', sessionId: 'same' },
+        { provider: 'claude', sessionId: 'same' },
+        { provider: 'codex', sessionId: 'same' },
+        { provider: 'codex', sessionId: 'active' },
+        { provider: 'kimi', sessionId: 'outside-selection' },
+        { provider: 'unknown', sessionId: 'same' },
+        { provider: 'codex', sessionId: '' },
+    ], {
+        selectedProviders: ['codex', 'claude'],
+        sessionsByProvider: {
+            codex: [{ id: 'same' }, { id: 'active', active: true }],
+            claude: [{ id: 'same', pinned: true }],
+            kimi: [{ id: 'outside-selection' }],
+        },
+    });
+    assert.deepStrictEqual(
+        aggregateSelection.eligible.map(item => [item.provider, item.sessionId]),
+        [['codex', 'same'], ['claude', 'same']]
+    );
+    assert.strictEqual(aggregateSelection.eligible[1].session.pinned, true);
+    assert.strictEqual(aggregateSelection.rejectedCount, 3);
+    assert.strictEqual(aggregateSelection.malformedCount, 1);
+
+    const aggregateOverflow = Array.from(
+        { length: archiveBatch.MAX_BATCH_AI_SESSION_ARCHIVE_REQUEST_ENTRIES + 2 },
+        (_, index) => ({ provider: 'codex', sessionId: `bounded-${index}` })
+    );
+    const boundedAggregate = aggregateArchive.resolveAggregateAiSessionArchiveSelection(
+        aggregateOverflow,
+        {
+            selectedProviders: ['codex'],
+            sessionsByProvider: {
+                codex: aggregateOverflow.map(item => ({ id: item.sessionId })),
+            },
+        }
+    );
+    assert.strictEqual(
+        boundedAggregate.eligible.length,
+        archiveBatch.MAX_BATCH_AI_SESSION_ARCHIVE_REQUEST_ENTRIES
+    );
+    assert.strictEqual(boundedAggregate.malformedCount, 2);
+    assert.strictEqual(
+        aggregateArchive.resolveAggregateAiSessionArchiveSelection(
+            [{
+                provider: 'codex',
+                sessionId: 'x'.repeat(archiveBatch.MAX_BATCH_AI_SESSION_ID_LENGTH + 1),
+            }],
+            { selectedProviders: ['codex'], sessionsByProvider: { codex: [] } }
+        ).malformedCount,
+        1
+    );
 }
 
 async function runBatchAiSessionArchiveHostChecks() {
@@ -4832,7 +4889,8 @@ function runWebviewContentChecks() {
     const singleArchiveFunction = extractMethodBody(archiveControllerSource, 'archiveSession');
     const batchArchiveFunction = extractMethodBody(archiveControllerSource, 'archiveSessions');
     const archiveItemFunction = extractMethodBody(archiveControllerSource, 'archiveSessionItem');
-    const batchArchiveLogFunction = extractMethodBody(archiveControllerSource, 'logBatchAiSessionArchiveResult');
+    const aggregateArchiveLogFunction = extractMethodBody(archiveControllerSource, 'logAggregateAiSessionArchiveResult');
+    const aggregateArchiveItemLogFunction = extractMethodBody(archiveControllerSource, 'formatAggregateAiSessionItemForLog');
     const projectWindowColorService = fs.readFileSync(path.join(__dirname, '..', 'src', 'services', 'projectWindowColorService.ts'), 'utf8');
     const packageJson = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
     const settingsFunction = extractFunctionBody(dashboard, 'showProjectStewardSettings');
@@ -5226,6 +5284,7 @@ function runWebviewContentChecks() {
         'archive confirmation must rescan every runtime backend so a newly external tmux runtime cannot be missed'
     );
     assert.ok(dashboard.includes('await aiSessionArchiveController.archiveSessions('));
+    assert.match(dashboard, /archiveSessions\(\s*e\.projectId as string,\s*e\.items\s*\)/);
     assert.ok(dashboard.includes('await aiSessionArchiveController.archiveSession('));
     assert.match(dashboard, /archiveSession\(\s*e\.projectId as string,\s*providerId as AiSessionProviderId \| null,\s*e\.sessionId as string\s*\)/);
     assert.ok(!dashboard.includes('async function archiveAiSession('));
@@ -5234,14 +5293,19 @@ function runWebviewContentChecks() {
     assert.ok(!dashboard.includes('function logRejectedBatchAiSessionSelections('));
     assert.ok(!dashboard.includes('function logBatchAiSessionArchiveResult('));
     assert.ok(singleArchiveFunction.includes('this.archiveSessionItem(providerId, sessionId)'));
-    assert.ok(batchArchiveFunction.includes('executeBatchAiSessionArchiveRequest('));
+    assert.ok(batchArchiveFunction.includes('resolveAggregateAiSessionArchiveSelection('));
+    assert.ok(batchArchiveFunction.includes('this.archiveSessionItem(item.provider, item.sessionId)'));
     assert.strictEqual((singleArchiveFunction.match(/syncActiveRuntime\(\)/g) || []).length, 1);
     assert.strictEqual((batchArchiveFunction.match(/syncActiveRuntime\(\)/g) || []).length, 1);
     assert.ok(!archiveItemFunction.includes('activeAiSessionTerminalHighlighter.sync()'));
     assert.ok(!archiveItemFunction.includes('refreshAiSessionViewsIncrementally()'));
     assert.ok(!archiveItemFunction.includes('invalidateAiSessionCache('));
     assert.ok(archiveItemFunction.includes('archiveBatchAiSessionItem('));
-    assert.strictEqual((batchArchiveLogFunction.match(/formatBatchAiSessionIdForLog\(sessionId\)/g) || []).length, 3);
+    assert.ok(aggregateArchiveLogFunction.includes('this.formatAggregateAiSessionItemForLog(item)'));
+    assert.strictEqual(
+        (aggregateArchiveItemLogFunction.match(/formatBatchAiSessionIdForLog\(item\.sessionId\)/g) || []).length,
+        1
+    );
     assert.ok(webviewContent.includes('.settings-button,'));
     assert.ok(styles.includes('max-width: calc(100% - 76px);'));
     assert.ok(styles.includes('margin-left: 4px;'));
@@ -6729,26 +6793,42 @@ function runBatchAiSessionWebviewChecks() {
     assert.strictEqual(activeRow.hasAttribute('data-ai-session-active-terminal'), true);
 
     const manager = context.window.__projectStewardBatchAiSessions;
-    manager.enter('project-a', 'codex');
-    manager.toggle('plain', false);
+    manager.enter('project-a');
+    manager.toggle('codex', 'plain');
     manager.selectUnpinned([
-        { id: 'plain', pinned: false },
-        { id: 'pinned', pinned: true },
-        { id: 'second', pinned: false },
-        { id: 'active', pinned: false, active: true },
+        { provider: 'codex', id: 'plain', pinned: false },
+        { provider: 'codex', id: 'pinned', pinned: true },
+        { provider: 'claude', id: 'plain', pinned: false },
+        { provider: 'claude', id: 'active', pinned: false, active: true },
     ]);
     assert.deepStrictEqual(JSON.parse(JSON.stringify(manager.snapshot())), {
-        projectId: 'project-a', provider: 'codex', selectedIds: ['plain', 'second'], pending: false,
+        projectId: 'project-a',
+        selectedItems: [
+            { provider: 'codex', sessionId: 'plain' },
+            { provider: 'claude', sessionId: 'plain' },
+        ],
+        pending: false,
     });
 
-    manager.toggle('pinned', true);
-    manager.reconcile('project-a', 'codex', ['pinned', 'second']);
-    assert.deepStrictEqual(Array.from(manager.snapshot().selectedIds), ['pinned', 'second']);
+    manager.toggle('codex', 'pinned');
+    manager.toggle('claude', 'active', true);
+    manager.reconcile('project-a', [
+        { provider: 'codex', sessionId: 'pinned' },
+        { provider: 'claude', sessionId: 'plain' },
+    ]);
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(manager.snapshot().selectedItems)), [
+        { provider: 'codex', sessionId: 'pinned' },
+        { provider: 'claude', sessionId: 'plain' },
+    ]);
 
     manager.submit();
     assert.deepStrictEqual(JSON.parse(JSON.stringify(messages.pop())), {
-        type: 'archive-ai-sessions', projectId: 'project-a', provider: 'codex',
-        sessionIds: ['pinned', 'second'],
+        type: 'archive-ai-sessions',
+        projectId: 'project-a',
+        items: [
+            { provider: 'codex', sessionId: 'pinned' },
+            { provider: 'claude', sessionId: 'plain' },
+        ],
     });
     assert.strictEqual(manager.snapshot().pending, true);
     const archiveProjectA = {
@@ -6763,7 +6843,7 @@ function runBatchAiSessionWebviewChecks() {
     assert.strictEqual(projectA.manageButton.disabled, true);
 
     const pendingSnapshot = JSON.parse(JSON.stringify(manager.snapshot()));
-    manager.enter('project-b', 'kimi');
+    manager.enter('project-b');
     assert.deepStrictEqual(JSON.parse(JSON.stringify(manager.snapshot())), pendingSnapshot);
     manager.submit();
     assert.strictEqual(messages.length, 0);
@@ -6793,23 +6873,31 @@ function runBatchAiSessionWebviewChecks() {
     windowEventListeners.message({ data: {
         type: 'ai-session-batch-archive-completed',
         projectId: 'project-a',
-        provider: 'codex',
         status: 'cancelled',
     } });
     assert.strictEqual(manager.snapshot().pending, false);
-    assert.deepStrictEqual(Array.from(manager.snapshot().selectedIds), ['pinned', 'second']);
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(manager.snapshot().selectedItems)), [
+        { provider: 'codex', sessionId: 'pinned' },
+        { provider: 'claude', sessionId: 'plain' },
+    ]);
     assert.ok(projectA.batchButtons.every(button => !button.disabled));
     assert.strictEqual(projectA.manageButton.disabled, false);
 
     manager.submit();
-    manager.toggle('plain');
+    manager.toggle('codex', 'plain');
     manager.clear();
-    manager.selectUnpinned([{ id: 'plain', pinned: false }]);
+    manager.selectUnpinned([{ provider: 'codex', id: 'plain', pinned: false }]);
     assert.strictEqual(manager.snapshot().pending, true);
-    assert.deepStrictEqual(Array.from(manager.snapshot().selectedIds), ['pinned', 'second']);
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(manager.snapshot().selectedItems)), [
+        { provider: 'codex', sessionId: 'pinned' },
+        { provider: 'claude', sessionId: 'plain' },
+    ]);
     manager.complete('rejected');
     assert.strictEqual(manager.snapshot().pending, false);
-    assert.deepStrictEqual(Array.from(manager.snapshot().selectedIds), ['pinned', 'second']);
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(manager.snapshot().selectedItems)), [
+        { provider: 'codex', sessionId: 'pinned' },
+        { provider: 'claude', sessionId: 'plain' },
+    ]);
 
     manager.complete('finished');
     assert.strictEqual(manager.snapshot().projectId, null);

@@ -3,6 +3,8 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const archive = require('../../../out/aiSessions/archiveBatch');
+const aggregateArchive = require('../../../out/aiSessions/archiveBatchAcrossProviders');
+const { AiSessionArchiveController } = require('../../../out/aiSessions/archiveController');
 const { hydrateWorkspaceAiSessions } = require('../../../out/workspaces/sessionHydration');
 const { getAttentionProjectKeys } = require('../../../out/aiSessions/attentionProject');
 
@@ -43,6 +45,116 @@ test('PERSIST-BATCH-AI-SESSION-ARCHIVE-HOST-001 emits one terminal completion fo
     assert.deepEqual(completions[0].result.rejectedIds, ['missing']);
     assert.equal(completions[0].result.malformedCount, 1);
     assert.equal(effects.filter(item => item === 'refresh').length, 1);
+});
+
+test('PERSIST-BATCH-AI-SESSION-ARCHIVE-HOST-001 keeps cross-provider collisions distinct and validates authoritative scope', () => {
+    const selection = aggregateArchive.resolveAggregateAiSessionArchiveSelection(
+        [
+            { provider: 'codex', sessionId: 'same' },
+            { provider: 'claude', sessionId: 'same' },
+            { provider: 'unknown', sessionId: 'same' },
+            { provider: 'codex', sessionId: '' },
+            { provider: 'codex', sessionId: 'same' },
+            { provider: 'codex', sessionId: 'active' },
+            { provider: 'kimi', sessionId: 'outside-selection' },
+        ],
+        {
+            selectedProviders: ['codex', 'claude'],
+            sessionsByProvider: {
+                codex: [
+                    { id: 'same', provider: 'codex' },
+                    { id: 'active', provider: 'codex', active: true },
+                ],
+                claude: [{ id: 'same', provider: 'claude', pinned: true }],
+                kimi: [{ id: 'outside-selection', provider: 'kimi' }],
+            },
+        }
+    );
+    assert.deepEqual(selection.eligible.map(item => item.provider), ['codex', 'claude']);
+    assert.deepEqual(selection.eligible.map(item => item.session.id), ['same', 'same']);
+    assert.equal(selection.rejectedCount, 3);
+    assert.equal(selection.malformedCount, 1);
+});
+
+test('PERSIST-BATCH-AI-SESSION-ARCHIVE-HOST-001 archives aggregate items with one confirmation, completion, refresh, and runtime sync', async () => {
+    const confirmations = [];
+    const completions = [];
+    const effects = [];
+    const errors = [];
+    const sessionsByProvider = {
+        codex: [{ id: 'same', provider: 'codex' }],
+        claude: [{ id: 'same', provider: 'claude', pinned: true }],
+    };
+    const controller = new AiSessionArchiveController({
+        isProviderId: value => ['codex', 'kimi', 'claude'].includes(value),
+        getProvider: provider => ({
+            label: provider === 'claude' ? 'Claude' : 'Codex',
+            service: {
+                archiveSession: () => {
+                    if (provider === 'claude') throw new Error('claude failed');
+                    effects.push(['archive', provider]);
+                    return true;
+                },
+            },
+        }),
+        getProviderLabel: provider => provider === 'claude' ? 'Claude' : 'Codex',
+        getWorkspaceTarget: projectId => projectId === 'workspace-a' ? {
+            cardId: projectId,
+            workspace: {
+                scopeIdentity: 'scope:a',
+                navigationIdentity: 'navigation:a',
+            },
+            sessions: {
+                workspaceScopeIdentity: 'scope:a',
+                workspaceNavigationIdentity: 'navigation:a',
+                selectedProviders: ['codex', 'claude'],
+                sessionsByProvider,
+            },
+        } : null,
+        getRuntimeById: () => null,
+        refreshRuntimeGuard: async () => { effects.push('guard'); },
+        isRuntimeComplete: () => false,
+        focusRuntime: () => undefined,
+        deleteRuntimeMarker: () => undefined,
+        untrackRuntime: () => undefined,
+        deletePin: () => undefined,
+        deleteAlias: () => undefined,
+        confirmSingleArchive: async () => 'Archive',
+        confirmBatchArchive: async message => {
+            confirmations.push(message);
+            return 'Archive';
+        },
+        showWarningMessage: message => effects.push(['warning', message]),
+        showErrorMessage: message => effects.push(['error', message]),
+        showInformationMessage: message => effects.push(['info', message]),
+        appendLine: message => effects.push(['log', message]),
+        postCompletion: completion => completions.push(completion),
+        refresh: () => effects.push('refresh'),
+        syncActiveRuntime: () => effects.push('sync'),
+        logUnexpectedError: (operation, error, sessionId) => {
+            errors.push({ operation, message: error.message, sessionId });
+        },
+    });
+
+    await controller.archiveSessions('workspace-a', [
+        { provider: 'claude', sessionId: 'same' },
+        { provider: 'codex', sessionId: 'same' },
+    ]);
+
+    assert.deepEqual(confirmations, [
+        'Archive 2 selected AI sessions? 1 selected session is pinned.',
+    ]);
+    assert.equal(completions.length, 1);
+    assert.equal(completions[0].status, 'finished');
+    assert.deepEqual(completions[0].result.archived, [
+        { provider: 'codex', sessionId: 'same' },
+    ]);
+    assert.deepEqual(completions[0].result.failed, [
+        { provider: 'claude', sessionId: 'same' },
+    ]);
+    assert.equal(effects.filter(item => item === 'refresh').length, 1);
+    assert.equal(effects.filter(item => item === 'sync').length, 1);
+    assert.equal(errors.length, 1);
 });
 
 test('PERSIST-AI-SESSION-PROJECT-HYDRATION-001 projects assignment, pin, alias, provider availability, and attention without input mutation leaks', () => {

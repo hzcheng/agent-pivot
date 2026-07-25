@@ -1046,20 +1046,28 @@ function createProjectVm({ querySelector, querySelectorAll, activeElement, sourc
     return { context, documentListeners, windowListeners, messages, replacedCatalogs, getWebviewState: () => webviewState };
 }
 
-function createSingleProviderBatchProject() {
+function createCrossProviderBatchProject() {
     const attributes = new Map([['data-id', 'workspace-a']]);
     const region = createElement();
     region.setAttribute('data-active-ai-session-provider', 'codex');
+    region.setAttribute('data-selected-ai-session-providers', 'codex,claude');
     const manageButton = createElement();
     const count = { textContent: '' };
     const archiveButton = { disabled: false };
-    const row = {
-        getAttribute: name => name === 'data-session-provider' ? 'codex'
-            : name === 'data-session-id' ? 'session-1' : null,
-        hasAttribute: () => false,
+    const createRow = (provider, sessionId, { pinned = false, active = false } = {}) => ({
+        getAttribute: name => name === 'data-session-provider' ? provider
+            : name === 'data-session-id' ? sessionId : null,
+        hasAttribute: name => (name === 'data-session-pinned' && pinned)
+            || (name === 'data-session-active' && active),
         toggleAttribute: () => undefined,
         querySelector: () => null,
-    };
+    });
+    const rows = [
+        createRow('codex', 'same'),
+        createRow('claude', 'same'),
+        createRow('codex', 'pinned', { pinned: true }),
+        createRow('claude', 'active', { active: true }),
+    ];
     return {
         getAttribute: name => attributes.get(name) || null,
         hasAttribute: name => attributes.has(name),
@@ -1077,15 +1085,15 @@ function createSingleProviderBatchProject() {
             return null;
         },
         querySelectorAll(selector) {
-            if (selector === '.ai-session-history-panel .codex-session-row[data-session-id]') return [row];
+            if (selector === '.ai-session-history-panel .codex-session-row[data-session-id]') return rows;
             if (selector === '.ai-session-batch-actions button') return [];
             return [];
         },
     };
 }
 
-function assertSingleProviderBatchScope(source = projectSource) {
-    const project = createSingleProviderBatchProject();
+function assertCrossProviderBatchScope(source = projectSource) {
+    const project = createCrossProviderBatchProject();
     const harness = createProjectVm({ source });
     const targetFor = action => ({
         closest(selector) {
@@ -1102,17 +1110,31 @@ function assertSingleProviderBatchScope(source = projectSource) {
     harness.documentListeners.click({ button: 0, target: targetFor('manage-ai-sessions') });
     assert.equal(project.hasAttribute('data-ai-session-managing'), true);
     harness.documentListeners.click({ button: 0, target: targetFor('select-unpinned-ai-sessions') });
-    assert.deepEqual(toPlain(harness.context.window.__projectStewardBatchAiSessions.snapshot().selectedIds), ['session-1']);
+    assert.deepEqual(
+        toPlain(harness.context.window.__projectStewardBatchAiSessions.snapshot().selectedItems),
+        [
+            { provider: 'codex', sessionId: 'same' },
+            { provider: 'claude', sessionId: 'same' },
+        ]
+    );
     harness.documentListeners.click({ button: 0, target: targetFor('archive-selected-ai-sessions') });
     assert.deepEqual(toPlain(harness.messages), [{
-        type: 'archive-ai-sessions', projectId: 'workspace-a', provider: 'codex', sessionIds: ['session-1'],
+        type: 'archive-ai-sessions',
+        projectId: 'workspace-a',
+        items: [
+            { provider: 'codex', sessionId: 'same' },
+            { provider: 'claude', sessionId: 'same' },
+        ],
     }]);
 }
 
-test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-002 retains the single-primary batch scope without a native select', () => {
-    assertSingleProviderBatchScope();
-    assert.throws(() => assertSingleProviderBatchScope(
-        projectSource.replace('data-active-ai-session-provider', 'data-retired-ai-session-provider')
+test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-002 archives visible unpinned inactive rows across selected providers', () => {
+    assertCrossProviderBatchScope();
+    assert.throws(() => assertCrossProviderBatchScope(
+        projectSource.replace(
+            'return JSON.stringify([provider, sessionId]);',
+            'return sessionId;'
+        )
     ));
 });
 

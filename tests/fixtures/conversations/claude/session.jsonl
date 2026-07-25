@@ -1,0 +1,16 @@
+{"type":"user","uuid":"claude-user-1","message":{"role":"user","content":[{"type":"text","text":"Explain the parser"}]}}
+{"type":"assistant","uuid":"claude-assistant-1","message":{"role":"assistant","content":[{"type":"text","text":"The parser reads visible tokens."},{"type":"tool_use","name":"read_file","input":{"path":"local/path"}}]}}
+{"type":"assistant","uuid":"claude-assistant-tool-only","message":{"role":"assistant","content":[{"type":"tool_use","name":"search","input":{"query":"secret-thought"}}]}}
+{"type":"user","uuid":"synthetic-source-tool","sourceToolAssistantUUID":"claude-assistant-1","message":{"role":"user","content":[{"type":"text","text":"tool_result"}]}}
+{"type":"user","uuid":"synthetic-tool-result-field","toolUseResult":{"path":"local/path"},"message":{"role":"user","content":[{"type":"text","text":"tool_result"}]}}
+{"type":"user","uuid":"synthetic-tool-result-block","message":{"role":"user","content":[{"type":"tool_result","content":"secret-thought"}]}}
+{"type":"user","uuid":"sidechain-user","isSidechain":true,"message":{"role":"user","content":[{"type":"text","text":"secret-thought"}]}}
+{"type":"assistant","uuid":"sidechain-assistant","isSidechain":true,"message":{"role":"assistant","content":[{"type":"text","text":"secret-thought"}]}}
+{"type":"queue-operation","content":"local/path"}
+{"type":"system","message":{"role":"system","content":"secret-thought"}}
+{"type":"attachment","path":"local/path","url":"https://private.invalid/raw"}
+{"type":"user","uuid":"claude-user-2","message":{"role":"user","content":[{"type":"text","text":"Review"},{"type":"image","source":{"path":"local/path","url":"https://private.invalid/image"}},{"type":"unknown","text":"secret-thought"}]}}
+{"type":"assistant","uuid":"claude-assistant-2","message":{"role":"assistant","content":[{"type":"text","text":"The review is ready."}]}}
+malformed
+{"type":"user","uuid":"claude-user-3","message":{"role":"user","content":[{"type":"document","source":{"path":"local/path/a"}},{"type":"attachment","url":"https://private.invalid/b"}]}}
+{"type":"assistant","uuid":"claude-assistant-3","message":{"role":"assistant","content":[{"type":"text","text":"Both attachments were considered."}]}}

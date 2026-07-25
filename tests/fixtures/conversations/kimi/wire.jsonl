@@ -1,0 +1,16 @@
+{"type":"TurnBegin","timestamp":1000,"payload":{"user_input":"Explain the parser"}}
+{"type":"ContentPart","payload":{"type":"think","text":"secret-thought"}}
+{"type":"ContentPart","payload":{"type":"encrypted","data":"local/path"}}
+{"type":"ToolCall","payload":{"name":"read_file","arguments":{"path":"local/path"}}}
+{"type":"ToolResult","payload":{"text":"tool_result"}}
+{"type":"SubagentEvent","payload":{"message":"secret-thought"}}
+{"type":"ContentPart","payload":{"type":"text","text":"The parser reads visible tokens."}}
+{"type":"TurnEnd","payload":{}}
+malformed
+{"type":"TurnBegin","timestamp":2000,"payload":{"user_input":[{"type":"text","text":"Review"},{"type":"image","path":"local/path","url":"https://private.invalid/image"}]}}
+{"type":"ContentPart","payload":{"type":"text","text":"The review is ready."}}
+{"type":"Interrupt","payload":{"reason":"internal"}}
+{"type":"TurnBegin","timestamp":3000,"payload":{"user_input":[{"type":"file","path":"local/path/a"},{"type":"attachment","url":"https://private.invalid/b"}]}}
+{"type":"ContentPart","payload":{"type":"tool","text":"tool_result"}}
+{"type":"ContentPart","payload":{"type":"text","text":"Both attachments were considered."}}
+{"type":"TurnEnd","payload":{}}

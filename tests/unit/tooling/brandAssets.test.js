@@ -19,7 +19,6 @@ const marketplaceSources = [
     'media/brand/agent-pivot-bridge-marketplace.svg',
 ];
 const allSvgSources = [...marketplaceSources, 'media/icon.svg'];
-const disallowedSvgContent = /<script|href=|xlink:href|url\(|<image|<foreignObject/i;
 const approvedColors = new Set(['#111924', '#69dfd0', '#d8fff9']);
 
 function readRepositoryFile(relativePath, encoding) {
@@ -29,7 +28,7 @@ function readRepositoryFile(relativePath, encoding) {
 test('reviewed SVG sources contain only safe approved content', () => {
     for (const relativePath of allSvgSources) {
         const source = readRepositoryFile(relativePath, 'utf8');
-        assert.equal(disallowedSvgContent.test(source), false, relativePath);
+        assert.doesNotThrow(() => validateSvgSource(source, relativePath));
     }
 
     for (const relativePath of marketplaceSources) {
@@ -86,6 +85,20 @@ test('SVG validation rejects external or active content', () => {
         ),
         /external or active SVG content/
     );
+});
+
+test('SVG validation rejects spaced external references and mixed-case event attributes', () => {
+    for (const [label, source] of [
+        ['spaced-href.svg', '<svg href = "https://example.invalid/x"/>'],
+        ['spaced-xlink.svg', '<svg xlink:href = "https://example.invalid/x"/>'],
+        ['onload.svg', '<svg onload="alert(1)"/>'],
+        ['mixed-case-event.svg', '<svg OnLoAd = "alert(1)"/>'],
+    ]) {
+        assert.throws(
+            () => validateSvgSource(source, label),
+            /external or active SVG content/
+        );
+    }
 });
 
 test('rasterizer failure preserves the last-known-good output', async () => {

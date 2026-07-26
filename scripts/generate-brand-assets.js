@@ -16,7 +16,7 @@ const assets = [
     },
 ];
 
-const UNSAFE_SVG_CONTENT = /<script|href=|xlink:href|url\(|<image|<foreignObject/i;
+const UNSAFE_SVG_CONTENT = /<script\b|<(?:image|foreignObject)\b|(?:\s|<)(?:xlink:)?href\s*=|\son[a-z][\w:-]*\s*=|url\s*\(/i;
 
 function validateSvgSource(source, label) {
     if (UNSAFE_SVG_CONTENT.test(source)) {

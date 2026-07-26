@@ -290,7 +290,7 @@ test('TODO-FOCUSED-DETAIL-001 reveals complete values inline and toggles without
     assert.equal(harness.getFocusedTodoId(), 'todo-a');
 });
 
-test('TODO-INCREMENTAL-ROOT-001 accepts command results without replacing the panel root', () => {
+test('TODO-INCREMENTAL-ROOT-001 and TODO-AUTHORITATIVE-REFRESH-STATE-001 accept command results without replacing the panel root', () => {
     const harness = createHarness();
     const root = harness.panel.querySelector('.todo-panel');
     harness.controller.applyCommandResult({

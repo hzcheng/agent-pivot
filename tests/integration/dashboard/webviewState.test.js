@@ -2062,7 +2062,7 @@ test('WEBVIEW-AI-DASHBOARD-001 keeps Collapse disabled across late Projects and 
     assert.equal(collapseButton.getAttribute('title'), 'No groups to collapse in AI');
 });
 
-test('WEBVIEW-AI-DASHBOARD-001 preserves AI Collapse state after actual late Projects and TODO responses and updates', () => {
+test('WEBVIEW-AI-DASHBOARD-001 and TODO-AUTHORITATIVE-REFRESH-STATE-001 preserve AI Collapse state after actual late Projects and TODO responses and updates', () => {
     const collapseButton = createElement();
     const projectVm = createProjectVm({
         querySelector: selector => selector === '[data-action="toggle-all-groups"]'

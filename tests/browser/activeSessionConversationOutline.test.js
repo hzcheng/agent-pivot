@@ -82,6 +82,14 @@ function session(provider, sessionId, focused) {
     };
 }
 
+function historySession(provider, sessionId) {
+    return {
+        id: sessionId,
+        name: `${provider} ${sessionId}`,
+        active: false,
+    };
+}
+
 function sessionSurfaceMarkup(activeAiSessions, markerCount = 0) {
     let sessionsMarkup = getAiSessionsDiv({
         id: 'project-a',
@@ -106,6 +114,114 @@ function sessionSurfaceMarkup(activeAiSessions, markerCount = 0) {
     }
     return sessionsMarkup;
 }
+
+function listSessionSurfaceMarkup(activeAiSessions, historySessions, selectedTab = 'active') {
+    return getAiSessionsDiv({
+        id: 'project-a',
+        activeAiSessionProvider: 'codex',
+        selectedAiSessionProviders: ['codex'],
+        activeAiSessionTab: selectedTab,
+        codexSessions: historySessions,
+        kimiSessions: [],
+        claudeSessions: [],
+        activeAiSessions,
+    });
+}
+
+function listProjectMarkup(activeAiSessions, historySessions, selectedTab = 'active') {
+    return `<div class="project workspace-card" data-id="project-a" data-current-workspace
+        data-codex-expanded
+        data-workspace-scope-identity="scope-project-a"
+        data-workspace-navigation-identity="navigation-project-a"
+        style="--steward-ai-session-list-max-height: 130px">
+        ${listSessionSurfaceMarkup(activeAiSessions, historySessions, selectedTab)}
+    </div>`;
+}
+
+async function postListWorkspaceUpdate(page, activeAiSessions, historySessions, selectedTab = 'active') {
+    const html = `<div class="open-current-workspace-group">
+        ${listProjectMarkup(activeAiSessions, historySessions, selectedTab)}
+    </div>`;
+    await page.evaluate(htmlValue => {
+        window.dispatchEvent(new MessageEvent('message', { data: {
+            type: 'workspace-updated', version: 2, currentWorkspaceCount: 1, html: htmlValue,
+        } }));
+    }, html);
+}
+
+async function postListOpenWorkspacesUpdate(page, activeAiSessions, historySessions, selectedTab = 'active') {
+    const html = `<div class="open-current-workspace-group">
+        ${listProjectMarkup(activeAiSessions, historySessions, selectedTab)}
+    </div>`;
+    await page.evaluate(htmlValue => {
+        window.dispatchEvent(new MessageEvent('message', { data: {
+            type: 'open-workspaces-updated', version: 2, semanticRevision: 'list-replacement',
+            currentWorkspaceCount: 1, navigationWorkspaceCount: 0, otherWindowsStatus: 'ready',
+            html: htmlValue,
+            searchCatalog: {
+                version: 2, sessions: [], openWorkspaces: [{ identity: 'project-a' }],
+                savedProjects: [], todos: [],
+            },
+        } }));
+    }, html);
+}
+
+async function relativeTop(locator, scroller) {
+    return locator.evaluate((node, selector) => {
+        const container = node.closest(selector);
+        return node.getBoundingClientRect().top - container.getBoundingClientRect().top;
+    }, '.codex-sessions-list');
+}
+
+test('WEBVIEW-AI-SESSION-LIST-SCROLL-001 preserves semantic Active and History anchors through both workspace replacement paths', async t => {
+    const active = Array.from({ length: 8 }, (_, index) => session(
+        'codex', `active-${index + 1}`, index === 4
+    ));
+    const history = Array.from({ length: 8 }, (_, index) =>
+        historySession('codex', `history-${index + 1}`)
+    );
+    const page = await openListPage(t, active, history);
+    const activeAnchor = row(page, 'codex', 'active-5');
+    await waitForPageCondition(page, () => {
+        const list = document.querySelector('[data-ai-session-panel="active"] .codex-sessions-list');
+        return list && list.scrollHeight > list.clientHeight;
+    });
+    const activeBefore = await activeAnchor.evaluate(node => {
+        const list = node.closest('.codex-sessions-list');
+        list.scrollTop = node.offsetTop - list.offsetTop - 22;
+        node.querySelector('.ai-session-primary-action').focus();
+        return node.getBoundingClientRect().top - list.getBoundingClientRect().top;
+    });
+    await postListWorkspaceUpdate(page, [
+        session('codex', 'active-inserted', false), ...active,
+    ], history);
+    const activeRestored = row(page, 'codex', 'active-5');
+    assert.ok(Math.abs((await relativeTop(activeRestored)) - activeBefore) <= 1);
+    assert.equal(await page.locator('[data-ai-session-tab="active"]').getAttribute('aria-selected'), 'true');
+    assert.equal(await activeRestored.locator('.ai-session-primary-action').evaluate(node => document.activeElement === node), true);
+
+    await page.locator('[data-ai-session-tab="sessions"]').click();
+    const historyAnchor = page.locator('.ai-session-history-panel .codex-session-row')
+        .filter({ has: page.locator('[data-session-id="history-5"]') });
+    await waitForPageCondition(page, () => {
+        const list = document.querySelector('[data-ai-session-panel="sessions"] .codex-sessions-list');
+        return list && list.scrollHeight > list.clientHeight;
+    });
+    const historyBefore = await historyAnchor.evaluate(node => {
+        const list = node.closest('.codex-sessions-list');
+        list.scrollTop = node.offsetTop - list.offsetTop - 20;
+        node.querySelector('.ai-session-primary-action').focus();
+        return node.getBoundingClientRect().top - list.getBoundingClientRect().top;
+    });
+    await postListOpenWorkspacesUpdate(page, active, [
+        historySession('codex', 'history-inserted'), ...history,
+    ], 'sessions');
+    const historyRestored = page.locator('.ai-session-history-panel .codex-session-row')
+        .filter({ has: page.locator('[data-session-id="history-5"]') });
+    assert.ok(Math.abs((await relativeTop(historyRestored)) - historyBefore) <= 1);
+    assert.equal(await page.locator('[data-ai-session-tab="sessions"]').getAttribute('aria-selected'), 'true');
+    assert.equal(await historyRestored.locator('.ai-session-primary-action').evaluate(node => document.activeElement === node), true);
+});
 
 function projectMarkup(activeAiSessions, markerCount = 0) {
     return `<div class="project workspace-card" data-id="project-a" data-current-workspace
@@ -176,6 +292,23 @@ async function openConversationPage(t, activeAiSessions, viewport = { width: 360
         window.__postedMessages.length = 0;
         window.__setStateCalls.length = 0;
     });
+    return page;
+}
+
+async function openListPage(t, activeAiSessions, historySessions) {
+    const page = await browser.newPage({ viewport: { width: 360, height: 320 } });
+    t.after(() => page.close());
+    page.setDefaultTimeout(BROWSER_CONDITION_TIMEOUT_MS);
+    await page.setContent(`<!doctype html><html><head><style>${styles}</style></head>
+        <body class="steward-sidebar"><div class="steward-sticky-header"></div>
+        <div class="sticky-groups-wrapper"><div class="open-current-workspace-group">
+        ${listProjectMarkup(activeAiSessions, historySessions)}</div></div></body></html>`);
+    await page.evaluate(() => {
+        window.normalizeDashboardSearchCatalog = catalog => catalog;
+        window.vscode = { getState: () => undefined, setState() {}, postMessage() {} };
+    });
+    await page.addScriptTag({ content: projectScript });
+    await page.evaluate(() => initProjects());
     return page;
 }
 
@@ -1199,28 +1332,27 @@ test('ACTIVE-SESSION-CONVERSATION-RESTORE-002 retains rendered history scroll an
     });
     assert.ok(capturedScrollTop > 0);
 
+    const requestsBefore = (await conversationMessages(page))
+        .filter(message => message.type === 'request-ai-session-conversation-outline').length;
     await postWorkspaceUpdate(page, [
         session('codex', 'session-a', true),
     ]);
-    assert.deepEqual((await conversationMessages(page)).at(-1), {
-        type: 'request-ai-session-conversation-outline',
-        version: 1,
-        requestId: 2,
-        subscriptionGeneration: 2,
-        projectId: 'project-a',
-        provider: 'codex',
-        sessionId: 'session-a',
-    });
-    await postHostMessage(page, outlineResult({
-        requestId: 2,
-        subscriptionGeneration: 2,
-        sourceRevision: 'r2',
-        interactions: [
-            ...interactions,
-            summary('restore-18', 19, 'Replacement input'),
-        ],
-    }));
     const restored = row(page, 'codex', 'session-a');
+    assert.equal(
+        await restored.locator('[data-interaction-id="restore-6"]').isVisible(),
+        true,
+        'the last validated outline must remain visible synchronously'
+    );
+    assert.equal(
+        (await conversationMessages(page))
+            .filter(message => message.type === 'request-ai-session-conversation-outline').length,
+        requestsBefore,
+        'a same-identity replacement must retain the existing subscription'
+    );
+    assert.equal(
+        await restored.locator('.ai-session-conversation-loading').isVisible(),
+        false
+    );
     assert.equal(
         await restored.locator('[data-ai-session-conversation-rail]')
             .evaluate(node => node.scrollTop),
@@ -1572,6 +1704,87 @@ test('ACTIVE-SESSION-CONVERSATION-LAYOUT-001 measures one row delta synchronousl
     ));
 });
 
+test('ACTIVE-SESSION-CONVERSATION-RESTORE-001 keeps one pending envelope and its durable restore state through two replacements', async t => {
+    const page = await openConversationPage(t, [
+        session('codex', 'session-a', true),
+    ], { width: 360, height: 260 });
+    const focused = row(page, 'codex', 'session-a');
+    await focused.locator('.ai-session-primary-action').click();
+    await seedConversationRail(page, 'codex', 'session-a', 18);
+    const rail = focused.locator('[data-ai-session-conversation-rail]');
+    const anchor = await rail.evaluate(node => {
+        node.scrollTop = 64;
+        node.querySelector('[data-interaction-id="interaction-6"]').focus();
+        return node.querySelector('[data-interaction-id="interaction-6"]').getBoundingClientRect().top
+            - node.getBoundingClientRect().top;
+    });
+    await postWorkspaceUpdate(page, [session('codex', 'session-a', true)]);
+    await postWorkspaceUpdate(page, [session('codex', 'session-a', true)]);
+    assert.equal(
+        (await conversationMessages(page))
+            .filter(message => message.type === 'request-ai-session-conversation-outline').length,
+        1,
+        'two same-identity replacements must retain request 1/generation 1'
+    );
+    await postHostMessage(page, outlineResult({ interactions: summaries(18) }));
+    const restored = row(page, 'codex', 'session-a');
+    const restoredRail = restored.locator('[data-ai-session-conversation-rail]');
+    assert.equal(await restored.locator('[data-interaction-id="interaction-6"]').isVisible(), true);
+    assert.ok(Math.abs((await restored.locator('[data-interaction-id="interaction-6"]').evaluate(node =>
+        node.getBoundingClientRect().top - node.closest('[data-ai-session-conversation-rail]').getBoundingClientRect().top
+    )) - anchor) <= 1);
+    assert.equal(await restoredRail.locator('[data-interaction-id="interaction-6"]').evaluate(node => document.activeElement === node), true);
+});
+
+test('ACTIVE-SESSION-CONVERSATION-RESTORE-001 preserves history while live-end readers follow and automatic recovery leaves the outer list anchored', async t => {
+    const sessions = Array.from({ length: 8 }, (_, index) => session(
+        'codex', `session-${index + 1}`, index === 4
+    ));
+    const page = await openConversationPage(t, sessions, { width: 360, height: 260 });
+    const focused = row(page, 'codex', 'session-5');
+    const outer = page.locator('.ai-session-active-panel .codex-sessions-list');
+    await waitForPageCondition(page, () => {
+        const list = document.querySelector('.ai-session-active-panel .codex-sessions-list');
+        return list && list.scrollHeight > list.clientHeight;
+    });
+    const outerAnchor = await focused.evaluate(node => {
+        const list = node.closest('.codex-sessions-list');
+        list.scrollTop = node.offsetTop - list.offsetTop - 20;
+        return node.getBoundingClientRect().top - list.getBoundingClientRect().top;
+    });
+    await focused.locator('.ai-session-primary-action').click();
+    const interactions = summaries(18);
+    const rail = focused.locator('[data-ai-session-conversation-rail]');
+    await seedConversationRail(page, 'codex', 'session-5', 18);
+    const historyAnchor = await rail.evaluate(node => {
+        node.scrollTop = 48;
+        node.querySelector('[data-interaction-id="interaction-6"]').focus();
+        return node.querySelector('[data-interaction-id="interaction-6"]').getBoundingClientRect().top
+            - node.getBoundingClientRect().top;
+    });
+    await postWorkspaceUpdate(page, sessions);
+    await postHostMessage(page, outlineResult({ requestId: 2, subscriptionGeneration: 2, interactions: [
+        ...interactions, summary('interaction-18', 19, 'Later input'),
+    ] }));
+    const restored = row(page, 'codex', 'session-5');
+    assert.ok(Math.abs((await relativeTop(restored)) - outerAnchor) <= 1);
+    assert.ok(Math.abs((await restored.locator('[data-interaction-id="interaction-6"]').evaluate(node =>
+        node.getBoundingClientRect().top - node.closest('[data-ai-session-conversation-rail]').getBoundingClientRect().top
+    )) - historyAnchor) <= 1);
+
+    const liveRail = restored.locator('[data-ai-session-conversation-rail]');
+    await liveRail.evaluate(node => { node.scrollTop = node.scrollHeight - node.clientHeight; });
+    await postWorkspaceUpdate(page, sessions);
+    await postHostMessage(page, outlineResult({ requestId: 3, subscriptionGeneration: 3, interactions: [
+        ...interactions, summary('interaction-18', 19, 'Later input'), summary('interaction-19', 20, 'Live input'),
+    ] }));
+    const liveRestored = row(page, 'codex', 'session-5');
+    assert.equal(await liveRestored.locator('[data-ai-session-conversation-rail]').evaluate(node =>
+        node.scrollHeight - node.clientHeight - node.scrollTop
+    ), 0);
+    assert.ok(Math.abs((await relativeTop(liveRestored)) - outerAnchor) <= 1);
+});
+
 test('ACTIVE-SESSION-CONVERSATION-RESTORE-001 restores only the same still-focused identity and otherwise sends a newer exact cancel', async t => {
     const page = await openConversationPage(t, [
         session('codex', 'session-a', true),
@@ -1598,6 +1811,8 @@ test('ACTIVE-SESSION-CONVERSATION-RESTORE-001 restores only the same still-focus
         });
     assert.ok(capturedScrollTop > 0);
 
+    const requestsBefore = (await conversationMessages(page))
+        .filter(message => message.type === 'request-ai-session-conversation-outline').length;
     await postWorkspaceUpdate(page, [
         session('codex', 'session-a', true),
         session('kimi', 'session-b', false),
@@ -1608,21 +1823,18 @@ test('ACTIVE-SESSION-CONVERSATION-RESTORE-001 restores only the same still-focus
         restored.locator('.ai-session-primary-action'),
         restored.locator('[data-ai-session-conversation-panel]')
     );
-    assert.deepEqual((await conversationMessages(page)).at(-1), {
-        type: 'request-ai-session-conversation-outline',
-        version: 1,
-        requestId: 2,
-        subscriptionGeneration: 2,
-        projectId: 'project-a',
-        provider: 'codex',
-        sessionId: 'session-a',
-    });
-    await postHostMessage(page, outlineResult({
-        requestId: 2,
-        subscriptionGeneration: 2,
-        sourceRevision: 'r2',
-        interactions: summaries(18),
-    }));
+    assert.equal(
+        await restored.locator('[data-interaction-id="interaction-6"]').isVisible(),
+        true,
+        'the last validated outline must remain visible synchronously'
+    );
+    assert.equal(
+        (await conversationMessages(page))
+            .filter(message => message.type === 'request-ai-session-conversation-outline').length,
+        requestsBefore,
+        'a same-identity replacement must retain the existing subscription'
+    );
+    assert.equal(await restored.locator('.ai-session-conversation-loading').isVisible(), false);
     assert.equal(
         await restored.locator('[data-ai-session-conversation-rail]').evaluate(
             rail => rail.scrollTop
@@ -1647,8 +1859,8 @@ test('ACTIVE-SESSION-CONVERSATION-RESTORE-001 restores only the same still-focus
     assert.deepEqual((await conversationMessages(page)).at(-1), {
         type: 'cancel-ai-session-conversation',
         version: 1,
-        requestId: 3,
-        subscriptionGeneration: 3,
+        requestId: 2,
+        subscriptionGeneration: 2,
         projectId: 'project-a',
         provider: 'codex',
         sessionId: 'session-a',

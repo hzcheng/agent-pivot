@@ -1357,9 +1357,9 @@ In `scripts/run-release-packaging-checks.js`, require the main VSIX to contain:
 
 ```text
 extension/package.json
-extension/README.md
-extension/CHANGELOG.md
-extension/LICENSE
+extension/readme.md
+extension/changelog.md
+extension/LICENSE.txt
 extension/THIRD_PARTY_NOTICES.md
 extension/licenses/DOMPurify-Apache-2.0.txt
 extension/media/extension_icon.png
@@ -1371,14 +1371,24 @@ assets. Require the bridge VSIX to contain:
 
 ```text
 extension/package.json
-extension/README.md
-extension/LICENSE
+extension/readme.md
+extension/LICENSE.txt
 extension/media/extension_icon.png
 extension/dist/extension.js
 ```
 
 and no source map, TypeScript source, source SVG master, test, docs, spike, or
 workspace configuration entry.
+
+These are the raw ZIP entry names emitted by `@vscode/vsce`: VSCE normalizes
+the authored `README.md`, `CHANGELOG.md`, and extension `LICENSE` files to
+lowercase `readme.md`, lowercase `changelog.md`, and `LICENSE.txt`
+respectively. The exact archive checks must byte-compare `changelog.md` and
+both license entries to their authored source files. VSCE intentionally
+rewrites relative README links, so inspect the packaged READMEs for the
+expected absolute GitHub links, current identity/privacy copy, and forbidden
+legacy identities instead of requiring README byte identity. Do not
+post-process the VSIX ZIP or disable VSCE's default link rewriting.
 
 Update artifact names to:
 
@@ -1514,10 +1524,19 @@ if (main.name !== 'agent-pivot' || main.version !== '1.0.0') process.exit(1);
 if (bridge.name !== 'agent-pivot-attention-ui-bridge') process.exit(1);
 " "$verification_dir/main/extension/package.json" \
   "$verification_dir/bridge/extension/package.json"
+test -f "$verification_dir/main/extension/readme.md"
+test -f "$verification_dir/main/extension/changelog.md"
+test -f "$verification_dir/main/extension/LICENSE.txt"
+test -f "$verification_dir/bridge/extension/readme.md"
+test -f "$verification_dir/bridge/extension/LICENSE.txt"
 ```
 
-Expected: exit 0. Manually list both extracted trees and confirm no `src`,
-`tests`, `docs`, source maps, `.codex`, `.superpowers`, or brand-master SVGs.
+Expected: exit 0. The lowercase README/CHANGELOG paths and `.txt` license paths
+are VSCE's standardized unpacked names. Compare the changelog and license bytes
+to the authored `CHANGELOG.md` and `LICENSE` files; inspect the packaged
+READMEs for VSCE's expected absolute-link rewriting and current copy. Manually
+list both extracted trees and confirm no `src`, `tests`, `docs`, source maps,
+`.codex`, `.superpowers`, or brand-master SVGs.
 
 - [ ] **Step 3: Install both VSIX files through the repository local-install workflow**
 

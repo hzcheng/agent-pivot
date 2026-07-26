@@ -371,7 +371,7 @@
         }
     },
     "scripts": {
-        "vscode:prepublish": "webpack --mode production && npx gulp --production",
+        "vscode:prepublish": "npm run brand:verify && npm run brand:check && webpack --mode production && npx gulp --production",
         "webpack": "webpack --mode development",
         "webpack-dev": "webpack --mode development --watch",
         "test-compile": "node scripts/clean-test-build.js && tsc -p ./ && npm run attention:bridge:compile",
@@ -402,7 +402,7 @@
         "test:conversation-performance": "node scripts/run-conversation-performance-checks.js",
         "test:conversation-sources:remote": "node --test tests/platform/remote/conversationSources.test.js",
         "test:extension-host": "npm run vscode:prepublish && npm run attention:bridge:bundle && node scripts/run-extension-host-tests.js",
-    "test:ci:linux": "npm run test-compile && npm run test:behavior-contracts && npm run lint:ci && npm run test:deterministic:run && npm run test:conversation-sources:remote && npm run test:conversation-performance && npm run test:browser:run && npm run test:safety:run && npm run test:dashboard:run && npm run test:architecture-baseline && npm run test:architecture-guards && npm run test:release-notes && npm run test:release-packaging && npm run vscode:prepublish && npm run test:coverage:run && node scripts/check-coverage-baseline.js",
+    "test:ci:linux": "npm run test-compile && npm run brand:verify && npm run brand:check && npm run test:behavior-contracts && npm run lint:ci && npm run test:deterministic:run && npm run test:conversation-sources:remote && npm run test:conversation-performance && npm run test:browser:run && npm run test:safety:run && npm run test:dashboard:run && npm run test:architecture-baseline && npm run test:architecture-guards && npm run test:release-notes && npm run test:release-packaging && npm run vscode:prepublish && npm run test:coverage:run && node scripts/check-coverage-baseline.js",
         "brand:check": "node scripts/check-brand-identity.js",
         "brand:generate": "node scripts/generate-brand-assets.js",
         "brand:verify": "node scripts/generate-brand-assets.js --check",

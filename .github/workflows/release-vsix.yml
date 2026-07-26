@@ -1,4 +1,4 @@
-name: Release VSIX
+name: Release Agent Pivot VSIX
 
 on:
   push:

@@ -15,56 +15,26 @@ function runReleaseContentChecks() {
     const readme = read('README.md');
     const changelog = read('CHANGELOG.md');
     const packageMetadata = JSON.parse(read('package.json'));
-    assert.strictEqual(packageMetadata.version, '2.1.8',
-        'the Active Session conversation release must increment the Agent Pivot patch version');
+    assert.strictEqual(packageMetadata.displayName, 'Agent Pivot',
+        'release metadata must use the Agent Pivot display name');
+    assert.strictEqual(packageMetadata.version, '1.0.0',
+        'the first Agent Pivot release must remain version 1.0.0');
     const currentReleaseMarker = `## [${packageMetadata.version}]`;
     assert.ok(changelog.includes(currentReleaseMarker),
         'CHANGELOG must contain the package.json release version');
     const currentRelease = changelog.split(currentReleaseMarker)[1].split(/\n## \[/)[0];
-    const workspaceFirstReleaseMarker = '## [2.1.4]';
-    assert.ok(changelog.includes(workspaceFirstReleaseMarker),
-        'CHANGELOG must retain the workspace-first release');
-    const workspaceFirstRelease =
-        changelog.split(workspaceFirstReleaseMarker)[1].split(/\n## \[/)[0];
     const requiredReleaseFacts = [
-        ['one card per non-empty VS Code workspace', /one card per non-empty VS Code workspace/i],
-        ['all roots with provider-native --add-dir', /all (?:workspace )?roots[\s\S]{0,160}--add-dir/i],
-        ['trust and capability preflight', /Restricted Mode[\s\S]{0,200}(?:capability|--add-dir)/i],
-        ['safe other-window navigation fallback', /navigation[\s\S]{0,200}(?:Switch Window|save it first)/i],
-        ['saved-project preservation', /saved projects[\s\S]{0,160}(?:preserv|unchanged)/i],
-        ['v3 UI Bridge requirement', /(?:UI Bridge|bridge)[\s\S]{0,80}v3/i],
-        ['intentional legacy runtime non-adoption', /legacy[\s\S]{0,160}(?:runtime|terminal|tmux)[\s\S]{0,160}(?:not adopted|not migrated|recreate|resume)/i],
+        ['Agent Pivot identity', /Agent Pivot identity/i],
+        ['Pure Axis icon system', /Pure Axis icon system/i],
+        ['cross-workspace command center', /cross-workspace command center/i],
+        ['Codex, Claude, and Kimi providers', /Codex, Claude, and Kimi/i],
+        ['conversation navigation', /conversation navigation/i],
     ];
 
     for (const [label, pattern] of requiredReleaseFacts) {
-        assert.match(readme, pattern, `README must document ${label}`);
-        assert.match(workspaceFirstRelease, pattern, `2.1.4 CHANGELOG release must document ${label}`);
+        assert.match(currentRelease, pattern, `1.0.0 CHANGELOG release must document ${label}`);
     }
-
-    const previousReleaseMarker = '## [2.1.7]';
-    assert.ok(changelog.includes(previousReleaseMarker),
-        'CHANGELOG must retain the AI Prompt library release');
-    const previousRelease = changelog.split(previousReleaseMarker)[1].split(/\n## \[/)[0];
-    assert.match(previousRelease, /AI Dashboard tab[\s\S]{0,160}Prompt/i,
-        '2.1.7 CHANGELOG release must document the AI Prompt panel');
-    assert.match(previousRelease, /insert[\s\S]{0,160}Prompt[\s\S]{0,160}active terminal/i,
-        '2.1.7 CHANGELOG release must document Prompt insertion into the active terminal');
-    assert.match(previousRelease, /synchronized[\s\S]{0,160}Prompt library/i,
-        '2.1.7 CHANGELOG release must document synchronized Prompt storage');
-    assert.match(previousRelease, /Batch tmux metadata reads/i,
-        '2.1.7 CHANGELOG release must document tmux metadata batching');
-    assert.match(currentRelease, /Active Session[\s\S]{0,200}conversation outline/i,
-        'current CHANGELOG release must document the Active Session conversation outline');
-    assert.match(currentRelease, /Codex, Kimi, and Claude/i,
-        'current CHANGELOG release must document all supported conversation providers');
-    assert.match(currentRelease, /read-only AI Conversation/i,
-        'current CHANGELOG release must document the full read-only conversation viewer');
-    assert.match(currentRelease, /current editor group[\s\S]{0,160}(?:Previous|Next|Latest|Close)/i,
-        'current CHANGELOG release must document current-group viewer controls');
-    assert.match(currentRelease, /scroll[\s\S]{0,200}focus/i,
-        'current CHANGELOG release must document stable Webview refresh state');
-    assert.match(currentRelease, /copy[\s\S]{0,160}Prompt[\s\S]{0,160}draft/i,
-        'current CHANGELOG release must document Prompt copy');
+    assert.match(readme, /Agent Pivot/i, 'README must document the current product name');
     assert.match(packageMetadata.description, /workspace/i,
         'package metadata must describe the workspace-first product boundary');
 }

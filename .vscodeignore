@@ -37,3 +37,4 @@ node_modules/**
 spikes/**
 extensions/**
 shared/**
+!licenses/DOMPurify-Apache-2.0.txt

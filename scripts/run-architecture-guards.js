@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const ts = require('typescript');
+const { validateManifestPair } = require('./lib/brandIdentity');
 
 function fail(id, risk, detail) {
     throw new assert.AssertionError({ message: `${id} risk: ${risk}; ${detail}` });
@@ -70,6 +71,14 @@ function numericInitializer(sourceFile, name, id, risk) {
         fail(id, risk, `${name} must use a numeric literal initializer`);
     }
     return Number(declaration.initializer.text);
+}
+
+function stringInitializer(sourceFile, name, id, risk) {
+    const declaration = findVariable(sourceFile, name, id, risk);
+    if (!declaration.initializer || !ts.isStringLiteral(declaration.initializer)) {
+        fail(id, risk, `${name} must use a string-literal initializer`);
+    }
+    return declaration.initializer.text;
 }
 
 function stringArrayInitializer(sourceFile, name, id, risk) {
@@ -811,17 +820,31 @@ const guards = {
     // ARCH-RELEASE-IDENTITY-001
     'ARCH-RELEASE-IDENTITY-001'(root) {
         const risk = 'release identity drift produces uninstallable or disconnected VSIX artifacts';
-        const main = readJson(root, 'package.json', this.id, risk);
-        const bridge = readJson(root, 'extensions/attention-ui-bridge/package.json', this.id, risk);
-        if (main.name !== 'agent-pivot' || main.publisher !== 'hzcheng') {
-            fail(this.id, risk, 'main extension identity must remain hzcheng.agent-pivot');
+        try {
+            validateManifestPair(
+                readJson(root, 'package.json', this.id, risk),
+                readJson(root, 'extensions/attention-ui-bridge/package.json', this.id, risk)
+            );
+        } catch (error) {
+            if (error instanceof assert.AssertionError
+                && error.message.startsWith(`${this.id} risk:`)) {
+                throw error;
+            }
+            fail(this.id, risk, error.message);
         }
-        if (bridge.name !== 'agent-pivot-attention-ui-bridge' || bridge.publisher !== 'hzcheng') {
-            fail(this.id, risk, 'UI Bridge identity must remain hzcheng.agent-pivot-attention-ui-bridge');
-        }
-        if (!Array.isArray(main.extensionDependencies)
-            || !main.extensionDependencies.includes('hzcheng.agent-pivot-attention-ui-bridge')) {
-            fail(this.id, risk, 'main extension must retain its exact UI Bridge dependency identity');
+
+        const constants = parseTypescript(root, 'src/constants.ts', this.id, risk);
+        const expectedConstants = {
+            AGENT_PIVOT_CONFIG_SECTION: 'agentPivot',
+            AGENT_PIVOT_EXTENSION_ID: 'hzcheng.agent-pivot',
+            AGENT_PIVOT_VIEW_CONTAINER_ID: 'agentPivot',
+            AGENT_PIVOT_DASHBOARD_VIEW_ID: 'agentPivot.dashboard',
+            AGENT_PIVOT_CONVERSATION_VIEW_TYPE: 'agentPivot.aiConversation',
+        };
+        for (const [name, expected] of Object.entries(expectedConstants)) {
+            if (stringInitializer(constants, name, this.id, risk) !== expected) {
+                fail(this.id, risk, `${name} must remain ${expected}`);
+            }
         }
     },
 };

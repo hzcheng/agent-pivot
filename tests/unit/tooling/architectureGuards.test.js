@@ -60,6 +60,7 @@ function copyGuardFixture(t, mutationPath, mutate = source => source) {
         'src/services/codexSessionService.ts',
         'extensions/attention-ui-bridge/src/openWorkspaceCoordinator.ts',
         'extensions/attention-ui-bridge/src/extension.ts',
+        'scripts/lib/brandIdentity.js',
         'package.json',
         'extensions/attention-ui-bridge/package.json',
     ];
@@ -562,13 +563,68 @@ for (const mutation of [
             "if (record.protocolVersion !== 1) throw new Error('attention unregister protocol is incompatible');",
             "if (record.protocolVersion !== 2) throw new Error('attention unregister protocol is incompatible');"),
     },
-    {
+    ...[
+        {
+            file: 'package.json',
+            expectedDetail: 'Main manifest name is stale',
+            mutate: manifest => { manifest.name = 'project-steward'; },
+        },
+        {
+            file: 'package.json',
+            expectedDetail: 'Main manifest version is stale',
+            mutate: manifest => { manifest.version = '2.1.8'; },
+        },
+        {
+            file: 'package.json',
+            expectedDetail: 'Main manifest extension dependencies are invalid',
+            mutate: manifest => {
+                manifest.extensionDependencies = [
+                    'hzcheng.project-steward-attention-ui-bridge',
+                ];
+            },
+        },
+        {
+            file: 'extensions/attention-ui-bridge/package.json',
+            expectedDetail: 'Bridge manifest name is stale',
+            mutate: manifest => {
+                manifest.name = 'project-steward-attention-ui-bridge';
+            },
+        },
+        {
+            file: 'extensions/attention-ui-bridge/package.json',
+            expectedDetail: 'Bridge manifest icon is invalid',
+            mutate: manifest => { delete manifest.icon; },
+        },
+    ].map(mutation => ({
         id: 'ARCH-RELEASE-IDENTITY-001',
-        file: 'package.json',
-        expectedDetail: 'main extension identity must remain hzcheng.agent-pivot',
-        mutate: source => replaceFixtureSource(source,
-            '"publisher": "hzcheng"', '"publisher": "changed"'),
-    },
+        file: mutation.file,
+        expectedDetail: mutation.expectedDetail,
+        mutate: source => {
+            const manifest = JSON.parse(source);
+            mutation.mutate(manifest);
+            return `${JSON.stringify(manifest, null, 4)}\n`;
+        },
+    })),
+    ...[
+        ['AGENT_PIVOT_CONFIG_SECTION', "'agentPivot'", "'projectSteward'"],
+        ['AGENT_PIVOT_EXTENSION_ID', "'hzcheng.agent-pivot'", "'hzcheng.project-steward'"],
+        ['AGENT_PIVOT_VIEW_CONTAINER_ID', "'agentPivot'", "'projectSteward'"],
+        ['AGENT_PIVOT_DASHBOARD_VIEW_ID', "'agentPivot.dashboard'", "'projectSteward.dashboard'"],
+        ['AGENT_PIVOT_CONVERSATION_VIEW_TYPE', "'agentPivot.aiConversation'", "'projectSteward.aiConversation'"],
+    ].map(([constant, current, stale]) => ({
+        id: 'ARCH-RELEASE-IDENTITY-001',
+        file: 'src/constants.ts',
+        expectedDetail: `${constant} must remain`,
+        mutate: source => replaceFixtureSource(
+            source,
+            constant === 'AGENT_PIVOT_CONVERSATION_VIEW_TYPE'
+                ? `${constant} =\n    ${current}`
+                : `${constant} = ${current}`,
+            constant === 'AGENT_PIVOT_CONVERSATION_VIEW_TYPE'
+                ? `${constant} =\n    ${stale}`
+                : `${constant} = ${stale}`,
+        ),
+    })),
 ]) {
     test(`${mutation.id} controlled mutation is rejected at its exact expectation site`, t => {
         const root = copyGuardFixture(t, mutation.file, mutation.mutate);

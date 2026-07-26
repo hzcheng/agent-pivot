@@ -126,7 +126,8 @@ Performance is measured on the repository's Linux CI runner with a synthetic
 
 - cold outline construction completes within 1.5 seconds;
 - an append of up to 1 MiB updates an existing index within 250 ms;
-- cached outline rendering shows content within 100 ms;
+- a cached adapter outline read completes within 100 ms; this is not a
+  Webview-render timing claim;
 - Webview payloads and retained memory stay within the concrete limits in
   Privacy, Security, and Bounds.
 

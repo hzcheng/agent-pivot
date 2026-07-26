@@ -1188,7 +1188,7 @@ git commit -m "feat: index bounded conversation JSONL"
 - Create: `src/aiSessions/conversation/claudeAdapter.ts`
 - Create: `tests/contract/aiSessions/kimiConversationAdapter.test.js`
 - Create: `tests/contract/aiSessions/claudeConversationAdapter.test.js`
-- Create: `tests/fixtures/conversations/kimi/wire.jsonl`
+- Modify: `tests/fixtures/providers/kimi/home/sessions/7bbd38310db600bd89c814e224a73d44/33333333-3333-4333-8333-333333333333/wire.jsonl`
 - Create: `tests/fixtures/conversations/claude/session.jsonl`
 
 **Interfaces:**
@@ -1398,7 +1398,7 @@ git add src/aiSessions/conversation/kimiAdapter.ts \
   src/aiSessions/conversation/claudeAdapter.ts \
   tests/contract/aiSessions/kimiConversationAdapter.test.js \
   tests/contract/aiSessions/claudeConversationAdapter.test.js \
-  tests/fixtures/conversations/kimi/wire.jsonl \
+  tests/fixtures/providers/kimi/home/sessions/7bbd38310db600bd89c814e224a73d44/33333333-3333-4333-8333-333333333333/wire.jsonl \
   tests/fixtures/conversations/claude/session.jsonl
 git commit -m "feat: read Kimi and Claude conversations"
 ```
@@ -2866,9 +2866,11 @@ test('opens one read-only AI Conversation panel through the composed Kimi flow',
 
 `createKimiConversationFixture` writes only inside a temporary Kimi provider
 home registered with `t.after`, using the committed
-`tests/fixtures/conversations/kimi/wire.jsonl` schema from Task 4 rather than a
-lifecycle fixture. The composition harness uses the concrete Kimi adapter and
-fake panel/publication dependencies.
+canonical Kimi provider fixture under `tests/fixtures/providers/kimi/home`.
+The performance and composition harnesses reuse that same
+`{ timestamp, message: { type, payload } }` schema so lifecycle discovery and
+conversation normalization cannot drift. The composition harness uses the
+concrete Kimi adapter and fake panel/publication dependencies.
 
 - [ ] **Step 6: Run focused integration and safety tests**
 
@@ -2959,7 +2961,8 @@ the repository. Measure with `process.hrtime.bigint()` and assert:
 ```js
 assert.ok(coldMs <= 1500, `cold outline ${coldMs}ms exceeds 1500ms`);
 assert.ok(appendMs <= 250, `append ${appendMs}ms exceeds 250ms`);
-assert.ok(cachedMs <= 100, `cached outline ${cachedMs}ms exceeds 100ms`);
+assert.ok(cachedOutlineReadMs <= 100,
+    `cached adapter outline read ${cachedOutlineReadMs}ms exceeds 100ms`);
 assert.ok(outline.interactions.length <= 2000);
 assert.ok(serializedPageBytes <= 512 * 1024);
 assert.ok(retainedInteractions <= 100);

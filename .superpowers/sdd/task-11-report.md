@@ -216,7 +216,7 @@ Representative consecutive final runs:
 ```text
 coldMs    149.233 / 150.124
 appendMs   10.506 /  10.220
-cachedMs    1.513 /   1.461
+cachedAdapterOutlineReadMs    1.513 /   1.461
 ```
 
 The final focused performance run measured:
@@ -225,7 +225,7 @@ The final focused performance run measured:
 {
   "coldMs": 132.747,
   "appendMs": 10.209,
-  "cachedMs": 2.257,
+  "cachedAdapterOutlineReadMs": 2.257,
   "outlineInteractions": 1001,
   "serializedPageBytes": 69289,
   "boundaryBytes": 67108864,
@@ -239,6 +239,9 @@ The final focused performance run measured:
   "retainedBytes": 4156986
 }
 ```
+
+The cached measurement is an adapter outline-read budget. It is not evidence
+of Webview render latency.
 
 The append fixture is exactly 1 MiB and introduces interaction 1,001. The
 harness also creates a dense, fully valid JSONL source of exactly 64 MiB with

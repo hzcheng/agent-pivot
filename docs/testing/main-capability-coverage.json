@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "837c9d66584a0ed8265d23e314faaa34df5f5f1f",
+        "head": "a2b20e451f77413965004d7958af784af08f3449",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -188,11 +188,14 @@
                 "e6e65d5623d4737a8123fb05b20466735b5bd375",
                 "91a0f8a50b9bc46431eb41446f3022cf887debac",
                 "3d1588d05d4b7f30b971702e24e55f561786c527",
-                "35a8eba46ff1e7b17dcbfeb020b80caaa3b62d64"
+                "35a8eba46ff1e7b17dcbfeb020b80caaa3b62d64",
+                "a2b20e451f77413965004d7958af784af08f3449"
             ],
             "behaviors": [
                 "OPEN-OPEN-PROJECT-WORKSPACE-CONTROLLER-001",
-                "OPEN-WORKSPACE-NAVIGATION-001"
+                "OPEN-WORKSPACE-NAVIGATION-001",
+                "OPEN-WORKSPACE-UI-HOST-NAVIGATION-001",
+                "OPEN-WORKSPACE-BRIDGE-COMPATIBILITY-001"
             ],
             "prGates": [
                 "test:deterministic:run"

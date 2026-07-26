@@ -65,7 +65,7 @@ function loadDashboard(transform) {
 }
 
 async function runTerminalCloseContract(transform = source => source) {
-    const storageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'project-steward-close-wiring-'));
+    const storageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-close-wiring-'));
     const listeners = {};
     const commands = new Map();
     const vscode = createHarnessVscode(listeners, commands);

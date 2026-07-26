@@ -956,7 +956,7 @@ test('ACTIVE-SESSION-CONVERSATION-STATES-001 distinguishes loading, empty, stale
     assert.match(await state.textContent(), /Installed Codex protocol is not supported/);
     assert.match(
         await state.textContent(),
-        /Compare your installed Codex and Project Steward versions/
+        /Compare your installed Codex and Agent Pivot versions/
     );
 
     await postHostMessage(page, outlineError({

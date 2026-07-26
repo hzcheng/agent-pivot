@@ -30,11 +30,11 @@ test('OPEN-BRIDGE-CLIENT-001 sequences changes and focus publications while supp
     const commands = createCommandRegistry();
     const publications = [];
     const aggregates = [];
-    commands.register('_projectStewardOpenWorkspaces.bridge.publish', publication => {
+    commands.register('_agentPivotOpenWorkspaces.bridge.publish', publication => {
         publications.push(publication);
     });
-    commands.register('_projectStewardOpenWorkspaces.bridge.unregister', () => undefined);
-    commands.register('_projectStewardOpenWorkspaces.bridge.handshake', handshakeResponse);
+    commands.register('_agentPivotOpenWorkspaces.bridge.unregister', () => undefined);
+    commands.register('_agentPivotOpenWorkspaces.bridge.handshake', handshakeResponse);
     const client = new OpenWorkspaceBridgeClient(
         makeRecord(),
         aggregate => aggregates.push(aggregate),
@@ -68,7 +68,7 @@ test('OPEN-BRIDGE-CLIENT-001 sequences changes and focus publications while supp
     assert.equal(publications.at(-1).sequence, 4);
     assert.equal(publications.at(-1).followsFocusEvent, false);
 
-    const aggregateCommand = commands.handlers.get('_projectStewardOpenWorkspaces.workspace.aggregate');
+    const aggregateCommand = commands.handlers.get('_agentPivotOpenWorkspaces.workspace.aggregate');
     const aggregate = makeAggregate([makeRegistration()]);
     await aggregateCommand(aggregate);
     await aggregateCommand({
@@ -93,10 +93,10 @@ test('OPEN-BRIDGE-CLIENT-001 retries the same semantic publication after command
             now: () => 1000,
             registerCommand: () => ({ dispose: () => undefined }),
             executeCommand: async (command, publication) => {
-                if (command === '_projectStewardOpenWorkspaces.bridge.handshake') {
+                if (command === '_agentPivotOpenWorkspaces.bridge.handshake') {
                     return handshakeResponse();
                 }
-                if (command !== '_projectStewardOpenWorkspaces.bridge.publish') return;
+                if (command !== '_agentPivotOpenWorkspaces.bridge.publish') return;
                 attempts.push(publication);
                 if (rejectNext) {
                     rejectNext = false;

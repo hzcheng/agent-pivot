@@ -112,7 +112,7 @@ const TmuxFocusedRuntimeMonitor = require('../out/aiSessions/tmuxFocusedRuntimeM
 const settleAiSessionRuntimeLifecycles = require('../out/aiSessions/attentionController').settleAiSessionRuntimeLifecycles;
 const runAiSessionRuntimeLifecycleTask = require('../out/aiSessions/attentionController').runAiSessionRuntimeLifecycleTask;
 const AiSessionArchiveController = require('../out/aiSessions/archiveController').AiSessionArchiveController;
-const SidebarStewardViewProvider = require('../out/dashboard/viewProvider').SidebarStewardViewProvider;
+const AgentPivotViewProvider = require('../out/dashboard/viewProvider').AgentPivotViewProvider;
 const dashboardErrorContent = require('../out/dashboard/errorContent');
 Module._load = originalModuleLoad;
 
@@ -826,7 +826,7 @@ function runDashboardSearchCatalogChecks() {
 }
 
 function runDashboardDiagnosticsChecks() {
-    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'project-steward-diagnostics-'));
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-diagnostics-'));
     try {
         const lines = [];
         let nowMs = Date.parse('2026-07-16T12:00:00.000Z');
@@ -1790,7 +1790,7 @@ function runScanOptionChecks() {
 }
 
 function runTerminalCwdChecks() {
-    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'project-steward-terminal-cwd-'));
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-terminal-cwd-'));
     try {
         const nestedFile = path.join(tempRoot, 'src', 'index.ts');
         fs.mkdirSync(path.dirname(nestedFile), { recursive: true });
@@ -1826,7 +1826,7 @@ function runDisplayChecks() {
 }
 
 function runPinStoreChecks() {
-    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'project-steward-pins-'));
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-pins-'));
     try {
         const firstStore = new AiSessionPinStore(tempRoot);
         const secondStore = new AiSessionPinStore(tempRoot);
@@ -1910,7 +1910,7 @@ async function runPinControllerChecks() {
 }
 
 function runAliasStoreChecks() {
-    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'project-steward-aliases-'));
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-aliases-'));
     try {
         const store = new AiSessionAliasStore(tempRoot);
         assert.deepStrictEqual(store.getAll(), {});
@@ -2789,7 +2789,7 @@ async function runAiSessionAttentionControllerChecks() {
             ),
             backend: 'tmux', state: 'completed', markerPath: '/tmp/completed.marker',
             runStartedAtMs: 900, attached: false,
-            tmux: { layout: 'session', sessionName: 'project-steward-s-codex-a' },
+            tmux: { layout: 'session', sessionName: 'agent-pivot-s-codex-a' },
         }],
     ]);
     const published = [];
@@ -3189,7 +3189,7 @@ async function runAiSessionAttentionControllerChecks() {
         ),
         backend: 'tmux', state: 'stopped', markerPath: '/tmp/stopped.marker',
         runStartedAtMs: 900, attached: false,
-        tmux: { layout: 'session', sessionName: 'project-steward-s-codex-a' },
+        tmux: { layout: 'session', sessionName: 'agent-pivot-s-codex-a' },
     });
     await controller.evaluate();
     assert.deepStrictEqual(controller.getLocalSnapshot(), {},
@@ -3316,7 +3316,7 @@ async function runAiSessionExecutionControllerChecks() {
     assert.ok(!source.toLowerCase().includes('attention'), 'execution controller never reads attention configuration');
 }
 
-async function runSidebarStewardViewProviderOrderingChecks() {
+async function runAgentPivotViewProviderOrderingChecks() {
     const order = [];
     const visibilityListeners = [];
     const messageListeners = [];
@@ -3331,7 +3331,7 @@ async function runSidebarStewardViewProviderOrderingChecks() {
         onDidChangeVisibility: listener => { visibilityListeners.push(listener); return { dispose() {} }; },
         onDidDispose: () => ({ dispose() {} }),
     };
-    const provider = new SidebarStewardViewProvider({
+    const provider = new AgentPivotViewProvider({
         getWebviewOptions: () => ({}),
         renderContent: () => { order.push('render'); return '<main>fresh</main>'; },
         renderError: () => '<main>error</main>',
@@ -3366,7 +3366,7 @@ async function runSidebarStewardViewProviderOrderingChecks() {
         onDidChangeVisibility: () => ({ dispose() {} }),
         onDidDispose: () => ({ dispose() {} }),
     };
-    const failedProvider = new SidebarStewardViewProvider({
+    const failedProvider = new AgentPivotViewProvider({
         getWebviewOptions: () => ({}),
         renderContent: () => { staleRenderCount++; return '<main>stale</main>'; },
         renderError: () => '<main>runtime unavailable</main>',
@@ -3380,8 +3380,8 @@ async function runSidebarStewardViewProviderOrderingChecks() {
     assert.strictEqual(failedView.webview.html, '<main>runtime unavailable</main>');
     await messageListeners[messageListeners.length - 1]({ type: 'rejected-action' });
     assert.deepStrictEqual(failedLogs, [
-        'Failed to prepare Project Steward view.',
-        'Failed to handle a Project Steward message.',
+        'Failed to prepare Agent Pivot view.',
+        'Failed to handle an Agent Pivot message.',
     ], 'visibility and message rejections must be contained at the view boundary');
 
     const secret = '/home/private/tmux-custom-bin --token=do-not-render';
@@ -3395,7 +3395,7 @@ async function runSidebarStewardViewProviderOrderingChecks() {
         onDidChangeVisibility: () => ({ dispose() {} }),
         onDidDispose: () => ({ dispose() {} }),
     };
-    const secretProvider = new SidebarStewardViewProvider({
+    const secretProvider = new AgentPivotViewProvider({
         getWebviewOptions: () => ({}), renderContent: () => '<main>stale</main>',
         renderError: dashboardErrorContent.getErrorContent,
         onMessage: async () => { throw new Error(secret); },
@@ -3408,7 +3408,7 @@ async function runSidebarStewardViewProviderOrderingChecks() {
         'visible error HTML must never include raw executable paths or exception text');
     assert.strictEqual(visibleFailureLogs.some(line => line.includes(secret)), false,
         'the view provider must not forward raw visible-boundary failures to logs');
-    assert.ok(secretView.webview.html.includes('Project Steward could not render this view.'));
+    assert.ok(secretView.webview.html.includes('Agent Pivot could not render this view.'));
 }
 
 async function runAiSessionArchiveRuntimeChecks() {
@@ -3432,7 +3432,7 @@ async function runAiSessionArchiveRuntimeChecks() {
         ),
         backend: 'tmux', state: 'active', markerPath: '/tmp/runtime.marker',
         runStartedAtMs: 900, attached: false,
-        tmux: { layout: 'project', sessionName: 'project-steward-p-a', windowName: 'ai-codex-a' },
+        tmux: { layout: 'project', sessionName: 'agent-pivot-p-a', windowName: 'ai-codex-a' },
     };
     const warnings = [];
     const focused = [];
@@ -3907,7 +3907,7 @@ async function runTmuxFocusedRuntimeMonitorChecks() {
 }
 
 function runAiSessionTerminalResolutionChecks() {
-    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'project-steward-active-terminal-'));
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-active-terminal-'));
     try {
         const service = new AiSessionTerminalService(tempRoot, providers.AI_SESSION_PROVIDER_IDS.map(providerId =>
             providers.getAiSessionProviderDefinition(providerId)), 0
@@ -3959,11 +3959,11 @@ function runAiSessionTerminalResolutionChecks() {
 
         const byEnv = {
             name: 'Codex restored',
-            creationOptions: { env: { PROJECT_STEWARD_CODEX_SESSION_ID: 'session-env' } },
+            creationOptions: { env: { AGENT_PIVOT_CODEX_SESSION_ID: 'session-env' } },
         };
         const archivedByEnv = {
             name: 'Codex archived',
-            creationOptions: { env: { PROJECT_STEWARD_CODEX_SESSION_ID: 'session-archived' } },
+            creationOptions: { env: { AGENT_PIVOT_CODEX_SESSION_ID: 'session-archived' } },
         };
         const byName = { name: 'Kimi: Named [named-12]', creationOptions: {} };
         const ordinary = { name: 'bash', creationOptions: {} };
@@ -4271,7 +4271,7 @@ async function runAiSessionTerminalBindingStoreChecks() {
 }
 
 async function runAiSessionTerminalPersistenceChecks() {
-    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'project-steward-terminal-persistence-'));
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-terminal-persistence-'));
     const stateData = {};
     const state = {
         get: (key, fallback) => Object.prototype.hasOwnProperty.call(stateData, key) ? stateData[key] : fallback,
@@ -4460,7 +4460,7 @@ async function runAiSessionTerminalPersistenceChecks() {
             creationOptions: {
                 name: restoredPendingTerminal.name,
                 cwd: '/work/app',
-                env: { PROJECT_STEWARD_CODEX_SESSION_ID: 'session-new' },
+                env: { AGENT_PIVOT_CODEX_SESSION_ID: 'session-new' },
             },
             processId: Promise.resolve(processId),
         };
@@ -4927,7 +4927,7 @@ function runWebviewContentChecks() {
     const aggregateArchiveItemLogFunction = extractMethodBody(archiveControllerSource, 'formatAggregateAiSessionItemForLog');
     const projectWindowColorService = fs.readFileSync(path.join(__dirname, '..', 'src', 'services', 'projectWindowColorService.ts'), 'utf8');
     const packageJson = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
-    const settingsFunction = extractFunctionBody(dashboard, 'showProjectStewardSettings');
+    const settingsFunction = extractFunctionBody(dashboard, 'showAgentPivotSettings');
     const sidebarStyles = extractExactScssBlock(styles, 'body.steward-sidebar');
     assert.strictEqual(sidebarStyles.includes('.project[data-current-workspace]'), false,
         'current workspace shell state must be owned by the shared item card');
@@ -5217,7 +5217,7 @@ function runWebviewContentChecks() {
         'readAiSessionLaunchOptions(vscode.workspace)'
     ));
     assert.ok(!dashboard.includes(
-        'readAiSessionLaunchOptions(getStewardConfiguration())'
+        'readAiSessionLaunchOptions(getAgentPivotConfiguration())'
     ), 'YOLO configuration must not pass through the legacy dashboard fallback');
     assert.ok(dashboard.includes('new AiSessionPinController({'));
     assert.ok(dashboard.includes('aiSessionPinController.getAll()'));
@@ -5478,11 +5478,11 @@ function runWebviewContentChecks() {
     assert.ok(webviewContent.includes('visibleRows * 42'));
     assert.ok(styles.includes('calc(3 * 42px + 2 * 2px)'));
     assert.deepStrictEqual(
-        packageJson.contributes.configuration.properties['projectSteward.aiSessionTerminalMode'].enum,
+        packageJson.contributes.configuration.properties['agentPivot.aiSessionTerminalMode'].enum,
         ['vscode', 'tmux']
     );
     const runningAnimation = packageJson.contributes.configuration.properties[
-        'projectSteward.aiSessionRunningCardAnimation'
+        'agentPivot.aiSessionRunningCardAnimation'
     ];
     assert.deepStrictEqual(runningAnimation.enum, [
         'current',
@@ -5514,7 +5514,7 @@ function runWebviewContentChecks() {
             + 'expose provider or session identities.',
     );
     const runningIconAnimation = packageJson.contributes.configuration.properties[
-        'projectSteward.aiSessionRunningIconAnimation'
+        'agentPivot.aiSessionRunningIconAnimation'
     ];
     assert.deepStrictEqual(runningIconAnimation.enum, [
         'current',
@@ -5573,10 +5573,10 @@ function runWebviewContentChecks() {
     assert.ok(!dashboard.includes('context.globalState.update(OPEN_PROJECTS_EXPANDED_CODEX_SESSIONS_KEY'));
     assert.ok(!dashboard.includes('context.globalState.get(OPEN_PROJECTS_ACTIVE_AI_SESSION_PROVIDER_KEY)'));
     assert.ok(!dashboard.includes('context.globalState.update(OPEN_PROJECTS_ACTIVE_AI_SESSION_PROVIDER_KEY'));
-    assert.strictEqual(packageJson.contributes.configuration.properties['projectSteward.storeProjectsInSettings'].default, true);
-    assert.strictEqual(packageJson.contributes.configuration.properties['projectSteward.applyProjectColorToWindow'].default, false);
-    assert.strictEqual(packageJson.contributes.configuration.properties['projectSteward.maxVisibleAiSessions'].default, 3);
-    assert.strictEqual(packageJson.contributes.configuration.properties['projectSteward.maxVisibleAiSessions'].minimum, 1);
+    assert.strictEqual(packageJson.contributes.configuration.properties['agentPivot.storeProjectsInSettings'].default, true);
+    assert.strictEqual(packageJson.contributes.configuration.properties['agentPivot.applyProjectColorToWindow'].default, false);
+    assert.strictEqual(packageJson.contributes.configuration.properties['agentPivot.maxVisibleAiSessions'].default, 3);
+    assert.strictEqual(packageJson.contributes.configuration.properties['agentPivot.maxVisibleAiSessions'].minimum, 1);
     assert.ok(dashboard.includes("ProjectWindowColorService"));
     assert.ok(!dashboard.includes('resolveCurrentWorkspaceProjectIds('));
     assert.ok(!dashboard.includes('get currentWorkspaceProjectIds() { return getCurrentWorkspaceProjectIds() }'));
@@ -5670,7 +5670,7 @@ function runTmuxSmokeHarnessSafetyChecks() {
         path.join(__dirname, 'run-ai-session-tmux-smoke-checks.js'), 'utf8'
     );
     assert.ok(smokeSource.includes('execFileSync'));
-    assert.ok(smokeSource.includes('project-steward-test-'));
+    assert.ok(smokeSource.includes('agent-pivot-test-'));
     assert.ok(smokeSource.includes("['-L', serverName, '-f', '/dev/null']"));
     assert.ok(smokeSource.includes('finally'));
     assert.ok(smokeSource.includes("'kill-server'"));
@@ -6104,7 +6104,7 @@ function runFavoriteDndChecks() {
     runtimeContext.initDnD(dndRoot);
 
     assert.strictEqual(drakes.length, 2);
-    assert.strictEqual(dndRoot.__projectStewardDnDInitialized, true);
+    assert.strictEqual(dndRoot.__agentPivotDnDInitialized, true);
     const favoriteSource = {
         closest: selector => selector === '[data-system-group="__favorites"]' ? {} : null,
         querySelectorAll: () => [
@@ -6480,7 +6480,7 @@ function runBatchAiSessionWebviewChecks() {
             addEventListener: (event, listener) => { windowEventListeners[event] = listener; },
             requestAnimationFrame: callback => callback(),
             setTimeout: callback => timeoutCallbacks.push(callback),
-            __projectStewardScrollState: {
+            __agentPivotScrollState: {
                 capture: container => ({
                     scrollTop: Number(container?.scrollTop) || 0,
                     itemKey: null,
@@ -6498,7 +6498,7 @@ function runBatchAiSessionWebviewChecks() {
                 getState: () => webviewState,
                 setState: state => { webviewState = state; },
             },
-            __projectStewardDashboard: { replaceSearchCatalog: catalog => { replacedSearchCatalog = catalog; } },
+            __agentPivotDashboard: { replaceSearchCatalog: catalog => { replacedSearchCatalog = catalog; } },
         },
     };
 
@@ -6586,7 +6586,7 @@ function runBatchAiSessionWebviewChecks() {
     });
     messages.length = 0;
 
-    assert.strictEqual(context.window.__projectStewardRevealWorkspaceSession(
+    assert.strictEqual(context.window.__agentPivotRevealWorkspaceSession(
         'navigation-current', 'codex', 'workspace-session'
     ), true);
     assert.strictEqual(workspaceSessionFocuses, 1);
@@ -6708,7 +6708,7 @@ function runBatchAiSessionWebviewChecks() {
     activeRow.setAttribute('data-session-event-id', 'attention-active-session');
     tmuxRow.setAttribute('data-ai-session-attention', '');
     tmuxRow.setAttribute('data-session-event-id', 'attention-tmux-session');
-    context.window.__projectStewardAttentionSessionEvents = {
+    context.window.__agentPivotAttentionSessionEvents = {
         'codex:active-session': ['attention-active-old', 'attention-active-new'],
         'kimi:tmux-session': ['attention-tmux-old', 'attention-tmux-new'],
     };
@@ -6878,7 +6878,7 @@ function runBatchAiSessionWebviewChecks() {
     );
     assert.strictEqual(activeRow.hasAttribute('data-ai-session-active-terminal'), true);
 
-    const manager = context.window.__projectStewardBatchAiSessions;
+    const manager = context.window.__agentPivotBatchAiSessions;
     manager.enter('project-a');
     manager.toggle('codex', 'plain');
     manager.selectUnpinned([
@@ -7932,7 +7932,7 @@ function extractScssBlock(source, selector) {
 }
 
 function runGitRepositoryDetectorChecks() {
-    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'project-steward-git-'));
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-git-'));
     try {
         const repoRoot = path.join(tempRoot, 'repo');
         const nestedDir = path.join(repoRoot, 'src');
@@ -7969,7 +7969,7 @@ function runGitRepositoryDetectorChecks() {
 function createTempRootWithoutGitAncestor() {
     for (const base of [os.tmpdir(), os.homedir()]) {
         if (!hasGitAncestor(base)) {
-            return fs.mkdtempSync(path.join(base, 'project-steward-nongit-'));
+            return fs.mkdtempSync(path.join(base, 'agent-pivot-nongit-'));
         }
     }
 
@@ -8006,7 +8006,7 @@ function writeCodexSessionMetaFile(sessionsDir, sessionId, payload) {
 
 function runCodexSubagentSessionFilterChecks() {
     const previousCodexHome = process.env.CODEX_HOME;
-    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'project-steward-codex-subagents-'));
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-codex-subagents-'));
     const sessionsDir = path.join(tempRoot, 'sessions', '2026', '07', '13');
     const indexedNormalId = '11111111-1111-4111-8111-111111111111';
     const indexedSubagentId = '22222222-2222-4222-8222-222222222222';
@@ -8087,7 +8087,7 @@ function runCodexSubagentSessionFilterChecks() {
         );
         const subagentTerminal = {
             name: 'Codex restored',
-            creationOptions: { env: { PROJECT_STEWARD_CODEX_SESSION_ID: indexedSubagentId } },
+            creationOptions: { env: { AGENT_PIVOT_CODEX_SESSION_ID: indexedSubagentId } },
         };
         assert.strictEqual(
             terminalService.resolveTerminalSession(subagentTerminal, () => result.sessions),
@@ -8105,7 +8105,7 @@ function runCodexSubagentSessionFilterChecks() {
 
 function runCodexSessionActivityTimestampChecks() {
     const previousCodexHome = process.env.CODEX_HOME;
-    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'project-steward-codex-activity-'));
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-codex-activity-'));
     const sessionsDir = path.join(tempRoot, 'sessions', '2026', '07', '14');
     const sessionId = '77777777-7777-4777-8777-777777777777';
     try {
@@ -8147,7 +8147,7 @@ function runCodexSessionMetaCacheChecks() {
     const previousCodexHome = process.env.CODEX_HOME;
     const originalOpenSync = fs.openSync;
     const originalReadFileSync = fs.readFileSync;
-    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'project-steward-codex-meta-cache-'));
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-codex-meta-cache-'));
     const sessionsDir = path.join(tempRoot, 'sessions', '2026', '07', '16');
     const sessionId = '88888888-8888-4888-8888-888888888888';
     try {
@@ -8214,7 +8214,7 @@ function runCodexSessionMetaCacheChecks() {
 
 function runKimiNestedSubagentBoundaryChecks() {
     const previousKimiHome = process.env.KIMI_SHARE_DIR;
-    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'project-steward-kimi-subagents-'));
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-kimi-subagents-'));
     const workDir = '/work/app';
     const sessionId = '77777777-7777-4777-8777-777777777777';
     try {
@@ -8247,7 +8247,7 @@ function runKimiNestedSubagentBoundaryChecks() {
 
 function runClaudeSessionChecks() {
     const previousClaudeHome = process.env.CLAUDE_HOME;
-    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'project-steward-claude-'));
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-claude-'));
     const sessionId = '11111111-1111-4111-8111-111111111111';
     try {
         process.env.CLAUDE_HOME = tempRoot;
@@ -8289,7 +8289,7 @@ function runAiSessionProviderMaxFilesChecks() {
     const previousCodexHome = process.env.CODEX_HOME;
     const previousKimiHome = process.env.KIMI_SHARE_DIR;
     const previousClaudeHome = process.env.CLAUDE_HOME;
-    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'project-steward-provider-budget-'));
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-provider-budget-'));
     const firstId = '11111111-1111-4111-8111-111111111111';
     const secondId = '22222222-2222-4222-8222-222222222222';
     const thirdId = '33333333-3333-4333-8333-333333333333';
@@ -8394,11 +8394,11 @@ function runProviderChecks() {
     assert.strictEqual(providers.getAiSessionProviderLabel('codex'), 'Codex');
     assert.strictEqual(providers.getAiSessionProviderLabel('kimi'), 'Kimi');
     assert.strictEqual(providers.getAiSessionProviderLabel('claude'), 'Claude');
-    assert.strictEqual(providers.getAiSessionProviderDefinition('codex').terminalEnvKey, 'PROJECT_STEWARD_CODEX_SESSION_ID');
+    assert.strictEqual(providers.getAiSessionProviderDefinition('codex').terminalEnvKey, 'AGENT_PIVOT_CODEX_SESSION_ID');
     assert.strictEqual(providers.getAiSessionProviderDefinition('kimi').markerDirName, 'kimi-session-terminals');
     assert.strictEqual(providers.getAiSessionProviderDefinition('codex').projectSessionsKey, 'codexSessions');
     assert.strictEqual(providers.getAiSessionProviderDefinition('kimi').projectSessionsUnavailableKey, 'kimiSessionsUnavailable');
-    assert.strictEqual(providers.getAiSessionProviderDefinition('claude').terminalEnvKey, 'PROJECT_STEWARD_CLAUDE_SESSION_ID');
+    assert.strictEqual(providers.getAiSessionProviderDefinition('claude').terminalEnvKey, 'AGENT_PIVOT_CLAUDE_SESSION_ID');
     assert.deepStrictEqual(providers.getAiSessionProviderDefinition('codex').terminalCwdFields, ['cwd']);
     assert.deepStrictEqual(providers.getAiSessionProviderDefinition('kimi').terminalCwdFields, ['workDir', 'cwd']);
     assert.deepStrictEqual(providers.getAiSessionProviderDefinition('claude').terminalCwdFields, ['workDir', 'cwd']);
@@ -8424,7 +8424,7 @@ function runProviderLifecycleServiceChecks() {
     };
     const runStartedAtMs = Date.parse('2026-07-15T00:00:00.000Z');
     const previousCodexHome = process.env.CODEX_HOME;
-    const codexRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'project-steward-codex-lifecycle-'));
+    const codexRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-codex-lifecycle-'));
     const codexId = '88888888-8888-4888-8888-888888888888';
     try {
         process.env.CODEX_HOME = codexRoot;
@@ -8469,7 +8469,7 @@ function runProviderLifecycleServiceChecks() {
     }
 
     const previousKimiHome = process.env.KIMI_SHARE_DIR;
-    const kimiRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'project-steward-kimi-lifecycle-'));
+    const kimiRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-kimi-lifecycle-'));
     const kimiId = '99999999-9999-4999-8999-999999999999';
     try {
         process.env.KIMI_SHARE_DIR = kimiRoot;
@@ -8505,7 +8505,7 @@ function runProviderLifecycleServiceChecks() {
     }
 
     const previousClaudeHome = process.env.CLAUDE_HOME;
-    const claudeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'project-steward-claude-lifecycle-'));
+    const claudeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-claude-lifecycle-'));
     const claudeId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
     try {
         process.env.CLAUDE_HOME = claudeRoot;
@@ -8860,7 +8860,7 @@ function runLifecycleParserChecks() {
     ]);
     assert.strictEqual(claudeAccumulator.getSignal().executionState, 'running');
 
-    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'project-steward-jsonl-tail-'));
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-jsonl-tail-'));
     try {
         const filePath = path.join(tempRoot, 'events.jsonl');
         fs.writeFileSync(filePath, `${'x'.repeat(40)}\nsecond\nthird\n`, 'utf8');
@@ -8872,7 +8872,7 @@ function runLifecycleParserChecks() {
 }
 
 function runIncrementalJsonlLifecycleReaderChecks() {
-    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'project-steward-incremental-jsonl-lifecycle-'));
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-incremental-jsonl-lifecycle-'));
     const runStartedAtMs = Date.parse('2026-07-15T00:00:00.000Z');
     const createAccumulator = () => lifecycle.createCodexLifecycleAccumulator(runStartedAtMs);
     const codexEvent = (timestamp, type, turnId) => JSON.stringify({
@@ -9545,7 +9545,7 @@ async function runAttentionBridgeClientPrivacyChecks() {
             },
             executeCommand: async (command, argument) => {
                 executed.push({ command, argument });
-                if (command === '_projectStewardAttention.bridge.handshake') {
+                if (command === '_agentPivotAttention.bridge.handshake') {
                     if (handshakeMode === 'missing') throw new Error('command not found');
                     return {
                         accepted: true,
@@ -9572,8 +9572,8 @@ async function runAttentionBridgeClientPrivacyChecks() {
         const receivedAggregates = [];
         const client = new AttentionBridgeClient(aggregate => receivedAggregates.push(aggregate), error => errors.push(error));
         assert.strictEqual(await client.publish([]), true);
-        assert.strictEqual(executed[0].command, '_projectStewardAttention.bridge.handshake');
-        const productionPublish = executed.find(entry => entry.command === '_projectStewardAttention.bridge.publish');
+        assert.strictEqual(executed[0].command, '_agentPivotAttention.bridge.handshake');
+        const productionPublish = executed.find(entry => entry.command === '_agentPivotAttention.bridge.publish');
         assert.ok(productionPublish);
         const serialized = JSON.stringify(productionPublish.argument);
         assert.ok(!serialized.includes('/home/alice/private-repo'));
@@ -9581,7 +9581,7 @@ async function runAttentionBridgeClientPrivacyChecks() {
         assert.ok(!serialized.includes('ssh-remote'));
         assert.ok(!Object.prototype.hasOwnProperty.call(productionPublish.argument, 'workspaceIdentity'));
 
-        const aggregateReceiver = registered.get('_projectStewardAttention.workspace.aggregate');
+        const aggregateReceiver = registered.get('_agentPivotAttention.workspace.aggregate');
         aggregateReceiver({
             protocolVersion: 1,
             aggregateRevision: 'b'.repeat(64),
@@ -9600,19 +9600,19 @@ async function runAttentionBridgeClientPrivacyChecks() {
         assert.strictEqual(errors.length, errorCountBeforeMalformedAggregate + 1, 'malformed aggregate must fail closed');
         await client.acknowledge(['peer-event']);
         assert.strictEqual(
-            executed.some(entry => entry.command === '_projectStewardAttention.bridge.acknowledge'
+            executed.some(entry => entry.command === '_agentPivotAttention.bridge.acknowledge'
                 && entry.argument.eventIds[0] === 'peer-event'),
             true,
             'a window must acknowledge an exact event even when it does not own that event'
         );
         client.dispose();
 
-        const publishCount = executed.filter(entry => entry.command === '_projectStewardAttention.bridge.publish').length;
+        const publishCount = executed.filter(entry => entry.command === '_agentPivotAttention.bridge.publish').length;
         handshakeMode = 'mismatch';
         const mismatch = new AttentionBridgeClient(() => undefined, error => errors.push(error));
         assert.strictEqual(await mismatch.publish([]), false, 'incompatible bridge must keep window-local fallback');
         mismatch.dispose();
-        assert.strictEqual(executed.filter(entry => entry.command === '_projectStewardAttention.bridge.publish').length, publishCount);
+        assert.strictEqual(executed.filter(entry => entry.command === '_agentPivotAttention.bridge.publish').length, publishCount);
 
         handshakeMode = 'missing';
         const missing = new AttentionBridgeClient(() => undefined, error => errors.push(error));
@@ -9674,7 +9674,7 @@ async function runProductionAttentionBridgeIntegrationChecks() {
     try {
         const extension = require(extensionPath);
         await extension.activate(context);
-        assert.strictEqual(typeof registered.get('_projectStewardAttention.bridge.handshake'), 'function');
+        assert.strictEqual(typeof registered.get('_agentPivotAttention.bridge.handshake'), 'function');
         const aggregates = [];
         const errors = [];
         const AttentionBridgeClient = require(clientPath).default;
@@ -9691,10 +9691,10 @@ async function runProductionAttentionBridgeIntegrationChecks() {
         assert.strictEqual(aggregates.length > 0, true);
         assert.deepStrictEqual(aggregates[aggregates.length - 1].sessions[0].eventIds, ['integration-event']);
 
-        const publish = registered.get('_projectStewardAttention.bridge.publish');
-        const handshake = registered.get('_projectStewardAttention.bridge.handshake');
-        const unregister = registered.get('_projectStewardAttention.bridge.unregister');
-        const validPublishedSnapshot = executed.find(entry => entry.command === '_projectStewardAttention.bridge.publish').argument;
+        const publish = registered.get('_agentPivotAttention.bridge.publish');
+        const handshake = registered.get('_agentPivotAttention.bridge.handshake');
+        const unregister = registered.get('_agentPivotAttention.bridge.unregister');
+        const validPublishedSnapshot = executed.find(entry => entry.command === '_agentPivotAttention.bridge.publish').argument;
         assert.strictEqual(typeof unregister, 'function');
         const handshakeResponse = await handshake({
             protocolVersion: 1,
@@ -9711,7 +9711,7 @@ async function runProductionAttentionBridgeIntegrationChecks() {
             items: [{ ...validPublishedSnapshot.items[0], eventId: 'x'.repeat(1025) }],
         }), /eventId/);
 
-        const productionRoot = path.join(root, 'attention-local-bridge-spike', 'v1', 'production-attention', 'v1', 'instances');
+        const productionRoot = path.join(root, 'agent-pivot', 'bridge', 'v1', 'production-attention', 'v1', 'instances');
         const storedText = fs.readdirSync(productionRoot)
             .filter(name => name.endsWith('.json'))
             .map(name => fs.readFileSync(path.join(productionRoot, name), 'utf8'))
@@ -9752,7 +9752,7 @@ async function runAttentionBridgeClientLifecycleChecks() {
         },
         executeCommand: async (command, argument) => {
             commands.push({ command, argument });
-            if (command === '_projectStewardAttention.bridge.handshake') {
+            if (command === '_agentPivotAttention.bridge.handshake') {
                 if (holdHandshake) {
                     handshakeEntered = true;
                     await handshakeGate;
@@ -9764,11 +9764,11 @@ async function runAttentionBridgeClientLifecycleChecks() {
                     capabilities: { snapshots: true, acknowledgements: true, atomicReplace: true },
                 };
             }
-            if (command === '_projectStewardAttention.bridge.publish' && holdFirstPublish && !firstPublishEntered) {
+            if (command === '_agentPivotAttention.bridge.publish' && holdFirstPublish && !firstPublishEntered) {
                 firstPublishEntered = true;
                 await firstPublishGate;
             }
-            if (command === '_projectStewardAttention.bridge.publish' && bridgeMode === 'missing') {
+            if (command === '_agentPivotAttention.bridge.publish' && bridgeMode === 'missing') {
                 throw new Error('command not found');
             }
             return undefined;
@@ -9797,26 +9797,26 @@ async function runAttentionBridgeClientLifecycleChecks() {
         assert.strictEqual(timers.length, 1, 'missing bridge schedules bounded retry');
         bridgeMode = 'available';
         timers.shift().callback();
-        for (let attempt = 0; attempt < 50 && !commands.some(entry => entry.command === '_projectStewardAttention.bridge.publish'); attempt += 1) {
+        for (let attempt = 0; attempt < 50 && !commands.some(entry => entry.command === '_agentPivotAttention.bridge.publish'); attempt += 1) {
             await new Promise(resolve => setImmediate(resolve));
         }
-        assert.strictEqual(commands.find(entry => entry.command === '_projectStewardAttention.bridge.publish').argument.items[0].eventId, 'latest-while-missing');
+        assert.strictEqual(commands.find(entry => entry.command === '_agentPivotAttention.bridge.publish').argument.items[0].eventId, 'latest-while-missing');
 
         bridgeMode = 'missing';
         assert.strictEqual(await client.publish([], true), false);
         const publishCountBeforeEmptyRecovery = commands.filter(
-            entry => entry.command === '_projectStewardAttention.bridge.publish'
+            entry => entry.command === '_agentPivotAttention.bridge.publish'
         ).length;
         assert.strictEqual(timers.length, 1);
         bridgeMode = 'available';
         timers.shift().callback();
         for (let attempt = 0; attempt < 50 && commands.filter(
-            entry => entry.command === '_projectStewardAttention.bridge.publish'
+            entry => entry.command === '_agentPivotAttention.bridge.publish'
         ).length === publishCountBeforeEmptyRecovery; attempt += 1) {
             await new Promise(resolve => setImmediate(resolve));
         }
         const publicationsAfterEmptyRecovery = commands.filter(
-            entry => entry.command === '_projectStewardAttention.bridge.publish'
+            entry => entry.command === '_agentPivotAttention.bridge.publish'
         );
         assert.strictEqual(publicationsAfterEmptyRecovery.length, publishCountBeforeEmptyRecovery + 1,
             'bridge recovery must flush an explicitly requested empty snapshot');
@@ -9831,12 +9831,12 @@ async function runAttentionBridgeClientLifecycleChecks() {
         releaseFirstPublish();
         await Promise.all([first, second]);
         holdFirstPublish = false;
-        const beforeDedup = commands.filter(entry => entry.command === '_projectStewardAttention.bridge.publish').length;
+        const beforeDedup = commands.filter(entry => entry.command === '_agentPivotAttention.bridge.publish').length;
         await client.publish([item('newer')]);
-        assert.strictEqual(commands.filter(entry => entry.command === '_projectStewardAttention.bridge.publish').length, beforeDedup, 'client cache remains at newest publication');
+        assert.strictEqual(commands.filter(entry => entry.command === '_agentPivotAttention.bridge.publish').length, beforeDedup, 'client cache remains at newest publication');
         client.dispose();
         await new Promise(resolve => setImmediate(resolve));
-        assert.strictEqual(commands.some(entry => entry.command === '_projectStewardAttention.bridge.unregister'), true);
+        assert.strictEqual(commands.some(entry => entry.command === '_agentPivotAttention.bridge.unregister'), true);
 
         holdHandshake = true;
         handshakeEntered = false;
@@ -9873,8 +9873,8 @@ async function runAttentionBridgeClientLifecycleChecks() {
 
         const lifecycleMutations = instanceId => commands
             .filter(entry => entry.argument?.instanceId === instanceId
-                && (entry.command === '_projectStewardAttention.bridge.publish'
-                    || entry.command === '_projectStewardAttention.bridge.unregister'))
+                && (entry.command === '_agentPivotAttention.bridge.publish'
+                    || entry.command === '_agentPivotAttention.bridge.unregister'))
             .map(entry => ({
                 command: entry.command,
                 eventIds: entry.argument.items?.map(value => value.eventId) || [],
@@ -9884,16 +9884,16 @@ async function runAttentionBridgeClientLifecycleChecks() {
             disposedWithQueuedAndInFlight: lifecycleMutations(queuedDisposeInstanceId).slice(1),
         }, {
             disposedDuringHandshake: [{
-                command: '_projectStewardAttention.bridge.unregister',
+                command: '_agentPivotAttention.bridge.unregister',
                 eventIds: [],
             }],
             disposedWithQueuedAndInFlight: [
                 {
-                    command: '_projectStewardAttention.bridge.publish',
+                    command: '_agentPivotAttention.bridge.publish',
                     eventIds: ['in-flight-at-dispose'],
                 },
                 {
-                    command: '_projectStewardAttention.bridge.unregister',
+                    command: '_agentPivotAttention.bridge.unregister',
                     eventIds: [],
                 },
             ],
@@ -10033,7 +10033,7 @@ async function main() {
     await runWorkspaceLaunchPreflightControllerChecks();
     await runAiSessionAttentionControllerChecks();
     await runAiSessionExecutionControllerChecks();
-    await runSidebarStewardViewProviderOrderingChecks();
+    await runAgentPivotViewProviderOrderingChecks();
     await runAiSessionArchiveRuntimeChecks();
     await runWorkspaceCardActionControllerIntegrationChecks();
     runKeyChecks();

@@ -3,6 +3,7 @@
 import * as childProcess from 'child_process';
 import * as path from 'path';
 import * as vscode from 'vscode';
+import { AGENT_PIVOT_DASHBOARD_VIEW_ID } from '../../constants';
 import type { AiSessionProviderId } from '../../models';
 import type {
     ActiveAiSessionViewModel,
@@ -336,7 +337,7 @@ async function restoreConversationFocus(
     }
 ): Promise<void> {
     try {
-        await vscode.commands.executeCommand('projectSteward.steward.focus');
+        await vscode.commands.executeCommand(`${AGENT_PIVOT_DASHBOARD_VIEW_ID}.focus`);
     } catch (_error) {
         // Publishing the semantic fallback remains useful if reveal fails.
     }

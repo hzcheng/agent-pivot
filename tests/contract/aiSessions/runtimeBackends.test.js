@@ -198,7 +198,7 @@ test('RUNTIME-TMUX-PROJECT-FIRST-WINDOW-001 creates the first project runtime in
     assert.equal(harness.windows[0].sessionName, runtime.tmux.sessionName);
     assert.equal(harness.windows[0].windowName, runtime.tmux.windowName);
     assert.equal(newSessionOperations[0].windowName, runtime.tmux.windowName);
-    assert.notEqual(harness.windows[0].windowName, 'project-steward');
+    assert.notEqual(harness.windows[0].windowName, 'agent-pivot');
 });
 
 for (const runtime of [{

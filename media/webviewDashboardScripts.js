@@ -324,7 +324,7 @@ function renderDashboardSearchResults(container, sections) {
 
 function initDashboard(options) {
     options = options || {};
-    var storageKey = 'projectSteward.activeDashboardTab';
+    var storageKey = 'agentPivot.activeDashboardTab';
     var scrollPositions = { open: 0, projects: 0, todo: 0, ai: 0 };
     var activeTab = normalizeDashboardTab(sessionStorage.getItem(storageKey));
     var projectsState = 'unloaded';
@@ -692,8 +692,8 @@ function initDashboard(options) {
             if (provider !== 'codex' && provider !== 'kimi' && provider !== 'claude') {
                 return;
             }
-            if (typeof window.__projectStewardAcknowledgeSession === 'function') {
-                window.__projectStewardAcknowledgeSession(provider, button.dataset.sessionId);
+            if (typeof window.__agentPivotAcknowledgeSession === 'function') {
+                window.__agentPivotAcknowledgeSession(provider, button.dataset.sessionId);
             }
             options.postMessage({
                 type: 'resume-' + provider + '-session',
@@ -710,8 +710,8 @@ function initDashboard(options) {
                 setSearchQuery('');
             }
             activateTab('open', false);
-            if (typeof window.__projectStewardRevealWorkspaceSession === 'function') {
-                window.__projectStewardRevealWorkspaceSession(
+            if (typeof window.__agentPivotRevealWorkspaceSession === 'function') {
+                window.__agentPivotRevealWorkspaceSession(
                     button.dataset.workspaceNavigationIdentity,
                     button.dataset.provider,
                     button.dataset.sessionId
@@ -726,8 +726,8 @@ function initDashboard(options) {
                 setSearchQuery('');
             }
             activateTab('open', false);
-            if (typeof window.__projectStewardRevealWorkspace === 'function') {
-                window.__projectStewardRevealWorkspace(button.dataset.workspaceNavigationIdentity);
+            if (typeof window.__agentPivotRevealWorkspace === 'function') {
+                window.__agentPivotRevealWorkspace(button.dataset.workspaceNavigationIdentity);
             }
             return;
         }
@@ -777,9 +777,9 @@ function initDashboard(options) {
                 return;
             }
             scheduledTarget.focusScheduled = false;
-            if (window.__projectStewardTodo
-                && typeof window.__projectStewardTodo.openDetail === 'function'
-                && window.__projectStewardTodo.openDetail(scheduledTarget.todoId)) {
+            if (window.__agentPivotTodo
+                && typeof window.__agentPivotTodo.openDetail === 'function'
+                && window.__agentPivotTodo.openDetail(scheduledTarget.todoId)) {
                 pendingTodoSearchTarget = null;
                 return;
             }
@@ -919,8 +919,8 @@ function initDashboard(options) {
                 var list = group.querySelector('.group-list');
                 return {
                     groupId: group.getAttribute('data-group-id') || '',
-                    anchor: list && window.__projectStewardScrollState
-                        ? window.__projectStewardScrollState.capture(list, {
+                    anchor: list && window.__agentPivotScrollState
+                        ? window.__agentPivotScrollState.capture(list, {
                             itemSelector: '.project[data-id]',
                             getKey: getProjectScrollItemKey,
                         })
@@ -953,7 +953,7 @@ function initDashboard(options) {
     }
 
     function restoreProjectsPanelAnchors(state) {
-        if (!state || !Array.isArray(state.groups) || !window.__projectStewardScrollState) {
+        if (!state || !Array.isArray(state.groups) || !window.__agentPivotScrollState) {
             return;
         }
         state.groups.forEach(function (savedGroup) {
@@ -965,7 +965,7 @@ function initDashboard(options) {
             if (!list) {
                 return;
             }
-            window.__projectStewardScrollState.restore(list, savedGroup.anchor, {
+            window.__agentPivotScrollState.restore(list, savedGroup.anchor, {
                 itemSelector: '.project[data-id]',
                 getKey: getProjectScrollItemKey,
             });
@@ -1165,12 +1165,12 @@ function initDashboard(options) {
             return failAiPanelMount(previousHtml);
         }
         if (!getInstalledPromptSurface(message)
-            || !window.__projectStewardPrompts
-            || typeof window.__projectStewardPrompts.mount !== 'function') {
+            || !window.__agentPivotPrompts
+            || typeof window.__agentPivotPrompts.mount !== 'function') {
             return failAiPanelMount(previousHtml);
         }
         try {
-            if (window.__projectStewardPrompts.mount(panels.ai, message) !== true) {
+            if (window.__agentPivotPrompts.mount(panels.ai, message) !== true) {
                 return failAiPanelMount(previousHtml);
             }
         } catch (_error) {
@@ -1221,11 +1221,11 @@ function initDashboard(options) {
             pendingPromptRefresh = message;
             return true;
         }
-        if (!window.__projectStewardPrompts
-            || typeof window.__projectStewardPrompts.applyRefresh !== 'function') {
+        if (!window.__agentPivotPrompts
+            || typeof window.__agentPivotPrompts.applyRefresh !== 'function') {
             return false;
         }
-        return window.__projectStewardPrompts.applyRefresh(message) === true;
+        return window.__agentPivotPrompts.applyRefresh(message) === true;
     }
 
     function drainPendingPromptRefresh() {

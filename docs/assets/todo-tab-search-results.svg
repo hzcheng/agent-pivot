@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="420" height="860" viewBox="0 0 420 860" role="img" aria-labelledby="title desc">
-  <title id="title">Project Steward TODO 搜索结果效果图</title>
+  <title id="title">Agent Pivot TODO 搜索结果效果图</title>
   <desc id="desc">全局搜索输入 release 后隐藏 Tab 导航，搜索结果中增加 TODO RESULTS 区域，展示匹配的任务和所属分组。</desc>
   <defs>
     <filter id="shadow" x="-20%" y="-20%" width="140%" height="160%">
@@ -59,7 +59,7 @@
   <rect x="16" y="486" width="388" height="64" rx="10" fill="#222328" stroke="#3a3c42"/>
   <rect x="16" y="505" width="4" height="28" rx="2" fill="#4c9aff"/>
   <text class="ui title" x="36" y="511">vscode-dashboard</text>
-  <text class="ui desc" x="36" y="531">Project Steward extension</text>
+  <text class="ui desc" x="36" y="531">Agent Pivot extension</text>
 
   <text class="ui label" x="18" y="596">SAVED PROJECTS</text>
   <rect x="16" y="615" width="388" height="64" rx="10" fill="#222328" stroke="#3a3c42"/>

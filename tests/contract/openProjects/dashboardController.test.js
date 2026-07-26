@@ -219,7 +219,7 @@ test('PERSIST-DASHBOARD-MIGRATION-PUBLICATION-001 republishes only after migrate
         showInformationMessage: () => undefined,
         showErrorMessage: () => undefined,
         logError: () => undefined,
-        showSteward: () => events.push(['show']),
+        showAgentPivot: () => events.push(['show']),
         applyProjectColorToCurrentWindow: () => undefined,
         getReopenReason: () => 0,
         updateReopenReason: () => undefined,

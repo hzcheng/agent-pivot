@@ -101,7 +101,7 @@ function createOpenWorkspaceUpdateVm(wrapper, catalogs) {
             ? value
             : { version: 2, sessions: [], openWorkspaces: [], savedProjects: [], todos: [] },
         window: {
-            __projectStewardDashboard: {
+            __agentPivotDashboard: {
                 replaceSearchCatalog: catalog => catalogs.push(catalog),
             },
         },
@@ -150,13 +150,13 @@ test('ARCH-COORDINATOR-WIRING-001 carries sequenced publications through the bri
         },
         createStore: () => store,
         deliverAggregate: aggregate => commands.execute(
-            '_projectStewardOpenWorkspaces.workspace.aggregate',
+            '_agentPivotOpenWorkspaces.workspace.aggregate',
             aggregate
         ),
     });
-    commands.register('_projectStewardOpenWorkspaces.bridge.publish', raw => coordinator.publish(raw));
-    commands.register('_projectStewardOpenWorkspaces.bridge.unregister', raw => coordinator.unregister(raw));
-    commands.register('_projectStewardOpenWorkspaces.bridge.handshake', () => ({
+    commands.register('_agentPivotOpenWorkspaces.bridge.publish', raw => coordinator.publish(raw));
+    commands.register('_agentPivotOpenWorkspaces.bridge.unregister', raw => coordinator.unregister(raw));
+    commands.register('_agentPivotOpenWorkspaces.bridge.handshake', () => ({
         accepted: true,
         protocolVersion: 3,
         bridgeExtensionVersion: '0.1.4',
@@ -186,7 +186,7 @@ test('ARCH-COORDINATOR-WIRING-001 carries sequenced publications through the bri
     await flushAsync();
 
     const publications = commands.calls.filter(call =>
-        call.command === '_projectStewardOpenWorkspaces.bridge.publish'
+        call.command === '_agentPivotOpenWorkspaces.bridge.publish'
     );
     assert.deepEqual(publications.map(call => call.argument.sequence), [1, 2]);
     assert.equal(publications[1].argument.followsFocusEvent, true);

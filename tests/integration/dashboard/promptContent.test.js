@@ -164,7 +164,7 @@ test('AI Prompt content renders invalid and future data as distinct read-only st
         assert.doesNotMatch(html, /data-prompt-form="create"/);
     }
     assert.match(invalid, /saved Prompt data is invalid/i);
-    assert.match(future, /newer version of Project Steward/i);
+    assert.match(future, /newer version of Agent Pivot/i);
 });
 
 test('AI Prompt content keeps Prompt bodies out of Coming Soon panels', () => {

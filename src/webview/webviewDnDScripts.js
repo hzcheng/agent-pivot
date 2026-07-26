@@ -44,9 +44,9 @@ function canMoveTodoItem(el, source, handle) {
 }
 
 function dispatchTodoDragCommand(action, payload, legacyMessage) {
-    if (window.__projectStewardTodo
-        && typeof window.__projectStewardTodo.dispatch === 'function') {
-        window.__projectStewardTodo.dispatch(action, payload);
+    if (window.__agentPivotTodo
+        && typeof window.__agentPivotTodo.dispatch === 'function') {
+        window.__agentPivotTodo.dispatch(action, payload);
         return;
     }
     window.vscode.postMessage(legacyMessage);
@@ -65,7 +65,7 @@ function getTodoIds(container) {
 }
 
 function disposeDnD(root) {
-    var dnd = root && root.__projectStewardDnD;
+    var dnd = root && root.__agentPivotDnD;
     if (!dnd) {
         return;
     }
@@ -79,13 +79,13 @@ function disposeDnD(root) {
     if (dnd.onKeyDown) {
         window.removeEventListener('keydown', dnd.onKeyDown);
     }
-    delete root.__projectStewardDnDInitialized;
-    delete root.__projectStewardDnD;
+    delete root.__agentPivotDnDInitialized;
+    delete root.__agentPivotDnD;
 }
 
 function initDnD(root) {
-    if (!root || root.__projectStewardDnDInitialized) {
-        return root && root.__projectStewardDnD;
+    if (!root || root.__agentPivotDnDInitialized) {
+        return root && root.__agentPivotDnD;
     }
 
     const projectsContainerSelector = ".group-list";
@@ -93,7 +93,7 @@ function initDnD(root) {
     const todoGroupsContainerSelector = ".todo-groups";
     const todoItemsContainerSelector = ".todo-list";
 
-    root.__projectStewardDnDInitialized = true;
+    root.__agentPivotDnDInitialized = true;
 
     var projectsContainers = root.querySelectorAll(projectsContainerSelector);
     var projectDrake = dragula([].slice.call(projectsContainers), {
@@ -224,7 +224,7 @@ function initDnD(root) {
         });
     }
 
-    root.__projectStewardDnD = {
+    root.__agentPivotDnD = {
         projectDrake,
         groupsDrake,
         todoGroupsDrake,
@@ -232,5 +232,5 @@ function initDnD(root) {
         scroll,
         onKeyDown,
     };
-    return root.__projectStewardDnD;
+    return root.__agentPivotDnD;
 };

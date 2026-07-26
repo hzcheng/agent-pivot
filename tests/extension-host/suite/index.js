@@ -3,8 +3,8 @@
 const assert = require('node:assert/strict');
 const vscode = require('vscode');
 
-const MAIN_EXTENSION_ID = 'hzcheng.project-steward';
-const BRIDGE_EXTENSION_ID = 'hzcheng.project-steward-attention-ui-bridge';
+const MAIN_EXTENSION_ID = 'hzcheng.agent-pivot';
+const BRIDGE_EXTENSION_ID = 'hzcheng.agent-pivot-attention-ui-bridge';
 
 async function verifyExtensionHostLifecycle() {
     const mainExtension = vscode.extensions.getExtension(MAIN_EXTENSION_ID);
@@ -21,13 +21,13 @@ async function verifyExtensionHostLifecycle() {
     assert.equal(bridgeExtension.isActive, true,
         `${BRIDGE_EXTENSION_ID} must be active after main activation`);
 
-    await vscode.commands.executeCommand('projectSteward.open');
-    await vscode.commands.executeCommand('projectSteward.steward.focus');
+    await vscode.commands.executeCommand('agentPivot.open');
+    await vscode.commands.executeCommand('agentPivot.dashboard.focus');
 }
 
 // RELEASE-SCHEDULED-EXTENSION-HOST-001
 async function run() {
-    const timeoutMs = Number(process.env.PROJECT_STEWARD_EXTENSION_HOST_TIMEOUT_MS);
+    const timeoutMs = Number(process.env.AGENT_PIVOT_EXTENSION_HOST_TIMEOUT_MS);
     assert.ok(Number.isSafeInteger(timeoutMs) && timeoutMs > 0,
         'Extension Host timeout must be a positive integer');
     let timeout;

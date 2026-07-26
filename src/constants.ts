@@ -28,9 +28,13 @@ export const TODO_UNTITLED_GROUP_TITLE = 'Untitled Group';
 export const TODO_UNTITLED_ITEM_TITLE = 'Untitled TODO';
 export const TODO_NOTES_SEARCH_TEXT_LIMIT = 500;
 export const RECENT_COLORS_KEY = 'recentColors';
-export const PROJECT_STEWARD_CONFIG_SECTION = 'projectSteward';
-export const LEGACY_DASHBOARD_CONFIG_SECTION = 'dashboard';
-export const REOPEN_KEY = 'reopenProjectStewardReason';
+export const AGENT_PIVOT_CONFIG_SECTION = 'agentPivot';
+export const AGENT_PIVOT_EXTENSION_ID = 'hzcheng.agent-pivot';
+export const AGENT_PIVOT_VIEW_CONTAINER_ID = 'agentPivot';
+export const AGENT_PIVOT_DASHBOARD_VIEW_ID = 'agentPivot.dashboard';
+export const AGENT_PIVOT_CONVERSATION_VIEW_TYPE =
+    'agentPivot.aiConversation';
+export const REOPEN_KEY = 'reopenAgentPivotReason';
 export const FAVORITES_GROUP_ID = '__favorites';
 export const FAVORITES_GROUP_COLLAPSED_KEY = 'favoritesGroupCollapsed';
 export const OPEN_WORKSPACES_GROUP_ID = '__openWorkspaces';

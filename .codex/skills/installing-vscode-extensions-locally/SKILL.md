@@ -1,13 +1,13 @@
 ---
 name: installing-vscode-extensions-locally
-description: Use when building, packaging, installing, or verifying this Project Steward VS Code extension or VSIX in a local, SSH, Dev Container, workspace, or UI extension-host environment.
+description: Use when building, packaging, installing, or verifying this Agent Pivot VS Code extension or VSIX in a local, SSH, Dev Container, workspace, or UI extension-host environment.
 ---
 
 # Installing VS Code Extensions Locally
 
 ## Overview
 
-Build and install the Project Steward extension that matches the current VS Code environment, then report exactly what was installed and what could not be installed.
+Build and install the Agent Pivot extension that matches the current VS Code environment, then report exactly what was installed and what could not be installed.
 
 ## Workflow
 

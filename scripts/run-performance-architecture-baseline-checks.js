@@ -33,7 +33,7 @@ const productionSources = [
 ];
 const forbiddenLiveProjectPatterns = [
     ['OPEN_PROJECT_PROTOCOL_VERSION', /OPEN_PROJECT_PROTOCOL_VERSION/],
-    ['_projectStewardOpenProjects', /_projectStewardOpenProjects/],
+    ['_agentPivotOpenProjects', /_agentPivotOpenProjects/],
     ['open-projects/v1', /open-projects\/v1/],
     ['openProjectCardKind', /openProjectCardKind/],
     ['data-open-project', /data-open-project/],

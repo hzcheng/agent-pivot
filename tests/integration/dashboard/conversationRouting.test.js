@@ -974,7 +974,7 @@ test('PRODUCTION-CONVERSATION-FOCUS-001 panel close reveals the sidebar before p
     harness.panels[0].dispose();
     await new Promise(resolve => setImmediate(resolve));
 
-    assert.deepEqual(executedCommands, ['projectSteward.steward.focus']);
+    assert.deepEqual(executedCommands, ['agentPivot.dashboard.focus']);
     const focusMessage = harness.publications.at(-1);
     assert.deepEqual(focusMessage, {
         type: 'focus-ai-session-conversation-origin',
@@ -1016,7 +1016,7 @@ test('PRODUCTION-CONVERSATION-FOCUS-002 rejected reveal and hidden delivery rema
     harness.panels[0].dispose();
     await new Promise(resolve => setImmediate(resolve));
 
-    assert.deepEqual(executedCommands, ['projectSteward.steward.focus']);
+    assert.deepEqual(executedCommands, ['agentPivot.dashboard.focus']);
     assert.deepEqual(harness.publications.at(-1), {
         type: 'focus-ai-session-conversation-origin',
         version: 1,

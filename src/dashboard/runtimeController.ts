@@ -3,6 +3,10 @@
 import type { AiSessionProviderId, Project } from '../models';
 import type { AiSessionActiveTerminalChangedMessage, AiSessionBatchArchiveCompletedMessage } from '../aiSessions/types';
 import type { ActiveAiSessionTerminalIdentity } from '../aiSessions/activeTerminalHighlight';
+import {
+    AGENT_PIVOT_EXTENSION_ID,
+    AGENT_PIVOT_VIEW_CONTAINER_ID,
+} from '../constants';
 
 export interface DashboardRuntimeControllerOptions<TProject extends Project = Project> {
     isVisible: () => boolean;
@@ -35,10 +39,10 @@ export class DashboardRuntimeController<TProject extends Project = Project> {
         this.options.refreshProvider();
     }
 
-    async showSteward(): Promise<void> {
+    async showAgentPivot(): Promise<void> {
         this.options.publishOpenWorkspace();
-        await this.revealSidebarSteward();
-        this.refresh('show-steward');
+        await this.revealAgentPivotDashboard();
+        this.refresh('show-agent-pivot');
     }
 
     async handleAiSessionViewVisibilityChanged(visible: boolean): Promise<void> {
@@ -59,8 +63,10 @@ export class DashboardRuntimeController<TProject extends Project = Project> {
         this.options.publishOpenWorkspace();
     }
 
-    revealSidebarSteward(): Promise<void> {
-        return this.runAsync(() => this.options.executeCommand('workbench.view.extension.project-steward'))
+    revealAgentPivotDashboard(): Promise<void> {
+        return this.runAsync(() => this.options.executeCommand(
+            `workbench.view.extension.${AGENT_PIVOT_VIEW_CONTAINER_ID}`
+        ))
             .then(() => this.runAsync(() => this.options.executeCommand(`${this.options.viewType}.focus`)))
             .then(undefined, () => this.runAsync(() => this.options.executeCommand(`${this.options.viewType}.focus`)))
             .then(undefined, () => undefined);
@@ -90,7 +96,7 @@ export class DashboardRuntimeController<TProject extends Project = Project> {
         });
     }
 
-    async openSettings(query = '@ext:hzcheng.project-steward'): Promise<void> {
+    async openSettings(query = `@ext:${AGENT_PIVOT_EXTENSION_ID}`): Promise<void> {
         await this.runAsync(() => this.options.executeCommand('workbench.action.openSettings', query));
     }
 

@@ -28,16 +28,16 @@ export class DashboardCommandRegistration<TDisposable extends DisposableLike = D
     }
 
     register(): void {
-        this.registerCommand('projectSteward.open', this.options.handlers.open);
-        this.registerCommand('projectSteward.addProject', this.options.handlers.addProject);
-        this.registerCommand('projectSteward.saveProject', this.options.handlers.saveProject);
-        this.registerCommand('projectSteward.removeProject', this.options.handlers.removeProject);
-        this.registerCommand('projectSteward.editProjects', this.options.handlers.editProjects);
-        this.registerCommand('projectSteward.addGroup', this.options.handlers.addGroup);
-        this.registerCommand('projectSteward.removeGroup', this.options.handlers.removeGroup);
-        this.registerCommand('projectSteward.addProjectsFromFolder', this.options.handlers.addProjectsFromFolder);
-        this.registerCommand('projectSteward.addFileToActiveTerminal', this.options.handlers.addFileToActiveTerminal);
-        this.registerCommand('projectSteward.insertPromptToActiveTerminal', this.options.handlers.insertPromptToActiveTerminal);
+        this.registerCommand('agentPivot.open', this.options.handlers.open);
+        this.registerCommand('agentPivot.addProject', this.options.handlers.addProject);
+        this.registerCommand('agentPivot.saveProject', this.options.handlers.saveProject);
+        this.registerCommand('agentPivot.removeProject', this.options.handlers.removeProject);
+        this.registerCommand('agentPivot.editProjects', this.options.handlers.editProjects);
+        this.registerCommand('agentPivot.addGroup', this.options.handlers.addGroup);
+        this.registerCommand('agentPivot.removeGroup', this.options.handlers.removeGroup);
+        this.registerCommand('agentPivot.addProjectsFromFolder', this.options.handlers.addProjectsFromFolder);
+        this.registerCommand('agentPivot.addFileToActiveTerminal', this.options.handlers.addFileToActiveTerminal);
+        this.registerCommand('agentPivot.insertPromptToActiveTerminal', this.options.handlers.insertPromptToActiveTerminal);
     }
 
     private registerCommand(command: string, callback: () => unknown): void {

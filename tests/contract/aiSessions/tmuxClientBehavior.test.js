@@ -119,8 +119,8 @@ test('RUNTIME-TMUX-CLIENT-001 parses one active window and rejects malformed, fo
     let result = {
         exitCode: 0,
         stdout: [
-            'project-session|:ps-field:|base|:ps-field:|@1|:ps-field:|0',
-            'project-session|:ps-field:|ai-codex-a|:ps-field:|@2|:ps-field:|1',
+            'project-session|:ap-field:|base|:ap-field:|@1|:ap-field:|0',
+            'project-session|:ap-field:|ai-codex-a|:ap-field:|@2|:ap-field:|1',
         ].join('\n') + '\n',
         stderr: '',
     };
@@ -135,15 +135,15 @@ test('RUNTIME-TMUX-CLIENT-001 parses one active window and rejects malformed, fo
     });
     assert.deepEqual(calls.at(-1), [
         'list-windows', '-t', 'project-session', '-F',
-        '#{session_name}|:ps-field:|#{window_name}|:ps-field:|#{window_id}|:ps-field:|#{window_active}',
+        '#{session_name}|:ap-field:|#{window_name}|:ap-field:|#{window_id}|:ap-field:|#{window_active}',
     ]);
 
     result = { exitCode: 0, stdout: '', stderr: '' };
     assert.equal(await client.getActiveWindow('project-session'), null);
     for (const stdout of [
-        'project-session|:ps-field:|a|:ps-field:|@1|:ps-field:|1\nproject-session|:ps-field:|b|:ps-field:|@2|:ps-field:|1\n',
-        'foreign-session|:ps-field:|a|:ps-field:|@1|:ps-field:|1\n',
-        'project-session|:ps-field:|a|:ps-field:|@1|:ps-field:|2\n',
+        'project-session|:ap-field:|a|:ap-field:|@1|:ap-field:|1\nproject-session|:ap-field:|b|:ap-field:|@2|:ap-field:|1\n',
+        'foreign-session|:ap-field:|a|:ap-field:|@1|:ap-field:|1\n',
+        'project-session|:ap-field:|a|:ap-field:|@1|:ap-field:|2\n',
         'x'.repeat(1024 * 1024 + 1),
     ]) {
         result = { exitCode: 0, stdout, stderr: '' };
@@ -171,8 +171,8 @@ test('RUNTIME-TMUX-CLIENT-001 resolves a live terminal process to exactly one tm
     let result = {
         exitCode: 0,
         stdout: [
-            '4311|:ps-field:|other-session',
-            '4312|:ps-field:|managed-session',
+            '4311|:ap-field:|other-session',
+            '4312|:ap-field:|managed-session',
         ].join('\n') + '\n',
         stderr: '',
     };
@@ -185,7 +185,7 @@ test('RUNTIME-TMUX-CLIENT-001 resolves a live terminal process to exactly one tm
 
     assert.equal(await client.getClientSessionForProcess(4312), 'managed-session');
     assert.deepEqual(calls.at(-1), [
-        'list-clients', '-F', '#{client_pid}|:ps-field:|#{session_name}',
+        'list-clients', '-F', '#{client_pid}|:ap-field:|#{session_name}',
     ]);
     assert.equal(await client.getClientSessionForProcess(9999), null);
 
@@ -197,9 +197,9 @@ test('RUNTIME-TMUX-CLIENT-001 resolves a live terminal process to exactly one tm
     assert.equal(await client.getClientSessionForProcess(4312), null);
 
     for (const stdout of [
-        '4312|:ps-field:|managed-session\n4312|:ps-field:|other-session\n',
-        'not-a-pid|:ps-field:|managed-session\n',
-        '4312|:ps-field:|bad\nsession\n',
+        '4312|:ap-field:|managed-session\n4312|:ap-field:|other-session\n',
+        'not-a-pid|:ap-field:|managed-session\n',
+        '4312|:ap-field:|bad\nsession\n',
         'x'.repeat(1024 * 1024 + 1),
     ]) {
         result = { exitCode: 0, stdout, stderr: '' };
@@ -247,8 +247,8 @@ test('RUNTIME-TMUX-CLIENT-001 reads and writes metadata options and maps runner 
                 return {
                     exitCode: 0,
                     stdout: [
-                        'session-a|:ps-field:|window-a|:ps-field:|@12|:ps-field:|1',
-                        'session-a|:ps-field:|window-a|:ps-field:|@13|:ps-field:|0',
+                        'session-a|:ap-field:|window-a|:ap-field:|@12|:ap-field:|1',
+                        'session-a|:ap-field:|window-a|:ap-field:|@13|:ap-field:|0',
                     ].join('\n') + '\n',
                     stderr: '',
                 };
@@ -257,9 +257,9 @@ test('RUNTIME-TMUX-CLIENT-001 reads and writes metadata options and maps runner 
                 return {
                     exitCode: 0,
                     stdout: [
-                        '@12|:ps-field:|%20|:ps-field:|0|:ps-field:|4311',
-                        '@12|:ps-field:|%21|:ps-field:|1|:ps-field:|4312',
-                        '@13|:ps-field:|%22|:ps-field:|1|:ps-field:|4313',
+                        '@12|:ap-field:|%20|:ap-field:|0|:ap-field:|4311',
+                        '@12|:ap-field:|%21|:ap-field:|1|:ap-field:|4312',
+                        '@13|:ap-field:|%22|:ap-field:|1|:ap-field:|4313',
                     ].join('\n') + '\n',
                     stderr: '',
                 };
@@ -281,7 +281,7 @@ test('RUNTIME-TMUX-CLIENT-001 reads and writes metadata options and maps runner 
         .every(call => call.args.includes(';')));
     assert.deepEqual(calls.find(call => call.args[0] === 'list-panes').args, [
         'list-panes', '-a', '-F',
-        '#{window_id}|:ps-field:|#{pane_id}|:ps-field:|#{pane_active}|:ps-field:|#{pane_pid}',
+        '#{window_id}|:ap-field:|#{pane_id}|:ap-field:|#{pane_active}|:ap-field:|#{pane_pid}',
     ]);
     assert.deepEqual(windows.map(window => ({
         windowId: window.windowId,
@@ -321,18 +321,18 @@ test('RUNTIME-TMUX-CLIENT-001 reads and writes metadata options and maps runner 
     });
     await client.clearPendingMetadata({ layout: 'session', sessionName: 'session-a' });
     assert.ok(calls.some(call => JSON.stringify(call.args) === JSON.stringify([
-        'set-option', '-t', 'session-a', '@project-steward-managed', encodedMetadata('1'),
+        'set-option', '-t', 'session-a', '@agent-pivot-managed', encodedMetadata('1'),
     ])));
     assert.ok(calls.some(call => JSON.stringify(call.args) === JSON.stringify([
         'set-option', '-w', '-t', 'session-a:window-a',
-        '@project-steward-session-id', encodedMetadata('session-id'),
+        '@agent-pivot-session-id', encodedMetadata('session-id'),
     ])));
     assert.deepEqual(calls.slice(-5).map(call => call.args), [
         ['set-option', '-w', '-t', 'session-a:window-a', 'automatic-rename', 'off'],
         ['set-option', '-w', '-t', 'session-a:window-a', 'allow-rename', 'off'],
         ['set-option', '-w', '-t', 'session-a:window-a', 'remain-on-exit', 'off'],
-        ['set-option', '-uw', '-t', 'session-a:window-a', '@project-steward-pending-id'],
-        ['set-option', '-u', '-t', 'session-a', '@project-steward-pending-id'],
+        ['set-option', '-uw', '-t', 'session-a:window-a', '@agent-pivot-pending-id'],
+        ['set-option', '-u', '-t', 'session-a', '@agent-pivot-pending-id'],
     ]);
     await assert.rejects(client.setSessionOptions('session-a', { status: 'not-allowed' }), /metadata option/);
     await assert.rejects(client.clearPendingMetadata({ layout: 'project', sessionName: 'session-a' }), TypeError);
@@ -368,7 +368,7 @@ test('RUNTIME-TMUX-CLIENT-001 reads and writes metadata options and maps runner 
 test('RUNTIME-TMUX-CLIENT-001 fails closed on missing, ambiguous, or malformed active pane PIDs', async () => {
     let paneResult = {
         exitCode: 0,
-        stdout: '@12|:ps-field:|%20|:ps-field:|1|:ps-field:|4312\n',
+        stdout: '@12|:ap-field:|%20|:ap-field:|1|:ap-field:|4312\n',
         stderr: '',
     };
     const client = new TmuxClient('/private/tmux', {
@@ -378,7 +378,7 @@ test('RUNTIME-TMUX-CLIENT-001 fails closed on missing, ambiguous, or malformed a
             if (args[0] === 'list-windows') {
                 return {
                     exitCode: 0,
-                    stdout: 'session-a|:ps-field:|window-a|:ps-field:|@12|:ps-field:|1\n',
+                    stdout: 'session-a|:ap-field:|window-a|:ap-field:|@12|:ap-field:|1\n',
                     stderr: '',
                 };
             }
@@ -393,11 +393,11 @@ test('RUNTIME-TMUX-CLIENT-001 fails closed on missing, ambiguous, or malformed a
 
     for (const stdout of [
         '',
-        '@12|:ps-field:|%20|:ps-field:|0|:ps-field:|4312\n',
-        '@12|:ps-field:|%20|:ps-field:|1|:ps-field:|4312\n@12|:ps-field:|%21|:ps-field:|1|:ps-field:|4313\n',
-        '@12|:ps-field:|%20|:ps-field:|1|:ps-field:|0\n',
-        '@12|:ps-field:|%20|:ps-field:|1|:ps-field:|2147483648\n',
-        '@99|:ps-field:|%20|:ps-field:|1|:ps-field:|4312\n',
+        '@12|:ap-field:|%20|:ap-field:|0|:ap-field:|4312\n',
+        '@12|:ap-field:|%20|:ap-field:|1|:ap-field:|4312\n@12|:ap-field:|%21|:ap-field:|1|:ap-field:|4313\n',
+        '@12|:ap-field:|%20|:ap-field:|1|:ap-field:|0\n',
+        '@12|:ap-field:|%20|:ap-field:|1|:ap-field:|2147483648\n',
+        '@99|:ap-field:|%20|:ap-field:|1|:ap-field:|4312\n',
         'x'.repeat(1024 * 1024 + 1),
     ]) {
         paneResult = { exitCode: 0, stdout, stderr: '' };
@@ -462,11 +462,11 @@ test('RUNTIME-TMUX-CLIENT-001 preserves metadata that tmux 3.4 would escape', as
     assert.deepEqual(writes, [
         [
             'set-option', '-w', '-t', 'session-a:window-a',
-            '@project-steward-managed', encodedMetadata(raw.managed),
+            '@agent-pivot-managed', encodedMetadata(raw.managed),
         ],
         [
             'set-option', '-w', '-t', 'session-a:window-a',
-            '@project-steward-cwd', encodedMetadata(raw.cwd),
+            '@agent-pivot-cwd', encodedMetadata(raw.cwd),
         ],
     ]);
     corruptTransport = true;
@@ -499,7 +499,7 @@ test('RUNTIME-TMUX-FOCUS-TARGET-001 reads one exact atomic target snapshot and f
             'codex-session',
             '@42',
             ...metadataKeys.map(key => metadata[key] || ''),
-        ].join('|:ps-field:|') + '\n',
+        ].join('|:ap-field:|') + '\n',
         stderr: '',
     };
     const client = new TmuxClient('/private/tmux', {
@@ -540,8 +540,8 @@ test('RUNTIME-TMUX-FOCUS-TARGET-001 reads one exact atomic target snapshot and f
 
     for (const stdout of [
         '',
-        'managed-session|:ps-field:|codex-session|:ps-field:|not-a-window-id',
-        'managed-session|:ps-field:|codex-session|:ps-field:|@42\nsecond-row',
+        'managed-session|:ap-field:|codex-session|:ap-field:|not-a-window-id',
+        'managed-session|:ap-field:|codex-session|:ap-field:|@42\nsecond-row',
         `${'x'.repeat(1024 * 1024 + 1)}`,
     ]) {
         result = { exitCode: 0, stdout, stderr: '' };

@@ -74,7 +74,7 @@ const MAX_EXCLUDED_SESSION_IDS = 1000;
 const MAX_AGGREGATE_LAUNCH_BYTES = 32 * 1024;
 const MAX_SERIALIZED_TMUX_COMMAND_BYTES = 128 * 1024;
 const LOCAL_CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;
-const TMUX_ATTACH_RECOVERY_ENV = 'PROJECT_STEWARD_TMUX_ATTACH_ID';
+const TMUX_ATTACH_RECOVERY_ENV = 'AGENT_PIVOT_TMUX_ATTACH_ID';
 const TMUX_ATTACH_RECOVERY_TOKEN = /^[0-9a-f]{32}$/;
 
 interface AttachTerminal {
@@ -1686,8 +1686,8 @@ function getRestoredAttachTerminalName(runtime: AiSessionRuntimeSnapshot): strin
         runtime.tmux?.windowName || '',
     ]), 'utf8').digest('hex').slice(0, 12);
     return runtime.tmux?.layout === 'project'
-        ? `Project Steward: tmux project ${digest} [tmux]`
-        : `Project Steward: ${runtime.identity.provider} ${digest} [tmux]`;
+        ? `Agent Pivot: tmux project ${digest} [tmux]`
+        : `Agent Pivot: ${runtime.identity.provider} ${digest} [tmux]`;
 }
 
 function isSafeAttachTerminalName(value: unknown): value is string {

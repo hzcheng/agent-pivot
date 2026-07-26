@@ -1,10 +1,11 @@
 'use strict';
 
 import * as vscode from 'vscode';
+import { AGENT_PIVOT_DASHBOARD_VIEW_ID } from '../constants';
 
-const VISIBLE_VIEW_FAILURE_MESSAGE = 'Unexpected Project Steward view failure.';
+const VISIBLE_VIEW_FAILURE_MESSAGE = 'Unexpected Agent Pivot view failure.';
 
-export interface SidebarStewardViewProviderOptions {
+export interface AgentPivotViewProviderOptions {
     getWebviewOptions: () => vscode.WebviewOptions;
     renderContent: (webview: vscode.Webview) => string;
     renderError: (error: unknown) => string;
@@ -14,16 +15,16 @@ export interface SidebarStewardViewProviderOptions {
     logError: (message: string, error: unknown) => void;
 }
 
-export class SidebarStewardViewProvider implements vscode.WebviewViewProvider {
+export class AgentPivotViewProvider implements vscode.WebviewViewProvider {
 
-    public static readonly viewType = 'projectSteward.steward';
+    public static readonly viewType = AGENT_PIVOT_DASHBOARD_VIEW_ID;
 
     private _view?: vscode.WebviewView;
     private viewGeneration = 0;
     private releaseCurrent?: () => Promise<void>;
     private releaseBarrier: Promise<void> = Promise.resolve();
 
-    constructor(private readonly options: SidebarStewardViewProviderOptions) {
+    constructor(private readonly options: AgentPivotViewProviderOptions) {
     }
 
     async resolveWebviewView(webviewView: vscode.WebviewView, webviewContext: vscode.WebviewViewResolveContext<unknown>, token: vscode.CancellationToken): Promise<void> {
@@ -57,7 +58,7 @@ export class SidebarStewardViewProvider implements vscode.WebviewViewProvider {
                 await this.options.onDisposed();
             } catch (_error) {
                 this.options.logError(
-                    'Failed to dispose Project Steward view.',
+                    'Failed to dispose Agent Pivot view.',
                     sanitizedViewFailure()
                 );
             }
@@ -78,7 +79,7 @@ export class SidebarStewardViewProvider implements vscode.WebviewViewProvider {
                     return;
                 }
                 this.options.logError(
-                    'Failed to handle a Project Steward message.', sanitizedViewFailure()
+                    'Failed to handle an Agent Pivot message.', sanitizedViewFailure()
                 );
             }
         });
@@ -104,7 +105,7 @@ export class SidebarStewardViewProvider implements vscode.WebviewViewProvider {
                 this._view.webview.html = this.options.renderContent(this._view.webview);
             } catch (_error) {
                 const failure = sanitizedViewFailure();
-                this.options.logError('Failed to render Project Steward view.', failure);
+                this.options.logError('Failed to render Agent Pivot view.', failure);
                 this._view.webview.html = this.options.renderError(failure);
             }
         }
@@ -138,7 +139,7 @@ export class SidebarStewardViewProvider implements vscode.WebviewViewProvider {
                 return;
             }
             const failure = sanitizedViewFailure();
-            this.options.logError('Failed to prepare Project Steward view.', failure);
+            this.options.logError('Failed to prepare Agent Pivot view.', failure);
             if (webviewView.visible) {
                 webviewView.webview.html = this.options.renderError(failure);
             }

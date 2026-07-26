@@ -19,23 +19,23 @@ import { ProbeSnapshot } from '../../../shared/attention-bridge/storeProtocol';
 import { createWorkspaceIdentity } from '../../../shared/attention-bridge/workspaceIdentity';
 import { OPEN_WORKSPACE_PROTOCOL_VERSION } from '../../../src/openWorkspaces/protocol';
 
-const BRIDGE_CHALLENGE = '_projectStewardAttentionSpike.bridge.challenge';
-const WORKSPACE_CHALLENGE = '_projectStewardAttentionSpike.workspace.challenge';
-const BRIDGE_PUBLISH = '_projectStewardAttentionSpike.bridge.publish';
-const BRIDGE_STATUS = '_projectStewardAttentionSpike.bridge.status';
-const BRIDGE_SET_WATCHER = '_projectStewardAttentionSpike.bridge.setWatcher';
-const BRIDGE_CLEAR = '_projectStewardAttentionSpike.bridge.clear';
-const WORKSPACE_AGGREGATE = '_projectStewardAttentionSpike.workspace.aggregate';
-const PRODUCTION_BRIDGE_PUBLISH = '_projectStewardAttention.bridge.publish';
-const PRODUCTION_WORKSPACE_AGGREGATE = '_projectStewardAttention.workspace.aggregate';
-const PRODUCTION_BRIDGE_ACKNOWLEDGE = '_projectStewardAttention.bridge.acknowledge';
-const PRODUCTION_BRIDGE_HANDSHAKE = '_projectStewardAttention.bridge.handshake';
-const PRODUCTION_BRIDGE_UNREGISTER = '_projectStewardAttention.bridge.unregister';
-const OPEN_WORKSPACE_BRIDGE_HANDSHAKE = '_projectStewardOpenWorkspaces.bridge.handshake';
-const OPEN_WORKSPACE_BRIDGE_PUBLISH = '_projectStewardOpenWorkspaces.bridge.publish';
-const OPEN_WORKSPACE_BRIDGE_UNREGISTER = '_projectStewardOpenWorkspaces.bridge.unregister';
-const OPEN_WORKSPACE_AGGREGATE = '_projectStewardOpenWorkspaces.workspace.aggregate';
-const OPEN_WORKSPACE_DIAGNOSTIC = '_projectStewardOpenWorkspaces.workspace.diagnostic';
+const BRIDGE_CHALLENGE = '_agentPivotAttentionSpike.bridge.challenge';
+const WORKSPACE_CHALLENGE = '_agentPivotAttentionSpike.workspace.challenge';
+const BRIDGE_PUBLISH = '_agentPivotAttentionSpike.bridge.publish';
+const BRIDGE_STATUS = '_agentPivotAttentionSpike.bridge.status';
+const BRIDGE_SET_WATCHER = '_agentPivotAttentionSpike.bridge.setWatcher';
+const BRIDGE_CLEAR = '_agentPivotAttentionSpike.bridge.clear';
+const WORKSPACE_AGGREGATE = '_agentPivotAttentionSpike.workspace.aggregate';
+const PRODUCTION_BRIDGE_PUBLISH = '_agentPivotAttention.bridge.publish';
+const PRODUCTION_WORKSPACE_AGGREGATE = '_agentPivotAttention.workspace.aggregate';
+const PRODUCTION_BRIDGE_ACKNOWLEDGE = '_agentPivotAttention.bridge.acknowledge';
+const PRODUCTION_BRIDGE_HANDSHAKE = '_agentPivotAttention.bridge.handshake';
+const PRODUCTION_BRIDGE_UNREGISTER = '_agentPivotAttention.bridge.unregister';
+const OPEN_WORKSPACE_BRIDGE_HANDSHAKE = '_agentPivotOpenWorkspaces.bridge.handshake';
+const OPEN_WORKSPACE_BRIDGE_PUBLISH = '_agentPivotOpenWorkspaces.bridge.publish';
+const OPEN_WORKSPACE_BRIDGE_UNREGISTER = '_agentPivotOpenWorkspaces.bridge.unregister';
+const OPEN_WORKSPACE_AGGREGATE = '_agentPivotOpenWorkspaces.workspace.aggregate';
+const OPEN_WORKSPACE_DIAGNOSTIC = '_agentPivotOpenWorkspaces.workspace.diagnostic';
 const OPEN_WORKSPACE_CAPABILITIES = { workspaces: true, atomicReplace: true, focusLeases: true } as const;
 
 interface AggregateState {
@@ -47,7 +47,7 @@ interface AggregateState {
 }
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
-    const outputChannel = vscode.window.createOutputChannel('Project Steward UI Bridge');
+    const outputChannel = vscode.window.createOutputChannel('Agent Pivot UI Bridge');
     context.subscriptions.push(outputChannel);
     const bridgeExtensionVersion = readBridgeExtensionVersion(context);
     const bridgeProcessId = crypto.randomBytes(16).toString('hex');
@@ -256,7 +256,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         lastAggregate = '';
         return { cleared: true, bridgeProcessId, instanceId };
     });
-    const scanRegistration = vscode.commands.registerCommand('_projectStewardAttentionSpike.bridge.scan', scanAndNotify);
+    const scanRegistration = vscode.commands.registerCommand('_agentPivotAttentionSpike.bridge.scan', scanAndNotify);
     scanTimer = setInterval(() => {
         void scanAndNotify().catch(error => {
             void vscode.commands.executeCommand(WORKSPACE_AGGREGATE, {

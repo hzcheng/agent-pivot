@@ -1,6 +1,6 @@
 # Third-Party Notices
 
-Project Steward includes the following unmodified SVG files authored by
+Agent Pivot includes the following unmodified SVG files authored by
 ShounenSuki, sourced from Narutopedia through Wikimedia Commons, and
 distributed under the
 [Creative Commons Attribution-ShareAlike 3.0 Unported license](https://creativecommons.org/licenses/by-sa/3.0/).
@@ -14,7 +14,7 @@ distributed under the
 | `media/sharingan/mangekyou-sharingan-sasuke.svg` | https://commons.wikimedia.org/wiki/File:Mangekyou_Sharingan_Sasuke.svg |
 | `media/sharingan/mangekyou-sharingan-shisui.svg` | https://commons.wikimedia.org/wiki/File:Mangekyou_Sharingan_Shisui.svg |
 
-The files are distributed without modification. The Project Steward source
+The files are distributed without modification. The Agent Pivot source
 code remains licensed under the repository's MIT license; the files listed
 above remain licensed under CC BY-SA 3.0.
 

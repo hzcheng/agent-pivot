@@ -14,8 +14,8 @@ const storeProtocol = require('../spikes/attention-local-bridge/out/shared/atten
 const localStore = require('../extensions/attention-ui-bridge/out/extensions/attention-ui-bridge/src/localStore');
 const bridgeStorageRoot = require('../extensions/attention-ui-bridge/out/extensions/attention-ui-bridge/src/bridgeStorageRoot');
 
-const AUTO_RUN_FIXTURE_A = '/tmp/project-steward-attention-fixture-a';
-const AUTO_RUN_FIXTURE_B = '/tmp/project-steward-attention-fixture-b';
+const AUTO_RUN_FIXTURE_A = '/tmp/agent-pivot-attention-fixture-a';
+const AUTO_RUN_FIXTURE_B = '/tmp/agent-pivot-attention-fixture-b';
 
 function throws(fn, pattern) {
     assert.throws(fn, pattern);
@@ -119,10 +119,10 @@ async function runBatchDrainChecks() {
 }
 
 function runWorkspaceIdentityChecks() {
-    const workspaceHostA = new URL('file:///tmp/project-steward-attention-fixture-a');
-    const bridgeHostA = new URL('vscode-remote://dev-container+fixture-a/tmp/project-steward-attention-fixture-a');
-    const workspaceHostB = new URL('file:///tmp/project-steward-attention-fixture-b');
-    const bridgeHostB = new URL('vscode-remote://dev-container+fixture-b/tmp/project-steward-attention-fixture-b');
+    const workspaceHostA = new URL('file:///tmp/agent-pivot-attention-fixture-a');
+    const bridgeHostA = new URL('vscode-remote://dev-container+fixture-a/tmp/agent-pivot-attention-fixture-a');
+    const workspaceHostB = new URL('file:///tmp/agent-pivot-attention-fixture-b');
+    const bridgeHostB = new URL('vscode-remote://dev-container+fixture-b/tmp/agent-pivot-attention-fixture-b');
 
     const fixtureA = workspaceIdentity.createWorkspaceIdentity([workspaceHostA.pathname]);
     const bridgeFixtureA = workspaceIdentity.createWorkspaceIdentity([bridgeHostA.pathname]);
@@ -242,7 +242,7 @@ async function runLocalStoreChecks() {
         protocolVersion: 1,
         instanceId: '0123456789abcdef0123456789abcdef',
         workspaceProcessId: 'abcdef0123456789abcdef0123456789',
-        workspaceIdentity: '/tmp/project-steward-attention-fixture-a',
+        workspaceIdentity: '/tmp/agent-pivot-attention-fixture-a',
         sequence: 1,
         sentAtMs: 1_000_000,
         writtenAtMs: 1_000_001,
@@ -329,14 +329,14 @@ function runPackagingChecks() {
 }
 
 function runBridgeStorageRootChecks() {
-    const globalStoragePath = '/Users/test/Library/Application Support/Code/User/globalStorage/hzcheng.project-steward-attention-ui-bridge';
+    const globalStoragePath = '/Users/test/Library/Application Support/Code/User/globalStorage/hzcheng.agent-pivot-attention-ui-bridge';
     assert.strictEqual(
         bridgeStorageRoot.resolveBridgeStorageRoot(globalStoragePath, 'vscode-userdata'),
-        path.join(globalStoragePath, 'attention-local-bridge-spike', 'v1')
+        path.join(globalStoragePath, 'agent-pivot', 'bridge', 'v1')
     );
     assert.strictEqual(
-        bridgeStorageRoot.resolveBridgeStorageRoot('/tmp/project-steward-bridge', 'file'),
-        '/tmp/project-steward-bridge/attention-local-bridge-spike/v1'
+        bridgeStorageRoot.resolveBridgeStorageRoot('/tmp/agent-pivot-bridge', 'file'),
+        '/tmp/agent-pivot-bridge/agent-pivot/bridge/v1'
     );
     assert.throws(() => bridgeStorageRoot.resolveBridgeStorageRoot('', 'vscode-userdata'), /absolute path/);
     assert.throws(() => bridgeStorageRoot.resolveBridgeStorageRoot('relative/path', 'file'), /absolute path/);
@@ -351,8 +351,8 @@ function readText(relativePath) {
 function runArtifactContractChecks() {
     const packageScript = readText('scripts/package-attention-extensions.js');
     const expectedArtifactPaths = [
-        'artifacts/project-steward-attention-ui-bridge-0.1.4.vsix',
-        'artifacts/project-steward-attention-workspace-probe-0.0.5.vsix',
+        'artifacts/agent-pivot-attention-ui-bridge-0.1.4.vsix',
+        'artifacts/agent-pivot-attention-workspace-probe-0.0.5.vsix',
     ];
     const namedArtifactPaths = packageScript.match(/artifacts\/[^'"`\s]+\.vsix/g) || [];
     assert.deepStrictEqual(namedArtifactPaths.sort(), expectedArtifactPaths.sort());
@@ -366,8 +366,8 @@ function runArtifactContractChecks() {
         'same workspace',
         'different Profile',
         'Developer: Show Running Extensions',
-        'project-steward-attention-ui-bridge-0.1.4.vsix',
-        'project-steward-attention-workspace-probe-0.0.5.vsix',
+        'agent-pivot-attention-ui-bridge-0.1.4.vsix',
+        'agent-pivot-attention-workspace-probe-0.0.5.vsix',
     ]) {
         assert.ok(manualMatrix.includes(requiredText), `MANUAL-MATRIX.md must contain ${requiredText}`);
     }
@@ -376,8 +376,8 @@ function runArtifactContractChecks() {
 function runAutomationIntegrationContractChecks() {
     const workspaceSource = readText('spikes/attention-local-bridge/workspace/src/extension.ts');
     for (const requiredText of [
-        "const AUTO_RUN_CONTROL_PATH = '/tmp/project-steward-attention-routing-control.json'",
-        "const AUTO_RUN_RESULT_ROOT = '/tmp/project-steward-attention-routing-results'",
+        "const AUTO_RUN_CONTROL_PATH = '/tmp/agent-pivot-attention-routing-control.json'",
+        "const AUTO_RUN_RESULT_ROOT = '/tmp/agent-pivot-attention-routing-results'",
         'const AUTO_RUN_DELAY_MS = 2000',
         'runRoutingChallengeSingleFlight(control.total)',
         "control.mode === 'same-workspace-routing'",
@@ -416,7 +416,7 @@ function runFocusSpikeRetirementContractChecks() {
     for (const source of [workspaceSource, bridgeSource]) {
         assert.ok(!source.includes('workbench.action.focusWindow'));
         assert.ok(!source.includes('open-window-focus-spike'));
-        assert.ok(!source.includes('_projectStewardOpenWindowSpike'));
+        assert.ok(!source.includes('_agentPivotOpenWindowSpike'));
     }
 }
 
@@ -433,11 +433,11 @@ function runManifestChecks() {
     assert.deepStrictEqual(workspace.extensionKind, ['workspace']);
     assert.deepStrictEqual(bridge.extensionKind, ['ui']);
     assert.strictEqual(bridge.api, 'none');
-    assert.deepStrictEqual(workspace.extensionDependencies, ['hzcheng.project-steward-attention-ui-bridge']);
-    assert.ok(main.extensionDependencies.includes('hzcheng.project-steward-attention-ui-bridge'));
-    assert.ok(workspace.contributes.commands.some(command => command.command === 'projectStewardAttentionSpike.startRouting'));
-    assert.ok(workspace.contributes.commands.some(command => command.command === 'projectStewardAttentionSpike.startSameWorkspaceRouting'));
-    assert.ok(workspace.contributes.commands.some(command => command.command === 'projectStewardAttentionSpike.showStatus'));
+    assert.deepStrictEqual(workspace.extensionDependencies, ['hzcheng.agent-pivot-attention-ui-bridge']);
+    assert.ok(main.extensionDependencies.includes('hzcheng.agent-pivot-attention-ui-bridge'));
+    assert.ok(workspace.contributes.commands.some(command => command.command === 'agentPivotAttentionSpike.startRouting'));
+    assert.ok(workspace.contributes.commands.some(command => command.command === 'agentPivotAttentionSpike.startSameWorkspaceRouting'));
+    assert.ok(workspace.contributes.commands.some(command => command.command === 'agentPivotAttentionSpike.showStatus'));
 }
 
 async function main() {

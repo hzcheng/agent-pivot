@@ -277,7 +277,7 @@
         if (code === 'not-found') return 'That Prompt no longer exists.';
         if (code === 'invalid') return 'Check the Prompt fields and try again.';
         if (code === 'unsupported-version') {
-            return 'This Prompt library needs a newer version of Project Steward.';
+            return 'This Prompt library needs a newer version of Agent Pivot.';
         }
         if (code === 'settings-write-conflict') {
             return 'Save or revert User Settings, then try again. Your Prompt draft is still here.';
@@ -1285,8 +1285,8 @@
             })
             : null;
         state.activeSubtab = tabName(selectedTab) || state.activeSubtab;
-        if (!root.__projectStewardPromptsMounted) {
-            root.__projectStewardPromptsMounted = true;
+        if (!root.__agentPivotPromptsMounted) {
+            root.__agentPivotPromptsMounted = true;
             root.addEventListener('click', onClick);
             root.addEventListener('submit', onSubmit);
             root.addEventListener('input', onInput);
@@ -1300,7 +1300,7 @@
     }
 
     window.addEventListener('message', onWindowMessage);
-    window.__projectStewardPrompts = {
+    window.__agentPivotPrompts = {
         mount: mount,
         dispatch: dispatch,
         applyCommandResult: applyCommandResult,

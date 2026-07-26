@@ -48,7 +48,7 @@ export function getUnsupportedTodoVersionPanelContent(version: unknown): string 
         </header>
         <div class="todo-unsupported-version steward-empty-state" role="alert">
             <p>Stored TODO data uses unsupported version ${escapeHtml(String(version))}.</p>
-            <p>This TODO list is read-only. Update Project Steward before making changes.</p>
+            <p>This TODO list is read-only. Update Agent Pivot before making changes.</p>
         </div>
     </div>`;
 }
@@ -187,7 +187,7 @@ function renderTodoCommandBar(viewModel: TodoPanelViewModel): string {
         ? `${viewModel.totalCompleted} completed shown`
         : 'completed hidden';
     const meta = viewModel.isEmpty
-        ? 'No groups yet · synced when Project Steward data is synced'
+        ? 'No groups yet · synced when Agent Pivot data is synced'
         : `${viewModel.totalIncomplete} open · ${groupCount} ${groupCount === 1 ? 'group' : 'groups'} · ${completedState}`;
 
     return `<header class="todo-page-header todo-page-command-bar">

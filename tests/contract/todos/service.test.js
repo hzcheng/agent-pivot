@@ -2,13 +2,19 @@
 
 const assert = require('node:assert/strict');
 const test = require('node:test');
+const { createFakeVscode } = require('../../helpers/fakeVscode');
+const { loadFreshWithFakeVscode } = require('../../helpers/runtimeContract');
 const { DashboardStartupController, settleMigration } = require('../../../out/dashboard/startupController');
 const {
     deleteTodoWithConfirmation,
     runTodoMutation,
     runTodoRequestMutation,
 } = require('../../../out/todos/hostMutation');
-const { TodoService } = require('../../../out/todos/service');
+const { TodoService } = loadFreshWithFakeVscode(
+    '../../../out/todos/service',
+    createFakeVscode(),
+    __dirname
+);
 const { buildTodoViewModel } = require('../../../out/todos/viewModel');
 
 const NOW = '2026-07-23T00:00:00.000Z';
@@ -469,7 +475,7 @@ test('TODO-DASHBOARD-TODO-MIGRATION-SEQUENCING-001 and WEBVIEW-DASHBOARD-STARTUP
         showInformationMessage: () => undefined,
         showErrorMessage: message => events.push(['error', message]),
         logError: (message, error) => events.push(['log', message, error]),
-        showSteward: () => undefined,
+        showAgentPivot: () => undefined,
         applyProjectColorToCurrentWindow: () => undefined,
         getReopenReason: () => 0,
         updateReopenReason: () => undefined,

@@ -347,7 +347,7 @@ test('PROJECT-CATALOG-SYNC-CONFLICT-001 manual editor passes its exported baseli
     const saves = [];
     const controller = new ProjectManualEditController({
         getGroups: () => structuredClone(exportedGroups),
-        getTempFilePath: () => '/tmp/project-steward-projects.json',
+        getTempFilePath: () => '/tmp/agent-pivot-projects.json',
         writeTextFile: async () => undefined,
         fileUri: value => value,
         openTextDocument: async () => document,

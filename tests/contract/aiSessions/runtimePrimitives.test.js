@@ -29,7 +29,7 @@ function workspaceConfiguration(primaryValues, legacyValues = {}) {
         },
         getConfiguration: section => {
             requestedSections.push(section);
-            return configuration(section === 'projectSteward' ? primaryValues : legacyValues);
+            return configuration(section === 'agentPivot' ? primaryValues : legacyValues);
         },
     };
 }
@@ -69,9 +69,9 @@ test('RUNTIME-RUNTIME-CONFIGURATION-001 reads supported settings and fails close
 
     const manifest = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../../package.json'), 'utf8'));
     const properties = manifest.contributes.configuration.properties;
-    const mode = properties['projectSteward.aiSessionTerminalMode'];
-    const layout = properties['projectSteward.aiSessionTmuxLayout'];
-    const executable = properties['projectSteward.aiSessionTmuxPath'];
+    const mode = properties['agentPivot.aiSessionTerminalMode'];
+    const layout = properties['agentPivot.aiSessionTmuxLayout'];
+    const executable = properties['agentPivot.aiSessionTmuxPath'];
     assert.deepEqual(mode.enum, ['vscode', 'tmux']);
     assert.equal(mode.scope, 'machine');
     assert.equal(layout.default, 'project');
@@ -103,11 +103,11 @@ test('SESSION-AI-SESSION-YOLO-CONFIGURATION-001 reads only literal true and decl
         { yolo: false },
         'legacy dashboard user/workspace values must not enable YOLO'
     );
-    assert.deepEqual(legacyOnly.requestedSections, ['projectSteward']);
+    assert.deepEqual(legacyOnly.requestedSections, ['agentPivot']);
 
     const manifest = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../../package.json'), 'utf8'));
     const setting = manifest.contributes.configuration.properties[
-        'projectSteward.aiSessionYoloMode'
+        'agentPivot.aiSessionYoloMode'
     ];
     assert.equal(setting.type, 'boolean');
     assert.equal(setting.default, false);
@@ -248,21 +248,21 @@ test('RUNTIME-TMUX-LAYOUT-001 creates stable bounded locators and rejects ambigu
     const project = new tmuxLayout.ProjectTmuxLayout().getLocator(identity);
     const session = new tmuxLayout.SessionTmuxLayout().getLocator(identity);
     assert.deepEqual(project, {
-        layout: 'project', sessionName: 'project-steward-p-7f92e748a07b18ae',
+        layout: 'project', sessionName: 'agent-pivot-p-7f92e748a07b18ae',
         windowName: 'ai-codex-422cf24af2ae26f3',
     });
     assert.deepEqual(session, {
-        layout: 'session', sessionName: 'project-steward-s-codex-422cf24af2ae26f3',
+        layout: 'session', sessionName: 'agent-pivot-s-codex-422cf24af2ae26f3',
     });
     assert.deepEqual(new tmuxLayout.ProjectTmuxLayout().getLocator(identity), project);
 
     const pending = { ...identity, sessionId: undefined, pendingId: 'p1' };
     assert.deepEqual(new tmuxLayout.ProjectTmuxLayout().getPendingLocator(pending), {
-        layout: 'project', sessionName: 'project-steward-p-7f92e748a07b18ae',
+        layout: 'project', sessionName: 'agent-pivot-p-7f92e748a07b18ae',
         windowName: 'pending-codex-9084f97358c3712c',
     });
     assert.deepEqual(new tmuxLayout.SessionTmuxLayout().getPendingLocator(pending), {
-        layout: 'session', sessionName: 'project-steward-pending-codex-9084f97358c3712c',
+        layout: 'session', sessionName: 'agent-pivot-pending-codex-9084f97358c3712c',
     });
     assert.equal(tmuxLayout.getTmuxRuntimeKey(identity), '[2,"codex","scope:project-key","navigation:project-key",["/work/app"],"/work/app","session","session-1"]');
     assert.equal(tmuxLayout.getTmuxRuntimeKey(pending), '[2,"codex","scope:project-key","navigation:project-key",["/work/app"],"/work/app","pending","p1"]');
@@ -281,15 +281,15 @@ test('RUNTIME-TMUX-LAYOUT-001 creates stable bounded locators and rejects ambigu
         sessionId: 'session-1', marker: '/tmp/done',
     });
     assert.deepEqual(tmuxLayout.TMUX_METADATA_OPTIONS, {
-        managed: '@project-steward-managed', version: '@project-steward-version',
-        layout: '@project-steward-layout',
-        workspaceScopeIdentity: '@project-steward-workspace-scope-identity',
-        workspaceNavigationIdentity: '@project-steward-workspace-navigation-identity',
-        workspaceRootHostPaths: '@project-steward-workspace-root-host-paths',
-        cwd: '@project-steward-cwd',
-        provider: '@project-steward-provider', sessionId: '@project-steward-session-id',
-        pendingId: '@project-steward-pending-id', createdAt: '@project-steward-created-at',
-        marker: '@project-steward-marker',
+        managed: '@agent-pivot-managed', version: '@agent-pivot-version',
+        layout: '@agent-pivot-layout',
+        workspaceScopeIdentity: '@agent-pivot-workspace-scope-identity',
+        workspaceNavigationIdentity: '@agent-pivot-workspace-navigation-identity',
+        workspaceRootHostPaths: '@agent-pivot-workspace-root-host-paths',
+        cwd: '@agent-pivot-cwd',
+        provider: '@agent-pivot-provider', sessionId: '@agent-pivot-session-id',
+        pendingId: '@agent-pivot-pending-id', createdAt: '@agent-pivot-created-at',
+        marker: '@agent-pivot-marker',
     });
 
     for (const invalidIdentity of [

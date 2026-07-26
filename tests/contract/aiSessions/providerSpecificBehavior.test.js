@@ -120,7 +120,7 @@ test('SESSION-CODEX-SUBAGENT-SESSION-FILTER-001 excludes subagent and headless s
     );
     const restoredSubagent = {
         name: 'Codex restored',
-        creationOptions: { env: { PROJECT_STEWARD_CODEX_SESSION_ID: indexedSubagentId } },
+        creationOptions: { env: { AGENT_PIVOT_CODEX_SESSION_ID: indexedSubagentId } },
     };
     assert.equal(terminalService.resolveTerminalSession(restoredSubagent, () => result.sessions), null);
 });

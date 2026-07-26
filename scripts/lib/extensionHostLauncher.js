@@ -13,7 +13,7 @@ const HOSTILE_EXTENSION_HOST_ENVIRONMENT_KEYS = Object.freeze([
     'VSCODE_NLS_CONFIG',
     'VSCODE_IPC_HOOK_CLI',
 ]);
-const OWNERSHIP_MARKER = '.project-steward-extension-host-test';
+const OWNERSHIP_MARKER = '.agent-pivot-extension-host-test';
 const OWNERSHIP_VALUE = 'owned temporary extension host test directory\n';
 
 function createExtensionHostTestEnvironment(isolatedRoot) {
@@ -61,7 +61,7 @@ function createRunTestsOptions(repositoryRoot, environment) {
             CODEX_HOME: environment.codexHome,
             KIMI_SHARE_DIR: environment.kimiHome,
             CLAUDE_HOME: environment.claudeHome,
-            PROJECT_STEWARD_EXTENSION_HOST_TIMEOUT_MS: String(EXTENSION_HOST_TIMEOUT_MS),
+            AGENT_PIVOT_EXTENSION_HOST_TIMEOUT_MS: String(EXTENSION_HOST_TIMEOUT_MS),
         },
     };
 }

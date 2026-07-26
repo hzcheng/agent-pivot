@@ -13,11 +13,11 @@ import {
     validateOpenWorkspaceRecord,
 } from './protocol';
 
-export const OPEN_WORKSPACE_PUBLISH_COMMAND = '_projectStewardOpenWorkspaces.bridge.publish';
-export const OPEN_WORKSPACE_UNREGISTER_COMMAND = '_projectStewardOpenWorkspaces.bridge.unregister';
-export const OPEN_WORKSPACE_HANDSHAKE_COMMAND = '_projectStewardOpenWorkspaces.bridge.handshake';
-export const OPEN_WORKSPACE_AGGREGATE_COMMAND = '_projectStewardOpenWorkspaces.workspace.aggregate';
-export const OPEN_WORKSPACE_DIAGNOSTIC_COMMAND = '_projectStewardOpenWorkspaces.workspace.diagnostic';
+export const OPEN_WORKSPACE_PUBLISH_COMMAND = '_agentPivotOpenWorkspaces.bridge.publish';
+export const OPEN_WORKSPACE_UNREGISTER_COMMAND = '_agentPivotOpenWorkspaces.bridge.unregister';
+export const OPEN_WORKSPACE_HANDSHAKE_COMMAND = '_agentPivotOpenWorkspaces.bridge.handshake';
+export const OPEN_WORKSPACE_AGGREGATE_COMMAND = '_agentPivotOpenWorkspaces.workspace.aggregate';
+export const OPEN_WORKSPACE_DIAGNOSTIC_COMMAND = '_agentPivotOpenWorkspaces.workspace.diagnostic';
 
 export type OpenWorkspaceBridgeStatus = 'ready' | 'unavailable' | 'update-required';
 

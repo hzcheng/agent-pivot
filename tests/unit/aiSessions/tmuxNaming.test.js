@@ -41,9 +41,9 @@ test('RUNTIME-TMUX-NAMING-001 builds deterministic project, session, pending, an
     const project = buildReadableTmuxLocator(current, 'project', names);
     const session = buildReadableTmuxLocator(current, 'session', names);
 
-    assert.match(project.sessionName, /^ps-RedDB-DTS-双活-[0-9a-f]{8}$/u);
+    assert.match(project.sessionName, /^ap-RedDB-DTS-双活-[0-9a-f]{8}$/u);
     assert.match(project.windowName, /^codex-Fix-replication-timeout-[0-9a-f]{8}$/);
-    assert.match(session.sessionName, /^ps-RedDB-DTS-双活-Fix-replication-timeout-[0-9a-f]{8}$/u);
+    assert.match(session.sessionName, /^ap-RedDB-DTS-双活-Fix-replication-timeout-[0-9a-f]{8}$/u);
     assert.match(session.windowName, /^codex-Fix-replication-timeout-[0-9a-f]{8}$/);
     assert.deepEqual(buildReadableTmuxLocator(current, 'project', names), project);
     assert.notEqual(
@@ -65,7 +65,7 @@ test('RUNTIME-TMUX-NAMING-001 builds deterministic project, session, pending, an
         sessionName: '',
     });
     assert.match(pendingProject.windowName, /^codex-new-session-[0-9a-f]{8}$/);
-    assert.match(pendingSession.sessionName, /^ps-RedDB-new-session-[0-9a-f]{8}$/);
+    assert.match(pendingSession.sessionName, /^ap-RedDB-new-session-[0-9a-f]{8}$/);
     assert.equal(tmuxLocatorMatchesIdentity(pendingProject, pendingIdentity), true);
     assert.equal(tmuxLocatorMatchesIdentity(pendingSession, pendingIdentity), true);
 });
@@ -82,11 +82,11 @@ test('RUNTIME-TMUX-NAMING-001 accepts exact and legacy locators but rejects fore
 
     const workspaceSuffix = readable.sessionName.match(/([0-9a-f]{8})$/)[1];
     assert.equal(projectTmuxSessionMatchesWorkspace(
-        `ps-Renamed-Card-${workspaceSuffix}`,
+        `ap-Renamed-Card-${workspaceSuffix}`,
         current
     ), true);
     assert.equal(projectTmuxSessionMatchesWorkspace(
-        `ps-Renamed-Card-00000000`,
+        `ap-Renamed-Card-00000000`,
         current
     ), false);
 
@@ -102,7 +102,7 @@ test('RUNTIME-TMUX-NAMING-001 accepts exact and legacy locators but rejects fore
         { ...readable, windowName: `codex-bad:name-${runtimeSuffix}` },
         { ...readable, windowName: `codex-bad--name-${runtimeSuffix}` },
         { ...readable, windowName: `codex-bad\u0000name-${runtimeSuffix}` },
-        { ...readable, sessionName: `ps-bad:name-${workspaceSuffix}` },
+        { ...readable, sessionName: `ap-bad:name-${workspaceSuffix}` },
         { ...readable, layout: 'other' },
     ]) {
         assert.equal(tmuxLocatorMatchesIdentity(locator, current), false);
@@ -123,6 +123,6 @@ test('RUNTIME-TMUX-NAMING-001 bounds names by Unicode code points', () => {
     });
     assert.equal(Array.from(astral.sessionName).length, 96);
     assert.equal(Array.from(astral.windowName).length, 96);
-    assert.match(astral.sessionName, /^ps-𐐀+-𐐀+-[0-9a-f]{8}$/u);
+    assert.match(astral.sessionName, /^ap-𐐀+-𐐀+-[0-9a-f]{8}$/u);
     assert.equal(tmuxLocatorMatchesIdentity(astral, current), true);
 });

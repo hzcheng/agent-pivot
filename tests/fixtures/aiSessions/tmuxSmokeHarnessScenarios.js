@@ -45,7 +45,7 @@ async function runHarnessScenario() {
 }
 
 async function runCleanupScenario() {
-    const owned = createOwnedTemporaryRoot('project-steward-tmux-smoke-');
+    const owned = createOwnedTemporaryRoot('agent-pivot-tmux-smoke-');
     const foreignPath = `${owned.path}-foreign`;
     fs.mkdirSync(foreignPath);
     let rejectedForeignRoot = false;

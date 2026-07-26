@@ -56,7 +56,7 @@ export class ProjectManualEditController {
 
             const validation = this.validateAndCleanupGroups(updatedGroups);
             if (!validation.valid) {
-                this.options.showErrorMessage('Edited Projects File does not meet the schema expected by Project Steward.');
+                this.options.showErrorMessage('Edited Projects File does not meet the schema expected by Agent Pivot.');
                 return;
             }
 

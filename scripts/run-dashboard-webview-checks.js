@@ -8,7 +8,23 @@ const vm = require('vm');
 const CleanCSS = require('clean-css');
 const sass = require('sass');
 const dashboardErrorContent = require('../out/dashboard/errorContent');
+let workspaceConfigurationResolver = () => ({ marker: 'agent-pivot-configuration' });
+const configurationReads = [];
+const vscodeConfigurationFixture = {
+    workspace: {
+        getConfiguration(section, scope) {
+            configurationReads.push([section, scope]);
+            return workspaceConfigurationResolver(section, scope);
+        },
+    },
+};
+const originalConfigurationLoad = Module._load;
+Module._load = function loadWithVscodeConfigurationFixture(request, parent, isMain) {
+    if (request === 'vscode') return vscodeConfigurationFixture;
+    return originalConfigurationLoad.call(this, request, parent, isMain);
+};
 const dashboardConfiguration = require('../out/dashboard/configuration');
+Module._load = originalConfigurationLoad;
 const dashboardStartup = require('../out/dashboard/startup');
 const { DashboardStartupController, settleMigration } = require('../out/dashboard/startupController');
 const { DashboardLifecycleController } = require('../out/dashboard/lifecycleController');
@@ -698,7 +714,7 @@ function runWorkspaceCardRenderingChecks() {
     assert.ok(updateRequiredOtherHtml.includes('data-other-windows-status="update-required"'));
     assert.strictEqual(updateRequiredOtherHtml.includes('open-other-windows-group collapsed'), false,
         'an actionable bridge upgrade state must not be hidden by the saved collapse state');
-    assert.ok(updateRequiredOtherHtml.includes('Update the Project Steward UI Bridge'));
+    assert.ok(updateRequiredOtherHtml.includes('Update the Agent Pivot UI Bridge'));
     assert.ok(updateRequiredOtherHtml.includes('data-action="open-bridge-extension"'),
         'the bridge mismatch state must include an actionable upgrade control');
     assert.strictEqual(updateRequiredOtherHtml.includes('class="codex-sessions"'), false,
@@ -921,7 +937,7 @@ function createSearchResultElement(tagName) {
 
 function runErrorContentChecks() {
     const html = dashboardErrorContent.getErrorContent(new Error('<script>alert("x")</script>'));
-    assert.ok(html.includes('Project Steward could not render this view.'));
+    assert.ok(html.includes('Agent Pivot could not render this view.'));
     assert.ok(html.includes('&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;'));
     assert.strictEqual(html.includes('<script>alert("x")</script>'), false);
 
@@ -945,54 +961,48 @@ function makeWorkspaceConfiguration(values, inspectedKeys = Object.keys(values),
 }
 
 function runConfigurationChecks() {
-    const primary = makeWorkspaceConfiguration({ customCss: '.primary{}' });
-    const legacy = makeWorkspaceConfiguration({ customCss: '.legacy{}', displayProjectPath: false });
-    const config = dashboardConfiguration.createStewardConfiguration(primary, legacy);
+    const config = makeWorkspaceConfiguration({ customCss: '.agent-pivot{}' });
+    const scope = { uri: 'fixture://workspace' };
+    workspaceConfigurationResolver = () => config;
+    configurationReads.length = 0;
 
-    assert.strictEqual(config.get('customCss'), '.primary{}');
-    assert.strictEqual(config.get('displayProjectPath'), false);
-    assert.strictEqual(config.get('missing', 'default'), 'default');
-    assert.strictEqual(config.customCss, '.primary{}');
-    assert.strictEqual(config.displayProjectPath, false);
-    assert.strictEqual(config.passthrough, 'primary-passthrough');
-    assert.strictEqual(config.update(), 'primary-update');
-    assert.strictEqual(dashboardConfiguration.hasConfiguredValue(primary, 'customCss'), true);
-    assert.strictEqual(dashboardConfiguration.hasConfiguredValue(primary, 'missing'), false);
+    assert.strictEqual(dashboardConfiguration.getAgentPivotConfiguration(scope), config);
+    assert.deepStrictEqual(configurationReads, [['agentPivot', scope]]);
 }
 
 function runStartupChecks() {
-    assert.strictEqual(dashboardStartup.shouldOpenStewardOnStartup({
+    assert.strictEqual(dashboardStartup.shouldOpenAgentPivotOnStartup({
         reopenReason: 1,
         openOnStartup: 'never',
         workspaceName: 'project',
         visibleEditorLanguageIds: ['typescript'],
     }), true);
-    assert.strictEqual(dashboardStartup.shouldOpenStewardOnStartup({
+    assert.strictEqual(dashboardStartup.shouldOpenAgentPivotOnStartup({
         openOnStartup: 'always',
         workspaceName: 'project',
         visibleEditorLanguageIds: ['typescript'],
     }), true);
-    assert.strictEqual(dashboardStartup.shouldOpenStewardOnStartup({
+    assert.strictEqual(dashboardStartup.shouldOpenAgentPivotOnStartup({
         openOnStartup: 'never',
         workspaceName: '',
         visibleEditorLanguageIds: [],
     }), false);
-    assert.strictEqual(dashboardStartup.shouldOpenStewardOnStartup({
+    assert.strictEqual(dashboardStartup.shouldOpenAgentPivotOnStartup({
         openOnStartup: 'empty workspace',
         workspaceName: '',
         visibleEditorLanguageIds: [],
     }), true);
-    assert.strictEqual(dashboardStartup.shouldOpenStewardOnStartup({
+    assert.strictEqual(dashboardStartup.shouldOpenAgentPivotOnStartup({
         openOnStartup: 'empty workspace',
         workspaceName: '',
         visibleEditorLanguageIds: ['code-runner-output'],
     }), true);
-    assert.strictEqual(dashboardStartup.shouldOpenStewardOnStartup({
+    assert.strictEqual(dashboardStartup.shouldOpenAgentPivotOnStartup({
         openOnStartup: 'empty workspace',
         workspaceName: 'project',
         visibleEditorLanguageIds: [],
     }), false);
-    assert.strictEqual(dashboardStartup.shouldOpenStewardOnStartup({
+    assert.strictEqual(dashboardStartup.shouldOpenAgentPivotOnStartup({
         openOnStartup: 'empty workspace',
         workspaceName: '',
         visibleEditorLanguageIds: ['typescript'],
@@ -1000,9 +1010,9 @@ function runStartupChecks() {
 }
 
 function runWebviewOptionsChecks() {
-    const options = dashboardWebviewOptions.getDashboardWebviewOptions('/extensions/project-steward', value => ({ uri: value }));
+    const options = dashboardWebviewOptions.getDashboardWebviewOptions('/extensions/agent-pivot', value => ({ uri: value }));
     assert.strictEqual(options.enableScripts, true);
-    assert.deepStrictEqual(options.localResourceRoots, [{ uri: path.join('/extensions/project-steward', 'media') }]);
+    assert.deepStrictEqual(options.localResourceRoots, [{ uri: path.join('/extensions/agent-pivot', 'media') }]);
 }
 
 async function runGroupCollapseControllerChecks() {
@@ -1509,58 +1519,33 @@ async function runTodoStorageResolutionChecks() {
     const globalData = makeStoredTodoData('global-group');
     const cases = [
         {
-            name: 'explicit primary setting wins over legacy',
-            primary: makeWorkspaceConfiguration({ storeProjectsInSettings: false, todoData: primarySettingsData }),
-            legacy: makeWorkspaceConfiguration({ storeProjectsInSettings: true }),
+            name: 'explicit Agent Pivot setting selects global state',
+            configuration: makeWorkspaceConfiguration({
+                storeProjectsInSettings: false,
+                todoData: primarySettingsData,
+            }),
             expectedGroupId: 'global-group',
         },
         {
-            name: 'explicit legacy setting is used when primary is not configured',
-            primary: makeWorkspaceConfiguration(
+            name: 'Agent Pivot manifest default selects settings',
+            configuration: makeWorkspaceConfiguration(
                 { todoData: primarySettingsData },
                 ['todoData'],
                 { storeProjectsInSettings: true }
             ),
-            legacy: makeWorkspaceConfiguration({ storeProjectsInSettings: false }),
-            expectedGroupId: 'global-group',
-        },
-        {
-            name: 'primary default is used when neither setting is configured',
-            primary: makeWorkspaceConfiguration(
-                { todoData: primarySettingsData },
-                ['todoData'],
-                { storeProjectsInSettings: true }
-            ),
-            legacy: makeWorkspaceConfiguration({}, []),
             expectedGroupId: 'settings-group',
         },
     ];
 
     for (const testCase of cases) {
-        const originalLoad = Module._load;
-        Module._load = function (request, parent, isMain) {
-            if (request === 'vscode') {
-                return {
-                    workspace: {
-                        getConfiguration: section => section === 'projectSteward'
-                            ? testCase.primary
-                            : testCase.legacy,
-                    },
-                };
-            }
-            return originalLoad.call(this, request, parent, isMain);
-        };
-        try {
-            const service = new TodoService({
-                globalState: {
-                    get: key => key === 'todos' ? globalData : undefined,
-                    update: async () => undefined,
-                },
-            });
-            assert.strictEqual(service.getData().groups[0].id, testCase.expectedGroupId, testCase.name);
-        } finally {
-            Module._load = originalLoad;
-        }
+        workspaceConfigurationResolver = () => testCase.configuration;
+        const service = new TodoService({
+            globalState: {
+                get: key => key === 'todos' ? globalData : undefined,
+                update: async () => undefined,
+            },
+        });
+        assert.strictEqual(service.getData().groups[0].id, testCase.expectedGroupId, testCase.name);
     }
 
     async function runExtensionContextSettingsWrite(rejectWrite) {
@@ -1568,7 +1553,7 @@ async function runTodoStorageResolutionChecks() {
             { storeProjectsInSettings: true },
             ['storeProjectsInSettings', 'update']
         );
-        const legacy = makeWorkspaceConfiguration({}, []);
+        workspaceConfigurationResolver = () => primary;
         const settingsWrites = [];
         const provenanceWrites = [];
         primary.update = async (key, value, target) => {
@@ -1580,7 +1565,7 @@ async function runTodoStorageResolutionChecks() {
             if (request === 'vscode') {
                 return {
                     workspace: {
-                        getConfiguration: section => section === 'projectSteward' ? primary : legacy,
+                        getConfiguration: () => primary,
                     },
                 };
             }
@@ -1609,7 +1594,7 @@ async function runTodoStorageResolutionChecks() {
 
     const contextWrite = await runExtensionContextSettingsWrite(false);
     assert.strictEqual(contextWrite.settingsWrites.length, 1,
-        'ExtensionContext settings writes must call the raw projectSteward configuration writer');
+        'ExtensionContext settings writes must call the raw agentPivot configuration writer');
     assert.strictEqual(contextWrite.settingsWrites[0][0], 'todoData');
     assert.strictEqual(contextWrite.settingsWrites[0][2], 1);
     assert.strictEqual(contextWrite.provenanceWrites.length, 1,
@@ -2263,7 +2248,7 @@ async function runDashboardTodoMigrationSequencingChecks() {
             showInformationMessage: () => undefined,
             showErrorMessage: message => errors.push(message),
             logError: (message, error) => logs.push([message, error]),
-            showSteward: () => undefined,
+            showAgentPivot: () => undefined,
             applyProjectColorToCurrentWindow: () => undefined,
             getReopenReason: () => 0,
             updateReopenReason: () => undefined,
@@ -2287,7 +2272,7 @@ async function runDashboardTodoMigrationSequencingChecks() {
         'TODO true plus project rejection must retain the success and refresh exactly once');
     assert.deepStrictEqual(todoSuccessHarness.publications, ['published']);
     assert.deepStrictEqual(todoSuccessHarness.logs,
-        [['Failed to migrate Project Steward project data.', projectPartialError]]);
+        [['Failed to migrate Agent Pivot project data.', projectPartialError]]);
     assert.strictEqual(todoSuccessHarness.errors.length, 1);
     assert.ok(todoSuccessHarness.errors[0].includes('project migration rejected after TODO success'));
     await todoSuccessHarness.controller.checkDataMigration();
@@ -2304,7 +2289,7 @@ async function runDashboardTodoMigrationSequencingChecks() {
     assert.deepStrictEqual(projectSuccessHarness.refreshes, ['refreshed'],
         'project true plus TODO rejection must retain the success and refresh exactly once');
     assert.deepStrictEqual(projectSuccessHarness.logs,
-        [['Failed to migrate Project Steward TODO data.', todoPartialError]]);
+        [['Failed to migrate Agent Pivot TODO data.', todoPartialError]]);
     assert.strictEqual(projectSuccessHarness.errors.length, 1);
     assert.ok(projectSuccessHarness.errors[0].includes('TODO migration rejected after project success'));
 
@@ -2324,8 +2309,8 @@ async function runDashboardTodoMigrationSequencingChecks() {
     assert.deepStrictEqual(bothRejectHarness.refreshes, [],
         'both rejected migrations must not refresh without any successful migration');
     assert.deepStrictEqual(bothRejectHarness.logs, [
-        ['Failed to migrate Project Steward project data.', bothProjectError],
-        ['Failed to migrate Project Steward TODO data.', bothTodoError],
+        ['Failed to migrate Agent Pivot project data.', bothProjectError],
+        ['Failed to migrate Agent Pivot TODO data.', bothTodoError],
     ]);
     assert.strictEqual(bothRejectHarness.errors.length, 2);
     await bothRejectHarness.controller.checkDataMigration();
@@ -2343,7 +2328,7 @@ async function runDashboardTodoMigrationSequencingChecks() {
     assert.deepStrictEqual(syncTodoPartialHarness.refreshes, ['refreshed'],
         'a synchronous TODO throw must not discard a successful project migration');
     assert.deepStrictEqual(syncTodoPartialHarness.logs,
-        [['Failed to migrate Project Steward TODO data.', syncTodoPartialError]]);
+        [['Failed to migrate Agent Pivot TODO data.', syncTodoPartialError]]);
     assert.strictEqual(syncTodoPartialHarness.errors.length, 1);
 
     const syncTodoBothError = new Error('TODO migration threw synchronously with project rejection');
@@ -2370,8 +2355,8 @@ async function runDashboardTodoMigrationSequencingChecks() {
         assert.deepStrictEqual(syncFailureHarness.refreshes, [],
             'a synchronous throw plus rejection must not refresh without a migration success');
         assert.deepStrictEqual(syncFailureHarness.logs, [
-            ['Failed to migrate Project Steward project data.', rejectedProjectError],
-            ['Failed to migrate Project Steward TODO data.', syncTodoBothError],
+            ['Failed to migrate Agent Pivot project data.', rejectedProjectError],
+            ['Failed to migrate Agent Pivot TODO data.', syncTodoBothError],
         ]);
         assert.strictEqual(syncFailureHarness.errors.length, 2);
         assert.deepStrictEqual(unhandledRejections, [],
@@ -2955,8 +2940,8 @@ function runTodoOrderingInteractionChecks() {
     };
     const onKeyDown = () => undefined;
     const dndRoot = {
-        __projectStewardDnDInitialized: true,
-        __projectStewardDnD: {
+        __agentPivotDnDInitialized: true,
+        __agentPivotDnD: {
             projectDrake: { destroy: () => disposed.push('project') },
             groupsDrake: { destroy: () => disposed.push('groups') },
             todoGroupsDrake: { destroy: () => disposed.push('todo-groups') },
@@ -2969,8 +2954,8 @@ function runTodoOrderingInteractionChecks() {
     assert.deepStrictEqual(disposed, [
         'project', 'groups', 'todo-groups', 'todo-items', ['scroll', true], ['listener', 'keydown', onKeyDown],
     ]);
-    assert.strictEqual(dndRoot.__projectStewardDnDInitialized, undefined);
-    assert.strictEqual(dndRoot.__projectStewardDnD, undefined);
+    assert.strictEqual(dndRoot.__agentPivotDnDInitialized, undefined);
+    assert.strictEqual(dndRoot.__agentPivotDnD, undefined);
 }
 
 async function runAddProjectsFromFolderControllerChecks() {
@@ -3157,7 +3142,7 @@ async function runDashboardRuntimeControllerChecks() {
             }
             return Promise.resolve();
         },
-        viewType: 'project-steward.views.sidebar',
+        viewType: 'agent-pivot.views.sidebar',
         publishOpenWorkspace: () => published.push('open-workspace'),
         getCurrentSavedProject: () => projects[0],
         syncProjectColorToCurrentWindow: project => {
@@ -3181,17 +3166,17 @@ async function runDashboardRuntimeControllerChecks() {
     assert.deepStrictEqual(refreshes, ['refresh']);
 
     visible = true;
-    await controller.showSteward();
+    await controller.showAgentPivot();
     assert.deepStrictEqual(published, ['open-workspace']);
     assert.deepStrictEqual(commands, [
-        ['workbench.view.extension.project-steward'],
-        ['project-steward.views.sidebar.focus'],
-        ['project-steward.views.sidebar.focus'],
+        ['workbench.view.extension.agentPivot'],
+        ['agent-pivot.views.sidebar.focus'],
+        ['agent-pivot.views.sidebar.focus'],
     ]);
-    assert.deepStrictEqual(diagnostics.slice(-1), [{ event: 'full-refresh', reason: 'show-steward' }]);
+    assert.deepStrictEqual(diagnostics.slice(-1), [{ event: 'full-refresh', reason: 'show-agent-pivot' }]);
 
     await controller.openSettings();
-    assert.deepStrictEqual(commands[commands.length - 1], ['workbench.action.openSettings', '@ext:hzcheng.project-steward']);
+    assert.deepStrictEqual(commands[commands.length - 1], ['workbench.action.openSettings', '@ext:hzcheng.agent-pivot']);
 
     controller.postBatchArchiveCompletion({ type: 'ai-session-batch-archive-completed', projectId: 'p', provider: 'codex', status: 'finished' });
     controller.postActiveAiSessionTerminalChanged({ provider: 'codex', sessionId: 's1' });
@@ -3237,7 +3222,7 @@ async function runDashboardRuntimeControllerChecks() {
         postMessage: () => { throw new Error('post threw'); },
         logError: (message, error) => syncThrowErrors.push([message, error?.message]),
     });
-    await syncThrowController.revealSidebarSteward();
+    await syncThrowController.revealAgentPivotDashboard();
     syncThrowController.applyProjectColorToCurrentWindow(projects[0]);
     syncThrowController.postBatchArchiveCompletion({ type: 'ai-session-batch-archive-completed', projectId: 'p', provider: 'codex', status: 'finished' });
     await new Promise(resolve => setImmediate(resolve));
@@ -3254,7 +3239,7 @@ async function runDashboardStartupControllerChecks() {
     const colorApplications = [];
     const reopenUpdates = [];
     let migrated = true;
-    let showStewardCalls = 0;
+    let showAgentPivotCalls = 0;
     let reopenReason = 0;
     let workspaceName = 'workspace';
     let visibleEditorLanguageIds = ['typescript'];
@@ -3280,7 +3265,7 @@ async function runDashboardStartupControllerChecks() {
         refreshDashboard: () => undefined,
         publishOpenWorkspace: () => publications.push('published'),
         showInformationMessage: message => informationMessages.push(message),
-        showSteward: () => { showStewardCalls += 1; },
+        showAgentPivot: () => { showAgentPivotCalls += 1; },
         applyProjectColorToCurrentWindow: () => colorApplications.push('applied'),
         getReopenReason: () => reopenReason,
         updateReopenReason: value => reopenUpdates.push(value),
@@ -3292,17 +3277,17 @@ async function runDashboardStartupControllerChecks() {
     await controller.checkDataMigration();
     assert.deepStrictEqual(publications, ['published']);
     assert.strictEqual(informationMessages.length, 1);
-    assert.strictEqual(showStewardCalls, 0);
+    assert.strictEqual(showAgentPivotCalls, 0);
 
     migrated = false;
     await controller.checkDataMigration(true);
     assert.deepStrictEqual(publications, ['published']);
-    assert.strictEqual(showStewardCalls, 0);
+    assert.strictEqual(showAgentPivotCalls, 0);
 
     migrated = true;
     await controller.checkDataMigration(true);
     assert.deepStrictEqual(publications, ['published', 'published']);
-    assert.strictEqual(showStewardCalls, 1);
+    assert.strictEqual(showAgentPivotCalls, 1);
 
     reopenReason = 1;
     await controller.startUp();
@@ -3313,14 +3298,14 @@ async function runDashboardStartupControllerChecks() {
     assert.deepStrictEqual(stewardInfos.relevantExtensionsInstalls, { remoteSSH: true, remoteContainers: false });
     assert.deepStrictEqual(colorApplications, ['applied']);
     assert.deepStrictEqual(reopenUpdates, [0]);
-    assert.strictEqual(showStewardCalls, 2);
+    assert.strictEqual(showAgentPivotCalls, 2);
 
     reopenReason = 0;
     workspaceName = '';
     visibleEditorLanguageIds = ['code-runner-output'];
     stewardInfos.config = { openOnStartup: 'empty workspace' };
     await controller.startUp();
-    assert.strictEqual(showStewardCalls, 3);
+    assert.strictEqual(showAgentPivotCalls, 3);
 
     const startupOrdering = [];
     const orderedController = new DashboardStartupController({
@@ -3341,7 +3326,7 @@ async function runDashboardStartupControllerChecks() {
         showInformationMessage: () => undefined,
         showErrorMessage: () => undefined,
         logError: () => undefined,
-        showSteward: () => undefined,
+        showAgentPivot: () => undefined,
         applyProjectColorToCurrentWindow: () => startupOrdering.push('color'),
         getReopenReason: () => 0,
         updateReopenReason: () => undefined,
@@ -3374,7 +3359,7 @@ async function runDashboardStartupControllerChecks() {
         showInformationMessage: () => undefined,
         showErrorMessage: () => undefined,
         logError: () => undefined,
-        showSteward: () => undefined,
+        showAgentPivot: () => undefined,
         applyProjectColorToCurrentWindow: () => failedProjectOrdering.push('color'),
         getReopenReason: () => 0,
         updateReopenReason: () => undefined,
@@ -3423,7 +3408,7 @@ async function runDashboardStartupControllerChecks() {
         showInformationMessage: () => undefined,
         showErrorMessage: () => undefined,
         logError: () => undefined,
-        showSteward: () => undefined,
+        showAgentPivot: () => undefined,
         applyProjectColorToCurrentWindow: () => undefined,
         getReopenReason: () => 0,
         updateReopenReason: () => undefined,
@@ -3483,7 +3468,7 @@ async function runDashboardStartupControllerChecks() {
         showInformationMessage: () => undefined,
         showErrorMessage: message => migrationErrors.push(message),
         logError: (message, error) => migrationLogs.push([message, error]),
-        showSteward: () => undefined,
+        showAgentPivot: () => undefined,
         applyProjectColorToCurrentWindow: () => undefined,
         getReopenReason: () => 0,
         updateReopenReason: () => undefined,
@@ -3499,7 +3484,7 @@ async function runDashboardStartupControllerChecks() {
         'migration failure must be visible to the user');
     assert.ok(migrationErrors[0].includes('TODO migration write failed'));
     assert.deepStrictEqual(migrationLogs,
-        [['Failed to migrate Project Steward data.', startupMigrationFailure]],
+        [['Failed to migrate Agent Pivot data.', startupMigrationFailure]],
         'migration failure must be logged without escaping as an unhandled rejection');
     assert.deepStrictEqual(retryPublications, []);
     assert.deepStrictEqual(retryRefreshes, []);
@@ -3526,7 +3511,7 @@ async function runDashboardLifecycleControllerChecks() {
             affectedSection === section || affectedSection.startsWith(`${section}.`)),
     });
 
-    await controller.handleConfigurationChanged(makeConfigurationEvent(['projectSteward.storeProjectsInSettings']));
+    await controller.handleConfigurationChanged(makeConfigurationEvent(['agentPivot.storeProjectsInSettings']));
     assert.deepStrictEqual(events, [
         ['migrate', false],
         ['color'],
@@ -3535,11 +3520,7 @@ async function runDashboardLifecycleControllerChecks() {
     ]);
 
     events.length = 0;
-    await controller.handleConfigurationChanged(makeConfigurationEvent(['dashboard.storeProjectsInSettings']));
-    assert.deepStrictEqual(events.map(event => event[0]), ['migrate', 'color', 'refresh', 'publish']);
-
-    events.length = 0;
-    await controller.handleConfigurationChanged(makeConfigurationEvent(['projectSteward']));
+    await controller.handleConfigurationChanged(makeConfigurationEvent(['agentPivot']));
     assert.deepStrictEqual(events, [
         ['color'],
         ['refresh', 'configuration-changed'],
@@ -3554,10 +3535,12 @@ async function runDashboardLifecycleControllerChecks() {
         path.join(root, 'src', 'dashboard', 'lifecycleController.ts'),
         'utf8',
     );
-    assert.ok(lifecycleControllerSource.includes("'projectSteward.aiSessionRunningIconAnimation'"),
-        'the icon setting must be explicitly treated as a non-TODO Dashboard configuration key');
+    assert.ok(lifecycleControllerSource.includes("'aiSessionRunningIconAnimation'"),
+        'the icon setting must be included in the Agent Pivot configuration key list');
+    assert.ok(lifecycleControllerSource.includes('AGENT_PIVOT_CONFIG_SECTION'),
+        'the lifecycle controller must centralize the Agent Pivot configuration section');
     await controller.handleConfigurationChanged(makeConfigurationEvent([
-        'projectSteward.aiSessionRunningIconAnimation',
+        'agentPivot.aiSessionRunningIconAnimation',
     ]));
     assert.deepStrictEqual(events, [
         ['color'],
@@ -3615,16 +3598,16 @@ async function runDashboardCommandRegistrationChecks() {
     registration.register();
 
     assert.deepStrictEqual(registered.map(([command]) => command), [
-        'projectSteward.open',
-        'projectSteward.addProject',
-        'projectSteward.saveProject',
-        'projectSteward.removeProject',
-        'projectSteward.editProjects',
-        'projectSteward.addGroup',
-        'projectSteward.removeGroup',
-        'projectSteward.addProjectsFromFolder',
-        'projectSteward.addFileToActiveTerminal',
-        'projectSteward.insertPromptToActiveTerminal',
+        'agentPivot.open',
+        'agentPivot.addProject',
+        'agentPivot.saveProject',
+        'agentPivot.removeProject',
+        'agentPivot.editProjects',
+        'agentPivot.addGroup',
+        'agentPivot.removeGroup',
+        'agentPivot.addProjectsFromFolder',
+        'agentPivot.addFileToActiveTerminal',
+        'agentPivot.insertPromptToActiveTerminal',
     ]);
     assert.deepStrictEqual(subscriptions.map(disposable => disposable.command), registered.map(([command]) => command));
 
@@ -3788,7 +3771,7 @@ function runControllerChecks(source) {
         'dashboard-search-results': searchResults,
     };
     const messages = [];
-    const storage = new Map([['projectSteward.activeDashboardTab', 'open']]);
+    const storage = new Map([['agentPivot.activeDashboardTab', 'open']]);
     const windowListeners = {};
     const context = {
         document: {
@@ -4049,10 +4032,10 @@ function runControllerChecks(source) {
     assert.strictEqual(pendingTodoFrames.length, 0,
         'a successfully focused TODO target must clear pending state exactly once');
 
-    storage.set('projectSteward.activeDashboardTab', 'projects');
+    storage.set('agentPivot.activeDashboardTab', 'projects');
     const searchMessages = [];
     const workspaceRevealCalls = [];
-    context.window.__projectStewardRevealWorkspaceSession = (...args) => workspaceRevealCalls.push(args);
+    context.window.__agentPivotRevealWorkspaceSession = (...args) => workspaceRevealCalls.push(args);
     const workspaceSearchController = context.initDashboard({
         initialSearchQuery: 'dashboard',
         clearSearch: () => undefined,
@@ -4375,7 +4358,7 @@ function runSourceContractChecks(source) {
     const viewProviderPath = path.join(root, 'src', 'dashboard', 'viewProvider.ts');
     assert.ok(fs.existsSync(viewProviderPath));
     const viewProviderSource = fs.readFileSync(viewProviderPath, 'utf8');
-    assert.ok(viewProviderSource.includes('export class SidebarStewardViewProvider implements vscode.WebviewViewProvider'));
+    assert.ok(viewProviderSource.includes('export class AgentPivotViewProvider implements vscode.WebviewViewProvider'));
     assert.ok(viewProviderSource.includes('refresh()'));
     assert.ok(viewProviderSource.includes('postMessage(message: unknown)'));
     const routerPath = path.join(root, 'src', 'dashboard', 'messageRouter.ts');
@@ -4389,7 +4372,7 @@ function runSourceContractChecks(source) {
     assert.ok(routerSource.includes('export function createDashboardMessageRouter('));
     assert.strictEqual(routerSource.includes('handleRawMessage'), false);
 
-    assert.ok(source.includes("projectSteward.activeDashboardTab"));
+    assert.ok(source.includes("agentPivot.activeDashboardTab"));
     assert.ok(webviewContentSource.includes('class="group steward-section'));
     assert.ok(webviewContentSource.includes('class="group-title steward-section-header steward-group-header"'));
     assert.ok(webviewContentSource.includes('class="project steward-item-card"'));
@@ -4405,10 +4388,10 @@ function runSourceContractChecks(source) {
     assert.ok(webviewContentSource.includes("'webviewTodoScripts.js'"));
     assert.match(
         webviewContentSource,
-        /onTodoMounted: \(panel, message\) => \{[\s\S]*?todos\.mount\(panel, message\.snapshot\);[\s\S]*?window\.__projectStewardSyncCollapseButton\(\);[\s\S]*?\}/
+        /onTodoMounted: \(panel, message\) => \{[\s\S]*?todos\.mount\(panel, message\.snapshot\);[\s\S]*?window\.__agentPivotSyncCollapseButton\(\);[\s\S]*?\}/
     );
     assert.strictEqual(
-        webviewContentSource.includes("window.__projectStewardSyncCollapseButton('todo')"),
+        webviewContentSource.includes("window.__agentPivotSyncCollapseButton('todo')"),
         false
     );
     assert.ok(source.includes("setAttribute('aria-selected'"));
@@ -4418,9 +4401,9 @@ function runSourceContractChecks(source) {
     assert.ok(source.includes('pendingScrollRestoreTab'));
     assert.ok(extensionHostSource.includes("'request-projects-panel': async e =>"));
     assert.ok(extensionHostSource.includes("'request-todo-panel': async e =>"));
-    assert.ok(packageJson.includes('"projectSteward.maxVisibleTodosPerGroup"'));
+    assert.ok(packageJson.includes('"agentPivot.maxVisibleTodosPerGroup"'));
     assert.ok(packageJson.includes('Maximum number of TODO cards visible in each group before the group list scrolls.'));
-    assert.ok(packageJson.includes('"projectSteward.maxVisibleProjectsPerGroup"'));
+    assert.ok(packageJson.includes('"agentPivot.maxVisibleProjectsPerGroup"'));
     assert.strictEqual(extensionHostSource.includes('function handleStewardMessage('), false);
     assert.ok(extensionHostSource.includes('getAiSessionProviderIds: () => getRegisteredAiSessionProviders().map(provider => provider.id)'));
     assert.ok(extensionHostSource.includes("type: 'projects-panel-content'"));
@@ -4527,7 +4510,7 @@ function runSourceContractChecks(source) {
         'rename-group mutations must check group existence before entering the retrying prompt boundary');
     assert.ok(dndSource.includes('function initDnD(root)'));
     assert.ok(dndSource.includes('function disposeDnD(root)'));
-    assert.ok(dndSource.includes('root.__projectStewardDnDInitialized'));
+    assert.ok(dndSource.includes('root.__agentPivotDnDInitialized'));
     assert.ok(dndSource.includes('const todoGroupsContainerSelector = ".todo-groups"'));
     assert.ok(dndSource.includes('const todoItemsContainerSelector = ".todo-list"'));
     assert.ok(dndSource.includes("type: 'todo-reorder-groups'"));
@@ -4576,9 +4559,9 @@ function runSourceContractChecks(source) {
     assert.ok(renderSearchBody.includes("button.classList.toggle('completed'"));
     assert.ok(renderSearchBody.includes('dashboard-search-result-priority'));
     assert.ok(source.includes("title: 'OPEN WORKSPACES'"));
-    assert.ok(projectSource.includes('__projectStewardAcknowledgeSession'));
-    assert.strictEqual(projectSource.includes('__projectStewardShowCurrentProject'), false);
-    assert.ok(projectSource.includes('__projectStewardRevealWorkspaceSession'));
+    assert.ok(projectSource.includes('__agentPivotAcknowledgeSession'));
+    assert.strictEqual(projectSource.includes('__agentPivotShowCurrentProject'), false);
+    assert.ok(projectSource.includes('__agentPivotRevealWorkspaceSession'));
     const refreshStewardViewsBody = extractFunctionBody(extensionHostSource, 'refreshStewardViews');
     const aiSessionsMessageBody = extractFunctionBody(extensionHostSource, 'getAiSessionsUpdatedMessage');
     const openWorkspacesMessageBody = extractFunctionBody(extensionHostSource, 'postOpenWorkspacesUpdated');
@@ -4598,23 +4581,27 @@ function runSourceContractChecks(source) {
     assert.ok(!extensionHostSource.includes('function getErrorContent('));
     assert.ok(!extensionHostSource.includes('function escapeHtml('));
     assert.ok(dashboardErrorContentSource.includes('export function getErrorContent('));
-    assert.ok(dashboardErrorContentSource.includes('Project Steward could not render this view.'));
+    assert.ok(dashboardErrorContentSource.includes('Agent Pivot could not render this view.'));
     const dashboardConfigurationSource = fs.readFileSync(path.join(root, 'src', 'dashboard', 'configuration.ts'), 'utf8');
     assert.ok(extensionHostSource.includes("from './dashboard/configuration'"));
-    assert.ok(!extensionHostSource.includes('function getStewardConfiguration('));
+    assert.ok(!extensionHostSource.includes('function getAgentPivotConfiguration('));
     assert.ok(!extensionHostSource.includes('function hasConfiguredValue('));
-    assert.ok(dashboardConfigurationSource.includes('export function createStewardConfiguration('));
-    assert.ok(dashboardConfigurationSource.includes('export function hasConfiguredValue('));
-    assert.ok(baseServiceSource.includes("from '../dashboard/configuration'"));
+    assert.ok(dashboardConfigurationSource.includes('export function getAgentPivotConfiguration('));
+    assert.strictEqual(dashboardConfigurationSource.includes('createStewardConfiguration'), false);
+    assert.strictEqual(dashboardConfigurationSource.includes('hasConfiguredValue'), false);
+    assert.strictEqual(dashboardConfigurationSource.includes('LEGACY_DASHBOARD_CONFIG_SECTION'), false);
+    assert.strictEqual(baseServiceSource.includes("from '../dashboard/configuration'"), false);
+    assert.ok(baseServiceSource.includes('AGENT_PIVOT_CONFIG_SECTION'));
+    assert.ok(baseServiceSource.includes('this.workspaceRoot'));
     assert.strictEqual(baseServiceSource.includes('private hasConfiguredValue('), false);
     const dashboardStartupSource = fs.readFileSync(path.join(root, 'src', 'dashboard', 'startup.ts'), 'utf8');
     const dashboardStartupControllerSource = fs.readFileSync(path.join(root, 'src', 'dashboard', 'startupController.ts'), 'utf8');
     assert.ok(extensionHostSource.includes("from './dashboard/startupController'"));
-    assert.ok(!extensionHostSource.includes('function showStewardOnOpenIfNeeded('));
-    assert.ok(dashboardStartupSource.includes('export function shouldOpenStewardOnStartup('));
+    assert.ok(!extensionHostSource.includes('function showAgentPivotOnOpenIfNeeded('));
+    assert.ok(dashboardStartupSource.includes('export function shouldOpenAgentPivotOnStartup('));
     assert.ok(dashboardStartupSource.includes('code-runner-output'));
     assert.ok(dashboardStartupControllerSource.includes('export class DashboardStartupController'));
-    assert.ok(dashboardStartupControllerSource.includes('shouldOpenStewardOnStartup({'));
+    assert.ok(dashboardStartupControllerSource.includes('shouldOpenAgentPivotOnStartup({'));
     const dashboardWebviewOptionsSource = fs.readFileSync(path.join(root, 'src', 'dashboard', 'webviewOptions.ts'), 'utf8');
     assert.ok(extensionHostSource.includes("from './dashboard/webviewOptions'"));
     assert.ok(!extensionHostSource.includes('function getWebviewOptions('));
@@ -4676,8 +4663,8 @@ function runSourceContractChecks(source) {
     assert.ok(projectSource.includes('replaceSearchCatalog(message.searchCatalog)'));
     assert.ok(projectSource.includes("type: 'open-bridge-extension'"));
     assert.ok(extensionHostSource.includes("'workbench.extensions.action.showExtensionsWithIds'"));
-    assert.ok(extensionHostSource.includes("'hzcheng.project-steward-attention-ui-bridge'"));
-    assert.strictEqual(projectSource.includes("sessionStorage.setItem('projectSteward.activeDashboardTab', 'open')"), false);
+    assert.ok(extensionHostSource.includes("'hzcheng.agent-pivot-attention-ui-bridge'"));
+    assert.strictEqual(projectSource.includes("sessionStorage.setItem('agentPivot.activeDashboardTab', 'open')"), false);
     for (const selector of [
         '.steward-section', '.steward-section-header', '.steward-card',
         '.steward-icon-button', '.steward-badge', '.steward-meta',

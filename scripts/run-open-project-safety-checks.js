@@ -764,7 +764,7 @@ function runOpenWorkspacePublicationChecks() {
 }
 
 async function runOpenWorkspaceStoreChecks() {
-    const tempRoot = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'project-steward-open-workspace-store-'));
+    const tempRoot = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'agent-pivot-open-workspace-store-'));
     try {
         const instancesDirectory = path.join(tempRoot, 'open-workspaces', 'v3', 'instances');
         const v2Directory = path.join(tempRoot, 'open-workspaces', 'v2', 'instances');
@@ -851,7 +851,7 @@ async function runOpenWorkspaceStoreChecks() {
 }
 
 async function runOpenWorkspaceCoordinatorChecks() {
-    const tempRoot = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'project-steward-open-workspace-coordinator-'));
+    const tempRoot = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'agent-pivot-open-workspace-coordinator-'));
     let now = 1000;
     let intervalCallback;
     const delivered = [];
@@ -998,7 +998,7 @@ async function runOpenWorkspaceClientAndControllerChecks() {
         },
         executeCommand: async (command, argument) => {
             executions.push({ command, argument });
-            if (command === '_projectStewardOpenWorkspaces.bridge.handshake') {
+            if (command === '_agentPivotOpenWorkspaces.bridge.handshake') {
                 return {
                     accepted: true,
                     protocolVersion: 3,
@@ -1015,11 +1015,11 @@ async function runOpenWorkspaceClientAndControllerChecks() {
         clearInterval: () => undefined,
     });
     for (let attempt = 0; attempt < 50
-        && !executions.some(value => value.command === '_projectStewardOpenWorkspaces.bridge.publish'); attempt += 1) {
+        && !executions.some(value => value.command === '_agentPivotOpenWorkspaces.bridge.publish'); attempt += 1) {
         await new Promise(resolve => setImmediate(resolve));
     }
-    assert.strictEqual(executions[0].command, '_projectStewardOpenWorkspaces.bridge.handshake');
-    assert.strictEqual(executions[1].command, '_projectStewardOpenWorkspaces.bridge.publish');
+    assert.strictEqual(executions[0].command, '_agentPivotOpenWorkspaces.bridge.handshake');
+    assert.strictEqual(executions[1].command, '_agentPivotOpenWorkspaces.bridge.publish');
     assert.strictEqual(executions[1].argument.workspace.navigationIdentity, record.navigationIdentity);
     assert.deepStrictEqual(Object.keys(executions[1].argument.workspace.roots[0]).sort(),
         ['id', 'name', 'ordinal', 'uri']);
@@ -1036,11 +1036,11 @@ async function runOpenWorkspaceClientAndControllerChecks() {
     }
     client.dispose();
     for (let attempt = 0; attempt < 50
-        && !executions.some(value => value.command === '_projectStewardOpenWorkspaces.bridge.unregister'); attempt += 1) {
+        && !executions.some(value => value.command === '_agentPivotOpenWorkspaces.bridge.unregister'); attempt += 1) {
         await new Promise(resolve => setImmediate(resolve));
     }
     assert.ok(executions.some(value =>
-        value.command === '_projectStewardOpenWorkspaces.bridge.unregister'
+        value.command === '_agentPivotOpenWorkspaces.bridge.unregister'
         && value.argument.protocolVersion === 3
     ));
     assert.strictEqual(commands.size, 0);
@@ -1943,7 +1943,7 @@ async function runOpenWorkspaceHardeningChecks() {
         clearInterval: () => undefined,
         createWatcher: () => ({ close: () => undefined }),
         deliverAggregate: aggregate => aggregateCommands.get(
-            '_projectStewardOpenWorkspaces.workspace.aggregate'
+            '_agentPivotOpenWorkspaces.workspace.aggregate'
         )(aggregate),
         createStore: () => ({
             write: async registration => { acknowledgedRegistration = registration; },
@@ -2782,7 +2782,7 @@ async function runProjectServiceWorkspaceSaveMigrationIntegrationChecks() {
     const vscodeStub = {
         ConfigurationTarget: { Global: 'global' },
         workspace: {
-            getConfiguration: section => section === 'projectSteward'
+            getConfiguration: section => section === 'agentPivot'
                 ? primaryConfiguration
                 : legacyConfiguration,
         },
@@ -2838,7 +2838,7 @@ async function runProjectServiceWorkspaceSaveMigrationIntegrationChecks() {
             showInformationMessage: () => undefined,
             showErrorMessage: () => undefined,
             logError: () => undefined,
-            showSteward: () => undefined,
+            showAgentPivot: () => undefined,
             applyProjectColorToCurrentWindow: () => undefined,
             getReopenReason: () => 0,
             updateReopenReason: () => undefined,
@@ -2992,7 +2992,7 @@ async function runProjectServiceWorkspaceSaveMigrationIntegrationChecks() {
             showInformationMessage: () => undefined,
             showErrorMessage: () => undefined,
             logError: () => undefined,
-            showSteward: () => undefined,
+            showAgentPivot: () => undefined,
             applyProjectColorToCurrentWindow: () => undefined,
             getReopenReason: () => 0,
             updateReopenReason: () => undefined,
@@ -3057,7 +3057,7 @@ async function runProjectServiceWorkspaceSaveMigrationIntegrationChecks() {
         showInformationMessage: () => undefined,
         showErrorMessage: () => undefined,
         logError: () => undefined,
-        showSteward: () => undefined,
+        showAgentPivot: () => undefined,
         applyProjectColorToCurrentWindow: () => { startupContinued += 1; },
         getReopenReason: () => 0,
         updateReopenReason: () => undefined,
@@ -3075,7 +3075,7 @@ async function runProjectServiceWorkspaceSaveMigrationIntegrationChecks() {
 function runDashboardBridgeLifecycleChecks() {
     const dashboard = fs.readFileSync(path.join(__dirname, '..', 'src', 'dashboard.ts'), 'utf8');
     const refreshAfterMutation = extractFunctionBody(dashboard, 'refreshAfterMutation');
-    const showSteward = extractFunctionBody(dashboard, 'showSteward');
+    const showAgentPivot = extractFunctionBody(dashboard, 'showAgentPivot');
     const projectedOpenWorkspaces = extractFunctionBody(dashboard, 'getOpenWorkspaceCards');
     const selectedProjectHandler = dashboard.slice(
         dashboard.indexOf("'selected-project': async e =>"),
@@ -3200,15 +3200,15 @@ function runDashboardBridgeLifecycleChecks() {
     assert.ok(dashboard.includes('removeProject: () => projectRemovalController.removeProjectPerCommand()'));
     assert.ok(dashboard.includes('removeGroup: () => groupCommandController.removeGroupPerCommand()'));
     assert.ok(dashboard.includes(
-        'postCommandRemoval: () => { void dashboardRuntimeController.revealSidebarSteward(); },'
+        'postCommandRemoval: () => { void dashboardRuntimeController.revealAgentPivotDashboard(); },'
     ), 'command-driven removal must focus the sidebar without forcing a complete Webview refresh');
     const manualEditWiring = dashboard.slice(
         dashboard.indexOf('const projectManualEditController = new ProjectManualEditController({'),
         dashboard.indexOf('const addProjectsFromFolderController = new AddProjectsFromFolderController({')
     );
     assert.ok(manualEditWiring.includes('refreshAfterMutation();'));
-    assert.ok(manualEditWiring.includes('dashboardRuntimeController.revealSidebarSteward();'));
-    assert.strictEqual(manualEditWiring.includes('showSteward()'), false,
+    assert.ok(manualEditWiring.includes('dashboardRuntimeController.revealAgentPivotDashboard();'));
+    assert.strictEqual(manualEditWiring.includes('showAgentPivot()'), false,
         'manual project saves must use the partial Projects surface before focusing the sidebar');
     assert.ok(projectMutationControllerSource.includes('this.options.prompt.queryProjectFields('));
     assert.ok(projectMutationControllerSource.includes('this.options.prompt.queryGroup('));
@@ -3235,7 +3235,7 @@ function runDashboardBridgeLifecycleChecks() {
         'ordinary saved project mutations must not rebuild the complete Dashboard Webview'
     );
     assert.ok(
-        showSteward.includes('dashboardRuntimeController.showSteward();'),
+        showAgentPivot.includes('dashboardRuntimeController.showAgentPivot();'),
         'legacy metadata mutation paths that reveal the steward must also republish'
     );
     const dashboardRuntimeControllerSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'dashboard', 'runtimeController.ts'), 'utf8');
@@ -3262,7 +3262,7 @@ function runOpenWorkspaceProductionCutoverChecks() {
     const sources = productionFiles.map(file => [file, fs.readFileSync(path.join(root, file), 'utf8')]);
     for (const [file, source] of sources) {
         for (const forbidden of [
-            '_projectStewardOpenProjects',
+            '_agentPivotOpenProjects',
             "from './openProjects/bridgeClient'",
             "from './openProjects/dashboardController'",
             "from './openProjects/workspaceController'",
@@ -3276,9 +3276,9 @@ function runOpenWorkspaceProductionCutoverChecks() {
     }
     const bridgeExtension = sources.find(([file]) => file.endsWith('src/extension.ts'))[1];
     const dashboard = sources.find(([file]) => file === 'src/dashboard.ts')[1];
-    assert.ok(bridgeExtension.includes("'_projectStewardOpenWorkspaces.bridge.handshake'"));
-    assert.ok(bridgeExtension.includes("'_projectStewardOpenWorkspaces.bridge.publish'"));
-    assert.ok(bridgeExtension.includes("'_projectStewardOpenWorkspaces.bridge.unregister'"));
+    assert.ok(bridgeExtension.includes("'_agentPivotOpenWorkspaces.bridge.handshake'"));
+    assert.ok(bridgeExtension.includes("'_agentPivotOpenWorkspaces.bridge.publish'"));
+    assert.ok(bridgeExtension.includes("'_agentPivotOpenWorkspaces.bridge.unregister'"));
     assert.ok(dashboard.includes("from './openWorkspaces/bridgeClient'"));
 }
 
@@ -3474,7 +3474,7 @@ async function runDashboardMigrationPublicationChecks() {
     const informationMessages = [];
     let currentMetadata = 'before-migration';
     let migrated = true;
-    let showStewardCalls = 0;
+    let showAgentPivotCalls = 0;
     const controller = new DashboardStartupController({
         stewardInfos: {
             relevantExtensionsInstalls: { remoteSSH: false, remoteContainers: false },
@@ -3493,7 +3493,7 @@ async function runDashboardMigrationPublicationChecks() {
         refreshDashboard: () => refreshes.push(currentMetadata),
         publishOpenWorkspace: () => publications.push(currentMetadata),
         showInformationMessage: message => informationMessages.push(message),
-        showSteward: () => { showStewardCalls += 1; },
+        showAgentPivot: () => { showAgentPivotCalls += 1; },
         applyProjectColorToCurrentWindow: () => undefined,
         getReopenReason: () => 0,
         updateReopenReason: () => undefined,
@@ -3505,7 +3505,7 @@ async function runDashboardMigrationPublicationChecks() {
     await controller.checkDataMigration();
     assert.deepStrictEqual(refreshes, ['after-migration']);
     assert.deepStrictEqual(publications, ['after-migration']);
-    assert.strictEqual(showStewardCalls, 0, 'default startup migration must not require revealing the steward');
+    assert.strictEqual(showAgentPivotCalls, 0, 'default startup migration must not require revealing the steward');
     assert.strictEqual(informationMessages.length, 1);
 
     migrated = false;
@@ -3519,11 +3519,11 @@ async function runDashboardMigrationPublicationChecks() {
     await controller.checkDataMigration(true);
     assert.deepStrictEqual(refreshes, ['after-migration', 'after-migration']);
     assert.deepStrictEqual(publications, ['after-migration', 'after-migration']);
-    assert.strictEqual(showStewardCalls, 1);
+    assert.strictEqual(showAgentPivotCalls, 1);
 }
 
 async function runCoordinatorWiringChecks() {
-    const tempRoot = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'project-steward-open-project-wiring-'));
+    const tempRoot = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'agent-pivot-open-project-wiring-'));
     const registeredCommands = new Map();
     const executedCommands = [];
     const bridgeOutputLines = [];
@@ -3531,7 +3531,7 @@ async function runCoordinatorWiringChecks() {
     const vscode = {
         window: {
             createOutputChannel: name => {
-                assert.strictEqual(name, 'Project Steward UI Bridge');
+                assert.strictEqual(name, 'Agent Pivot UI Bridge');
                 return {
                     appendLine: line => bridgeOutputLines.push(line),
                     dispose: () => undefined,
@@ -3552,7 +3552,7 @@ async function runCoordinatorWiringChecks() {
             },
             executeCommand: async (command, argument) => {
                 executedCommands.push({ command, argument });
-                if (command === '_projectStewardOpenWorkspaces.workspace.aggregate'
+                if (command === '_agentPivotOpenWorkspaces.workspace.aggregate'
                     && aggregateDeliveryError) {
                     throw aggregateDeliveryError;
                 }
@@ -3576,13 +3576,13 @@ async function runCoordinatorWiringChecks() {
     try {
         const extension = require('../extensions/attention-ui-bridge/out/extensions/attention-ui-bridge/src/extension');
         await extension.activate(context);
-        const handshake = registeredCommands.get('_projectStewardOpenWorkspaces.bridge.handshake');
-        const publish = registeredCommands.get('_projectStewardOpenWorkspaces.bridge.publish');
-        const unregister = registeredCommands.get('_projectStewardOpenWorkspaces.bridge.unregister');
+        const handshake = registeredCommands.get('_agentPivotOpenWorkspaces.bridge.handshake');
+        const publish = registeredCommands.get('_agentPivotOpenWorkspaces.bridge.publish');
+        const unregister = registeredCommands.get('_agentPivotOpenWorkspaces.bridge.unregister');
         assert.strictEqual(typeof handshake, 'function');
         assert.strictEqual(typeof publish, 'function');
         assert.strictEqual(typeof unregister, 'function');
-        assert.strictEqual(registeredCommands.has('_projectStewardOpenProjects.bridge.publish'), false);
+        assert.strictEqual(registeredCommands.has('_agentPivotOpenProjects.bridge.publish'), false);
         assert.deepStrictEqual(await handshake({
             protocolVersion: 2,
             mainExtensionVersion: '1.0.0',
@@ -3611,7 +3611,7 @@ async function runCoordinatorWiringChecks() {
         });
         await publish(makeWorkspacePublication({ followsFocusEvent: true, workspace: remoteWorkspace }));
         const aggregateDelivery = executedCommands.filter(
-            value => value.command === '_projectStewardOpenWorkspaces.workspace.aggregate'
+            value => value.command === '_agentPivotOpenWorkspaces.workspace.aggregate'
         ).pop();
         assert.ok(aggregateDelivery, 'production wiring should deliver an open-workspace aggregate');
         assert.strictEqual(aggregateDelivery.argument.registrations[0].instanceId, SELF);
@@ -3633,7 +3633,7 @@ async function runCoordinatorWiringChecks() {
             && line.includes(SELF)
         ));
         assert.ok(executedCommands.some(value =>
-            value.command === '_projectStewardOpenWorkspaces.workspace.diagnostic'
+            value.command === '_agentPivotOpenWorkspaces.workspace.diagnostic'
             && value.argument.event === 'publish'
         ));
         const diagnosticSentinel = '/private/wiring raw-command --session secret-session';
@@ -3650,7 +3650,7 @@ async function runCoordinatorWiringChecks() {
             error => String(error).includes(diagnosticSentinel),
         );
         const crossExtensionDiagnostics = executedCommands.filter(
-            value => value.command === '_projectStewardOpenWorkspaces.workspace.diagnostic'
+            value => value.command === '_agentPivotOpenWorkspaces.workspace.diagnostic'
         ).map(value => value.argument);
         assert.ok(crossExtensionDiagnostics.some(event =>
             event.event === 'error'

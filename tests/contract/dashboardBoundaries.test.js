@@ -1,11 +1,31 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const Module = require('node:module');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const test = require('node:test');
+const configurationReads = [];
+const configurationFixture = { marker: 'agent-pivot-configuration' };
+const originalLoad = Module._load;
+Module._load = function loadWithVscodeFixture(request, parent, isMain) {
+    if (request === 'vscode') {
+        return {
+            workspace: {
+                getConfiguration(section, scope) {
+                    configurationReads.push([section, scope]);
+                    return configurationFixture;
+                },
+            },
+        };
+    }
+    return originalLoad.call(this, request, parent, isMain);
+};
 const configuration = require('../../out/dashboard/configuration');
-const { shouldOpenStewardOnStartup } = require('../../out/dashboard/startup');
+Module._load = originalLoad;
+const constants = require('../../out/constants');
+const { shouldOpenAgentPivotOnStartup } = require('../../out/dashboard/startup');
 const { DashboardLifecycleController } = require('../../out/dashboard/lifecycleController');
 const { DashboardRuntimeController } = require('../../out/dashboard/runtimeController');
 const { DashboardCommandRegistration } = require('../../out/dashboard/commandRegistration');
@@ -41,51 +61,30 @@ function makeConfigurationEvent(...sections) {
     };
 }
 
-test('SESSION-CONFIGURATION-001 preserves primary precedence, legacy fallback, defaults, properties, and bound passthrough methods', async () => {
-    const calls = [];
-    const primary = configured({ customCss: '.primary{}', falseValue: false }, {
-        marker: 'primary-marker',
-        update(key, value) {
-            calls.push([this.marker, key, value]);
-            return Promise.resolve('updated');
-        },
-    });
-    const legacy = configured({ customCss: '.legacy{}', displayProjectPath: false, legacyProperty: 'legacy' });
-    const steward = configuration.createStewardConfiguration(primary, legacy);
+test('SESSION-CONFIGURATION-001 reads only the scoped Agent Pivot configuration', () => {
+    const scope = { uri: 'fixture://workspace' };
+    assert.equal(configuration.getAgentPivotConfiguration(scope), configurationFixture);
+    assert.deepEqual(configurationReads, [['agentPivot', scope]]);
 
-    assert.equal(steward.get('customCss'), '.primary{}');
-    assert.equal(steward.get('displayProjectPath'), false);
-    assert.equal(steward.get('missing', 'default'), 'default');
-    assert.equal(steward.customCss, '.primary{}');
-    assert.equal(steward.legacyProperty, 'legacy');
-    assert.equal(steward.unknownProperty, undefined);
-    assert.equal(steward.marker, 'primary-marker');
-    assert.equal(await steward.update('color', '#fff'), 'updated');
-    assert.deepEqual(calls, [['primary-marker', 'color', '#fff']]);
-
-    const permissivePrimary = {
-        get: (_key, fallback) => fallback,
-        inspect: key => ({ key }),
-    };
-    const inspectableSteward = configuration.createStewardConfiguration(
-        permissivePrimary,
-        configured()
+    const constantsSource = fs.readFileSync(path.resolve(__dirname, '../../src/constants.ts'), 'utf8');
+    const configurationSource = fs.readFileSync(
+        path.resolve(__dirname, '../../src/dashboard/configuration.ts'),
+        'utf8'
     );
-    assert.equal(typeof inspectableSteward.inspect, 'function');
-    assert.deepEqual(inspectableSteward.inspect('promptData'), { key: 'promptData' });
-
-    for (const field of [
-        'globalValue', 'workspaceValue', 'workspaceFolderValue',
-        'globalLanguageValue', 'workspaceLanguageValue', 'workspaceFolderLanguageValue',
-    ]) {
-        assert.equal(configuration.hasConfiguredValue({ inspect: () => ({ [field]: false }) }, 'value'), true);
-    }
-    assert.equal(configuration.hasConfiguredValue({ inspect: () => ({}) }, 'value'), false);
-    assert.equal(configuration.hasConfiguredValue({ inspect: () => undefined }, 'value'), false);
+    const lifecycleSource = fs.readFileSync(
+        path.resolve(__dirname, '../../src/dashboard/lifecycleController.ts'),
+        'utf8'
+    );
+    assert.equal(constants.AGENT_PIVOT_CONFIG_SECTION, 'agentPivot');
+    assert.equal(constantsSource.includes('LEGACY_DASHBOARD_CONFIG_SECTION'), false);
+    assert.equal(configurationSource.includes('LEGACY_DASHBOARD_CONFIG_SECTION'), false);
+    assert.equal(configurationSource.includes("getConfiguration('dashboard')"), false);
+    assert.equal(lifecycleSource.includes("affectsConfiguration('dashboard')"), false);
+    assert.equal(lifecycleSource.includes("'dashboard.storeProjectsInSettings'"), false);
 });
 
 test('SESSION-STARTUP-001 preserves reopen, always, never, and genuinely empty-workspace startup behavior', () => {
-    const decide = input => shouldOpenStewardOnStartup({
+    const decide = input => shouldOpenAgentPivotOnStartup({
         reopenReason: 0, reopenNoneValue: 0, openOnStartup: 'empty workspace',
         workspaceName: '', visibleEditorLanguageIds: [], ...input,
     });
@@ -129,18 +128,18 @@ test('RUNTIME-DASHBOARD-RUNTIME-CONTROLLER-001 refreshes and reveals only throug
     harness.setVisible(false);
     harness.controller.refresh('hidden');
     harness.setVisible(true);
-    await harness.controller.showSteward();
+    await harness.controller.showAgentPivot();
     await harness.controller.openSettings();
 
     assert.deepEqual(harness.events, [
         ['diagnostic', { event: 'full-refresh', reason: 'manual' }],
         ['refresh'],
         ['publish'],
-        ['command', 'workbench.view.extension.project-steward'],
+        ['command', 'workbench.view.extension.agentPivot'],
         ['command', 'fixture.view.focus'],
-        ['diagnostic', { event: 'full-refresh', reason: 'show-steward' }],
+        ['diagnostic', { event: 'full-refresh', reason: 'show-agent-pivot' }],
         ['refresh'],
-        ['command', 'workbench.action.openSettings', '@ext:hzcheng.project-steward'],
+        ['command', 'workbench.action.openSettings', '@ext:hzcheng.agent-pivot'],
     ]);
 
     const attempts = [];
@@ -153,13 +152,13 @@ test('RUNTIME-DASHBOARD-RUNTIME-CONTROLLER-001 refreshes and reveals only throug
             return Promise.resolve();
         },
     });
-    await retry.controller.revealSidebarSteward();
+    await retry.controller.revealAgentPivotDashboard();
     assert.deepEqual(attempts, [
-        'workbench.view.extension.project-steward', 'fixture.view.focus', 'fixture.view.focus',
+        'workbench.view.extension.agentPivot', 'fixture.view.focus', 'fixture.view.focus',
     ]);
 
     const revealThrows = runtimeHarness({ executeCommand: () => { throw new Error('reveal failed'); } });
-    await assert.doesNotReject(revealThrows.controller.revealSidebarSteward());
+    await assert.doesNotReject(revealThrows.controller.revealAgentPivotDashboard());
 });
 
 test('RUNTIME-DASHBOARD-RUNTIME-CONTROLLER-001 publishes exact batch, terminal, mutation, color, and visibility effects', async () => {
@@ -236,7 +235,7 @@ test('WEBVIEW-AI-DASHBOARD-001 refreshes external Prompt configuration increment
         publishOpenWorkspace: () => events.push('publish'),
         evaluateAiSessionAttention: () => undefined,
     });
-    const promptChange = makeConfigurationEvent('projectSteward.promptData');
+    const promptChange = makeConfigurationEvent('agentPivot.promptData');
 
     await controller.handleConfigurationChanged(promptChange);
     assert.deepEqual(events, ['consume-prompt']);
@@ -251,10 +250,10 @@ test('WEBVIEW-AI-DASHBOARD-001 refreshes external Prompt configuration increment
 });
 
 const DASHBOARD_COMMANDS = [
-    'projectSteward.open', 'projectSteward.addProject', 'projectSteward.saveProject',
-    'projectSteward.removeProject', 'projectSteward.editProjects', 'projectSteward.addGroup',
-    'projectSteward.removeGroup', 'projectSteward.addProjectsFromFolder',
-    'projectSteward.addFileToActiveTerminal', 'projectSteward.insertPromptToActiveTerminal',
+    'agentPivot.open', 'agentPivot.addProject', 'agentPivot.saveProject',
+    'agentPivot.removeProject', 'agentPivot.editProjects', 'agentPivot.addGroup',
+    'agentPivot.removeGroup', 'agentPivot.addProjectsFromFolder',
+    'agentPivot.addFileToActiveTerminal', 'agentPivot.insertPromptToActiveTerminal',
 ];
 
 test('WEBVIEW-DASHBOARD-COMMAND-REGISTRATION-001 registers exact callbacks and subscriptions', async () => {
@@ -284,13 +283,13 @@ test('WEBVIEW-DASHBOARD-COMMAND-REGISTRATION-001 registers exact callbacks and s
 test('WEBVIEW-DASHBOARD-COMMAND-REGISTRATION-001 contributes the Prompt terminal command exactly once without a default keybinding', () => {
     const manifest = require('../../package.json');
     const commands = manifest.contributes.commands
-        .filter(command => command.command === 'projectSteward.insertPromptToActiveTerminal');
+        .filter(command => command.command === 'agentPivot.insertPromptToActiveTerminal');
     assert.deepEqual(commands, [{
-        command: 'projectSteward.insertPromptToActiveTerminal',
-        title: 'Project Steward: Insert Prompt into Active Terminal',
+        command: 'agentPivot.insertPromptToActiveTerminal',
+        title: 'Agent Pivot: Insert Prompt into Active Terminal',
     }]);
     assert.equal(manifest.contributes.keybindings.some(
-        keybinding => keybinding.command === 'projectSteward.insertPromptToActiveTerminal'
+        keybinding => keybinding.command === 'agentPivot.insertPromptToActiveTerminal'
     ), false);
 });
 
@@ -305,7 +304,7 @@ test('WEBVIEW-DASHBOARD-COMMAND-REGISTRATION-001 production activation installs 
     assert.equal(activation.dashboardCommandRegistrationInvocations, 1);
     assert.deepEqual(activation.synchronizedGlobalStateKeySets, [['promptData.v1']]);
     assert.deepEqual(
-        activation.registeredCommands.filter(command => command.startsWith('projectSteward.')),
+        activation.registeredCommands.filter(command => command.startsWith('agentPivot.')),
         DASHBOARD_COMMANDS
     );
 });

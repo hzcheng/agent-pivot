@@ -61,7 +61,7 @@ function loadDashboard(transform) {
 }
 
 async function runTodoPanelContract(transform) {
-    const storageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'project-steward-todo-panel-'));
+    const storageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-todo-panel-'));
     const listeners = {};
     const commands = new Map();
     const vscode = createVscode(listeners, commands);
@@ -167,7 +167,7 @@ if (mode === 'missing-live-probe') {
         'if (error instanceof types_1.UnsupportedTodoDataVersionError)');
 } else if (mode === 'missing-view-registration') {
     transform = source => source.replace(
-        'context.subscriptions.push(vscode.window.registerWebviewViewProvider(viewProvider_1.SidebarStewardViewProvider.viewType, provider));',
+        'context.subscriptions.push(vscode.window.registerWebviewViewProvider(constants_1.AGENT_PIVOT_DASHBOARD_VIEW_ID, provider));',
         'context.subscriptions.push({ dispose: () => undefined });');
 }
 

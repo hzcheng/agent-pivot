@@ -10,7 +10,7 @@ const { validateArchitectureGuards } = require('../../../scripts/run-architectur
 const repositoryRoot = path.resolve(__dirname, '../../..');
 
 function writeFixture(t, files) {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'project-steward-architecture-'));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-architecture-'));
     t.after(() => fs.rmSync(root, { recursive: true, force: true }));
     for (const [relativePath, contents] of Object.entries(files)) {
         const target = path.join(root, relativePath);
@@ -565,7 +565,7 @@ for (const mutation of [
     {
         id: 'ARCH-RELEASE-IDENTITY-001',
         file: 'package.json',
-        expectedDetail: 'main extension identity must remain hzcheng.project-steward',
+        expectedDetail: 'main extension identity must remain hzcheng.agent-pivot',
         mutate: source => replaceFixtureSource(source,
             '"publisher": "hzcheng"', '"publisher": "changed"'),
     },

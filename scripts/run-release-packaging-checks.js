@@ -366,12 +366,12 @@ function runRealVsixArchiveChecks(mainPackage, bridgePackage) {
 
     const mainBundle = mainEntries.get('extension/dist/dashboard.js').toString('utf8');
     const bridgeBundle = bridgeEntries.get('extension/dist/extension.js').toString('utf8');
-    assertIncludes(mainBundle, '_projectStewardOpenWorkspaces', 'packaged main bundle');
-    assertNotIncludes(mainBundle, '_projectStewardOpenProjects', 'packaged main bundle');
-    assertIncludes(bridgeBundle, '_projectStewardOpenWorkspaces', 'packaged UI Bridge bundle');
+    assertIncludes(mainBundle, '_agentPivotOpenWorkspaces', 'packaged main bundle');
+    assertNotIncludes(mainBundle, '_agentPivotOpenProjects', 'packaged main bundle');
+    assertIncludes(bridgeBundle, '_agentPivotOpenWorkspaces', 'packaged UI Bridge bundle');
     assert.match(bridgeBundle, /["']open-workspaces["'],["']v3["'],["']instances["']/,
         'packaged UI Bridge bundle must retain the v2 registry path');
-    assertNotIncludes(bridgeBundle, '_projectStewardOpenProjects', 'packaged UI Bridge bundle');
+    assertNotIncludes(bridgeBundle, '_agentPivotOpenProjects', 'packaged UI Bridge bundle');
     for (const entries of [mainEntries, bridgeEntries]) {
         for (const [fileName, content] of entries) {
             assert.doesNotMatch(fileName,
@@ -574,7 +574,7 @@ function run() {
     assertIncludes(installScript, 'BRIDGE_VERSION', 'local install script');
     assertIncludes(installScript, '--install-extension "$BRIDGE_VSIX" --force', 'local install script');
     assertIncludes(installScript, '--install-extension "$MAIN_VSIX" --force', 'local install script');
-    assertNotIncludes(installScript, 'project-steward-attention-ui-bridge-0.1.3.vsix', 'local install script');
+    assertNotIncludes(installScript, 'agent-pivot-attention-ui-bridge-0.1.3.vsix', 'local install script');
 
     const publishScript = readText('scripts/publish-marketplace.sh');
     assertIncludes(publishScript, 'BRIDGE_NAME', 'Marketplace publish script');
@@ -704,10 +704,10 @@ function run() {
     }
 
     const bridgeBundle = readText('extensions/attention-ui-bridge/dist/extension.js');
-    assertIncludes(bridgeBundle, '_projectStewardOpenWorkspaces', 'UI Bridge bundle');
+    assertIncludes(bridgeBundle, '_agentPivotOpenWorkspaces', 'UI Bridge bundle');
     assert.match(bridgeBundle, /["']open-workspaces["'],["']v3["'],["']instances["']/,
         'UI Bridge bundle must retain the open-workspaces/v3/instances registry path');
-    assertNotIncludes(bridgeBundle, '_projectStewardOpenProjects', 'UI Bridge bundle');
+    assertNotIncludes(bridgeBundle, '_agentPivotOpenProjects', 'UI Bridge bundle');
 
     runRealVsixArchiveChecks(mainPackage, bridgePackage);
 

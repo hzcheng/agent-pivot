@@ -1,31 +1,24 @@
 import * as vscode from 'vscode';
-import { LEGACY_DASHBOARD_CONFIG_SECTION, PROJECT_STEWARD_CONFIG_SECTION } from '../constants';
-import { hasConfiguredValue } from '../dashboard/configuration';
+import { AGENT_PIVOT_CONFIG_SECTION } from '../constants';
 
 export default abstract class BaseService {
     context: vscode.ExtensionContext;
+    protected readonly workspaceRoot: vscode.Uri | undefined;
 
     constructor(context: vscode.ExtensionContext) {
         this.context = context;
+        this.workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri;
     }
 
     get configurationSection(): vscode.WorkspaceConfiguration {
-        return vscode.workspace.getConfiguration(PROJECT_STEWARD_CONFIG_SECTION);
+        return vscode.workspace.getConfiguration(AGENT_PIVOT_CONFIG_SECTION);
     }
 
     getConfig<T>(key: string, defaultValue?: T): T {
-        let primaryConfig = vscode.workspace.getConfiguration(PROJECT_STEWARD_CONFIG_SECTION);
-        let legacyConfig = vscode.workspace.getConfiguration(LEGACY_DASHBOARD_CONFIG_SECTION);
-
-        if (hasConfiguredValue(primaryConfig, key)) {
-            return primaryConfig.get<T>(key, defaultValue);
-        }
-
-        if (hasConfiguredValue(legacyConfig, key)) {
-            return legacyConfig.get<T>(key, defaultValue);
-        }
-
-        return primaryConfig.get<T>(key, defaultValue);
+        return vscode.workspace.getConfiguration(
+            AGENT_PIVOT_CONFIG_SECTION,
+            this.workspaceRoot
+        ).get<T>(key, defaultValue);
     }
 
     useSettingsStorage(): boolean {

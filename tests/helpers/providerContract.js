@@ -16,7 +16,7 @@ function readLifecycleLines(fixturesRoot, state) {
 }
 
 function withProviderHome(testContext, fixturesRoot, manifest, useFixtures, callback) {
-    const temporaryRoot = makeTempDirectory(testContext, `project-steward-${manifest.id}-contract-`);
+    const temporaryRoot = makeTempDirectory(testContext, `agent-pivot-${manifest.id}-contract-`);
     const providerHome = path.join(temporaryRoot, 'provider-home');
     if (useFixtures) {
         fs.cpSync(path.join(fixturesRoot, 'home'), providerHome, { recursive: true });

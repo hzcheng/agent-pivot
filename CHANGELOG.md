@@ -1,6 +1,8 @@
 # Change Log
 
-All notable changes to the "Project Steward" extension will be documented in this file. It follows the [Keep a Changelog](http://keepachangelog.com/) recommendations.
+All notable changes to the "Agent Pivot" extension will be documented in this file. It follows the [Keep a Changelog](http://keepachangelog.com/) recommendations.
+
+## Unpublished Project Steward development history
 
 ## [2.1.8] 2026-07-26
 

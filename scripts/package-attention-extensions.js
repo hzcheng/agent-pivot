@@ -10,11 +10,11 @@ const artifactsDirectory = path.join(repositoryRoot, 'artifacts');
 const packages = [
     {
         extensionDirectory: path.join(repositoryRoot, 'extensions', 'attention-ui-bridge'),
-        artifactPath: 'artifacts/project-steward-attention-ui-bridge-0.1.4.vsix',
+        artifactPath: 'artifacts/agent-pivot-attention-ui-bridge-0.1.4.vsix',
     },
     {
         extensionDirectory: path.join(spikeRoot, 'workspace'),
-        artifactPath: 'artifacts/project-steward-attention-workspace-probe-0.0.5.vsix',
+        artifactPath: 'artifacts/agent-pivot-attention-workspace-probe-0.0.5.vsix',
     },
 ];
 

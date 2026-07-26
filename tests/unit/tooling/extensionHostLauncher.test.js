@@ -22,7 +22,7 @@ const {
 // RELEASE-SCHEDULED-EXTENSION-HOST-001
 test('RELEASE-SCHEDULED-EXTENSION-HOST-001 launches both extensions with pinned stable VS Code', () => {
     const repositoryRoot = path.resolve(__dirname, '../../..');
-    const isolatedRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'project-steward-launcher-test-'));
+    const isolatedRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-launcher-test-'));
     try {
         const environment = createExtensionHostTestEnvironment(isolatedRoot);
         const options = createRunTestsOptions(repositoryRoot, environment);
@@ -48,7 +48,7 @@ test('RELEASE-SCHEDULED-EXTENSION-HOST-001 launches both extensions with pinned 
         assert.equal(options.extensionTestsEnv.CODEX_HOME, environment.codexHome);
         assert.equal(options.extensionTestsEnv.KIMI_SHARE_DIR, environment.kimiHome);
         assert.equal(options.extensionTestsEnv.CLAUDE_HOME, environment.claudeHome);
-        assert.equal(options.extensionTestsEnv.PROJECT_STEWARD_EXTENSION_HOST_TIMEOUT_MS, '120000');
+        assert.equal(options.extensionTestsEnv.AGENT_PIVOT_EXTENSION_HOST_TIMEOUT_MS, '120000');
         assert.equal(Object.prototype.hasOwnProperty.call(
             options.extensionTestsEnv, 'VSCODE_IPC_HOOK_CLI'), false);
         for (const directory of Object.values(environment)) {
@@ -158,7 +158,7 @@ test('RELEASE-SCHEDULED-EXTENSION-HOST-001 watchdog treats ESRCH as a cleanly ab
 
 // RELEASE-SCHEDULED-EXTENSION-HOST-001
 test('RELEASE-SCHEDULED-EXTENSION-HOST-001 cleanup removes only the owned isolation root', () => {
-    const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'project-steward-launcher-parent-'));
+    const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-launcher-parent-'));
     const isolatedRoot = path.join(parent, 'owned');
     createExtensionHostTestEnvironment(isolatedRoot);
     fs.writeFileSync(path.join(parent, 'keep.txt'), 'keep');

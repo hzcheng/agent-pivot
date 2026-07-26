@@ -60,10 +60,10 @@ test('ATTENTION-PRODUCTION-ATTENTION-BRIDGE-INTEGRATION-001 activates the produc
         const extension = require(extensionPath);
         await extension.activate(context);
         const requiredCommands = [
-            '_projectStewardAttention.bridge.handshake',
-            '_projectStewardAttention.bridge.publish',
-            '_projectStewardAttention.bridge.unregister',
-            '_projectStewardAttention.bridge.acknowledge',
+            '_agentPivotAttention.bridge.handshake',
+            '_agentPivotAttention.bridge.publish',
+            '_agentPivotAttention.bridge.unregister',
+            '_agentPivotAttention.bridge.acknowledge',
         ];
         for (const command of requiredCommands) assert.equal(typeof registered.get(command), 'function');
 
@@ -84,11 +84,11 @@ test('ATTENTION-PRODUCTION-ATTENTION-BRIDGE-INTEGRATION-001 activates the produc
         assert.ok(aggregates.length > 0);
         assert.deepEqual(aggregates.at(-1).sessions[0].eventIds, ['integration-event']);
 
-        const handshake = registered.get('_projectStewardAttention.bridge.handshake');
-        const publish = registered.get('_projectStewardAttention.bridge.publish');
-        const unregister = registered.get('_projectStewardAttention.bridge.unregister');
+        const handshake = registered.get('_agentPivotAttention.bridge.handshake');
+        const publish = registered.get('_agentPivotAttention.bridge.publish');
+        const unregister = registered.get('_agentPivotAttention.bridge.unregister');
         const validSnapshot = executed.find(entry =>
-            entry.command === '_projectStewardAttention.bridge.publish').argument;
+            entry.command === '_agentPivotAttention.bridge.publish').argument;
         const handshakeResponse = await handshake({
             protocolVersion: 1, mainExtensionVersion: '2.1.3', instanceId: 'b'.repeat(32),
         });
@@ -111,7 +111,7 @@ test('ATTENTION-PRODUCTION-ATTENTION-BRIDGE-INTEGRATION-001 activates the produc
         }), /eventId/);
 
         const productionRoot = path.join(
-            root, 'attention-local-bridge-spike', 'v1', 'production-attention', 'v1', 'instances'
+            root, 'agent-pivot', 'bridge', 'v1', 'production-attention', 'v1', 'instances'
         );
         const storedText = fs.readdirSync(productionRoot)
             .filter(name => name.endsWith('.json'))
@@ -122,7 +122,7 @@ test('ATTENTION-PRODUCTION-ATTENTION-BRIDGE-INTEGRATION-001 activates the produc
         assert.match(storedText, new RegExp(`"bridgeVersion":"${bridgePackage.version.replace('.', '\\.')}"`));
 
         const unregisterCount = () => executed.filter(entry =>
-            entry.command === '_projectStewardAttention.bridge.unregister'
+            entry.command === '_agentPivotAttention.bridge.unregister'
             && entry.argument?.instanceId === validSnapshot.instanceId).length;
         assert.equal(fs.existsSync(path.join(productionRoot, `${validSnapshot.instanceId}.json`)), true);
         client.dispose();

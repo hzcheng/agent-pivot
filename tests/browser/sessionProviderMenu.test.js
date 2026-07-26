@@ -266,7 +266,7 @@ test('AI-SESSION-PROVIDER-MENU-006 blocks provider changes while a batch archive
 test('AI-SESSION-PROVIDER-MENU-007 selects a hidden search-result provider before revealing it', async t => {
     const page = await openMenuPage(t);
 
-    assert.equal(await page.evaluate(() => window.__projectStewardRevealWorkspaceSession(
+    assert.equal(await page.evaluate(() => window.__agentPivotRevealWorkspaceSession(
         'navigation-project-a',
         'claude',
         'missing-claude-session'
@@ -311,7 +311,7 @@ test('AI-SESSION-PROVIDER-MENU-009 forced Manage cannot bypass provider-selectio
     await project.locator('[data-ai-provider-option][data-provider="claude"]').click();
     await project.locator('[data-action="manage-ai-sessions"]').click({ force: true });
 
-    assert.deepEqual(await page.evaluate(() => window.__projectStewardBatchAiSessions.snapshot()), {
+    assert.deepEqual(await page.evaluate(() => window.__agentPivotBatchAiSessions.snapshot()), {
         projectId: null,
         selectedItems: [],
         pending: false,

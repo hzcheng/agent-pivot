@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="720" height="560" viewBox="0 0 720 560" role="img" aria-labelledby="title desc">
-  <title id="title">Project Steward New Session Provider Picker 效果图</title>
+  <title id="title">Agent Pivot New Session Provider Picker 效果图</title>
   <desc id="desc">点击共享 New Session 操作后出现 VS Code Quick Pick，要求用户明确选择 Codex、Kimi 或 Claude。</desc>
   <defs>
     <filter id="shadow" x="-20%" y="-20%" width="140%" height="160%"><feDropShadow dx="0" dy="12" stdDeviation="18" flood-color="#000" flood-opacity=".6"/></filter>
@@ -23,7 +23,7 @@
   <rect x="20" y="106" width="680" height="402" rx="17" fill="#25272c" stroke="#4c9aff"/>
   <rect x="20" y="106" width="5" height="402" rx="2.5" fill="#4c9aff"/>
   <text class="ui title" x="52" y="142">vscode-dashboard</text>
-  <text class="ui desc" x="52" y="161">Project Steward extension</text>
+  <text class="ui desc" x="52" y="161">Agent Pivot extension</text>
   <line x1="40" y1="180" x2="680" y2="180" stroke="#3b3d43"/>
   <text class="ui label" x="40" y="207" fill="#d6d8dc">AI SESSIONS</text>
   <rect x="605" y="189" width="75" height="28" rx="14" fill="#15304a" stroke="#4c9aff"/>

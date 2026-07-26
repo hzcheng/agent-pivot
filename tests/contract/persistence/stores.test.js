@@ -60,7 +60,7 @@ function makeAttentionSnapshot(sequence = 1) {
 }
 
 test('PERSIST-ALIAS-STORE-001 reads valid aliases, drops missing fields, and exposes corrupt JSON to its controller boundary', t => {
-    const root = makeTempDirectory(t, 'project-steward-persistence-alias-');
+    const root = makeTempDirectory(t, 'agent-pivot-persistence-alias-');
     const aliasesPath = path.join(root, 'ai-session-aliases.json');
     const store = new AiSessionAliasStore(root);
 
@@ -83,7 +83,7 @@ test('PERSIST-ALIAS-STORE-001 reads valid aliases, drops missing fields, and exp
 });
 
 test('PERSIST-PIN-STORE-001 makes duplicate writes idempotent and never resurrects stale legacy pins', t => {
-    const root = makeTempDirectory(t, 'project-steward-persistence-pin-');
+    const root = makeTempDirectory(t, 'agent-pivot-persistence-pin-');
     const store = new AiSessionPinStore(root);
 
     store.add('codex:duplicate');
@@ -385,7 +385,7 @@ test('PERSIST-AI-SESSION-TERMINAL-BINDING-STORE-001 PERSIST-AI-SESSION-TERMINAL-
 });
 
 test('RUNTIME-TMUX-STORE-001 ignores corrupt, oversized, partially written, and stale binding files', async t => {
-    const fixture = createRuntimeFilesystemFixture(t, 'project-steward-persistence-tmux-');
+    const fixture = createRuntimeFilesystemFixture(t, 'agent-pivot-persistence-tmux-');
     const binding = makeTmuxKnownBinding('persistence', { lastSeenAtMs: NOW });
     const store = new TmuxRuntimeBindingStore(fixture.root, () => NOW);
     await store.setKnown(binding);
@@ -406,7 +406,7 @@ test('RUNTIME-TMUX-STORE-001 ignores corrupt, oversized, partially written, and 
 });
 
 test('ATTENTION-PRODUCTION-ATTENTION-STORE-LIFECYCLE-001 ignores corrupt, oversized, and partial files while rejecting stale sequences', async t => {
-    const root = makeTempDirectory(t, 'project-steward-persistence-attention-');
+    const root = makeTempDirectory(t, 'agent-pivot-persistence-attention-');
     const store = new ProductionAttentionStore(root, 'persistence');
     const snapshot = makeAttentionSnapshot(2);
     await store.write(snapshot, NOW, 'fixture');
@@ -423,7 +423,7 @@ test('ATTENTION-PRODUCTION-ATTENTION-STORE-LIFECYCLE-001 ignores corrupt, oversi
 });
 
 test('ATTENTION-PRODUCTION-ATTENTION-STORE-CLOCK-001 expires attention by receipt time', async t => {
-    const root = makeTempDirectory(t, 'project-steward-persistence-attention-clock-');
+    const root = makeTempDirectory(t, 'agent-pivot-persistence-attention-clock-');
     const store = new ProductionAttentionStore(root, 'clock');
     const snapshot = makeAttentionSnapshot();
     await store.write(snapshot, NOW, 'fixture');
@@ -432,7 +432,7 @@ test('ATTENTION-PRODUCTION-ATTENTION-STORE-CLOCK-001 expires attention by receip
 });
 
 test('PERSIST-STORE-001 counts corrupt and oversized open-workspace records, ignores partial writes, and expires stale leases', async t => {
-    const root = makeTempDirectory(t, 'project-steward-persistence-open-workspace-');
+    const root = makeTempDirectory(t, 'agent-pivot-persistence-open-workspace-');
     const registration = makeRegistration(SELF, NOW, '/work/project', {
         leaseUpdatedAtMs: NOW,
         sequence: 2,

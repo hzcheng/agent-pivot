@@ -813,14 +813,14 @@ const guards = {
         const risk = 'release identity drift produces uninstallable or disconnected VSIX artifacts';
         const main = readJson(root, 'package.json', this.id, risk);
         const bridge = readJson(root, 'extensions/attention-ui-bridge/package.json', this.id, risk);
-        if (main.name !== 'project-steward' || main.publisher !== 'hzcheng') {
-            fail(this.id, risk, 'main extension identity must remain hzcheng.project-steward');
+        if (main.name !== 'agent-pivot' || main.publisher !== 'hzcheng') {
+            fail(this.id, risk, 'main extension identity must remain hzcheng.agent-pivot');
         }
-        if (bridge.name !== 'project-steward-attention-ui-bridge' || bridge.publisher !== 'hzcheng') {
-            fail(this.id, risk, 'UI Bridge identity must remain hzcheng.project-steward-attention-ui-bridge');
+        if (bridge.name !== 'agent-pivot-attention-ui-bridge' || bridge.publisher !== 'hzcheng') {
+            fail(this.id, risk, 'UI Bridge identity must remain hzcheng.agent-pivot-attention-ui-bridge');
         }
         if (!Array.isArray(main.extensionDependencies)
-            || !main.extensionDependencies.includes('hzcheng.project-steward-attention-ui-bridge')) {
+            || !main.extensionDependencies.includes('hzcheng.agent-pivot-attention-ui-bridge')) {
             fail(this.id, risk, 'main extension must retain its exact UI Bridge dependency identity');
         }
     },

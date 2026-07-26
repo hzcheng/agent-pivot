@@ -7,11 +7,11 @@ import { validateAttentionAggregate } from './attentionAggregate';
 import type { AttentionOwnerSnapshot, AttentionPayloadItem } from './attentionPayload';
 import { createAttentionPayload, validateAttentionBridgeHandshakeResponse } from './attentionPayload';
 
-const PUBLISH_COMMAND = '_projectStewardAttention.bridge.publish';
-const AGGREGATE_COMMAND = '_projectStewardAttention.workspace.aggregate';
-const ACKNOWLEDGE_COMMAND = '_projectStewardAttention.bridge.acknowledge';
-const HANDSHAKE_COMMAND = '_projectStewardAttention.bridge.handshake';
-const UNREGISTER_COMMAND = '_projectStewardAttention.bridge.unregister';
+const PUBLISH_COMMAND = '_agentPivotAttention.bridge.publish';
+const AGGREGATE_COMMAND = '_agentPivotAttention.workspace.aggregate';
+const ACKNOWLEDGE_COMMAND = '_agentPivotAttention.bridge.acknowledge';
+const HANDSHAKE_COMMAND = '_agentPivotAttention.bridge.handshake';
+const UNREGISTER_COMMAND = '_agentPivotAttention.bridge.unregister';
 const RETRY_DELAYS_MS = [100, 500, 2_000, 10_000, 30_000];
 
 export interface AttentionBridgeClientOptions {

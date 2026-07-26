@@ -7,7 +7,7 @@ const path = require('node:path');
 const test = require('node:test');
 
 const suitePath = path.resolve(__dirname, '../../extension-host/suite/index.js');
-const bridgeId = 'hzcheng.project-steward-attention-ui-bridge';
+const bridgeId = 'hzcheng.agent-pivot-attention-ui-bridge';
 const commandRegistrationPath = path.resolve(__dirname, '../../../out/dashboard/commandRegistration.js');
 
 function loadSuite(vscode) {
@@ -42,8 +42,8 @@ function assertOpenCommandRegistration(transform = source => source) {
             insertPromptToActiveTerminal: noop,
         },
     }).register();
-    assert.ok(commands.includes('projectSteward.open'),
-        'RELEASE-SCHEDULED-EXTENSION-HOST-001 production activation must register projectSteward.open');
+    assert.ok(commands.includes('agentPivot.open'),
+        'RELEASE-SCHEDULED-EXTENSION-HOST-001 production activation must register agentPivot.open');
 }
 
 function createHostFixture() {
@@ -65,7 +65,7 @@ function createHostFixture() {
     const vscode = {
         version: 'fixture',
         extensions: {
-            getExtension: id => id === 'hzcheng.project-steward' ? main : id === bridgeId ? bridge : undefined,
+            getExtension: id => id === 'hzcheng.agent-pivot' ? main : id === bridgeId ? bridge : undefined,
         },
         commands: {
             executeCommand: async command => { executedCommands.push(command); },
@@ -77,21 +77,21 @@ function createHostFixture() {
 // RELEASE-SCHEDULED-EXTENSION-HOST-001
 test('RELEASE-SCHEDULED-EXTENSION-HOST-001 invokes only main activation and exercises live command and view paths', async () => {
     const fixture = createHostFixture();
-    const previousTimeout = process.env.PROJECT_STEWARD_EXTENSION_HOST_TIMEOUT_MS;
-    process.env.PROJECT_STEWARD_EXTENSION_HOST_TIMEOUT_MS = '1000';
+    const previousTimeout = process.env.AGENT_PIVOT_EXTENSION_HOST_TIMEOUT_MS;
+    process.env.AGENT_PIVOT_EXTENSION_HOST_TIMEOUT_MS = '1000';
     try {
         await loadSuite(fixture.vscode).run();
     } finally {
         previousTimeout === undefined
-            ? delete process.env.PROJECT_STEWARD_EXTENSION_HOST_TIMEOUT_MS
-            : process.env.PROJECT_STEWARD_EXTENSION_HOST_TIMEOUT_MS = previousTimeout;
+            ? delete process.env.AGENT_PIVOT_EXTENSION_HOST_TIMEOUT_MS
+            : process.env.AGENT_PIVOT_EXTENSION_HOST_TIMEOUT_MS = previousTimeout;
     }
 
     assert.deepEqual(fixture.activationCalls, ['main']);
     assert.equal(fixture.bridge.isActive, true, 'both extensions must be active after main activation');
     assert.deepEqual(fixture.executedCommands, [
-        'projectSteward.open',
-        'projectSteward.steward.focus',
+        'agentPivot.open',
+        'agentPivot.dashboard.focus',
     ]);
 });
 
@@ -99,14 +99,14 @@ test('RELEASE-SCHEDULED-EXTENSION-HOST-001 invokes only main activation and exer
 test('RELEASE-SCHEDULED-EXTENSION-HOST-001 rejects a missing bridge dependency before activation', async () => {
     const fixture = createHostFixture();
     fixture.main.packageJSON.extensionDependencies = [];
-    const previousTimeout = process.env.PROJECT_STEWARD_EXTENSION_HOST_TIMEOUT_MS;
-    process.env.PROJECT_STEWARD_EXTENSION_HOST_TIMEOUT_MS = '1000';
+    const previousTimeout = process.env.AGENT_PIVOT_EXTENSION_HOST_TIMEOUT_MS;
+    process.env.AGENT_PIVOT_EXTENSION_HOST_TIMEOUT_MS = '1000';
     try {
         await assert.rejects(loadSuite(fixture.vscode).run(), /extensionDependencies/);
     } finally {
         previousTimeout === undefined
-            ? delete process.env.PROJECT_STEWARD_EXTENSION_HOST_TIMEOUT_MS
-            : process.env.PROJECT_STEWARD_EXTENSION_HOST_TIMEOUT_MS = previousTimeout;
+            ? delete process.env.AGENT_PIVOT_EXTENSION_HOST_TIMEOUT_MS
+            : process.env.AGENT_PIVOT_EXTENSION_HOST_TIMEOUT_MS = previousTimeout;
     }
     assert.deepEqual(fixture.activationCalls, []);
 });
@@ -115,7 +115,7 @@ test('RELEASE-SCHEDULED-EXTENSION-HOST-001 rejects a missing bridge dependency b
 test('RELEASE-SCHEDULED-EXTENSION-HOST-001 rejects missing production command registration mutation', () => {
     assertOpenCommandRegistration();
     assert.throws(() => assertOpenCommandRegistration(source => source.replace(
-        "this.registerCommand('projectSteward.open', this.options.handlers.open);",
+        "this.registerCommand('agentPivot.open', this.options.handlers.open);",
         ''
     )), /RELEASE-SCHEDULED-EXTENSION-HOST-001/);
 });

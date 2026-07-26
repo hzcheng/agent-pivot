@@ -16,7 +16,7 @@ function runReleaseContentChecks() {
     const changelog = read('CHANGELOG.md');
     const packageMetadata = JSON.parse(read('package.json'));
     assert.strictEqual(packageMetadata.version, '2.1.8',
-        'the Active Session conversation release must increment the Project Steward patch version');
+        'the Active Session conversation release must increment the Agent Pivot patch version');
     const currentReleaseMarker = `## [${packageMetadata.version}]`;
     assert.ok(changelog.includes(currentReleaseMarker),
         'CHANGELOG must contain the package.json release version');
@@ -77,7 +77,7 @@ function runExtractor(version, changelogPath) {
 }
 
 function runExtractionChecks() {
-    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'project-steward-release-notes-'));
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-release-notes-'));
     const changelogPath = path.join(tempRoot, 'CHANGELOG.md');
 
     try {

@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="420" height="940" viewBox="0 0 420 940" role="img" aria-labelledby="title desc">
-  <title id="title">Project Steward 全局搜索状态效果图</title>
+  <title id="title">Agent Pivot 全局搜索状态效果图</title>
   <desc id="desc">搜索期间隐藏 Tab 和折叠按钮，按 AI Sessions、Open Projects 和 Saved Projects 展示结果。</desc>
   <defs>
     <filter id="shadow" x="-20%" y="-20%" width="140%" height="160%">
@@ -81,7 +81,7 @@
   <circle cx="39" cy="549" r="10" fill="#181a1e" stroke="#464951"/>
   <path d="M33 545h5l2 2h6v7H33z" fill="none" stroke="#8fc7ff" stroke-width="1.3"/>
   <text class="ui title" x="58" y="551">vscode-dashboard</text>
-  <text class="ui desc" x="58" y="570">Project Steward extension</text>
+  <text class="ui desc" x="58" y="570">Agent Pivot extension</text>
   <rect x="58" y="577" width="66" height="18" rx="9" fill="#2c2e34" stroke="#45474e"/>
   <text class="ui badge" x="70" y="590">FAVORITE</text>
   <rect x="130" y="577" width="52" height="18" rx="9" fill="#2c2e34" stroke="#45474e"/>

@@ -17,7 +17,7 @@ const { TmuxRuntimeBindingStore } = require('../../../out/aiSessions/tmuxRuntime
 const NOW = Date.parse('2026-07-18T10:00:00.000Z');
 
 test('RUNTIME-TMUX-STORE-001 persists pending and final lifecycle records as defensive copies', async t => {
-    const filesystem = createRuntimeFilesystemFixture(t, 'project-steward-tmux-store-contract-');
+    const filesystem = createRuntimeFilesystemFixture(t, 'agent-pivot-tmux-store-contract-');
     const store = new TmuxRuntimeBindingStore(filesystem.root, () => NOW);
     const pending = makeTmuxPendingBinding('pending-one', { acceptedAtMs: NOW });
     const known = makeTmuxKnownBinding('session-one', { lastSeenAtMs: NOW });
@@ -44,7 +44,7 @@ test('RUNTIME-TMUX-STORE-001 persists pending and final lifecycle records as def
 });
 
 test('RUNTIME-TMUX-STORE-001 persists readable pending and final locators across restart', async t => {
-    const filesystem = createRuntimeFilesystemFixture(t, 'project-steward-readable-tmux-store-');
+    const filesystem = createRuntimeFilesystemFixture(t, 'agent-pivot-readable-tmux-store-');
     const store = new TmuxRuntimeBindingStore(filesystem.root, () => NOW);
     const pending = makeTmuxPendingBinding('pending-readable', {
         acceptedAtMs: NOW,
@@ -83,7 +83,7 @@ test('RUNTIME-TMUX-STORE-001 persists readable pending and final locators across
 });
 
 test('RUNTIME-TMUX-STORE-001 atomically transitions known runtimes to retained completed or stopped records', async t => {
-    const filesystem = createRuntimeFilesystemFixture(t, 'project-steward-tmux-lifecycle-contract-');
+    const filesystem = createRuntimeFilesystemFixture(t, 'agent-pivot-tmux-lifecycle-contract-');
     const store = new TmuxRuntimeBindingStore(filesystem.root, () => NOW);
     const known = makeTmuxKnownBinding('terminal', { lastSeenAtMs: NOW - 100 });
     const completed = makeTmuxInactiveBinding('terminal', 'completed', { detectedAtMs: NOW });
@@ -100,7 +100,7 @@ test('RUNTIME-TMUX-STORE-001 atomically transitions known runtimes to retained c
 });
 
 test('RUNTIME-TMUX-STORE-001 rejects stale transition and acknowledgement races', async t => {
-    const filesystem = createRuntimeFilesystemFixture(t, 'project-steward-tmux-cas-contract-');
+    const filesystem = createRuntimeFilesystemFixture(t, 'agent-pivot-tmux-cas-contract-');
     const records = filesystem.resolve('records');
     let lockQueue = Promise.resolve();
     const withLock = operation => {
@@ -134,7 +134,7 @@ test('RUNTIME-TMUX-STORE-001 rejects stale transition and acknowledgement races'
 });
 
 test('RUNTIME-TMUX-THREAD-SWITCH-001 atomically rebinds a known runtime to one replacement session', async t => {
-    const filesystem = createRuntimeFilesystemFixture(t, 'project-steward-tmux-rebind-');
+    const filesystem = createRuntimeFilesystemFixture(t, 'agent-pivot-tmux-rebind-');
     const store = new TmuxRuntimeBindingStore(filesystem.root, () => NOW);
     const oldBinding = makeTmuxKnownBinding('old-root', { lastSeenAtMs: NOW - 10 });
     await store.setKnown(oldBinding);
@@ -156,7 +156,7 @@ test('RUNTIME-TMUX-THREAD-SWITCH-001 atomically rebinds a known runtime to one r
 });
 
 test('RUNTIME-TMUX-THREAD-SWITCH-001 rejects stale, missing, invalid, and occupied rebind targets', async t => {
-    const filesystem = createRuntimeFilesystemFixture(t, 'project-steward-tmux-rebind-reject-');
+    const filesystem = createRuntimeFilesystemFixture(t, 'agent-pivot-tmux-rebind-reject-');
     const store = new TmuxRuntimeBindingStore(filesystem.root, () => NOW);
     const expected = makeTmuxKnownBinding('old-root', { lastSeenAtMs: NOW - 20 });
     const current = makeTmuxKnownBinding('old-root', { lastSeenAtMs: NOW - 10 });
@@ -177,7 +177,7 @@ test('RUNTIME-TMUX-THREAD-SWITCH-001 rejects stale, missing, invalid, and occupi
 });
 
 test('RUNTIME-TMUX-THREAD-SWITCH-001 serializes competing known-runtime rebinds', async t => {
-    const filesystem = createRuntimeFilesystemFixture(t, 'project-steward-tmux-rebind-race-');
+    const filesystem = createRuntimeFilesystemFixture(t, 'agent-pivot-tmux-rebind-race-');
     const records = filesystem.resolve('records');
     let lockQueue = Promise.resolve();
     const withLock = operation => {
@@ -202,7 +202,7 @@ test('RUNTIME-TMUX-THREAD-SWITCH-001 serializes competing known-runtime rebinds'
 test('RUNTIME-TMUX-THREAD-SWITCH-001 recovers every durable rebind interruption stage', async t => {
     for (const stage of ['intent-only', 'replacement-written', 'old-removed']) {
         const filesystem = createRuntimeFilesystemFixture(
-            t, `project-steward-tmux-rebind-recovery-${stage}-`
+            t, `agent-pivot-tmux-rebind-recovery-${stage}-`
         );
         const expected = makeTmuxKnownBinding('old-root', { lastSeenAtMs: NOW - 10 });
         const replacement = { ...expected, sessionId: 'new-root' };

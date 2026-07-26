@@ -23,16 +23,16 @@ import { summarizeLatencies } from '../../shared/metrics';
 import { ProbeSnapshot } from '../../../../shared/attention-bridge/storeProtocol';
 import { createWorkspaceIdentity } from '../../../../shared/attention-bridge/workspaceIdentity';
 
-const BRIDGE_CHALLENGE = '_projectStewardAttentionSpike.bridge.challenge';
-const WORKSPACE_CHALLENGE = '_projectStewardAttentionSpike.workspace.challenge';
-const BRIDGE_PUBLISH = '_projectStewardAttentionSpike.bridge.publish';
-const BRIDGE_STATUS = '_projectStewardAttentionSpike.bridge.status';
-const BRIDGE_SET_WATCHER = '_projectStewardAttentionSpike.bridge.setWatcher';
-const BRIDGE_CLEAR = '_projectStewardAttentionSpike.bridge.clear';
-const WORKSPACE_AGGREGATE = '_projectStewardAttentionSpike.workspace.aggregate';
+const BRIDGE_CHALLENGE = '_agentPivotAttentionSpike.bridge.challenge';
+const WORKSPACE_CHALLENGE = '_agentPivotAttentionSpike.workspace.challenge';
+const BRIDGE_PUBLISH = '_agentPivotAttentionSpike.bridge.publish';
+const BRIDGE_STATUS = '_agentPivotAttentionSpike.bridge.status';
+const BRIDGE_SET_WATCHER = '_agentPivotAttentionSpike.bridge.setWatcher';
+const BRIDGE_CLEAR = '_agentPivotAttentionSpike.bridge.clear';
+const WORKSPACE_AGGREGATE = '_agentPivotAttentionSpike.workspace.aggregate';
 const STATUS_PREFIX = 'ATTENTION_SPIKE_ROUTING_STATUS ';
-const AUTO_RUN_CONTROL_PATH = '/tmp/project-steward-attention-routing-control.json';
-const AUTO_RUN_RESULT_ROOT = '/tmp/project-steward-attention-routing-results';
+const AUTO_RUN_CONTROL_PATH = '/tmp/agent-pivot-attention-routing-control.json';
+const AUTO_RUN_RESULT_ROOT = '/tmp/agent-pivot-attention-routing-results';
 const AUTO_RUN_DELAY_MS = 2000;
 const WORKSPACE_PROBE_VERSION = '0.0.5';
 
@@ -144,7 +144,7 @@ export function activate(context: vscode.ExtensionContext): void {
         (vscode.workspace.workspaceFolders || []).map(folder => folder.uri.path)
     );
     const remoteName = vscode.env.remoteName || 'local';
-    const outputChannel = vscode.window.createOutputChannel('Project Steward Attention Spike Routing');
+    const outputChannel = vscode.window.createOutputChannel('Agent Pivot Attention Spike Routing');
     let status: RoutingStatus = {
         phase: 'routing',
         result: 'IDLE',
@@ -409,12 +409,12 @@ export function activate(context: vscode.ExtensionContext): void {
         void maybeRunRoutingFromControl().catch(logAutomationError);
     }, AUTO_RUN_DELAY_MS);
 
-    const showStatusDisposable = vscode.commands.registerCommand('projectStewardAttentionSpike.showStatus', () => {
+    const showStatusDisposable = vscode.commands.registerCommand('agentPivotAttentionSpike.showStatus', () => {
         outputChannel.appendLine(`${STATUS_PREFIX}${JSON.stringify(status)}`);
         outputChannel.show(true);
     });
 
-    const showFileStatusDisposable = vscode.commands.registerCommand('projectStewardAttentionSpike.showFileStatus', async () => {
+    const showFileStatusDisposable = vscode.commands.registerCommand('agentPivotAttentionSpike.showFileStatus', async () => {
         const bridgeStatus = await vscode.commands.executeCommand(BRIDGE_STATUS);
         outputChannel.appendLine(`ATTENTION_SPIKE_FILE_STATUS ${JSON.stringify({ fileStatus, bridgeStatus })}`);
         outputChannel.show(true);
@@ -434,13 +434,13 @@ export function activate(context: vscode.ExtensionContext): void {
                 }
             },
         },
-        vscode.commands.registerCommand('projectStewardAttentionSpike.startRouting', () => runRoutingChallengeSingleFlight(1000)),
-        vscode.commands.registerCommand('projectStewardAttentionSpike.startSameWorkspaceRouting', () => runRoutingChallengeSingleFlight(200)),
-        vscode.commands.registerCommand('projectStewardAttentionSpike.startFileStress', startFileStress),
-        vscode.commands.registerCommand('projectStewardAttentionSpike.stopFileStress', stopFileStress),
-        vscode.commands.registerCommand('projectStewardAttentionSpike.enableWatcher', () => vscode.commands.executeCommand(BRIDGE_SET_WATCHER, true)),
-        vscode.commands.registerCommand('projectStewardAttentionSpike.disableWatcher', () => vscode.commands.executeCommand(BRIDGE_SET_WATCHER, false)),
-        vscode.commands.registerCommand('projectStewardAttentionSpike.clearLocalState', () => vscode.commands.executeCommand(BRIDGE_CLEAR)),
+        vscode.commands.registerCommand('agentPivotAttentionSpike.startRouting', () => runRoutingChallengeSingleFlight(1000)),
+        vscode.commands.registerCommand('agentPivotAttentionSpike.startSameWorkspaceRouting', () => runRoutingChallengeSingleFlight(200)),
+        vscode.commands.registerCommand('agentPivotAttentionSpike.startFileStress', startFileStress),
+        vscode.commands.registerCommand('agentPivotAttentionSpike.stopFileStress', stopFileStress),
+        vscode.commands.registerCommand('agentPivotAttentionSpike.enableWatcher', () => vscode.commands.executeCommand(BRIDGE_SET_WATCHER, true)),
+        vscode.commands.registerCommand('agentPivotAttentionSpike.disableWatcher', () => vscode.commands.executeCommand(BRIDGE_SET_WATCHER, false)),
+        vscode.commands.registerCommand('agentPivotAttentionSpike.clearLocalState', () => vscode.commands.executeCommand(BRIDGE_CLEAR)),
         {
             dispose: () => {
                 if (fileStressTimer !== null) {

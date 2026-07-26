@@ -4,8 +4,14 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
+const { createFakeVscode } = require('../../helpers/fakeVscode');
+const { loadFreshWithFakeVscode } = require('../../helpers/runtimeContract');
 const { TodoCommandController } = require('../../../out/todos/commandController');
-const { TodoService } = require('../../../out/todos/service');
+const { TodoService } = loadFreshWithFakeVscode(
+    '../../../out/todos/service',
+    createFakeVscode(),
+    __dirname
+);
 
 const NOW = '2026-07-24T00:00:00.000Z';
 

@@ -2,7 +2,7 @@
 
 import type { WorkspaceRoot } from './types';
 
-export const WORKSPACE_PRIMARY_ROOTS_STATE_KEY = 'projectSteward.workspacePrimaryRoots';
+export const WORKSPACE_PRIMARY_ROOTS_STATE_KEY = 'agentPivot.workspacePrimaryRoots';
 
 interface MementoLike {
     get<T>(key: string): T;

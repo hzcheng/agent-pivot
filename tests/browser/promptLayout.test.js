@@ -109,7 +109,7 @@ async function openPromptPage(browser, snapshot) {
     });
     await page.addScriptTag({ content: promptScript });
     assert.equal(await page.evaluate(initialSnapshot =>
-        window.__projectStewardPrompts.mount(document.getElementById('ai-host'), {
+        window.__agentPivotPrompts.mount(document.getElementById('ai-host'), {
             authoritySequence: 1,
             snapshot: initialSnapshot,
         }), snapshot
@@ -148,7 +148,7 @@ async function applyPostedCommandResult(page, snapshot) {
     const request = await page.evaluate(() => window.__promptMessages[0]);
     assert.ok(request);
     assert.equal(await page.evaluate(({ request, snapshot, html }) =>
-        window.__projectStewardPrompts.applyCommandResult({
+        window.__agentPivotPrompts.applyCommandResult({
             type: 'prompt-command-result',
             version: request.version,
             authoritySequence: 2,
@@ -264,7 +264,7 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 keeps Prompt controls and text usable in
             });
             await page.addScriptTag({ content: promptScript });
             assert.equal(await page.evaluate(snapshot =>
-                window.__projectStewardPrompts.mount(document.getElementById('ai-host'), {
+                window.__agentPivotPrompts.mount(document.getElementById('ai-host'), {
                     authoritySequence: 1,
                     snapshot,
                 }), initialSnapshot
@@ -382,7 +382,7 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 keeps Prompt controls and text usable in
             await page.locator('[data-action="prompt-edit"]').focus();
             const nextSnapshot = snapshotAt(2);
             assert.equal(await page.evaluate(({ snapshot, html }) =>
-                window.__projectStewardPrompts.applyRefresh({
+                window.__agentPivotPrompts.applyRefresh({
                     type: 'prompt-panel-updated',
                     version: 1,
                     authoritySequence: 2,
@@ -430,7 +430,7 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 keeps all Prompt actions visible without
     });
     await page.addScriptTag({ content: promptScript });
     assert.equal(await page.evaluate(snapshot =>
-        window.__projectStewardPrompts.mount(document.getElementById('ai-host'), {
+        window.__agentPivotPrompts.mount(document.getElementById('ai-host'), {
             authoritySequence: 1,
             snapshot,
         }), initialSnapshot
@@ -493,7 +493,7 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 opens and restores an exact copied Promp
         }],
     };
     assert.equal(await page.evaluate(({ snapshot, html }) =>
-        window.__projectStewardPrompts.applyRefresh({
+        window.__agentPivotPrompts.applyRefresh({
             type: 'prompt-panel-updated',
             version: 1,
             authoritySequence: 2,
@@ -540,7 +540,7 @@ test('SESSION-AI-PROMPT-TERMINAL-INSERTION-001 preserves keyboard focus through 
 
     const replacement = snapshotAt(2);
     assert.equal(await page.evaluate(({ snapshot, html }) =>
-        window.__projectStewardPrompts.applyRefresh({
+        window.__agentPivotPrompts.applyRefresh({
             type: 'prompt-panel-updated',
             version: 1,
             authoritySequence: 2,
@@ -564,7 +564,7 @@ test('SESSION-AI-PROMPT-TERMINAL-INSERTION-001 preserves keyboard focus through 
     });
 
     assert.equal(await page.evaluate(request =>
-        window.__projectStewardPrompts.applyInsertResult({
+        window.__agentPivotPrompts.applyInsertResult({
             type: 'prompt-insert-terminal-result',
             version: request.version,
             requestId: request.requestId,
@@ -609,7 +609,7 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 restores form and New Prompt focus with 
                 const request = await page.evaluate(() => window.__promptMessages[0]);
                 assert.ok(request);
                 assert.equal(await page.evaluate(({ request, snapshot, html }) =>
-                    window.__projectStewardPrompts.applyCommandResult({
+                    window.__agentPivotPrompts.applyCommandResult({
                         type: 'prompt-command-result',
                         version: request.version,
                         authoritySequence: 2,
@@ -652,7 +652,7 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 restores form and New Prompt focus with 
                 const request = await page.evaluate(() => window.__promptMessages[0]);
                 assert.ok(request);
                 assert.equal(await page.evaluate(({ request, snapshot, html }) =>
-                    window.__projectStewardPrompts.applyCommandResult({
+                    window.__agentPivotPrompts.applyCommandResult({
                         type: 'prompt-command-result',
                         version: request.version,
                         authoritySequence: 2,
@@ -687,7 +687,7 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 restores form and New Prompt focus with 
             replace: async page => {
                 const snapshot = snapshotAt(2);
                 assert.equal(await page.evaluate(({ snapshot, html }) =>
-                    window.__projectStewardPrompts.applyRefresh({
+                    window.__agentPivotPrompts.applyRefresh({
                         type: 'prompt-panel-updated',
                         version: 1,
                         authoritySequence: 2,
@@ -717,7 +717,7 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 restores form and New Prompt focus with 
             replace: async page => {
                 const snapshot = snapshotAt(2);
                 assert.equal(await page.evaluate(({ snapshot, html }) =>
-                    window.__projectStewardPrompts.applyRefresh({
+                    window.__agentPivotPrompts.applyRefresh({
                         type: 'prompt-panel-updated',
                         version: 1,
                         authoritySequence: 2,
@@ -745,7 +745,7 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 restores form and New Prompt focus with 
             replace: async page => {
                 const snapshot = snapshotAt(2);
                 assert.equal(await page.evaluate(({ snapshot, html }) =>
-                    window.__projectStewardPrompts.applyRefresh({
+                    window.__agentPivotPrompts.applyRefresh({
                         type: 'prompt-panel-updated',
                         version: 1,
                         authoritySequence: 2,

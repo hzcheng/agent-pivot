@@ -21,18 +21,18 @@ const MAX_CREATED_AT_LENGTH = 200;
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;
 
 export const TMUX_METADATA_OPTIONS = {
-    managed: '@project-steward-managed',
-    version: '@project-steward-version',
-    layout: '@project-steward-layout',
-    workspaceScopeIdentity: '@project-steward-workspace-scope-identity',
-    workspaceNavigationIdentity: '@project-steward-workspace-navigation-identity',
-    workspaceRootHostPaths: '@project-steward-workspace-root-host-paths',
-    cwd: '@project-steward-cwd',
-    provider: '@project-steward-provider',
-    sessionId: '@project-steward-session-id',
-    pendingId: '@project-steward-pending-id',
-    createdAt: '@project-steward-created-at',
-    marker: '@project-steward-marker',
+    managed: '@agent-pivot-managed',
+    version: '@agent-pivot-version',
+    layout: '@agent-pivot-layout',
+    workspaceScopeIdentity: '@agent-pivot-workspace-scope-identity',
+    workspaceNavigationIdentity: '@agent-pivot-workspace-navigation-identity',
+    workspaceRootHostPaths: '@agent-pivot-workspace-root-host-paths',
+    cwd: '@agent-pivot-cwd',
+    provider: '@agent-pivot-provider',
+    sessionId: '@agent-pivot-session-id',
+    pendingId: '@agent-pivot-pending-id',
+    createdAt: '@agent-pivot-created-at',
+    marker: '@agent-pivot-marker',
 } as const;
 
 export class ProjectTmuxLayout {

@@ -7,7 +7,7 @@ const { createDashboardMessageRouter } = require('../../../out/dashboard/message
 const { getErrorContent } = require('../../../out/dashboard/errorContent');
 const { DashboardLifecycleController } = require('../../../out/dashboard/lifecycleController');
 const { DashboardStartupController } = require('../../../out/dashboard/startupController');
-const { SidebarStewardViewProvider } = require('../../../out/dashboard/viewProvider');
+const { AgentPivotViewProvider } = require('../../../out/dashboard/viewProvider');
 const { TmuxRuntimeDiscovery } = require('../../../out/aiSessions/tmuxRuntimeDiscovery');
 const {
     createSyntheticTmuxStore,
@@ -182,7 +182,7 @@ function makeStartupController(migrateDataIfNeeded, events) {
         showInformationMessage: () => events.push('information'),
         showErrorMessage: message => events.push(['error', message]),
         logError: (message, error) => events.push(['log', message, error]),
-        showSteward: () => undefined,
+        showAgentPivot: () => undefined,
         applyProjectColorToCurrentWindow: () => undefined,
         getReopenReason: () => 0,
         updateReopenReason: () => undefined,
@@ -195,7 +195,7 @@ function makeStartupController(migrateDataIfNeeded, events) {
 test('ERROR-ERROR-CONTENT-001 escapes hostile render failures and never emits executable HTML', () => {
     const raw = '<script>steal("credential")</script>';
     const html = getErrorContent(new Error(raw));
-    assert.match(html, /Project Steward could not render this view/);
+    assert.match(html, /Agent Pivot could not render this view/);
     assert.equal(html.includes(raw), false);
     assert.match(html, /&lt;script&gt;steal\(&quot;credential&quot;\)&lt;\/script&gt;/);
 });
@@ -221,7 +221,7 @@ test('SESSION-SIDEBAR-STEWARD-VIEW-PROVIDER-ORDERING-001 keeps view and message 
             return { dispose() {} };
         },
     };
-    const provider = new SidebarStewardViewProvider({
+    const provider = new AgentPivotViewProvider({
         getWebviewOptions: () => ({ enableScripts: true }),
         renderContent: () => { throw new Error('private render credential'); },
         renderError: getErrorContent,
@@ -233,13 +233,13 @@ test('SESSION-SIDEBAR-STEWARD-VIEW-PROVIDER-ORDERING-001 keeps view and message 
     await provider.resolveWebviewView(view, {}, {});
     await receiveMessage({ type: 'private-message' });
 
-    assert.match(view.webview.html, /Unexpected Project Steward view failure/);
+    assert.match(view.webview.html, /Unexpected Agent Pivot view failure/);
     assert.equal(view.webview.html.includes('private render credential'), false);
     assert.deepEqual(logs.map(([message]) => message), [
-        'Failed to render Project Steward view.',
-        'Failed to handle a Project Steward message.',
+        'Failed to render Agent Pivot view.',
+        'Failed to handle an Agent Pivot message.',
     ]);
-    assert.ok(logs.every(([, error]) => error.message === 'Unexpected Project Steward view failure.'));
+    assert.ok(logs.every(([, error]) => error.message === 'Unexpected Agent Pivot view failure.'));
 });
 
 test('SESSION-SIDEBAR-STEWARD-VIEW-PROVIDER-ORDERING-001 awaits visible refreshes and never renders hidden or failed state', async () => {
@@ -262,7 +262,7 @@ test('SESSION-SIDEBAR-STEWARD-VIEW-PROVIDER-ORDERING-001 awaits visible refreshe
             return { dispose() {} };
         },
     };
-    const provider = new SidebarStewardViewProvider({
+    const provider = new AgentPivotViewProvider({
         getWebviewOptions: () => ({}),
         renderContent: () => { order.push('render'); return '<main>fresh</main>'; },
         renderError: () => '<main>safe error</main>',
@@ -287,7 +287,7 @@ test('SESSION-SIDEBAR-STEWARD-VIEW-PROVIDER-ORDERING-001 awaits visible refreshe
     await visibilityChanged();
     assert.equal(order.filter(item => item === 'render').length, 1);
     assert.equal(view.webview.html, '<main>safe error</main>');
-    assert.ok(order.includes('log:Failed to prepare Project Steward view.'));
+    assert.ok(order.includes('log:Failed to prepare Agent Pivot view.'));
 });
 
 test('SESSION-SIDEBAR-STEWARD-VIEW-PROVIDER-ORDERING-001 releases sidebar-owned conversation state on disposal', async () => {
@@ -309,7 +309,7 @@ test('SESSION-SIDEBAR-STEWARD-VIEW-PROVIDER-ORDERING-001 releases sidebar-owned 
             return { dispose() {} };
         },
     };
-    const provider = new SidebarStewardViewProvider({
+    const provider = new AgentPivotViewProvider({
         getWebviewOptions: () => ({}),
         renderContent: () => '<main>ready</main>',
         renderError: () => '<main>safe error</main>',
@@ -368,7 +368,7 @@ test('SESSION-SIDEBAR-STEWARD-VIEW-PROVIDER-OWNERSHIP-001 ignores stale visibili
             fireDispose: () => disposeView(),
         };
     };
-    const provider = new SidebarStewardViewProvider({
+    const provider = new AgentPivotViewProvider({
         getWebviewOptions: () => ({}),
         renderContent: webview => {
             renders.push(webview.name);
@@ -706,7 +706,7 @@ test('PERSIST-DASHBOARD-LIFECYCLE-CONTROLLER-001 allows a later configuration mi
         publishOpenWorkspace: () => events.push('publish'),
         evaluateAiSessionAttention: () => undefined,
     });
-    const change = makeConfigurationEvent('projectSteward.storeProjectsInSettings');
+    const change = makeConfigurationEvent('agentPivot.storeProjectsInSettings');
 
     await assert.rejects(controller.handleConfigurationChanged(change), /migration unavailable/);
     assert.deepEqual(events, [['migrate', false]]);
@@ -730,10 +730,9 @@ test('PERSIST-DASHBOARD-LIFECYCLE-CONTROLLER-001 routes workspace, configuration
     });
 
     await controller.handleConfigurationChanged(
-        makeConfigurationEvent('dashboard.storeProjectsInSettings')
+        makeConfigurationEvent('agentPivot.customCss')
     );
     assert.deepEqual(events, [
-        ['migrate', false],
         'color',
         ['refresh', 'configuration-changed'],
         ['publish', undefined],
@@ -764,7 +763,7 @@ test('TODO-COMPLETION-INCREMENTAL-001 suppresses only a local todoData configura
         evaluateAiSessionAttention: () => undefined,
         consumeTodoDataWriteEcho: () => localEcho,
     });
-    const todoDataChange = makeConfigurationEvent('projectSteward.todoData');
+    const todoDataChange = makeConfigurationEvent('agentPivot.todoData');
 
     await controller.handleConfigurationChanged(todoDataChange);
     assert.deepEqual(events, []);
@@ -780,10 +779,10 @@ test('TODO-COMPLETION-INCREMENTAL-001 suppresses only a local todoData configura
     events.length = 0;
     localEcho = true;
     await controller.handleConfigurationChanged(makeConfigurationEvent(
-        'projectSteward.todoData',
-        'projectSteward.storeProjectsInSettings',
-        'projectSteward.projectSyncData',
-        'projectSteward.customCss'
+        'agentPivot.todoData',
+        'agentPivot.storeProjectsInSettings',
+        'agentPivot.projectSyncData',
+        'agentPivot.customCss'
     ));
     assert.deepEqual(events, [
         'migrate',
@@ -811,7 +810,7 @@ test('PROJECT-CATALOG-SYNC-CONFLICT-001 reconciles synchronized project data bef
     });
 
     await controller.handleConfigurationChanged(
-        makeConfigurationEvent('projectSteward.projectSyncData')
+        makeConfigurationEvent('agentPivot.projectSyncData')
     );
 
     assert.deepEqual(events, [
@@ -840,8 +839,8 @@ test('PROJECT-INCREMENTAL-REFRESH-001 suppresses local catalog echoes and routes
         evaluateAiSessionAttention: () => undefined,
     });
     const catalogChange = makeConfigurationEvent(
-        'projectSteward.projectSyncData',
-        'projectSteward.projectData'
+        'agentPivot.projectSyncData',
+        'agentPivot.projectData'
     );
 
     await controller.handleConfigurationChanged(catalogChange);
@@ -863,8 +862,8 @@ test('PROJECT-INCREMENTAL-REFRESH-001 suppresses local catalog echoes and routes
 
     events.length = 0;
     await controller.handleConfigurationChanged(makeConfigurationEvent(
-        'projectSteward.projectSyncData',
-        'projectSteward.customCss'
+        'agentPivot.projectSyncData',
+        'agentPivot.customCss'
     ));
     assert.deepEqual(events, [
         ['consume', { syncData: true, legacyGroups: false }],

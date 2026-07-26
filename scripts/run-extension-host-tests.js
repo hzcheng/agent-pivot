@@ -14,7 +14,7 @@ const {
 
 async function main() {
     const repositoryRoot = path.resolve(__dirname, '..');
-    const isolatedRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'project-steward-extension-host-'));
+    const isolatedRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-extension-host-'));
     try {
         const environment = createExtensionHostTestEnvironment(isolatedRoot);
         const workerPath = path.join(__dirname, 'run-extension-host-worker.js');

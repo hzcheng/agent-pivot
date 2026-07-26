@@ -1,5 +1,7 @@
 'use strict';
 
+import { AGENT_PIVOT_CONFIG_SECTION } from '../constants';
+
 export interface AiSessionLaunchOptions {
     yolo: boolean;
 }
@@ -15,7 +17,7 @@ interface WorkspaceConfigurationProvider {
 export function readAiSessionLaunchOptions(
     workspace: WorkspaceConfigurationProvider
 ): AiSessionLaunchOptions {
-    const configuration = workspace.getConfiguration('projectSteward');
+    const configuration = workspace.getConfiguration(AGENT_PIVOT_CONFIG_SECTION);
     return {
         yolo: configuration.get<unknown>('aiSessionYoloMode', false) === true,
     };

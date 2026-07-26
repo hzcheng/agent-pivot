@@ -97,7 +97,7 @@ function renderPromptItem(
 
 function renderReadOnlyContent(reason: 'invalid-data' | 'unsupported-version'): string {
     const message = reason === 'unsupported-version'
-        ? 'AI Prompts require a newer version of Project Steward. This library is read-only.'
+        ? 'AI Prompts require a newer version of Agent Pivot. This library is read-only.'
         : 'The saved Prompt data is invalid. Correct the setting before editing this library.';
     return `<div class="prompt-read-only steward-empty-state" role="alert">
         <p>${message}</p>
@@ -151,7 +151,7 @@ export function getPromptRecoveryContent(snapshot: PromptPanelSnapshot): string 
         : 0;
     return `<div class="prompt-surface prompt-recovery steward-empty-state" data-prompt-surface data-prompt-revision="${revision}" data-prompt-recovery role="alert">
         <p>AI Prompts could not be displayed.</p>
-        <p>Reload the Project Steward Dashboard to try again.</p>
+        <p>Reload the Agent Pivot Dashboard to try again.</p>
         <div class="prompt-status" data-prompt-status role="status" aria-live="polite" aria-atomic="true"></div>
     </div>`;
 }

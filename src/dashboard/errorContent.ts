@@ -20,7 +20,7 @@ export function getErrorContent(error: unknown): string {
     </style>
 </head>
 <body>
-    <p>Project Steward could not render this view.</p>
+    <p>Agent Pivot could not render this view.</p>
     <code>${escapeHtml(message)}</code>
 </body>
 </html>`;

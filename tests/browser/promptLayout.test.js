@@ -333,6 +333,12 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 keeps Prompt controls and text usable in
             await assertReachable(page, '[data-action="prompt-select-default"]', width);
             await assertReachable(page, '[data-action="prompt-edit"]', width);
             await assertReachable(page, '[data-action="prompt-delete"]', width);
+            const copyIconStyle = await page.locator('[data-action="prompt-copy"] svg').evaluate(element => ({
+                fill: getComputedStyle(element).fill,
+                stroke: getComputedStyle(element).stroke,
+            }));
+            assert.equal(copyIconStyle.fill, 'none');
+            assert.notEqual(copyIconStyle.stroke, 'none');
             const hoverLayout = await page.evaluate(() => {
                 const name = document.querySelector('.prompt-name').getBoundingClientRect();
                 const actions = document.querySelector('.prompt-management-actions').getBoundingClientRect();

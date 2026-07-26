@@ -130,7 +130,7 @@ function validatePromptCompactCardStyles(source) {
         id,
         ['padding-right: 132px']
     );
-    assertDeclarations(ruleForSelector(compiled, '.prompt-copy-button svg'), id,
+    assertDeclarations(ruleForSelector(compiled, '.prompt-item-view .prompt-copy-button svg'), id,
         ['fill: none', 'stroke: currentColor']);
     assertDeclarations(ruleForSelector(compiled, '.prompt-insert-button', 'pointer-events: inherit'), id,
         ['opacity: 1', 'pointer-events: inherit']);

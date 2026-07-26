@@ -16,11 +16,12 @@ function fakeUri(value) {
     };
 }
 
+const fakeVscode = {
+    ViewColumn: { Active: 1, Beside: 2 },
+    Uri: { parse: value => fakeUri(value) },
+};
+
 function loadConversationViewer() {
-    const fakeVscode = {
-        ViewColumn: { Beside: 2 },
-        Uri: { parse: value => fakeUri(value) },
-    };
     const previousLoad = Module._load;
     try {
         Module._load = function (request, parent, isMain) {
@@ -135,6 +136,7 @@ function fakePanel(options = {}) {
     const panel = {
         createCount: 0,
         revealCount: 0,
+        revealColumns: [],
         postedMessages: [],
         createArguments: undefined,
         visible: true,
@@ -163,8 +165,9 @@ function fakePanel(options = {}) {
                 ));
             },
         },
-        reveal() {
+        reveal(column) {
             panel.revealCount += 1;
+            panel.revealColumns.push(column);
         },
         onDidDispose(listener) {
             disposeListeners.add(listener);
@@ -223,6 +226,20 @@ function createViewer(options = {}) {
     });
     return { viewer, panel, watchDisposals, restoredTargets, openedUris };
 }
+
+test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 opens and reuses one viewer in the active editor group', async () => {
+    const { viewer, panel } = createViewer();
+
+    await viewer.open(target('session-a', 'input-1'));
+    await viewer.open(target('session-b', 'input-1'));
+
+    assert.equal(panel.createCount, 1);
+    assert.equal(panel.createArguments[2], fakeVscode.ViewColumn.Active);
+    assert.deepEqual(panel.revealColumns, [
+        fakeVscode.ViewColumn.Active,
+        fakeVscode.ViewColumn.Active,
+    ]);
+});
 
 test('CONVERSATION-VIEWER-OWNERSHIP-001 reuses one panel, rejects an old session generation, and clears sensitive state on disposal', async () => {
     const panel = fakePanel();

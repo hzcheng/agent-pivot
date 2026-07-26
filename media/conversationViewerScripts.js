@@ -9,6 +9,17 @@
     var allowedAttributes = [
         'href', 'class', 'data-message-id', 'data-interaction-id',
     ];
+    var vscodeApi = null;
+    try {
+        if (typeof acquireVsCodeApi === 'function') {
+            vscodeApi = acquireVsCodeApi();
+        } else if (window.vscode
+            && typeof window.vscode.postMessage === 'function') {
+            vscodeApi = window.vscode;
+        }
+    } catch (_error) {
+        vscodeApi = null;
+    }
     var scroll = document.querySelector('[data-conversation-scroll]');
     var messages = document.querySelector('[data-conversation-messages]');
     var position = document.querySelector('[data-conversation-position]');
@@ -50,8 +61,8 @@
     });
 
     function post(message) {
-        if (window.vscode && typeof window.vscode.postMessage === 'function') {
-            window.vscode.postMessage(message);
+        if (vscodeApi && typeof vscodeApi.postMessage === 'function') {
+            vscodeApi.postMessage(message);
         }
     }
 

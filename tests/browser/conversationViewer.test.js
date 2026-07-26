@@ -121,7 +121,7 @@ function fakeHostUri(value) {
 
 function loadHostConversationViewer() {
     const fakeVscode = {
-        ViewColumn: { Beside: 2 },
+        ViewColumn: { Active: 1, Beside: 2 },
         Uri: { parse: value => fakeHostUri(value) },
     };
     const previousLoad = Module._load;
@@ -135,6 +135,136 @@ function loadHostConversationViewer() {
     } finally {
         Module._load = previousLoad;
     }
+}
+
+async function renderHostViewerDocument() {
+    const ConversationViewer = loadHostConversationViewer();
+    const listeners = { message: new Set(), dispose: new Set(), view: new Set() };
+    const panel = {
+        visible: true,
+        title: '',
+        webview: {
+            html: '',
+            cspSource: 'https://viewer.test',
+            onDidReceiveMessage(listener) {
+                listeners.message.add(listener);
+                return { dispose: () => listeners.message.delete(listener) };
+            },
+            postMessage() {
+                return Promise.resolve(true);
+            },
+            asWebviewUri(uri) {
+                return fakeHostUri(
+                    `https://viewer.test/${path.basename(uri.fsPath)}`
+                );
+            },
+        },
+        reveal() {},
+        onDidDispose(listener) {
+            listeners.dispose.add(listener);
+            return { dispose: () => listeners.dispose.delete(listener) };
+        },
+        onDidChangeViewState(listener) {
+            listeners.view.add(listener);
+            return { dispose: () => listeners.view.delete(listener) };
+        },
+        dispose() {
+            Array.from(listeners.dispose).forEach(listener => listener());
+        },
+    };
+    const viewer = new ConversationViewer({
+        createPanel: () => panel,
+        readOutline: async () => ({
+            provider: 'codex',
+            sessionId: 'session-host-document',
+            sourceRevision: 'r1',
+            interactions: ['input-1', 'input-2', 'input-3'].map(id => ({
+                id,
+                userPreview: id,
+                userGraphemeCount: id.length,
+                responseState: 'complete',
+            })),
+            totalInteractions: 3,
+            partial: false,
+        }),
+        readPage: async () => ({
+            provider: 'codex',
+            sessionId: 'session-host-document',
+            sourceRevision: 'r1',
+            anchorInteractionId: 'input-2',
+            messages: [{
+                id: 'input-2:user',
+                interactionId: 'input-2',
+                role: 'user',
+                markdown: '[safe](https://example.test/safe)',
+            }],
+            interactionStates: [{
+                interactionId: 'input-2',
+                responseState: 'complete',
+            }],
+            previousCursor: 'before-input-2',
+            nextCursor: 'after-input-2',
+            isStart: false,
+            isEnd: false,
+        }),
+        watch: () => ({ dispose() {} }),
+        restoreFocus: () => {},
+        openExternal: async () => true,
+        mediaUri: fileName =>
+            fakeHostUri(`file:///extension/media/${fileName}`),
+    });
+    await viewer.open({
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-host-document',
+        interactionId: 'input-2',
+        expectedRevision: 'r1',
+        displayName: 'Host document',
+        duplicateDisplayName: false,
+    });
+    return panel.webview.html;
+}
+
+async function openHostViewerDocument(t) {
+    const page = await browser.newPage({ viewport: { width: 700, height: 500 } });
+    t.after(() => page.close());
+    const html = await renderHostViewerDocument();
+    await page.route('https://viewer.test/**', async route => {
+        const pathname = new URL(route.request().url()).pathname;
+        if (pathname === '/purify.min.js') {
+            await route.fulfill({
+                contentType: 'text/javascript',
+                body: purifyScript,
+            });
+            return;
+        }
+        if (pathname === '/conversationViewerScripts.js') {
+            await route.fulfill({
+                contentType: 'text/javascript',
+                body: viewerScript,
+            });
+            return;
+        }
+        if (pathname === '/conversationViewer.css') {
+            await route.fulfill({ contentType: 'text/css', body: '' });
+            return;
+        }
+        await route.fulfill({ contentType: 'text/html', body: html });
+    });
+    await page.addInitScript(() => {
+        window.__acquireCount = 0;
+        window.__postedMessages = [];
+        window.acquireVsCodeApi = () => {
+            window.__acquireCount += 1;
+            return {
+                postMessage(message) {
+                    window.__postedMessages.push(message);
+                },
+            };
+        };
+    });
+    await page.goto('https://viewer.test/');
+    return { page };
 }
 
 function decodeInitialPublication(html) {
@@ -262,6 +392,29 @@ async function realHostAppendPublications() {
     viewer.dispose();
     return { initial, refresh };
 }
+
+test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 acquires one real document API and posts every control action', async t => {
+    const { page } = await openHostViewerDocument(t);
+
+    assert.equal(await page.evaluate(() => window.__acquireCount), 1);
+    await page.getByRole('button', { name: 'Previous' }).click();
+    await page.getByRole('button', { name: 'Next' }).click();
+    await page.getByRole('button', { name: 'Latest' }).click();
+    await page.locator('a[href="https://example.test/safe"]').click();
+    await page.getByRole('button', { name: 'Close' }).click();
+
+    assert.deepEqual(await postedMessages(page), [
+        { type: 'conversation-viewer-previous', version: 1 },
+        { type: 'conversation-viewer-next', version: 1 },
+        { type: 'conversation-viewer-latest', version: 1 },
+        {
+            type: 'conversation-viewer-open-link',
+            version: 1,
+            href: 'https://example.test/safe',
+        },
+        { type: 'conversation-viewer-closed', version: 1 },
+    ]);
+});
 
 test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 sanitizes hostile HTML and posts exact version-1 navigation', async t => {
     const page = await openViewerPage(t);

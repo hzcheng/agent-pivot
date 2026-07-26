@@ -132,7 +132,7 @@ export class ConversationViewer implements ConversationViewerApi {
         const generation = this.replaceTarget(target);
         const panel = this.ensurePanel();
         panel.title = 'AI Conversation';
-        panel.reveal(vscode.ViewColumn.Beside);
+        panel.reveal(vscode.ViewColumn.Active);
         panel.webview.html = this.renderDocument(undefined, 'Loading conversation…');
         this.ensureWatch(generation);
         await this.loadAuthoritative('initial', true);
@@ -227,7 +227,7 @@ export class ConversationViewer implements ConversationViewerApi {
         const panel = this.options.createPanel(
             'projectSteward.aiConversation',
             'AI Conversation',
-            vscode.ViewColumn.Beside,
+            vscode.ViewColumn.Active,
             {
                 enableScripts: true,
                 localResourceRoots: [this.options.mediaUri('')],

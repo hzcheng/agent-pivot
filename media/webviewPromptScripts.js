@@ -972,6 +972,46 @@
         return true;
     }
 
+    function nextCopyName(sourceName) {
+        var names = new Set(state.snapshot.prompts.map(function (prompt) {
+            return prompt.name.toLowerCase();
+        }));
+        var base = sourceName + ' copy';
+        if (!names.has(base.toLowerCase())) {
+            return base;
+        }
+        var suffix = 2;
+        while (names.has((base + ' ' + suffix).toLowerCase())) {
+            suffix += 1;
+        }
+        return base + ' ' + suffix;
+    }
+
+    function showCopyForm(promptId) {
+        var prompt = state.snapshot && state.snapshot.prompts.find(function (candidate) {
+            return candidate.id === promptId;
+        });
+        var surface = getSurface();
+        var form = surface && surface.querySelector('[data-prompt-form="create"]');
+        if (!prompt || !form) {
+            announce('That Prompt is no longer available.');
+            return false;
+        }
+        resetOpenDraft();
+        state.draft = {
+            kind: 'create',
+            promptId: null,
+            name: nextCopyName(prompt.name),
+            text: prompt.text,
+        };
+        applyDraft(state.draft);
+        var name = form.querySelector('[name="name"]');
+        if (name && typeof name.focus === 'function') {
+            name.focus();
+        }
+        return true;
+    }
+
     function showEditForm(promptId) {
         var form = findEditForm(promptId);
         if (!form) {
@@ -1023,6 +1063,8 @@
             showCreateForm();
         } else if (action === 'prompt-cancel-create') {
             closeDraft(closest(actionTarget, '[data-prompt-form]'));
+        } else if (action === 'prompt-copy') {
+            showCopyForm(promptId);
         } else if (action === 'prompt-edit') {
             showEditForm(promptId);
         } else if (action === 'prompt-cancel-edit') {

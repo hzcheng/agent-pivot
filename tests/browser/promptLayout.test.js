@@ -288,6 +288,7 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 keeps Prompt controls and text usable in
                 )
             ), [
                 'prompt-insert-terminal',
+                'prompt-copy',
                 'prompt-select-default',
                 'prompt-edit',
                 'prompt-delete',
@@ -328,9 +329,16 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 keeps Prompt controls and text usable in
                 getComputedStyle(element).opacity
             ), '1');
             await assertReachable(page, '[data-action="prompt-insert-terminal"]', width);
+            await assertReachable(page, '[data-action="prompt-copy"]', width);
             await assertReachable(page, '[data-action="prompt-select-default"]', width);
             await assertReachable(page, '[data-action="prompt-edit"]', width);
             await assertReachable(page, '[data-action="prompt-delete"]', width);
+            const copyIconStyle = await page.locator('[data-action="prompt-copy"] svg').evaluate(element => ({
+                fill: getComputedStyle(element).fill,
+                stroke: getComputedStyle(element).stroke,
+            }));
+            assert.equal(copyIconStyle.fill, 'none');
+            assert.notEqual(copyIconStyle.stroke, 'none');
             const hoverLayout = await page.evaluate(() => {
                 const name = document.querySelector('.prompt-name').getBoundingClientRect();
                 const actions = document.querySelector('.prompt-management-actions').getBoundingClientRect();
@@ -397,6 +405,115 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 keeps Prompt controls and text usable in
             await assertNoHorizontalOverflow(page, width, 'authoritative replacement');
         });
     }
+});
+
+test('WEBVIEW-AI-PROMPT-INTERACTION-001 keeps all Prompt actions visible without hover', async t => {
+    const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
+    t.after(() => browser.close());
+    const width = 240;
+    const page = await browser.newPage({
+        viewport: { width, height: 1000 },
+        hasTouch: true,
+    });
+    t.after(() => page.close());
+    const initialSnapshot = snapshotAt(1);
+
+    await page.setContent(`<!doctype html>
+        <html>
+            <head><style>${styles}</style></head>
+            <body class="steward-sidebar">
+                <main id="ai-host">${getAiPanelContent(initialSnapshot)}</main>
+            </body>
+        </html>`);
+    await page.evaluate(() => {
+        window.vscode = { postMessage() {} };
+    });
+    await page.addScriptTag({ content: promptScript });
+    assert.equal(await page.evaluate(snapshot =>
+        window.__projectStewardPrompts.mount(document.getElementById('ai-host'), {
+            authoritySequence: 1,
+            snapshot,
+        }), initialSnapshot
+    ), true);
+
+    assert.equal(await page.evaluate(() => matchMedia('(hover: none)').matches), true);
+    assert.equal(await page.locator('.prompt-management-actions').evaluate(element =>
+        getComputedStyle(element).pointerEvents
+    ), 'auto');
+    for (const action of [
+        'prompt-insert-terminal',
+        'prompt-copy',
+        'prompt-select-default',
+        'prompt-edit',
+        'prompt-delete',
+    ]) {
+        await assertReachable(page, `[data-action="${action}"]`, width);
+    }
+    await assertNoHorizontalOverflow(page, width, 'no-hover');
+});
+
+test('WEBVIEW-AI-PROMPT-INTERACTION-001 opens and restores an exact copied Prompt draft in Chromium', async t => {
+    const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
+    t.after(() => browser.close());
+    const initialSnapshot = {
+        version: 1,
+        revision: 0,
+        selectedPromptId: null,
+        prompts: [{
+            id: 'prompt-a',
+            name: 'Review',
+            text: 'Review this diff.\nKeep details.',
+        }],
+    };
+    const page = await openPromptPage(browser, initialSnapshot);
+    t.after(() => page.close());
+
+    await revealPromptActions(page);
+    await page.locator('[data-action="prompt-copy"]').click();
+    assert.deepEqual(await page.evaluate(() => ({
+        messages: window.__promptMessages,
+        name: document.querySelector('[data-prompt-form="create"] [name="name"]').value,
+        text: document.querySelector('[data-prompt-form="create"] [name="text"]').value,
+        focusedName: document.activeElement
+            === document.querySelector('[data-prompt-form="create"] [name="name"]'),
+    })), {
+        messages: [],
+        name: 'Review copy',
+        text: 'Review this diff.\nKeep details.',
+        focusedName: true,
+    });
+
+    const refreshedSnapshot = {
+        ...initialSnapshot,
+        revision: 1,
+        prompts: [{
+            id: 'prompt-a',
+            name: 'Review renamed elsewhere',
+            text: 'Changed elsewhere',
+        }],
+    };
+    assert.equal(await page.evaluate(({ snapshot, html }) =>
+        window.__projectStewardPrompts.applyRefresh({
+            type: 'prompt-panel-updated',
+            version: 1,
+            authoritySequence: 2,
+            target: 'global-prompt-library',
+            snapshot,
+            html,
+        }), {
+        snapshot: refreshedSnapshot,
+        html: getPromptSurfaceContent(refreshedSnapshot),
+    }), true);
+    assert.deepEqual(await page.evaluate(() => ({
+        name: document.querySelector('[data-prompt-form="create"] [name="name"]').value,
+        text: document.querySelector('[data-prompt-form="create"] [name="text"]').value,
+        focusedName: document.activeElement
+            === document.querySelector('[data-prompt-form="create"] [name="name"]'),
+    })), {
+        name: 'Review copy',
+        text: 'Review this diff.\nKeep details.',
+        focusedName: true,
+    });
 });
 
 test('SESSION-AI-PROMPT-TERMINAL-INSERTION-001 preserves keyboard focus through pending replacement and acknowledgement', async t => {

@@ -125,6 +125,13 @@ function validatePromptCompactCardStyles(source) {
     const reveal = ruleForSelector(compiled, '.prompt-item:focus-within .prompt-management-actions');
     assert.ok(reveal.selectors.includes('.prompt-item:hover .prompt-management-actions'));
     assertDeclarations(reveal, id, ['opacity: 1', 'pointer-events: auto']);
+    assertDeclarations(
+        ruleForSelector(compiled, '.prompt-item:focus-within .prompt-title-line'),
+        id,
+        ['padding-right: 132px']
+    );
+    assertDeclarations(ruleForSelector(compiled, '.prompt-item-view .prompt-copy-button svg'), id,
+        ['fill: none', 'stroke: currentColor']);
     assertDeclarations(ruleForSelector(compiled, '.prompt-insert-button', 'pointer-events: inherit'), id,
         ['opacity: 1', 'pointer-events: inherit']);
     assertDeclarations(ruleForSelector(compiled, '.prompt-insert-button[aria-disabled=true]'), id,
@@ -135,6 +142,7 @@ function validatePromptCompactCardStyles(source) {
     const noHover = extractBlock(source, '@media (hover: none)');
     assert.ok(noHover.includes('.prompt-management-actions'), `${id} missing no-hover actions`);
     assert.ok(noHover.includes('opacity: .72'), `${id} missing no-hover action emphasis`);
+    assert.ok(noHover.includes('padding-right: 132px'), `${id} no-hover title must reserve five actions`);
 
     const promptMotion = extractBlock(source, '@media (prefers-reduced-motion: reduce)', 2);
     assert.ok(promptMotion.includes('.prompt-management-actions'), `${id} missing reduced motion toolbar`);

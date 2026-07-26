@@ -85,6 +85,7 @@ function renderPromptItem(
             </div>
             <div class="prompt-management-actions">
                 <button type="button" class="prompt-insert-button steward-icon-button" data-action="prompt-insert-terminal" data-prompt-id="${promptId}" title="${escapeHtml(insertLabel)}" aria-label="${escapeHtml(insertLabel)}">${Icons.terminalLine}</button>
+                <button type="button" class="prompt-copy-button steward-icon-button" data-action="prompt-copy" data-prompt-id="${promptId}" title="${escapeHtml(`Copy ${prompt.name}`)}" aria-label="${escapeHtml(`Copy ${prompt.name}`)}">${Icons.copy}</button>
                 <button type="button" class="prompt-default-button steward-icon-button" data-action="prompt-select-default" data-prompt-id="${promptId}" aria-pressed="${selected ? 'true' : 'false'}" title="${escapeHtml(defaultLabel)}" aria-label="${escapeHtml(defaultLabel)}">${selected ? Icons.starFilled : Icons.star}</button>
                 <button type="button" class="steward-icon-button" data-action="prompt-edit" data-prompt-id="${promptId}" title="${escapeHtml(`Edit ${prompt.name}`)}" aria-label="${escapeHtml(`Edit ${prompt.name}`)}">${Icons.edit}</button>
                 <button type="button" class="steward-icon-button danger" data-action="prompt-delete" data-prompt-id="${promptId}" title="${escapeHtml(`Delete ${prompt.name}`)}" aria-label="${escapeHtml(`Delete ${prompt.name}`)}">${Icons.remove}</button>

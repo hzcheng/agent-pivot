@@ -28,6 +28,7 @@ function surfaceHtml(revision, promptIds = ['prompt-a', 'prompt-b'], marker = ''
     const items = promptIds.map(promptId => `<li data-prompt-id="${promptId}">
         <button data-drag-prompt-id="${promptId}">Drag</button>
         <button data-action="prompt-insert-terminal" data-prompt-id="${promptId}">Insert</button>
+        <button data-action="prompt-copy" data-prompt-id="${promptId}">Copy</button>
         <button data-action="prompt-select-default" data-prompt-id="${promptId}" aria-pressed="false">Default</button>
         <button data-action="prompt-edit" data-prompt-id="${promptId}">Edit</button>
         <button data-action="prompt-delete" data-prompt-id="${promptId}">Delete</button>
@@ -319,6 +320,10 @@ function createPromptRoot(document, initialHtml) {
                     'data-action': 'prompt-insert-terminal',
                     'data-prompt-id': promptId,
                 }),
+                createElement(document, {
+                    'data-action': 'prompt-copy',
+                    'data-prompt-id': promptId,
+                }),
             ];
             item.actions.forEach(action => {
                 action.parentElement = item;
@@ -603,6 +608,99 @@ test('SESSION-AI-PROMPT-TERMINAL-INSERTION-001 insert acknowledgement cannot rel
     ), true);
     assert.equal(reboundInsert.disabled, false);
     assert.equal(reboundInsert.getAttribute('aria-disabled'), null);
+});
+
+test('WEBVIEW-AI-PROMPT-INTERACTION-001 opens a copied Prompt as an exact unsaved create draft', () => {
+    const initialSnapshot = snapshotAt(0, {
+        selectedPromptId: 'prompt-b',
+        prompts: [
+            { id: 'prompt-a', name: 'Review', text: 'Review this diff.\nKeep details.' },
+            { id: 'prompt-b', name: 'Bravo', text: 'Second body' },
+        ],
+    });
+    const harness = createPromptHarness({ snapshot: initialSnapshot });
+    const create = harness.root.getForm('create');
+
+    harness.root.dispatch('click', eventFor(promptAction(harness, 'prompt-a', 'prompt-copy')));
+
+    assert.equal(harness.messages.length, 0);
+    assert.equal(create.hidden, false);
+    assert.equal(create.fields.name.value, 'Review copy');
+    assert.equal(create.fields.text.value, 'Review this diff.\nKeep details.');
+    assert.equal(harness.document.activeElement, create.fields.name);
+    assert.deepEqual(JSON.parse(JSON.stringify(harness.controller.getState().draft)), {
+        kind: 'create',
+        promptId: null,
+        name: 'Review copy',
+        text: 'Review this diff.\nKeep details.',
+    });
+    assert.equal(harness.controller.getState().snapshot.selectedPromptId, 'prompt-b');
+
+    harness.root.dispatch('submit', eventFor(create));
+    assert.equal(harness.messages.length, 1);
+    assert.deepEqual(harness.messages[0].payload, {
+        name: 'Review copy',
+        text: 'Review this diff.\nKeep details.',
+    });
+    assert.equal(harness.messages[0].operation, 'create');
+    assert.equal(harness.controller.getState().snapshot.selectedPromptId, 'prompt-b');
+});
+
+test('WEBVIEW-AI-PROMPT-INTERACTION-001 chooses a unique copy name and rejects a stale source', () => {
+    const harness = createPromptHarness({
+        snapshot: snapshotAt(0, {
+            prompts: [
+                { id: 'prompt-a', name: 'Review', text: 'Original body' },
+                { id: 'prompt-b', name: 'review COPY', text: 'First copy' },
+                { id: 'prompt-c', name: 'Review copy 2', text: 'Second copy' },
+                { id: 'prompt-d', name: 'REVIEW COPY 3', text: 'Third copy' },
+            ],
+        }),
+        initialHtml: surfaceHtml(0, ['prompt-a', 'prompt-b', 'prompt-c', 'prompt-d']),
+    });
+
+    harness.root.dispatch('click', eventFor(promptAction(harness, 'prompt-a', 'prompt-copy')));
+    assert.equal(harness.root.getForm('create').fields.name.value, 'Review copy 4');
+
+    const staleCopy = createElement(harness.document, {
+        'data-action': 'prompt-copy',
+        'data-prompt-id': 'prompt-missing',
+    });
+    staleCopy.ownerRoot = harness.root;
+    harness.root.dispatch('click', eventFor(staleCopy));
+    assert.equal(harness.messages.length, 0);
+    assert.equal(harness.root.status.textContent, 'That Prompt is no longer available.');
+});
+
+test('WEBVIEW-AI-PROMPT-INTERACTION-001 preserves a copied create draft across authoritative refresh', () => {
+    const initialSnapshot = snapshotAt(0, {
+        prompts: [
+            { id: 'prompt-a', name: 'Review', text: 'Original body' },
+            { id: 'prompt-b', name: 'Bravo', text: 'Second body' },
+        ],
+    });
+    const harness = createPromptHarness({ snapshot: initialSnapshot });
+    harness.root.dispatch('click', eventFor(promptAction(harness, 'prompt-a', 'prompt-copy')));
+
+    const refreshedSnapshot = snapshotAt(1, {
+        prompts: [
+            { id: 'prompt-a', name: 'Review renamed elsewhere', text: 'Changed elsewhere' },
+            { id: 'prompt-b', name: 'Bravo', text: 'Second body' },
+        ],
+    });
+    assert.equal(harness.controller.applyRefresh({
+        type: 'prompt-panel-updated',
+        version: 1,
+        authoritySequence: 2,
+        target: 'global-prompt-library',
+        snapshot: refreshedSnapshot,
+        html: surfaceHtml(1),
+    }), true);
+
+    const restored = harness.root.getForm('create');
+    assert.equal(restored.hidden, false);
+    assert.equal(restored.fields.name.value, 'Review copy');
+    assert.equal(restored.fields.text.value, 'Original body');
 });
 
 test('WEBVIEW-AI-PROMPT-MUTATION-001 keeps pending until matching authoritative HTML is applied', () => {

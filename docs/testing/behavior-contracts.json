@@ -3187,14 +3187,16 @@
   {
     "id": "SESSION-AI-PROMPT-TERMINAL-INSERTION-001",
     "domain": "session",
-    "title": "Prompt insertion targets the terminal captured at invocation without appending Enter",
+    "title": "Prompt insertion supports command selection and exact card IDs without appending Enter",
     "priority": "P0",
     "status": "automated",
     "owners": [
-      "tests/contract/prompts/terminalCommandController.test.js"
+      "tests/contract/prompts/terminalCommandController.test.js",
+      "tests/integration/dashboard/messageRouter.test.js"
     ],
     "evidence": [
       "src/prompts/terminalCommandController.ts",
+      "src/dashboard.ts",
       "src/dashboard/commandRegistration.ts",
       "package.json"
     ]
@@ -3202,11 +3204,13 @@
   {
     "id": "WEBVIEW-AI-PROMPT-INTERACTION-001",
     "domain": "webview",
-    "title": "AI Prompt management remains accessible and responsive",
+    "title": "AI Prompt cards stay compact, accessible, responsive, and correlate direct insertion results",
     "priority": "P0",
     "status": "automated",
     "owners": [
+      "tests/integration/dashboard/promptContent.test.js",
       "tests/integration/dashboard/promptInteraction.test.js",
+      "tests/integration/dashboard/styles.test.js",
       "tests/browser/promptLayout.test.js"
     ],
     "evidence": [

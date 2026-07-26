@@ -790,6 +790,67 @@ test('SESSION-CONVERSATION-HOST-LIFECYCLE-002 a later reconcile suppresses an ol
     );
 });
 
+test('SESSION-CONVERSATION-HOST-LIFECYCLE-001 reconcile retries a missing state watch without duplicating recovery', async t => {
+    let watchAttempts = 0;
+    let activeInvalidation;
+    let outlineReads = 0;
+    let releaseCount = 0;
+    const publications = [];
+    const coordinator = {
+        setSessionStopped() {},
+        watch(_provider, _sessionId, onChange) {
+            watchAttempts += 1;
+            if (watchAttempts === 1) {
+                throw new Error('provider watch unavailable');
+            }
+            activeInvalidation = onChange;
+            return { id: 'recovered-watch' };
+        },
+        async readOutline(provider, sessionId) {
+            outlineReads += 1;
+            return makeOutline(provider, sessionId, `native-${outlineReads}`);
+        },
+        releaseSubscription(subscription) {
+            assert.equal(subscription.id, 'recovered-watch');
+            releaseCount += 1;
+            activeInvalidation = undefined;
+        },
+    };
+    const controller = new ConversationHostController({
+        coordinator,
+        resolveTarget: (projectId, provider, sessionId) => ({
+            projectId,
+            provider,
+            sessionId,
+            focused: true,
+            executionState: 'running',
+        }),
+        publish: message => publications.push(message),
+        openViewer: async () => undefined,
+    });
+    t.after(() => controller.dispose());
+
+    await controller.handleOutline(makeOutlineRequest());
+    assert.equal(watchAttempts, 1);
+    assert.equal(outlineReads, 1);
+    assert.equal(publications.length, 1);
+
+    controller.reconcile();
+    await settle();
+    assert.equal(watchAttempts, 2);
+    assert.equal(outlineReads, 2);
+    assert.equal(publications.length, 2);
+
+    controller.reconcile();
+    await settle();
+    assert.equal(watchAttempts, 2);
+    activeInvalidation();
+    await settle();
+    assert.equal(outlineReads, 4);
+    controller.dispose();
+    assert.equal(releaseCount, 1);
+});
+
 test('SESSION-CONVERSATION-HOST-010 opens only an authoritative known interaction', async t => {
     const harness = createControllerHarness();
     t.after(() => harness.controller.dispose());
@@ -946,11 +1007,16 @@ test('SESSION-CONVERSATION-COORDINATOR-001 accepts bounded long-prompt previews 
     const claudeSourcePath = path.join(providerRoot, 'claude.jsonl');
     await fs.promises.writeFile(kimiSourcePath, [
         JSON.stringify({
-            type: 'TurnBegin',
             timestamp: 1,
-            payload: { user_input: prompt },
+            message: {
+                type: 'TurnBegin',
+                payload: { user_input: prompt },
+            },
         }),
-        JSON.stringify({ type: 'TurnEnd', payload: {} }),
+        JSON.stringify({
+            timestamp: 2,
+            message: { type: 'TurnEnd', payload: {} },
+        }),
         '',
     ].join('\n'));
     await fs.promises.writeFile(claudeSourcePath, [

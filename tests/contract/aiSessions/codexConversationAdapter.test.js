@@ -409,6 +409,38 @@ test('SESSION-AI-SESSION-CODEX-CONVERSATION-006 keeps duplicate callback registr
     adapter.dispose();
 });
 
+test('SESSION-AI-SESSION-CODEX-CONVERSATION-006 rolls back a failed provider watch before a clean retry', () => {
+    let attempts = 0;
+    let providerCallback;
+    let providerDisposeCount = 0;
+    const harness = createAdapter([], {
+        watchSessionChanges(callback) {
+            attempts += 1;
+            if (attempts === 1) {
+                throw new Error('watch unavailable');
+            }
+            providerCallback = callback;
+            return { dispose() { providerDisposeCount += 1; } };
+        },
+    });
+    const failedChanges = [];
+    assert.throws(
+        () => harness.adapter.watch(sessionId, () =>
+            failedChanges.push('failed')),
+        /watch unavailable/
+    );
+    const recoveredChanges = [];
+    const recovered = harness.adapter.watch(sessionId, () =>
+        recoveredChanges.push('recovered'));
+    assert.equal(attempts, 2);
+    providerCallback();
+    assert.deepEqual(failedChanges, []);
+    assert.deepEqual(recoveredChanges, ['recovered']);
+    recovered.dispose();
+    assert.equal(providerDisposeCount, 1);
+    harness.adapter.dispose();
+});
+
 test('SESSION-AI-SESSION-CODEX-CONVERSATION-007 keeps revisions stable until normalized content changes', async t => {
     let current = clone(fixture);
     const harness = createAdapter(() => current);

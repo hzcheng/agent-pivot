@@ -218,11 +218,11 @@ test('SECURITY-AI-SESSION-CONVERSATION-SOURCE-005 rejects an in-place same-inode
     await after.handle.close();
 });
 
-test('SECURITY-AI-SESSION-CONVERSATION-SOURCE-003 resolves only extension-host provider homes', async t => {
-    await withProviderFixture(t, 'codex', async extensionHostHome => {
-        const uiSideHome = path.join(path.dirname(extensionHostHome), 'ui-machine-codex-home');
-        const source = new CodexSessionService().resolveConversationSource(knownSessionId);
-        assert.equal(source.providerHome, extensionHostHome);
-        assert.equal(source.providerHome === uiSideHome, false);
+test('SECURITY-AI-SESSION-CONVERSATION-SOURCE-003 Codex exposes no filesystem conversation content resolver', async t => {
+    await withProviderFixture(t, 'codex', async () => {
+        assert.equal(
+            typeof new CodexSessionService().resolveConversationSource,
+            'undefined'
+        );
     });
 });

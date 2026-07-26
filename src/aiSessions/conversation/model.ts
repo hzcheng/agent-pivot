@@ -38,7 +38,8 @@ export function buildConversationOutline(
         sourceRevision,
         interactions: summaries.slice(-CONVERSATION_LIMITS.maxOutlineInteractions),
         totalInteractions: summaries.length,
-        partial,
+        partial: partial
+            || summaries.length > CONVERSATION_LIMITS.maxOutlineInteractions,
     };
 }
 

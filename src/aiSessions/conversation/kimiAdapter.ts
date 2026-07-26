@@ -163,7 +163,16 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
         const listener = (): void => onChange();
         callbacks.add(listener);
         const retained = this.cache.retain(sessionId);
-        this.ensureProviderWatch();
+        try {
+            this.ensureProviderWatch();
+        } catch (error) {
+            callbacks.delete(listener);
+            if (!callbacks.size) {
+                this.subscriptions.delete(sessionId);
+            }
+            retained.dispose();
+            throw error;
+        }
         let active = true;
         return {
             dispose: () => {
@@ -230,7 +239,8 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                 openInteractionIndex = previous.openInteractionIndex;
             }
             const normalizeRecord = (record: ConversationJsonlRecord): void => {
-                const event = asRecord(record.value);
+                const envelope = asRecord(record.value);
+                const event = asRecord(envelope?.message);
                 if (!event) {
                     return;
                 }
@@ -268,14 +278,14 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                         const id = interactionId(
                             sessionId,
                             record.offset,
-                            event.timestamp
+                            envelope?.timestamp
                         );
                         if (interactions.some(interaction => interaction.id === id)) {
                             return;
                         }
                         interactions.push({
                             id,
-                            timestamp: timestampValue(event.timestamp),
+                            timestamp: timestampValue(envelope?.timestamp),
                             userMarkdown: normalizedInput,
                             userPreview: buildUserPreview(normalizedInput),
                             userGraphemeCount: countGraphemes(normalizedInput),

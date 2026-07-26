@@ -13,6 +13,11 @@ const fixturePath = path.resolve(
     __dirname,
     '../../fixtures/conversations/claude/session.jsonl'
 );
+const providerFixturePath = path.resolve(
+    __dirname,
+    '../../fixtures/providers/claude/home/projects/-fixtures-project/'
+        + '11111111-1111-4111-8111-111111111111.jsonl'
+);
 const sessionId = '22222222-2222-4222-8222-222222222222';
 
 function immediateTimers() {
@@ -76,6 +81,66 @@ test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 Claude normalizes only top-lev
         page.messages.some(message =>
             /tool_result|secret-thought|local\/path|private\.invalid/.test(message.markdown)
         ),
+        false
+    );
+});
+
+test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 Claude accepts canonical string content without exposing hidden records', async t => {
+    const providerHome = await fs.promises.mkdtemp(
+        path.join(os.tmpdir(), 'steward-claude-string-conversation-')
+    );
+    const sourcePath = path.join(providerHome, 'session.jsonl');
+    const canonical = await fs.promises.readFile(providerFixturePath, 'utf8');
+    await fs.promises.writeFile(sourcePath, canonical + [
+        {
+            type: 'assistant',
+            uuid: 'fixture-alpha-assistant',
+            message: {
+                role: 'assistant',
+                content: 'Visible string response',
+            },
+        },
+        {
+            type: 'assistant',
+            uuid: 'fixture-sidechain-assistant',
+            isSidechain: true,
+            message: {
+                role: 'assistant',
+                content: 'secret-thought',
+            },
+        },
+        {
+            type: 'user',
+            uuid: 'fixture-tool-result',
+            message: {
+                role: 'user',
+                content: [{ type: 'tool_result', content: 'local/path' }],
+            },
+        },
+    ].map(record => `${JSON.stringify(record)}\n`).join(''));
+    t.after(() => fs.promises.rm(
+        providerHome,
+        { recursive: true, force: true }
+    ));
+    const adapter = createAdapter({ providerHome, sourcePath });
+    t.after(() => adapter.dispose());
+
+    const { outline, page } = await readWholeConversation(adapter);
+    assert.deepEqual(
+        outline.interactions.map(item => item.userPreview),
+        ['Fixture alpha request']
+    );
+    assert.deepEqual(
+        page.messages.map(message => [message.role, message.markdown]),
+        [
+            ['user', 'Fixture alpha request'],
+            ['assistant', 'Visible string response'],
+        ]
+    );
+    assert.equal(
+        JSON.stringify({ outline, page })
+            .includes('secret-thought')
+            || JSON.stringify({ outline, page }).includes('local/path'),
         false
     );
 });
@@ -196,6 +261,40 @@ test('SESSION-AI-SESSION-CLAUDE-CONVERSATION-005 keeps duplicate callback regist
     assert.equal(changes, 3);
     assert.equal(providerDisposeCount, 0);
     second.dispose();
+    assert.equal(providerDisposeCount, 1);
+});
+
+test('SESSION-AI-SESSION-CLAUDE-CONVERSATION-005 rolls back a failed provider watch before a clean retry', async t => {
+    const source = await createFixture(t);
+    let attempts = 0;
+    let providerCallback;
+    let providerDisposeCount = 0;
+    const adapter = createAdapter(source, {
+        watchSessionChanges(callback) {
+            attempts += 1;
+            if (attempts === 1) {
+                throw new Error('watch unavailable');
+            }
+            providerCallback = callback;
+            return { dispose() { providerDisposeCount += 1; } };
+        },
+    });
+    t.after(() => adapter.dispose());
+    const failedChanges = [];
+    assert.throws(
+        () => adapter.watch(sessionId, () => failedChanges.push('failed')),
+        /watch unavailable/
+    );
+    const recoveredChanges = [];
+    const recovered = adapter.watch(
+        sessionId,
+        () => recoveredChanges.push('recovered')
+    );
+    assert.equal(attempts, 2);
+    providerCallback();
+    assert.deepEqual(failedChanges, []);
+    assert.deepEqual(recoveredChanges, ['recovered']);
+    recovered.dispose();
     assert.equal(providerDisposeCount, 1);
 });
 

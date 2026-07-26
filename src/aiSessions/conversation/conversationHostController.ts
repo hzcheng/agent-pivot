@@ -242,6 +242,7 @@ export class ConversationHostController {
                 state.request.sessionId,
                 target.executionState === 'stopped'
             );
+            this.ensureSubscription(state);
             void this.refreshState(state, false);
         }
     }

@@ -242,6 +242,111 @@ test('SESSION-AI-SESSION-CONVERSATION-JSONL-008 reports valid records to an inte
     }
 });
 
+test('SESSION-AI-SESSION-CONVERSATION-JSONL-011 retains an invalid unterminated tail until an append completes it', async t => {
+    const completePrefix = '{"kind":"first"}\n';
+    const partialTail = '{"kind":"par';
+    const fixture = await createJsonlFixture(t, [
+        completePrefix,
+        partialTail,
+    ]);
+    const firstSource = await fixture.open();
+    const first = await reader.readConversationJsonl(firstSource, {
+        startOffset: 0,
+    });
+    await firstSource.handle.close();
+
+    assert.deepEqual(
+        first.records.map(record => record.value.kind),
+        ['first']
+    );
+    assert.equal(first.malformedLines, 0);
+    assert.equal(first.nextOffset, Buffer.byteLength(completePrefix));
+
+    await fixture.append('tial"}\n');
+    const completedSource = await fixture.open();
+    const completed = await reader.readConversationJsonl(completedSource, {
+        startOffset: first.nextOffset,
+    });
+    await completedSource.handle.close();
+    assert.deepEqual(
+        completed.records.map(record => record.value.kind),
+        ['partial']
+    );
+    assert.equal(completed.malformedLines, 0);
+    assert.equal(completed.nextOffset, completedSource.size);
+
+    const finalSource = await fixture.open();
+    const noDuplicate = await reader.readConversationJsonl(finalSource, {
+        startOffset: completed.nextOffset,
+    });
+    await finalSource.handle.close();
+    assert.deepEqual(noDuplicate.records, []);
+});
+
+test('SESSION-AI-SESSION-CONVERSATION-JSONL-012 preserves UTF-8 split at exactly 256 KiB and accepts an exact 1 MiB physical line', async t => {
+    const splitPrefix = '{"kind":"split","text":"';
+    const splitSuffix = '"}\n';
+    const emoji = '😀';
+    const emojiStart = CONVERSATION_LIMITS.readChunkBytes - 2;
+    const splitLine = splitPrefix
+        + 'a'.repeat(emojiStart - Buffer.byteLength(splitPrefix))
+        + emoji
+        + splitSuffix;
+    assert.equal(
+        Buffer.byteLength(splitLine.slice(
+            0,
+            splitLine.indexOf(emoji)
+        )),
+        emojiStart
+    );
+
+    const exactPrefix = '{"kind":"exact","text":"';
+    const exactSuffix = '"}';
+    const exactLine = exactPrefix
+        + 'b'.repeat(CONVERSATION_LIMITS.maxLineBytes
+            - Buffer.byteLength(exactPrefix)
+            - Buffer.byteLength(exactSuffix))
+        + exactSuffix;
+    assert.equal(
+        Buffer.byteLength(exactLine),
+        CONVERSATION_LIMITS.maxLineBytes
+    );
+    const fixture = await createJsonlFixture(t, [
+        splitLine,
+        `${exactLine}\n`,
+    ]);
+    const source = await fixture.open();
+    const result = await reader.readConversationJsonl(source, {
+        startOffset: 0,
+    });
+    await source.handle.close();
+
+    assert.deepEqual(
+        result.records.map(record => record.value.kind),
+        ['split', 'exact']
+    );
+    assert.equal(result.malformedLines, 0);
+    assert.equal(result.oversizedLines, 0);
+    assert.equal(result.nextOffset, source.size);
+});
+
+test('SESSION-AI-SESSION-CONVERSATION-JSONL-013 accepts one valid final JSON record without a newline', async t => {
+    const fixture = await createJsonlFixture(t, [
+        '{"kind":"complete-eof"}',
+    ]);
+    const source = await fixture.open();
+    const result = await reader.readConversationJsonl(source, {
+        startOffset: 0,
+    });
+    await source.handle.close();
+    assert.deepEqual(
+        result.records.map(record => record.value.kind),
+        ['complete-eof']
+    );
+    assert.equal(result.malformedLines, 0);
+    assert.equal(result.nextOffset, source.size);
+});
+
 test('SESSION-AI-SESSION-CONVERSATION-JSONL-009 bounds inactive indexes while retaining viewed entries', () => {
     let now = 0;
     const disposed = [];

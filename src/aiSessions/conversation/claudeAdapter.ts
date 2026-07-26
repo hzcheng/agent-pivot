@@ -80,6 +80,36 @@ function containsBlock(value: unknown, type: string): boolean {
     return contentBlocks(value).some(block => block.type === type);
 }
 
+function visibleInputParts(value: unknown): VisibleUserInputPart[] {
+    if (typeof value === 'string') {
+        return [{ kind: 'text', text: value }];
+    }
+    return contentBlocks(value).reduce<VisibleUserInputPart[]>(
+        (parts, block) => {
+            if (block.type === 'text' && typeof block.text === 'string') {
+                parts.push({ kind: 'text', text: block.text });
+            } else if (block.type === 'image'
+                || block.type === 'document'
+                || block.type === 'attachment') {
+                parts.push({ kind: 'attachment' });
+            }
+            return parts;
+        },
+        []
+    );
+}
+
+function visibleAssistantParts(value: unknown): string[] {
+    if (typeof value === 'string') {
+        return [value];
+    }
+    return contentBlocks(value)
+        .filter(block =>
+            block.type === 'text' && typeof block.text === 'string'
+        )
+        .map(block => block.text);
+}
+
 function timestampValue(value: unknown): number | undefined {
     if (typeof value === 'number' && Number.isFinite(value)) {
         return value;
@@ -160,7 +190,16 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
         const listener = (): void => onChange();
         callbacks.add(listener);
         const retained = this.cache.retain(sessionId);
-        this.ensureProviderWatch();
+        try {
+            this.ensureProviderWatch();
+        } catch (error) {
+            callbacks.delete(listener);
+            if (!callbacks.size) {
+                this.subscriptions.delete(sessionId);
+            }
+            retained.dispose();
+            throw error;
+        }
         let active = true;
         return {
             dispose: () => {
@@ -249,25 +288,7 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
                         return;
                     }
                     const visibleInput = visibleMessage(buildVisibleUserInput(
-                        contentBlocks(message.content).reduce<VisibleUserInputPart[]>(
-                            (parts, block) => {
-                                if (block.type === 'text'
-                                    && typeof block.text === 'string') {
-                                    parts.push({
-                                        kind: 'text',
-                                        text: block.text,
-                                    });
-                                } else if (
-                                    block.type === 'image'
-                                    || block.type === 'document'
-                                    || block.type === 'attachment'
-                                ) {
-                                    parts.push({ kind: 'attachment' });
-                                }
-                                return parts;
-                            },
-                            []
-                        )
+                        visibleInputParts(message.content)
                     ));
                     if (!visibleInput) {
                         return;
@@ -293,12 +314,8 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
                 } else if (event.type === 'assistant'
                     && message?.role === 'assistant'
                     && openInteractionIndex !== undefined) {
-                    contentBlocks(message.content).forEach(block => {
-                        if (block.type !== 'text'
-                            || typeof block.text !== 'string') {
-                            return;
-                        }
-                        const text = visibleMessage(block.text);
+                    visibleAssistantParts(message.content).forEach(part => {
+                        const text = visibleMessage(part);
                         if (text) {
                             interactions[openInteractionIndex]
                                 .assistantMarkdown.push(text);

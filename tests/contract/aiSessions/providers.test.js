@@ -36,5 +36,6 @@ for (const contract of contracts) {
             parseLifecycleLines: contract.parser,
         },
         definition: AI_SESSION_PROVIDER_DEFINITIONS[contract.id],
+        supportsFilesystemConversationSource: contract.id !== 'codex',
     });
 }

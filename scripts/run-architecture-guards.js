@@ -460,11 +460,48 @@ const guards = {
             this.id,
             risk
         );
-        if (moduleReferences(codexAdapter).some(moduleName =>
+        const codexAdapterModules = moduleReferences(codexAdapter);
+        if (codexAdapterModules.some(moduleName =>
             /^(?:node:)?fs(?:[/\\]|$)/i.test(moduleName)
             || /jsonl/i.test(moduleName))) {
             fail(this.id, risk,
                 'Codex conversation adapter must not import filesystem or transcript JSONL readers');
+        }
+        const allowedCodexAdapterModules = new Set([
+            'crypto',
+            '../types',
+            './model',
+            './text',
+            './types',
+        ]);
+        if (codexAdapterModules.some(moduleName =>
+            !allowedCodexAdapterModules.has(moduleName))) {
+            fail(this.id, risk,
+                'Codex production content must remain app-server-only');
+        }
+
+        const codexService = parseTypescript(
+            root,
+            'src/services/codexSessionService.ts',
+            this.id,
+            risk
+        );
+        const codexFilesystemResolvers = nodesMatching(codexService, node =>
+            ts.isMethodDeclaration(node)
+            && node.name.getText(codexService) ===
+                'resolveConversationSource');
+        const composition = parseTypescript(
+            root,
+            'src/aiSessions/conversation/composition.ts',
+            this.id,
+            risk
+        );
+        const codexFilesystemRoutes = nodesMatching(composition, node =>
+            memberPath(node) ===
+                'options.services.codex.resolveConversationSource');
+        if (codexFilesystemResolvers.length || codexFilesystemRoutes.length) {
+            fail(this.id, risk,
+                'Codex production content must remain app-server-only');
         }
 
         for (const relativePath of listFiles(root, 'src', '.ts')) {

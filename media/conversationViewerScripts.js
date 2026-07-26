@@ -177,9 +177,14 @@
         previous.disabled = message.previousCursor === undefined;
         next.disabled = message.nextCursor === undefined;
         latest.disabled = message.atLatest;
-        status.textContent = message.stale
-            ? 'Conversation history may be out of date.'
-            : '';
+        var statusMessages = [];
+        if (message.stale) {
+            statusMessages.push('Conversation history may be out of date.');
+        }
+        if (message.partial) {
+            statusMessages.push('Partial history — showing newest inputs.');
+        }
+        status.textContent = statusMessages.join(' ');
 
         var selectedMessages = Array.prototype.filter.call(
             messages.querySelectorAll('[data-interaction-id]'),

@@ -392,6 +392,27 @@ test('CONVERSATION-VIEWER-BROWSER-NAVIGATION-002 anchors and focuses the Host-se
     ), 'selected-2');
 });
 
+test('CONVERSATION-VIEWER-PARTIAL-001 labels capped input positions and partial history', async t => {
+    const page = await openViewerPage(t);
+    await sendPage(page, {
+        ...hostileConversationPage,
+        html: messageHtml('partial', 2),
+        selectedInteractionId: 'partial-0',
+        selectedInput: 2,
+        totalInputs: 2_000,
+        partial: true,
+    });
+
+    assert.equal(
+        await page.locator('[data-conversation-position]').textContent(),
+        'Input 2 of 2,000+'
+    );
+    assert.equal(
+        await page.locator('[data-conversation-status]').textContent(),
+        'Partial history — showing newest inputs.'
+    );
+});
+
 test('CONVERSATION-VIEWER-BROWSER-SCROLL-001 auto-follows at exactly 8px but not at 9px', async t => {
     const page = await openViewerPage(t);
     const baseHtml = messageHtml('follow', 20);

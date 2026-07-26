@@ -445,8 +445,12 @@ async function createKimiConversationFixture(t) {
             '..',
             '..',
             'fixtures',
-            'conversations',
+            'providers',
             'kimi',
+            'home',
+            'sessions',
+            '7bbd38310db600bd89c814e224a73d44',
+            '33333333-3333-4333-8333-333333333333',
             'wire.jsonl'
         ),
         sourcePath

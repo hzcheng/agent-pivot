@@ -41,10 +41,11 @@ test('SESSION-AI-SESSION-CONVERSATION-PAGE-001 clamps pages and rejects stale re
 
 test('SESSION-AI-SESSION-CONVERSATION-MODEL-002 projects immutable bounded summaries and stopped state', () => {
     const interactions = makeInteractions(CONVERSATION_LIMITS.maxOutlineInteractions + 1);
-    const outline = model.buildConversationOutline('kimi', 'session', 'r1', interactions, true);
+    const outline = model.buildConversationOutline('kimi', 'session', 'r1', interactions, false);
     assert.equal(outline.totalInteractions, CONVERSATION_LIMITS.maxOutlineInteractions + 1);
     assert.equal(outline.interactions.length, CONVERSATION_LIMITS.maxOutlineInteractions);
     assert.equal(outline.interactions[0].id, 'i-2');
+    assert.equal(outline.partial, true);
     assert.equal('userMarkdown' in outline.interactions[0], false);
     assert.equal('assistantMarkdown' in outline.interactions[0], false);
     assert.equal(model.applyStoppedLifecycleToResponseState('inProgress', true), 'interrupted');

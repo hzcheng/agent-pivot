@@ -1,7 +1,10 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const Module = require('node:module');
+const os = require('node:os');
+const path = require('node:path');
 const test = require('node:test');
 
 function fakeUri(value) {
@@ -34,6 +37,9 @@ const { ConversationViewer } = loadConversationViewer();
 const {
     ConversationError,
 } = require('../../../out/aiSessions/conversation/types');
+const {
+    KimiConversationAdapter,
+} = require('../../../out/aiSessions/conversation/kimiAdapter');
 
 function deferred() {
     let resolve;
@@ -1169,8 +1175,11 @@ test('CONVERSATION-VIEWER-PARTIAL-001 offsets capped-tail positions by omitted a
     });
 
     await viewer.open(target('session-a', 'input-2001'));
+    const initialPublicationMatch =
+        panel.webview.html.match(/data-initial-page="([^"]+)"/);
+    assert.ok(initialPublicationMatch, panel.webview.html);
     let publication = JSON.parse(
-        panel.webview.html.match(/data-initial-page="([^"]+)"/)[1]
+        initialPublicationMatch[1]
             .replace(/&quot;/g, '"')
             .replace(/&#39;/g, "'")
             .replace(/&gt;/g, '>')
@@ -1193,4 +1202,92 @@ test('CONVERSATION-VIEWER-PARTIAL-001 offsets capped-tail positions by omitted a
     assert.equal(publication.selectedInteractionId, 'input-2001');
     assert.equal(publication.selectedInput, 2_001);
     assert.equal(publication.totalInputs, 2_000);
+});
+
+test('CONVERSATION-VIEWER-PARTIAL-001 derives first and latest capped positions from a real Kimi adapter', async t => {
+    const providerHome = await fs.promises.mkdtemp(
+        path.join(os.tmpdir(), 'steward-real-kimi-viewer-cap-')
+    );
+    const sourcePath = path.join(providerHome, 'wire.jsonl');
+    const sessionId = '11111111-1111-4111-8111-111111111111';
+    const records = [];
+    for (let number = 1; number <= 2_001; number += 1) {
+        records.push(JSON.stringify({
+            timestamp: number,
+            message: {
+                type: 'TurnBegin',
+                payload: { user_input: `Viewer cap input ${number}` },
+            },
+        }));
+        records.push(JSON.stringify({
+            timestamp: number,
+            message: { type: 'TurnEnd', payload: {} },
+        }));
+    }
+    await fs.promises.writeFile(sourcePath, `${records.join('\n')}\n`);
+    t.after(() => fs.promises.rm(providerHome, {
+        recursive: true,
+        force: true,
+    }));
+    const adapter = new KimiConversationAdapter({
+        resolveSource: () => ({ providerHome, sourcePath }),
+        watchSessionChanges: () => ({ dispose() {} }),
+        now: Date.now,
+        setTimeout(callback) {
+            callback();
+            return 1;
+        },
+        clearTimeout() {},
+    });
+    t.after(() => adapter.dispose());
+    const capped = await adapter.readOutline(sessionId);
+    const { viewer, panel } = createViewer({
+        readOutline: (_provider, id, signal) =>
+            adapter.readOutline(id, signal),
+        readPage: (request, signal) =>
+            adapter.readPage(request, signal),
+        watch: (_provider, id, callback) =>
+            adapter.watch(id, callback),
+    });
+
+    await viewer.open(target(
+        sessionId,
+        capped.interactions[0].id,
+        {
+            provider: 'kimi',
+            expectedRevision: capped.sourceRevision,
+        }
+    ));
+    const realInitialPublicationMatch =
+        panel.webview.html.match(/data-initial-page="([^"]+)"/);
+    assert.ok(
+        realInitialPublicationMatch,
+        panel.webview.html
+    );
+    let publication = JSON.parse(
+        realInitialPublicationMatch[1]
+            .replace(/&quot;/g, '"')
+            .replace(/&#39;/g, "'")
+            .replace(/&gt;/g, '>')
+            .replace(/&lt;/g, '<')
+            .replace(/&amp;/g, '&')
+    );
+    assert.equal(publication.selectedInput, 2);
+    assert.equal(publication.totalInputs, 2_000);
+    assert.equal(publication.partial, true);
+    assert.equal(publication.html.includes('Viewer cap input 2'), true);
+
+    await panel.receive({
+        type: 'conversation-viewer-latest',
+        version: 1,
+    });
+    publication = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page').at(-1);
+    assert.equal(publication.selectedInput, 2_001);
+    assert.equal(publication.totalInputs, 2_000);
+    assert.equal(publication.partial, true);
+    assert.equal(
+        publication.html.includes('Viewer cap input 2001'),
+        true
+    );
 });

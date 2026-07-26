@@ -22,6 +22,19 @@ const {
 
 const MIB = 1024 * 1024;
 const sessionId = '11111111-1111-4111-8111-111111111111';
+const canonicalKimiFixturePath = path.join(
+    __dirname,
+    '..',
+    'tests',
+    'fixtures',
+    'providers',
+    'kimi',
+    'home',
+    'sessions',
+    '7bbd38310db600bd89c814e224a73d44',
+    '33333333-3333-4333-8333-333333333333',
+    'wire.jsonl'
+);
 
 function elapsedMs(startedAt) {
     return Number(process.hrtime.bigint() - startedAt) / 1_000_000;
@@ -31,19 +44,49 @@ function eventLine(value) {
     return Buffer.from(`${JSON.stringify(value)}\n`, 'utf8');
 }
 
-function interactionBytes(index, assistantBytes = 32) {
+function canonicalKimiTemplates() {
+    const records = fs.readFileSync(canonicalKimiFixturePath, 'utf8')
+        .trim()
+        .split(/\r?\n/)
+        .map(line => JSON.parse(line));
+    const byType = type => records.find(record =>
+        record?.message?.type === type
+        && (type !== 'ContentPart'
+            || record.message.payload?.type === 'text'));
+    const templates = {
+        turnBegin: byType('TurnBegin'),
+        contentPart: byType('ContentPart'),
+        turnEnd: byType('TurnEnd'),
+    };
+    assert.ok(Object.values(templates).every(Boolean),
+        'canonical Kimi provider fixture must contain visible turn records');
+    return templates;
+}
+
+function canonicalEvent(template, timestamp, payload) {
+    return {
+        ...template,
+        timestamp,
+        message: {
+            ...template.message,
+            payload,
+        },
+    };
+}
+
+function interactionBytes(templates, index, assistantBytes = 32) {
     return Buffer.concat([
-        eventLine({
-            type: 'TurnBegin',
-            timestamp: index,
-            payload: { user_input: `Performance input ${index}` },
-        }),
-        eventLine({
-            type: 'ContentPart',
-            timestamp: index,
-            payload: { type: 'text', text: 'a'.repeat(assistantBytes) },
-        }),
-        eventLine({ type: 'TurnEnd', timestamp: index }),
+        eventLine(canonicalEvent(
+            templates.turnBegin,
+            index,
+            { user_input: `Performance input ${index}` }
+        )),
+        eventLine(canonicalEvent(
+            templates.contentPart,
+            index,
+            { type: 'text', text: 'a'.repeat(assistantBytes) }
+        )),
+        eventLine(canonicalEvent(templates.turnEnd, index, {})),
     ]);
 }
 
@@ -136,9 +179,10 @@ async function run() {
     const boundaryPath = path.join(providerHome, 'boundary.jsonl');
     await fs.promises.mkdir(providerHome, { recursive: true });
     try {
+        const templates = canonicalKimiTemplates();
         const fixture = paddedFixture(
             Array.from({ length: 1_000 }, (_item, index) =>
-                interactionBytes(index)),
+                interactionBytes(templates, index)),
             10 * MIB
         );
         assert.equal(fixture.length, 10 * MIB);
@@ -155,13 +199,13 @@ async function run() {
 
             startedAt = process.hrtime.bigint();
             outline = await adapter.readOutline(sessionId);
-            const cachedMs = elapsedMs(startedAt);
+            const cachedOutlineReadMs = elapsedMs(startedAt);
             assert.equal(outline.totalInteractions, 1_000);
-            assert.ok(cachedMs <= 100,
-                `cached outline ${cachedMs}ms exceeds 100ms`);
+            assert.ok(cachedOutlineReadMs <= 100,
+                `cached adapter outline read ${cachedOutlineReadMs}ms exceeds 100ms`);
 
             const append = paddedFixture([
-                interactionBytes(1_000, 60_000),
+                interactionBytes(templates, 1_000, 60_000),
             ], MIB);
             assert.equal(append.length, MIB);
             await fs.promises.appendFile(sourcePath, append);
@@ -186,7 +230,7 @@ async function run() {
 
             const boundaryFixture = paddedFixture(
                 Array.from({ length: 2_001 }, (_item, index) =>
-                    interactionBytes(10_000 + index)),
+                    interactionBytes(templates, 10_000 + index)),
                 CONVERSATION_LIMITS.maxSourceBytes
             );
             assert.equal(
@@ -224,7 +268,7 @@ async function run() {
             startedAt = process.hrtime.bigint();
             const boundaryOutline = await boundaryAdapter.readOutline(sessionId);
             const boundaryAdapterMs = elapsedMs(startedAt);
-            assert.equal(boundaryOutline.partial, false);
+            assert.equal(boundaryOutline.partial, true);
             assert.equal(boundaryOutline.totalInteractions, 2_001);
             assert.equal(
                 boundaryOutline.interactions.length,
@@ -268,7 +312,8 @@ async function run() {
             console.log(JSON.stringify({
                 coldMs: Number(coldMs.toFixed(3)),
                 appendMs: Number(appendMs.toFixed(3)),
-                cachedMs: Number(cachedMs.toFixed(3)),
+                cachedOutlineReadMs:
+                    Number(cachedOutlineReadMs.toFixed(3)),
                 outlineInteractions: outline.interactions.length,
                 serializedPageBytes,
                 boundaryBytes: boundaryFixture.length,

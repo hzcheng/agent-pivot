@@ -29,6 +29,7 @@ function copyGuardFixture(t, mutationPath, mutate = source => source) {
         'src/aiSessions/conversation/types.ts',
         'src/aiSessions/conversation/codexAdapter.ts',
         'src/aiSessions/conversation/codexAppServerClient.ts',
+        'src/aiSessions/conversation/composition.ts',
         'src/aiSessions/conversation/kimiAdapter.ts',
         'src/aiSessions/conversation/claudeAdapter.ts',
         'src/aiSessions/conversation/coordinator.ts',
@@ -41,6 +42,7 @@ function copyGuardFixture(t, mutationPath, mutate = source => source) {
         'src/openWorkspaces/bridgeClient.ts',
         'src/aiSessions/attentionPayload.ts',
         'src/aiSessions/attentionBridgeClient.ts',
+        'src/services/codexSessionService.ts',
         'extensions/attention-ui-bridge/src/openWorkspaceCoordinator.ts',
         'extensions/attention-ui-bridge/src/extension.ts',
         'package.json',
@@ -131,6 +133,37 @@ for (const mutation of [
         mutate: source => source.replace(
             "import { createHash } from 'crypto';",
             "import { createHash } from 'crypto';\nimport * as fs from 'fs';"
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',
+        file: 'src/aiSessions/conversation/codexAdapter.ts',
+        expectedDetail: 'Codex production content must remain app-server-only',
+        mutate: source => source.replace(
+            "import { createHash } from 'crypto';",
+            "import { createHash } from 'crypto';\n"
+                + "import { openValidatedConversationSource } from './source';"
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',
+        file: 'src/services/codexSessionService.ts',
+        expectedDetail: 'Codex production content must remain app-server-only',
+        mutate: source => source.replace(
+            '    getSessions(options: boolean | AiSessionQueryOptions = false): CodexSessionReadResult {',
+            '    resolveConversationSource(sessionId: string): unknown { return sessionId; }\n\n'
+                + '    getSessions(options: boolean | AiSessionQueryOptions = false): CodexSessionReadResult {'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',
+        file: 'src/aiSessions/conversation/composition.ts',
+        expectedDetail: 'Codex production content must remain app-server-only',
+        mutate: source => source.replace(
+            '        client: codexClient,',
+            '        client: codexClient,\n'
+                + '        resolveSource: sessionId => '
+                + 'options.services.codex.resolveConversationSource?.(sessionId),'
         ),
     },
     {

@@ -51,7 +51,13 @@ function assertSignal(signal, expected, providerId) {
     assert.match(signal.token, new RegExp(`^${providerId}:`));
 }
 
-function defineProviderContract({ id, serviceFactory, fixtures, definition }) {
+function defineProviderContract({
+    id,
+    serviceFactory,
+    fixtures,
+    definition,
+    supportsFilesystemConversationSource,
+}) {
     let manifest;
     try {
         manifest = readJson(path.join(fixtures.root, 'manifest.json'));
@@ -145,16 +151,18 @@ function defineProviderContract({ id, serviceFactory, fixtures, definition }) {
         });
     });
 
-    test(`SECURITY-AI-SESSION-CONVERSATION-SOURCE-001 [${id}] resolves known fixture sources beneath its provider home`, t => {
-        withProviderHome(t, fixtures.root, manifest, true, providerHome => {
-            const service = serviceFactory();
-            const source = service.resolveConversationSource(manifest.launch.sessionId, [manifest.projectPath]);
-            assert.ok(source, `${id} known fixture session must resolve a conversation source`);
-            assert.equal(source.providerHome, providerHome);
-            assert.equal(path.relative(providerHome, source.sourcePath).startsWith('..'), false);
-            assert.equal(service.resolveConversationSource('not-a-uuid', [manifest.projectPath]), null);
+    if (supportsFilesystemConversationSource) {
+        test(`SECURITY-AI-SESSION-CONVERSATION-SOURCE-001 [${id}] resolves known fixture sources beneath its provider home`, t => {
+            withProviderHome(t, fixtures.root, manifest, true, providerHome => {
+                const service = serviceFactory();
+                const source = service.resolveConversationSource(manifest.launch.sessionId, [manifest.projectPath]);
+                assert.ok(source, `${id} known fixture session must resolve a conversation source`);
+                assert.equal(source.providerHome, providerHome);
+                assert.equal(path.relative(providerHome, source.sourcePath).startsWith('..'), false);
+                assert.equal(service.resolveConversationSource('not-a-uuid', [manifest.projectPath]), null);
+            });
         });
-    });
+    }
 
     test(`SESSION-PROVIDER-001 [${id}] archives only the requested fixture session`, t => {
         withProviderHome(t, fixtures.root, manifest, true, () => {

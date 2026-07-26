@@ -243,7 +243,15 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         }
         const listener = (): void => onChange();
         callbacks.add(listener);
-        this.ensureProviderWatch();
+        try {
+            this.ensureProviderWatch();
+        } catch (error) {
+            callbacks.delete(listener);
+            if (!callbacks.size) {
+                this.subscriptions.delete(sessionId);
+            }
+            throw error;
+        }
         let active = true;
         return {
             dispose: () => {

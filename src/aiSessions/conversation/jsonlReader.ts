@@ -184,7 +184,7 @@ export async function readConversationJsonl(
                     value: JSON.parse(Buffer.concat(fragments).toString('utf8')),
                 };
             } catch (_error) {
-                malformedLines += 1;
+                readOffset = lineStart;
                 record = undefined;
             }
             if (record) {

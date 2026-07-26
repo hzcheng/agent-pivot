@@ -121,11 +121,41 @@ for (const mutation of [
     },
     {
         id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',
+        file: 'src/aiSessions/conversation/codexAdapter.ts',
+        expectedDetail: 'Codex conversation adapter must not import filesystem or transcript JSONL readers',
+        mutate: source => source.replace(
+            "import { createHash } from 'crypto';",
+            "import { createHash } from 'crypto';\n"
+                + "import { readFile } from 'node:fs/promises';"
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',
         file: 'src/aiSessions/conversation/viewer.ts',
         expectedDetail: 'extension-host TypeScript must not import DOMPurify',
         mutate: source => source.replace(
             "import { randomBytes } from 'crypto';",
             "import { randomBytes } from 'crypto';\nimport DOMPurify from 'dompurify';"
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',
+        file: 'src/aiSessions/conversation/viewer.ts',
+        expectedDetail: 'extension-host TypeScript must not import DOMPurify',
+        mutate: source => source.replace(
+            "import { randomBytes } from 'crypto';",
+            "import { randomBytes } from 'crypto';\n"
+                + "import sanitize from 'dompurify/dist/purify.es.mjs';"
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',
+        file: 'src/aiSessions/conversation/viewer.ts',
+        expectedDetail: 'extension-host TypeScript must not import DOMPurify',
+        mutate: source => source.replace(
+            "import { randomBytes } from 'crypto';",
+            "import { randomBytes } from 'crypto';\n"
+                + "const purifier = require('../../media/purify.min.js');"
         ),
     },
     {
@@ -140,11 +170,30 @@ for (const mutation of [
     },
     {
         id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',
+        file: 'src/aiSessions/conversation/types.ts',
+        expectedDetail: 'conversation resource and protocol limits must remain exact',
+        mutate: source => replaceFixtureSource(
+            source,
+            'inactiveIndexTtlMs: 10 * 60 * 1000',
+            'inactiveIndexTtlMs: 11 * 60 * 1000'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',
         file: 'src/webview/webviewProjectScripts.js',
         expectedDetail: 'conversation markers must not render prompt-bearing HTML',
         mutate: source => source.replace(
             'marker.textContent = preview;',
             'marker.innerHTML = preview;'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',
+        file: 'src/webview/webviewProjectScripts.js',
+        expectedDetail: 'conversation markers must not render prompt-bearing HTML',
+        mutate: source => source.replace(
+            'marker.textContent = preview;',
+            'marker.innerHTML = String(preview);'
         ),
     },
     {
@@ -158,12 +207,44 @@ for (const mutation of [
     },
     {
         id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',
+        file: 'src/aiSessions/conversation/codexAppServerClient.ts',
+        expectedDetail: 'app-server stderr and responses must never be logged',
+        mutate: source => source.replace(
+            'if (!this.acceptResponse(response)) {',
+            'process.stderr.write(JSON.stringify(response));\n'
+                + '            if (!this.acceptResponse(response)) {'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',
         file: 'src/aiSessions/conversation/kimiAdapter.ts',
         expectedDetail: 'provider watchers must remain bounded and releasable',
         mutate: source => source.replace(
             '        this.providerWatch?.dispose();\n        this.providerWatch = undefined;\n    }\n}',
             '        // provider watch intentionally leaked\n'
                 + '        this.providerWatch = undefined;\n    }\n}'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',
+        file: 'src/aiSessions/conversation/kimiAdapter.ts',
+        expectedDetail: 'provider watchers must remain bounded and releasable',
+        mutate: source => source.replace(
+            '        this.providerWatch?.dispose();\n'
+                + '        this.providerWatch = undefined;\n    }\n}',
+            '        return;\n'
+                + '        this.providerWatch?.dispose();\n'
+                + '        this.providerWatch = undefined;\n    }\n}'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',
+        file: 'src/aiSessions/conversation/kimiAdapter.ts',
+        expectedDetail: 'provider watchers must remain bounded and releasable',
+        mutate: source => source.replace(
+            '        const listener = (): void => onChange();',
+            '        this.options.watchSessionChanges(onChange);\n'
+                + '        const listener = (): void => onChange();'
         ),
     },
     {

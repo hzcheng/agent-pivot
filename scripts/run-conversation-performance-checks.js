@@ -11,10 +11,8 @@ const {
 } = require('../out/aiSessions/conversation/kimiAdapter');
 const {
     getConversationReadStart,
+    readConversationJsonl,
 } = require('../out/aiSessions/conversation/jsonlReader');
-const {
-    buildConversationOutline,
-} = require('../out/aiSessions/conversation/model');
 const {
     openValidatedConversationSource,
 } = require('../out/aiSessions/conversation/source');
@@ -53,20 +51,29 @@ function paddedFixture(buffers, targetBytes) {
     const size = buffers.reduce((total, buffer) => total + buffer.length, 0);
     assert.ok(size <= targetBytes, 'synthetic conversation must fit its target');
     let remaining = targetBytes - size;
-    const emptyPaddingLine = eventLine({ type: 'Ignored', padding: '' });
-    while (remaining >= emptyPaddingLine.length) {
-        const lineBytes = Math.min(remaining, 900 * 1024);
-        const paddingBytes = lineBytes - emptyPaddingLine.length;
-        buffers.push(eventLine({
-            type: 'Ignored',
-            padding: 'p'.repeat(paddingBytes),
-        }));
+    while (remaining) {
+        let lineBytes = Math.min(remaining, 900 * 1024);
+        if (remaining - lineBytes === 1) {
+            lineBytes -= 1;
+        }
+        assert.ok(lineBytes >= 2,
+            'padding must be expressible as a complete JSONL record');
+        buffers.push(lineBytes === 2
+            ? Buffer.from('0\n', 'utf8')
+            : Buffer.from(`"${'p'.repeat(lineBytes - 3)}"\n`, 'utf8'));
         remaining -= lineBytes;
     }
-    if (remaining) {
-        buffers.push(Buffer.alloc(remaining, 0x20));
-    }
     return Buffer.concat(buffers);
+}
+
+function createKimiAdapter(providerHome, sourcePath) {
+    return new KimiConversationAdapter({
+        resolveSource: () => ({ providerHome, sourcePath }),
+        watchSessionChanges: () => ({ dispose() {} }),
+        now: Date.now,
+        setTimeout: global.setTimeout,
+        clearTimeout: global.clearTimeout,
+    });
 }
 
 function loadConversationViewer() {
@@ -137,13 +144,7 @@ async function run() {
         assert.equal(fixture.length, 10 * MIB);
         await fs.promises.writeFile(sourcePath, fixture);
 
-        const adapter = new KimiConversationAdapter({
-            resolveSource: () => ({ providerHome, sourcePath }),
-            watchSessionChanges: () => ({ dispose() {} }),
-            now: Date.now,
-            setTimeout: global.setTimeout,
-            clearTimeout: global.clearTimeout,
-        });
+        const adapter = createKimiAdapter(providerHome, sourcePath);
         try {
             let startedAt = process.hrtime.bigint();
             let outline = await adapter.readOutline(sessionId);
@@ -183,42 +184,82 @@ async function run() {
                 Buffer.byteLength(JSON.stringify(page), 'utf8');
             assert.ok(serializedPageBytes <= 512 * 1024);
 
-            const oversizedOutline = buildConversationOutline(
-                'kimi',
-                sessionId,
-                'r-boundary',
-                Array.from({ length: 2_001 }, (_item, index) => ({
-                    id: `outline-${index}`,
-                    userMarkdown: `input-${index}`,
-                    userPreview: `input-${index}`,
-                    userGraphemeCount: 10,
-                    assistantMarkdown: [],
-                    responseState: 'complete',
-                })),
-                false
+            const boundaryFixture = paddedFixture(
+                Array.from({ length: 2_001 }, (_item, index) =>
+                    interactionBytes(10_000 + index)),
+                CONVERSATION_LIMITS.maxSourceBytes
             );
-            assert.equal(oversizedOutline.totalInteractions, 2_001);
-            assert.ok(oversizedOutline.interactions.length <= 2000);
+            assert.equal(
+                boundaryFixture.length,
+                CONVERSATION_LIMITS.maxSourceBytes
+            );
+            await fs.promises.writeFile(boundaryPath, boundaryFixture);
 
-            await fs.promises.writeFile(
-                boundaryPath,
-                Buffer.alloc(CONVERSATION_LIMITS.maxSourceBytes)
-            );
-            const boundary = await openValidatedConversationSource({
+            let boundary = await openValidatedConversationSource({
                 providerHome,
                 sourcePath: boundaryPath,
             });
             assert.ok(boundary);
             assert.equal(await getConversationReadStart(boundary), 0);
+            startedAt = process.hrtime.bigint();
+            let boundaryRead = await readConversationJsonl(boundary);
+            const boundaryReaderMs = elapsedMs(startedAt);
+            assert.equal(boundaryRead.malformedLines, 0);
+            assert.equal(boundaryRead.oversizedLines, 0);
+            assert.equal(boundaryRead.partial, false);
+            assert.equal(
+                boundaryRead.nextOffset,
+                CONVERSATION_LIMITS.maxSourceBytes
+            );
+            assert.ok(boundaryRead.records.length >= 2_001 * 3);
+            const boundaryRecords = boundaryRead.records.length;
+            boundaryRead.records.length = 0;
+            boundaryRead = undefined;
             await boundary.handle.close();
+
+            const boundaryAdapter = createKimiAdapter(
+                providerHome,
+                boundaryPath
+            );
+            startedAt = process.hrtime.bigint();
+            const boundaryOutline = await boundaryAdapter.readOutline(sessionId);
+            const boundaryAdapterMs = elapsedMs(startedAt);
+            assert.equal(boundaryOutline.partial, false);
+            assert.equal(boundaryOutline.totalInteractions, 2_001);
+            assert.equal(
+                boundaryOutline.interactions.length,
+                CONVERSATION_LIMITS.maxOutlineInteractions
+            );
+            boundaryAdapter.dispose();
+
             await fs.promises.appendFile(boundaryPath, Buffer.from('\n'));
-            const overBoundary = await openValidatedConversationSource({
+            boundary = await openValidatedConversationSource({
                 providerHome,
                 sourcePath: boundaryPath,
             });
-            assert.ok(overBoundary);
-            assert.equal(await getConversationReadStart(overBoundary), 1);
-            await overBoundary.handle.close();
+            assert.ok(boundary);
+            assert.equal(
+                boundary.size,
+                CONVERSATION_LIMITS.maxSourceBytes + 1
+            );
+            assert.equal(await getConversationReadStart(boundary), 1);
+            await boundary.handle.close();
+
+            const oversizedAdapter = createKimiAdapter(
+                providerHome,
+                boundaryPath
+            );
+            startedAt = process.hrtime.bigint();
+            const oversizedOutline =
+                await oversizedAdapter.readOutline(sessionId);
+            const oversizedAdapterMs = elapsedMs(startedAt);
+            assert.equal(oversizedOutline.partial, true);
+            assert.equal(oversizedOutline.totalInteractions, 2_000);
+            assert.equal(
+                oversizedOutline.interactions.length,
+                CONVERSATION_LIMITS.maxOutlineInteractions
+            );
+            oversizedAdapter.dispose();
 
             const retention = retainedViewerSnapshot();
             assert.ok(retention.retainedInteractions <= 100);
@@ -230,6 +271,16 @@ async function run() {
                 cachedMs: Number(cachedMs.toFixed(3)),
                 outlineInteractions: outline.interactions.length,
                 serializedPageBytes,
+                boundaryBytes: boundaryFixture.length,
+                boundaryRecords,
+                boundaryReaderMs: Number(boundaryReaderMs.toFixed(3)),
+                boundaryAdapterMs: Number(boundaryAdapterMs.toFixed(3)),
+                oversizedAdapterMs:
+                    Number(oversizedAdapterMs.toFixed(3)),
+                boundaryOutlineInteractions:
+                    boundaryOutline.totalInteractions,
+                oversizedOutlineInteractions:
+                    oversizedOutline.totalInteractions,
                 ...retention,
             }));
         } finally {

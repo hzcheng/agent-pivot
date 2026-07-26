@@ -37,6 +37,15 @@ function parseTypescript(root, relativePath, id, risk) {
     return sourceFile;
 }
 
+function parseJavascript(root, relativePath, id, risk) {
+    const source = read(root, relativePath, id, risk);
+    const sourceFile = ts.createSourceFile(relativePath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+    if (sourceFile.parseDiagnostics.length) {
+        fail(id, risk, `${relativePath} must parse as JavaScript`);
+    }
+    return sourceFile;
+}
+
 function walk(node, visit) {
     visit(node);
     ts.forEachChild(node, child => walk(child, visit));
@@ -286,6 +295,105 @@ function importModules(sourceFile) {
         .map(moduleSpecifier => moduleSpecifier.text);
 }
 
+function moduleReferences(sourceFile) {
+    const modules = importModules(sourceFile);
+    walk(sourceFile, node => {
+        if (!ts.isCallExpression(node)
+            || !ts.isIdentifier(node.expression)
+            || node.expression.text !== 'require'
+            || node.arguments.length !== 1) return;
+        const moduleName = stringArgument(node.arguments[0]);
+        if (moduleName !== undefined) modules.push(moduleName);
+    });
+    return modules;
+}
+
+function memberPath(node) {
+    if (ts.isIdentifier(node)) return node.text;
+    if (node.kind === ts.SyntaxKind.ThisKeyword) return 'this';
+    if (ts.isPropertyAccessExpression(node)) {
+        const parent = memberPath(node.expression);
+        return parent ? `${parent}.${node.name.text}` : undefined;
+    }
+    if (ts.isElementAccessExpression(node)
+        && node.argumentExpression
+        && (ts.isStringLiteral(node.argumentExpression)
+            || ts.isNoSubstitutionTemplateLiteral(node.argumentExpression))) {
+        const parent = memberPath(node.expression);
+        return parent ? `${parent}.${node.argumentExpression.text}` : undefined;
+    }
+    return undefined;
+}
+
+function nodesMatching(root, predicate) {
+    const matches = [];
+    walk(root, node => {
+        if (predicate(node)) matches.push(node);
+    });
+    return matches;
+}
+
+function containsMember(root, expectedPath) {
+    return nodesMatching(root, node => memberPath(node) === expectedPath).length > 0;
+}
+
+function validateProviderWatchOwnership(sourceFile, className, id, risk) {
+    const ensureMethod = classMethod(sourceFile, className, 'ensureProviderWatch', id, risk);
+    const watchMethod = classMethod(sourceFile, className, 'watch', id, risk);
+    const releaseMethod = classMethod(sourceFile, className, 'releaseProviderWatchIfIdle', id, risk);
+    if (!releaseMethod.body) {
+        fail(id, risk, `${className}.releaseProviderWatchIfIdle must have a body`);
+    }
+
+    const providerWatchCalls = nodesMatching(sourceFile, node =>
+        ts.isCallExpression(node)
+        && memberPath(node.expression) === 'this.options.watchSessionChanges');
+    const ensureProviderWatchCalls = nodesMatching(ensureMethod, node =>
+        ts.isCallExpression(node)
+        && memberPath(node.expression) === 'this.options.watchSessionChanges');
+    if (providerWatchCalls.length !== 1
+        || ensureProviderWatchCalls.length !== 1
+        || !ts.isBinaryExpression(ensureProviderWatchCalls[0].parent)
+        || ensureProviderWatchCalls[0].parent.right !== ensureProviderWatchCalls[0]
+        || ensureProviderWatchCalls[0].parent.operatorToken.kind !== ts.SyntaxKind.EqualsToken
+        || memberPath(ensureProviderWatchCalls[0].parent.left) !== 'this.providerWatch') {
+        fail(id, risk, 'provider watchers must remain bounded and releasable');
+    }
+
+    const watchEnsureCalls = nodesMatching(watchMethod, node =>
+        ts.isCallExpression(node) && memberPath(node.expression) === 'this.ensureProviderWatch');
+    const watchReleaseCalls = nodesMatching(watchMethod, node =>
+        ts.isCallExpression(node) && memberPath(node.expression) === 'this.releaseProviderWatchIfIdle');
+    if (watchEnsureCalls.length !== 1 || watchReleaseCalls.length !== 1) {
+        fail(id, risk, 'provider watchers must remain bounded and releasable');
+    }
+
+    const statements = releaseMethod.body.statements;
+    const subscriptionGuard = statements[0];
+    if (!subscriptionGuard
+        || !ts.isIfStatement(subscriptionGuard)
+        || !containsMember(subscriptionGuard.expression, 'this.subscriptions.size')) {
+        fail(id, risk, 'provider watchers must remain bounded and releasable');
+    }
+    const allReturns = nodesMatching(releaseMethod, ts.isReturnStatement);
+    const guardedReturns = nodesMatching(subscriptionGuard.thenStatement, ts.isReturnStatement);
+    if (guardedReturns.length < 1 || allReturns.length !== guardedReturns.length) {
+        fail(id, risk, 'provider watchers must remain bounded and releasable');
+    }
+
+    const disposeCalls = nodesMatching(releaseMethod, node =>
+        ts.isCallExpression(node) && memberPath(node.expression) === 'this.providerWatch.dispose');
+    const clearAssignments = nodesMatching(releaseMethod, node =>
+        ts.isBinaryExpression(node)
+        && node.operatorToken.kind === ts.SyntaxKind.EqualsToken
+        && memberPath(node.left) === 'this.providerWatch'
+        && ts.isIdentifier(node.right)
+        && node.right.text === 'undefined');
+    if (disposeCalls.length !== 1 || clearAssignments.length !== 1) {
+        fail(id, risk, 'provider watchers must remain bounded and releasable');
+    }
+}
+
 function objectFreezeProperties(sourceFile, variableName, id, risk) {
     const declaration = findVariable(sourceFile, variableName, id, risk);
     const initializer = declaration.initializer;
@@ -316,9 +424,8 @@ const guards = {
             this.id,
             risk
         );
-        if (importModules(codexAdapter).some(moduleName =>
-            moduleName === 'fs'
-            || moduleName === 'node:fs'
+        if (moduleReferences(codexAdapter).some(moduleName =>
+            /^(?:node:)?fs(?:[/\\]|$)/i.test(moduleName)
             || /jsonl/i.test(moduleName))) {
             fail(this.id, risk,
                 'Codex conversation adapter must not import filesystem or transcript JSONL readers');
@@ -326,8 +433,9 @@ const guards = {
 
         for (const relativePath of listFiles(root, 'src', '.ts')) {
             const sourceFile = parseTypescript(root, relativePath, this.id, risk);
-            if (importModules(sourceFile).some(moduleName =>
-                /(?:^|[/\\])(?:dompurify|purify\.min\.js)$/i.test(moduleName))) {
+            if (moduleReferences(sourceFile).some(moduleName =>
+                /(?:^|[/\\])dompurify(?:[/\\]|$)/i.test(moduleName)
+                || /(?:^|[/\\])purify\.min\.js$/i.test(moduleName))) {
                 fail(this.id, risk,
                     'extension-host TypeScript must not import DOMPurify');
             }
@@ -359,6 +467,7 @@ const guards = {
             ['autoScrollThresholdPx', '8'],
             ['minRequestId', '1'],
             ['inactiveIndexLimitPerProvider', '8'],
+            ['inactiveIndexTtlMs', '10 * 60 * 1000'],
         ]);
         if ([...expectedLimits].some(([name, expected]) =>
             limits.get(name) !== expected)) {
@@ -366,15 +475,19 @@ const guards = {
                 'conversation resource and protocol limits must remain exact');
         }
 
-        const projectWebview = read(
+        const projectWebview = parseJavascript(
             root,
             'src/webview/webviewProjectScripts.js',
             this.id,
             risk
         );
-        if (/(?:innerHTML|insertAdjacentHTML)\s*=\s*(?:preview|summary\.userPreview|interaction\.)/.test(
-            projectWebview
-        )) {
+        const unsafeMarkerWrites = nodesMatching(projectWebview, node =>
+            (ts.isBinaryExpression(node)
+                && node.operatorToken.kind === ts.SyntaxKind.EqualsToken
+                && memberPath(node.left) === 'marker.innerHTML')
+            || (ts.isCallExpression(node)
+                && memberPath(node.expression) === 'marker.insertAdjacentHTML'));
+        if (unsafeMarkerWrites.length) {
             fail(this.id, risk,
                 'conversation markers must not render prompt-bearing HTML');
         }
@@ -385,11 +498,20 @@ const guards = {
             this.id,
             risk
         );
-        const appServerSource = appServer.getFullText();
-        if (/\bconsole\s*\.\s*(?:log|info|warn|error|debug)\s*\(/.test(appServerSource)
-            || !appServerSource.includes(
-                'private readonly onStderrData = (_chunk: Buffer): void => undefined;'
-            )) {
+        const unsafeLogCalls = nodesMatching(appServer, node =>
+            ts.isCallExpression(node)
+            && (memberPath(node.expression)?.startsWith('console.')
+                || memberPath(node.expression) === 'process.stderr.write'));
+        const onStderrData = uniqueAstNode(appServer,
+            node => ts.isPropertyDeclaration(node)
+                && node.name.getText(appServer) === 'onStderrData',
+            this.id, risk, 'onStderrData');
+        const stderrInitializer = onStderrData.initializer;
+        if (unsafeLogCalls.length
+            || !stderrInitializer
+            || !ts.isArrowFunction(stderrInitializer)
+            || !ts.isIdentifier(stderrInitializer.body)
+            || stderrInitializer.body.text !== 'undefined') {
             fail(this.id, risk,
                 'app-server stderr and responses must never be logged');
         }
@@ -397,12 +519,6 @@ const guards = {
         for (const provider of ['codex', 'kimi', 'claude']) {
             const relativePath =
                 `src/aiSessions/conversation/${provider}Adapter.ts`;
-            const adapter = read(
-                root,
-                relativePath,
-                this.id,
-                risk
-            );
             const parsedAdapter = parseTypescript(
                 root,
                 relativePath,
@@ -411,20 +527,12 @@ const guards = {
             );
             const className =
                 `${provider[0].toUpperCase()}${provider.slice(1)}ConversationAdapter`;
-            const releaseMethod = classMethod(
+            validateProviderWatchOwnership(
                 parsedAdapter,
                 className,
-                'releaseProviderWatchIfIdle',
                 this.id,
                 risk
-            ).getText(parsedAdapter);
-            if (!adapter.includes('private providerWatch?: AiSessionDisposable;')
-                || !releaseMethod.includes('if (this.subscriptions.size)')
-                || !releaseMethod.includes('this.providerWatch?.dispose();')
-                || !releaseMethod.includes('this.providerWatch = undefined;')) {
-                fail(this.id, risk,
-                    'provider watchers must remain bounded and releasable');
-            }
+            );
         }
     },
 

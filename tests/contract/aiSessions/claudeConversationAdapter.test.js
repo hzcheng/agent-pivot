@@ -173,6 +173,32 @@ test('SESSION-AI-SESSION-CLAUDE-CONVERSATION-005 keeps provider caches and watch
     assert.equal(providerDisposeCount, 1);
 });
 
+test('SESSION-AI-SESSION-CLAUDE-CONVERSATION-005 keeps duplicate callback registrations independent', async t => {
+    const source = await createFixture(t);
+    let providerCallback;
+    let providerDisposeCount = 0;
+    const adapter = createAdapter(source, {
+        watchSessionChanges(callback) {
+            providerCallback = callback;
+            return { dispose() { providerDisposeCount += 1; } };
+        },
+    });
+    t.after(() => adapter.dispose());
+    let changes = 0;
+    const callback = () => { changes += 1; };
+    const first = adapter.watch(sessionId, callback);
+    const second = adapter.watch(sessionId, callback);
+
+    providerCallback();
+    assert.equal(changes, 2);
+    first.dispose();
+    providerCallback();
+    assert.equal(changes, 3);
+    assert.equal(providerDisposeCount, 0);
+    second.dispose();
+    assert.equal(providerDisposeCount, 1);
+});
+
 test('SESSION-AI-SESSION-CLAUDE-CONVERSATION-006 attaches a later assistant suffix to the completed EOF interaction', async t => {
     const source = await createFixture(t);
     await fs.promises.writeFile(

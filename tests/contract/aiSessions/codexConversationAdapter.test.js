@@ -383,6 +383,32 @@ test('SESSION-AI-SESSION-CODEX-CONVERSATION-006 shares the service watcher and d
     assert.equal(harness.getClientDisposeCount(), 1);
 });
 
+test('SESSION-AI-SESSION-CODEX-CONVERSATION-006 keeps duplicate callback registrations independent', async () => {
+    let providerCallback;
+    let providerDisposeCount = 0;
+    const harness = createAdapter([], {
+        watchSessionChanges(callback) {
+            providerCallback = callback;
+            return { dispose() { providerDisposeCount += 1; } };
+        },
+    });
+    const { adapter } = harness;
+    let changes = 0;
+    const callback = () => { changes += 1; };
+    const first = adapter.watch(sessionId, callback);
+    const second = adapter.watch(sessionId, callback);
+
+    providerCallback();
+    assert.equal(changes, 2);
+    first.dispose();
+    providerCallback();
+    assert.equal(changes, 3);
+    assert.equal(providerDisposeCount, 0);
+    second.dispose();
+    assert.equal(providerDisposeCount, 1);
+    adapter.dispose();
+});
+
 test('SESSION-AI-SESSION-CODEX-CONVERSATION-007 keeps revisions stable until normalized content changes', async t => {
     let current = clone(fixture);
     const harness = createAdapter(() => current);

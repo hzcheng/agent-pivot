@@ -15,7 +15,7 @@ Nothing was pushed, merged, installed, or cleaned up.
 Review package:
 
 ```text
-.superpowers/sdd/review-b207acc..41f5a39.diff
+.superpowers/sdd/review-522b128..327fddf.diff
 ```
 
 ## Production-format adapters
@@ -123,11 +123,11 @@ Fresh focused verification passed:
 - source/media viewer parity;
 - `git diff --check`.
 
-The prior full `npm run test:ci:linux` completed with exit 0. Its browser gate
-passed 62/62, including the corrected 2,001-input capped-outline contract;
-release packaging, production Webpack/Gulp builds, the full coverage run, and
-the stored coverage baseline all passed. A fresh full run after the final
-re-review fixes is pending.
+Fresh full `npm run test:ci:linux` after the final re-review fixes completed
+with exit 0. Its browser gate passed 62/62, including the corrected 2,001-input
+capped-outline contract; deterministic, remote-source, performance, safety,
+Dashboard, architecture, release packaging, production Webpack/Gulp, full
+coverage, and the stored coverage baseline all passed.
 
 ## Non-blocking ledger
 

@@ -2,6 +2,26 @@
 
 All notable changes to the "Project Steward" extension will be documented in this file. It follows the [Keep a Changelog](http://keepachangelog.com/) recommendations.
 
+## [2.1.8] 2026-07-26
+
+### Added
+
+-   Add an expandable Active Session conversation outline for Codex, Kimi, and Claude that shows bounded user-input previews and jumps to any historical interaction.
+-   Add a secure read-only AI Conversation viewer with paged Markdown messages, live refresh, and exact input positioning.
+-   Add an action to copy any saved Prompt into a uniquely named, unsaved create draft.
+
+### Changed
+
+-   Open and reuse one AI Conversation tab in the current editor group, with working Previous, Next, Latest, and Close controls.
+-   Keep conversation outlines readable in a bounded, scrollable rail with equal-width markers, truncated previews, and stable card geometry.
+-   Preserve semantic scroll anchors, focus, open details, and unsaved drafts across authoritative Projects, Sessions, Conversation, and TODO refreshes.
+
+### Fixed
+
+-   Acquire the real VS Code Webview API once per Conversation document so navigation, secure HTTPS links, and Close actions reach the Extension Host.
+-   Prevent active Session, conversation, Projects, and TODO lists from jumping to the beginning or flashing through partial render states during live updates.
+-   Retain validated Conversation content and errors through refresh races, and keep TODO composer ownership and optimistic mutations stable until their matching Host result.
+
 ## [2.1.7] 2026-07-26
 
 ### Added

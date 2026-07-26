@@ -15,8 +15,8 @@ function runReleaseContentChecks() {
     const readme = read('README.md');
     const changelog = read('CHANGELOG.md');
     const packageMetadata = JSON.parse(read('package.json'));
-    assert.strictEqual(packageMetadata.version, '2.1.7',
-        'the AI Prompt library release must increment the Project Steward patch version');
+    assert.strictEqual(packageMetadata.version, '2.1.8',
+        'the Active Session conversation release must increment the Project Steward patch version');
     const currentReleaseMarker = `## [${packageMetadata.version}]`;
     assert.ok(changelog.includes(currentReleaseMarker),
         'CHANGELOG must contain the package.json release version');
@@ -41,26 +41,30 @@ function runReleaseContentChecks() {
         assert.match(workspaceFirstRelease, pattern, `2.1.4 CHANGELOG release must document ${label}`);
     }
 
-    const previousReleaseMarker = '## [2.1.6]';
+    const previousReleaseMarker = '## [2.1.7]';
     assert.ok(changelog.includes(previousReleaseMarker),
-        'CHANGELOG must retain the TODO, attention, and tmux reload release');
+        'CHANGELOG must retain the AI Prompt library release');
     const previousRelease = changelog.split(previousReleaseMarker)[1].split(/\n## \[/)[0];
-    assert.match(previousRelease, /TODO[\s\S]{0,160}(?:inline|incremental)/i,
-        '2.1.6 CHANGELOG release must document the continuous TODO workflow');
-    assert.match(previousRelease, /Session exit[\s\S]{0,200}(?:red|attention)/i,
-        '2.1.6 CHANGELOG release must document attention-neutral Session exit');
-    assert.match(previousRelease, /terminal PID[\s\S]{0,160}tmux client session/i,
-        '2.1.6 CHANGELOG release must document tmux viewer recovery after reload');
-    assert.match(previousRelease, /behavior[\s-]+contract/i,
-        '2.1.6 CHANGELOG release must document regression coverage');
-    assert.match(currentRelease, /AI Dashboard tab[\s\S]{0,160}Prompt/i,
-        'current CHANGELOG release must document the AI Prompt panel');
-    assert.match(currentRelease, /insert[\s\S]{0,160}Prompt[\s\S]{0,160}active terminal/i,
-        'current CHANGELOG release must document Prompt insertion into the active terminal');
-    assert.match(currentRelease, /synchronized[\s\S]{0,160}Prompt library/i,
-        'current CHANGELOG release must document synchronized Prompt storage');
-    assert.match(currentRelease, /Batch tmux metadata reads/i,
-        'current CHANGELOG release must document tmux metadata batching');
+    assert.match(previousRelease, /AI Dashboard tab[\s\S]{0,160}Prompt/i,
+        '2.1.7 CHANGELOG release must document the AI Prompt panel');
+    assert.match(previousRelease, /insert[\s\S]{0,160}Prompt[\s\S]{0,160}active terminal/i,
+        '2.1.7 CHANGELOG release must document Prompt insertion into the active terminal');
+    assert.match(previousRelease, /synchronized[\s\S]{0,160}Prompt library/i,
+        '2.1.7 CHANGELOG release must document synchronized Prompt storage');
+    assert.match(previousRelease, /Batch tmux metadata reads/i,
+        '2.1.7 CHANGELOG release must document tmux metadata batching');
+    assert.match(currentRelease, /Active Session[\s\S]{0,200}conversation outline/i,
+        'current CHANGELOG release must document the Active Session conversation outline');
+    assert.match(currentRelease, /Codex, Kimi, and Claude/i,
+        'current CHANGELOG release must document all supported conversation providers');
+    assert.match(currentRelease, /read-only AI Conversation/i,
+        'current CHANGELOG release must document the full read-only conversation viewer');
+    assert.match(currentRelease, /current editor group[\s\S]{0,160}(?:Previous|Next|Latest|Close)/i,
+        'current CHANGELOG release must document current-group viewer controls');
+    assert.match(currentRelease, /scroll[\s\S]{0,200}focus/i,
+        'current CHANGELOG release must document stable Webview refresh state');
+    assert.match(currentRelease, /copy[\s\S]{0,160}Prompt[\s\S]{0,160}draft/i,
+        'current CHANGELOG release must document Prompt copy');
     assert.match(packageMetadata.description, /workspace/i,
         'package metadata must describe the workspace-first product boundary');
 }

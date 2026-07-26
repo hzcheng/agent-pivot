@@ -51,6 +51,18 @@ function validateTodoFocus(source) {
     assert.ok(focus.includes('outline-offset: 1px'), 'TODO-KEYBOARD-FOCUS-001 missing outline offset');
 }
 
+function validateConversationOutlineStyles(source) {
+    const marker = extractBlock(source, '.ai-session-conversation-marker');
+    assert.ok(marker.includes('min-height: 24px;'),
+        'WEBVIEW-AI-SESSION-CONVERSATION-OUTLINE-001 markers must retain a minimum hit target');
+    const rail = extractBlock(source, '.ai-session-conversation-rail');
+    assert.ok(rail.includes('overflow-y: auto;'),
+        'WEBVIEW-AI-SESSION-CONVERSATION-OUTLINE-001 only the marker rail may scroll');
+    const panel = extractBlock(source, '.ai-session-conversation-panel');
+    assert.ok(panel.includes('overflow: hidden;'),
+        'WEBVIEW-AI-SESSION-CONVERSATION-OUTLINE-001 expanded content must stay inside its card');
+}
+
 function validateTodoLayout(source) {
     const list = extractBlock(source, '.todo-list');
     assert.ok(list.includes(
@@ -421,6 +433,18 @@ test('WEBVIEW-AI-PROMPT-STYLES-001 exposes every Prompt styling boundary', () =>
         assert.doesNotThrow(() => extractBlock(styles, selector));
     }
     validatePromptCompactCardStyles(styles);
+});
+
+test('WEBVIEW-AI-SESSION-CONVERSATION-OUTLINE-001 preserves bounded marker and card geometry', () => {
+    validateConversationOutlineStyles(styles);
+    assert.throws(() => validateConversationOutlineStyles(styles.replace(
+        'width: calc(var(--ai-input-ratio) * 100%);\n'
+            + '            min-width: 18%;\n'
+            + '            min-height: 24px;',
+        'width: calc(var(--ai-input-ratio) * 100%);\n'
+            + '            min-width: 18%;\n'
+            + '            min-height: 0;'
+    )), /WEBVIEW-AI-SESSION-CONVERSATION-OUTLINE-001/);
 });
 
 test('WEBVIEW-REDUCED-MOTION-001 disables dashboard and session animation for reduced motion', () => {

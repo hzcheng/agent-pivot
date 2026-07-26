@@ -397,7 +397,7 @@ async function postInvalidOpenWorkspacesUpdate(page, semanticRevision) {
     }, semanticRevision);
 }
 
-test('ACTIVE-SESSION-CONVERSATION-OUTLINE-001 renders only an exact current focused expansion result', async t => {
+test('WEBVIEW-AI-SESSION-CONVERSATION-OUTLINE-001 renders only an exact current focused expansion result', async t => {
     const page = await openConversationPage(t, [
         session('codex', 'session-a', true),
     ]);

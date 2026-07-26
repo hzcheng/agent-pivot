@@ -63,7 +63,7 @@ async function readWholeConversation(adapter) {
     return { outline, page };
 }
 
-test('SESSION-AI-SESSION-CODEX-CONVERSATION-001 normalizes only stable visible user and agent items', async t => {
+test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 Codex normalizes only stable visible user and agent items', async t => {
     const harness = createAdapter();
     t.after(() => harness.adapter.dispose());
     const { outline, page } = await readWholeConversation(harness.adapter);

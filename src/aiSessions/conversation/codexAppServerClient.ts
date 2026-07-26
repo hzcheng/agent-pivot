@@ -124,7 +124,7 @@ export class CodexAppServerClient implements AiSessionDisposable {
 
     private readonly onStdoutData = (chunk: Buffer): void => {
         this.acceptStdoutChunk(chunk);
-    };
+    }
     private readonly onStderrData = (_chunk: Buffer): void => undefined;
     private readonly onStdinError = (_error: Error): void => {
         if (!this.child) {
@@ -136,12 +136,12 @@ export class CodexAppServerClient implements AiSessionDisposable {
             new ConversationError('unavailable', 'reconnectingCodex'),
             true
         );
-    };
+    }
     private readonly onChildSpawn = (): void => {
         if (this.child) {
             this.childSpawned = true;
         }
-    };
+    }
     private readonly onChildExit = (
         _code: number | null,
         _signal: string | null
@@ -155,7 +155,7 @@ export class CodexAppServerClient implements AiSessionDisposable {
             new ConversationError('unavailable', 'reconnectingCodex'),
             false
         );
-    };
+    }
     private readonly onChildError = (_error: Error): void => {
         if (!this.child) {
             return;
@@ -171,7 +171,7 @@ export class CodexAppServerClient implements AiSessionDisposable {
             true,
             !spawnFailure
         );
-    };
+    }
 
     constructor(private readonly options: CodexAppServerClientOptions) {}
 

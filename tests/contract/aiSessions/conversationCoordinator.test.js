@@ -334,7 +334,7 @@ test('SESSION-CONVERSATION-COORDINATOR-001 isolates adapter failures and removes
     assert.deepEqual(calls, { codex: 1, kimi: 1, claude: 1 });
 });
 
-test('SESSION-CONVERSATION-COORDINATOR-002 replaces native revisions and cursors with scoped opaque tokens', async t => {
+test('SECURITY-AI-SESSION-CONVERSATION-SOURCE-001 replaces native revisions and cursors with scoped opaque tokens', async t => {
     const nativeRevision = '/private/provider/path.jsonl#offset=12:hash=secret';
     let revisions = {
         'session-a': nativeRevision,

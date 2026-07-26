@@ -27,5 +27,7 @@ jobs:
           cache: npm
       - name: Install dependencies
         run: npm ci
+      - name: Verify conversation source identity
+        run: npm run test-compile && node --test tests/platform/macos/conversationSources.test.js
       - name: Run stable Extension Host smoke
         run: npm run test:extension-host

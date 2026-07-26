@@ -263,7 +263,7 @@ async function realHostAppendPublications() {
     return { initial, refresh };
 }
 
-test('CONVERSATION-VIEWER-BROWSER-SECURITY-001 sanitizes hostile HTML and posts exact version-1 navigation', async t => {
+test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 sanitizes hostile HTML and posts exact version-1 navigation', async t => {
     const page = await openViewerPage(t);
     await sendPage(page, hostileConversationPage);
 

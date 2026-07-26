@@ -26,6 +26,15 @@ function copyGuardFixture(t, mutationPath, mutate = source => source) {
         'src/workspaces/sessionHydrationController.ts',
         'src/aiSessions/dashboardController.ts',
         'src/aiSessions/providers.ts',
+        'src/aiSessions/conversation/types.ts',
+        'src/aiSessions/conversation/codexAdapter.ts',
+        'src/aiSessions/conversation/codexAppServerClient.ts',
+        'src/aiSessions/conversation/kimiAdapter.ts',
+        'src/aiSessions/conversation/claudeAdapter.ts',
+        'src/aiSessions/conversation/coordinator.ts',
+        'src/aiSessions/conversation/viewer.ts',
+        'src/webview/webviewProjectScripts.js',
+        'src/webview/conversationViewerScripts.js',
         'src/aiSessions/attentionController.ts',
         'src/aiSessions/attentionAggregate.ts',
         'src/openWorkspaces/protocol.ts',
@@ -54,7 +63,7 @@ function replaceFixtureSource(source, search, replacement, suffix = '') {
     return replaced + suffix;
 }
 
-test('complete production fixture satisfies every architecture guard without mutation', t => {
+test('SECURITY-AI-SESSION-CONVERSATION-SOURCE-001 complete production fixture satisfies every architecture guard', t => {
     validateArchitectureGuards(copyGuardFixture(t));
 });
 
@@ -101,6 +110,62 @@ test('architecture guard runner rejects unknown guard IDs', () => {
 });
 
 for (const mutation of [
+    {
+        id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',
+        file: 'src/aiSessions/conversation/codexAdapter.ts',
+        expectedDetail: 'Codex conversation adapter must not import filesystem or transcript JSONL readers',
+        mutate: source => source.replace(
+            "import { createHash } from 'crypto';",
+            "import { createHash } from 'crypto';\nimport * as fs from 'fs';"
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',
+        file: 'src/aiSessions/conversation/viewer.ts',
+        expectedDetail: 'extension-host TypeScript must not import DOMPurify',
+        mutate: source => source.replace(
+            "import { randomBytes } from 'crypto';",
+            "import { randomBytes } from 'crypto';\nimport DOMPurify from 'dompurify';"
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',
+        file: 'src/aiSessions/conversation/types.ts',
+        expectedDetail: 'conversation resource and protocol limits must remain exact',
+        mutate: source => replaceFixtureSource(
+            source,
+            'maxSourceBytes: 64 * 1024 * 1024',
+            'maxSourceBytes: 65 * 1024 * 1024'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',
+        file: 'src/webview/webviewProjectScripts.js',
+        expectedDetail: 'conversation markers must not render prompt-bearing HTML',
+        mutate: source => source.replace(
+            'marker.textContent = preview;',
+            'marker.innerHTML = preview;'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',
+        file: 'src/aiSessions/conversation/codexAppServerClient.ts',
+        expectedDetail: 'app-server stderr and responses must never be logged',
+        mutate: source => source.replace(
+            'private readonly onStderrData = (_chunk: Buffer): void => undefined;',
+            'private readonly onStderrData = (chunk: Buffer): void => console.error(chunk);'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',
+        file: 'src/aiSessions/conversation/kimiAdapter.ts',
+        expectedDetail: 'provider watchers must remain bounded and releasable',
+        mutate: source => source.replace(
+            '        this.providerWatch?.dispose();\n        this.providerWatch = undefined;\n    }\n}',
+            '        // provider watch intentionally leaked\n'
+                + '        this.providerWatch = undefined;\n    }\n}'
+        ),
+    },
     {
         id: 'ARCH-AI-SESSION-SCAN-BOUNDARY-001',
         file: 'src/dashboard.ts',

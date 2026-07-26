@@ -56,7 +56,7 @@ async function readWholeConversation(adapter) {
     return { outline, page };
 }
 
-test('SESSION-AI-SESSION-CLAUDE-CONVERSATION-001 normalizes only top-level visible user and assistant text', async t => {
+test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 Claude normalizes only top-level visible user and assistant text', async t => {
     const source = await createFixture(t);
     const adapter = createAdapter(source);
     t.after(() => adapter.dispose());

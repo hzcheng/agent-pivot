@@ -157,7 +157,8 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
             callbacks = new Set();
             this.subscriptions.set(sessionId, callbacks);
         }
-        callbacks.add(onChange);
+        const listener = (): void => onChange();
+        callbacks.add(listener);
         const retained = this.cache.retain(sessionId);
         this.ensureProviderWatch();
         let active = true;
@@ -167,7 +168,7 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
                     return;
                 }
                 active = false;
-                callbacks.delete(onChange);
+                callbacks.delete(listener);
                 if (!callbacks.size) {
                     this.subscriptions.delete(sessionId);
                 }

@@ -56,7 +56,7 @@ async function readWholeConversation(adapter) {
     return { outline, page };
 }
 
-test('SESSION-AI-SESSION-KIMI-CONVERSATION-001 normalizes only visible turns and preserves suffix identities', async t => {
+test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 Kimi normalizes only visible turns and preserves suffix identities', async t => {
     const source = await createFixture(t);
     const adapter = createAdapter(source);
     t.after(() => adapter.dispose());
@@ -166,6 +166,32 @@ test('SESSION-AI-SESSION-KIMI-CONVERSATION-003 shares the service poller and dis
     assert.equal(providerDisposeCount, 1);
     adapter.dispose();
     adapter.dispose();
+    assert.equal(providerDisposeCount, 1);
+});
+
+test('SESSION-AI-SESSION-KIMI-CONVERSATION-003 keeps duplicate callback registrations independent', async t => {
+    const source = await createFixture(t);
+    let providerCallback;
+    let providerDisposeCount = 0;
+    const adapter = createAdapter(source, {
+        watchSessionChanges(callback) {
+            providerCallback = callback;
+            return { dispose() { providerDisposeCount += 1; } };
+        },
+    });
+    t.after(() => adapter.dispose());
+    let changes = 0;
+    const callback = () => { changes += 1; };
+    const first = adapter.watch(sessionId, callback);
+    const second = adapter.watch(sessionId, callback);
+
+    providerCallback();
+    assert.equal(changes, 2);
+    first.dispose();
+    providerCallback();
+    assert.equal(changes, 3);
+    assert.equal(providerDisposeCount, 0);
+    second.dispose();
     assert.equal(providerDisposeCount, 1);
 });
 

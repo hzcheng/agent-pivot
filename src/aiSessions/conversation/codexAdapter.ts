@@ -241,7 +241,8 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
             callbacks = new Set();
             this.subscriptions.set(sessionId, callbacks);
         }
-        callbacks.add(onChange);
+        const listener = (): void => onChange();
+        callbacks.add(listener);
         this.ensureProviderWatch();
         let active = true;
         return {
@@ -250,7 +251,7 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
                     return;
                 }
                 active = false;
-                callbacks.delete(onChange);
+                callbacks.delete(listener);
                 if (!callbacks.size) {
                     this.subscriptions.delete(sessionId);
                 }

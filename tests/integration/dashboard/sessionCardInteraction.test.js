@@ -112,7 +112,7 @@ test('WEBVIEW-AI-SESSION-CARD-ACTIVATION-001 maps card bodies and the primary ac
     );
 });
 
-test('ACTIVE-SESSION-CONVERSATION-EXPANSION-001 toggles only an already focused active session', () => {
+test('WEBVIEW-AI-SESSION-CONVERSATION-OUTLINE-001 toggles only an already focused active session', () => {
     const focused = createRow({
         'data-session-id': 'focused-session',
         'data-session-provider': 'codex',

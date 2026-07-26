@@ -393,7 +393,7 @@ test('CONVERSATION-VIEWER-NAVIGATION-002 moves within a loaded page without read
     assert.equal(reads, 1);
 });
 
-test('CONVERSATION-VIEWER-BOUNDS-001 evicts above 100 interactions while retaining the selected anchor and a reload cursor', async () => {
+test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 evicts above 100 interactions while retaining the selected anchor and a reload cursor', async () => {
     let readIndex = 0;
     const interactionIds = Array.from(
         { length: 6 },

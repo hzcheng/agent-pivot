@@ -184,7 +184,7 @@ test('SECURITY-AI-SESSION-CONVERSATION-SOURCE-004 rejects an opened handle after
     const opened = await openValidatedConversationSource(
         { providerHome, sourcePath },
         {
-            noFollowFlag: fs.constants.O_NOFOLLOW || 1,
+            noFollowFlag: fs.constants.O_NOFOLLOW || 0,
             openFile: swapAncestorOnlyWhileOpening,
         }
     );

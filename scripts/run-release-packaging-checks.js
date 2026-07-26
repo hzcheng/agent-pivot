@@ -107,7 +107,7 @@ function validateScheduledWorkflow(workflow) {
     assert.strictEqual(containsKey(workflow, 'continue-on-error'), false,
         'scheduled verification must not define continue-on-error');
     assert.ok(Array.isArray(job.steps), 'scheduled-macos steps must be an array');
-    assert.strictEqual(job.steps.length, 4, 'scheduled-macos must define exactly four allowed steps');
+    assert.strictEqual(job.steps.length, 5, 'scheduled-macos must define exactly five allowed steps');
     const checkout = job.steps[0];
     assertExactKeys(checkout, ['name', 'uses'], 'scheduled-macos checkout step');
     assert.strictEqual(checkout.uses, 'actions/checkout@v4',
@@ -122,6 +122,7 @@ function validateScheduledWorkflow(workflow) {
     assert.strictEqual(setupNode.with.cache, 'npm', 'scheduled-macos must cache npm');
     const commands = [
         'npm ci',
+        'npm run test-compile && node --test tests/platform/macos/conversationSources.test.js',
         'npm run test:extension-host',
     ];
     for (const [index, command] of commands.entries()) {
@@ -281,6 +282,9 @@ function runRealVsixArchiveChecks(mainPackage, bridgePackage) {
         'extension/media/extension_icon.png',
         'extension/media/fitty.min.js',
         'extension/media/icon.svg',
+        'extension/media/conversationViewer.css',
+        'extension/media/conversationViewerScripts.js',
+        'extension/media/purify.min.js',
         'extension/media/sharingan/mangekyou-sharingan-itachi.svg',
         'extension/media/sharingan/mangekyou-sharingan-madara-eternal.svg',
         'extension/media/sharingan/mangekyou-sharingan-madara.svg',
@@ -619,6 +623,11 @@ function run() {
     assertWorkflowMutationRejected(validateScheduledWorkflow, scheduled,
         value => { value.jobs['scheduled-macos'].steps.pop(); },
         'Extension Host step removal must be rejected');
+    assertWorkflowMutationRejected(validateScheduledWorkflow, scheduled,
+        value => {
+            const steps = value.jobs['scheduled-macos'].steps;
+            [steps[3], steps[4]] = [steps[4], steps[3]];
+        }, 'conversation source and Extension Host step reordering must be rejected');
     assertWorkflowMutationsRejected(validateScheduledWorkflow, scheduled, [
         ['invalid cron expression', value => { value.on.schedule[0].cron = 'not a cron'; }],
         ['secrets context reference', value => {

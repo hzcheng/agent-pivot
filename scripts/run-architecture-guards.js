@@ -262,7 +262,172 @@ function newExpressionOptionCallback(sourceFile, variableName, constructorName, 
     return option[0].initializer;
 }
 
+function listFiles(root, relativeDirectory, extension) {
+    const directory = path.join(root, relativeDirectory);
+    const files = [];
+    const visit = current => {
+        for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+            const absolute = path.join(current, entry.name);
+            if (entry.isDirectory()) visit(absolute);
+            else if (entry.isFile() && entry.name.endsWith(extension)) {
+                files.push(path.relative(root, absolute));
+            }
+        }
+    };
+    visit(directory);
+    return files.sort();
+}
+
+function importModules(sourceFile) {
+    return sourceFile.statements
+        .filter(ts.isImportDeclaration)
+        .map(statement => statement.moduleSpecifier)
+        .filter(ts.isStringLiteral)
+        .map(moduleSpecifier => moduleSpecifier.text);
+}
+
+function objectFreezeProperties(sourceFile, variableName, id, risk) {
+    const declaration = findVariable(sourceFile, variableName, id, risk);
+    const initializer = declaration.initializer;
+    if (!initializer || !ts.isCallExpression(initializer)
+        || initializer.expression.getText(sourceFile) !== 'Object.freeze'
+        || initializer.arguments.length !== 1
+        || !ts.isObjectLiteralExpression(initializer.arguments[0])) {
+        fail(id, risk, `${variableName} must remain one frozen object literal`);
+    }
+    return new Map(initializer.arguments[0].properties.map(property => {
+        if (!ts.isPropertyAssignment(property)) {
+            fail(id, risk, `${variableName} must contain only property assignments`);
+        }
+        return [
+            property.name.getText(sourceFile),
+            normalizedAstText(property.initializer, sourceFile),
+        ];
+    }));
+}
+
 const guards = {
+    // ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001
+    'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001'(root) {
+        const risk = 'conversation history can expose private content or exhaust the extension host';
+        const codexAdapter = parseTypescript(
+            root,
+            'src/aiSessions/conversation/codexAdapter.ts',
+            this.id,
+            risk
+        );
+        if (importModules(codexAdapter).some(moduleName =>
+            moduleName === 'fs'
+            || moduleName === 'node:fs'
+            || /jsonl/i.test(moduleName))) {
+            fail(this.id, risk,
+                'Codex conversation adapter must not import filesystem or transcript JSONL readers');
+        }
+
+        for (const relativePath of listFiles(root, 'src', '.ts')) {
+            const sourceFile = parseTypescript(root, relativePath, this.id, risk);
+            if (importModules(sourceFile).some(moduleName =>
+                /(?:^|[/\\])(?:dompurify|purify\.min\.js)$/i.test(moduleName))) {
+                fail(this.id, risk,
+                    'extension-host TypeScript must not import DOMPurify');
+            }
+        }
+
+        const types = parseTypescript(
+            root,
+            'src/aiSessions/conversation/types.ts',
+            this.id,
+            risk
+        );
+        const limits = objectFreezeProperties(
+            types,
+            'CONVERSATION_LIMITS',
+            this.id,
+            risk
+        );
+        const expectedLimits = new Map([
+            ['maxOutlineInteractions', '2_000'],
+            ['maxPageInteractions', '20'],
+            ['maxPageBytes', '512 * 1024'],
+            ['maxSourceBytes', '64 * 1024 * 1024'],
+            ['maxLineBytes', '1024 * 1024'],
+            ['jsonlScanTimeoutMs', '5_000'],
+            ['maxViewerInteractions', '100'],
+            ['maxViewerBytes', '4 * 1024 * 1024'],
+            ['maxCodexResponseBytes', '16 * 1024 * 1024'],
+            ['codexRequestTimeoutMs', '10_000'],
+            ['autoScrollThresholdPx', '8'],
+            ['minRequestId', '1'],
+            ['inactiveIndexLimitPerProvider', '8'],
+        ]);
+        if ([...expectedLimits].some(([name, expected]) =>
+            limits.get(name) !== expected)) {
+            fail(this.id, risk,
+                'conversation resource and protocol limits must remain exact');
+        }
+
+        const projectWebview = read(
+            root,
+            'src/webview/webviewProjectScripts.js',
+            this.id,
+            risk
+        );
+        if (/(?:innerHTML|insertAdjacentHTML)\s*=\s*(?:preview|summary\.userPreview|interaction\.)/.test(
+            projectWebview
+        )) {
+            fail(this.id, risk,
+                'conversation markers must not render prompt-bearing HTML');
+        }
+
+        const appServer = parseTypescript(
+            root,
+            'src/aiSessions/conversation/codexAppServerClient.ts',
+            this.id,
+            risk
+        );
+        const appServerSource = appServer.getFullText();
+        if (/\bconsole\s*\.\s*(?:log|info|warn|error|debug)\s*\(/.test(appServerSource)
+            || !appServerSource.includes(
+                'private readonly onStderrData = (_chunk: Buffer): void => undefined;'
+            )) {
+            fail(this.id, risk,
+                'app-server stderr and responses must never be logged');
+        }
+
+        for (const provider of ['codex', 'kimi', 'claude']) {
+            const relativePath =
+                `src/aiSessions/conversation/${provider}Adapter.ts`;
+            const adapter = read(
+                root,
+                relativePath,
+                this.id,
+                risk
+            );
+            const parsedAdapter = parseTypescript(
+                root,
+                relativePath,
+                this.id,
+                risk
+            );
+            const className =
+                `${provider[0].toUpperCase()}${provider.slice(1)}ConversationAdapter`;
+            const releaseMethod = classMethod(
+                parsedAdapter,
+                className,
+                'releaseProviderWatchIfIdle',
+                this.id,
+                risk
+            ).getText(parsedAdapter);
+            if (!adapter.includes('private providerWatch?: AiSessionDisposable;')
+                || !releaseMethod.includes('if (this.subscriptions.size)')
+                || !releaseMethod.includes('this.providerWatch?.dispose();')
+                || !releaseMethod.includes('this.providerWatch = undefined;')) {
+                fail(this.id, risk,
+                    'provider watchers must remain bounded and releasable');
+            }
+        }
+    },
+
     // ARCH-AI-SESSION-SCAN-BOUNDARY-001
     'ARCH-AI-SESSION-SCAN-BOUNDARY-001'(root) {
         const risk = 'unbounded provider scans can block the extension host';

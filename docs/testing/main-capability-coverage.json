@@ -776,6 +776,53 @@
             ],
             "scheduledJobs": [],
             "realEnvironmentRequired": false
+        },
+        {
+            "id": "MAIN-AI-SESSION-CONVERSATION-OUTLINE",
+            "title": "Active Session conversation outline",
+            "requirement": "Codex, Kimi, and Claude expose bounded user-input outlines and one sanitized read-only conversation viewer from canonical extension-host sources.",
+            "commits": [
+                "115a4f1f5c546af011ae12a3fb569f54df3b4ead",
+                "c634fae21f1606451282c61ba7a7e9cb37095b3e",
+                "33eba408c872bfcb06809f446f402e15c1eb4a3c",
+                "48024f55f92349a536409f7a5232a29e6ead2fa7",
+                "d54d654d579868ee96a3a01a85dcaf83bcb0ee26",
+                "b6d4c12e5215f4fd5db39d584817e5bdfa2891c5",
+                "1c8714ae010190084ae8c9255db5623f87e907c0",
+                "cbc6996cdceeb7acb78b1d0169c2182242b98334",
+                "bd736d6efb06f8f36ede35a92b79720a4c92304d",
+                "effa7298068cfff642cc3fec00513cf76fb276a6",
+                "2204c96157dd0397042862eafd6320f4f28900a0",
+                "f472bb0021e49cd9caf5b8968732d8d14437c707",
+                "36f6fcbafdd35e60ab44a4432ab3ab67d94ad9ca",
+                "a2bc701ae8b5cb39515ad0fe89059d9f6f3fe384",
+                "d73886e3b8fe7e39d4df6db1d150649293ce73a2",
+                "92eb3f53eebc6bb99eae54cbb9cebb80ec7c8fc0",
+                "c79db33123bb4f7624c90d68f30a93a223ef73e9",
+                "6486d602d4d91f833f3928dcb9f70a34fc472e1b",
+                "c55700c26f29d590eb1a2580bdcf7680e55d15bd",
+                "3046835ef05033612f44d34982a914836c41312f",
+                "b596147e4a1df3ff80ba6c18965f27c2f9cf7980",
+                "11ee86a6a994114faeb112fe68c9e61aeddd20f8",
+                "82a61b461fd637c2c226acf907f14a9da5083953",
+                "574072946cbd2a58eb72c33f8c81a5dd45eb5d7b",
+                "c911dfddd14555bb4105ef397c53d33f4d7771ac",
+                "00b6711abde741372aab1bb1f558507cfa69db99",
+                "88e29eb89e8413f69267faa99b3d92775e7139b7"
+            ],
+            "behaviors": [
+                "SESSION-AI-SESSION-CONVERSATION-ADAPTER-001",
+                "WEBVIEW-AI-SESSION-CONVERSATION-OUTLINE-001",
+                "WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001",
+                "SECURITY-AI-SESSION-CONVERSATION-SOURCE-001"
+            ],
+            "prGates": [
+                "test:ci:linux"
+            ],
+            "scheduledJobs": [
+                "scheduled-macos"
+            ],
+            "realEnvironmentRequired": false
         }
     ]
 }

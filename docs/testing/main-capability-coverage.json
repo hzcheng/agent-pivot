@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "9ed47eca5f1e6db36a6516b6e44a21d9d873f651",
+        "head": "c412ba84d6a20984d8851bb8bdb531c7bfb692bc",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -690,9 +690,11 @@
                 "0b5e21c7d8cdcffa83d253e225f9ed01c70ba020",
                 "ddec9ac8b377121b671ea6a7887700e2e345ee9c",
                 "94b571ade72bcf0d34a5f093f5f2e028d152122f",
-                "bcebac80a8f423b1b4cba07020634e77dd237341"
+                "bcebac80a8f423b1b4cba07020634e77dd237341",
+                "c412ba84d6a20984d8851bb8bdb531c7bfb692bc"
             ],
             "behaviors": [
+                "RUNTIME-DASHBOARD-VISIBILITY-RESILIENCE-001",
                 "WEBVIEW-RESOURCE-RECOVERY-001",
                 "WEBVIEW-LAZY-PANEL-RECOVERY-001",
                 "SESSION-SIDEBAR-STEWARD-VIEW-PROVIDER-ORDERING-001"

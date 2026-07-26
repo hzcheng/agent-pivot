@@ -14,6 +14,9 @@ cd1f3892d71f9960aaab506cf2c65b2baab15667 docs: refresh conversation release audi
 08a3a8aedeed4e3b5aeaed8c26e8c59f537a3e7a docs: report hardened conversation gates
 4c4d42586ea23d8f3e3fecb27a16834500b1cb00 test: enforce canonical watcher release guards
 6642367882ebfefe04ff2401084b7b6e45aadae3 docs: advance conversation guard audit
+cfd333b86942c39007cd8d3c08697b204593a837 docs: report canonical conversation guards
+bdc7f637d4621e96cc956716091d19429d90992e test: guard dynamic conversation imports
+4c8f69778f7a40fa84c592aa264f0cf328709662 docs: advance dynamic import audit
 ```
 
 Nothing was pushed, merged, installed, or cleaned up.
@@ -21,7 +24,7 @@ Nothing was pushed, merged, installed, or cleaned up.
 Task review package:
 
 ```text
-.superpowers/sdd/review-3853df9..6642367.diff
+.superpowers/sdd/review-3853df9..4c8f697.diff
 ```
 
 ## Outcome
@@ -29,9 +32,9 @@ Task review package:
 - Added `ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001` with controlled
   mutations for:
   - Codex filesystem/JSONL-reader imports, including `node:fs/promises` and
-    TypeScript import-equals declarations;
+    TypeScript import-equals and dynamic `import()` declarations;
   - extension-host DOMPurify static, deep, CommonJS, and TypeScript
-    import-equals imports;
+    import-equals imports, plus dynamic `import()`;
   - exact source, scan, line, outline, page, viewer, Codex response/timeout,
     auto-scroll, request-ID, per-provider cache count, and cache TTL limits;
   - any conversation-marker `innerHTML`/`insertAdjacentHTML` write;
@@ -132,6 +135,24 @@ canonical executable AST statements and accepting both safe no-op spellings:
 
 ```text
 architectureGuards.test.js 35/35
+```
+
+The final review added two dynamic-import mutations before the AST walker
+changed:
+
+```text
+architectureGuards.test.js
+  35 passed
+  2 failed with "Missing expected exception"
+```
+
+They use `void import('node:fs/promises')` in the Codex adapter and
+`void import('dompurify')` in the extension-host viewer. After
+`moduleReferences` learned the TypeScript `ImportKeyword` call shape with one
+string argument:
+
+```text
+architectureGuards.test.js 37/37
 ```
 
 The performance command was invoked before its package script existed:
@@ -259,7 +280,7 @@ git log --reverse --format='%H %s' origin/main..HEAD
 
 `MAIN-AI-SESSION-CONVERSATION-OUTLINE` assigns all 26 non-documentation
 implementation commits from Tasks 1–10 plus gate commits `88e29eb`,
-`e227fb9`, and `4c4d425`, for 29 real full hashes total. It owns:
+`e227fb9`, `4c4d425`, and `bdc7f63`, for 30 real full hashes total. It owns:
 
 ```text
 SESSION-AI-SESSION-CONVERSATION-ADAPTER-001
@@ -269,8 +290,8 @@ SECURITY-AI-SESSION-CONVERSATION-SOURCE-001
 ```
 
 Its PR gate is `test:ci:linux`, its scheduled job is `scheduled-macos`, and
-`realEnvironmentRequired` is false. `audit.head` is the full canonical-gate
-hash `4c4d42586ea23d8f3e3fecb27a16834500b1cb00`.
+`realEnvironmentRequired` is false. `audit.head` is the full dynamic-import
+gate hash `bdc7f637d4621e96cc956716091d19429d90992e`.
 The two design commits and plan commit use their real full hashes as explicit
 documentation exemptions. The additional plan-review and task-report commits
 are documentation-only and are accepted by the schema without disguising
@@ -288,7 +309,7 @@ Focused final gates:
 npm run test-compile                                      passed
 three-provider conversation adapter contracts             30/30
 JSONL TTL plus coordinator timer/watch contracts           47/47
-node --test tests/unit/tooling/architectureGuards.test.js 35/35
+node --test tests/unit/tooling/architectureGuards.test.js 37/37
 Windows conversation source test                          1/1
 macOS conversation source tests                           2/2
 remote conversation source tests                          3/3
@@ -310,8 +331,8 @@ was not used as completion evidence. The exact command was run again with
 set -o pipefail; npm run test:ci:linux 2>&1 | tail -n 120
 ```
 
-The same exact command was run again after each review round. The
-second-review result was exit `0`; its tail ended with
+The same exact command was run again after every review round. The final
+dynamic-import review result was exit `0`; its tail ended with
 `Coverage baseline checks passed.`
 This proves the full compile, behavior, lint, deterministic, remote,
 performance, browser, safety, Dashboard, architecture, release notes,

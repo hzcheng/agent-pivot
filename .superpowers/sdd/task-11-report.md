@@ -8,6 +8,9 @@ Task 10 head `3853df927fa9ac083bc458f6f6839652adb4fd10` through:
 ```text
 88e29eb89e8413f69267faa99b3d92775e7139b7 test: gate conversation outline behavior
 c9178dec0f4e9d4b922cd85cfd0efcf9449898f9 docs: audit conversation outline coverage
+ef901b8b3ea926dae228f9904f3d8c56e72332aa docs: report conversation outline release gates
+e227fb9d42451b032d4d910f15037b149689b3d5 test: harden conversation release gates
+cd1f3892d71f9960aaab506cf2c65b2baab15667 docs: refresh conversation release audit
 ```
 
 Nothing was pushed, merged, installed, or cleaned up.
@@ -15,20 +18,22 @@ Nothing was pushed, merged, installed, or cleaned up.
 Task review package:
 
 ```text
-.superpowers/sdd/review-3853df9..c9178de.diff
+.superpowers/sdd/review-3853df9..cd1f389.diff
 ```
 
 ## Outcome
 
 - Added `ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001` with controlled
   mutations for:
-  - Codex filesystem/JSONL-reader imports;
-  - extension-host DOMPurify imports;
+  - Codex filesystem/JSONL-reader imports, including `node:fs/promises`;
+  - extension-host DOMPurify static, deep, and CommonJS imports;
   - exact source, scan, line, outline, page, viewer, Codex response/timeout,
-    auto-scroll, request-ID, and per-provider cache limits;
-  - prompt-bearing marker `innerHTML`;
-  - raw app-server stderr/response logging;
-  - provider watcher release ownership.
+    auto-scroll, request-ID, per-provider cache count, and cache TTL limits;
+  - any conversation-marker `innerHTML`/`insertAdjacentHTML` write;
+  - console or `process.stderr.write` app-server logging and a structurally
+    no-op stderr callback;
+  - exactly one provider watcher acquisition, assignment ownership, guarded
+    release control flow, disposal, and clearing for all three providers.
 - Added Windows portable edge-hash and `noFollowFlag: 0` fallback coverage
   without requiring symlink privileges. The fallback test injects an opened
   handle for a different file and proves realpath/stat/edge comparison rejects
@@ -82,6 +87,24 @@ After the guard was implemented:
 architectureGuards.test.js 20/20
 ```
 
+The follow-up review added eight controlled mutations before changing the
+guard. The RED run was exact:
+
+```text
+architectureGuards.test.js
+  20 passed
+  8 failed with "Missing expected exception"
+```
+
+The failures covered `node:fs/promises`, a DOMPurify deep import, CommonJS
+Purify require, cache TTL drift, wrapped `innerHTML`, raw
+`process.stderr.write`, unconditional watcher-release return, and a second
+provider-watch acquisition. After the AST/structural guard was hardened:
+
+```text
+architectureGuards.test.js 28/28
+```
+
 The performance command was invoked before its package script existed:
 
 ```text
@@ -99,7 +122,9 @@ uppercase Claude UUID source
 
 It passed after normalizing the validated UUID.
 
-The duplicate-listener regression was observed RED:
+The duplicate-listener regression was observed RED originally and was
+re-verified during review with controlled production regressions in both
+Codex and Claude:
 
 ```text
 same callback registered twice
@@ -107,24 +132,27 @@ same callback registered twice
   expected notifications: 2
 ```
 
-It passed after assigning each logical registration an independent wrapper
-listener; disposal of the first registration leaves the second active.
+The existing production wrapper listeners were restored unchanged. New
+Codex and Claude contract tests now prove that disposal of the first
+registration leaves the second active; Kimi already owned the same case.
+The three-provider focused adapter run passed 30/30.
 
 ## Performance harness and measurements
 
 The fixture is created beneath `os.tmpdir()`, never in the repository. It
 contains exactly 10 MiB and exactly 1,000 Kimi interactions. The interaction
 records use real `TurnBegin`, `ContentPart`, and `TurnEnd` events. Remaining
-bytes are a small number of syntactically valid records shaped as:
+bytes are a small number of syntactically valid JSON string records shaped
+as:
 
 ```json
-{"type":"Ignored","padding":"..."}
+"pppppppppppppppp"
 ```
 
 Those records are read by `readConversationJsonl` in 256 KiB chunks, split
 into physical lines, decoded, and passed through `JSON.parse`. The Kimi
-normalizer deliberately ignores their unknown `type`. The fixture is not
-sparse, blank-line padded, or skipped with a seek.
+normalizer deliberately ignores their non-object values. The fixture is not
+sparse, NUL/blank padded, or skipped with a seek.
 
 An initial exploratory fixture placed almost all 10 MiB in assistant-visible
 text. It measured about `1310.790 ms` cold. That passed the `1500 ms` limit,
@@ -141,25 +169,38 @@ appendMs   10.506 /  10.220
 cachedMs    1.513 /   1.461
 ```
 
-The fresh full-CI run measured:
+The final focused performance run measured:
 
 ```json
 {
-  "coldMs": 148.207,
-  "appendMs": 10.145,
-  "cachedMs": 1.519,
+  "coldMs": 132.747,
+  "appendMs": 10.209,
+  "cachedMs": 2.257,
   "outlineInteractions": 1001,
   "serializedPageBytes": 69289,
+  "boundaryBytes": 67108864,
+  "boundaryRecords": 6076,
+  "boundaryReaderMs": 149.498,
+  "boundaryAdapterMs": 417.136,
+  "oversizedAdapterMs": 391.682,
+  "boundaryOutlineInteractions": 2001,
+  "oversizedOutlineInteractions": 2000,
   "retainedInteractions": 86,
   "retainedBytes": 4156986
 }
 ```
 
 The append fixture is exactly 1 MiB and introduces interaction 1,001. The
-harness also creates and opens an exact 64 MiB source, then a 64 MiB + 1 byte
-source, constructs 2,001 normalized interactions and verifies the 2,000
-outline cap, serializes a real adapter page, and invokes the production
-Viewer's `evict()`/`snapshotBytes()` paths.
+harness also creates a dense, fully valid JSONL source of exactly 64 MiB with
+2,001 real Kimi interactions. The exact-boundary source passes
+`openValidatedConversationSource`, `readConversationJsonl` (6,076 decoded
+records, zero malformed or oversized lines), Kimi normalization, and the
+production 2,000-entry outline cap. After one byte is appended, the validated
+source reports a read start of byte 1; a fresh Kimi adapter follows that real
+oversized-prefix rejection path, returns `partial: true`, and normalizes the
+remaining 2,000 interactions. No boundary assertion constructs normalized
+interaction objects directly. The harness also serializes a real adapter
+page and invokes the production Viewer's `evict()`/`snapshotBytes()` paths.
 
 ## Packaging evidence
 
@@ -188,8 +229,8 @@ git log --reverse --format='%H %s' origin/main..HEAD
 ```
 
 `MAIN-AI-SESSION-CONVERSATION-OUTLINE` assigns all 26 non-documentation
-implementation commits from Tasks 1–10 plus gate commit `88e29eb`, for 27
-real full hashes total. It owns:
+implementation commits from Tasks 1–10 plus gate commits `88e29eb` and
+`e227fb9`, for 28 real full hashes total. It owns:
 
 ```text
 SESSION-AI-SESSION-CONVERSATION-ADAPTER-001
@@ -199,15 +240,16 @@ SECURITY-AI-SESSION-CONVERSATION-SOURCE-001
 ```
 
 Its PR gate is `test:ci:linux`, its scheduled job is `scheduled-macos`, and
-`realEnvironmentRequired` is false. `audit.head` is the full gate hash.
+`realEnvironmentRequired` is false. `audit.head` is the full hardened-gate
+hash `e227fb9d42451b032d4d910f15037b149689b3d5`.
 The two design commits and plan commit use their real full hashes as explicit
 documentation exemptions. The additional plan-review and task-report commits
 are documentation-only and are accepted by the schema without disguising
 implementation.
 
 `npm run test:behavior-contracts` passed both the behavior catalog and main
-capability currency checks. The audit-only commit follows `audit.head` and
-changes only `docs/testing/main-capability-coverage.json`.
+capability currency checks. The fresh audit-only commit follows `audit.head`
+and changes only `docs/testing/main-capability-coverage.json`.
 
 ## Verification
 
@@ -215,7 +257,8 @@ Focused final gates:
 
 ```text
 npm run test-compile                                      passed
-node --test tests/unit/tooling/architectureGuards.test.js 20/20
+three-provider conversation adapter contracts             30/30
+node --test tests/unit/tooling/architectureGuards.test.js 28/28
 Windows conversation source test                          1/1
 macOS conversation source tests                           2/2
 remote conversation source tests                          3/3
@@ -237,7 +280,8 @@ was not used as completion evidence. The exact command was run again with
 set -o pipefail; npm run test:ci:linux 2>&1 | tail -n 120
 ```
 
-Fresh result: exit `0`. The tail ended with `Coverage baseline checks passed.`
+The same exact command was run once more after the review fixes. Fresh
+result: exit `0`. The tail ended with `Coverage baseline checks passed.`
 This proves the full compile, behavior, lint, deterministic, remote,
 performance, browser, safety, Dashboard, architecture, release notes,
 release packaging, production build, coverage, and coverage-baseline chain.

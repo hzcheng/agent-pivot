@@ -1432,9 +1432,9 @@ test('ACTIVE-SESSION-CONVERSATION-LAYOUT-001 measures one row delta synchronousl
             return markerRect.top >= railRect.top && markerRect.bottom <= railRect.bottom;
         })(),
     }));
-    assert.ok(spaciousRail.clientHeight > 0);
-    assert.equal(spaciousRail.clientHeight, spaciousRail.scrollHeight);
-    assert.equal(spaciousRail.firstMarkerVisible, true);
+    assert.equal(spaciousRail.clientHeight, 168);
+    assert.ok(spaciousRail.clientHeight < spaciousRail.scrollHeight);
+    assert.equal(spaciousRail.firstMarkerVisible, false);
     assert.equal(spaciousRail.lastMarkerVisible, true);
     const expanded = await page.evaluate(() => {
         const listNode = document.querySelector('.ai-session-active-panel .codex-sessions-list');
@@ -1454,21 +1454,21 @@ test('ACTIVE-SESSION-CONVERSATION-LAYOUT-001 measures one row delta synchronousl
     assert.equal(await focusedHeader.isVisible(), true);
     assert.equal(await conversationPanel.locator('header').isVisible(), true);
     const constrainedRail = await conversationRail.evaluate(node => {
-        const marker = node.querySelector('[data-ai-session-conversation-marker]');
+        const marker = node.querySelector('[data-latest]');
         const railRect = node.getBoundingClientRect();
         const markerRect = marker.getBoundingClientRect();
         return {
             clientHeight: node.clientHeight,
             scrollHeight: node.scrollHeight,
             overflowY: getComputedStyle(node).overflowY,
-            markerVisible: markerRect.top >= railRect.top
+            latestMarkerVisible: markerRect.top >= railRect.top
                 && markerRect.bottom <= railRect.bottom,
         };
     });
     assert.ok(constrainedRail.clientHeight >= 72);
     assert.ok(constrainedRail.clientHeight < constrainedRail.scrollHeight);
     assert.equal(constrainedRail.overflowY, 'auto');
-    assert.equal(constrainedRail.markerVisible, true);
+    assert.equal(constrainedRail.latestMarkerVisible, true);
     assert.equal(await conversationPanel.evaluate(node =>
         getComputedStyle(node).overflowY !== 'auto'
     ), true);
@@ -1487,8 +1487,8 @@ test('ACTIVE-SESSION-CONVERSATION-LAYOUT-001 measures one row delta synchronousl
         );
         if (!panelNode || !railNode) return false;
         const panelRect = panelNode.getBoundingClientRect();
-        return railNode.clientHeight > 0
-            && railNode.clientHeight === railNode.scrollHeight
+        return railNode.clientHeight === 168
+            && railNode.scrollHeight > railNode.clientHeight
             && panelRect.top >= 0
             && panelRect.bottom <= window.innerHeight;
     });
@@ -1497,7 +1497,7 @@ test('ACTIVE-SESSION-CONVERSATION-LAYOUT-001 measures one row delta synchronousl
         clientHeight: node.clientHeight,
         scrollHeight: node.scrollHeight,
     })), {
-        clientHeight: spaciousRail.scrollHeight,
+        clientHeight: 168,
         scrollHeight: spaciousRail.scrollHeight,
     });
 
@@ -1512,15 +1512,15 @@ test('ACTIVE-SESSION-CONVERSATION-LAYOUT-001 measures one row delta synchronousl
             + '[data-ai-session-conversation-rail]'
         );
         return railNode
-            && railNode.clientHeight === 24
-            && railNode.scrollHeight === 24;
+            && railNode.clientHeight === 28
+            && railNode.scrollHeight === 28;
     });
     assert.deepEqual(await conversationRail.evaluate(node => ({
         clientHeight: node.clientHeight,
         scrollHeight: node.scrollHeight,
     })), {
-        clientHeight: 24,
-        scrollHeight: 24,
+        clientHeight: 28,
+        scrollHeight: 28,
     });
 
     const loadingPage = await openConversationPage(t, [

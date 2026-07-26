@@ -908,26 +908,43 @@ function syncActiveAiSessionConversationListHeight(row) {
                 total + (parseFloat(panelStyle[property]) || 0), 0)
         : 0;
     var conversationHeaderHeight = conversationHeader.getBoundingClientRect().height;
+    var rail = panel.querySelector('[data-ai-session-conversation-rail]');
+    var autoScrollThreshold = getConversationAutoScrollThreshold(rail);
+    var railWasAtEnd = rail
+        && autoScrollThreshold !== null
+        && rail.scrollHeight - rail.clientHeight - rail.scrollTop
+            <= autoScrollThreshold;
     row.style.removeProperty(
         '--steward-ai-session-conversation-rail-height'
     );
-    var rail = panel.querySelector('[data-ai-session-conversation-rail]');
     var visiblePanelContent = Array.from(panel.children).filter(child =>
         child !== conversationHeader
         && !child.hidden
         && (typeof getComputedStyle !== 'function'
             || getComputedStyle(child).display !== 'none')
     );
+    var railScrollHeight = rail ? rail.scrollHeight || 0 : 0;
+    var railStyle = rail && typeof getComputedStyle === 'function'
+        ? getComputedStyle(rail)
+        : null;
+    var railMaxHeight = railStyle
+        ? parseFloat(railStyle.maxHeight)
+        : Number.NaN;
+    var naturalRailHeight = rail && visiblePanelContent.includes(rail)
+        ? Math.min(
+            railScrollHeight,
+            Number.isFinite(railMaxHeight) && railMaxHeight > 0
+                ? railMaxHeight
+                : railScrollHeight
+        )
+        : 0;
     var naturalContentHeight = visiblePanelContent.reduce((total, child) =>
         total + (child === rail
-            ? child.getBoundingClientRect().height || 0
+            ? naturalRailHeight
             : Math.max(
                 child.scrollHeight || 0,
                 child.getBoundingClientRect().height || 0
             )), 0);
-    var naturalRailHeight = rail && visiblePanelContent.includes(rail)
-        ? rail.getBoundingClientRect().height || 0
-        : 0;
     var naturalPanelHeight = conversationHeaderHeight
         + naturalContentHeight
         + panelVerticalChrome;
@@ -960,6 +977,9 @@ function syncActiveAiSessionConversationListHeight(row) {
             '--steward-ai-session-conversation-rail-height',
             Math.min(naturalRailHeight, railHeight) + 'px'
         );
+        if (railWasAtEnd) {
+            rail.scrollTop = Math.max(0, rail.scrollHeight - rail.clientHeight);
+        }
     }
     return true;
 }

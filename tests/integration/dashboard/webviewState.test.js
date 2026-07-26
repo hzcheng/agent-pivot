@@ -643,8 +643,16 @@ test('ACTIVE-SESSION-CONVERSATION-OUTLINE-001 keeps correlated outline rendering
         /message\.subscriptionGeneration !== state\.subscriptionGeneration/
     );
     assert.match(projectSource, /document\.createElement\('button'\)/);
-    assert.match(projectSource, /marker\.textContent = preview/);
-    assert.match(projectSource, /marker\.style\.setProperty\(\s*'--ai-input-ratio'/);
+    assert.match(
+        projectSource,
+        /previewNode\.className = 'ai-session-conversation-marker-preview'/
+    );
+    assert.match(projectSource, /previewNode\.textContent = preview/);
+    assert.match(
+        projectSource,
+        /stroke\.setAttribute\('aria-hidden', 'true'\)/
+    );
+    assert.doesNotMatch(projectSource, /--ai-input-ratio|var longest/);
     assert.match(projectSource, /type: 'open-ai-session-conversation'/);
     assert.match(projectSource, /expectedRevision: state\.sourceRevision/);
     assert.doesNotMatch(

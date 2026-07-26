@@ -855,7 +855,7 @@ test('ACTIVE-SESSION-CONVERSATION-STATES-001 distinguishes loading, empty, stale
     assert.equal(await exhaustedRetry.isEnabled(), true);
 });
 
-test('ACTIVE-SESSION-CONVERSATION-MARKER-001 safely renders markers and posts exact opaque navigation', async t => {
+test('WEBVIEW-AI-SESSION-CONVERSATION-OUTLINE-001 renders safe readable equal-width rows and posts exact opaque navigation', async t => {
     const page = await openConversationPage(t, [
         session('codex', 'session-a', true),
     ]);
@@ -889,16 +889,68 @@ test('ACTIVE-SESSION-CONVERSATION-MARKER-001 safely renders markers and posts ex
     assert.equal(await markers.count(), 3);
     assert.equal(await markers.nth(0).getAttribute('data-interaction-id'), 'input-1');
     assert.equal(await markers.nth(2).getAttribute('data-interaction-id'), 'input-3');
-    assert.deepEqual(await markers.evaluateAll(nodes => nodes.map(node => ({
-        ratio: node.style.getPropertyValue('--ai-input-ratio'),
-        tabIndex: node.tabIndex,
-        selected: node.getAttribute('aria-selected'),
-        role: node.getAttribute('role'),
-        minHeight: getComputedStyle(node).minHeight,
-    }))), [
-        { ratio: '0.25', tabIndex: -1, selected: 'false', role: 'option', minHeight: '24px' },
-        { ratio: '1', tabIndex: -1, selected: 'false', role: 'option', minHeight: '24px' },
-        { ratio: '0.5', tabIndex: 0, selected: 'true', role: 'option', minHeight: '24px' },
+    const geometry = await markers.evaluateAll(nodes => nodes.map(node => {
+        const stroke = node.querySelector(
+            '.ai-session-conversation-marker-stroke'
+        );
+        const preview = node.querySelector(
+            '.ai-session-conversation-marker-preview'
+        );
+        const previewStyle = preview && getComputedStyle(preview);
+        return {
+            ratio: node.style.getPropertyValue('--ai-input-ratio'),
+            fillsRail: node.offsetWidth === node.parentElement.clientWidth,
+            rowHeight: node.getBoundingClientRect().height,
+            strokeWidth: stroke && getComputedStyle(stroke).width,
+            preview: preview && preview.textContent,
+            whiteSpace: previewStyle && previewStyle.whiteSpace,
+            overflow: previewStyle && previewStyle.overflow,
+            textOverflow: previewStyle && previewStyle.textOverflow,
+            tabIndex: node.tabIndex,
+            selected: node.getAttribute('aria-selected'),
+            role: node.getAttribute('role'),
+        };
+    }));
+    assert.deepEqual(geometry, [
+        {
+            ratio: '',
+            fillsRail: true,
+            rowHeight: 28,
+            strokeWidth: '14px',
+            preview: 'First input',
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            tabIndex: -1,
+            selected: 'false',
+            role: 'option',
+        },
+        {
+            ratio: '',
+            fillsRail: true,
+            rowHeight: 28,
+            strokeWidth: '14px',
+            preview: hostilePreview,
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            tabIndex: -1,
+            selected: 'false',
+            role: 'option',
+        },
+        {
+            ratio: '',
+            fillsRail: true,
+            rowHeight: 28,
+            strokeWidth: '14px',
+            preview: 'Latest input',
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            tabIndex: 0,
+            selected: 'true',
+            role: 'option',
+        },
     ]);
     assert.notEqual(await markers.nth(2).getAttribute('data-latest'), null);
     assert.notEqual(await markers.nth(2).getAttribute('data-current'), null);
@@ -977,7 +1029,7 @@ test('ACTIVE-SESSION-CONVERSATION-MARKER-001 safely renders markers and posts ex
     assert.deepEqual(await postedMessages(page), []);
 });
 
-test('ACTIVE-SESSION-CONVERSATION-SCROLL-001 reveals first and live latest markers only under bounded rules', async t => {
+test('WEBVIEW-AI-SESSION-CONVERSATION-OUTLINE-001 caps the readable rail and preserves bounded scrolling', async t => {
     const spaciousPage = await openConversationPage(t, [
         session('codex', 'session-a', true),
     ]);
@@ -993,6 +1045,41 @@ test('ACTIVE-SESSION-CONVERSATION-SCROLL-001 reveals first and live latest marke
         await spaciousRow.locator('[data-ai-session-conversation-rail]')
             .evaluate(node => node.scrollTop),
         0
+    );
+    const shortRailGeometry = await spaciousRow
+        .locator('[data-ai-session-conversation-rail]')
+        .evaluate(node => ({
+            clientHeight: node.clientHeight,
+            scrollHeight: node.scrollHeight,
+        }));
+    assert.deepEqual(shortRailGeometry, {
+        clientHeight: 84,
+        scrollHeight: 84,
+    });
+
+    const spaciousLongOutline = Array.from({ length: 18 }, (_, index) =>
+        summary(`spacious-${index}`, index + 1, `Spacious input ${index}`)
+    );
+    await postHostMessage(
+        spaciousPage,
+        outlineResult({
+            sourceRevision: 'spacious-r2',
+            interactions: spaciousLongOutline,
+        })
+    );
+    await waitForPageCondition(spaciousPage, () => {
+        const node = document.querySelector(
+            '[data-ai-session-conversation-rail]'
+        );
+        return node && node.scrollHeight > node.clientHeight;
+    });
+    assert.deepEqual(
+        await spaciousRow.locator('[data-ai-session-conversation-rail]')
+            .evaluate(node => ({
+                clientHeight: node.clientHeight,
+                overflows: node.scrollHeight > node.clientHeight,
+            })),
+        { clientHeight: 168, overflows: true }
     );
 
     const page = await openConversationPage(t, [

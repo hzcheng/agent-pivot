@@ -52,12 +52,39 @@ function validateTodoFocus(source) {
 }
 
 function validateConversationOutlineStyles(source) {
-    const marker = extractBlock(source, '.ai-session-conversation-marker');
-    assert.ok(marker.includes('min-height: 24px;'),
-        'WEBVIEW-AI-SESSION-CONVERSATION-OUTLINE-001 markers must retain a minimum hit target');
     const rail = extractBlock(source, '.ai-session-conversation-rail');
-    assert.ok(rail.includes('overflow-y: auto;'),
-        'WEBVIEW-AI-SESSION-CONVERSATION-OUTLINE-001 only the marker rail may scroll');
+    for (const value of [
+        '--steward-ai-session-conversation-rail-height,\n                168px',
+        'overflow-x: hidden;',
+        'overflow-y: auto;',
+    ]) {
+        assert.ok(rail.includes(value),
+            `WEBVIEW-AI-SESSION-CONVERSATION-OUTLINE-001 rail missing ${value}`);
+    }
+    const marker = extractBlock(source, '.ai-session-conversation-marker');
+    for (const value of [
+        'grid-template-columns: 14px minmax(0, 1fr);',
+        'width: 100%;',
+        'height: 28px;',
+    ]) {
+        assert.ok(marker.includes(value),
+            `WEBVIEW-AI-SESSION-CONVERSATION-OUTLINE-001 marker missing ${value}`);
+    }
+    assert.equal(marker.includes('--ai-input-ratio'), false,
+        'WEBVIEW-AI-SESSION-CONVERSATION-OUTLINE-001 marker width must not encode input length');
+    const preview = extractBlock(
+        source,
+        '.ai-session-conversation-marker-preview'
+    );
+    for (const value of [
+        'min-width: 0;',
+        'overflow: hidden;',
+        'text-overflow: ellipsis;',
+        'white-space: nowrap;',
+    ]) {
+        assert.ok(preview.includes(value),
+            `WEBVIEW-AI-SESSION-CONVERSATION-OUTLINE-001 preview missing ${value}`);
+    }
     const panel = extractBlock(source, '.ai-session-conversation-panel');
     assert.ok(panel.includes('overflow: hidden;'),
         'WEBVIEW-AI-SESSION-CONVERSATION-OUTLINE-001 expanded content must stay inside its card');
@@ -438,12 +465,8 @@ test('WEBVIEW-AI-PROMPT-STYLES-001 exposes every Prompt styling boundary', () =>
 test('WEBVIEW-AI-SESSION-CONVERSATION-OUTLINE-001 preserves bounded marker and card geometry', () => {
     validateConversationOutlineStyles(styles);
     assert.throws(() => validateConversationOutlineStyles(styles.replace(
-        'width: calc(var(--ai-input-ratio) * 100%);\n'
-            + '            min-width: 18%;\n'
-            + '            min-height: 24px;',
-        'width: calc(var(--ai-input-ratio) * 100%);\n'
-            + '            min-width: 18%;\n'
-            + '            min-height: 0;'
+        'grid-template-columns: 14px minmax(0, 1fr);',
+        'grid-template-columns: minmax(0, 1fr);'
     )), /WEBVIEW-AI-SESSION-CONVERSATION-OUTLINE-001/);
 });
 

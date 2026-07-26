@@ -15,6 +15,7 @@
 - Use RED-before-production-edit for both regressions.
 - Preserve URI identity semantics for decoded authority/path components and literal percent escapes.
 - Runtime discovery failures remain structured diagnostics; only their propagation into view preparation changes.
+- Advance the capability audit immediately after each implementation commit before running another behavior-catalog gate.
 - Do not publish to the VS Code Marketplace.
 
 ---
@@ -27,6 +28,7 @@
 - Modify: `extensions/attention-ui-bridge/src/openWorkspacePublication.ts`
 - Modify: `extensions/attention-ui-bridge/src/extension.ts`
 - Modify: `scripts/run-open-project-safety-checks.js`
+- Modify: `docs/testing/main-capability-coverage.json`
 
 **Interfaces:**
 - Consumes: `createWorkspaceUriIdentity(source: WorkspaceUriIdentitySource): string` and `createWorkspaceScopeIdentity(sources: readonly WorkspaceUriIdentitySource[]): string`.
@@ -175,6 +177,19 @@ git add docs/testing/behavior-contracts.json \
 git commit -m "fix: preserve authoritative workspace identities"
 ```
 
+- [ ] **Step 9: Assign and audit Task 1 before the next catalog gate**
+
+Add the Task 1 implementation commit and
+`OPEN-OPEN-PROJECT-AUTHORITATIVE-IDENTITY-001` to
+`MAIN-WORKSPACE-IDENTITY` and `MAIN-OTHER-WINDOWS`, set `audit.head` to the
+Task 1 commit, then run and commit:
+
+```bash
+npm run test:behavior-contracts
+git add docs/testing/main-capability-coverage.json
+git commit -m "docs: audit authoritative workspace identity fix"
+```
+
 ---
 
 ### Task 2: Keep the dashboard visible when runtime discovery fails
@@ -283,14 +298,15 @@ git commit -m "fix: keep dashboard visible after runtime refresh failure"
 - Test: all files changed in Tasks 1 and 2
 
 **Interfaces:**
-- Consumes: the exact Task 1 and Task 2 commit hashes.
-- Produces: a current capability audit assigning both implementation commits to CI-reachable capabilities.
+- Consumes: the exact Task 2 commit hash and the Task 1 audit completed in Task 1 Step 9.
+- Produces: a current capability audit assigning the view-resilience implementation commit to a CI-reachable capability.
 
 - [ ] **Step 1: Assign the implementation commits**
 
-Add the Task 1 commit hash and behavior to `MAIN-OTHER-WINDOWS` and
+Confirm Task 1 remains assigned to `MAIN-OTHER-WINDOWS` and
 `MAIN-WORKSPACE-IDENTITY`. Add the Task 2 commit hash and behavior to
-`MAIN-DASHBOARD-WEBVIEW-RECOVERY`. Set `audit.head` to the Task 2 implementation commit. Keep the design and plan commits as genuine documentation-only commits.
+`MAIN-DASHBOARD-WEBVIEW-RECOVERY`. Set `audit.head` to the Task 2 implementation
+commit. Keep the design and plan commits as genuine documentation-only commits.
 
 - [ ] **Step 2: Verify audit currency**
 

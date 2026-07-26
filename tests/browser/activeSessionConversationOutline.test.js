@@ -1711,9 +1711,16 @@ test('ACTIVE-SESSION-CONVERSATION-RESTORE-001 keeps one pending envelope and its
     ], { width: 360, height: 260 });
     const focused = row(page, 'codex', 'session-a');
     await focused.locator('.ai-session-primary-action').click();
-    await postHostMessage(page, outlineResult({
-        interactions: summaries(18),
-    }));
+    assert.deepEqual(await conversationMessages(page), [{
+        type: 'request-ai-session-conversation-outline',
+        version: 1,
+        requestId: 1,
+        subscriptionGeneration: 1,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    }]);
+    await seedConversationRail(page, 'codex', 'session-a', 18);
     const rail = focused.locator('[data-ai-session-conversation-rail]');
     const anchor = await rail.evaluate(node => {
         node.scrollTop = 64;

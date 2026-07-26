@@ -89,7 +89,7 @@ function todoSnapshot(todoIds, includeSecondGroup = true, extraGroups = [], grou
                 id,
                 groupId: typeof groupIdForTodo === 'function'
                     ? groupIdForTodo(id, index)
-                    : index === todoIds.length - 1 && includeSecondGroup ? 'group-b' : 'group-a',
+                    : 'group-a',
                 title: id, notes: '', priority: 'medium', completed: false,
                 createdAt: '2026-07-24T00:00:00.000Z', updatedAt: '2026-07-24T00:00:00.000Z', order: index,
             })),
@@ -240,9 +240,12 @@ test('TODO-AUTHORITATIVE-REFRESH-STATE-001 renders one mounted refresh and prese
 test('TODO-AUTHORITATIVE-REFRESH-STATE-001 discards local state only when its authoritative identity disappears', async t => {
     const page = await openDashboardPage(t);
     const survivorGroup = [{ id: 'group-c', title: 'Survivors' }];
-    const groupForTodo = todoId => todoId.startsWith('survivor-') ? 'group-c' : 'group-a';
+    const groupForTodo = todoId => {
+        if (todoId.startsWith('survivor-')) return 'group-c';
+        return todoId === 'removed-group-item' ? 'group-b' : 'group-a';
+    };
     const initial = todoSnapshot([
-        'todo-a', 'todo-b', 'todo-c', 'todo-d',
+        'todo-a', 'todo-b', 'todo-c', 'todo-d', 'removed-group-item',
         'survivor-a', 'survivor-b', 'survivor-c', 'survivor-d',
     ], true, survivorGroup, groupForTodo);
     await page.evaluate(() => window.__dashboard.activateTab('todo'));

@@ -957,14 +957,12 @@ function initDashboard(options) {
             return;
         }
         state.groups.forEach(function (savedGroup) {
-            if (!savedGroup.anchor || !savedGroup.anchor.itemKey) {
+            if (!savedGroup.anchor) {
                 return;
             }
             var group = findProjectsPanelGroup(savedGroup.groupId);
             var list = group && group.querySelector('.group-list');
-            var survivingItem = list && Array.from(list.querySelectorAll('.project[data-id]'))
-                .find(project => getProjectScrollItemKey(project) === savedGroup.anchor.itemKey);
-            if (!survivingItem) {
+            if (!list) {
                 return;
             }
             window.__projectStewardScrollState.restore(list, savedGroup.anchor, {
@@ -1084,6 +1082,9 @@ function initDashboard(options) {
         var restoreShowCompletedFocus = !!activeElement
             && panels.todo.contains(activeElement)
             && activeElement.getAttribute('data-action') === 'todo-toggle-show-completed';
+        var fallbackWindowScrollY = restoreShowCompletedFocus
+            ? window.scrollY
+            : null;
         if (todoRequestTimer !== null) {
             cancelTimeout(todoRequestTimer);
             todoRequestTimer = null;
@@ -1105,7 +1106,10 @@ function initDashboard(options) {
                     '[data-action="todo-toggle-show-completed"]'
                 );
                 if (showCompletedToggle) {
-                    showCompletedToggle.focus();
+                    showCompletedToggle.focus({ preventScroll: true });
+                    if (Number.isFinite(fallbackWindowScrollY)) {
+                        window.scrollTo(0, fallbackWindowScrollY);
+                    }
                 }
             }
         }

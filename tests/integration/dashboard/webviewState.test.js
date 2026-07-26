@@ -1591,6 +1591,50 @@ test('TODO-AUTHORITATIVE-REFRESH-STATE-001 routes supported mounted snapshots wi
     assert.equal(harness.todoPanel.innerHTML, '<div class="todo-panel">missing fallback</div>');
 });
 
+test('TODO-AUTHORITATIVE-REFRESH-STATE-001 fallback restores show-completed focus with preventScroll and preserves window scroll', () => {
+    const harness = createDashboardHarness({
+        initialTab: 'todo',
+        onTodoRefresh: () => false,
+    });
+    assert.equal(harness.controller.applyTodoPanelMessage({
+        type: 'todo-panel-content',
+        version: 1,
+        requestId: 1,
+        html: '<div class="todo-panel">mounted</div>',
+        searchCatalog: makeCatalog('mounted'),
+    }), true);
+    const oldToggle = createElement();
+    oldToggle.setAttribute('data-action', 'todo-toggle-show-completed');
+    const replacementToggle = createElement();
+    let focusOptions = null;
+    replacementToggle.setAttribute('data-action', 'todo-toggle-show-completed');
+    replacementToggle.focus = options => {
+        focusOptions = options;
+        harness.context.document.activeElement = replacementToggle;
+        if (!options || options.preventScroll !== true) {
+            harness.context.window.scrollY = 0;
+        }
+    };
+    harness.todoPanel.contains = candidate => candidate === oldToggle;
+    harness.todoPanel.querySelector = selector =>
+        selector === '[data-action="todo-toggle-show-completed"]'
+            ? replacementToggle
+            : null;
+    harness.context.document.activeElement = oldToggle;
+    harness.context.window.scrollY = 73;
+
+    assert.equal(harness.controller.applyTodoPanelUpdatedMessage({
+        type: 'todo-panel-updated',
+        version: 1,
+        html: '<div class="todo-panel">fallback</div>',
+        snapshot: { version: 2 },
+        searchCatalog: makeCatalog('fallback'),
+    }), true);
+    assert.deepEqual(toPlain(focusOptions), { preventScroll: true });
+    assert.equal(harness.context.document.activeElement, replacementToggle);
+    assert.equal(harness.context.window.scrollY, 73);
+});
+
 test('TODO-TODO-SEARCH-RESULT-RENDERING-001 search reveal requests host data then focuses the mounted TODO', () => {
     const harness = createDashboardHarness({
         initialTab: 'todo',

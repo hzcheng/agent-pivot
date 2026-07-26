@@ -1374,7 +1374,102 @@ test('ACTIVE-SESSION-CONVERSATION-RESTORE-002 retains rendered history scroll an
     );
 });
 
-test('ACTIVE-SESSION-CONVERSATION-RETRY-001 clears Retry timers on collapse, replacement, and disposal', async t => {
+test('ACTIVE-SESSION-CONVERSATION-RESTORE-002 retains a validated error after matching HTML replacement without another Host request', async t => {
+    const page = await openConversationPage(t, [
+        session('codex', 'session-a', true),
+    ]);
+    const focused = row(page, 'codex', 'session-a');
+    await focused.locator('.ai-session-primary-action').click();
+    await postHostMessage(page, outlineError({ code: 'timeout' }));
+    assert.equal(
+        await focused.locator('.ai-session-conversation-loading').textContent(),
+        'Conversation history timed outRetry'
+    );
+    const requestsBefore = (await conversationMessages(page))
+        .filter(message => message.type === 'request-ai-session-conversation-outline').length;
+
+    await postWorkspaceUpdate(page, [
+        session('codex', 'session-a', true),
+    ]);
+    const restored = row(page, 'codex', 'session-a');
+    assert.equal(
+        await restored.locator('.ai-session-conversation-loading').textContent(),
+        'Conversation history timed outRetry'
+    );
+    assert.equal(
+        await restored.locator('.ai-session-conversation-loading').getAttribute('data-state'),
+        'unavailable'
+    );
+    assert.equal(
+        await restored.locator('[data-ai-session-conversation-marker]').count(),
+        0
+    );
+    assert.equal(
+        (await conversationMessages(page))
+            .filter(message => message.type === 'request-ai-session-conversation-outline').length,
+        requestsBefore
+    );
+
+    await restored.locator('[data-action="retry-ai-session-conversation"]').click();
+    assert.equal(
+        (await conversationMessages(page))
+            .filter(message => message.type === 'request-ai-session-conversation-outline').length,
+        requestsBefore + 1
+    );
+});
+
+test('ACTIVE-SESSION-CONVERSATION-RESTORE-002 replaces a cached outline with the latest validated error and retains its Retry deadline', async t => {
+    const page = await openConversationPage(t, [
+        session('codex', 'session-a', true),
+    ]);
+    const focused = row(page, 'codex', 'session-a');
+    await focused.locator('.ai-session-primary-action').click();
+    await postHostMessage(page, outlineResult({
+        interactions: [summary('must-not-return', 16, 'Must not return')],
+    }));
+    await postHostMessage(page, outlineError({
+        code: 'unavailable',
+        reason: 'codexRetryExhausted',
+        retryAfterMs: 60_000,
+    }));
+    const deadlineBefore = await page.evaluate(() =>
+        activeAiSessionConversationRetryDeadline
+    );
+    const requestsBefore = (await conversationMessages(page))
+        .filter(message => message.type === 'request-ai-session-conversation-outline').length;
+
+    await postWorkspaceUpdate(page, [
+        session('codex', 'session-a', true),
+    ]);
+    const restored = row(page, 'codex', 'session-a');
+    const deadlineAfter = await page.evaluate(() =>
+        activeAiSessionConversationRetryDeadline
+    );
+    assert.equal(
+        await restored.locator('[data-interaction-id="must-not-return"]').count(),
+        0
+    );
+    assert.equal(
+        await restored.locator('.ai-session-conversation-loading').textContent(),
+        'Codex conversation history unavailableRetry'
+    );
+    assert.equal(
+        await restored.locator('[data-action="retry-ai-session-conversation"]').isDisabled(),
+        true
+    );
+    assert.ok(deadlineBefore > Date.now());
+    assert.ok(
+        Math.abs(deadlineAfter - deadlineBefore) <= 5,
+        `expected retained Retry deadline ${deadlineBefore}, received ${deadlineAfter}`
+    );
+    assert.equal(
+        (await conversationMessages(page))
+            .filter(message => message.type === 'request-ai-session-conversation-outline').length,
+        requestsBefore
+    );
+});
+
+test('ACTIVE-SESSION-CONVERSATION-RETRY-001 clears Retry timers on collapse and disposal while retaining the deadline through replacement', async t => {
     const page = await openConversationPage(t, [
         session('codex', 'session-a', true),
     ]);
@@ -1407,26 +1502,18 @@ test('ACTIVE-SESSION-CONVERSATION-RETRY-001 clears Retry timers on collapse, rep
     assert.equal(await page.evaluate(() =>
         typeof activeAiSessionConversationRetryTimer
     ), 'number');
+    const replacementDeadline = await page.evaluate(() =>
+        activeAiSessionConversationRetryDeadline
+    );
     await postWorkspaceUpdate(page, [
         session('codex', 'session-a', true),
     ]);
     assert.equal(await page.evaluate(() =>
-        typeof activeAiSessionConversationRetryTimer === 'undefined'
-            ? undefined
-            : activeAiSessionConversationRetryTimer
-    ), null);
-
-    await postHostMessage(page, outlineError({
-        code: 'unavailable',
-        reason: 'codexRetryExhausted',
-        retryAfterMs: 60_000,
-    }, {
-        requestId: 3,
-        subscriptionGeneration: 3,
-    }));
-    assert.equal(await page.evaluate(() =>
         typeof activeAiSessionConversationRetryTimer
     ), 'number');
+    assert.ok(Math.abs((await page.evaluate(() =>
+        activeAiSessionConversationRetryDeadline
+    )) - replacementDeadline) <= 5);
     await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
     assert.equal(await page.evaluate(() =>
         typeof activeAiSessionConversationRetryTimer === 'undefined'

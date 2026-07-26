@@ -249,7 +249,8 @@ function setActiveAiSessionConversationStatus(
     stateName,
     text,
     hint,
-    retryAfterMs
+    retryAfterMs,
+    retainedRetryDeadline
 ) {
     var panel = row && row.querySelector('[data-ai-session-conversation-panel]');
     var status = panel && panel.querySelector('.ai-session-conversation-loading');
@@ -274,9 +275,16 @@ function setActiveAiSessionConversationStatus(
         retry.className = 'ai-session-conversation-retry';
         retry.setAttribute('data-action', 'retry-ai-session-conversation');
         retry.textContent = 'Retry';
-        var delay = Number.isSafeInteger(retryAfterMs) && retryAfterMs > 0
+        var requestedDelay = Number.isSafeInteger(retryAfterMs) && retryAfterMs > 0
             ? retryAfterMs
             : 0;
+        var hasRetainedDeadline = Number.isFinite(retainedRetryDeadline);
+        var retryDeadline = hasRetainedDeadline
+            ? retainedRetryDeadline
+            : requestedDelay > 0
+                ? Date.now() + requestedDelay
+                : 0;
+        var delay = Math.max(0, retryDeadline - Date.now());
         retry.disabled = delay > 0;
         retry.addEventListener('click', event => {
             event.preventDefault();
@@ -292,7 +300,7 @@ function setActiveAiSessionConversationStatus(
         });
         status.appendChild(retry);
         if (delay > 0) {
-            activeAiSessionConversationRetryDeadline = Date.now() + delay;
+            activeAiSessionConversationRetryDeadline = retryDeadline;
             var retryState = activeAiSessionConversationSubscription;
             var enableRetry = () => {
                 if (activeAiSessionConversationSubscription !== retryState
@@ -311,6 +319,9 @@ function setActiveAiSessionConversationStatus(
                 retry.disabled = false;
                 activeAiSessionConversationRetryTimer = null;
                 activeAiSessionConversationRetryDeadline = 0;
+                if (retryState.validatedRender?.kind === 'error') {
+                    retryState.validatedRender.retryDeadline = 0;
+                }
             };
             activeAiSessionConversationRetryTimer = window.setTimeout(
                 enableRetry,
@@ -384,7 +395,7 @@ function requestActiveAiSessionConversation(row, restoreState) {
         sourceRevision: null,
         interactionIds: new Set(),
         hasRenderedOutline: false,
-        cachedOutline: null,
+        validatedRender: null,
         restoreState: restoreState || null,
     });
     window.vscode.postMessage(Object.assign({
@@ -651,6 +662,10 @@ function renderActiveAiSessionConversationOutline(row, state, outline) {
     clearConversationElement(rail);
     state.sourceRevision = outline.sourceRevision;
     state.interactionIds = new Set(outline.interactions.map(summary => summary.id));
+    state.validatedRender = {
+        kind: 'outline',
+        outline: outline,
+    };
     var retainedFocusedInteractionId = restoreState?.focusedInteractionId
         || focusedInteractionId;
     var selectedInteractionId = retainedFocusedInteractionId
@@ -763,7 +778,12 @@ function renderActiveAiSessionConversationOutline(row, state, outline) {
     return true;
 }
 
-function renderActiveAiSessionConversationError(row, state, error) {
+function renderActiveAiSessionConversationError(
+    row,
+    state,
+    error,
+    retainedRetryDeadline
+) {
     clearActiveAiSessionConversationRetryTimer();
     var panel = row && row.querySelector('[data-ai-session-conversation-panel]');
     var rail = panel && panel.querySelector('[data-ai-session-conversation-rail]');
@@ -775,6 +795,7 @@ function renderActiveAiSessionConversationError(row, state, error) {
     state.sourceRevision = null;
     state.interactionIds = new Set();
     state.hasRenderedOutline = false;
+    state.restoreState = null;
 
     var stateName = error.code === 'staleRevision' ? 'stale' : 'unavailable';
     var text = error.code === 'staleRevision'
@@ -801,8 +822,14 @@ function renderActiveAiSessionConversationError(row, state, error) {
         stateName,
         text,
         hint,
-        error.retryAfterMs
+        error.retryAfterMs,
+        retainedRetryDeadline
     );
+    state.validatedRender = {
+        kind: 'error',
+        error: error,
+        retryDeadline: activeAiSessionConversationRetryDeadline,
+    };
     syncActiveAiSessionConversationListHeight(row);
     return true;
 }
@@ -846,11 +873,10 @@ function applyAiSessionConversationOutlineResult(message) {
     if (!row) return false;
     if (hasPayload) {
         if (!isValidConversationOutline(message.payload, state)) return false;
-        state.cachedOutline = message.payload;
         return renderActiveAiSessionConversationOutline(
             row,
             state,
-            state.cachedOutline
+            message.payload
         );
     }
     return isValidConversationError(message.error, state)
@@ -1154,14 +1180,21 @@ function rebindActiveAiSessionConversation(row, capturedState) {
     if (!applyActiveAiSessionConversationState(row, true, false)) return false;
     subscription.expanded = true;
     if (capturedState && (!subscription.restoreState
-        || subscription.cachedOutline)) {
+        || subscription.validatedRender?.kind === 'outline')) {
         subscription.restoreState = capturedState;
     }
-    if (subscription.cachedOutline) {
+    if (subscription.validatedRender?.kind === 'outline') {
         renderActiveAiSessionConversationOutline(
             row,
             subscription,
-            subscription.cachedOutline
+            subscription.validatedRender.outline
+        );
+    } else if (subscription.validatedRender?.kind === 'error') {
+        renderActiveAiSessionConversationError(
+            row,
+            subscription,
+            subscription.validatedRender.error,
+            subscription.validatedRender.retryDeadline
         );
     } else {
         prepareActiveAiSessionConversationLoading(row);

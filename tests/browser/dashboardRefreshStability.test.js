@@ -279,6 +279,42 @@ test('WEBVIEW-PROJECTS-PANEL-SCROLL-001 preserves a project anchor, focus, and w
     assert.equal(await page.evaluate(() => window.scrollY), before.scrollY);
 });
 
+test('WEBVIEW-PROJECTS-PANEL-SCROLL-001 clamps the saved raw position when the semantic project anchor disappears', async t => {
+    const page = await openDashboardPage(t);
+    await page.evaluate(() => window.__dashboard.activateTab('projects'));
+    await post(page, {
+        type: 'projects-panel-content', version: 1, requestId: 1,
+        html: projectsMarkup(['project-a', 'project-b', 'project-c', 'project-d', 'project-e', 'project-f']),
+    });
+    await waitForPageCondition(page, () => {
+        const list = document.querySelector('.saved-project-group .group-list');
+        return list && list.scrollHeight > list.clientHeight;
+    });
+    await page.evaluate(() => {
+        const list = document.querySelector('.saved-project-group .group-list');
+        list.scrollTop = list.scrollHeight - list.clientHeight;
+    });
+    await post(page, {
+        type: 'projects-panel-updated', version: 1, sequence: 1, mode: 'replace',
+        html: projectsMarkup(['project-a', 'project-b', 'project-c', 'project-x']),
+        searchCatalog: catalog(),
+        groupOrders: [{
+            groupId: 'group-a',
+            projectIds: ['project-a', 'project-b', 'project-c', 'project-x'],
+        }],
+        favoriteProjectIds: [],
+    });
+    const restored = await page.evaluate(() => {
+        const list = document.querySelector('.saved-project-group .group-list');
+        return {
+            scrollTop: list.scrollTop,
+            maxScrollTop: list.scrollHeight - list.clientHeight,
+        };
+    });
+    assert.ok(restored.maxScrollTop > 0);
+    assert.equal(restored.scrollTop, restored.maxScrollTop);
+});
+
 test('TODO-AUTHORITATIVE-REFRESH-STATE-001 renders one mounted refresh and preserves surviving anchors, detail, draft, compose, focus, and window position', async t => {
     const page = await openDashboardPage(t);
     const initial = todoSnapshot(['todo-a', 'todo-b', 'todo-c', 'todo-d', 'todo-e', 'todo-f']);
@@ -373,4 +409,52 @@ test('TODO-AUTHORITATIVE-REFRESH-STATE-001 discards local state only when its au
         const list = node.closest('.todo-list');
         return node.getBoundingClientRect().top - list.getBoundingClientRect().top;
     })) - before) <= 1);
+});
+
+test('TODO-AUTHORITATIVE-REFRESH-STATE-001 fallback replacement restores the exact show-completed focus without moving the window', async t => {
+    const page = await openDashboardPage(t);
+    const initial = todoSnapshot(['todo-a', 'todo-b']);
+    await page.evaluate(() => window.__dashboard.activateTab('todo'));
+    await post(page, {
+        type: 'todo-panel-content',
+        version: 1,
+        requestId: 1,
+        html: todoMarkup(initial),
+        snapshot: initial,
+        searchCatalog: catalog(),
+    });
+    await page.locator('[data-action="todo-toggle-show-completed"]').focus();
+    const before = await page.evaluate(() => {
+        const nativeFocus = HTMLElement.prototype.focus;
+        HTMLElement.prototype.focus = function (options) {
+            if (this.getAttribute('data-action') === 'todo-toggle-show-completed') {
+                window.__todoFallbackFocusOptions = options || null;
+            }
+            return nativeFocus.call(this, options);
+        };
+        window.scrollTo(0, 90);
+        return window.scrollY;
+    });
+    const replacement = {
+        ...initial,
+        showCompleted: true,
+    };
+
+    await post(page, {
+        type: 'todo-panel-updated',
+        version: 1,
+        html: todoMarkup(replacement),
+        snapshot: { version: 2 },
+        searchCatalog: catalog(),
+    });
+    assert.equal(
+        await page.locator('[data-action="todo-toggle-show-completed"]')
+            .evaluate(node => document.activeElement === node),
+        true
+    );
+    assert.deepEqual(
+        await page.evaluate(() => window.__todoFallbackFocusOptions),
+        { preventScroll: true }
+    );
+    assert.equal(await page.evaluate(() => window.scrollY), before);
 });

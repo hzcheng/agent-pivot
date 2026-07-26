@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "e7a7ccd26266ea4117a1b12611d7c76f249b9af0",
+        "head": "305eda319068f81b55c0512e9d60d30111b2d42f",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -34,7 +34,10 @@
             "83a87ea52b1eb76091c0041ffc7365e495cfc930",
             "289562ef88881d101ddb39f0dd4a2e7d9edbc613",
             "9181eb049562a7e9fca803365a43fcf1e9412e10",
-            "080599f815e9f368ae9a070c2a9573a250a1ebd9"
+            "080599f815e9f368ae9a070c2a9573a250a1ebd9",
+            "0a81f877f7f6ab838d53fc212c3aaba03e58aaeb",
+            "28cca76cd2b8071ef0a5b817d18ac3d187f1cdc6",
+            "0a230fb3b598416e0d4b454ae177886f850e8892"
         ]
     },
     "capabilities": [
@@ -704,14 +707,18 @@
                 "b978f6ba6a420048487654d1410d4d628f3ae096",
                 "6e9c3dc61843d13eac8b6d3327c3e2e0d8b07b5e",
                 "645442a9985995ee1b4d43b9fdeeb1a06352b478",
-                "2a4e481e4f58ceb6f9770323ef1b011fd371847d"
+                "2a4e481e4f58ceb6f9770323ef1b011fd371847d",
+                "305eda319068f81b55c0512e9d60d30111b2d42f"
             ],
             "behaviors": [
                 "ARCH-CI-QUALITY-GATE-001",
                 "ARCH-MAIN-CAPABILITY-COVERAGE-001",
                 "ARCH-MAIN-CAPABILITY-CURRENCY-001",
                 "ARCH-REPOSITORY-SKILL-GUIDANCE-001",
-                "RELEASE-VSIX-PACKAGING-001"
+                "RELEASE-VSIX-PACKAGING-001",
+                "WEBVIEW-AI-SESSION-LIST-SCROLL-001",
+                "WEBVIEW-PROJECTS-PANEL-SCROLL-001",
+                "TODO-AUTHORITATIVE-REFRESH-STATE-001"
             ],
             "prGates": [
                 "test:ci:linux"

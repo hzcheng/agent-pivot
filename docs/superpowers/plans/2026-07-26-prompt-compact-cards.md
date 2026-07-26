@@ -450,3 +450,95 @@ git status -sb
 
 Expected: every suite exits 0, diff check is clean, and only intentional
 committed branch changes remain.
+
+---
+
+### Task 5: Move Insert into the shared hover/focus toolbar
+
+**Files:**
+- Modify: `src/prompts/webviewContent.ts`
+- Modify: `media/styles.scss`
+- Modify: `tests/integration/dashboard/promptContent.test.js`
+- Modify: `tests/integration/dashboard/styles.test.js`
+- Modify: `tests/browser/promptLayout.test.js`
+- Regenerate: `media/styles.css`
+
+**Interfaces:**
+- Consumes: the existing `prompt-insert-terminal` action and correlated pending/result behavior.
+- Produces: one floating toolbar ordered Insert, Default, Edit, Delete, with no persistent right-side action column.
+
+- [ ] **Step 1: Write failing layout and rendering assertions**
+
+Require the Insert action to be the first child action inside
+`.prompt-management-actions`, require the collapsed card grid to have only
+drag/content columns, and require Chromium to find Insert unreachable before
+hover but reachable after hover:
+
+```js
+const actions = [...document.querySelectorAll(
+    '.prompt-management-actions [data-action]'
+)].map(button => button.getAttribute('data-action'));
+assert.deepEqual(actions, [
+    'prompt-insert-terminal',
+    'prompt-select-default',
+    'prompt-edit',
+    'prompt-delete',
+]);
+```
+
+- [ ] **Step 2: Run focused tests and verify RED**
+
+```bash
+npm run test-compile
+node --test --test-concurrency=1 \
+  tests/integration/dashboard/promptContent.test.js \
+  tests/integration/dashboard/styles.test.js \
+  tests/browser/promptLayout.test.js
+```
+
+Expected: FAIL because Insert is still outside the management toolbar and the
+card still reserves a third grid column.
+
+- [ ] **Step 3: Apply the minimal markup and SCSS change**
+
+Move the existing Insert button before the Default button inside
+`.prompt-management-actions`. Change `.prompt-item-view` to:
+
+```scss
+grid-template-columns: 24px minmax(0, 1fr);
+```
+
+Anchor the four-action toolbar to the card's right edge and reserve enough
+title space only on hover/focus. Preserve `:focus-within`, `@media (hover:
+none)`, pending `aria-disabled`, forced-colors, and reduced-motion behavior.
+
+- [ ] **Step 4: Regenerate assets and verify GREEN**
+
+```bash
+npx gulp --production
+node --test --test-concurrency=1 \
+  tests/integration/dashboard/promptContent.test.js \
+  tests/integration/dashboard/styles.test.js \
+  tests/browser/promptLayout.test.js \
+  tests/integration/dashboard/promptInteraction.test.js
+cmp src/webview/webviewPromptScripts.js media/webviewPromptScripts.js
+git diff --check
+```
+
+Expected: all focused tests pass, generated assets match, and the diff check
+is clean.
+
+- [ ] **Step 5: Commit and install the test build**
+
+```bash
+git add src/prompts/webviewContent.ts media/styles.scss media/styles.css \
+  tests/integration/dashboard/promptContent.test.js \
+  tests/integration/dashboard/styles.test.js \
+  tests/browser/promptLayout.test.js
+git commit -m "refactor: reveal Prompt insert with card actions"
+```
+
+Then package and install `hzcheng.project-steward@2.1.7` into the already
+verified active Dev Container Server and compare the VSIX and installed
+`dist/dashboard.js`, `media/styles.css`, and
+`media/webviewPromptScripts.js` SHA-256 hashes.

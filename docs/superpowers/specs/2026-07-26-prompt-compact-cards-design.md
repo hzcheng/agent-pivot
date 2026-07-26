@@ -18,11 +18,15 @@ Use the same compact-card language as Todo items:
   library that shows the complete Prompt text.
 - Keep a compact "insert into active terminal" icon button visible on every
   card.
-- Show the drag handle, default toggle, Edit, and Delete as compact icon
-  actions only while the card is hovered or contains keyboard focus.
+- Keep the drag handle visible at low emphasis, matching Todo items, so
+  reordering remains discoverable. Show the default toggle, Edit, and Delete
+  as compact icon actions only while the card is hovered or contains keyboard
+  focus.
 - Keep keyboard access equivalent to pointer access. Hidden actions become
   visible with `:focus-within`, retain accessible names and tooltips, and do
-  not disappear while one of them owns focus.
+  not disappear while one of them owns focus. The toolbar uses opacity and
+  pointer-event changes rather than `display`, `visibility`, or DOM removal,
+  so its controls remain reachable by Tab.
 - Mark the selected default Prompt with a small persistent visual state rather
   than a wide "Default" or "Make default" text button.
 
@@ -40,18 +44,62 @@ The other actions are management operations and can remain visually quiet.
 The chosen hover/focus toolbar follows existing Todo and project-card patterns
 without adding another menu or detail state.
 
-## Terminal Insertion
+## Terminal Insertion Protocol
 
-The webview sends a versioned, non-mutating request containing the clicked
-Prompt ID. The extension host resolves that ID against the current
-authoritative Prompt snapshot immediately before sending text.
+The webview sends a distinct non-mutating request with these exact fields:
+
+```text
+{
+  type: "prompt-insert-terminal",
+  version: 1,
+  requestId: <non-empty string, at most 128 characters>,
+  target: "global-prompt-library",
+  promptId: <non-empty string>
+}
+```
+
+It does not reuse `prompt-command`, `expectedRevision`, mutation correlation
+keys, or mutation authority sequences. The host exact-key validates the
+envelope and ignores duplicate request IDs so a repeated webview message
+cannot insert the same Prompt twice.
+
+The host replies once with an exact-key acknowledgement:
+
+```text
+{
+  type: "prompt-insert-terminal-result",
+  version: 1,
+  requestId,
+  target: "global-prompt-library",
+  success: <boolean>,
+  errorCode: null | "no-active-terminal" | "prompt-unavailable"
+    | "prompt-not-found" | "terminal-unavailable"
+}
+```
+
+The acknowledgement clears the clicked button's pending state and updates the
+Prompt status live region. The host also uses the existing safe VS Code
+warning for a failed insertion. A direct insert disables only its clicked
+button while awaiting acknowledgement. An in-progress Prompt mutation keeps
+the existing global mutation lock and therefore disables insert buttons too;
+an insert acknowledgement must not release that mutation lock.
+
+The extension host resolves the requested ID against the current
+authoritative Prompt snapshot immediately before sending text. Insert requests
+intentionally carry no revision: if another window edits the Prompt between
+render and click, the current host-owned text is inserted. If that ID has been
+deleted, the request fails with `prompt-not-found`; stale webview text is never
+sent.
 
 The direct card action does not use the selected default Prompt and does not
 open the Prompt Quick Pick. It inserts exactly the clicked Prompt into the
 active terminal with `addNewLine` set to `false`, then reveals the terminal.
-If the Prompt is stale, Prompt storage is unavailable, or the active terminal
-is missing or disappears, the host reports a safe user-facing warning and
-does not send other Prompt text.
+When handling the message, the host captures `vscode.window.activeTerminal`.
+If it is absent, if Prompt storage is unavailable, or if that captured
+terminal disappears before `sendText`, the host reports a safe user-facing
+warning and does not send other Prompt text. The by-ID entry point reuses the
+existing terminal availability check and warning behavior without invoking
+the default/Quick Pick branch.
 
 The existing command-palette behavior remains unchanged: it uses the default
 Prompt when one is selected and otherwise opens the Quick Pick.
@@ -60,10 +108,27 @@ Prompt when one is selected and otherwise opens the Quick Pick.
 
 Prompt bodies remain HTML-escaped. The card preview is bounded in both source
 length and rendered lines so long or multiline Prompts cannot change card
-width or dominate the list. The action toolbar is positioned within the card
-without reserving a wide text-button column. Narrow-sidebar rules preserve the
-visible insert action and allow the content area to shrink with ellipsis or
-line clamping.
+width or dominate the list. The existing 160-character, whitespace-normalized
+first-line preview remains the source bound; CSS clamps it to at most two
+rendered lines.
+
+The default toggle remains a button in the hover/focus toolbar. It retains
+`aria-pressed`; activating an unselected star sends that Prompt ID, and
+activating the selected star sends `null` to clear `selectedPromptId`. A
+selected card also has a small persistent, non-interactive star/default state
+so the current default is visible without keeping the management toolbar
+open.
+
+The management toolbar floats inside the card and does not reserve a wide
+text-button column. The low-emphasis drag handle and visible insert button
+reserve only their compact icon widths. At sidebar widths down to 240 pixels,
+the card remains a single row, the content shrinks, the preview remains
+clamped, the insert button remains visible, and no horizontal overflow is
+introduced.
+
+For devices without hover, the management toolbar remains visible at reduced
+emphasis. Forced-colors mode supplies visible borders/state, and reduced-motion
+mode removes toolbar transitions.
 
 Existing create, edit, delete, reorder, default-selection, synchronized
 storage, and refresh behavior remains unchanged.
@@ -75,11 +140,17 @@ Automated coverage will verify:
 - equal full-width compact card markup and bounded previews;
 - icon-only actions with accessible labels, tooltips, hover and keyboard-focus
   visibility;
-- persistent selected-default styling;
+- a persistent selected-default marker plus an `aria-pressed` icon toggle that
+  can both set and clear `selectedPromptId`;
 - a visible direct-insert action for each Prompt;
+- direct-insert controls disabled by a mutation lock, plus per-button pending
+  behavior that cannot release an unrelated mutation lock;
 - exact Prompt-ID routing from webview to extension host;
 - insertion into the active terminal without a newline or Quick Pick;
+- request/result exact-key validation and duplicate-request suppression;
 - safe handling of missing Prompts, unavailable storage, and stale terminals;
+- 240, 280, and 320 pixel sidebar layouts without horizontal overflow;
+- hover-less, forced-colors, and reduced-motion fallbacks;
 - no regressions in existing Prompt mutations, drag ordering, and command
   palette insertion.
 

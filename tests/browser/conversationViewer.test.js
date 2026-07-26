@@ -137,8 +137,11 @@ function loadHostConversationViewer() {
     }
 }
 
-async function renderHostViewerDocument() {
+async function renderHostViewerDocument(options = {}) {
     const ConversationViewer = loadHostConversationViewer();
+    const interactionIds = options.interactionIds
+        || ['input-1', 'input-2', 'input-3'];
+    const interactionId = options.interactionId || 'input-2';
     const listeners = { message: new Set(), dispose: new Set(), view: new Set() };
     const panel = {
         visible: true,
@@ -178,34 +181,35 @@ async function renderHostViewerDocument() {
             provider: 'codex',
             sessionId: 'session-host-document',
             sourceRevision: 'r1',
-            interactions: ['input-1', 'input-2', 'input-3'].map(id => ({
+            interactions: interactionIds.map(id => ({
                 id,
                 userPreview: id,
                 userGraphemeCount: id.length,
                 responseState: 'complete',
             })),
-            totalInteractions: 3,
+            totalInteractions: interactionIds.length,
             partial: false,
         }),
         readPage: async () => ({
             provider: 'codex',
             sessionId: 'session-host-document',
             sourceRevision: 'r1',
-            anchorInteractionId: 'input-2',
+            anchorInteractionId: interactionId,
             messages: [{
-                id: 'input-2:user',
-                interactionId: 'input-2',
+                id: `${interactionId}:user`,
+                interactionId,
                 role: 'user',
                 markdown: '[safe](https://example.test/safe)',
             }],
             interactionStates: [{
-                interactionId: 'input-2',
+                interactionId,
                 responseState: 'complete',
             }],
             previousCursor: 'before-input-2',
             nextCursor: 'after-input-2',
             isStart: false,
             isEnd: false,
+            ...options.pageOverrides,
         }),
         watch: () => ({ dispose() {} }),
         restoreFocus: () => {},
@@ -217,7 +221,7 @@ async function renderHostViewerDocument() {
         projectId: 'project-a',
         provider: 'codex',
         sessionId: 'session-host-document',
-        interactionId: 'input-2',
+        interactionId,
         expectedRevision: 'r1',
         displayName: 'Host document',
         duplicateDisplayName: false,
@@ -225,10 +229,10 @@ async function renderHostViewerDocument() {
     return panel.webview.html;
 }
 
-async function openHostViewerDocument(t) {
+async function openHostViewerDocument(t, options) {
     const page = await browser.newPage({ viewport: { width: 700, height: 500 } });
     t.after(() => page.close());
-    const html = await renderHostViewerDocument();
+    const html = await renderHostViewerDocument(options);
     await page.route('https://viewer.test/**', async route => {
         const pathname = new URL(route.request().url()).pathname;
         if (pathname === '/purify.min.js') {
@@ -414,6 +418,33 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 acquires one real document API 
         },
         { type: 'conversation-viewer-closed', version: 1 },
     ]);
+});
+
+test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 keeps disabled real document navigation controls inert', async t => {
+    const { page } = await openHostViewerDocument(t, {
+        interactionIds: ['input-only'],
+        interactionId: 'input-only',
+        pageOverrides: {
+            previousCursor: undefined,
+            nextCursor: undefined,
+            isStart: true,
+            isEnd: true,
+        },
+    });
+    const navigation = ['Previous', 'Next', 'Latest'].map(name =>
+        page.getByRole('button', { name })
+    );
+
+    assert.equal(await page.evaluate(() => window.__acquireCount), 1);
+    for (const button of navigation) {
+        assert.equal(await button.isDisabled(), true);
+    }
+    assert.deepEqual(await postedMessages(page), []);
+
+    for (const button of navigation) {
+        await button.evaluate(element => element.click());
+    }
+    assert.deepEqual(await postedMessages(page), []);
 });
 
 test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 sanitizes hostile HTML and posts exact version-1 navigation', async t => {

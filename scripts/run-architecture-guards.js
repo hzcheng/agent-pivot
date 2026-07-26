@@ -322,6 +322,92 @@ function moduleReferences(sourceFile) {
     return modules;
 }
 
+function resolveRelativeTypescriptModule(
+    root,
+    importerPath,
+    moduleName,
+    id,
+    risk
+) {
+    const unresolved = path.resolve(
+        root,
+        path.dirname(importerPath),
+        moduleName
+    );
+    const rootWithSeparator = path.resolve(root) + path.sep;
+    if (!unresolved.startsWith(rootWithSeparator)) {
+        fail(id, risk,
+            `Codex reachable module escapes the repository: ${moduleName}`);
+    }
+    const candidates = [
+        unresolved,
+        `${unresolved}.ts`,
+        `${unresolved}.tsx`,
+        `${unresolved}.js`,
+        `${unresolved}.mjs`,
+        `${unresolved}.cjs`,
+        path.join(unresolved, 'index.ts'),
+        path.join(unresolved, 'index.tsx'),
+        path.join(unresolved, 'index.js'),
+        path.join(unresolved, 'index.mjs'),
+        path.join(unresolved, 'index.cjs'),
+    ];
+    const resolved = candidates.find(candidate => {
+        try {
+            return fs.statSync(candidate).isFile();
+        } catch (_error) {
+            return false;
+        }
+    });
+    if (!resolved) {
+        fail(id, risk,
+            `cannot resolve Codex reachable module ${moduleName} from ${importerPath}`);
+    }
+    return path.relative(root, resolved);
+}
+
+function validateCodexReachableModules(root, id, risk) {
+    const entry = 'src/aiSessions/conversation/codexAdapter.ts';
+    const queue = [entry];
+    const visited = new Set();
+    while (queue.length) {
+        const relativePath = queue.shift();
+        if (visited.has(relativePath)) continue;
+        visited.add(relativePath);
+        const sourceFile = /\.[cm]?js$/i.test(relativePath)
+            ? parseJavascript(root, relativePath, id, risk)
+            : parseTypescript(root, relativePath, id, risk);
+        for (const moduleName of moduleReferences(sourceFile)) {
+            const filesystemModule =
+                /^(?:node:)?fs(?:[/\\]|$)/i.test(moduleName);
+            const transcriptReaderModule =
+                /(?:^|[/\\])(?:source|jsonlReader)(?:\.[cm]?[jt]sx?)?(?:[/\\]|$)/i
+                    .test(moduleName);
+            if (filesystemModule || transcriptReaderModule) {
+                if (relativePath !== entry) {
+                    fail(id, risk,
+                        'Codex reachable modules must not import filesystem or transcript readers');
+                }
+                if (filesystemModule) {
+                    fail(id, risk,
+                        'Codex conversation adapter must not import filesystem or transcript JSONL readers');
+                }
+                fail(id, risk,
+                    'Codex production content must remain app-server-only');
+            }
+            if (moduleName.startsWith('.')) {
+                queue.push(resolveRelativeTypescriptModule(
+                    root,
+                    relativePath,
+                    moduleName,
+                    id,
+                    risk
+                ));
+            }
+        }
+    }
+}
+
 function memberPath(node) {
     if (ts.isIdentifier(node)) return node.text;
     if (node.kind === ts.SyntaxKind.ThisKeyword) return 'this';
@@ -454,31 +540,7 @@ const guards = {
     // ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001
     'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001'(root) {
         const risk = 'conversation history can expose private content or exhaust the extension host';
-        const codexAdapter = parseTypescript(
-            root,
-            'src/aiSessions/conversation/codexAdapter.ts',
-            this.id,
-            risk
-        );
-        const codexAdapterModules = moduleReferences(codexAdapter);
-        if (codexAdapterModules.some(moduleName =>
-            /^(?:node:)?fs(?:[/\\]|$)/i.test(moduleName)
-            || /jsonl/i.test(moduleName))) {
-            fail(this.id, risk,
-                'Codex conversation adapter must not import filesystem or transcript JSONL readers');
-        }
-        const allowedCodexAdapterModules = new Set([
-            'crypto',
-            '../types',
-            './model',
-            './text',
-            './types',
-        ]);
-        if (codexAdapterModules.some(moduleName =>
-            !allowedCodexAdapterModules.has(moduleName))) {
-            fail(this.id, risk,
-                'Codex production content must remain app-server-only');
-        }
+        validateCodexReachableModules(root, this.id, risk);
 
         const codexService = parseTypescript(
             root,

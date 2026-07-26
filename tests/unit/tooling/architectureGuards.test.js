@@ -29,6 +29,21 @@ function copyGuardFixture(t, mutationPath, mutate = source => source) {
         'src/aiSessions/conversation/types.ts',
         'src/aiSessions/conversation/codexAdapter.ts',
         'src/aiSessions/conversation/codexAppServerClient.ts',
+        'src/aiSessions/conversation/model.ts',
+        'src/aiSessions/conversation/text.ts',
+        'src/aiSessions/types.ts',
+        'src/aiSessions/archiveBatch.ts',
+        'src/aiSessions/archiveBatchAcrossProviders.ts',
+        'src/aiSessions/launchOptions.ts',
+        'src/aiSessions/launchSpec.ts',
+        'src/aiSessions/lifecycle.ts',
+        'src/aiSessions/runtimeTypes.ts',
+        'src/constants.ts',
+        'src/models.ts',
+        'src/todos/types.ts',
+        'src/webview/dashboardViewModel.ts',
+        'src/workspaces/sessionAssignment.ts',
+        'src/workspaces/types.ts',
         'src/aiSessions/conversation/composition.ts',
         'src/aiSessions/conversation/kimiAdapter.ts',
         'src/aiSessions/conversation/claudeAdapter.ts',
@@ -123,6 +138,51 @@ test('ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001 accepts an empty-block stderr si
     validateArchitectureGuards(root, {
         ids: ['ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001'],
     });
+});
+
+test('ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001 permits the structured app-server client in the Codex reachable graph', t => {
+    const root = copyGuardFixture(
+        t,
+        'src/aiSessions/conversation/codexAdapter.ts',
+        source => source.replace(
+            "import { createHash } from 'crypto';",
+            "import { createHash } from 'crypto';\n"
+                + "import type { CodexAppServerClient } "
+                + "from './codexAppServerClient';\n"
+                + 'type ReachableAppServerClient = CodexAppServerClient;'
+        )
+    );
+    validateArchitectureGuards(root, {
+        ids: ['ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001'],
+    });
+});
+
+test('ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001 rejects a transitive filesystem bridge from a reachable Codex helper', t => {
+    const root = copyGuardFixture(
+        t,
+        'src/aiSessions/conversation/model.ts',
+        source => source.replace(
+            "'use strict';",
+            "'use strict';\nimport './codexFilesystemBridge';"
+        )
+    );
+    const bridge = path.join(
+        root,
+        'src/aiSessions/conversation/codexFilesystemBridge.ts'
+    );
+    fs.writeFileSync(bridge, "import { readFile } from 'node:fs/promises';\n");
+    assert.throws(
+        () => validateArchitectureGuards(root, {
+            ids: ['ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001'],
+        }),
+        error => error.message.includes(
+            'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001'
+        )
+            && /risk:/i.test(error.message)
+            && error.message.includes(
+                'Codex reachable modules must not import filesystem or transcript readers'
+            )
+    );
 });
 
 for (const mutation of [

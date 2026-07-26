@@ -110,6 +110,21 @@ function visibleAssistantParts(value: unknown): string[] {
         .map(block => block.text);
 }
 
+function isUserInterrupt(value: unknown): boolean {
+    const textParts = Array.isArray(value)
+        ? value.map(part => {
+            if (typeof part === 'string') {
+                return part;
+            }
+            const block = asRecord(part);
+            return typeof block?.text === 'string' ? block.text : '';
+        })
+        : [typeof value === 'string' ? value : ''];
+    return textParts.some(
+        text => text.trim() === '[Request interrupted by user]'
+    );
+}
+
 function timestampValue(value: unknown): number | undefined {
     if (typeof value === 'number' && Number.isFinite(value)) {
         return value;
@@ -266,11 +281,13 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
                 interactions = cloneInteractions(previous.interactions);
                 openInteractionIndex = previous.appendInteractionIndex;
             }
-            const finishInteraction = (): void => {
+            const finishInteraction = (
+                state: 'complete' | 'interrupted' = 'complete'
+            ): void => {
                 if (openInteractionIndex === undefined) {
                     return;
                 }
-                interactions[openInteractionIndex].responseState = 'complete';
+                interactions[openInteractionIndex].responseState = state;
                 openInteractionIndex = undefined;
             };
             const normalizeRecord = (record: ConversationJsonlRecord): void => {
@@ -280,6 +297,11 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
                 }
                 const message = asRecord(event.message);
                 if (event.type === 'user'
+                    && message?.role === 'user'
+                    && isUserInterrupt(message.content)) {
+                    finishInteraction('interrupted');
+                    timeoutOpenInteractionIndex = undefined;
+                } else if (event.type === 'user'
                     && message?.role === 'user'
                     && !event.sourceToolAssistantUUID
                     && !event.toolUseResult

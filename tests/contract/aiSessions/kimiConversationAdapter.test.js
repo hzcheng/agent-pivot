@@ -154,6 +154,64 @@ test('SESSION-AI-SESSION-KIMI-CONVERSATION-002 deduplicates a reread and changes
     assert.equal(new Set(rebuilt.interactions.map(item => item.id)).size, 3);
 });
 
+test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 Kimi normalizes epoch seconds to milliseconds and preserves millisecond timestamps', async t => {
+    const source = await createFixture(t);
+    await fs.promises.writeFile(source.sourcePath, [
+        {
+            timestamp: 1_784_073_611,
+            message: {
+                type: 'TurnBegin',
+                payload: { user_input: 'Seconds timestamp' },
+            },
+        },
+        {
+            timestamp: 1_784_073_611,
+            message: {
+                type: 'ContentPart',
+                payload: { type: 'text', text: 'Seconds response' },
+            },
+        },
+        {
+            timestamp: 1_784_073_611,
+            message: { type: 'TurnEnd', payload: {} },
+        },
+        {
+            timestamp: 1_784_073_612_345,
+            message: {
+                type: 'TurnBegin',
+                payload: { user_input: 'Milliseconds timestamp' },
+            },
+        },
+        {
+            timestamp: 1_784_073_612_345,
+            message: { type: 'TurnEnd', payload: {} },
+        },
+    ].map(record => JSON.stringify(record)).join('\n') + '\n');
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+
+    const outline = await adapter.readOutline(sessionId);
+    assert.deepEqual(
+        outline.interactions.map(interaction => interaction.timestamp),
+        [1_784_073_611_000, 1_784_073_612_345]
+    );
+    const page = await adapter.readPage({
+        provider: 'kimi',
+        sessionId,
+        anchorInteractionId: outline.interactions[0].id,
+        direction: 'around',
+        expectedRevision: outline.sourceRevision,
+    });
+    assert.deepEqual(
+        page.messages.map(message => [message.markdown, message.timestamp]),
+        [
+            ['Seconds timestamp', 1_784_073_611_000],
+            ['Seconds response', 1_784_073_611_000],
+            ['Milliseconds timestamp', 1_784_073_612_345],
+        ]
+    );
+});
+
 test('SESSION-AI-SESSION-KIMI-CONVERSATION-003 shares the service poller and disposes logical watches deterministically', async t => {
     const source = await createFixture(t);
     let subscribeCount = 0;

@@ -74,7 +74,7 @@ function asRecord(value: unknown): Record<string, any> | undefined {
 
 function timestampValue(value: unknown): number | undefined {
     if (typeof value === 'number' && Number.isFinite(value)) {
-        return value;
+        return value < 10_000_000_000 ? value * 1000 : value;
     }
     if (typeof value === 'string') {
         const parsed = Date.parse(value);

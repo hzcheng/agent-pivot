@@ -145,6 +145,100 @@ test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 Claude accepts canonical strin
     );
 });
 
+test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 Claude treats string and array interrupt sentinels as interaction state only', async t => {
+    const source = await createFixture(t);
+    const records = [
+        {
+            type: 'user',
+            uuid: 'real-request-string',
+            timestamp: '2026-07-26T01:00:00.000Z',
+            message: { role: 'user', content: 'Keep this string request' },
+        },
+        {
+            type: 'assistant',
+            uuid: 'real-response-string',
+            message: { role: 'assistant', content: 'Visible first response' },
+        },
+        {
+            type: 'user',
+            uuid: 'interrupt-string',
+            message: {
+                role: 'user',
+                content: ' [Request interrupted by user] ',
+            },
+        },
+        {
+            type: 'user',
+            uuid: 'real-request-array',
+            timestamp: '2026-07-26T01:01:00.000Z',
+            message: {
+                role: 'user',
+                content: [{ type: 'text', text: 'Keep this array request' }],
+            },
+        },
+        {
+            type: 'assistant',
+            uuid: 'real-response-array',
+            message: {
+                role: 'assistant',
+                content: [{ type: 'text', text: 'Visible second response' }],
+            },
+        },
+        {
+            type: 'user',
+            uuid: 'interrupt-array',
+            message: {
+                role: 'user',
+                content: [
+                    { type: 'tool_result', content: 'private tool output' },
+                    { type: 'text', text: '[Request interrupted by user]' },
+                ],
+            },
+        },
+    ];
+    await fs.promises.writeFile(
+        source.sourcePath,
+        `${records.map(record => JSON.stringify(record)).join('\n')}\n`
+    );
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+
+    const { outline, page } = await readWholeConversation(adapter);
+    assert.deepEqual(
+        outline.interactions.map(interaction => [
+            interaction.id,
+            interaction.userPreview,
+            interaction.responseState,
+        ]),
+        [
+            [
+                'real-request-string',
+                'Keep this string request',
+                'interrupted',
+            ],
+            [
+                'real-request-array',
+                'Keep this array request',
+                'interrupted',
+            ],
+        ]
+    );
+    assert.deepEqual(
+        page.messages.map(message => [message.role, message.markdown]),
+        [
+            ['user', 'Keep this string request'],
+            ['assistant', 'Visible first response'],
+            ['user', 'Keep this array request'],
+            ['assistant', 'Visible second response'],
+        ]
+    );
+    assert.equal(
+        JSON.stringify({ outline, page }).includes('Request interrupted by user')
+            || JSON.stringify({ outline, page }).includes('private tool output'),
+        false
+    );
+});
+
 test('SESSION-AI-SESSION-CLAUDE-CONVERSATION-002 excludes assistant tool blocks and synthetic user-role tool results', async t => {
     const source = await createFixture(t);
     const adapter = createAdapter(source);

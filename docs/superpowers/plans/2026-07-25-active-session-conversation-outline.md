@@ -2947,8 +2947,9 @@ const requiredConversationViewerEntries = [
 Add `ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001` to reject:
 
 - `fs`, `node:fs` subpaths, or transcript `source`/`jsonlReader` modules
-  anywhere in the transitive local relative-import graph reachable from the
-  Codex adapter, while allowing the structured app-server client path;
+  anywhere in the transitive local relative import/re-export graph reachable
+  from the Codex adapter, while allowing the structured app-server client
+  path; both `export * from` and `export { x } from` participate in the graph;
 - extension-host TypeScript imports of `dompurify` or `purify.min.js`;
 - missing 64 MiB/5 s/1 MiB/20/512 KiB/16 MiB/10 s/8 px/minimum
   request ID/per-provider cache constants;

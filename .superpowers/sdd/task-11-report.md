@@ -34,8 +34,8 @@ Task review package:
   - filesystem/JSONL-reader imports anywhere in the transitive local
     relative-import graph reachable from the Codex adapter, including
     `node:fs/promises`, CommonJS `require`, TypeScript import-equals, and
-    dynamic `import()` declarations; the structured app-server client path
-    remains allowed;
+    dynamic `import()` declarations, plus star and named re-exports; the
+    structured app-server client path remains allowed;
   - extension-host DOMPurify static, deep, CommonJS, and TypeScript
     import-equals imports, plus dynamic `import()`;
   - exact source, scan, line, outline, page, viewer, Codex response/timeout,

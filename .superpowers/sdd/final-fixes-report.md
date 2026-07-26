@@ -8,6 +8,7 @@ The whole-branch review findings were fixed test-first in:
 295f061a7de35b1b98992bb193a3342d5a400b72 fix: align conversation adapters with production formats
 41f5a3933ea302b7554847d6c60fc7ee960b07f6 test: align capped outline browser contract
 327fddf9b411e76c81f958b4bcfd386e662cfc87 fix: harden conversation provider boundaries
+cd6a339314ec75b5da935bd9318ba066ea21988b test: trace codex re-export dependencies
 ```
 
 Nothing was pushed, merged, installed, or cleaned up.
@@ -37,8 +38,8 @@ Review package:
   relative import/require/dynamic/import-equals graph reachable from
   `codexAdapter`; any reachable `fs`/`node:fs`, `source`, or `jsonlReader`
   reference fails closed, while the structured app-server client remains
-  allowed. Service and composition filesystem routes are independently
-  rejected.
+  allowed. Star and named TypeScript re-exports also participate in this
+  graph. Service and composition filesystem routes are independently rejected.
 
 ## Bounded reading, live updates, and outline cap
 
@@ -84,12 +85,14 @@ Each binding regression was first observed RED:
   preceding interaction complete;
 - Kimi epoch seconds remained unscaled in outline and page timestamps;
 - the old Codex import whitelist rejected the legitimate app-server client but
-  missed `model -> filesystem helper -> node:fs/promises`.
+  missed `model -> filesystem helper -> node:fs/promises`;
+- star and named re-exports from a reachable model both hid the same filesystem
+  helper from the dependency graph.
 
 After implementation, the fresh focused run passed 202 unit/contract/integration
 tests, the real-browser viewer run passed 9 tests, and the architecture
 controlled-mutation run passed 40 tests. The final re-review additions passed
-20 complete Claude/Kimi adapter tests, 42 architecture tests, and 31
+20 complete Claude/Kimi adapter tests, 45 architecture tests, and 31
 viewer/browser-integration tests.
 
 ## Capability audit
@@ -109,7 +112,9 @@ that test commit and advances its head to
 `41f5a3933ea302b7554847d6c60fc7ee960b07f6`. After the final re-review,
 the same check failed RED on unaudited implementation commit
 `327fddf9b411e76c81f958b4bcfd386e662cfc87`; the capability now assigns it and
-advances the audit head to that commit.
+advances the audit head to that commit. The final re-export guard commit
+`cd6a339314ec75b5da935bd9318ba066ea21988b` was likewise observed as unaudited
+before assignment; the audit head now advances to that commit.
 
 ## Verification
 

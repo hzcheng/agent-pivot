@@ -618,7 +618,7 @@ test('ACTIVE-SESSION-CONVERSATION-OUTLINE-001 renders the actual Task 6 capped s
         modelInteractions(2_001),
         false
     );
-    assert.equal(liveOutline.partial, false);
+    assert.equal(liveOutline.partial, true);
     assert.equal(liveOutline.totalInteractions, 2_001);
     assert.equal(liveOutline.interactions.length, 2_000);
     assert.equal(liveOutline.interactions[0].id, 'model-2');

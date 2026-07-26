@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "e8009b0f418b4affd2e2c23030a4d7c714934ca8",
+        "head": "e73abf28b07191d306b4846a416734053fea9c91",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -236,7 +236,8 @@
                 "fe6c084fed2c8ffdeab4f902de2ffaf761b4e3fa",
                 "6ecef7dafbe23279270944708fbabe57b8f70a62",
                 "d58a88f8ba490cc3c31651fc27fe0c587b8965c9",
-                "ed456da6b0979899eb2228da7d72fd6f64ed4382"
+                "ed456da6b0979899eb2228da7d72fd6f64ed4382",
+                "e73abf28b07191d306b4846a416734053fea9c91"
             ],
             "behaviors": [
                 "WEBVIEW-CURRENT-WORKSPACE-RENDERING-001",
@@ -244,10 +245,12 @@
                 "SHARINGAN-RUNNING-ANIMATION-001",
                 "SHARINGAN-ASSET-INTEGRITY-001",
                 "SHARINGAN-ASSET-INTEGRITY-002",
-                "SHARINGAN-ASSET-ATTRIBUTION-001"
+                "SHARINGAN-ASSET-ATTRIBUTION-001",
+                "WEBVIEW-AI-SESSION-LIST-SCROLL-001"
             ],
             "prGates": [
-                "test:deterministic:run"
+                "test:deterministic:run",
+                "test:ci:linux"
             ],
             "scheduledJobs": [
                 "scheduled-macos"

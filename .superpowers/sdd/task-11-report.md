@@ -11,6 +11,9 @@ c9178dec0f4e9d4b922cd85cfd0efcf9449898f9 docs: audit conversation outline covera
 ef901b8b3ea926dae228f9904f3d8c56e72332aa docs: report conversation outline release gates
 e227fb9d42451b032d4d910f15037b149689b3d5 test: harden conversation release gates
 cd1f3892d71f9960aaab506cf2c65b2baab15667 docs: refresh conversation release audit
+08a3a8aedeed4e3b5aeaed8c26e8c59f537a3e7a docs: report hardened conversation gates
+4c4d42586ea23d8f3e3fecb27a16834500b1cb00 test: enforce canonical watcher release guards
+6642367882ebfefe04ff2401084b7b6e45aadae3 docs: advance conversation guard audit
 ```
 
 Nothing was pushed, merged, installed, or cleaned up.
@@ -18,22 +21,28 @@ Nothing was pushed, merged, installed, or cleaned up.
 Task review package:
 
 ```text
-.superpowers/sdd/review-3853df9..cd1f389.diff
+.superpowers/sdd/review-3853df9..6642367.diff
 ```
 
 ## Outcome
 
 - Added `ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001` with controlled
   mutations for:
-  - Codex filesystem/JSONL-reader imports, including `node:fs/promises`;
-  - extension-host DOMPurify static, deep, and CommonJS imports;
+  - Codex filesystem/JSONL-reader imports, including `node:fs/promises` and
+    TypeScript import-equals declarations;
+  - extension-host DOMPurify static, deep, CommonJS, and TypeScript
+    import-equals imports;
   - exact source, scan, line, outline, page, viewer, Codex response/timeout,
     auto-scroll, request-ID, per-provider cache count, and cache TTL limits;
   - any conversation-marker `innerHTML`/`insertAdjacentHTML` write;
-  - console or `process.stderr.write` app-server logging and a structurally
-    no-op stderr callback;
+  - console, `process.stdout.write`, or `process.stderr.write` app-server
+    logging and a structurally no-op stderr callback; both `=> undefined` and
+    an empty `=> {}` block are accepted safe sinks;
   - exactly one provider watcher acquisition, assignment ownership, guarded
     release control flow, disposal, and clearing for all three providers.
+    Release methods require the executable top-level sequence
+    `subscriptions.size` guard, direct optional dispose, then direct clearing;
+    negated/always-true guards and conditionally unreachable disposal fail.
 - Added Windows portable edge-hash and `noFollowFlag: 0` fallback coverage
   without requiring symlink privileges. The fallback test injects an opened
   handle for a different file and proves realpath/stat/edge comparison rejects
@@ -103,6 +112,26 @@ provider-watch acquisition. After the AST/structural guard was hardened:
 
 ```text
 architectureGuards.test.js 28/28
+```
+
+The second follow-up review added six controlled mutations plus one safe
+fixture before implementation. The RED run was again exact:
+
+```text
+architectureGuards.test.js
+  28 passed
+  7 failed
+```
+
+The six rejected variants cover TypeScript import-equals for
+`node:fs/promises` and DOMPurify, `process.stdout.write`, a negated
+subscription-size condition, `subscriptions.size || true`, and a dispose call
+hidden beneath `if (false)`. The seventh failure was the safe empty-block
+stderr sink, proving the old guard had a false positive. After switching to
+canonical executable AST statements and accepting both safe no-op spellings:
+
+```text
+architectureGuards.test.js 35/35
 ```
 
 The performance command was invoked before its package script existed:
@@ -229,8 +258,8 @@ git log --reverse --format='%H %s' origin/main..HEAD
 ```
 
 `MAIN-AI-SESSION-CONVERSATION-OUTLINE` assigns all 26 non-documentation
-implementation commits from Tasks 1–10 plus gate commits `88e29eb` and
-`e227fb9`, for 28 real full hashes total. It owns:
+implementation commits from Tasks 1–10 plus gate commits `88e29eb`,
+`e227fb9`, and `4c4d425`, for 29 real full hashes total. It owns:
 
 ```text
 SESSION-AI-SESSION-CONVERSATION-ADAPTER-001
@@ -240,8 +269,8 @@ SECURITY-AI-SESSION-CONVERSATION-SOURCE-001
 ```
 
 Its PR gate is `test:ci:linux`, its scheduled job is `scheduled-macos`, and
-`realEnvironmentRequired` is false. `audit.head` is the full hardened-gate
-hash `e227fb9d42451b032d4d910f15037b149689b3d5`.
+`realEnvironmentRequired` is false. `audit.head` is the full canonical-gate
+hash `4c4d42586ea23d8f3e3fecb27a16834500b1cb00`.
 The two design commits and plan commit use their real full hashes as explicit
 documentation exemptions. The additional plan-review and task-report commits
 are documentation-only and are accepted by the schema without disguising
@@ -258,7 +287,8 @@ Focused final gates:
 ```text
 npm run test-compile                                      passed
 three-provider conversation adapter contracts             30/30
-node --test tests/unit/tooling/architectureGuards.test.js 28/28
+JSONL TTL plus coordinator timer/watch contracts           47/47
+node --test tests/unit/tooling/architectureGuards.test.js 35/35
 Windows conversation source test                          1/1
 macOS conversation source tests                           2/2
 remote conversation source tests                          3/3
@@ -280,8 +310,9 @@ was not used as completion evidence. The exact command was run again with
 set -o pipefail; npm run test:ci:linux 2>&1 | tail -n 120
 ```
 
-The same exact command was run once more after the review fixes. Fresh
-result: exit `0`. The tail ended with `Coverage baseline checks passed.`
+The same exact command was run again after each review round. The
+second-review result was exit `0`; its tail ended with
+`Coverage baseline checks passed.`
 This proves the full compile, behavior, lint, deterministic, remote,
 performance, browser, safety, Dashboard, architecture, release notes,
 release packaging, production build, coverage, and coverage-baseline chain.

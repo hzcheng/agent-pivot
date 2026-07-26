@@ -331,6 +331,7 @@ function initDashboard(options) {
     var projectsRequestId = 0;
     var acceptedProjectsRequestId = 0;
     var acceptedProjectsUpdateSequence = 0;
+    var projectsPanelReplacementGeneration = 0;
     var projectsRequestAttempts = 0;
     var projectsRequestTimer = null;
     var todoState = 'unloaded';
@@ -892,16 +893,97 @@ function initDashboard(options) {
         var project = activeElement.closest ? activeElement.closest('.project[data-id]') : null;
         var action = activeElement.closest ? activeElement.closest('[data-action]') : null;
         return project ? {
+            groupId: project.closest('.group[data-group-id]')
+                ? project.closest('.group[data-group-id]').getAttribute('data-group-id') || ''
+                : '',
             projectId: project.getAttribute('data-id'),
             action: action ? action.getAttribute('data-action') : null,
         } : null;
+    }
+
+    function getProjectScrollItemKey(project) {
+        var group = project.closest('.group[data-group-id]');
+        return JSON.stringify([
+            group ? group.getAttribute('data-group-id') || '' : '',
+            project.getAttribute('data-id') || '',
+        ]);
+    }
+
+    function captureProjectsPanelState() {
+        var state = {
+            windowScrollY: window.scrollY,
+            focus: getProjectsFocusTarget(),
+            groups: Array.from(panels.projects.querySelectorAll(
+                '.group[data-group-id]'
+            )).map(function (group) {
+                var list = group.querySelector('.group-list');
+                return {
+                    groupId: group.getAttribute('data-group-id') || '',
+                    anchor: list && window.__projectStewardScrollState
+                        ? window.__projectStewardScrollState.capture(list, {
+                            itemSelector: '.project[data-id]',
+                            getKey: getProjectScrollItemKey,
+                        })
+                        : null,
+                };
+            }),
+        };
+        if (!state.focus) {
+            return state;
+        }
+        var focusGroup = findProjectsPanelGroup(state.focus.groupId);
+        var focusList = focusGroup && focusGroup.querySelector('.group-list');
+        var focusProject = focusList && Array.from(
+            focusList.querySelectorAll('.project[data-id]')
+        ).find(project => project.getAttribute('data-id') === state.focus.projectId);
+        var groupState = state.groups.find(group => group.groupId === state.focus.groupId);
+        if (!focusList || !focusProject || !groupState || !groupState.anchor) {
+            return state;
+        }
+        groupState.anchor.itemKey = getProjectScrollItemKey(focusProject);
+        groupState.anchor.itemOffset = focusProject.getBoundingClientRect().top
+            - focusList.getBoundingClientRect().top;
+        return state;
+    }
+
+    function findProjectsPanelGroup(groupId) {
+        return Array.from(panels.projects.querySelectorAll('.group[data-group-id]'))
+            .find(group => (group.getAttribute('data-group-id') || '') === groupId)
+            || null;
+    }
+
+    function restoreProjectsPanelAnchors(state) {
+        if (!state || !Array.isArray(state.groups) || !window.__projectStewardScrollState) {
+            return;
+        }
+        state.groups.forEach(function (savedGroup) {
+            if (!savedGroup.anchor) {
+                return;
+            }
+            var group = findProjectsPanelGroup(savedGroup.groupId);
+            var list = group && group.querySelector('.group-list');
+            if (!list) {
+                return;
+            }
+            window.__projectStewardScrollState.restore(list, savedGroup.anchor, {
+                itemSelector: '.project[data-id]',
+                getKey: getProjectScrollItemKey,
+            });
+        });
+    }
+
+    function restoreProjectsWindowScroll(state) {
+        if (state && Number.isFinite(state.windowScrollY)) {
+            window.scrollTo(0, state.windowScrollY);
+        }
     }
 
     function restoreProjectsFocus(target) {
         if (!target || !panels.projects) {
             return;
         }
-        var project = Array.from(panels.projects.querySelectorAll('.project[data-id]'))
+        var group = findProjectsPanelGroup(target.groupId || '');
+        var project = group && Array.from(group.querySelectorAll('.project[data-id]'))
             .find(candidate => candidate.getAttribute('data-id') === target.projectId);
         if (!project) {
             return;
@@ -909,22 +991,34 @@ function initDashboard(options) {
         var focusTarget = project;
         if (target.action) {
             focusTarget = Array.from(project.querySelectorAll('[data-action]'))
-                .find(candidate => candidate.getAttribute('data-action') === target.action)
-                || project;
+                .find(candidate => candidate.getAttribute('data-action') === target.action);
         }
         if (focusTarget && typeof focusTarget.focus === 'function') {
-            focusTarget.focus();
+            if (!focusTarget.getAttribute('tabindex')) {
+                focusTarget.setAttribute('tabindex', '-1');
+            }
+            focusTarget.focus({ preventScroll: true });
         }
     }
 
     function replaceProjectsPanelHtml(html) {
-        var focusTarget = getProjectsFocusTarget();
+        var panelState = captureProjectsPanelState();
+        var replacementGeneration = ++projectsPanelReplacementGeneration;
         panels.projects.innerHTML = html;
         projectsState = 'mounted';
         if (typeof options.onProjectsMounted === 'function') {
             options.onProjectsMounted(panels.projects);
         }
-        restoreProjectsFocus(focusTarget);
+        restoreProjectsPanelAnchors(panelState);
+        restoreProjectsFocus(panelState.focus);
+        restoreProjectsWindowScroll(panelState);
+        requestAnimationFrame(() => {
+            if (replacementGeneration !== projectsPanelReplacementGeneration) {
+                return;
+            }
+            restoreProjectsPanelAnchors(panelState);
+            restoreProjectsWindowScroll(panelState);
+        });
     }
 
     function applyProjectsPanelUpdatedMessage(message) {
@@ -939,6 +1033,7 @@ function initDashboard(options) {
             return true;
         }
         if (message.mode === 'preserve-order' && isProjectsPanelOrderConsistent(message)) {
+            projectsPanelReplacementGeneration += 1;
             return true;
         }
         replaceProjectsPanelHtml(message.html);
@@ -987,21 +1082,35 @@ function initDashboard(options) {
         var restoreShowCompletedFocus = !!activeElement
             && panels.todo.contains(activeElement)
             && activeElement.getAttribute('data-action') === 'todo-toggle-show-completed';
-        panels.todo.innerHTML = message.html;
-        todoState = 'mounted';
+        var fallbackWindowScrollY = restoreShowCompletedFocus
+            ? window.scrollY
+            : null;
         if (todoRequestTimer !== null) {
             cancelTimeout(todoRequestTimer);
             todoRequestTimer = null;
         }
         todoRequestAttempts = 0;
         replaceSearchCatalog(message.searchCatalog);
-        if (typeof options.onTodoMounted === 'function') {
-            options.onTodoMounted(panels.todo, message);
-        }
-        if (restoreShowCompletedFocus) {
-            var showCompletedToggle = panels.todo.querySelector('[data-action="todo-toggle-show-completed"]');
-            if (showCompletedToggle) {
-                showCompletedToggle.focus();
+        var refreshed = todoState === 'mounted'
+            && message.snapshot
+            && typeof options.onTodoRefresh === 'function'
+            && options.onTodoRefresh(panels.todo, message) === true;
+        if (!refreshed) {
+            panels.todo.innerHTML = message.html;
+            todoState = 'mounted';
+            if (typeof options.onTodoMounted === 'function') {
+                options.onTodoMounted(panels.todo, message);
+            }
+            if (restoreShowCompletedFocus) {
+                var showCompletedToggle = panels.todo.querySelector(
+                    '[data-action="todo-toggle-show-completed"]'
+                );
+                if (showCompletedToggle) {
+                    showCompletedToggle.focus({ preventScroll: true });
+                    if (Number.isFinite(fallbackWindowScrollY)) {
+                        window.scrollTo(0, fallbackWindowScrollY);
+                    }
+                }
             }
         }
         revealPendingTodoSearchTarget();

@@ -9,6 +9,9 @@ const sass = require('sass');
 const cleanCSS = require('gulp-clean-css');
 
 const sassTask = gulpSass(sass);
+const browserNodeAssets = [
+    'node_modules/dompurify/dist/purify.min.js',
+];
 
 // Sass configuration
 function buildStyles() {
@@ -23,6 +26,7 @@ function copyNodeAssets() {
         'node_modules/fitty/dist/fitty.min.js',
         'node_modules/dragula/dist/dragula.min.js',
         'node_modules/dom-autoscroller/dist/dom-autoscroller.min.js',
+        ...browserNodeAssets,
     ]).pipe(gulp.dest('media'));
 }
 

@@ -31,6 +31,10 @@ const projectScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/webviewProjectScripts.js'),
     'utf8'
 );
+const scrollStateScript = fs.readFileSync(
+    path.join(__dirname, '../../src/webview/webviewScrollStateScripts.js'),
+    'utf8'
+);
 
 let browser;
 
@@ -86,6 +90,7 @@ async function openMenuPage(t, selectedProviders = ['codex']) {
             postMessage: message => window.__postedMessages.push(message),
         };
     });
+    await page.addScriptTag({ content: scrollStateScript });
     await page.addScriptTag({ content: projectScript });
     await page.evaluate(() => {
         initProjects();

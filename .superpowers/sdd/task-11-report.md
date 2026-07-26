@@ -1,345 +1,371 @@
-# Task 11 Report: Harden v2 Bridge Degradation and Incremental Updates
+# Task 11 Report: Conversation Release Gates
 
-## Status and commit
+## Status and commits
 
-Complete on `feat/workspace-support`.
+Complete on branch `docs/active-session-conversation-outline-design`, from
+Task 10 head `3853df927fa9ac083bc458f6f6839652adb4fd10` through:
 
-- Commit message: `feat: show one card per open workspace`
-- Nothing was pushed, merged, or cleaned up.
+```text
+88e29eb89e8413f69267faa99b3d92775e7139b7 test: gate conversation outline behavior
+c9178dec0f4e9d4b922cd85cfd0efcf9449898f9 docs: audit conversation outline coverage
+ef901b8b3ea926dae228f9904f3d8c56e72332aa docs: report conversation outline release gates
+e227fb9d42451b032d4d910f15037b149689b3d5 test: harden conversation release gates
+cd1f3892d71f9960aaab506cf2c65b2baab15667 docs: refresh conversation release audit
+08a3a8aedeed4e3b5aeaed8c26e8c59f537a3e7a docs: report hardened conversation gates
+4c4d42586ea23d8f3e3fecb27a16834500b1cb00 test: enforce canonical watcher release guards
+6642367882ebfefe04ff2401084b7b6e45aadae3 docs: advance conversation guard audit
+cfd333b86942c39007cd8d3c08697b204593a837 docs: report canonical conversation guards
+bdc7f637d4621e96cc956716091d19429d90992e test: guard dynamic conversation imports
+4c8f69778f7a40fa84c592aa264f0cf328709662 docs: advance dynamic import audit
+```
+
+Nothing was pushed, merged, installed, or cleaned up.
+
+Task review package:
+
+```text
+.superpowers/sdd/review-3853df9..4c8f697.diff
+```
 
 ## Outcome
 
-- Exact v2 handshake mismatch is terminal for the client and emits
-  `update-required` without scheduling retries or allowing queued/heartbeat
-  publications to create a handshake storm.
-- Transient handshake or publication failure exposes `unavailable`, keeps at
-  most one bounded retry timer, and republishes only the latest workspace after
-  reconnection.
-- Disposal during handshake unregisters immediately and prevents a late
-  handshake from publishing. Disposal during an issued publication waits for
-  that command to settle, then unregisters exactly once so the late publication
-  cannot recreate stale bridge state.
-- Aggregate semantic revisions are committed only after consumer delivery
-  succeeds, allowing the same revision to recover from a failed callback.
-- Workspace resolution is cached for a refresh/publication cycle and closure
-  publishes `workspace: null`.
-- Dashboard projection pairs each opaque navigation card with the winning live
-  `OpenWorkspaceRecord`. The map is cleared immediately on semantic aggregate
-  change or degradation and rebuilt only from the latest aggregate.
-- Stale opaque-card clicks refresh safely and never fall through to saved
-  project lookup or an open action.
-- Bridge failures clear only the OTHER WINDOWS projection. The locally built
-  current card, session surface, and workspace-scoped actions remain usable.
-- OPEN incremental messages include a semantic OTHER WINDOWS status. Host and
-  Webview duplicate suppression avoid repeat DOM/search-catalog replacement,
-  while failed message delivery clears the suppression key for recovery.
-- OTHER WINDOWS renders lightweight navigation cards in `ready`, a retrying
-  unavailable state for transient failures, or an actionable UI Bridge upgrade
-  state for mismatch. The upgrade state is forced open even when the saved
-  group state is collapsed.
-- Bridge publications and navigation cards retain only workspace/root metadata;
-  no `hostPath`, provider history, session detail, prompt, or terminal state is
-  transported through the v2 bridge.
-- The production bridge path remains v2-only. The new actionable command opens
-  the installed UI Bridge extension entry and adds no legacy bridge command.
+- Added `ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001` with controlled
+  mutations for:
+  - filesystem/JSONL-reader imports anywhere in the transitive local
+    relative-import graph reachable from the Codex adapter, including
+    `node:fs/promises`, CommonJS `require`, TypeScript import-equals, and
+    dynamic `import()` declarations, plus star and named re-exports; the
+    structured app-server client path remains allowed;
+  - extension-host DOMPurify static, deep, CommonJS, and TypeScript
+    import-equals imports, plus dynamic `import()`;
+  - exact source, scan, line, outline, page, viewer, Codex response/timeout,
+    auto-scroll, request-ID, per-provider cache count, and cache TTL limits;
+  - any conversation-marker `innerHTML`/`insertAdjacentHTML` write;
+  - console, `process.stdout.write`, or `process.stderr.write` app-server
+    logging and a structurally no-op stderr callback; both `=> undefined` and
+    an empty `=> {}` block are accepted safe sinks;
+  - exactly one provider watcher acquisition, assignment ownership, guarded
+    release control flow, disposal, and clearing for all three providers.
+    Release methods require the executable top-level sequence
+    `subscriptions.size` guard, direct optional dispose, then direct clearing;
+    negated/always-true guards and conditionally unreachable disposal fail.
+- Added Windows portable edge-hash and `noFollowFlag: 0` fallback coverage
+  without requiring symlink privileges. The fallback test injects an opened
+  handle for a different file and proves realpath/stat/edge comparison rejects
+  it.
+- Added macOS device/inode/birth-time identity and continuation coverage.
+- Added three independent remote cases (`ssh-remote`, `wsl`,
+  `dev-container`) with distinct UI and extension-host homes. Every case
+  resolves only the Kimi conversation beneath `KIMI_SHARE_DIR`, never the
+  UI-side `HOME`.
+- Added the scheduled macOS source-identity step at exact index 3 and retained
+  stable Extension Host smoke at exact index 4. Release contracts require
+  exactly five ordered steps and reject added, removed, or reordered steps.
+- Required these exact main VSIX entries:
+
+```text
+extension/media/conversationViewer.css
+extension/media/conversationViewerScripts.js
+extension/media/purify.min.js
+```
+
+- Added Linux performance and remote-source scripts to `test:ci:linux`
+  immediately after deterministic tests. Added the Windows source test to
+  `test:ci:windows`.
+- Registered the four planned P0 behavior contracts and made every listed
+  owner name the exact behavior ID.
+- Removed the five Task 5 semicolon baseline findings. `npm run lint:ci` now
+  passes.
+- Resolved three naturally related minor-ledger items:
+  - Claude UUID inputs are normalized to lowercase before exact filename and
+    event matching;
+  - Windows fallback tests do not require symlink privilege and the ancestor
+    race uses `O_NOFOLLOW || 0`, not a fake read flag;
+  - duplicate registrations of the same watch callback now retain distinct
+    logical listeners for Codex, Kimi, and Claude.
 
 ## TDD evidence
 
-### RED
-
-The Task 10 baseline first passed main compile, UI Bridge compile, open-project
-safety, and Dashboard Webview checks. After adding Task 11 tests, the focused
-command failed at the first missing degradation contract:
+The architecture tests were written before the new guard. The first run
+reported six expected failures:
 
 ```text
-AssertionError: Expected values to be strictly deep-equal:
-actual: []
-expected: [ 'update-required' ]
+architectureGuards.test.js
+  existing checks: 14 passed
+  ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001 mutations: 6 failed
+  reason: unknown architecture guard
 ```
 
-The red suite also encoded terminal mismatch/no retry timer, queued transient
-retry gating, handshake and publication disposal ordering, aggregate
-re-delivery, stale opaque-ID invalidation, two navigation cards plus one current
-card, privacy-bounded root metadata, delivery recovery, semantic update
-suppression, and current-card isolation.
-
-During self-review, an additional RED Webview case proved the actionable upgrade
-state was hidden when the saved OTHER WINDOWS group was collapsed. A final RED
-source contract proved stale opaque clicks were not yet routed to the dedicated
-refresh path.
-
-### GREEN
-
-All new client, controller, projection, message, rendering, DOM consistency,
-source wiring, and lifecycle cases pass. The source and shipped Webview scripts
-are byte-identical.
-
-## Self-review
-
-- Critical findings: none.
-- Important fixed: an update-required control could be hidden by saved collapse
-  state; degraded states now render expanded.
-- Important fixed: an invalidated opaque navigation ID could fall through to
-  saved-project lookup and show a misleading warning; reserved navigation IDs
-  now refresh with `open-workspace-navigation-stale` and perform no open action.
-- Important fixed during impacted verification: the committed `media` Webview
-  script is an exact generated mirror of `src/webview`; it was synchronized and
-  parity-checked.
-- Reviewed retry-timer gating, late handshake completion, publication/unregister
-  ordering, aggregate callback failure, in-flight message delivery races, map
-  invalidation, current-card construction, and v2 command/privacy boundaries.
-- No Minor items are intentionally deferred from Task 11.
-
-## Fresh verification
-
-The final pre-commit verification command exited `0`:
+After the guard was implemented:
 
 ```text
-npm run test-compile
-npm run attention:bridge:compile
-node scripts/run-open-project-safety-checks.js
-node scripts/run-dashboard-webview-checks.js
-node scripts/run-ai-session-safety-checks.js
-node scripts/run-ai-session-tmux-checks.js
-cmp -s src/webview/webviewProjectScripts.js media/webviewProjectScripts.js
-git diff --check
+architectureGuards.test.js 20/20
 ```
 
-Observed suite output:
+The follow-up review added eight controlled mutations before changing the
+guard. The RED run was exact:
 
 ```text
-Open project safety checks passed.
-Dashboard Webview checks passed.
-AI session safety checks passed.
-AI session tmux checks passed.
+architectureGuards.test.js
+  20 passed
+  8 failed with "Missing expected exception"
 ```
 
-Both TypeScript compilers and all remaining hygiene commands exited `0`.
-
-## Concerns and deferred scope
-
-- No Task 11 correctness concern remains.
-- Actual cross-window navigation capability and opening behavior remain Task 12
-  scope; Task 11 continues to refresh safely instead of opening a workspace.
-
----
-
-## Important review follow-up: acknowledgement, mismatch, and retry state
-
-Status: complete in a focused follow-up commit.
-
-### Findings resolved
-
-- Aggregate delivery now preserves the complete coordinator acknowledgement
-  chain. The registered aggregate command returns the client's asynchronous
-  consumer promise; a rejected consumer is logged locally with the original
-  diagnostic but rejects the command boundary with fixed sanitized text. The
-  client and coordinator commit their semantic revision only after the consumer
-  resolves, so the same revision remains retryable.
-- Handshake incompatibility no longer depends on exception message text. A
-  private `OpenWorkspaceHandshakeIncompatibilityError` is created only when an
-  actual response fails exact object keys, protocol version, capability values,
-  accepted state, version bounds, or error-code validation. Rejected transport
-  promises remain transient even when their messages contain words such as
-  `protocol` or `capability`.
-- Retry state now covers the full handshake-plus-publication recovery cycle.
-  Successful handshakes retain `retryAttempt`; only successful required
-  publication resets it. Likewise, `ready` is emitted only after publication
-  success, preventing `ready`/`unavailable` churn between failed retries.
-
-### Follow-up TDD evidence
-
-RED failed on the newly added literal response mismatch case because
-`protocolVersion: 1` scheduled a transient retry instead of entering terminal
-update-required degradation:
+The failures covered `node:fs/promises`, a DOMPurify deep import, CommonJS
+Purify require, cache TTL drift, wrapped `innerHTML`, raw
+`process.stderr.write`, unconditional watcher-release return, and a second
+provider-watch acquisition. After the AST/structural guard was hardened:
 
 ```text
-AssertionError: protocol version mismatch must not schedule a retry
-1 !== 0
+architectureGuards.test.js 28/28
 ```
 
-GREEN coverage proves:
-
-- rejected, malformed, protocol-version-mismatched, and capability-mismatched
-  responses are terminal, emit only `update-required`, and schedule no timer;
-- a transport rejection whose text contains `protocol` remains transient;
-- coordinator delivery through the actual registered client command rejects
-  with sanitized text, retries the same semantic revision, and suppresses only
-  after successful consumer acknowledgement; and
-- six failed publications across successful retry handshakes use delays
-  `100, 500, 2000, 10000, 30000, 30000`, keep one active timer, and emit exactly
-  `unavailable` followed by `ready` after the seventh publication succeeds.
-
-### Follow-up verification and self-review
-
-Fresh verification passed main compile, UI Bridge compile, open-workspace
-safety, Dashboard Webview, AI safety, and AI tmux. Source/generated Webview
-parity and `git diff --check` also passed.
-
-Self-review confirmed that no consumer detail crosses the command boundary,
-only response validation can construct the terminal error type, and no path
-other than publication success resets retry state or emits `ready`. No further
-Critical, Important, or Minor finding remains.
-
----
-
-## Important review follow-up: coalesced recovery publications
-
-Status: complete in a focused follow-up commit.
-
-### Finding resolved
-
-- Publications captured while disconnected, handshaking, retrying, or awaiting
-  the first successful current-generation acknowledgement are generation-gated.
-  A newer workspace or `null` closure supersedes all older captured recovery
-  operations before either handshake or publication.
-- Retry recovery now enqueues the current desired generation directly. Only a
-  successful acknowledgement of that current generation resets `retryAttempt`
-  and emits `ready`; handshake success and stale acknowledgements cannot reset
-  the backoff or churn status.
-- Publications queued after the bridge is fully ready retain their existing
-  sequential semantics, and disposal/unregister ordering is unchanged.
-
-### Follow-up TDD evidence
-
-RED used a deferred retry handshake after W1 failed, then queued W2 and W3. The
-new regression initially observed both stale and current publications:
+The second follow-up review added six controlled mutations plus one safe
+fixture before implementation. The RED run was again exact:
 
 ```text
-AssertionError: recovery handshake completion must publish only the latest desired generation
-actual: [W2, W3]
-expected: [W3]
+architectureGuards.test.js
+  28 passed
+  7 failed
 ```
 
-GREEN coverage proves:
-
-- deferred recovery publishes only W3, never the captured W1 or W2;
-- when the first W3 publication fails, the next delay is `500` rather than a
-  reset `100`, exactly one timer remains active, and status stays
-  `unavailable` until W3 is eventually acknowledged and emits `ready`;
-- a latest `null` closure supersedes queued workspace generations; and
-- a healthy connected client still publishes W1, W2, and W3 sequentially.
-
-### Follow-up verification and self-review
-
-Fresh verification passed main compile, UI Bridge compile, open-workspace
-safety, Dashboard Webview, AI safety, and AI tmux. Source/generated Webview
-parity and `git diff --check` also passed.
-
-Self-review confirmed the latest-only window remains active across handshake
-completion until the current generation is acknowledged, same-generation retry
-heartbeats remain valid, normal ready-state sequencing is preserved, and no
-dispose/unregister path changed. No further Critical, Important, or Minor
-finding remains.
-
----
-
-## Important review follow-up: stale identical acknowledgements
-
-Status: complete in a focused follow-up commit.
-
-### Finding resolved
-
-- A successful stale in-flight command no longer commits `lastSemantic`.
-  Semantic state, retry reset, and `ready` now share the same
-  current-generation acknowledgement guard.
-- Consequently, an identical latest workspace generation or repeated `null`
-  cannot be duplicate-suppressed by a stale acknowledgement. It issues and
-  receives its own command before recovery completes.
-- A generation arriving after the acknowledgement guard remains safe because
-  the guard, semantic commit, retry reset, and status transition are one
-  synchronous continuation with no awaited or re-entrant boundary before
-  `setStatus`; the prior generation has completed recovery atomically before a
-  status callback can enqueue newer work.
-
-### Follow-up TDD evidence
-
-RED held a recovery publication in flight, queued the same workspace as a new
-generation, then resolved the stale command. The new regression observed only
-one command:
+The six rejected variants cover TypeScript import-equals for
+`node:fs/promises` and DOMPurify, `process.stdout.write`, a negated
+subscription-size condition, `subscriptions.size || true`, and a dispose call
+hidden beneath `if (false)`. The seventh failure was the safe empty-block
+stderr sink, proving the old guard had a false positive. After switching to
+canonical executable AST statements and accepting both safe no-op spellings:
 
 ```text
-AssertionError: identical workspace generation stale acknowledgement must not suppress the latest identical command
-actual: [workspace]
-expected: [workspace, workspace]
+architectureGuards.test.js 35/35
 ```
 
-GREEN coverage proves for both an identical workspace and repeated `null`:
-
-- the stale and latest generations issue exactly two commands;
-- the latest publication promise resolves `true` only after its own command;
-- status remains `unavailable` until that current acknowledgement emits
-  `ready`, with no active retry timer; and
-- a forced subsequent failure schedules `100` rather than continuing the old
-  backoff, then its single retry restores final `ready` with no timer stranded.
-
-Existing different-generation coalescing, healthy sequential publication,
-backoff, and disposal/unregister tests remain green.
-
-### Follow-up verification and self-review
-
-Fresh verification passed main compile, UI Bridge compile, open-workspace
-safety, Dashboard Webview, AI safety, and AI tmux. All three source/generated
-Webview parity checks and `git diff --check` also passed.
-
-Self-review confirmed stale success remains diagnostic-only, current success is
-the sole semantic/recovery commit path, the synchronous guard prevents an
-after-check generation from splitting the atomic recovery transition, and no
-dispose/unregister path changed. No further Critical, Important, or Minor
-finding remains.
-
----
-
-## Important review follow-up: prior-semantic recovery health
-
-Status: complete in a focused follow-up commit.
-
-### Finding resolved
-
-- A private `recoveryAcknowledgementRequired` state now separates bridge health
-  from `lastSemantic`. It starts set, is set synchronously on transient
-  handshake or publication failure, and is cleared only by current-generation
-  acknowledgement or disposal.
-- Semantic duplicate suppression requires that recovery state to be clear.
-  The prior acknowledged semantic therefore remains available for healthy
-  suppression without allowing an identical recovery generation to skip its
-  required command.
-- Handshake success and stale publication success do not clear recovery state,
-  reset backoff, or emit `ready`.
-
-### Follow-up TDD evidence
-
-RED first committed a workspace semantic successfully, verified its healthy
-duplicate was suppressed, failed a heartbeat, and resolved a stale retry after
-queuing the identical latest generation. Only three commands were observed:
+The final review added two dynamic-import mutations before the AST walker
+changed:
 
 ```text
-AssertionError: prior workspace semantic recovery prior semantic must not suppress the latest recovery command
-actual: [prior success, failed heartbeat, stale retry]
-expected: [prior success, failed heartbeat, stale retry, latest success]
+architectureGuards.test.js
+  35 passed
+  2 failed with "Missing expected exception"
 ```
 
-GREEN coverage proves for both a workspace and repeated `null`:
+They use `void import('node:fs/promises')` in the Codex adapter and
+`void import('dompurify')` in the extension-host viewer. After
+`moduleReferences` learned the TypeScript `ImportKeyword` call shape with one
+string argument:
 
-- healthy identical publication remains accepted without an extra command;
-- the exact sequence is four commands: prior success, failed heartbeat, stale
-  retry success, and latest success;
-- after stale retry success, the latest command exists but its promise remains
-  pending and status remains `unavailable`;
-- only latest acknowledgement resolves the promise `true`, emits `ready`, and
-  leaves no active timer.
+```text
+architectureGuards.test.js 37/37
+```
 
-Existing different-generation coalescing, healthy sequential publication,
-backoff, heartbeat, and disposal/unregister tests remain green.
+The performance command was invoked before its package script existed:
 
-### Follow-up verification and self-review
+```text
+npm run test:conversation-performance
+  Missing script: "test:conversation-performance"
+```
 
-Fresh verification passed main compile, UI Bridge compile, open-workspace
-safety, Dashboard Webview, AI safety, and AI tmux. All three source/generated
-Webview parity checks and `git diff --check` also passed.
+The Claude platform regression was also observed RED:
 
-Self-review confirmed every transient failure sets recovery state before any
-status callback can re-enter publication, current acknowledgement clears it
-before the `ready` callback, disposal clears it beside `disposed`, terminal
-incompatibility remains non-retrying, and `lastSemantic` is never erased. No
-further Critical, Important, or Minor finding remains.
+```text
+uppercase Claude UUID source
+  actual: null
+  expected: canonical lowercase JSONL source
+```
+
+It passed after normalizing the validated UUID.
+
+The duplicate-listener regression was observed RED originally and was
+re-verified during review with controlled production regressions in both
+Codex and Claude:
+
+```text
+same callback registered twice
+  observed notifications: 1
+  expected notifications: 2
+```
+
+The existing production wrapper listeners were restored unchanged. New
+Codex and Claude contract tests now prove that disposal of the first
+registration leaves the second active; Kimi already owned the same case.
+The three-provider focused adapter run passed 30/30.
+
+## Performance harness and measurements
+
+The fixture is created beneath `os.tmpdir()`, never in the repository. It
+contains exactly 10 MiB and exactly 1,000 Kimi interactions. The interaction
+records use canonical `{ timestamp, message: { type, payload } }` envelopes
+for real `TurnBegin`, `ContentPart`, and `TurnEnd` messages. Remaining
+bytes are a small number of syntactically valid JSON string records shaped
+as:
+
+```json
+"pppppppppppppppp"
+```
+
+Those records are read by `readConversationJsonl` in 256 KiB chunks, split
+into physical lines, decoded, and passed through `JSON.parse`. The Kimi
+normalizer deliberately ignores their non-object values. The fixture is not
+sparse, NUL/blank padded, or skipped with a seek.
+
+An initial exploratory fixture placed almost all 10 MiB in assistant-visible
+text. It measured about `1310.790 ms` cold. That passed the `1500 ms` limit,
+but mixed repeated grapheme normalization into the intended source
+I/O/indexing gate and left poor CI headroom. The final fixture preserves the
+same byte and interaction counts while using the parsed `Ignored` records for
+bulk bytes.
+
+Representative consecutive final runs:
+
+```text
+coldMs    149.233 / 150.124
+appendMs   10.506 /  10.220
+cachedAdapterOutlineReadMs    1.513 /   1.461
+```
+
+The final focused performance run measured:
+
+```json
+{
+  "coldMs": 132.747,
+  "appendMs": 10.209,
+  "cachedAdapterOutlineReadMs": 2.257,
+  "outlineInteractions": 1001,
+  "serializedPageBytes": 69289,
+  "boundaryBytes": 67108864,
+  "boundaryRecords": 6076,
+  "boundaryReaderMs": 149.498,
+  "boundaryAdapterMs": 417.136,
+  "oversizedAdapterMs": 391.682,
+  "boundaryOutlineInteractions": 2001,
+  "oversizedOutlineInteractions": 2000,
+  "retainedInteractions": 86,
+  "retainedBytes": 4156986
+}
+```
+
+The cached measurement is an adapter outline-read budget. It is not evidence
+of Webview render latency.
+
+The append fixture is exactly 1 MiB and introduces interaction 1,001. The
+harness also creates a dense, fully valid JSONL source of exactly 64 MiB with
+2,001 real Kimi interactions. The exact-boundary source passes
+`openValidatedConversationSource`, `readConversationJsonl` (6,076 decoded
+records, zero malformed or oversized lines), Kimi normalization, and the
+production 2,000-entry outline cap. After one byte is appended, the validated
+source reports a read start of byte 1; a fresh Kimi adapter follows that real
+oversized-prefix rejection path, returns `partial: true`, and normalizes the
+remaining 2,000 interactions. No boundary assertion constructs normalized
+interaction objects directly. The harness also serializes a real adapter
+page and invokes the production Viewer's `evict()`/`snapshotBytes()` paths.
+
+## Packaging evidence
+
+`npm run test:release-packaging` rebuilt both real archives:
+
+```text
+artifacts/project-steward-2.1.7.vsix
+artifacts/project-steward-attention-ui-bridge-0.1.4.vsix
+```
+
+`node scripts/run-release-packaging-checks.js` then exited 0 and reported
+`Release packaging checks passed.` The exact-entry comparison includes all
+three conversation viewer assets named above, so successful validation proves
+they are in the main archive and no unreviewed entries were added.
+
+The webpack deprecation messages about `Compilation.modules` and
+`Module.errors` are pre-existing warnings; packaging and archive validation
+both exited 0.
+
+## Behavior and capability audit
+
+The gate commit was followed by:
+
+```text
+git log --reverse --format='%H %s' origin/main..HEAD
+```
+
+`MAIN-AI-SESSION-CONVERSATION-OUTLINE` assigns all 26 non-documentation
+implementation commits from Tasks 1–10 plus gate commits `88e29eb`,
+`e227fb9`, `4c4d425`, and `bdc7f63`, for 30 real full hashes total. It owns:
+
+```text
+SESSION-AI-SESSION-CONVERSATION-ADAPTER-001
+WEBVIEW-AI-SESSION-CONVERSATION-OUTLINE-001
+WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001
+SECURITY-AI-SESSION-CONVERSATION-SOURCE-001
+```
+
+Its PR gate is `test:ci:linux`, its scheduled job is `scheduled-macos`, and
+`realEnvironmentRequired` is false. `audit.head` is the full dynamic-import
+gate hash `bdc7f637d4621e96cc956716091d19429d90992e`.
+The two design commits and plan commit use their real full hashes as explicit
+documentation exemptions. The additional plan-review and task-report commits
+are documentation-only and are accepted by the schema without disguising
+implementation.
+
+`npm run test:behavior-contracts` passed both the behavior catalog and main
+capability currency checks. The fresh audit-only commit follows `audit.head`
+and changes only `docs/testing/main-capability-coverage.json`.
+
+## Verification
+
+Focused final gates:
+
+```text
+npm run test-compile                                      passed
+three-provider conversation adapter contracts             30/30
+JSONL TTL plus coordinator timer/watch contracts           47/47
+node --test tests/unit/tooling/architectureGuards.test.js 37/37
+Windows conversation source test                          1/1
+macOS conversation source tests                           2/2
+remote conversation source tests                          3/3
+npm run test:conversation-performance                     passed
+npm run test:release-packaging                            passed
+node scripts/run-release-packaging-checks.js              passed
+npm run test:dashboard                                    passed
+npm run lint:ci                                           passed
+npm run test:behavior-contracts                           passed
+git diff --check                                          passed
+```
+
+The first full CI invocation ran through the complete process but its
+high-volume tool output detached before preserving the final exit status. It
+was not used as completion evidence. The exact command was run again with
+`bash` pipefail and a bounded output tail:
+
+```text
+set -o pipefail; npm run test:ci:linux 2>&1 | tail -n 120
+```
+
+The same exact command was run again after every review round. The final
+dynamic-import review result was exit `0`; its tail ended with
+`Coverage baseline checks passed.`
+This proves the full compile, behavior, lint, deterministic, remote,
+performance, browser, safety, Dashboard, architecture, release notes,
+release packaging, production build, coverage, and coverage-baseline chain.
+
+The feature worktree is clean. The primary checkout still contains only the
+user's pre-existing:
+
+```text
+ M .vscode/settings.json
+```
+
+## Remaining minor ledger
+
+Intentionally deferred because Task 11 did not change their semantics and its
+platform/performance/security gates do not require them:
+
+- Blank physical JSONL lines remain ignored rather than counted malformed.
+- The unit suite does not pin a multibyte sequence at the exact 256 KiB split
+  or a single physical JSONL line accepted at exactly 1 MiB. Task 11 does
+  cover an exact 1 MiB append segment, but that is not the same assertion.
+- The cold-start continuation unit test still does not directly instrument
+  how much continuation work occurred. Task 11 verifies the 1,000 to 1,001
+  append result and append latency, but does not use internal read-byte
+  instrumentation.
+- A malformed Codex `-32601` error object without a string `message` still
+  maps to update-required rather than unsupported protocol.
+
+The previously recorded preview-bound item remains resolved by `a2bc701`.

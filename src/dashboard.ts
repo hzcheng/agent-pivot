@@ -1,6 +1,6 @@
 'use strict';
 import * as vscode from 'vscode';
-import { execFile } from 'child_process';
+import * as childProcess from 'child_process';
 import { randomBytes } from 'crypto';
 import { existsSync, statSync } from 'fs';
 import * as path from 'path';
@@ -74,6 +74,13 @@ import { TmuxRuntimeBackend } from './aiSessions/tmuxRuntimeBackend';
 import { TmuxFocusedRuntimeMonitor } from './aiSessions/tmuxFocusedRuntimeMonitor';
 import { withTmuxCreationLock } from './aiSessions/tmuxCreationLock';
 import type { AiSessionBatchArchiveCompletedMessage, AiSessionProvider, AiSessionService, AiSessionTerminalEntry, AiSessionsUpdatedMessage, WorkspaceAiSessionActionTarget } from './aiSessions/types';
+import {
+    ConversationCapability,
+    createConversationCapability,
+} from './aiSessions/conversation/composition';
+import {
+    withConversationDisplayMetadata,
+} from './aiSessions/conversation/conversationHostController';
 import { AiSessionDashboardController } from './aiSessions/dashboardController';
 import { AiSessionCommandController } from './aiSessions/commandController';
 import { AiSessionCreationController } from './aiSessions/creationController';
@@ -176,7 +183,7 @@ function runBoundedAiProviderHelp(
     options: BoundedChildProcessOptions
 ): Promise<BoundedChildProcessResult> {
     return new Promise(resolve => {
-        execFile(executable, [...args], {
+        childProcess.execFile(executable, [...args], {
             timeout: options.timeoutMs,
             maxBuffer: options.maxOutputBytes,
             encoding: 'utf8',
@@ -1029,6 +1036,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }, 0);
     const aiSessionExecutionInterval = setInterval(() => { aiSessionExecutionController.evaluate(); }, 1_000);
     setTimeout(() => { aiSessionExecutionController.evaluate(); }, 0);
+    let conversationCapability: ConversationCapability;
     const aiSessionDashboardController = new AiSessionDashboardController({
         providerIds: aiSessionProviders.map(provider => provider.id),
         isVisible: () => provider.visible,
@@ -1050,18 +1058,58 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             currentAiSessionRefreshReason = reason;
             postAiSessionAttentionState();
         },
-        afterRefresh: () => { currentAiSessionRefreshReason = 'refresh'; },
+        afterRefresh: () => {
+            currentAiSessionRefreshReason = 'refresh';
+            void conversationCapability.reconcile();
+        },
         debounceMs: AI_SESSION_REFRESH_DEBOUNCE_MS,
         watcherRefreshMinIntervalMs: AI_SESSION_WATCHER_REFRESH_MIN_INTERVAL_MS,
         newSessionRefreshDelaysMs: NEW_AI_SESSION_REFRESH_DELAYS_MS,
         setTimeout: (callback, delayMs) => setTimeout(callback, delayMs),
         clearTimeout: handle => clearTimeout(handle),
     });
+    conversationCapability = createConversationCapability({
+        services: aiSessionServices,
+        resolveTarget: (projectId, providerId, sessionId) => {
+            const target = getCurrentWorkspaceActionTarget(projectId);
+            const activeSessions = target?.sessions.activeSessions || [];
+            const activeSession = activeSessions.find(session =>
+                session.provider === providerId
+                && session.sessionId === sessionId
+            );
+            return activeSession
+                ? withConversationDisplayMetadata(
+                    activeSession,
+                    activeSessions
+                )
+                : null;
+        },
+        getWorkspaceRootHostPaths: () =>
+            getCurrentWorkspaceActionTargetWithoutCardId()
+                ?.workspace.roots.map(root => root.hostPath) || [],
+        publish: message => provider.postMessage(message),
+        createPanel: vscode.window.createWebviewPanel,
+        openExternal: vscode.env.openExternal,
+        spawnCodex: childProcess.spawn,
+        now: () => Date.now(),
+        setTimer: setTimeout,
+        clearTimer: clearTimeout,
+        onDiagnostic: event => logAiSessionDiagnostic({ ...event }),
+    });
+    const conversationHandlers = {
+        'request-ai-session-conversation-outline': message =>
+            conversationCapability.controller.handleOutline(message),
+        'open-ai-session-conversation': message =>
+            conversationCapability.controller.handleOpen(message),
+        'cancel-ai-session-conversation': message =>
+            conversationCapability.controller.cancel(message),
+    };
 
     const dashboardMessageRouter = createDashboardMessageRouter({
         getAiSessionProviderIds: () => getRegisteredAiSessionProviders().map(provider => provider.id),
         saveCurrentWorkspace: () => savedWorkspaceProjectAdapter.saveCurrentWorkspace(),
         handlers: {
+            ...conversationHandlers,
             'request-projects-panel': async e => {
                 if (e.version !== 1 || !Number.isSafeInteger(e.requestId) || e.requestId < 1) {
                     return;
@@ -1466,6 +1514,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         renderError: getErrorContent,
         onMessage: dashboardMessageRouter,
         onVisibleChanged: async visible => {
+            conversationCapability.controller.setVisible(visible);
             projectsPanelController?.invalidatePendingUpdates();
             openWorkspaceDashboardController?.invalidatePendingUpdates();
             setAiSessionWatchersActive(visible);
@@ -1474,6 +1523,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                 void tmuxFocusedRuntimeMonitor.request();
             }
             await dashboardRuntimeController.handleAiSessionViewVisibilityChanged(visible);
+        },
+        onDisposed: () => {
+            conversationCapability.controller.resetView();
         },
         logError,
     });
@@ -1665,6 +1717,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }));
     context.subscriptions.push(activeAiSessionTerminalHighlighter);
     context.subscriptions.push(tmuxFocusedRuntimeMonitor);
+    context.subscriptions.push(conversationCapability);
     context.subscriptions.push(openWorkspaceBridgeClient);
     context.subscriptions.push(aiSessionAttentionBridgeClient);
     context.subscriptions.push({
@@ -2115,6 +2168,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
 
     function postActiveAiSessionTerminalChanged(identity: ActiveAiSessionTerminalIdentity | null) {
+        void conversationCapability.reconcile();
         dashboardRuntimeController.postActiveAiSessionTerminalChanged(identity);
     }
 

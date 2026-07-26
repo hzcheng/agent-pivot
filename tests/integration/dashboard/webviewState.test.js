@@ -17,6 +17,7 @@ const dashboardSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webvi
 const generatedDashboardSource = fs.readFileSync(path.join(root, 'media', 'webviewDashboardScripts.js'), 'utf8');
 const projectSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewProjectScripts.js'), 'utf8');
 const generatedProjectSource = fs.readFileSync(path.join(root, 'media', 'webviewProjectScripts.js'), 'utf8');
+const scrollStateSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewScrollStateScripts.js'), 'utf8');
 const promptSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewPromptScripts.js'), 'utf8');
 const generatedPromptPath = path.join(root, 'media', 'webviewPromptScripts.js');
 const dndSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewDnDScripts.js'), 'utf8');
@@ -172,6 +173,7 @@ function createDashboardHarness({
     synchronousFrames = true,
     onProjectsMounted,
     onTodoMounted,
+    onTodoRefresh,
     onActiveTabChanged,
 } = {}) {
     const openButton = createElement('dashboard-tab-open-button');
@@ -294,6 +296,7 @@ function createDashboardHarness({
         postMessage: message => messages.push(message),
         onProjectsMounted,
         onTodoMounted,
+        onTodoRefresh,
         onActiveTabChanged,
     });
     return {
@@ -624,6 +627,41 @@ test('WEBVIEW-MULTI-PROVIDER-SESSION-MENU-001 keeps the generated provider-menu 
         /e\.selectedProviders,\s*e\.requestId,\s*e\.version/
     );
     assert.doesNotMatch(projectSource, /type: 'select-ai-session-provider'/);
+});
+
+test('ACTIVE-SESSION-CONVERSATION-OUTLINE-001 keeps correlated outline rendering and safe marker construction in the generated controller', () => {
+    assert.equal(generatedProjectSource, projectSource);
+    assert.match(
+        projectSource,
+        /function applyAiSessionConversationOutlineResult\(message\)/
+    );
+    assert.match(
+        projectSource,
+        /function renderActiveAiSessionConversationOutline\(row, state, outline/
+    );
+    assert.match(projectSource, /message\.type !== 'ai-session-conversation-outline-result'/);
+    assert.match(projectSource, /message\.requestId !== state\.outlineRequestId/);
+    assert.match(
+        projectSource,
+        /message\.subscriptionGeneration !== state\.subscriptionGeneration/
+    );
+    assert.match(projectSource, /document\.createElement\('button'\)/);
+    assert.match(
+        projectSource,
+        /previewNode\.className = 'ai-session-conversation-marker-preview'/
+    );
+    assert.match(projectSource, /previewNode\.textContent = preview/);
+    assert.match(
+        projectSource,
+        /stroke\.setAttribute\('aria-hidden', 'true'\)/
+    );
+    assert.doesNotMatch(projectSource, /--ai-input-ratio|var longest/);
+    assert.match(projectSource, /type: 'open-ai-session-conversation'/);
+    assert.match(projectSource, /expectedRevision: state\.sourceRevision/);
+    assert.doesNotMatch(
+        projectSource,
+        /open-ai-session-conversation'[\s\S]{0,500}(userPreview|prompt)/
+    );
 });
 
 test('WEBVIEW-AI-PROMPT-ASSET-001 keeps the generated Prompt controller byte-identical to source', () => {
@@ -1364,6 +1402,20 @@ test('PROJECT-INCREMENTAL-REFRESH-001 preserves matching drag DOM and replaces a
     assert.equal(harness.projectsPanel.innerHTML, '<p>authoritative fallback</p>');
 });
 
+test('WEBVIEW-PROJECTS-PANEL-SCROLL-001 captures semantic Projects state and ignores stale post-fit restoration', () => {
+    assert.match(dashboardSource, /function getProjectScrollItemKey\(project\)/);
+    assert.match(dashboardSource, /function captureProjectsPanelState\(\)/);
+    assert.match(dashboardSource, /windowScrollY:\s*window\.scrollY/);
+    assert.match(dashboardSource, /itemSelector:\s*'\.project\[data-id\]'/);
+    assert.match(dashboardSource, /getKey:\s*getProjectScrollItemKey/);
+    assert.match(dashboardSource, /focus\(\{ preventScroll: true \}\)/);
+    assert.match(dashboardSource, /projectsPanelReplacementGeneration/);
+    assert.match(
+        dashboardSource,
+        /replacementGeneration !== projectsPanelReplacementGeneration/
+    );
+});
+
 test('PROJECT-INCREMENTAL-REFRESH-001 ignores stale window messages without requesting a full refresh', () => {
     const harness = createDashboardHarness({ initialTab: 'projects' });
     harness.controller.applyProjectsPanelMessage({
@@ -1457,8 +1509,138 @@ test('WEBVIEW-DASHBOARD-SEARCH-CATALOG-001 accepts the migrated TODO catalog wit
     assert.equal(todoSection.children[1].dataset.todoId, 'tlazy');
 });
 
+test('TODO-AUTHORITATIVE-REFRESH-STATE-001 routes supported mounted snapshots without replacing TODO markup and falls back once otherwise', () => {
+    const mounted = [];
+    const refreshed = [];
+    const validSnapshot = {
+        version: 1,
+        showCompleted: false,
+        data: { version: 1, groups: [], todos: [] },
+    };
+    const harness = createDashboardHarness({
+        initialTab: 'todo',
+        onTodoMounted: (panel, message) => mounted.push({ panel, message }),
+        onTodoRefresh: (panel, message) => {
+            refreshed.push({ panel, message });
+            const snapshot = message.snapshot;
+            return Boolean(snapshot
+                && snapshot.version === 1
+                && typeof snapshot.showCompleted === 'boolean'
+                && snapshot.data
+                && snapshot.data.version === 1
+                && Array.isArray(snapshot.data.groups)
+                && Array.isArray(snapshot.data.todos));
+        },
+    });
+    assert.equal(harness.controller.applyTodoPanelMessage({
+        type: 'todo-panel-content',
+        version: 1,
+        requestId: 1,
+        html: '<div class="todo-panel">mounted</div>',
+        snapshot: validSnapshot,
+        searchCatalog: makeCatalog('mounted'),
+    }), true);
+    const mountedHtml = harness.todoPanel.innerHTML;
+
+    assert.equal(harness.controller.applyTodoPanelUpdatedMessage({
+        type: 'todo-panel-updated',
+        version: 1,
+        html: '<div class="todo-panel">replacement must not install</div>',
+        snapshot: validSnapshot,
+        searchCatalog: makeCatalog('refresh'),
+    }), true);
+    assert.equal(refreshed.length, 1);
+    assert.equal(refreshed[0].panel, harness.todoPanel);
+    assert.equal(mounted.length, 1);
+    assert.equal(harness.todoPanel.innerHTML, mountedHtml);
+    harness.controller.setSearchQuery('refresh');
+    assert.equal(harness.searchResults.children.find(section =>
+        section.dataset.sectionType === 'todo'
+    ).children[1].dataset.todoId, 'trefresh');
+
+    assert.equal(harness.controller.applyTodoPanelUpdatedMessage({
+        type: 'todo-panel-updated',
+        version: 1,
+        html: '<div class="todo-panel">fallback</div>',
+        snapshot: { version: 2 },
+        searchCatalog: makeCatalog('fallback'),
+    }), true);
+    assert.equal(refreshed.length, 2);
+    assert.equal(mounted.length, 2);
+    assert.equal(harness.todoPanel.innerHTML, '<div class="todo-panel">fallback</div>');
+
+    assert.equal(harness.controller.applyTodoPanelUpdatedMessage({
+        type: 'todo-panel-updated',
+        version: 1,
+        html: '<div class="todo-panel">malformed fallback</div>',
+        snapshot: { version: 1 },
+        searchCatalog: makeCatalog('malformed'),
+    }), true);
+    assert.equal(refreshed.length, 3);
+    assert.equal(mounted.length, 3);
+    assert.equal(harness.todoPanel.innerHTML, '<div class="todo-panel">malformed fallback</div>');
+
+    assert.equal(harness.controller.applyTodoPanelUpdatedMessage({
+        type: 'todo-panel-updated',
+        version: 1,
+        html: '<div class="todo-panel">missing fallback</div>',
+        searchCatalog: makeCatalog('missing'),
+    }), true);
+    assert.equal(refreshed.length, 3);
+    assert.equal(mounted.length, 4);
+    assert.equal(harness.todoPanel.innerHTML, '<div class="todo-panel">missing fallback</div>');
+});
+
+test('TODO-AUTHORITATIVE-REFRESH-STATE-001 fallback restores show-completed focus with preventScroll and preserves window scroll', () => {
+    const harness = createDashboardHarness({
+        initialTab: 'todo',
+        onTodoRefresh: () => false,
+    });
+    assert.equal(harness.controller.applyTodoPanelMessage({
+        type: 'todo-panel-content',
+        version: 1,
+        requestId: 1,
+        html: '<div class="todo-panel">mounted</div>',
+        searchCatalog: makeCatalog('mounted'),
+    }), true);
+    const oldToggle = createElement();
+    oldToggle.setAttribute('data-action', 'todo-toggle-show-completed');
+    const replacementToggle = createElement();
+    let focusOptions = null;
+    replacementToggle.setAttribute('data-action', 'todo-toggle-show-completed');
+    replacementToggle.focus = options => {
+        focusOptions = options;
+        harness.context.document.activeElement = replacementToggle;
+        if (!options || options.preventScroll !== true) {
+            harness.context.window.scrollY = 0;
+        }
+    };
+    harness.todoPanel.contains = candidate => candidate === oldToggle;
+    harness.todoPanel.querySelector = selector =>
+        selector === '[data-action="todo-toggle-show-completed"]'
+            ? replacementToggle
+            : null;
+    harness.context.document.activeElement = oldToggle;
+    harness.context.window.scrollY = 73;
+
+    assert.equal(harness.controller.applyTodoPanelUpdatedMessage({
+        type: 'todo-panel-updated',
+        version: 1,
+        html: '<div class="todo-panel">fallback</div>',
+        snapshot: { version: 2 },
+        searchCatalog: makeCatalog('fallback'),
+    }), true);
+    assert.deepEqual(toPlain(focusOptions), { preventScroll: true });
+    assert.equal(harness.context.document.activeElement, replacementToggle);
+    assert.equal(harness.context.window.scrollY, 73);
+});
+
 test('TODO-TODO-SEARCH-RESULT-RENDERING-001 search reveal requests host data then focuses the mounted TODO', () => {
-    const harness = createDashboardHarness({ initialTab: 'todo', synchronousFrames: false });
+    const harness = createDashboardHarness({
+        initialTab: 'todo',
+        synchronousFrames: false,
+        onTodoRefresh: (_panel, message) => Boolean(message.snapshot),
+    });
     assert.equal(harness.controller.applyTodoPanelMessage({
         type: 'todo-panel-content', version: 1, requestId: 1, html: '<p>todo</p>',
     }), true);
@@ -1478,9 +1660,11 @@ test('TODO-TODO-SEARCH-RESULT-RENDERING-001 search reveal requests host data the
 
     let focused = 0;
     let openedTodoId = null;
+    let openedCount = 0;
     harness.context.window.__projectStewardTodo = {
         openDetail(todoId) {
             openedTodoId = todoId;
+            openedCount += 1;
             return true;
         },
     };
@@ -1500,11 +1684,29 @@ test('TODO-TODO-SEARCH-RESULT-RENDERING-001 search reveal requests host data the
     };
     harness.todoPanel.querySelectorAll = selector => selector === '.todo-item[data-todo-id]' ? [todoItem] : [];
     harness.controller.applyTodoPanelUpdatedMessage({
-        type: 'todo-panel-updated', version: 1, html: '<p>revealed</p>', searchCatalog: makeCatalog('search'),
+        type: 'todo-panel-updated',
+        version: 1,
+        html: '<p>revealed</p>',
+        snapshot: { version: 1 },
+        searchCatalog: makeCatalog('search'),
     });
     while (harness.frames.length) harness.frames.shift()();
     assert.equal(openedTodoId, 'tsearch');
+    assert.equal(openedCount, 1);
     assert.equal(focused, 0);
+
+    openedTodoId = null;
+    harness.searchResults.dispatch('click', { target: todoResult });
+    while (harness.frames.length) harness.frames.shift()();
+    harness.controller.applyTodoPanelUpdatedMessage({
+        type: 'todo-panel-updated',
+        version: 1,
+        html: '<p>fallback revealed</p>',
+        searchCatalog: makeCatalog('search'),
+    });
+    while (harness.frames.length) harness.frames.shift()();
+    assert.equal(openedTodoId, 'tsearch');
+    assert.equal(openedCount, 2);
 });
 
 function createProjectVm({
@@ -1561,6 +1763,7 @@ function createProjectVm({
             },
         },
     };
+    vm.runInNewContext(scrollStateSource, context);
     vm.runInNewContext(source, context);
     context.initProjects();
     messages.length = 0;
@@ -1900,7 +2103,7 @@ test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-002 reconciles batch selection afte
     ));
 });
 
-test('SESSION-CONTROLLER-001 preserves AI tab helpers, persisted state, and hidden-list scroll offsets', () => {
+test('SESSION-CONTROLLER-001 preserves AI tab helpers, persisted state, and semantic list fallbacks', () => {
     const harness = createProjectVm();
     const context = harness.context;
     assert.equal(context.normalizeAiSessionTab('active'), 'active');
@@ -1960,7 +2163,9 @@ test('SESSION-CONTROLLER-001 preserves AI tab helpers, persisted state, and hidd
         },
     };
     context.restoreAiSessionViewState(project, {
-        activeScrollTop: 17, historyScrollTop: 29, restoreFocus: false,
+        activeAnchor: { scrollTop: 17, itemKey: null, itemOffset: 0 },
+        historyAnchor: { scrollTop: 29, itemKey: null, itemOffset: 0 },
+        restoreFocus: false,
     }, 'active');
     assert.equal(activeList.scrollTop, 17);
     assert.equal(historyList.scrollTop, 29);
@@ -2027,7 +2232,7 @@ test('WEBVIEW-AI-DASHBOARD-001 keeps Collapse disabled across late Projects and 
     assert.equal(collapseButton.getAttribute('title'), 'No groups to collapse in AI');
 });
 
-test('WEBVIEW-AI-DASHBOARD-001 preserves AI Collapse state after actual late Projects and TODO responses and updates', () => {
+test('WEBVIEW-AI-DASHBOARD-001 and TODO-AUTHORITATIVE-REFRESH-STATE-001 preserve AI Collapse state after actual late Projects and TODO responses and updates', () => {
     const collapseButton = createElement();
     const projectVm = createProjectVm({
         querySelector: selector => selector === '[data-action="toggle-all-groups"]'

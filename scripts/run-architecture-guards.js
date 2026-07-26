@@ -37,6 +37,15 @@ function parseTypescript(root, relativePath, id, risk) {
     return sourceFile;
 }
 
+function parseJavascript(root, relativePath, id, risk) {
+    const source = read(root, relativePath, id, risk);
+    const sourceFile = ts.createSourceFile(relativePath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+    if (sourceFile.parseDiagnostics.length) {
+        fail(id, risk, `${relativePath} must parse as JavaScript`);
+    }
+    return sourceFile;
+}
+
 function walk(node, visit) {
     visit(node);
     ts.forEachChild(node, child => walk(child, visit));
@@ -262,7 +271,424 @@ function newExpressionOptionCallback(sourceFile, variableName, constructorName, 
     return option[0].initializer;
 }
 
+function listFiles(root, relativeDirectory, extension) {
+    const directory = path.join(root, relativeDirectory);
+    const files = [];
+    const visit = current => {
+        for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+            const absolute = path.join(current, entry.name);
+            if (entry.isDirectory()) visit(absolute);
+            else if (entry.isFile() && entry.name.endsWith(extension)) {
+                files.push(path.relative(root, absolute));
+            }
+        }
+    };
+    visit(directory);
+    return files.sort();
+}
+
+function importModules(sourceFile) {
+    return sourceFile.statements
+        .filter(ts.isImportDeclaration)
+        .map(statement => statement.moduleSpecifier)
+        .filter(ts.isStringLiteral)
+        .map(moduleSpecifier => moduleSpecifier.text);
+}
+
+function moduleReferences(sourceFile) {
+    const modules = importModules(sourceFile);
+    walk(sourceFile, node => {
+        if (ts.isExportDeclaration(node)
+            && node.moduleSpecifier
+            && ts.isStringLiteral(node.moduleSpecifier)) {
+            modules.push(node.moduleSpecifier.text);
+            return;
+        }
+        if (ts.isImportEqualsDeclaration(node)
+            && ts.isExternalModuleReference(node.moduleReference)
+            && node.moduleReference.expression) {
+            const moduleName = stringArgument(node.moduleReference.expression);
+            if (moduleName !== undefined) modules.push(moduleName);
+            return;
+        }
+        if (ts.isCallExpression(node)
+            && node.expression.kind === ts.SyntaxKind.ImportKeyword
+            && node.arguments.length === 1) {
+            const moduleName = stringArgument(node.arguments[0]);
+            if (moduleName !== undefined) modules.push(moduleName);
+            return;
+        }
+        if (!ts.isCallExpression(node)
+            || !ts.isIdentifier(node.expression)
+            || node.expression.text !== 'require'
+            || node.arguments.length !== 1) return;
+        const moduleName = stringArgument(node.arguments[0]);
+        if (moduleName !== undefined) modules.push(moduleName);
+    });
+    return modules;
+}
+
+function resolveRelativeTypescriptModule(
+    root,
+    importerPath,
+    moduleName,
+    id,
+    risk
+) {
+    const unresolved = path.resolve(
+        root,
+        path.dirname(importerPath),
+        moduleName
+    );
+    const rootWithSeparator = path.resolve(root) + path.sep;
+    if (!unresolved.startsWith(rootWithSeparator)) {
+        fail(id, risk,
+            `Codex reachable module escapes the repository: ${moduleName}`);
+    }
+    const candidates = [
+        unresolved,
+        `${unresolved}.ts`,
+        `${unresolved}.tsx`,
+        `${unresolved}.js`,
+        `${unresolved}.mjs`,
+        `${unresolved}.cjs`,
+        path.join(unresolved, 'index.ts'),
+        path.join(unresolved, 'index.tsx'),
+        path.join(unresolved, 'index.js'),
+        path.join(unresolved, 'index.mjs'),
+        path.join(unresolved, 'index.cjs'),
+    ];
+    const resolved = candidates.find(candidate => {
+        try {
+            return fs.statSync(candidate).isFile();
+        } catch (_error) {
+            return false;
+        }
+    });
+    if (!resolved) {
+        fail(id, risk,
+            `cannot resolve Codex reachable module ${moduleName} from ${importerPath}`);
+    }
+    return path.relative(root, resolved);
+}
+
+function validateCodexReachableModules(root, id, risk) {
+    const entry = 'src/aiSessions/conversation/codexAdapter.ts';
+    const queue = [entry];
+    const visited = new Set();
+    while (queue.length) {
+        const relativePath = queue.shift();
+        if (visited.has(relativePath)) continue;
+        visited.add(relativePath);
+        const sourceFile = /\.[cm]?js$/i.test(relativePath)
+            ? parseJavascript(root, relativePath, id, risk)
+            : parseTypescript(root, relativePath, id, risk);
+        for (const moduleName of moduleReferences(sourceFile)) {
+            const filesystemModule =
+                /^(?:node:)?fs(?:[/\\]|$)/i.test(moduleName);
+            const transcriptReaderModule =
+                /(?:^|[/\\])(?:source|jsonlReader)(?:\.[cm]?[jt]sx?)?(?:[/\\]|$)/i
+                    .test(moduleName);
+            if (filesystemModule || transcriptReaderModule) {
+                if (relativePath !== entry) {
+                    fail(id, risk,
+                        'Codex reachable modules must not import filesystem or transcript readers');
+                }
+                if (filesystemModule) {
+                    fail(id, risk,
+                        'Codex conversation adapter must not import filesystem or transcript JSONL readers');
+                }
+                fail(id, risk,
+                    'Codex production content must remain app-server-only');
+            }
+            if (moduleName.startsWith('.')) {
+                queue.push(resolveRelativeTypescriptModule(
+                    root,
+                    relativePath,
+                    moduleName,
+                    id,
+                    risk
+                ));
+            }
+        }
+    }
+}
+
+function memberPath(node) {
+    if (ts.isIdentifier(node)) return node.text;
+    if (node.kind === ts.SyntaxKind.ThisKeyword) return 'this';
+    if (ts.isPropertyAccessExpression(node)) {
+        const parent = memberPath(node.expression);
+        return parent ? `${parent}.${node.name.text}` : undefined;
+    }
+    if (ts.isElementAccessExpression(node)
+        && node.argumentExpression
+        && (ts.isStringLiteral(node.argumentExpression)
+            || ts.isNoSubstitutionTemplateLiteral(node.argumentExpression))) {
+        const parent = memberPath(node.expression);
+        return parent ? `${parent}.${node.argumentExpression.text}` : undefined;
+    }
+    return undefined;
+}
+
+function nodesMatching(root, predicate) {
+    const matches = [];
+    walk(root, node => {
+        if (predicate(node)) matches.push(node);
+    });
+    return matches;
+}
+
+function validateProviderWatchOwnership(sourceFile, className, id, risk) {
+    const ensureMethod = classMethod(sourceFile, className, 'ensureProviderWatch', id, risk);
+    const watchMethod = classMethod(sourceFile, className, 'watch', id, risk);
+    const releaseMethod = classMethod(sourceFile, className, 'releaseProviderWatchIfIdle', id, risk);
+    if (!releaseMethod.body) {
+        fail(id, risk, `${className}.releaseProviderWatchIfIdle must have a body`);
+    }
+
+    const providerWatchCalls = nodesMatching(sourceFile, node =>
+        ts.isCallExpression(node)
+        && memberPath(node.expression) === 'this.options.watchSessionChanges');
+    const ensureProviderWatchCalls = nodesMatching(ensureMethod, node =>
+        ts.isCallExpression(node)
+        && memberPath(node.expression) === 'this.options.watchSessionChanges');
+    if (providerWatchCalls.length !== 1
+        || ensureProviderWatchCalls.length !== 1
+        || !ts.isBinaryExpression(ensureProviderWatchCalls[0].parent)
+        || ensureProviderWatchCalls[0].parent.right !== ensureProviderWatchCalls[0]
+        || ensureProviderWatchCalls[0].parent.operatorToken.kind !== ts.SyntaxKind.EqualsToken
+        || memberPath(ensureProviderWatchCalls[0].parent.left) !== 'this.providerWatch') {
+        fail(id, risk, 'provider watchers must remain bounded and releasable');
+    }
+
+    const watchEnsureCalls = nodesMatching(watchMethod, node =>
+        ts.isCallExpression(node) && memberPath(node.expression) === 'this.ensureProviderWatch');
+    const watchReleaseCalls = nodesMatching(watchMethod, node =>
+        ts.isCallExpression(node) && memberPath(node.expression) === 'this.releaseProviderWatchIfIdle');
+    if (watchEnsureCalls.length !== 1 || watchReleaseCalls.length !== 1) {
+        fail(id, risk, 'provider watchers must remain bounded and releasable');
+    }
+
+    const statements = releaseMethod.body.statements;
+    const subscriptionGuard = statements[0];
+    if (!subscriptionGuard
+        || !ts.isIfStatement(subscriptionGuard)
+        || memberPath(subscriptionGuard.expression) !== 'this.subscriptions.size'
+        || subscriptionGuard.elseStatement
+        || !ts.isBlock(subscriptionGuard.thenStatement)
+        || subscriptionGuard.thenStatement.statements.length !== 1
+        || !ts.isReturnStatement(subscriptionGuard.thenStatement.statements[0])
+        || subscriptionGuard.thenStatement.statements[0].expression) {
+        fail(id, risk, 'provider watchers must remain bounded and releasable');
+    }
+
+    const disposeStatement = statements[1];
+    const disposeCall = disposeStatement
+        && ts.isExpressionStatement(disposeStatement)
+        && ts.isCallExpression(disposeStatement.expression)
+        ? disposeStatement.expression
+        : undefined;
+    if (!disposeCall
+        || disposeCall.arguments.length
+        || memberPath(disposeCall.expression) !== 'this.providerWatch.dispose'
+        || !ts.isPropertyAccessExpression(disposeCall.expression)
+        || !disposeCall.expression.questionDotToken) {
+        fail(id, risk, 'provider watchers must remain bounded and releasable');
+    }
+
+    const clearStatement = statements[2];
+    const clearAssignment = clearStatement
+        && ts.isExpressionStatement(clearStatement)
+        && ts.isBinaryExpression(clearStatement.expression)
+        ? clearStatement.expression
+        : undefined;
+    if (!clearAssignment
+        || clearAssignment.operatorToken.kind !== ts.SyntaxKind.EqualsToken
+        || memberPath(clearAssignment.left) !== 'this.providerWatch'
+        || !ts.isIdentifier(clearAssignment.right)
+        || clearAssignment.right.text !== 'undefined'
+        || nodesMatching(releaseMethod, ts.isReturnStatement).length !== 1
+        || nodesMatching(releaseMethod, node =>
+            ts.isCallExpression(node)
+            && memberPath(node.expression) === 'this.providerWatch.dispose').length !== 1
+        || nodesMatching(releaseMethod, node =>
+            ts.isBinaryExpression(node)
+            && node.operatorToken.kind === ts.SyntaxKind.EqualsToken
+            && memberPath(node.left) === 'this.providerWatch'
+            && ts.isIdentifier(node.right)
+            && node.right.text === 'undefined').length !== 1) {
+        fail(id, risk, 'provider watchers must remain bounded and releasable');
+    }
+}
+
+function objectFreezeProperties(sourceFile, variableName, id, risk) {
+    const declaration = findVariable(sourceFile, variableName, id, risk);
+    const initializer = declaration.initializer;
+    if (!initializer || !ts.isCallExpression(initializer)
+        || initializer.expression.getText(sourceFile) !== 'Object.freeze'
+        || initializer.arguments.length !== 1
+        || !ts.isObjectLiteralExpression(initializer.arguments[0])) {
+        fail(id, risk, `${variableName} must remain one frozen object literal`);
+    }
+    return new Map(initializer.arguments[0].properties.map(property => {
+        if (!ts.isPropertyAssignment(property)) {
+            fail(id, risk, `${variableName} must contain only property assignments`);
+        }
+        return [
+            property.name.getText(sourceFile),
+            normalizedAstText(property.initializer, sourceFile),
+        ];
+    }));
+}
+
 const guards = {
+    // ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001
+    'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001'(root) {
+        const risk = 'conversation history can expose private content or exhaust the extension host';
+        validateCodexReachableModules(root, this.id, risk);
+
+        const codexService = parseTypescript(
+            root,
+            'src/services/codexSessionService.ts',
+            this.id,
+            risk
+        );
+        const codexFilesystemResolvers = nodesMatching(codexService, node =>
+            ts.isMethodDeclaration(node)
+            && node.name.getText(codexService) ===
+                'resolveConversationSource');
+        const composition = parseTypescript(
+            root,
+            'src/aiSessions/conversation/composition.ts',
+            this.id,
+            risk
+        );
+        const codexFilesystemRoutes = nodesMatching(composition, node =>
+            memberPath(node) ===
+                'options.services.codex.resolveConversationSource');
+        if (codexFilesystemResolvers.length || codexFilesystemRoutes.length) {
+            fail(this.id, risk,
+                'Codex production content must remain app-server-only');
+        }
+
+        for (const relativePath of listFiles(root, 'src', '.ts')) {
+            const sourceFile = parseTypescript(root, relativePath, this.id, risk);
+            if (moduleReferences(sourceFile).some(moduleName =>
+                /(?:^|[/\\])dompurify(?:[/\\]|$)/i.test(moduleName)
+                || /(?:^|[/\\])purify\.min\.js$/i.test(moduleName))) {
+                fail(this.id, risk,
+                    'extension-host TypeScript must not import DOMPurify');
+            }
+        }
+
+        const types = parseTypescript(
+            root,
+            'src/aiSessions/conversation/types.ts',
+            this.id,
+            risk
+        );
+        const limits = objectFreezeProperties(
+            types,
+            'CONVERSATION_LIMITS',
+            this.id,
+            risk
+        );
+        const expectedLimits = new Map([
+            ['maxOutlineInteractions', '2_000'],
+            ['maxPageInteractions', '20'],
+            ['maxPageBytes', '512 * 1024'],
+            ['maxSourceBytes', '64 * 1024 * 1024'],
+            ['maxLineBytes', '1024 * 1024'],
+            ['jsonlScanTimeoutMs', '5_000'],
+            ['maxViewerInteractions', '100'],
+            ['maxViewerBytes', '4 * 1024 * 1024'],
+            ['maxCodexResponseBytes', '16 * 1024 * 1024'],
+            ['codexRequestTimeoutMs', '10_000'],
+            ['autoScrollThresholdPx', '8'],
+            ['minRequestId', '1'],
+            ['inactiveIndexLimitPerProvider', '8'],
+            ['inactiveIndexTtlMs', '10 * 60 * 1000'],
+        ]);
+        if ([...expectedLimits].some(([name, expected]) =>
+            limits.get(name) !== expected)) {
+            fail(this.id, risk,
+                'conversation resource and protocol limits must remain exact');
+        }
+
+        const projectWebview = parseJavascript(
+            root,
+            'src/webview/webviewProjectScripts.js',
+            this.id,
+            risk
+        );
+        const markerRenderer = uniqueAstNode(
+            projectWebview,
+            node => ts.isFunctionDeclaration(node)
+                && node.name?.text === 'renderActiveAiSessionConversationOutline',
+            this.id,
+            risk,
+            'function renderActiveAiSessionConversationOutline'
+        );
+        const unsafeMarkerWrites = nodesMatching(markerRenderer, node =>
+            (ts.isBinaryExpression(node)
+                && node.operatorToken.kind === ts.SyntaxKind.EqualsToken
+                && memberPath(node.left)?.endsWith('.innerHTML'))
+            || (ts.isCallExpression(node)
+                && memberPath(node.expression)?.endsWith('.insertAdjacentHTML')));
+        if (unsafeMarkerWrites.length) {
+            fail(this.id, risk,
+                'conversation markers must not render prompt-bearing HTML');
+        }
+
+        const appServer = parseTypescript(
+            root,
+            'src/aiSessions/conversation/codexAppServerClient.ts',
+            this.id,
+            risk
+        );
+        const unsafeLogCalls = nodesMatching(appServer, node =>
+            ts.isCallExpression(node)
+            && (memberPath(node.expression)?.startsWith('console.')
+                || memberPath(node.expression) === 'process.stdout.write'
+                || memberPath(node.expression) === 'process.stderr.write'));
+        const onStderrData = uniqueAstNode(appServer,
+            node => ts.isPropertyDeclaration(node)
+                && node.name.getText(appServer) === 'onStderrData',
+            this.id, risk, 'onStderrData');
+        const stderrInitializer = onStderrData.initializer;
+        const safeStderrSink = stderrInitializer
+            && ts.isArrowFunction(stderrInitializer)
+            && ((ts.isIdentifier(stderrInitializer.body)
+                    && stderrInitializer.body.text === 'undefined')
+                || (ts.isBlock(stderrInitializer.body)
+                    && stderrInitializer.body.statements.length === 0));
+        if (unsafeLogCalls.length
+            || !safeStderrSink) {
+            fail(this.id, risk,
+                'app-server stderr and responses must never be logged');
+        }
+
+        for (const provider of ['codex', 'kimi', 'claude']) {
+            const relativePath =
+                `src/aiSessions/conversation/${provider}Adapter.ts`;
+            const parsedAdapter = parseTypescript(
+                root,
+                relativePath,
+                this.id,
+                risk
+            );
+            const className =
+                `${provider[0].toUpperCase()}${provider.slice(1)}ConversationAdapter`;
+            validateProviderWatchOwnership(
+                parsedAdapter,
+                className,
+                this.id,
+                risk
+            );
+        }
+    },
+
     // ARCH-AI-SESSION-SCAN-BOUNDARY-001
     'ARCH-AI-SESSION-SCAN-BOUNDARY-001'(root) {
         const risk = 'unbounded provider scans can block the extension host';

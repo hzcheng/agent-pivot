@@ -6,6 +6,7 @@ const fs = require('fs');
 const Module = require('module');
 const os = require('os');
 const path = require('path');
+const ts = require('typescript');
 const { validateSafetyScripts } = require('./lib/ciContracts');
 const vm = require('vm');
 const commands = require('../out/aiSessions/commandBuilders');
@@ -3328,6 +3329,7 @@ async function runSidebarStewardViewProviderOrderingChecks() {
             onDidReceiveMessage: listener => { messageListeners.push(listener); return { dispose() {} }; },
         },
         onDidChangeVisibility: listener => { visibilityListeners.push(listener); return { dispose() {} }; },
+        onDidDispose: () => ({ dispose() {} }),
     };
     const provider = new SidebarStewardViewProvider({
         getWebviewOptions: () => ({}),
@@ -3362,6 +3364,7 @@ async function runSidebarStewardViewProviderOrderingChecks() {
             onDidReceiveMessage: listener => { messageListeners.push(listener); return { dispose() {} }; },
         },
         onDidChangeVisibility: () => ({ dispose() {} }),
+        onDidDispose: () => ({ dispose() {} }),
     };
     const failedProvider = new SidebarStewardViewProvider({
         getWebviewOptions: () => ({}),
@@ -3390,6 +3393,7 @@ async function runSidebarStewardViewProviderOrderingChecks() {
             onDidReceiveMessage: listener => { messageListeners.push(listener); return { dispose() {} }; },
         },
         onDidChangeVisibility: () => ({ dispose() {} }),
+        onDidDispose: () => ({ dispose() {} }),
     };
     const secretProvider = new SidebarStewardViewProvider({
         getWebviewOptions: () => ({}), renderContent: () => '<main>stale</main>',
@@ -4962,12 +4966,20 @@ function runWebviewContentChecks() {
     const sharedItemAccentBlock = extractExactScssBlock(sidebarStyles, '.steward-item-accent');
     const sharedItemAccentHoverBlock = extractScssBlock(sidebarStyles, '.steward-item-card:hover .steward-item-accent');
     const projectStyleBlock = extractExactScssBlock(sidebarStyles, '.project');
+    const aiSessionListStyleBlock = extractExactScssBlock(
+        projectStyleBlock,
+        '.codex-sessions-list'
+    );
     const currentWorkspaceStyleBlock = extractExactScssBlock(projectStyleBlock, '&[data-current-workspace]');
     const expandedProjectHoverBlock = extractExactScssBlock(currentWorkspaceStyleBlock, '&[data-codex-expanded]:hover');
     const expandedProjectAccentBlock = extractExactScssBlock(expandedProjectHoverBlock, '.steward-item-accent');
     const compiledSharedItemAccentBlock = extractExactCssBlock(compiledStyles, 'body.steward-sidebar .steward-item-accent');
     const compiledSharedItemAccentHoverBlock = extractExactCssBlock(compiledStyles, 'body.steward-sidebar .steward-item-card:hover .steward-item-accent');
     const compiledExpandedProjectAccentBlock = extractExactCssBlock(compiledStyles, 'body.steward-sidebar .project[data-current-workspace][data-codex-expanded]:hover .steward-item-accent');
+    const compiledAiSessionListStyleBlock = extractExactCssBlock(
+        compiledStyles,
+        'body.steward-sidebar .project .codex-sessions-list'
+    );
     const currentItemCardShellBlock = extractExactScssBlock(sidebarStyles, '&[data-current-workspace]');
     const currentItemCardVisualBlock = extractExactScssBlock(sharedItemCardBlock, '&.selected');
     const compiledCurrentItemCardShellBlock = extractScssBlock(
@@ -5112,7 +5124,12 @@ function runWebviewContentChecks() {
     assert.ok(webviewContent.includes('role="menuitem" tabindex="-1"'));
     assert.ok(webviewProjectScripts.includes("e.key === 'ContextMenu'"));
     assert.ok(webviewProjectScripts.includes("e.key === 'F10' && e.shiftKey"));
-    assert.ok(webviewProjectScripts.includes("rowToFocus?.querySelector('.ai-session-primary-action') || selectedTab"));
+    assert.ok(webviewProjectScripts.includes(
+        "(match?.querySelector('.ai-session-primary-action') || selectedTab)?.focus({ preventScroll: true })"
+    ));
+    assert.ok(!webviewProjectScripts.includes(
+        "match || selectedPanel?.querySelector('.codex-session-row')"
+    ), 'refresh focus must not transfer to an unrelated session row');
     assert.ok(sessionTabsHtml.includes('class="ai-session-primary-action"'));
     assert.ok(sessionTabsHtml.includes('role="group"'));
     assert.ok(!/class="codex-session-row[^>]*tabindex=/.test(sessionTabsHtml));
@@ -5630,7 +5647,17 @@ function runWebviewContentChecks() {
     assert.ok(!/\bheight\s*:/.test(compiledExpandedProjectAccentBlock));
     assert.ok(webviewContent.includes('--steward-ai-session-list-max-height: ${getAiSessionListMaxHeight(config)}px;'));
     assert.ok(webviewContent.includes('Number.isFinite(visibleRows)'));
-    assert.ok(styles.includes('height: var(--steward-ai-session-list-max-height, calc(3 * 42px + 2 * 2px));'));
+    assert.ok(aiSessionListStyleBlock.includes('height: calc('));
+    assert.ok(aiSessionListStyleBlock.includes(
+        'var(--steward-ai-session-list-max-height, calc(3 * 42px + 2 * 2px))'
+    ));
+    assert.ok(aiSessionListStyleBlock.includes(
+        '+ var(--steward-ai-session-expanded-extra-height, 0px)'
+    ));
+    assert.ok(compiledAiSessionListStyleBlock.includes(
+        'height:calc(var(--steward-ai-session-list-max-height,130px) + '
+        + 'var(--steward-ai-session-expanded-extra-height,0px))'
+    ));
 }
 
 function runTmuxSmokeHarnessSafetyChecks() {
@@ -6453,6 +6480,19 @@ function runBatchAiSessionWebviewChecks() {
             addEventListener: (event, listener) => { windowEventListeners[event] = listener; },
             requestAnimationFrame: callback => callback(),
             setTimeout: callback => timeoutCallbacks.push(callback),
+            __projectStewardScrollState: {
+                capture: container => ({
+                    scrollTop: Number(container?.scrollTop) || 0,
+                    itemKey: null,
+                    itemOffset: 0,
+                    atEnd: false,
+                }),
+                restore: (container, anchor) => {
+                    if (!container || !anchor) return false;
+                    container.scrollTop = Number(anchor.scrollTop) || 0;
+                    return true;
+                },
+            },
             vscode: {
                 postMessage: message => messages.push(message),
                 getState: () => webviewState,
@@ -6522,8 +6562,8 @@ function runBatchAiSessionWebviewChecks() {
         },
     };
     context.restoreAiSessionViewState(tabStateProject, {
-        activeScrollTop: 17,
-        historyScrollTop: 29,
+        activeAnchor: { scrollTop: 17, itemKey: null, itemOffset: 0, atEnd: false },
+        historyAnchor: { scrollTop: 29, itemKey: null, itemOffset: 0, atEnd: false },
         restoreFocus: false,
     }, 'active');
     assert.strictEqual(activeListState.scrollTop, 17);
@@ -7095,6 +7135,388 @@ function runAiSessionIncrementalRefreshSourceChecks() {
     assert.ok(readCoordinatorSource.includes('scannedFileCount: result.scannedFiles'));
     assert.ok(readCoordinatorSource.includes('parsedFileCount: result.parsedFiles'));
     assert.ok(readCoordinatorSource.includes('scanBudget: normalizedOptions.maxFiles || null'));
+}
+
+function runConversationProductionSafetyChecks() {
+    const root = path.join(__dirname, '..');
+    const composition = fs.readFileSync(path.join(
+        root,
+        'src',
+        'aiSessions',
+        'conversation',
+        'composition.ts'
+    ), 'utf8');
+    const dashboard = fs.readFileSync(
+        path.join(root, 'src', 'dashboard.ts'),
+        'utf8'
+    );
+    const codexAdapter = fs.readFileSync(path.join(
+        root,
+        'src',
+        'aiSessions',
+        'conversation',
+        'codexAdapter.ts'
+    ), 'utf8');
+    const codexClient = fs.readFileSync(path.join(
+        root,
+        'src',
+        'aiSessions',
+        'conversation',
+        'codexAppServerClient.ts'
+    ), 'utf8');
+    const conversationTypes = fs.readFileSync(path.join(
+        root,
+        'src',
+        'aiSessions',
+        'conversation',
+        'types.ts'
+    ), 'utf8');
+    const compositionAst = ts.createSourceFile(
+        'composition.ts',
+        composition,
+        ts.ScriptTarget.Latest,
+        true,
+        ts.ScriptKind.TS
+    );
+    const dashboardAst = ts.createSourceFile(
+        'dashboard.ts',
+        dashboard,
+        ts.ScriptTarget.Latest,
+        true,
+        ts.ScriptKind.TS
+    );
+    const codexClientAst = ts.createSourceFile(
+        'codexAppServerClient.ts',
+        codexClient,
+        ts.ScriptTarget.Latest,
+        true,
+        ts.ScriptKind.TS
+    );
+    const collectNodes = (rootNode, predicate) => {
+        const matches = [];
+        const visit = node => {
+            if (predicate(node)) {
+                matches.push(node);
+            }
+            ts.forEachChild(node, visit);
+        };
+        visit(rootNode);
+        return matches;
+    };
+    const propertyName = property => {
+        if (!property?.name) {
+            return undefined;
+        }
+        return ts.isIdentifier(property.name)
+            || ts.isStringLiteral(property.name)
+            || ts.isNumericLiteral(property.name)
+            ? property.name.text
+            : undefined;
+    };
+    const propertyAccessPath = expression => {
+        if (ts.isIdentifier(expression)) {
+            return expression.text;
+        }
+        return ts.isPropertyAccessExpression(expression)
+            ? [
+                propertyAccessPath(expression.expression),
+                expression.name.text,
+            ].filter(Boolean).join('.')
+            : undefined;
+    };
+
+    const capabilityDeclarations = collectNodes(
+        compositionAst,
+        node => ts.isFunctionDeclaration(node)
+            && node.name?.text === 'createConversationCapability'
+    );
+    assert.strictEqual(
+        capabilityDeclarations.length,
+        2,
+        'composition exposes one public overload plus one runtime implementation'
+    );
+    assert.strictEqual(
+        capabilityDeclarations.filter(node => !node.body).length,
+        1,
+        'composition must expose only the documented one-argument overload'
+    );
+    assert.strictEqual(capabilityDeclarations[0].parameters.length, 1);
+    assert.strictEqual(
+        capabilityDeclarations.find(node => node.body).parameters.length,
+        2,
+        'the runtime implementation may retain the JavaScript test seam'
+    );
+
+    const conversationHandlerDeclarations = collectNodes(
+        dashboardAst,
+        node => ts.isVariableDeclaration(node)
+            && ts.isIdentifier(node.name)
+            && node.name.text === 'conversationHandlers'
+            && ts.isObjectLiteralExpression(node.initializer)
+    );
+    assert.strictEqual(conversationHandlerDeclarations.length, 1);
+    const handlerProperties = conversationHandlerDeclarations[0]
+        .initializer.properties;
+    assert.deepStrictEqual(handlerProperties.map(propertyName), [
+        'request-ai-session-conversation-outline',
+        'open-ai-session-conversation',
+        'cancel-ai-session-conversation',
+    ]);
+    assert.deepStrictEqual(
+        handlerProperties.map(property => {
+            assert.ok(ts.isPropertyAssignment(property));
+            assert.ok(ts.isArrowFunction(property.initializer));
+            assert.ok(ts.isCallExpression(property.initializer.body));
+            assert.strictEqual(property.initializer.body.arguments.length, 1);
+            assert.ok(ts.isIdentifier(property.initializer.body.arguments[0]));
+            assert.strictEqual(
+                property.initializer.body.arguments[0].text,
+                property.initializer.parameters[0].name.text
+            );
+            return propertyAccessPath(
+                property.initializer.body.expression
+            );
+        }),
+        [
+            'conversationCapability.controller.handleOutline',
+            'conversationCapability.controller.handleOpen',
+            'conversationCapability.controller.cancel',
+        ]
+    );
+
+    const capabilityCalls = collectNodes(
+        dashboardAst,
+        node => ts.isCallExpression(node)
+            && ts.isIdentifier(node.expression)
+            && node.expression.text === 'createConversationCapability'
+    );
+    assert.strictEqual(capabilityCalls.length, 1);
+    assert.ok(ts.isObjectLiteralExpression(capabilityCalls[0].arguments[0]));
+    const capabilityOptions = Object.fromEntries(
+        capabilityCalls[0].arguments[0].properties.map(property => [
+            propertyName(property),
+            property.initializer,
+        ])
+    );
+    assert.ok(ts.isArrowFunction(capabilityOptions.resolveTarget));
+    assert.strictEqual(
+        collectNodes(
+            capabilityOptions.resolveTarget,
+            node => ts.isCallExpression(node)
+                && ts.isIdentifier(node.expression)
+                && node.expression.text === 'withConversationDisplayMetadata'
+        ).length,
+        1,
+        'Dashboard exact authority must add active-session display metadata'
+    );
+    assert.ok(ts.isArrowFunction(
+        capabilityOptions.getWorkspaceRootHostPaths
+    ));
+    assert.strictEqual(
+        collectNodes(
+            capabilityOptions.getWorkspaceRootHostPaths,
+            node => ts.isPropertyAccessExpression(node)
+                && node.name.text === 'hostPath'
+        ).length,
+        1,
+        'Claude source scope must come from current workspace root host paths'
+    );
+
+    const conversationSubscriptionRoots = collectNodes(
+        dashboardAst,
+        node => ts.isCallExpression(node)
+            && propertyAccessPath(node.expression)
+                === 'context.subscriptions.push'
+    ).flatMap(call => call.arguments)
+        .map(propertyAccessPath)
+        .filter(candidate => candidate?.startsWith(
+            'conversationCapability'
+        ));
+    assert.deepStrictEqual(
+        conversationSubscriptionRoots,
+        ['conversationCapability'],
+        'production must register only the aggregate conversation capability'
+    );
+
+    const spawnCalls = collectNodes(
+        codexClientAst,
+        node => ts.isCallExpression(node)
+            && ts.isPropertyAccessExpression(node.expression)
+            && node.expression.name.text === 'spawn'
+            && ts.isPropertyAccessExpression(node.expression.expression)
+            && node.expression.expression.name.text === 'options'
+    );
+    assert.strictEqual(spawnCalls.length, 1);
+    const spawnArguments = spawnCalls[0].arguments;
+    assert.ok(ts.isArrayLiteralExpression(spawnArguments[1]));
+    assert.deepStrictEqual(
+        spawnArguments[1].elements.map(element => element.text),
+        ['app-server', '--listen', 'stdio://']
+    );
+    assert.ok(ts.isObjectLiteralExpression(spawnArguments[2]));
+    const spawnOptions = Object.fromEntries(
+        spawnArguments[2].properties.map(property => [
+            propertyName(property),
+            property.initializer,
+        ])
+    );
+    assert.strictEqual(spawnOptions.shell.kind, ts.SyntaxKind.FalseKeyword);
+    assert.strictEqual(
+        spawnOptions.windowsHide.kind,
+        ts.SyntaxKind.TrueKeyword
+    );
+    assert.ok(ts.isArrayLiteralExpression(spawnOptions.stdio));
+    assert.deepStrictEqual(
+        spawnOptions.stdio.elements.map(element => element.text),
+        ['pipe', 'pipe', 'pipe']
+    );
+
+    for (const constructorName of [
+        'CodexConversationAdapter',
+        'KimiConversationAdapter',
+        'ClaudeConversationAdapter',
+        'ConversationCoordinator',
+        'ConversationViewer',
+        'ConversationHostController',
+    ]) {
+        assert.ok(
+            composition.includes(constructorName),
+            `production composition must construct ${constructorName}`
+        );
+    }
+    assert.ok(composition.includes('new CodexAppServerClient'));
+    assert.ok(composition.includes('readOutline: coordinator.readOutline.bind(coordinator)'));
+    assert.ok(composition.includes('readPage: coordinator.readPage.bind(coordinator)'));
+    assert.ok(composition.includes('watch: coordinator.watch.bind(coordinator)'));
+    assert.ok(codexClient.includes("['app-server', '--listen', 'stdio://']"));
+    assert.ok(codexClient.includes("stdio: ['pipe', 'pipe', 'pipe']"));
+    assert.strictEqual(
+        /jsonlReader|resolveConversationSource|readConversationJsonl|readFile/.test(
+            codexAdapter
+        ),
+        false,
+        'Codex content must remain app-server-only with no transcript fallback'
+    );
+    assert.strictEqual(
+        /\.jsonl|jsonlReader|readConversationJsonl/.test(composition),
+        false,
+        'production composition must not add a Codex JSONL fallback'
+    );
+
+    for (const messageType of [
+        'request-ai-session-conversation-outline',
+        'open-ai-session-conversation',
+        'cancel-ai-session-conversation',
+    ]) {
+        assert.ok(
+            dashboard.includes(`'${messageType}':`),
+            `Dashboard must register exact ordinary handler ${messageType}`
+        );
+    }
+    assert.strictEqual(
+        /(?:request|open|cancel)-(?:codex|kimi|claude)-session-conversation/.test(
+            dashboard
+        ),
+        false,
+        'production routing must not branch by conversation provider'
+    );
+    const capabilityReconcileCalls = collectNodes(
+        dashboardAst,
+        node => ts.isCallExpression(node)
+            && ts.isPropertyAccessExpression(node.expression)
+            && node.expression.name.text === 'reconcile'
+            && ts.isIdentifier(node.expression.expression)
+            && node.expression.expression.text === 'conversationCapability'
+    );
+    assert.strictEqual(
+        capabilityReconcileCalls.length,
+        2,
+        'Dashboard lifecycle hooks must use the unified conversation reconcile'
+    );
+    assert.ok(dashboard.includes(
+        'conversationCapability.controller.setVisible(visible)'
+    ));
+    assert.ok(dashboard.includes('onDisposed: () =>'));
+    assert.ok(dashboard.includes(
+        'conversationCapability.controller.resetView()'
+    ));
+
+    assert.ok(conversationTypes.includes('count?: number;'));
+    assert.ok(conversationTypes.includes('durationMs?: number;'));
+    assert.strictEqual(
+        /caught|\\.message|String\\(_?error\\)/.test(composition),
+        false,
+        'composition diagnostics must never include caught exception text'
+    );
+
+    const secret = [
+        '/home/private/transcript.jsonl',
+        'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        'private prompt',
+        'private response',
+    ].join(' ');
+    const diagnostics = [];
+    const service = {
+        getSessions: () => ({
+            available: true,
+            sessions: [],
+            scannedFiles: 0,
+            parsedFiles: 0,
+        }),
+        getLifecycleSignals: () => ({}),
+        watchSessionChanges: () => ({ dispose() {} }),
+        archiveSession: () => false,
+        invalidateCache() {},
+        resolveConversationSource: () => null,
+    };
+    const previousLoad = Module._load;
+    let createConversationCapability;
+    try {
+        Module._load = function (request, parent, isMain) {
+            if (request === 'vscode') {
+                return {
+                    ViewColumn: { Beside: 2 },
+                    Uri: {
+                        file: createTestFileUri,
+                        parse: createTestUri,
+                    },
+                };
+            }
+            return previousLoad.call(this, request, parent, isMain);
+        };
+        createConversationCapability = require(
+            '../out/aiSessions/conversation/composition'
+        ).createConversationCapability;
+    } finally {
+        Module._load = previousLoad;
+    }
+    const capability = createConversationCapability({
+        services: { codex: service, kimi: service, claude: service },
+        resolveTarget: () => null,
+        publish: async () => true,
+        createPanel: () => {
+            throw new Error('must not create a panel');
+        },
+        openExternal: async () => true,
+        spawnCodex: () => {
+            throw new Error('must not spawn Codex');
+        },
+        now: () => 1,
+        setTimer: () => 1,
+        clearTimer: () => undefined,
+        onDiagnostic: event => diagnostics.push(event),
+    }, {
+        createCoordinator: () => {
+            throw new Error(secret);
+        },
+    });
+    assert.strictEqual(capability.availability, 'unavailable');
+    assert.deepStrictEqual(diagnostics, [{
+        event: 'conversation-read',
+        category: 'unavailable',
+    }]);
+    assert.strictEqual(JSON.stringify(diagnostics).includes(secret), false);
+    capability.dispose();
 }
 
 function runAiSessionReadCoordinatorChecks() {
@@ -9630,6 +10052,7 @@ async function main() {
     runFavoriteDndChecks();
     runBatchAiSessionWebviewChecks();
     runAiSessionIncrementalRefreshSourceChecks();
+    runConversationProductionSafetyChecks();
     runAiSessionReadCoordinatorChecks();
     runAiSessionDashboardControllerChecks();
     runAiSessionDashboardWatcherCoalescingChecks();

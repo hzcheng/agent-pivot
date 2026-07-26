@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "c504d556cda783a5ef2e686d5474d323d5871898",
+        "head": "e05ca944669af9a12d3b6fbc09ee0330e50a417b",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -27,7 +27,24 @@
             "109b259bc3d776988954674b9829d656e3f3d5f0",
             "e5d3c6fe3b20df692383786354474a4c2852fa1e",
             "195b170d0de2b23a17c558527caf5b04c0c58146",
-            "43d5bbdb92027d73b2b55abe7dbea72bfe24a2aa"
+            "43d5bbdb92027d73b2b55abe7dbea72bfe24a2aa",
+            "9e280c871e8d24ff7ae074017bd93a33b832213f",
+            "24f734d7960c11faff6eaa83e1964804d66afe74",
+            "79c59436fcab83f6db4e2b251d3faa92b5217e98",
+            "83a87ea52b1eb76091c0041ffc7365e495cfc930",
+            "289562ef88881d101ddb39f0dd4a2e7d9edbc613",
+            "9181eb049562a7e9fca803365a43fcf1e9412e10",
+            "080599f815e9f368ae9a070c2a9573a250a1ebd9",
+            "0a81f877f7f6ab838d53fc212c3aaba03e58aaeb",
+            "28cca76cd2b8071ef0a5b817d18ac3d187f1cdc6",
+            "0a230fb3b598416e0d4b454ae177886f850e8892",
+            "03951ee64999329a960d336bfa74950b43258a53",
+            "caa3f4ff8d95fa94a30958a9d5203567e045efb2",
+            "af6a681550d285f6fabc5e8bd1051f1c29a20f7b",
+            "831496a72f294a5d8bead8d80bae99513e3aa0b8",
+            "6b9d614ce63c4d5e22490f18dee693b479d7d07a",
+            "afc02235cf89a24e3ffb0a0c89efc3d2d8dab0ec",
+            "68dda87fc26fde79209f08db0f4b13ed21a90c66"
         ]
     },
     "capabilities": [
@@ -226,7 +243,8 @@
                 "fe6c084fed2c8ffdeab4f902de2ffaf761b4e3fa",
                 "6ecef7dafbe23279270944708fbabe57b8f70a62",
                 "d58a88f8ba490cc3c31651fc27fe0c587b8965c9",
-                "ed456da6b0979899eb2228da7d72fd6f64ed4382"
+                "ed456da6b0979899eb2228da7d72fd6f64ed4382",
+                "e73abf28b07191d306b4846a416734053fea9c91"
             ],
             "behaviors": [
                 "WEBVIEW-CURRENT-WORKSPACE-RENDERING-001",
@@ -234,10 +252,12 @@
                 "SHARINGAN-RUNNING-ANIMATION-001",
                 "SHARINGAN-ASSET-INTEGRITY-001",
                 "SHARINGAN-ASSET-INTEGRITY-002",
-                "SHARINGAN-ASSET-ATTRIBUTION-001"
+                "SHARINGAN-ASSET-ATTRIBUTION-001",
+                "WEBVIEW-AI-SESSION-LIST-SCROLL-001"
             ],
             "prGates": [
-                "test:deterministic:run"
+                "test:deterministic:run",
+                "test:ci:linux"
             ],
             "scheduledJobs": [
                 "scheduled-macos"
@@ -377,7 +397,8 @@
                 "2fcfb60b427f037c0e6427c2dcfc93ce8f34f0bc",
                 "9b00110b3b08464c11b552330b54be764180bf45",
                 "b142ac70a044d81230a29b4e1cc8cb658cfad1fa",
-                "4b554c202b2ec2354d2db008fe2b490d147f5c6a"
+                "4b554c202b2ec2354d2db008fe2b490d147f5c6a",
+                "e05ca944669af9a12d3b6fbc09ee0330e50a417b"
             ],
             "behaviors": [
                 "RELEASE-VSIX-PACKAGING-001",
@@ -444,12 +465,15 @@
                 "f145f294c58791ba8198e322a028e8d0453d6629",
                 "0e30949f0c0ec685f15037070bda94c10e1ea8d0",
                 "fcb373a70078361ff5e40e627881489dffb3771d",
-                "b93fc82c2900eb2c693a2e1228784d26dda069b3"
+                "b93fc82c2900eb2c693a2e1228784d26dda069b3",
+                "9e643c840db5ab634c1ef4815428617118b96ee7",
+                "6ef7ba4a0d078b6558ff16d99ed4ce13fd8a0cf4"
             ],
             "behaviors": [
                 "TODO-COMPLETION-INCREMENTAL-001",
                 "TODO-MAX-VISIBLE-PER-GROUP-001",
                 "TODO-BROWSER-EXPANDED-LAYOUT-001",
+                "TODO-AUTHORITATIVE-REFRESH-STATE-001",
                 "TODO-INCREMENTAL-ROOT-001",
                 "TODO-QUICK-CREATE-001",
                 "TODO-SINGLE-CREATE-DISPATCH-001"
@@ -482,15 +506,18 @@
                 "08e9f26e241397c366dbae226cdfc2cf7cc860ca",
                 "3a3e07bc7fad01957dc6db1f505bb961efaf831f",
                 "ef5fc3170c0fe1a753b1c6313daa5d4a7cc40e2f",
-                "4ad7604bb9a4d4ff10f790486512c3313c351200"
+                "4ad7604bb9a4d4ff10f790486512c3313c351200",
+                "1f2baaa6b2a5c18bd80954be773c00968619d245"
             ],
             "behaviors": [
                 "PROJECT-CATALOG-SYNC-CONFLICT-001",
                 "PROJECT-INCREMENTAL-REFRESH-001",
-                "OPEN-OPEN-PROJECT-INCREMENTAL-RENDERING-001"
+                "OPEN-OPEN-PROJECT-INCREMENTAL-RENDERING-001",
+                "WEBVIEW-PROJECTS-PANEL-SCROLL-001"
             ],
             "prGates": [
-                "test:deterministic:run"
+                "test:deterministic:run",
+                "test:ci:linux"
             ],
             "scheduledJobs": [],
             "realEnvironmentRequired": false
@@ -697,14 +724,24 @@
                 "b978f6ba6a420048487654d1410d4d628f3ae096",
                 "6e9c3dc61843d13eac8b6d3327c3e2e0d8b07b5e",
                 "645442a9985995ee1b4d43b9fdeeb1a06352b478",
-                "2a4e481e4f58ceb6f9770323ef1b011fd371847d"
+                "2a4e481e4f58ceb6f9770323ef1b011fd371847d",
+                "305eda319068f81b55c0512e9d60d30111b2d42f",
+                "f312e3d68446997347a22d77873b3ecf3b8fbfcf",
+                "8fc2b87b208f51157a7e4f7b5a17252ea2faca4e",
+                "e8009b0f418b4affd2e2c23030a4d7c714934ca8",
+                "4bf34c47bd1b7e03d682f5f8769e5a0b8cb3a501",
+                "7f01a053875e93efc93322539ea336fdd2ba3420",
+                "3923daf388b22192b9a64032a45d70ff3b24c73f"
             ],
             "behaviors": [
                 "ARCH-CI-QUALITY-GATE-001",
                 "ARCH-MAIN-CAPABILITY-COVERAGE-001",
                 "ARCH-MAIN-CAPABILITY-CURRENCY-001",
                 "ARCH-REPOSITORY-SKILL-GUIDANCE-001",
-                "RELEASE-VSIX-PACKAGING-001"
+                "RELEASE-VSIX-PACKAGING-001",
+                "WEBVIEW-AI-SESSION-LIST-SCROLL-001",
+                "WEBVIEW-PROJECTS-PANEL-SCROLL-001",
+                "TODO-AUTHORITATIVE-REFRESH-STATE-001"
             ],
             "prGates": [
                 "test:ci:linux"
@@ -775,6 +812,70 @@
                 "test:dashboard:run"
             ],
             "scheduledJobs": [],
+            "realEnvironmentRequired": false
+        },
+        {
+            "id": "MAIN-AI-SESSION-CONVERSATION-OUTLINE",
+            "title": "Active Session conversation outline",
+            "requirement": "Codex, Kimi, and Claude expose bounded user-input outlines and one sanitized read-only conversation viewer from canonical extension-host sources.",
+            "commits": [
+                "02bf30cd13b5d695fd40c7f0b914fc6e7284f701",
+                "970f137ae17fcada4796632fa67a6fac8fca5dad",
+                "4a337513e4d931fcf87c3ba26963b54121764e1c",
+                "33c446a7d9662670455331750830aac45d5c50c2",
+                "f1d9c43ce4a9322ad19cc97f711d7b16a6aa8821",
+                "1df29658bf30e8624977e2a0db927d6fd4fcc3da",
+                "a0589402f1e78d115ad03d9c0d53b2b1b13f56b0",
+                "34f8e3637d6e5480cce1a412981f3f14586e8b34",
+                "ef5f9942e50b520384bfb8258467954af262f4a6",
+                "15c75f48e6e232a075f9efc93dab4cbcb438d76f",
+                "a11c06165814c765bde61321ce1151ab49c9bcb8",
+                "84c6f5d4a1693a4aee74225d7722dea1dfdd273d",
+                "7b73c7ef7ef6fe884a70a900b8fdf6ccf6315ead",
+                "06450a93c926e7aeda95053101bd616a09539e5c",
+                "7cadfa1664af6b36192fba489dafd07f7d6a4a15",
+                "289bd12721c72369971592baee4defb7cab57b87",
+                "8562eb1dba1f7f57e1a8e7af8d3cbc11b5e73582",
+                "3b60357ab4c40e15d44aec04d9ae6ce3a4864cfe",
+                "93a70bc5986d810c22f139f3634afea4cb4c0422",
+                "238ae11a771a066d1252ba4b32eb436f813e0310",
+                "3032524f164c992ab09ed7e4bdd88bf6a115bc3a",
+                "6fe5ee3a8b1380c85fa8a51c47866ce91f904e93",
+                "f20453f9e8c3d824e5f73c668a9d805c70ac1f5b",
+                "890680fb7faee12c5d3b84eb3f87c32a441d49f8",
+                "fbd3c225e26429ff48226900cc1d64aaf09d9675",
+                "b236194fd2e3ec82e22776baf5acb67e7bd4a0a3",
+                "a926b626923765cbb375da641fceb0b7cee0bdc6",
+                "d8423ab6a2b52b0f32fdcb87351ce2d9917232f8",
+                "192cb613228560a4b00e6f1a6a92be67c7e459ce",
+                "c0154d8aa40b60da8d3397385ee3f31e27466418",
+                "d403c125bb6ca7143272911dbbdaf469c675f346",
+                "c17bb4cf78125b1ece16bc7405d3a40cc956e94b",
+                "708fab2d2629b8da947e90322b5b3133e444a581",
+                "87c7cbdf3b4a9d535eb9ce8afa497256e3a13fc1",
+                "466ecf3fd4b939a3cf40789a65a1fd084ff2ba9e",
+                "5e55627c3d469880a5358710733e37c8320319ab",
+                "0e297eb6c4fe0927e6acd6459791fbcc67325f28",
+                "0780a7c8631e1daf4da30854b6ad541a7e715b19",
+                "e7a7ccd26266ea4117a1b12611d7c76f249b9af0",
+                "b193a307ba6f58ac63ea1fa05d86df694d14cf44",
+                "2cbb52127b26cd424bc4efe4ff6bf844f8203359",
+                "6e0502b98be239953d740213f9e3da5e1fa5317a",
+                "96f2033d1a1e5427c733ce22ca0402d62011d342"
+            ],
+            "behaviors": [
+                "SESSION-AI-SESSION-CONVERSATION-ADAPTER-001",
+                "WEBVIEW-AI-SESSION-CONVERSATION-OUTLINE-001",
+                "WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001",
+                "SECURITY-AI-SESSION-CONVERSATION-SOURCE-001",
+                "ACTIVE-SESSION-CONVERSATION-RESTORE-001"
+            ],
+            "prGates": [
+                "test:ci:linux"
+            ],
+            "scheduledJobs": [
+                "scheduled-macos"
+            ],
             "realEnvironmentRequired": false
         }
     ]

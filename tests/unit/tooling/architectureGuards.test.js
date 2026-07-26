@@ -26,12 +26,38 @@ function copyGuardFixture(t, mutationPath, mutate = source => source) {
         'src/workspaces/sessionHydrationController.ts',
         'src/aiSessions/dashboardController.ts',
         'src/aiSessions/providers.ts',
+        'src/aiSessions/conversation/types.ts',
+        'src/aiSessions/conversation/codexAdapter.ts',
+        'src/aiSessions/conversation/codexAppServerClient.ts',
+        'src/aiSessions/conversation/model.ts',
+        'src/aiSessions/conversation/text.ts',
+        'src/aiSessions/types.ts',
+        'src/aiSessions/archiveBatch.ts',
+        'src/aiSessions/archiveBatchAcrossProviders.ts',
+        'src/aiSessions/launchOptions.ts',
+        'src/aiSessions/launchSpec.ts',
+        'src/aiSessions/lifecycle.ts',
+        'src/aiSessions/runtimeTypes.ts',
+        'src/constants.ts',
+        'src/models.ts',
+        'src/todos/types.ts',
+        'src/webview/dashboardViewModel.ts',
+        'src/workspaces/sessionAssignment.ts',
+        'src/workspaces/types.ts',
+        'src/aiSessions/conversation/composition.ts',
+        'src/aiSessions/conversation/kimiAdapter.ts',
+        'src/aiSessions/conversation/claudeAdapter.ts',
+        'src/aiSessions/conversation/coordinator.ts',
+        'src/aiSessions/conversation/viewer.ts',
+        'src/webview/webviewProjectScripts.js',
+        'src/webview/conversationViewerScripts.js',
         'src/aiSessions/attentionController.ts',
         'src/aiSessions/attentionAggregate.ts',
         'src/openWorkspaces/protocol.ts',
         'src/openWorkspaces/bridgeClient.ts',
         'src/aiSessions/attentionPayload.ts',
         'src/aiSessions/attentionBridgeClient.ts',
+        'src/services/codexSessionService.ts',
         'extensions/attention-ui-bridge/src/openWorkspaceCoordinator.ts',
         'extensions/attention-ui-bridge/src/extension.ts',
         'package.json',
@@ -54,7 +80,7 @@ function replaceFixtureSource(source, search, replacement, suffix = '') {
     return replaced + suffix;
 }
 
-test('complete production fixture satisfies every architecture guard without mutation', t => {
+test('SECURITY-AI-SESSION-CONVERSATION-SOURCE-001 complete production fixture satisfies every architecture guard', t => {
     validateArchitectureGuards(copyGuardFixture(t));
 });
 
@@ -100,7 +126,377 @@ test('architecture guard runner rejects unknown guard IDs', () => {
     );
 });
 
+test('ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001 accepts an empty-block stderr sink', t => {
+    const root = copyGuardFixture(
+        t,
+        'src/aiSessions/conversation/codexAppServerClient.ts',
+        source => source.replace(
+            'private readonly onStderrData = (_chunk: Buffer): void => undefined;',
+            'private readonly onStderrData = (_chunk: Buffer): void => {};'
+        )
+    );
+    validateArchitectureGuards(root, {
+        ids: ['ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001'],
+    });
+});
+
+test('ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001 permits the structured app-server client in the Codex reachable graph', t => {
+    const root = copyGuardFixture(
+        t,
+        'src/aiSessions/conversation/codexAdapter.ts',
+        source => source.replace(
+            "import { createHash } from 'crypto';",
+            "import { createHash } from 'crypto';\n"
+                + "import type { CodexAppServerClient } "
+                + "from './codexAppServerClient';\n"
+                + 'type ReachableAppServerClient = CodexAppServerClient;'
+        )
+    );
+    validateArchitectureGuards(root, {
+        ids: ['ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001'],
+    });
+});
+
+test('ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001 rejects a transitive filesystem bridge from a reachable Codex helper', t => {
+    const root = copyGuardFixture(
+        t,
+        'src/aiSessions/conversation/model.ts',
+        source => source.replace(
+            "'use strict';",
+            "'use strict';\nimport './codexFilesystemBridge';"
+        )
+    );
+    const bridge = path.join(
+        root,
+        'src/aiSessions/conversation/codexFilesystemBridge.ts'
+    );
+    fs.writeFileSync(bridge, "import { readFile } from 'node:fs/promises';\n");
+    assert.throws(
+        () => validateArchitectureGuards(root, {
+            ids: ['ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001'],
+        }),
+        error => error.message.includes(
+            'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001'
+        )
+            && /risk:/i.test(error.message)
+            && error.message.includes(
+                'Codex reachable modules must not import filesystem or transcript readers'
+            )
+    );
+});
+
+test('ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001 permits safe local and external re-exports in the Codex graph', t => {
+    const root = copyGuardFixture(
+        t,
+        'src/aiSessions/conversation/model.ts',
+        source => source.replace(
+            "'use strict';",
+            "'use strict';\n"
+                + "export type { ConversationOutline } from './types';\n"
+                + "export { createHash } from 'crypto';"
+        )
+    );
+    validateArchitectureGuards(root, {
+        ids: ['ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001'],
+    });
+});
+
+for (const [label, reExport] of [
+    ['star', "export * from './codexFilesystemBridge';"],
+    ['named', "export { bridge } from './codexFilesystemBridge';"],
+]) {
+    test(`ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001 rejects a filesystem helper reached through a ${label} re-export`, t => {
+        const root = copyGuardFixture(
+            t,
+            'src/aiSessions/conversation/model.ts',
+            source => source.replace(
+                "'use strict';",
+                `'use strict';\n${reExport}`
+            )
+        );
+        const bridge = path.join(
+            root,
+            'src/aiSessions/conversation/codexFilesystemBridge.ts'
+        );
+        fs.writeFileSync(
+            bridge,
+            "import { readFile } from 'node:fs/promises';\n"
+                + 'export const bridge = readFile;\n'
+        );
+        assert.throws(
+            () => validateArchitectureGuards(root, {
+                ids: ['ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001'],
+            }),
+            error => error.message.includes(
+                'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001'
+            )
+                && /risk:/i.test(error.message)
+                && error.message.includes(
+                    'Codex reachable modules must not import filesystem or transcript readers'
+                )
+        );
+    });
+}
+
 for (const mutation of [
+    {
+        id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',
+        file: 'src/aiSessions/conversation/codexAdapter.ts',
+        expectedDetail: 'Codex conversation adapter must not import filesystem or transcript JSONL readers',
+        mutate: source => source.replace(
+            "import { createHash } from 'crypto';",
+            "import { createHash } from 'crypto';\nimport * as fs from 'fs';"
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',
+        file: 'src/aiSessions/conversation/codexAdapter.ts',
+        expectedDetail: 'Codex production content must remain app-server-only',
+        mutate: source => source.replace(
+            "import { createHash } from 'crypto';",
+            "import { createHash } from 'crypto';\n"
+                + "import { openValidatedConversationSource } from './source';"
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',
+        file: 'src/services/codexSessionService.ts',
+        expectedDetail: 'Codex production content must remain app-server-only',
+        mutate: source => source.replace(
+            '    getSessions(options: boolean | AiSessionQueryOptions = false): CodexSessionReadResult {',
+            '    resolveConversationSource(sessionId: string): unknown { return sessionId; }\n\n'
+                + '    getSessions(options: boolean | AiSessionQueryOptions = false): CodexSessionReadResult {'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',
+        file: 'src/aiSessions/conversation/composition.ts',
+        expectedDetail: 'Codex production content must remain app-server-only',
+        mutate: source => source.replace(
+            '        client: codexClient,',
+            '        client: codexClient,\n'
+                + '        resolveSource: sessionId => '
+                + 'options.services.codex.resolveConversationSource?.(sessionId),'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',
+        file: 'src/aiSessions/conversation/codexAdapter.ts',
+        expectedDetail: 'Codex conversation adapter must not import filesystem or transcript JSONL readers',
+        mutate: source => source.replace(
+            "import { createHash } from 'crypto';",
+            "import { createHash } from 'crypto';\n"
+                + "void import('node:fs/promises');"
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',
+        file: 'src/aiSessions/conversation/codexAdapter.ts',
+        expectedDetail: 'Codex conversation adapter must not import filesystem or transcript JSONL readers',
+        mutate: source => source.replace(
+            "import { createHash } from 'crypto';",
+            "import { createHash } from 'crypto';\n"
+                + "import fs = require('node:fs/promises');"
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',
+        file: 'src/aiSessions/conversation/codexAdapter.ts',
+        expectedDetail: 'Codex conversation adapter must not import filesystem or transcript JSONL readers',
+        mutate: source => source.replace(
+            "import { createHash } from 'crypto';",
+            "import { createHash } from 'crypto';\n"
+                + "import { readFile } from 'node:fs/promises';"
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',
+        file: 'src/aiSessions/conversation/viewer.ts',
+        expectedDetail: 'extension-host TypeScript must not import DOMPurify',
+        mutate: source => source.replace(
+            "import { randomBytes } from 'crypto';",
+            "import { randomBytes } from 'crypto';\nimport DOMPurify from 'dompurify';"
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',
+        file: 'src/aiSessions/conversation/viewer.ts',
+        expectedDetail: 'extension-host TypeScript must not import DOMPurify',
+        mutate: source => source.replace(
+            "import { randomBytes } from 'crypto';",
+            "import { randomBytes } from 'crypto';\n"
+                + "void import('dompurify');"
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',
+        file: 'src/aiSessions/conversation/viewer.ts',
+        expectedDetail: 'extension-host TypeScript must not import DOMPurify',
+        mutate: source => source.replace(
+            "import { randomBytes } from 'crypto';",
+            "import { randomBytes } from 'crypto';\n"
+                + "import purifier = require('dompurify/dist/purify.cjs.js');"
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',
+        file: 'src/aiSessions/conversation/viewer.ts',
+        expectedDetail: 'extension-host TypeScript must not import DOMPurify',
+        mutate: source => source.replace(
+            "import { randomBytes } from 'crypto';",
+            "import { randomBytes } from 'crypto';\n"
+                + "import sanitize from 'dompurify/dist/purify.es.mjs';"
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',
+        file: 'src/aiSessions/conversation/viewer.ts',
+        expectedDetail: 'extension-host TypeScript must not import DOMPurify',
+        mutate: source => source.replace(
+            "import { randomBytes } from 'crypto';",
+            "import { randomBytes } from 'crypto';\n"
+                + "const purifier = require('../../media/purify.min.js');"
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',
+        file: 'src/aiSessions/conversation/types.ts',
+        expectedDetail: 'conversation resource and protocol limits must remain exact',
+        mutate: source => replaceFixtureSource(
+            source,
+            'maxSourceBytes: 64 * 1024 * 1024',
+            'maxSourceBytes: 65 * 1024 * 1024'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',
+        file: 'src/aiSessions/conversation/types.ts',
+        expectedDetail: 'conversation resource and protocol limits must remain exact',
+        mutate: source => replaceFixtureSource(
+            source,
+            'inactiveIndexTtlMs: 10 * 60 * 1000',
+            'inactiveIndexTtlMs: 11 * 60 * 1000'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',
+        file: 'src/webview/webviewProjectScripts.js',
+        expectedDetail: 'conversation markers must not render prompt-bearing HTML',
+        mutate: source => source.replace(
+            'previewNode.textContent = preview;',
+            'previewNode.innerHTML = preview;'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',
+        file: 'src/webview/webviewProjectScripts.js',
+        expectedDetail: 'conversation markers must not render prompt-bearing HTML',
+        mutate: source => source.replace(
+            'previewNode.textContent = preview;',
+            'previewNode.innerHTML = String(preview);'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',
+        file: 'src/aiSessions/conversation/codexAppServerClient.ts',
+        expectedDetail: 'app-server stderr and responses must never be logged',
+        mutate: source => source.replace(
+            'private readonly onStderrData = (_chunk: Buffer): void => undefined;',
+            'private readonly onStderrData = (chunk: Buffer): void => console.error(chunk);'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',
+        file: 'src/aiSessions/conversation/codexAppServerClient.ts',
+        expectedDetail: 'app-server stderr and responses must never be logged',
+        mutate: source => source.replace(
+            'if (!this.acceptResponse(response)) {',
+            'process.stdout.write(JSON.stringify(response));\n'
+                + '            if (!this.acceptResponse(response)) {'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',
+        file: 'src/aiSessions/conversation/codexAppServerClient.ts',
+        expectedDetail: 'app-server stderr and responses must never be logged',
+        mutate: source => source.replace(
+            'if (!this.acceptResponse(response)) {',
+            'process.stderr.write(JSON.stringify(response));\n'
+                + '            if (!this.acceptResponse(response)) {'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',
+        file: 'src/aiSessions/conversation/kimiAdapter.ts',
+        expectedDetail: 'provider watchers must remain bounded and releasable',
+        mutate: source => source.replace(
+            '        this.providerWatch?.dispose();\n'
+                + '        this.providerWatch = undefined;\n'
+                + '        if (this.invalidationTimer !== undefined) {',
+            '        // provider watch intentionally leaked\n'
+                + '        this.providerWatch = undefined;\n'
+                + '        if (this.invalidationTimer !== undefined) {'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',
+        file: 'src/aiSessions/conversation/kimiAdapter.ts',
+        expectedDetail: 'provider watchers must remain bounded and releasable',
+        mutate: source => source.replace(
+            '        if (this.subscriptions.size) {\n',
+            '        if (!this.subscriptions.size) {\n'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',
+        file: 'src/aiSessions/conversation/kimiAdapter.ts',
+        expectedDetail: 'provider watchers must remain bounded and releasable',
+        mutate: source => source.replace(
+            '        if (this.subscriptions.size) {\n',
+            '        if (this.subscriptions.size || true) {\n'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',
+        file: 'src/aiSessions/conversation/kimiAdapter.ts',
+        expectedDetail: 'provider watchers must remain bounded and releasable',
+        mutate: source => source.replace(
+            '        this.providerWatch?.dispose();\n'
+                + '        this.providerWatch = undefined;\n'
+                + '        if (this.invalidationTimer !== undefined) {',
+            '        if (false) { this.providerWatch?.dispose(); }\n'
+                + '        this.providerWatch = undefined;\n'
+                + '        if (this.invalidationTimer !== undefined) {'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',
+        file: 'src/aiSessions/conversation/kimiAdapter.ts',
+        expectedDetail: 'provider watchers must remain bounded and releasable',
+        mutate: source => source.replace(
+            '        if (this.subscriptions.size) {\n'
+                + '            return;\n'
+                + '        }\n'
+                + '        this.providerWatch?.dispose();\n'
+                + '        this.providerWatch = undefined;\n',
+            '        if (this.subscriptions.size) {\n'
+                + '            return;\n'
+                + '        }\n'
+                + '        return;\n'
+                + '        this.providerWatch?.dispose();\n'
+                + '        this.providerWatch = undefined;\n'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',
+        file: 'src/aiSessions/conversation/kimiAdapter.ts',
+        expectedDetail: 'provider watchers must remain bounded and releasable',
+        mutate: source => source.replace(
+            '        const listener = (): void => onChange();',
+            '        this.options.watchSessionChanges(onChange);\n'
+                + '        const listener = (): void => onChange();'
+        ),
+    },
     {
         id: 'ARCH-AI-SESSION-SCAN-BOUNDARY-001',
         file: 'src/dashboard.ts',

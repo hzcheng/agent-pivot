@@ -22,9 +22,13 @@ vsc-extension-quickstart.md
 tslint.json
 DemoProjects.json
 media/*.scss
+!media/webviewScrollStateScripts.js
 !media/webviewProjectScripts.js
 !media/webviewPromptScripts.js
 !media/webviewTodoScripts.js
+!media/conversationViewerScripts.js
+!media/conversationViewer.css
+!media/purify.min.js
 !media/styles.css
 webpack.config.json
 *.gif

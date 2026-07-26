@@ -28,10 +28,10 @@ export function createDashboardMessageRouter(handlers: DashboardMessageHandlers)
             return;
         }
 
-        const messageType = String(message.type || '');
-        if (!messageType) {
+        if (typeof message.type !== 'string' || !message.type) {
             return;
         }
+        const messageType = message.type;
 
         if (messageType === 'create-ai-session' && handlers.createAiSession) {
             await handlers.createAiSession(message);
@@ -65,7 +65,12 @@ export function createDashboardMessageRouter(handlers: DashboardMessageHandlers)
             return;
         }
 
-        const handler = handlers.handlers[messageType];
+        const handler = Object.prototype.hasOwnProperty.call(
+            handlers.handlers,
+            messageType
+        )
+            ? handlers.handlers[messageType]
+            : undefined;
         if (handler) {
             await handler(message);
         }

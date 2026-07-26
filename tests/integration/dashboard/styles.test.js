@@ -51,6 +51,45 @@ function validateTodoFocus(source) {
     assert.ok(focus.includes('outline-offset: 1px'), 'TODO-KEYBOARD-FOCUS-001 missing outline offset');
 }
 
+function validateConversationOutlineStyles(source) {
+    const rail = extractBlock(source, '.ai-session-conversation-rail');
+    for (const value of [
+        '--steward-ai-session-conversation-rail-height,\n                168px',
+        'overflow-x: hidden;',
+        'overflow-y: auto;',
+    ]) {
+        assert.ok(rail.includes(value),
+            `WEBVIEW-AI-SESSION-CONVERSATION-OUTLINE-001 rail missing ${value}`);
+    }
+    const marker = extractBlock(source, '.ai-session-conversation-marker');
+    for (const value of [
+        'grid-template-columns: 14px minmax(0, 1fr);',
+        'width: 100%;',
+        'height: 28px;',
+    ]) {
+        assert.ok(marker.includes(value),
+            `WEBVIEW-AI-SESSION-CONVERSATION-OUTLINE-001 marker missing ${value}`);
+    }
+    assert.equal(marker.includes('--ai-input-ratio'), false,
+        'WEBVIEW-AI-SESSION-CONVERSATION-OUTLINE-001 marker width must not encode input length');
+    const preview = extractBlock(
+        source,
+        '.ai-session-conversation-marker-preview'
+    );
+    for (const value of [
+        'min-width: 0;',
+        'overflow: hidden;',
+        'text-overflow: ellipsis;',
+        'white-space: nowrap;',
+    ]) {
+        assert.ok(preview.includes(value),
+            `WEBVIEW-AI-SESSION-CONVERSATION-OUTLINE-001 preview missing ${value}`);
+    }
+    const panel = extractBlock(source, '.ai-session-conversation-panel');
+    assert.ok(panel.includes('overflow: hidden;'),
+        'WEBVIEW-AI-SESSION-CONVERSATION-OUTLINE-001 expanded content must stay inside its card');
+}
+
 function validateTodoLayout(source) {
     const list = extractBlock(source, '.todo-list');
     assert.ok(list.includes(
@@ -421,6 +460,14 @@ test('WEBVIEW-AI-PROMPT-STYLES-001 exposes every Prompt styling boundary', () =>
         assert.doesNotThrow(() => extractBlock(styles, selector));
     }
     validatePromptCompactCardStyles(styles);
+});
+
+test('WEBVIEW-AI-SESSION-CONVERSATION-OUTLINE-001 preserves bounded marker and card geometry', () => {
+    validateConversationOutlineStyles(styles);
+    assert.throws(() => validateConversationOutlineStyles(styles.replace(
+        'grid-template-columns: 14px minmax(0, 1fr);',
+        'grid-template-columns: minmax(0, 1fr);'
+    )), /WEBVIEW-AI-SESSION-CONVERSATION-OUTLINE-001/);
 });
 
 test('WEBVIEW-REDUCED-MOTION-001 disables dashboard and session animation for reduced motion', () => {

@@ -112,6 +112,59 @@ test('WEBVIEW-AI-SESSION-CARD-ACTIVATION-001 maps card bodies and the primary ac
     );
 });
 
+test('WEBVIEW-AI-SESSION-CONVERSATION-OUTLINE-001 toggles only an already focused active session', () => {
+    const focused = createRow({
+        'data-session-id': 'focused-session',
+        'data-session-provider': 'codex',
+        'data-session-active': '',
+        'data-session-focused': '',
+    });
+    const nonFocused = createRow({
+        'data-session-id': 'non-focused-session',
+        'data-session-provider': 'kimi',
+        'data-session-active': '',
+    });
+    const pending = createRow({
+        'data-session-provider': 'claude',
+        'data-session-pending': '',
+        'data-pending-created-at': '2026-07-24T00:00:00.000Z',
+        'data-session-focused': '',
+    });
+
+    const focusedActivation = getAiSessionCardActivation(
+        createTarget(focused, { primary: true }),
+        'project-a'
+    );
+    assert.equal(focusedActivation.handled, true);
+    assert.equal(focusedActivation.sessionRow, focused);
+    assert.equal(focusedActivation.message, null);
+    assert.equal(focusedActivation.toggleConversation, true);
+
+    const nonFocusedActivation = getAiSessionCardActivation(
+        createTarget(nonFocused),
+        'project-a'
+    );
+    assert.deepEqual(normalizeRealmValue(nonFocusedActivation.message), {
+        type: 'focus-ai-session-terminal',
+        projectId: 'project-a',
+        provider: 'kimi',
+        sessionId: 'non-focused-session',
+    });
+    assert.equal(
+        Object.prototype.hasOwnProperty.call(nonFocusedActivation, 'toggleConversation'),
+        false
+    );
+
+    const pendingActivation = getAiSessionCardActivation(
+        createTarget(pending, { primary: true }),
+        'project-a'
+    );
+    assert.equal(
+        Object.prototype.hasOwnProperty.call(pendingActivation, 'toggleConversation'),
+        false
+    );
+});
+
 test('WEBVIEW-AI-SESSION-CARD-ACTIVATION-001 consumes nested controls without activating their session', () => {
     const row = createRow({
         'data-session-id': 'session-a',
@@ -126,4 +179,8 @@ test('WEBVIEW-AI-SESSION-CARD-ACTIVATION-001 consumes nested controls without ac
     assert.equal(result.handled, true);
     assert.equal(result.sessionRow, null);
     assert.equal(result.message, null);
+    assert.equal(
+        Object.prototype.hasOwnProperty.call(result, 'toggleConversation'),
+        false
+    );
 });

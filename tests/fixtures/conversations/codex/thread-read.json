@@ -1,0 +1,156 @@
+{
+  "thread": {
+    "id": "33333333-3333-4333-8333-333333333333",
+    "turns": [
+      {
+        "id": "turn-1",
+        "status": "completed",
+        "items": [
+          {
+            "id": "user-item-1",
+            "type": "userMessage",
+            "content": [
+              {
+                "type": "text",
+                "text": "Visible request"
+              },
+              {
+                "type": "image",
+                "url": "https://private.invalid/upload.png"
+              }
+            ]
+          },
+          {
+            "id": "reasoning-item-1",
+            "type": "reasoning",
+            "text": "reasoning-secret"
+          },
+          {
+            "id": "agent-item-1",
+            "type": "agentMessage",
+            "text": "Visible response"
+          },
+          {
+            "id": "command-item-1",
+            "type": "commandExecution",
+            "command": "print-secret",
+            "aggregatedOutput": "command-output"
+          },
+          {
+            "id": "file-item-1",
+            "type": "fileChange",
+            "changes": [
+              {
+                "path": "/private/changed-file.txt",
+                "kind": "update"
+              }
+            ]
+          },
+          {
+            "id": "mcp-item-1",
+            "type": "mcpToolCall",
+            "server": "private-server",
+            "tool": "private-tool",
+            "result": "mcp-secret"
+          },
+          {
+            "id": "dynamic-item-1",
+            "type": "dynamicToolCall",
+            "tool": "private-dynamic-tool",
+            "result": "dynamic-secret"
+          },
+          {
+            "id": "collab-item-1",
+            "type": "collabToolCall",
+            "prompt": "collab-secret"
+          },
+          {
+            "id": "subagent-item-1",
+            "type": "subagentToolCall",
+            "prompt": "subagent-secret"
+          },
+          {
+            "id": "plan-item-1",
+            "type": "plan",
+            "text": "plan-secret"
+          },
+          {
+            "id": "hook-item-1",
+            "type": "hook",
+            "output": "hook-secret"
+          },
+          {
+            "id": "image-view-item-1",
+            "type": "imageView",
+            "path": "/private/local-image.png"
+          },
+          {
+            "id": "user-item-2",
+            "type": "userMessage",
+            "content": [
+              {
+                "type": "text",
+                "text": "Inspect these"
+              },
+              {
+                "type": "localImage",
+                "path": "/private/local-image.png"
+              },
+              {
+                "type": "audio",
+                "url": "https://private.invalid/audio.wav"
+              },
+              {
+                "type": "localAudio",
+                "path": "/private/local-audio.wav"
+              },
+              {
+                "type": "futureInput",
+                "text": "unknown-input-secret"
+              },
+              {
+                "type": "text",
+                "text": "and summarize"
+              }
+            ]
+          },
+          {
+            "id": "agent-item-2",
+            "type": "agentMessage",
+            "text": "Second visible response"
+          }
+        ]
+      },
+      {
+        "id": "turn-2",
+        "status": "inProgress",
+        "items": [
+          {
+            "id": "web-search-item-1",
+            "type": "webSearch",
+            "query": "private-search"
+          },
+          {
+            "id": "user-item-3",
+            "type": "userMessage",
+            "content": [
+              {
+                "type": "localImage",
+                "path": "/private/second-local-image.png"
+              },
+              {
+                "type": "text",
+                "text": "Continue"
+              }
+            ]
+          },
+          {
+            "id": "agent-item-3",
+            "type": "agentMessage",
+            "text": "Streaming visible response"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -5,9 +5,9 @@ import * as os from 'os';
 import * as path from 'path';
 
 import { CodexSession } from '../models';
-import { filterAiSessionsByCandidatePaths, normalizeAiSessionCandidatePaths } from '../aiSessions/sessionHelpers';
+import { aiSessionPathContains, filterAiSessionsByCandidatePaths, normalizeAiSessionCandidatePaths } from '../aiSessions/sessionHelpers';
 import IncrementalJsonlLifecycleReader from '../aiSessions/incrementalJsonlLifecycleReader';
-import type { AiSessionQueryOptions } from '../aiSessions/types';
+import type { AiSessionConversationSourceCandidate, AiSessionQueryOptions } from '../aiSessions/types';
 import { createClaudeLifecycleAccumulator, AiSessionLifecycleRequest, AiSessionLifecycleSignal } from '../aiSessions/lifecycle';
 import { Disposable } from './codexSessionService';
 
@@ -42,6 +42,33 @@ export default class ClaudeSessionService {
     private readonly changePollIntervalMs = 3000;
     private readonly cwdScanChunkBytes = 64 * 1024;
     private readonly sessionSampleBytes = 128 * 1024;
+
+    resolveConversationSource(
+        sessionId: string,
+        candidatePaths: readonly string[] = []
+    ): AiSessionConversationSourceCandidate | null {
+        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sessionId)) {
+            return null;
+        }
+        sessionId = sessionId.toLowerCase();
+        const claudeHome = this.getClaudeHome();
+        if (!claudeHome) {
+            return null;
+        }
+        const normalizedCandidatePaths = normalizeAiSessionCandidatePaths(Array.from(candidatePaths));
+        const matches = this.getSessionFiles(path.join(claudeHome, 'projects'))
+            .filter(sessionFile => path.basename(sessionFile) === `${sessionId}.jsonl`)
+            .filter(sessionFile => {
+                if (!normalizedCandidatePaths.length) {
+                    return true;
+                }
+                const cwd = this.readSessionCwd(sessionFile, sessionId);
+                return !!cwd && normalizedCandidatePaths.some(candidatePath => aiSessionPathContains(candidatePath, cwd));
+            });
+        return matches.length === 1
+            ? { providerHome: claudeHome, sourcePath: matches[0] }
+            : null;
+    }
 
     getSessions(options: boolean | AiSessionQueryOptions = false): ClaudeSessionReadResult {
         let { forceRefresh, candidatePaths, maxFiles } = this.getQueryOptions(options);

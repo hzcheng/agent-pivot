@@ -8,7 +8,7 @@ import * as path from 'path';
 import { CodexSession } from '../models';
 import { aiSessionPathContains, filterAiSessionsByCandidatePaths, normalizeAiSessionCandidatePaths } from '../aiSessions/sessionHelpers';
 import IncrementalJsonlLifecycleReader from '../aiSessions/incrementalJsonlLifecycleReader';
-import type { AiSessionQueryOptions } from '../aiSessions/types';
+import type { AiSessionConversationSourceCandidate, AiSessionQueryOptions } from '../aiSessions/types';
 import { createKimiLifecycleAccumulator, AiSessionLifecycleRequest, AiSessionLifecycleSignal } from '../aiSessions/lifecycle';
 import { Disposable } from './codexSessionService';
 
@@ -50,6 +50,15 @@ export default class KimiSessionService {
     private readonly lifecycleReader = new IncrementalJsonlLifecycleReader();
     private readonly cacheTtlMs = 5000;
     private readonly changePollIntervalMs = 3000;
+
+    resolveConversationSource(sessionId: string): AiSessionConversationSourceCandidate | null {
+        const kimiHome = this.getKimiHome();
+        const sessionDir = kimiHome && this.findSessionDir(kimiHome, sessionId);
+        const sourcePath = sessionDir && path.join(sessionDir, 'wire.jsonl');
+        return sourcePath && fs.existsSync(sourcePath)
+            ? { providerHome: kimiHome, sourcePath }
+            : null;
+    }
 
     getSessions(options: boolean | AiSessionQueryOptions = false): KimiSessionReadResult {
         let { forceRefresh, candidatePaths, maxFiles } = this.getQueryOptions(options);
@@ -369,22 +378,13 @@ export default class KimiSessionService {
                     return [
                         entry.name,
                         this.getFileSignature(path.join(sessionDir, 'state.json')),
-                        this.getWireFilePresenceSignature(path.join(sessionDir, 'wire.jsonl')),
+                        this.getFileSignature(path.join(sessionDir, 'wire.jsonl')),
                     ].join(':');
                 })
                 .sort()
                 .join(',');
         } catch (e) {
             return `${workDir}:unreadable`;
-        }
-    }
-
-    private getWireFilePresenceSignature(filePath: string): string {
-        try {
-            let stat = fs.statSync(filePath);
-            return stat.size > 0 ? 'wire-nonempty' : 'wire-empty';
-        } catch (e) {
-            return 'no-wire';
         }
     }
 

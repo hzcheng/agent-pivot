@@ -1,6 +1,7 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const Module = require('node:module');
 const test = require('node:test');
 const { createDashboardMessageRouter } = require('../../../out/dashboard/messageRouter');
 const { getErrorContent } = require('../../../out/dashboard/errorContent');
@@ -19,6 +20,144 @@ const {
     createSyntheticOpenWorkspaceStore,
     makePublication,
 } = require('../../contract/openProjects/helpers');
+
+function deferred() {
+    let resolve;
+    const promise = new Promise(resolvePromise => {
+        resolve = resolvePromise;
+    });
+    return { promise, resolve };
+}
+
+function loadConversationComposition() {
+    const fakeUri = value => ({
+        scheme: value.split(':', 1)[0],
+        path: value,
+        fsPath: value,
+        toString: () => value,
+    });
+    const fakeVscode = {
+        ViewColumn: { Beside: 2 },
+        Uri: {
+            file: value => fakeUri(`file://${value}`),
+            parse: fakeUri,
+        },
+    };
+    const previousLoad = Module._load;
+    try {
+        Module._load = function (request, parent, isMain) {
+            if (request === 'vscode') return fakeVscode;
+            return previousLoad.call(this, request, parent, isMain);
+        };
+        return require('../../../out/aiSessions/conversation/composition');
+    } finally {
+        Module._load = previousLoad;
+    }
+}
+
+const {
+    createConversationCapability,
+} = loadConversationComposition();
+
+function unavailableService() {
+    return {
+        getSessions: () => ({
+            available: true,
+            sessions: [],
+            scannedFiles: 0,
+            parsedFiles: 0,
+        }),
+        getLifecycleSignals: () => ({}),
+        watchSessionChanges: () => ({ dispose() {} }),
+        archiveSession: () => false,
+        invalidateCache() {},
+        resolveConversationSource: () => null,
+    };
+}
+
+function constructionFailureHarness(throwAt) {
+    const creations = [];
+    const disposals = new Map();
+    const diagnostics = [];
+    const incrementDisposal = name => {
+        disposals.set(name, (disposals.get(name) || 0) + 1);
+    };
+    const createResource = (name, owned = []) => {
+        creations.push(name);
+        return {
+            dispose() {
+                incrementDisposal(name);
+                owned.forEach(resource => resource.dispose());
+            },
+        };
+    };
+    const maybeThrow = name => {
+        creations.push(`${name}:throw`);
+        throw new Error([
+            `/private/${name}/conversation.jsonl`,
+            'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+            'private prompt',
+            'private response',
+        ].join(' '));
+    };
+    const service = unavailableService();
+    const capability = createConversationCapability({
+        services: { codex: service, kimi: service, claude: service },
+        resolveTarget: () => null,
+        publish: async () => true,
+        createPanel: () => {
+            throw new Error('must not create panel');
+        },
+        openExternal: async () => true,
+        spawnCodex: () => {
+            throw new Error('must not spawn Codex');
+        },
+        now: () => 1000,
+        setTimer: () => 1,
+        clearTimer: () => undefined,
+        onDiagnostic: event => diagnostics.push(event),
+    }, {
+        createCodexClient: () => createResource('client'),
+        createCodexAdapter: options => throwAt === 'codex'
+            ? maybeThrow('codex')
+            : createResource('codex', [options.client]),
+        createKimiAdapter: () => throwAt === 'kimi'
+            ? maybeThrow('kimi')
+            : createResource('kimi'),
+        createClaudeAdapter: () => throwAt === 'claude'
+            ? maybeThrow('claude')
+            : createResource('claude'),
+        createCoordinator: options => {
+            if (throwAt === 'coordinator') {
+                return maybeThrow('coordinator');
+            }
+            return {
+                ...createResource(
+                    'coordinator',
+                    Object.values(options.adapters)
+                ),
+                async readOutline() {},
+                async readPage() {},
+                watch() {
+                    return { dispose() {} };
+                },
+                releaseSubscription() {},
+                setSessionStopped() {},
+            };
+        },
+        createViewer: () => throwAt === 'viewer'
+            ? maybeThrow('viewer')
+            : {
+                ...createResource('viewer'),
+                async open() {},
+                async refresh() {},
+            },
+        createController: () => throwAt === 'controller'
+            ? maybeThrow('controller')
+            : createResource('controller'),
+    });
+    return { capability, creations, diagnostics, disposals };
+}
 
 function makeConfigurationEvent(...sections) {
     return {
@@ -78,6 +217,9 @@ test('SESSION-SIDEBAR-STEWARD-VIEW-PROVIDER-ORDERING-001 keeps view and message 
         onDidChangeVisibility() {
             return { dispose() {} };
         },
+        onDidDispose() {
+            return { dispose() {} };
+        },
     };
     const provider = new SidebarStewardViewProvider({
         getWebviewOptions: () => ({ enableScripts: true }),
@@ -116,6 +258,9 @@ test('SESSION-SIDEBAR-STEWARD-VIEW-PROVIDER-ORDERING-001 awaits visible refreshe
             visibilityChanged = callback;
             return { dispose() {} };
         },
+        onDidDispose() {
+            return { dispose() {} };
+        },
     };
     const provider = new SidebarStewardViewProvider({
         getWebviewOptions: () => ({}),
@@ -143,6 +288,343 @@ test('SESSION-SIDEBAR-STEWARD-VIEW-PROVIDER-ORDERING-001 awaits visible refreshe
     assert.equal(order.filter(item => item === 'render').length, 1);
     assert.equal(view.webview.html, '<main>safe error</main>');
     assert.ok(order.includes('log:Failed to prepare Project Steward view.'));
+});
+
+test('SESSION-SIDEBAR-STEWARD-VIEW-PROVIDER-ORDERING-001 releases sidebar-owned conversation state on disposal', async () => {
+    let disposeView;
+    let disposed = 0;
+    const view = {
+        visible: true,
+        webview: {
+            html: '',
+            options: {},
+            onDidReceiveMessage: () => ({ dispose() {} }),
+            postMessage: async () => true,
+        },
+        onDidChangeVisibility() {
+            return { dispose() {} };
+        },
+        onDidDispose(callback) {
+            disposeView = callback;
+            return { dispose() {} };
+        },
+    };
+    const provider = new SidebarStewardViewProvider({
+        getWebviewOptions: () => ({}),
+        renderContent: () => '<main>ready</main>',
+        renderError: () => '<main>safe error</main>',
+        onMessage: async () => undefined,
+        onVisibleChanged: async () => undefined,
+        onDisposed: () => {
+            disposed += 1;
+        },
+        logError: () => undefined,
+    });
+
+    await provider.resolveWebviewView(view, {}, {});
+    disposeView();
+    disposeView();
+    assert.equal(disposed, 1);
+    assert.equal(provider.visible, false);
+    assert.equal(await provider.postMessage({ type: 'after-dispose' }), false);
+});
+
+test('SESSION-SIDEBAR-STEWARD-VIEW-PROVIDER-OWNERSHIP-001 ignores stale visibility and disposal callbacks after view replacement', async () => {
+    const visibility = [];
+    const renders = [];
+    const disposalVisibility = [];
+    let disposed = 0;
+    let holdNextVisibility = false;
+    const visibilityGate = deferred();
+    const makeView = name => {
+        let visibilityChanged;
+        let disposeView;
+        const posted = [];
+        const view = {
+            visible: true,
+            webview: {
+                name,
+                html: '',
+                options: {},
+                onDidReceiveMessage: () => ({ dispose() {} }),
+                postMessage: async message => {
+                    posted.push(message);
+                    return true;
+                },
+            },
+            onDidChangeVisibility(callback) {
+                visibilityChanged = callback;
+                return { dispose() {} };
+            },
+            onDidDispose(callback) {
+                disposeView = callback;
+                return { dispose() {} };
+            },
+        };
+        return {
+            view,
+            posted,
+            fireVisibility: () => visibilityChanged(),
+            fireDispose: () => disposeView(),
+        };
+    };
+    const provider = new SidebarStewardViewProvider({
+        getWebviewOptions: () => ({}),
+        renderContent: webview => {
+            renders.push(webview.name);
+            return `<main>${webview.name}</main>`;
+        },
+        renderError: () => '<main>safe error</main>',
+        onMessage: async () => undefined,
+        onVisibleChanged: async visible => {
+            visibility.push(visible);
+            if (holdNextVisibility) {
+                holdNextVisibility = false;
+                await visibilityGate.promise;
+            }
+        },
+        onDisposed: () => {
+            disposalVisibility.push(provider.visible);
+            disposed += 1;
+        },
+        logError: () => undefined,
+    });
+    const viewA = makeView('a');
+    const viewB = makeView('b');
+
+    await provider.resolveWebviewView(viewA.view, {}, {});
+    holdNextVisibility = true;
+    const staleInFlight = viewA.fireVisibility();
+    await new Promise(resolve => setImmediate(resolve));
+    await provider.resolveWebviewView(viewB.view, {}, {});
+    assert.deepEqual(renders, ['a', 'b']);
+    assert.equal(disposed, 1);
+    assert.deepEqual(disposalVisibility, [false]);
+
+    visibilityGate.resolve();
+    await staleInFlight;
+    assert.deepEqual(
+        renders,
+        ['a', 'b'],
+        'an old post-await continuation must not refresh the current view'
+    );
+
+    const visibilityBeforeOldCallbacks = visibility.slice();
+    viewA.view.visible = false;
+    await viewA.fireVisibility();
+    await viewA.fireDispose();
+    assert.deepEqual(visibility, visibilityBeforeOldCallbacks);
+    assert.equal(disposed, 1);
+    assert.equal(provider.visible, true);
+    assert.equal(await provider.postMessage({ type: 'current-b' }), true);
+    assert.deepEqual(viewB.posted, [{ type: 'current-b' }]);
+
+    viewB.view.visible = false;
+    await viewB.fireVisibility();
+    assert.equal(provider.visible, false);
+    viewB.view.visible = true;
+    await viewB.fireVisibility();
+    assert.equal(provider.visible, true);
+    assert.deepEqual(renders, ['a', 'b', 'b']);
+    await viewB.fireDispose();
+    assert.equal(disposed, 2);
+    assert.deepEqual(disposalVisibility, [false, false]);
+    assert.equal(provider.visible, false);
+    assert.equal(await provider.postMessage({ type: 'after-b' }), false);
+});
+
+test('PRODUCTION-CONVERSATION-UNAVAILABLE-001 isolates constructor failures from dashboard activation and unrelated routes', async () => {
+    const privateFailure = [
+        '/home/private/conversation.jsonl',
+        'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        'private prompt',
+        'private response',
+    ].join(' ');
+    const diagnostics = [];
+    const publications = [];
+    const panels = [];
+    const spawns = [];
+    let unrelatedRoutes = 0;
+    const service = unavailableService();
+    const capability = createConversationCapability({
+        services: { codex: service, kimi: service, claude: service },
+        resolveTarget: () => null,
+        publish: async message => {
+            publications.push(message);
+            return true;
+        },
+        createPanel: () => {
+            panels.push(true);
+            throw new Error('panel must stay unavailable');
+        },
+        openExternal: async () => true,
+        spawnCodex: () => {
+            spawns.push(true);
+            throw new Error('child must stay unavailable');
+        },
+        now: () => 1000,
+        setTimer: () => 1,
+        clearTimer: () => undefined,
+        onDiagnostic: event => diagnostics.push(event),
+    }, {
+        createCoordinator: () => {
+            throw new Error(privateFailure);
+        },
+    });
+    const router = createDashboardMessageRouter({
+        handlers: {
+            'request-ai-session-conversation-outline': message =>
+                capability.controller.handleOutline(message),
+            'open-ai-session-conversation': message =>
+                capability.controller.handleOpen(message),
+            'cancel-ai-session-conversation': message =>
+                capability.controller.cancel(message),
+            'request-projects-panel': () => {
+                unrelatedRoutes += 1;
+            },
+        },
+    });
+
+    assert.equal(capability.availability, 'unavailable');
+    await router({ type: 'request-projects-panel' });
+    await router({
+        type: 'request-ai-session-conversation-outline',
+        version: 1,
+        requestId: 1,
+        subscriptionGeneration: 0,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    });
+    assert.equal(unrelatedRoutes, 1);
+    assert.deepEqual(diagnostics, [{
+        event: 'conversation-read',
+        category: 'unavailable',
+    }]);
+    assert.equal(
+        JSON.stringify(diagnostics).includes(privateFailure),
+        false
+    );
+    assert.equal(publications.length, 1);
+    assert.equal(publications[0].error.code, 'unavailable');
+    assert.deepEqual(panels, []);
+    assert.deepEqual(spawns, []);
+    capability.dispose();
+    capability.dispose();
+});
+
+for (const scenario of [
+    {
+        throwAt: 'codex',
+        created: ['client', 'codex:throw'],
+        disposed: ['client'],
+    },
+    {
+        throwAt: 'kimi',
+        created: ['client', 'codex', 'kimi:throw'],
+        disposed: ['client', 'codex'],
+    },
+    {
+        throwAt: 'claude',
+        created: ['client', 'codex', 'kimi', 'claude:throw'],
+        disposed: ['client', 'codex', 'kimi'],
+    },
+    {
+        throwAt: 'coordinator',
+        created: [
+            'client',
+            'codex',
+            'kimi',
+            'claude',
+            'coordinator:throw',
+        ],
+        disposed: ['client', 'codex', 'kimi', 'claude'],
+    },
+    {
+        throwAt: 'viewer',
+        created: [
+            'client',
+            'codex',
+            'kimi',
+            'claude',
+            'coordinator',
+            'viewer:throw',
+        ],
+        disposed: ['client', 'codex', 'kimi', 'claude', 'coordinator'],
+    },
+    {
+        throwAt: 'controller',
+        created: [
+            'client',
+            'codex',
+            'kimi',
+            'claude',
+            'coordinator',
+            'viewer',
+            'controller:throw',
+        ],
+        disposed: [
+            'client',
+            'codex',
+            'kimi',
+            'claude',
+            'coordinator',
+            'viewer',
+        ],
+    },
+]) {
+    test(`PRODUCTION-CONVERSATION-OWNERSHIP-001 releases each completed owner exactly once when ${scenario.throwAt} construction throws`, () => {
+        const harness = constructionFailureHarness(scenario.throwAt);
+
+        assert.equal(harness.capability.availability, 'unavailable');
+        assert.deepEqual(harness.creations, scenario.created);
+        assert.deepEqual(
+            Object.fromEntries(
+                scenario.disposed.map(name => [
+                    name,
+                    harness.disposals.get(name) || 0,
+                ])
+            ),
+            Object.fromEntries(scenario.disposed.map(name => [name, 1]))
+        );
+        assert.deepEqual(harness.diagnostics, [{
+            event: 'conversation-read',
+            category: 'unavailable',
+        }]);
+        assert.equal(
+            JSON.stringify(harness.diagnostics).includes('private prompt'),
+            false
+        );
+        const beforeUnavailableDispose = new Map(harness.disposals);
+        harness.capability.dispose();
+        harness.capability.dispose();
+        assert.deepEqual(harness.disposals, beforeUnavailableDispose);
+    });
+}
+
+test('PRODUCTION-CONVERSATION-OWNERSHIP-002 disposes each steady-state capability resource exactly once', () => {
+    const harness = constructionFailureHarness();
+    const resources = [
+        'client',
+        'codex',
+        'kimi',
+        'claude',
+        'coordinator',
+        'viewer',
+        'controller',
+    ];
+
+    assert.equal(harness.capability.availability, 'available');
+    assert.deepEqual(harness.creations, resources);
+    harness.capability.dispose();
+    harness.capability.dispose();
+    assert.deepEqual(
+        Object.fromEntries(resources.map(name => [
+            name,
+            harness.disposals.get(name) || 0,
+        ])),
+        Object.fromEntries(resources.map(name => [name, 1]))
+    );
 });
 
 test('WEBVIEW-DASHBOARD-MESSAGE-ROUTER-001 ignores invalid Webview messages without mutating host state', async () => {

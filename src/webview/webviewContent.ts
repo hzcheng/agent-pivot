@@ -33,6 +33,7 @@ import type {
     AiSessionViewModel,
 } from '../aiSessions/types';
 import { projectAiSessionHistory } from '../aiSessions/historyProjection';
+import { CONVERSATION_LIMITS } from '../aiSessions/conversation/types';
 import type { OpenWorkspaceBridgeStatus } from '../openWorkspaces/bridgeClient';
 import { removeWorkspaceWindowDecorations } from '../workspaces/contextResolver';
 
@@ -128,6 +129,12 @@ export function getStewardContent(
     var dragulaPath = getMediaResource(context, webview, 'dragula.min.js', assetRevision);
     var autoScrollerPath = getMediaResource(context, webview, 'dom-autoscroller.min.js', assetRevision);
 
+    var scrollStateScriptsPath = getMediaResource(
+        context,
+        webview,
+        'webviewScrollStateScripts.js',
+        assetRevision,
+    );
     var projectScriptsPath = getMediaResource(
         context,
         webview,
@@ -261,6 +268,7 @@ export function getStewardContent(
     <script src="${fittyPath}"></script>
     <script src="${dragulaPath}"></script>
     <script src="${autoScrollerPath}"></script>
+    <script src="${scrollStateScriptsPath}"></script>
     <script src="${projectScriptsPath}"></script>
     <script src="${dashboardScriptsPath}"></script>
     <script src="${promptScriptsPath}"></script>
@@ -311,6 +319,7 @@ export function getStewardContent(
                         todos.mount(panel, message.snapshot);
                         window.__projectStewardSyncCollapseButton();
                     },
+                    onTodoRefresh: (_panel, message) => todos.applyRefresh(message.snapshot),
                     onActiveTabChanged: () => window.__projectStewardSyncCollapseButton(),
                 });
                 window.__projectStewardDashboard = dashboard;
@@ -847,6 +856,7 @@ function getActiveAiSessionPanel(
             session,
             options.showRootChips,
             options.runningIconAnimation,
+            project.id || 'project',
         )).join('\n')
         : `<div class="codex-sessions-empty ai-session-active-empty">
             <strong>No active sessions</strong>
@@ -1095,6 +1105,7 @@ function getActiveAiSessionRow(
     model: ActiveAiSessionViewModel,
     showRootChip: boolean = false,
     runningIconAnimation?: string,
+    projectId: string = 'project',
 ): string {
     var providerLabel = getAiProviderLabel(model.provider);
     var sessionName = escapeAttribute(sanitizeProjectName(model.name || model.sessionId || `New ${providerLabel} session`));
@@ -1158,16 +1169,33 @@ function getActiveAiSessionRow(
     var rootChip = showRootChip && model.primaryRootLabel
         ? `<span class="ai-session-root-chip">${escapeAttribute(sanitizeProjectName(model.primaryRootLabel))}</span>`
         : '';
+    var hasConversationShell = model.focused && !model.pending;
+    var conversationPanelId = `ai-session-conversation-${escapeAttribute(projectId)}-${model.provider}-${sessionId}`;
+    var conversationButtonAttributes = hasConversationShell
+        ? ` aria-expanded="false" aria-controls="${conversationPanelId}"`
+        : '';
+    var conversationChevron = hasConversationShell
+        ? '<span class="ai-session-conversation-chevron" aria-hidden="true">›</span>'
+        : '';
+    var conversationPanel = hasConversationShell
+        ? `<section id="${conversationPanelId}" class="ai-session-conversation-panel" data-ai-session-conversation-panel aria-label="Conversation" hidden>
+            <header><span>Conversation</span><span data-ai-session-conversation-count>0</span></header>
+            <div class="ai-session-conversation-loading" role="status">Loading conversation…</div>
+            <div class="ai-session-conversation-rail" data-ai-session-conversation-rail data-auto-scroll-threshold="${CONVERSATION_LIMITS.autoScrollThresholdPx}" role="listbox" aria-label="User inputs" hidden></div>
+        </section>`
+        : '';
     return `<div class="codex-session-row active-ai-session-row" role="group" aria-label="${providerLabel} session ${sessionName}" data-session-provider="${model.provider}" data-execution-state="${model.executionState}"${iconFx ? ` data-session-icon-fx="${iconFx}"` : ''}${runtimeAttributes}${rootAttributes}${pendingAttributes}${model.pinned ? ' data-session-pinned' : ''}${model.focused ? ' data-session-focused' : ''}${model.needsAttention ? ' data-session-needs-attention' : ''}${attentionAttributes}>
-        <button type="button" class="ai-session-primary-action" data-action="activate-ai-session" aria-label="${primaryAriaLabel}" title="${primaryAction} ${providerLabel} Session">
+        <button type="button" class="ai-session-primary-action" data-action="activate-ai-session" aria-label="${primaryAriaLabel}" title="${primaryAction} ${providerLabel} Session"${conversationButtonAttributes}>
             ${attentionIndicator}
             <span class="codex-session-icon">${Icons.terminalLine}</span>
             <span class="codex-session-text">
                 <span class="codex-session-title-line">${runtimeBadge}<span class="codex-session-name">${sessionName}</span>${rootChip}</span>
                 <span class="codex-session-meta">${metadata}</span>
             </span>
+            ${conversationChevron}
         </button>
         <span class="codex-session-actions">${pinAction}${terminalAction}</span>
+        ${conversationPanel}
     </div>`;
 }
 

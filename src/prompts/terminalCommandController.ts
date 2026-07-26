@@ -192,12 +192,19 @@ export class PromptTerminalCommandController {
 
         try {
             await Promise.resolve(terminal.sendText(prompt.text, false));
-            terminal.show?.();
-            return null;
         } catch (_error) {
             this.options.showWarningMessage('The selected terminal is no longer available.');
             return 'terminal-unavailable';
         }
+
+        try {
+            terminal.show?.();
+        } catch (_error) {
+            this.options.showWarningMessage(
+                'The Prompt was inserted, but the terminal could not be revealed.'
+            );
+        }
+        return null;
     }
 }
 

@@ -488,7 +488,7 @@ function insertResultFor(request, overrides = {}) {
     };
 }
 
-test('SESSION-AI-PROMPT-TERMINAL-INSERTION-001 posts one exact by-ID insert and locks only its button', () => {
+test('SESSION-AI-PROMPT-TERMINAL-INSERTION-001 posts one exact by-ID insert and marks only its button pending', () => {
     const harness = createPromptHarness();
     const firstInsert = promptAction(harness, 'prompt-a', 'prompt-insert-terminal');
     const secondInsert = promptAction(harness, 'prompt-b', 'prompt-insert-terminal');
@@ -503,8 +503,12 @@ test('SESSION-AI-PROMPT-TERMINAL-INSERTION-001 posts one exact by-ID insert and 
         target: 'global-prompt-library',
         promptId: 'prompt-a',
     });
-    assert.equal(firstInsert.disabled, true);
+    assert.equal(firstInsert.disabled, false);
+    assert.equal(firstInsert.getAttribute('aria-disabled'), 'true');
     assert.equal(secondInsert.disabled, false);
+    assert.equal(secondInsert.getAttribute('aria-disabled'), null);
+    harness.root.dispatch('click', eventFor(firstInsert));
+    assert.equal(harness.messages.length, 1);
     assert.match(harness.root.status.textContent, /inserting/i);
     assert.equal(harness.controller.getState().pendingInserts.size, 1);
 });
@@ -523,9 +527,11 @@ test('SESSION-AI-PROMPT-TERMINAL-INSERTION-001 settles only a matching direct-in
         ...insertResultFor(request),
         unexpected: true,
     }), false);
-    assert.equal(insert.disabled, true);
+    assert.equal(insert.disabled, false);
+    assert.equal(insert.getAttribute('aria-disabled'), 'true');
     assert.equal(harness.controller.applyInsertResult(insertResultFor(request)), true);
     assert.equal(insert.disabled, false);
+    assert.equal(insert.getAttribute('aria-disabled'), null);
     assert.equal(harness.controller.getState().pendingInserts.size, 0);
     assert.equal(harness.root.status.textContent, 'Prompt inserted into the active terminal.');
     assert.equal(harness.controller.applyInsertResult(insertResultFor(request)), false);
@@ -542,6 +548,7 @@ test('SESSION-AI-PROMPT-TERMINAL-INSERTION-001 announces correlated direct-inser
         errorCode: 'prompt-not-found',
     })), true);
     assert.equal(insert.disabled, false);
+    assert.equal(insert.getAttribute('aria-disabled'), null);
     assert.equal(harness.root.status.textContent, 'That Prompt is no longer available.');
 });
 
@@ -555,10 +562,12 @@ test('SESSION-AI-PROMPT-TERMINAL-INSERTION-001 insert acknowledgement cannot rel
     assert.ok(harness.controller.dispatch('select-default', { promptId: 'prompt-a' }));
     const mutationRequest = harness.messages[1];
     assert.equal(insert.disabled, true);
+    assert.equal(insert.getAttribute('aria-disabled'), 'true');
     assert.equal(otherInsert.disabled, true);
 
     assert.equal(harness.controller.applyInsertResult(insertResultFor(insertRequest)), true);
     assert.equal(insert.disabled, true);
+    assert.equal(insert.getAttribute('aria-disabled'), null);
     assert.equal(otherInsert.disabled, true);
 
     assert.equal(harness.controller.applyCommandResult(resultFor(mutationRequest, 1)), true);
@@ -587,11 +596,13 @@ test('SESSION-AI-PROMPT-TERMINAL-INSERTION-001 insert acknowledgement cannot rel
         'prompt-insert-terminal'
     );
     assert.notEqual(reboundInsert, originalInsert);
-    assert.equal(reboundInsert.disabled, true);
+    assert.equal(reboundInsert.disabled, false);
+    assert.equal(reboundInsert.getAttribute('aria-disabled'), 'true');
     assert.equal(replacementFirst.controller.applyInsertResult(
         insertResultFor(replacementInsertRequest)
     ), true);
     assert.equal(reboundInsert.disabled, false);
+    assert.equal(reboundInsert.getAttribute('aria-disabled'), null);
 });
 
 test('WEBVIEW-AI-PROMPT-MUTATION-001 keeps pending until matching authoritative HTML is applied', () => {

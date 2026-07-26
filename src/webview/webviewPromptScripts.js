@@ -423,6 +423,19 @@
             }) || null;
     }
 
+    function setInsertPending(control, pending) {
+        if (!control || typeof control.setAttribute !== 'function') {
+            return;
+        }
+        if (pending) {
+            control.setAttribute('aria-disabled', 'true');
+            control.setAttribute('data-prompt-insert-pending', 'true');
+        } else {
+            control.removeAttribute('aria-disabled');
+            control.removeAttribute('data-prompt-insert-pending');
+        }
+    }
+
     function restoreSemanticFocus(target) {
         if (!target) {
             return;
@@ -566,9 +579,7 @@
                 'prompt-insert-terminal'
             );
             pending.control = control;
-            if (control) {
-                control.disabled = true;
-            }
+            setInsertPending(control, true);
         });
         return true;
     }
@@ -754,13 +765,13 @@
             promptId: promptId,
             control: control,
         });
-        control.disabled = true;
+        setInsertPending(control, true);
         announce('Inserting Prompt into the active terminal…');
         try {
             window.vscode.postMessage(message);
         } catch (_error) {
             state.pendingInserts.delete(key);
-            control.disabled = false;
+            setInsertPending(control, false);
             announce('Could not send the Prompt. Reload the Dashboard and try again.');
             return false;
         }
@@ -782,9 +793,7 @@
 
         state.pendingInserts.delete(key);
         recordSettledInsert(key);
-        if (pending.control) {
-            pending.control.disabled = state.pending.size > 0;
-        }
+        setInsertPending(pending.control, false);
         announce(message.success
             ? 'Prompt inserted into the active terminal.'
             : insertErrorAnnouncement(message.errorCode));

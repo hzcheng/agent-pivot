@@ -4351,6 +4351,11 @@ body.steward-sidebar .prompt-item {
     pointer-events: auto;
 }
 
+.prompt-insert-button[aria-disabled="true"] {
+    opacity: .55;
+    cursor: progress;
+}
+
 .prompt-management-actions {
     position: absolute;
     top: 4px;

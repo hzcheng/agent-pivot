@@ -399,4 +399,23 @@ test('SESSION-AI-PROMPT-TERMINAL-INSERTION-001 settles a closed or rejected dire
         assert.deepEqual(fixture.warnings, ['The selected terminal is no longer available.']);
         assert.equal(terminal.shown, 0);
     });
+
+    await t.test('reveal throws after a successful send', async () => {
+        const terminal = createTerminal();
+        terminal.show = () => {
+            throw new Error('workbench reveal failed');
+        };
+        const fixture = createFixture({ terminal });
+
+        const result = await fixture.controller.handleInsertRequest(insertRequest({
+            requestId: 'reveal-failed',
+        }));
+
+        assert.equal(result.success, true);
+        assert.equal(result.errorCode, null);
+        assert.deepEqual(terminal.sent, [['Run the focused tests.', false]]);
+        assert.deepEqual(fixture.warnings, [
+            'The Prompt was inserted, but the terminal could not be revealed.',
+        ]);
+    });
 });

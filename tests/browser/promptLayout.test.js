@@ -386,6 +386,76 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 keeps Prompt controls and text usable in
     }
 });
 
+test('SESSION-AI-PROMPT-TERMINAL-INSERTION-001 preserves keyboard focus through pending replacement and acknowledgement', async t => {
+    const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
+    t.after(() => browser.close());
+    const initialSnapshot = snapshotAt(1);
+    const page = await openPromptPage(browser, initialSnapshot);
+    t.after(() => page.close());
+    const insert = page.locator('[data-action="prompt-insert-terminal"]');
+
+    await insert.focus();
+    await page.keyboard.press('Enter');
+    const request = await page.evaluate(() => window.__promptMessages[0]);
+    assert.ok(request);
+    assert.deepEqual(await page.evaluate(() => ({
+        action: document.activeElement.getAttribute('data-action'),
+        disabled: document.activeElement.disabled,
+        pending: document.activeElement.getAttribute('aria-disabled'),
+    })), {
+        action: 'prompt-insert-terminal',
+        disabled: false,
+        pending: 'true',
+    });
+
+    const replacement = snapshotAt(2);
+    assert.equal(await page.evaluate(({ snapshot, html }) =>
+        window.__projectStewardPrompts.applyRefresh({
+            type: 'prompt-panel-updated',
+            version: 1,
+            authoritySequence: 2,
+            target: 'global-prompt-library',
+            snapshot,
+            html,
+        }), {
+        snapshot: replacement,
+        html: getPromptSurfaceContent(replacement),
+    }), true);
+    assert.deepEqual(await page.evaluate(() => ({
+        action: document.activeElement.getAttribute('data-action'),
+        promptId: document.activeElement.getAttribute('data-prompt-id'),
+        disabled: document.activeElement.disabled,
+        pending: document.activeElement.getAttribute('aria-disabled'),
+    })), {
+        action: 'prompt-insert-terminal',
+        promptId: 'prompt-a',
+        disabled: false,
+        pending: 'true',
+    });
+
+    assert.equal(await page.evaluate(request =>
+        window.__projectStewardPrompts.applyInsertResult({
+            type: 'prompt-insert-terminal-result',
+            version: request.version,
+            requestId: request.requestId,
+            target: request.target,
+            success: true,
+            errorCode: null,
+        }), request
+    ), true);
+    assert.deepEqual(await page.evaluate(() => ({
+        action: document.activeElement.getAttribute('data-action'),
+        promptId: document.activeElement.getAttribute('data-prompt-id'),
+        disabled: document.activeElement.disabled,
+        pending: document.activeElement.getAttribute('aria-disabled'),
+    })), {
+        action: 'prompt-insert-terminal',
+        promptId: 'prompt-a',
+        disabled: false,
+        pending: null,
+    });
+});
+
 test('WEBVIEW-AI-PROMPT-INTERACTION-001 restores form and New Prompt focus with the real viewport in Chromium', async t => {
     const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
     t.after(() => browser.close());

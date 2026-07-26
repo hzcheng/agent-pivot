@@ -116,6 +116,8 @@ function validatePromptCompactCardStyles(source) {
     assertDeclarations(reveal, id, ['opacity: 1', 'pointer-events: auto']);
     assertDeclarations(ruleForSelector(compiled, '.prompt-insert-button', 'pointer-events: auto'), id,
         ['opacity: 1', 'pointer-events: auto']);
+    assertDeclarations(ruleForSelector(compiled, '.prompt-insert-button[aria-disabled=true]'), id,
+        ['opacity: 0.55', 'cursor: progress']);
     assertDeclarations(ruleForSelector(compiled, '.prompt-item[data-prompt-default=true]'), id,
         ['border-color: var(--vscode-focusBorder)']);
 

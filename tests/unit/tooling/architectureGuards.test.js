@@ -140,6 +140,16 @@ for (const mutation of [
         mutate: source => source.replace(
             "import { createHash } from 'crypto';",
             "import { createHash } from 'crypto';\n"
+                + "void import('node:fs/promises');"
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',
+        file: 'src/aiSessions/conversation/codexAdapter.ts',
+        expectedDetail: 'Codex conversation adapter must not import filesystem or transcript JSONL readers',
+        mutate: source => source.replace(
+            "import { createHash } from 'crypto';",
+            "import { createHash } from 'crypto';\n"
                 + "import fs = require('node:fs/promises');"
         ),
     },
@@ -160,6 +170,16 @@ for (const mutation of [
         mutate: source => source.replace(
             "import { randomBytes } from 'crypto';",
             "import { randomBytes } from 'crypto';\nimport DOMPurify from 'dompurify';"
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',
+        file: 'src/aiSessions/conversation/viewer.ts',
+        expectedDetail: 'extension-host TypeScript must not import DOMPurify',
+        mutate: source => source.replace(
+            "import { randomBytes } from 'crypto';",
+            "import { randomBytes } from 'crypto';\n"
+                + "void import('dompurify');"
         ),
     },
     {

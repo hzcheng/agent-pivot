@@ -305,6 +305,13 @@ function moduleReferences(sourceFile) {
             if (moduleName !== undefined) modules.push(moduleName);
             return;
         }
+        if (ts.isCallExpression(node)
+            && node.expression.kind === ts.SyntaxKind.ImportKeyword
+            && node.arguments.length === 1) {
+            const moduleName = stringArgument(node.arguments[0]);
+            if (moduleName !== undefined) modules.push(moduleName);
+            return;
+        }
         if (!ts.isCallExpression(node)
             || !ts.isIdentifier(node.expression)
             || node.expression.text !== 'require'

@@ -67,33 +67,60 @@ test('OPEN-OPEN-PROJECT-PUBLICATION-001 replaces workspace URIs by ordinal witho
 
 test('OPEN-OPEN-PROJECT-AUTHORITATIVE-IDENTITY-001 keeps same-path authorities as distinct workspace cards', () => {
     const source = makeRecord({ uri: 'file:///work/reddb', name: 'reddb' });
-    const rewrite = (instanceId, environment, serializedAuthority, authority) =>
+    const rewrite = (instanceId, environment, target) =>
         replaceOpenWorkspacePublicationUris(
             makePublication({ instanceId, workspace: { ...source, environment } }),
             null,
-            [authoritativeUri(
-                `vscode-remote://${serializedAuthority}/work/reddb`,
-                'vscode-remote',
-                authority,
-                '/work/reddb'
-            )]
+            [target]
         ).workspace;
-    const ssh = rewrite(OLDER, 'ssh', 'ssh-remote%2Bhost', 'ssh-remote+host');
+    const local = rewrite(OTHER, 'local', authoritativeUri(
+        'file:///work/reddb',
+        'file',
+        '',
+        '/work/reddb'
+    ));
+    const ssh = rewrite(OLDER, 'ssh', authoritativeUri(
+        'vscode-remote://ssh-remote%2Bhost/work/reddb',
+        'vscode-remote',
+        'ssh-remote+host',
+        '/work/reddb'
+    ));
     const container = rewrite(
         NEWER,
         'devContainer',
-        'dev-container%2Bdevbox',
-        'dev-container+devbox'
+        authoritativeUri(
+            'vscode-remote://dev-container%2Bdevbox/work/reddb',
+            'vscode-remote',
+            'dev-container+devbox',
+            '/work/reddb'
+        )
     );
     const projections = projectOpenWorkspaceNavigationCards(null, makeAggregate([
+        makeRegistration(OTHER, 500, local.navigationUri, { workspace: local }),
         makeRegistration(OLDER, 1000, ssh.navigationUri, { workspace: ssh }),
         makeRegistration(NEWER, 2000, container.navigationUri, { workspace: container }),
     ]), SELF);
+    const projectionsFromContainer = projectOpenWorkspaceNavigationCards(
+        { navigationIdentity: container.navigationIdentity },
+        makeAggregate([
+            makeRegistration(OTHER, 500, local.navigationUri, { workspace: local }),
+            makeRegistration(OLDER, 1000, ssh.navigationUri, { workspace: ssh }),
+            makeRegistration(NEWER, 2000, container.navigationUri, { workspace: container }),
+        ]),
+        SELF
+    );
 
+    assert.notEqual(local.navigationIdentity, container.navigationIdentity);
+    assert.notEqual(local.scopeIdentity, container.scopeIdentity);
+    assert.notEqual(local.roots[0].id, container.roots[0].id);
     assert.notEqual(ssh.navigationIdentity, container.navigationIdentity);
     assert.notEqual(ssh.scopeIdentity, container.scopeIdentity);
     assert.notEqual(ssh.roots[0].id, container.roots[0].id);
-    assert.equal(projections.length, 2);
+    assert.equal(projections.length, 3);
+    assert.deepEqual(
+        projectionsFromContainer.map(projection => projection.workspace.environment),
+        ['ssh', 'local']
+    );
     assert.equal(
         ssh.navigationIdentity,
         createWorkspaceUriIdentity({

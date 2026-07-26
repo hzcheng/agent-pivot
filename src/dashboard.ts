@@ -1098,6 +1098,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                     await provider.postMessage(result);
                 }
             },
+            'prompt-insert-terminal': async e => {
+                const result = await promptTerminalCommandController.handleInsertRequest(e);
+                if (result !== undefined) {
+                    await provider.postMessage(result);
+                }
+            },
             'todo-command': async e => {
                 await todoStorageMigration.ready;
                 const result = await todoCommandController.handle(e);

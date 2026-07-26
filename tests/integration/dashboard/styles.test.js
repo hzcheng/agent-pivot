@@ -82,6 +82,69 @@ function validateTodoLayout(source) {
     }
 }
 
+function validatePromptCompactCardStyles(source) {
+    const id = 'WEBVIEW-AI-PROMPT-STYLES-001';
+    const itemView = extractBlock(source, '.prompt-item-view');
+    assert.ok(
+        itemView.includes('grid-template-columns: 24px minmax(0, 1fr)'),
+        `${id} collapsed card must reserve only drag and content columns`
+    );
+    assert.equal(
+        itemView.includes('28px'),
+        false,
+        `${id} collapsed card must not reserve a persistent Insert column`
+    );
+    const preview = extractBlock(source, '.prompt-preview', 1);
+    for (const value of [
+        'display: -webkit-box',
+        'overflow: hidden',
+        '-webkit-box-orient: vertical',
+        '-webkit-line-clamp: 2',
+    ]) {
+        assert.ok(preview.includes(value), `${id} preview missing ${value}`);
+    }
+
+    const name = extractBlock(source, '.prompt-name');
+    for (const value of ['overflow: hidden', 'text-overflow: ellipsis', 'white-space: nowrap']) {
+        assert.ok(name.includes(value), `${id} name missing ${value}`);
+    }
+
+    const management = extractBlock(source, '.prompt-management-actions');
+    for (const value of [
+        'position: absolute',
+        'right: 4px',
+        'opacity: 0',
+        'pointer-events: none',
+    ]) {
+        assert.ok(management.includes(value), `${id} management actions missing ${value}`);
+    }
+    assert.equal(management.includes('display: none'), false, `${id} actions must remain keyboard reachable`);
+    assert.equal(management.includes('visibility: hidden'), false, `${id} actions must remain keyboard reachable`);
+
+    const compiled = compileStyles(source);
+    const reveal = ruleForSelector(compiled, '.prompt-item:focus-within .prompt-management-actions');
+    assert.ok(reveal.selectors.includes('.prompt-item:hover .prompt-management-actions'));
+    assertDeclarations(reveal, id, ['opacity: 1', 'pointer-events: auto']);
+    assertDeclarations(ruleForSelector(compiled, '.prompt-insert-button', 'pointer-events: inherit'), id,
+        ['opacity: 1', 'pointer-events: inherit']);
+    assertDeclarations(ruleForSelector(compiled, '.prompt-insert-button[aria-disabled=true]'), id,
+        ['opacity: 0.55', 'cursor: progress']);
+    assertDeclarations(ruleForSelector(compiled, '.prompt-item[data-prompt-default=true]'), id,
+        ['border-color: var(--vscode-focusBorder)']);
+
+    const noHover = extractBlock(source, '@media (hover: none)');
+    assert.ok(noHover.includes('.prompt-management-actions'), `${id} missing no-hover actions`);
+    assert.ok(noHover.includes('opacity: .72'), `${id} missing no-hover action emphasis`);
+
+    const promptMotion = extractBlock(source, '@media (prefers-reduced-motion: reduce)', 2);
+    assert.ok(promptMotion.includes('.prompt-management-actions'), `${id} missing reduced motion toolbar`);
+    assert.ok(promptMotion.includes('transition: none !important'), `${id} missing reduced motion transition`);
+
+    const forcedColors = extractBlock(source, '@media (forced-colors: active)', 1);
+    assert.ok(forcedColors.includes('.prompt-management-actions'), `${id} missing forced-color toolbar`);
+    assert.ok(forcedColors.includes('.prompt-default-marker'), `${id} missing forced-color default state`);
+}
+
 function cssRules(source) {
     return [...source.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(match => ({
         selectors: match[1].split(',').map(selector => selector.trim()),
@@ -349,6 +412,7 @@ test('WEBVIEW-AI-PROMPT-STYLES-001 exposes every Prompt styling boundary', () =>
     ]) {
         assert.doesNotThrow(() => extractBlock(styles, selector));
     }
+    validatePromptCompactCardStyles(styles);
 });
 
 test('WEBVIEW-REDUCED-MOTION-001 disables dashboard and session animation for reduced motion', () => {

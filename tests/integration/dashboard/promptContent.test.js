@@ -127,7 +127,17 @@ test('AI Prompt content renders ordered items with accessible independent action
     assert.ok(html.indexOf('data-prompt-id="prompt-a"') < html.indexOf('data-prompt-id="prompt-b"'));
     assert.equal((html.match(/data-drag-prompt-id=/g) || []).length, 2);
     assert.equal((html.match(/draggable="true"/g) || []).length, 2);
+    assert.equal((html.match(/data-action="prompt-insert-terminal"/g) || []).length, 2);
+    assert.equal((html.match(/class="prompt-management-actions"/g) || []).length, 2);
+    assert.match(
+        html,
+        /<div class="prompt-management-actions">\s*<button[^>]*data-action="prompt-insert-terminal"[\s\S]*?data-action="prompt-select-default"[\s\S]*?data-action="prompt-edit"[\s\S]*?data-action="prompt-delete"/
+    );
     assert.doesNotMatch(html, /<li[^>]*draggable="true"/);
+    assert.match(html, /<li[^>]*data-prompt-id="prompt-b"[^>]*data-prompt-default="true"/);
+    assert.doesNotMatch(html, /<li[^>]*data-prompt-id="prompt-a"[^>]*data-prompt-default/);
+    assert.match(html, /class="prompt-default-marker"[^>]*aria-hidden="true"/);
+    assert.match(html, /data-action="prompt-insert-terminal" data-prompt-id="prompt-a"[^>]*title="Insert Alpha into the active terminal"[^>]*aria-label="Insert Alpha into the active terminal"/);
     assert.match(html, /data-action="prompt-select-default" data-prompt-id="prompt-a"[^>]*aria-pressed="false"/);
     assert.match(html, /data-action="prompt-select-default" data-prompt-id="prompt-b"[^>]*aria-pressed="true"/);
     assert.match(html, /aria-label="Make Alpha the default Prompt"/);
@@ -135,6 +145,7 @@ test('AI Prompt content renders ordered items with accessible independent action
     assert.match(html, /data-action="prompt-edit" data-prompt-id="prompt-a"[^>]*aria-label="Edit Alpha"/);
     assert.match(html, /data-action="prompt-delete" data-prompt-id="prompt-a"[^>]*aria-label="Delete Alpha"/);
     assert.match(html, /data-drag-prompt-id="prompt-a"[^>]*aria-label="Drag Alpha to reorder"/);
+    assert.doesNotMatch(html, />Make default<|>Default<|>Edit<|>Delete</);
     assert.match(html, /<form[^>]*data-prompt-form="edit"[^>]*data-prompt-id="prompt-a"[^>]* hidden>/);
     assert.match(html, /<label[^>]*for="prompt-edit-name-0"[^>]*>Prompt name<\/label>/);
     assert.match(html, /<label[^>]*for="prompt-edit-text-0"[^>]*>Prompt text<\/label>/);

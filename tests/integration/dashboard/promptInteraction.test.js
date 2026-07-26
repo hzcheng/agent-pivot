@@ -27,6 +27,7 @@ function snapshotAt(revision, overrides = {}) {
 function surfaceHtml(revision, promptIds = ['prompt-a', 'prompt-b'], marker = '') {
     const items = promptIds.map(promptId => `<li data-prompt-id="${promptId}">
         <button data-drag-prompt-id="${promptId}">Drag</button>
+        <button data-action="prompt-insert-terminal" data-prompt-id="${promptId}">Insert</button>
         <button data-action="prompt-select-default" data-prompt-id="${promptId}" aria-pressed="false">Default</button>
         <button data-action="prompt-edit" data-prompt-id="${promptId}">Edit</button>
         <button data-action="prompt-delete" data-prompt-id="${promptId}">Delete</button>
@@ -314,6 +315,10 @@ function createPromptRoot(document, initialHtml) {
                     'data-action': 'prompt-delete',
                     'data-prompt-id': promptId,
                 }),
+                createElement(document, {
+                    'data-action': 'prompt-insert-terminal',
+                    'data-prompt-id': promptId,
+                }),
             ];
             item.actions.forEach(action => {
                 action.parentElement = item;
@@ -464,6 +469,141 @@ function eventFor(target, overrides = {}) {
         ...overrides,
     };
 }
+
+function promptAction(harness, promptId, action) {
+    return harness.root.getItem(promptId).actions.find(candidate =>
+        candidate.getAttribute('data-action') === action
+    );
+}
+
+function insertResultFor(request, overrides = {}) {
+    return {
+        type: 'prompt-insert-terminal-result',
+        version: 1,
+        requestId: request.requestId,
+        target: 'global-prompt-library',
+        success: true,
+        errorCode: null,
+        ...overrides,
+    };
+}
+
+test('SESSION-AI-PROMPT-TERMINAL-INSERTION-001 posts one exact by-ID insert and marks only its button pending', () => {
+    const harness = createPromptHarness();
+    const firstInsert = promptAction(harness, 'prompt-a', 'prompt-insert-terminal');
+    const secondInsert = promptAction(harness, 'prompt-b', 'prompt-insert-terminal');
+
+    harness.root.dispatch('click', eventFor(firstInsert));
+
+    assert.equal(harness.messages.length, 1);
+    assert.deepEqual(harness.messages[0], {
+        type: 'prompt-insert-terminal',
+        version: 1,
+        requestId: harness.messages[0].requestId,
+        target: 'global-prompt-library',
+        promptId: 'prompt-a',
+    });
+    assert.equal(firstInsert.disabled, false);
+    assert.equal(firstInsert.getAttribute('aria-disabled'), 'true');
+    assert.equal(secondInsert.disabled, false);
+    assert.equal(secondInsert.getAttribute('aria-disabled'), null);
+    harness.root.dispatch('click', eventFor(firstInsert));
+    assert.equal(harness.messages.length, 1);
+    assert.match(harness.root.status.textContent, /inserting/i);
+    assert.equal(harness.controller.getState().pendingInserts.size, 1);
+});
+
+test('SESSION-AI-PROMPT-TERMINAL-INSERTION-001 settles only a matching direct-insert result once', () => {
+    const harness = createPromptHarness();
+    const insert = promptAction(harness, 'prompt-a', 'prompt-insert-terminal');
+    harness.root.dispatch('click', eventFor(insert));
+    const request = harness.messages[0];
+
+    assert.equal(harness.controller.applyInsertResult({
+        ...insertResultFor(request),
+        requestId: 'another-request',
+    }), false);
+    assert.equal(harness.controller.applyInsertResult({
+        ...insertResultFor(request),
+        unexpected: true,
+    }), false);
+    assert.equal(insert.disabled, false);
+    assert.equal(insert.getAttribute('aria-disabled'), 'true');
+    assert.equal(harness.controller.applyInsertResult(insertResultFor(request)), true);
+    assert.equal(insert.disabled, false);
+    assert.equal(insert.getAttribute('aria-disabled'), null);
+    assert.equal(harness.controller.getState().pendingInserts.size, 0);
+    assert.equal(harness.root.status.textContent, 'Prompt inserted into the active terminal.');
+    assert.equal(harness.controller.applyInsertResult(insertResultFor(request)), false);
+});
+
+test('SESSION-AI-PROMPT-TERMINAL-INSERTION-001 announces correlated direct-insert failure safely', () => {
+    const harness = createPromptHarness();
+    const insert = promptAction(harness, 'prompt-a', 'prompt-insert-terminal');
+    harness.root.dispatch('click', eventFor(insert));
+    const request = harness.messages[0];
+
+    assert.equal(harness.controller.applyInsertResult(insertResultFor(request, {
+        success: false,
+        errorCode: 'prompt-not-found',
+    })), true);
+    assert.equal(insert.disabled, false);
+    assert.equal(insert.getAttribute('aria-disabled'), null);
+    assert.equal(harness.root.status.textContent, 'That Prompt is no longer available.');
+});
+
+test('SESSION-AI-PROMPT-TERMINAL-INSERTION-001 insert acknowledgement cannot release a Prompt mutation lock', () => {
+    const harness = createPromptHarness();
+    const insert = promptAction(harness, 'prompt-a', 'prompt-insert-terminal');
+    const otherInsert = promptAction(harness, 'prompt-b', 'prompt-insert-terminal');
+    harness.root.dispatch('click', eventFor(insert));
+    const insertRequest = harness.messages[0];
+
+    assert.ok(harness.controller.dispatch('select-default', { promptId: 'prompt-a' }));
+    const mutationRequest = harness.messages[1];
+    assert.equal(insert.disabled, true);
+    assert.equal(insert.getAttribute('aria-disabled'), 'true');
+    assert.equal(otherInsert.disabled, true);
+
+    assert.equal(harness.controller.applyInsertResult(insertResultFor(insertRequest)), true);
+    assert.equal(insert.disabled, true);
+    assert.equal(insert.getAttribute('aria-disabled'), null);
+    assert.equal(otherInsert.disabled, true);
+
+    assert.equal(harness.controller.applyCommandResult(resultFor(mutationRequest, 1)), true);
+    const installedInsert = promptAction(harness, 'prompt-a', 'prompt-insert-terminal');
+    assert.equal(installedInsert.disabled, false);
+
+    const replacementFirst = createPromptHarness();
+    const originalInsert = promptAction(
+        replacementFirst,
+        'prompt-a',
+        'prompt-insert-terminal'
+    );
+    replacementFirst.root.dispatch('click', eventFor(originalInsert));
+    const replacementInsertRequest = replacementFirst.messages[0];
+    assert.ok(replacementFirst.controller.dispatch('select-default', {
+        promptId: 'prompt-a',
+    }));
+    const replacementMutationRequest = replacementFirst.messages[1];
+
+    assert.equal(replacementFirst.controller.applyCommandResult(
+        resultFor(replacementMutationRequest, 1)
+    ), true);
+    const reboundInsert = promptAction(
+        replacementFirst,
+        'prompt-a',
+        'prompt-insert-terminal'
+    );
+    assert.notEqual(reboundInsert, originalInsert);
+    assert.equal(reboundInsert.disabled, false);
+    assert.equal(reboundInsert.getAttribute('aria-disabled'), 'true');
+    assert.equal(replacementFirst.controller.applyInsertResult(
+        insertResultFor(replacementInsertRequest)
+    ), true);
+    assert.equal(reboundInsert.disabled, false);
+    assert.equal(reboundInsert.getAttribute('aria-disabled'), null);
+});
 
 test('WEBVIEW-AI-PROMPT-MUTATION-001 keeps pending until matching authoritative HTML is applied', () => {
     const harness = createPromptHarness();

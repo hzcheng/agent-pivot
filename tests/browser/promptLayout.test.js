@@ -228,11 +228,25 @@ async function assertReachable(page, selector, width) {
     );
 }
 
+async function waitForPromptActions(page) {
+    await page.waitForFunction(() => {
+        const actions = document.querySelector('.prompt-management-actions');
+        if (!actions) return false;
+        const styles = getComputedStyle(actions);
+        return styles.opacity === '1' && styles.pointerEvents === 'auto';
+    });
+}
+
+async function revealPromptActions(page) {
+    await page.locator('.prompt-item').hover();
+    await waitForPromptActions(page);
+}
+
 test('WEBVIEW-AI-PROMPT-INTERACTION-001 keeps Prompt controls and text usable in narrow sidebars', async t => {
     const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
     t.after(() => browser.close());
 
-    for (const width of [240, 320, 600]) {
+    for (const width of [240, 280, 320, 420]) {
         await t.test(`${width}px`, async () => {
             const page = await browser.newPage({ viewport: { width, height: 1000 } });
             t.after(() => page.close());
@@ -258,11 +272,28 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 keeps Prompt controls and text usable in
 
             await assertNoHorizontalOverflow(page, width, 'initial');
             await assertReachable(page, '[data-action="prompt-new"]', width);
-            await assertReachable(page, '[data-action="prompt-select-default"]', width);
-            await assertReachable(page, '[data-action="prompt-edit"]', width);
-            await assertReachable(page, '[data-action="prompt-delete"]', width);
 
-            const wrappedText = await page.evaluate(() => {
+            assert.equal(await page.locator('.prompt-management-actions').evaluate(element =>
+                getComputedStyle(element).opacity
+            ), '0');
+            assert.equal(await page.locator('.prompt-management-actions').evaluate(element =>
+                getComputedStyle(element).pointerEvents
+            ), 'none');
+            assert.equal(await page.locator('[data-action="prompt-insert-terminal"]').evaluate(element =>
+                getComputedStyle(element).pointerEvents
+            ), 'none');
+            assert.deepEqual(await page.locator('.prompt-management-actions').evaluate(element =>
+                Array.from(element.querySelectorAll('[data-action]')).map(action =>
+                    action.getAttribute('data-action')
+                )
+            ), [
+                'prompt-insert-terminal',
+                'prompt-select-default',
+                'prompt-edit',
+                'prompt-delete',
+            ]);
+
+            const boundedText = await page.evaluate(() => {
                 const measure = selector => {
                     const element = document.querySelector(selector);
                     const styles = getComputedStyle(element);
@@ -272,6 +303,8 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 keeps Prompt controls and text usable in
                         height: element.getBoundingClientRect().height,
                         lineHeight: parseFloat(styles.lineHeight) || parseFloat(styles.fontSize) * 1.2,
                         overflowWrap: styles.overflowWrap,
+                        textOverflow: styles.textOverflow,
+                        whiteSpace: styles.whiteSpace,
                     };
                 };
                 return {
@@ -279,17 +312,43 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 keeps Prompt controls and text usable in
                     preview: measure('.prompt-preview'),
                 };
             });
-            for (const [kind, measurement] of Object.entries(wrappedText)) {
-                assert.ok(
-                    measurement.scrollWidth <= measurement.clientWidth,
-                    `${kind} must not clip at ${width}px`
-                );
-                assert.ok(
-                    measurement.height > measurement.lineHeight * 1.5,
-                    `${kind} must wrap to multiple lines at ${width}px`
-                );
-                assert.equal(measurement.overflowWrap, 'anywhere');
-            }
+            assert.ok(
+                boundedText.name.height <= boundedText.name.lineHeight * 1.2,
+                `name must remain one line at ${width}px`
+            );
+            assert.equal(boundedText.name.textOverflow, 'ellipsis');
+            assert.equal(boundedText.name.whiteSpace, 'nowrap');
+            assert.ok(
+                boundedText.preview.height <= boundedText.preview.lineHeight * 2.1,
+                `preview must remain within two lines at ${width}px`
+            );
+
+            await revealPromptActions(page);
+            assert.equal(await page.locator('.prompt-management-actions').evaluate(element =>
+                getComputedStyle(element).opacity
+            ), '1');
+            await assertReachable(page, '[data-action="prompt-insert-terminal"]', width);
+            await assertReachable(page, '[data-action="prompt-select-default"]', width);
+            await assertReachable(page, '[data-action="prompt-edit"]', width);
+            await assertReachable(page, '[data-action="prompt-delete"]', width);
+            const hoverLayout = await page.evaluate(() => {
+                const name = document.querySelector('.prompt-name').getBoundingClientRect();
+                const actions = document.querySelector('.prompt-management-actions').getBoundingClientRect();
+                return {
+                    nameRight: name.right,
+                    actionsLeft: actions.left,
+                };
+            });
+            assert.ok(
+                hoverLayout.nameRight <= hoverLayout.actionsLeft,
+                `Prompt name must not overlap management actions at ${width}px: ${JSON.stringify(hoverLayout)}`
+            );
+
+            await page.locator('[data-action="prompt-edit"]').focus();
+            await waitForPromptActions(page);
+            assert.equal(await page.locator('.prompt-management-actions').evaluate(element =>
+                getComputedStyle(element).opacity
+            ), '1');
 
             await page.locator('[data-action="prompt-new"]').click();
             const textarea = page.locator('[data-prompt-form="create"] textarea');
@@ -311,18 +370,6 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 keeps Prompt controls and text usable in
             await assertReachable(page, '.prompt-create-form .prompt-form-actions button', width);
             await assertNoHorizontalOverflow(page, width, 'open create form');
             await page.locator('[data-action="prompt-cancel-create"]').click();
-
-            if (width <= 320) {
-                const narrowFlow = await page.evaluate(() => {
-                    const content = document.querySelector('.prompt-item-content').getBoundingClientRect();
-                    const actions = document.querySelector('.prompt-item-actions').getBoundingClientRect();
-                    return { contentBottom: content.bottom, actionsTop: actions.top };
-                });
-                assert.ok(
-                    narrowFlow.actionsTop >= narrowFlow.contentBottom - 0.5,
-                    `item actions must wrap below Prompt text at ${width}px`
-                );
-            }
 
             await page.locator('[data-action="prompt-edit"]').focus();
             const nextSnapshot = snapshotAt(2);
@@ -350,6 +397,76 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 keeps Prompt controls and text usable in
             await assertNoHorizontalOverflow(page, width, 'authoritative replacement');
         });
     }
+});
+
+test('SESSION-AI-PROMPT-TERMINAL-INSERTION-001 preserves keyboard focus through pending replacement and acknowledgement', async t => {
+    const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
+    t.after(() => browser.close());
+    const initialSnapshot = snapshotAt(1);
+    const page = await openPromptPage(browser, initialSnapshot);
+    t.after(() => page.close());
+    const insert = page.locator('[data-action="prompt-insert-terminal"]');
+
+    await insert.focus();
+    await page.keyboard.press('Enter');
+    const request = await page.evaluate(() => window.__promptMessages[0]);
+    assert.ok(request);
+    assert.deepEqual(await page.evaluate(() => ({
+        action: document.activeElement.getAttribute('data-action'),
+        disabled: document.activeElement.disabled,
+        pending: document.activeElement.getAttribute('aria-disabled'),
+    })), {
+        action: 'prompt-insert-terminal',
+        disabled: false,
+        pending: 'true',
+    });
+
+    const replacement = snapshotAt(2);
+    assert.equal(await page.evaluate(({ snapshot, html }) =>
+        window.__projectStewardPrompts.applyRefresh({
+            type: 'prompt-panel-updated',
+            version: 1,
+            authoritySequence: 2,
+            target: 'global-prompt-library',
+            snapshot,
+            html,
+        }), {
+        snapshot: replacement,
+        html: getPromptSurfaceContent(replacement),
+    }), true);
+    assert.deepEqual(await page.evaluate(() => ({
+        action: document.activeElement.getAttribute('data-action'),
+        promptId: document.activeElement.getAttribute('data-prompt-id'),
+        disabled: document.activeElement.disabled,
+        pending: document.activeElement.getAttribute('aria-disabled'),
+    })), {
+        action: 'prompt-insert-terminal',
+        promptId: 'prompt-a',
+        disabled: false,
+        pending: 'true',
+    });
+
+    assert.equal(await page.evaluate(request =>
+        window.__projectStewardPrompts.applyInsertResult({
+            type: 'prompt-insert-terminal-result',
+            version: request.version,
+            requestId: request.requestId,
+            target: request.target,
+            success: true,
+            errorCode: null,
+        }), request
+    ), true);
+    assert.deepEqual(await page.evaluate(() => ({
+        action: document.activeElement.getAttribute('data-action'),
+        promptId: document.activeElement.getAttribute('data-prompt-id'),
+        disabled: document.activeElement.disabled,
+        pending: document.activeElement.getAttribute('aria-disabled'),
+    })), {
+        action: 'prompt-insert-terminal',
+        promptId: 'prompt-a',
+        disabled: false,
+        pending: null,
+    });
 });
 
 test('WEBVIEW-AI-PROMPT-INTERACTION-001 restores form and New Prompt focus with the real viewport in Chromium', async t => {
@@ -446,6 +563,7 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 restores form and New Prompt focus with 
         {
             name: 'edit name after external refresh',
             setup: async page => {
+                await revealPromptActions(page);
                 await page.locator('[data-action="prompt-edit"]').click();
                 await page.locator('[data-prompt-form="edit"] [name="name"]').focus();
             },
@@ -475,6 +593,7 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 restores form and New Prompt focus with 
         {
             name: 'edit cancel after external refresh',
             setup: async page => {
+                await revealPromptActions(page);
                 await page.locator('[data-action="prompt-edit"]').click();
                 await page.locator('[data-action="prompt-cancel-edit"]').focus();
             },
@@ -590,6 +709,7 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 moves successful Prompt form focus to st
         {
             name: 'update success returns to the updated Edit action',
             setup: async page => {
+                await revealPromptActions(page);
                 await page.locator('[data-action="prompt-edit"][data-prompt-id="prompt-a"]').click();
                 await page.locator('[data-prompt-form="edit"] [name="name"]').fill('Updated');
                 await page.locator('[data-prompt-form="edit"] [type="submit"]').focus();

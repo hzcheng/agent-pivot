@@ -260,6 +260,21 @@ test('durable design records truthful bridge storage and a clean release note', 
         /companion bridge from Project Steward to Agent Pivot/);
 });
 
+test('durable release verification uses the real artifacts directory', () => {
+    const plan = read(
+        'docs/superpowers/plans/2026-07-26-agent-pivot-brand-identity.md'
+    );
+    assert.match(plan, /artifacts\/agent-pivot-1\.0\.0\.vsix/);
+    assert.match(
+        plan,
+        /artifacts\/agent-pivot-attention-ui-bridge-1\.0\.0\.vsix/
+    );
+    assert.doesNotMatch(
+        plan,
+        /releases\/agent-pivot(?:-attention-ui-bridge)?-1\.0\.0\.vsix/
+    );
+});
+
 test('marketplace notices name every required dependency', () => {
     assert.match(read('CHANGELOG.md'), /^## \[1\.0\.0\] - 2026-07-26$/m);
     for (const dependency of [

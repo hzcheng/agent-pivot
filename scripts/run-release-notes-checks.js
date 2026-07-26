@@ -5,24 +5,18 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
+const { extractReleaseNotes } = require('./extract-release-notes');
 
 const repositoryRoot = path.resolve(__dirname, '..');
 const extractorPath = path.join(__dirname, 'extract-release-notes.js');
 const workflowPath = path.join(repositoryRoot, '.github', 'workflows', 'release-vsix.yml');
 
-function runReleaseContentChecks() {
-    const read = relativePath => fs.readFileSync(path.join(repositoryRoot, relativePath), 'utf8');
-    const readme = read('README.md');
-    const changelog = read('CHANGELOG.md');
-    const packageMetadata = JSON.parse(read('package.json'));
+function validateReleaseContent({ readme, changelog, packageMetadata }) {
     assert.strictEqual(packageMetadata.displayName, 'Agent Pivot',
         'release metadata must use the Agent Pivot display name');
     assert.strictEqual(packageMetadata.version, '1.0.0',
         'the first Agent Pivot release must remain version 1.0.0');
-    const currentReleaseMarker = `## [${packageMetadata.version}]`;
-    assert.ok(changelog.includes(currentReleaseMarker),
-        'CHANGELOG must contain the package.json release version');
-    const currentRelease = changelog.split(currentReleaseMarker)[1].split(/\n## \[/)[0];
+    const currentRelease = extractReleaseNotes(changelog, packageMetadata.version);
     const requiredReleaseFacts = [
         ['Agent Pivot identity', /Agent Pivot identity/i],
         ['Pure Axis icon system', /Pure Axis icon system/i],
@@ -37,6 +31,15 @@ function runReleaseContentChecks() {
     assert.match(readme, /Agent Pivot/i, 'README must document the current product name');
     assert.match(packageMetadata.description, /workspace/i,
         'package metadata must describe the workspace-first product boundary');
+}
+
+function runReleaseContentChecks() {
+    const read = relativePath => fs.readFileSync(path.join(repositoryRoot, relativePath), 'utf8');
+    validateReleaseContent({
+        readme: read('README.md'),
+        changelog: read('CHANGELOG.md'),
+        packageMetadata: JSON.parse(read('package.json')),
+    });
 }
 
 function runExtractor(version, changelogPath) {
@@ -119,7 +122,11 @@ function runWorkflowChecks() {
     );
 }
 
-runExtractionChecks();
-runWorkflowChecks();
-runReleaseContentChecks();
-console.log('Release notes checks passed.');
+if (require.main === module) {
+    runExtractionChecks();
+    runWorkflowChecks();
+    runReleaseContentChecks();
+    console.log('Release notes checks passed.');
+}
+
+module.exports = { validateReleaseContent };

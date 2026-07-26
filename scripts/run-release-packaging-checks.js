@@ -37,6 +37,59 @@ const FORBIDDEN_LEGACY_IDENTITIES = Object.freeze([
 const FORBIDDEN_PROTOCOL_PREFIX = ['_project', 'Steward'].join('');
 const HISTORICAL_CHANGELOG_BOUNDARY =
     ['## Unpublished Project', 'Steward development history'].join(' ');
+const EXPECTED_MAIN_ENTRIES = Object.freeze([
+    '[Content_Types].xml',
+    'extension.vsixmanifest',
+    'extension/LICENSE.txt',
+    'extension/THIRD_PARTY_NOTICES.md',
+    'extension/changelog.md',
+    'extension/dist/dashboard.js',
+    'extension/licenses/DOMPurify-Apache-2.0.txt',
+    'extension/media/conversationViewer.css',
+    'extension/media/conversationViewerScripts.js',
+    'extension/media/dom-autoscroller.min.js',
+    'extension/media/dragula.min.js',
+    'extension/media/extension_icon.png',
+    'extension/media/fitty.min.js',
+    'extension/media/icon.svg',
+    'extension/media/purify.min.js',
+    'extension/media/sharingan/mangekyou-sharingan-itachi.svg',
+    'extension/media/sharingan/mangekyou-sharingan-madara-eternal.svg',
+    'extension/media/sharingan/mangekyou-sharingan-madara.svg',
+    'extension/media/sharingan/mangekyou-sharingan-obito-kakashi.svg',
+    'extension/media/sharingan/mangekyou-sharingan-sasuke.svg',
+    'extension/media/sharingan/mangekyou-sharingan-shisui.svg',
+    'extension/media/styles.css',
+    'extension/media/webviewDashboardScripts.js',
+    'extension/media/webviewDnDScripts.js',
+    'extension/media/webviewFilterScripts.js',
+    'extension/media/webviewProjectScripts.js',
+    'extension/media/webviewPromptScripts.js',
+    'extension/media/webviewScrollStateScripts.js',
+    'extension/media/webviewTodoScripts.js',
+    'extension/out/openWorkspaces/bridgeClient.js',
+    'extension/out/openWorkspaces/dashboardController.js',
+    'extension/out/openWorkspaces/navigationController.js',
+    'extension/out/openWorkspaces/projection.js',
+    'extension/out/openWorkspaces/protocol.js',
+    'extension/out/openWorkspaces/workspaceController.js',
+    'extension/out/workspaces/attentionProjection.js',
+    'extension/out/workspaces/contextResolver.js',
+    'extension/out/workspaces/identity.js',
+    'extension/out/workspaces/pendingSessionPromotionController.js',
+    'extension/out/workspaces/pendingWorkspaceSaveStore.js',
+    'extension/out/workspaces/primaryRootStore.js',
+    'extension/out/workspaces/savedWorkspaceProjectAdapter.js',
+    'extension/out/workspaces/sessionAssignment.js',
+    'extension/out/workspaces/sessionAttention.js',
+    'extension/out/workspaces/sessionHydration.js',
+    'extension/out/workspaces/sessionHydrationController.js',
+    'extension/out/workspaces/sessionScope.js',
+    'extension/out/workspaces/types.js',
+    'extension/out/workspaces/viewModels.js',
+    'extension/package.json',
+    'extension/readme.md',
+]);
 
 function isMapping(value) {
     return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -237,13 +290,6 @@ function readZipArchive(archivePath) {
     return entries;
 }
 
-function sourceOutputEntries(sourceDirectory, archiveDirectory) {
-    return fs.readdirSync(path.join(repositoryRoot, sourceDirectory))
-        .filter(fileName => fileName.endsWith('.ts'))
-        .map(fileName => `${archiveDirectory}/${fileName.replace(/\.ts$/, '.js')}`)
-        .sort();
-}
-
 function assertExactEntries(entries, expectedEntries, label) {
     assert.deepStrictEqual(
         Array.from(entries.keys()).sort(),
@@ -314,43 +360,6 @@ function runRealVsixArchiveChecks(mainPackage, bridgePackage) {
     ]) {
         assertIncludes(bridgeVsixManifest, assetPath, 'UI Bridge VSIX manifest');
     }
-    const workspaceOutputs = sourceOutputEntries('src/workspaces', 'extension/out/workspaces');
-    const openWorkspaceOutputs = sourceOutputEntries('src/openWorkspaces', 'extension/out/openWorkspaces');
-    const expectedMainEntries = [
-        '[Content_Types].xml',
-        'extension.vsixmanifest',
-        'extension/LICENSE.txt',
-        'extension/THIRD_PARTY_NOTICES.md',
-        'extension/changelog.md',
-        'extension/package.json',
-        'extension/readme.md',
-        'extension/dist/dashboard.js',
-        'extension/licenses/DOMPurify-Apache-2.0.txt',
-        'extension/media/dom-autoscroller.min.js',
-        'extension/media/dragula.min.js',
-        'extension/media/extension_icon.png',
-        'extension/media/fitty.min.js',
-        'extension/media/icon.svg',
-        'extension/media/conversationViewer.css',
-        'extension/media/conversationViewerScripts.js',
-        'extension/media/purify.min.js',
-        'extension/media/sharingan/mangekyou-sharingan-itachi.svg',
-        'extension/media/sharingan/mangekyou-sharingan-madara-eternal.svg',
-        'extension/media/sharingan/mangekyou-sharingan-madara.svg',
-        'extension/media/sharingan/mangekyou-sharingan-obito-kakashi.svg',
-        'extension/media/sharingan/mangekyou-sharingan-sasuke.svg',
-        'extension/media/sharingan/mangekyou-sharingan-shisui.svg',
-        'extension/media/styles.css',
-        'extension/media/webviewDashboardScripts.js',
-        'extension/media/webviewDnDScripts.js',
-        'extension/media/webviewFilterScripts.js',
-        'extension/media/webviewProjectScripts.js',
-        'extension/media/webviewPromptScripts.js',
-        'extension/media/webviewScrollStateScripts.js',
-        'extension/media/webviewTodoScripts.js',
-        ...workspaceOutputs,
-        ...openWorkspaceOutputs,
-    ];
     const expectedBridgeEntries = [
         '[Content_Types].xml',
         'extension.vsixmanifest',
@@ -381,7 +390,7 @@ function runRealVsixArchiveChecks(mainPackage, bridgePackage) {
             );
         }
     }
-    assertExactEntries(mainEntries, expectedMainEntries, 'main VSIX');
+    assertExactEntries(mainEntries, EXPECTED_MAIN_ENTRIES, 'main VSIX');
     assertExactEntries(bridgeEntries, expectedBridgeEntries, 'UI Bridge VSIX');
 
     for (const relativePath of [
@@ -877,5 +886,12 @@ function run() {
     runAcceptanceReportChecks();
 }
 
-run();
-console.log('Release packaging checks passed.');
+if (require.main === module) {
+    run();
+    console.log('Release packaging checks passed.');
+}
+
+module.exports = {
+    EXPECTED_MAIN_ENTRIES,
+    assertExactEntries,
+};

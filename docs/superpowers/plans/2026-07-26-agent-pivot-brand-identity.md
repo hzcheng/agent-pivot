@@ -1501,8 +1501,8 @@ npm run package:release
 Expected:
 
 ```text
-releases/agent-pivot-1.0.0.vsix
-releases/agent-pivot-attention-ui-bridge-1.0.0.vsix
+artifacts/agent-pivot-1.0.0.vsix
+artifacts/agent-pivot-attention-ui-bridge-1.0.0.vsix
 ```
 
 Both files must be newly produced by this command; do not reuse a stale
@@ -1514,8 +1514,8 @@ Use a fresh temporary directory:
 
 ```bash
 verification_dir="$(mktemp -d)"
-unzip -q releases/agent-pivot-1.0.0.vsix -d "$verification_dir/main"
-unzip -q releases/agent-pivot-attention-ui-bridge-1.0.0.vsix \
+unzip -q artifacts/agent-pivot-1.0.0.vsix -d "$verification_dir/main"
+unzip -q artifacts/agent-pivot-attention-ui-bridge-1.0.0.vsix \
   -d "$verification_dir/bridge"
 node -e "
 const main=require(process.argv[1]);

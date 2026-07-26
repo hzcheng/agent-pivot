@@ -407,6 +407,7 @@
                 "da70bc39b2cc520d09c267496ddea6000c86b6af",
                 "caba3df000b36d67cf64913194010ba740d7f71b",
                 "4e0f247b2586894eef359fbe7fafac436d82ddf4",
+                "6e0c1fcd1201d469f55f57deb9bce134e556c683",
                 "07fefc21bb63bd8bde6192e30b3db4d9d13c642d"
             ],
             "behaviors": [
@@ -426,8 +427,7 @@
             "commits": [
                 "8ba0e882573a667a98e68b5b6656ba8eae7a3412",
                 "587b4178a4ec63a2734ed2b916494638583e3390",
-                "e9145123b3ad1cdcbc625e52291ae053e8acbce5",
-                "6e0c1fcd1201d469f55f57deb9bce134e556c683"
+                "e9145123b3ad1cdcbc625e52291ae053e8acbce5"
             ],
             "behaviors": [
                 "ARCH-CI-QUALITY-GATE-001",

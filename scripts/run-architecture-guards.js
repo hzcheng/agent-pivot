@@ -622,12 +622,20 @@ const guards = {
             this.id,
             risk
         );
-        const unsafeMarkerWrites = nodesMatching(projectWebview, node =>
+        const markerRenderer = uniqueAstNode(
+            projectWebview,
+            node => ts.isFunctionDeclaration(node)
+                && node.name?.text === 'renderActiveAiSessionConversationOutline',
+            this.id,
+            risk,
+            'function renderActiveAiSessionConversationOutline'
+        );
+        const unsafeMarkerWrites = nodesMatching(markerRenderer, node =>
             (ts.isBinaryExpression(node)
                 && node.operatorToken.kind === ts.SyntaxKind.EqualsToken
-                && memberPath(node.left) === 'marker.innerHTML')
+                && memberPath(node.left)?.endsWith('.innerHTML'))
             || (ts.isCallExpression(node)
-                && memberPath(node.expression) === 'marker.insertAdjacentHTML'));
+                && memberPath(node.expression)?.endsWith('.insertAdjacentHTML')));
         if (unsafeMarkerWrites.length) {
             fail(this.id, risk,
                 'conversation markers must not render prompt-bearing HTML');

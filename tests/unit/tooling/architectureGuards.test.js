@@ -383,8 +383,8 @@ for (const mutation of [
         file: 'src/webview/webviewProjectScripts.js',
         expectedDetail: 'conversation markers must not render prompt-bearing HTML',
         mutate: source => source.replace(
-            'marker.textContent = preview;',
-            'marker.innerHTML = preview;'
+            'previewNode.textContent = preview;',
+            'previewNode.innerHTML = preview;'
         ),
     },
     {
@@ -392,8 +392,8 @@ for (const mutation of [
         file: 'src/webview/webviewProjectScripts.js',
         expectedDetail: 'conversation markers must not render prompt-bearing HTML',
         mutate: source => source.replace(
-            'marker.textContent = preview;',
-            'marker.innerHTML = String(preview);'
+            'previewNode.textContent = preview;',
+            'previewNode.innerHTML = String(preview);'
         ),
     },
     {

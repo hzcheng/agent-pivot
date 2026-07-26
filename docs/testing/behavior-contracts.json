@@ -3210,7 +3210,6 @@
     "owners": [
       "tests/integration/dashboard/promptContent.test.js",
       "tests/integration/dashboard/promptInteraction.test.js",
-      "tests/integration/dashboard/styles.test.js",
       "tests/browser/promptLayout.test.js"
     ],
     "evidence": [

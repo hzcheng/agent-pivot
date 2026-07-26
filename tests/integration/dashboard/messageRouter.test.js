@@ -19,7 +19,7 @@ test('WEBVIEW-DASHBOARD-MESSAGE-ROUTER-001 routes a valid generic message once a
     assert.deepEqual(calls, [7]);
 });
 
-test('WEBVIEW-AI-DASHBOARD-001 routes AI panel loads, Prompt commands, and terminal inserts once', async () => {
+test('WEBVIEW-AI-DASHBOARD-001 SESSION-AI-PROMPT-TERMINAL-INSERTION-001 routes AI panel loads, Prompt commands, and terminal inserts once', async () => {
     const calls = [];
     const router = createDashboardMessageRouter({
         handlers: {

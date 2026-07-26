@@ -4403,7 +4403,7 @@ body.steward-sidebar .prompt-item {
 
 .prompt-item:hover .prompt-title-line,
 .prompt-item:focus-within .prompt-title-line {
-    padding-right: 108px;
+    padding-right: 132px;
 }
 
 .prompt-item-view .steward-icon-button svg {
@@ -4411,6 +4411,11 @@ body.steward-sidebar .prompt-item {
     width: 13px;
     height: 13px;
     fill: currentColor;
+}
+
+.prompt-copy-button svg {
+    fill: none;
+    stroke: currentColor;
 }
 
 .prompt-item[data-prompt-default="true"] {
@@ -4530,7 +4535,7 @@ body.steward-sidebar .prompt-item {
     }
 
     .prompt-title-line {
-        padding-right: 108px;
+        padding-right: 132px;
     }
 }
 

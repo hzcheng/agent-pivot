@@ -288,6 +288,7 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 keeps Prompt controls and text usable in
                 )
             ), [
                 'prompt-insert-terminal',
+                'prompt-copy',
                 'prompt-select-default',
                 'prompt-edit',
                 'prompt-delete',
@@ -328,6 +329,7 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 keeps Prompt controls and text usable in
                 getComputedStyle(element).opacity
             ), '1');
             await assertReachable(page, '[data-action="prompt-insert-terminal"]', width);
+            await assertReachable(page, '[data-action="prompt-copy"]', width);
             await assertReachable(page, '[data-action="prompt-select-default"]', width);
             await assertReachable(page, '[data-action="prompt-edit"]', width);
             await assertReachable(page, '[data-action="prompt-delete"]', width);
@@ -397,6 +399,51 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 keeps Prompt controls and text usable in
             await assertNoHorizontalOverflow(page, width, 'authoritative replacement');
         });
     }
+});
+
+test('WEBVIEW-AI-PROMPT-INTERACTION-001 keeps all Prompt actions visible without hover', async t => {
+    const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
+    t.after(() => browser.close());
+    const width = 240;
+    const page = await browser.newPage({
+        viewport: { width, height: 1000 },
+        hasTouch: true,
+    });
+    t.after(() => page.close());
+    const initialSnapshot = snapshotAt(1);
+
+    await page.setContent(`<!doctype html>
+        <html>
+            <head><style>${styles}</style></head>
+            <body class="steward-sidebar">
+                <main id="ai-host">${getAiPanelContent(initialSnapshot)}</main>
+            </body>
+        </html>`);
+    await page.evaluate(() => {
+        window.vscode = { postMessage() {} };
+    });
+    await page.addScriptTag({ content: promptScript });
+    assert.equal(await page.evaluate(snapshot =>
+        window.__projectStewardPrompts.mount(document.getElementById('ai-host'), {
+            authoritySequence: 1,
+            snapshot,
+        }), initialSnapshot
+    ), true);
+
+    assert.equal(await page.evaluate(() => matchMedia('(hover: none)').matches), true);
+    assert.equal(await page.locator('.prompt-management-actions').evaluate(element =>
+        getComputedStyle(element).pointerEvents
+    ), 'auto');
+    for (const action of [
+        'prompt-insert-terminal',
+        'prompt-copy',
+        'prompt-select-default',
+        'prompt-edit',
+        'prompt-delete',
+    ]) {
+        await assertReachable(page, `[data-action="${action}"]`, width);
+    }
+    await assertNoHorizontalOverflow(page, width, 'no-hover');
 });
 
 test('SESSION-AI-PROMPT-TERMINAL-INSERTION-001 preserves keyboard focus through pending replacement and acknowledgement', async t => {

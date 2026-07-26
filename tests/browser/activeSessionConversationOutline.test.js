@@ -214,8 +214,9 @@ test('WEBVIEW-AI-SESSION-LIST-SCROLL-001 preserves semantic Active and History a
         return node.getBoundingClientRect().top - list.getBoundingClientRect().top;
     });
     await postListOpenWorkspacesUpdate(page, active, [
-        historySession('codex', 'history-inserted'), ...history,
-    ], 'sessions');
+        history[3], history[1], historySession('codex', 'history-inserted'),
+        history[0], history[2], ...history.slice(4),
+    ]);
     const historyRestored = page.locator('.ai-session-history-panel .codex-session-row')
         .filter({ has: page.locator('[data-session-id="history-5"]') });
     assert.ok(Math.abs((await relativeTop(historyRestored)) - historyBefore) <= 1);
@@ -1710,7 +1711,9 @@ test('ACTIVE-SESSION-CONVERSATION-RESTORE-001 keeps one pending envelope and its
     ], { width: 360, height: 260 });
     const focused = row(page, 'codex', 'session-a');
     await focused.locator('.ai-session-primary-action').click();
-    await seedConversationRail(page, 'codex', 'session-a', 18);
+    await postHostMessage(page, outlineResult({
+        interactions: summaries(18),
+    }));
     const rail = focused.locator('[data-ai-session-conversation-rail]');
     const anchor = await rail.evaluate(node => {
         node.scrollTop = 64;
@@ -1726,7 +1729,9 @@ test('ACTIVE-SESSION-CONVERSATION-RESTORE-001 keeps one pending envelope and its
         1,
         'two same-identity replacements must retain request 1/generation 1'
     );
-    await postHostMessage(page, outlineResult({ interactions: summaries(18) }));
+    await postHostMessage(page, outlineResult({
+        interactions: [...summaries(18), summary('interaction-18', 19, 'Later input')],
+    }));
     const restored = row(page, 'codex', 'session-a');
     const restoredRail = restored.locator('[data-ai-session-conversation-rail]');
     assert.equal(await restored.locator('[data-interaction-id="interaction-6"]').isVisible(), true);
@@ -1755,7 +1760,10 @@ test('ACTIVE-SESSION-CONVERSATION-RESTORE-001 preserves history while live-end r
     await focused.locator('.ai-session-primary-action').click();
     const interactions = summaries(18);
     const rail = focused.locator('[data-ai-session-conversation-rail]');
-    await seedConversationRail(page, 'codex', 'session-5', 18);
+    await postHostMessage(page, outlineResult({
+        sessionId: 'session-5',
+        interactions,
+    }));
     const historyAnchor = await rail.evaluate(node => {
         node.scrollTop = 48;
         node.querySelector('[data-interaction-id="interaction-6"]').focus();
@@ -1763,7 +1771,7 @@ test('ACTIVE-SESSION-CONVERSATION-RESTORE-001 preserves history while live-end r
             - node.getBoundingClientRect().top;
     });
     await postWorkspaceUpdate(page, sessions);
-    await postHostMessage(page, outlineResult({ requestId: 2, subscriptionGeneration: 2, interactions: [
+    await postHostMessage(page, outlineResult({ sessionId: 'session-5', interactions: [
         ...interactions, summary('interaction-18', 19, 'Later input'),
     ] }));
     const restored = row(page, 'codex', 'session-5');
@@ -1775,7 +1783,7 @@ test('ACTIVE-SESSION-CONVERSATION-RESTORE-001 preserves history while live-end r
     const liveRail = restored.locator('[data-ai-session-conversation-rail]');
     await liveRail.evaluate(node => { node.scrollTop = node.scrollHeight - node.clientHeight; });
     await postWorkspaceUpdate(page, sessions);
-    await postHostMessage(page, outlineResult({ requestId: 3, subscriptionGeneration: 3, interactions: [
+    await postHostMessage(page, outlineResult({ sessionId: 'session-5', interactions: [
         ...interactions, summary('interaction-18', 19, 'Later input'), summary('interaction-19', 20, 'Live input'),
     ] }));
     const liveRestored = row(page, 'codex', 'session-5');

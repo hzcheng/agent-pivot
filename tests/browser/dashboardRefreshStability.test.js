@@ -33,8 +33,8 @@ const todoScript = fs.readFileSync(
 );
 const BROWSER_CONDITION_TIMEOUT_MS = 5_000;
 
-function waitForPageCondition(page, condition) {
-    return page.waitForFunction(condition, undefined, { timeout: BROWSER_CONDITION_TIMEOUT_MS });
+function waitForPageCondition(page, condition, argument) {
+    return page.waitForFunction(condition, argument, { timeout: BROWSER_CONDITION_TIMEOUT_MS });
 }
 
 let browser;
@@ -71,9 +71,14 @@ function projectsMarkup(ids) {
     });
 }
 
-function todoSnapshot(todoIds, includeSecondGroup = true) {
+function todoSnapshot(todoIds, includeSecondGroup = true, extraGroups = [], groupIdForTodo) {
     const groups = [{ id: 'group-a', title: 'Primary', collapsed: false, order: 0 }];
     if (includeSecondGroup) groups.push({ id: 'group-b', title: 'Secondary', collapsed: false, order: 1 });
+    extraGroups.forEach(group => groups.push({
+        collapsed: false,
+        order: groups.length,
+        ...group,
+    }));
     return {
         version: 1,
         showCompleted: false,
@@ -81,7 +86,10 @@ function todoSnapshot(todoIds, includeSecondGroup = true) {
             version: 1,
             groups,
             todos: todoIds.map((id, index) => ({
-                id, groupId: index === todoIds.length - 1 && includeSecondGroup ? 'group-b' : 'group-a',
+                id,
+                groupId: typeof groupIdForTodo === 'function'
+                    ? groupIdForTodo(id, index)
+                    : index === todoIds.length - 1 && includeSecondGroup ? 'group-b' : 'group-a',
                 title: id, notes: '', priority: 'medium', completed: false,
                 createdAt: '2026-07-24T00:00:00.000Z', updatedAt: '2026-07-24T00:00:00.000Z', order: index,
             })),
@@ -123,6 +131,7 @@ async function openDashboardPage(t) {
         });
         window.__messages = [];
         window.__todoRenders = 0;
+        window.__projectsMountGeneration = 0;
         window.vscode = { postMessage: message => window.__messages.push(message) };
     });
     await page.addScriptTag({ content: dashboardScript });
@@ -136,7 +145,13 @@ async function openDashboardPage(t) {
             postMessage: message => window.__messages.push(message),
             onTodoMounted: (panel, message) => window.__todos.mount(panel, message.snapshot),
             onProjectsMounted: panel => {
-                requestAnimationFrame(() => panel.setAttribute('data-header-fit-flushed', 'true'));
+                const mountGeneration = ++window.__projectsMountGeneration;
+                panel.removeAttribute('data-header-fit-generation');
+                requestAnimationFrame(() => {
+                    if (window.__projectsMountGeneration === mountGeneration) {
+                        panel.setAttribute('data-header-fit-generation', String(mountGeneration));
+                    }
+                });
             },
         });
     });
@@ -154,7 +169,6 @@ test('WEBVIEW-PROJECTS-PANEL-SCROLL-001 preserves a project anchor, focus, and w
         type: 'projects-panel-content', version: 1, requestId: 1, html: projectsMarkup(['project-a', 'project-b', 'project-c', 'project-d', 'project-e', 'project-f']),
     });
     const anchor = page.locator('.project[data-id="project-e"]');
-    const list = page.locator('.saved-project-group .group-list');
     await waitForPageCondition(page, () => {
         const list = document.querySelector('.saved-project-group .group-list');
         return list && list.scrollHeight > list.clientHeight;
@@ -167,12 +181,19 @@ test('WEBVIEW-PROJECTS-PANEL-SCROLL-001 preserves a project anchor, focus, and w
         window.scrollTo(0, 80);
         return { offset: node.getBoundingClientRect().top - list.getBoundingClientRect().top, scrollY: window.scrollY };
     });
+    const previousMountGeneration = await page.evaluate(() => window.__projectsMountGeneration);
     await post(page, {
         type: 'projects-panel-updated', version: 1, sequence: 1, mode: 'replace',
         html: projectsMarkup(['project-x', 'project-d', 'project-c', 'project-e', 'project-f']),
         searchCatalog: catalog(), groupOrders: [{ groupId: 'group-a', projectIds: ['project-x', 'project-d', 'project-c', 'project-e', 'project-f'] }], favoriteProjectIds: [],
     });
-    await page.locator('#dashboard-tab-projects[data-header-fit-flushed="true"]').waitFor();
+    await waitForPageCondition(page, previousGeneration => {
+        const panel = document.querySelector('#dashboard-tab-projects');
+        const expectedGeneration = previousGeneration + 1;
+        return window.__projectsMountGeneration === expectedGeneration
+            && panel
+            && panel.getAttribute('data-header-fit-generation') === String(expectedGeneration);
+    }, previousMountGeneration);
     const restored = page.locator('.project[data-id="project-e"]');
     assert.ok(Math.abs((await restored.evaluate(node => {
         const list = node.closest('.group-list');
@@ -218,7 +239,12 @@ test('TODO-AUTHORITATIVE-REFRESH-STATE-001 renders one mounted refresh and prese
 
 test('TODO-AUTHORITATIVE-REFRESH-STATE-001 discards local state only when its authoritative identity disappears', async t => {
     const page = await openDashboardPage(t);
-    const initial = todoSnapshot(['todo-a', 'todo-b', 'todo-c', 'todo-d', 'todo-e', 'todo-f']);
+    const survivorGroup = [{ id: 'group-c', title: 'Survivors' }];
+    const groupForTodo = todoId => todoId.startsWith('survivor-') ? 'group-c' : 'group-a';
+    const initial = todoSnapshot([
+        'todo-a', 'todo-b', 'todo-c', 'todo-d',
+        'survivor-a', 'survivor-b', 'survivor-c', 'survivor-d',
+    ], true, survivorGroup, groupForTodo);
     await page.evaluate(() => window.__dashboard.activateTab('todo'));
     await post(page, { type: 'todo-panel-content', version: 1, requestId: 1, html: todoMarkup(initial), snapshot: initial, searchCatalog: catalog() });
     await page.locator('[data-action="todo-open-detail"][data-todo-id="todo-c"]').click();
@@ -226,19 +252,41 @@ test('TODO-AUTHORITATIVE-REFRESH-STATE-001 discards local state only when its au
     await page.locator('form[data-todo-form="detail-edit"] [name="title"]').fill('discarded detail');
     await page.locator('[data-action="todo-quick-add"][data-group-id="group-b"]').click({ force: true });
     await page.locator('form[data-todo-form="quick-add"][data-group-id="group-b"] [name="title"]').fill('discarded compose');
+    await page.locator('form[data-todo-form="quick-add"][data-group-id="group-b"] [name="title"]').focus();
     const before = await page.evaluate(() => {
-        const list = document.querySelector('.todo-list');
-        const anchor = document.querySelector('[data-todo-id="todo-e"]');
+        const anchor = document.querySelector('[data-todo-id="survivor-d"]');
+        const list = anchor.closest('.todo-list');
         list.scrollTop = anchor.offsetTop - list.offsetTop - 10;
+        window.__removedTodoFocus = document.activeElement;
         return anchor.getBoundingClientRect().top - list.getBoundingClientRect().top;
     });
-    const refreshed = todoSnapshot(['todo-a', 'todo-b', 'todo-d', 'todo-e'], false);
+    const refreshed = todoSnapshot([
+        'todo-a', 'todo-b', 'todo-d',
+        'survivor-a', 'survivor-b', 'survivor-c', 'survivor-d',
+    ], false, survivorGroup, groupForTodo);
     await post(page, { type: 'todo-panel-updated', version: 1, html: todoMarkup(refreshed), snapshot: refreshed, searchCatalog: catalog() });
+    const stateAfterRemoval = await page.evaluate(() => {
+        const state = window.__todos.getState();
+        return {
+            selectedTodoId: state.selectedTodoId,
+            draft: state.draft,
+            composeGroupId: state.composeGroupId,
+            hasComposeDraft: Object.hasOwn(state, 'composeDraft'),
+            composeDraft: state.composeDraft,
+            removedFocusStillActive: document.activeElement === window.__removedTodoFocus,
+        };
+    });
+    assert.equal(stateAfterRemoval.selectedTodoId, null);
+    assert.equal(stateAfterRemoval.draft, null);
+    assert.equal(stateAfterRemoval.composeGroupId, undefined);
+    assert.equal(stateAfterRemoval.hasComposeDraft, true);
+    assert.equal(stateAfterRemoval.composeDraft, null);
+    assert.equal(stateAfterRemoval.removedFocusStillActive, false);
     assert.equal(await page.locator('.todo-item[data-todo-id="todo-c"]').count(), 0);
     assert.equal(await page.locator('form[data-todo-form="detail-edit"]').count(), 0);
     assert.equal(await page.locator('form[data-todo-form="quick-add"][data-group-id="group-b"]').count(), 0);
     assert.equal(await page.locator('form[data-todo-form="detail-edit"] [name="title"]').count(), 0);
-    assert.ok(Math.abs((await page.locator('.todo-item[data-todo-id="todo-e"]').evaluate(node => {
+    assert.ok(Math.abs((await page.locator('.todo-item[data-todo-id="survivor-d"]').evaluate(node => {
         const list = node.closest('.todo-list');
         return node.getBoundingClientRect().top - list.getBoundingClientRect().top;
     })) - before) <= 1);

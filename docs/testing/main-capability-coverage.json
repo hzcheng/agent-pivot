@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "e73abf28b07191d306b4846a416734053fea9c91",
+        "head": "b193a307ba6f58ac63ea1fa05d86df694d14cf44",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -840,13 +840,15 @@
                 "5e55627c3d469880a5358710733e37c8320319ab",
                 "0e297eb6c4fe0927e6acd6459791fbcc67325f28",
                 "0780a7c8631e1daf4da30854b6ad541a7e715b19",
-                "e7a7ccd26266ea4117a1b12611d7c76f249b9af0"
+                "e7a7ccd26266ea4117a1b12611d7c76f249b9af0",
+                "b193a307ba6f58ac63ea1fa05d86df694d14cf44"
             ],
             "behaviors": [
                 "SESSION-AI-SESSION-CONVERSATION-ADAPTER-001",
                 "WEBVIEW-AI-SESSION-CONVERSATION-OUTLINE-001",
                 "WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001",
-                "SECURITY-AI-SESSION-CONVERSATION-SOURCE-001"
+                "SECURITY-AI-SESSION-CONVERSATION-SOURCE-001",
+                "ACTIVE-SESSION-CONVERSATION-RESTORE-001"
             ],
             "prGates": [
                 "test:ci:linux"

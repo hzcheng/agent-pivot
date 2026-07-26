@@ -6,6 +6,7 @@ The whole-branch review findings were fixed test-first in:
 
 ```text
 295f061a7de35b1b98992bb193a3342d5a400b72 fix: align conversation adapters with production formats
+41f5a3933ea302b7554847d6c60fc7ee960b07f6 test: align capped outline browser contract
 ```
 
 Nothing was pushed, merged, installed, or cleaned up.
@@ -83,8 +84,13 @@ Before the audit update, `npm run test:behavior-contracts` failed with:
 unaudited implementation commit 295f061a7de35b1b98992bb193a3342d5a400b72
 ```
 
-`MAIN-AI-SESSION-CONVERSATION-OUTLINE` now assigns that commit and advances the
-audit head to it. The live catalog and currency checks then passed.
+`MAIN-AI-SESSION-CONVERSATION-OUTLINE` assigned that commit and advanced the
+audit head to it. The live catalog and currency checks then passed. Full CI
+exposed one remaining browser assertion that still expected a 2,001-input
+outline to be complete. Its focused RED was `true !== false`; after
+`41f5a39`, the exact focused Chromium test passed. The audit now also assigns
+that test commit and advances its head to
+`41f5a3933ea302b7554847d6c60fc7ee960b07f6`.
 
 ## Verification
 

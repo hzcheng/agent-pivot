@@ -109,6 +109,20 @@ test('architecture guard runner rejects unknown guard IDs', () => {
     );
 });
 
+test('ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001 accepts an empty-block stderr sink', t => {
+    const root = copyGuardFixture(
+        t,
+        'src/aiSessions/conversation/codexAppServerClient.ts',
+        source => source.replace(
+            'private readonly onStderrData = (_chunk: Buffer): void => undefined;',
+            'private readonly onStderrData = (_chunk: Buffer): void => {};'
+        )
+    );
+    validateArchitectureGuards(root, {
+        ids: ['ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001'],
+    });
+});
+
 for (const mutation of [
     {
         id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',
@@ -117,6 +131,16 @@ for (const mutation of [
         mutate: source => source.replace(
             "import { createHash } from 'crypto';",
             "import { createHash } from 'crypto';\nimport * as fs from 'fs';"
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',
+        file: 'src/aiSessions/conversation/codexAdapter.ts',
+        expectedDetail: 'Codex conversation adapter must not import filesystem or transcript JSONL readers',
+        mutate: source => source.replace(
+            "import { createHash } from 'crypto';",
+            "import { createHash } from 'crypto';\n"
+                + "import fs = require('node:fs/promises');"
         ),
     },
     {
@@ -136,6 +160,16 @@ for (const mutation of [
         mutate: source => source.replace(
             "import { randomBytes } from 'crypto';",
             "import { randomBytes } from 'crypto';\nimport DOMPurify from 'dompurify';"
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',
+        file: 'src/aiSessions/conversation/viewer.ts',
+        expectedDetail: 'extension-host TypeScript must not import DOMPurify',
+        mutate: source => source.replace(
+            "import { randomBytes } from 'crypto';",
+            "import { randomBytes } from 'crypto';\n"
+                + "import purifier = require('dompurify/dist/purify.cjs.js');"
         ),
     },
     {
@@ -211,6 +245,16 @@ for (const mutation of [
         expectedDetail: 'app-server stderr and responses must never be logged',
         mutate: source => source.replace(
             'if (!this.acceptResponse(response)) {',
+            'process.stdout.write(JSON.stringify(response));\n'
+                + '            if (!this.acceptResponse(response)) {'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',
+        file: 'src/aiSessions/conversation/codexAppServerClient.ts',
+        expectedDetail: 'app-server stderr and responses must never be logged',
+        mutate: source => source.replace(
+            'if (!this.acceptResponse(response)) {',
             'process.stderr.write(JSON.stringify(response));\n'
                 + '            if (!this.acceptResponse(response)) {'
         ),
@@ -220,9 +264,30 @@ for (const mutation of [
         file: 'src/aiSessions/conversation/kimiAdapter.ts',
         expectedDetail: 'provider watchers must remain bounded and releasable',
         mutate: source => source.replace(
-            '        this.providerWatch?.dispose();\n        this.providerWatch = undefined;\n    }\n}',
+            '        this.providerWatch?.dispose();\n'
+                + '        this.providerWatch = undefined;\n'
+                + '        if (this.invalidationTimer !== undefined) {',
             '        // provider watch intentionally leaked\n'
-                + '        this.providerWatch = undefined;\n    }\n}'
+                + '        this.providerWatch = undefined;\n'
+                + '        if (this.invalidationTimer !== undefined) {'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',
+        file: 'src/aiSessions/conversation/kimiAdapter.ts',
+        expectedDetail: 'provider watchers must remain bounded and releasable',
+        mutate: source => source.replace(
+            '        if (this.subscriptions.size) {\n',
+            '        if (!this.subscriptions.size) {\n'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',
+        file: 'src/aiSessions/conversation/kimiAdapter.ts',
+        expectedDetail: 'provider watchers must remain bounded and releasable',
+        mutate: source => source.replace(
+            '        if (this.subscriptions.size) {\n',
+            '        if (this.subscriptions.size || true) {\n'
         ),
     },
     {
@@ -231,10 +296,29 @@ for (const mutation of [
         expectedDetail: 'provider watchers must remain bounded and releasable',
         mutate: source => source.replace(
             '        this.providerWatch?.dispose();\n'
-                + '        this.providerWatch = undefined;\n    }\n}',
-            '        return;\n'
+                + '        this.providerWatch = undefined;\n'
+                + '        if (this.invalidationTimer !== undefined) {',
+            '        if (false) { this.providerWatch?.dispose(); }\n'
+                + '        this.providerWatch = undefined;\n'
+                + '        if (this.invalidationTimer !== undefined) {'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',
+        file: 'src/aiSessions/conversation/kimiAdapter.ts',
+        expectedDetail: 'provider watchers must remain bounded and releasable',
+        mutate: source => source.replace(
+            '        if (this.subscriptions.size) {\n'
+                + '            return;\n'
+                + '        }\n'
                 + '        this.providerWatch?.dispose();\n'
-                + '        this.providerWatch = undefined;\n    }\n}'
+                + '        this.providerWatch = undefined;\n',
+            '        if (this.subscriptions.size) {\n'
+                + '            return;\n'
+                + '        }\n'
+                + '        return;\n'
+                + '        this.providerWatch?.dispose();\n'
+                + '        this.providerWatch = undefined;\n'
         ),
     },
     {

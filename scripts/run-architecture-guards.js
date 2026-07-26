@@ -298,6 +298,13 @@ function importModules(sourceFile) {
 function moduleReferences(sourceFile) {
     const modules = importModules(sourceFile);
     walk(sourceFile, node => {
+        if (ts.isImportEqualsDeclaration(node)
+            && ts.isExternalModuleReference(node.moduleReference)
+            && node.moduleReference.expression) {
+            const moduleName = stringArgument(node.moduleReference.expression);
+            if (moduleName !== undefined) modules.push(moduleName);
+            return;
+        }
         if (!ts.isCallExpression(node)
             || !ts.isIdentifier(node.expression)
             || node.expression.text !== 'require'
@@ -331,10 +338,6 @@ function nodesMatching(root, predicate) {
         if (predicate(node)) matches.push(node);
     });
     return matches;
-}
-
-function containsMember(root, expectedPath) {
-    return nodesMatching(root, node => memberPath(node) === expectedPath).length > 0;
 }
 
 function validateProviderWatchOwnership(sourceFile, className, id, risk) {
@@ -372,24 +375,50 @@ function validateProviderWatchOwnership(sourceFile, className, id, risk) {
     const subscriptionGuard = statements[0];
     if (!subscriptionGuard
         || !ts.isIfStatement(subscriptionGuard)
-        || !containsMember(subscriptionGuard.expression, 'this.subscriptions.size')) {
-        fail(id, risk, 'provider watchers must remain bounded and releasable');
-    }
-    const allReturns = nodesMatching(releaseMethod, ts.isReturnStatement);
-    const guardedReturns = nodesMatching(subscriptionGuard.thenStatement, ts.isReturnStatement);
-    if (guardedReturns.length < 1 || allReturns.length !== guardedReturns.length) {
+        || memberPath(subscriptionGuard.expression) !== 'this.subscriptions.size'
+        || subscriptionGuard.elseStatement
+        || !ts.isBlock(subscriptionGuard.thenStatement)
+        || subscriptionGuard.thenStatement.statements.length !== 1
+        || !ts.isReturnStatement(subscriptionGuard.thenStatement.statements[0])
+        || subscriptionGuard.thenStatement.statements[0].expression) {
         fail(id, risk, 'provider watchers must remain bounded and releasable');
     }
 
-    const disposeCalls = nodesMatching(releaseMethod, node =>
-        ts.isCallExpression(node) && memberPath(node.expression) === 'this.providerWatch.dispose');
-    const clearAssignments = nodesMatching(releaseMethod, node =>
-        ts.isBinaryExpression(node)
-        && node.operatorToken.kind === ts.SyntaxKind.EqualsToken
-        && memberPath(node.left) === 'this.providerWatch'
-        && ts.isIdentifier(node.right)
-        && node.right.text === 'undefined');
-    if (disposeCalls.length !== 1 || clearAssignments.length !== 1) {
+    const disposeStatement = statements[1];
+    const disposeCall = disposeStatement
+        && ts.isExpressionStatement(disposeStatement)
+        && ts.isCallExpression(disposeStatement.expression)
+        ? disposeStatement.expression
+        : undefined;
+    if (!disposeCall
+        || disposeCall.arguments.length
+        || memberPath(disposeCall.expression) !== 'this.providerWatch.dispose'
+        || !ts.isPropertyAccessExpression(disposeCall.expression)
+        || !disposeCall.expression.questionDotToken) {
+        fail(id, risk, 'provider watchers must remain bounded and releasable');
+    }
+
+    const clearStatement = statements[2];
+    const clearAssignment = clearStatement
+        && ts.isExpressionStatement(clearStatement)
+        && ts.isBinaryExpression(clearStatement.expression)
+        ? clearStatement.expression
+        : undefined;
+    if (!clearAssignment
+        || clearAssignment.operatorToken.kind !== ts.SyntaxKind.EqualsToken
+        || memberPath(clearAssignment.left) !== 'this.providerWatch'
+        || !ts.isIdentifier(clearAssignment.right)
+        || clearAssignment.right.text !== 'undefined'
+        || nodesMatching(releaseMethod, ts.isReturnStatement).length !== 1
+        || nodesMatching(releaseMethod, node =>
+            ts.isCallExpression(node)
+            && memberPath(node.expression) === 'this.providerWatch.dispose').length !== 1
+        || nodesMatching(releaseMethod, node =>
+            ts.isBinaryExpression(node)
+            && node.operatorToken.kind === ts.SyntaxKind.EqualsToken
+            && memberPath(node.left) === 'this.providerWatch'
+            && ts.isIdentifier(node.right)
+            && node.right.text === 'undefined').length !== 1) {
         fail(id, risk, 'provider watchers must remain bounded and releasable');
     }
 }
@@ -501,17 +530,21 @@ const guards = {
         const unsafeLogCalls = nodesMatching(appServer, node =>
             ts.isCallExpression(node)
             && (memberPath(node.expression)?.startsWith('console.')
+                || memberPath(node.expression) === 'process.stdout.write'
                 || memberPath(node.expression) === 'process.stderr.write'));
         const onStderrData = uniqueAstNode(appServer,
             node => ts.isPropertyDeclaration(node)
                 && node.name.getText(appServer) === 'onStderrData',
             this.id, risk, 'onStderrData');
         const stderrInitializer = onStderrData.initializer;
+        const safeStderrSink = stderrInitializer
+            && ts.isArrowFunction(stderrInitializer)
+            && ((ts.isIdentifier(stderrInitializer.body)
+                    && stderrInitializer.body.text === 'undefined')
+                || (ts.isBlock(stderrInitializer.body)
+                    && stderrInitializer.body.statements.length === 0));
         if (unsafeLogCalls.length
-            || !stderrInitializer
-            || !ts.isArrowFunction(stderrInitializer)
-            || !ts.isIdentifier(stderrInitializer.body)
-            || stderrInitializer.body.text !== 'undefined') {
+            || !safeStderrSink) {
             fail(this.id, risk,
                 'app-server stderr and responses must never be logged');
         }

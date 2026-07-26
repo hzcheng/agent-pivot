@@ -414,11 +414,11 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
         if (this.subscriptions.size) {
             return;
         }
+        this.providerWatch?.dispose();
+        this.providerWatch = undefined;
         if (this.invalidationTimer !== undefined) {
             this.options.clearTimeout(this.invalidationTimer);
             this.invalidationTimer = undefined;
         }
-        this.providerWatch?.dispose();
-        this.providerWatch = undefined;
     }
 }

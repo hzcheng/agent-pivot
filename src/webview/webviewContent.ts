@@ -319,6 +319,7 @@ export function getStewardContent(
                         todos.mount(panel, message.snapshot);
                         window.__projectStewardSyncCollapseButton();
                     },
+                    onTodoRefresh: (_panel, message) => todos.applyRefresh(message.snapshot),
                     onActiveTabChanged: () => window.__projectStewardSyncCollapseButton(),
                 });
                 window.__projectStewardDashboard = dashboard;

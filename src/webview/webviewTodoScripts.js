@@ -11,6 +11,7 @@ function initTodos(options) {
         restoreFocusTodoId: null,
         draft: null,
         composeGroupId: undefined,
+        composeDraft: null,
         nextRequestId: 0,
         lastRevision: 0,
         pending: new Map(),
@@ -22,6 +23,7 @@ function initTodos(options) {
     var panelHost = null;
     var root = null;
     var layoutObserver = null;
+    var skipNextTodoLayoutObserverSync = false;
 
     function escapeHtml(value) {
         return String(value == null ? '' : value)
@@ -134,21 +136,28 @@ function initTodos(options) {
     function renderCompose(group) {
         var groupId = group ? group.id : null;
         var visible = state.composeGroupId === groupId;
+        var draft = visible && state.composeDraft
+            ? state.composeDraft
+            : { title: '', notes: '', priority: 'medium', groupId: groupId };
         var groupControl = group
             ? '<input type="hidden" name="groupId" value="' + escapeHtml(group.id) + '">'
                 + '<span class="todo-compose-group-fixed steward-meta" title="' + escapeHtml(group.title)
                 + '" aria-label="Todo group: ' + escapeHtml(group.title) + '">' + escapeHtml(group.title) + '</span>'
-            : '<select name="groupId" aria-label="Todo group">' + renderGroupOptions('') + '</select>';
+            : '<select name="groupId" aria-label="Todo group">'
+                + renderGroupOptions(draft.groupId) + '</select>';
         return '<form class="todo-add-form todo-compose-panel steward-card" data-todo-form="'
             + (group ? 'quick-add' : 'add') + '"'
             + (group ? ' data-group-id="' + escapeHtml(group.id) + '"' : '')
             + (visible ? '' : ' hidden') + '>'
             + '<div class="todo-compose-primary"><span class="todo-compose-icon">＋</span>'
             + '<input class="todo-title-input" type="text" name="title" placeholder="'
-            + (group ? 'Add to ' + escapeHtml(group.title) : 'Add a todo') + '" aria-label="Todo title">'
+            + (group ? 'Add to ' + escapeHtml(group.title) : 'Add a todo') + '" aria-label="Todo title" value="'
+            + escapeHtml(draft.title) + '">'
             + '</div><textarea class="todo-notes-input" name="notes" rows="2" placeholder="Notes" '
-            + 'aria-label="Todo notes"></textarea><div class="todo-form-row todo-compose-meta">'
-            + '<select name="priority" aria-label="Todo priority">' + renderPriorityOptions('medium') + '</select>'
+            + 'aria-label="Todo notes">' + escapeHtml(draft.notes)
+            + '</textarea><div class="todo-form-row todo-compose-meta">'
+            + '<select name="priority" aria-label="Todo priority">'
+            + renderPriorityOptions(draft.priority) + '</select>'
             + groupControl
             + '<button class="todo-primary-button steward-button steward-button-primary" type="submit">Add</button>'
             + '<button class="todo-secondary-button steward-button" type="button" data-action="'
@@ -403,6 +412,10 @@ function initTodos(options) {
             return;
         }
         layoutObserver = new ResizeObserver(function () {
+            if (skipNextTodoLayoutObserverSync) {
+                skipNextTodoLayoutObserverSync = false;
+                return;
+            }
             syncTodoListExpandedHeights();
         });
         refreshTodoLayoutObserverTargets();
@@ -625,11 +638,14 @@ function initTodos(options) {
         }
         panelHost = nextPanelHost;
         root = nextRoot;
+        todoRefreshGeneration += 1;
+        skipNextTodoLayoutObserverSync = false;
         state.renderedSurfaceHtml = '';
         state.snapshot = clone(snapshotValue);
         state.selectedTodoId = null;
         state.draft = null;
         state.composeGroupId = undefined;
+        state.composeDraft = null;
         root.addEventListener('click', onClick);
         root.addEventListener('change', onChange);
         root.addEventListener('submit', onSubmit);
@@ -637,6 +653,257 @@ function initTodos(options) {
         root.addEventListener('input', onInput);
         render(true);
         observeTodoLayout();
+        return true;
+    }
+
+    function getTodoScrollItemKey(item) {
+        var group = item.closest('.todo-group[data-todo-group-id]');
+        return JSON.stringify([
+            group ? group.getAttribute('data-todo-group-id') || '' : '',
+            item.getAttribute('data-todo-id') || '',
+        ]);
+    }
+
+    function findTodoGroupElement(groupId) {
+        if (!root || !root.querySelectorAll) {
+            return null;
+        }
+        return Array.from(root.querySelectorAll('.todo-group[data-todo-group-id]'))
+            .find(function (group) {
+                return (group.getAttribute('data-todo-group-id') || '') === groupId;
+            }) || null;
+    }
+
+    function findTodoItemElement(todoId, groupId) {
+        if (!root || !root.querySelectorAll) {
+            return null;
+        }
+        return Array.from(root.querySelectorAll('.todo-item[data-todo-id]'))
+            .find(function (item) {
+                if ((item.getAttribute('data-todo-id') || '') !== todoId) {
+                    return false;
+                }
+                var group = item.closest('.todo-group[data-todo-group-id]');
+                return !groupId
+                    || !!group
+                        && (group.getAttribute('data-todo-group-id') || '') === groupId;
+            }) || null;
+    }
+
+    function captureTodoFocus() {
+        var active = typeof document !== 'undefined' ? document.activeElement : null;
+        if (!active
+            || !root
+            || typeof root.contains === 'function' && !root.contains(active)) {
+            return null;
+        }
+        var item = closest(active, '.todo-item[data-todo-id]');
+        var group = closest(active, '.todo-group[data-todo-group-id]');
+        var actionElement = closest(active, '[data-action]');
+        var form = closest(active, '[data-todo-form]');
+        return {
+            todoId: item
+                ? item.getAttribute('data-todo-id') || null
+                : form && form.getAttribute('data-todo-id') || null,
+            groupId: group
+                ? group.getAttribute('data-todo-group-id') || null
+                : form && (form.getAttribute('data-group-id')
+                    || form.getAttribute('data-todo-group-id')) || null,
+            action: actionElement ? actionElement.getAttribute('data-action') || null : null,
+            formKind: form ? form.getAttribute('data-todo-form') || null : null,
+            fieldName: active.getAttribute ? active.getAttribute('name') || null : null,
+        };
+    }
+
+    function captureTodoRefreshState() {
+        var groups = root && root.querySelectorAll
+            ? Array.from(root.querySelectorAll('.todo-group[data-todo-group-id]'))
+                .map(function (group) {
+                    var list = group.querySelector('.todo-list');
+                    return {
+                        groupId: group.getAttribute('data-todo-group-id') || '',
+                        anchor: list
+                            && window.__projectStewardScrollState
+                            && typeof window.__projectStewardScrollState.capture === 'function'
+                            ? window.__projectStewardScrollState.capture(list, {
+                                itemSelector: '.todo-item[data-todo-id]',
+                                getKey: getTodoScrollItemKey,
+                            })
+                            : list ? {
+                                scrollTop: Math.max(0, Number(list.scrollTop) || 0),
+                                itemKey: null,
+                                itemOffset: 0,
+                                atEnd: false,
+                            } : null,
+                    };
+                })
+            : [];
+        return {
+            windowScrollY: typeof window.scrollY === 'number' ? window.scrollY : 0,
+            selectedTodoId: state.selectedTodoId,
+            draft: clone(state.draft),
+            composeGroupId: state.composeGroupId,
+            composeDraft: clone(state.composeDraft),
+            focus: captureTodoFocus(),
+            groups: groups,
+        };
+    }
+
+    function isTodoRendered(todoId) {
+        var todo = findTodo(todoId);
+        var group = todo && findGroup(todo.groupId);
+        return !!todo
+            && !!group
+            && !group.collapsed
+            && orderedTodos(group.id).some(function (candidate) {
+                return candidate.id === todoId;
+            });
+    }
+
+    function reconcileTodoRefreshState(local) {
+        if (local.selectedTodoId && isTodoRendered(local.selectedTodoId)) {
+            state.selectedTodoId = local.selectedTodoId;
+            state.draft = clone(local.draft);
+        } else {
+            state.selectedTodoId = null;
+            state.draft = null;
+        }
+        if (local.composeGroupId === null
+            || typeof local.composeGroupId === 'string' && findGroup(local.composeGroupId)) {
+            state.composeGroupId = local.composeGroupId;
+            state.composeDraft = clone(local.composeDraft);
+        } else {
+            state.composeGroupId = undefined;
+            var draftGroupId = local.composeDraft && local.composeDraft.groupId;
+            state.composeDraft = draftGroupId
+                && !findGroup(draftGroupId)
+                ? null
+                : clone(local.composeDraft);
+        }
+    }
+
+    function findTodoFocusTarget(target) {
+        if (!target || !root) {
+            return null;
+        }
+        if (target.formKind) {
+            var forms = root.querySelectorAll
+                ? Array.from(root.querySelectorAll('[data-todo-form]'))
+                : [];
+            var form = forms.find(function (candidate) {
+                if (candidate.getAttribute('data-todo-form') !== target.formKind) {
+                    return false;
+                }
+                if (target.formKind === 'detail-edit') {
+                    return candidate.getAttribute('data-todo-id') === target.todoId;
+                }
+                if (target.formKind === 'quick-add') {
+                    return candidate.getAttribute('data-group-id') === target.groupId;
+                }
+                return target.formKind === 'add';
+            });
+            if (!form || form.hidden === true || form.hasAttribute && form.hasAttribute('hidden')) {
+                return null;
+            }
+            if (target.fieldName && form.querySelectorAll) {
+                return Array.from(form.querySelectorAll('[name]')).find(function (field) {
+                    return field.getAttribute('name') === target.fieldName;
+                }) || null;
+            }
+            if (target.action && form.querySelectorAll) {
+                return Array.from(form.querySelectorAll('[data-action]')).find(function (action) {
+                    return action.getAttribute('data-action') === target.action;
+                }) || null;
+            }
+            return null;
+        }
+        var scope = target.todoId
+            ? findTodoItemElement(target.todoId, target.groupId)
+            : target.groupId
+                ? findTodoGroupElement(target.groupId)
+                : root;
+        if (!scope) {
+            return null;
+        }
+        if (!target.action) {
+            return target.todoId ? scope : null;
+        }
+        var actions = scope.querySelectorAll
+            ? Array.from(scope.querySelectorAll('[data-action]'))
+            : [];
+        return actions.find(function (action) {
+            return action.getAttribute('data-action') === target.action;
+        }) || null;
+    }
+
+    function restoreTodoRefreshState(local) {
+        if (!local) {
+            return;
+        }
+        if (typeof window.scrollTo === 'function') {
+            window.scrollTo(0, local.windowScrollY);
+        }
+        var focusTarget = findTodoFocusTarget(local.focus);
+        if (focusTarget && typeof focusTarget.focus === 'function') {
+            focusTarget.focus({ preventScroll: true });
+        }
+        if (Array.isArray(local.groups)) {
+            local.groups.forEach(function (savedGroup) {
+                if (!savedGroup.anchor) {
+                    return;
+                }
+                var group = findTodoGroupElement(savedGroup.groupId);
+                var list = group && group.querySelector('.todo-list');
+                if (!list) {
+                    return;
+                }
+                if (window.__projectStewardScrollState
+                    && typeof window.__projectStewardScrollState.restore === 'function') {
+                    window.__projectStewardScrollState.restore(list, savedGroup.anchor, {
+                        itemSelector: '.todo-item[data-todo-id]',
+                        getKey: getTodoScrollItemKey,
+                    });
+                } else {
+                    list.scrollTop = Math.min(
+                        Math.max(0, Number(savedGroup.anchor.scrollTop) || 0),
+                        Math.max(0, list.scrollHeight - list.clientHeight)
+                    );
+                }
+            });
+        }
+    }
+
+    var todoRefreshGeneration = 0;
+
+    function scheduleTodoRefreshStateRecheck(local) {
+        var generation = ++todoRefreshGeneration;
+        if (typeof requestAnimationFrame !== 'function') {
+            return;
+        }
+        requestAnimationFrame(function () {
+            if (generation === todoRefreshGeneration) {
+                syncTodoListExpandedHeights();
+                restoreTodoRefreshState(local);
+            }
+        });
+    }
+
+    function applyRefresh(snapshotValue) {
+        if (!root || !isSnapshot(snapshotValue)) {
+            return false;
+        }
+        var local = captureTodoRefreshState();
+        state.snapshot = clone(snapshotValue);
+        Array.from(state.pending.entries())
+            .sort(function (left, right) { return left[0] - right[0]; })
+            .forEach(function (entry) {
+                optimisticMutation(entry[1].action, entry[1].payload);
+            });
+        reconcileTodoRefreshState(local);
+        skipNextTodoLayoutObserverSync = true;
+        render(true);
+        restoreTodoRefreshState(local);
+        scheduleTodoRefreshStateRecheck(local);
         return true;
     }
 
@@ -906,6 +1173,7 @@ function initTodos(options) {
             return false;
         }
         state.composeGroupId = undefined;
+        state.composeDraft = null;
         dispatch('add', {
             title: normalizedTitle,
             notes: String(notes || ''),
@@ -945,6 +1213,7 @@ function initTodos(options) {
                 return;
             }
             state.composeGroupId = undefined;
+            state.composeDraft = null;
             dispatch('add', {
                 title: title,
                 notes: readValue(form, 'notes'),
@@ -1007,13 +1276,26 @@ function initTodos(options) {
             undo();
         } else if (action === 'todo-add') {
             state.composeGroupId = null;
+            state.composeDraft = {
+                title: '',
+                notes: '',
+                priority: 'medium',
+                groupId: null,
+            };
             render();
             focusCompose(null);
         } else if (action === 'todo-cancel-add' || action === 'todo-cancel-quick-add') {
             state.composeGroupId = undefined;
+            state.composeDraft = null;
             render();
         } else if (action === 'todo-quick-add') {
             state.composeGroupId = groupId;
+            state.composeDraft = {
+                title: '',
+                notes: '',
+                priority: 'medium',
+                groupId: groupId,
+            };
             render();
             focusCompose(groupId);
         } else if (action === 'todo-collapse-group') {
@@ -1058,6 +1340,7 @@ function initTodos(options) {
                 event.preventDefault();
             } else if (state.composeGroupId !== undefined) {
                 state.composeGroupId = undefined;
+                state.composeDraft = null;
                 render();
                 event.preventDefault();
             }
@@ -1069,16 +1352,24 @@ function initTodos(options) {
 
     function onInput(event) {
         var field = event.target;
-        if (!state.draft
-            || !field
+        if (!field
             || !field.closest
-            || !field.closest('.todo-detail-edit-form')
             || !field.getAttribute) {
             return;
         }
         var name = field.getAttribute('name');
-        if (name === 'title' || name === 'notes' || name === 'priority' || name === 'groupId') {
+        if (state.draft
+            && field.closest('.todo-detail-edit-form')
+            && (name === 'title' || name === 'notes' || name === 'priority' || name === 'groupId')) {
             state.draft[name] = String(field.value || '');
+            state.renderedSurfaceHtml = renderListSurface();
+            return;
+        }
+        var composeForm = field.closest('.todo-add-form[data-todo-form]');
+        if (state.composeDraft
+            && composeForm
+            && (name === 'title' || name === 'notes' || name === 'priority' || name === 'groupId')) {
+            state.composeDraft[name] = String(field.value || '');
             state.renderedSurfaceHtml = renderListSurface();
         }
     }
@@ -1111,6 +1402,7 @@ function initTodos(options) {
         toggleDetail: toggleDetail,
         backToList: backToList,
         dispatch: dispatch,
+        applyRefresh: applyRefresh,
         applyCommandResult: applyCommandResult,
         submitQuickAdd: submitQuickAdd,
         undo: undo,

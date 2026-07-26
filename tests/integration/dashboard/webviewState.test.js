@@ -173,6 +173,7 @@ function createDashboardHarness({
     synchronousFrames = true,
     onProjectsMounted,
     onTodoMounted,
+    onTodoRefresh,
     onActiveTabChanged,
 } = {}) {
     const openButton = createElement('dashboard-tab-open-button');
@@ -295,6 +296,7 @@ function createDashboardHarness({
         postMessage: message => messages.push(message),
         onProjectsMounted,
         onTodoMounted,
+        onTodoRefresh,
         onActiveTabChanged,
     });
     return {
@@ -1507,8 +1509,94 @@ test('WEBVIEW-DASHBOARD-SEARCH-CATALOG-001 accepts the migrated TODO catalog wit
     assert.equal(todoSection.children[1].dataset.todoId, 'tlazy');
 });
 
+test('TODO-AUTHORITATIVE-REFRESH-STATE-001 routes supported mounted snapshots without replacing TODO markup and falls back once otherwise', () => {
+    const mounted = [];
+    const refreshed = [];
+    const validSnapshot = {
+        version: 1,
+        showCompleted: false,
+        data: { version: 1, groups: [], todos: [] },
+    };
+    const harness = createDashboardHarness({
+        initialTab: 'todo',
+        onTodoMounted: (panel, message) => mounted.push({ panel, message }),
+        onTodoRefresh: (panel, message) => {
+            refreshed.push({ panel, message });
+            const snapshot = message.snapshot;
+            return Boolean(snapshot
+                && snapshot.version === 1
+                && typeof snapshot.showCompleted === 'boolean'
+                && snapshot.data
+                && snapshot.data.version === 1
+                && Array.isArray(snapshot.data.groups)
+                && Array.isArray(snapshot.data.todos));
+        },
+    });
+    assert.equal(harness.controller.applyTodoPanelMessage({
+        type: 'todo-panel-content',
+        version: 1,
+        requestId: 1,
+        html: '<div class="todo-panel">mounted</div>',
+        snapshot: validSnapshot,
+        searchCatalog: makeCatalog('mounted'),
+    }), true);
+    const mountedHtml = harness.todoPanel.innerHTML;
+
+    assert.equal(harness.controller.applyTodoPanelUpdatedMessage({
+        type: 'todo-panel-updated',
+        version: 1,
+        html: '<div class="todo-panel">replacement must not install</div>',
+        snapshot: validSnapshot,
+        searchCatalog: makeCatalog('refresh'),
+    }), true);
+    assert.equal(refreshed.length, 1);
+    assert.equal(refreshed[0].panel, harness.todoPanel);
+    assert.equal(mounted.length, 1);
+    assert.equal(harness.todoPanel.innerHTML, mountedHtml);
+    harness.controller.setSearchQuery('refresh');
+    assert.equal(harness.searchResults.children.find(section =>
+        section.dataset.sectionType === 'todo'
+    ).children[1].dataset.todoId, 'trefresh');
+
+    assert.equal(harness.controller.applyTodoPanelUpdatedMessage({
+        type: 'todo-panel-updated',
+        version: 1,
+        html: '<div class="todo-panel">fallback</div>',
+        snapshot: { version: 2 },
+        searchCatalog: makeCatalog('fallback'),
+    }), true);
+    assert.equal(refreshed.length, 2);
+    assert.equal(mounted.length, 2);
+    assert.equal(harness.todoPanel.innerHTML, '<div class="todo-panel">fallback</div>');
+
+    assert.equal(harness.controller.applyTodoPanelUpdatedMessage({
+        type: 'todo-panel-updated',
+        version: 1,
+        html: '<div class="todo-panel">malformed fallback</div>',
+        snapshot: { version: 1 },
+        searchCatalog: makeCatalog('malformed'),
+    }), true);
+    assert.equal(refreshed.length, 3);
+    assert.equal(mounted.length, 3);
+    assert.equal(harness.todoPanel.innerHTML, '<div class="todo-panel">malformed fallback</div>');
+
+    assert.equal(harness.controller.applyTodoPanelUpdatedMessage({
+        type: 'todo-panel-updated',
+        version: 1,
+        html: '<div class="todo-panel">missing fallback</div>',
+        searchCatalog: makeCatalog('missing'),
+    }), true);
+    assert.equal(refreshed.length, 3);
+    assert.equal(mounted.length, 4);
+    assert.equal(harness.todoPanel.innerHTML, '<div class="todo-panel">missing fallback</div>');
+});
+
 test('TODO-TODO-SEARCH-RESULT-RENDERING-001 search reveal requests host data then focuses the mounted TODO', () => {
-    const harness = createDashboardHarness({ initialTab: 'todo', synchronousFrames: false });
+    const harness = createDashboardHarness({
+        initialTab: 'todo',
+        synchronousFrames: false,
+        onTodoRefresh: (_panel, message) => Boolean(message.snapshot),
+    });
     assert.equal(harness.controller.applyTodoPanelMessage({
         type: 'todo-panel-content', version: 1, requestId: 1, html: '<p>todo</p>',
     }), true);
@@ -1528,9 +1616,11 @@ test('TODO-TODO-SEARCH-RESULT-RENDERING-001 search reveal requests host data the
 
     let focused = 0;
     let openedTodoId = null;
+    let openedCount = 0;
     harness.context.window.__projectStewardTodo = {
         openDetail(todoId) {
             openedTodoId = todoId;
+            openedCount += 1;
             return true;
         },
     };
@@ -1550,11 +1640,29 @@ test('TODO-TODO-SEARCH-RESULT-RENDERING-001 search reveal requests host data the
     };
     harness.todoPanel.querySelectorAll = selector => selector === '.todo-item[data-todo-id]' ? [todoItem] : [];
     harness.controller.applyTodoPanelUpdatedMessage({
-        type: 'todo-panel-updated', version: 1, html: '<p>revealed</p>', searchCatalog: makeCatalog('search'),
+        type: 'todo-panel-updated',
+        version: 1,
+        html: '<p>revealed</p>',
+        snapshot: { version: 1 },
+        searchCatalog: makeCatalog('search'),
     });
     while (harness.frames.length) harness.frames.shift()();
     assert.equal(openedTodoId, 'tsearch');
+    assert.equal(openedCount, 1);
     assert.equal(focused, 0);
+
+    openedTodoId = null;
+    harness.searchResults.dispatch('click', { target: todoResult });
+    while (harness.frames.length) harness.frames.shift()();
+    harness.controller.applyTodoPanelUpdatedMessage({
+        type: 'todo-panel-updated',
+        version: 1,
+        html: '<p>fallback revealed</p>',
+        searchCatalog: makeCatalog('search'),
+    });
+    while (harness.frames.length) harness.frames.shift()();
+    assert.equal(openedTodoId, 'tsearch');
+    assert.equal(openedCount, 2);
 });
 
 function createProjectVm({

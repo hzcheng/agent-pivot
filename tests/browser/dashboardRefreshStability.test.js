@@ -219,6 +219,7 @@ async function openDashboardPage(t) {
         window.__dashboard = initDashboard({
             postMessage: message => window.__messages.push(message),
             onTodoMounted: (panel, message) => window.__todos.mount(panel, message.snapshot),
+            onTodoRefresh: (_panel, message) => window.__todos.applyRefresh(message.snapshot),
             onProjectsMounted: panel => {
                 const mountGeneration = ++window.__projectsMountGeneration;
                 panel.removeAttribute('data-header-fit-generation');
@@ -302,10 +303,14 @@ test('TODO-AUTHORITATIVE-REFRESH-STATE-001 renders one mounted refresh and prese
     await post(page, { type: 'todo-panel-updated', version: 1, html: todoMarkup(refreshed), snapshot: refreshed, searchCatalog: catalog() });
     assert.equal(await page.evaluate(() => document.querySelector('.todo-panel') === window.__mountedTodoPanel), true);
     assert.equal(await page.evaluate(() => window.__todoRenders), before.renders + 1);
-    assert.ok(Math.abs((await page.locator('.todo-item[data-todo-id="todo-e"]').evaluate(node => {
+    const restoredOffset = await page.locator('.todo-item[data-todo-id="todo-e"]').evaluate(node => {
         const list = node.closest('.todo-list');
         return node.getBoundingClientRect().top - list.getBoundingClientRect().top;
-    })) - before.offset) <= 1);
+    });
+    assert.ok(
+        Math.abs(restoredOffset - before.offset) <= 1,
+        `expected TODO anchor offset ${before.offset}, received ${restoredOffset}`
+    );
     assert.equal(await page.locator('form[data-todo-form="detail-edit"] [name="title"]').inputValue(), 'unsaved detail title');
     assert.equal(await page.locator('form[data-todo-form="quick-add"][data-group-id="group-a"] [name="title"]').inputValue(), 'unsaved compose title');
     assert.equal(await page.locator('form[data-todo-form="detail-edit"] [name="notes"]').evaluate(node => document.activeElement === node), true);

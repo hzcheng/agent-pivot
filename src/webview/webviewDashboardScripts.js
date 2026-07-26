@@ -1084,21 +1084,29 @@ function initDashboard(options) {
         var restoreShowCompletedFocus = !!activeElement
             && panels.todo.contains(activeElement)
             && activeElement.getAttribute('data-action') === 'todo-toggle-show-completed';
-        panels.todo.innerHTML = message.html;
-        todoState = 'mounted';
         if (todoRequestTimer !== null) {
             cancelTimeout(todoRequestTimer);
             todoRequestTimer = null;
         }
         todoRequestAttempts = 0;
         replaceSearchCatalog(message.searchCatalog);
-        if (typeof options.onTodoMounted === 'function') {
-            options.onTodoMounted(panels.todo, message);
-        }
-        if (restoreShowCompletedFocus) {
-            var showCompletedToggle = panels.todo.querySelector('[data-action="todo-toggle-show-completed"]');
-            if (showCompletedToggle) {
-                showCompletedToggle.focus();
+        var refreshed = todoState === 'mounted'
+            && message.snapshot
+            && typeof options.onTodoRefresh === 'function'
+            && options.onTodoRefresh(panels.todo, message) === true;
+        if (!refreshed) {
+            panels.todo.innerHTML = message.html;
+            todoState = 'mounted';
+            if (typeof options.onTodoMounted === 'function') {
+                options.onTodoMounted(panels.todo, message);
+            }
+            if (restoreShowCompletedFocus) {
+                var showCompletedToggle = panels.todo.querySelector(
+                    '[data-action="todo-toggle-show-completed"]'
+                );
+                if (showCompletedToggle) {
+                    showCompletedToggle.focus();
+                }
             }
         }
         revealPendingTodoSearchTarget();

@@ -65,6 +65,7 @@ function createHarness(options = {}) {
     let layoutVisible = options.layoutVisible !== false;
     let expandedTodoHeight = 180;
     let resizeObserverCallback;
+    const frames = [];
     const todoNodes = new Map(['todo-a', 'todo-b'].map(todoId => [todoId, {
         className: '',
         innerHTML: '',
@@ -217,6 +218,11 @@ function createHarness(options = {}) {
             context.pendingTimer = callback;
             return 1;
         },
+        requestAnimationFrame: callback => {
+            if (options.synchronousFrames === false) frames.push(callback);
+            else callback();
+            return 1;
+        },
         clearTimeout: () => undefined,
         document: { activeElement: null },
         window: {
@@ -264,6 +270,11 @@ function createHarness(options = {}) {
         notifyResize: () => {
             if (resizeObserverCallback) resizeObserverCallback();
         },
+        runNextFrame: () => {
+            const frame = frames.shift();
+            if (frame) frame();
+            return Boolean(frame);
+        },
     };
 }
 
@@ -307,6 +318,91 @@ test('TODO-INCREMENTAL-ROOT-001 and TODO-AUTHORITATIVE-REFRESH-STATE-001 accept 
 
     assert.equal(harness.panel.querySelector('.todo-panel'), root);
     assert.equal(harness.catalogs.length, 1);
+});
+
+test('TODO-AUTHORITATIVE-REFRESH-STATE-001 applies one mounted render and keeps local state only for exact surviving identities', () => {
+    const harness = createHarness();
+    const root = harness.controller.getRoot();
+    harness.controller.openDetail('todo-a');
+    harness.root.dispatch('click', {
+        target: {
+            closest(selector) {
+                return selector === '[data-action]' ? {
+                    getAttribute(name) {
+                        return name === 'data-action' ? 'todo-edit-detail' : null;
+                    },
+                } : null;
+            },
+        },
+    });
+    harness.controller.getState().draft.title = 'surviving detail draft';
+    harness.root.dispatch('click', {
+        target: {
+            closest(selector) {
+                return selector === '[data-action]' ? {
+                    getAttribute(name) {
+                        if (name === 'data-action') return 'todo-quick-add';
+                        if (name === 'data-group-id') return 'group-a';
+                        return null;
+                    },
+                } : null;
+            },
+        },
+    });
+    harness.root.dispatch('input', {
+        target: {
+            value: 'surviving compose draft',
+            getAttribute(name) {
+                return name === 'name' ? 'title' : null;
+            },
+            closest(selector) {
+                return selector === '.todo-add-form[data-todo-form]' ? {} : null;
+            },
+        },
+    });
+    const rendersBeforeRefresh = harness.getRenderedCount();
+
+    const refreshed = snapshot();
+    refreshed.data.todos[0].notes = 'authoritative notes changed';
+    assert.equal(harness.controller.applyRefresh(refreshed), true);
+    assert.equal(harness.controller.getRoot(), root);
+    assert.equal(harness.getRenderedCount(), rendersBeforeRefresh + 1);
+    assert.equal(harness.controller.getState().selectedTodoId, 'todo-a');
+    assert.equal(harness.controller.getState().draft.title, 'surviving detail draft');
+    assert.equal(harness.controller.getState().composeGroupId, 'group-a');
+    assert.equal(harness.controller.getState().composeDraft.title, 'surviving compose draft');
+
+    const removed = snapshot();
+    removed.data.groups = [{ id: 'group-b', title: 'Replacement', collapsed: false, order: 0 }];
+    removed.data.todos = [];
+    assert.equal(harness.controller.applyRefresh(removed), true);
+    assert.equal(harness.controller.getRoot(), root);
+    assert.equal(harness.getRenderedCount(), rendersBeforeRefresh + 2);
+    assert.equal(harness.controller.getState().selectedTodoId, null);
+    assert.equal(harness.controller.getState().draft, null);
+    assert.equal(harness.controller.getState().composeGroupId, undefined);
+    assert.equal(harness.controller.getState().composeDraft, null);
+    assert.equal(harness.controller.applyRefresh({ version: 2 }), false);
+    assert.equal(harness.getRenderedCount(), rendersBeforeRefresh + 2);
+});
+
+test('TODO-AUTHORITATIVE-REFRESH-STATE-001 ignores an older scheduled restore after a newer refresh', () => {
+    const harness = createHarness({ synchronousFrames: false });
+    assert.equal(harness.controller.applyRefresh(snapshot()), true);
+    harness.context.window.scrollY = 99;
+    assert.equal(harness.controller.applyRefresh(snapshot()), true);
+    harness.context.window.scrollY = 33;
+
+    assert.equal(harness.runNextFrame(), true);
+    assert.equal(harness.context.window.scrollY, 33);
+    assert.equal(harness.runNextFrame(), true);
+    assert.equal(harness.context.window.scrollY, 99);
+
+    assert.equal(harness.controller.applyRefresh(snapshot()), true);
+    assert.equal(harness.controller.mount(harness.panel, snapshot()), true);
+    harness.context.window.scrollY = 44;
+    assert.equal(harness.runNextFrame(), true);
+    assert.equal(harness.context.window.scrollY, 44);
 });
 
 test('TODO-OPTIMISTIC-ROLLBACK-001 posts versioned completion and restores the authoritative failure snapshot', () => {

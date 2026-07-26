@@ -293,6 +293,7 @@ async function openConversationPage(t, activeAiSessions, viewport = { width: 360
             postMessage: message => window.__postedMessages.push(message),
         };
     });
+    await page.addScriptTag({ content: scrollStateScript });
     await page.addScriptTag({ content: projectScript });
     await page.evaluate(() => {
         initProjects();
@@ -441,13 +442,18 @@ async function seedConversationRail(page, provider, sessionId, count = 18) {
             if (loading) loading.hidden = true;
             for (let index = 0; index < markerCount; index += 1) {
                 const marker = document.createElement('button');
+                const stroke = document.createElement('span');
+                const preview = document.createElement('span');
                 marker.type = 'button';
+                marker.className = 'ai-session-conversation-marker';
                 marker.setAttribute('data-ai-session-conversation-marker', '');
                 marker.setAttribute('data-interaction-id', `interaction-${index}`);
-                marker.textContent = `Input ${index + 1}`;
-                marker.style.display = 'block';
-                marker.style.width = '100%';
-                marker.style.minHeight = '24px';
+                stroke.className = 'ai-session-conversation-marker-stroke';
+                stroke.setAttribute('aria-hidden', 'true');
+                preview.className = 'ai-session-conversation-marker-preview';
+                preview.textContent = `Input ${index + 1}`;
+                marker.appendChild(stroke);
+                marker.appendChild(preview);
                 rail.appendChild(marker);
             }
         }, count);
@@ -696,26 +702,21 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-OUTLINE-001 renders only an exact current 
     ]);
     const replacedRow = row(replacedPage, 'codex', 'session-a');
     await postHostMessage(replacedPage, outlineResult({
-        requestId: 1,
-        subscriptionGeneration: 1,
-        interactions: [summary('older-request', 3, 'Older request')],
-    }));
-    await postHostMessage(replacedPage, outlineResult({
         requestId: 2,
-        subscriptionGeneration: 1,
-        interactions: [summary('older-generation', 3, 'Older generation')],
+        subscriptionGeneration: 2,
+        interactions: [summary('replacement-request', 3, 'Replacement request')],
     }));
     assert.equal(
         await replacedRow.locator('[data-ai-session-conversation-marker]').count(),
         0
     );
     await postHostMessage(replacedPage, outlineResult({
-        requestId: 2,
-        subscriptionGeneration: 2,
-        interactions: [summary('replacement-current', 3, 'Replacement current')],
+        requestId: 1,
+        subscriptionGeneration: 1,
+        interactions: [summary('retained-current', 3, 'Retained current')],
     }));
     assert.equal(
-        await replacedRow.locator('[data-interaction-id="replacement-current"]').count(),
+        await replacedRow.locator('[data-interaction-id="retained-current"]').count(),
         1
     );
 });
@@ -1420,8 +1421,8 @@ test('ACTIVE-SESSION-CONVERSATION-RETRY-001 clears Retry timers on collapse, rep
         reason: 'codexRetryExhausted',
         retryAfterMs: 60_000,
     }, {
-        requestId: 4,
-        subscriptionGeneration: 4,
+        requestId: 3,
+        subscriptionGeneration: 3,
     }));
     assert.equal(await page.evaluate(() =>
         typeof activeAiSessionConversationRetryTimer
@@ -1749,9 +1750,15 @@ test('ACTIVE-SESSION-CONVERSATION-RESTORE-001 keeps one pending envelope and its
     const restored = row(page, 'codex', 'session-a');
     const restoredRail = restored.locator('[data-ai-session-conversation-rail]');
     assert.equal(await restored.locator('[data-interaction-id="interaction-6"]').isVisible(), true);
-    assert.ok(Math.abs((await restored.locator('[data-interaction-id="interaction-6"]').evaluate(node =>
+    const restoredAnchor = await restored.locator(
+        '[data-interaction-id="interaction-6"]'
+    ).evaluate(node =>
         node.getBoundingClientRect().top - node.closest('[data-ai-session-conversation-rail]').getBoundingClientRect().top
-    )) - anchor) <= 1);
+    );
+    assert.ok(
+        Math.abs(restoredAnchor - anchor) <= 1,
+        `expected retained offset ${anchor}, received ${restoredAnchor}`
+    );
     assert.equal(await restoredRail.locator('[data-interaction-id="interaction-6"]').evaluate(node => document.activeElement === node), true);
 });
 
@@ -1790,6 +1797,11 @@ test('ACTIVE-SESSION-CONVERSATION-RESTORE-001 preserves history while live-end r
     ] }));
     const restored = row(page, 'codex', 'session-5');
     assert.ok(Math.abs((await relativeTop(restored)) - outerAnchor) <= 1);
+    assert.equal(
+        await restored.locator('[data-interaction-id="interaction-6"]').count(),
+        1,
+        'the retained subscription must render the live result into the replacement'
+    );
     assert.ok(Math.abs((await restored.locator('[data-interaction-id="interaction-6"]').evaluate(node =>
         node.getBoundingClientRect().top - node.closest('[data-ai-session-conversation-rail]').getBoundingClientRect().top
     )) - historyAnchor) <= 1);
@@ -1934,15 +1946,15 @@ test('ACTIVE-SESSION-CONVERSATION-RESTORE-001 preserves or cancels expansion thr
     assert.deepEqual((await conversationMessages(page)).at(-1), {
         type: 'request-ai-session-conversation-outline',
         version: 1,
-        requestId: 2,
-        subscriptionGeneration: 2,
+        requestId: 1,
+        subscriptionGeneration: 1,
         projectId: 'project-a',
         provider: 'codex',
         sessionId: 'session-a',
     });
     await postHostMessage(page, outlineResult({
-        requestId: 2,
-        subscriptionGeneration: 2,
+        requestId: 1,
+        subscriptionGeneration: 1,
         sourceRevision: 'r2',
         interactions: summaries(18),
     }));
@@ -1979,15 +1991,15 @@ test('ACTIVE-SESSION-CONVERSATION-RESTORE-001 preserves or cancels expansion thr
     assert.deepEqual((await conversationMessages(page)).at(-1), {
         type: 'request-ai-session-conversation-outline',
         version: 1,
-        requestId: 3,
-        subscriptionGeneration: 3,
+        requestId: 1,
+        subscriptionGeneration: 1,
         projectId: 'project-a',
         provider: 'codex',
         sessionId: 'session-a',
     });
     await postHostMessage(page, outlineResult({
-        requestId: 3,
-        subscriptionGeneration: 3,
+        requestId: 1,
+        subscriptionGeneration: 1,
         sourceRevision: 'r3',
         interactions: summaries(18),
     }));
@@ -2036,8 +2048,8 @@ test('ACTIVE-SESSION-CONVERSATION-RESTORE-001 preserves or cancels expansion thr
     assert.deepEqual((await conversationMessages(page)).at(-1), {
         type: 'cancel-ai-session-conversation',
         version: 1,
-        requestId: 4,
-        subscriptionGeneration: 4,
+        requestId: 2,
+        subscriptionGeneration: 2,
         projectId: 'project-a',
         provider: 'codex',
         sessionId: 'session-a',

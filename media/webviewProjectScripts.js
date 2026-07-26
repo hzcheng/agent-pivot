@@ -384,6 +384,7 @@ function requestActiveAiSessionConversation(row, restoreState) {
         sourceRevision: null,
         interactionIds: new Set(),
         hasRenderedOutline: false,
+        cachedOutline: null,
         restoreState: restoreState || null,
     });
     window.vscode.postMessage(Object.assign({
@@ -566,6 +567,29 @@ function getConversationAutoScrollThreshold(rail) {
     return Number.isFinite(threshold) && threshold >= 0 ? threshold : null;
 }
 
+function getConversationMarkerKey(marker) {
+    return marker.getAttribute('data-interaction-id') || '';
+}
+
+function captureConversationRailState(rail) {
+    var endThreshold = getConversationAutoScrollThreshold(rail);
+    return window.__projectStewardScrollState.capture(rail, {
+        itemSelector:
+            '[data-ai-session-conversation-marker][data-interaction-id]',
+        getKey: getConversationMarkerKey,
+        endThreshold: endThreshold === null ? undefined : endThreshold,
+    });
+}
+
+function restoreConversationRailState(rail, anchor) {
+    return window.__projectStewardScrollState.restore(rail, anchor, {
+        itemSelector:
+            '[data-ai-session-conversation-marker][data-interaction-id]',
+        getKey: getConversationMarkerKey,
+        followEnd: true,
+    });
+}
+
 function revealConversationMarker(rail, marker) {
     if (!rail || !marker || rail.scrollHeight <= rail.clientHeight) return;
     var railRect = rail.getBoundingClientRect();
@@ -614,25 +638,22 @@ function renderActiveAiSessionConversationOutline(row, state, outline) {
     if (!panel || !rail || !count || !status) return false;
 
     clearActiveAiSessionConversationRetryTimer();
-    var previousScrollTop = rail.scrollTop;
+    var currentRailAnchor = captureConversationRailState(rail);
     var focusedMarker = rail.querySelector(
         '[data-ai-session-conversation-marker]:focus'
     );
     var focusedInteractionId = focusedMarker
         ? focusedMarker.getAttribute('data-interaction-id') || ''
         : '';
-    var threshold = getConversationAutoScrollThreshold(rail);
-    var wasAtEnd = state.hasRenderedOutline
-        && threshold !== null
-        && rail.scrollHeight - rail.clientHeight - rail.scrollTop <= threshold;
     var restoreState = state.restoreState;
     state.restoreState = null;
 
     clearConversationElement(rail);
     state.sourceRevision = outline.sourceRevision;
     state.interactionIds = new Set(outline.interactions.map(summary => summary.id));
-    var selectedInteractionId = restoreState?.focusedInteractionId
-        || focusedInteractionId
+    var retainedFocusedInteractionId = restoreState?.focusedInteractionId
+        || focusedInteractionId;
+    var selectedInteractionId = retainedFocusedInteractionId
         || outline.interactions.at(-1)?.id
         || '';
 
@@ -681,11 +702,16 @@ function renderActiveAiSessionConversationOutline(row, state, outline) {
     var selectedIndex = markers.findIndex(marker =>
         marker.getAttribute('data-interaction-id') === selectedInteractionId
     );
-    setConversationMarkerSelection(
-        markers,
-        selectedIndex >= 0 ? selectedIndex : markers.length - 1,
-        false
-    );
+    if (selectedIndex >= 0) {
+        setConversationMarkerSelection(markers, selectedIndex, false);
+    } else if (retainedFocusedInteractionId) {
+        markers.forEach(marker => {
+            marker.tabIndex = -1;
+            marker.setAttribute('aria-selected', 'false');
+        });
+    } else {
+        setConversationMarkerSelection(markers, markers.length - 1, false);
+    }
 
     var hasOmittedInteractions = outline.partial
         || outline.totalInteractions > outline.interactions.length;
@@ -718,43 +744,20 @@ function renderActiveAiSessionConversationOutline(row, state, outline) {
     }
     syncActiveAiSessionConversationListHeight(row);
 
-    var restoredMarker = restoreState?.focusedInteractionId
+    var retainedFocusedMarker = retainedFocusedInteractionId
         ? markers.find(marker =>
             marker.getAttribute('data-interaction-id')
-                === restoreState.focusedInteractionId
+                === retainedFocusedInteractionId
         )
         : null;
-    var retainedFocusedMarker = !restoredMarker && focusedInteractionId
-        ? markers.find(marker =>
-            marker.getAttribute('data-interaction-id') === focusedInteractionId
-        )
-        : null;
-    if (restoreState) {
-        rail.scrollTop = restoreState.railScrollTop || 0;
-        if (restoredMarker) {
-            focusConversationMarker(markers, markers.indexOf(restoredMarker));
-            rail.scrollTop = restoreState.railScrollTop || 0;
-        }
-    } else if (!state.hasRenderedOutline) {
-        var latest = markers.at(-1);
-        revealConversationMarker(rail, latest);
-    } else if (wasAtEnd) {
-        if (retainedFocusedMarker) {
-            focusConversationMarker(
-                markers,
-                markers.indexOf(retainedFocusedMarker)
-            );
-        }
-        rail.scrollTop = Math.max(0, rail.scrollHeight - rail.clientHeight);
-    } else {
-        rail.scrollTop = previousScrollTop;
-        if (retainedFocusedMarker) {
-            focusConversationMarker(
-                markers,
-                markers.indexOf(retainedFocusedMarker)
-            );
-            rail.scrollTop = previousScrollTop;
-        }
+    var railAnchor = restoreState?.railAnchor || currentRailAnchor;
+    restoreConversationRailState(rail, railAnchor);
+    if (retainedFocusedMarker) {
+        focusConversationMarker(
+            markers,
+            markers.indexOf(retainedFocusedMarker)
+        );
+        restoreConversationRailState(rail, railAnchor);
     }
     state.hasRenderedOutline = true;
     return true;
@@ -842,12 +845,13 @@ function applyAiSessionConversationOutlineResult(message) {
     var row = getCurrentActiveAiSessionConversationRow(state);
     if (!row) return false;
     if (hasPayload) {
-        return isValidConversationOutline(message.payload, state)
-            && renderActiveAiSessionConversationOutline(
-                row,
-                state,
-                message.payload
-            );
+        if (!isValidConversationOutline(message.payload, state)) return false;
+        state.cachedOutline = message.payload;
+        return renderActiveAiSessionConversationOutline(
+            row,
+            state,
+            state.cachedOutline
+        );
     }
     return isValidConversationError(message.error, state)
         && renderActiveAiSessionConversationError(row, state, message.error);
@@ -1018,7 +1022,7 @@ function observeActiveAiSessionConversationSize(row) {
     }
 }
 
-function applyActiveAiSessionConversationState(row, expanded) {
+function applyActiveAiSessionConversationState(row, expanded, reveal) {
     if (!row || typeof row.querySelector !== 'function') return false;
     var panel = row.querySelector('[data-ai-session-conversation-panel]');
     var header = row.querySelector('.ai-session-primary-action[aria-controls]');
@@ -1043,7 +1047,7 @@ function applyActiveAiSessionConversationState(row, expanded) {
         );
         syncActiveAiSessionConversationListHeight(row);
         observeActiveAiSessionConversationSize(row);
-        if (typeof row.scrollIntoView === 'function') {
+        if (expanded && reveal && typeof row.scrollIntoView === 'function') {
             row.scrollIntoView({ block: 'nearest' });
         }
         return true;
@@ -1081,7 +1085,7 @@ function toggleActiveAiSessionConversation(row) {
         applyActiveAiSessionConversationState(previousRow, false);
         cancelActiveAiSessionConversation(previousTarget);
     }
-    if (!applyActiveAiSessionConversationState(row, true)) return false;
+    if (!applyActiveAiSessionConversationState(row, true, true)) return false;
     requestActiveAiSessionConversation(row);
     return true;
 }
@@ -1118,7 +1122,7 @@ function captureExpandedConversationState(projectDiv) {
         provider: row.getAttribute('data-session-provider') || '',
         sessionId: row.getAttribute('data-session-id') || '',
         expanded: true,
-        railScrollTop: rail?.scrollTop || 0,
+        railAnchor: captureConversationRailState(rail),
         focusedInteractionId: marker?.getAttribute('data-interaction-id') || '',
     } : null;
 }
@@ -1135,14 +1139,30 @@ function canRestoreExpandedConversation(projectDiv, state) {
     ) || null;
 }
 
-function restoreExpandedConversationState(row, state) {
-    if (row?.hasAttribute('data-conversation-expanded')) {
-        applyActiveAiSessionConversationState(row, false);
-    }
-    if (!row || !state || !applyActiveAiSessionConversationState(row, true)) {
+function rebindActiveAiSessionConversation(row, capturedState) {
+    var target = getActiveAiSessionConversationTarget(row);
+    var subscription = activeAiSessionConversationSubscription;
+    if (!target || !subscription
+        || getActiveAiSessionConversationKey(target)
+            !== getActiveAiSessionConversationKey(subscription)) {
         return false;
     }
-    requestActiveAiSessionConversation(row, state);
+    if (!applyActiveAiSessionConversationState(row, true, false)) return false;
+    subscription.expanded = true;
+    if (capturedState && (!subscription.restoreState
+        || subscription.cachedOutline)) {
+        subscription.restoreState = capturedState;
+    }
+    if (subscription.cachedOutline) {
+        renderActiveAiSessionConversationOutline(
+            row,
+            subscription,
+            subscription.cachedOutline
+        );
+    } else {
+        prepareActiveAiSessionConversationLoading(row);
+        syncActiveAiSessionConversationListHeight(row);
+    }
     return true;
 }
 
@@ -1183,9 +1203,7 @@ function restoreCurrentWorkspaceConversationStates(root, states) {
         var state = states.get(projectId);
         if (!state) return;
         var row = canRestoreExpandedConversation(projectDiv, state);
-        if (row) {
-            restoreExpandedConversationState(row, state);
-        } else {
+        if (!row || !rebindActiveAiSessionConversation(row, state)) {
             cancelActiveAiSessionConversation({
                 projectId: projectId,
                 provider: state.provider,
@@ -1464,6 +1482,19 @@ function restoreCurrentWorkspaceAiSessionAnchorsAndFocus(root, states) {
                 state.view.selectedTab,
                 { restoreFocus: false }
             );
+            var focusedConversationMarker = state.conversation
+                && state.conversation.focusedInteractionId
+                ? Array.from(projectDiv.querySelectorAll(
+                    '.active-ai-session-row[data-conversation-expanded] '
+                    + '[data-ai-session-conversation-marker]'
+                    + '[data-interaction-id]'
+                )).find(marker =>
+                    marker.getAttribute('data-interaction-id')
+                        === state.conversation.focusedInteractionId
+                    && document.activeElement === marker
+                )
+                : null;
+            if (focusedConversationMarker) return;
             restoreAiSessionViewFocus(projectDiv, state.view, selectedTab);
         });
 }

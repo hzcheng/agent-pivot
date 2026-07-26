@@ -1,4 +1,5 @@
 import { PromptPanelSnapshot, PromptV1 } from './types';
+import * as Icons from '../webview/webviewIcons';
 
 const PROMPT_PREVIEW_MAX_LENGTH = 160;
 
@@ -67,20 +68,26 @@ function renderPromptItem(
     const promptId = escapeHtml(prompt.id);
     const promptName = escapeHtml(prompt.name);
     const selected = selectedPromptId === prompt.id;
+    const selectedAttribute = selected ? ' data-prompt-default="true"' : '';
     const defaultLabel = selected
         ? `Clear ${prompt.name} as the default Prompt`
         : `Make ${prompt.name} the default Prompt`;
-    return `<li class="prompt-item steward-item-card" data-prompt-id="${promptId}">
+    const insertLabel = `Insert ${prompt.name} into the active terminal`;
+    return `<li class="prompt-item steward-item-card" data-prompt-id="${promptId}"${selectedAttribute}>
         <div class="prompt-item-view">
-            <button type="button" class="prompt-drag-handle steward-icon-button" draggable="true" data-drag-prompt-id="${promptId}" aria-label="${escapeHtml(`Drag ${prompt.name} to reorder`)}" title="Drag to reorder">⋮⋮</button>
+            <button type="button" class="prompt-drag-handle steward-icon-button" draggable="true" data-drag-prompt-id="${promptId}" aria-label="${escapeHtml(`Drag ${prompt.name} to reorder`)}" title="Drag to reorder">${Icons.drag}</button>
             <div class="prompt-item-content">
-                <strong class="prompt-name" title="${promptName}">${promptName}</strong>
+                <div class="prompt-title-line">
+                    <strong class="prompt-name" title="${promptName}">${promptName}</strong>
+                    ${selected ? `<span class="prompt-default-marker" aria-hidden="true">${Icons.starFilled}</span>` : ''}
+                </div>
                 <p class="prompt-preview">${escapeHtml(getPromptPreview(prompt.text))}</p>
             </div>
-            <div class="prompt-item-actions">
-                <button type="button" class="steward-button prompt-default-button" data-action="prompt-select-default" data-prompt-id="${promptId}" aria-pressed="${selected ? 'true' : 'false'}" aria-label="${escapeHtml(defaultLabel)}">${selected ? 'Default' : 'Make default'}</button>
-                <button type="button" class="steward-icon-button" data-action="prompt-edit" data-prompt-id="${promptId}" aria-label="${escapeHtml(`Edit ${prompt.name}`)}">Edit</button>
-                <button type="button" class="steward-icon-button danger" data-action="prompt-delete" data-prompt-id="${promptId}" aria-label="${escapeHtml(`Delete ${prompt.name}`)}">Delete</button>
+            <button type="button" class="prompt-insert-button steward-icon-button" data-action="prompt-insert-terminal" data-prompt-id="${promptId}" title="${escapeHtml(insertLabel)}" aria-label="${escapeHtml(insertLabel)}">${Icons.terminalLine}</button>
+            <div class="prompt-management-actions">
+                <button type="button" class="prompt-default-button steward-icon-button" data-action="prompt-select-default" data-prompt-id="${promptId}" aria-pressed="${selected ? 'true' : 'false'}" title="${escapeHtml(defaultLabel)}" aria-label="${escapeHtml(defaultLabel)}">${selected ? Icons.starFilled : Icons.star}</button>
+                <button type="button" class="steward-icon-button" data-action="prompt-edit" data-prompt-id="${promptId}" title="${escapeHtml(`Edit ${prompt.name}`)}" aria-label="${escapeHtml(`Edit ${prompt.name}`)}">${Icons.edit}</button>
+                <button type="button" class="steward-icon-button danger" data-action="prompt-delete" data-prompt-id="${promptId}" title="${escapeHtml(`Delete ${prompt.name}`)}" aria-label="${escapeHtml(`Delete ${prompt.name}`)}">${Icons.remove}</button>
             </div>
         </div>
         ${renderEditForm(prompt, index)}

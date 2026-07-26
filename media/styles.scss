@@ -4249,28 +4249,35 @@ body.steward-sidebar .project .ai-session-attention-indicator {
 }
 
 .prompt-item {
+    position: relative;
+    width: 100%;
     min-width: 0;
     max-width: 100%;
 }
 
 body.steward-sidebar .prompt-item {
     height: auto;
-    min-height: 58px;
-    padding: 9px 10px;
+    min-height: 62px;
+    padding: 8px 9px;
     overflow: visible;
 }
 
 .prompt-item-view {
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    align-items: start;
-    gap: 8px;
+    grid-template-columns: 24px minmax(0, 1fr) 28px;
+    align-items: center;
+    gap: 6px;
     min-width: 0;
+    min-height: 44px;
 }
 
 .prompt-drag-handle {
     flex: 0 0 auto;
+    width: 24px;
+    height: 28px;
+    opacity: .32;
     cursor: grab;
+    transition: opacity 120ms ease;
 
     &:active {
         cursor: grabbing;
@@ -4289,38 +4296,120 @@ body.steward-sidebar .prompt-item {
     word-break: break-word;
 }
 
+.prompt-title-line {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+}
+
 .prompt-name {
     display: block;
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
     color: var(--vscode-foreground);
     line-height: 1.35;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .prompt-preview {
+    display: -webkit-box;
     margin: 3px 0 0;
+    overflow: hidden;
     color: var(--vscode-descriptionForeground);
     font-size: 11px;
     line-height: 1.4;
     white-space: normal;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
 }
 
-.prompt-item-actions {
+.prompt-default-marker {
+    display: inline-grid;
+    flex: 0 0 auto;
+    width: 12px;
+    height: 12px;
+    place-items: center;
+    color: var(--vscode-focusBorder);
+
+    svg {
+        display: block;
+        width: 10px;
+        height: 10px;
+        fill: currentColor;
+    }
+}
+
+.prompt-insert-button {
+    display: inline-grid;
+    width: 28px;
+    height: 28px;
+    place-items: center;
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.prompt-management-actions {
+    position: absolute;
+    top: 4px;
+    right: 34px;
+    z-index: 5;
     display: flex;
-    flex-wrap: wrap;
     align-items: center;
     justify-content: flex-end;
-    gap: 3px;
+    gap: 1px;
     min-width: 0;
+    padding: 2px;
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 7px;
+    background: var(--vscode-menu-background);
+    box-shadow: 0 2px 8px var(--vscode-widget-shadow);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 120ms ease, transform 120ms ease;
+    transform: translateY(-2px);
 
     .steward-icon-button {
-        width: auto;
-        min-width: 26px;
-        padding: 0 6px;
+        width: 24px;
+        min-width: 24px;
+        height: 24px;
+        padding: 0;
     }
 
     .danger:hover,
     .danger:focus-visible {
         color: var(--vscode-errorForeground);
     }
+}
+
+.prompt-item:hover .prompt-drag-handle,
+.prompt-item:focus-within .prompt-drag-handle {
+    opacity: .72;
+}
+
+.prompt-item:hover .prompt-management-actions,
+.prompt-item:focus-within .prompt-management-actions {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0);
+}
+
+.prompt-item:hover .prompt-title-line,
+.prompt-item:focus-within .prompt-title-line {
+    padding-right: 74px;
+}
+
+.prompt-item-view .steward-icon-button svg {
+    display: block;
+    width: 13px;
+    height: 13px;
+    fill: currentColor;
+}
+
+.prompt-item[data-prompt-default="true"] {
+    border-color: var(--vscode-focusBorder);
 }
 
 .prompt-default-button[aria-pressed="true"] {
@@ -4415,17 +4504,32 @@ body.steward-sidebar .prompt-item {
     }
 
     .prompt-item-view {
-        display: flex;
-        flex-wrap: wrap;
+        grid-template-columns: 22px minmax(0, 1fr) 26px;
+        gap: 4px;
     }
 
-    .prompt-item-content {
-        flex: 1 1 calc(100% - 34px);
+    .prompt-drag-handle {
+        width: 22px;
     }
 
-    .prompt-item-actions {
-        flex: 1 1 100%;
-        padding-left: 34px;
+    .prompt-insert-button {
+        width: 26px;
+    }
+
+    .prompt-management-actions {
+        right: 30px;
+    }
+}
+
+@media (hover: none) {
+    .prompt-management-actions {
+        opacity: .72;
+        pointer-events: auto;
+        transform: translateY(0);
+    }
+
+    .prompt-title-line {
+        padding-right: 74px;
     }
 }
 
@@ -4433,7 +4537,7 @@ body.steward-sidebar .prompt-item {
     .prompt-item,
     .prompt-item::before,
     .prompt-drag-handle,
-    .prompt-item-actions,
+    .prompt-management-actions,
     .prompt-surface button {
         animation: none !important;
         transition: none !important;
@@ -4442,6 +4546,7 @@ body.steward-sidebar .prompt-item {
 
 @media (forced-colors: active) {
     .ai-subtabs,
+    .prompt-management-actions,
     .prompt-form,
     body.steward-sidebar .prompt-item,
     .prompt-field input,
@@ -4452,5 +4557,9 @@ body.steward-sidebar .prompt-item {
     .ai-subtabs > button[aria-selected="true"],
     .prompt-default-button[aria-pressed="true"] {
         border-color: var(--vscode-contrastActiveBorder, var(--vscode-focusBorder));
+    }
+
+    .prompt-default-marker {
+        color: Highlight;
     }
 }

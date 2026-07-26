@@ -19,12 +19,13 @@ test('WEBVIEW-DASHBOARD-MESSAGE-ROUTER-001 routes a valid generic message once a
     assert.deepEqual(calls, [7]);
 });
 
-test('WEBVIEW-AI-DASHBOARD-001 routes AI panel loads and Prompt commands through their exact handlers once', async () => {
+test('WEBVIEW-AI-DASHBOARD-001 routes AI panel loads, Prompt commands, and terminal inserts once', async () => {
     const calls = [];
     const router = createDashboardMessageRouter({
         handlers: {
             'request-ai-panel': message => calls.push(['panel', message.requestId]),
             'prompt-command': message => calls.push(['command', message.requestId]),
+            'prompt-insert-terminal': message => calls.push(['insert', message.requestId]),
         },
     });
 
@@ -43,9 +44,17 @@ test('WEBVIEW-AI-DASHBOARD-001 routes AI panel loads and Prompt commands through
         operation: 'create',
         payload: { name: 'Review', text: 'Review this.' },
     });
+    await router({
+        type: 'prompt-insert-terminal',
+        version: 1,
+        requestId: 'prompt-insert-1',
+        target: 'global-prompt-library',
+        promptId: 'prompt-a',
+    });
 
     assert.deepEqual(calls, [
         ['panel', 'ai-load-1'],
         ['command', 'prompt-command-1'],
+        ['insert', 'prompt-insert-1'],
     ]);
 });

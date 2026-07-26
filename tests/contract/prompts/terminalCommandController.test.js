@@ -50,13 +50,14 @@ function createFixture({ terminal = createTerminal(), snapshot = createSnapshot(
         get snapshotReads() { return snapshotReads; },
         get opened() { return opened; },
         onQuickPick: () => undefined,
+        readSnapshot: () => snapshot,
     };
     if (selectedPromptId !== undefined) snapshot = { ...snapshot, selectedPromptId };
     fixture.controller = new PromptTerminalCommandController({
         service: {
             getSnapshot: () => {
                 snapshotReads += 1;
-                return snapshot;
+                return fixture.readSnapshot();
             },
         },
         getActiveTerminal: () => fixture.activeTerminal,
@@ -76,6 +77,17 @@ function createFixture({ terminal = createTerminal(), snapshot = createSnapshot(
         openAiPrompts: async () => { opened += 1; },
     });
     return fixture;
+}
+
+function insertRequest(overrides = {}) {
+    return {
+        type: 'prompt-insert-terminal',
+        version: 1,
+        requestId: 'insert-1',
+        target: 'global-prompt-library',
+        promptId: 'prompt-b',
+        ...overrides,
+    };
 }
 
 test('SESSION-AI-PROMPT-TERMINAL-INSERTION-001 inserts the default without a picker', async () => {
@@ -257,4 +269,134 @@ test('SESSION-AI-PROMPT-TERMINAL-INSERTION-001 preserves multiline text and neve
 
     assert.deepEqual(terminal.sent, [['first\nsecond\nthird', false]]);
     assert.equal(mutations, 0);
+});
+
+test('SESSION-AI-PROMPT-TERMINAL-INSERTION-001 inserts the requested Prompt ID without default or Quick Pick behavior', async () => {
+    const fixture = createFixture({ selectedPromptId: 'prompt-a' });
+
+    assert.deepEqual(await fixture.controller.handleInsertRequest(insertRequest()), {
+        type: 'prompt-insert-terminal-result',
+        version: 1,
+        requestId: 'insert-1',
+        target: 'global-prompt-library',
+        success: true,
+        errorCode: null,
+    });
+    assert.deepEqual(fixture.activeTerminal.sent, [['Run the focused tests.', false]]);
+    assert.equal(fixture.activeTerminal.shown, 1);
+    assert.equal(fixture.quickPickCalls.length, 0);
+    assert.equal(fixture.snapshotReads, 1);
+});
+
+test('SESSION-AI-PROMPT-TERMINAL-INSERTION-001 exact-validates and suppresses duplicate direct-insert requests', async () => {
+    const fixture = createFixture();
+    const invalidRequests = [
+        null,
+        {},
+        insertRequest({ type: 'prompt-command' }),
+        insertRequest({ version: 2 }),
+        insertRequest({ requestId: '' }),
+        insertRequest({ requestId: 'x'.repeat(129) }),
+        insertRequest({ target: 'another-library' }),
+        insertRequest({ promptId: '' }),
+        { ...insertRequest(), unexpected: true },
+    ];
+
+    for (const request of invalidRequests) {
+        assert.equal(await fixture.controller.handleInsertRequest(request), undefined);
+    }
+    assert.equal(fixture.snapshotReads, 0);
+    assert.deepEqual(fixture.activeTerminal.sent, []);
+
+    assert.equal((await fixture.controller.handleInsertRequest(insertRequest())).success, true);
+    assert.equal(await fixture.controller.handleInsertRequest(insertRequest()), undefined);
+    assert.equal(fixture.snapshotReads, 1);
+    assert.deepEqual(fixture.activeTerminal.sent, [['Run the focused tests.', false]]);
+});
+
+test('SESSION-AI-PROMPT-TERMINAL-INSERTION-001 settles unavailable direct-insert inputs without exposing Prompt text', async t => {
+    const scenarios = [
+        {
+            name: 'no active terminal',
+            fixture: () => createFixture({ terminal: null }),
+            expectedCode: 'no-active-terminal',
+            expectedWarning: 'No active terminal is available to receive the Prompt.',
+        },
+        {
+            name: 'read-only Prompt storage',
+            fixture: () => createFixture({
+                snapshot: createSnapshot({ readOnlyReason: 'invalid-data' }),
+            }),
+            expectedCode: 'prompt-unavailable',
+            expectedWarning: 'AI Prompts are unavailable because their saved data is invalid or unsupported.',
+        },
+        {
+            name: 'throwing Prompt storage',
+            fixture: () => {
+                const fixture = createFixture();
+                fixture.readSnapshot = () => {
+                    throw new Error('private body marker must stay hidden');
+                };
+                return fixture;
+            },
+            expectedCode: 'prompt-unavailable',
+            expectedWarning: 'AI Prompts are unavailable because their saved data is invalid or unsupported.',
+        },
+        {
+            name: 'missing Prompt ID',
+            fixture: () => createFixture(),
+            request: insertRequest({ promptId: 'missing' }),
+            expectedCode: 'prompt-not-found',
+            expectedWarning: 'That Prompt is no longer available.',
+        },
+    ];
+
+    for (const [index, scenario] of scenarios.entries()) {
+        await t.test(scenario.name, async () => {
+            const fixture = scenario.fixture();
+            const result = await fixture.controller.handleInsertRequest({
+                ...(scenario.request || insertRequest()),
+                requestId: `error-${index}`,
+            });
+
+            assert.equal(result.success, false);
+            assert.equal(result.errorCode, scenario.expectedCode);
+            assert.deepEqual(fixture.warnings, [scenario.expectedWarning]);
+            assert.deepEqual(fixture.activeTerminal?.sent || [], []);
+            assert.doesNotMatch(JSON.stringify(result), /private body marker/);
+        });
+    }
+});
+
+test('SESSION-AI-PROMPT-TERMINAL-INSERTION-001 settles a closed or rejected direct-insert terminal once', async t => {
+    await t.test('closed before send', async () => {
+        const fixture = createFixture();
+        fixture.availableTerminals.clear();
+
+        const result = await fixture.controller.handleInsertRequest(insertRequest({
+            requestId: 'closed-terminal',
+        }));
+
+        assert.equal(result.success, false);
+        assert.equal(result.errorCode, 'terminal-unavailable');
+        assert.deepEqual(fixture.warnings, ['The selected terminal is no longer available.']);
+        assert.deepEqual(fixture.activeTerminal.sent, []);
+        assert.equal(fixture.activeTerminal.shown, 0);
+    });
+
+    await t.test('send rejects', async () => {
+        const terminal = createTerminal({
+            sendText: () => Promise.reject(new Error('terminal disposed')),
+        });
+        const fixture = createFixture({ terminal });
+
+        const result = await fixture.controller.handleInsertRequest(insertRequest({
+            requestId: 'rejected-terminal',
+        }));
+
+        assert.equal(result.success, false);
+        assert.equal(result.errorCode, 'terminal-unavailable');
+        assert.deepEqual(fixture.warnings, ['The selected terminal is no longer available.']);
+        assert.equal(terminal.shown, 0);
+    });
 });

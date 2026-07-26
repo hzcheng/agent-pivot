@@ -1057,7 +1057,13 @@ async function runOpenWorkspaceClientAndControllerChecks() {
                     accepted: true,
                     protocolVersion: 3,
                     bridgeExtensionVersion: '2.0.0',
-                    capabilities: { workspaces: true, atomicReplace: true, focusLeases: true },
+                    capabilities: {
+                        workspaces: true,
+                        atomicReplace: true,
+                        focusLeases: true,
+                        authoritativeUris: true,
+                        uiHostNavigation: true,
+                    },
                 };
             }
             return { accepted: true };
@@ -1296,11 +1302,7 @@ async function runWorkspaceNavigationControllerChecks() {
         executeCommand: async (...args) => {
             executions.push(args);
             if (directExecutionFails) { throw new Error('forced direct navigation failure'); }
-        },
-        parseUri: value => {
-            const parsed = { parsed: value };
-            parsedUris.push(parsed);
-            return parsed;
+            return { protocolVersion: 3, opened: true };
         },
         showInformationMessage: message => { informationMessages.push(message); },
         showWarningMessage: message => { warningMessages.push(message); },
@@ -1330,16 +1332,20 @@ async function runWorkspaceNavigationControllerChecks() {
                 roots: [makeWorkspaceRoot(60 + caseIndex, { uri: rootUri })],
             });
             await controller.open('live-card');
-            assert.deepStrictEqual(parsedUris, [{ parsed: record.navigationUri }]);
+            assert.deepStrictEqual(parsedUris, []);
             assert.deepStrictEqual(executions, [[
-                'vscode.openFolder',
-                parsedUris[0],
-                { forceNewWindow: true },
-            ]], `${environment}/${kind} must open the exact navigation URI in a new window`);
+                '_agentPivotOpenWorkspaces.bridge.navigate',
+                {
+                    protocolVersion: 3,
+                    navigationIdentity: record.navigationIdentity,
+                },
+            ]], `${environment}/${kind} must route the exact identity through the UI Bridge`);
             assert.deepStrictEqual(informationMessages, []);
             assert.deepStrictEqual(warningMessages, []);
             assert.strictEqual(JSON.stringify(executions).includes(rootUri), false,
                 `${environment}/${kind} must never open a member root URI`);
+            assert.strictEqual(JSON.stringify(executions).includes(record.navigationUri), false,
+                `${environment}/${kind} must not send a navigation URI through the remote host`);
         }
     }
 
@@ -1373,9 +1379,11 @@ async function runWorkspaceNavigationControllerChecks() {
     warningMessages.length = 0;
     await controller.open('live-card');
     assert.deepStrictEqual(executions, [[
-        'vscode.openFolder',
-        parsedUris[0],
-        { forceNewWindow: true },
+        '_agentPivotOpenWorkspaces.bridge.navigate',
+        {
+            protocolVersion: 3,
+            navigationIdentity: record.navigationIdentity,
+        },
     ]]);
     assert.deepStrictEqual(warningMessages, [
         'Unable to switch directly to this workspace. Use VS Code Switch Window instead.',
@@ -1390,7 +1398,13 @@ async function runOpenWorkspaceHardeningChecks() {
         accepted: true,
         protocolVersion: 3,
         bridgeExtensionVersion: '2.0.0',
-        capabilities: { workspaces: true, atomicReplace: true, focusLeases: true },
+        capabilities: {
+            workspaces: true,
+            atomicReplace: true,
+            focusLeases: true,
+            authoritativeUris: true,
+            uiHostNavigation: true,
+        },
     };
 
     const terminalHandshakeCases = [
@@ -3583,6 +3597,9 @@ async function runCoordinatorWiringChecks() {
     const bridgeOutputLines = [];
     let aggregateDeliveryError = null;
     const vscode = {
+        Uri: {
+            parse: value => ({ value }),
+        },
         window: {
             createOutputChannel: name => {
                 assert.strictEqual(name, 'Agent Pivot UI Bridge');
@@ -3636,27 +3653,47 @@ async function runCoordinatorWiringChecks() {
         const handshake = registeredCommands.get('_agentPivotOpenWorkspaces.bridge.handshake');
         const publish = registeredCommands.get('_agentPivotOpenWorkspaces.bridge.publish');
         const unregister = registeredCommands.get('_agentPivotOpenWorkspaces.bridge.unregister');
+        const navigate = registeredCommands.get('_agentPivotOpenWorkspaces.bridge.navigate');
         assert.strictEqual(typeof handshake, 'function');
         assert.strictEqual(typeof publish, 'function');
         assert.strictEqual(typeof unregister, 'function');
+        assert.strictEqual(typeof navigate, 'function');
         assert.strictEqual(registeredCommands.has('_agentPivotOpenProjects.bridge.publish'), false);
         assert.deepStrictEqual(await handshake({
             protocolVersion: 2,
             mainExtensionVersion: '1.0.0',
             instanceId: SELF,
-            capabilities: { workspaces: true, atomicReplace: true, focusLeases: true },
+            capabilities: {
+                workspaces: true,
+                atomicReplace: true,
+                focusLeases: true,
+                authoritativeUris: true,
+                uiHostNavigation: true,
+            },
         }), {
             accepted: false,
             protocolVersion: 3,
             bridgeExtensionVersion: 'unknown',
-            capabilities: { workspaces: true, atomicReplace: true, focusLeases: true },
+            capabilities: {
+                workspaces: true,
+                atomicReplace: true,
+                focusLeases: true,
+                authoritativeUris: true,
+                uiHostNavigation: true,
+            },
             errorCode: 'update-required',
         });
         assert.strictEqual((await handshake({
             protocolVersion: 3,
             mainExtensionVersion: '2.0.0',
             instanceId: SELF,
-            capabilities: { workspaces: true, atomicReplace: true, focusLeases: true },
+            capabilities: {
+                workspaces: true,
+                atomicReplace: true,
+                focusLeases: true,
+                authoritativeUris: true,
+                uiHostNavigation: true,
+            },
         })).accepted, true);
 
         const remoteWorkspace = makeWorkspaceRecord(42, {

@@ -4,6 +4,7 @@ import * as crypto from 'crypto';
 import * as vscode from 'vscode';
 
 import {
+    OPEN_WORKSPACE_CAPABILITIES,
     OPEN_WORKSPACE_PROTOCOL_VERSION,
     OPEN_WORKSPACE_HEARTBEAT_MS,
     OpenWorkspaceAggregate,
@@ -67,7 +68,7 @@ interface OpenWorkspaceHandshakeResponse {
     accepted: boolean;
     protocolVersion: 3;
     bridgeExtensionVersion: string;
-    capabilities: { workspaces: true; atomicReplace: true; focusLeases: true };
+    capabilities: typeof OPEN_WORKSPACE_CAPABILITIES;
     errorCode?: 'update-required';
 }
 
@@ -97,10 +98,10 @@ function validateHandshakeResponse(raw: unknown): OpenWorkspaceHandshakeResponse
     }
     const capabilities = response.capabilities as Record<string, unknown>;
     if (!capabilities || typeof capabilities !== 'object' || Array.isArray(capabilities)
-        || !exactKeys(capabilities, ['workspaces', 'atomicReplace', 'focusLeases'])
-        || capabilities.workspaces !== true
-        || capabilities.atomicReplace !== true
-        || capabilities.focusLeases !== true) {
+        || !exactKeys(capabilities, Object.keys(OPEN_WORKSPACE_CAPABILITIES))
+        || Object.keys(OPEN_WORKSPACE_CAPABILITIES).some(
+            capability => capabilities[capability] !== true
+        )) {
         return incompatibleHandshake();
     }
     if (response.errorCode !== undefined && response.errorCode !== 'update-required') {
@@ -355,7 +356,7 @@ export default class OpenWorkspaceBridgeClient implements vscode.Disposable {
                     protocolVersion: OPEN_WORKSPACE_PROTOCOL_VERSION,
                     mainExtensionVersion: this.mainExtensionVersion,
                     instanceId: this.instanceId,
-                    capabilities: { workspaces: true, atomicReplace: true, focusLeases: true },
+                    capabilities: OPEN_WORKSPACE_CAPABILITIES,
                 },
             ));
             if (this.disposed) { return false; }

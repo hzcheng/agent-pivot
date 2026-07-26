@@ -160,7 +160,13 @@ test('ARCH-COORDINATOR-WIRING-001 carries sequenced publications through the bri
         accepted: true,
         protocolVersion: 3,
         bridgeExtensionVersion: '0.1.4',
-        capabilities: { workspaces: true, atomicReplace: true, focusLeases: true },
+        capabilities: {
+            workspaces: true,
+            atomicReplace: true,
+            focusLeases: true,
+            authoritativeUris: true,
+            uiHostNavigation: true,
+        },
     }));
 
     const client = new OpenWorkspaceBridgeClient(

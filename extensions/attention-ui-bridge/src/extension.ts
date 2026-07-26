@@ -20,7 +20,11 @@ import {
 import { parseRoutingChallenge } from '../../../shared/attention-bridge/protocol';
 import { ProbeSnapshot } from '../../../shared/attention-bridge/storeProtocol';
 import { createWorkspaceIdentity } from '../../../shared/attention-bridge/workspaceIdentity';
-import { OPEN_WORKSPACE_PROTOCOL_VERSION } from '../../../src/openWorkspaces/protocol';
+import {
+    OPEN_WORKSPACE_CAPABILITIES,
+    OPEN_WORKSPACE_NAVIGATE_COMMAND,
+    OPEN_WORKSPACE_PROTOCOL_VERSION,
+} from '../../../src/openWorkspaces/protocol';
 
 const BRIDGE_CHALLENGE = '_agentPivotAttentionSpike.bridge.challenge';
 const WORKSPACE_CHALLENGE = '_agentPivotAttentionSpike.workspace.challenge';
@@ -39,7 +43,6 @@ const OPEN_WORKSPACE_BRIDGE_PUBLISH = '_agentPivotOpenWorkspaces.bridge.publish'
 const OPEN_WORKSPACE_BRIDGE_UNREGISTER = '_agentPivotOpenWorkspaces.bridge.unregister';
 const OPEN_WORKSPACE_AGGREGATE = '_agentPivotOpenWorkspaces.workspace.aggregate';
 const OPEN_WORKSPACE_DIAGNOSTIC = '_agentPivotOpenWorkspaces.workspace.diagnostic';
-const OPEN_WORKSPACE_CAPABILITIES = { workspaces: true, atomicReplace: true, focusLeases: true } as const;
 
 interface AggregateState {
     bridgeProcessId: string;
@@ -236,6 +239,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         OPEN_WORKSPACE_BRIDGE_UNREGISTER,
         (raw: unknown) => openWorkspaceCoordinator.unregister(raw),
     );
+    const openWorkspaceNavigateDisposable = vscode.commands.registerCommand(
+        OPEN_WORKSPACE_NAVIGATE_COMMAND,
+        async (raw: unknown) => {
+            const target = await openWorkspaceCoordinator.resolveNavigationTarget(raw);
+            await vscode.commands.executeCommand(
+                'vscode.openFolder',
+                vscode.Uri.parse(target.navigationUri),
+                { forceNewWindow: true },
+            );
+            return {
+                protocolVersion: OPEN_WORKSPACE_PROTOCOL_VERSION,
+                opened: true,
+            };
+        },
+    );
     const statusDisposable = vscode.commands.registerCommand(BRIDGE_STATUS, async () => {
         const scan = await store.scan(Date.now());
         return {
@@ -291,6 +309,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         openWorkspaceHandshakeDisposable,
         openWorkspacePublishDisposable,
         openWorkspaceUnregisterDisposable,
+        openWorkspaceNavigateDisposable,
         statusDisposable,
         watcherDisposable,
         clearDisposable,
@@ -333,9 +352,9 @@ function isOpenWorkspaceHandshakeCompatible(raw: unknown): boolean {
         && !Array.isArray(capabilities)
         && Object.keys(capabilities).sort().join('\n')
             === Object.keys(OPEN_WORKSPACE_CAPABILITIES).sort().join('\n')
-        && capabilities.workspaces === true
-        && capabilities.atomicReplace === true
-        && capabilities.focusLeases === true;
+        && Object.keys(OPEN_WORKSPACE_CAPABILITIES).every(
+            capability => capabilities[capability] === true
+        );
 }
 
 function readBridgeExtensionVersion(context: vscode.ExtensionContext): string {

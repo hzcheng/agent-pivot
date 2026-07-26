@@ -21,7 +21,13 @@ function handshakeResponse() {
         accepted: true,
         protocolVersion: 3,
         bridgeExtensionVersion: '0.1.4',
-        capabilities: { workspaces: true, atomicReplace: true, focusLeases: true },
+        capabilities: {
+            workspaces: true,
+            atomicReplace: true,
+            focusLeases: true,
+            authoritativeUris: true,
+            uiHostNavigation: true,
+        },
     };
 }
 
@@ -120,6 +126,46 @@ test('OPEN-BRIDGE-CLIENT-001 retries the same semantic publication after command
     await flushAsync();
     assert.deepEqual(attempts.map(value => value.sequence), [1, 2]);
     assert.equal(errors.length, 1);
+});
+
+test('OPEN-WORKSPACE-BRIDGE-COMPATIBILITY-001 rejects a Bridge without authoritative UI-host navigation', async t => {
+    const commands = [];
+    const statuses = [];
+    const client = new OpenWorkspaceBridgeClient(
+        makeRecord(),
+        () => undefined,
+        () => undefined,
+        {
+            instanceId: '6'.repeat(32),
+            now: () => 1000,
+            registerCommand: () => ({ dispose: () => undefined }),
+            executeCommand: async command => {
+                commands.push(command);
+                if (command === '_agentPivotOpenWorkspaces.bridge.handshake') {
+                    return {
+                        accepted: true,
+                        protocolVersion: 3,
+                        bridgeExtensionVersion: '0.1.4',
+                        capabilities: {
+                            workspaces: true,
+                            atomicReplace: true,
+                            focusLeases: true,
+                        },
+                    };
+                }
+            },
+            setInterval: () => 'heartbeat',
+            clearInterval: () => undefined,
+            setTimeout: () => 'retry',
+            clearTimeout: () => undefined,
+            onStatusChange: status => statuses.push(status),
+        }
+    );
+    t.after(() => client.dispose());
+    await flushAsync();
+
+    assert.deepEqual(statuses, ['update-required']);
+    assert.deepEqual(commands, ['_agentPivotOpenWorkspaces.bridge.handshake']);
 });
 
 test('OPEN-DASHBOARD-BRIDGE-LIFECYCLE-001 publishes a focus marker only when the window gains focus', () => {

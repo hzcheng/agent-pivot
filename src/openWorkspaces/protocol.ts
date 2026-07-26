@@ -6,6 +6,14 @@ import { URL } from 'url';
 import type { OpenWorkspaceEnvironment, OpenWorkspaceKind } from '../workspaces/types';
 
 export const OPEN_WORKSPACE_PROTOCOL_VERSION = 3;
+export const OPEN_WORKSPACE_NAVIGATE_COMMAND = '_agentPivotOpenWorkspaces.bridge.navigate';
+export const OPEN_WORKSPACE_CAPABILITIES = {
+    workspaces: true,
+    atomicReplace: true,
+    focusLeases: true,
+    authoritativeUris: true,
+    uiHostNavigation: true,
+} as const;
 export const OPEN_WORKSPACE_HEARTBEAT_MS = 10_000;
 export const OPEN_WORKSPACE_LEASE_MS = 30_000;
 export const MAX_OPEN_WORKSPACE_ROOTS = 100;
@@ -60,6 +68,16 @@ export interface OpenWorkspaceAggregateV3 {
     semanticRevision: string;
     observedAtMs: number;
     registrations: OpenWorkspaceRegistrationV3[];
+}
+
+export interface OpenWorkspaceNavigationRequestV3 {
+    protocolVersion: 3;
+    navigationIdentity: string;
+}
+
+export interface OpenWorkspaceNavigationOutcomeV3 {
+    protocolVersion: 3;
+    opened: true;
 }
 
 export type OpenWorkspacePublication = OpenWorkspacePublicationV3;
@@ -304,6 +322,33 @@ export function validateOpenWorkspaceAggregate(value: unknown): OpenWorkspaceAgg
         semanticRevision: requireIdentity(aggregate.semanticRevision, 'semanticRevision'),
         observedAtMs: requireFiniteNonNegativeNumber(aggregate.observedAtMs, 'observedAtMs'),
         registrations,
+    };
+}
+
+export function validateOpenWorkspaceNavigationRequest(value: unknown): OpenWorkspaceNavigationRequestV3 {
+    const request = requireObject(value, 'open workspace navigation request');
+    requireExactKeys(request, 'open workspace navigation request', [
+        'protocolVersion',
+        'navigationIdentity',
+    ]);
+    return {
+        protocolVersion: requireProtocolVersion(request.protocolVersion),
+        navigationIdentity: requireIdentity(request.navigationIdentity, 'navigationIdentity'),
+    };
+}
+
+export function validateOpenWorkspaceNavigationOutcome(value: unknown): OpenWorkspaceNavigationOutcomeV3 {
+    const outcome = requireObject(value, 'open workspace navigation outcome');
+    requireExactKeys(outcome, 'open workspace navigation outcome', [
+        'protocolVersion',
+        'opened',
+    ]);
+    if (outcome.opened !== true) {
+        throw new Error('open workspace navigation outcome must be opened');
+    }
+    return {
+        protocolVersion: requireProtocolVersion(outcome.protocolVersion),
+        opened: true,
     };
 }
 

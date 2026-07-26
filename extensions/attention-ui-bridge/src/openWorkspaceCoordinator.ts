@@ -7,8 +7,10 @@ import {
     OPEN_WORKSPACE_PROTOCOL_VERSION,
     OpenWorkspaceAggregate,
     OpenWorkspacePublication,
+    OpenWorkspaceRecord,
     OpenWorkspaceRegistration,
     validateOpenWorkspaceAggregate,
+    validateOpenWorkspaceNavigationRequest,
     validateOpenWorkspacePublication,
 } from '../../../src/openWorkspaces/protocol';
 import { OpenWorkspaceStore, OpenWorkspaceStoreScan } from './openWorkspaceStore';
@@ -191,6 +193,31 @@ export class OpenWorkspaceCoordinator {
             () => { if (this.scanPromise === scanPromise) this.scanPromise = undefined; },
         );
         return scanPromise;
+    }
+
+    public async resolveNavigationTarget(raw: unknown): Promise<OpenWorkspaceRecord> {
+        this.ensureActive();
+        const request = validateOpenWorkspaceNavigationRequest(raw);
+        if (this.store === undefined) {
+            throw new Error('open workspace coordinator has no active registry');
+        }
+        const observedAtMs = validateTimestamp(this.dependencies.now());
+        const scan = await this.store.scan(observedAtMs);
+        const matches = scan.registrations
+            .filter(registration =>
+                registration.workspace?.navigationIdentity === request.navigationIdentity
+            )
+            .sort(compareRegistrationPriority);
+        const target = matches[0]?.workspace;
+        if (!target || target.kind === 'untitledMultiRoot') {
+            throw new Error('open workspace navigation target is stale or unavailable');
+        }
+        if (matches.some(registration =>
+            registration.workspace?.navigationUri !== target.navigationUri
+        )) {
+            throw new Error('open workspace navigation target is ambiguous');
+        }
+        return target;
     }
 
     public dispose(): void {

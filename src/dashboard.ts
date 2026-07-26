@@ -519,7 +519,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     let openWorkspaceController: OpenWorkspaceController;
     let openWorkspaceDashboardController: OpenWorkspaceDashboardController;
     let projectsPanelController: ProjectsPanelController | undefined;
-    let workspaceNavigationController: WorkspaceNavigationController<vscode.Uri>;
+    let workspaceNavigationController: WorkspaceNavigationController;
     const resolveCurrentOpenWorkspace = (): OpenWorkspace | null => workspaceContextResolver.resolve({
         workspaceFile: vscode.workspace.workspaceFile,
         workspaceFolders: vscode.workspace.workspaceFolders,
@@ -1592,10 +1592,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         logDiagnostic: logOpenWorkspaceDiagnostic,
         logError,
     });
-    workspaceNavigationController = new WorkspaceNavigationController<vscode.Uri>({
+    workspaceNavigationController = new WorkspaceNavigationController({
         getRecord: cardId => openWorkspaceDashboardController.getNavigationWorkspace(cardId),
         executeCommand: (command, ...args) => vscode.commands.executeCommand(command, ...args),
-        parseUri: value => vscode.Uri.parse(value),
         showInformationMessage: message => vscode.window.showInformationMessage(message),
         showWarningMessage: message => vscode.window.showWarningMessage(message),
         refresh: refreshStewardViews,

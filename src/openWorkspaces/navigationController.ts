@@ -1,18 +1,22 @@
 'use strict';
 
+import {
+    OPEN_WORKSPACE_NAVIGATE_COMMAND,
+    OPEN_WORKSPACE_PROTOCOL_VERSION,
+    validateOpenWorkspaceNavigationOutcome,
+} from './protocol';
 import type { OpenWorkspaceRecord } from './protocol';
 
-export interface WorkspaceNavigationControllerOptions<TUri = unknown> {
+export interface WorkspaceNavigationControllerOptions {
     getRecord: (cardId: string) => OpenWorkspaceRecord | null;
     executeCommand: (command: string, ...args: unknown[]) => Thenable<unknown> | Promise<unknown>;
-    parseUri: (value: string) => TUri;
     showInformationMessage: (message: string) => unknown;
     showWarningMessage: (message: string) => unknown;
     refresh: (reason: string) => void;
 }
 
-export class WorkspaceNavigationController<TUri = unknown> {
-    constructor(private readonly options: WorkspaceNavigationControllerOptions<TUri>) {
+export class WorkspaceNavigationController {
+    constructor(private readonly options: WorkspaceNavigationControllerOptions) {
     }
 
     async open(cardId: string): Promise<void> {
@@ -28,11 +32,13 @@ export class WorkspaceNavigationController<TUri = unknown> {
         }
 
         try {
-            await this.options.executeCommand(
-                'vscode.openFolder',
-                this.options.parseUri(record.navigationUri),
-                { forceNewWindow: true },
-            );
+            validateOpenWorkspaceNavigationOutcome(await this.options.executeCommand(
+                OPEN_WORKSPACE_NAVIGATE_COMMAND,
+                {
+                    protocolVersion: OPEN_WORKSPACE_PROTOCOL_VERSION,
+                    navigationIdentity: record.navigationIdentity,
+                },
+            ));
         } catch (_error) {
             this.options.showWarningMessage(
                 'Unable to switch directly to this workspace. Use VS Code Switch Window instead.',

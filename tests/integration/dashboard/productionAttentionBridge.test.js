@@ -7,11 +7,14 @@ const path = require('node:path');
 const test = require('node:test');
 const { makeTempDirectory } = require('../../helpers/tempDirectory');
 
-test('ATTENTION-PRODUCTION-ATTENTION-BRIDGE-INTEGRATION-001 activates the production bridge/client handshake, schema, storage, and cleanup', async t => {
+test('ATTENTION-PRODUCTION-ATTENTION-BRIDGE-INTEGRATION-001 OPEN-WORKSPACE-UI-HOST-NAVIGATION-001 OPEN-WORKSPACE-BRIDGE-COMPATIBILITY-001 activates the production bridge and opens authoritative workspaces from the UI host', async t => {
     const root = makeTempDirectory(t, 'production-attention-bridge-');
     const registered = new Map();
     const executed = [];
     const vscode = {
+        Uri: {
+            parse: value => ({ value }),
+        },
         window: {
             createOutputChannel: () => ({ appendLine() {}, dispose() {} }),
         },
@@ -29,10 +32,10 @@ test('ATTENTION-PRODUCTION-ATTENTION-BRIDGE-INTEGRATION-001 activates the produc
                 registered.set(command, callback);
                 return { dispose: () => registered.delete(command) };
             },
-            executeCommand: async (command, argument) => {
-                executed.push({ command, argument });
+            executeCommand: async (command, ...args) => {
+                executed.push({ command, args });
                 const callback = registered.get(command);
-                return callback ? callback(argument) : undefined;
+                return callback ? callback(args[0]) : undefined;
             },
         },
     };
@@ -64,8 +67,57 @@ test('ATTENTION-PRODUCTION-ATTENTION-BRIDGE-INTEGRATION-001 activates the produc
             '_agentPivotAttention.bridge.publish',
             '_agentPivotAttention.bridge.unregister',
             '_agentPivotAttention.bridge.acknowledge',
+            '_agentPivotOpenWorkspaces.bridge.navigate',
         ];
         for (const command of requiredCommands) assert.equal(typeof registered.get(command), 'function');
+
+        const openWorkspacePublish = registered.get('_agentPivotOpenWorkspaces.bridge.publish');
+        await openWorkspacePublish({
+            protocolVersion: 3,
+            instanceId: 'c'.repeat(32),
+            sequence: 1,
+            followsFocusEvent: true,
+            workspace: {
+                navigationIdentity: '1'.repeat(64),
+                scopeIdentity: '2'.repeat(64),
+                kind: 'singleFolder',
+                displayName: 'reddb',
+                navigationUri: 'file:///home/sensitive-user/private-project',
+                environment: 'ssh',
+                runningAiSessionCount: 0,
+                roots: [{
+                    id: '3'.repeat(64),
+                    name: 'reddb',
+                    uri: 'file:///home/sensitive-user/private-project',
+                    ordinal: 0,
+                }],
+            },
+        });
+        const openWorkspaceAggregate = executed
+            .filter(entry => entry.command === '_agentPivotOpenWorkspaces.workspace.aggregate')
+            .at(-1).args[0];
+        const authoritativeWorkspace = openWorkspaceAggregate.registrations
+            .find(registration => registration.instanceId === 'c'.repeat(32)).workspace;
+        const navigate = registered.get('_agentPivotOpenWorkspaces.bridge.navigate');
+        const navigationOutcome = await navigate({
+            protocolVersion: 3,
+            navigationIdentity: authoritativeWorkspace.navigationIdentity,
+        });
+        assert.deepEqual(navigationOutcome, {
+            protocolVersion: 3,
+            opened: true,
+        });
+        assert.deepEqual(
+            executed.filter(entry => entry.command === 'vscode.openFolder').at(-1),
+            {
+                command: 'vscode.openFolder',
+                args: [{
+                    value: 'vscode-remote://ssh-remote%2Bsensitive-host/home/sensitive-user/private-project',
+                }, {
+                    forceNewWindow: true,
+                }],
+            },
+        );
 
         const aggregates = [];
         const errors = [];
@@ -88,7 +140,7 @@ test('ATTENTION-PRODUCTION-ATTENTION-BRIDGE-INTEGRATION-001 activates the produc
         const publish = registered.get('_agentPivotAttention.bridge.publish');
         const unregister = registered.get('_agentPivotAttention.bridge.unregister');
         const validSnapshot = executed.find(entry =>
-            entry.command === '_agentPivotAttention.bridge.publish').argument;
+            entry.command === '_agentPivotAttention.bridge.publish').args[0];
         const handshakeResponse = await handshake({
             protocolVersion: 1, mainExtensionVersion: '2.1.3', instanceId: 'b'.repeat(32),
         });
@@ -96,6 +148,18 @@ test('ATTENTION-PRODUCTION-ATTENTION-BRIDGE-INTEGRATION-001 activates the produc
         assert.deepEqual(handshakeResponse.capabilities, {
             snapshots: true, acknowledgements: true, atomicReplace: true,
         });
+        assert.equal((await registered.get('_agentPivotOpenWorkspaces.bridge.handshake')({
+            protocolVersion: 3,
+            mainExtensionVersion: '2.1.3',
+            instanceId: 'd'.repeat(32),
+            capabilities: {
+                workspaces: true,
+                atomicReplace: true,
+                focusLeases: true,
+                authoritativeUris: true,
+                uiHostNavigation: false,
+            },
+        })).accepted, false);
         await assert.rejects(
             unregister({ protocolVersion: 1, instanceId: validSnapshot.instanceId, unexpected: true }),
             /unexpected fields/
@@ -123,7 +187,7 @@ test('ATTENTION-PRODUCTION-ATTENTION-BRIDGE-INTEGRATION-001 activates the produc
 
         const unregisterCount = () => executed.filter(entry =>
             entry.command === '_agentPivotAttention.bridge.unregister'
-            && entry.argument?.instanceId === validSnapshot.instanceId).length;
+            && entry.args[0]?.instanceId === validSnapshot.instanceId).length;
         assert.equal(fs.existsSync(path.join(productionRoot, `${validSnapshot.instanceId}.json`)), true);
         client.dispose();
         for (let attempt = 0; attempt < 50

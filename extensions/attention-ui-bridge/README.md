@@ -9,8 +9,8 @@ coordination records through the local UI host's VS Code extension storage.
 Install it on the local UI host; installing the main Agent Pivot extension in a
 remote workspace host is not a substitute for the local companion.
 
-The bridge does not record conversation content, prompts, responses, hostnames,
-remote authorities, or absolute project paths.
+The bridge records workspace and root URIs locally for open-workspace coordination. Those URIs can include absolute local paths or remote-authority identifiers.
+The bridge does not record conversation content, prompts, or responses.
 
 Agent Pivot began as a fork of Kruemelkatze/vscode-dashboard and retains the upstream MIT attribution.
 

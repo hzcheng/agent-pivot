@@ -207,9 +207,8 @@ The Marketplace-facing documentation includes:
 - the main and companion relationship;
 - links to the license, third-party notices, source, issues, and release notes.
 
-The companion README explains that it is a local UI-host dependency, has no
-user-facing commands, and does not record conversation content, prompts,
-responses, hostnames, remote authorities, or absolute project paths.
+The companion README explains that it is a local UI-host dependency and has no
+user-facing commands. It states that the bridge records workspace and root URIs locally for open-workspace coordination. Those URIs can include absolute local paths or remote-authority identifiers. The bridge does not record conversation content, prompts, or responses.
 
 ## Attribution and Third-Party Content
 

@@ -143,9 +143,7 @@ Agent Pivot uses these local data sources and stores:
 - Local extension state for managed terminal and tmux metadata used to find and
   reattach known runtimes.
 - The local companion bridge directory in the UI host's VS Code extension
-  storage. The bridge keeps bounded attention and open-workspace coordination
-  records and does not record conversation content, prompts, responses,
-  hostnames, remote authorities, or absolute project paths.
+  storage. The bridge records workspace and root URIs locally for bounded attention and open-workspace coordination. Those URIs can include absolute local paths or remote-authority identifiers. It does not record conversation content, prompts, or responses.
 
 Provider tools are installed and authenticated separately and may have their
 own network, telemetry, retention, and account behavior. VS Code, Settings

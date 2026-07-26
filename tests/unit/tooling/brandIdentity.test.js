@@ -1,6 +1,7 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -17,6 +18,30 @@ const repositoryRoot = path.resolve(__dirname, '../../..');
 
 function read(relativePath) {
     return fs.readFileSync(path.join(repositoryRoot, relativePath), 'utf8');
+}
+
+function readBuffer(relativePath) {
+    return fs.readFileSync(path.join(repositoryRoot, relativePath));
+}
+
+function markdownSection(markdown, heading) {
+    const start = markdown.indexOf(`## ${heading}`);
+    assert.notEqual(start, -1, `Missing Markdown section: ${heading}`);
+    const next = markdown.indexOf('\n## ', start + heading.length + 3);
+    return markdown.slice(start, next === -1 ? markdown.length : next);
+}
+
+function assertLocalMarkdownLinksResolve(relativePath) {
+    const markdown = read(relativePath);
+    for (const match of markdown.matchAll(/\[[^\]]+\]\(([^)]+)\)/g)) {
+        const target = match[1];
+        if (/^https?:\/\//.test(target)) continue;
+        const resolved = path.resolve(
+            repositoryRoot, path.dirname(relativePath), target
+        );
+        assert.equal(fs.existsSync(resolved), true,
+            `${relativePath} local link must resolve: ${target}`);
+    }
 }
 
 function manifests() {
@@ -75,32 +100,168 @@ function manifests() {
     };
 }
 
-test('marketplace documentation and legal notices expose the approved identity', () => {
-    assert.match(read('README.md'),
+test('marketplace README exposes the approved identity and durable links', () => {
+    const mainReadme = read('README.md');
+    assert.match(mainReadme,
         /^# Agent Pivot$/m);
-    assert.match(read('README.md'),
+    assert.match(mainReadme,
         /Switch, monitor, and resume Codex, Claude, and Kimi sessions/);
-    assert.match(read('README.md'),
+    assert.match(mainReadme,
         /^## Privacy and local data$/m);
-    assert.match(read('README.md'),
+    assert.match(mainReadme,
         /does not upload conversation content to an Agent Pivot service/);
-    assert.match(read('README.md'),
+    assert.match(mainReadme,
         /began as a fork of Kruemelkatze\/vscode-dashboard/);
+    assert.match(mainReadme,
+        /\[Source repository\]\(https:\/\/github\.com\/hzcheng\/agent-pivot\)/);
+    assert.match(mainReadme,
+        /\[Issue tracker\]\(https:\/\/github\.com\/hzcheng\/agent-pivot\/issues\)/);
+    assertLocalMarkdownLinksResolve('README.md');
+});
+
+test('privacy copy discloses stored workspace URIs without broader negatives', () => {
+    const mainReadme = read('README.md');
     const bridgeReadme = read('extensions/attention-ui-bridge/README.md');
     assert.match(bridgeReadme, /^# Agent Pivot Attention UI Bridge$/m);
     assert.match(bridgeReadme, /has no user-facing commands/);
-    for (const value of [
-        'conversation content',
-        'prompts',
-        'responses',
-        'hostnames',
-        'remote authorities',
-        'absolute project paths',
-    ]) {
-        assert.match(bridgeReadme, new RegExp(`does not[\\s\\S]*${value}`));
+    for (const markdown of [mainReadme, bridgeReadme]) {
+        assert.match(markdown,
+            /records workspace and root URIs locally/);
+        assert.match(markdown,
+            /Those URIs can include absolute local paths or remote-authority identifiers\./);
+        assert.match(markdown,
+            /does not record conversation content, prompts, or responses\./);
+        assert.doesNotMatch(markdown,
+            /does not record[^.]*hostnames/i);
+        assert.doesNotMatch(markdown,
+            /does not record[^.]*remote authorities/i);
+        assert.doesNotMatch(markdown,
+            /does not record[^.]*absolute project paths/i);
     }
+    assertLocalMarkdownLinksResolve(
+        'extensions/attention-ui-bridge/README.md'
+    );
+});
+
+test('first-party licenses retain upstream MIT terms and current copyright', () => {
+    const exactTerms = `Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.`;
+    const licenses = [
+        read('LICENSE'),
+        read('extensions/attention-ui-bridge/LICENSE'),
+    ];
+    assert.equal(licenses[0], licenses[1]);
+    for (const license of licenses) {
+        assert.match(license, /^MIT License$/m);
+        assert.match(license, /^Copyright \(c\) 2018$/m);
+        assert.match(license, /^Copyright \(c\) 2026 hzcheng$/m);
+        assert.equal(license.includes(exactTerms), true);
+    }
+});
+
+test('third-party notices preserve authoritative installed license artifacts', () => {
+    const notices = read('THIRD_PARTY_NOTICES.md');
+    for (const [heading, licensePath] of [
+        [
+            'dom-autoscroller 2.3.4 — MIT — Copyright Quentin Engles',
+            'node_modules/dom-autoscroller/LICENSE',
+        ],
+        [
+            'dragula 3.7.3 — MIT — Copyright Nicolas Bevacqua',
+            'node_modules/dragula/license',
+        ],
+        [
+            'fitty 2.3.5 — MIT — Copyright Rik Schennink',
+            'node_modules/fitty/LICENSE',
+        ],
+    ]) {
+        const section = markdownSection(notices, heading);
+        assert.equal(section.includes(read(licensePath)), true,
+            `${heading} must contain its installed license verbatim`);
+    }
+    assert.deepEqual(
+        readBuffer('licenses/DOMPurify-Apache-2.0.txt'),
+        readBuffer('node_modules/dompurify/LICENSE')
+    );
+});
+
+test('Sharingan notice retains source, author, license, and non-endorsement', () => {
+    const notice = markdownSection(
+        read('THIRD_PARTY_NOTICES.md'),
+        'Sharingan loading animation — CC BY-SA 3.0 — retained source/author attribution'
+    );
+    assert.match(notice, /authored by\s+ShounenSuki/);
+    assert.match(notice, /sourced from Narutopedia through Wikimedia Commons/);
+    assert.match(notice,
+        /https:\/\/creativecommons\.org\/licenses\/by-sa\/3\.0\//);
+    for (const source of [
+        'Mangekyou_Sharingan_Itachi.svg',
+        'Mangekyou_Sharingan_Madara_\\(Eternal\\).svg',
+        'Mangekyou_Sharingan_Madara.svg',
+        'Mangekyou_Sharingan_Kakashi.svg',
+        'Mangekyou_Sharingan_Sasuke.svg',
+        'Mangekyou_Sharingan_Shisui.svg',
+    ]) {
+        assert.match(notice, new RegExp(
+            `https://commons\\.wikimedia\\.org/wiki/File:${source}`
+        ));
+    }
+    assert.match(notice, /The files are distributed without modification\./);
+    assert.match(notice, /Their inclusion does not imply endorsement\./);
+});
+
+test('current changelog is clean while historical development bytes are locked', () => {
+    const changelog = read('CHANGELOG.md');
+    assert.match(changelog, /^## \[1\.0\.0\] - 2026-07-26$/m);
+    const boundary = '## Unpublished Project Steward development history';
+    const boundaryIndex = changelog.indexOf(boundary);
+    assert.notEqual(boundaryIndex, -1);
+    const currentRelease = changelog.slice(0, boundaryIndex);
+    assert.doesNotMatch(currentRelease,
+        /Project Steward|project-steward|projectSteward|hzcheng\.project-steward/);
+    assert.equal(
+        crypto.createHash('sha256')
+            .update(changelog.slice(boundaryIndex))
+            .digest('hex'),
+        'b9ba0a7c8b2adfff3afe44a18dd7dfd08f061879206124241e60b171ae1092db'
+    );
+});
+
+test('durable design records truthful bridge storage and a clean release note', () => {
+    const design = read(
+        'docs/superpowers/specs/2026-07-26-agent-pivot-brand-identity-design.md'
+    );
+    const plan = read(
+        'docs/superpowers/plans/2026-07-26-agent-pivot-brand-identity.md'
+    );
+    for (const document of [design, plan]) {
+        assert.match(document, /records workspace and root URIs locally/);
+        assert.match(document,
+            /absolute local paths or remote-authority identifiers/);
+        assert.match(document,
+            /does not record conversation content, prompts, or responses/);
+    }
+    assert.doesNotMatch(plan,
+        /companion bridge from Project Steward to Agent Pivot/);
+});
+
+test('marketplace notices name every required dependency', () => {
     assert.match(read('CHANGELOG.md'), /^## \[1\.0\.0\] - 2026-07-26$/m);
-    assert.match(read('LICENSE'), /Copyright \(c\) 2026 hzcheng/);
     for (const dependency of [
         'dom-autoscroller 2.3.4',
         'dragula 3.7.3',
@@ -110,9 +271,6 @@ test('marketplace documentation and legal notices expose the approved identity',
     ]) {
         assert.match(read('THIRD_PARTY_NOTICES.md'), new RegExp(dependency));
     }
-    assert.equal(fs.existsSync(path.join(
-        repositoryRoot, 'licenses/DOMPurify-Apache-2.0.txt'
-    )), true);
 });
 
 test('brand identity exposes the exact approved public contract', () => {
@@ -189,14 +347,14 @@ test('scanner does not hide stale identity in the current changelog section', ()
     assert.deepEqual(findStaleIdentity(root).map(item => item.line), [5]);
 });
 
-test('scanner permits only the reviewed 1.0.0 identity reset note', () => {
+test('scanner rejects stale identity in former release reset wording', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-release-'));
     fs.writeFileSync(path.join(root, 'CHANGELOG.md'),
         '# Changelog\n\n## [1.0.0] - 2026-07-26\n\n### Changed\n\n' +
         '- Reset the unpublished extension identity, commands, settings, state, managed\n' +
         '  runtime names, and companion bridge from Project Steward to Agent Pivot.\n\n' +
         '## Unpublished Project Steward development history\n');
-    assert.deepEqual(findStaleIdentity(root), []);
+    assert.deepEqual(findStaleIdentity(root).map(item => item.line), [8]);
 });
 
 test('scanner rejects inherited marketplace icon bytes by sha256', () => {

@@ -66,10 +66,6 @@ const INHERITED_ICON_SHA256 = Object.freeze([
 ]);
 const APPROVED_FORK_ATTRIBUTION =
     'Agent Pivot began as a fork of Kruemelkatze/vscode-dashboard and retains the upstream MIT attribution.';
-const APPROVED_CHANGELOG_RESET = Object.freeze([
-    '- Reset the unpublished extension identity, commands, settings, state, managed',
-    '  runtime names, and companion bridge from Project Steward to Agent Pivot.',
-]);
 
 function formatValue(value) {
     return value === undefined ? 'undefined' : JSON.stringify(value);
@@ -231,11 +227,6 @@ function findStaleIdentity(root) {
             if ((relativePath === 'README.md'
                 || relativePath === 'extensions/attention-ui-bridge/README.md')
                 && line === APPROVED_FORK_ATTRIBUTION) {
-                continue;
-            }
-            if (relativePath === 'CHANGELOG.md'
-                && line === APPROVED_CHANGELOG_RESET[1]
-                && lines[index - 1] === APPROVED_CHANGELOG_RESET[0]) {
                 continue;
             }
             if (changelogHistoryStart > 0 && index + 1 >= changelogHistoryStart) {

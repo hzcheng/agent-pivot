@@ -1111,16 +1111,11 @@ assert.match(read('README.md'),
 const bridgeReadme = read('extensions/attention-ui-bridge/README.md');
 assert.match(bridgeReadme, /^# Agent Pivot Attention UI Bridge$/m);
 assert.match(bridgeReadme, /has no user-facing commands/);
-for (const value of [
-    'conversation content',
-    'prompts',
-    'responses',
-    'hostnames',
-    'remote authorities',
-    'absolute project paths',
-]) {
-    assert.match(bridgeReadme, new RegExp(`does not[\\s\\S]*${value}`));
-}
+assert.match(bridgeReadme, /records workspace and root URIs locally/);
+assert.match(bridgeReadme,
+    /Those URIs can include absolute local paths or remote-authority identifiers\./);
+assert.match(bridgeReadme,
+    /does not record conversation content, prompts, or responses\./);
 assert.match(read('CHANGELOG.md'), /^## \[1\.0\.0\] - 2026-07-26$/m);
 assert.match(read('LICENSE'), /Copyright \(c\) 2026 hzcheng/);
 for (const dependency of [
@@ -1182,6 +1177,7 @@ State exactly what is local: VS Code settings/state, provider-local session
 metadata and transcript reads, managed terminal/tmux metadata, and the local
 companion bridge directory. State that Agent Pivot has no product telemetry
 service and does not upload conversation content to an Agent Pivot service.
+State that the bridge records workspace and root URIs locally. Those URIs can include absolute local paths or remote-authority identifiers. State that the bridge does not record conversation content, prompts, or responses.
 Avoid broader claims about VS Code, Codex, Claude, Kimi, GitHub, or user-chosen
 commands. State that Agent Pivot does not provide, proxy, or resell access to
 Codex, Claude, or Kimi; users install and authenticate provider tools
@@ -1222,7 +1218,7 @@ At the top of `CHANGELOG.md`, add:
 ### Changed
 
 - Reset the unpublished extension identity, commands, settings, state, managed
-  runtime names, and companion bridge from Project Steward to Agent Pivot.
+  runtime names, and companion bridge for the first Agent Pivot release.
 
 ## Unpublished Project Steward development history
 ```
@@ -1261,9 +1257,11 @@ credit, modifications statement, and CC BY-SA 3.0 link.
 
 Rewrite the bridge README heading and purpose as Agent Pivot, document that it
 is a required local UI-host companion rather than a standalone user feature,
-has no user-facing commands, and does not record conversation content,
-prompts, responses, hostnames, remote authorities, or absolute project paths.
-Use the approved fork-attribution sentence.
+has no user-facing commands, and records workspace and root URIs locally for
+open-workspace coordination. State that those URIs can include absolute local
+paths or remote-authority identifiers, and that the bridge does not record
+conversation content, prompts, or responses. Use the approved fork-attribution
+sentence.
 
 Replace current product references in the five repository-local `.codex`
 skills with Agent Pivot and the new artifact names. Do not change their safety

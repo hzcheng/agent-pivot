@@ -15,7 +15,7 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
 ### Changed
 
 - Reset the unpublished extension identity, commands, settings, state, managed
-  runtime names, and companion bridge from Project Steward to Agent Pivot.
+  runtime names, and companion bridge for the first Agent Pivot release.
 
 ## Unpublished Project Steward development history
 

@@ -21,10 +21,18 @@
         'unsupported-version',
         'cancelled',
     ]);
+    var INSERT_ERROR_CODES = new Set([
+        'no-active-terminal',
+        'prompt-unavailable',
+        'prompt-not-found',
+        'terminal-unavailable',
+    ]);
     var state = {
         snapshot: null,
         pending: new Map(),
         settled: new Set(),
+        pendingInserts: new Map(),
+        settledInserts: new Set(),
         draft: null,
         blockedDraft: false,
         activeSubtab: 'prompts',
@@ -52,6 +60,15 @@
             message.requestId,
             message.target,
             message.operation,
+        ].join(':');
+    }
+
+    function insertCorrelationKey(message) {
+        return [
+            message.version,
+            message.requestId,
+            message.target,
+            'insert-terminal',
         ].join(':');
     }
 
@@ -141,6 +158,25 @@
             && (message.success
                 ? message.errorCode === undefined
                 : ERROR_CODES.has(message.errorCode));
+    }
+
+    function isInsertResult(message) {
+        return hasExactKeys(message, [
+            'type',
+            'version',
+            'requestId',
+            'target',
+            'success',
+            'errorCode',
+        ])
+            && message.type === 'prompt-insert-terminal-result'
+            && message.version === PROMPT_VERSION
+            && isRequestId(message.requestId)
+            && message.target === PROMPT_TARGET
+            && typeof message.success === 'boolean'
+            && (message.success
+                ? message.errorCode === null
+                : INSERT_ERROR_CODES.has(message.errorCode));
     }
 
     function isRefresh(message) {
@@ -247,6 +283,19 @@
             return 'Save or revert User Settings, then try again. Your Prompt draft is still here.';
         }
         return 'Could not save the Prompt change. The latest saved library is shown.';
+    }
+
+    function insertErrorAnnouncement(code) {
+        if (code === 'no-active-terminal') {
+            return 'No active terminal is available to receive the Prompt.';
+        }
+        if (code === 'prompt-unavailable') {
+            return 'AI Prompts are currently unavailable.';
+        }
+        if (code === 'prompt-not-found') {
+            return 'That Prompt is no longer available.';
+        }
+        return 'The selected terminal is no longer available.';
     }
 
     function setMutationLock(enabled) {
@@ -360,6 +409,17 @@
         return Array.from(surface.querySelectorAll('.prompt-item[data-prompt-id]'))
             .find(function (candidate) {
                 return candidate.getAttribute('data-prompt-id') === promptId;
+            }) || null;
+    }
+
+    function findPromptAction(promptId, actionName) {
+        var item = findPromptItem(promptId);
+        if (!item || typeof item.querySelectorAll !== 'function') {
+            return null;
+        }
+        return Array.from(item.querySelectorAll('[data-action]'))
+            .find(function (candidate) {
+                return candidate.getAttribute('data-action') === actionName;
             }) || null;
     }
 
@@ -500,6 +560,16 @@
         state.snapshot = clone(message.snapshot);
         lockedControls = [];
         configurePromptForms();
+        state.pendingInserts.forEach(function (pending) {
+            var control = findPromptAction(
+                pending.promptId,
+                'prompt-insert-terminal'
+            );
+            pending.control = control;
+            if (control) {
+                control.disabled = true;
+            }
+        });
         return true;
     }
 
@@ -507,6 +577,13 @@
         state.settled.add(key);
         while (state.settled.size > MAX_SETTLED_KEYS) {
             state.settled.delete(state.settled.values().next().value);
+        }
+    }
+
+    function recordSettledInsert(key) {
+        state.settledInserts.add(key);
+        while (state.settledInserts.size > MAX_SETTLED_KEYS) {
+            state.settledInserts.delete(state.settledInserts.values().next().value);
         }
     }
 
@@ -647,6 +724,71 @@
             return false;
         }
         return message.requestId;
+    }
+
+    function dispatchInsert(promptId, control) {
+        if (typeof promptId !== 'string'
+            || !promptId
+            || !control
+            || state.pending.size > 0
+            || Array.from(state.pendingInserts.values()).some(function (pending) {
+                return pending.promptId === promptId;
+            })) {
+            return false;
+        }
+        if (!window.vscode || typeof window.vscode.postMessage !== 'function') {
+            announce('Could not send the Prompt. Reload the Dashboard and try again.');
+            return false;
+        }
+
+        var message = {
+            type: 'prompt-insert-terminal',
+            version: PROMPT_VERSION,
+            requestId: freshRequestId(),
+            target: PROMPT_TARGET,
+            promptId: promptId,
+        };
+        var key = insertCorrelationKey(message);
+        state.pendingInserts.set(key, {
+            requestId: message.requestId,
+            promptId: promptId,
+            control: control,
+        });
+        control.disabled = true;
+        announce('Inserting Prompt into the active terminal…');
+        try {
+            window.vscode.postMessage(message);
+        } catch (_error) {
+            state.pendingInserts.delete(key);
+            control.disabled = false;
+            announce('Could not send the Prompt. Reload the Dashboard and try again.');
+            return false;
+        }
+        return message.requestId;
+    }
+
+    function applyInsertResult(message) {
+        if (!isInsertResult(message)) {
+            return false;
+        }
+        var key = insertCorrelationKey(message);
+        if (state.settledInserts.has(key)) {
+            return false;
+        }
+        var pending = state.pendingInserts.get(key);
+        if (!pending) {
+            return false;
+        }
+
+        state.pendingInserts.delete(key);
+        recordSettledInsert(key);
+        if (pending.control) {
+            pending.control.disabled = state.pending.size > 0;
+        }
+        announce(message.success
+            ? 'Prompt inserted into the active terminal.'
+            : insertErrorAnnouncement(message.errorCode));
+        return true;
     }
 
     function applyCommandResult(message) {
@@ -878,6 +1020,8 @@
             closeDraft(closest(actionTarget, '[data-prompt-form]'));
         } else if (action === 'prompt-delete') {
             dispatch('delete', { promptId: promptId });
+        } else if (action === 'prompt-insert-terminal') {
+            dispatchInsert(promptId, actionTarget);
         } else if (action === 'prompt-select-default') {
             dispatch('select-default', {
                 promptId: actionTarget.getAttribute('aria-pressed') === 'true'
@@ -1058,6 +1202,10 @@
     function onWindowMessage(event) {
         if (event && event.data && event.data.type === 'prompt-command-result') {
             applyCommandResult(event.data);
+        } else if (event
+            && event.data
+            && event.data.type === 'prompt-insert-terminal-result') {
+            applyInsertResult(event.data);
         }
     }
 
@@ -1105,6 +1253,7 @@
         mount: mount,
         dispatch: dispatch,
         applyCommandResult: applyCommandResult,
+        applyInsertResult: applyInsertResult,
         applyRefresh: applyRefresh,
         getState: function () { return state; },
     };

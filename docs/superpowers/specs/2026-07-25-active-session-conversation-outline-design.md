@@ -548,13 +548,15 @@ The adapter excludes:
 A minimal sanitized shape used by contract fixtures is:
 
 ```jsonl
-{"type":"TurnBegin","payload":{"user_input":[{"type":"text","text":"Explain this change"}]}}
-{"type":"ContentPart","payload":{"type":"text","text":"Visible response"}}
-{"type":"TurnEnd","payload":{}}
+{"timestamp":1784073611,"message":{"type":"TurnBegin","payload":{"user_input":[{"type":"text","text":"Explain this change"}]}}}
+{"timestamp":1784073612,"message":{"type":"ContentPart","payload":{"type":"text","text":"Visible response"}}}
+{"timestamp":1784073613,"message":{"type":"TurnEnd","payload":{}}}
 ```
 
 The fixture documents only fields Project Steward consumes; it is not treated
-as a provider-owned public schema.
+as a provider-owned public schema. Numeric Kimi timestamps below
+`10_000_000_000` are epoch seconds and normalize to milliseconds, matching the
+lifecycle reader; millisecond inputs remain unchanged.
 
 ### Claude
 
@@ -572,6 +574,11 @@ A real user input must have the qualifying top-level user-message shape and
 visible text content. Records that look like user messages but carry
 `sourceToolAssistantUUID`, `toolUseResult`, or `tool_result` content are tool
 results and are excluded.
+
+The canonical user interrupt sentinel, `[Request interrupted by user]`, may be
+string content or a text item in a content array. It creates no outline marker
+or viewer message; it marks the current open interaction `interrupted`, matching
+Claude lifecycle semantics.
 
 Visible assistant text comes from qualifying assistant text blocks. The adapter
 also excludes:

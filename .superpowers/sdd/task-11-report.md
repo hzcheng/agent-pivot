@@ -31,8 +31,11 @@ Task review package:
 
 - Added `ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001` with controlled
   mutations for:
-  - Codex filesystem/JSONL-reader imports, including `node:fs/promises` and
-    TypeScript import-equals and dynamic `import()` declarations;
+  - filesystem/JSONL-reader imports anywhere in the transitive local
+    relative-import graph reachable from the Codex adapter, including
+    `node:fs/promises`, CommonJS `require`, TypeScript import-equals, and
+    dynamic `import()` declarations; the structured app-server client path
+    remains allowed;
   - extension-host DOMPurify static, deep, CommonJS, and TypeScript
     import-equals imports, plus dynamic `import()`;
   - exact source, scan, line, outline, page, viewer, Codex response/timeout,
@@ -191,7 +194,8 @@ The three-provider focused adapter run passed 30/30.
 
 The fixture is created beneath `os.tmpdir()`, never in the repository. It
 contains exactly 10 MiB and exactly 1,000 Kimi interactions. The interaction
-records use real `TurnBegin`, `ContentPart`, and `TurnEnd` events. Remaining
+records use canonical `{ timestamp, message: { type, payload } }` envelopes
+for real `TurnBegin`, `ContentPart`, and `TurnEnd` messages. Remaining
 bytes are a small number of syntactically valid JSON string records shaped
 as:
 

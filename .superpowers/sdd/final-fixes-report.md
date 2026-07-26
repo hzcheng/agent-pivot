@@ -7,6 +7,7 @@ The whole-branch review findings were fixed test-first in:
 ```text
 295f061a7de35b1b98992bb193a3342d5a400b72 fix: align conversation adapters with production formats
 41f5a3933ea302b7554847d6c60fc7ee960b07f6 test: align capped outline browser contract
+327fddf9b411e76c81f958b4bcfd386e662cfc87 fix: harden conversation provider boundaries
 ```
 
 Nothing was pushed, merged, installed, or cleaned up.
@@ -23,13 +24,21 @@ Review package:
   `{ timestamp, message: { type, payload } }` envelope. The provider contract,
   composition tests, privacy assertions, live-watch test, and performance
   harness share the checked-in canonical provider fixture. Legacy invented
-  top-level records are ignored.
+  top-level records are ignored. Finite numeric epoch seconds normalize to
+  milliseconds exactly like lifecycle timestamps; millisecond inputs are
+  preserved.
 - Claude now accepts canonical string `message.content` as well as visible
   content-block arrays. Sidechain, tool-result, hidden, and non-visible blocks
-  remain excluded.
+  remain excluded. Exact string or array-text
+  `[Request interrupted by user]` sentinels create no interaction or message;
+  they mark only the preceding open interaction interrupted.
 - Codex remains app-server-only. Its obsolete filesystem source resolver was
-  removed, and controlled architecture mutations reject either a resolver
-  reintroduction or composition routing through one.
+  removed. The architecture guard now recursively resolves the complete local
+  relative import/require/dynamic/import-equals graph reachable from
+  `codexAdapter`; any reachable `fs`/`node:fs`, `source`, or `jsonlReader`
+  reference fails closed, while the structured app-server client remains
+  allowed. Service and composition filesystem routes are independently
+  rejected.
 
 ## Bounded reading, live updates, and outline cap
 
@@ -70,11 +79,18 @@ Each binding regression was first observed RED:
   retrying;
 - three Codex filesystem architecture mutations were accepted;
 - canonical-only Kimi parsing reduced the performance fixture to zero
-  interactions.
+  interactions;
+- Claude string/array interrupt sentinels appeared as a marker or left the
+  preceding interaction complete;
+- Kimi epoch seconds remained unscaled in outline and page timestamps;
+- the old Codex import whitelist rejected the legitimate app-server client but
+  missed `model -> filesystem helper -> node:fs/promises`.
 
 After implementation, the fresh focused run passed 202 unit/contract/integration
 tests, the real-browser viewer run passed 9 tests, and the architecture
-controlled-mutation run passed 40 tests.
+controlled-mutation run passed 40 tests. The final re-review additions passed
+20 complete Claude/Kimi adapter tests, 42 architecture tests, and 31
+viewer/browser-integration tests.
 
 ## Capability audit
 
@@ -90,7 +106,10 @@ exposed one remaining browser assertion that still expected a 2,001-input
 outline to be complete. Its focused RED was `true !== false`; after
 `41f5a39`, the exact focused Chromium test passed. The audit now also assigns
 that test commit and advances its head to
-`41f5a3933ea302b7554847d6c60fc7ee960b07f6`.
+`41f5a3933ea302b7554847d6c60fc7ee960b07f6`. After the final re-review,
+the same check failed RED on unaudited implementation commit
+`327fddf9b411e76c81f958b4bcfd386e662cfc87`; the capability now assigns it and
+advances the audit head to that commit.
 
 ## Verification
 
@@ -104,10 +123,11 @@ Fresh focused verification passed:
 - source/media viewer parity;
 - `git diff --check`.
 
-Fresh full `npm run test:ci:linux` completed with exit 0. Its browser gate
+The prior full `npm run test:ci:linux` completed with exit 0. Its browser gate
 passed 62/62, including the corrected 2,001-input capped-outline contract;
 release packaging, production Webpack/Gulp builds, the full coverage run, and
-the stored coverage baseline all passed.
+the stored coverage baseline all passed. A fresh full run after the final
+re-review fixes is pending.
 
 ## Non-blocking ledger
 

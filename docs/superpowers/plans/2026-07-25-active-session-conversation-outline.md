@@ -1200,9 +1200,11 @@ git commit -m "feat: index bounded conversation JSONL"
 
 - [ ] **Step 1: Add sanitized fixtures and failing adapter contracts**
 
-The Kimi fixture must include string and typed-array `TurnBegin.user_input`,
-visible `ContentPart`, `think`, `encrypted`, tool, `SubagentEvent`, malformed,
-interrupt, and `TurnEnd` records. The Claude fixture must include visible
+The Kimi fixture must use canonical
+`{ timestamp, message: { type, payload } }` envelopes and include string and
+typed-array `TurnBegin.user_input`, visible `ContentPart`, `think`,
+`encrypted`, tool, `SubagentEvent`, malformed, interrupt, and `TurnEnd`
+messages. The Claude fixture must include visible
 `user`/`assistant` text, `sourceToolAssistantUUID`, `toolUseResult`,
 `tool_result`, `tool_use`, sidechain, queue, attachment-only, mixed attachment,
 and malformed records. Assert separately that assistant `tool_use` blocks
@@ -1247,6 +1249,7 @@ Expected: adapter modules are missing.
 Use only:
 
 ```ts
+const event = asRecord(envelope.message);
 if (event.type === 'TurnBegin') {
     const userInput = event.payload?.user_input;
     const visibleInput = typeof userInput === 'string'
@@ -1265,7 +1268,7 @@ if (event.type === 'TurnBegin') {
             }, []))
             : '';
     if (visibleInput) {
-        beginInteraction(visibleInput, record.offset, event.timestamp);
+        beginInteraction(visibleInput, record.offset, envelope.timestamp);
     }
 } else if (event.type === 'ContentPart'
     && event.payload?.type === 'text'
@@ -1280,6 +1283,8 @@ Never pass `think`, `encrypted`, tool, result, or `SubagentEvent` records to the
 normalized model. Build IDs from `sessionId + TurnBegin offset + timestamp`.
 An interrupt finishes the open interaction as `interrupted`. Never copy fields
 from a non-text part; it contributes only the neutral attachment marker.
+Normalize finite numeric envelope timestamps below `10_000_000_000` from epoch
+seconds to milliseconds; preserve millisecond values.
 
 - [ ] **Step 4: Implement Claude qualification**
 
@@ -1301,6 +1306,10 @@ ends. For qualifying user content, map `text` blocks to visible text and
 provider-documented image/document/attachment blocks to `{ kind:
 'attachment' }`, then call `buildVisibleUserInput` in original source order.
 Unknown blocks are discarded and no block metadata or path is copied.
+Before creating a user interaction, recognize exact trimmed
+`[Request interrupted by user]` string content or array text content as a
+lifecycle sentinel: create no marker/message and mark only the current open
+interaction `interrupted`.
 
 - [ ] **Step 5: Implement bounded caches and watches**
 
@@ -2937,7 +2946,9 @@ const requiredConversationViewerEntries = [
 
 Add `ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001` to reject:
 
-- Codex adapter imports of `fs` or transcript JSONL readers;
+- `fs`, `node:fs` subpaths, or transcript `source`/`jsonlReader` modules
+  anywhere in the transitive local relative-import graph reachable from the
+  Codex adapter, while allowing the structured app-server client path;
 - extension-host TypeScript imports of `dompurify` or `purify.min.js`;
 - missing 64 MiB/5 s/1 MiB/20/512 KiB/16 MiB/10 s/8 px/minimum
   request ID/per-provider cache constants;

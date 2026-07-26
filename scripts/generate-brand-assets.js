@@ -17,9 +17,70 @@ const assets = [
 ];
 
 const UNSAFE_SVG_CONTENT = /<script\b|<(?:image|foreignObject)\b|(?:\s|<)(?:xlink:)?href\s*=|\son[a-z][\w:-]*\s*=|url\s*\(/i;
+const SAFE_SVG_ATTRIBUTES = new Map([
+    ['svg', new Set(['xmlns', 'viewbox'])],
+    ['rect', new Set(['width', 'height', 'rx', 'fill'])],
+    ['g', new Set(['fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin'])],
+    ['path', new Set(['d'])],
+    ['circle', new Set(['cx', 'cy', 'r', 'fill', 'stroke', 'stroke-width'])],
+]);
+const SVG_TAG = /<\s*(\/?)\s*([A-Za-z][\w:-]*)([^<>]*)>/g;
+const SVG_ATTRIBUTE = /([A-Za-z_:][\w:.-]*)\s*=\s*("[^"]*"|'[^']*')/g;
 
 function validateSvgSource(source, label) {
     if (UNSAFE_SVG_CONTENT.test(source)) {
+        throw new Error(`${label} contains external or active SVG content`);
+    }
+
+    const openElements = [];
+    let cursor = 0;
+    let tagCount = 0;
+    for (const match of source.matchAll(SVG_TAG)) {
+        if (source.slice(cursor, match.index).trim()) {
+            throw new Error(`${label} contains external or active SVG content`);
+        }
+        cursor = match.index + match[0].length;
+        tagCount++;
+
+        const closing = match[1] === '/';
+        const element = match[2].toLowerCase();
+        const allowedAttributes = SAFE_SVG_ATTRIBUTES.get(element);
+        if (!allowedAttributes) {
+            throw new Error(`${label} contains external or active SVG content`);
+        }
+
+        const content = match[3];
+        if (closing) {
+            if (content.trim() || openElements.pop() !== element) {
+                throw new Error(`${label} contains external or active SVG content`);
+            }
+            continue;
+        }
+
+        const attributes = new Set();
+        let attributeCursor = 0;
+        for (const attribute of content.matchAll(SVG_ATTRIBUTE)) {
+            if (content.slice(attributeCursor, attribute.index).trim()) {
+                throw new Error(`${label} contains external or active SVG content`);
+            }
+            const name = attribute[1].toLowerCase();
+            if (!allowedAttributes.has(name) || attributes.has(name)) {
+                throw new Error(`${label} contains external or active SVG content`);
+            }
+            attributes.add(name);
+            attributeCursor = attribute.index + attribute[0].length;
+        }
+
+        const remainder = content.slice(attributeCursor).trim();
+        if (remainder && remainder !== '/') {
+            throw new Error(`${label} contains external or active SVG content`);
+        }
+        if (remainder !== '/') {
+            openElements.push(element);
+        }
+    }
+
+    if (!tagCount || source.slice(cursor).trim() || openElements.length) {
         throw new Error(`${label} contains external or active SVG content`);
     }
 }

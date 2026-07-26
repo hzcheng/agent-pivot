@@ -101,6 +101,21 @@ test('SVG validation rejects spaced external references and mixed-case event att
     }
 });
 
+test('SVG validation rejects active SVG animation elements', () => {
+    for (const [label, source] of [
+        ['animate.svg', '<svg><animate attributeName="x"/></svg>'],
+        ['set.svg', '<svg><set attributeName="x"/></svg>'],
+        ['animate-motion.svg', '<svg><animateMotion/></svg>'],
+        ['mixed-case-transform.svg', '<svg><AnimateTransform/></svg>'],
+        ['mixed-case-discard.svg', '<svg><DISCARD/></svg>'],
+    ]) {
+        assert.throws(
+            () => validateSvgSource(source, label),
+            /external or active SVG content/
+        );
+    }
+});
+
 test('rasterizer failure preserves the last-known-good output', async () => {
     const safeMarketplaceSvg = readRepositoryFile(
         'media/brand/agent-pivot-marketplace.svg', 'utf8'

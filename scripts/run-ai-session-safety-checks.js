@@ -5124,7 +5124,12 @@ function runWebviewContentChecks() {
     assert.ok(webviewContent.includes('role="menuitem" tabindex="-1"'));
     assert.ok(webviewProjectScripts.includes("e.key === 'ContextMenu'"));
     assert.ok(webviewProjectScripts.includes("e.key === 'F10' && e.shiftKey"));
-    assert.ok(webviewProjectScripts.includes("rowToFocus?.querySelector('.ai-session-primary-action') || selectedTab"));
+    assert.ok(webviewProjectScripts.includes(
+        "(match?.querySelector('.ai-session-primary-action') || selectedTab)?.focus({ preventScroll: true })"
+    ));
+    assert.ok(!webviewProjectScripts.includes(
+        "match || selectedPanel?.querySelector('.codex-session-row')"
+    ), 'refresh focus must not transfer to an unrelated session row');
     assert.ok(sessionTabsHtml.includes('class="ai-session-primary-action"'));
     assert.ok(sessionTabsHtml.includes('role="group"'));
     assert.ok(!/class="codex-session-row[^>]*tabindex=/.test(sessionTabsHtml));
@@ -6475,6 +6480,19 @@ function runBatchAiSessionWebviewChecks() {
             addEventListener: (event, listener) => { windowEventListeners[event] = listener; },
             requestAnimationFrame: callback => callback(),
             setTimeout: callback => timeoutCallbacks.push(callback),
+            __projectStewardScrollState: {
+                capture: container => ({
+                    scrollTop: Number(container?.scrollTop) || 0,
+                    itemKey: null,
+                    itemOffset: 0,
+                    atEnd: false,
+                }),
+                restore: (container, anchor) => {
+                    if (!container || !anchor) return false;
+                    container.scrollTop = Number(anchor.scrollTop) || 0;
+                    return true;
+                },
+            },
             vscode: {
                 postMessage: message => messages.push(message),
                 getState: () => webviewState,
@@ -6544,8 +6562,8 @@ function runBatchAiSessionWebviewChecks() {
         },
     };
     context.restoreAiSessionViewState(tabStateProject, {
-        activeScrollTop: 17,
-        historyScrollTop: 29,
+        activeAnchor: { scrollTop: 17, itemKey: null, itemOffset: 0, atEnd: false },
+        historyAnchor: { scrollTop: 29, itemKey: null, itemOffset: 0, atEnd: false },
         restoreFocus: false,
     }, 'active');
     assert.strictEqual(activeListState.scrollTop, 17);

@@ -16,7 +16,7 @@ Nothing was pushed, merged, installed, or cleaned up.
 Review package:
 
 ```text
-.superpowers/sdd/review-522b128..327fddf.diff
+.superpowers/sdd/review-ddb40bf..cd6a339.diff
 ```
 
 ## Production-format adapters

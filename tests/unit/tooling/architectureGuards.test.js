@@ -185,6 +185,59 @@ test('ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001 rejects a transitive filesystem 
     );
 });
 
+test('ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001 permits safe local and external re-exports in the Codex graph', t => {
+    const root = copyGuardFixture(
+        t,
+        'src/aiSessions/conversation/model.ts',
+        source => source.replace(
+            "'use strict';",
+            "'use strict';\n"
+                + "export type { ConversationOutline } from './types';\n"
+                + "export { createHash } from 'crypto';"
+        )
+    );
+    validateArchitectureGuards(root, {
+        ids: ['ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001'],
+    });
+});
+
+for (const [label, reExport] of [
+    ['star', "export * from './codexFilesystemBridge';"],
+    ['named', "export { bridge } from './codexFilesystemBridge';"],
+]) {
+    test(`ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001 rejects a filesystem helper reached through a ${label} re-export`, t => {
+        const root = copyGuardFixture(
+            t,
+            'src/aiSessions/conversation/model.ts',
+            source => source.replace(
+                "'use strict';",
+                `'use strict';\n${reExport}`
+            )
+        );
+        const bridge = path.join(
+            root,
+            'src/aiSessions/conversation/codexFilesystemBridge.ts'
+        );
+        fs.writeFileSync(
+            bridge,
+            "import { readFile } from 'node:fs/promises';\n"
+                + 'export const bridge = readFile;\n'
+        );
+        assert.throws(
+            () => validateArchitectureGuards(root, {
+                ids: ['ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001'],
+            }),
+            error => error.message.includes(
+                'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001'
+            )
+                && /risk:/i.test(error.message)
+                && error.message.includes(
+                    'Codex reachable modules must not import filesystem or transcript readers'
+                )
+        );
+    });
+}
+
 for (const mutation of [
     {
         id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',

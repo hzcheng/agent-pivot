@@ -298,6 +298,12 @@ function importModules(sourceFile) {
 function moduleReferences(sourceFile) {
     const modules = importModules(sourceFile);
     walk(sourceFile, node => {
+        if (ts.isExportDeclaration(node)
+            && node.moduleSpecifier
+            && ts.isStringLiteral(node.moduleSpecifier)) {
+            modules.push(node.moduleSpecifier.text);
+            return;
+        }
         if (ts.isImportEqualsDeclaration(node)
             && ts.isExternalModuleReference(node.moduleReference)
             && node.moduleReference.expression) {

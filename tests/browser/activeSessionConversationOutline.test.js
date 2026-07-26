@@ -1978,6 +1978,15 @@ test('ACTIVE-SESSION-CONVERSATION-RESTORE-001 preserves or cancels expansion thr
     const restoredScrollTop = await restored
         .locator('[data-ai-session-conversation-rail]')
         .evaluate(rail => rail.scrollTop);
+    const geometryBeforeRollback = await restored.evaluate(node => {
+        const list = node.closest('.codex-sessions-list');
+        return {
+            rowHeight: node.getBoundingClientRect().height,
+            listHeight: list.getBoundingClientRect().height,
+            collapsedRowHeight: node.__stewardCollapsedConversationHeight,
+            collapsedListHeight: list.__stewardCollapsedConversationHeight,
+        };
+    });
     const disconnectsBeforeRollback = await page.evaluate(
         () => window.__conversationObserverDisconnects
     );
@@ -1987,6 +1996,41 @@ test('ACTIVE-SESSION-CONVERSATION-RESTORE-001 preserves or cancels expansion thr
         rolledBack,
         rolledBack.locator('.ai-session-primary-action'),
         rolledBack.locator('[data-ai-session-conversation-panel]')
+    );
+    const geometryAfterRollback = await rolledBack.evaluate(node => {
+        const list = node.closest('.codex-sessions-list');
+        return {
+            rowHeight: node.getBoundingClientRect().height,
+            listHeight: list.getBoundingClientRect().height,
+            collapsedRowHeight: node.__stewardCollapsedConversationHeight,
+            collapsedListHeight: list.__stewardCollapsedConversationHeight,
+        };
+    });
+    assert.ok(
+        Math.abs(geometryAfterRollback.rowHeight
+            - geometryBeforeRollback.rowHeight) <= 1,
+        `expected rollback row height ${geometryBeforeRollback.rowHeight}, `
+            + `received ${geometryAfterRollback.rowHeight}`
+    );
+    assert.ok(
+        Math.abs(geometryAfterRollback.listHeight
+            - geometryBeforeRollback.listHeight) <= 1,
+        `expected rollback list height ${geometryBeforeRollback.listHeight}, `
+            + `received ${geometryAfterRollback.listHeight}`
+    );
+    assert.ok(
+        Math.abs(geometryAfterRollback.collapsedRowHeight
+            - geometryBeforeRollback.collapsedRowHeight) <= 1,
+        `expected rollback collapsed row baseline `
+            + `${geometryBeforeRollback.collapsedRowHeight}, `
+            + `received ${geometryAfterRollback.collapsedRowHeight}`
+    );
+    assert.ok(
+        Math.abs(geometryAfterRollback.collapsedListHeight
+            - geometryBeforeRollback.collapsedListHeight) <= 1,
+        `expected rollback collapsed list baseline `
+            + `${geometryBeforeRollback.collapsedListHeight}, `
+            + `received ${geometryAfterRollback.collapsedListHeight}`
     );
     assert.deepEqual((await conversationMessages(page)).at(-1), {
         type: 'request-ai-session-conversation-outline',

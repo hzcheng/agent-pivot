@@ -1147,6 +1147,10 @@ function rebindActiveAiSessionConversation(row, capturedState) {
             !== getActiveAiSessionConversationKey(subscription)) {
         return false;
     }
+    if (row.hasAttribute('data-conversation-expanded')
+        && !applyActiveAiSessionConversationState(row, false)) {
+        return false;
+    }
     if (!applyActiveAiSessionConversationState(row, true, false)) return false;
     subscription.expanded = true;
     if (capturedState && (!subscription.restoreState

@@ -631,10 +631,6 @@ function renderActiveAiSessionConversationOutline(row, state, outline) {
     clearConversationElement(rail);
     state.sourceRevision = outline.sourceRevision;
     state.interactionIds = new Set(outline.interactions.map(summary => summary.id));
-    var longest = Math.max(
-        1,
-        ...outline.interactions.map(summary => summary.userGraphemeCount)
-    );
     var selectedInteractionId = restoreState?.focusedInteractionId
         || focusedInteractionId
         || outline.interactions.at(-1)?.id
@@ -643,25 +639,24 @@ function renderActiveAiSessionConversationOutline(row, state, outline) {
     outline.interactions.forEach((summary, index) => {
         var marker = document.createElement('button');
         var preview = truncateConversationPreview(summary.userPreview);
-        var ratio = Math.max(
-            0.18,
-            Math.min(1, summary.userGraphemeCount / longest)
-        );
         marker.type = 'button';
         marker.className = 'ai-session-conversation-marker';
         marker.setAttribute('data-ai-session-conversation-marker', '');
         marker.setAttribute('data-interaction-id', summary.id);
         marker.setAttribute('data-response-state', summary.responseState);
         marker.setAttribute('role', 'option');
-        marker.textContent = preview;
+        var stroke = document.createElement('span');
+        var previewNode = document.createElement('span');
+        stroke.className = 'ai-session-conversation-marker-stroke';
+        stroke.setAttribute('aria-hidden', 'true');
+        previewNode.className = 'ai-session-conversation-marker-preview';
+        previewNode.textContent = preview;
+        marker.appendChild(stroke);
+        marker.appendChild(previewNode);
         var label = getConversationTimestampLabel(summary.timestamp)
             + ' — ' + preview;
         marker.title = label;
         marker.setAttribute('aria-label', label);
-        marker.style.setProperty(
-            '--ai-input-ratio',
-            String(ratio)
-        );
         if (index === outline.interactions.length - 1) {
             marker.setAttribute('data-latest', '');
         }
@@ -924,15 +919,14 @@ function syncActiveAiSessionConversationListHeight(row) {
             || getComputedStyle(child).display !== 'none')
     );
     var naturalContentHeight = visiblePanelContent.reduce((total, child) =>
-        total + Math.max(
-            child.scrollHeight || 0,
-            child.getBoundingClientRect().height || 0
-        ), 0);
+        total + (child === rail
+            ? child.getBoundingClientRect().height || 0
+            : Math.max(
+                child.scrollHeight || 0,
+                child.getBoundingClientRect().height || 0
+            )), 0);
     var naturalRailHeight = rail && visiblePanelContent.includes(rail)
-        ? Math.max(
-            rail.scrollHeight || 0,
-            rail.getBoundingClientRect().height || 0
-        )
+        ? rail.getBoundingClientRect().height || 0
         : 0;
     var naturalPanelHeight = conversationHeaderHeight
         + naturalContentHeight

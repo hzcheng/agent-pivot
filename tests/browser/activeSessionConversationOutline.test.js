@@ -956,10 +956,7 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-OUTLINE-001 renders safe readable equal-wi
     assert.notEqual(await markers.nth(2).getAttribute('data-current'), null);
     assert.equal(await markers.nth(1).textContent(), hostilePreview);
     assert.match(await markers.nth(1).getAttribute('title'), /background:url/);
-    assert.doesNotMatch(
-        await markers.nth(1).getAttribute('style'),
-        /javascript|background/i
-    );
+    assert.equal(await markers.nth(1).getAttribute('style'), null);
     assert.match(await markers.nth(0).getAttribute('aria-label'), /First input/);
     assert.match(await markers.nth(0).getAttribute('aria-label'), /2026/);
 

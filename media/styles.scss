@@ -3394,7 +3394,7 @@ body.steward-sidebar {
         .ai-session-conversation-rail {
             display: grid;
             align-content: start;
-            gap: 1px;
+            gap: 0;
             min-height: 0;
             height: var(
                 --steward-ai-session-conversation-rail-height,
@@ -3402,7 +3402,7 @@ body.steward-sidebar {
             );
             max-height: var(
                 --steward-ai-session-conversation-rail-height,
-                none
+                168px
             );
             overflow-x: hidden;
             overflow-y: auto;
@@ -3411,37 +3411,29 @@ body.steward-sidebar {
 
         .ai-session-conversation-marker {
             position: relative;
-            display: block;
-            justify-self: start;
-            width: calc(var(--ai-input-ratio) * 100%);
-            min-width: 18%;
-            min-height: 24px;
-            padding: 0;
+            display: grid;
+            grid-template-columns: 14px minmax(0, 1fr);
+            align-items: center;
+            gap: 8px;
+            width: 100%;
+            height: 28px;
+            min-height: 28px;
+            padding: 0 6px 0 0;
             border: 0;
             outline: none;
             overflow: hidden;
-            color: transparent;
+            color: var(--vscode-descriptionForeground);
             background: transparent;
-            font-size: 0;
+            font: inherit;
+            font-size: 11px;
+            line-height: 1.3;
             text-align: left;
             cursor: pointer;
+            box-sizing: border-box;
 
-            &::before {
-                content: "";
-                position: absolute;
-                top: 50%;
-                left: 0;
-                width: 100%;
-                height: 2px;
-                border-radius: 999px;
-                background: var(--steward-ai-accent, var(--vscode-focusBorder));
-                opacity: .48;
-                transform: translateY(-50%);
-            }
-
-            &:hover::before,
-            &:focus-visible::before,
-            &[aria-selected="true"]::before {
+            &:hover .ai-session-conversation-marker-stroke,
+            &:focus-visible .ai-session-conversation-marker-stroke,
+            &[aria-selected="true"] .ai-session-conversation-marker-stroke {
                 opacity: .78;
             }
 
@@ -3450,16 +3442,20 @@ body.steward-sidebar {
                 outline-offset: -2px;
             }
 
-            &[data-latest]::before {
-                height: 3px;
-                opacity: .9;
+            &[data-latest] {
+                color: var(--vscode-foreground);
+
+                .ai-session-conversation-marker-stroke {
+                    height: 3px;
+                    opacity: .9;
+                }
             }
 
             &[data-current]::after {
                 content: "";
                 position: absolute;
                 top: 50%;
-                right: 0;
+                right: 1px;
                 width: 4px;
                 height: 4px;
                 border-radius: 50%;
@@ -3467,6 +3463,21 @@ body.steward-sidebar {
                 opacity: .65;
                 transform: translateY(-50%);
             }
+        }
+
+        .ai-session-conversation-marker-stroke {
+            width: 14px;
+            height: 2px;
+            border-radius: 999px;
+            background: var(--steward-ai-accent, var(--vscode-focusBorder));
+            opacity: .48;
+        }
+
+        .ai-session-conversation-marker-preview {
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
 
         .ai-session-conversation-state-hint {

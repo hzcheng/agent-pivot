@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "07fefc21bb63bd8bde6192e30b3db4d9d13c642d",
+        "head": "9ed47eca5f1e6db36a6516b6e44a21d9d873f651",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -162,9 +162,11 @@
             "commits": [
                 "ba2116e8b56925dc38a73efdeed3101faecaade6",
                 "9f9d5969ace25062b4810605904b0824cc3adbc4",
-                "e02e498cea334e895c96f8427e82df8723cf24a0"
+                "e02e498cea334e895c96f8427e82df8723cf24a0",
+                "9ed47eca5f1e6db36a6516b6e44a21d9d873f651"
             ],
             "behaviors": [
+                "OPEN-OPEN-PROJECT-AUTHORITATIVE-IDENTITY-001",
                 "OPEN-OPEN-PROJECT-PUBLICATION-001",
                 "OPEN-OPEN-PROJECT-INCREMENTAL-RENDERING-001",
                 "OPEN-OTHER-WINDOWS-PRIVACY-001",

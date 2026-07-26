@@ -16,12 +16,10 @@ Use the same compact-card language as Todo items:
 - Keep each card collapsed by default. Show the Prompt name and a bounded
   plain-text preview only; the existing Edit form is the only place inside the
   library that shows the complete Prompt text.
-- Keep a compact "insert into active terminal" icon button visible on every
-  card.
 - Keep the drag handle visible at low emphasis, matching Todo items, so
-  reordering remains discoverable. Show the default toggle, Edit, and Delete
-  as compact icon actions only while the card is hovered or contains keyboard
-  focus.
+  reordering remains discoverable. Show Insert, the default toggle, Edit, and
+  Delete in one compact toolbar, in that order, only while the card is hovered
+  or contains keyboard focus.
 - Keep keyboard access equivalent to pointer access. Hidden actions become
   visible with `:focus-within`, retain accessible names and tooltips, and do
   not disappear while one of them owns focus. The toolbar uses opacity and
@@ -30,14 +28,16 @@ Use the same compact-card language as Todo items:
 - Mark the selected default Prompt with a small persistent visual state rather
   than a wide "Default" or "Make default" text button.
 
-The insert button remains visible because it is the card's primary action.
-The other actions are management operations and can remain visually quiet.
+The insert button follows the same reveal behavior as the management actions,
+so the collapsed card has no persistent right-side action column.
 
 ## Alternatives Considered
 
-1. Put all management actions in a three-dot overflow menu. This is visually
+1. Keep Insert as a separate right-side hover action. This preserves its
+   primary-action distinction but leaves two competing hover regions.
+2. Put all management actions in a three-dot overflow menu. This is visually
    clean but adds an extra click to common Edit and Delete operations.
-2. Open a detail view by clicking the whole card. This makes the card less
+3. Open a detail view by clicking the whole card. This makes the card less
    predictable, conflicts with drag/reorder behavior, and makes accidental
    expansion more likely.
 
@@ -79,10 +79,11 @@ The host replies once with an exact-key acknowledgement:
 
 The acknowledgement clears the clicked button's pending state and updates the
 Prompt status live region. The host also uses the existing safe VS Code
-warning for a failed insertion. A direct insert disables only its clicked
-button while awaiting acknowledgement. An in-progress Prompt mutation keeps
-the existing global mutation lock and therefore disables insert buttons too;
-an insert acknowledgement must not release that mutation lock.
+warning for a failed insertion. A direct insert marks only its clicked button
+`aria-disabled` while awaiting acknowledgement, suppresses repeat activation,
+and keeps keyboard focus stable. An in-progress Prompt mutation keeps the
+existing global mutation lock and therefore natively disables insert buttons
+too; an insert acknowledgement must not release that mutation lock.
 
 The extension host resolves the requested ID against the current
 authoritative Prompt snapshot immediately before sending text. Insert requests
@@ -112,19 +113,18 @@ width or dominate the list. The existing 160-character, whitespace-normalized
 first-line preview remains the source bound; CSS clamps it to at most two
 rendered lines.
 
-The default toggle remains a button in the hover/focus toolbar. It retains
-`aria-pressed`; activating an unselected star sends that Prompt ID, and
-activating the selected star sends `null` to clear `selectedPromptId`. A
-selected card also has a small persistent, non-interactive star/default state
-so the current default is visible without keeping the management toolbar
-open.
+Insert is the first button in the hover/focus toolbar, followed by the default
+toggle, Edit, and Delete. The default toggle retains `aria-pressed`; activating
+an unselected star sends that Prompt ID, and activating the selected star
+sends `null` to clear `selectedPromptId`. A selected card also has a small
+persistent, non-interactive star/default state so the current default is
+visible without keeping the management toolbar open.
 
 The management toolbar floats inside the card and does not reserve a wide
-text-button column. The low-emphasis drag handle and visible insert button
-reserve only their compact icon widths. At sidebar widths down to 240 pixels,
-the card remains a single row, the content shrinks, the preview remains
-clamped, the insert button remains visible, and no horizontal overflow is
-introduced.
+text-button column. Only the low-emphasis drag handle reserves a compact icon
+width in the collapsed state. At sidebar widths down to 240 pixels, the
+content shrinks, the preview remains clamped, the revealed four-action toolbar
+stays within the card, and no horizontal overflow is introduced.
 
 For devices without hover, the management toolbar remains visible at reduced
 emphasis. Forced-colors mode supplies visible borders/state, and reduced-motion
@@ -142,7 +142,8 @@ Automated coverage will verify:
   visibility;
 - a persistent selected-default marker plus an `aria-pressed` icon toggle that
   can both set and clear `selectedPromptId`;
-- a visible direct-insert action for each Prompt;
+- a direct-insert action as the first control in the hover/focus toolbar for
+  each Prompt;
 - direct-insert controls disabled by a mutation lock, plus per-button pending
   behavior that cannot release an unrelated mutation lock;
 - exact Prompt-ID routing from webview to extension host;

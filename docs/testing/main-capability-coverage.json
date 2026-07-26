@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "1f2baaa6b2a5c18bd80954be773c00968619d245",
+        "head": "9e643c840db5ab634c1ef4815428617118b96ee7",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -37,7 +37,8 @@
             "080599f815e9f368ae9a070c2a9573a250a1ebd9",
             "0a81f877f7f6ab838d53fc212c3aaba03e58aaeb",
             "28cca76cd2b8071ef0a5b817d18ac3d187f1cdc6",
-            "0a230fb3b598416e0d4b454ae177886f850e8892"
+            "0a230fb3b598416e0d4b454ae177886f850e8892",
+            "03951ee64999329a960d336bfa74950b43258a53"
         ]
     },
     "capabilities": [
@@ -457,12 +458,14 @@
                 "f145f294c58791ba8198e322a028e8d0453d6629",
                 "0e30949f0c0ec685f15037070bda94c10e1ea8d0",
                 "fcb373a70078361ff5e40e627881489dffb3771d",
-                "b93fc82c2900eb2c693a2e1228784d26dda069b3"
+                "b93fc82c2900eb2c693a2e1228784d26dda069b3",
+                "9e643c840db5ab634c1ef4815428617118b96ee7"
             ],
             "behaviors": [
                 "TODO-COMPLETION-INCREMENTAL-001",
                 "TODO-MAX-VISIBLE-PER-GROUP-001",
                 "TODO-BROWSER-EXPANDED-LAYOUT-001",
+                "TODO-AUTHORITATIVE-REFRESH-STATE-001",
                 "TODO-INCREMENTAL-ROOT-001",
                 "TODO-QUICK-CREATE-001",
                 "TODO-SINGLE-CREATE-DISPATCH-001"

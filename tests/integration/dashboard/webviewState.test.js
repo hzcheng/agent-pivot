@@ -1400,6 +1400,20 @@ test('PROJECT-INCREMENTAL-REFRESH-001 preserves matching drag DOM and replaces a
     assert.equal(harness.projectsPanel.innerHTML, '<p>authoritative fallback</p>');
 });
 
+test('WEBVIEW-PROJECTS-PANEL-SCROLL-001 captures semantic Projects state and ignores stale post-fit restoration', () => {
+    assert.match(dashboardSource, /function getProjectScrollItemKey\(project\)/);
+    assert.match(dashboardSource, /function captureProjectsPanelState\(\)/);
+    assert.match(dashboardSource, /windowScrollY:\s*window\.scrollY/);
+    assert.match(dashboardSource, /itemSelector:\s*'\.project\[data-id\]'/);
+    assert.match(dashboardSource, /getKey:\s*getProjectScrollItemKey/);
+    assert.match(dashboardSource, /focus\(\{ preventScroll: true \}\)/);
+    assert.match(dashboardSource, /projectsPanelReplacementGeneration/);
+    assert.match(
+        dashboardSource,
+        /replacementGeneration !== projectsPanelReplacementGeneration/
+    );
+});
+
 test('PROJECT-INCREMENTAL-REFRESH-001 ignores stale window messages without requesting a full refresh', () => {
     const harness = createDashboardHarness({ initialTab: 'projects' });
     harness.controller.applyProjectsPanelMessage({

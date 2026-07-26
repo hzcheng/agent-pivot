@@ -116,6 +116,36 @@ test('SVG validation rejects active SVG animation elements', () => {
     }
 });
 
+test('SVG validation rejects encoded and external paint values', () => {
+    for (const [label, source] of [
+        ['decimal-entity-paint.svg',
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><rect fill="url&#40;https://example.invalid/paint.svg#p&#41;"/></svg>'],
+        ['hex-entity-paint.svg',
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><circle cx="0" cy="0" r="1" stroke="url&#x28;https://example.invalid/paint.svg#p&#x29;"/></svg>'],
+        ['external-paint.svg',
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><rect fill="https://example.invalid/paint.svg"/></svg>'],
+    ]) {
+        assert.throws(
+            () => validateSvgSource(source, label),
+            /external or active SVG content/
+        );
+    }
+});
+
+test('SVG validation requires one SVG root with no surrounding content', () => {
+    for (const [label, source] of [
+        ['two-roots.svg',
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"></svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"></svg>'],
+        ['top-level-rect.svg', '<rect width="256" height="256"/>'],
+        ['trailing-content.svg', '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"></svg>trailing'],
+    ]) {
+        assert.throws(
+            () => validateSvgSource(source, label),
+            /external or active SVG content/
+        );
+    }
+});
+
 test('rasterizer failure preserves the last-known-good output', async () => {
     const safeMarketplaceSvg = readRepositoryFile(
         'media/brand/agent-pivot-marketplace.svg', 'utf8'

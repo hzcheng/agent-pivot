@@ -18,14 +18,53 @@ const assets = [
 
 const UNSAFE_SVG_CONTENT = /<script\b|<(?:image|foreignObject)\b|(?:\s|<)(?:xlink:)?href\s*=|\son[a-z][\w:-]*\s*=|url\s*\(/i;
 const SAFE_SVG_ATTRIBUTES = new Map([
-    ['svg', new Set(['xmlns', 'viewbox'])],
+    ['svg', new Set(['xmlns', 'viewBox'])],
     ['rect', new Set(['width', 'height', 'rx', 'fill'])],
     ['g', new Set(['fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin'])],
     ['path', new Set(['d'])],
     ['circle', new Set(['cx', 'cy', 'r', 'fill', 'stroke', 'stroke-width'])],
 ]);
+const APPROVED_PAINTS = new Set(['none', 'currentColor', '#111924', '#69DFD0', '#D8FFF9']);
+const NUMBER_TOKEN = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/;
+const SAFE_PATH_DATA = /^M[MhHcCvVaA0-9.\s-]+$/;
 const SVG_TAG = /<\s*(\/?)\s*([A-Za-z][\w:-]*)([^<>]*)>/g;
 const SVG_ATTRIBUTE = /([A-Za-z_:][\w:.-]*)\s*=\s*("[^"]*"|'[^']*')/g;
+
+function isFiniteNumber(value) {
+    return NUMBER_TOKEN.test(value) && Number.isFinite(Number(value));
+}
+
+function isFiniteNumberList(value, count) {
+    const values = value.split(/\s+/);
+    return value === value.trim()
+        && values.length === count
+        && values.every(isFiniteNumber);
+}
+
+function isAllowedAttributeValue(name, value) {
+    if (/[&;]/.test(value)) {
+        return false;
+    }
+    if (name === 'xmlns') {
+        return value === 'http://www.w3.org/2000/svg';
+    }
+    if (name === 'viewBox') {
+        return isFiniteNumberList(value, 4);
+    }
+    if (['width', 'height', 'rx', 'cx', 'cy', 'r', 'stroke-width'].includes(name)) {
+        return isFiniteNumber(value);
+    }
+    if (name === 'fill' || name === 'stroke') {
+        return APPROVED_PAINTS.has(value);
+    }
+    if (name === 'stroke-linecap' || name === 'stroke-linejoin') {
+        return value === 'round';
+    }
+    if (name === 'd') {
+        return SAFE_PATH_DATA.test(value);
+    }
+    return false;
+}
 
 function validateSvgSource(source, label) {
     if (UNSAFE_SVG_CONTENT.test(source)) {
@@ -35,15 +74,20 @@ function validateSvgSource(source, label) {
     const openElements = [];
     let cursor = 0;
     let tagCount = 0;
+    let rootSeen = false;
+    let rootClosed = false;
     for (const match of source.matchAll(SVG_TAG)) {
         if (source.slice(cursor, match.index).trim()) {
+            throw new Error(`${label} contains external or active SVG content`);
+        }
+        if (rootClosed) {
             throw new Error(`${label} contains external or active SVG content`);
         }
         cursor = match.index + match[0].length;
         tagCount++;
 
         const closing = match[1] === '/';
-        const element = match[2].toLowerCase();
+        const element = match[2];
         const allowedAttributes = SAFE_SVG_ATTRIBUTES.get(element);
         if (!allowedAttributes) {
             throw new Error(`${label} contains external or active SVG content`);
@@ -54,7 +98,19 @@ function validateSvgSource(source, label) {
             if (content.trim() || openElements.pop() !== element) {
                 throw new Error(`${label} contains external or active SVG content`);
             }
+            if (!openElements.length) {
+                rootClosed = true;
+            }
             continue;
+        }
+
+        if (!openElements.length) {
+            if (element !== 'svg' || rootSeen) {
+                throw new Error(`${label} contains external or active SVG content`);
+            }
+            rootSeen = true;
+        } else if (element === 'svg') {
+            throw new Error(`${label} contains external or active SVG content`);
         }
 
         const attributes = new Set();
@@ -63,8 +119,10 @@ function validateSvgSource(source, label) {
             if (content.slice(attributeCursor, attribute.index).trim()) {
                 throw new Error(`${label} contains external or active SVG content`);
             }
-            const name = attribute[1].toLowerCase();
-            if (!allowedAttributes.has(name) || attributes.has(name)) {
+            const name = attribute[1];
+            const value = attribute[2].slice(1, -1);
+            if (!allowedAttributes.has(name) || attributes.has(name)
+                || !isAllowedAttributeValue(name, value)) {
                 throw new Error(`${label} contains external or active SVG content`);
             }
             attributes.add(name);
@@ -75,12 +133,17 @@ function validateSvgSource(source, label) {
         if (remainder && remainder !== '/') {
             throw new Error(`${label} contains external or active SVG content`);
         }
+        if (element === 'svg'
+            && (remainder === '/' || !attributes.has('xmlns') || !attributes.has('viewBox'))) {
+            throw new Error(`${label} contains external or active SVG content`);
+        }
         if (remainder !== '/') {
             openElements.push(element);
         }
     }
 
-    if (!tagCount || source.slice(cursor).trim() || openElements.length) {
+    if (!tagCount || !rootSeen || !rootClosed
+        || source.slice(cursor).trim() || openElements.length) {
         throw new Error(`${label} contains external or active SVG content`);
     }
 }

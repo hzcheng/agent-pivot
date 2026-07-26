@@ -7,7 +7,9 @@ description: Use when this repository's code changes need review, requested fixe
 
 ## Overview
 
-Turn review findings into focused fixes without losing traceability: inspect, fix Critical/Important findings, verify freshly, then commit only the intended files.
+Turn Agent Pivot review findings into focused fixes without losing
+traceability: inspect, fix Critical/Important findings, verify freshly, then
+commit only the intended files.
 
 ## Workflow
 

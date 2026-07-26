@@ -13,6 +13,12 @@ const {
     validateManifestPair,
 } = require('../../../scripts/lib/brandIdentity');
 
+const repositoryRoot = path.resolve(__dirname, '../../..');
+
+function read(relativePath) {
+    return fs.readFileSync(path.join(repositoryRoot, relativePath), 'utf8');
+}
+
 function manifests() {
     return {
         main: {
@@ -68,6 +74,46 @@ function manifests() {
         },
     };
 }
+
+test('marketplace documentation and legal notices expose the approved identity', () => {
+    assert.match(read('README.md'),
+        /^# Agent Pivot$/m);
+    assert.match(read('README.md'),
+        /Switch, monitor, and resume Codex, Claude, and Kimi sessions/);
+    assert.match(read('README.md'),
+        /^## Privacy and local data$/m);
+    assert.match(read('README.md'),
+        /does not upload conversation content to an Agent Pivot service/);
+    assert.match(read('README.md'),
+        /began as a fork of Kruemelkatze\/vscode-dashboard/);
+    const bridgeReadme = read('extensions/attention-ui-bridge/README.md');
+    assert.match(bridgeReadme, /^# Agent Pivot Attention UI Bridge$/m);
+    assert.match(bridgeReadme, /has no user-facing commands/);
+    for (const value of [
+        'conversation content',
+        'prompts',
+        'responses',
+        'hostnames',
+        'remote authorities',
+        'absolute project paths',
+    ]) {
+        assert.match(bridgeReadme, new RegExp(`does not[\\s\\S]*${value}`));
+    }
+    assert.match(read('CHANGELOG.md'), /^## \[1\.0\.0\] - 2026-07-26$/m);
+    assert.match(read('LICENSE'), /Copyright \(c\) 2026 hzcheng/);
+    for (const dependency of [
+        'dom-autoscroller 2.3.4',
+        'dragula 3.7.3',
+        'fitty 2.3.5',
+        'DOMPurify 3.4.12',
+        'Sharingan loading animation',
+    ]) {
+        assert.match(read('THIRD_PARTY_NOTICES.md'), new RegExp(dependency));
+    }
+    assert.equal(fs.existsSync(path.join(
+        repositoryRoot, 'licenses/DOMPurify-Apache-2.0.txt'
+    )), true);
+});
 
 test('brand identity exposes the exact approved public contract', () => {
     assert.deepEqual(BRAND_IDENTITY, {
@@ -141,6 +187,16 @@ test('scanner does not hide stale identity in the current changelog section', ()
         '# Changelog\n\n## [1.0.0] - 2026-07-26\n\nProject Steward\n\n' +
         '## Unpublished Project Steward development history\n');
     assert.deepEqual(findStaleIdentity(root).map(item => item.line), [5]);
+});
+
+test('scanner permits only the reviewed 1.0.0 identity reset note', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-release-'));
+    fs.writeFileSync(path.join(root, 'CHANGELOG.md'),
+        '# Changelog\n\n## [1.0.0] - 2026-07-26\n\n### Changed\n\n' +
+        '- Reset the unpublished extension identity, commands, settings, state, managed\n' +
+        '  runtime names, and companion bridge from Project Steward to Agent Pivot.\n\n' +
+        '## Unpublished Project Steward development history\n');
+    assert.deepEqual(findStaleIdentity(root), []);
 });
 
 test('scanner rejects inherited marketplace icon bytes by sha256', () => {

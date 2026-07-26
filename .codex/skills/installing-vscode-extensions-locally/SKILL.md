@@ -54,13 +54,19 @@ Build and install the Agent Pivot extension that matches the current VS Code env
 
 5. Package and route each extension through the host that owns it.
    - Example: `npm run install-local`
+   - The 1.0.0 release artifacts are
+     `artifacts/agent-pivot-1.0.0.vsix` for
+     `hzcheng.agent-pivot` and
+     `artifacts/agent-pivot-attention-ui-bridge-1.0.0.vsix` for
+     `hzcheng.agent-pivot-attention-ui-bridge`. Re-read both manifests instead
+     of carrying these versioned names into a later release.
    - If manual installation is needed, use the discovered socket-independent
      extension-management entry point to install the workspace extension into
      the active remote Server host. Supply its discovered Server-data location
      by that entry point's supported option or environment and explicitly
      target the discovered extensions directory, for example:
      `<verified-entry-point> --extensions-dir <active-extensions-dir>
-     --install-extension <workspace.vsix>`. Never substitute a local,
+     --install-extension artifacts/agent-pivot-1.0.0.vsix`. Never substitute a local,
      arbitrary PATH, or inherited-IPC CLI for this step.
    - A UI-only bridge belongs to the local UI host. When that host is
      unreachable from the remote environment, report it as **packaged but not
@@ -93,8 +99,8 @@ Build and install the Agent Pivot extension that matches the current VS Code env
 ## Reporting
 
 Always tell the user:
-- which VSIX artifact was built
-- which extension id/version was installed
+- which Agent Pivot and Attention UI Bridge VSIX artifacts were built
+- which Agent Pivot and Attention UI Bridge extension IDs/versions were installed
 - which host received it, if known
 - whether `VSCODE_IPC_HOOK_CLI` was usable or stale, and how the active
   code-server process, socket-independent entry point, Server-data directory,

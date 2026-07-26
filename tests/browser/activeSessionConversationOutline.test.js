@@ -902,6 +902,7 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-OUTLINE-001 renders safe readable equal-wi
             fillsRail: node.offsetWidth === node.parentElement.clientWidth,
             rowHeight: node.getBoundingClientRect().height,
             strokeWidth: stroke && getComputedStyle(stroke).width,
+            strokeHeight: stroke && getComputedStyle(stroke).height,
             preview: preview && preview.textContent,
             whiteSpace: previewStyle && previewStyle.whiteSpace,
             overflow: previewStyle && previewStyle.overflow,
@@ -917,6 +918,7 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-OUTLINE-001 renders safe readable equal-wi
             fillsRail: true,
             rowHeight: 28,
             strokeWidth: '14px',
+            strokeHeight: '2px',
             preview: 'First input',
             whiteSpace: 'nowrap',
             overflow: 'hidden',
@@ -930,6 +932,7 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-OUTLINE-001 renders safe readable equal-wi
             fillsRail: true,
             rowHeight: 28,
             strokeWidth: '14px',
+            strokeHeight: '2px',
             preview: hostilePreview,
             whiteSpace: 'nowrap',
             overflow: 'hidden',
@@ -943,6 +946,7 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-OUTLINE-001 renders safe readable equal-wi
             fillsRail: true,
             rowHeight: 28,
             strokeWidth: '14px',
+            strokeHeight: '2px',
             preview: 'Latest input',
             whiteSpace: 'nowrap',
             overflow: 'hidden',
@@ -1500,6 +1504,38 @@ test('ACTIVE-SESSION-CONVERSATION-LAYOUT-001 measures one row delta synchronousl
         clientHeight: 168,
         scrollHeight: spaciousRail.scrollHeight,
     });
+
+    const historicalScrollTop = await conversationRail.evaluate(node => {
+        node.scrollTop = 56;
+        return node.scrollTop;
+    });
+    assert.equal(historicalScrollTop, 56);
+    await page.setViewportSize({ width: 360, height: 260 });
+    await waitForPageCondition(page, () => {
+        const railNode = document.querySelector(
+            '.active-ai-session-row[data-conversation-expanded] '
+            + '[data-ai-session-conversation-rail]'
+        );
+        return railNode
+            && railNode.clientHeight >= 72
+            && railNode.clientHeight < 168;
+    });
+    assert.equal(
+        await conversationRail.evaluate(node => node.scrollTop),
+        historicalScrollTop
+    );
+    await page.setViewportSize({ width: 360, height: 900 });
+    await waitForPageCondition(page, () => {
+        const railNode = document.querySelector(
+            '.active-ai-session-row[data-conversation-expanded] '
+            + '[data-ai-session-conversation-rail]'
+        );
+        return railNode && railNode.clientHeight === 168;
+    });
+    assert.equal(
+        await conversationRail.evaluate(node => node.scrollTop),
+        historicalScrollTop
+    );
 
     await conversationRail.evaluate(node => {
         Array.from(node.querySelectorAll(

@@ -446,6 +446,70 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 keeps all Prompt actions visible without
     await assertNoHorizontalOverflow(page, width, 'no-hover');
 });
 
+test('WEBVIEW-AI-PROMPT-INTERACTION-001 opens and restores an exact copied Prompt draft in Chromium', async t => {
+    const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
+    t.after(() => browser.close());
+    const initialSnapshot = {
+        version: 1,
+        revision: 0,
+        selectedPromptId: null,
+        prompts: [{
+            id: 'prompt-a',
+            name: 'Review',
+            text: 'Review this diff.\nKeep details.',
+        }],
+    };
+    const page = await openPromptPage(browser, initialSnapshot);
+    t.after(() => page.close());
+
+    await revealPromptActions(page);
+    await page.locator('[data-action="prompt-copy"]').click();
+    assert.deepEqual(await page.evaluate(() => ({
+        messages: window.__promptMessages,
+        name: document.querySelector('[data-prompt-form="create"] [name="name"]').value,
+        text: document.querySelector('[data-prompt-form="create"] [name="text"]').value,
+        focusedName: document.activeElement
+            === document.querySelector('[data-prompt-form="create"] [name="name"]'),
+    })), {
+        messages: [],
+        name: 'Review copy',
+        text: 'Review this diff.\nKeep details.',
+        focusedName: true,
+    });
+
+    const refreshedSnapshot = {
+        ...initialSnapshot,
+        revision: 1,
+        prompts: [{
+            id: 'prompt-a',
+            name: 'Review renamed elsewhere',
+            text: 'Changed elsewhere',
+        }],
+    };
+    assert.equal(await page.evaluate(({ snapshot, html }) =>
+        window.__projectStewardPrompts.applyRefresh({
+            type: 'prompt-panel-updated',
+            version: 1,
+            authoritySequence: 2,
+            target: 'global-prompt-library',
+            snapshot,
+            html,
+        }), {
+        snapshot: refreshedSnapshot,
+        html: getPromptSurfaceContent(refreshedSnapshot),
+    }), true);
+    assert.deepEqual(await page.evaluate(() => ({
+        name: document.querySelector('[data-prompt-form="create"] [name="name"]').value,
+        text: document.querySelector('[data-prompt-form="create"] [name="text"]').value,
+        focusedName: document.activeElement
+            === document.querySelector('[data-prompt-form="create"] [name="name"]'),
+    })), {
+        name: 'Review copy',
+        text: 'Review this diff.\nKeep details.',
+        focusedName: true,
+    });
+});
+
 test('SESSION-AI-PROMPT-TERMINAL-INSERTION-001 preserves keyboard focus through pending replacement and acknowledgement', async t => {
     const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
     t.after(() => browser.close());

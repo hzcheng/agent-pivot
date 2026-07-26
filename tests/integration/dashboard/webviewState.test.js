@@ -17,6 +17,7 @@ const dashboardSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webvi
 const generatedDashboardSource = fs.readFileSync(path.join(root, 'media', 'webviewDashboardScripts.js'), 'utf8');
 const projectSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewProjectScripts.js'), 'utf8');
 const generatedProjectSource = fs.readFileSync(path.join(root, 'media', 'webviewProjectScripts.js'), 'utf8');
+const scrollStateSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewScrollStateScripts.js'), 'utf8');
 const promptSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewPromptScripts.js'), 'utf8');
 const generatedPromptPath = path.join(root, 'media', 'webviewPromptScripts.js');
 const dndSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewDnDScripts.js'), 'utf8');
@@ -1596,6 +1597,7 @@ function createProjectVm({
             },
         },
     };
+    vm.runInNewContext(scrollStateSource, context);
     vm.runInNewContext(source, context);
     context.initProjects();
     messages.length = 0;
@@ -1935,7 +1937,7 @@ test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-002 reconciles batch selection afte
     ));
 });
 
-test('SESSION-CONTROLLER-001 preserves AI tab helpers, persisted state, and hidden-list scroll offsets', () => {
+test('SESSION-CONTROLLER-001 preserves AI tab helpers, persisted state, and semantic list fallbacks', () => {
     const harness = createProjectVm();
     const context = harness.context;
     assert.equal(context.normalizeAiSessionTab('active'), 'active');
@@ -1995,7 +1997,9 @@ test('SESSION-CONTROLLER-001 preserves AI tab helpers, persisted state, and hidd
         },
     };
     context.restoreAiSessionViewState(project, {
-        activeScrollTop: 17, historyScrollTop: 29, restoreFocus: false,
+        activeAnchor: { scrollTop: 17, itemKey: null, itemOffset: 0 },
+        historyAnchor: { scrollTop: 29, itemKey: null, itemOffset: 0 },
+        restoreFocus: false,
     }, 'active');
     assert.equal(activeList.scrollTop, 17);
     assert.equal(historyList.scrollTop, 29);

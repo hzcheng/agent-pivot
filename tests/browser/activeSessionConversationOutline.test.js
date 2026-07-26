@@ -33,6 +33,10 @@ const projectScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/webviewProjectScripts.js'),
     'utf8'
 );
+const scrollStateScript = fs.readFileSync(
+    path.join(__dirname, '../../src/webview/webviewScrollStateScripts.js'),
+    'utf8'
+);
 const styles = fs.readFileSync(
     path.join(__dirname, '../../media/styles.css'),
     'utf8'
@@ -201,15 +205,16 @@ test('WEBVIEW-AI-SESSION-LIST-SCROLL-001 preserves semantic Active and History a
     assert.equal(await activeRestored.locator('.ai-session-primary-action').evaluate(node => document.activeElement === node), true);
 
     await page.locator('[data-ai-session-tab="sessions"]').click();
-    const historyAnchor = page.locator('.ai-session-history-panel .codex-session-row')
-        .filter({ has: page.locator('[data-session-id="history-5"]') });
+    const historyAnchor = page.locator(
+        '.ai-session-history-panel .codex-session-row[data-session-id="history-5"]'
+    );
     await waitForPageCondition(page, () => {
         const list = document.querySelector('[data-ai-session-panel="sessions"] .codex-sessions-list');
         return list && list.scrollHeight > list.clientHeight;
     });
     const historyBefore = await historyAnchor.evaluate(node => {
         const list = node.closest('.codex-sessions-list');
-        list.scrollTop = node.offsetTop - list.offsetTop - 20;
+        list.scrollTop = node.offsetTop - list.offsetTop;
         node.querySelector('.ai-session-primary-action').focus();
         return node.getBoundingClientRect().top - list.getBoundingClientRect().top;
     });
@@ -217,8 +222,9 @@ test('WEBVIEW-AI-SESSION-LIST-SCROLL-001 preserves semantic Active and History a
         history[3], history[1], historySession('codex', 'history-inserted'),
         history[0], history[2], ...history.slice(4),
     ]);
-    const historyRestored = page.locator('.ai-session-history-panel .codex-session-row')
-        .filter({ has: page.locator('[data-session-id="history-5"]') });
+    const historyRestored = page.locator(
+        '.ai-session-history-panel .codex-session-row[data-session-id="history-5"]'
+    );
     assert.ok(Math.abs((await relativeTop(historyRestored)) - historyBefore) <= 1);
     assert.equal(await page.locator('[data-ai-session-tab="sessions"]').getAttribute('aria-selected'), 'true');
     assert.equal(await historyRestored.locator('.ai-session-primary-action').evaluate(node => document.activeElement === node), true);
@@ -308,6 +314,7 @@ async function openListPage(t, activeAiSessions, historySessions) {
         window.normalizeDashboardSearchCatalog = catalog => catalog;
         window.vscode = { getState: () => undefined, setState() {}, postMessage() {} };
     });
+    await page.addScriptTag({ content: scrollStateScript });
     await page.addScriptTag({ content: projectScript });
     await page.evaluate(() => initProjects());
     return page;

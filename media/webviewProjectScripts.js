@@ -1264,6 +1264,30 @@ function getSelectedAiSessionTab(projectDiv) {
     return selected ? normalizeAiSessionTab(selected.getAttribute('data-ai-session-tab')) : null;
 }
 
+function getAiSessionScrollItemKey(row) {
+    var panel = row.closest('[data-ai-session-panel]');
+    return JSON.stringify([
+        panel ? panel.getAttribute('data-ai-session-panel') || '' : '',
+        row.getAttribute('data-session-provider') || '',
+        row.getAttribute('data-session-id') || '',
+        row.getAttribute('data-pending-created-at') || '',
+    ]);
+}
+
+function captureAiSessionListAnchor(list) {
+    return window.__projectStewardScrollState.capture(list, {
+        itemSelector: '.codex-session-row',
+        getKey: getAiSessionScrollItemKey,
+    });
+}
+
+function restoreAiSessionListAnchor(list, anchor) {
+    return window.__projectStewardScrollState.restore(list, anchor, {
+        itemSelector: '.codex-session-row',
+        getKey: getAiSessionScrollItemKey,
+    });
+}
+
 function captureAiSessionViewState(projectDiv) {
     var activeList = projectDiv.querySelector('.ai-session-active-panel .codex-sessions-list');
     var historyList = projectDiv.querySelector('.ai-session-history-panel .codex-sessions-list');
@@ -1271,10 +1295,16 @@ function captureAiSessionViewState(projectDiv) {
     var focusedInside = focused && typeof focused.closest === 'function' && focused.closest('.project[data-id]') === projectDiv;
     var focusedRow = focusedInside ? focused.closest('.codex-session-row') : null;
     var focusedTab = focusedInside ? focused.closest('[data-ai-session-tab]') : null;
+    var selectedTab = getSelectedAiSessionTab(projectDiv);
+    selectAiSessionTabDom(projectDiv, 'active');
+    var activeAnchor = captureAiSessionListAnchor(activeList);
+    selectAiSessionTabDom(projectDiv, 'sessions');
+    var historyAnchor = captureAiSessionListAnchor(historyList);
+    selectAiSessionTabDom(projectDiv, selectedTab);
     return {
-        selectedTab: getSelectedAiSessionTab(projectDiv),
-        activeScrollTop: activeList && typeof activeList.scrollTop === 'number' ? activeList.scrollTop : 0,
-        historyScrollTop: historyList && typeof historyList.scrollTop === 'number' ? historyList.scrollTop : 0,
+        selectedTab: selectedTab,
+        activeAnchor: activeAnchor,
+        historyAnchor: historyAnchor,
         pendingCount: projectDiv.querySelectorAll('.active-ai-session-row[data-session-pending]').length,
         activeCount: projectDiv.querySelectorAll('.active-ai-session-row[data-session-active]').length,
         restoreFocus: !!focusedInside,
@@ -1288,23 +1318,14 @@ function captureAiSessionViewState(projectDiv) {
     };
 }
 
-function restoreAiSessionViewState(projectDiv, viewState, requestedTab) {
-    var activeList = projectDiv.querySelector('.ai-session-active-panel .codex-sessions-list');
-    var historyList = projectDiv.querySelector('.ai-session-history-panel .codex-sessions-list');
-    selectAiSessionTabDom(projectDiv, 'active');
-    restoreAiSessionListScroll(activeList, viewState.activeScrollTop);
-    selectAiSessionTabDom(projectDiv, 'sessions');
-    restoreAiSessionListScroll(historyList, viewState.historyScrollTop);
-    var selectedTab = selectAiSessionTabDom(projectDiv, requestedTab);
-    if (!viewState.restoreFocus) return;
-
+function restoreAiSessionViewFocus(projectDiv, viewState, selectedTab) {
+    if (!viewState || !viewState.restoreFocus) return;
     if (viewState.focusedTab) {
         var tabToFocus = Array.from(projectDiv.querySelectorAll('[data-ai-session-tab]'))
             .find(tab => tab.getAttribute('data-ai-session-tab') === viewState.focusedTab);
-        (tabToFocus || selectedTab)?.focus();
+        (tabToFocus || selectedTab)?.focus({ preventScroll: true });
         return;
     }
-
     if (!viewState.focusedRow) return;
     var rows = Array.from(projectDiv.querySelectorAll('.codex-session-row'));
     var match = rows.find(row => {
@@ -1314,16 +1335,22 @@ function restoreAiSessionViewState(projectDiv, viewState, requestedTab) {
             && (row.getAttribute('data-pending-created-at') || '') === viewState.focusedRow.pendingCreatedAt
             && (!viewState.focusedRow.panel || panel?.getAttribute('data-ai-session-panel') === viewState.focusedRow.panel);
     });
-    var selectedPanel = projectDiv.querySelector('[data-ai-session-panel="' + normalizeAiSessionTab(requestedTab) + '"]');
-    var rowToFocus = match || selectedPanel?.querySelector('.codex-session-row');
-    (rowToFocus?.querySelector('.ai-session-primary-action') || selectedTab)?.focus();
+    (match?.querySelector('.ai-session-primary-action') || selectedTab)?.focus({ preventScroll: true });
 }
 
-function restoreAiSessionListScroll(list, requestedScrollTop) {
-    if (!list) return;
-    var scrollTop = Number.isFinite(requestedScrollTop) ? Math.max(0, requestedScrollTop) : 0;
-    var maxScrollTop = Math.max(0, list.scrollHeight - list.clientHeight);
-    list.scrollTop = Math.min(scrollTop, maxScrollTop);
+function restoreAiSessionViewState(projectDiv, viewState, requestedTab, options) {
+    if (!projectDiv || !viewState) return null;
+    var activeList = projectDiv.querySelector('.ai-session-active-panel .codex-sessions-list');
+    var historyList = projectDiv.querySelector('.ai-session-history-panel .codex-sessions-list');
+    selectAiSessionTabDom(projectDiv, 'active');
+    restoreAiSessionListAnchor(activeList, viewState.activeAnchor);
+    selectAiSessionTabDom(projectDiv, 'sessions');
+    restoreAiSessionListAnchor(historyList, viewState.historyAnchor);
+    var selectedTab = selectAiSessionTabDom(projectDiv, requestedTab || viewState.selectedTab);
+    if (!options || options.restoreFocus !== false) {
+        restoreAiSessionViewFocus(projectDiv, viewState, selectedTab);
+    }
+    return selectedTab;
 }
 
 function captureAiSessionProviderMenuState(projectDiv) {
@@ -1364,7 +1391,7 @@ function restoreAiSessionProviderMenuState(projectDiv, menuState, allowed) {
     trigger.setAttribute('aria-expanded', 'true');
     menu.hidden = false;
     if (menuState.focus?.kind === 'trigger') {
-        trigger.focus();
+        trigger.focus({ preventScroll: true });
         return;
     }
     if (menuState.focus?.kind !== 'option') {
@@ -1375,7 +1402,70 @@ function restoreAiSessionProviderMenuState(projectDiv, menuState, allowed) {
     ).find(candidate =>
         candidate.getAttribute('data-provider') === menuState.focus.provider
     );
-    option?.focus();
+    option?.focus({ preventScroll: true });
+}
+
+function captureCurrentWorkspaceAiSessionStates(root) {
+    var states = new Map();
+    if (!root || typeof root.querySelectorAll !== 'function') return states;
+    root.querySelectorAll('.workspace-card[data-current-workspace][data-id]')
+        .forEach(projectDiv => {
+            var projectId = projectDiv.getAttribute('data-id');
+            if (!projectId) return;
+            states.set(projectId, {
+                view: captureAiSessionViewState(projectDiv),
+                providerMenu: captureAiSessionProviderMenuState(projectDiv),
+                conversation: captureExpandedConversationState(projectDiv),
+            });
+        });
+    if (Array.from(states.values()).some(state => state.conversation)) {
+        disconnectActiveAiSessionConversationResizeObserver();
+    }
+    return states;
+}
+
+function restoreCurrentWorkspaceAiSessionViewStates(root, states, canRestoreProviderMenu) {
+    if (!root || typeof root.querySelectorAll !== 'function') return;
+    root.querySelectorAll('.workspace-card[data-current-workspace][data-id]')
+        .forEach(projectDiv => {
+            var projectId = projectDiv.getAttribute('data-id');
+            var state = states.get(projectId);
+            if (!state) return;
+            restoreAiSessionViewState(projectDiv, state.view, state.view.selectedTab, {
+                restoreFocus: false,
+            });
+            restoreAiSessionProviderMenuState(
+                projectDiv,
+                state.providerMenu,
+                !canRestoreProviderMenu || canRestoreProviderMenu(projectId)
+            );
+        });
+}
+
+function restoreCurrentWorkspaceAiSessionConversations(root, states) {
+    var conversationStates = new Map();
+    states.forEach((state, projectId) => {
+        if (state.conversation) {
+            conversationStates.set(projectId, state.conversation);
+        }
+    });
+    restoreCurrentWorkspaceConversationStates(root, conversationStates);
+}
+
+function restoreCurrentWorkspaceAiSessionAnchorsAndFocus(root, states) {
+    if (!root || typeof root.querySelectorAll !== 'function') return;
+    root.querySelectorAll('.workspace-card[data-current-workspace][data-id]')
+        .forEach(projectDiv => {
+            var state = states.get(projectDiv.getAttribute('data-id'));
+            if (!state) return;
+            var selectedTab = restoreAiSessionViewState(
+                projectDiv,
+                state.view,
+                state.view.selectedTab,
+                { restoreFocus: false }
+            );
+            restoreAiSessionViewFocus(projectDiv, state.view, selectedTab);
+        });
 }
 
 function getWorkspaceUpdateDomState(root) {
@@ -1414,10 +1504,6 @@ function applyWorkspaceUpdate(message, options) {
     if (currentCards.some(card => !currentGroup.contains(card))) {
         return false;
     }
-    var providerMenuStates = new Map(currentCards.map(card => [
-        typeof card.getAttribute === 'function' ? card.getAttribute('data-id') : null,
-        captureAiSessionProviderMenuState(card),
-    ]));
     var holder = document.createElement('div');
     holder.innerHTML = message.html.trim();
     var replacement = holder.firstElementChild;
@@ -1428,29 +1514,20 @@ function applyWorkspaceUpdate(message, options) {
         return false;
     }
 
-    var expandedConversationStates =
-        captureCurrentWorkspaceConversationStates(currentGroup);
+    var aiSessionStates = captureCurrentWorkspaceAiSessionStates(currentGroup);
     currentGroup.replaceWith(replacement);
     if (typeof restoreAiSessionTabsFromState === 'function') {
         restoreAiSessionTabsFromState(replacement, window.vscode);
     }
-    replacement.querySelectorAll('.workspace-card[data-current-workspace][data-id]').forEach(
-        projectDiv => {
-            var projectId = projectDiv.getAttribute('data-id');
-            var allowed = options
-                && typeof options.canRestoreAiSessionProviderMenu === 'function'
-                && options.canRestoreAiSessionProviderMenu(projectId);
-            restoreAiSessionProviderMenuState(
-                projectDiv,
-                providerMenuStates.get(projectId),
-                allowed
-            );
-        }
-    );
-    restoreCurrentWorkspaceConversationStates(
+    restoreCurrentWorkspaceAiSessionViewStates(
         replacement,
-        expandedConversationStates
+        aiSessionStates,
+        projectId => options
+            && typeof options.canRestoreAiSessionProviderMenu === 'function'
+            && options.canRestoreAiSessionProviderMenu(projectId)
     );
+    restoreCurrentWorkspaceAiSessionConversations(replacement, aiSessionStates);
+    restoreCurrentWorkspaceAiSessionAnchorsAndFocus(replacement, aiSessionStates);
     if (typeof window.__projectStewardSyncCollapseButton === 'function') {
         window.__projectStewardSyncCollapseButton();
     }
@@ -1486,18 +1563,16 @@ function applyOpenWorkspacesUpdate(message) {
     var wrapper = document.querySelector('.sticky-groups-wrapper');
     if (!wrapper) return false;
     var previousHtml = wrapper.innerHTML;
-    var expandedConversationStates =
-        captureCurrentWorkspaceConversationStates(wrapper);
+    var aiSessionStates = captureCurrentWorkspaceAiSessionStates(wrapper);
     wrapper.innerHTML = message.html;
     if (!isOpenWorkspacesUpdateDomConsistent(message)) {
         wrapper.innerHTML = previousHtml;
         if (typeof restoreAiSessionTabsFromState === 'function') {
             restoreAiSessionTabsFromState(document, window.vscode);
         }
-        restoreCurrentWorkspaceConversationStates(
-            wrapper,
-            expandedConversationStates
-        );
+        restoreCurrentWorkspaceAiSessionViewStates(wrapper, aiSessionStates);
+        restoreCurrentWorkspaceAiSessionConversations(wrapper, aiSessionStates);
+        restoreCurrentWorkspaceAiSessionAnchorsAndFocus(wrapper, aiSessionStates);
         return false;
     }
     if (window.__projectStewardDashboard) {
@@ -1506,10 +1581,9 @@ function applyOpenWorkspacesUpdate(message) {
     if (typeof restoreAiSessionTabsFromState === 'function') {
         restoreAiSessionTabsFromState(document, window.vscode);
     }
-    restoreCurrentWorkspaceConversationStates(
-        wrapper,
-        expandedConversationStates
-    );
+    restoreCurrentWorkspaceAiSessionViewStates(wrapper, aiSessionStates);
+    restoreCurrentWorkspaceAiSessionConversations(wrapper, aiSessionStates);
+    restoreCurrentWorkspaceAiSessionAnchorsAndFocus(wrapper, aiSessionStates);
     if (typeof window.__projectStewardSyncCollapseButton === 'function') {
         window.__projectStewardSyncCollapseButton();
     }

@@ -84,6 +84,16 @@ function validateTodoLayout(source) {
 
 function validatePromptCompactCardStyles(source) {
     const id = 'WEBVIEW-AI-PROMPT-STYLES-001';
+    const itemView = extractBlock(source, '.prompt-item-view');
+    assert.ok(
+        itemView.includes('grid-template-columns: 24px minmax(0, 1fr)'),
+        `${id} collapsed card must reserve only drag and content columns`
+    );
+    assert.equal(
+        itemView.includes('28px'),
+        false,
+        `${id} collapsed card must not reserve a persistent Insert column`
+    );
     const preview = extractBlock(source, '.prompt-preview', 1);
     for (const value of [
         'display: -webkit-box',
@@ -102,6 +112,7 @@ function validatePromptCompactCardStyles(source) {
     const management = extractBlock(source, '.prompt-management-actions');
     for (const value of [
         'position: absolute',
+        'right: 4px',
         'opacity: 0',
         'pointer-events: none',
     ]) {
@@ -114,8 +125,8 @@ function validatePromptCompactCardStyles(source) {
     const reveal = ruleForSelector(compiled, '.prompt-item:focus-within .prompt-management-actions');
     assert.ok(reveal.selectors.includes('.prompt-item:hover .prompt-management-actions'));
     assertDeclarations(reveal, id, ['opacity: 1', 'pointer-events: auto']);
-    assertDeclarations(ruleForSelector(compiled, '.prompt-insert-button', 'pointer-events: auto'), id,
-        ['opacity: 1', 'pointer-events: auto']);
+    assertDeclarations(ruleForSelector(compiled, '.prompt-insert-button', 'pointer-events: inherit'), id,
+        ['opacity: 1', 'pointer-events: inherit']);
     assertDeclarations(ruleForSelector(compiled, '.prompt-insert-button[aria-disabled=true]'), id,
         ['opacity: 0.55', 'cursor: progress']);
     assertDeclarations(ruleForSelector(compiled, '.prompt-item[data-prompt-default=true]'), id,

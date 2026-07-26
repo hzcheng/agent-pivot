@@ -4264,7 +4264,7 @@ body.steward-sidebar .prompt-item {
 
 .prompt-item-view {
     display: grid;
-    grid-template-columns: 24px minmax(0, 1fr) 28px;
+    grid-template-columns: 24px minmax(0, 1fr);
     align-items: center;
     gap: 6px;
     min-width: 0;
@@ -4344,11 +4344,11 @@ body.steward-sidebar .prompt-item {
 
 .prompt-insert-button {
     display: inline-grid;
-    width: 28px;
-    height: 28px;
+    width: 24px;
+    height: 24px;
     place-items: center;
     opacity: 1;
-    pointer-events: auto;
+    pointer-events: inherit;
 }
 
 .prompt-insert-button[aria-disabled="true"] {
@@ -4359,7 +4359,7 @@ body.steward-sidebar .prompt-item {
 .prompt-management-actions {
     position: absolute;
     top: 4px;
-    right: 34px;
+    right: 4px;
     z-index: 5;
     display: flex;
     align-items: center;
@@ -4403,7 +4403,7 @@ body.steward-sidebar .prompt-item {
 
 .prompt-item:hover .prompt-title-line,
 .prompt-item:focus-within .prompt-title-line {
-    padding-right: 74px;
+    padding-right: 108px;
 }
 
 .prompt-item-view .steward-icon-button svg {
@@ -4509,7 +4509,7 @@ body.steward-sidebar .prompt-item {
     }
 
     .prompt-item-view {
-        grid-template-columns: 22px minmax(0, 1fr) 26px;
+        grid-template-columns: 22px minmax(0, 1fr);
         gap: 4px;
     }
 
@@ -4517,12 +4517,8 @@ body.steward-sidebar .prompt-item {
         width: 22px;
     }
 
-    .prompt-insert-button {
-        width: 26px;
-    }
-
     .prompt-management-actions {
-        right: 30px;
+        right: 4px;
     }
 }
 
@@ -4534,7 +4530,7 @@ body.steward-sidebar .prompt-item {
     }
 
     .prompt-title-line {
-        padding-right: 74px;
+        padding-right: 108px;
     }
 }
 

@@ -129,6 +129,10 @@ test('AI Prompt content renders ordered items with accessible independent action
     assert.equal((html.match(/draggable="true"/g) || []).length, 2);
     assert.equal((html.match(/data-action="prompt-insert-terminal"/g) || []).length, 2);
     assert.equal((html.match(/class="prompt-management-actions"/g) || []).length, 2);
+    assert.match(
+        html,
+        /<div class="prompt-management-actions">\s*<button[^>]*data-action="prompt-insert-terminal"[\s\S]*?data-action="prompt-select-default"[\s\S]*?data-action="prompt-edit"[\s\S]*?data-action="prompt-delete"/
+    );
     assert.doesNotMatch(html, /<li[^>]*draggable="true"/);
     assert.match(html, /<li[^>]*data-prompt-id="prompt-b"[^>]*data-prompt-default="true"/);
     assert.doesNotMatch(html, /<li[^>]*data-prompt-id="prompt-a"[^>]*data-prompt-default/);

@@ -272,7 +272,6 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 keeps Prompt controls and text usable in
 
             await assertNoHorizontalOverflow(page, width, 'initial');
             await assertReachable(page, '[data-action="prompt-new"]', width);
-            await assertReachable(page, '[data-action="prompt-insert-terminal"]', width);
 
             assert.equal(await page.locator('.prompt-management-actions').evaluate(element =>
                 getComputedStyle(element).opacity
@@ -280,6 +279,19 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 keeps Prompt controls and text usable in
             assert.equal(await page.locator('.prompt-management-actions').evaluate(element =>
                 getComputedStyle(element).pointerEvents
             ), 'none');
+            assert.equal(await page.locator('[data-action="prompt-insert-terminal"]').evaluate(element =>
+                getComputedStyle(element).pointerEvents
+            ), 'none');
+            assert.deepEqual(await page.locator('.prompt-management-actions').evaluate(element =>
+                Array.from(element.querySelectorAll('[data-action]')).map(action =>
+                    action.getAttribute('data-action')
+                )
+            ), [
+                'prompt-insert-terminal',
+                'prompt-select-default',
+                'prompt-edit',
+                'prompt-delete',
+            ]);
 
             const boundedText = await page.evaluate(() => {
                 const measure = selector => {
@@ -315,6 +327,7 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 keeps Prompt controls and text usable in
             assert.equal(await page.locator('.prompt-management-actions').evaluate(element =>
                 getComputedStyle(element).opacity
             ), '1');
+            await assertReachable(page, '[data-action="prompt-insert-terminal"]', width);
             await assertReachable(page, '[data-action="prompt-select-default"]', width);
             await assertReachable(page, '[data-action="prompt-edit"]', width);
             await assertReachable(page, '[data-action="prompt-delete"]', width);

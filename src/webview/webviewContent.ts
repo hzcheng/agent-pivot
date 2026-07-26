@@ -129,6 +129,12 @@ export function getStewardContent(
     var dragulaPath = getMediaResource(context, webview, 'dragula.min.js', assetRevision);
     var autoScrollerPath = getMediaResource(context, webview, 'dom-autoscroller.min.js', assetRevision);
 
+    var scrollStateScriptsPath = getMediaResource(
+        context,
+        webview,
+        'webviewScrollStateScripts.js',
+        assetRevision,
+    );
     var projectScriptsPath = getMediaResource(
         context,
         webview,
@@ -262,6 +268,7 @@ export function getStewardContent(
     <script src="${fittyPath}"></script>
     <script src="${dragulaPath}"></script>
     <script src="${autoScrollerPath}"></script>
+    <script src="${scrollStateScriptsPath}"></script>
     <script src="${projectScriptsPath}"></script>
     <script src="${dashboardScriptsPath}"></script>
     <script src="${promptScriptsPath}"></script>

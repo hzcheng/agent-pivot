@@ -35,6 +35,7 @@ const root = path.join(__dirname, '..');
 const dashboardScriptPath = path.join(root, 'src', 'webview', 'webviewDashboardScripts.js');
 const projectScriptPath = path.join(root, 'src', 'webview', 'webviewProjectScripts.js');
 const promptScriptPath = path.join(root, 'src', 'webview', 'webviewPromptScripts.js');
+const scrollStateScriptPath = path.join(root, 'src', 'webview', 'webviewScrollStateScripts.js');
 const extensionHostPath = path.join(root, 'src', 'dashboard.ts');
 
 function compileDashboardStyles(source) {
@@ -4315,6 +4316,11 @@ function runTodoComposePendingInteractionChecks() {
 function runSourceContractChecks(source) {
     const projectSource = fs.readFileSync(projectScriptPath, 'utf8');
     assert.deepStrictEqual(
+        fs.readFileSync(path.join(root, 'media', 'webviewScrollStateScripts.js')),
+        fs.readFileSync(scrollStateScriptPath),
+        'generated media/webviewScrollStateScripts.js must match its source byte-for-byte'
+    );
+    assert.deepStrictEqual(
         fs.readFileSync(path.join(root, 'media', 'webviewPromptScripts.js')),
         fs.readFileSync(promptScriptPath),
         'generated media/webviewPromptScripts.js must match its source byte-for-byte'
@@ -4390,6 +4396,12 @@ function runSourceContractChecks(source) {
     assert.ok(webviewContentSource.includes('class="project-border steward-item-accent"'));
     assert.ok(webviewContentSource.includes('onTodoMounted: (panel, message) =>'));
     assert.ok(webviewContentSource.includes('todos.mount(panel, message.snapshot)'));
+    assert.ok(webviewContentSource.includes("'webviewScrollStateScripts.js'"));
+    assert.ok(
+        webviewContentSource.indexOf('webviewScrollStateScripts.js')
+            < webviewContentSource.indexOf('webviewProjectScripts.js'),
+        'semantic scroll state must load before every domain Webview script'
+    );
     assert.ok(webviewContentSource.includes("'webviewTodoScripts.js'"));
     assert.match(
         webviewContentSource,

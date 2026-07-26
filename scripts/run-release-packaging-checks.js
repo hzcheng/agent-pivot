@@ -297,6 +297,7 @@ function runRealVsixArchiveChecks(mainPackage, bridgePackage) {
         'extension/media/webviewFilterScripts.js',
         'extension/media/webviewProjectScripts.js',
         'extension/media/webviewPromptScripts.js',
+        'extension/media/webviewScrollStateScripts.js',
         'extension/media/webviewTodoScripts.js',
         ...workspaceOutputs,
         ...openWorkspaceOutputs,
@@ -384,6 +385,7 @@ function runRealVsixArchiveChecks(mainPackage, bridgePackage) {
         ['extension/media/styles.css', 'media/styles.css'],
         ['extension/media/webviewProjectScripts.js', 'media/webviewProjectScripts.js'],
         ['extension/media/webviewPromptScripts.js', 'media/webviewPromptScripts.js'],
+        ['extension/media/webviewScrollStateScripts.js', 'media/webviewScrollStateScripts.js'],
         ['extension/media/webviewTodoScripts.js', 'media/webviewTodoScripts.js'],
     ]) {
         assert.deepStrictEqual(mainEntries.get(archiveEntry), fs.readFileSync(path.join(repositoryRoot, localPath)),
@@ -676,6 +678,7 @@ function run() {
     assertIncludes(mainIgnore, 'out/**/*.map', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewProjectScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewPromptScripts.js', 'main VSIX ignore rules');
+    assertIncludes(mainIgnore, '!media/webviewScrollStateScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewTodoScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/styles.css', 'main VSIX ignore rules');
     assertIncludes(bridgeIgnore, 'src/**', 'UI Bridge VSIX ignore rules');
@@ -691,6 +694,7 @@ function run() {
         'dist/dashboard.js',
         'media/webviewProjectScripts.js',
         'media/webviewPromptScripts.js',
+        'media/webviewScrollStateScripts.js',
         'media/webviewTodoScripts.js',
         'media/styles.css',
         'extensions/attention-ui-bridge/dist/extension.js',

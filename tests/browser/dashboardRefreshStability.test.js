@@ -31,6 +31,12 @@ const dashboardScript = fs.readFileSync(
 const todoScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/webviewTodoScripts.js'), 'utf8'
 );
+const scrollStateScriptPath = path.join(
+    __dirname, '../../src/webview/webviewScrollStateScripts.js'
+);
+const scrollStateScript = fs.existsSync(scrollStateScriptPath)
+    ? fs.readFileSync(scrollStateScriptPath, 'utf8')
+    : null;
 const BROWSER_CONDITION_TIMEOUT_MS = 5_000;
 
 function waitForPageCondition(page, condition, argument) {
@@ -51,6 +57,74 @@ test.before(async () => {
 
 test.after(async () => {
     await browser.close();
+});
+
+test('WEBVIEW-PROJECTS-PANEL-SCROLL-001 and TODO-AUTHORITATIVE-REFRESH-STATE-001 provide shared semantic anchors and clamped fallback', async t => {
+    const page = await browser.newPage({ viewport: { width: 320, height: 320 } });
+    t.after(() => page.close());
+    await page.setContent(`<!doctype html><div id="list" style="height:100px;overflow:auto">
+        <div data-id="a" style="height:50px"></div><div data-id="b" style="height:50px"></div>
+        <div data-id="c" style="height:50px"></div><div data-id="d" style="height:50px"></div>
+        <div data-id="e" style="height:50px"></div><div data-id="f" style="height:50px"></div>
+    </div>`);
+    if (scrollStateScript) await page.addScriptTag({ content: scrollStateScript });
+
+    const captured = await page.evaluate(() => {
+        const list = document.querySelector('#list');
+        list.scrollTop = 60;
+        return {
+            namespaceType: typeof window.__projectStewardScrollState,
+            captureType: typeof window.__projectStewardScrollState?.capture,
+            restoreType: typeof window.__projectStewardScrollState?.restore,
+            anchor: window.__projectStewardScrollState?.capture(list, {
+                itemSelector: '[data-id]',
+                getKey: item => item.dataset.id,
+                endThreshold: 0,
+            }),
+        };
+    });
+    assert.equal(captured.namespaceType, 'object');
+    assert.equal(captured.captureType, 'function');
+    assert.equal(captured.restoreType, 'function');
+    assert.equal(captured.anchor.itemKey, 'b');
+
+    const restored = await page.evaluate(anchor => {
+        const list = document.querySelector('#list');
+        const beforeOffset = document.querySelector('[data-id="b"]').getBoundingClientRect().top
+            - list.getBoundingClientRect().top;
+        list.insertAdjacentHTML('afterbegin', '<div data-id="inserted" style="height:50px"></div>');
+        const restored = window.__projectStewardScrollState.restore(list, anchor, {
+            itemSelector: '[data-id]',
+            getKey: item => item.dataset.id,
+        });
+        const afterOffset = document.querySelector('[data-id="b"]').getBoundingClientRect().top
+            - list.getBoundingClientRect().top;
+        return { restored, beforeOffset, afterOffset };
+    }, captured.anchor);
+    assert.equal(restored.restored, true);
+    assert.ok(Math.abs(restored.afterOffset - restored.beforeOffset) <= 1);
+
+    const fallback = await page.evaluate(() => {
+        const list = document.querySelector('#list');
+        list.innerHTML = '<div data-id="a" style="height:50px"></div>'
+            + '<div data-id="c" style="height:50px"></div>'
+            + '<div data-id="d" style="height:50px"></div>';
+        return {
+            restored: window.__projectStewardScrollState.restore(list, {
+                scrollTop: 999,
+                itemKey: 'removed',
+                itemOffset: 0,
+                atEnd: false,
+            }, {
+                itemSelector: '[data-id]',
+                getKey: item => item.dataset.id,
+            }),
+            scrollTop: list.scrollTop,
+            maxScrollTop: list.scrollHeight - list.clientHeight,
+        };
+    });
+    assert.equal(fallback.restored, true);
+    assert.equal(fallback.scrollTop, fallback.maxScrollTop);
 });
 
 function catalog() {
@@ -134,6 +208,7 @@ async function openDashboardPage(t) {
         window.__projectsMountGeneration = 0;
         window.vscode = { postMessage: message => window.__messages.push(message) };
     });
+    if (scrollStateScript) await page.addScriptTag({ content: scrollStateScript });
     await page.addScriptTag({ content: dashboardScript });
     await page.addScriptTag({ content: todoScript });
     await page.evaluate(() => {

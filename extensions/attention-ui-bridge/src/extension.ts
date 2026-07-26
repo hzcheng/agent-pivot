@@ -6,7 +6,10 @@ import * as vscode from 'vscode';
 import { resolveBridgeStorageRoot } from './bridgeStorageRoot';
 import { LocalStore } from './localStore';
 import { OpenWorkspaceCoordinator } from './openWorkspaceCoordinator';
-import { replaceOpenWorkspacePublicationUris } from './openWorkspacePublication';
+import {
+    AuthoritativeOpenWorkspaceUri,
+    replaceOpenWorkspacePublicationUris,
+} from './openWorkspacePublication';
 import { ProductionAttentionStore } from './productionAttentionStore';
 import { aggregateAttentionSnapshots, validateAttentionAggregate } from '../../../src/aiSessions/attentionAggregate';
 import {
@@ -44,6 +47,15 @@ interface AggregateState {
     snapshots: ProbeSnapshot[];
     counters: unknown;
     observedAtMs: number;
+}
+
+function snapshotAuthoritativeUri(uri: vscode.Uri): AuthoritativeOpenWorkspaceUri {
+    return {
+        value: uri.toString(),
+        scheme: uri.scheme,
+        authority: uri.authority,
+        path: uri.path,
+    };
 }
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
@@ -210,11 +222,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         OPEN_WORKSPACE_BRIDGE_PUBLISH,
         (raw: unknown) => {
             const workspaceFile = vscode.workspace.workspaceFile;
-            const workspaceUri = workspaceFile && workspaceFile.scheme !== 'untitled'
-                ? workspaceFile.toString()
+            const workspaceUri = workspaceFile
+                ? snapshotAuthoritativeUri(workspaceFile)
                 : null;
             const rootUris = (vscode.workspace.workspaceFolders || [])
-                .map(folder => folder.uri.toString());
+                .map(folder => snapshotAuthoritativeUri(folder.uri));
             return openWorkspaceCoordinator.publish(
                 replaceOpenWorkspacePublicationUris(raw, workspaceUri, rootUris),
             );

@@ -1482,6 +1482,19 @@
     ]
   },
   {
+    "id": "OPEN-OPEN-PROJECT-AUTHORITATIVE-IDENTITY-001",
+    "domain": "open-project",
+    "title": "Authoritative UI-host workspace identities remain distinct across remote authorities",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/openProjects/projection.test.js"
+    ],
+    "evidence": [
+      "extensions/attention-ui-bridge/src/openWorkspacePublication.ts"
+    ]
+  },
+  {
     "id": "OPEN-PROTOCOL-001",
     "domain": "open-project",
     "title": "Open project publication round-trip behavior",

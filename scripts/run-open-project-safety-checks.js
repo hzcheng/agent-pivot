@@ -27,6 +27,7 @@ const { ProjectMutationController } = require('../out/projects/projectMutationCo
 const { ProjectPromptController } = require('../out/projects/projectPromptController');
 const { DashboardStartupController, settleMigration } = require('../out/dashboard/startupController');
 const { WorkspaceContextResolver } = require('../out/workspaces/contextResolver');
+const workspaceIdentityModule = require('../out/workspaces/identity');
 const {
     PendingWorkspaceSaveStore,
     PENDING_WORKSPACE_SAVE_TTL_MS,
@@ -45,6 +46,10 @@ const OTHER = '4'.repeat(32);
 
 function workspaceIdentity(index) {
     return Number(index).toString(16).padStart(64, '0');
+}
+
+function authoritativeUri(value, scheme, authority, uriPath) {
+    return { value, scheme, authority, path: uriPath };
 }
 
 function makeWorkspaceRoot(index = 0, overrides = {}) {
@@ -625,26 +630,47 @@ function runOpenWorkspacePublicationChecks() {
             ],
         }),
     });
-    const replacement = replaceOpenWorkspacePublicationUris(
-        original,
+    const workspaceTarget = authoritativeUri(
         'vscode-remote://dev-container%2Bcurrent/work/team.code-workspace',
-        [
-            'vscode-remote://dev-container%2Bcurrent/work/app',
-            'vscode-remote://dev-container%2Bcurrent/work/api',
-        ],
+        'vscode-remote',
+        'dev-container+current',
+        '/work/team.code-workspace',
     );
+    const rootTargets = [
+        authoritativeUri(
+            'vscode-remote://dev-container%2Bcurrent/work/app',
+            'vscode-remote',
+            'dev-container+current',
+            '/work/app',
+        ),
+        authoritativeUri(
+            'vscode-remote://dev-container%2Bcurrent/work/api',
+            'vscode-remote',
+            'dev-container+current',
+            '/work/api',
+        ),
+    ];
+    const replacement = replaceOpenWorkspacePublicationUris(original, workspaceTarget, rootTargets);
     assert.strictEqual(replacement.workspace.navigationUri,
         'vscode-remote://dev-container%2Bcurrent/work/team.code-workspace');
     assert.deepStrictEqual(replacement.workspace.roots.map(root => root.uri), [
         'vscode-remote://dev-container%2Bcurrent/work/app',
         'vscode-remote://dev-container%2Bcurrent/work/api',
     ]);
-    assert.strictEqual(replacement.workspace.navigationIdentity, original.workspace.navigationIdentity);
-    assert.strictEqual(replacement.workspace.scopeIdentity, original.workspace.scopeIdentity);
+    assert.strictEqual(
+        replacement.workspace.navigationIdentity,
+        workspaceIdentityModule.createWorkspaceUriIdentity(workspaceTarget),
+    );
+    assert.strictEqual(
+        replacement.workspace.scopeIdentity,
+        workspaceIdentityModule.createWorkspaceScopeIdentity(rootTargets),
+    );
     assert.deepStrictEqual(
         replacement.workspace.roots.map(root => root.id),
-        original.workspace.roots.map(root => root.id),
+        rootTargets.map(workspaceIdentityModule.createWorkspaceUriIdentity),
     );
+    assert.notStrictEqual(replacement.workspace.navigationIdentity, original.workspace.navigationIdentity);
+    assert.notStrictEqual(replacement.workspace.scopeIdentity, original.workspace.scopeIdentity);
     assert.strictEqual(original.workspace.navigationUri,
         'vscode-remote://dev-container%2Bold/work/team.code-workspace');
 
@@ -660,7 +686,7 @@ function runOpenWorkspacePublicationChecks() {
     const singleFolderReplacement = replaceOpenWorkspacePublicationUris(
         singleFolderOriginal,
         null,
-        ['vscode-remote://dev-container%2Bcurrent/work/app'],
+        [rootTargets[0]],
     );
     assert.strictEqual(
         singleFolderReplacement.workspace.navigationUri,
@@ -683,7 +709,12 @@ function runOpenWorkspacePublicationChecks() {
         replaceOpenWorkspacePublicationUris(
             crossSchemeSingleFolder,
             null,
-            ['vscode-remote://ssh-remote%2Bhost/work/cross-scheme-app'],
+            [authoritativeUri(
+                'vscode-remote://ssh-remote%2Bhost/work/cross-scheme-app',
+                'vscode-remote',
+                'ssh-remote+host',
+                '/work/cross-scheme-app',
+            )],
         ).workspace.navigationUri,
         'vscode-remote://ssh-remote%2Bhost/work/cross-scheme-app',
         'authority and scheme changes with the same resource path must remain valid',
@@ -693,17 +724,27 @@ function runOpenWorkspacePublicationChecks() {
         () => replaceOpenWorkspacePublicationUris(
             singleFolderOriginal,
             null,
-            ['vscode-remote://dev-container%2Bcurrent/work/different-app'],
+            [authoritativeUri(
+                'vscode-remote://dev-container%2Bcurrent/work/different-app',
+                'vscode-remote',
+                'dev-container+current',
+                '/work/different-app',
+            )],
         ),
         /root resource path/,
     );
     assert.throws(
         () => replaceOpenWorkspacePublicationUris(
             original,
-            'vscode-remote://dev-container%2Bcurrent/work/team.code-workspace',
+            workspaceTarget,
             [
-                'vscode-remote://dev-container%2Bcurrent/work/app',
-                'vscode-remote://dev-container%2Bcurrent/work/different-api',
+                rootTargets[0],
+                authoritativeUri(
+                    'vscode-remote://dev-container%2Bcurrent/work/different-api',
+                    'vscode-remote',
+                    'dev-container+current',
+                    '/work/different-api',
+                ),
             ],
         ),
         /root resource path/,
@@ -711,11 +752,13 @@ function runOpenWorkspacePublicationChecks() {
     assert.throws(
         () => replaceOpenWorkspacePublicationUris(
             original,
-            'vscode-remote://dev-container%2Bcurrent/work/different-team.code-workspace',
-            [
-                'vscode-remote://dev-container%2Bcurrent/work/app',
-                'vscode-remote://dev-container%2Bcurrent/work/api',
-            ],
+            authoritativeUri(
+                'vscode-remote://dev-container%2Bcurrent/work/different-team.code-workspace',
+                'vscode-remote',
+                'dev-container+current',
+                '/work/different-team.code-workspace',
+            ),
+            rootTargets,
         ),
         /workspace resource path/,
     );
@@ -723,9 +766,13 @@ function runOpenWorkspacePublicationChecks() {
     for (const [rootUris, pattern] of [
         [[], /root count/],
         [[
-            'vscode-remote://dev-container%2Bcurrent/work/app',
-            'vscode-remote://dev-container%2Bcurrent/work/api',
-            'vscode-remote://dev-container%2Bcurrent/work/extra',
+            ...rootTargets,
+            authoritativeUri(
+                'vscode-remote://dev-container%2Bcurrent/work/extra',
+                'vscode-remote',
+                'dev-container+current',
+                '/work/extra',
+            ),
         ], /root count/],
     ]) {
         assert.throws(
@@ -742,11 +789,8 @@ function runOpenWorkspacePublicationChecks() {
                     roots: original.workspace.roots.slice().reverse(),
                 },
             },
-            'vscode-remote://dev-container%2Bcurrent/work/team.code-workspace',
-            [
-                'vscode-remote://dev-container%2Bcurrent/work/app',
-                'vscode-remote://dev-container%2Bcurrent/work/api',
-            ],
+            workspaceTarget,
+            rootTargets,
         ),
         /ordinal|order/,
     );
@@ -755,8 +799,18 @@ function runOpenWorkspacePublicationChecks() {
     assert.deepStrictEqual(
         replaceOpenWorkspacePublicationUris(
             empty,
-            'file:///must-not-be-synthesized.code-workspace',
-            ['file:///must-not-be-synthesized'],
+            authoritativeUri(
+                'file:///must-not-be-synthesized.code-workspace',
+                'file',
+                '',
+                '/must-not-be-synthesized.code-workspace',
+            ),
+            [authoritativeUri(
+                'file:///must-not-be-synthesized',
+                'file',
+                '',
+                '/must-not-be-synthesized',
+            )],
         ),
         empty,
         'Bridge URI normalization must never synthesize a workspace from a null publication',
@@ -3541,6 +3595,9 @@ async function runCoordinatorWiringChecks() {
         workspace: {
             workspaceFolders: [{
                 uri: {
+                    scheme: 'vscode-remote',
+                    authority: 'dev-container+target@ssh-remote+home-book',
+                    path: '/workspaces/AiToEarn',
                     toString: () => 'vscode-remote://dev-container%2Btarget%40ssh-remote%2Bhome-book/workspaces/AiToEarn',
                 },
             }],
@@ -3623,10 +3680,27 @@ async function runCoordinatorWiringChecks() {
             aggregateDelivery.argument.registrations[0].workspace.roots[0].uri,
             'vscode-remote://dev-container%2Btarget%40ssh-remote%2Bhome-book/workspaces/AiToEarn'
         );
-        assert.strictEqual(aggregateDelivery.argument.registrations[0].workspace.navigationIdentity,
-            remoteWorkspace.navigationIdentity);
-        assert.strictEqual(aggregateDelivery.argument.registrations[0].workspace.roots[0].id,
-            remoteWorkspace.roots[0].id);
+        const authoritativeWorkspaceIdentity = workspaceIdentityModule.createWorkspaceUriIdentity({
+            scheme: 'vscode-remote',
+            authority: 'dev-container+target@ssh-remote+home-book',
+            path: '/workspaces/AiToEarn',
+        });
+        assert.strictEqual(
+            aggregateDelivery.argument.registrations[0].workspace.navigationIdentity,
+            authoritativeWorkspaceIdentity,
+        );
+        assert.strictEqual(
+            aggregateDelivery.argument.registrations[0].workspace.scopeIdentity,
+            workspaceIdentityModule.createWorkspaceScopeIdentity([{
+                scheme: 'vscode-remote',
+                authority: 'dev-container+target@ssh-remote+home-book',
+                path: '/workspaces/AiToEarn',
+            }]),
+        );
+        assert.strictEqual(
+            aggregateDelivery.argument.registrations[0].workspace.roots[0].id,
+            authoritativeWorkspaceIdentity,
+        );
         assert.ok(bridgeOutputLines.some(line =>
             line.startsWith('[OpenWorkspaces] ')
             && line.includes('"event":"publish"')

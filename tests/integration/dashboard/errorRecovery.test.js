@@ -6,6 +6,7 @@ const test = require('node:test');
 const { createDashboardMessageRouter } = require('../../../out/dashboard/messageRouter');
 const { getErrorContent } = require('../../../out/dashboard/errorContent');
 const { DashboardLifecycleController } = require('../../../out/dashboard/lifecycleController');
+const { DashboardRuntimeController } = require('../../../out/dashboard/runtimeController');
 const { DashboardStartupController } = require('../../../out/dashboard/startupController');
 const { AgentPivotViewProvider } = require('../../../out/dashboard/viewProvider');
 const { TmuxRuntimeDiscovery } = require('../../../out/aiSessions/tmuxRuntimeDiscovery');
@@ -288,6 +289,57 @@ test('SESSION-SIDEBAR-STEWARD-VIEW-PROVIDER-ORDERING-001 awaits visible refreshe
     assert.equal(order.filter(item => item === 'render').length, 1);
     assert.equal(view.webview.html, '<main>safe error</main>');
     assert.ok(order.includes('log:Failed to prepare Agent Pivot view.'));
+});
+
+test('RUNTIME-DASHBOARD-VISIBILITY-RESILIENCE-001 renders the dashboard after a runtime refresh failure', async () => {
+    const diagnostics = [];
+    const providerLogs = [];
+    const runtime = new DashboardRuntimeController({
+        isVisible: () => true,
+        refreshProvider: () => undefined,
+        logDashboardDiagnostic: () => undefined,
+        executeCommand: async () => undefined,
+        viewType: 'agentPivot.views.sidebar',
+        publishOpenWorkspace: () => undefined,
+        getCurrentSavedProject: () => null,
+        syncProjectColorToCurrentWindow: async () => undefined,
+        postMessage: async () => true,
+        logError: () => undefined,
+        refreshAiSessionRuntimes: async () => {
+            throw new Error('transient runtime refresh');
+        },
+        logAiSessionRuntimeFailure: (operation, error) => diagnostics.push([
+            operation,
+            error.message,
+        ]),
+    });
+    const view = {
+        visible: true,
+        webview: {
+            html: '',
+            options: {},
+            onDidReceiveMessage: () => ({ dispose() {} }),
+            postMessage: async () => true,
+        },
+        onDidChangeVisibility: () => ({ dispose() {} }),
+        onDidDispose: () => ({ dispose() {} }),
+    };
+    const provider = new AgentPivotViewProvider({
+        getWebviewOptions: () => ({}),
+        renderContent: () => '<main>dashboard ready</main>',
+        renderError: getErrorContent,
+        onMessage: async () => undefined,
+        onVisibleChanged: visible =>
+            runtime.handleAiSessionViewVisibilityChanged(visible),
+        onDisposed: () => undefined,
+        logError: (message, error) => providerLogs.push([message, error.message]),
+    });
+
+    await provider.resolveWebviewView(view, {}, {});
+
+    assert.equal(view.webview.html, '<main>dashboard ready</main>');
+    assert.deepEqual(diagnostics, [['dashboard-visible', 'transient runtime refresh']]);
+    assert.deepEqual(providerLogs, []);
 });
 
 test('SESSION-SIDEBAR-STEWARD-VIEW-PROVIDER-ORDERING-001 releases sidebar-owned conversation state on disposal', async () => {

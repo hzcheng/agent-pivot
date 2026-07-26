@@ -53,7 +53,6 @@ export class DashboardRuntimeController<TProject extends Project = Project> {
             await this.runAsync(() => this.options.refreshAiSessionRuntimes('dashboard-visible', true));
         } catch (error) {
             this.options.logAiSessionRuntimeFailure?.('dashboard-visible', error);
-            throw error;
         }
     }
 

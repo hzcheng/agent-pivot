@@ -2417,6 +2417,19 @@
     ]
   },
   {
+    "id": "RUNTIME-DASHBOARD-VISIBILITY-RESILIENCE-001",
+    "domain": "runtime",
+    "title": "Dashboard remains renderable when visibility-triggered runtime discovery fails",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/integration/dashboard/errorRecovery.test.js"
+    ],
+    "evidence": [
+      "src/dashboard/runtimeController.ts"
+    ]
+  },
+  {
     "id": "WEBVIEW-DASHBOARD-STARTUP-CONTROLLER-001",
     "domain": "webview",
     "title": "Dashboard Startup Controller behavior",

@@ -10,5 +10,6 @@
     "extensionKind": ["ui"],
     "api": "none",
     "activationEvents": ["*"],
-    "main": "./dist/extension.js"
+    "main": "./dist/extension.js",
+    "icon": "media/extension_icon.png"
 }

@@ -12,6 +12,7 @@ function initTodos(options) {
         draft: null,
         composeGroupId: undefined,
         composeDraft: null,
+        composeRequestId: null,
         nextRequestId: 0,
         lastRevision: 0,
         pending: new Map(),
@@ -36,6 +37,12 @@ function initTodos(options) {
 
     function clone(value) {
         return value == null ? value : JSON.parse(JSON.stringify(value));
+    }
+
+    function clearCompose() {
+        state.composeGroupId = undefined;
+        state.composeDraft = null;
+        state.composeRequestId = null;
     }
 
     function isSnapshot(value) {
@@ -644,8 +651,7 @@ function initTodos(options) {
         state.snapshot = clone(snapshotValue);
         state.selectedTodoId = null;
         state.draft = null;
-        state.composeGroupId = undefined;
-        state.composeDraft = null;
+        clearCompose();
         root.addEventListener('click', onClick);
         root.addEventListener('change', onChange);
         root.addEventListener('submit', onSubmit);
@@ -744,6 +750,7 @@ function initTodos(options) {
             draft: clone(state.draft),
             composeGroupId: state.composeGroupId,
             composeDraft: clone(state.composeDraft),
+            composeRequestId: state.composeRequestId,
             focus: captureTodoFocus(),
             groups: groups,
         };
@@ -760,6 +767,21 @@ function initTodos(options) {
             });
     }
 
+    function composeTargetSurvives(composeGroupId, composeDraft) {
+        if (composeGroupId === undefined || !composeDraft) {
+            return false;
+        }
+        if (typeof composeGroupId === 'string') {
+            return !!findGroup(composeGroupId);
+        }
+        if (composeGroupId !== null) {
+            return false;
+        }
+        return typeof composeDraft.groupId !== 'string'
+            || composeDraft.groupId.length === 0
+            || !!findGroup(composeDraft.groupId);
+    }
+
     function reconcileTodoRefreshState(local) {
         if (local.selectedTodoId && isTodoRendered(local.selectedTodoId)) {
             state.selectedTodoId = local.selectedTodoId;
@@ -768,17 +790,12 @@ function initTodos(options) {
             state.selectedTodoId = null;
             state.draft = null;
         }
-        if (local.composeGroupId === null
-            || typeof local.composeGroupId === 'string' && findGroup(local.composeGroupId)) {
+        if (composeTargetSurvives(local.composeGroupId, local.composeDraft)) {
             state.composeGroupId = local.composeGroupId;
             state.composeDraft = clone(local.composeDraft);
+            state.composeRequestId = local.composeRequestId;
         } else {
-            state.composeGroupId = undefined;
-            var draftGroupId = local.composeDraft && local.composeDraft.groupId;
-            state.composeDraft = draftGroupId
-                && !findGroup(draftGroupId)
-                ? null
-                : clone(local.composeDraft);
+            clearCompose();
         }
     }
 
@@ -926,7 +943,7 @@ function initTodos(options) {
         state.restoreFocusTodoId = todoId;
         state.selectedTodoId = todoId;
         state.draft = null;
-        state.composeGroupId = undefined;
+        clearCompose();
         patchTodoElements([previousTodoId, todoId]);
         return true;
     }
@@ -1017,6 +1034,14 @@ function initTodos(options) {
             snapshot: clone(state.snapshot),
             selectedTodoId: state.selectedTodoId,
             draft: clone(state.draft),
+            compose: action === 'add'
+                && state.composeGroupId !== undefined
+                && state.composeDraft
+                ? {
+                    groupId: state.composeGroupId,
+                    draft: clone(state.composeDraft),
+                }
+                : null,
             action: action,
             payload: clone(payload || {}),
         });
@@ -1128,6 +1153,13 @@ function initTodos(options) {
             if (pending && pending.action === 'update') {
                 state.draft = null;
             }
+            if (pending
+                && pending.compose
+                && state.composeRequestId === message.requestId) {
+                clearCompose();
+            } else if (!composeTargetSurvives(state.composeGroupId, state.composeDraft)) {
+                clearCompose();
+            }
             if (message.undoToken) {
                 showUndo(message.undoToken, pending ? pending.action : '');
             }
@@ -1138,6 +1170,22 @@ function initTodos(options) {
             if (pending) {
                 state.selectedTodoId = pending.selectedTodoId;
                 state.draft = pending.draft;
+            }
+            if (pending
+                && pending.compose
+                && state.composeRequestId === message.requestId) {
+                if (composeTargetSurvives(
+                    pending.compose.groupId,
+                    pending.compose.draft
+                )) {
+                    state.composeGroupId = pending.compose.groupId;
+                    state.composeDraft = clone(pending.compose.draft);
+                    state.composeRequestId = null;
+                } else {
+                    clearCompose();
+                }
+            } else if (!composeTargetSurvives(state.composeGroupId, state.composeDraft)) {
+                clearCompose();
             }
             state.announcement = errorMessage(message.errorCode);
         }
@@ -1172,12 +1220,17 @@ function initTodos(options) {
             announce('Enter a TODO title.');
             return false;
         }
-        state.composeGroupId = undefined;
-        state.composeDraft = null;
-        dispatch('add', {
-            title: normalizedTitle,
+        state.composeGroupId = groupId;
+        state.composeDraft = {
+            title: String(title || ''),
             notes: String(notes || ''),
             priority: String(priority || '') || 'medium',
+            groupId: groupId,
+        };
+        state.composeRequestId = dispatch('add', {
+            title: normalizedTitle,
+            notes: state.composeDraft.notes,
+            priority: state.composeDraft.priority,
             groupId: groupId,
         });
         return true;
@@ -1212,13 +1265,18 @@ function initTodos(options) {
                 announce('Enter a TODO title.');
                 return;
             }
-            state.composeGroupId = undefined;
-            state.composeDraft = null;
-            dispatch('add', {
-                title: title,
+            state.composeGroupId = null;
+            state.composeDraft = {
+                title: readValue(form, 'title'),
                 notes: readValue(form, 'notes'),
                 priority: readValue(form, 'priority') || 'medium',
                 groupId: readValue(form, 'groupId'),
+            };
+            state.composeRequestId = dispatch('add', {
+                title: title,
+                notes: state.composeDraft.notes,
+                priority: state.composeDraft.priority,
+                groupId: state.composeDraft.groupId,
             });
         } else if (kind === 'detail-edit') {
             var todoId = form.getAttribute('data-todo-id');
@@ -1282,11 +1340,11 @@ function initTodos(options) {
                 priority: 'medium',
                 groupId: null,
             };
+            state.composeRequestId = null;
             render();
             focusCompose(null);
         } else if (action === 'todo-cancel-add' || action === 'todo-cancel-quick-add') {
-            state.composeGroupId = undefined;
-            state.composeDraft = null;
+            clearCompose();
             render();
         } else if (action === 'todo-quick-add') {
             state.composeGroupId = groupId;
@@ -1296,6 +1354,7 @@ function initTodos(options) {
                 priority: 'medium',
                 groupId: groupId,
             };
+            state.composeRequestId = null;
             render();
             focusCompose(groupId);
         } else if (action === 'todo-collapse-group') {
@@ -1339,8 +1398,7 @@ function initTodos(options) {
                 backToList();
                 event.preventDefault();
             } else if (state.composeGroupId !== undefined) {
-                state.composeGroupId = undefined;
-                state.composeDraft = null;
+                clearCompose();
                 render();
                 event.preventDefault();
             }
@@ -1369,6 +1427,7 @@ function initTodos(options) {
         if (state.composeDraft
             && composeForm
             && (name === 'title' || name === 'notes' || name === 'priority' || name === 'groupId')) {
+            state.composeRequestId = null;
             state.composeDraft[name] = String(field.value || '');
             state.renderedSurfaceHtml = renderListSurface();
         }

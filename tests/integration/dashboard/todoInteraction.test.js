@@ -386,6 +386,249 @@ test('TODO-AUTHORITATIVE-REFRESH-STATE-001 applies one mounted render and keeps 
     assert.equal(harness.getRenderedCount(), rendersBeforeRefresh + 2);
 });
 
+test('TODO-AUTHORITATIVE-REFRESH-STATE-001 keeps a submitted composer until its matching result and restores failures by exact ownership', () => {
+    const harness = createHarness();
+    harness.root.dispatch('click', {
+        target: {
+            closest(selector) {
+                return selector === '[data-action]' ? {
+                    getAttribute(name) {
+                        if (name === 'data-action') return 'todo-quick-add';
+                        if (name === 'data-group-id') return 'group-a';
+                        return null;
+                    },
+                } : null;
+            },
+        },
+    });
+    harness.root.dispatch('input', {
+        target: {
+            value: '  Keep this failed draft  ',
+            getAttribute(name) {
+                return name === 'name' ? 'title' : null;
+            },
+            closest(selector) {
+                return selector === '.todo-add-form[data-todo-form]' ? {} : null;
+            },
+        },
+    });
+
+    assert.equal(
+        harness.controller.submitQuickAdd(
+            'group-a',
+            '  Keep this failed draft  ',
+            'Still editable while saving',
+            'high'
+        ),
+        true
+    );
+    assert.equal(harness.messages[0].requestId, 1);
+    assert.equal(harness.controller.getState().composeGroupId, 'group-a');
+    assert.equal(
+        harness.controller.getState().composeDraft.title,
+        '  Keep this failed draft  '
+    );
+
+    assert.equal(harness.controller.applyCommandResult({
+        type: 'todo-command-result',
+        version: 2,
+        requestId: 1,
+        revision: 1,
+        success: false,
+        errorCode: 'storage',
+        snapshot: snapshot(),
+    }), true);
+    assert.equal(harness.controller.getState().composeGroupId, 'group-a');
+    assert.deepEqual(
+        JSON.parse(JSON.stringify(harness.controller.getState().composeDraft)),
+        {
+            title: '  Keep this failed draft  ',
+            notes: 'Still editable while saving',
+            priority: 'high',
+            groupId: 'group-a',
+        }
+    );
+
+    const removed = createHarness();
+    removed.root.dispatch('click', {
+        target: {
+            closest(selector) {
+                return selector === '[data-action]' ? {
+                    getAttribute(name) {
+                        if (name === 'data-action') return 'todo-quick-add';
+                        if (name === 'data-group-id') return 'group-a';
+                        return null;
+                    },
+                } : null;
+            },
+        },
+    });
+    removed.controller.submitQuickAdd('group-a', 'Removed group draft', '', 'medium');
+    const withoutGroup = snapshot();
+    withoutGroup.data.groups = [{
+        id: 'group-b', title: 'Replacement', collapsed: false, order: 0,
+    }];
+    withoutGroup.data.todos = [];
+    removed.controller.applyCommandResult({
+        type: 'todo-command-result',
+        version: 2,
+        requestId: 1,
+        revision: 1,
+        success: false,
+        errorCode: 'not-found',
+        snapshot: withoutGroup,
+    });
+    assert.equal(removed.controller.getState().composeGroupId, undefined);
+    assert.equal(removed.controller.getState().composeDraft, null);
+});
+
+test('TODO-AUTHORITATIVE-REFRESH-STATE-001 clears only a matching successful composer and leaves post-submit edits owned by the user', () => {
+    const matching = createHarness();
+    matching.root.dispatch('click', {
+        target: {
+            closest(selector) {
+                return selector === '[data-action]' ? {
+                    getAttribute(name) {
+                        if (name === 'data-action') return 'todo-quick-add';
+                        if (name === 'data-group-id') return 'group-a';
+                        return null;
+                    },
+                } : null;
+            },
+        },
+    });
+    matching.controller.submitQuickAdd('group-a', 'Submitted draft', '', 'medium');
+    const saved = snapshot();
+    saved.data.todos.push({
+        id: 'todo-created',
+        groupId: 'group-a',
+        title: 'Submitted draft',
+        notes: '',
+        priority: 'medium',
+        completed: false,
+        createdAt: NOW,
+        updatedAt: NOW,
+        order: 2,
+    });
+    matching.controller.applyCommandResult({
+        type: 'todo-command-result',
+        version: 2,
+        requestId: 1,
+        revision: 1,
+        success: true,
+        snapshot: saved,
+    });
+    assert.equal(matching.controller.getState().composeGroupId, undefined);
+    assert.equal(matching.controller.getState().composeDraft, null);
+
+    const edited = createHarness();
+    edited.root.dispatch('click', {
+        target: {
+            closest(selector) {
+                return selector === '[data-action]' ? {
+                    getAttribute(name) {
+                        if (name === 'data-action') return 'todo-quick-add';
+                        if (name === 'data-group-id') return 'group-a';
+                        return null;
+                    },
+                } : null;
+            },
+        },
+    });
+    edited.controller.submitQuickAdd('group-a', 'First submitted draft', '', 'medium');
+    edited.root.dispatch('input', {
+        target: {
+            value: 'A new draft typed after submit',
+            getAttribute(name) {
+                return name === 'name' ? 'title' : null;
+            },
+            closest(selector) {
+                return selector === '.todo-add-form[data-todo-form]' ? {} : null;
+            },
+        },
+    });
+    edited.controller.applyCommandResult({
+        type: 'todo-command-result',
+        version: 2,
+        requestId: 1,
+        revision: 1,
+        success: false,
+        errorCode: 'storage',
+        snapshot: saved,
+    });
+    assert.equal(edited.controller.getState().composeGroupId, 'group-a');
+    assert.equal(
+        edited.controller.getState().composeDraft.title,
+        'A new draft typed after submit'
+    );
+});
+
+test('TODO-AUTHORITATIVE-REFRESH-STATE-001 drops a global composer when its selected authoritative group disappears', () => {
+    const harness = createHarness();
+    harness.root.dispatch('click', {
+        target: {
+            closest(selector) {
+                return selector === '[data-action]' ? {
+                    getAttribute(name) {
+                        return name === 'data-action' ? 'todo-add' : null;
+                    },
+                } : null;
+            },
+        },
+    });
+    harness.root.dispatch('change', {
+        target: {
+            value: 'group-a',
+            checked: false,
+            getAttribute(name) {
+                return name === 'name' ? 'groupId' : null;
+            },
+            closest(selector) {
+                if (selector === '.todo-add-form[data-todo-form]') return {};
+                return null;
+            },
+        },
+    });
+    assert.equal(harness.controller.getState().composeGroupId, null);
+    assert.equal(harness.controller.getState().composeDraft.groupId, 'group-a');
+
+    const removed = snapshot();
+    removed.data.groups = [{ id: 'group-b', title: 'Replacement', collapsed: false, order: 0 }];
+    removed.data.todos = [];
+    assert.equal(harness.controller.applyRefresh(removed), true);
+    assert.equal(harness.controller.getState().composeGroupId, undefined);
+    assert.equal(harness.controller.getState().composeDraft, null);
+});
+
+test('TODO-AUTHORITATIVE-REFRESH-STATE-001 rebases ordered pending actions through one render on the same root', () => {
+    const harness = createHarness();
+    const root = harness.controller.getRoot();
+    assert.equal(
+        harness.controller.dispatch('complete', { todoId: 'todo-a', completed: true }),
+        1
+    );
+    assert.equal(
+        harness.controller.dispatch('complete', { todoId: 'todo-a', completed: false }),
+        2
+    );
+    const rendersBeforeRefresh = harness.getRenderedCount();
+    const refreshed = snapshot();
+    refreshed.data.todos[0].title = 'Authoritative title changed';
+
+    assert.equal(harness.controller.applyRefresh(refreshed), true);
+    assert.equal(harness.controller.getRoot(), root);
+    assert.equal(harness.getRenderedCount(), rendersBeforeRefresh + 1);
+    assert.deepEqual(
+        Array.from(harness.controller.getState().pending.keys()),
+        [1, 2]
+    );
+    assert.equal(harness.controller.getState().snapshot.data.todos[0].completed, false);
+    assert.equal(
+        harness.controller.getState().snapshot.data.todos[0].title,
+        'Authoritative title changed'
+    );
+});
+
 test('TODO-AUTHORITATIVE-REFRESH-STATE-001 ignores an older scheduled restore after a newer refresh', () => {
     const harness = createHarness({ synchronousFrames: false });
     assert.equal(harness.controller.applyRefresh(snapshot()), true);

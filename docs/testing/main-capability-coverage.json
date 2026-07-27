@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "37b02e15ac94ece4f5c4e9016ad72c5d118c96cb",
+        "head": "4cb9dfcee2e206deb2dd97295e36435526c9ab59",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -46,7 +46,8 @@
             "afc02235cf89a24e3ffb0a0c89efc3d2d8dab0ec",
             "68dda87fc26fde79209f08db0f4b13ed21a90c66",
             "07e405378cc4beb6dad0362f050290469d5c8d7f",
-            "7d2e8854b9be0db2f8e639bad579297a99f21020"
+            "7d2e8854b9be0db2f8e639bad579297a99f21020",
+            "fa887fdc6ce4ed8e580ace32d2869c78361b8d11"
         ]
     },
     "capabilities": [
@@ -704,7 +705,8 @@
                 "b675913a79237f04ea07feb785b2b6c8d4439602",
                 "d07e36ba72fe591e6333a89b8c4095ceee20b94a",
                 "5d0d2736c6d0087d90d35862b0209f2f5ed1976f",
-                "37b02e15ac94ece4f5c4e9016ad72c5d118c96cb"
+                "37b02e15ac94ece4f5c4e9016ad72c5d118c96cb",
+                "4cb9dfcee2e206deb2dd97295e36435526c9ab59"
             ],
             "behaviors": [
                 "RUNTIME-DASHBOARD-VISIBILITY-RESILIENCE-001",

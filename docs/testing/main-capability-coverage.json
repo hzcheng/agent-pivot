@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "cb99568a4be2da413d9c94a910701c6d94bea367",
+        "head": "f392bca7ef4a8097b9d4acb9873722bcd3f2b6b0",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -149,11 +149,13 @@
                 "4a04b9456116b4ba713d5228936225bcafcc506f",
                 "2bb717b5e22ad6058124a9475dc9f2e664541a8b",
                 "e9c29252c0ec9edeef3ecfcaf721bb5b6dacd6cf",
-                "36e5ca3c37eb92abd68286025ad8b1efbe7b09ee"
+                "36e5ca3c37eb92abd68286025ad8b1efbe7b09ee",
+                "f392bca7ef4a8097b9d4acb9873722bcd3f2b6b0"
             ],
             "behaviors": [
                 "OPEN-PROTOCOL-001",
-                "ARCH-COORDINATOR-001"
+                "ARCH-COORDINATOR-001",
+                "OPEN-WORKSPACE-INSTANCE-ROLLOVER-001"
             ],
             "prGates": [
                 "test:deterministic:run"

@@ -790,6 +790,66 @@ test('SESSION-CONVERSATION-HOST-LIFECYCLE-002 a later reconcile suppresses an ol
     );
 });
 
+test('SESSION-CONVERSATION-LOADING-001 coalesces repeated reconciliation behind the in-flight initial outline', async t => {
+    const pendingReads = [];
+    const harness = createControllerHarness({
+        readOutline: async (_sessionId) => {
+            const pending = deferred();
+            pendingReads.push(pending);
+            return pending.promise;
+        },
+    });
+    t.after(() => harness.controller.dispose());
+
+    const initialRequest = harness.controller.handleOutline(
+        makeOutlineRequest()
+    );
+    await settle();
+    assert.equal(pendingReads.length, 1);
+
+    for (let refresh = 0; refresh < 10; refresh += 1) {
+        harness.controller.reconcile();
+    }
+    await settle();
+
+    assert.equal(
+        pendingReads.length,
+        1,
+        'reconcile must not restart and starve the initial outline'
+    );
+    pendingReads[0].resolve(makeOutline(
+        'codex',
+        'session-a',
+        'native-initial'
+    ));
+    await initialRequest;
+    await settle();
+
+    assert.equal(harness.publications.length, 1);
+    assert.equal(
+        harness.publications[0].payload.sourceRevision,
+        'r1'
+    );
+    assert.equal(
+        pendingReads.length,
+        2,
+        'the reconciliations must coalesce into one follow-up read'
+    );
+
+    pendingReads[1].resolve(makeOutline(
+        'codex',
+        'session-a',
+        'native-follow-up'
+    ));
+    await settle();
+
+    assert.equal(harness.publications.length, 2);
+    assert.equal(
+        harness.publications[1].payload.sourceRevision,
+        'r2'
+    );
+});
+
 test('SESSION-CONVERSATION-HOST-LIFECYCLE-001 reconcile retries a missing state watch without duplicating recovery', async t => {
     let watchAttempts = 0;
     let activeInvalidation;

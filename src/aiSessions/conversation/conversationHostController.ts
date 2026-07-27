@@ -95,6 +95,8 @@ interface OutlineSubscriptionState {
     request: AiSessionConversationOutlineRequestMessage;
     readSequence: number;
     abortController: ConversationAbortController;
+    refreshInFlight?: Promise<boolean>;
+    refreshPending: boolean;
     subscription?: ConversationCoordinatorSubscription;
     outline?: ConversationOutline;
 }
@@ -153,6 +155,7 @@ export class ConversationHostController {
             request,
             readSequence: 0,
             abortController: new ConversationAbortController(),
+            refreshPending: false,
         };
         this.states.set(identity, state);
 
@@ -276,13 +279,38 @@ export class ConversationHostController {
         this.generationFloors.clear();
     }
 
-    private async refreshState(
+    private refreshState(
         state: OutlineSubscriptionState,
         initial: boolean
     ): Promise<boolean> {
         if (!this.isCurrent(state)) {
-            return false;
+            return Promise.resolve(false);
         }
+        if (state.refreshInFlight) {
+            state.refreshPending = true;
+            return state.refreshInFlight;
+        }
+        let refreshInFlight: Promise<boolean>;
+        refreshInFlight = this.performRefreshState(state, initial)
+            .finally(() => {
+                if (state.refreshInFlight !== refreshInFlight) {
+                    return;
+                }
+                state.refreshInFlight = undefined;
+                if (!state.refreshPending || !this.isCurrent(state)) {
+                    return;
+                }
+                state.refreshPending = false;
+                void this.refreshState(state, false);
+            });
+        state.refreshInFlight = refreshInFlight;
+        return refreshInFlight;
+    }
+
+    private async performRefreshState(
+        state: OutlineSubscriptionState,
+        initial: boolean
+    ): Promise<boolean> {
         state.abortController.abort();
         const abortController = new ConversationAbortController();
         state.abortController = abortController;
@@ -308,6 +336,9 @@ export class ConversationHostController {
                 state.request.sessionId,
                 target.executionState === 'stopped'
             );
+            if (state.outline && state.refreshPending) {
+                return true;
+            }
             const delivered = await this.publishIfCurrent(state, outline, readSequence);
             if (!delivered) {
                 if (initial && this.isCurrent(state, readSequence)) {
@@ -328,6 +359,9 @@ export class ConversationHostController {
             if (!this.resolveFocusedTarget(state.request)) {
                 this.removeStateIfCurrent(state);
                 return false;
+            }
+            if (state.outline && state.refreshPending) {
+                return true;
             }
             const delivered = await this.publishErrorIfCurrent(
                 state,
@@ -456,6 +490,7 @@ export class ConversationHostController {
             this.states.delete(state.identity);
         }
         state.abortController.abort();
+        state.refreshPending = false;
         if (state.subscription) {
             this.options.coordinator.releaseSubscription(state.subscription);
             state.subscription = undefined;

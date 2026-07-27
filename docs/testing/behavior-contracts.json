@@ -3482,6 +3482,19 @@
     ]
   },
   {
+    "id": "SESSION-CONVERSATION-LOADING-001",
+    "domain": "session",
+    "title": "Repeated dashboard reconciliation cannot starve an in-flight conversation outline",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/aiSessions/conversationCoordinator.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/conversationHostController.ts"
+    ]
+  },
+  {
     "id": "SESSION-AI-SESSION-CONVERSATION-ADAPTER-001",
     "domain": "session",
     "title": "Codex, Kimi, and Claude normalize only visible user and assistant conversation content",

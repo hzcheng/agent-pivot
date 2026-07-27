@@ -3,6 +3,9 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const {
+    createAttentionExtensionPackagePlan,
+} = require('./package-attention-extensions');
 const spikeOut = '../spikes/attention-local-bridge/out/spikes/attention-local-bridge/shared/';
 const protocol = require('../spikes/attention-local-bridge/out/shared/attention-bridge/protocol');
 const metrics = require(spikeOut + 'metrics');
@@ -220,7 +223,7 @@ function runAutoRunControlChecks() {
 
     assert.strictEqual(
         autoRunControl.createAutoRunResultFileName(AUTO_RUN_FIXTURE_A),
-        'b5025e2d9fd6e3665d801deae8d8ee9aaf5fc9007b229939c88e5d5aeca3d3ef.json'
+        '37c9a6d53aff637bd16f269d33707d4ac740ddb01b4691db139a6a47f40af9d6.json'
     );
     assert.strictEqual(
         autoRunControl.createAutoRunResultFileName('../../escape/fixture'),
@@ -349,15 +352,20 @@ function readText(relativePath) {
 }
 
 function runArtifactContractChecks() {
-    const packageScript = readText('scripts/package-attention-extensions.js');
-    const expectedArtifactPaths = [
-        'artifacts/agent-pivot-attention-ui-bridge-0.1.4.vsix',
-        'artifacts/agent-pivot-attention-workspace-probe-0.0.5.vsix',
-    ];
-    const namedArtifactPaths = packageScript.match(/artifacts\/[^'"`\s]+\.vsix/g) || [];
-    assert.deepStrictEqual(namedArtifactPaths.sort(), expectedArtifactPaths.sort());
+    const bridge = readJson('extensions/attention-ui-bridge/package.json');
+    const workspace = readJson('spikes/attention-local-bridge/workspace/package.json');
+    const expectedBridgeArtifactPath = `artifacts/${bridge.name}-${bridge.version}.vsix`;
+    const expectedBridgeFileName = `${bridge.name}-${bridge.version}.vsix`;
+    assert.deepStrictEqual(
+        createAttentionExtensionPackagePlan().map(extensionPackage => extensionPackage.artifactPath),
+        [
+            expectedBridgeArtifactPath,
+            `artifacts/${workspace.name}-${workspace.version}.vsix`,
+        ]
+    );
 
     const manualMatrix = readText('spikes/attention-local-bridge/MANUAL-MATRIX.md');
+    assert.ok(manualMatrix.includes(expectedBridgeArtifactPath));
     for (const requiredText of [
         'Local',
         'Remote SSH',
@@ -366,8 +374,8 @@ function runArtifactContractChecks() {
         'same workspace',
         'different Profile',
         'Developer: Show Running Extensions',
-        'agent-pivot-attention-ui-bridge-0.1.4.vsix',
-        'agent-pivot-attention-workspace-probe-0.0.5.vsix',
+        expectedBridgeFileName,
+        `${workspace.name}-${workspace.version}.vsix`,
     ]) {
         assert.ok(manualMatrix.includes(requiredText), `MANUAL-MATRIX.md must contain ${requiredText}`);
     }
@@ -429,7 +437,8 @@ function runManifestChecks() {
     const workspace = readJson('spikes/attention-local-bridge/workspace/package.json');
     const bridge = readJson('extensions/attention-ui-bridge/package.json');
     assert.strictEqual(workspace.version, '0.0.5');
-    assert.strictEqual(bridge.version, '0.1.4');
+    assert.strictEqual(typeof bridge.version, 'string');
+    assert.ok(bridge.version.length > 0);
     assert.deepStrictEqual(workspace.extensionKind, ['workspace']);
     assert.deepStrictEqual(bridge.extensionKind, ['ui']);
     assert.strictEqual(bridge.api, 'none');

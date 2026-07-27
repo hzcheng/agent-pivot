@@ -1063,6 +1063,7 @@ async function runOpenWorkspaceClientAndControllerChecks() {
                         focusLeases: true,
                         authoritativeUris: true,
                         uiHostNavigation: true,
+                        savedProjectNavigation: true,
                     },
                 };
             }
@@ -1404,6 +1405,7 @@ async function runOpenWorkspaceHardeningChecks() {
             focusLeases: true,
             authoritativeUris: true,
             uiHostNavigation: true,
+            savedProjectNavigation: true,
         },
     };
 
@@ -3431,7 +3433,10 @@ async function runProjectOpenControllerChecks() {
         showWarningMessage: message => warnings.push(message),
         showInformationMessage: message => warnings.push(message),
         showErrorMessage: message => errors.push(message),
-        executeCommand: async (command, ...args) => commands.push([command, ...args]),
+        executeCommand: async (command, ...args) => {
+            commands.push([command, ...args]);
+            return { protocolVersion: 1, opened: true };
+        },
         updateWorkspaceFolders: (start, deleteCount, ...folders) => {
             workspaceUpdates.push([start, deleteCount, folders]);
             return true;
@@ -3445,17 +3450,32 @@ async function runProjectOpenControllerChecks() {
     assert.deepStrictEqual(commands, []);
 
     await controller.openProject({ name: 'Target', path: '/work/target' }, models.ProjectOpenType.Default);
-    assert.deepStrictEqual(commands.pop(), ['vscode.openFolder', folderUri, { forceNewWindow: true }]);
+    assert.deepStrictEqual(commands.pop(), ['_agentPivotProjects.bridge.navigate', {
+        protocolVersion: 1,
+        projectPath: '/work/target',
+        remoteType: models.ProjectRemoteType.None,
+        openInNewWindow: true,
+    }]);
 
     await controller.openProject({ name: 'Relative', path: 'relative' }, models.ProjectOpenType.Default);
-    assert.deepStrictEqual(commands.pop(), ['vscode.openFolder', fileUri('/work/current/relative'), { forceNewWindow: true }]);
+    assert.deepStrictEqual(commands.pop(), ['_agentPivotProjects.bridge.navigate', {
+        protocolVersion: 1,
+        projectPath: '/work/current/relative',
+        remoteType: models.ProjectRemoteType.None,
+        openInNewWindow: true,
+    }]);
 
     await controller.openProject({ name: 'Folder', path: '/work/folder' }, models.ProjectOpenType.AddToWorkspace);
     assert.strictEqual(workspaceUpdates.length, 1);
     assert.strictEqual(workspaceUpdates[0][2][0].name, 'Folder');
 
     await controller.openProject({ name: 'SSH', path: 'vscode-remote://ssh-remote+host', remoteType: models.ProjectRemoteType.SSH }, models.ProjectOpenType.NewWindow);
-    assert.deepStrictEqual(commands.pop(), ['vscode.newWindow', { remoteAuthority: 'ssh-remote+host', reuseWindow: false }]);
+    assert.deepStrictEqual(commands.pop(), ['_agentPivotProjects.bridge.navigate', {
+        protocolVersion: 1,
+        projectPath: 'vscode-remote://ssh-remote+host',
+        remoteType: models.ProjectRemoteType.SSH,
+        openInNewWindow: true,
+    }]);
 
     const noWorkspaceController = new ProjectOpenController({
         getWorkspaceFile: () => null,
@@ -3669,6 +3689,7 @@ async function runCoordinatorWiringChecks() {
                 focusLeases: true,
                 authoritativeUris: true,
                 uiHostNavigation: true,
+                savedProjectNavigation: true,
             },
         }), {
             accepted: false,
@@ -3680,6 +3701,7 @@ async function runCoordinatorWiringChecks() {
                 focusLeases: true,
                 authoritativeUris: true,
                 uiHostNavigation: true,
+                savedProjectNavigation: true,
             },
             errorCode: 'update-required',
         });
@@ -3693,6 +3715,7 @@ async function runCoordinatorWiringChecks() {
                 focusLeases: true,
                 authoritativeUris: true,
                 uiHostNavigation: true,
+                savedProjectNavigation: true,
             },
         })).accepted, true);
 

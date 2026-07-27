@@ -25,6 +25,11 @@ import {
     OPEN_WORKSPACE_NAVIGATE_COMMAND,
     OPEN_WORKSPACE_PROTOCOL_VERSION,
 } from '../../../src/openWorkspaces/protocol';
+import {
+    SAVED_PROJECT_NAVIGATE_COMMAND,
+    SAVED_PROJECT_NAVIGATION_PROTOCOL_VERSION,
+    validateSavedProjectNavigationRequest,
+} from '../../../src/projects/projectNavigationProtocol';
 
 const BRIDGE_CHALLENGE = '_agentPivotAttentionSpike.bridge.challenge';
 const WORKSPACE_CHALLENGE = '_agentPivotAttentionSpike.workspace.challenge';
@@ -254,6 +259,41 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             };
         },
     );
+    const savedProjectNavigateDisposable = vscode.commands.registerCommand(
+        SAVED_PROJECT_NAVIGATE_COMMAND,
+        async (raw: unknown) => {
+            const request = validateSavedProjectNavigationRequest(raw);
+            const options = request.openInNewWindow
+                ? { forceNewWindow: true }
+                : { forceReuseWindow: true };
+            if (request.remoteType === 1) {
+                const sshUri = request.projectPath.includes('://')
+                    ? vscode.Uri.parse(request.projectPath)
+                    : null;
+                if (!sshUri || !sshUri.path || sshUri.path === '/') {
+                    const remoteAuthority = sshUri
+                        ? decodeURIComponent(sshUri.authority)
+                        : request.projectPath.replace('vscode-remote://', '');
+                    await vscode.commands.executeCommand('vscode.newWindow', {
+                        remoteAuthority,
+                        reuseWindow: !request.openInNewWindow,
+                    });
+                    return {
+                        protocolVersion: SAVED_PROJECT_NAVIGATION_PROTOCOL_VERSION,
+                        opened: true,
+                    };
+                }
+            }
+            const uri = request.remoteType === 0 && !request.projectPath.includes('://')
+                ? vscode.Uri.file(request.projectPath)
+                : vscode.Uri.parse(request.projectPath);
+            await vscode.commands.executeCommand('vscode.openFolder', uri, options);
+            return {
+                protocolVersion: SAVED_PROJECT_NAVIGATION_PROTOCOL_VERSION,
+                opened: true,
+            };
+        },
+    );
     const statusDisposable = vscode.commands.registerCommand(BRIDGE_STATUS, async () => {
         const scan = await store.scan(Date.now());
         return {
@@ -310,6 +350,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         openWorkspacePublishDisposable,
         openWorkspaceUnregisterDisposable,
         openWorkspaceNavigateDisposable,
+        savedProjectNavigateDisposable,
         statusDisposable,
         watcherDisposable,
         clearDisposable,

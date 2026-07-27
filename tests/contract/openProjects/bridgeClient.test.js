@@ -27,6 +27,7 @@ function handshakeResponse() {
             focusLeases: true,
             authoritativeUris: true,
             uiHostNavigation: true,
+            savedProjectNavigation: true,
         },
     };
 }

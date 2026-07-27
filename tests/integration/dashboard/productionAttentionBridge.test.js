@@ -7,13 +7,14 @@ const path = require('node:path');
 const test = require('node:test');
 const { makeTempDirectory } = require('../../helpers/tempDirectory');
 
-test('ATTENTION-PRODUCTION-ATTENTION-BRIDGE-INTEGRATION-001 OPEN-WORKSPACE-UI-HOST-NAVIGATION-001 OPEN-WORKSPACE-BRIDGE-COMPATIBILITY-001 activates the production bridge and opens authoritative workspaces from the UI host', async t => {
+test('ATTENTION-PRODUCTION-ATTENTION-BRIDGE-INTEGRATION-001 OPEN-WORKSPACE-UI-HOST-NAVIGATION-001 OPEN-WORKSPACE-BRIDGE-COMPATIBILITY-001 OPEN-PROJECT-UI-HOST-NAVIGATION-001 activates the production bridge and opens workspaces and saved projects from the UI host', async t => {
     const root = makeTempDirectory(t, 'production-attention-bridge-');
     const registered = new Map();
     const executed = [];
     const vscode = {
         Uri: {
             parse: value => ({ value }),
+            file: value => ({ value: `file://${value}` }),
         },
         window: {
             createOutputChannel: () => ({ appendLine() {}, dispose() {} }),
@@ -68,6 +69,7 @@ test('ATTENTION-PRODUCTION-ATTENTION-BRIDGE-INTEGRATION-001 OPEN-WORKSPACE-UI-HO
             '_agentPivotAttention.bridge.unregister',
             '_agentPivotAttention.bridge.acknowledge',
             '_agentPivotOpenWorkspaces.bridge.navigate',
+            '_agentPivotProjects.bridge.navigate',
         ];
         for (const command of requiredCommands) assert.equal(typeof registered.get(command), 'function');
 
@@ -117,6 +119,37 @@ test('ATTENTION-PRODUCTION-ATTENTION-BRIDGE-INTEGRATION-001 OPEN-WORKSPACE-UI-HO
                     forceNewWindow: true,
                 }],
             },
+        );
+        const savedProjectOutcome = await registered.get('_agentPivotProjects.bridge.navigate')({
+            protocolVersion: 1,
+            projectPath: '/Users/local-user/reddb',
+            remoteType: 0,
+            openInNewWindow: true,
+        });
+        assert.deepEqual(savedProjectOutcome, {
+            protocolVersion: 1,
+            opened: true,
+        });
+        assert.deepEqual(
+            executed.filter(entry => entry.command === 'vscode.openFolder').at(-1),
+            {
+                command: 'vscode.openFolder',
+                args: [{
+                    value: 'file:///Users/local-user/reddb',
+                }, {
+                    forceNewWindow: true,
+                }],
+            },
+        );
+        await assert.rejects(
+            registered.get('_agentPivotProjects.bridge.navigate')({
+                protocolVersion: 1,
+                projectPath: '/Users/local-user/reddb',
+                remoteType: 0,
+                openInNewWindow: true,
+                unexpected: true,
+            }),
+            /unexpected fields/,
         );
 
         const aggregates = [];

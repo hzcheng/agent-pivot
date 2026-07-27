@@ -166,6 +166,7 @@ test('ARCH-COORDINATOR-WIRING-001 carries sequenced publications through the bri
             focusLeases: true,
             authoritativeUris: true,
             uiHostNavigation: true,
+            savedProjectNavigation: true,
         },
     }));
 

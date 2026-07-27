@@ -13,6 +13,7 @@ export const OPEN_WORKSPACE_CAPABILITIES = {
     focusLeases: true,
     authoritativeUris: true,
     uiHostNavigation: true,
+    savedProjectNavigation: true,
 } as const;
 export const OPEN_WORKSPACE_HEARTBEAT_MS = 10_000;
 export const OPEN_WORKSPACE_LEASE_MS = 30_000;

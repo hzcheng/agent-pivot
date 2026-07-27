@@ -6,7 +6,6 @@ import {
     OPEN_WORKSPACE_HEARTBEAT_MS,
     OPEN_WORKSPACE_PROTOCOL_VERSION,
     OpenWorkspaceAggregate,
-    OpenWorkspacePublication,
     OpenWorkspaceRecord,
     OpenWorkspaceRegistration,
     validateOpenWorkspaceAggregate,
@@ -98,6 +97,7 @@ function compareRegistrationPriority(
 export class OpenWorkspaceCoordinator {
     private readonly watcher: OpenWorkspaceWatcher;
     private readonly intervalHandle: unknown;
+    private readonly retiredInstanceIds = new Set<string>();
     private boundInstanceId: string | undefined;
     private store: OpenWorkspaceStoreLike | undefined;
     private currentRegistration: OpenWorkspaceRegistration | undefined;
@@ -127,7 +127,16 @@ export class OpenWorkspaceCoordinator {
         const mutation = this.enqueueMutation(async () => {
             this.ensureActive();
             const publication = validateOpenWorkspacePublication(raw);
-            const store = this.bind(publication);
+            if (this.retiredInstanceIds.has(publication.instanceId)) {
+                throw new Error('open workspace coordinator received a retired instanceId');
+            }
+            const previousInstanceId = this.boundInstanceId !== undefined
+                && publication.instanceId !== this.boundInstanceId
+                ? this.boundInstanceId
+                : undefined;
+            const store = previousInstanceId === undefined && this.store !== undefined
+                ? this.store
+                : this.createStore(publication.instanceId);
             const timestamp = validateTimestamp(this.dependencies.now());
             const lastFocusedAtMs = publication.followsFocusEvent
                 ? timestamp
@@ -141,6 +150,12 @@ export class OpenWorkspaceCoordinator {
                 workspace: publication.workspace,
             };
             await store.write(registration);
+            if (previousInstanceId !== undefined && this.store !== undefined) {
+                await this.store.remove(previousInstanceId);
+                this.retiredInstanceIds.add(previousInstanceId);
+            }
+            this.boundInstanceId = publication.instanceId;
+            this.store = store;
             this.currentRegistration = registration;
             this.lastFocusedAtMs = lastFocusedAtMs;
             this.reportDiagnostic({
@@ -161,6 +176,9 @@ export class OpenWorkspaceCoordinator {
         const mutation = this.enqueueMutation(async () => {
             this.ensureActive();
             const instanceId = validateUnregisterRequest(raw);
+            if (this.retiredInstanceIds.has(instanceId)) {
+                return;
+            }
             if (this.boundInstanceId === undefined || this.store === undefined) {
                 throw new Error('open workspace coordinator has no bound instanceId');
             }
@@ -227,17 +245,10 @@ export class OpenWorkspaceCoordinator {
         this.watcher.close();
     }
 
-    private bind(publication: OpenWorkspacePublication): OpenWorkspaceStoreLike {
-        if (this.boundInstanceId !== undefined && publication.instanceId !== this.boundInstanceId) {
-            throw new Error('open workspace coordinator received a different instanceId');
-        }
-        if (this.store === undefined) {
-            this.boundInstanceId = publication.instanceId;
-            this.store = this.dependencies.createStore
-                ? this.dependencies.createStore(this.rootDirectory, publication.instanceId)
-                : new OpenWorkspaceStore(this.rootDirectory, publication.instanceId);
-        }
-        return this.store;
+    private createStore(instanceId: string): OpenWorkspaceStoreLike {
+        return this.dependencies.createStore
+            ? this.dependencies.createStore(this.rootDirectory, instanceId)
+            : new OpenWorkspaceStore(this.rootDirectory, instanceId);
     }
 
     private async runQueuedScans(): Promise<void> {

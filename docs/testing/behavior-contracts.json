@@ -1547,6 +1547,19 @@
     ]
   },
   {
+    "id": "OPEN-WORKSPACE-INSTANCE-ROLLOVER-001",
+    "domain": "open-project",
+    "title": "Workspace Extension Host instance rollover replaces stale window registrations",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/openProjects/coordinator.test.js"
+    ],
+    "evidence": [
+      "extensions/attention-ui-bridge/src/openWorkspaceCoordinator.ts"
+    ]
+  },
+  {
     "id": "OPEN-PROTOCOL-005",
     "domain": "open-project",
     "title": "Open project semantic revision stability behavior",

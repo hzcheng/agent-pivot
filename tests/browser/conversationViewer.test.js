@@ -19,25 +19,66 @@ const viewerCss = fs.readFileSync(
     path.join(__dirname, '../../media/conversationViewer.css'),
     'utf8'
 );
-const viewerThemeFixtureCss = `
-    :root {
-        --vscode-editor-foreground: #d4d4d4;
-        --vscode-editor-background: #1e1e1e;
-        --vscode-font-family: sans-serif;
-        --vscode-font-size: 13px;
-        --vscode-panel-border: #454545;
-        --vscode-button-background: #0e639c;
-        --vscode-button-foreground: #ffffff;
-        --vscode-button-border: transparent;
-        --vscode-input-background: #252b35;
-        --vscode-input-border: #405677;
-        --vscode-descriptionForeground: #a0a0a0;
-        --vscode-focusBorder: #007fd4;
-        --vscode-textCodeBlock-background: #181818;
-        --vscode-editor-font-family: monospace;
-        --vscode-textLink-foreground: #3794ff;
-    }
-`;
+const viewerThemeFixtures = Object.freeze([
+    Object.freeze({
+        name: 'dark',
+        css: `
+            :root {
+                --vscode-editor-foreground: #d4d4d4;
+                --vscode-editor-background: #1e1e1e;
+                --vscode-font-family: sans-serif;
+                --vscode-font-size: 13px;
+                --vscode-panel-border: #454545;
+                --vscode-button-background: #0e639c;
+                --vscode-button-foreground: #ffffff;
+                --vscode-button-border: transparent;
+                --vscode-input-background: #252b35;
+                --vscode-input-border: #405677;
+                --vscode-descriptionForeground: #a0a0a0;
+                --vscode-focusBorder: #007fd4;
+                --vscode-textCodeBlock-background: #181818;
+                --vscode-editor-font-family: monospace;
+                --vscode-textLink-foreground: #3794ff;
+            }
+        `,
+        tokens: Object.freeze({
+            editorForeground: 'rgb(212, 212, 212)',
+            buttonBackground: 'rgb(14, 99, 156)',
+            buttonForeground: 'rgb(255, 255, 255)',
+            inputBackground: 'rgb(37, 43, 53)',
+            descriptionForeground: 'rgb(160, 160, 160)',
+        }),
+    }),
+    Object.freeze({
+        name: 'light',
+        css: `
+            :root {
+                --vscode-editor-foreground: #1f1f1f;
+                --vscode-editor-background: #ffffff;
+                --vscode-font-family: sans-serif;
+                --vscode-font-size: 13px;
+                --vscode-panel-border: #c8c8c8;
+                --vscode-button-background: #005fb8;
+                --vscode-button-foreground: #ffffff;
+                --vscode-button-border: transparent;
+                --vscode-input-background: #f3f6fa;
+                --vscode-input-border: #6b7a90;
+                --vscode-descriptionForeground: #616161;
+                --vscode-focusBorder: #0067c0;
+                --vscode-textCodeBlock-background: #f6f6f6;
+                --vscode-editor-font-family: monospace;
+                --vscode-textLink-foreground: #006ab1;
+            }
+        `,
+        tokens: Object.freeze({
+            editorForeground: 'rgb(31, 31, 31)',
+            buttonBackground: 'rgb(0, 95, 184)',
+            buttonForeground: 'rgb(255, 255, 255)',
+            inputBackground: 'rgb(243, 246, 250)',
+            descriptionForeground: 'rgb(97, 97, 97)',
+        }),
+    }),
+]);
 
 const hostileConversationPage = Object.freeze({
     type: 'conversation-viewer-page',
@@ -276,7 +317,7 @@ async function openHostViewerDocument(t, options) {
             await route.fulfill({
                 contentType: 'text/css',
                 body: options?.includeStyles
-                    ? `${viewerThemeFixtureCss}\n${viewerCss}`
+                    ? `${options.themeFixture.css}\n${viewerCss}`
                     : '',
             });
             return;
@@ -425,6 +466,97 @@ async function realHostAppendPublications() {
     return { initial, refresh };
 }
 
+function assertMessageFillsReadingArea(message, name, messagesBounds) {
+    const tolerance = 1;
+    assert.ok(
+        Math.abs(message.left - messagesBounds.left) <= tolerance,
+        `${name} message must fill the reading area's left edge`
+    );
+    assert.ok(
+        Math.abs(message.right - messagesBounds.right) <= tolerance,
+        `${name} message must fill the reading area's right edge`
+    );
+}
+
+function assertConversationEmphasisTheme(styles, fixture) {
+    assert.equal(
+        styles.userBodyColor,
+        fixture.tokens.editorForeground,
+        `User body must use the ${fixture.name} editor foreground`
+    );
+    assert.equal(
+        styles.assistantBodyColor,
+        fixture.tokens.editorForeground,
+        `Assistant body must use the ${fixture.name} editor foreground`
+    );
+    assert.equal(
+        styles.assistantRoleColor,
+        fixture.tokens.descriptionForeground,
+        `Assistant role must use the ${fixture.name} muted description foreground`
+    );
+    assert.equal(
+        styles.userRoleColor,
+        fixture.tokens.buttonForeground,
+        `User pill foreground must use the ${fixture.name} button foreground`
+    );
+    assert.equal(
+        styles.userRoleBackground,
+        fixture.tokens.buttonBackground,
+        `User pill background must use the ${fixture.name} button background`
+    );
+    assert.equal(
+        styles.userBackground,
+        fixture.tokens.inputBackground,
+        `User surface must use the ${fixture.name} input background`
+    );
+    assertMessageFillsReadingArea(
+        styles.userBounds,
+        'User',
+        styles.messagesBounds
+    );
+    assertMessageFillsReadingArea(
+        styles.assistantBounds,
+        'Assistant',
+        styles.messagesBounds
+    );
+    for (const [name, textAlign] of [
+        ['User', styles.userTextAlign],
+        ['Assistant', styles.assistantTextAlign],
+    ]) {
+        assert.ok(
+            textAlign !== 'right' && textAlign !== 'end',
+            `${name} message must not be right/end aligned`
+        );
+    }
+}
+
+function assertConversationEmphasisForcedColors(styles) {
+    assert.deepEqual(styles.userPerimeterWidths, {
+        top: 1,
+        right: 1,
+        bottom: 1,
+        left: 4,
+    });
+    assert.deepEqual(styles.userRoleBorderWidths, {
+        top: 1,
+        right: 1,
+        bottom: 1,
+        left: 1,
+    });
+    assert.deepEqual(styles.userRoleBorderStyles, {
+        top: 'solid',
+        right: 'solid',
+        bottom: 'solid',
+        left: 'solid',
+    });
+    assert.notEqual(
+        styles.userRoleColor,
+        styles.userRoleBackground,
+        'forced-colors User pill foreground and background must remain distinct'
+    );
+    assert.equal(styles.assistantSeparatorWidth, 1);
+}
+
 test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 acquires one real document API and posts every control action', async t => {
     const { page } = await openHostViewerDocument(t);
 
@@ -477,104 +609,176 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 keeps disabled real document na
 
 test('CONVERSATION-VIEWER-USER-EMPHASIS-001 makes User a full-width Prompt block and keeps Assistant quiet', async t => {
     const interactionId = 'input-emphasis';
-    const { page } = await openHostViewerDocument(t, {
-        includeStyles: true,
-        interactionIds: [interactionId],
-        interactionId,
-        pageOverrides: {
-            messages: [{
-                id: `${interactionId}:user`,
-                interactionId,
-                role: 'user',
-                markdown: 'Diagnose the loading failure.',
-            }, {
-                id: `${interactionId}:assistant`,
-                interactionId,
-                role: 'assistant',
-                markdown: 'I will inspect the refresh lifecycle.',
-            }],
-            previousCursor: undefined,
-            nextCursor: undefined,
-            isStart: true,
-            isEnd: true,
-        },
-    });
-    const user = page.locator('.conversation-message-user');
-    const assistant = page.locator('.conversation-message-assistant');
-    const styles = await user.evaluate((element) => {
-        const assistantElement = document.querySelector(
-            '.conversation-message-assistant'
+    for (const fixture of viewerThemeFixtures) {
+        const { page } = await openHostViewerDocument(t, {
+            includeStyles: true,
+            themeFixture: fixture,
+            interactionIds: [interactionId],
+            interactionId,
+            pageOverrides: {
+                messages: [{
+                    id: `${interactionId}:user`,
+                    interactionId,
+                    role: 'user',
+                    markdown: 'Diagnose the loading failure.',
+                }, {
+                    id: `${interactionId}:assistant`,
+                    interactionId,
+                    role: 'assistant',
+                    markdown: 'I will inspect the refresh lifecycle.',
+                }],
+                previousCursor: undefined,
+                nextCursor: undefined,
+                isStart: true,
+                isEnd: true,
+            },
+        });
+        const user = page.locator('.conversation-message-user');
+        const assistant = page.locator('.conversation-message-assistant');
+        const styles = await user.evaluate((element) => {
+            const assistantElement = document.querySelector(
+                '.conversation-message-assistant'
+            );
+            const messagesElement = document.querySelector(
+                '.conversation-messages'
+            );
+            const userRole = element.querySelector('.conversation-role');
+            const assistantRole = assistantElement.querySelector(
+                '.conversation-role'
+            );
+            const userBody = element.querySelector('.conversation-markdown');
+            const assistantBody = assistantElement.querySelector(
+                '.conversation-markdown'
+            );
+            const userStyle = getComputedStyle(element);
+            const assistantStyle = getComputedStyle(assistantElement);
+            const userRoleStyle = getComputedStyle(userRole);
+            const assistantRoleStyle = getComputedStyle(assistantRole);
+            const messagesBounds = messagesElement.getBoundingClientRect();
+            const userBounds = element.getBoundingClientRect();
+            const assistantBounds = assistantElement.getBoundingClientRect();
+            return {
+                userBackground: userStyle.backgroundColor,
+                userBorderTop: Number.parseFloat(userStyle.borderTopWidth),
+                userBorderLeft: Number.parseFloat(userStyle.borderLeftWidth),
+                userRadius: Number.parseFloat(userStyle.borderTopLeftRadius),
+                userRoleDisplay: userRoleStyle.display,
+                userRoleColor: userRoleStyle.color,
+                userRoleBackground: userRoleStyle.backgroundColor,
+                userRoleRadius: Number.parseFloat(
+                    userRoleStyle.borderTopLeftRadius
+                ),
+                userBodyColor: getComputedStyle(userBody).color,
+                userTextAlign: getComputedStyle(userBody).textAlign,
+                assistantBackground: assistantStyle.backgroundColor,
+                assistantBorderLeft: Number.parseFloat(
+                    assistantStyle.borderLeftWidth
+                ),
+                assistantBorderBottom: Number.parseFloat(
+                    assistantStyle.borderBottomWidth
+                ),
+                assistantBodyColor: getComputedStyle(assistantBody).color,
+                assistantRoleColor: assistantRoleStyle.color,
+                assistantTextAlign: getComputedStyle(assistantBody).textAlign,
+                messagesBounds: {
+                    left: messagesBounds.left,
+                    right: messagesBounds.right,
+                },
+                userBounds: { left: userBounds.left, right: userBounds.right },
+                assistantBounds: {
+                    left: assistantBounds.left,
+                    right: assistantBounds.right,
+                },
+            };
+        });
+
+        assert.notEqual(
+            styles.userBackground,
+            'rgba(0, 0, 0, 0)',
+            'User prompt must have its own filled surface'
         );
-        const role = element.querySelector('.conversation-role');
-        const userStyle = getComputedStyle(element);
-        const assistantStyle = getComputedStyle(assistantElement);
-        const roleStyle = getComputedStyle(role);
-        return {
-            userBackground: userStyle.backgroundColor,
-            userBorderTop: Number.parseFloat(userStyle.borderTopWidth),
-            userBorderLeft: Number.parseFloat(userStyle.borderLeftWidth),
-            userRadius: Number.parseFloat(userStyle.borderTopLeftRadius),
-            userRoleDisplay: roleStyle.display,
-            userRoleBackground: roleStyle.backgroundColor,
-            userRoleRadius: Number.parseFloat(roleStyle.borderTopLeftRadius),
-            assistantBackground: assistantStyle.backgroundColor,
-            assistantBorderLeft: Number.parseFloat(
-                assistantStyle.borderLeftWidth
-            ),
-            assistantBorderBottom: Number.parseFloat(
-                assistantStyle.borderBottomWidth
-            ),
-            userWidth: Math.round(element.getBoundingClientRect().width),
-            assistantWidth: Math.round(
-                assistantElement.getBoundingClientRect().width
-            ),
-        };
-    });
+        assert.equal(styles.userBorderTop, 1);
+        assert.equal(styles.userBorderLeft, 4);
+        assert.ok(styles.userRadius >= 4);
+        assert.equal(styles.userRoleDisplay, 'inline-flex');
+        assert.ok(styles.userRoleRadius >= 100);
+        assert.equal(styles.assistantBackground, 'rgba(0, 0, 0, 0)');
+        assert.equal(styles.assistantBorderLeft, 0);
+        assert.equal(styles.assistantBorderBottom, 1);
+        assertConversationEmphasisTheme(styles, fixture);
 
-    assert.notEqual(
-        styles.userBackground,
-        'rgba(0, 0, 0, 0)',
-        'User prompt must have its own filled surface'
-    );
-    assert.equal(styles.userBorderTop, 1);
-    assert.equal(styles.userBorderLeft, 4);
-    assert.ok(styles.userRadius >= 4);
-    assert.equal(styles.userRoleDisplay, 'inline-flex');
-    assert.notEqual(styles.userRoleBackground, 'rgba(0, 0, 0, 0)');
-    assert.ok(styles.userRoleRadius >= 100);
-    assert.equal(styles.assistantBackground, 'rgba(0, 0, 0, 0)');
-    assert.equal(styles.assistantBorderLeft, 0);
-    assert.equal(styles.assistantBorderBottom, 1);
-    assert.equal(styles.userWidth, styles.assistantWidth);
+        assert.throws(
+            () => assertConversationEmphasisTheme({
+                ...styles,
+                userBounds: {
+                    ...styles.userBounds,
+                    left: styles.userBounds.left + 24,
+                },
+            }, fixture),
+            /User message must fill the reading area's left edge/
+        );
+        assert.throws(
+            () => assertConversationEmphasisTheme({
+                ...styles,
+                assistantRoleColor: fixture.tokens.editorForeground,
+            }, fixture),
+            /Assistant role must use the .* muted description foreground/
+        );
 
-    await user.evaluate(element => {
-        element.classList.add('conversation-selected-interaction');
-        element.tabIndex = -1;
-        element.focus();
-    });
-    const indicators = await user.evaluate(element => {
-        const style = getComputedStyle(element);
-        return {
-            boxShadow: style.boxShadow,
-            outlineWidth: Number.parseFloat(style.outlineWidth),
-        };
-    });
-    assert.notEqual(indicators.boxShadow, 'none');
-    assert.equal(indicators.outlineWidth, 1);
+        if (fixture.name === 'dark') {
+            await user.evaluate(element => {
+                element.classList.add('conversation-selected-interaction');
+                element.tabIndex = -1;
+                element.focus();
+            });
+            const indicators = await user.evaluate(element => {
+                const style = getComputedStyle(element);
+                return {
+                    boxShadow: style.boxShadow,
+                    outlineWidth: Number.parseFloat(style.outlineWidth),
+                };
+            });
+            assert.notEqual(indicators.boxShadow, 'none');
+            assert.equal(indicators.outlineWidth, 1);
 
-    await page.emulateMedia({ forcedColors: 'active' });
-    assert.equal(
-        await user.evaluate(element =>
-            Number.parseFloat(getComputedStyle(element).borderLeftWidth)
-        ),
-        4
-    );
-    assert.equal(
-        await assistant.evaluate(element =>
-            Number.parseFloat(getComputedStyle(element).borderBottomWidth)
-        ),
-        1
-    );
+            await page.emulateMedia({ forcedColors: 'active' });
+            const forcedColors = await user.evaluate(element => {
+                const assistantElement = document.querySelector(
+                    '.conversation-message-assistant'
+                );
+                const role = element.querySelector('.conversation-role');
+                const userStyle = getComputedStyle(element);
+                const roleStyle = getComputedStyle(role);
+                const assistantStyle = getComputedStyle(assistantElement);
+                return {
+                    userPerimeterWidths: {
+                        top: Number.parseFloat(userStyle.borderTopWidth),
+                        right: Number.parseFloat(userStyle.borderRightWidth),
+                        bottom: Number.parseFloat(userStyle.borderBottomWidth),
+                        left: Number.parseFloat(userStyle.borderLeftWidth),
+                    },
+                    userRoleBorderWidths: {
+                        top: Number.parseFloat(roleStyle.borderTopWidth),
+                        right: Number.parseFloat(roleStyle.borderRightWidth),
+                        bottom: Number.parseFloat(roleStyle.borderBottomWidth),
+                        left: Number.parseFloat(roleStyle.borderLeftWidth),
+                    },
+                    userRoleBorderStyles: {
+                        top: roleStyle.borderTopStyle,
+                        right: roleStyle.borderRightStyle,
+                        bottom: roleStyle.borderBottomStyle,
+                        left: roleStyle.borderLeftStyle,
+                    },
+                    userRoleColor: roleStyle.color,
+                    userRoleBackground: roleStyle.backgroundColor,
+                    assistantSeparatorWidth: Number.parseFloat(
+                        assistantStyle.borderBottomWidth
+                    ),
+                };
+            });
+            assertConversationEmphasisForcedColors(forcedColors);
+        }
+    }
 });
 
 test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 sanitizes hostile HTML and posts exact version-1 navigation', async t => {

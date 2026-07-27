@@ -83,7 +83,7 @@ function createPending(workspace) {
         title: 'Parity session',
         tmux: {
             layout: 'session',
-            sessionName: 'ps-Parity-session-12345678',
+            sessionName: 'ap-Parity-session-12345678',
             windowName: 'codex-Parity-session-12345678',
         },
     };

@@ -2,18 +2,27 @@ import {
     OpenWorkspacePublication,
     validateOpenWorkspacePublication,
 } from '../../../src/openWorkspaces/protocol';
+import {
+    createWorkspaceScopeIdentity,
+    createWorkspaceUriIdentity,
+    WorkspaceUriIdentitySource,
+} from '../../../src/workspaces/identity';
 import { URL } from 'url';
+
+export interface AuthoritativeOpenWorkspaceUri extends WorkspaceUriIdentitySource {
+    value: string;
+}
 
 function requireMatchingResourcePath(
     publishedUri: string,
-    authoritativeUri: string,
+    authoritativeUri: AuthoritativeOpenWorkspaceUri,
     label: 'root' | 'workspace',
 ): void {
     let publishedPath: string;
     let authoritativePath: string;
     try {
         publishedPath = new URL(publishedUri).pathname;
-        authoritativePath = new URL(authoritativeUri).pathname;
+        authoritativePath = new URL(authoritativeUri.value).pathname;
     } catch (error) {
         throw new Error(`${label} resource URI must be valid`);
     }
@@ -24,8 +33,8 @@ function requireMatchingResourcePath(
 
 export function replaceOpenWorkspacePublicationUris(
     raw: unknown,
-    workspaceUri: string | null,
-    rootUris: readonly string[],
+    workspaceUri: AuthoritativeOpenWorkspaceUri | null,
+    rootUris: readonly AuthoritativeOpenWorkspaceUri[],
 ): OpenWorkspacePublication {
     const publication = validateOpenWorkspacePublication(raw);
     if (!publication.workspace) {
@@ -38,23 +47,29 @@ export function replaceOpenWorkspacePublicationUris(
     workspace.roots.forEach((root, index) => {
         requireMatchingResourcePath(root.uri, rootUris[index], 'root');
     });
-    if (workspace.kind === 'savedMultiRoot') {
-        if (!workspaceUri) {
-            throw new Error('authoritative saved workspace URI is required');
-        }
+    if (workspace.kind === 'savedMultiRoot' && !workspaceUri) {
+        throw new Error('authoritative saved workspace URI is required');
+    }
+    if (workspace.kind !== 'singleFolder' && workspaceUri) {
         requireMatchingResourcePath(workspace.navigationUri, workspaceUri, 'workspace');
     }
     const roots = workspace.roots.map((root, index) => ({
         ...root,
-        uri: rootUris[index],
+        id: createWorkspaceUriIdentity(rootUris[index]),
+        uri: rootUris[index].value,
     }));
-    const navigationUri = workspace.kind === 'singleFolder'
-        ? roots[0].uri
-        : workspaceUri || workspace.navigationUri;
+    const navigationTarget = workspace.kind === 'singleFolder'
+        ? rootUris[0]
+        : workspaceUri;
+    const navigationUri = navigationTarget?.value || workspace.navigationUri;
     return validateOpenWorkspacePublication({
         ...publication,
         workspace: {
             ...workspace,
+            navigationIdentity: navigationTarget
+                ? createWorkspaceUriIdentity(navigationTarget)
+                : workspace.navigationIdentity,
+            scopeIdentity: createWorkspaceScopeIdentity(rootUris),
             navigationUri,
             roots,
         },

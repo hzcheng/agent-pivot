@@ -159,8 +159,8 @@ ${productCriteria.map(row => `| ${row.join(' | ')} | AUTOMATED PASS / MANUAL BLO
 ${automatedCommands.map(row => `| \`${row[0]}\` | ${row[1]} | ${row[2]} |`).join('\n')}
 
 The production package command built
-\`artifacts/project-steward-2.1.3.vsix\` and
-\`artifacts/project-steward-attention-ui-bridge-0.1.4.vsix\`. The main archive
+\`artifacts/agent-pivot-2.1.3.vsix\` and
+\`artifacts/agent-pivot-attention-ui-bridge-0.1.4.vsix\`. The main archive
 contains \`dist/dashboard.js\`, generated Webview/style assets, and only the
 required JavaScript under \`out/workspaces\` and \`out/openWorkspaces\`; the
 bridge archive contains its v3 \`dist/extension.js\`. Archive listing checks

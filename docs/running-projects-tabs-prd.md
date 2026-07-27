@@ -6,7 +6,7 @@
 
 ## 1. 背景
 
-Project Steward 最初主要承担“保存、分组和打开项目”的项目库职责。随着当前窗口 AI session、session attention，以及跨 VS Code 窗口的已打开项目陆续加入，侧边栏开始同时承载两类性质不同的信息：
+Agent Pivot 最初主要承担“保存、分组和打开项目”的项目库职责。随着当前窗口 AI session、session attention，以及跨 VS Code 窗口的已打开项目陆续加入，侧边栏开始同时承载两类性质不同的信息：
 
 1. **实时工作状态**：当前窗口项目、AI sessions、attention，以及其他窗口中正在打开的项目。
 2. **静态项目资产**：Favorites、项目组和已保存项目。
@@ -61,7 +61,7 @@ Project Steward 最初主要承担“保存、分组和打开项目”的项目�
 ### 5.1 全局工具栏
 
 - 搜索框、展开/折叠全部按钮和设置按钮位于第一行，并在内容滚动时保持可见。
-- 设置按钮在所有页面状态下执行相同操作，始终打开 Project Steward 设置。
+- 设置按钮在所有页面状态下执行相同操作，始终打开 Agent Pivot 设置。
 - 展开/折叠全部按钮在普通状态下只作用于当前 active Tab：
   - `OPEN`：折叠或展开 `OTHER WINDOWS`；`CURRENT WORKSPACE` 始终可见，项目卡片的 AI session 展开状态继续由卡片自身控制。
   - `PROJECTS`：折叠或展开 Favorites 和所有普通项目组。
@@ -270,7 +270,7 @@ PROJECTS
 
 ### 10.2 自定义 CSS 兼容
 
-- 尽量保留现有 `.project`、`.project-container`、`.group`、`.group-title` 和 AI session 相关 class，降低已有 `projectSteward.customCss` 失效概率。
+- 尽量保留现有 `.project`、`.project-container`、`.group`、`.group-title` 和 AI session 相关 class，降低已有 `agentPivot.customCss` 失效概率。
 - 新增稳定的 Tab、tabpanel、搜索结果区域和 `OPEN` section class，避免依赖偶然 DOM 层级。
 - 依赖旧 `.steward-sticky-header > .sticky-groups-wrapper` 层级的自定义 CSS 可能受影响，发布说明必须明确这是布局结构变化。
 - 自定义 CSS 不得改变 Tab、搜索结果和项目操作的语义或数据权限。

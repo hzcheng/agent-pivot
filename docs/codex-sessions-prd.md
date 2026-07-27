@@ -2,15 +2,15 @@
 
 ## 背景
 
-Project Steward 已经有 `Open Projects` 组，用来展示当前 VS Code 窗口打开的项目。当前这些卡片再次点击时实际价值不高，因为项目已经处于打开状态。
+Agent Pivot 已经有 `Open Projects` 组，用来展示当前 VS Code 窗口打开的项目。当前这些卡片再次点击时实际价值不高，因为项目已经处于打开状态。
 
-Codex 本机会保存 session 历史，并且 active session 的 `session_meta` 中包含 `cwd`。这使 Project Steward 可以根据当前项目路径，动态发现属于这个项目的 Codex 对话，而不需要用户手动关联。
+Codex 本机会保存 session 历史，并且 active session 的 `session_meta` 中包含 `cwd`。这使 Agent Pivot 可以根据当前项目路径，动态发现属于这个项目的 Codex 对话，而不需要用户手动关联。
 
 ## 目标
 
 在 `Open Projects` 组中，让当前打开的项目卡片可以展开，展示该项目相关的本机 Codex sessions。
 
-用户打开 Project Steward 后，可以直接从当前项目卡片下看到最近的 Codex 对话历史，并通过点击 session 在 VS Code 当前窗口中打开 terminal，运行 `codex resume` 恢复该 session。
+用户打开 Agent Pivot 后，可以直接从当前项目卡片下看到最近的 Codex 对话历史，并通过点击 session 在 VS Code 当前窗口中打开 terminal，运行 `codex resume` 恢复该 session。
 
 ## 非目标
 
@@ -19,11 +19,11 @@ Codex 本机会保存 session 历史，并且 active session 的 `session_meta` 
 - 不保存完整 Codex 对话内容。
 - 不修改 Codex 插件内部数据。
 - 第一版不依赖 Codex VS Code 插件公开命令或内部 API。
-- 第一版不在 Project Steward webview 内直接渲染 Codex 对话内容。
+- 第一版不在 Agent Pivot webview 内直接渲染 Codex 对话内容。
 
 ## 数据来源
 
-Project Steward 从当前扩展运行环境可访问的 Codex 数据目录读取轻量索引和 session 元数据。
+Agent Pivot 从当前扩展运行环境可访问的 Codex 数据目录读取轻量索引和 session 元数据。
 
 读取目录优先级：
 
@@ -49,9 +49,9 @@ thread_name: string;
 updated_at: string;
 ```
 
-如果存在 `session_index.jsonl`，Project Steward 只展示 index 中仍有 active session 文件的记录，避免已经被归档或不再活跃的历史文件重新出现在列表里。
+如果存在 `session_index.jsonl`，Agent Pivot 只展示 index 中仍有 active session 文件的记录，避免已经被归档或不再活跃的历史文件重新出现在列表里。
 
-如果没有 `session_index.jsonl`，Project Steward 才会回退到扫描 active session 文件，并使用 session id 作为名称兜底。
+如果没有 `session_index.jsonl`，Agent Pivot 才会回退到扫描 active session 文件，并使用 session id 作为名称兜底。
 
 活跃 session 文件的第一条 `session_meta` 提供：
 
@@ -61,11 +61,11 @@ payload.cwd: string;
 payload.source?: string;
 ```
 
-Project Steward 只读取 active session 的第一条元数据，不读取完整对话内容。
+Agent Pivot 只读取 active session 的第一条元数据，不读取完整对话内容。
 
 ## 匹配规则
 
-每个 `Open Projects` 卡片都有当前项目路径。Project Steward 使用该路径和 `session_meta.payload.cwd` 匹配。
+每个 `Open Projects` 卡片都有当前项目路径。Agent Pivot 使用该路径和 `session_meta.payload.cwd` 匹配。
 
 本地项目匹配：
 
@@ -111,7 +111,7 @@ session.cwd:
 session 只显示在 /workspaces/reddb/core/datanode 下
 ```
 
-如果无法读取 Codex 数据，或没有匹配 session，Project Steward 不报错，只展示空状态。
+如果无法读取 Codex 数据，或没有匹配 session，Agent Pivot 不报错，只展示空状态。
 
 ## UI 行为
 
@@ -141,7 +141,7 @@ Codex 0
 
 ```text
 project steward
-Project Steward extension
+Agent Pivot extension
 
 Codex Sessions
 修复 dev container 保存路径        2026-07-04
@@ -190,7 +190,7 @@ Codex Sessions 区域是从属信息：
 
 ```text
 project steward                         Codex 3
-Project Steward extension
+Agent Pivot extension
 
 Codex Sessions
 ────────────────
@@ -271,20 +271,20 @@ openProjectsExpandedCodexSessions
 
 保存内容使用 normalized project path 或其 hash。
 
-Project Steward 刷新后可以保持展开状态；换机器后展开状态不同步。
+Agent Pivot 刷新后可以保持展开状态；换机器后展开状态不同步。
 
 ## 刷新行为
 
-Project Steward 渲染时读取 Codex sessions。
+Agent Pivot 渲染时读取 Codex sessions。
 
 以下情况会刷新 session 展示：
 
-- 打开 Project Steward 面板
+- 打开 Agent Pivot 面板
 - webview 刷新
 - Open Projects 变化
 - Codex session index 或 active session 文件变化
 
-Project Steward 使用轻量轮询检测 `session_index.jsonl` 和 `sessions/**/*.jsonl` 的变化。检测到变化后清理 session cache 并刷新侧边栏。
+Agent Pivot 使用轻量轮询检测 `session_index.jsonl` 和 `sessions/**/*.jsonl` 的变化。检测到变化后清理 session cache 并刷新侧边栏。
 
 如果用户刚刚在 Codex 中创建新 session，短暂等待后会自动显示。
 
@@ -345,16 +345,16 @@ Codex session 只从本机读取：
 
 - 不上传
 - 不同步
-- 不写入 Project Steward 项目配置
+- 不写入 Agent Pivot 项目配置
 - 不增加 Settings Sync 体积
 
-Project Steward settings sync 仍然只同步项目入口数据。
+Agent Pivot settings sync 仍然只同步项目入口数据。
 
 换机器后，如果那台机器没有相同 Codex 本地历史，`Open Projects` 里不会显示旧机器的 Codex sessions。这是预期行为。
 
 ## 验收标准
 
-1. 打开 Project Steward 后，`Open Projects` 组里的当前项目卡片可以点击展开/收起。
+1. 打开 Agent Pivot 后，`Open Projects` 组里的当前项目卡片可以点击展开/收起。
 2. 展开后能看到 `cwd` 匹配当前项目路径的 Codex sessions。
 3. 普通项目组和 `Favorites` 的卡片点击行为不变。
 4. 本地项目可以正确匹配 Codex sessions。

@@ -130,7 +130,7 @@ test('OPEN-CURRENT-PROJECT-DETAILS-RESOLVER-001 resolves workspace metadata and 
     assert.equal(await empty.getCurrentProjectDetailsForSave(), null);
 });
 
-test('OPEN-PROJECT-OPEN-CONTROLLER-001 skips the current workspace and maps local and remote window modes', async () => {
+test('OPEN-PROJECT-OPEN-CONTROLLER-001 OPEN-PROJECT-UI-HOST-NAVIGATION-001 skips the current workspace and maps local and remote window modes', async () => {
     const commands = [];
     const warnings = [];
     const workspaceUpdates = [];
@@ -144,7 +144,10 @@ test('OPEN-PROJECT-OPEN-CONTROLLER-001 skips the current workspace and maps loca
         showWarningMessage: message => warnings.push(message),
         showInformationMessage: () => undefined,
         showErrorMessage: () => undefined,
-        executeCommand: async (command, ...args) => commands.push([command, ...args]),
+        executeCommand: async (command, ...args) => {
+            commands.push([command, ...args]);
+            return { protocolVersion: 1, opened: true };
+        },
         updateWorkspaceFolders: (start, deleteCount, ...folders) => {
             workspaceUpdates.push([start, deleteCount, folders]);
             return true;
@@ -163,13 +166,18 @@ test('OPEN-PROJECT-OPEN-CONTROLLER-001 skips the current workspace and maps loca
         remoteType: ProjectRemoteType.SSH,
     }, ProjectOpenType.NewWindow);
 
-    assert.equal(commands[0][0], 'vscode.openFolder');
-    assert.equal(commands[0][1].fsPath, '/work/target');
-    assert.deepEqual(commands[0][2], { forceNewWindow: true });
-    assert.deepEqual(commands[1], [
-        'vscode.newWindow',
-        { remoteAuthority: 'ssh-remote+host', reuseWindow: false },
-    ]);
+    assert.deepEqual(commands[0], ['_agentPivotProjects.bridge.navigate', {
+        protocolVersion: 1,
+        projectPath: '/work/target',
+        remoteType: ProjectRemoteType.None,
+        openInNewWindow: true,
+    }]);
+    assert.deepEqual(commands[1], ['_agentPivotProjects.bridge.navigate', {
+        protocolVersion: 1,
+        projectPath: 'vscode-remote://ssh-remote+host',
+        remoteType: ProjectRemoteType.SSH,
+        openInNewWindow: true,
+    }]);
     assert.equal(workspaceUpdates[0][2][0].name, 'Folder');
     assert.deepEqual(warnings, []);
 });

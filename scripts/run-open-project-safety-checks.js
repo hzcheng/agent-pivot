@@ -5,6 +5,11 @@ const fs = require('fs');
 const Module = require('module');
 const os = require('os');
 const path = require('path');
+const {
+    assertBootstrapOwnedResource,
+    withDuplicateBootstrapPush,
+    withRenamedBootstrapFactory,
+} = require('./lib/bootstrapOwnedResource');
 
 const originalModuleLoad = Module._load;
 Module._load = function (request, parent, isMain) {
@@ -27,6 +32,7 @@ const { ProjectMutationController } = require('../out/projects/projectMutationCo
 const { ProjectPromptController } = require('../out/projects/projectPromptController');
 const { DashboardStartupController, settleMigration } = require('../out/dashboard/startupController');
 const { WorkspaceContextResolver } = require('../out/workspaces/contextResolver');
+const workspaceIdentityModule = require('../out/workspaces/identity');
 const {
     PendingWorkspaceSaveStore,
     PENDING_WORKSPACE_SAVE_TTL_MS,
@@ -45,6 +51,10 @@ const OTHER = '4'.repeat(32);
 
 function workspaceIdentity(index) {
     return Number(index).toString(16).padStart(64, '0');
+}
+
+function authoritativeUri(value, scheme, authority, uriPath) {
+    return { value, scheme, authority, path: uriPath };
 }
 
 function makeWorkspaceRoot(index = 0, overrides = {}) {
@@ -625,26 +635,47 @@ function runOpenWorkspacePublicationChecks() {
             ],
         }),
     });
-    const replacement = replaceOpenWorkspacePublicationUris(
-        original,
+    const workspaceTarget = authoritativeUri(
         'vscode-remote://dev-container%2Bcurrent/work/team.code-workspace',
-        [
-            'vscode-remote://dev-container%2Bcurrent/work/app',
-            'vscode-remote://dev-container%2Bcurrent/work/api',
-        ],
+        'vscode-remote',
+        'dev-container+current',
+        '/work/team.code-workspace',
     );
+    const rootTargets = [
+        authoritativeUri(
+            'vscode-remote://dev-container%2Bcurrent/work/app',
+            'vscode-remote',
+            'dev-container+current',
+            '/work/app',
+        ),
+        authoritativeUri(
+            'vscode-remote://dev-container%2Bcurrent/work/api',
+            'vscode-remote',
+            'dev-container+current',
+            '/work/api',
+        ),
+    ];
+    const replacement = replaceOpenWorkspacePublicationUris(original, workspaceTarget, rootTargets);
     assert.strictEqual(replacement.workspace.navigationUri,
         'vscode-remote://dev-container%2Bcurrent/work/team.code-workspace');
     assert.deepStrictEqual(replacement.workspace.roots.map(root => root.uri), [
         'vscode-remote://dev-container%2Bcurrent/work/app',
         'vscode-remote://dev-container%2Bcurrent/work/api',
     ]);
-    assert.strictEqual(replacement.workspace.navigationIdentity, original.workspace.navigationIdentity);
-    assert.strictEqual(replacement.workspace.scopeIdentity, original.workspace.scopeIdentity);
+    assert.strictEqual(
+        replacement.workspace.navigationIdentity,
+        workspaceIdentityModule.createWorkspaceUriIdentity(workspaceTarget),
+    );
+    assert.strictEqual(
+        replacement.workspace.scopeIdentity,
+        workspaceIdentityModule.createWorkspaceScopeIdentity(rootTargets),
+    );
     assert.deepStrictEqual(
         replacement.workspace.roots.map(root => root.id),
-        original.workspace.roots.map(root => root.id),
+        rootTargets.map(workspaceIdentityModule.createWorkspaceUriIdentity),
     );
+    assert.notStrictEqual(replacement.workspace.navigationIdentity, original.workspace.navigationIdentity);
+    assert.notStrictEqual(replacement.workspace.scopeIdentity, original.workspace.scopeIdentity);
     assert.strictEqual(original.workspace.navigationUri,
         'vscode-remote://dev-container%2Bold/work/team.code-workspace');
 
@@ -660,7 +691,7 @@ function runOpenWorkspacePublicationChecks() {
     const singleFolderReplacement = replaceOpenWorkspacePublicationUris(
         singleFolderOriginal,
         null,
-        ['vscode-remote://dev-container%2Bcurrent/work/app'],
+        [rootTargets[0]],
     );
     assert.strictEqual(
         singleFolderReplacement.workspace.navigationUri,
@@ -683,7 +714,12 @@ function runOpenWorkspacePublicationChecks() {
         replaceOpenWorkspacePublicationUris(
             crossSchemeSingleFolder,
             null,
-            ['vscode-remote://ssh-remote%2Bhost/work/cross-scheme-app'],
+            [authoritativeUri(
+                'vscode-remote://ssh-remote%2Bhost/work/cross-scheme-app',
+                'vscode-remote',
+                'ssh-remote+host',
+                '/work/cross-scheme-app',
+            )],
         ).workspace.navigationUri,
         'vscode-remote://ssh-remote%2Bhost/work/cross-scheme-app',
         'authority and scheme changes with the same resource path must remain valid',
@@ -693,17 +729,27 @@ function runOpenWorkspacePublicationChecks() {
         () => replaceOpenWorkspacePublicationUris(
             singleFolderOriginal,
             null,
-            ['vscode-remote://dev-container%2Bcurrent/work/different-app'],
+            [authoritativeUri(
+                'vscode-remote://dev-container%2Bcurrent/work/different-app',
+                'vscode-remote',
+                'dev-container+current',
+                '/work/different-app',
+            )],
         ),
         /root resource path/,
     );
     assert.throws(
         () => replaceOpenWorkspacePublicationUris(
             original,
-            'vscode-remote://dev-container%2Bcurrent/work/team.code-workspace',
+            workspaceTarget,
             [
-                'vscode-remote://dev-container%2Bcurrent/work/app',
-                'vscode-remote://dev-container%2Bcurrent/work/different-api',
+                rootTargets[0],
+                authoritativeUri(
+                    'vscode-remote://dev-container%2Bcurrent/work/different-api',
+                    'vscode-remote',
+                    'dev-container+current',
+                    '/work/different-api',
+                ),
             ],
         ),
         /root resource path/,
@@ -711,11 +757,13 @@ function runOpenWorkspacePublicationChecks() {
     assert.throws(
         () => replaceOpenWorkspacePublicationUris(
             original,
-            'vscode-remote://dev-container%2Bcurrent/work/different-team.code-workspace',
-            [
-                'vscode-remote://dev-container%2Bcurrent/work/app',
-                'vscode-remote://dev-container%2Bcurrent/work/api',
-            ],
+            authoritativeUri(
+                'vscode-remote://dev-container%2Bcurrent/work/different-team.code-workspace',
+                'vscode-remote',
+                'dev-container+current',
+                '/work/different-team.code-workspace',
+            ),
+            rootTargets,
         ),
         /workspace resource path/,
     );
@@ -723,9 +771,13 @@ function runOpenWorkspacePublicationChecks() {
     for (const [rootUris, pattern] of [
         [[], /root count/],
         [[
-            'vscode-remote://dev-container%2Bcurrent/work/app',
-            'vscode-remote://dev-container%2Bcurrent/work/api',
-            'vscode-remote://dev-container%2Bcurrent/work/extra',
+            ...rootTargets,
+            authoritativeUri(
+                'vscode-remote://dev-container%2Bcurrent/work/extra',
+                'vscode-remote',
+                'dev-container+current',
+                '/work/extra',
+            ),
         ], /root count/],
     ]) {
         assert.throws(
@@ -742,11 +794,8 @@ function runOpenWorkspacePublicationChecks() {
                     roots: original.workspace.roots.slice().reverse(),
                 },
             },
-            'vscode-remote://dev-container%2Bcurrent/work/team.code-workspace',
-            [
-                'vscode-remote://dev-container%2Bcurrent/work/app',
-                'vscode-remote://dev-container%2Bcurrent/work/api',
-            ],
+            workspaceTarget,
+            rootTargets,
         ),
         /ordinal|order/,
     );
@@ -755,8 +804,18 @@ function runOpenWorkspacePublicationChecks() {
     assert.deepStrictEqual(
         replaceOpenWorkspacePublicationUris(
             empty,
-            'file:///must-not-be-synthesized.code-workspace',
-            ['file:///must-not-be-synthesized'],
+            authoritativeUri(
+                'file:///must-not-be-synthesized.code-workspace',
+                'file',
+                '',
+                '/must-not-be-synthesized.code-workspace',
+            ),
+            [authoritativeUri(
+                'file:///must-not-be-synthesized',
+                'file',
+                '',
+                '/must-not-be-synthesized',
+            )],
         ),
         empty,
         'Bridge URI normalization must never synthesize a workspace from a null publication',
@@ -764,7 +823,7 @@ function runOpenWorkspacePublicationChecks() {
 }
 
 async function runOpenWorkspaceStoreChecks() {
-    const tempRoot = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'project-steward-open-workspace-store-'));
+    const tempRoot = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'agent-pivot-open-workspace-store-'));
     try {
         const instancesDirectory = path.join(tempRoot, 'open-workspaces', 'v3', 'instances');
         const v2Directory = path.join(tempRoot, 'open-workspaces', 'v2', 'instances');
@@ -851,7 +910,7 @@ async function runOpenWorkspaceStoreChecks() {
 }
 
 async function runOpenWorkspaceCoordinatorChecks() {
-    const tempRoot = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'project-steward-open-workspace-coordinator-'));
+    const tempRoot = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'agent-pivot-open-workspace-coordinator-'));
     let now = 1000;
     let intervalCallback;
     const delivered = [];
@@ -998,12 +1057,19 @@ async function runOpenWorkspaceClientAndControllerChecks() {
         },
         executeCommand: async (command, argument) => {
             executions.push({ command, argument });
-            if (command === '_projectStewardOpenWorkspaces.bridge.handshake') {
+            if (command === '_agentPivotOpenWorkspaces.bridge.handshake') {
                 return {
                     accepted: true,
                     protocolVersion: 3,
                     bridgeExtensionVersion: '2.0.0',
-                    capabilities: { workspaces: true, atomicReplace: true, focusLeases: true },
+                    capabilities: {
+                        workspaces: true,
+                        atomicReplace: true,
+                        focusLeases: true,
+                        authoritativeUris: true,
+                        uiHostNavigation: true,
+                        savedProjectNavigation: true,
+                    },
                 };
             }
             return { accepted: true };
@@ -1015,11 +1081,11 @@ async function runOpenWorkspaceClientAndControllerChecks() {
         clearInterval: () => undefined,
     });
     for (let attempt = 0; attempt < 50
-        && !executions.some(value => value.command === '_projectStewardOpenWorkspaces.bridge.publish'); attempt += 1) {
+        && !executions.some(value => value.command === '_agentPivotOpenWorkspaces.bridge.publish'); attempt += 1) {
         await new Promise(resolve => setImmediate(resolve));
     }
-    assert.strictEqual(executions[0].command, '_projectStewardOpenWorkspaces.bridge.handshake');
-    assert.strictEqual(executions[1].command, '_projectStewardOpenWorkspaces.bridge.publish');
+    assert.strictEqual(executions[0].command, '_agentPivotOpenWorkspaces.bridge.handshake');
+    assert.strictEqual(executions[1].command, '_agentPivotOpenWorkspaces.bridge.publish');
     assert.strictEqual(executions[1].argument.workspace.navigationIdentity, record.navigationIdentity);
     assert.deepStrictEqual(Object.keys(executions[1].argument.workspace.roots[0]).sort(),
         ['id', 'name', 'ordinal', 'uri']);
@@ -1036,11 +1102,11 @@ async function runOpenWorkspaceClientAndControllerChecks() {
     }
     client.dispose();
     for (let attempt = 0; attempt < 50
-        && !executions.some(value => value.command === '_projectStewardOpenWorkspaces.bridge.unregister'); attempt += 1) {
+        && !executions.some(value => value.command === '_agentPivotOpenWorkspaces.bridge.unregister'); attempt += 1) {
         await new Promise(resolve => setImmediate(resolve));
     }
     assert.ok(executions.some(value =>
-        value.command === '_projectStewardOpenWorkspaces.bridge.unregister'
+        value.command === '_agentPivotOpenWorkspaces.bridge.unregister'
         && value.argument.protocolVersion === 3
     ));
     assert.strictEqual(commands.size, 0);
@@ -1242,11 +1308,7 @@ async function runWorkspaceNavigationControllerChecks() {
         executeCommand: async (...args) => {
             executions.push(args);
             if (directExecutionFails) { throw new Error('forced direct navigation failure'); }
-        },
-        parseUri: value => {
-            const parsed = { parsed: value };
-            parsedUris.push(parsed);
-            return parsed;
+            return { protocolVersion: 3, opened: true };
         },
         showInformationMessage: message => { informationMessages.push(message); },
         showWarningMessage: message => { warningMessages.push(message); },
@@ -1276,16 +1338,20 @@ async function runWorkspaceNavigationControllerChecks() {
                 roots: [makeWorkspaceRoot(60 + caseIndex, { uri: rootUri })],
             });
             await controller.open('live-card');
-            assert.deepStrictEqual(parsedUris, [{ parsed: record.navigationUri }]);
+            assert.deepStrictEqual(parsedUris, []);
             assert.deepStrictEqual(executions, [[
-                'vscode.openFolder',
-                parsedUris[0],
-                { forceNewWindow: true },
-            ]], `${environment}/${kind} must open the exact navigation URI in a new window`);
+                '_agentPivotOpenWorkspaces.bridge.navigate',
+                {
+                    protocolVersion: 3,
+                    navigationIdentity: record.navigationIdentity,
+                },
+            ]], `${environment}/${kind} must route the exact identity through the UI Bridge`);
             assert.deepStrictEqual(informationMessages, []);
             assert.deepStrictEqual(warningMessages, []);
             assert.strictEqual(JSON.stringify(executions).includes(rootUri), false,
                 `${environment}/${kind} must never open a member root URI`);
+            assert.strictEqual(JSON.stringify(executions).includes(record.navigationUri), false,
+                `${environment}/${kind} must not send a navigation URI through the remote host`);
         }
     }
 
@@ -1319,9 +1385,11 @@ async function runWorkspaceNavigationControllerChecks() {
     warningMessages.length = 0;
     await controller.open('live-card');
     assert.deepStrictEqual(executions, [[
-        'vscode.openFolder',
-        parsedUris[0],
-        { forceNewWindow: true },
+        '_agentPivotOpenWorkspaces.bridge.navigate',
+        {
+            protocolVersion: 3,
+            navigationIdentity: record.navigationIdentity,
+        },
     ]]);
     assert.deepStrictEqual(warningMessages, [
         'Unable to switch directly to this workspace. Use VS Code Switch Window instead.',
@@ -1336,7 +1404,14 @@ async function runOpenWorkspaceHardeningChecks() {
         accepted: true,
         protocolVersion: 3,
         bridgeExtensionVersion: '2.0.0',
-        capabilities: { workspaces: true, atomicReplace: true, focusLeases: true },
+        capabilities: {
+            workspaces: true,
+            atomicReplace: true,
+            focusLeases: true,
+            authoritativeUris: true,
+            uiHostNavigation: true,
+            savedProjectNavigation: true,
+        },
     };
 
     const terminalHandshakeCases = [
@@ -1943,7 +2018,7 @@ async function runOpenWorkspaceHardeningChecks() {
         clearInterval: () => undefined,
         createWatcher: () => ({ close: () => undefined }),
         deliverAggregate: aggregate => aggregateCommands.get(
-            '_projectStewardOpenWorkspaces.workspace.aggregate'
+            '_agentPivotOpenWorkspaces.workspace.aggregate'
         )(aggregate),
         createStore: () => ({
             write: async registration => { acknowledgedRegistration = registration; },
@@ -2782,7 +2857,7 @@ async function runProjectServiceWorkspaceSaveMigrationIntegrationChecks() {
     const vscodeStub = {
         ConfigurationTarget: { Global: 'global' },
         workspace: {
-            getConfiguration: section => section === 'projectSteward'
+            getConfiguration: section => section === 'agentPivot'
                 ? primaryConfiguration
                 : legacyConfiguration,
         },
@@ -2838,7 +2913,7 @@ async function runProjectServiceWorkspaceSaveMigrationIntegrationChecks() {
             showInformationMessage: () => undefined,
             showErrorMessage: () => undefined,
             logError: () => undefined,
-            showSteward: () => undefined,
+            showAgentPivot: () => undefined,
             applyProjectColorToCurrentWindow: () => undefined,
             getReopenReason: () => 0,
             updateReopenReason: () => undefined,
@@ -2992,7 +3067,7 @@ async function runProjectServiceWorkspaceSaveMigrationIntegrationChecks() {
             showInformationMessage: () => undefined,
             showErrorMessage: () => undefined,
             logError: () => undefined,
-            showSteward: () => undefined,
+            showAgentPivot: () => undefined,
             applyProjectColorToCurrentWindow: () => undefined,
             getReopenReason: () => 0,
             updateReopenReason: () => undefined,
@@ -3057,7 +3132,7 @@ async function runProjectServiceWorkspaceSaveMigrationIntegrationChecks() {
         showInformationMessage: () => undefined,
         showErrorMessage: () => undefined,
         logError: () => undefined,
-        showSteward: () => undefined,
+        showAgentPivot: () => undefined,
         applyProjectColorToCurrentWindow: () => { startupContinued += 1; },
         getReopenReason: () => 0,
         updateReopenReason: () => undefined,
@@ -3075,7 +3150,7 @@ async function runProjectServiceWorkspaceSaveMigrationIntegrationChecks() {
 function runDashboardBridgeLifecycleChecks() {
     const dashboard = fs.readFileSync(path.join(__dirname, '..', 'src', 'dashboard.ts'), 'utf8');
     const refreshAfterMutation = extractFunctionBody(dashboard, 'refreshAfterMutation');
-    const showSteward = extractFunctionBody(dashboard, 'showSteward');
+    const showAgentPivot = extractFunctionBody(dashboard, 'showAgentPivot');
     const projectedOpenWorkspaces = extractFunctionBody(dashboard, 'getOpenWorkspaceCards');
     const selectedProjectHandler = dashboard.slice(
         dashboard.indexOf("'selected-project': async e =>"),
@@ -3148,7 +3223,7 @@ function runDashboardBridgeLifecycleChecks() {
     assert.ok(dashboard.includes('error => logOpenWorkspaceBridgeError(error)'),
         'the OpenWorkspaceBridgeClient error callback must use the privacy-bounded diagnostics entry');
     const openWorkspaceBridgeWiring = dashboard.slice(
-        dashboard.indexOf('openWorkspaceBridgeClient = new OpenWorkspaceBridgeClient('),
+        dashboard.indexOf('openWorkspaceBridgeClient = ownResource(() => new OpenWorkspaceBridgeClient('),
         dashboard.indexOf('const activeAiSessionTerminalHighlighter')
     );
     assert.strictEqual(openWorkspaceBridgeWiring.includes("logError('Open workspace bridge unavailable"), false,
@@ -3158,7 +3233,36 @@ function runDashboardBridgeLifecycleChecks() {
     assert.ok(dashboard.includes('new DashboardDiagnostics({'));
     assert.ok(!dashboard.includes('function logOpenWorkspaceDiagnostic('));
     assert.ok(dashboard.includes('openWorkspaceController.publish('));
-    assert.ok(dashboard.includes('context.subscriptions.push(openWorkspaceBridgeClient);'));
+    const openWorkspaceBridgeOwnership = {
+        variableName: 'openWorkspaceBridgeClient',
+        factoryKind: 'new',
+        factoryName: 'OpenWorkspaceBridgeClient',
+    };
+    assert.doesNotThrow(() =>
+        assertBootstrapOwnedResource(dashboard, openWorkspaceBridgeOwnership));
+    assert.throws(
+        () => assertBootstrapOwnedResource(
+            withRenamedBootstrapFactory(
+                dashboard,
+                openWorkspaceBridgeOwnership,
+                'UnexpectedOpenWorkspaceBridgeClient',
+            ),
+            openWorkspaceBridgeOwnership,
+        ),
+        /exactly one bootstrap-owned OpenWorkspaceBridgeClient factory/,
+        'the open-workspace bridge must remain linked to its exact constructor',
+    );
+    assert.throws(
+        () => assertBootstrapOwnedResource(
+            withDuplicateBootstrapPush(
+                dashboard,
+                openWorkspaceBridgeOwnership.variableName,
+            ),
+            openWorkspaceBridgeOwnership,
+        ),
+        /openWorkspaceBridgeClient must not also be pushed directly/,
+        'the bootstrap-owned open-workspace bridge must reject duplicate context ownership',
+    );
     assert.ok(!dashboard.includes('get openProjects()'));
     assert.ok(projectedOpenWorkspaces.includes('openWorkspaceDashboardController.getCards()'));
     assert.ok(selectedProjectHandler.includes("projectId.startsWith('__openWorkspaceNavigation-')"));
@@ -3200,15 +3304,15 @@ function runDashboardBridgeLifecycleChecks() {
     assert.ok(dashboard.includes('removeProject: () => projectRemovalController.removeProjectPerCommand()'));
     assert.ok(dashboard.includes('removeGroup: () => groupCommandController.removeGroupPerCommand()'));
     assert.ok(dashboard.includes(
-        'postCommandRemoval: () => { void dashboardRuntimeController.revealSidebarSteward(); },'
+        'postCommandRemoval: () => { void dashboardRuntimeController.revealAgentPivotDashboard(); },'
     ), 'command-driven removal must focus the sidebar without forcing a complete Webview refresh');
     const manualEditWiring = dashboard.slice(
         dashboard.indexOf('const projectManualEditController = new ProjectManualEditController({'),
         dashboard.indexOf('const addProjectsFromFolderController = new AddProjectsFromFolderController({')
     );
     assert.ok(manualEditWiring.includes('refreshAfterMutation();'));
-    assert.ok(manualEditWiring.includes('dashboardRuntimeController.revealSidebarSteward();'));
-    assert.strictEqual(manualEditWiring.includes('showSteward()'), false,
+    assert.ok(manualEditWiring.includes('dashboardRuntimeController.revealAgentPivotDashboard();'));
+    assert.strictEqual(manualEditWiring.includes('showAgentPivot()'), false,
         'manual project saves must use the partial Projects surface before focusing the sidebar');
     assert.ok(projectMutationControllerSource.includes('this.options.prompt.queryProjectFields('));
     assert.ok(projectMutationControllerSource.includes('this.options.prompt.queryGroup('));
@@ -3235,7 +3339,7 @@ function runDashboardBridgeLifecycleChecks() {
         'ordinary saved project mutations must not rebuild the complete Dashboard Webview'
     );
     assert.ok(
-        showSteward.includes('dashboardRuntimeController.showSteward();'),
+        showAgentPivot.includes('dashboardRuntimeController.showAgentPivot();'),
         'legacy metadata mutation paths that reveal the steward must also republish'
     );
     const dashboardRuntimeControllerSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'dashboard', 'runtimeController.ts'), 'utf8');
@@ -3262,7 +3366,7 @@ function runOpenWorkspaceProductionCutoverChecks() {
     const sources = productionFiles.map(file => [file, fs.readFileSync(path.join(root, file), 'utf8')]);
     for (const [file, source] of sources) {
         for (const forbidden of [
-            '_projectStewardOpenProjects',
+            '_agentPivotOpenProjects',
             "from './openProjects/bridgeClient'",
             "from './openProjects/dashboardController'",
             "from './openProjects/workspaceController'",
@@ -3276,9 +3380,9 @@ function runOpenWorkspaceProductionCutoverChecks() {
     }
     const bridgeExtension = sources.find(([file]) => file.endsWith('src/extension.ts'))[1];
     const dashboard = sources.find(([file]) => file === 'src/dashboard.ts')[1];
-    assert.ok(bridgeExtension.includes("'_projectStewardOpenWorkspaces.bridge.handshake'"));
-    assert.ok(bridgeExtension.includes("'_projectStewardOpenWorkspaces.bridge.publish'"));
-    assert.ok(bridgeExtension.includes("'_projectStewardOpenWorkspaces.bridge.unregister'"));
+    assert.ok(bridgeExtension.includes("'_agentPivotOpenWorkspaces.bridge.handshake'"));
+    assert.ok(bridgeExtension.includes("'_agentPivotOpenWorkspaces.bridge.publish'"));
+    assert.ok(bridgeExtension.includes("'_agentPivotOpenWorkspaces.bridge.unregister'"));
     assert.ok(dashboard.includes("from './openWorkspaces/bridgeClient'"));
 }
 
@@ -3363,7 +3467,10 @@ async function runProjectOpenControllerChecks() {
         showWarningMessage: message => warnings.push(message),
         showInformationMessage: message => warnings.push(message),
         showErrorMessage: message => errors.push(message),
-        executeCommand: async (command, ...args) => commands.push([command, ...args]),
+        executeCommand: async (command, ...args) => {
+            commands.push([command, ...args]);
+            return { protocolVersion: 1, opened: true };
+        },
         updateWorkspaceFolders: (start, deleteCount, ...folders) => {
             workspaceUpdates.push([start, deleteCount, folders]);
             return true;
@@ -3377,17 +3484,32 @@ async function runProjectOpenControllerChecks() {
     assert.deepStrictEqual(commands, []);
 
     await controller.openProject({ name: 'Target', path: '/work/target' }, models.ProjectOpenType.Default);
-    assert.deepStrictEqual(commands.pop(), ['vscode.openFolder', folderUri, { forceNewWindow: true }]);
+    assert.deepStrictEqual(commands.pop(), ['_agentPivotProjects.bridge.navigate', {
+        protocolVersion: 1,
+        projectPath: '/work/target',
+        remoteType: models.ProjectRemoteType.None,
+        openInNewWindow: true,
+    }]);
 
     await controller.openProject({ name: 'Relative', path: 'relative' }, models.ProjectOpenType.Default);
-    assert.deepStrictEqual(commands.pop(), ['vscode.openFolder', fileUri('/work/current/relative'), { forceNewWindow: true }]);
+    assert.deepStrictEqual(commands.pop(), ['_agentPivotProjects.bridge.navigate', {
+        protocolVersion: 1,
+        projectPath: '/work/current/relative',
+        remoteType: models.ProjectRemoteType.None,
+        openInNewWindow: true,
+    }]);
 
     await controller.openProject({ name: 'Folder', path: '/work/folder' }, models.ProjectOpenType.AddToWorkspace);
     assert.strictEqual(workspaceUpdates.length, 1);
     assert.strictEqual(workspaceUpdates[0][2][0].name, 'Folder');
 
     await controller.openProject({ name: 'SSH', path: 'vscode-remote://ssh-remote+host', remoteType: models.ProjectRemoteType.SSH }, models.ProjectOpenType.NewWindow);
-    assert.deepStrictEqual(commands.pop(), ['vscode.newWindow', { remoteAuthority: 'ssh-remote+host', reuseWindow: false }]);
+    assert.deepStrictEqual(commands.pop(), ['_agentPivotProjects.bridge.navigate', {
+        protocolVersion: 1,
+        projectPath: 'vscode-remote://ssh-remote+host',
+        remoteType: models.ProjectRemoteType.SSH,
+        openInNewWindow: true,
+    }]);
 
     const noWorkspaceController = new ProjectOpenController({
         getWorkspaceFile: () => null,
@@ -3474,7 +3596,7 @@ async function runDashboardMigrationPublicationChecks() {
     const informationMessages = [];
     let currentMetadata = 'before-migration';
     let migrated = true;
-    let showStewardCalls = 0;
+    let showAgentPivotCalls = 0;
     const controller = new DashboardStartupController({
         stewardInfos: {
             relevantExtensionsInstalls: { remoteSSH: false, remoteContainers: false },
@@ -3493,7 +3615,7 @@ async function runDashboardMigrationPublicationChecks() {
         refreshDashboard: () => refreshes.push(currentMetadata),
         publishOpenWorkspace: () => publications.push(currentMetadata),
         showInformationMessage: message => informationMessages.push(message),
-        showSteward: () => { showStewardCalls += 1; },
+        showAgentPivot: () => { showAgentPivotCalls += 1; },
         applyProjectColorToCurrentWindow: () => undefined,
         getReopenReason: () => 0,
         updateReopenReason: () => undefined,
@@ -3505,7 +3627,7 @@ async function runDashboardMigrationPublicationChecks() {
     await controller.checkDataMigration();
     assert.deepStrictEqual(refreshes, ['after-migration']);
     assert.deepStrictEqual(publications, ['after-migration']);
-    assert.strictEqual(showStewardCalls, 0, 'default startup migration must not require revealing the steward');
+    assert.strictEqual(showAgentPivotCalls, 0, 'default startup migration must not require revealing the steward');
     assert.strictEqual(informationMessages.length, 1);
 
     migrated = false;
@@ -3519,19 +3641,22 @@ async function runDashboardMigrationPublicationChecks() {
     await controller.checkDataMigration(true);
     assert.deepStrictEqual(refreshes, ['after-migration', 'after-migration']);
     assert.deepStrictEqual(publications, ['after-migration', 'after-migration']);
-    assert.strictEqual(showStewardCalls, 1);
+    assert.strictEqual(showAgentPivotCalls, 1);
 }
 
 async function runCoordinatorWiringChecks() {
-    const tempRoot = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'project-steward-open-project-wiring-'));
+    const tempRoot = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'agent-pivot-open-project-wiring-'));
     const registeredCommands = new Map();
     const executedCommands = [];
     const bridgeOutputLines = [];
     let aggregateDeliveryError = null;
     const vscode = {
+        Uri: {
+            parse: value => ({ value }),
+        },
         window: {
             createOutputChannel: name => {
-                assert.strictEqual(name, 'Project Steward UI Bridge');
+                assert.strictEqual(name, 'Agent Pivot UI Bridge');
                 return {
                     appendLine: line => bridgeOutputLines.push(line),
                     dispose: () => undefined,
@@ -3541,6 +3666,9 @@ async function runCoordinatorWiringChecks() {
         workspace: {
             workspaceFolders: [{
                 uri: {
+                    scheme: 'vscode-remote',
+                    authority: 'dev-container+target@ssh-remote+home-book',
+                    path: '/workspaces/AiToEarn',
                     toString: () => 'vscode-remote://dev-container%2Btarget%40ssh-remote%2Bhome-book/workspaces/AiToEarn',
                 },
             }],
@@ -3552,7 +3680,7 @@ async function runCoordinatorWiringChecks() {
             },
             executeCommand: async (command, argument) => {
                 executedCommands.push({ command, argument });
-                if (command === '_projectStewardOpenWorkspaces.workspace.aggregate'
+                if (command === '_agentPivotOpenWorkspaces.workspace.aggregate'
                     && aggregateDeliveryError) {
                     throw aggregateDeliveryError;
                 }
@@ -3576,30 +3704,53 @@ async function runCoordinatorWiringChecks() {
     try {
         const extension = require('../extensions/attention-ui-bridge/out/extensions/attention-ui-bridge/src/extension');
         await extension.activate(context);
-        const handshake = registeredCommands.get('_projectStewardOpenWorkspaces.bridge.handshake');
-        const publish = registeredCommands.get('_projectStewardOpenWorkspaces.bridge.publish');
-        const unregister = registeredCommands.get('_projectStewardOpenWorkspaces.bridge.unregister');
+        const handshake = registeredCommands.get('_agentPivotOpenWorkspaces.bridge.handshake');
+        const publish = registeredCommands.get('_agentPivotOpenWorkspaces.bridge.publish');
+        const unregister = registeredCommands.get('_agentPivotOpenWorkspaces.bridge.unregister');
+        const navigate = registeredCommands.get('_agentPivotOpenWorkspaces.bridge.navigate');
         assert.strictEqual(typeof handshake, 'function');
         assert.strictEqual(typeof publish, 'function');
         assert.strictEqual(typeof unregister, 'function');
-        assert.strictEqual(registeredCommands.has('_projectStewardOpenProjects.bridge.publish'), false);
+        assert.strictEqual(typeof navigate, 'function');
+        assert.strictEqual(registeredCommands.has('_agentPivotOpenProjects.bridge.publish'), false);
         assert.deepStrictEqual(await handshake({
             protocolVersion: 2,
             mainExtensionVersion: '1.0.0',
             instanceId: SELF,
-            capabilities: { workspaces: true, atomicReplace: true, focusLeases: true },
+            capabilities: {
+                workspaces: true,
+                atomicReplace: true,
+                focusLeases: true,
+                authoritativeUris: true,
+                uiHostNavigation: true,
+                savedProjectNavigation: true,
+            },
         }), {
             accepted: false,
             protocolVersion: 3,
             bridgeExtensionVersion: 'unknown',
-            capabilities: { workspaces: true, atomicReplace: true, focusLeases: true },
+            capabilities: {
+                workspaces: true,
+                atomicReplace: true,
+                focusLeases: true,
+                authoritativeUris: true,
+                uiHostNavigation: true,
+                savedProjectNavigation: true,
+            },
             errorCode: 'update-required',
         });
         assert.strictEqual((await handshake({
             protocolVersion: 3,
             mainExtensionVersion: '2.0.0',
             instanceId: SELF,
-            capabilities: { workspaces: true, atomicReplace: true, focusLeases: true },
+            capabilities: {
+                workspaces: true,
+                atomicReplace: true,
+                focusLeases: true,
+                authoritativeUris: true,
+                uiHostNavigation: true,
+                savedProjectNavigation: true,
+            },
         })).accepted, true);
 
         const remoteWorkspace = makeWorkspaceRecord(42, {
@@ -3611,7 +3762,7 @@ async function runCoordinatorWiringChecks() {
         });
         await publish(makeWorkspacePublication({ followsFocusEvent: true, workspace: remoteWorkspace }));
         const aggregateDelivery = executedCommands.filter(
-            value => value.command === '_projectStewardOpenWorkspaces.workspace.aggregate'
+            value => value.command === '_agentPivotOpenWorkspaces.workspace.aggregate'
         ).pop();
         assert.ok(aggregateDelivery, 'production wiring should deliver an open-workspace aggregate');
         assert.strictEqual(aggregateDelivery.argument.registrations[0].instanceId, SELF);
@@ -3623,17 +3774,34 @@ async function runCoordinatorWiringChecks() {
             aggregateDelivery.argument.registrations[0].workspace.roots[0].uri,
             'vscode-remote://dev-container%2Btarget%40ssh-remote%2Bhome-book/workspaces/AiToEarn'
         );
-        assert.strictEqual(aggregateDelivery.argument.registrations[0].workspace.navigationIdentity,
-            remoteWorkspace.navigationIdentity);
-        assert.strictEqual(aggregateDelivery.argument.registrations[0].workspace.roots[0].id,
-            remoteWorkspace.roots[0].id);
+        const authoritativeWorkspaceIdentity = workspaceIdentityModule.createWorkspaceUriIdentity({
+            scheme: 'vscode-remote',
+            authority: 'dev-container+target@ssh-remote+home-book',
+            path: '/workspaces/AiToEarn',
+        });
+        assert.strictEqual(
+            aggregateDelivery.argument.registrations[0].workspace.navigationIdentity,
+            authoritativeWorkspaceIdentity,
+        );
+        assert.strictEqual(
+            aggregateDelivery.argument.registrations[0].workspace.scopeIdentity,
+            workspaceIdentityModule.createWorkspaceScopeIdentity([{
+                scheme: 'vscode-remote',
+                authority: 'dev-container+target@ssh-remote+home-book',
+                path: '/workspaces/AiToEarn',
+            }]),
+        );
+        assert.strictEqual(
+            aggregateDelivery.argument.registrations[0].workspace.roots[0].id,
+            authoritativeWorkspaceIdentity,
+        );
         assert.ok(bridgeOutputLines.some(line =>
             line.startsWith('[OpenWorkspaces] ')
             && line.includes('"event":"publish"')
             && line.includes(SELF)
         ));
         assert.ok(executedCommands.some(value =>
-            value.command === '_projectStewardOpenWorkspaces.workspace.diagnostic'
+            value.command === '_agentPivotOpenWorkspaces.workspace.diagnostic'
             && value.argument.event === 'publish'
         ));
         const diagnosticSentinel = '/private/wiring raw-command --session secret-session';
@@ -3650,7 +3818,7 @@ async function runCoordinatorWiringChecks() {
             error => String(error).includes(diagnosticSentinel),
         );
         const crossExtensionDiagnostics = executedCommands.filter(
-            value => value.command === '_projectStewardOpenWorkspaces.workspace.diagnostic'
+            value => value.command === '_agentPivotOpenWorkspaces.workspace.diagnostic'
         ).map(value => value.argument);
         assert.ok(crossExtensionDiagnostics.some(event =>
             event.event === 'error'

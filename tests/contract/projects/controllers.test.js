@@ -347,7 +347,7 @@ test('PROJECT-CATALOG-SYNC-CONFLICT-001 manual editor passes its exported baseli
     const saves = [];
     const controller = new ProjectManualEditController({
         getGroups: () => structuredClone(exportedGroups),
-        getTempFilePath: () => '/tmp/project-steward-projects.json',
+        getTempFilePath: () => '/tmp/agent-pivot-projects.json',
         writeTextFile: async () => undefined,
         fileUri: value => value,
         openTextDocument: async () => document,
@@ -373,7 +373,7 @@ test('PROJECT-CATALOG-SYNC-CONFLICT-001 manual editor passes its exported baseli
     }]);
 });
 
-test('OPEN-PROJECT-OPEN-CONTROLLER-001 maps default and explicit window modes to VS Code commands', async () => {
+test('OPEN-PROJECT-OPEN-CONTROLLER-001 OPEN-PROJECT-UI-HOST-NAVIGATION-001 maps default and explicit window modes to the UI Bridge', async () => {
     const commands = [];
     const currentUri = parseUri('/work/current');
     const controller = new ProjectOpenController({
@@ -385,7 +385,10 @@ test('OPEN-PROJECT-OPEN-CONTROLLER-001 maps default and explicit window modes to
         showWarningMessage: () => undefined,
         showInformationMessage: () => undefined,
         showErrorMessage: () => undefined,
-        executeCommand: async (command, ...args) => commands.push([command, ...args]),
+        executeCommand: async (command, ...args) => {
+            commands.push([command, ...args]);
+            return { protocolVersion: 1, opened: true };
+        },
         updateWorkspaceFolders: () => true,
         updateReopenReason: () => undefined,
         fileUri: parseUri,
@@ -396,17 +399,40 @@ test('OPEN-PROJECT-OPEN-CONTROLLER-001 maps default and explicit window modes to
     await controller.openProject({ name: 'Target', path: '/work/target' }, ProjectOpenType.Default);
     await controller.openProject({ name: 'Reuse', path: '/work/reuse' }, ProjectOpenType.CurrentWindow);
     await controller.openProject({
+        name: 'Windows local',
+        path: 'C:\\Users\\local-user\\reddb',
+    }, ProjectOpenType.Default);
+    await controller.openProject({
         name: 'SSH',
         path: 'vscode-remote://ssh-remote+host',
         remoteType: ProjectRemoteType.SSH,
     }, ProjectOpenType.NewWindow);
 
-    assert.deepEqual(commands.map(entry => entry[0] === 'vscode.openFolder'
-        ? [entry[0], entry[1].fsPath, entry[2]]
-        : entry), [
-        ['vscode.openFolder', '/work/target', { forceNewWindow: true }],
-        ['vscode.openFolder', '/work/reuse', { forceReuseWindow: true }],
-        ['vscode.newWindow', { remoteAuthority: 'ssh-remote+host', reuseWindow: false }],
+    assert.deepEqual(commands, [
+        ['_agentPivotProjects.bridge.navigate', {
+            protocolVersion: 1,
+            projectPath: '/work/target',
+            remoteType: ProjectRemoteType.None,
+            openInNewWindow: true,
+        }],
+        ['_agentPivotProjects.bridge.navigate', {
+            protocolVersion: 1,
+            projectPath: '/work/reuse',
+            remoteType: ProjectRemoteType.None,
+            openInNewWindow: false,
+        }],
+        ['_agentPivotProjects.bridge.navigate', {
+            protocolVersion: 1,
+            projectPath: 'C:\\Users\\local-user\\reddb',
+            remoteType: ProjectRemoteType.None,
+            openInNewWindow: true,
+        }],
+        ['_agentPivotProjects.bridge.navigate', {
+            protocolVersion: 1,
+            projectPath: 'vscode-remote://ssh-remote+host',
+            remoteType: ProjectRemoteType.SSH,
+            openInNewWindow: true,
+        }],
     ]);
 });
 

@@ -36,7 +36,7 @@ function makeAvailableRunner(runCommand) {
 }
 
 test('SESSION-ALIAS-CONTROLLER-001 and SESSION-PIN-CONTROLLER-001 map unreadable files to empty safe state', t => {
-    const root = makeTempDirectory(t, 'project-steward-failure-unreadable-');
+    const root = makeTempDirectory(t, 'agent-pivot-failure-unreadable-');
     fs.mkdirSync(path.join(root, 'ai-session-aliases.json'));
     const pinRoot = path.join(root, 'pinned-ai-sessions');
     fs.mkdirSync(pinRoot);
@@ -143,7 +143,7 @@ test('PERSIST-AI-SESSION-TERMINAL-BINDING-STORE-001 skips timed-out process IDs 
 });
 
 test('ERROR-DASHBOARD-DIAGNOSTICS-001 keeps the output channel usable after diagnostic persistence permission failures', t => {
-    const root = makeTempDirectory(t, 'project-steward-failure-diagnostic-');
+    const root = makeTempDirectory(t, 'agent-pivot-failure-diagnostic-');
     const blockedPath = path.join(root, 'not-a-directory');
     fs.writeFileSync(blockedPath, 'occupied', 'utf8');
     const lines = [];
@@ -160,7 +160,7 @@ test('ERROR-DASHBOARD-DIAGNOSTICS-001 keeps the output channel usable after diag
 });
 
 test('ERROR-DASHBOARD-DIAGNOSTICS-001 writes bounded diagnostics and contains serialization failures', t => {
-    const root = makeTempDirectory(t, 'project-steward-failure-diagnostic-bounds-');
+    const root = makeTempDirectory(t, 'agent-pivot-failure-diagnostic-bounds-');
     const lines = [];
     let nowMs = Date.parse('2026-07-23T00:00:00.000Z');
     const diagnostics = new DashboardDiagnostics({

@@ -584,7 +584,7 @@ function getConversationMarkerKey(marker) {
 
 function captureConversationRailState(rail) {
     var endThreshold = getConversationAutoScrollThreshold(rail);
-    return window.__projectStewardScrollState.capture(rail, {
+    return window.__agentPivotScrollState.capture(rail, {
         itemSelector:
             '[data-ai-session-conversation-marker][data-interaction-id]',
         getKey: getConversationMarkerKey,
@@ -593,7 +593,7 @@ function captureConversationRailState(rail) {
 }
 
 function restoreConversationRailState(rail, anchor) {
-    return window.__projectStewardScrollState.restore(rail, anchor, {
+    return window.__agentPivotScrollState.restore(rail, anchor, {
         itemSelector:
             '[data-ai-session-conversation-marker][data-interaction-id]',
         getKey: getConversationMarkerKey,
@@ -815,7 +815,7 @@ function renderActiveAiSessionConversationError(
         text = 'Update Codex to view conversation history';
     } else if (error.reason === 'unsupportedCodexProtocol') {
         text = 'Installed Codex protocol is not supported';
-        hint = 'Compare your installed Codex and Project Steward versions';
+        hint = 'Compare your installed Codex and Agent Pivot versions';
     }
     setActiveAiSessionConversationStatus(
         row,
@@ -1330,14 +1330,14 @@ function getAiSessionScrollItemKey(row) {
 }
 
 function captureAiSessionListAnchor(list) {
-    return window.__projectStewardScrollState.capture(list, {
+    return window.__agentPivotScrollState.capture(list, {
         itemSelector: '.codex-session-row',
         getKey: getAiSessionScrollItemKey,
     });
 }
 
 function restoreAiSessionListAnchor(list, anchor) {
-    return window.__projectStewardScrollState.restore(list, anchor, {
+    return window.__agentPivotScrollState.restore(list, anchor, {
         itemSelector: '.codex-session-row',
         getKey: getAiSessionScrollItemKey,
     });
@@ -1596,11 +1596,11 @@ function applyWorkspaceUpdate(message, options) {
     );
     restoreCurrentWorkspaceAiSessionConversations(replacement, aiSessionStates);
     restoreCurrentWorkspaceAiSessionAnchorsAndFocus(replacement, aiSessionStates);
-    if (typeof window.__projectStewardSyncCollapseButton === 'function') {
-        window.__projectStewardSyncCollapseButton();
+    if (typeof window.__agentPivotSyncCollapseButton === 'function') {
+        window.__agentPivotSyncCollapseButton();
     }
-    if (typeof window.__projectStewardRevealPendingWorkspaceSession === 'function') {
-        window.__projectStewardRevealPendingWorkspaceSession();
+    if (typeof window.__agentPivotRevealPendingWorkspaceSession === 'function') {
+        window.__agentPivotRevealPendingWorkspaceSession();
     }
     return true;
 }
@@ -1643,8 +1643,8 @@ function applyOpenWorkspacesUpdate(message) {
         restoreCurrentWorkspaceAiSessionAnchorsAndFocus(wrapper, aiSessionStates);
         return false;
     }
-    if (window.__projectStewardDashboard) {
-        window.__projectStewardDashboard.replaceSearchCatalog(message.searchCatalog);
+    if (window.__agentPivotDashboard) {
+        window.__agentPivotDashboard.replaceSearchCatalog(message.searchCatalog);
     }
     if (typeof restoreAiSessionTabsFromState === 'function') {
         restoreAiSessionTabsFromState(document, window.vscode);
@@ -1652,8 +1652,8 @@ function applyOpenWorkspacesUpdate(message) {
     restoreCurrentWorkspaceAiSessionViewStates(wrapper, aiSessionStates);
     restoreCurrentWorkspaceAiSessionConversations(wrapper, aiSessionStates);
     restoreCurrentWorkspaceAiSessionAnchorsAndFocus(wrapper, aiSessionStates);
-    if (typeof window.__projectStewardSyncCollapseButton === 'function') {
-        window.__projectStewardSyncCollapseButton();
+    if (typeof window.__agentPivotSyncCollapseButton === 'function') {
+        window.__agentPivotSyncCollapseButton();
     }
     lastAppliedOpenWorkspacesSemanticRevision = message.semanticRevision;
     return true;
@@ -1969,7 +1969,7 @@ function initProjects() {
     window.addEventListener('pagehide', disposeActiveAiSessionConversation);
 
     function isDedicatedTodoTarget(target) {
-        return Boolean(window.__projectStewardTodo
+        return Boolean(window.__agentPivotTodo
             && target
             && target.closest
             && target.closest('#dashboard-tab-todo'));
@@ -2111,7 +2111,7 @@ function initProjects() {
         enter, toggle, selectUnpinned, clear, reconcile, reconcileVisible,
         submit, complete, exit, snapshot,
     };
-    window.__projectStewardBatchAiSessions = batchAiSessionManager;
+    window.__agentPivotBatchAiSessions = batchAiSessionManager;
 
     function openProject(projectId, projectOpenType) {
         window.vscode.postMessage({
@@ -2369,8 +2369,8 @@ function initProjects() {
 
     function acknowledgeAiSession(provider, sessionId, fallbackEventId) {
         var sessionKey = provider + ':' + sessionId;
-        window.__projectStewardAttentionSessionEvents = window.__projectStewardAttentionSessionEvents || {};
-        var eventIds = window.__projectStewardAttentionSessionEvents[sessionKey] || [];
+        window.__agentPivotAttentionSessionEvents = window.__agentPivotAttentionSessionEvents || {};
+        var eventIds = window.__agentPivotAttentionSessionEvents[sessionKey] || [];
         if (!eventIds.length && fallbackEventId) {
             eventIds = [fallbackEventId];
         }
@@ -2380,7 +2380,7 @@ function initProjects() {
         }
     }
 
-    window.__projectStewardAcknowledgeSession = (provider, sessionId) => {
+    window.__agentPivotAcknowledgeSession = (provider, sessionId) => {
         if (isAiSessionProvider(provider) && sessionId) {
             acknowledgeAiSession(provider, sessionId);
         }
@@ -2963,7 +2963,7 @@ function initProjects() {
     }
 
     function onTodoFormSubmit(e) {
-        if (window.__projectStewardTodo
+        if (window.__agentPivotTodo
             && e.target
             && e.target.closest
             && e.target.closest('#dashboard-tab-todo')) {
@@ -3281,7 +3281,7 @@ function initProjects() {
     }
 
     function getActiveDashboardTab() {
-        var dashboard = window.__projectStewardDashboard;
+        var dashboard = window.__agentPivotDashboard;
         var selectedTab = !dashboard && document.querySelector
             ? document.querySelector('[data-dashboard-tab][aria-selected="true"]')
             : null;
@@ -3337,9 +3337,9 @@ function initProjects() {
         var shouldCollapse = groups.some(group => !group.classList.contains("collapsed"));
 
         if (activeTab === 'todo') {
-            if (window.__projectStewardTodo
-                && typeof window.__projectStewardTodo.dispatch === 'function') {
-                window.__projectStewardTodo.dispatch('collapse-groups', { collapsed: shouldCollapse });
+            if (window.__agentPivotTodo
+                && typeof window.__agentPivotTodo.dispatch === 'function') {
+                window.__agentPivotTodo.dispatch('collapse-groups', { collapsed: shouldCollapse });
             } else {
                 collapseTodoGroups(groups, shouldCollapse, message => window.vscode.postMessage(message));
             }
@@ -3351,7 +3351,7 @@ function initProjects() {
         syncCollapseButton();
     }
 
-    window.__projectStewardSyncCollapseButton = syncCollapseButton;
+    window.__agentPivotSyncCollapseButton = syncCollapseButton;
 
     function onMouseEvent(e) {
         if (!e.target || e.target.closest(".disabled"))
@@ -3566,8 +3566,8 @@ function initProjects() {
         }
 
         if (message && message.type === 'ai-session-attention-state') {
-            window.__projectStewardAttentionEvents = window.__projectStewardAttentionEvents || {};
-            window.__projectStewardAttentionSessionEvents = {};
+            window.__agentPivotAttentionEvents = window.__agentPivotAttentionEvents || {};
+            window.__agentPivotAttentionSessionEvents = {};
             (Array.isArray(message.sessionEvents) ? message.sessionEvents.slice(0, 1000) : []).forEach(session => {
                 if (!session || typeof session.sessionKey !== 'string' || !Array.isArray(session.eventIds)) return;
                 var separator = session.sessionKey.indexOf(':');
@@ -3575,10 +3575,10 @@ function initProjects() {
                 var eventIds = Array.from(new Set(session.eventIds
                     .slice(0, 1000)
                     .filter(eventId => typeof eventId === 'string' && !!eventId)));
-                if (eventIds.length) window.__projectStewardAttentionSessionEvents[session.sessionKey] = eventIds;
+                if (eventIds.length) window.__agentPivotAttentionSessionEvents[session.sessionKey] = eventIds;
             });
             (message.eventIds || []).forEach(eventId => {
-                if (typeof eventId === 'string') window.__projectStewardAttentionEvents[eventId] = true;
+                if (typeof eventId === 'string') window.__agentPivotAttentionEvents[eventId] = true;
             });
             return;
         }
@@ -3647,8 +3647,8 @@ function initProjects() {
         reconcilePendingAiSessionProviderSelectionDom();
         syncActiveAiSessionTerminalDom();
         updateStickyGroupHeaderOffset();
-        if (window.__projectStewardDashboard) {
-            window.__projectStewardDashboard.replaceSearchCatalog(message.searchCatalog);
+        if (window.__agentPivotDashboard) {
+            window.__agentPivotDashboard.replaceSearchCatalog(message.searchCatalog);
         }
     }
 
@@ -3687,7 +3687,7 @@ function initProjects() {
         target.addEventListener('blur', () => target.removeAttribute('tabindex'), { once: true });
     }
 
-    window.__projectStewardRevealWorkspace = navigationIdentity => {
+    window.__agentPivotRevealWorkspace = navigationIdentity => {
         var workspaceDiv = findWorkspaceDiv(navigationIdentity);
         if (!workspaceDiv) {
             return false;
@@ -3732,8 +3732,8 @@ function initProjects() {
         return false;
     }
 
-    window.__projectStewardRevealWorkspaceSession = revealWorkspaceSession;
-    window.__projectStewardRevealPendingWorkspaceSession = () => {
+    window.__agentPivotRevealWorkspaceSession = revealWorkspaceSession;
+    window.__agentPivotRevealPendingWorkspaceSession = () => {
         if (!pendingWorkspaceSessionReveal) {
             return false;
         }

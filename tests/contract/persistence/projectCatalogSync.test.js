@@ -53,7 +53,7 @@ function makeTwoClientHarness(initialGroups) {
     };
     const vscode = createFakeVscode({
         workspace: {
-            getConfiguration: section => section === 'projectSteward' ? primary : legacy,
+            getConfiguration: section => section === 'agentPivot' ? primary : legacy,
         },
     });
     vscode.ConfigurationTarget = { Global: 1 };

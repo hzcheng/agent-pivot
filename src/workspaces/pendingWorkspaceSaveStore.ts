@@ -1,6 +1,6 @@
 'use strict';
 
-export const PENDING_WORKSPACE_SAVE_STATE_KEY = 'projectSteward.pendingWorkspaceSave.v1';
+export const PENDING_WORKSPACE_SAVE_STATE_KEY = 'agentPivot.pendingWorkspaceSave.v1';
 export const PENDING_WORKSPACE_SAVE_TTL_MS = 10 * 60 * 1000;
 
 const MAX_SCOPE_IDENTITY_LENGTH = 512;

@@ -4,13 +4,13 @@ import * as crypto from 'crypto';
 import {
     TODO_DATA_KEY,
     TODO_DEFAULT_GROUP_TITLE,
-    PROJECT_STEWARD_CONFIG_SECTION,
+    AGENT_PIVOT_CONFIG_SECTION,
     TODO_SETTINGS_KEY,
     TODO_UNTITLED_GROUP_TITLE,
     TODO_UNTITLED_ITEM_TITLE,
     TODO_VIEW_STATE_KEY,
 } from '../constants';
-import { getStewardConfiguration } from '../dashboard/configuration';
+import { getAgentPivotConfiguration } from '../dashboard/configuration';
 import {
     AddTodoInput,
     TodoDataV1,
@@ -71,11 +71,11 @@ function createId(prefix: string): string {
 }
 
 function getWorkspaceConfiguration(): TodoConfiguration {
-    return getStewardConfiguration();
+    return getAgentPivotConfiguration();
 }
 
 function getWritableWorkspaceConfiguration(): TodoWritableConfiguration {
-    return require('vscode').workspace.getConfiguration(PROJECT_STEWARD_CONFIG_SECTION);
+    return require('vscode').workspace.getConfiguration(AGENT_PIVOT_CONFIG_SECTION);
 }
 
 function isWritableConfiguration(

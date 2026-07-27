@@ -7,7 +7,9 @@ description: Use when a branch in this repository must be pushed to GitHub, open
 
 ## Overview
 
-Publish the intended branch for this repository, create or update the PR against the requested base, merge only after verification, and confirm the remote state after every GitHub write.
+Publish the intended Agent Pivot branch, create or update the PR against the
+requested base, merge only after verification, and confirm the remote state
+after every GitHub write.
 
 ## Preflight
 

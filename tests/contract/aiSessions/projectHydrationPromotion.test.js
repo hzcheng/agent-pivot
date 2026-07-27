@@ -53,7 +53,7 @@ function pendingRuntime(provider = 'codex', backend = 'tmux', layout = 'project'
         ...(backend === 'tmux' ? {
             tmux: {
                 layout,
-                sessionName: `project-steward-${provider}`,
+                sessionName: `agent-pivot-${provider}`,
                 ...(layout === 'project' ? { windowName: `ai-${provider}` } : {}),
             },
         } : {}),
@@ -76,7 +76,7 @@ function finalRuntime(provider = 'codex', backend = 'tmux', layout = 'project') 
         ...(backend === 'tmux' ? {
             tmux: {
                 layout,
-                sessionName: `project-steward-${provider}`,
+                sessionName: `agent-pivot-${provider}`,
                 ...(layout === 'project' ? { windowName: `ai-${provider}` } : {}),
             },
         } : {}),

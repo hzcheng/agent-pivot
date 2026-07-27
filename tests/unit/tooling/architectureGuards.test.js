@@ -10,7 +10,7 @@ const { validateArchitectureGuards } = require('../../../scripts/run-architectur
 const repositoryRoot = path.resolve(__dirname, '../../..');
 
 function writeFixture(t, files) {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'project-steward-architecture-'));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-architecture-'));
     t.after(() => fs.rmSync(root, { recursive: true, force: true }));
     for (const [relativePath, contents] of Object.entries(files)) {
         const target = path.join(root, relativePath);
@@ -60,6 +60,7 @@ function copyGuardFixture(t, mutationPath, mutate = source => source) {
         'src/services/codexSessionService.ts',
         'extensions/attention-ui-bridge/src/openWorkspaceCoordinator.ts',
         'extensions/attention-ui-bridge/src/extension.ts',
+        'scripts/lib/brandIdentity.js',
         'package.json',
         'extensions/attention-ui-bridge/package.json',
     ];
@@ -82,6 +83,42 @@ function replaceFixtureSource(source, search, replacement, suffix = '') {
 
 test('SECURITY-AI-SESSION-CONVERSATION-SOURCE-001 complete production fixture satisfies every architecture guard', t => {
     validateArchitectureGuards(copyGuardFixture(t));
+});
+
+test('ARCH-AI-SESSION-FALLBACK-REASON-001 accepts an ownership-wrapped focused runtime monitor', t => {
+    validateArchitectureGuards(copyGuardFixture(t), {
+        ids: ['ARCH-AI-SESSION-FALLBACK-REASON-001'],
+    });
+});
+
+test('ARCH-AI-SESSION-FALLBACK-REASON-001 rejects a parameterized ownership wrapper', t => {
+    const root = copyGuardFixture(t, 'src/dashboard.ts', source => replaceFixtureSource(
+        source,
+        'const tmuxFocusedRuntimeMonitor = ownResource(() =>',
+        'const tmuxFocusedRuntimeMonitor = ownResource((_unexpected) =>',
+    ));
+    assert.throws(
+        () => validateArchitectureGuards(root, {
+            ids: ['ARCH-AI-SESSION-FALLBACK-REASON-001'],
+        }),
+        error => /ARCH-AI-SESSION-FALLBACK-REASON-001/.test(error.message)
+            && /constructed with one options object/.test(error.message),
+    );
+});
+
+test('ARCH-AI-SESSION-FALLBACK-REASON-001 rejects an async ownership wrapper', t => {
+    const root = copyGuardFixture(t, 'src/dashboard.ts', source => replaceFixtureSource(
+        source,
+        'const tmuxFocusedRuntimeMonitor = ownResource(() =>',
+        'const tmuxFocusedRuntimeMonitor = ownResource(async () =>',
+    ));
+    assert.throws(
+        () => validateArchitectureGuards(root, {
+            ids: ['ARCH-AI-SESSION-FALLBACK-REASON-001'],
+        }),
+        error => /ARCH-AI-SESSION-FALLBACK-REASON-001/.test(error.message)
+            && /constructed with one options object/.test(error.message),
+    );
 });
 
 test('ARCH-AI-SESSION-SCAN-BOUNDARY-001 reports the ID and unbounded-scan risk', t => {
@@ -562,13 +599,68 @@ for (const mutation of [
             "if (record.protocolVersion !== 1) throw new Error('attention unregister protocol is incompatible');",
             "if (record.protocolVersion !== 2) throw new Error('attention unregister protocol is incompatible');"),
     },
-    {
+    ...[
+        {
+            file: 'package.json',
+            expectedDetail: 'Main manifest name is stale',
+            mutate: manifest => { manifest.name = 'project-steward'; },
+        },
+        {
+            file: 'package.json',
+            expectedDetail: 'Main manifest version is stale',
+            mutate: manifest => { manifest.version = '2.1.8'; },
+        },
+        {
+            file: 'package.json',
+            expectedDetail: 'Main manifest extension dependencies are invalid',
+            mutate: manifest => {
+                manifest.extensionDependencies = [
+                    'hzcheng.project-steward-attention-ui-bridge',
+                ];
+            },
+        },
+        {
+            file: 'extensions/attention-ui-bridge/package.json',
+            expectedDetail: 'Bridge manifest name is stale',
+            mutate: manifest => {
+                manifest.name = 'project-steward-attention-ui-bridge';
+            },
+        },
+        {
+            file: 'extensions/attention-ui-bridge/package.json',
+            expectedDetail: 'Bridge manifest icon is invalid',
+            mutate: manifest => { delete manifest.icon; },
+        },
+    ].map(mutation => ({
         id: 'ARCH-RELEASE-IDENTITY-001',
-        file: 'package.json',
-        expectedDetail: 'main extension identity must remain hzcheng.project-steward',
-        mutate: source => replaceFixtureSource(source,
-            '"publisher": "hzcheng"', '"publisher": "changed"'),
-    },
+        file: mutation.file,
+        expectedDetail: mutation.expectedDetail,
+        mutate: source => {
+            const manifest = JSON.parse(source);
+            mutation.mutate(manifest);
+            return `${JSON.stringify(manifest, null, 4)}\n`;
+        },
+    })),
+    ...[
+        ['AGENT_PIVOT_CONFIG_SECTION', "'agentPivot'", "'projectSteward'"],
+        ['AGENT_PIVOT_EXTENSION_ID', "'hzcheng.agent-pivot'", "'hzcheng.project-steward'"],
+        ['AGENT_PIVOT_VIEW_CONTAINER_ID', "'agentPivot'", "'projectSteward'"],
+        ['AGENT_PIVOT_DASHBOARD_VIEW_ID', "'agentPivot.dashboard'", "'projectSteward.dashboard'"],
+        ['AGENT_PIVOT_CONVERSATION_VIEW_TYPE', "'agentPivot.aiConversation'", "'projectSteward.aiConversation'"],
+    ].map(([constant, current, stale]) => ({
+        id: 'ARCH-RELEASE-IDENTITY-001',
+        file: 'src/constants.ts',
+        expectedDetail: `${constant} must remain`,
+        mutate: source => replaceFixtureSource(
+            source,
+            constant === 'AGENT_PIVOT_CONVERSATION_VIEW_TYPE'
+                ? `${constant} =\n    ${current}`
+                : `${constant} = ${current}`,
+            constant === 'AGENT_PIVOT_CONVERSATION_VIEW_TYPE'
+                ? `${constant} =\n    ${stale}`
+                : `${constant} = ${stale}`,
+        ),
+    })),
 ]) {
     test(`${mutation.id} controlled mutation is rejected at its exact expectation site`, t => {
         const root = copyGuardFixture(t, mutation.file, mutation.mutate);

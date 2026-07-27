@@ -8,8 +8,12 @@ const {
 const {
     createOpenWorkspacePublication,
     projectOpenWorkspaceCards,
+    projectOpenWorkspaceNavigationCards,
 } = require('../../../out/openWorkspaces/projection');
-const { normalizeWorkspaceUri } = require('../../../out/workspaces/identity');
+const {
+    createWorkspaceUriIdentity,
+    normalizeWorkspaceUri,
+} = require('../../../out/workspaces/identity');
 const {
     replaceOpenWorkspacePublicationUris,
 } = require('../../../extensions/attention-ui-bridge/out/extensions/attention-ui-bridge/src/openWorkspacePublication');
@@ -24,6 +28,10 @@ const {
     makeRegistration,
 } = require('./helpers');
 
+function authoritativeUri(value, scheme, authority, uriPath) {
+    return { value, scheme, authority, path: uriPath };
+}
+
 test('OPEN-OPEN-PROJECT-PUBLICATION-001 replaces workspace URIs by ordinal without mutating publications', () => {
     const publication = makePublication({
         workspace: makeRecord({
@@ -32,12 +40,95 @@ test('OPEN-OPEN-PROJECT-PUBLICATION-001 replaces workspace URIs by ordinal witho
         }),
     });
     const exactWindowUri = 'vscode-remote://dev-container%2Btarget%40ssh-remote%2Bhost/workspaces/app';
+    const exactWindowIdentity = authoritativeUri(
+        exactWindowUri,
+        'vscode-remote',
+        'dev-container+target@ssh-remote+host',
+        '/workspaces/app'
+    );
 
-    const replaced = replaceOpenWorkspacePublicationUris(publication, null, [exactWindowUri]);
+    const replaced = replaceOpenWorkspacePublicationUris(publication, null, [exactWindowIdentity]);
 
     assert.equal(replaced.workspace.roots[0].uri, exactWindowUri);
+    assert.equal(replaced.workspace.roots[0].id, createWorkspaceUriIdentity(exactWindowIdentity));
+    assert.equal(replaced.workspace.navigationIdentity, createWorkspaceUriIdentity(exactWindowIdentity));
     assert.equal(publication.workspace.roots[0].uri, 'vscode-remote://dev-container%2Bcurrent/workspaces/app');
-    assert.deepEqual(replaceOpenWorkspacePublicationUris(publication, null, [publication.workspace.roots[0].uri]), publication);
+    const sameUri = authoritativeUri(
+        publication.workspace.roots[0].uri,
+        'vscode-remote',
+        'dev-container+current',
+        '/workspaces/app'
+    );
+    assert.equal(
+        replaceOpenWorkspacePublicationUris(publication, null, [sameUri]).workspace.navigationUri,
+        publication.workspace.navigationUri
+    );
+});
+
+test('OPEN-OPEN-PROJECT-AUTHORITATIVE-IDENTITY-001 keeps same-path authorities as distinct workspace cards', () => {
+    const source = makeRecord({ uri: 'file:///work/reddb', name: 'reddb' });
+    const rewrite = (instanceId, environment, target) =>
+        replaceOpenWorkspacePublicationUris(
+            makePublication({ instanceId, workspace: { ...source, environment } }),
+            null,
+            [target]
+        ).workspace;
+    const local = rewrite(OTHER, 'local', authoritativeUri(
+        'file:///work/reddb',
+        'file',
+        '',
+        '/work/reddb'
+    ));
+    const ssh = rewrite(OLDER, 'ssh', authoritativeUri(
+        'vscode-remote://ssh-remote%2Bhost/work/reddb',
+        'vscode-remote',
+        'ssh-remote+host',
+        '/work/reddb'
+    ));
+    const container = rewrite(
+        NEWER,
+        'devContainer',
+        authoritativeUri(
+            'vscode-remote://dev-container%2Bdevbox/work/reddb',
+            'vscode-remote',
+            'dev-container+devbox',
+            '/work/reddb'
+        )
+    );
+    const projections = projectOpenWorkspaceNavigationCards(null, makeAggregate([
+        makeRegistration(OTHER, 500, local.navigationUri, { workspace: local }),
+        makeRegistration(OLDER, 1000, ssh.navigationUri, { workspace: ssh }),
+        makeRegistration(NEWER, 2000, container.navigationUri, { workspace: container }),
+    ]), SELF);
+    const projectionsFromContainer = projectOpenWorkspaceNavigationCards(
+        { navigationIdentity: container.navigationIdentity },
+        makeAggregate([
+            makeRegistration(OTHER, 500, local.navigationUri, { workspace: local }),
+            makeRegistration(OLDER, 1000, ssh.navigationUri, { workspace: ssh }),
+            makeRegistration(NEWER, 2000, container.navigationUri, { workspace: container }),
+        ]),
+        SELF
+    );
+
+    assert.notEqual(local.navigationIdentity, container.navigationIdentity);
+    assert.notEqual(local.scopeIdentity, container.scopeIdentity);
+    assert.notEqual(local.roots[0].id, container.roots[0].id);
+    assert.notEqual(ssh.navigationIdentity, container.navigationIdentity);
+    assert.notEqual(ssh.scopeIdentity, container.scopeIdentity);
+    assert.notEqual(ssh.roots[0].id, container.roots[0].id);
+    assert.equal(projections.length, 3);
+    assert.deepEqual(
+        projectionsFromContainer.map(projection => projection.workspace.environment),
+        ['ssh', 'local']
+    );
+    assert.equal(
+        ssh.navigationIdentity,
+        createWorkspaceUriIdentity({
+            scheme: 'vscode-remote',
+            authority: 'ssh-remote+host',
+            path: '/work/reddb',
+        })
+    );
 });
 
 test('SESSION-IDENTITY-001 normalizes URI scheme and Unicode representation without erasing authority identity', () => {
@@ -185,7 +276,12 @@ test('ATTENTION-REMOTE-ATTENTION-IDENTITY-001 derives attention identity from th
     const remoteUri = 'vscode-remote://dev-container%2Btarget/workspaces/shared';
     const replaced = replaceOpenWorkspacePublicationUris(makePublication({
         workspace: makeRecord({ uri: localPath, remoteType: 'devContainer' }),
-    }), null, [remoteUri]);
+    }), null, [authoritativeUri(
+        remoteUri,
+        'vscode-remote',
+        'dev-container+target',
+        '/workspaces/shared'
+    )]);
     const attention = {
         protocolVersion: 1,
         aggregateRevision: 'a'.repeat(64),

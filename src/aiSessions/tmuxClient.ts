@@ -7,7 +7,7 @@ import { TMUX_METADATA_OPTIONS } from './tmuxLayout';
 
 const COMMAND_TIMEOUT_MS = 5000;
 const COMMAND_MAX_BUFFER = 1024 * 1024;
-const FIELD_SEPARATOR = '|:ps-field:|';
+const FIELD_SEPARATOR = '|:ap-field:|';
 const LIST_WINDOWS_FORMAT = [
     '#{session_name}', '#{window_name}', '#{window_id}', '#{window_active}',
 ].join(FIELD_SEPARATOR);
@@ -933,7 +933,7 @@ function validateMetadataEntries(values: Record<string, string>): Array<[Metadat
         if (!allowed.has(key) || typeof value !== 'string' || !value
             || value.length > metadataValueLimit(key as MetadataOptionKey)
             || CONTROL_CHARACTERS.test(value)) {
-            throw new TypeError('Only valid Project Steward tmux metadata options may be set.');
+            throw new TypeError('Only valid Agent Pivot tmux metadata options may be set.');
         }
         return [key as MetadataOptionKey, value] as [MetadataOptionKey, string];
     });

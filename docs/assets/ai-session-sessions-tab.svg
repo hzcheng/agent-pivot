@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="420" height="860" viewBox="0 0 420 860" role="img" aria-labelledby="title desc">
-  <title id="title">Project Steward AI Session SESSIONS Tab 效果图</title>
+  <title id="title">Agent Pivot AI Session SESSIONS Tab 效果图</title>
   <desc id="desc">VS Code 深色主题侧边栏中的当前项目卡片，SESSIONS Tab 保留 provider 筛选并显示完整历史，包括 Active Session。</desc>
   <defs>
     <filter id="shadow" x="-20%" y="-20%" width="140%" height="160%"><feDropShadow dx="0" dy="3" stdDeviation="5" flood-color="#000" flood-opacity=".38"/></filter>
@@ -42,7 +42,7 @@
   <circle cx="38" cy="210" r="11" fill="#181a1e" stroke="#50535b"/>
   <path d="M32 205h5l2 2h6v8H32z" fill="none" stroke="#8fc7ff" stroke-width="1.4"/>
   <text class="ui title" x="58" y="207">vscode-dashboard</text>
-  <text class="ui desc" x="58" y="225">Project Steward extension</text>
+  <text class="ui desc" x="58" y="225">Agent Pivot extension</text>
   <rect x="277" y="193" width="49" height="22" rx="11" fill="#1b1c20" stroke="#45474e"/>
   <text class="ui meta" x="289" y="208" fill="#c8cad0">AI 18</text>
   <rect x="331" y="193" width="59" height="22" rx="11" fill="#182522" stroke="#45b7a5"/>

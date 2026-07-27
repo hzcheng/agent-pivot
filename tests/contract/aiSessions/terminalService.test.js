@@ -53,10 +53,10 @@ test('SESSION-AI-SESSION-TERMINAL-RESOLUTION-001 resolves tracked, environment, 
     assert.deepEqual(candidateCalls, []);
 
     const byEnvironment = { name: 'Codex restored', creationOptions: {
-        env: { PROJECT_STEWARD_CODEX_SESSION_ID: 'environment-id' },
+        env: { AGENT_PIVOT_CODEX_SESSION_ID: 'environment-id' },
     }, processId: Promise.resolve(2) };
     const archivedByEnvironment = { name: 'Codex archived', creationOptions: {
-        env: { PROJECT_STEWARD_CODEX_SESSION_ID: 'archived-id' },
+        env: { AGENT_PIVOT_CODEX_SESSION_ID: 'archived-id' },
     }, processId: Promise.resolve(3) };
 
     const markerPath = service.getMarkerPath('codex', 'environment-id');

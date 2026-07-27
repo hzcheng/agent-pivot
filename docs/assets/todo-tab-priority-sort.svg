@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="420" height="900" viewBox="0 0 420 900" role="img" aria-labelledby="title desc">
-  <title id="title">Project Steward TODO 按优先级排序效果图</title>
+  <title id="title">Agent Pivot TODO 按优先级排序效果图</title>
   <desc id="desc">TODO Tab 中打开分组操作菜单，用户可以保留手动排序或对当前分组执行一次按优先级排序。</desc>
   <defs>
     <filter id="shadow" x="-20%" y="-20%" width="140%" height="160%">

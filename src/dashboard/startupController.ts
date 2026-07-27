@@ -2,7 +2,7 @@
 
 import { RelevantExtensions } from '../constants';
 import { ReopenStewardReason, StewardInfos } from '../models';
-import { shouldOpenStewardOnStartup } from './startup';
+import { shouldOpenAgentPivotOnStartup } from './startup';
 
 type RelevantExtensionInstalls = StewardInfos['relevantExtensionsInstalls'];
 
@@ -31,13 +31,14 @@ export interface DashboardStartupControllerOptions {
     stewardInfos: StewardInfos;
     relevantExtensions?: Record<keyof RelevantExtensionInstalls, string>;
     isExtensionInstalled: (extensionId: string) => boolean;
+    assertActive?: () => void;
     migrateDataIfNeeded: () => Promise<DashboardMigrationResult>;
     refreshDashboard: () => unknown;
     publishOpenWorkspace: () => void;
     showInformationMessage: (message: string) => unknown;
     showErrorMessage: (message: string) => unknown;
     logError: (message: string, error: unknown) => unknown;
-    showSteward: () => unknown;
+    showAgentPivot: () => unknown;
     applyProjectColorToCurrentWindow: () => void;
     getReopenReason: () => unknown;
     updateReopenReason: (reason: ReopenStewardReason) => unknown;
@@ -56,12 +57,14 @@ export class DashboardStartupController {
         try {
             migration = await this.options.migrateDataIfNeeded();
         } catch (error) {
-            this.options.logError('Failed to migrate Project Steward data.', error);
+            this.assertActive();
+            this.options.logError('Failed to migrate Agent Pivot data.', error);
             const detail = error instanceof Error ? ` ${error.message}` : '';
-            this.options.showErrorMessage(`Could not migrate Project Steward data.${detail}`);
+            this.options.showErrorMessage(`Could not migrate Agent Pivot data.${detail}`);
             return null;
         }
 
+        this.assertActive();
         this.reportComponentError('project', migration.projects);
         this.reportComponentError('TODO', migration.todos);
         if (!migration.projects.migrated && !migration.todos.migrated) {
@@ -69,11 +72,12 @@ export class DashboardStartupController {
         }
 
         await this.options.refreshDashboard();
+        this.assertActive();
         this.options.publishOpenWorkspace();
-        this.options.showInformationMessage('Migrated Project Steward projects after changing settings.');
+        this.options.showInformationMessage('Migrated Agent Pivot projects after changing settings.');
 
         if (openStewardAfterMigrate) {
-            this.options.showSteward();
+            this.options.showAgentPivot();
         }
         return migration;
     }
@@ -85,33 +89,39 @@ export class DashboardStartupController {
         if (!Object.prototype.hasOwnProperty.call(result, 'error')) {
             return;
         }
-        this.options.logError(`Failed to migrate Project Steward ${component} data.`, result.error);
+        this.options.logError(`Failed to migrate Agent Pivot ${component} data.`, result.error);
         const detail = result.error instanceof Error ? ` ${result.error.message}` : '';
-        this.options.showErrorMessage(`Could not migrate Project Steward ${component} data.${detail}`);
+        this.options.showErrorMessage(`Could not migrate Agent Pivot ${component} data.${detail}`);
     }
 
     async startUp(): Promise<void> {
         this.updateRelevantExtensionInstalls();
         const migration = await this.checkDataMigration();
+        this.assertActive();
         if (migration
             && !Object.prototype.hasOwnProperty.call(migration.projects, 'error')
             && this.options.afterProjectMigrationSucceeded) {
             await this.options.afterProjectMigrationSucceeded();
+            this.assertActive();
         }
         this.options.applyProjectColorToCurrentWindow();
 
         const reopenNoneValue = this.options.reopenNoneValue ?? ReopenStewardReason.None;
         const reopenStewardReason = this.options.getReopenReason();
         this.options.updateReopenReason(reopenNoneValue);
-        if (shouldOpenStewardOnStartup({
+        if (shouldOpenAgentPivotOnStartup({
             reopenReason: reopenStewardReason,
             reopenNoneValue,
             openOnStartup: this.options.stewardInfos.config.openOnStartup,
             workspaceName: this.options.getWorkspaceName(),
             visibleEditorLanguageIds: this.options.getVisibleEditorLanguageIds(),
         })) {
-            this.options.showSteward();
+            this.options.showAgentPivot();
         }
+    }
+
+    private assertActive(): void {
+        this.options.assertActive?.();
     }
 
     private updateRelevantExtensionInstalls(): void {

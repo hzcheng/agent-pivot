@@ -13,7 +13,7 @@ test('TEST-HELPERS-001 creates a temporary root for its owning test and removes 
     let root;
 
     await t.test('temporary root exists while its test runs', child => {
-        root = makeTempDirectory(child, 'project-steward-test-');
+        root = makeTempDirectory(child, 'agent-pivot-test-');
         assert.ok(fs.existsSync(root));
     });
 
@@ -53,17 +53,17 @@ test('TEST-HELPERS-003 exposes only requested VS Code surfaces and records deleg
     });
 
     assert.deepEqual(Object.keys(vscode).sort(), ['calls', 'commands']);
-    assert.equal(vscode.commands.executeCommand('projectSteward.open', 'project-1'), 'executed:projectSteward.open:project-1');
+    assert.equal(vscode.commands.executeCommand('agentPivot.open', 'project-1'), 'executed:agentPivot.open:project-1');
     assert.deepEqual(vscode.calls, [{
         surface: 'commands',
         method: 'executeCommand',
-        args: ['projectSteward.open', 'project-1'],
+        args: ['agentPivot.open', 'project-1'],
     }]);
 });
 
 test('TEST-HELPERS-004 discovers sorted sibling tests and loads newly added files', t => {
-    const root = makeTempDirectory(t, 'project-steward-sibling-tests-');
-    const fixtureKey = `__projectStewardSiblingTests${process.pid}${Date.now()}`;
+    const root = makeTempDirectory(t, 'agent-pivot-sibling-tests-');
+    const fixtureKey = `__agentPivotSiblingTests${process.pid}${Date.now()}`;
     globalThis[fixtureKey] = [];
     t.after(() => { delete globalThis[fixtureKey]; });
     const writeFixture = (name, marker) => fs.writeFileSync(

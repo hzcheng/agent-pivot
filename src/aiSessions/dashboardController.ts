@@ -34,6 +34,10 @@ export interface AiSessionDashboardControllerOptions {
     clearTimeout: (handle: NodeJS.Timeout) => void;
 }
 
+export interface AiSessionDashboardRefreshOptions {
+    fallbackToFullRefresh?: boolean;
+}
+
 export class AiSessionDashboardController {
     private refreshTimeout: NodeJS.Timeout = null;
     private newSessionRefreshTimeouts: NodeJS.Timeout[] = [];
@@ -89,11 +93,15 @@ export class AiSessionDashboardController {
         }
     }
 
-    async refreshNow(reason = 'refresh'): Promise<void> {
+    async refreshNow(
+        reason = 'refresh',
+        refreshOptions: AiSessionDashboardRefreshOptions = {}
+    ): Promise<void> {
         if (!this.options.isVisible()) {
             return;
         }
 
+        const fallbackToFullRefresh = refreshOptions.fallbackToFullRefresh !== false;
         this.options.beforeRefresh?.(reason);
         try {
             const message = this.getUpdatedMessage(reason);
@@ -115,16 +123,22 @@ export class AiSessionDashboardController {
             this.options.postMessage(message).then(delivered => {
                 if (!delivered) {
                     this.lastPostedIncrementalMessageSignature = null;
-                    this.options.refresh('ai-session-update-not-delivered');
+                    if (fallbackToFullRefresh) {
+                        this.options.refresh('ai-session-update-not-delivered');
+                    }
                 }
             }, error => {
                 this.lastPostedIncrementalMessageSignature = null;
                 this.options.logError('Failed to post AI session update message.', error);
-                this.options.refresh('ai-session-update-post-error');
+                if (fallbackToFullRefresh) {
+                    this.options.refresh('ai-session-update-post-error');
+                }
             });
         } catch (error) {
             this.options.logError('Failed to update AI sessions incrementally.', error);
-            this.options.refresh('ai-session-update-build-error');
+            if (fallbackToFullRefresh) {
+                this.options.refresh('ai-session-update-build-error');
+            }
         } finally {
             if (reason === 'watcher') {
                 this.lastWatcherRefreshAtMs = this.nowMs();

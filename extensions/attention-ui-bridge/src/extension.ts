@@ -6,7 +6,10 @@ import * as vscode from 'vscode';
 import { resolveBridgeStorageRoot } from './bridgeStorageRoot';
 import { LocalStore } from './localStore';
 import { OpenWorkspaceCoordinator } from './openWorkspaceCoordinator';
-import { replaceOpenWorkspacePublicationUris } from './openWorkspacePublication';
+import {
+    AuthoritativeOpenWorkspaceUri,
+    replaceOpenWorkspacePublicationUris,
+} from './openWorkspacePublication';
 import { ProductionAttentionStore } from './productionAttentionStore';
 import { aggregateAttentionSnapshots, validateAttentionAggregate } from '../../../src/aiSessions/attentionAggregate';
 import {
@@ -17,26 +20,34 @@ import {
 import { parseRoutingChallenge } from '../../../shared/attention-bridge/protocol';
 import { ProbeSnapshot } from '../../../shared/attention-bridge/storeProtocol';
 import { createWorkspaceIdentity } from '../../../shared/attention-bridge/workspaceIdentity';
-import { OPEN_WORKSPACE_PROTOCOL_VERSION } from '../../../src/openWorkspaces/protocol';
+import {
+    OPEN_WORKSPACE_CAPABILITIES,
+    OPEN_WORKSPACE_NAVIGATE_COMMAND,
+    OPEN_WORKSPACE_PROTOCOL_VERSION,
+} from '../../../src/openWorkspaces/protocol';
+import {
+    SAVED_PROJECT_NAVIGATE_COMMAND,
+    SAVED_PROJECT_NAVIGATION_PROTOCOL_VERSION,
+    validateSavedProjectNavigationRequest,
+} from '../../../src/projects/projectNavigationProtocol';
 
-const BRIDGE_CHALLENGE = '_projectStewardAttentionSpike.bridge.challenge';
-const WORKSPACE_CHALLENGE = '_projectStewardAttentionSpike.workspace.challenge';
-const BRIDGE_PUBLISH = '_projectStewardAttentionSpike.bridge.publish';
-const BRIDGE_STATUS = '_projectStewardAttentionSpike.bridge.status';
-const BRIDGE_SET_WATCHER = '_projectStewardAttentionSpike.bridge.setWatcher';
-const BRIDGE_CLEAR = '_projectStewardAttentionSpike.bridge.clear';
-const WORKSPACE_AGGREGATE = '_projectStewardAttentionSpike.workspace.aggregate';
-const PRODUCTION_BRIDGE_PUBLISH = '_projectStewardAttention.bridge.publish';
-const PRODUCTION_WORKSPACE_AGGREGATE = '_projectStewardAttention.workspace.aggregate';
-const PRODUCTION_BRIDGE_ACKNOWLEDGE = '_projectStewardAttention.bridge.acknowledge';
-const PRODUCTION_BRIDGE_HANDSHAKE = '_projectStewardAttention.bridge.handshake';
-const PRODUCTION_BRIDGE_UNREGISTER = '_projectStewardAttention.bridge.unregister';
-const OPEN_WORKSPACE_BRIDGE_HANDSHAKE = '_projectStewardOpenWorkspaces.bridge.handshake';
-const OPEN_WORKSPACE_BRIDGE_PUBLISH = '_projectStewardOpenWorkspaces.bridge.publish';
-const OPEN_WORKSPACE_BRIDGE_UNREGISTER = '_projectStewardOpenWorkspaces.bridge.unregister';
-const OPEN_WORKSPACE_AGGREGATE = '_projectStewardOpenWorkspaces.workspace.aggregate';
-const OPEN_WORKSPACE_DIAGNOSTIC = '_projectStewardOpenWorkspaces.workspace.diagnostic';
-const OPEN_WORKSPACE_CAPABILITIES = { workspaces: true, atomicReplace: true, focusLeases: true } as const;
+const BRIDGE_CHALLENGE = '_agentPivotAttentionSpike.bridge.challenge';
+const WORKSPACE_CHALLENGE = '_agentPivotAttentionSpike.workspace.challenge';
+const BRIDGE_PUBLISH = '_agentPivotAttentionSpike.bridge.publish';
+const BRIDGE_STATUS = '_agentPivotAttentionSpike.bridge.status';
+const BRIDGE_SET_WATCHER = '_agentPivotAttentionSpike.bridge.setWatcher';
+const BRIDGE_CLEAR = '_agentPivotAttentionSpike.bridge.clear';
+const WORKSPACE_AGGREGATE = '_agentPivotAttentionSpike.workspace.aggregate';
+const PRODUCTION_BRIDGE_PUBLISH = '_agentPivotAttention.bridge.publish';
+const PRODUCTION_WORKSPACE_AGGREGATE = '_agentPivotAttention.workspace.aggregate';
+const PRODUCTION_BRIDGE_ACKNOWLEDGE = '_agentPivotAttention.bridge.acknowledge';
+const PRODUCTION_BRIDGE_HANDSHAKE = '_agentPivotAttention.bridge.handshake';
+const PRODUCTION_BRIDGE_UNREGISTER = '_agentPivotAttention.bridge.unregister';
+const OPEN_WORKSPACE_BRIDGE_HANDSHAKE = '_agentPivotOpenWorkspaces.bridge.handshake';
+const OPEN_WORKSPACE_BRIDGE_PUBLISH = '_agentPivotOpenWorkspaces.bridge.publish';
+const OPEN_WORKSPACE_BRIDGE_UNREGISTER = '_agentPivotOpenWorkspaces.bridge.unregister';
+const OPEN_WORKSPACE_AGGREGATE = '_agentPivotOpenWorkspaces.workspace.aggregate';
+const OPEN_WORKSPACE_DIAGNOSTIC = '_agentPivotOpenWorkspaces.workspace.diagnostic';
 
 interface AggregateState {
     bridgeProcessId: string;
@@ -46,8 +57,17 @@ interface AggregateState {
     observedAtMs: number;
 }
 
+function snapshotAuthoritativeUri(uri: vscode.Uri): AuthoritativeOpenWorkspaceUri {
+    return {
+        value: uri.toString(),
+        scheme: uri.scheme,
+        authority: uri.authority,
+        path: uri.path,
+    };
+}
+
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
-    const outputChannel = vscode.window.createOutputChannel('Project Steward UI Bridge');
+    const outputChannel = vscode.window.createOutputChannel('Agent Pivot UI Bridge');
     context.subscriptions.push(outputChannel);
     const bridgeExtensionVersion = readBridgeExtensionVersion(context);
     const bridgeProcessId = crypto.randomBytes(16).toString('hex');
@@ -210,11 +230,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         OPEN_WORKSPACE_BRIDGE_PUBLISH,
         (raw: unknown) => {
             const workspaceFile = vscode.workspace.workspaceFile;
-            const workspaceUri = workspaceFile && workspaceFile.scheme !== 'untitled'
-                ? workspaceFile.toString()
+            const workspaceUri = workspaceFile
+                ? snapshotAuthoritativeUri(workspaceFile)
                 : null;
             const rootUris = (vscode.workspace.workspaceFolders || [])
-                .map(folder => folder.uri.toString());
+                .map(folder => snapshotAuthoritativeUri(folder.uri));
             return openWorkspaceCoordinator.publish(
                 replaceOpenWorkspacePublicationUris(raw, workspaceUri, rootUris),
             );
@@ -223,6 +243,56 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const openWorkspaceUnregisterDisposable = vscode.commands.registerCommand(
         OPEN_WORKSPACE_BRIDGE_UNREGISTER,
         (raw: unknown) => openWorkspaceCoordinator.unregister(raw),
+    );
+    const openWorkspaceNavigateDisposable = vscode.commands.registerCommand(
+        OPEN_WORKSPACE_NAVIGATE_COMMAND,
+        async (raw: unknown) => {
+            const target = await openWorkspaceCoordinator.resolveNavigationTarget(raw);
+            await vscode.commands.executeCommand(
+                'vscode.openFolder',
+                vscode.Uri.parse(target.navigationUri),
+                { forceNewWindow: true },
+            );
+            return {
+                protocolVersion: OPEN_WORKSPACE_PROTOCOL_VERSION,
+                opened: true,
+            };
+        },
+    );
+    const savedProjectNavigateDisposable = vscode.commands.registerCommand(
+        SAVED_PROJECT_NAVIGATE_COMMAND,
+        async (raw: unknown) => {
+            const request = validateSavedProjectNavigationRequest(raw);
+            const options = request.openInNewWindow
+                ? { forceNewWindow: true }
+                : { forceReuseWindow: true };
+            if (request.remoteType === 1) {
+                const sshUri = request.projectPath.includes('://')
+                    ? vscode.Uri.parse(request.projectPath)
+                    : null;
+                if (!sshUri || !sshUri.path || sshUri.path === '/') {
+                    const remoteAuthority = sshUri
+                        ? decodeURIComponent(sshUri.authority)
+                        : request.projectPath.replace('vscode-remote://', '');
+                    await vscode.commands.executeCommand('vscode.newWindow', {
+                        remoteAuthority,
+                        reuseWindow: !request.openInNewWindow,
+                    });
+                    return {
+                        protocolVersion: SAVED_PROJECT_NAVIGATION_PROTOCOL_VERSION,
+                        opened: true,
+                    };
+                }
+            }
+            const uri = request.remoteType === 0 && !request.projectPath.includes('://')
+                ? vscode.Uri.file(request.projectPath)
+                : vscode.Uri.parse(request.projectPath);
+            await vscode.commands.executeCommand('vscode.openFolder', uri, options);
+            return {
+                protocolVersion: SAVED_PROJECT_NAVIGATION_PROTOCOL_VERSION,
+                opened: true,
+            };
+        },
     );
     const statusDisposable = vscode.commands.registerCommand(BRIDGE_STATUS, async () => {
         const scan = await store.scan(Date.now());
@@ -256,7 +326,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         lastAggregate = '';
         return { cleared: true, bridgeProcessId, instanceId };
     });
-    const scanRegistration = vscode.commands.registerCommand('_projectStewardAttentionSpike.bridge.scan', scanAndNotify);
+    const scanRegistration = vscode.commands.registerCommand('_agentPivotAttentionSpike.bridge.scan', scanAndNotify);
     scanTimer = setInterval(() => {
         void scanAndNotify().catch(error => {
             void vscode.commands.executeCommand(WORKSPACE_AGGREGATE, {
@@ -279,6 +349,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         openWorkspaceHandshakeDisposable,
         openWorkspacePublishDisposable,
         openWorkspaceUnregisterDisposable,
+        openWorkspaceNavigateDisposable,
+        savedProjectNavigateDisposable,
         statusDisposable,
         watcherDisposable,
         clearDisposable,
@@ -321,9 +393,9 @@ function isOpenWorkspaceHandshakeCompatible(raw: unknown): boolean {
         && !Array.isArray(capabilities)
         && Object.keys(capabilities).sort().join('\n')
             === Object.keys(OPEN_WORKSPACE_CAPABILITIES).sort().join('\n')
-        && capabilities.workspaces === true
-        && capabilities.atomicReplace === true
-        && capabilities.focusLeases === true;
+        && Object.keys(OPEN_WORKSPACE_CAPABILITIES).every(
+            capability => capabilities[capability] === true
+        );
 }
 
 function readBridgeExtensionVersion(context: vscode.ExtensionContext): string {

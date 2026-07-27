@@ -1,5 +1,12 @@
 src/**
 out/**
 *.map
+.vscode/**
+.codex/**
+.superpowers/**
+docs/**
+tests/**
+spikes/**
+media/brand/**
 tsconfig.json
 webpack.config.js

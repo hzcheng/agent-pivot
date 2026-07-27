@@ -7,7 +7,8 @@ description: Use when working in this repository and main/master is protected, m
 
 ## Overview
 
-Keep this repository's protected branches and the user's primary checkout clean by doing feature work in an isolated git worktree under the project.
+Keep Agent Pivot's protected branches and the user's primary checkout clean by
+doing feature work in an isolated git worktree under the project.
 
 ## Workflow
 

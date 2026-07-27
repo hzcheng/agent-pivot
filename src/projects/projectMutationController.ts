@@ -82,7 +82,7 @@ export class ProjectMutationController {
             const currentlyOpenPath = currentProjectDetails.path;
             const currentRemoteType = currentProjectDetails.remoteType;
             if (currentRemoteType !== ProjectRemoteType.None && !isUriString(currentlyOpenPath) && !currentlyOpenPath.match(WSL_DEFAULT_REGEX)) {
-                this.options.showErrorMessage("Project Steward could not resolve the current remote project URI. Open this project once from VS Code's recent list, then run Save Project again.");
+                this.options.showErrorMessage("Agent Pivot could not resolve the current remote project URI. Open this project once from VS Code's recent list, then run Save Project again.");
                 return;
             }
 

@@ -139,7 +139,7 @@ test('RUNTIME-TMUX-DISCOVERY-001 recovers readable and renamed project container
     const suffix = locator.sessionName.match(/([0-9a-f]{8})$/)[1];
     const renamedRow = {
         ...row,
-        sessionName: `ps-Renamed-${suffix}`,
+        sessionName: `ap-Renamed-${suffix}`,
     };
     const renamed = new TmuxRuntimeDiscovery({
         client: { listWindows: async () => [renamedRow] },
@@ -156,7 +156,7 @@ test('RUNTIME-TMUX-DISCOVERY-001 recovers readable and renamed project container
 
     const foreignRow = {
         ...row,
-        sessionName: 'ps-Renamed-00000000',
+        sessionName: 'ap-Renamed-00000000',
     };
     const foreign = new TmuxRuntimeDiscovery({
         client: { listWindows: async () => [foreignRow] },

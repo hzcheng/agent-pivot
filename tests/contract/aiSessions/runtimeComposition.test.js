@@ -109,10 +109,109 @@ function runProductionActivation(mode) {
     return JSON.parse(result.stdout);
 }
 
+const RESTORE_EVENTS = new Set([
+    'inactive-restored',
+    'direct-restored',
+    'direct-failed',
+    'tmux-restored',
+    'hydration-constructed',
+]);
+
+function isRestoreEvent(event) {
+    return RESTORE_EVENTS.has(event);
+}
+
+test('WEBVIEW-TWO-STAGE-STARTUP-001 production activation returns while ordered bootstrap is pending', () => {
+    const result = runProductionActivation('pending');
+    assert.equal(result.failure, null);
+    assert.equal(result.providerRegistrations, 1);
+    assert.equal(result.pendingDirectRestoreEntered, true);
+    assert.equal(result.activationReturnedBeforeDirectRestoreSettled, true);
+    assert.equal(result.bootHtmlAssigned, true);
+    assert.equal(result.inFlightListenerDisposedBeforeGateRelease, true);
+    assert.equal(result.openTerminalListenerDisposals, 1);
+    assert.deepEqual(result.lateResourceAcquisitions, []);
+    assert.deepEqual(result.postDisposePublications, []);
+    assert.equal(result.lateAttentionClientObserved, false);
+});
+
+test('WEBVIEW-DASHBOARD-COMMAND-AVAILABILITY-001 production activation exposes stable commands while bootstrap is pending', () => {
+    const result = runProductionActivation('pending');
+    assert.equal(result.failure, null);
+    assert.deepEqual(result.registeredCommands, [
+        'agentPivot.open',
+        'agentPivot.addProject',
+        'agentPivot.saveProject',
+        'agentPivot.removeProject',
+        'agentPivot.editProjects',
+        'agentPivot.addGroup',
+        'agentPivot.removeGroup',
+        'agentPivot.addProjectsFromFolder',
+        'agentPivot.addFileToActiveTerminal',
+        'agentPivot.insertPromptToActiveTerminal',
+    ]);
+    assert.equal(result.dashboardCommandRegistrationInvocations, 1);
+    assert.equal(result.pendingOpenRevealedBootShell, true);
+    assert.match(result.pendingUnavailableCommandError, /Agent Pivot is still starting/);
+});
+
+test('WEBVIEW-TWO-STAGE-STARTUP-001 production startup diagnostics preserve exact order and bounded fields', () => {
+    const result = runProductionActivation('diagnostics');
+    assert.equal(result.failure, null);
+    const normalizedDiagnostics = result.startupDiagnostics.map(diagnostic => {
+        if (!Object.hasOwn(diagnostic, 'durationMs')) {
+            return diagnostic;
+        }
+        assert.equal(Number.isFinite(diagnostic.durationMs), true);
+        assert.ok(diagnostic.durationMs >= 0);
+        return { ...diagnostic, durationMs: '<durationMs>' };
+    });
+    assert.deepEqual(normalizedDiagnostics, [
+        {
+            event: 'agent-pivot-activation-entered',
+        },
+        {
+            event: 'agent-pivot-boot-shell-assigned',
+            generation: 1,
+        },
+        {
+            event: 'agent-pivot-browser-first-paint',
+            generation: 1,
+            durationMs: '<durationMs>',
+        },
+        {
+            event: 'agent-pivot-bootstrap-ready',
+            generation: 1,
+            durationMs: '<durationMs>',
+        },
+    ]);
+});
+
+test('WEBVIEW-TWO-STAGE-STARTUP-001 production failure diagnostic is exact and privacy-safe', () => {
+    const result = runProductionActivation('direct-failure');
+    assert.equal(result.failure, null);
+    assert.deepEqual(result.startupDiagnostics.at(-1), {
+        event: 'agent-pivot-bootstrap-failed',
+        generation: 1,
+        category: 'dashboard-bootstrap',
+    });
+    const serialized = JSON.stringify(result.startupDiagnostics);
+    for (const canary of [
+        'PRIVATE_PATH_CANARY',
+        'PRIVATE_PROJECT_CANARY',
+        'PRIVATE_PROMPT_CANARY',
+        'PRIVATE_SESSION_CANARY',
+        'PRIVATE_PROVIDER_PAYLOAD_CANARY',
+        'PRIVATE_RAW_ERROR_CANARY',
+    ]) {
+        assert.equal(serialized.includes(canary), false, canary);
+    }
+});
+
 test('RUNTIME-HOST-RUNTIME-COMPOSITION-001 SESSION-ALIAS-THREAD-SWITCH-001 ATTENTION-ACTIVE-UNREGISTER-ON-DEACTIVATE-001 production activation wires lifecycle ownership and restores before hydration', () => {
     const result = runProductionActivation('success');
     assert.equal(result.failure, null);
-    assert.deepEqual(result.events.slice(0, 4), [
+    assert.deepEqual(result.events.filter(isRestoreEvent), [
         'inactive-restored', 'direct-restored', 'tmux-restored', 'hydration-constructed',
     ]);
     assert.deepEqual(result.events.slice(-2), [
@@ -128,8 +227,15 @@ test('RUNTIME-HOST-RUNTIME-COMPOSITION-001 SESSION-ALIAS-THREAD-SWITCH-001 ATTEN
 
 test('RUNTIME-HOST-RUNTIME-COMPOSITION-001 production activation blocks tmux restore and hydration after Direct failure', () => {
     const result = runProductionActivation('direct-failure');
-    assert.match(result.failure, /controlled direct restore failure/);
-    assert.deepEqual(result.events, ['inactive-restored', 'direct-failed']);
+    assert.equal(result.failure, null);
+    assert.equal(result.bootstrapState, 'failed');
+    assert.deepEqual(result.events.filter(isRestoreEvent), [
+        'inactive-restored',
+        'direct-failed',
+    ]);
+    assert.equal(result.events.includes('tmux-restored'), false);
+    assert.equal(result.events.includes('hydration-constructed'), false);
+    assert.equal(result.rawDirectFailureExposedInHtml, false);
     assert.deepEqual(result.verified, [
         'client-store-discovery', 'thread-switch-alias-wiring',
     ]);

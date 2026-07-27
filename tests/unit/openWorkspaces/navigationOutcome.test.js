@@ -38,7 +38,7 @@ function harness(initialRecord) {
     const warnings = [];
     const refreshes = [];
     let failExecution = false;
-    let failParsing = false;
+    let outcome = { protocolVersion: 3, opened: true };
     const controller = new WorkspaceNavigationController({
         getRecord: cardId => cardId === 'live-card' ? current : null,
         executeCommand: async (...args) => {
@@ -46,14 +46,7 @@ function harness(initialRecord) {
             if (failExecution) {
                 throw new Error('forced direct navigation failure');
             }
-        },
-        parseUri: value => {
-            if (failParsing) {
-                throw new Error('malformed URI');
-            }
-            const parsed = { parsed: value };
-            parsedUris.push(parsed);
-            return parsed;
+            return outcome;
         },
         showInformationMessage: message => information.push(message),
         showWarningMessage: message => warnings.push(message),
@@ -68,8 +61,8 @@ function harness(initialRecord) {
         setFailExecution(value) {
             failExecution = value;
         },
-        setFailParsing(value) {
-            failParsing = value;
+        setOutcome(value) {
+            outcome = value;
         },
         setRecord(value) {
             current = value;
@@ -78,7 +71,7 @@ function harness(initialRecord) {
     };
 }
 
-test('OPEN-WORKSPACE-NAVIGATION-001 opens exact workspace URIs in every supported environment', async () => {
+test('OPEN-WORKSPACE-NAVIGATION-001 OPEN-WORKSPACE-UI-HOST-NAVIGATION-001 routes every supported environment through the UI Bridge', async () => {
     const navigation = harness(null);
     let index = 0;
     for (const environment of environments) {
@@ -89,13 +82,16 @@ test('OPEN-WORKSPACE-NAVIGATION-001 opens exact workspace URIs in every supporte
             navigation.executions.length = 0;
             navigation.parsedUris.length = 0;
             await navigation.controller.open('live-card');
-            assert.equal(navigation.parsedUris[0].parsed, current.navigationUri);
             assert.deepEqual(navigation.executions, [[
-                'vscode.openFolder',
-                navigation.parsedUris[0],
-                { forceNewWindow: true },
+                '_agentPivotOpenWorkspaces.bridge.navigate',
+                {
+                    protocolVersion: 3,
+                    navigationIdentity: current.navigationIdentity,
+                },
             ]]);
+            assert.deepEqual(navigation.parsedUris, []);
             assert.equal(JSON.stringify(navigation.executions).includes(current.roots[0].uri), false);
+            assert.equal(JSON.stringify(navigation.executions).includes(current.navigationUri), false);
         }
     }
 });
@@ -116,6 +112,7 @@ test('OPEN-WORKSPACE-NAVIGATION-001 fails closed to Switch Window without a memb
     navigation.setFailExecution(true);
     await navigation.controller.open('live-card');
     assert.equal(navigation.executions.length, 1);
+    assert.deepEqual(navigation.parsedUris, []);
     assert.deepEqual(navigation.warnings, [
         'Unable to switch directly to this workspace. Use VS Code Switch Window instead.',
     ]);
@@ -124,9 +121,16 @@ test('OPEN-WORKSPACE-NAVIGATION-001 fails closed to Switch Window without a memb
     navigation.executions.length = 0;
     navigation.warnings.length = 0;
     navigation.setFailExecution(false);
-    navigation.setFailParsing(true);
+    navigation.setOutcome({ accepted: true });
     await navigation.controller.open('live-card');
-    assert.deepEqual(navigation.executions, []);
+    assert.deepEqual(navigation.executions, [[
+        '_agentPivotOpenWorkspaces.bridge.navigate',
+        {
+            protocolVersion: 3,
+            navigationIdentity: current.navigationIdentity,
+        },
+    ]]);
+    assert.deepEqual(navigation.parsedUris, []);
     assert.deepEqual(navigation.warnings, [
         'Unable to switch directly to this workspace. Use VS Code Switch Window instead.',
     ]);

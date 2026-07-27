@@ -463,7 +463,7 @@ test('RUNTIME-TMUX-THREAD-SWITCH-001 keeps the old root in History and projects 
             attached: false,
             tmux: {
                 layout: 'project',
-                sessionName: 'ps-work-stable',
+                sessionName: 'ap-work-stable',
                 windowName: 'codex-old-readable-stable',
             },
         }],

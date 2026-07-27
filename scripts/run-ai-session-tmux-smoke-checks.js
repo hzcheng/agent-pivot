@@ -22,12 +22,12 @@ const POLL_INTERVAL_MS = 25;
 const PROVIDER_EXIT_TIMEOUT_MS = 2_000;
 const FINAL_RECORD_LOCK_KEY = 'runtime-binding-final-records';
 const OWNED_TEMP_PREFIXES = new Set([
-    'project-steward-tmux-smoke-',
-    'project-steward-tmux-server-',
+    'agent-pivot-tmux-smoke-',
+    'agent-pivot-tmux-server-',
 ]);
 const ownedTemporaryRoots = new WeakMap();
-const configuredTmuxPath = process.env.PROJECT_STEWARD_TMUX_PATH || 'tmux';
-const serverName = `project-steward-test-${process.pid}-${crypto.randomBytes(8).toString('hex')}`;
+const configuredTmuxPath = process.env.AGENT_PIVOT_TMUX_PATH || 'tmux';
+const serverName = `agent-pivot-test-${process.pid}-${crypto.randomBytes(8).toString('hex')}`;
 const isolatedPrefix = ['-L', serverName, '-f', '/dev/null'];
 const waitBuffer = new Int32Array(new SharedArrayBuffer(4));
 let tmuxTempRoot = null;
@@ -366,10 +366,10 @@ function assertReadableLocator(locator, layout, sessionPrefix, windowPrefix) {
 
 async function assertNativeReadableLocators(runner, projectLocator, sessionLocator) {
     assertReadableLocator(
-        projectLocator, 'project', 'ps-Smoke-Project', 'codex-session-one-special'
+        projectLocator, 'project', 'ap-Smoke-Project', 'codex-session-one-special'
     );
     assertReadableLocator(
-        sessionLocator, 'session', 'ps-Smoke-Project-kimi-isolated-one',
+        sessionLocator, 'session', 'ap-Smoke-Project-kimi-isolated-one',
         'kimi-kimi-isolated-one'
     );
     const nativeSessions = await runner.run(configuredTmuxPath, [
@@ -419,11 +419,11 @@ async function runSmoke(root, runner, client, fixtureRegistry) {
 
     const projectOneRequest = resumeRequest(
         'codex', workspaceScopeIdentity, cwd, 'session.one-special', fixtures.projectOne,
-        'Project Steward: Smoke Project [tmux]'
+        'Agent Pivot: Smoke Project [tmux]'
     );
     const projectTwoRequest = resumeRequest(
         'claude', workspaceScopeIdentity, cwd, 'session-two.special', fixtures.projectTwo,
-        'Project Steward: Smoke Project [tmux]'
+        'Agent Pivot: Smoke Project [tmux]'
     );
     const [projectOne, concurrentProjectOne] = await runTrackedProviderLaunch(
         fixtures.projectOne,
@@ -535,7 +535,7 @@ async function runSmoke(root, runner, client, fixtureRegistry) {
                 pendingId,
             },
             projectName: 'Smoke Project',
-            terminalName: 'Project Steward: Smoke Project [tmux]',
+            terminalName: 'Agent Pivot: Smoke Project [tmux]',
             createdAt: pendingCreatedAt,
             excludedSessionIds: ['existing:one', 'existing:two'],
             title: "Title with 'quotes' ; $HOME",
@@ -920,8 +920,8 @@ async function runSmokeHarness(dependencies = {}) {
     const previousTmuxTempRoot = tmuxTempRoot;
     try {
         try {
-            rootOwnership = createOwnedTemporaryRoot('project-steward-tmux-smoke-');
-            tmuxTempRootOwnership = createOwnedTemporaryRoot('project-steward-tmux-server-');
+            rootOwnership = createOwnedTemporaryRoot('agent-pivot-tmux-smoke-');
+            tmuxTempRootOwnership = createOwnedTemporaryRoot('agent-pivot-tmux-server-');
             const root = rootOwnership.path;
             tmuxTempRoot = tmuxTempRootOwnership.path;
             if (dependencies.onRootsCreated) {

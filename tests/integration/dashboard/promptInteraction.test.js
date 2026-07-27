@@ -422,7 +422,7 @@ function createPromptHarness(options = {}) {
         },
     };
     vm.runInNewContext(source, context, { filename: 'webviewPromptScripts.js' });
-    const controller = context.window.__projectStewardPrompts;
+    const controller = context.window.__agentPivotPrompts;
     const initialRevision = Number(initialHtml.match(/data-prompt-revision="(\d+)"/)?.[1] || 0);
     controller.mount(root, {
         authoritySequence: options.authoritySequence || 1,

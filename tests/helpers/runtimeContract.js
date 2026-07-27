@@ -38,7 +38,7 @@ function directoryScope(identity) {
     };
 }
 
-function createRuntimeFilesystemFixture(testContext, prefix = 'project-steward-runtime-contract-') {
+function createRuntimeFilesystemFixture(testContext, prefix = 'agent-pivot-runtime-contract-') {
     const root = makeTempDirectory(testContext, prefix);
     return {
         root,

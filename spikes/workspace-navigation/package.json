@@ -1,6 +1,6 @@
 {
-    "name": "project-steward-workspace-navigation-probe",
-    "displayName": "Project Steward Workspace Navigation Probe",
+    "name": "agent-pivot-workspace-navigation-probe",
+    "displayName": "Agent Pivot Workspace Navigation Probe",
     "description": "Disposable empirical probe for exact existing-window workspace navigation.",
     "version": "0.0.3",
     "publisher": "hzcheng",
@@ -12,29 +12,29 @@
         "workspace"
     ],
     "activationEvents": [
-        "onCommand:projectStewardWorkspaceNavigationProbe.start",
-        "onCommand:projectStewardWorkspaceNavigationProbe.stop",
-        "onCommand:projectStewardWorkspaceNavigationProbe.run",
-        "onCommand:projectStewardWorkspaceNavigationProbe.showStatus"
+        "onCommand:agentPivotWorkspaceNavigationProbe.start",
+        "onCommand:agentPivotWorkspaceNavigationProbe.stop",
+        "onCommand:agentPivotWorkspaceNavigationProbe.run",
+        "onCommand:agentPivotWorkspaceNavigationProbe.showStatus"
     ],
     "main": "./dist/extension.js",
     "contributes": {
         "commands": [
             {
-                "command": "projectStewardWorkspaceNavigationProbe.start",
-                "title": "Project Steward Workspace Navigation Probe: Start Trial Lifecycle"
+                "command": "agentPivotWorkspaceNavigationProbe.start",
+                "title": "Agent Pivot Workspace Navigation Probe: Start Trial Lifecycle"
             },
             {
-                "command": "projectStewardWorkspaceNavigationProbe.stop",
-                "title": "Project Steward Workspace Navigation Probe: Stop Trial Lifecycle"
+                "command": "agentPivotWorkspaceNavigationProbe.stop",
+                "title": "Agent Pivot Workspace Navigation Probe: Stop Trial Lifecycle"
             },
             {
-                "command": "projectStewardWorkspaceNavigationProbe.run",
-                "title": "Project Steward Workspace Navigation Probe: Run Trial"
+                "command": "agentPivotWorkspaceNavigationProbe.run",
+                "title": "Agent Pivot Workspace Navigation Probe: Run Trial"
             },
             {
-                "command": "projectStewardWorkspaceNavigationProbe.showStatus",
-                "title": "Project Steward Workspace Navigation Probe: Show Status"
+                "command": "agentPivotWorkspaceNavigationProbe.showStatus",
+                "title": "Agent Pivot Workspace Navigation Probe: Show Status"
             }
         ]
     },

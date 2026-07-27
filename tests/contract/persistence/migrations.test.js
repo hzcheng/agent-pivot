@@ -5,7 +5,11 @@ const test = require('node:test');
 const { createFakeVscode } = require('../../helpers/fakeVscode');
 const { loadFreshWithFakeVscode } = require('../../helpers/runtimeContract');
 const { DashboardStartupController, settleMigration } = require('../../../out/dashboard/startupController');
-const { TodoService } = require('../../../out/todos/service');
+const { TodoService } = loadFreshWithFakeVscode(
+    '../../../out/todos/service',
+    createFakeVscode(),
+    __dirname
+);
 
 const NOW = '2026-07-23T00:00:00.000Z';
 
@@ -80,7 +84,7 @@ function makeStartupController(migrateDataIfNeeded, events) {
         showInformationMessage: message => events.push(['information', message]),
         showErrorMessage: message => events.push(['error', message]),
         logError: (message, error) => events.push(['log', message, error]),
-        showSteward: () => events.push('show'),
+        showAgentPivot: () => events.push('show'),
         applyProjectColorToCurrentWindow: () => undefined,
         getReopenReason: () => 0,
         updateReopenReason: () => undefined,
@@ -114,7 +118,7 @@ test('PERSIST-DASHBOARD-MIGRATION-PUBLICATION-001 copies a sole legacy project s
     const legacy = { get: (_key, fallback) => fallback, inspect: () => undefined };
     const vscode = createFakeVscode({
         workspace: {
-            getConfiguration: section => section === 'projectSteward' ? primary : legacy,
+            getConfiguration: section => section === 'agentPivot' ? primary : legacy,
         },
     });
     vscode.ConfigurationTarget = { Global: 1 };

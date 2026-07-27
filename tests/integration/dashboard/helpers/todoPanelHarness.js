@@ -13,6 +13,17 @@ function disposable(dispose = () => undefined) {
     return { dispose };
 }
 
+async function waitFor(predicate, label) {
+    const timeoutMs = 5_000;
+    const startedAtMs = Date.now();
+    while (Date.now() - startedAtMs <= timeoutMs) {
+        const value = predicate();
+        if (value) return value;
+        await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    throw new Error(`Timed out waiting for ${label} after ${timeoutMs}ms`);
+}
+
 function createVscode(listeners, commands) {
     const configuration = { get: (_key, fallback) => fallback, inspect: () => undefined, update: async () => undefined };
     const uri = value => ({ scheme: 'file', fsPath: value, path: value, toString: () => value });
@@ -61,7 +72,7 @@ function loadDashboard(transform) {
 }
 
 async function runTodoPanelContract(transform) {
-    const storageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'project-steward-todo-panel-'));
+    const storageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-todo-panel-'));
     const listeners = {};
     const commands = new Map();
     const vscode = createVscode(listeners, commands);
@@ -113,7 +124,6 @@ async function runTodoPanelContract(transform) {
 
         const dashboard = loadDashboard(transform);
         await dashboard.activate(context);
-        await new Promise(resolve => setImmediate(resolve));
         assert.ok(listeners.viewProvider,
             'TODO-FUTURE-VERSION-DASHBOARD-001 / RELEASE-SCHEDULED-EXTENSION-HOST-001 activation must register the production view provider');
 
@@ -126,6 +136,10 @@ async function runTodoPanelContract(transform) {
         };
         const view = { visible: false, webview, onDidChangeVisibility: () => disposable() };
         await listeners.viewProvider.resolveWebviewView(view, {}, {});
+        await waitFor(
+            () => webview.html.includes('data-dashboard-tab='),
+            'authoritative dashboard HTML assignment',
+        );
         assert.equal(typeof onMessage, 'function',
             'TODO-FUTURE-VERSION-DASHBOARD-001 must reach the production Webview message callback');
 
@@ -167,7 +181,7 @@ if (mode === 'missing-live-probe') {
         'if (error instanceof types_1.UnsupportedTodoDataVersionError)');
 } else if (mode === 'missing-view-registration') {
     transform = source => source.replace(
-        'context.subscriptions.push(vscode.window.registerWebviewViewProvider(viewProvider_1.SidebarStewardViewProvider.viewType, provider));',
+        'context.subscriptions.push(vscode.window.registerWebviewViewProvider(constants_1.AGENT_PIVOT_DASHBOARD_VIEW_ID, provider));',
         'context.subscriptions.push({ dispose: () => undefined });');
 }
 

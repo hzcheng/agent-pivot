@@ -56,7 +56,7 @@
         return true;
     }
 
-    window.__projectStewardScrollState = Object.freeze({
+    window.__agentPivotScrollState = Object.freeze({
         capture: capture,
         restore: restore,
     });

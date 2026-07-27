@@ -148,7 +148,7 @@ async function scanRegistrations(registrationsDirectory: string): Promise<ProbeR
 
 export function activate(context: vscode.ExtensionContext): void {
     const workspace = resolveWorkspace();
-    const output = vscode.window.createOutputChannel('Project Steward Workspace Navigation Probe');
+    const output = vscode.window.createOutputChannel('Agent Pivot Workspace Navigation Probe');
     const instanceId = crypto.randomBytes(16).toString('hex');
     const probeRoot = path.join(context.globalStorageUri.fsPath, 'workspace-navigation-probe', 'v1');
     const registrationsDirectory = path.join(probeRoot, 'registrations');
@@ -223,7 +223,7 @@ export function activate(context: vscode.ExtensionContext): void {
     }
 
     const startDisposable = vscode.commands.registerCommand(
-        'projectStewardWorkspaceNavigationProbe.start',
+        'agentPivotWorkspaceNavigationProbe.start',
         async () => {
             if (await startLifecycle()) {
                 vscode.window.showInformationMessage('Workspace navigation probe trial lifecycle started for 10 minutes.');
@@ -231,14 +231,14 @@ export function activate(context: vscode.ExtensionContext): void {
         }
     );
     const stopDisposable = vscode.commands.registerCommand(
-        'projectStewardWorkspaceNavigationProbe.stop',
+        'agentPivotWorkspaceNavigationProbe.stop',
         async () => {
             await stopLifecycle();
             vscode.window.showInformationMessage('Workspace navigation probe trial lifecycle stopped.');
         }
     );
     const runDisposable = vscode.commands.registerCommand(
-        'projectStewardWorkspaceNavigationProbe.run',
+        'agentPivotWorkspaceNavigationProbe.run',
         async () => {
             if (!workspace || heartbeat === null) {
                 vscode.window.showWarningMessage(
@@ -346,7 +346,7 @@ export function activate(context: vscode.ExtensionContext): void {
         }
     );
     const statusDisposable = vscode.commands.registerCommand(
-        'projectStewardWorkspaceNavigationProbe.showStatus',
+        'agentPivotWorkspaceNavigationProbe.showStatus',
         async () => {
             output.appendLine(`WORKSPACE_NAVIGATION_PROBE_STATUS ${JSON.stringify({
                 instanceId,

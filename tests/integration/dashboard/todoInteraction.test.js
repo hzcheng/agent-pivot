@@ -1086,6 +1086,6 @@ test('TODO-FOCUSED-DETAIL-001 keeps inline editing open when form whitespace is 
 
 test('TODO-INCREMENTAL-ROOT-001 isolates mounted TODO events from the legacy project controller', () => {
     assert.match(projectSource, /isDedicatedTodoTarget/);
-    assert.match(projectSource, /window\.__projectStewardTodo/);
+    assert.match(projectSource, /window\.__agentPivotTodo/);
     assert.match(dashboardSource, /options\.onTodoMounted\(panels\.todo,\s*message\)/);
 });

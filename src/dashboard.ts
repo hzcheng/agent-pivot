@@ -4,9 +4,17 @@ import * as childProcess from 'child_process';
 import { randomBytes } from 'crypto';
 import { existsSync, statSync } from 'fs';
 import * as path from 'path';
+import { performance } from 'perf_hooks';
 import { Project, GroupOrder, ProjectRemoteType, StewardInfos, ProjectOpenType, ReopenStewardReason, AiSessionProviderId, isAiSessionProviderId } from './models';
 import { getProjectsPanelContent, getStewardContent } from './webview/webviewContent';
-import { USER_CANCELED, RelevantExtensions, REOPEN_KEY, WSL_DEFAULT_REGEX } from './constants';
+import {
+    AGENT_PIVOT_CONFIG_SECTION,
+    AGENT_PIVOT_DASHBOARD_VIEW_ID,
+    USER_CANCELED,
+    RelevantExtensions,
+    REOPEN_KEY,
+    WSL_DEFAULT_REGEX,
+} from './constants';
 
 import ColorService from './services/colorService';
 import ProjectService from './services/projectService';
@@ -117,8 +125,12 @@ import { ProjectOpenController } from './projects/projectOpenController';
 import { ProjectOrderController } from './projects/projectOrderController';
 import { ProjectPromptController } from './projects/projectPromptController';
 import { ProjectRemovalController } from './projects/projectRemovalController';
-import { SidebarStewardViewProvider } from './dashboard/viewProvider';
-import { getStewardConfiguration } from './dashboard/configuration';
+import { AgentPivotViewProvider } from './dashboard/viewProvider';
+import type { AgentPivotViewProviderOptions } from './dashboard/viewProvider';
+import { DashboardBootstrapController } from './dashboard/bootstrapController';
+import { DashboardBootstrapResources } from './dashboard/bootstrapResources';
+import { getDashboardBootContent } from './dashboard/bootContent';
+import { getAgentPivotConfiguration } from './dashboard/configuration';
 import { DashboardCommandRegistration } from './dashboard/commandRegistration';
 import { ActiveTerminalFileReferenceController } from './dashboard/activeTerminalFileReference';
 import DashboardDiagnostics from './dashboard/diagnostics';
@@ -127,7 +139,10 @@ import { GroupCollapseController } from './dashboard/groupCollapseController';
 import { DashboardLifecycleController } from './dashboard/lifecycleController';
 import { createDashboardMessageRouter } from './dashboard/messageRouter';
 import { ProjectsPanelController } from './dashboard/projectsPanelController';
-import { DashboardRuntimeController } from './dashboard/runtimeController';
+import {
+    DashboardRuntimeController,
+    revealAgentPivotDashboard,
+} from './dashboard/runtimeController';
 import type { ProjectsPanelUpdateMode } from './dashboard/webviewUpdateMessages';
 import { DashboardStartupController, settleMigration } from './dashboard/startupController';
 import { getDashboardWebviewOptions } from './dashboard/webviewOptions';
@@ -206,12 +221,139 @@ function runBoundedAiProviderHelp(
 }
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
-    const outputChannel = vscode.window.createOutputChannel('Project Steward');
+    const monotonicNowMs = () => performance.now();
+    const activationStartedAtMs = monotonicNowMs();
+    const outputChannel = vscode.window.createOutputChannel('Agent Pivot');
     context.subscriptions.push(outputChannel);
     const dashboardDiagnostics = new DashboardDiagnostics({
         outputChannel,
         globalStoragePath: context.globalStoragePath,
     });
+    dashboardDiagnostics.logDashboardDiagnostic({
+        event: 'agent-pivot-activation-entered',
+    });
+
+    let bootstrapController: DashboardBootstrapController | undefined;
+    const provider = new AgentPivotViewProvider({
+        mode: 'boot',
+        options: {
+            getWebviewOptions: () =>
+                getDashboardWebviewOptions(context.extensionPath, vscode.Uri.file),
+            renderBootContent: (webview, generation) =>
+                getDashboardBootContent(webview, { kind: 'booting', generation }),
+            renderBootError: (webview, generation) =>
+                getDashboardBootContent(webview, { kind: 'failed', generation }),
+            onBootShellAssigned: generation => {
+                dashboardDiagnostics.logDashboardDiagnostic({
+                    event: 'agent-pivot-boot-shell-assigned',
+                    generation,
+                });
+            },
+            onRetry: () => bootstrapController?.retry(),
+            onFirstPaint: generation => {
+                dashboardDiagnostics.logDashboardDiagnostic({
+                    event: 'agent-pivot-browser-first-paint',
+                    generation,
+                    durationMs: Math.max(
+                        0,
+                        monotonicNowMs() - activationStartedAtMs,
+                    ),
+                });
+            },
+            logError: (message, error) =>
+                dashboardDiagnostics.logError(message, error),
+        },
+    });
+    context.subscriptions.push(
+        vscode.window.registerWebviewViewProvider(
+            AGENT_PIVOT_DASHBOARD_VIEW_ID,
+            provider,
+        ),
+    );
+
+    const dashboardCommandRegistration =
+        new DashboardCommandRegistration<vscode.Disposable>({
+            registerCommand: (command, callback) =>
+                vscode.commands.registerCommand(command, callback),
+            pushSubscription: disposable => context.subscriptions.push(disposable),
+            openWhileUnavailable: () => revealAgentPivotDashboard({
+                executeCommand: (command, ...args) =>
+                    vscode.commands.executeCommand(command, ...args),
+                viewType: AGENT_PIVOT_DASHBOARD_VIEW_ID,
+            }),
+        });
+    dashboardCommandRegistration.register();
+    context.subscriptions.push(dashboardCommandRegistration);
+
+    bootstrapController = new DashboardBootstrapController({
+        run: async (generation, resources) => {
+            try {
+                const options = await initializeDashboard(
+                    context,
+                    provider,
+                    resources,
+                    dashboardDiagnostics,
+                    generation,
+                    dashboardCommandRegistration,
+                );
+                return options;
+            } catch (error) {
+                dashboardDiagnostics.logError(
+                    'Failed to initialize Agent Pivot dashboard.',
+                    error,
+                );
+                throw error;
+            }
+        },
+        begin: generation => provider.beginBootstrap(generation),
+        complete: (generation, options) => {
+            const accepted = provider.completeBootstrap(generation, options);
+            if (!accepted) {
+                dashboardCommandRegistration.discard(generation);
+                return false;
+            }
+            return dashboardCommandRegistration.activate(generation);
+        },
+        fail: generation => {
+            dashboardCommandRegistration.discard(generation);
+            return provider.failBootstrap(generation);
+        },
+        transfer: resources => resources.transferTo(context.subscriptions),
+        logDiagnostic: event =>
+            dashboardDiagnostics.logDashboardDiagnostic(event),
+        nowMs: monotonicNowMs,
+    });
+    context.subscriptions.push(bootstrapController);
+    bootstrapController.start();
+
+async function initializeDashboard(
+    context: vscode.ExtensionContext,
+    provider: AgentPivotViewProvider,
+    resources: DashboardBootstrapResources,
+    dashboardDiagnostics: DashboardDiagnostics,
+    bootstrapGeneration: number,
+    dashboardCommandRegistration: DashboardCommandRegistration<vscode.Disposable>,
+): Promise<AgentPivotViewProviderOptions> {
+    const ownResource = <T extends { dispose(): unknown }>(factory: () => T): T => {
+        let resource: T | undefined;
+        resources.own({
+            dispose: () => resource?.dispose(),
+        });
+        resource = factory();
+        return resource;
+    };
+    const ownTimer = <T>(start: () => T, cancel: (handle: T) => void): T => {
+        let handle: T | undefined;
+        resources.own({
+            dispose: () => {
+                if (handle !== undefined) {
+                    cancel(handle);
+                }
+            },
+        });
+        handle = start();
+        return handle;
+    };
     const logError = (message: string, error: unknown) => dashboardDiagnostics.logError(message, error);
     const logAiSessionDiagnostic = (event: Record<string, unknown>) => dashboardDiagnostics.logAiSessionDiagnostic(event);
     const logDashboardDiagnostic = (event: Record<string, unknown>) => dashboardDiagnostics.logDashboardDiagnostic(event);
@@ -227,17 +369,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                 projectIds,
             });
             void vscode.window.showInformationMessage(
-                'Project Steward recovered projects from a sync conflict.'
+                'Agent Pivot recovered projects from a sync conflict.'
             );
         },
     });
     const todoService = new TodoService(context);
-    const promptConfiguration = getStewardConfiguration();
+    const promptConfiguration = getAgentPivotConfiguration();
     const promptStore = await initializePromptMementoStore({
         globalState: context.globalState,
         readLegacySetting: () =>
             promptConfiguration.inspect<unknown>('promptData')?.globalValue,
     });
+    resources.assertActive();
     const promptService = new PromptService({
         readSetting: promptStore.readSetting,
         writeGlobalSetting: promptStore.writeGlobalSetting,
@@ -352,11 +495,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         confirmRemoveProject: projectName => vscode.window.showWarningMessage(`Remove ${projectName}?`, { modal: true }, 'Remove'),
         removeProject: projectId => projectService.removeProject(projectId),
         refreshAfterMutation,
-        postCommandRemoval: () => { void dashboardRuntimeController.revealSidebarSteward(); },
+        postCommandRemoval: () => { void dashboardRuntimeController.revealAgentPivotDashboard(); },
     });
     const projectManualEditController = new ProjectManualEditController({
         getGroups: () => projectService.getGroups(),
-        getTempFilePath: () => `${context.globalStoragePath}/Project Steward Projects.json`,
+        getTempFilePath: () => `${context.globalStoragePath}/Agent Pivot Projects.json`,
         writeTextFile: (filePath, content) => fileService.writeTextFile(filePath, content),
         fileUri: filePath => vscode.Uri.file(filePath),
         openTextDocument: uri => vscode.workspace.openTextDocument(uri),
@@ -368,7 +511,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         showErrorMessage: message => vscode.window.showErrorMessage(message),
         postSave: () => {
             refreshAfterMutation();
-            void dashboardRuntimeController.revealSidebarSteward();
+            void dashboardRuntimeController.revealAgentPivotDashboard();
         },
     });
     const addProjectsFromFolderController = new AddProjectsFromFolderController({
@@ -424,7 +567,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         undefined,
         aiSessionTerminalBindingStore
     );
-    let aiSessionRuntimeConfiguration = readAiSessionRuntimeConfiguration(getStewardConfiguration());
+    let aiSessionRuntimeConfiguration = readAiSessionRuntimeConfiguration(getAgentPivotConfiguration());
     const tmuxRuntimeStore = new TmuxRuntimeBindingStore(
         path.join(context.globalStoragePath, 'ai-session-tmux-runtimes'),
         () => Date.now(),
@@ -454,6 +597,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     } catch (error) {
         logAiSessionRuntimeFailure('restore-inactive-runtimes', error);
     }
+    resources.assertActive();
     const directTerminalRuntimeBackend = new DirectTerminalRuntimeBackend(aiSessionTerminalService);
     const tmuxRuntimeBackend = new TmuxRuntimeBackend<vscode.Terminal>({
         platform: process.platform,
@@ -468,7 +612,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         getAttachTerminalName: getAiSessionTmuxAttachTerminalName,
     });
     let publishRestoredTmuxAttachTerminal = (): void => undefined;
-    context.subscriptions.push(vscode.window.onDidOpenTerminal(terminal => {
+    ownResource(() => vscode.window.onDidOpenTerminal(terminal => {
         if (!tmuxRuntimeBackend.isAttachTerminalCandidate(terminal)) {
             return;
         }
@@ -494,11 +638,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         },
     });
     await aiSessionTerminalService.restorePersistedTerminals(vscode.window.terminals);
+    resources.assertActive();
     try {
         await tmuxRuntimeBackend.restoreAttachTerminals(vscode.window.terminals);
     } catch (error) {
         logAiSessionRuntimeFailure('restore-attach-terminals', error);
     }
+    resources.assertActive();
     const aiSessionPinStore = new AiSessionPinStore(context.globalStoragePath);
     const aiSessionPinController = new AiSessionPinController({
         store: aiSessionPinStore,
@@ -512,7 +658,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     let openWorkspaceController: OpenWorkspaceController;
     let openWorkspaceDashboardController: OpenWorkspaceDashboardController;
     let projectsPanelController: ProjectsPanelController | undefined;
-    let workspaceNavigationController: WorkspaceNavigationController<vscode.Uri>;
+    let workspaceNavigationController: WorkspaceNavigationController;
     const resolveCurrentOpenWorkspace = (): OpenWorkspace | null => workspaceContextResolver.resolve({
         workspaceFile: vscode.workspace.workspaceFile,
         workspaceFolders: vscode.workspace.workspaceFolders,
@@ -849,7 +995,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     let currentAiSessionRefreshReason = 'refresh';
     let aiSessionAttentionBridgeClient: AttentionBridgeClient;
     const aiSessionAttentionController = new AiSessionAttentionController<AiSessionRuntimeSnapshot<vscode.Terminal>>({
-        isEnabled: () => getStewardConfiguration().get<boolean>('aiSessionAttention.enabled', true) !== false,
+        isEnabled: () => getAgentPivotConfiguration().get<boolean>('aiSessionAttention.enabled', true) !== false,
         getWorkspaceTarget: getCurrentWorkspaceActionTargetWithoutCardId,
         getProviders: getRegisteredAiSessionProviders,
         getRuntimeById: getAiSessionRuntimeById,
@@ -1015,29 +1161,52 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             }
         }
     };
-    aiSessionAttentionBridgeClient = new AttentionBridgeClient(
+    aiSessionAttentionBridgeClient = ownResource(() => new AttentionBridgeClient(
         aggregate => {
             if (aiSessionAttentionController.setRemoteAggregate(aggregate)) {
                 scheduleAttentionViewsRefresh();
             }
         },
         error => logError('AI session attention bridge unavailable; using local-window monitoring.', error)
-    );
+    ));
+    resources.own({
+        dispose: () => {
+            if (activeAiSessionAttentionBridgeClient === aiSessionAttentionBridgeClient) {
+                activeAiSessionAttentionBridgeClient = null;
+            }
+        },
+    });
     activeAiSessionAttentionBridgeClient = aiSessionAttentionBridgeClient;
-    const aiSessionAttentionInterval = setInterval(() => {
-        void runSafeAiSessionRuntimeLifecycleTask(
-            'evaluate-attention-interval', evaluateAiSessionAttention
-        );
-    }, 10_000);
-    setTimeout(() => {
-        void runSafeAiSessionRuntimeLifecycleTask(
-            'evaluate-attention-startup', evaluateAiSessionAttention
-        );
-    }, 0);
-    const aiSessionExecutionInterval = setInterval(() => { aiSessionExecutionController.evaluate(); }, 1_000);
-    setTimeout(() => { aiSessionExecutionController.evaluate(); }, 0);
+    ownTimer(
+        () => setInterval(() => {
+            void runSafeAiSessionRuntimeLifecycleTask(
+                'evaluate-attention-interval', evaluateAiSessionAttention
+            );
+        }, 10_000),
+        handle => clearInterval(handle),
+    );
+    ownTimer(
+        () => setTimeout(() => {
+            void runSafeAiSessionRuntimeLifecycleTask(
+                'evaluate-attention-startup', evaluateAiSessionAttention
+            );
+        }, 0),
+        handle => clearTimeout(handle),
+    );
+    ownTimer(
+        () => setInterval(() => {
+            aiSessionExecutionController.evaluate();
+        }, 1_000),
+        handle => clearInterval(handle),
+    );
+    ownTimer(
+        () => setTimeout(() => {
+            aiSessionExecutionController.evaluate();
+        }, 0),
+        handle => clearTimeout(handle),
+    );
     let conversationCapability: ConversationCapability;
-    const aiSessionDashboardController = new AiSessionDashboardController({
+    const aiSessionDashboardController = ownResource(() => new AiSessionDashboardController({
         providerIds: aiSessionProviders.map(provider => provider.id),
         isVisible: () => provider.visible,
         invalidateCache: providerId => invalidateAiSessionCache(providerId),
@@ -1045,9 +1214,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         getGroups: () => projectService.getGroups(),
         getTodoSearchItems: () => todoService.getSearchItems(),
         getCards: getOpenWorkspaceCards,
-        getRunningCardAnimation: () => getStewardConfiguration()
+        getRunningCardAnimation: () => getAgentPivotConfiguration()
             .get<string>('aiSessionRunningCardAnimation', 'current'),
-        getRunningIconAnimation: () => getStewardConfiguration()
+        getRunningIconAnimation: () => getAgentPivotConfiguration()
             .get<string>('aiSessionRunningIconAnimation', 'current'),
         nextSequence: () => ++aiSessionUpdateSequence,
         postMessage: message => provider.postMessage(message),
@@ -1067,8 +1236,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         newSessionRefreshDelaysMs: NEW_AI_SESSION_REFRESH_DELAYS_MS,
         setTimeout: (callback, delayMs) => setTimeout(callback, delayMs),
         clearTimeout: handle => clearTimeout(handle),
-    });
-    conversationCapability = createConversationCapability({
+    }));
+    conversationCapability = ownResource(() => createConversationCapability({
         services: aiSessionServices,
         resolveTarget: (projectId, providerId, sessionId) => {
             const target = getCurrentWorkspaceActionTarget(projectId);
@@ -1095,7 +1264,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         setTimer: setTimeout,
         clearTimer: clearTimeout,
         onDiagnostic: event => logAiSessionDiagnostic({ ...event }),
-    });
+    }));
     const conversationHandlers = {
         'request-ai-session-conversation-outline': message =>
             conversationCapability.controller.handleOutline(message),
@@ -1450,12 +1619,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                 postAiSessionAttentionState();
             },
             'open-settings': async () => {
-                await showProjectStewardSettings();
+                await showAgentPivotSettings();
             },
             'open-bridge-extension': async () => {
                 await vscode.commands.executeCommand(
                     'workbench.extensions.action.showExtensionsWithIds',
-                    ['hzcheng.project-steward-attention-ui-bridge'],
+                    ['hzcheng.agent-pivot-attention-ui-bridge'],
                 );
             },
             'archive-ai-sessions': async e => {
@@ -1500,7 +1669,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             );
         },
     });
-    const provider = new SidebarStewardViewProvider({
+    const providerOptions: AgentPivotViewProviderOptions = {
         getWebviewOptions: () => getDashboardWebviewOptions(context.extensionPath, vscode.Uri.file),
         renderContent: webview => getStewardContent(
             context,
@@ -1524,11 +1693,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             }
             await dashboardRuntimeController.handleAiSessionViewVisibilityChanged(visible);
         },
+        onVisiblePrepared: () =>
+            aiSessionDashboardController.refreshNow('dashboard-visible', {
+                fallbackToFullRefresh: false,
+            }),
         onDisposed: () => {
             conversationCapability.controller.resetView();
         },
         logError,
-    });
+    };
     let openWorkspaceBridgeClient: OpenWorkspaceBridgeClient;
     openWorkspaceController = new OpenWorkspaceController({
         getWorkspace: resolveCurrentOpenWorkspace,
@@ -1556,7 +1729,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         },
         logDashboardDiagnostic,
         executeCommand: (command, ...args) => vscode.commands.executeCommand(command, ...args),
-        viewType: SidebarStewardViewProvider.viewType,
+        viewType: AGENT_PIVOT_DASHBOARD_VIEW_ID,
         publishOpenWorkspace: () => openWorkspaceController.publish(),
         getCurrentSavedProject: getSavedProjectForCurrentWorkspace,
         syncProjectColorToCurrentWindow: project => projectWindowColorService.syncProjectColorToCurrentWindow(project),
@@ -1573,9 +1746,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         getGroups: () => projectService.getGroups(),
         getTodoSearchItems: () => todoService.getSearchItems(),
         getCollapsed: () => Boolean(groupCollapseController.getOpenWorkspacesCollapsed()),
-        getRunningCardAnimation: () => getStewardConfiguration()
+        getRunningCardAnimation: () => getAgentPivotConfiguration()
             .get<string>('aiSessionRunningCardAnimation', 'current'),
-        getRunningIconAnimation: () => getStewardConfiguration()
+        getRunningIconAnimation: () => getAgentPivotConfiguration()
             .get<string>('aiSessionRunningIconAnimation', 'current'),
         getAttentionAggregate: () => aiSessionAttentionController.getEffectiveAggregate(),
         getBridgeInstanceId: () => openWorkspaceBridgeClient.instanceId,
@@ -1585,15 +1758,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         logDiagnostic: logOpenWorkspaceDiagnostic,
         logError,
     });
-    workspaceNavigationController = new WorkspaceNavigationController<vscode.Uri>({
+    workspaceNavigationController = new WorkspaceNavigationController({
         getRecord: cardId => openWorkspaceDashboardController.getNavigationWorkspace(cardId),
         executeCommand: (command, ...args) => vscode.commands.executeCommand(command, ...args),
-        parseUri: value => vscode.Uri.parse(value),
         showInformationMessage: message => vscode.window.showInformationMessage(message),
         showWarningMessage: message => vscode.window.showWarningMessage(message),
         refresh: refreshStewardViews,
     });
-    openWorkspaceBridgeClient = new OpenWorkspaceBridgeClient(
+    openWorkspaceBridgeClient = ownResource(() => new OpenWorkspaceBridgeClient(
         openWorkspaceController.getPublication(),
         aggregate => {
             const statusChanged = openWorkspaceDashboardController.setBridgeStatus('ready');
@@ -1611,8 +1783,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                 }
             },
         }
-    );
-    const activeAiSessionTerminalHighlighter = new ActiveAiSessionTerminalHighlighter<
+    ));
+    const activeAiSessionTerminalHighlighter = ownResource(() =>
+        new ActiveAiSessionTerminalHighlighter<
         vscode.Terminal,
         AiSessionTerminalEntry<vscode.Terminal>
     >({
@@ -1640,8 +1813,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         },
         setInterval: (callback, intervalMs) => setInterval(callback, intervalMs),
         clearInterval: handle => clearInterval(handle as NodeJS.Timeout),
-    });
-    const tmuxFocusedRuntimeMonitor = new TmuxFocusedRuntimeMonitor<vscode.Terminal>({
+    }));
+    const tmuxFocusedRuntimeMonitor = ownResource(() =>
+        new TmuxFocusedRuntimeMonitor<vscode.Terminal>({
         isVisible: () => provider.visible,
         getActiveTerminal: () => vscode.window.activeTerminal || null,
         syncFocusedRuntime: terminal => tmuxRuntimeBackend.syncFocusedRuntime(terminal),
@@ -1649,29 +1823,30 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         onError: error => logAiSessionRuntimeFailure('sync-focused-runtime', error),
         setInterval: (callback, intervalMs) => setInterval(callback, intervalMs),
         clearInterval: handle => clearInterval(handle as NodeJS.Timeout),
-    });
+    }));
     tmuxFocusedRuntimeMonitor.start();
     publishRestoredTmuxAttachTerminal = refreshAiSessionViewsIncrementally;
-    const aiSessionTerminalCompletionInterval = setInterval(() => {
-        const completedSessions = aiSessionTerminalService.getCompletedSessions();
-        const completedRuntimes = completedSessions.filter(resolution =>
-            !!resolution.entry.runtimeIdentity).map(resolution => ({
-                identity: cloneAiSessionRuntimeIdentity(resolution.entry.runtimeIdentity),
-                backend: 'vscode',
-                state: 'completed',
-                markerPath: resolution.entry.markerPath,
-                runStartedAtMs: resolution.entry.runStartedAtMs,
-                attached: true,
-                terminal: resolution.terminal,
-            } as AiSessionRuntimeSnapshot<vscode.Terminal>));
-        const inactiveTmuxRuntimes = tmuxRuntimeDiscovery.getInactive()
-            .map(runtime => runtime as AiSessionRuntimeSnapshot<vscode.Terminal>);
-        queueAiSessionRuntimeSettlements([...completedRuntimes, ...inactiveTmuxRuntimes]);
-    }, 1_000);
+    ownTimer(
+        () => setInterval(() => {
+            const completedSessions = aiSessionTerminalService.getCompletedSessions();
+            const completedRuntimes = completedSessions.filter(resolution =>
+                !!resolution.entry.runtimeIdentity).map(resolution => ({
+                    identity: cloneAiSessionRuntimeIdentity(resolution.entry.runtimeIdentity),
+                    backend: 'vscode',
+                    state: 'completed',
+                    markerPath: resolution.entry.markerPath,
+                    runStartedAtMs: resolution.entry.runStartedAtMs,
+                    attached: true,
+                    terminal: resolution.terminal,
+                } as AiSessionRuntimeSnapshot<vscode.Terminal>));
+            const inactiveTmuxRuntimes = tmuxRuntimeDiscovery.getInactive()
+                .map(runtime => runtime as AiSessionRuntimeSnapshot<vscode.Terminal>);
+            queueAiSessionRuntimeSettlements([...completedRuntimes, ...inactiveTmuxRuntimes]);
+        }, 1_000),
+        handle => clearInterval(handle),
+    );
 
-    context.subscriptions.push(
-        vscode.window.registerWebviewViewProvider(SidebarStewardViewProvider.viewType, provider));
-    context.subscriptions.push(
+    ownResource(() =>
         vscode.window.onDidChangeActiveTerminal(() => {
             activeAiSessionTerminalHighlighter.sync();
             void tmuxFocusedRuntimeMonitor.request();
@@ -1680,7 +1855,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                 'evaluate-attention-active-terminal', evaluateAiSessionAttention
             );
         }));
-    context.subscriptions.push(
+    ownResource(() =>
         vscode.window.onDidCloseTerminal(terminal => {
             const closedRuntimes = aiSessionRuntimeCoordinator.getActive()
                 .filter(runtime => runtime.backend === 'vscode' && runtime.terminal === terminal
@@ -1715,26 +1890,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                 );
             }
         }));
-    context.subscriptions.push(activeAiSessionTerminalHighlighter);
-    context.subscriptions.push(tmuxFocusedRuntimeMonitor);
-    context.subscriptions.push(conversationCapability);
-    context.subscriptions.push(openWorkspaceBridgeClient);
-    context.subscriptions.push(aiSessionAttentionBridgeClient);
-    context.subscriptions.push({
-        dispose: () => {
-            aiSessionDashboardController.dispose();
-            clearInterval(aiSessionAttentionInterval);
-            clearInterval(aiSessionExecutionInterval);
-            clearInterval(aiSessionTerminalCompletionInterval);
-        }
-    });
 
     const stewardInfos: StewardInfos = {
         relevantExtensionsInstalls: {
             remoteSSH: false,
             remoteContainers: false,
         },
-        get config() { return getStewardConfiguration() },
+        get config() { return getAgentPivotConfiguration() },
         get otherStorageHasData() { return projectService.otherStorageHasData() },
         get favoritesGroupCollapsed() { return groupCollapseController.getFavoritesCollapsed() },
         get openWorkspacesGroupCollapsed() { return groupCollapseController.getOpenWorkspacesCollapsed() },
@@ -1757,6 +1919,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         stewardInfos,
         relevantExtensions: RelevantExtensions,
         isExtensionInstalled: extensionId => vscode.extensions.getExtension(extensionId) !== undefined,
+        assertActive: () => resources.assertActive(),
         migrateDataIfNeeded: async () => {
             const projectMigration = settleMigration(() => projectService.migrateDataIfNeeded());
             const todoMigration = settleMigration(() => todoService.migrateDataIfNeeded());
@@ -1769,7 +1932,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         showInformationMessage: message => vscode.window.showInformationMessage(message),
         showErrorMessage: message => vscode.window.showErrorMessage(message),
         logError,
-        showSteward,
+        showAgentPivot,
         applyProjectColorToCurrentWindow,
         getReopenReason: () => context.globalState.get(REOPEN_KEY),
         updateReopenReason: reason => context.globalState.update(REOPEN_KEY, reason),
@@ -1785,6 +1948,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         },
     });
     const dashboardLifecycleController = new DashboardLifecycleController({
+        prepareConfigurationChange: async event => {
+            if (event.affectsConfiguration(`${AGENT_PIVOT_CONFIG_SECTION}.aiSessionTerminalMode`)
+                || event.affectsConfiguration(`${AGENT_PIVOT_CONFIG_SECTION}.aiSessionTmuxLayout`)
+                || event.affectsConfiguration(`${AGENT_PIVOT_CONFIG_SECTION}.aiSessionTmuxPath`)) {
+                await handleAiSessionRuntimeConfigurationChanged();
+            }
+        },
         checkDataMigration: async openStewardAfterMigrate => {
             await dashboardStartupController.checkDataMigration(openStewardAfterMigrate);
         },
@@ -1804,6 +1974,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         evaluateAiSessionAttention: () => runSafeAiSessionRuntimeLifecycleTask(
             'evaluate-attention-window-state', evaluateAiSessionAttention
         ),
+        assertActive: () => resources.assertActive(),
+        logError,
     });
     const activeTerminalFileReferenceController = new ActiveTerminalFileReferenceController({
         getActiveTextEditor: () => vscode.window.activeTextEditor,
@@ -1824,7 +1996,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         showWarningMessage: message => vscode.window.showWarningMessage(message),
         showInformationMessage: async (message, action) => vscode.window.showInformationMessage(message, action),
         openAiPrompts: async () => {
-            await showSteward();
+            await showAgentPivot();
             await provider.postMessage({
                 type: 'select-dashboard-tab',
                 version: 1,
@@ -1834,41 +2006,40 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         },
     });
 
-    new DashboardCommandRegistration<vscode.Disposable>({
-        registerCommand: (command, callback) => vscode.commands.registerCommand(command, callback),
-        pushSubscription: disposable => context.subscriptions.push(disposable),
-        handlers: {
-            open: () => showSteward(),
-            addProject: () => projectMutationController.addProject(),
-            saveProject: () => savedWorkspaceProjectAdapter.saveCurrentWorkspace(),
-            removeProject: () => projectRemovalController.removeProjectPerCommand(),
-            editProjects: () => projectManualEditController.editProjectsManually(),
-            addGroup: () => groupCommandController.addGroup(),
-            removeGroup: () => groupCommandController.removeGroupPerCommand(),
-            addProjectsFromFolder: () => addProjectsFromFolderController.addProjectsFromFolder(),
-            addFileToActiveTerminal: () => activeTerminalFileReferenceController.addFileToActiveTerminal(),
-            insertPromptToActiveTerminal: () => promptTerminalCommandController.insertPromptToActiveTerminal(),
-        },
-    }).register();
+    const commandHandlers = {
+        open: () => showAgentPivot(),
+        addProject: () => projectMutationController.addProject(),
+        saveProject: () => savedWorkspaceProjectAdapter.saveCurrentWorkspace(),
+        removeProject: () => projectRemovalController.removeProjectPerCommand(),
+        editProjects: () => projectManualEditController.editProjectsManually(),
+        addGroup: () => groupCommandController.addGroup(),
+        removeGroup: () => groupCommandController.removeGroupPerCommand(),
+        addProjectsFromFolder: () => addProjectsFromFolderController.addProjectsFromFolder(),
+        addFileToActiveTerminal: () => activeTerminalFileReferenceController.addFileToActiveTerminal(),
+        insertPromptToActiveTerminal: () => promptTerminalCommandController.insertPromptToActiveTerminal(),
+    };
 
-    context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(async event => {
-        if (event.affectsConfiguration('projectSteward.aiSessionTerminalMode')
-            || event.affectsConfiguration('projectSteward.aiSessionTmuxLayout')
-            || event.affectsConfiguration('projectSteward.aiSessionTmuxPath')) {
-            await handleAiSessionRuntimeConfigurationChanged();
-        }
-        await dashboardLifecycleController.handleConfigurationChanged(event);
-    }));
+    ownResource(() => vscode.workspace.onDidChangeConfiguration(
+        event => dashboardLifecycleController.handleConfigurationChange(event)
+    ));
 
-    context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => {
+    ownResource(() => vscode.workspace.onDidChangeWorkspaceFolders(() => {
         dashboardLifecycleController.handleWorkspaceFoldersChanged();
     }));
 
-    context.subscriptions.push(vscode.window.onDidChangeWindowState(windowState => {
+    ownResource(() => vscode.window.onDidChangeWindowState(windowState => {
         dashboardLifecycleController.handleWindowStateChanged(windowState);
     }));
 
     await dashboardStartupController.startUp();
+    resources.assertActive();
+    if (!dashboardCommandRegistration.stage(bootstrapGeneration, commandHandlers)) {
+        throw new Error('Agent Pivot dashboard commands rejected the bootstrap generation.');
+    }
+    resources.own({
+        dispose: () => dashboardCommandRegistration.discard(bootstrapGeneration),
+    });
+    return providerOptions;
 
     // ~~~~~~~~~~~~~~~~~~~~~~~~~ Functions ~~~~~~~~~~~~~~~~~~~~~~~~~
     function logAiSessionRuntimeFailure(
@@ -1897,13 +2068,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (fallback.knownHint) {
             const directAction = 'Resume in VS Code Anyway';
             const choice = await vscode.window.showWarningMessage(
-                'Project Steward cannot verify the previous tmux runtime. Resuming in VS Code may start a duplicate AI process.',
+                'Agent Pivot cannot verify the previous tmux runtime. Resuming in VS Code may start a duplicate AI process.',
                 { modal: true },
                 directAction,
                 openSettingsAction
             );
             if (choice === openSettingsAction) {
-                await showProjectStewardSettings();
+                await showAgentPivotSettings();
                 return 'settings';
             }
             return choice === directAction ? 'direct-anyway' : 'cancel';
@@ -1911,19 +2082,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
         const directAction = 'Use VS Code Terminal This Time';
         const choice = await vscode.window.showWarningMessage(
-            'Project Steward cannot use tmux in this extension host.',
+            'Agent Pivot cannot use tmux in this extension host.',
             directAction,
             openSettingsAction
         );
         if (choice === openSettingsAction) {
-            await showProjectStewardSettings();
+            await showAgentPivotSettings();
             return 'settings';
         }
         return choice === directAction ? 'direct' : 'cancel';
     }
 
     async function handleAiSessionRuntimeConfigurationChanged(): Promise<void> {
-        const nextConfiguration = readAiSessionRuntimeConfiguration(getStewardConfiguration());
+        const nextConfiguration = readAiSessionRuntimeConfiguration(getAgentPivotConfiguration());
         const pathChanged = nextConfiguration.tmuxPath !== aiSessionRuntimeConfiguration.tmuxPath;
         aiSessionRuntimeConfiguration = nextConfiguration;
         // Reapplying the executable also clears the client's cached availability probe.
@@ -2087,7 +2258,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const currentCard = getOpenWorkspaceCards().find(candidate => candidate.kind === 'current');
         if (runtime.tmux?.layout === 'project') {
             return boundedAiSessionTmuxTitle(
-                `Project Steward: ${workspace?.displayName || 'AI Workspace'} [tmux]`
+                `Agent Pivot: ${workspace?.displayName || 'AI Workspace'} [tmux]`
             );
         }
         const sessionId = runtime.identity.sessionId;
@@ -2097,7 +2268,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             : undefined;
         return session
             ? boundedAiSessionTmuxTitle(
-                `Project Steward: ${getProviderAiSessionTerminalName(
+                `Agent Pivot: ${getProviderAiSessionTerminalName(
                     runtime.identity.provider, session, aiSessionProviders
                 )} [tmux]`
             )
@@ -2108,8 +2279,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return value.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 200);
     }
 
-    async function showSteward() {
-        await dashboardRuntimeController.showSteward();
+    async function showAgentPivot() {
+        await dashboardRuntimeController.showAgentPivot();
     }
 
     function getRegisteredAiSessionProvider(providerId: AiSessionProviderId): AiSessionProvider {
@@ -2182,7 +2353,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                 throw unsupportedVersionError;
             }
             const todoData = todoService.getData();
-            const config = getStewardConfiguration();
+            const config = getAgentPivotConfiguration();
             const todoRenderOptions = {
                 maxVisibleTodosPerGroup: getMaxVisibleTodosPerGroup(config),
             };
@@ -2257,7 +2428,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         dashboardRuntimeController.applyProjectColorToCurrentWindow(project);
     }
 
-    async function showProjectStewardSettings() {
+    async function showAgentPivotSettings() {
         await dashboardRuntimeController.openSettings();
     }
 
@@ -2320,6 +2491,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
 }
 
+}
 
 
 

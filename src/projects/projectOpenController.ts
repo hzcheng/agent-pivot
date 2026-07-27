@@ -3,10 +3,15 @@
 import * as path from 'path';
 import type * as vscode from 'vscode';
 
-import { SSH_REGEX, SSH_REMOTE_PREFIX, WSL_DEFAULT_REGEX } from '../constants';
+import { WSL_DEFAULT_REGEX } from '../constants';
 import { getRemoteType, Project, ProjectOpenType, ProjectPathType, ProjectRemoteType, ReopenStewardReason, sanitizeProjectName } from '../models';
 import { projectPathMatchesWorkspaceUri } from './openProjectMatcher';
 import { isUriString } from './openProjectService';
+import {
+    SAVED_PROJECT_NAVIGATE_COMMAND,
+    SAVED_PROJECT_NAVIGATION_PROTOCOL_VERSION,
+    validateSavedProjectNavigationOutcome,
+} from './projectNavigationProtocol';
 import { getWorkspaceUris } from './workspaceHelpers';
 
 export interface ProjectOpenControllerOptions {
@@ -33,7 +38,9 @@ export class ProjectOpenController {
         let remoteType = getRemoteType(project);
         let projectPath = (project.path || '').trim();
 
-        if (!path.isAbsolute(projectPath) && !projectPath.includes("://")) {
+        if (!path.isAbsolute(projectPath)
+            && !path.win32.isAbsolute(projectPath)
+            && !projectPath.includes("://")) {
             let rootPath = this.options.getWorkspaceFile()?.path || this.options.getWorkspaceFolders()?.[0]?.uri.path;
             if (rootPath) {
                 projectPath = path.join(rootPath, projectPath);
@@ -63,64 +70,29 @@ export class ProjectOpenController {
 
         var openInNewWindow = projectOpenType === ProjectOpenType.NewWindow;
 
-        let uri: vscode.Uri;
-        switch (remoteType) {
-            case ProjectRemoteType.None:
-                uri = isUriString(projectPath) ? this.options.parseUri(projectPath) : this.options.fileUri(projectPath);
-
-                if (projectOpenType === ProjectOpenType.AddToWorkspace) {
-                    await this.addToWorkspace(project, uri);
-                } else {
-                    await this.openFolderUri(uri, openInNewWindow);
-                }
-
-                break;
-            case ProjectRemoteType.SSH:
-                let sshUri = isUriString(projectPath) ? this.options.parseUri(projectPath) : null;
-                if (sshUri && sshUri.path && sshUri.path !== '/') {
-                    uri = this.options.parseUri(projectPath);
-                    await this.openFolderUri(uri, openInNewWindow);
-                } else {
-                    let remotePathMatch = projectPath.replace(SSH_REMOTE_PREFIX, '').match(SSH_REGEX);
-                    let remoteAuthority = sshUri ? decodeURIComponent(sshUri.authority) : projectPath.replace("vscode-remote://", "");
-                    let hasRemoteFolder = remotePathMatch && remotePathMatch.groups.folder !== null && remotePathMatch.groups.folder !== undefined;
-
-                    if (hasRemoteFolder) {
-                        uri = this.options.parseUri(projectPath);
-                        await this.openFolderUri(uri, openInNewWindow);
-                        break;
-                    }
-
-                    await this.options.executeCommand("vscode.newWindow", {
-                        remoteAuthority,
-                        reuseWindow: !openInNewWindow,
-                    });
-                }
-                break;
-            case ProjectRemoteType.WSL:
-                if (this.options.getPrependVscodeUrlToWslRemotes() && projectPath.match(WSL_DEFAULT_REGEX)) {
-                    projectPath = `vscode-remote://wsl+${projectPath.replace(WSL_DEFAULT_REGEX, '')}`;
-                }
-
-                uri = this.options.parseUri(projectPath);
-
-                await this.openFolderUri(uri, openInNewWindow);
-                break;
-            case ProjectRemoteType.DevContainer:
-            case ProjectRemoteType.Remote:
-                uri = this.options.parseUri(projectPath);
-
-                await this.openFolderUri(uri, openInNewWindow);
-                break;
+        if (projectOpenType === ProjectOpenType.AddToWorkspace && remoteType === ProjectRemoteType.None) {
+            const uri = isUriString(projectPath)
+                ? this.options.parseUri(projectPath)
+                : this.options.fileUri(projectPath);
+            await this.addToWorkspace(project, uri);
+            return;
         }
-    }
 
-    private async openFolderUri(uri: vscode.Uri, openInNewWindow: boolean): Promise<void> {
-        let options = openInNewWindow
-            ? { forceNewWindow: true }
-            : { forceReuseWindow: true };
+        if (remoteType === ProjectRemoteType.WSL
+            && this.options.getPrependVscodeUrlToWslRemotes()
+            && projectPath.match(WSL_DEFAULT_REGEX)) {
+            projectPath = `vscode-remote://wsl+${projectPath.replace(WSL_DEFAULT_REGEX, '')}`;
+        }
 
-        await this.options.executeCommand("vscode.openFolder", uri, options);
+        validateSavedProjectNavigationOutcome(await this.options.executeCommand(
+            SAVED_PROJECT_NAVIGATE_COMMAND,
+            {
+                protocolVersion: SAVED_PROJECT_NAVIGATION_PROTOCOL_VERSION,
+                projectPath,
+                remoteType,
+                openInNewWindow,
+            },
+        ));
     }
 
     private projectPathMatchesCurrentWorkspace(projectPath: string): boolean {

@@ -1,10 +1,10 @@
-# Project Steward Optimization Plan
+# Agent Pivot Optimization Plan
 
-This document describes the optimization plan for Project Steward after the 1.1.4 release. It focuses on performance, maintainability, AI session extensibility, and future product velocity.
+This document describes the optimization plan for Agent Pivot after the 1.1.4 release. It focuses on performance, maintainability, AI session extensibility, and future product velocity.
 
 ## Background
 
-Project Steward has evolved from a project dashboard into a sidebar-first project hub with local, SSH, Dev Container, Codespaces, and AI session workflows. Recent releases added Codex, Kimi, and Claude session discovery, session terminal resume, session pinning, aliases, context menus, sticky sidebar groups, and GitHub release automation.
+Agent Pivot has evolved from a project dashboard into a sidebar-first project hub with local, SSH, Dev Container, Codespaces, and AI session workflows. Recent releases added Codex, Kimi, and Claude session discovery, session terminal resume, session pinning, aliases, context menus, sticky sidebar groups, and GitHub release automation.
 
 The feature set is now useful, but the implementation has accumulated several pressure points:
 
@@ -91,7 +91,7 @@ But the common contract is implicit. Provider behavior is wired together manuall
 
 ### Current Behavior
 
-`SidebarStewardViewProvider.refresh()` rebuilds the entire webview:
+`AgentPivotViewProvider.refresh()` rebuilds the entire webview:
 
 ```ts
 this._view.webview.html = getStewardContent(...)
@@ -281,7 +281,7 @@ const provider = getAiSessionProvider(providerId);
 
 Owns:
 
-- `SidebarStewardViewProvider`
+- `AgentPivotViewProvider`
 - webview lifecycle
 - full refresh
 - partial postMessage helpers

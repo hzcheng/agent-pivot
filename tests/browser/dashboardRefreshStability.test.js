@@ -73,10 +73,10 @@ test('WEBVIEW-PROJECTS-PANEL-SCROLL-001 and TODO-AUTHORITATIVE-REFRESH-STATE-001
         const list = document.querySelector('#list');
         list.scrollTop = 60;
         return {
-            namespaceType: typeof window.__projectStewardScrollState,
-            captureType: typeof window.__projectStewardScrollState?.capture,
-            restoreType: typeof window.__projectStewardScrollState?.restore,
-            anchor: window.__projectStewardScrollState?.capture(list, {
+            namespaceType: typeof window.__agentPivotScrollState,
+            captureType: typeof window.__agentPivotScrollState?.capture,
+            restoreType: typeof window.__agentPivotScrollState?.restore,
+            anchor: window.__agentPivotScrollState?.capture(list, {
                 itemSelector: '[data-id]',
                 getKey: item => item.dataset.id,
                 endThreshold: 0,
@@ -93,7 +93,7 @@ test('WEBVIEW-PROJECTS-PANEL-SCROLL-001 and TODO-AUTHORITATIVE-REFRESH-STATE-001
         const beforeOffset = document.querySelector('[data-id="b"]').getBoundingClientRect().top
             - list.getBoundingClientRect().top;
         list.insertAdjacentHTML('afterbegin', '<div data-id="inserted" style="height:50px"></div>');
-        const restored = window.__projectStewardScrollState.restore(list, anchor, {
+        const restored = window.__agentPivotScrollState.restore(list, anchor, {
             itemSelector: '[data-id]',
             getKey: item => item.dataset.id,
         });
@@ -110,7 +110,7 @@ test('WEBVIEW-PROJECTS-PANEL-SCROLL-001 and TODO-AUTHORITATIVE-REFRESH-STATE-001
             + '<div data-id="c" style="height:50px"></div>'
             + '<div data-id="d" style="height:50px"></div>';
         return {
-            restored: window.__projectStewardScrollState.restore(list, {
+            restored: window.__agentPivotScrollState.restore(list, {
                 scrollTop: 999,
                 itemKey: 'removed',
                 itemOffset: 0,

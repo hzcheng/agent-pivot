@@ -6,9 +6,9 @@
 
 ## 1. 背景
 
-Project Steward 已经通过 `OPEN` 和 `PROJECTS` 两个 Tab 分别承载当前工作状态和静态项目库。用户在使用 Codex、Claude、Kimi CLI 做较大任务时，常常需要一份跨窗口、跨机器可同步的规划清单，用来拆解后续工作、记录优先级和保留任务备注。
+Agent Pivot 已经通过 `OPEN` 和 `PROJECTS` 两个 Tab 分别承载当前工作状态和静态项目库。用户在使用 Codex、Claude、Kimi CLI 做较大任务时，常常需要一份跨窗口、跨机器可同步的规划清单，用来拆解后续工作、记录优先级和保留任务备注。
 
-当前插件没有专门的全局规划区。项目卡片和 AI session 更适合表达“项目”和“对话”，不适合承载长期、跨项目的待办规划。本功能在现有 Dashboard 中新增第三个 `TODO` Tab，用于管理 Project Steward 级别的全局 TODO 列表。
+当前插件没有专门的全局规划区。项目卡片和 AI session 更适合表达“项目”和“对话”，不适合承载长期、跨项目的待办规划。本功能在现有 Dashboard 中新增第三个 `TODO` Tab，用于管理 Agent Pivot 级别的全局 TODO 列表。
 
 ## 2. 目标
 
@@ -16,7 +16,7 @@ Project Steward 已经通过 `OPEN` 和 `PROJECTS` 两个 Tab 分别承载当前
 - 提供一个全局 TODO 列表，不绑定具体项目。
 - 支持较大的规划清单：分组、任务、备注、优先级、完成状态和排序。
 - 在侧边栏内完成主要编辑操作，不依赖命令面板或手动 JSON 编辑。
-- TODO 数据跟随现有 Project Steward 存储策略跨机器同步。
+- TODO 数据跟随现有 Agent Pivot 存储策略跨机器同步。
 - 保持第一版简单可靠，不引入复杂协作或冲突合并模型。
 
 ## 3. 非目标
@@ -43,7 +43,7 @@ Project Steward 已经通过 `OPEN` 和 `PROJECTS` 两个 Tab 分别承载当前
 | `PROJECTS` | 我保存了哪些项目，下一步要打开哪个？ | 静态、长期、项目资产 |
 | `TODO` | 我全局规划了哪些任务，下一步先做什么？ | 静态、长期、任务规划 |
 
-`TODO` 是 Project Steward 的全局规划清单，而不是某个项目的任务视图。
+`TODO` 是 Agent Pivot 的全局规划清单，而不是某个项目的任务视图。
 
 ## 5. 页面入口
 
@@ -116,7 +116,7 @@ interface TodoItem {
 
 ## 7. 存储和同步
 
-TODO 数据跟随现有 `projectSteward.storeProjectsInSettings` 设置：
+TODO 数据跟随现有 `agentPivot.storeProjectsInSettings` 设置：
 
 | `storeProjectsInSettings` | TODO 存储位置 | 是否跨机器同步 |
 | --- | --- | --- |
@@ -126,12 +126,12 @@ TODO 数据跟随现有 `projectSteward.storeProjectsInSettings` 设置：
 第一版新增独立数据 key，例如：
 
 ```text
-projectSteward.todoData
+agentPivot.todoData
 ```
 
-本功能不新增独立的 `storeTodosInSettings` 设置。这样可以保持 Project Steward 数据的同步行为一致：用户选择同步项目数据时，也同步全局 TODO；用户选择本机项目数据时，TODO 也留在本机。
+本功能不新增独立的 `storeTodosInSettings` 设置。这样可以保持 Agent Pivot 数据的同步行为一致：用户选择同步项目数据时，也同步全局 TODO；用户选择本机项目数据时，TODO 也留在本机。
 
-完成项显示开关不属于 TODO 数据本身。`showCompleted` 是本窗口或本机的视图状态，不写入 `projectSteward.todoData`，也不随 Settings Sync 跨机器同步。这样一台机器临时查看完成项，不会改变其他机器的 TODO 展示状态。
+完成项显示开关不属于 TODO 数据本身。`showCompleted` 是本窗口或本机的视图状态，不写入 `agentPivot.todoData`，也不随 Settings Sync 跨机器同步。这样一台机器临时查看完成项，不会改变其他机器的 TODO 展示状态。
 
 ### 7.1 冲突策略
 
@@ -454,7 +454,7 @@ interface TodoViewState {
 
 ### 17.2 PROJECTS 存储策略
 
-- TODO 存储跟随 `projectSteward.storeProjectsInSettings`。
+- TODO 存储跟随 `agentPivot.storeProjectsInSettings`。
 - 如果项目数据迁移逻辑在 globalState/settings 间迁移，TODO 也应有同类迁移或复制策略。
 - 不把 TODO 写进现有 `projectData`，避免污染项目组数据。
 
@@ -495,5 +495,5 @@ PRD 阶段不写实现计划，但第一版至少需要覆盖：
 - 用户可以用分组和优先级管理较大的 TODO 列表。
 - 完成项默认不干扰当前规划，但可以随时查看。
 - TODO 不绑定项目，不改变 `OPEN` 和 `PROJECTS` 的语义。
-- 数据存储行为与 Project Steward 现有同步设置一致。
+- 数据存储行为与 Agent Pivot 现有同步设置一致。
 - 初始 Dashboard 体验不因 TODO 功能明显变慢。

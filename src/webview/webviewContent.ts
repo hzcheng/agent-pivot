@@ -203,7 +203,7 @@ export function getStewardContent(
             /* Custom CSS from configuration */
             ${customCss}
         </style>
-        <title>Project Steward</title>
+        <title>Agent Pivot</title>
         ${getCustomStyle(infos.config)}
     </head>
     <body class="preload ${isSidebar ? 'steward-sidebar' : ''} ${!groups.length ? 'steward-empty' : ''} ${allGroupsCollapsed ? 'steward-all-collapsed' : ''}">
@@ -218,7 +218,7 @@ export function getStewardContent(
                     <span class="toggle-all-groups-collapse-icon">${Icons.collapseAll}</span>
                     <span class="toggle-all-groups-expand-icon">${Icons.expandAll}</span>
                 </button>
-                <button type="button" class="settings-button" data-action="open-settings" title="Project Steward Settings" aria-label="Project Steward Settings">
+                <button type="button" class="settings-button" data-action="open-settings" title="Agent Pivot Settings" aria-label="Agent Pivot Settings">
                     ${Icons.settings}
                 </button>
             </div>
@@ -296,8 +296,8 @@ export function getStewardContent(
                 const todos = initTodos({
                     postMessage: message => window.vscode.postMessage(message),
                     replaceSearchCatalog: catalog => {
-                        if (window.__projectStewardDashboard) {
-                            window.__projectStewardDashboard.replaceSearchCatalog(catalog);
+                        if (window.__agentPivotDashboard) {
+                            window.__agentPivotDashboard.replaceSearchCatalog(catalog);
                         }
                     },
                     onRendered: panel => {
@@ -313,16 +313,16 @@ export function getStewardContent(
                         fitProjectHeaders(panel);
                         disposeDnD(panel);
                         initDnD(panel);
-                        window.__projectStewardSyncCollapseButton();
+                        window.__agentPivotSyncCollapseButton();
                     },
                     onTodoMounted: (panel, message) => {
                         todos.mount(panel, message.snapshot);
-                        window.__projectStewardSyncCollapseButton();
+                        window.__agentPivotSyncCollapseButton();
                     },
                     onTodoRefresh: (_panel, message) => todos.applyRefresh(message.snapshot),
-                    onActiveTabChanged: () => window.__projectStewardSyncCollapseButton(),
+                    onActiveTabChanged: () => window.__agentPivotSyncCollapseButton(),
                 });
-                window.__projectStewardDashboard = dashboard;
+                window.__agentPivotDashboard = dashboard;
                 fitProjectHeaders(document.getElementById('dashboard-tab-open'));
                 filtering = initFiltering(${infos.config.searchIsActiveByDefault}, dashboard);
                 filtering.apply();
@@ -374,12 +374,12 @@ export function getOpenWorkspacesGroupContent(
     }
     const statusContent = otherWindowsStatus === 'update-required'
         ? `<div class="open-other-windows-state" role="status">
-            <p>Update the Project Steward UI Bridge extension to restore OTHER WINDOWS.</p>
+            <p>Update the Agent Pivot UI Bridge extension to restore OTHER WINDOWS.</p>
             <button type="button" class="project-action" data-action="open-bridge-extension">Show UI Bridge Extension</button>
         </div>`
         : otherWindowsStatus === 'unavailable'
             ? `<div class="open-other-windows-state" role="status">
-                <p>OTHER WINDOWS is temporarily unavailable. Project Steward will retry automatically.</p>
+                <p>OTHER WINDOWS is temporarily unavailable. Agent Pivot will retry automatically.</p>
             </div>`
             : navigationCards.map(card => getWorkspaceCardDiv(card, runningCardAnimation, runningIconAnimation)).join('\n');
     const otherWindowsCollapsed = otherWindowsStatus === 'ready' && collapsed;
@@ -1266,7 +1266,7 @@ function getImportDiv() {
     return `
 <div class="project-container">
     <div class="project no-projects import-data" data-action="import-from-other-storage" data-nodrag>
-        Project Steward is empty, but there are projects in your other storage.
+        Agent Pivot is empty, but there are projects in your other storage.
         <br/>
         This can happen if the storage option has been changed on a different device that is synced via Settings Sync.
         <p>Click here to import.</p>

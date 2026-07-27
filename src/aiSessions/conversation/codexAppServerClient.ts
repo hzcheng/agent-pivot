@@ -80,7 +80,7 @@ const RESTART_DELAYS_MS = [1_000, 4_000] as const;
 const INITIALIZE_PARAMS = Object.freeze({
     clientInfo: Object.freeze({
         name: 'project_steward',
-        title: 'Project Steward',
+        title: 'Agent Pivot',
         version: '2.1.6',
     }),
 });

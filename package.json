@@ -1,8 +1,8 @@
 {
-    "name": "project-steward",
-    "displayName": "Project Steward",
-    "description": "Manage each local, SSH, WSL, or Dev Container workspace as one live card with workspace-scoped AI sessions.",
-    "version": "2.1.8",
+    "name": "agent-pivot",
+    "displayName": "Agent Pivot",
+    "description": "Switch, monitor, and resume Codex, Claude, and Kimi sessions across VS Code workspaces.",
+    "version": "1.0.0",
     "publisher": "hzcheng",
     "license": "MIT",
     "icon": "media/extension_icon.png",
@@ -14,7 +14,7 @@
         "ui"
     ],
     "extensionDependencies": [
-        "hzcheng.project-steward-attention-ui-bridge"
+        "hzcheng.agent-pivot-attention-ui-bridge"
     ],
     "categories": [
         "Other"
@@ -25,8 +25,21 @@
     "main": "./dist/dashboard",
     "repository": {
         "type": "git",
-        "url": "https://github.com/hzcheng/project-steward.git"
+        "url": "https://github.com/hzcheng/agent-pivot.git"
     },
+    "homepage": "https://github.com/hzcheng/agent-pivot#readme",
+    "bugs": {
+        "url": "https://github.com/hzcheng/agent-pivot/issues"
+    },
+    "keywords": [
+        "agent",
+        "codex",
+        "claude",
+        "kimi",
+        "session manager",
+        "workspace",
+        "tmux"
+    ],
     "capabilities": {
         "untrustedWorkspaces": {
             "supported": true
@@ -35,86 +48,86 @@
     "contributes": {
         "commands": [
             {
-                "command": "projectSteward.open",
-                "title": "Project Steward: Open"
+                "command": "agentPivot.open",
+                "title": "Agent Pivot: Open"
             },
             {
-                "command": "projectSteward.addGroup",
-                "title": "Project Steward: Add Group"
+                "command": "agentPivot.addGroup",
+                "title": "Agent Pivot: Add Group"
             },
             {
-                "command": "projectSteward.removeGroup",
-                "title": "Project Steward: Remove Group"
+                "command": "agentPivot.removeGroup",
+                "title": "Agent Pivot: Remove Group"
             },
             {
-                "command": "projectSteward.addProject",
-                "title": "Project Steward: Add Project"
+                "command": "agentPivot.addProject",
+                "title": "Agent Pivot: Add Project"
             },
             {
-                "command": "projectSteward.saveProject",
-                "title": "Project Steward: Save Project"
+                "command": "agentPivot.saveProject",
+                "title": "Agent Pivot: Save Project"
             },
             {
-                "command": "projectSteward.removeProject",
-                "title": "Project Steward: Remove Project"
+                "command": "agentPivot.removeProject",
+                "title": "Agent Pivot: Remove Project"
             },
             {
-                "command": "projectSteward.editProjects",
-                "title": "Project Steward: Edit Projects"
+                "command": "agentPivot.editProjects",
+                "title": "Agent Pivot: Edit Projects"
             },
             {
-                "command": "projectSteward.addProjectsFromFolder",
-                "title": "Project Steward: Add Projects from Folder"
+                "command": "agentPivot.addProjectsFromFolder",
+                "title": "Agent Pivot: Add Projects from Folder"
             },
             {
-                "command": "projectSteward.addFileToActiveTerminal",
-                "title": "Project Steward: Add File to Active Terminal"
+                "command": "agentPivot.addFileToActiveTerminal",
+                "title": "Agent Pivot: Add File to Active Terminal"
             },
             {
-                "command": "projectSteward.insertPromptToActiveTerminal",
-                "title": "Project Steward: Insert Prompt into Active Terminal"
+                "command": "agentPivot.insertPromptToActiveTerminal",
+                "title": "Agent Pivot: Insert Prompt into Active Terminal"
             }
         ],
         "keybindings": [
             {
-                "command": "projectSteward.open",
+                "command": "agentPivot.open",
                 "key": "ctrl+f1",
                 "mac": "cmd+f1"
             }
         ],
         "configuration": {
             "type": "object",
-            "title": "Project Steward",
+            "title": "Agent Pivot",
             "properties": {
-                "projectSteward.projectData": {
+                "agentPivot.projectData": {
                     "type": [
                         "array",
                         "null"
                     ],
-                    "markdownDescription": "Stores the Project Steward data if the ```projectSteward.storeProjectsInSettings``` option is set to ```true```. The raw data can be edited by using the command ```Project Steward: Edit Projects```.",
+                    "markdownDescription": "Stores the Agent Pivot data if the ```agentPivot.storeProjectsInSettings``` option is set to ```true```. The raw data can be edited by using the command ```Agent Pivot: Edit Projects```.",
                     "default": null
                 },
-                "projectSteward.projectSyncData": {
+                "agentPivot.projectSyncData": {
                     "type": [
                         "object",
                         "null"
                     ],
-                    "markdownDescription": "Versioned Project Steward sync metadata. Use Project Steward commands to edit projects.",
+                    "markdownDescription": "Versioned Agent Pivot sync metadata. Use Agent Pivot commands to edit projects.",
                     "default": null
                 },
-                "projectSteward.todoData": {
+                "agentPivot.todoData": {
                     "type": [
                         "object",
                         "null"
                     ],
-                    "markdownDescription": "Stores the global Project Steward TODO list if the ```projectSteward.storeProjectsInSettings``` option is set to ```true```.",
+                    "markdownDescription": "Stores the global Agent Pivot TODO list if the ```agentPivot.storeProjectsInSettings``` option is set to ```true```.",
                     "default": null
                 },
-                "projectSteward.promptData": {
+                "agentPivot.promptData": {
                     "type": "object",
                     "scope": "application",
-                    "markdownDescription": "Legacy Prompt library storage. Project Steward migrates this value into synchronized extension state. Do not store credentials or other secrets in Prompts.",
-                    "deprecationMessage": "Prompt data is now stored in synchronized Project Steward extension state. This setting is retained only for migration.",
+                    "markdownDescription": "Legacy Prompt library storage. Agent Pivot migrates this value into synchronized extension state. Do not store credentials or other secrets in Prompts.",
+                    "deprecationMessage": "Prompt data is now stored in synchronized Agent Pivot extension state. This setting is retained only for migration.",
                     "default": {
                         "version": 1,
                         "revision": 0,
@@ -142,32 +155,32 @@
                         }
                     }
                 },
-                "projectSteward.searchIsActiveByDefault": {
+                "agentPivot.searchIsActiveByDefault": {
                     "type": "boolean",
                     "default": true
                 },
-                "projectSteward.customCss": {
+                "agentPivot.customCss": {
                     "type": "string",
-                    "markdownDescription": "Custom CSS rules to be injected into the Project Steward can be placed here. Note that this will not be sanitized!",
+                    "markdownDescription": "Custom CSS rules to be injected into the Agent Pivot can be placed here. Note that this will not be sanitized!",
                     "default": null
                 },
-                "projectSteward.recentColors": {
+                "agentPivot.recentColors": {
                     "type": "array",
-                    "markdownDescription": "Stores the recently used colors if the ```projectSteward.storeProjectsInSettings``` option is set to ```true```.",
+                    "markdownDescription": "Stores the recently used colors if the ```agentPivot.storeProjectsInSettings``` option is set to ```true```.",
                     "default": null
                 },
-                "projectSteward.storeProjectsInSettings": {
+                "agentPivot.storeProjectsInSettings": {
                     "type": "boolean",
                     "default": true,
-                    "markdownDescription": "If set to ```true```, the Project Steward data is saved in the user settings and can be synced using the ```Settings Sync``` extension to multiple devices. NOTE: This disables the possibility of having varying Project Steward data on these devices. **(VSCode restart required)**"
+                    "markdownDescription": "If set to ```true```, the Agent Pivot data is saved in the user settings and can be synced using the ```Settings Sync``` extension to multiple devices. NOTE: This disables the possibility of having varying Agent Pivot data on these devices. **(VSCode restart required)**"
                 },
-                "projectSteward.maxVisibleAiSessions": {
+                "agentPivot.maxVisibleAiSessions": {
                     "type": "number",
                     "default": 3,
                     "minimum": 1,
                     "markdownDescription": "Maximum number of AI session rows visible in an expanded project card before the session list scrolls."
                 },
-                "projectSteward.aiSessionTerminalMode": {
+                "agentPivot.aiSessionTerminalMode": {
                     "type": "string",
                     "enum": [
                         "vscode",
@@ -177,13 +190,13 @@
                     "scope": "machine",
                     "description": "Choose whether new AI sessions run in VS Code terminals or managed tmux sessions. tmux preserves a process only while its execution host remains awake and running."
                 },
-                "projectSteward.aiSessionYoloMode": {
+                "agentPivot.aiSessionYoloMode": {
                     "type": "boolean",
                     "default": false,
                     "scope": "machine",
                     "description": "Bypass provider approval and sandbox protections for newly created and resumed AI session processes. This is dangerous and does not change already running sessions."
                 },
-                "projectSteward.aiSessionTmuxLayout": {
+                "agentPivot.aiSessionTmuxLayout": {
                     "type": "string",
                     "enum": [
                         "project",
@@ -197,13 +210,13 @@
                     "scope": "machine",
                     "description": "Choose how managed tmux sessions are organized."
                 },
-                "projectSteward.aiSessionTmuxPath": {
+                "agentPivot.aiSessionTmuxPath": {
                     "type": "string",
                     "default": "tmux",
                     "scope": "machine",
                     "description": "Executable name resolved through the current extension host's PATH, or an absolute executable path. Enter one executable only, without additional tmux arguments or a shell command."
                 },
-                "projectSteward.aiSessionRunningCardAnimation": {
+                "agentPivot.aiSessionRunningCardAnimation": {
                     "type": "string",
                     "enum": [
                         "current",
@@ -239,7 +252,7 @@
                     "scope": "machine",
                     "description": "Animation shown on a workspace card while one or more AI sessions are executing. OTHER WINDOWS uses only its existing aggregate running state and does not expose provider or session identities."
                 },
-                "projectSteward.aiSessionRunningIconAnimation": {
+                "agentPivot.aiSessionRunningIconAnimation": {
                     "type": "string",
                     "enum": [
                         "current",
@@ -267,41 +280,41 @@
                     "scope": "machine",
                     "description": "Animation shown on the icon of an Active Session row while that session is executing."
                 },
-                "projectSteward.maxVisibleTodosPerGroup": {
+                "agentPivot.maxVisibleTodosPerGroup": {
                     "type": "number",
                     "default": 5,
                     "minimum": 1,
                     "markdownDescription": "Maximum number of TODO cards visible in each group before the group list scrolls."
                 },
-                "projectSteward.maxVisibleProjectsPerGroup": {
+                "agentPivot.maxVisibleProjectsPerGroup": {
                     "type": "number",
                     "default": 5,
                     "minimum": 1,
                     "markdownDescription": "Maximum number of project cards visible in each group on the Projects tab before the group list scrolls."
                 },
-                "projectSteward.aiSessionAttention.enabled": {
+                "agentPivot.aiSessionAttention.enabled": {
                     "type": "boolean",
                     "default": true,
-                    "description": "Show attention indicators when Project Steward AI sessions finish or may need input."
+                    "description": "Show attention indicators when Agent Pivot AI sessions finish or may need input."
                 },
-                "projectSteward.displayProjectPath": {
+                "agentPivot.displayProjectPath": {
                     "type": "boolean",
                     "default": true
                 },
-                "projectSteward.prependVscodeUrlToWslRemotes": {
+                "agentPivot.prependVscodeUrlToWslRemotes": {
                     "type": "boolean",
                     "default": true
                 },
-                "projectSteward.projectTileWidth": {
+                "agentPivot.projectTileWidth": {
                     "description": "In px, default: 350",
                     "type": "number",
                     "default": 350
                 },
-                "projectSteward.recentColorsToRemember": {
+                "agentPivot.recentColorsToRemember": {
                     "type": "number",
                     "default": 15
                 },
-                "projectSteward.openOnStartup": {
+                "agentPivot.openOnStartup": {
                     "type": "string",
                     "default": "empty workspace",
                     "markdownDescription": "Note: The ```empty workspace``` option takes only effect if [Workbench: Startup Editor](#workbench.startupEditor) is to ```none``` or a ```welcomePage``` option.",
@@ -311,54 +324,54 @@
                         "never"
                     ]
                 },
-                "projectSteward.showAddGroupButtonTile": {
+                "agentPivot.showAddGroupButtonTile": {
                     "type": "boolean",
-                    "markdownDescription": "If set to ```false```, the '+ New Group' tile is hidden. Groups can be added by using the Command Palette (default ```F1```) with 'Project Steward: Add Group' action. The Project Steward needs to be refreshed for the changes to take effect.",
+                    "markdownDescription": "If set to ```false```, the '+ New Group' tile is hidden. Groups can be added by using the Command Palette (default ```F1```) with 'Agent Pivot: Add Group' action. The Agent Pivot needs to be refreshed for the changes to take effect.",
                     "default": true
                 },
-                "projectSteward.customProjectCardBackground": {
+                "agentPivot.customProjectCardBackground": {
                     "type": "string",
                     "default": null
                 },
-                "projectSteward.customProjectNameColor": {
+                "agentPivot.customProjectNameColor": {
                     "type": "string",
                     "default": null
                 },
-                "projectSteward.customProjectPathColor": {
+                "agentPivot.customProjectPathColor": {
                     "type": "string",
                     "default": null
                 },
-                "projectSteward.applyProjectColorToWindow": {
+                "agentPivot.applyProjectColorToWindow": {
                     "type": "boolean",
                     "default": false,
-                    "markdownDescription": "If set to ```true```, Project Steward applies the saved project color to the current VS Code window by writing workspace ```workbench.colorCustomizations``` values for title bar, activity bar, and status bar."
+                    "markdownDescription": "If set to ```true```, Agent Pivot applies the saved project color to the current VS Code window by writing workspace ```workbench.colorCustomizations``` values for title bar, activity bar, and status bar."
                 }
             }
         },
         "views": {
-            "project-steward": [
+            "agentPivot": [
                 {
                     "type": "webview",
-                    "id": "projectSteward.steward",
-                    "name": "Project Steward",
+                    "id": "agentPivot.dashboard",
+                    "name": "Agent Pivot",
                     "icon": "media/icon.svg",
                     "visibility": "visible",
-                    "contextualTitle": "Project Steward"
+                    "contextualTitle": "Agent Pivot"
                 }
             ]
         },
         "viewsContainers": {
             "activitybar": [
                 {
-                    "id": "project-steward",
-                    "title": "Project Steward",
+                    "id": "agentPivot",
+                    "title": "Agent Pivot",
                     "icon": "media/icon.svg"
                 }
             ]
         }
     },
     "scripts": {
-        "vscode:prepublish": "webpack --mode production && npx gulp --production",
+        "vscode:prepublish": "npm run brand:verify && npm run brand:check && webpack --mode production && npx gulp --production",
         "webpack": "webpack --mode development",
         "webpack-dev": "webpack --mode development --watch",
         "test-compile": "node scripts/clean-test-build.js && tsc -p ./ && npm run attention:bridge:compile",
@@ -389,7 +402,10 @@
         "test:conversation-performance": "node scripts/run-conversation-performance-checks.js",
         "test:conversation-sources:remote": "node --test tests/platform/remote/conversationSources.test.js",
         "test:extension-host": "npm run vscode:prepublish && npm run attention:bridge:bundle && node scripts/run-extension-host-tests.js",
-    "test:ci:linux": "npm run test-compile && npm run test:behavior-contracts && npm run lint:ci && npm run test:deterministic:run && npm run test:conversation-sources:remote && npm run test:conversation-performance && npm run test:browser:run && npm run test:safety:run && npm run test:dashboard:run && npm run test:architecture-baseline && npm run test:architecture-guards && npm run test:release-notes && npm run test:release-packaging && npm run vscode:prepublish && npm run test:coverage:run && node scripts/check-coverage-baseline.js",
+    "test:ci:linux": "npm run test-compile && npm run brand:verify && npm run brand:check && npm run test:behavior-contracts && npm run lint:ci && npm run test:deterministic:run && npm run test:conversation-sources:remote && npm run test:conversation-performance && npm run test:browser:run && npm run test:safety:run && npm run test:dashboard:run && npm run test:architecture-baseline && npm run test:architecture-guards && npm run test:release-notes && npm run test:release-packaging && npm run vscode:prepublish && npm run test:coverage:run && node scripts/check-coverage-baseline.js",
+        "brand:check": "node scripts/check-brand-identity.js",
+        "brand:generate": "node scripts/generate-brand-assets.js",
+        "brand:verify": "node scripts/generate-brand-assets.js --check",
         "test:ci:windows": "npm run test-compile && node --test tests/unit/projects/projectPathUtils.test.js tests/unit/aiSessions/commandBuilders.test.js tests/platform/windows/commandBuilders.test.js tests/platform/windows/projectPaths.test.js tests/platform/windows/conversationSources.test.js",
         "spike:attention:compile": "tsc -p spikes/attention-local-bridge/tsconfig.json",
         "spike:attention:test": "npm run spike:attention:compile && npm run attention:bridge:compile && node scripts/run-attention-local-bridge-spike-checks.js",
@@ -418,6 +434,7 @@
         "js-yaml": "3.14.0",
         "playwright-chromium": "1.61.1",
         "sass": "^1.56.0",
+        "sharp": "0.35.3",
         "ts-loader": "^6.2.2",
         "tslint": "^6.1.3",
         "typescript": "^4.0.5",

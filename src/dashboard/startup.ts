@@ -10,7 +10,7 @@ export interface ShouldOpenStewardOnStartupInput {
     reopenNoneValue?: unknown;
 }
 
-export function shouldOpenStewardOnStartup(input: ShouldOpenStewardOnStartupInput): boolean {
+export function shouldOpenAgentPivotOnStartup(input: ShouldOpenStewardOnStartupInput): boolean {
     const reopenNoneValue = input.reopenNoneValue === undefined ? 0 : input.reopenNoneValue;
     const reopenReason = input.reopenReason === undefined ? reopenNoneValue : input.reopenReason;
     if (reopenReason !== reopenNoneValue) {

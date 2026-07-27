@@ -1,13 +1,13 @@
 ---
 name: resilient-webview-mutation-protocols
-description: Use when VS Code Webviews submit Host-owned mutations or authoritative HTML replacement, mirrored persistence, stale acknowledgements, stuck pending UI, focus loss, or partial batch failures are in scope.
+description: Use when Agent Pivot VS Code Webviews submit Host-owned mutations or authoritative HTML replacement, mirrored persistence, stale acknowledgements, stuck pending UI, focus loss, or partial batch failures are in scope.
 ---
 
 # Resilient Webview Mutation Protocols
 
 ## Overview
 
-Treat a Webview mutation as one correlated lifecycle across protocol, Host
+Treat an Agent Pivot Webview mutation as one correlated lifecycle across protocol, Host
 persistence, authoritative DOM replacement, and UI recovery. Keep the Host
 authoritative; let the Webview submit intent and display only transient pending
 state until authoritative state is applied.

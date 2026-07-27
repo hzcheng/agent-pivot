@@ -1,6 +1,23 @@
 # Change Log
 
-All notable changes to the "Project Steward" extension will be documented in this file. It follows the [Keep a Changelog](http://keepachangelog.com/) recommendations.
+All notable changes to the "Agent Pivot" extension will be documented in this file. It follows the [Keep a Changelog](http://keepachangelog.com/) recommendations.
+
+## [1.0.0] - 2026-07-26
+
+### Added
+
+- Established the Agent Pivot identity and original Pure Axis icon system.
+- Added a cross-workspace command center for Codex, Claude, and Kimi sessions.
+- Added active-session monitoring, user-input conversation outlines, and
+  in-editor conversation navigation.
+- Added project, prompt, todo, and workspace switching workflows.
+
+### Changed
+
+- Reset the unpublished extension identity, commands, settings, state, managed
+  runtime names, and companion bridge for the first Agent Pivot release.
+
+## Unpublished Project Steward development history
 
 ## [2.1.8] 2026-07-26
 

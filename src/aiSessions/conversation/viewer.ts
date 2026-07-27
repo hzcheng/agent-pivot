@@ -3,6 +3,7 @@
 import { randomBytes } from 'crypto';
 import { URL } from 'url';
 import * as vscode from 'vscode';
+import { AGENT_PIVOT_CONVERSATION_VIEW_TYPE } from '../../constants';
 import type { AiSessionProviderId } from '../../models';
 import type { AiSessionDisposable } from '../types';
 import { renderConversationMarkdown } from './markdown';
@@ -225,7 +226,7 @@ export class ConversationViewer implements ConversationViewerApi {
             return this.panel;
         }
         const panel = this.options.createPanel(
-            'projectSteward.aiConversation',
+            AGENT_PIVOT_CONVERSATION_VIEW_TYPE,
             'AI Conversation',
             vscode.ViewColumn.Active,
             {

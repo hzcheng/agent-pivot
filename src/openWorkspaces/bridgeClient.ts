@@ -4,6 +4,7 @@ import * as crypto from 'crypto';
 import * as vscode from 'vscode';
 
 import {
+    OPEN_WORKSPACE_CAPABILITIES,
     OPEN_WORKSPACE_PROTOCOL_VERSION,
     OPEN_WORKSPACE_HEARTBEAT_MS,
     OpenWorkspaceAggregate,
@@ -13,11 +14,11 @@ import {
     validateOpenWorkspaceRecord,
 } from './protocol';
 
-export const OPEN_WORKSPACE_PUBLISH_COMMAND = '_projectStewardOpenWorkspaces.bridge.publish';
-export const OPEN_WORKSPACE_UNREGISTER_COMMAND = '_projectStewardOpenWorkspaces.bridge.unregister';
-export const OPEN_WORKSPACE_HANDSHAKE_COMMAND = '_projectStewardOpenWorkspaces.bridge.handshake';
-export const OPEN_WORKSPACE_AGGREGATE_COMMAND = '_projectStewardOpenWorkspaces.workspace.aggregate';
-export const OPEN_WORKSPACE_DIAGNOSTIC_COMMAND = '_projectStewardOpenWorkspaces.workspace.diagnostic';
+export const OPEN_WORKSPACE_PUBLISH_COMMAND = '_agentPivotOpenWorkspaces.bridge.publish';
+export const OPEN_WORKSPACE_UNREGISTER_COMMAND = '_agentPivotOpenWorkspaces.bridge.unregister';
+export const OPEN_WORKSPACE_HANDSHAKE_COMMAND = '_agentPivotOpenWorkspaces.bridge.handshake';
+export const OPEN_WORKSPACE_AGGREGATE_COMMAND = '_agentPivotOpenWorkspaces.workspace.aggregate';
+export const OPEN_WORKSPACE_DIAGNOSTIC_COMMAND = '_agentPivotOpenWorkspaces.workspace.diagnostic';
 
 export type OpenWorkspaceBridgeStatus = 'ready' | 'unavailable' | 'update-required';
 
@@ -67,7 +68,7 @@ interface OpenWorkspaceHandshakeResponse {
     accepted: boolean;
     protocolVersion: 3;
     bridgeExtensionVersion: string;
-    capabilities: { workspaces: true; atomicReplace: true; focusLeases: true };
+    capabilities: typeof OPEN_WORKSPACE_CAPABILITIES;
     errorCode?: 'update-required';
 }
 
@@ -97,10 +98,10 @@ function validateHandshakeResponse(raw: unknown): OpenWorkspaceHandshakeResponse
     }
     const capabilities = response.capabilities as Record<string, unknown>;
     if (!capabilities || typeof capabilities !== 'object' || Array.isArray(capabilities)
-        || !exactKeys(capabilities, ['workspaces', 'atomicReplace', 'focusLeases'])
-        || capabilities.workspaces !== true
-        || capabilities.atomicReplace !== true
-        || capabilities.focusLeases !== true) {
+        || !exactKeys(capabilities, Object.keys(OPEN_WORKSPACE_CAPABILITIES))
+        || Object.keys(OPEN_WORKSPACE_CAPABILITIES).some(
+            capability => capabilities[capability] !== true
+        )) {
         return incompatibleHandshake();
     }
     if (response.errorCode !== undefined && response.errorCode !== 'update-required') {
@@ -168,26 +169,55 @@ export default class OpenWorkspaceBridgeClient implements vscode.Disposable {
         this.reportDiagnostic = dependencies.reportDiagnostic || (() => undefined);
         this.reportBridgeDiagnostic = dependencies.reportBridgeDiagnostic || (() => undefined);
         this.onStatusChange = dependencies.onStatusChange || (() => undefined);
-        this.aggregateRegistration = registerCommand(
-            OPEN_WORKSPACE_AGGREGATE_COMMAND,
-            raw => this.receiveAggregate(raw),
-        );
-        this.diagnosticRegistration = registerCommand(
-            OPEN_WORKSPACE_DIAGNOSTIC_COMMAND,
-            raw => this.receiveBridgeDiagnostic(raw),
-        );
-        this.heartbeatHandle = setHeartbeat(
-            () => {
-                void this.enqueuePublication(
-                    this.latestWorkspace,
-                    false,
-                    true,
-                    this.latestGeneration,
-                    this.isRecovering(),
-                );
-            },
-            OPEN_WORKSPACE_HEARTBEAT_MS,
-        );
+        let aggregateRegistration: DisposableLike | undefined;
+        let diagnosticRegistration: DisposableLike | undefined;
+        let heartbeatHandle: unknown;
+        let heartbeatStarted = false;
+        try {
+            aggregateRegistration = registerCommand(
+                OPEN_WORKSPACE_AGGREGATE_COMMAND,
+                raw => this.receiveAggregate(raw),
+            );
+            diagnosticRegistration = registerCommand(
+                OPEN_WORKSPACE_DIAGNOSTIC_COMMAND,
+                raw => this.receiveBridgeDiagnostic(raw),
+            );
+            heartbeatHandle = setHeartbeat(
+                () => {
+                    void this.enqueuePublication(
+                        this.latestWorkspace,
+                        false,
+                        true,
+                        this.latestGeneration,
+                        this.isRecovering(),
+                    );
+                },
+                OPEN_WORKSPACE_HEARTBEAT_MS,
+            );
+            heartbeatStarted = true;
+        } catch (error) {
+            if (heartbeatStarted) {
+                try {
+                    this.clearInterval(heartbeatHandle);
+                } catch (_clearError) {
+                    // Constructor rollback must preserve the acquisition failure.
+                }
+            }
+            try {
+                diagnosticRegistration?.dispose();
+            } catch (_disposeError) {
+                // Continue releasing earlier constructor acquisitions.
+            }
+            try {
+                aggregateRegistration?.dispose();
+            } catch (_disposeError) {
+                // Constructor rollback must preserve the acquisition failure.
+            }
+            throw error;
+        }
+        this.aggregateRegistration = aggregateRegistration;
+        this.diagnosticRegistration = diagnosticRegistration;
+        this.heartbeatHandle = heartbeatHandle;
         this.emitDiagnostic({ event: 'activate', workspaceCount: this.latestWorkspace ? 1 : 0 });
         void this.publish(this.latestWorkspace);
     }
@@ -355,7 +385,7 @@ export default class OpenWorkspaceBridgeClient implements vscode.Disposable {
                     protocolVersion: OPEN_WORKSPACE_PROTOCOL_VERSION,
                     mainExtensionVersion: this.mainExtensionVersion,
                     instanceId: this.instanceId,
-                    capabilities: { workspaces: true, atomicReplace: true, focusLeases: true },
+                    capabilities: OPEN_WORKSPACE_CAPABILITIES,
                 },
             ));
             if (this.disposed) { return false; }

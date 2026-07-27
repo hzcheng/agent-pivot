@@ -149,7 +149,7 @@ async function finishHandshake(child) {
         params: {
             clientInfo: {
                 name: 'project_steward',
-                title: 'Project Steward',
+                title: 'Agent Pivot',
                 version: '2.1.6',
             },
         },
@@ -200,7 +200,7 @@ test('SESSION-AI-SESSION-CODEX-APP-SERVER-001 performs one stable handshake and 
             params: {
                 clientInfo: {
                     name: 'project_steward',
-                    title: 'Project Steward',
+                    title: 'Agent Pivot',
                     version: '2.1.6',
                 },
             },

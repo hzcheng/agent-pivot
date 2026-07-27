@@ -28,6 +28,69 @@ function assertNotIncludes(source, needle, label) {
     assert.ok(!source.includes(needle), `${label} must not include ${needle}`);
 }
 
+const FORBIDDEN_LEGACY_IDENTITIES = Object.freeze([
+    ['Project', 'Steward'].join(' '),
+    ['project', 'steward'].join('-'),
+    ['project', 'Steward'].join(''),
+    ['hzcheng', ['project', 'steward'].join('-')].join('.'),
+]);
+const FORBIDDEN_PROTOCOL_PREFIX = ['_project', 'Steward'].join('');
+const HISTORICAL_CHANGELOG_BOUNDARY =
+    ['## Unpublished Project', 'Steward development history'].join(' ');
+const EXPECTED_MAIN_ENTRIES = Object.freeze([
+    '[Content_Types].xml',
+    'extension.vsixmanifest',
+    'extension/LICENSE.txt',
+    'extension/THIRD_PARTY_NOTICES.md',
+    'extension/changelog.md',
+    'extension/dist/dashboard.js',
+    'extension/licenses/DOMPurify-Apache-2.0.txt',
+    'extension/media/conversationViewer.css',
+    'extension/media/conversationViewerScripts.js',
+    'extension/media/dom-autoscroller.min.js',
+    'extension/media/dragula.min.js',
+    'extension/media/extension_icon.png',
+    'extension/media/fitty.min.js',
+    'extension/media/icon.svg',
+    'extension/media/purify.min.js',
+    'extension/media/sharingan/mangekyou-sharingan-itachi.svg',
+    'extension/media/sharingan/mangekyou-sharingan-madara-eternal.svg',
+    'extension/media/sharingan/mangekyou-sharingan-madara.svg',
+    'extension/media/sharingan/mangekyou-sharingan-obito-kakashi.svg',
+    'extension/media/sharingan/mangekyou-sharingan-sasuke.svg',
+    'extension/media/sharingan/mangekyou-sharingan-shisui.svg',
+    'extension/media/styles.css',
+    'extension/media/webviewDashboardScripts.js',
+    'extension/media/webviewDnDScripts.js',
+    'extension/media/webviewFilterScripts.js',
+    'extension/media/webviewProjectScripts.js',
+    'extension/media/webviewPromptScripts.js',
+    'extension/media/webviewScrollStateScripts.js',
+    'extension/media/webviewTodoScripts.js',
+    'extension/out/openWorkspaces/bridgeClient.js',
+    'extension/out/openWorkspaces/dashboardController.js',
+    'extension/out/openWorkspaces/navigationController.js',
+    'extension/out/openWorkspaces/projection.js',
+    'extension/out/openWorkspaces/protocol.js',
+    'extension/out/openWorkspaces/workspaceController.js',
+    'extension/out/workspaces/attentionProjection.js',
+    'extension/out/workspaces/contextResolver.js',
+    'extension/out/workspaces/identity.js',
+    'extension/out/workspaces/pendingSessionPromotionController.js',
+    'extension/out/workspaces/pendingWorkspaceSaveStore.js',
+    'extension/out/workspaces/primaryRootStore.js',
+    'extension/out/workspaces/savedWorkspaceProjectAdapter.js',
+    'extension/out/workspaces/sessionAssignment.js',
+    'extension/out/workspaces/sessionAttention.js',
+    'extension/out/workspaces/sessionHydration.js',
+    'extension/out/workspaces/sessionHydrationController.js',
+    'extension/out/workspaces/sessionScope.js',
+    'extension/out/workspaces/types.js',
+    'extension/out/workspaces/viewModels.js',
+    'extension/package.json',
+    'extension/readme.md',
+]);
+
 function isMapping(value) {
     return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
@@ -227,19 +290,25 @@ function readZipArchive(archivePath) {
     return entries;
 }
 
-function sourceOutputEntries(sourceDirectory, archiveDirectory) {
-    return fs.readdirSync(path.join(repositoryRoot, sourceDirectory))
-        .filter(fileName => fileName.endsWith('.ts'))
-        .map(fileName => `${archiveDirectory}/${fileName.replace(/\.ts$/, '.js')}`)
-        .sort();
-}
-
 function assertExactEntries(entries, expectedEntries, label) {
     assert.deepStrictEqual(
         Array.from(entries.keys()).sort(),
         expectedEntries.slice().sort(),
         `${label} must contain exactly the reviewed release files`,
     );
+}
+
+function assertNoForbiddenLegacyIdentity(source, label) {
+    for (const token of FORBIDDEN_LEGACY_IDENTITIES) {
+        assertNotIncludes(source, token, label);
+    }
+}
+
+function currentChangelogSection(source) {
+    const historicalBoundary = source.indexOf(HISTORICAL_CHANGELOG_BOUNDARY);
+    assert.notStrictEqual(historicalBoundary, -1,
+        'packaged CHANGELOG must retain the reviewed historical identity boundary');
+    return source.slice(0, historicalBoundary);
 }
 
 function readVsixIdentity(entries, label) {
@@ -264,50 +333,40 @@ function runRealVsixArchiveChecks(mainPackage, bridgePackage) {
         'artifacts',
         `${bridgePackage.name}-${bridgePackage.version}.vsix`,
     );
+    assert.strictEqual(
+        path.basename(mainArtifact),
+        'agent-pivot-1.0.0.vsix',
+        'main release artifact name must remain exact',
+    );
+    assert.strictEqual(
+        path.basename(bridgeArtifact),
+        'agent-pivot-attention-ui-bridge-1.0.0.vsix',
+        'UI Bridge release artifact name must remain exact',
+    );
     const mainEntries = readZipArchive(mainArtifact);
     const bridgeEntries = readZipArchive(bridgeArtifact);
-    const workspaceOutputs = sourceOutputEntries('src/workspaces', 'extension/out/workspaces');
-    const openWorkspaceOutputs = sourceOutputEntries('src/openWorkspaces', 'extension/out/openWorkspaces');
-    const expectedMainEntries = [
-        '[Content_Types].xml',
-        'extension.vsixmanifest',
-        'extension/LICENSE.md',
-        'extension/THIRD_PARTY_NOTICES.md',
-        'extension/changelog.md',
-        'extension/package.json',
+    const mainVsixManifest = mainEntries.get('extension.vsixmanifest').toString('utf8');
+    const bridgeVsixManifest = bridgeEntries.get('extension.vsixmanifest').toString('utf8');
+    for (const assetPath of [
         'extension/readme.md',
-        'extension/dist/dashboard.js',
-        'extension/media/dom-autoscroller.min.js',
-        'extension/media/dragula.min.js',
-        'extension/media/extension_icon.png',
-        'extension/media/fitty.min.js',
-        'extension/media/icon.svg',
-        'extension/media/conversationViewer.css',
-        'extension/media/conversationViewerScripts.js',
-        'extension/media/purify.min.js',
-        'extension/media/sharingan/mangekyou-sharingan-itachi.svg',
-        'extension/media/sharingan/mangekyou-sharingan-madara-eternal.svg',
-        'extension/media/sharingan/mangekyou-sharingan-madara.svg',
-        'extension/media/sharingan/mangekyou-sharingan-obito-kakashi.svg',
-        'extension/media/sharingan/mangekyou-sharingan-sasuke.svg',
-        'extension/media/sharingan/mangekyou-sharingan-shisui.svg',
-        'extension/media/styles.css',
-        'extension/media/webviewDashboardScripts.js',
-        'extension/media/webviewDnDScripts.js',
-        'extension/media/webviewFilterScripts.js',
-        'extension/media/webviewProjectScripts.js',
-        'extension/media/webviewPromptScripts.js',
-        'extension/media/webviewScrollStateScripts.js',
-        'extension/media/webviewTodoScripts.js',
-        ...workspaceOutputs,
-        ...openWorkspaceOutputs,
-    ];
+        'extension/changelog.md',
+        'extension/LICENSE.txt',
+    ]) {
+        assertIncludes(mainVsixManifest, assetPath, 'main VSIX manifest');
+    }
+    for (const assetPath of [
+        'extension/readme.md',
+        'extension/LICENSE.txt',
+    ]) {
+        assertIncludes(bridgeVsixManifest, assetPath, 'UI Bridge VSIX manifest');
+    }
     const expectedBridgeEntries = [
         '[Content_Types].xml',
         'extension.vsixmanifest',
-        'extension/LICENSE.md',
+        'extension/LICENSE.txt',
         'extension/package.json',
         'extension/readme.md',
+        'extension/media/extension_icon.png',
         'extension/dist/extension.js',
     ];
     for (const [entries, label] of [
@@ -316,8 +375,14 @@ function runRealVsixArchiveChecks(mainPackage, bridgePackage) {
     ]) {
         for (const forbiddenPrefix of [
             'extension/coverage/',
+            'extension/.codex/',
             'extension/tests/',
             'extension/.ci/',
+            'extension/.superpowers/',
+            'extension/docs/',
+            'extension/spikes/',
+            'extension/src/',
+            'extension/media/brand/',
         ]) {
             assert.ok(
                 [...entries.keys()].every(fileName => !fileName.startsWith(forbiddenPrefix)),
@@ -325,11 +390,14 @@ function runRealVsixArchiveChecks(mainPackage, bridgePackage) {
             );
         }
     }
-    assertExactEntries(mainEntries, expectedMainEntries, 'main VSIX');
+    assertExactEntries(mainEntries, EXPECTED_MAIN_ENTRIES, 'main VSIX');
     assertExactEntries(bridgeEntries, expectedBridgeEntries, 'UI Bridge VSIX');
 
     for (const relativePath of [
         'THIRD_PARTY_NOTICES.md',
+        'licenses/DOMPurify-Apache-2.0.txt',
+        'media/extension_icon.png',
+        'media/icon.svg',
         'media/sharingan/mangekyou-sharingan-itachi.svg',
         'media/sharingan/mangekyou-sharingan-madara-eternal.svg',
         'media/sharingan/mangekyou-sharingan-madara.svg',
@@ -363,19 +431,108 @@ function runRealVsixArchiveChecks(mainPackage, bridgePackage) {
     }
     assert.deepStrictEqual(embeddedMainPackage.extensionDependencies,
         [`${bridgePackage.publisher}.${bridgePackage.name}`]);
+    assert.deepStrictEqual(
+        mainEntries.get('extension/LICENSE.txt'),
+        fs.readFileSync(path.join(repositoryRoot, 'LICENSE')),
+        'main VSIX must preserve the renamed LICENSE byte-for-byte',
+    );
+    assert.deepStrictEqual(
+        mainEntries.get('extension/changelog.md'),
+        fs.readFileSync(path.join(repositoryRoot, 'CHANGELOG.md')),
+        'main VSIX must preserve CHANGELOG.md byte-for-byte',
+    );
+    assert.deepStrictEqual(
+        bridgeEntries.get('extension/LICENSE.txt'),
+        fs.readFileSync(path.join(repositoryRoot, 'extensions/attention-ui-bridge/LICENSE')),
+        'UI Bridge VSIX must preserve the renamed LICENSE byte-for-byte',
+    );
+    assert.deepStrictEqual(
+        bridgeEntries.get('extension/media/extension_icon.png'),
+        fs.readFileSync(path.join(
+            repositoryRoot,
+            'extensions/attention-ui-bridge/media/extension_icon.png',
+        )),
+        'UI Bridge VSIX must preserve its generated icon byte-for-byte',
+    );
 
     const mainBundle = mainEntries.get('extension/dist/dashboard.js').toString('utf8');
     const bridgeBundle = bridgeEntries.get('extension/dist/extension.js').toString('utf8');
-    assertIncludes(mainBundle, '_projectStewardOpenWorkspaces', 'packaged main bundle');
-    assertNotIncludes(mainBundle, '_projectStewardOpenProjects', 'packaged main bundle');
-    assertIncludes(bridgeBundle, '_projectStewardOpenWorkspaces', 'packaged UI Bridge bundle');
+    const mainReadme = mainEntries.get('extension/readme.md').toString('utf8');
+    const bridgeReadme = bridgeEntries.get('extension/readme.md').toString('utf8');
+    for (const [needle, label] of [
+        ['# Agent Pivot', 'current product heading'],
+        ['## Privacy and local data', 'privacy heading'],
+        [
+            'does not upload conversation content to an Agent Pivot service',
+            'product telemetry disclosure',
+        ],
+        [
+            'https://github.com/hzcheng/agent-pivot/blob/HEAD/LICENSE',
+            'rewritten license link',
+        ],
+        [
+            'https://github.com/hzcheng/agent-pivot/blob/HEAD/CHANGELOG.md',
+            'rewritten changelog link',
+        ],
+        [
+            'https://github.com/hzcheng/agent-pivot/blob/HEAD/THIRD_PARTY_NOTICES.md',
+            'rewritten notices link',
+        ],
+    ]) {
+        assertIncludes(mainReadme, needle, `packaged main README ${label}`);
+    }
+    for (const [needle, label] of [
+        ['# Agent Pivot Attention UI Bridge', 'current product heading'],
+        ['records workspace and root URIs locally', 'workspace URI storage disclosure'],
+        [
+            'Those URIs can include absolute local paths or remote-authority identifiers.',
+            'stored URI sensitivity disclosure',
+        ],
+        [
+            'does not record conversation content, prompts, or responses.',
+            'conversation content disclosure',
+        ],
+        [
+            'https://github.com/hzcheng/agent-pivot/blob/HEAD/../../LICENSE',
+            'VSCE-rewritten license link',
+        ],
+        [
+            'https://github.com/hzcheng/agent-pivot/blob/HEAD/../../THIRD_PARTY_NOTICES.md',
+            'VSCE-rewritten notices link',
+        ],
+    ]) {
+        assertIncludes(bridgeReadme, needle, `packaged UI Bridge README ${label}`);
+    }
+    assertIncludes(mainBundle, '_agentPivotOpenWorkspaces.', 'packaged main bundle');
+    assertIncludes(mainBundle, '_agentPivotAttention.', 'packaged main bundle');
+    assertNotIncludes(mainBundle, '_agentPivotOpenProjects', 'packaged main bundle');
+    assertNotIncludes(mainBundle, FORBIDDEN_PROTOCOL_PREFIX, 'packaged main bundle');
+    assertIncludes(bridgeBundle, '_agentPivotOpenWorkspaces.', 'packaged UI Bridge bundle');
+    assertIncludes(bridgeBundle, '_agentPivotAttention.', 'packaged UI Bridge bundle');
     assert.match(bridgeBundle, /["']open-workspaces["'],["']v3["'],["']instances["']/,
-        'packaged UI Bridge bundle must retain the v2 registry path');
-    assertNotIncludes(bridgeBundle, '_projectStewardOpenProjects', 'packaged UI Bridge bundle');
+        'packaged UI Bridge bundle must retain the v3 registry path');
+    assertNotIncludes(bridgeBundle, '_agentPivotOpenProjects', 'packaged UI Bridge bundle');
+    assertNotIncludes(bridgeBundle, FORBIDDEN_PROTOCOL_PREFIX, 'packaged UI Bridge bundle');
+    for (const [content, label] of [
+        [mainEntries.get('extension/package.json').toString('utf8'), 'packaged main manifest'],
+        [mainReadme, 'packaged main README'],
+        [
+            currentChangelogSection(
+                mainEntries.get('extension/changelog.md').toString('utf8'),
+            ),
+            'packaged current CHANGELOG section',
+        ],
+        [mainBundle, 'packaged main bundle'],
+        [bridgeEntries.get('extension/package.json').toString('utf8'), 'packaged UI Bridge manifest'],
+        [bridgeReadme, 'packaged UI Bridge README'],
+        [bridgeBundle, 'packaged UI Bridge bundle'],
+    ]) {
+        assertNoForbiddenLegacyIdentity(content, label);
+    }
     for (const entries of [mainEntries, bridgeEntries]) {
         for (const [fileName, content] of entries) {
             assert.doesNotMatch(fileName,
-                /(?:\.map$|(?:^|\/)(?:docs|src|scripts|test|tests|spikes|\.github|\.superpowers)(?:\/|$)|workspace-navigation-probe)/i,
+                /(?:\.map$|(?:^|\/)(?:docs|src|scripts|test|tests|spikes|\.codex|\.github|\.superpowers|\.vscode)(?:\/|$)|media\/brand\/|workspace-navigation-probe)/i,
                 `release archive must exclude non-production entry ${fileName}`);
             assert.strictEqual(content.includes('STALE_RELEASE_PACKAGING_PROBE'), false,
                 `release archive must not retain seeded stale output in ${fileName}`);
@@ -543,6 +700,16 @@ function run() {
     assert.strictEqual(mainPackage.scripts['test:extension-host'],
         'npm run vscode:prepublish && npm run attention:bridge:bundle && node scripts/run-extension-host-tests.js',
         'package.json must define the reviewed Extension Host runner');
+    assert.strictEqual(
+        mainPackage.scripts['vscode:prepublish'],
+        'npm run brand:verify && npm run brand:check && webpack --mode production && npx gulp --production',
+        'VS Code prepublish must reject generated-asset or product-identity drift before building',
+    );
+    assert.strictEqual(
+        mainPackage.scripts['test:ci:linux'],
+        'npm run test-compile && npm run brand:verify && npm run brand:check && npm run test:behavior-contracts && npm run lint:ci && npm run test:deterministic:run && npm run test:conversation-sources:remote && npm run test:conversation-performance && npm run test:browser:run && npm run test:safety:run && npm run test:dashboard:run && npm run test:architecture-baseline && npm run test:architecture-guards && npm run test:release-notes && npm run test:release-packaging && npm run vscode:prepublish && npm run test:coverage:run && node scripts/check-coverage-baseline.js',
+        'Linux CI must run non-mutating brand verification and identity checks before quality gates',
+    );
     assert.strictEqual(mainPackage.devDependencies['@vscode/test-electron'], '3.0.0',
         '@vscode/test-electron must remain an exact direct development dependency');
     assert.strictEqual(
@@ -574,7 +741,7 @@ function run() {
     assertIncludes(installScript, 'BRIDGE_VERSION', 'local install script');
     assertIncludes(installScript, '--install-extension "$BRIDGE_VSIX" --force', 'local install script');
     assertIncludes(installScript, '--install-extension "$MAIN_VSIX" --force', 'local install script');
-    assertNotIncludes(installScript, 'project-steward-attention-ui-bridge-0.1.3.vsix', 'local install script');
+    assertNotIncludes(installScript, 'agent-pivot-attention-ui-bridge-0.1.3.vsix', 'local install script');
 
     const publishScript = readText('scripts/publish-marketplace.sh');
     assertIncludes(publishScript, 'BRIDGE_NAME', 'Marketplace publish script');
@@ -591,6 +758,7 @@ function run() {
     );
 
     const workflow = readText('.github/workflows/release-vsix.yml');
+    assertIncludes(workflow, 'name: Release Agent Pivot VSIX', 'GitHub release workflow');
     assertIncludes(workflow, 'bridge_name=', 'GitHub release workflow');
     assertIncludes(workflow, 'bridge_version=', 'GitHub release workflow');
     assertIncludes(workflow, 'bridge_vsix_file=', 'GitHub release workflow');
@@ -671,6 +839,9 @@ function run() {
     assertIncludes(mainIgnore, '.github/**', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, 'docs/**', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, 'docs/superpowers/**', 'main VSIX ignore rules');
+    assertIncludes(mainIgnore, '.codex/**', 'main VSIX ignore rules');
+    assertIncludes(mainIgnore, 'media/brand/**', 'main VSIX ignore rules');
+    assertIncludes(mainIgnore, '!licenses/DOMPurify-Apache-2.0.txt', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!out/workspaces/*.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!out/openWorkspaces/*.js', 'main VSIX ignore rules');
     assertNotIncludes(mainIgnore, '!out/workspaces/**', 'main VSIX ignore rules');
@@ -683,6 +854,7 @@ function run() {
     assertIncludes(mainIgnore, '!media/styles.css', 'main VSIX ignore rules');
     assertIncludes(bridgeIgnore, 'src/**', 'UI Bridge VSIX ignore rules');
     assertIncludes(bridgeIgnore, 'out/**', 'UI Bridge VSIX ignore rules');
+    assertIncludes(bridgeIgnore, '*.map', 'UI Bridge VSIX ignore rules');
 
     for (const requiredArtifact of [
         'out/workspaces/types.js',
@@ -704,15 +876,22 @@ function run() {
     }
 
     const bridgeBundle = readText('extensions/attention-ui-bridge/dist/extension.js');
-    assertIncludes(bridgeBundle, '_projectStewardOpenWorkspaces', 'UI Bridge bundle');
+    assertIncludes(bridgeBundle, '_agentPivotOpenWorkspaces', 'UI Bridge bundle');
     assert.match(bridgeBundle, /["']open-workspaces["'],["']v3["'],["']instances["']/,
         'UI Bridge bundle must retain the open-workspaces/v3/instances registry path');
-    assertNotIncludes(bridgeBundle, '_projectStewardOpenProjects', 'UI Bridge bundle');
+    assertNotIncludes(bridgeBundle, '_agentPivotOpenProjects', 'UI Bridge bundle');
 
     runRealVsixArchiveChecks(mainPackage, bridgePackage);
 
     runAcceptanceReportChecks();
 }
 
-run();
-console.log('Release packaging checks passed.');
+if (require.main === module) {
+    run();
+    console.log('Release packaging checks passed.');
+}
+
+module.exports = {
+    EXPECTED_MAIN_ENTRIES,
+    assertExactEntries,
+};

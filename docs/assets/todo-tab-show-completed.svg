@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="420" height="880" viewBox="0 0 420 880" role="img" aria-labelledby="title desc">
-  <title id="title">Project Steward TODO 显示完成项效果图</title>
+  <title id="title">Agent Pivot TODO 显示完成项效果图</title>
   <desc id="desc">TODO Tab 中打开显示完成项开关，完成项保留在原分组底部并使用弱化样式和删除线。</desc>
   <defs>
     <filter id="shadow" x="-20%" y="-20%" width="140%" height="160%">

@@ -6,8 +6,10 @@ const test = require('node:test');
 const { createDashboardMessageRouter } = require('../../../out/dashboard/messageRouter');
 const { getErrorContent } = require('../../../out/dashboard/errorContent');
 const { DashboardLifecycleController } = require('../../../out/dashboard/lifecycleController');
+const { DashboardRuntimeController } = require('../../../out/dashboard/runtimeController');
 const { DashboardStartupController } = require('../../../out/dashboard/startupController');
-const { SidebarStewardViewProvider } = require('../../../out/dashboard/viewProvider');
+const { DashboardBootstrapResources } = require('../../../out/dashboard/bootstrapResources');
+const { AgentPivotViewProvider } = require('../../../out/dashboard/viewProvider');
 const { TmuxRuntimeDiscovery } = require('../../../out/aiSessions/tmuxRuntimeDiscovery');
 const {
     createSyntheticTmuxStore,
@@ -169,7 +171,7 @@ function makeConfigurationEvent(...sections) {
     };
 }
 
-function makeStartupController(migrateDataIfNeeded, events) {
+function makeStartupController(migrateDataIfNeeded, events, overrides = {}) {
     return new DashboardStartupController({
         stewardInfos: {
             relevantExtensionsInstalls: { remoteSSH: false, remoteContainers: false },
@@ -182,20 +184,21 @@ function makeStartupController(migrateDataIfNeeded, events) {
         showInformationMessage: () => events.push('information'),
         showErrorMessage: message => events.push(['error', message]),
         logError: (message, error) => events.push(['log', message, error]),
-        showSteward: () => undefined,
+        showAgentPivot: () => undefined,
         applyProjectColorToCurrentWindow: () => undefined,
         getReopenReason: () => 0,
         updateReopenReason: () => undefined,
         reopenNoneValue: 0,
         getWorkspaceName: () => 'fixture',
         getVisibleEditorLanguageIds: () => [],
+        ...overrides,
     });
 }
 
 test('ERROR-ERROR-CONTENT-001 escapes hostile render failures and never emits executable HTML', () => {
     const raw = '<script>steal("credential")</script>';
     const html = getErrorContent(new Error(raw));
-    assert.match(html, /Project Steward could not render this view/);
+    assert.match(html, /Agent Pivot could not render this view/);
     assert.equal(html.includes(raw), false);
     assert.match(html, /&lt;script&gt;steal\(&quot;credential&quot;\)&lt;\/script&gt;/);
 });
@@ -221,31 +224,30 @@ test('SESSION-SIDEBAR-STEWARD-VIEW-PROVIDER-ORDERING-001 keeps view and message 
             return { dispose() {} };
         },
     };
-    const provider = new SidebarStewardViewProvider({
+    const provider = new AgentPivotViewProvider({ mode: 'ready', options: {
         getWebviewOptions: () => ({ enableScripts: true }),
         renderContent: () => { throw new Error('private render credential'); },
         renderError: getErrorContent,
         onMessage: async () => { throw new Error('private message credential'); },
         onVisibleChanged: async () => undefined,
         logError: (message, error) => logs.push([message, error]),
-    });
+    }});
 
     await provider.resolveWebviewView(view, {}, {});
     await receiveMessage({ type: 'private-message' });
 
-    assert.match(view.webview.html, /Unexpected Project Steward view failure/);
+    assert.match(view.webview.html, /Unexpected Agent Pivot view failure/);
     assert.equal(view.webview.html.includes('private render credential'), false);
     assert.deepEqual(logs.map(([message]) => message), [
-        'Failed to render Project Steward view.',
-        'Failed to handle a Project Steward message.',
+        'Failed to render Agent Pivot view.',
+        'Failed to handle an Agent Pivot message.',
     ]);
-    assert.ok(logs.every(([, error]) => error.message === 'Unexpected Project Steward view failure.'));
+    assert.ok(logs.every(([, error]) => error.message === 'Unexpected Agent Pivot view failure.'));
 });
 
-test('SESSION-SIDEBAR-STEWARD-VIEW-PROVIDER-ORDERING-001 awaits visible refreshes and never renders hidden or failed state', async () => {
+test('WEBVIEW-NONBLOCKING-FIRST-PAINT-001 renders cached HTML before visible preparation settles', async () => {
+    const visibilityGate = deferred();
     const order = [];
-    let visibilityChanged;
-    let rejectVisibility = false;
     const view = {
         visible: true,
         webview: {
@@ -254,40 +256,138 @@ test('SESSION-SIDEBAR-STEWARD-VIEW-PROVIDER-ORDERING-001 awaits visible refreshe
             onDidReceiveMessage: () => ({ dispose() {} }),
             postMessage: async () => true,
         },
-        onDidChangeVisibility(callback) {
-            visibilityChanged = callback;
-            return { dispose() {} };
-        },
+        onDidChangeVisibility: () => ({ dispose() {} }),
         onDidDispose() {
             return { dispose() {} };
         },
     };
-    const provider = new SidebarStewardViewProvider({
+    const provider = new AgentPivotViewProvider({ mode: 'ready', options: {
         getWebviewOptions: () => ({}),
         renderContent: () => { order.push('render'); return '<main>fresh</main>'; },
         renderError: () => '<main>safe error</main>',
         onMessage: async () => undefined,
         onVisibleChanged: async visible => {
             order.push(`visible:${visible}:start`);
-            await Promise.resolve();
-            if (rejectVisibility) throw new Error('private refresh failure');
+            await visibilityGate.promise;
             order.push(`visible:${visible}:end`);
         },
-        logError: message => order.push(`log:${message}`),
+        onDisposed: () => undefined,
+        logError: () => undefined,
+    }});
+
+    let resolved = false;
+    const resolution = provider.resolveWebviewView(view, {}, {}).then(() => {
+        resolved = true;
     });
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.equal(view.webview.html, '<main>fresh</main>');
+    assert.deepEqual(order, ['render', 'visible:true:start']);
+    assert.equal(resolved, true);
+
+    visibilityGate.resolve();
+    await resolution;
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(order, ['render', 'visible:true:start', 'visible:true:end']);
+});
+
+test('SESSION-SIDEBAR-STEWARD-VIEW-PROVIDER-ORDERING-001 preserves healthy HTML when visible preparation fails', async () => {
+    const visibilityGate = deferred();
+    const logs = [];
+    const view = {
+        visible: true,
+        webview: {
+            html: '',
+            options: {},
+            onDidReceiveMessage: () => ({ dispose() {} }),
+            postMessage: async () => true,
+        },
+        onDidChangeVisibility: () => ({ dispose() {} }),
+        onDidDispose: () => ({ dispose() {} }),
+    };
+    const provider = new AgentPivotViewProvider({ mode: 'ready', options: {
+        getWebviewOptions: () => ({}),
+        renderContent: () => '<main>healthy cached dashboard</main>',
+        renderError: () => '<main>safe error</main>',
+        onMessage: async () => undefined,
+        onVisibleChanged: async () => {
+            await visibilityGate.promise;
+            throw new Error('private refresh failure');
+        },
+        onDisposed: () => undefined,
+        logError: (message, error) => logs.push([message, error.message]),
+    }});
+
+    const resolution = provider.resolveWebviewView(view, {}, {});
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(view.webview.html, '<main>healthy cached dashboard</main>');
+
+    visibilityGate.resolve();
+    await resolution;
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.equal(view.webview.html, '<main>healthy cached dashboard</main>');
+    assert.deepEqual(logs, [[
+        'Failed to prepare Agent Pivot view.',
+        'Unexpected Agent Pivot view failure.',
+    ]]);
+});
+
+test('RUNTIME-DASHBOARD-VISIBILITY-RESILIENCE-001 renders the dashboard after a runtime refresh failure', async () => {
+    const diagnostics = [];
+    const incrementalRefreshes = [];
+    const providerLogs = [];
+    const runtime = new DashboardRuntimeController({
+        isVisible: () => true,
+        refreshProvider: () => undefined,
+        logDashboardDiagnostic: () => undefined,
+        executeCommand: async () => undefined,
+        viewType: 'agentPivot.views.sidebar',
+        publishOpenWorkspace: () => undefined,
+        getCurrentSavedProject: () => null,
+        syncProjectColorToCurrentWindow: async () => undefined,
+        postMessage: async () => true,
+        logError: () => undefined,
+        refreshAiSessionRuntimes: async () => {
+            throw new Error('transient runtime refresh');
+        },
+        logAiSessionRuntimeFailure: (operation, error) => diagnostics.push([
+            operation,
+            error.message,
+        ]),
+    });
+    const view = {
+        visible: true,
+        webview: {
+            html: '',
+            options: {},
+            onDidReceiveMessage: () => ({ dispose() {} }),
+            postMessage: async () => true,
+        },
+        onDidChangeVisibility: () => ({ dispose() {} }),
+        onDidDispose: () => ({ dispose() {} }),
+    };
+    const provider = new AgentPivotViewProvider({ mode: 'ready', options: {
+        getWebviewOptions: () => ({}),
+        renderContent: () => '<main>dashboard ready</main>',
+        renderError: getErrorContent,
+        onMessage: async () => undefined,
+        onVisibleChanged: visible =>
+            runtime.handleAiSessionViewVisibilityChanged(visible),
+        onVisiblePrepared: async () => {
+            incrementalRefreshes.push('dashboard-visible');
+        },
+        onDisposed: () => undefined,
+        logError: (message, error) => providerLogs.push([message, error.message]),
+    }});
 
     await provider.resolveWebviewView(view, {}, {});
-    assert.deepEqual(order, ['visible:true:start', 'visible:true:end', 'render']);
-    view.visible = false;
-    await visibilityChanged();
-    assert.deepEqual(order.slice(-2), ['visible:false:start', 'visible:false:end']);
+    await new Promise(resolve => setImmediate(resolve));
 
-    view.visible = true;
-    rejectVisibility = true;
-    await visibilityChanged();
-    assert.equal(order.filter(item => item === 'render').length, 1);
-    assert.equal(view.webview.html, '<main>safe error</main>');
-    assert.ok(order.includes('log:Failed to prepare Project Steward view.'));
+    assert.equal(view.webview.html, '<main>dashboard ready</main>');
+    assert.deepEqual(diagnostics, [['dashboard-visible', 'transient runtime refresh']]);
+    assert.deepEqual(incrementalRefreshes, ['dashboard-visible']);
+    assert.deepEqual(providerLogs, []);
 });
 
 test('SESSION-SIDEBAR-STEWARD-VIEW-PROVIDER-ORDERING-001 releases sidebar-owned conversation state on disposal', async () => {
@@ -309,7 +409,7 @@ test('SESSION-SIDEBAR-STEWARD-VIEW-PROVIDER-ORDERING-001 releases sidebar-owned 
             return { dispose() {} };
         },
     };
-    const provider = new SidebarStewardViewProvider({
+    const provider = new AgentPivotViewProvider({ mode: 'ready', options: {
         getWebviewOptions: () => ({}),
         renderContent: () => '<main>ready</main>',
         renderError: () => '<main>safe error</main>',
@@ -319,7 +419,7 @@ test('SESSION-SIDEBAR-STEWARD-VIEW-PROVIDER-ORDERING-001 releases sidebar-owned 
             disposed += 1;
         },
         logError: () => undefined,
-    });
+    }});
 
     await provider.resolveWebviewView(view, {}, {});
     disposeView();
@@ -368,7 +468,7 @@ test('SESSION-SIDEBAR-STEWARD-VIEW-PROVIDER-OWNERSHIP-001 ignores stale visibili
             fireDispose: () => disposeView(),
         };
     };
-    const provider = new SidebarStewardViewProvider({
+    const provider = new AgentPivotViewProvider({ mode: 'ready', options: {
         getWebviewOptions: () => ({}),
         renderContent: webview => {
             renders.push(webview.name);
@@ -388,7 +488,7 @@ test('SESSION-SIDEBAR-STEWARD-VIEW-PROVIDER-OWNERSHIP-001 ignores stale visibili
             disposed += 1;
         },
         logError: () => undefined,
-    });
+    }});
     const viewA = makeView('a');
     const viewB = makeView('b');
 
@@ -397,7 +497,7 @@ test('SESSION-SIDEBAR-STEWARD-VIEW-PROVIDER-OWNERSHIP-001 ignores stale visibili
     const staleInFlight = viewA.fireVisibility();
     await new Promise(resolve => setImmediate(resolve));
     await provider.resolveWebviewView(viewB.view, {}, {});
-    assert.deepEqual(renders, ['a', 'b']);
+    assert.deepEqual(renders, ['a', 'a', 'b']);
     assert.equal(disposed, 1);
     assert.deepEqual(disposalVisibility, [false]);
 
@@ -405,7 +505,7 @@ test('SESSION-SIDEBAR-STEWARD-VIEW-PROVIDER-OWNERSHIP-001 ignores stale visibili
     await staleInFlight;
     assert.deepEqual(
         renders,
-        ['a', 'b'],
+        ['a', 'a', 'b'],
         'an old post-await continuation must not refresh the current view'
     );
 
@@ -425,12 +525,147 @@ test('SESSION-SIDEBAR-STEWARD-VIEW-PROVIDER-OWNERSHIP-001 ignores stale visibili
     viewB.view.visible = true;
     await viewB.fireVisibility();
     assert.equal(provider.visible, true);
-    assert.deepEqual(renders, ['a', 'b', 'b']);
+    assert.deepEqual(renders, ['a', 'a', 'b', 'b']);
     await viewB.fireDispose();
     assert.equal(disposed, 2);
     assert.deepEqual(disposalVisibility, [false, false]);
     assert.equal(provider.visible, false);
     assert.equal(await provider.postMessage({ type: 'after-b' }), false);
+});
+
+test('WEBVIEW-NONBLOCKING-FIRST-PAINT-001 ignores prepared completion from a superseded view', async () => {
+    const visibilityGate = deferred();
+    const prepared = [];
+    let visibilityCalls = 0;
+    const makeView = name => ({
+        visible: true,
+        webview: {
+            name,
+            html: '',
+            options: {},
+            onDidReceiveMessage: () => ({ dispose() {} }),
+            postMessage: async () => true,
+        },
+        onDidChangeVisibility: () => ({ dispose() {} }),
+        onDidDispose: () => ({ dispose() {} }),
+    });
+    const provider = new AgentPivotViewProvider({ mode: 'ready', options: {
+        getWebviewOptions: () => ({}),
+        renderContent: webview => `<main>${webview.name}</main>`,
+        renderError: () => '<main>safe error</main>',
+        onMessage: async () => undefined,
+        onVisibleChanged: async () => {
+            visibilityCalls += 1;
+            if (visibilityCalls === 1) {
+                await visibilityGate.promise;
+            }
+        },
+        onVisiblePrepared: async () => {
+            prepared.push('prepared');
+        },
+        onDisposed: () => undefined,
+        logError: () => undefined,
+    }});
+    const viewA = makeView('a');
+    const viewB = makeView('b');
+
+    await provider.resolveWebviewView(viewA, {}, {});
+    await new Promise(resolve => setImmediate(resolve));
+    await provider.resolveWebviewView(viewB, {}, {});
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(prepared, ['prepared']);
+
+    prepared.length = 0;
+    visibilityGate.resolve();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(prepared, []);
+});
+
+test('WEBVIEW-NONBLOCKING-FIRST-PAINT-001 ignores prepared completion from an older visibility epoch', async () => {
+    const firstVisibleGate = deferred();
+    const prepared = [];
+    let visibilityChanged;
+    let visibilityCalls = 0;
+    const view = {
+        visible: true,
+        webview: {
+            html: '',
+            options: {},
+            onDidReceiveMessage: () => ({ dispose() {} }),
+            postMessage: async () => true,
+        },
+        onDidChangeVisibility(callback) {
+            visibilityChanged = callback;
+            return { dispose() {} };
+        },
+        onDidDispose: () => ({ dispose() {} }),
+    };
+    const provider = new AgentPivotViewProvider({ mode: 'ready', options: {
+        getWebviewOptions: () => ({}),
+        renderContent: () => '<main>cached dashboard</main>',
+        renderError: () => '<main>safe error</main>',
+        onMessage: async () => undefined,
+        onVisibleChanged: async () => {
+            visibilityCalls += 1;
+            if (visibilityCalls === 1) {
+                await firstVisibleGate.promise;
+            }
+        },
+        onVisiblePrepared: async () => {
+            prepared.push('prepared');
+        },
+        onDisposed: () => undefined,
+        logError: () => undefined,
+    }});
+
+    await provider.resolveWebviewView(view, {}, {});
+    await new Promise(resolve => setImmediate(resolve));
+    view.visible = false;
+    await visibilityChanged();
+    view.visible = true;
+    await visibilityChanged();
+    assert.deepEqual(prepared, ['prepared']);
+
+    prepared.length = 0;
+    firstVisibleGate.resolve();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(prepared, []);
+});
+
+test('WEBVIEW-NONBLOCKING-FIRST-PAINT-001 preserves healthy HTML when prepared delivery rejects', async () => {
+    const logs = [];
+    const view = {
+        visible: true,
+        webview: {
+            html: '',
+            options: {},
+            onDidReceiveMessage: () => ({ dispose() {} }),
+            postMessage: async () => true,
+        },
+        onDidChangeVisibility: () => ({ dispose() {} }),
+        onDidDispose: () => ({ dispose() {} }),
+    };
+    const provider = new AgentPivotViewProvider({ mode: 'ready', options: {
+        getWebviewOptions: () => ({}),
+        renderContent: () => '<main>healthy cached dashboard</main>',
+        renderError: () => '<main>safe error</main>',
+        onMessage: async () => undefined,
+        onVisibleChanged: async () => undefined,
+        onVisiblePrepared: async () => {
+            throw new Error('private delivery failure');
+        },
+        onDisposed: () => undefined,
+        logError: (message, error) => logs.push([message, error.message]),
+    }});
+
+    await provider.resolveWebviewView(view, {}, {});
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.equal(view.webview.html, '<main>healthy cached dashboard</main>');
+    assert.deepEqual(logs, [[
+        'Failed to prepare Agent Pivot view.',
+        'Unexpected Agent Pivot view failure.',
+    ]]);
 });
 
 test('PRODUCTION-CONVERSATION-UNAVAILABLE-001 isolates constructor failures from dashboard activation and unrelated routes', async () => {
@@ -706,7 +941,7 @@ test('PERSIST-DASHBOARD-LIFECYCLE-CONTROLLER-001 allows a later configuration mi
         publishOpenWorkspace: () => events.push('publish'),
         evaluateAiSessionAttention: () => undefined,
     });
-    const change = makeConfigurationEvent('projectSteward.storeProjectsInSettings');
+    const change = makeConfigurationEvent('agentPivot.storeProjectsInSettings');
 
     await assert.rejects(controller.handleConfigurationChanged(change), /migration unavailable/);
     assert.deepEqual(events, [['migrate', false]]);
@@ -730,10 +965,9 @@ test('PERSIST-DASHBOARD-LIFECYCLE-CONTROLLER-001 routes workspace, configuration
     });
 
     await controller.handleConfigurationChanged(
-        makeConfigurationEvent('dashboard.storeProjectsInSettings')
+        makeConfigurationEvent('agentPivot.customCss')
     );
     assert.deepEqual(events, [
-        ['migrate', false],
         'color',
         ['refresh', 'configuration-changed'],
         ['publish', undefined],
@@ -764,7 +998,7 @@ test('TODO-COMPLETION-INCREMENTAL-001 suppresses only a local todoData configura
         evaluateAiSessionAttention: () => undefined,
         consumeTodoDataWriteEcho: () => localEcho,
     });
-    const todoDataChange = makeConfigurationEvent('projectSteward.todoData');
+    const todoDataChange = makeConfigurationEvent('agentPivot.todoData');
 
     await controller.handleConfigurationChanged(todoDataChange);
     assert.deepEqual(events, []);
@@ -780,10 +1014,10 @@ test('TODO-COMPLETION-INCREMENTAL-001 suppresses only a local todoData configura
     events.length = 0;
     localEcho = true;
     await controller.handleConfigurationChanged(makeConfigurationEvent(
-        'projectSteward.todoData',
-        'projectSteward.storeProjectsInSettings',
-        'projectSteward.projectSyncData',
-        'projectSteward.customCss'
+        'agentPivot.todoData',
+        'agentPivot.storeProjectsInSettings',
+        'agentPivot.projectSyncData',
+        'agentPivot.customCss'
     ));
     assert.deepEqual(events, [
         'migrate',
@@ -811,7 +1045,7 @@ test('PROJECT-CATALOG-SYNC-CONFLICT-001 reconciles synchronized project data bef
     });
 
     await controller.handleConfigurationChanged(
-        makeConfigurationEvent('projectSteward.projectSyncData')
+        makeConfigurationEvent('agentPivot.projectSyncData')
     );
 
     assert.deepEqual(events, [
@@ -840,8 +1074,8 @@ test('PROJECT-INCREMENTAL-REFRESH-001 suppresses local catalog echoes and routes
         evaluateAiSessionAttention: () => undefined,
     });
     const catalogChange = makeConfigurationEvent(
-        'projectSteward.projectSyncData',
-        'projectSteward.projectData'
+        'agentPivot.projectSyncData',
+        'agentPivot.projectData'
     );
 
     await controller.handleConfigurationChanged(catalogChange);
@@ -863,8 +1097,8 @@ test('PROJECT-INCREMENTAL-REFRESH-001 suppresses local catalog echoes and routes
 
     events.length = 0;
     await controller.handleConfigurationChanged(makeConfigurationEvent(
-        'projectSteward.projectSyncData',
-        'projectSteward.customCss'
+        'agentPivot.projectSyncData',
+        'agentPivot.customCss'
     ));
     assert.deepEqual(events, [
         ['consume', { syncData: true, legacyGroups: false }],
@@ -890,4 +1124,173 @@ test('WEBVIEW-DASHBOARD-STARTUP-CONTROLLER-001 retries a failed migration withou
     assert.deepEqual(events.map(event => Array.isArray(event) ? event[0] : event), [
         'log', 'error', 'refresh', 'publish', 'information',
     ]);
+});
+
+test('WEBVIEW-DASHBOARD-STARTUP-CONTROLLER-001 disposal during migration prevents every later startup effect', async () => {
+    const migrationGate = deferred();
+    const effects = [];
+    const disposedGeneration = new Error('controlled disposed generation');
+    let active = true;
+    const controller = makeStartupController(
+        () => migrationGate.promise,
+        effects,
+        {
+            stewardInfos: {
+                relevantExtensionsInstalls: {
+                    remoteSSH: false,
+                    remoteContainers: false,
+                },
+                config: { openOnStartup: 'always' },
+            },
+            assertActive() {
+                if (!active) throw disposedGeneration;
+            },
+            refreshDashboard: async () => effects.push('refresh'),
+            publishOpenWorkspace: () => effects.push('publish'),
+            showInformationMessage: () => effects.push('information'),
+            applyProjectColorToCurrentWindow: () => effects.push('color'),
+            updateReopenReason: () => effects.push('reopen'),
+            showAgentPivot: () => effects.push('open-view'),
+        }
+    );
+
+    const startup = controller.startUp();
+    active = false;
+    migrationGate.resolve({
+        projects: { migrated: true },
+        todos: { migrated: false },
+    });
+
+    await assert.rejects(startup, error => error === disposedGeneration);
+    assert.deepEqual(effects, []);
+});
+
+test('WEBVIEW-DASHBOARD-STARTUP-CONTROLLER-001 disposal during pending workspace completion prevents later window effects', async () => {
+    const pendingWorkspaceGate = deferred();
+    const pendingWorkspaceEntered = deferred();
+    const effects = [];
+    const disposedGeneration = new Error('controlled disposed generation');
+    let active = true;
+    const controller = makeStartupController(
+        async () => ({
+            projects: { migrated: true },
+            todos: { migrated: false },
+        }),
+        effects,
+        {
+            stewardInfos: {
+                relevantExtensionsInstalls: {
+                    remoteSSH: false,
+                    remoteContainers: false,
+                },
+                config: { openOnStartup: 'always' },
+            },
+            assertActive() {
+                if (!active) throw disposedGeneration;
+            },
+            refreshDashboard: async () => effects.push('refresh'),
+            publishOpenWorkspace: () => effects.push('publish'),
+            showInformationMessage: () => effects.push('information'),
+            applyProjectColorToCurrentWindow: () => effects.push('color'),
+            updateReopenReason: () => effects.push('reopen'),
+            showAgentPivot: () => effects.push('open-view'),
+            async afterProjectMigrationSucceeded() {
+                pendingWorkspaceEntered.resolve();
+                await pendingWorkspaceGate.promise;
+            },
+        }
+    );
+
+    const startup = controller.startUp();
+    await pendingWorkspaceEntered.promise;
+    assert.deepEqual(effects, ['refresh', 'publish', 'information']);
+    effects.length = 0;
+
+    active = false;
+    pendingWorkspaceGate.resolve();
+
+    await assert.rejects(startup, error => error === disposedGeneration);
+    assert.deepEqual(effects, []);
+});
+
+test('WEBVIEW-DASHBOARD-STARTUP-CONTROLLER-001 PERSIST-DASHBOARD-LIFECYCLE-CONTROLLER-001 transferred ready startup migrates until actual context disposal', async () => {
+    const migrationGate = deferred();
+    const migrationEntered = deferred();
+    const effects = [];
+    const unhandled = [];
+    const contextSubscriptions = [];
+    const resources = new DashboardBootstrapResources();
+    let migrationAttempts = 0;
+    let ownedDisposals = 0;
+    resources.own({
+        dispose() {
+            ownedDisposals += 1;
+        },
+    });
+    const startupController = makeStartupController(
+        async () => {
+            migrationAttempts += 1;
+            if (migrationAttempts === 2) {
+                migrationEntered.resolve();
+                await migrationGate.promise;
+            }
+            return {
+                projects: { migrated: true },
+                todos: { migrated: false },
+            };
+        },
+        effects,
+        {
+            assertActive: () => resources.assertActive(),
+            refreshDashboard: async () => effects.push('startup-refresh'),
+            publishOpenWorkspace: () => effects.push('startup-publish'),
+            showInformationMessage: () => effects.push('startup-information'),
+        }
+    );
+    const lifecycleController = new DashboardLifecycleController({
+        checkDataMigration: async openAfter => {
+            await startupController.checkDataMigration(openAfter);
+        },
+        assertActive: () => resources.assertActive(),
+        applyProjectColorToCurrentWindow: () => effects.push('lifecycle-color'),
+        refresh: reason => effects.push(['lifecycle-refresh', reason]),
+        publishOpenWorkspace: () => effects.push('lifecycle-publish'),
+        evaluateAiSessionAttention: () => undefined,
+        logError: (message, error) => effects.push(['error', message, error]),
+    });
+    const change = makeConfigurationEvent('agentPivot.storeProjectsInSettings');
+
+    resources.transferTo(contextSubscriptions);
+    await lifecycleController.handleConfigurationChanged(change);
+    assert.deepEqual(effects, [
+        'startup-refresh',
+        'startup-publish',
+        'startup-information',
+        'lifecycle-color',
+        ['lifecycle-refresh', 'configuration-changed'],
+        'lifecycle-publish',
+    ]);
+    effects.length = 0;
+
+    const onUnhandled = reason => unhandled.push(reason);
+    process.on('unhandledRejection', onUnhandled);
+    try {
+        lifecycleController.handleConfigurationChange(change);
+        await migrationEntered.promise;
+        for (const subscription of contextSubscriptions.slice().reverse()) {
+            subscription.dispose();
+        }
+        migrationGate.resolve();
+        await new Promise(resolve => setImmediate(resolve));
+        await new Promise(resolve => setImmediate(resolve));
+        lifecycleController.handleConfigurationChange(change);
+        await new Promise(resolve => setImmediate(resolve));
+    } finally {
+        process.removeListener('unhandledRejection', onUnhandled);
+    }
+
+    assert.equal(migrationAttempts, 2);
+    assert.equal(ownedDisposals, 1);
+    assert.deepEqual(effects, []);
+    assert.deepEqual(unhandled, []);
 });

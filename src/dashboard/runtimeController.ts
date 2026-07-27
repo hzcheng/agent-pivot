@@ -3,6 +3,10 @@
 import type { AiSessionProviderId, Project } from '../models';
 import type { AiSessionActiveTerminalChangedMessage, AiSessionBatchArchiveCompletedMessage } from '../aiSessions/types';
 import type { ActiveAiSessionTerminalIdentity } from '../aiSessions/activeTerminalHighlight';
+import {
+    AGENT_PIVOT_EXTENSION_ID,
+    AGENT_PIVOT_VIEW_CONTAINER_ID,
+} from '../constants';
 
 export interface DashboardRuntimeControllerOptions<TProject extends Project = Project> {
     isVisible: () => boolean;
@@ -17,6 +21,22 @@ export interface DashboardRuntimeControllerOptions<TProject extends Project = Pr
     logError: (message: string, error: unknown) => void;
     refreshAiSessionRuntimes?: (reason: string, force: boolean) => Thenable<void> | Promise<void>;
     logAiSessionRuntimeFailure?: (operation: string, error: unknown) => void;
+}
+
+export interface RevealAgentPivotDashboardOptions {
+    executeCommand: (command: string, ...args: unknown[]) => Thenable<unknown> | Promise<unknown>;
+    viewType: string;
+}
+
+export function revealAgentPivotDashboard(
+    options: RevealAgentPivotDashboardOptions,
+): Promise<void> {
+    return runAsync(() => options.executeCommand(
+        `workbench.view.extension.${AGENT_PIVOT_VIEW_CONTAINER_ID}`
+    ))
+        .then(() => runAsync(() => options.executeCommand(`${options.viewType}.focus`)))
+        .then(undefined, () => runAsync(() => options.executeCommand(`${options.viewType}.focus`)))
+        .then(undefined, () => undefined);
 }
 
 export class DashboardRuntimeController<TProject extends Project = Project> {
@@ -35,10 +55,10 @@ export class DashboardRuntimeController<TProject extends Project = Project> {
         this.options.refreshProvider();
     }
 
-    async showSteward(): Promise<void> {
+    async showAgentPivot(): Promise<void> {
         this.options.publishOpenWorkspace();
-        await this.revealSidebarSteward();
-        this.refresh('show-steward');
+        await this.revealAgentPivotDashboard();
+        this.refresh('show-agent-pivot');
     }
 
     async handleAiSessionViewVisibilityChanged(visible: boolean): Promise<void> {
@@ -49,7 +69,6 @@ export class DashboardRuntimeController<TProject extends Project = Project> {
             await this.runAsync(() => this.options.refreshAiSessionRuntimes('dashboard-visible', true));
         } catch (error) {
             this.options.logAiSessionRuntimeFailure?.('dashboard-visible', error);
-            throw error;
         }
     }
 
@@ -59,11 +78,8 @@ export class DashboardRuntimeController<TProject extends Project = Project> {
         this.options.publishOpenWorkspace();
     }
 
-    revealSidebarSteward(): Promise<void> {
-        return this.runAsync(() => this.options.executeCommand('workbench.view.extension.project-steward'))
-            .then(() => this.runAsync(() => this.options.executeCommand(`${this.options.viewType}.focus`)))
-            .then(undefined, () => this.runAsync(() => this.options.executeCommand(`${this.options.viewType}.focus`)))
-            .then(undefined, () => undefined);
+    revealAgentPivotDashboard(): Promise<void> {
+        return revealAgentPivotDashboard(this.options);
     }
 
     postBatchArchiveCompletion(message: AiSessionBatchArchiveCompletedMessage): void {
@@ -90,15 +106,19 @@ export class DashboardRuntimeController<TProject extends Project = Project> {
         });
     }
 
-    async openSettings(query = '@ext:hzcheng.project-steward'): Promise<void> {
+    async openSettings(query = `@ext:${AGENT_PIVOT_EXTENSION_ID}`): Promise<void> {
         await this.runAsync(() => this.options.executeCommand('workbench.action.openSettings', query));
     }
 
     private runAsync<T>(operation: () => Thenable<T> | Promise<T> | T): Promise<T> {
-        try {
-            return Promise.resolve(operation());
-        } catch (error) {
-            return Promise.reject(error);
-        }
+        return runAsync(operation);
+    }
+}
+
+function runAsync<T>(operation: () => Thenable<T> | Promise<T> | T): Promise<T> {
+    try {
+        return Promise.resolve(operation());
+    } catch (error) {
+        return Promise.reject(error);
     }
 }

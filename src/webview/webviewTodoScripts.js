@@ -729,9 +729,9 @@ function initTodos(options) {
                     return {
                         groupId: group.getAttribute('data-todo-group-id') || '',
                         anchor: list
-                            && window.__projectStewardScrollState
-                            && typeof window.__projectStewardScrollState.capture === 'function'
-                            ? window.__projectStewardScrollState.capture(list, {
+                            && window.__agentPivotScrollState
+                            && typeof window.__agentPivotScrollState.capture === 'function'
+                            ? window.__agentPivotScrollState.capture(list, {
                                 itemSelector: '.todo-item[data-todo-id]',
                                 getKey: getTodoScrollItemKey,
                             })
@@ -874,9 +874,9 @@ function initTodos(options) {
                 if (!list) {
                     return;
                 }
-                if (window.__projectStewardScrollState
-                    && typeof window.__projectStewardScrollState.restore === 'function') {
-                    window.__projectStewardScrollState.restore(list, savedGroup.anchor, {
+                if (window.__agentPivotScrollState
+                    && typeof window.__agentPivotScrollState.restore === 'function') {
+                    window.__agentPivotScrollState.restore(list, savedGroup.anchor, {
                         itemSelector: '.todo-item[data-todo-id]',
                         getKey: getTodoScrollItemKey,
                     });
@@ -1468,6 +1468,6 @@ function initTodos(options) {
         getState: function () { return state; },
         getRoot: function () { return root; },
     };
-    window.__projectStewardTodo = controller;
+    window.__agentPivotTodo = controller;
     return controller;
 }

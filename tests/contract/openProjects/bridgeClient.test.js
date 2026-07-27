@@ -21,7 +21,14 @@ function handshakeResponse() {
         accepted: true,
         protocolVersion: 3,
         bridgeExtensionVersion: '0.1.4',
-        capabilities: { workspaces: true, atomicReplace: true, focusLeases: true },
+        capabilities: {
+            workspaces: true,
+            atomicReplace: true,
+            focusLeases: true,
+            authoritativeUris: true,
+            uiHostNavigation: true,
+            savedProjectNavigation: true,
+        },
     };
 }
 
@@ -30,11 +37,11 @@ test('OPEN-BRIDGE-CLIENT-001 sequences changes and focus publications while supp
     const commands = createCommandRegistry();
     const publications = [];
     const aggregates = [];
-    commands.register('_projectStewardOpenWorkspaces.bridge.publish', publication => {
+    commands.register('_agentPivotOpenWorkspaces.bridge.publish', publication => {
         publications.push(publication);
     });
-    commands.register('_projectStewardOpenWorkspaces.bridge.unregister', () => undefined);
-    commands.register('_projectStewardOpenWorkspaces.bridge.handshake', handshakeResponse);
+    commands.register('_agentPivotOpenWorkspaces.bridge.unregister', () => undefined);
+    commands.register('_agentPivotOpenWorkspaces.bridge.handshake', handshakeResponse);
     const client = new OpenWorkspaceBridgeClient(
         makeRecord(),
         aggregate => aggregates.push(aggregate),
@@ -68,7 +75,7 @@ test('OPEN-BRIDGE-CLIENT-001 sequences changes and focus publications while supp
     assert.equal(publications.at(-1).sequence, 4);
     assert.equal(publications.at(-1).followsFocusEvent, false);
 
-    const aggregateCommand = commands.handlers.get('_projectStewardOpenWorkspaces.workspace.aggregate');
+    const aggregateCommand = commands.handlers.get('_agentPivotOpenWorkspaces.workspace.aggregate');
     const aggregate = makeAggregate([makeRegistration()]);
     await aggregateCommand(aggregate);
     await aggregateCommand({
@@ -93,10 +100,10 @@ test('OPEN-BRIDGE-CLIENT-001 retries the same semantic publication after command
             now: () => 1000,
             registerCommand: () => ({ dispose: () => undefined }),
             executeCommand: async (command, publication) => {
-                if (command === '_projectStewardOpenWorkspaces.bridge.handshake') {
+                if (command === '_agentPivotOpenWorkspaces.bridge.handshake') {
                     return handshakeResponse();
                 }
-                if (command !== '_projectStewardOpenWorkspaces.bridge.publish') return;
+                if (command !== '_agentPivotOpenWorkspaces.bridge.publish') return;
                 attempts.push(publication);
                 if (rejectNext) {
                     rejectNext = false;
@@ -120,6 +127,128 @@ test('OPEN-BRIDGE-CLIENT-001 retries the same semantic publication after command
     await flushAsync();
     assert.deepEqual(attempts.map(value => value.sequence), [1, 2]);
     assert.equal(errors.length, 1);
+});
+
+test('OPEN-BRIDGE-CLIENT-001 rolls back partial constructor registrations before Retry', async t => {
+    const activeRegistrations = new Map();
+    const disposedRegistrations = [];
+    let failDiagnosticRegistration = true;
+    let heartbeatStarts = 0;
+    let heartbeatClears = 0;
+    const registerCommand = (command, callback) => {
+        if (activeRegistrations.has(command)) {
+            throw new Error(`duplicate command registration: ${command}`);
+        }
+        if (command === '_agentPivotOpenWorkspaces.workspace.diagnostic'
+            && failDiagnosticRegistration) {
+            failDiagnosticRegistration = false;
+            throw new Error('controlled diagnostic registration failure');
+        }
+        activeRegistrations.set(command, callback);
+        let disposed = false;
+        return {
+            dispose() {
+                if (disposed) return;
+                disposed = true;
+                disposedRegistrations.push(command);
+                if (activeRegistrations.get(command) === callback) {
+                    activeRegistrations.delete(command);
+                }
+            },
+        };
+    };
+    const dependencies = {
+        instanceId: '7'.repeat(32),
+        now: () => 1000,
+        registerCommand,
+        executeCommand: async command => (
+            command === '_agentPivotOpenWorkspaces.bridge.handshake'
+                ? handshakeResponse()
+                : undefined
+        ),
+        setInterval: () => {
+            heartbeatStarts += 1;
+            return 'heartbeat';
+        },
+        clearInterval: () => {
+            heartbeatClears += 1;
+        },
+    };
+
+    assert.throws(
+        () => new OpenWorkspaceBridgeClient(
+            makeRecord(),
+            () => undefined,
+            () => undefined,
+            dependencies
+        ),
+        /controlled diagnostic registration failure/
+    );
+    assert.deepEqual([...activeRegistrations.keys()], []);
+    assert.deepEqual(disposedRegistrations, [
+        '_agentPivotOpenWorkspaces.workspace.aggregate',
+    ]);
+    assert.equal(heartbeatStarts, 0);
+    assert.equal(heartbeatClears, 0);
+
+    const client = new OpenWorkspaceBridgeClient(
+        makeRecord(),
+        () => undefined,
+        error => { throw error; },
+        dependencies
+    );
+    t.after(() => client.dispose());
+    await flushAsync();
+
+    assert.deepEqual([...activeRegistrations.keys()].sort(), [
+        '_agentPivotOpenWorkspaces.workspace.aggregate',
+        '_agentPivotOpenWorkspaces.workspace.diagnostic',
+    ]);
+    assert.equal(heartbeatStarts, 1);
+
+    client.dispose();
+    assert.deepEqual([...activeRegistrations.keys()], []);
+    assert.equal(heartbeatClears, 1);
+});
+
+test('OPEN-WORKSPACE-BRIDGE-COMPATIBILITY-001 rejects a Bridge without authoritative UI-host navigation', async t => {
+    const commands = [];
+    const statuses = [];
+    const client = new OpenWorkspaceBridgeClient(
+        makeRecord(),
+        () => undefined,
+        () => undefined,
+        {
+            instanceId: '6'.repeat(32),
+            now: () => 1000,
+            registerCommand: () => ({ dispose: () => undefined }),
+            executeCommand: async command => {
+                commands.push(command);
+                if (command === '_agentPivotOpenWorkspaces.bridge.handshake') {
+                    return {
+                        accepted: true,
+                        protocolVersion: 3,
+                        bridgeExtensionVersion: '0.1.4',
+                        capabilities: {
+                            workspaces: true,
+                            atomicReplace: true,
+                            focusLeases: true,
+                        },
+                    };
+                }
+            },
+            setInterval: () => 'heartbeat',
+            clearInterval: () => undefined,
+            setTimeout: () => 'retry',
+            clearTimeout: () => undefined,
+            onStatusChange: status => statuses.push(status),
+        }
+    );
+    t.after(() => client.dispose());
+    await flushAsync();
+
+    assert.deepEqual(statuses, ['update-required']);
+    assert.deepEqual(commands, ['_agentPivotOpenWorkspaces.bridge.handshake']);
 });
 
 test('OPEN-DASHBOARD-BRIDGE-LIFECYCLE-001 publishes a focus marker only when the window gains focus', () => {

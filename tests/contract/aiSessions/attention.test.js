@@ -711,7 +711,7 @@ test('ATTENTION-PRODUCTION-ATTENTION-STORE-LIFECYCLE-001 rejects old owner event
     const { ProductionAttentionStore } = require(
         '../../../extensions/attention-ui-bridge/out/extensions/attention-ui-bridge/src/productionAttentionStore'
     );
-    const root = makeTempDirectory(t, 'project-steward-attention-store-contract-');
+    const root = makeTempDirectory(t, 'agent-pivot-attention-store-contract-');
     const store = new ProductionAttentionStore(root, 'bridge-process');
     const projectId = attentionProject.getAttentionProjectKey('/fixtures/project');
     const snapshot = sequence => ({
@@ -739,7 +739,7 @@ test('ATTENTION-PRODUCTION-ATTENTION-STORE-CLOCK-001 leases owner snapshots by r
     const { ProductionAttentionStore } = require(
         '../../../extensions/attention-ui-bridge/out/extensions/attention-ui-bridge/src/productionAttentionStore'
     );
-    const root = makeTempDirectory(t, 'project-steward-attention-clock-contract-');
+    const root = makeTempDirectory(t, 'agent-pivot-attention-clock-contract-');
     const store = new ProductionAttentionStore(root, 'clock');
     const snapshot = {
         version: 1,
@@ -759,7 +759,7 @@ test('ATTENTION-PRODUCTION-ATTENTION-STORE-UNREGISTER-PROPAGATION-001 ATTENTION-
     const { ProductionAttentionStore } = require(
         '../../../extensions/attention-ui-bridge/out/extensions/attention-ui-bridge/src/productionAttentionStore'
     );
-    const root = makeTempDirectory(t, 'project-steward-attention-tombstone-contract-');
+    const root = makeTempDirectory(t, 'agent-pivot-attention-tombstone-contract-');
     const writer = new ProductionAttentionStore(root, 'writer');
     const peer = new ProductionAttentionStore(root, 'peer');
     const base = {
@@ -783,7 +783,7 @@ test('ATTENTION-PRODUCTION-ATTENTION-STORE-UNREGISTER-PROPAGATION-001 scan racin
     const { ProductionAttentionStore } = require(
         '../../../extensions/attention-ui-bridge/out/extensions/attention-ui-bridge/src/productionAttentionStore'
     );
-    const root = makeTempDirectory(t, 'project-steward-attention-scan-remove-race-');
+    const root = makeTempDirectory(t, 'agent-pivot-attention-scan-remove-race-');
     const instanceId = 'f'.repeat(32);
     const ownerPath = path.join(root, 'instances', `${instanceId}.json`);
     const writer = new ProductionAttentionStore(root, 'writer');
@@ -848,14 +848,14 @@ test('ATTENTION-ATTENTION-BRIDGE-CLIENT-LIFECYCLE-001 ATTENTION-ATTENTION-BRIDGE
         },
         executeCommand: async (command, argument) => {
             commands.push({ command, argument });
-            if (command === '_projectStewardAttention.bridge.handshake') {
+            if (command === '_agentPivotAttention.bridge.handshake') {
                 if (!available) throw new Error('command not found');
                 return {
                     accepted: true, protocolVersion: 1, bridgeExtensionVersion: 'fixture',
                     capabilities: { snapshots: true, acknowledgements: true, atomicReplace: true },
                 };
             }
-            if (command === '_projectStewardAttention.bridge.publish' && !available) {
+            if (command === '_agentPivotAttention.bridge.publish' && !available) {
                 throw new Error('command not found');
             }
             return undefined;
@@ -883,7 +883,7 @@ test('ATTENTION-ATTENTION-BRIDGE-CLIENT-LIFECYCLE-001 ATTENTION-ATTENTION-BRIDGE
     clock.advanceBy(100);
     await flushAsync();
     const publications = commands.filter(entry =>
-        entry.command === '_projectStewardAttention.bridge.publish'
+        entry.command === '_agentPivotAttention.bridge.publish'
     );
     assert.equal(publications.length, 1);
     assert.deepEqual(publications[0].argument.items.map(value => value.eventId), ['latest']);
@@ -899,13 +899,13 @@ test('ATTENTION-ACTIVE-UNREGISTER-ON-DEACTIVATE-001 exposes an awaitable active 
     const vscode = { commands: {
         registerCommand: () => ({ dispose() {} }),
         executeCommand: async command => {
-            if (command === '_projectStewardAttention.bridge.handshake') {
+            if (command === '_agentPivotAttention.bridge.handshake') {
                 return {
                     accepted: true, protocolVersion: 1, bridgeExtensionVersion: 'fixture',
                     capabilities: { snapshots: true, acknowledgements: true, atomicReplace: true },
                 };
             }
-            if (command === '_projectStewardAttention.bridge.unregister') {
+            if (command === '_agentPivotAttention.bridge.unregister') {
                 unregisterStarted.resolve();
                 await unregisterReleased.promise;
             }

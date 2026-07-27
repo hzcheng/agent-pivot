@@ -12,7 +12,7 @@ const CHILD_PID = 101;
 const STARTED_AT_MS = Date.parse('2026-07-23T04:00:00.000Z');
 
 function createHarness(t, overrides = {}) {
-    const root = makeTempDirectory(t, 'project-steward-codex-root-observer-');
+    const root = makeTempDirectory(t, 'agent-pivot-codex-root-observer-');
     const procRoot = path.join(root, 'proc');
     const codexHome = path.join(root, 'codex');
     const sessionsRoot = path.join(codexHome, 'sessions', '2026', '07', '23');

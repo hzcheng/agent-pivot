@@ -26,6 +26,7 @@ function createCoordinator(root, overrides = {}) {
     const store = overrides.store || createSyntheticOpenWorkspaceStore();
     const deliveries = [];
     const diagnostics = [];
+    const createdInstanceIds = [];
     let nowMs = 1000;
     let fireInterval;
     let fireWatcher;
@@ -40,13 +41,17 @@ function createCoordinator(root, overrides = {}) {
             fireWatcher = callback;
             return { close: () => undefined };
         },
-        createStore: () => store,
+        createStore: (_rootDirectory, instanceId) => {
+            createdInstanceIds.push(instanceId);
+            return store;
+        },
         deliverAggregate: aggregate => deliveries.push(aggregate),
         reportDiagnostic: event => diagnostics.push(event),
         ...overrides.dependencies,
     });
     return {
         coordinator,
+        createdInstanceIds,
         deliveries,
         diagnostics,
         fireInterval: () => fireInterval(),
@@ -96,6 +101,94 @@ test('ARCH-COORDINATOR-001 preserves focus order across heartbeat publications a
     await flushAsync();
     assert.equal((await harness.store.scan(14_000)).registrations[0].leaseUpdatedAtMs, 14_000);
     assert.equal(harness.deliveries.length, 2);
+});
+
+test('OPEN-WORKSPACE-INSTANCE-ROLLOVER-001 replaces a reloaded Extension Host instance without stale reclaim', async t => {
+    const harness = createCoordinator('/synthetic-instance-rollover');
+    t.after(() => harness.coordinator.dispose());
+
+    await harness.coordinator.publish(makePublication());
+    harness.setNow(2000);
+    await harness.coordinator.publish(makePublication({
+        instanceId: OTHER,
+        sequence: 1,
+    }));
+
+    let registrations = (await harness.store.scan(2000)).registrations;
+    assert.deepEqual(registrations.map(registration => registration.instanceId), [OTHER]);
+    assert.deepEqual(harness.createdInstanceIds, [SELF, OTHER]);
+
+    harness.setNow(14_000);
+    harness.fireInterval();
+    await flushAsync();
+    registrations = (await harness.store.scan(14_000)).registrations;
+    assert.deepEqual(registrations.map(registration => registration.instanceId), [OTHER]);
+    assert.equal(registrations[0].leaseUpdatedAtMs, 14_000);
+
+    await assert.rejects(
+        harness.coordinator.publish(makePublication({
+            instanceId: SELF,
+            sequence: 2,
+        })),
+        /retired instanceId/
+    );
+    await harness.coordinator.unregister({
+        protocolVersion: 3,
+        instanceId: SELF,
+    });
+
+    registrations = (await harness.store.scan(14_000)).registrations;
+    assert.deepEqual(registrations.map(registration => registration.instanceId), [OTHER]);
+});
+
+test('OPEN-WORKSPACE-INSTANCE-ROLLOVER-001 does not partially persist a replacement when stale removal fails', async t => {
+    const store = createSyntheticOpenWorkspaceStore();
+    let rejectStaleRemoval = true;
+    const failingRemovalStore = {
+        write: registration => store.write(registration),
+        remove: instanceId => {
+            if (rejectStaleRemoval && instanceId === SELF) {
+                return Promise.reject(new Error('stale removal blocked'));
+            }
+            return store.remove(instanceId);
+        },
+        scan: nowMs => store.scan(nowMs),
+    };
+    const harness = createCoordinator('/synthetic-instance-rollover-removal-failure', {
+        store,
+        dependencies: {
+            createStore: () => failingRemovalStore,
+        },
+    });
+    t.after(() => harness.coordinator.dispose());
+
+    await harness.coordinator.publish(makePublication());
+    harness.setNow(2000);
+    await assert.rejects(
+        harness.coordinator.publish(makePublication({
+            instanceId: OTHER,
+            sequence: 1,
+        })),
+        /stale removal blocked/
+    );
+    let registrations = (await store.scan(2000)).registrations;
+    assert.deepEqual(registrations.map(registration => registration.instanceId), [SELF]);
+
+    harness.setNow(14_000);
+    harness.fireInterval();
+    await flushAsync();
+    registrations = (await store.scan(14_000)).registrations;
+    assert.deepEqual(registrations.map(registration => registration.instanceId), [SELF]);
+    assert.equal(registrations[0].leaseUpdatedAtMs, 14_000);
+
+    rejectStaleRemoval = false;
+    harness.setNow(15_000);
+    await harness.coordinator.publish(makePublication({
+        instanceId: OTHER,
+        sequence: 1,
+    }));
+    registrations = (await store.scan(15_000)).registrations;
+    assert.deepEqual(registrations.map(registration => registration.instanceId), [OTHER]);
 });
 
 test('ARCH-COORDINATOR-001 retries an unchanged semantic revision after delivery failure', async t => {

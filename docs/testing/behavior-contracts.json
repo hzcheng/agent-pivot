@@ -1190,6 +1190,21 @@
     ]
   },
   {
+    "id": "RELEASE-ATTENTION-SPIKE-ARTIFACT-VERSION-001",
+    "domain": "release",
+    "title": "Attention spike artifact names and validation instructions follow current package manifests",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/tooling/packageScripts.test.js"
+    ],
+    "evidence": [
+      "scripts/package-attention-extensions.js",
+      "scripts/run-attention-local-bridge-spike-checks.js",
+      "spikes/attention-local-bridge/MANUAL-MATRIX.md"
+    ]
+  },
+  {
     "id": "RUNTIME-RUNTIME-CONFIGURATION-001",
     "domain": "runtime",
     "title": "Runtime Configuration behavior",
@@ -1482,6 +1497,19 @@
     ]
   },
   {
+    "id": "OPEN-OPEN-PROJECT-AUTHORITATIVE-IDENTITY-001",
+    "domain": "open-project",
+    "title": "Authoritative UI-host workspace identities remain distinct across remote authorities",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/openProjects/projection.test.js"
+    ],
+    "evidence": [
+      "extensions/attention-ui-bridge/src/openWorkspacePublication.ts"
+    ]
+  },
+  {
     "id": "OPEN-PROTOCOL-001",
     "domain": "open-project",
     "title": "Open project publication round-trip behavior",
@@ -1531,6 +1559,19 @@
     ],
     "evidence": [
       "src/openWorkspaces/protocol.ts"
+    ]
+  },
+  {
+    "id": "OPEN-WORKSPACE-INSTANCE-ROLLOVER-001",
+    "domain": "open-project",
+    "title": "Workspace Extension Host instance rollover replaces stale window registrations",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/openProjects/coordinator.test.js"
+    ],
+    "evidence": [
+      "extensions/attention-ui-bridge/src/openWorkspaceCoordinator.ts"
     ]
   },
   {
@@ -1884,6 +1925,38 @@
     ],
     "evidence": [
       "src/webview/webviewContent.ts"
+    ]
+  },
+  {
+    "id": "WEBVIEW-NONBLOCKING-FIRST-PAINT-001",
+    "domain": "webview",
+    "title": "Visible Agent Pivot views paint cached HTML before background runtime enrichment settles",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/integration/dashboard/errorRecovery.test.js"
+    ],
+    "evidence": [
+      "src/dashboard/viewProvider.ts",
+      "src/dashboard/runtimeController.ts"
+    ]
+  },
+  {
+    "id": "WEBVIEW-TWO-STAGE-STARTUP-001",
+    "domain": "webview",
+    "title": "Agent Pivot paints a privacy-safe boot shell before ordered dashboard bootstrap completes",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/integration/dashboard/twoStageStartup.test.js",
+      "tests/contract/aiSessions/runtimeComposition.test.js",
+      "tests/browser/dashboardBootShell.test.js"
+    ],
+    "evidence": [
+      "src/dashboard/bootContent.ts",
+      "src/dashboard/bootstrapController.ts",
+      "src/dashboard/viewProvider.ts",
+      "src/dashboard.ts"
     ]
   },
   {
@@ -2404,6 +2477,19 @@
     ]
   },
   {
+    "id": "RUNTIME-DASHBOARD-VISIBILITY-RESILIENCE-001",
+    "domain": "runtime",
+    "title": "Dashboard remains renderable when visibility-triggered runtime discovery fails",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/integration/dashboard/errorRecovery.test.js"
+    ],
+    "evidence": [
+      "src/dashboard/runtimeController.ts"
+    ]
+  },
+  {
     "id": "WEBVIEW-DASHBOARD-STARTUP-CONTROLLER-001",
     "domain": "webview",
     "title": "Dashboard Startup Controller behavior",
@@ -2440,6 +2526,23 @@
     ],
     "evidence": [
       "scripts/run-dashboard-webview-checks.js"
+    ]
+  },
+  {
+    "id": "WEBVIEW-DASHBOARD-COMMAND-AVAILABILITY-001",
+    "domain": "webview",
+    "title": "Every public dashboard command is registered before background bootstrap and delegates only to a live generation",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/dashboardBoundaries.test.js",
+      "tests/contract/aiSessions/runtimeComposition.test.js",
+      "tests/unit/tooling/extensionHostSuite.test.js"
+    ],
+    "evidence": [
+      "src/dashboard/commandRegistration.ts",
+      "src/dashboard/runtimeController.ts",
+      "src/dashboard.ts"
     ]
   },
   {
@@ -2984,6 +3087,53 @@
     ],
     "evidence": [
       "src/openWorkspaces/navigationController.ts"
+    ]
+  },
+  {
+    "id": "OPEN-PROJECT-UI-HOST-NAVIGATION-001",
+    "domain": "open-project",
+    "title": "Saved local and remote projects are parsed and opened by the local UI extension host",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/controllers.test.js",
+      "tests/contract/openProjects/workspaceController.test.js",
+      "tests/integration/dashboard/productionAttentionBridge.test.js"
+    ],
+    "evidence": [
+      "src/projects/projectOpenController.ts",
+      "src/projects/projectNavigationProtocol.ts",
+      "extensions/attention-ui-bridge/src/extension.ts"
+    ]
+  },
+  {
+    "id": "OPEN-WORKSPACE-UI-HOST-NAVIGATION-001",
+    "domain": "open-project",
+    "title": "Workspace navigation resolves and opens authoritative URIs in the local UI extension host",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/openWorkspaces/navigationOutcome.test.js",
+      "tests/integration/dashboard/productionAttentionBridge.test.js"
+    ],
+    "evidence": [
+      "src/openWorkspaces/navigationController.ts",
+      "extensions/attention-ui-bridge/src/extension.ts"
+    ]
+  },
+  {
+    "id": "OPEN-WORKSPACE-BRIDGE-COMPATIBILITY-001",
+    "domain": "open-project",
+    "title": "Workspace and UI Bridge reject peers without authoritative UI-host navigation capabilities",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/openProjects/bridgeClient.test.js",
+      "tests/integration/dashboard/productionAttentionBridge.test.js"
+    ],
+    "evidence": [
+      "src/openWorkspaces/bridgeClient.ts",
+      "extensions/attention-ui-bridge/src/extension.ts"
     ]
   },
   {

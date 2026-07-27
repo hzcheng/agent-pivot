@@ -5,5 +5,5 @@ export function resolveBridgeStorageRoot(globalStoragePath: string, globalStorag
         throw new Error(`globalStoragePath must be an absolute path for ${globalStorageUriScheme || 'unknown'} storage`);
     }
 
-    return path.join(globalStoragePath, 'attention-local-bridge-spike', 'v1');
+    return path.join(globalStoragePath, 'agent-pivot', 'bridge', 'v1');
 }

@@ -3,8 +3,20 @@
 const assert = require('node:assert/strict');
 const vscode = require('vscode');
 
-const MAIN_EXTENSION_ID = 'hzcheng.project-steward';
-const BRIDGE_EXTENSION_ID = 'hzcheng.project-steward-attention-ui-bridge';
+const MAIN_EXTENSION_ID = 'hzcheng.agent-pivot';
+const BRIDGE_EXTENSION_ID = 'hzcheng.agent-pivot-attention-ui-bridge';
+const PUBLIC_COMMANDS = [
+    'agentPivot.open',
+    'agentPivot.addProject',
+    'agentPivot.saveProject',
+    'agentPivot.removeProject',
+    'agentPivot.editProjects',
+    'agentPivot.addGroup',
+    'agentPivot.removeGroup',
+    'agentPivot.addProjectsFromFolder',
+    'agentPivot.addFileToActiveTerminal',
+    'agentPivot.insertPromptToActiveTerminal',
+];
 
 async function verifyExtensionHostLifecycle() {
     const mainExtension = vscode.extensions.getExtension(MAIN_EXTENSION_ID);
@@ -20,14 +32,21 @@ async function verifyExtensionHostLifecycle() {
     assert.equal(mainExtension.isActive, true, `${MAIN_EXTENSION_ID} must activate`);
     assert.equal(bridgeExtension.isActive, true,
         `${BRIDGE_EXTENSION_ID} must be active after main activation`);
+    // WEBVIEW-DASHBOARD-COMMAND-AVAILABILITY-001
+    const availableCommands = new Set(await vscode.commands.getCommands(true));
+    assert.deepEqual(
+        PUBLIC_COMMANDS.filter(command => !availableCommands.has(command)),
+        [],
+        'every public Agent Pivot command must be registered when activation returns'
+    );
 
-    await vscode.commands.executeCommand('projectSteward.open');
-    await vscode.commands.executeCommand('projectSteward.steward.focus');
+    await vscode.commands.executeCommand('agentPivot.open');
+    await vscode.commands.executeCommand('agentPivot.dashboard.focus');
 }
 
 // RELEASE-SCHEDULED-EXTENSION-HOST-001
 async function run() {
-    const timeoutMs = Number(process.env.PROJECT_STEWARD_EXTENSION_HOST_TIMEOUT_MS);
+    const timeoutMs = Number(process.env.AGENT_PIVOT_EXTENSION_HOST_TIMEOUT_MS);
     assert.ok(Number.isSafeInteger(timeoutMs) && timeoutMs > 0,
         'Extension Host timeout must be a positive integer');
     let timeout;

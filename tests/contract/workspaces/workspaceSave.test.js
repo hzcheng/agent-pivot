@@ -77,7 +77,7 @@ function startup(migrateDataIfNeeded, afterProjectMigrationSucceeded) {
         showInformationMessage: () => undefined,
         showErrorMessage: () => undefined,
         logError: () => undefined,
-        showSteward: () => undefined,
+        showAgentPivot: () => undefined,
         applyProjectColorToCurrentWindow: () => undefined,
         getReopenReason: () => 0,
         updateReopenReason: () => undefined,

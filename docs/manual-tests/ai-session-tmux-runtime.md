@@ -22,7 +22,7 @@ Feature branch: `feat/session-tmux-support`
 | tmux | `/usr/bin/tmux`, tmux 3.2a |
 | Node.js / npm | Node.js v26.5.0 / npm 12.0.1 |
 | VS Code remote CLI | 1.127.0, commit `4fe60c8b1cdac1c4c174f2fb180d0d758272d713`, x64 |
-| Extension installation | `hzcheng.project-steward@2.1.2` installed in the Dev Container; installed `dist/dashboard.js` matched the freshly built bundle by SHA-256 |
+| Extension installation | `hzcheng.agent-pivot@2.1.2` installed in the Dev Container; installed `dist/dashboard.js` matched the freshly built bundle by SHA-256 |
 
 The inherited VS Code IPC socket refused connections and the active management route remained disconnected, so the repository installer did not reach a successful extension-host response. The bounded standalone server CLI fallback installed the main VSIX into the Dev Container workspace extension host and listed the exact version. The UI-only attention bridge was also accepted into the remote server extension directory during diagnosis, but that is not evidence of correct local UI-host placement or execution. All installed UI behavior remains `NOT RUN`.
 
@@ -31,7 +31,7 @@ The inherited VS Code IPC socket refused connections and the active management r
 | Status | Command / action | Observed result |
 | --- | --- | --- |
 | PASS (automated) | `npm run test:tmux` | Printed `AI session tmux checks passed.` Pure fake boundaries covered settings, launch quoting, metadata, stores, locking, backend/coordinator/controller behavior, host routes, and Webview contracts. Post-rebase regressions also cover offline completion proof, independent known/inactive retention budgets, consistent initial tmux viewer titles, and stale snapshot projection. |
-| PASS (automated) | `npm run test:tmux:smoke` | Printed `AI session tmux smoke checks passed.` in repeated fresh runs, including three consecutive final runs after production asset generation. Each run used a unique `project-steward-test-<pid>-<random>` server, `-f /dev/null`, and its own `TMUX_TMPDIR`; then it killed the server, verified `list-sessions` no longer succeeded, and removed only its validated owned stale socket if tmux left one behind. Final `/tmp` scans found no isolated socket or fixture root. |
+| PASS (automated) | `npm run test:tmux:smoke` | Printed `AI session tmux smoke checks passed.` in repeated fresh runs, including three consecutive final runs after production asset generation. Each run used a unique `agent-pivot-test-<pid>-<random>` server, `-f /dev/null`, and its own `TMUX_TMPDIR`; then it killed the server, verified `list-sessions` no longer succeeded, and removed only its validated owned stale socket if tmux left one behind. Final `/tmp` scans found no isolated socket or fixture root. |
 | PASS (automated) | Real project layout in the isolated smoke server | Metadata filtering found exactly one managed project tmux session and exactly two managed AI windows. Concurrent ensure calls returned the exact same locator; the append-only provider ledger contained exactly one invocation for that identity. |
 | PASS (automated) | Real session layout in the isolated smoke server | Metadata filtering found exactly two managed rows in exactly two independent tmux sessions, with strict session-scope identity metadata and base-only window metadata. |
 | PASS (automated) | Detach boundary with real panes | Fake VS Code attach terminals were disposed; real project- and session-layout panes reported `pane_dead=0`, and discovery kept the runtimes active and detached. |
@@ -47,7 +47,7 @@ The inherited VS Code IPC socket refused connections and the active management r
 | PASS (automated) | Fresh execution-handoff verification commands | On 2026-07-19, `npm run test:tmux`, `npm run test:safety`, `npm run test:tmux:smoke`, `npm run test-compile`, `npm run vscode:prepublish`, and `npm run test:release-packaging` each exited 0. Production webpack emitted deprecation warnings only; release packaging printed `Release packaging checks passed.` |
 | PASS (automated) | Explicit focused-session refresh | Successful active, pending, legacy Direct, runtime-backed, and conflict-selected focus paths request an immediate refresh; missing and failed targets do not claim focus. |
 | PASS (automated) | Project tmux active-window synchronization | Managed A→B, managed→unmanaged, unchanged, query failure, pending promotion, visibility gating, single-flight, and disposal checks passed. |
-| NOT RUN | Installed UI focused-session retest | The main VSIX is installed and hash-verified; Project Steward clicks and tmux-internal window switches still await manual verification after the VS Code UI reconnects. |
+| NOT RUN | Installed UI focused-session retest | The main VSIX is installed and hash-verified; Agent Pivot clicks and tmux-internal window switches still await manual verification after the VS Code UI reconnects. |
 
 ## Manual acceptance matrix
 

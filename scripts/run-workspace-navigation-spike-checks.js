@@ -296,13 +296,13 @@ function runProbeOutcomeClassifierTests() {
 function assertProbeSource(source, packageSource, tsconfigSource) {
     const packageJson = JSON.parse(packageSource);
     const tsconfig = JSON.parse(tsconfigSource);
-    assert.strictEqual(packageJson.name, 'project-steward-workspace-navigation-probe');
+    assert.strictEqual(packageJson.name, 'agent-pivot-workspace-navigation-probe');
     assert.strictEqual(packageJson.extensionKind.includes('workspace'), true);
     assert.strictEqual(packageJson.main, './dist/extension.js');
     assert.strictEqual(packageJson.activationEvents.includes('*'), false,
         'probe must not activate continuously');
-    assert.ok(packageJson.activationEvents.includes('onCommand:projectStewardWorkspaceNavigationProbe.start'));
-    assert.ok(packageJson.activationEvents.includes('onCommand:projectStewardWorkspaceNavigationProbe.stop'));
+    assert.ok(packageJson.activationEvents.includes('onCommand:agentPivotWorkspaceNavigationProbe.start'));
+    assert.ok(packageJson.activationEvents.includes('onCommand:agentPivotWorkspaceNavigationProbe.stop'));
     assert.strictEqual(tsconfig.compilerOptions.outDir, 'dist');
     for (const required of [
         "'vscode.openFolder'",

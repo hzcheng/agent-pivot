@@ -13,6 +13,17 @@ function disposable(dispose = () => undefined) {
     return { dispose };
 }
 
+async function waitFor(predicate, label) {
+    const timeoutMs = 5_000;
+    const startedAtMs = Date.now();
+    while (Date.now() - startedAtMs <= timeoutMs) {
+        const value = predicate();
+        if (value) return value;
+        await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    throw new Error(`Timed out waiting for ${label} after ${timeoutMs}ms`);
+}
+
 function createHarnessVscode(listeners, commands) {
     const configuration = { get: (_key, fallback) => fallback, inspect: () => undefined, update: async () => undefined };
     const uri = value => ({ scheme: 'file', fsPath: value, path: value, toString: () => value });
@@ -65,7 +76,7 @@ function loadDashboard(transform) {
 }
 
 async function runTerminalCloseContract(transform = source => source) {
-    const storageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'project-steward-close-wiring-'));
+    const storageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-close-wiring-'));
     const listeners = {};
     const commands = new Map();
     const vscode = createHarnessVscode(listeners, commands);
@@ -147,8 +158,7 @@ async function runTerminalCloseContract(transform = source => source) {
 
         const dashboard = loadDashboard(transform);
         await dashboard.activate(context);
-        await new Promise(resolve => setImmediate(resolve));
-        await new Promise(resolve => setImmediate(resolve));
+        await waitFor(() => listeners.closeTerminal, 'terminal close listener registration');
         assert.equal(typeof listeners.closeTerminal, 'function',
             'ATTENTION-RUNTIME-EXIT-NEUTRAL-001 production activation must register terminal close');
         const terminal = {
@@ -169,11 +179,19 @@ async function runTerminalCloseContract(transform = source => source) {
             },
         }];
         listeners.closeTerminal(terminal);
-        await new Promise(resolve => setImmediate(resolve));
-        await new Promise(resolve => setImmediate(resolve));
+        await waitFor(
+            () => calls.some(call => call[0] === 'runtime-close')
+                && calls.some(call => call[0] === 'highlight-close')
+                && calls.some(call => call[0] === 'attention-evaluate'),
+            'terminal close lifecycle effects',
+        );
         assert.ok(calls.some(call => call[0] === 'runtime-close'));
         assert.ok(calls.some(call => call[0] === 'highlight-close'));
         if (mode === 'user-close') {
+            await waitFor(
+                () => calls.some(call => call[0] === 'local-acknowledge'),
+                'user terminal close attention acknowledgement',
+            );
             const suppressionIndex = calls.findIndex(call => call[0] === 'suppress-runtime-completion');
             const runtimeCloseIndex = calls.findIndex(call => call[0] === 'runtime-close');
             const localAcknowledgeIndex = calls.findIndex(call => call[0] === 'local-acknowledge');
@@ -212,7 +230,11 @@ async function runTerminalCloseContract(transform = source => source) {
                 provider: 'codex',
                 sessionId: 'session',
             });
-            await new Promise(resolve => setImmediate(resolve));
+            await waitFor(
+                () => calls.some(call => call[0] === 'runtime-detach')
+                    && calls.some(call => call[0] === 'local-acknowledge'),
+                'explicit runtime close attention acknowledgement',
+            );
             const suppressionIndex = calls.findIndex(call => call[0] === 'suppress-runtime-completion');
             const detachIndex = calls.findIndex(call => call[0] === 'runtime-detach');
             const localAcknowledgeIndex = calls.findIndex(call => call[0] === 'local-acknowledge');

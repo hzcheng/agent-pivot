@@ -7,8 +7,8 @@ export const AUTO_RUN_ROUTING_TOTAL = 1000;
 export const AUTO_RUN_SAME_WORKSPACE_TOTAL = 200;
 export const AUTO_RUN_MAX_EXPIRY_MS = 30 * 60 * 1000;
 export const AUTO_RUN_FIXTURE_IDENTITIES = [
-    '/tmp/project-steward-attention-fixture-a',
-    '/tmp/project-steward-attention-fixture-b',
+    '/tmp/agent-pivot-attention-fixture-a',
+    '/tmp/agent-pivot-attention-fixture-b',
 ] as const;
 
 const RUN_ID_PATTERN = /^[a-f0-9]{32}$/;

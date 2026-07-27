@@ -1,30 +1,35 @@
 'use strict';
 
+import { AGENT_PIVOT_CONFIG_SECTION } from '../constants';
+
+const configurationKey = (key: string): string =>
+    `${AGENT_PIVOT_CONFIG_SECTION}.${key}`;
+
 const NON_TODO_DASHBOARD_CONFIGURATION_SECTIONS = [
-    'projectSteward.searchIsActiveByDefault',
-    'projectSteward.customCss',
-    'projectSteward.recentColors',
-    'projectSteward.storeProjectsInSettings',
-    'projectSteward.maxVisibleAiSessions',
-    'projectSteward.aiSessionTerminalMode',
-    'projectSteward.aiSessionTmuxLayout',
-    'projectSteward.aiSessionTmuxPath',
-    'projectSteward.aiSessionRunningCardAnimation',
-    'projectSteward.aiSessionRunningIconAnimation',
-    'projectSteward.maxVisibleTodosPerGroup',
-    'projectSteward.maxVisibleProjectsPerGroup',
-    'projectSteward.aiSessionAttention.enabled',
-    'projectSteward.displayProjectPath',
-    'projectSteward.prependVscodeUrlToWslRemotes',
-    'projectSteward.projectTileWidth',
-    'projectSteward.recentColorsToRemember',
-    'projectSteward.openOnStartup',
-    'projectSteward.showAddGroupButtonTile',
-    'projectSteward.customProjectCardBackground',
-    'projectSteward.customProjectNameColor',
-    'projectSteward.customProjectPathColor',
-    'projectSteward.applyProjectColorToWindow',
-];
+    'searchIsActiveByDefault',
+    'customCss',
+    'recentColors',
+    'storeProjectsInSettings',
+    'maxVisibleAiSessions',
+    'aiSessionTerminalMode',
+    'aiSessionTmuxLayout',
+    'aiSessionTmuxPath',
+    'aiSessionRunningCardAnimation',
+    'aiSessionRunningIconAnimation',
+    'maxVisibleTodosPerGroup',
+    'maxVisibleProjectsPerGroup',
+    'aiSessionAttention.enabled',
+    'displayProjectPath',
+    'prependVscodeUrlToWslRemotes',
+    'projectTileWidth',
+    'recentColorsToRemember',
+    'openOnStartup',
+    'showAddGroupButtonTile',
+    'customProjectCardBackground',
+    'customProjectNameColor',
+    'customProjectPathColor',
+    'applyProjectColorToWindow',
+].map(configurationKey);
 
 export interface ConfigurationChangeEventLike {
     affectsConfiguration(section: string): boolean;
@@ -35,6 +40,9 @@ export interface WindowStateLike {
 }
 
 export interface DashboardLifecycleControllerOptions {
+    prepareConfigurationChange?: (
+        event: ConfigurationChangeEventLike
+    ) => Promise<void>;
     checkDataMigration: (openStewardAfterMigrate: boolean) => Promise<void>;
     reconcileProjectCatalog?: () => Promise<void>;
     consumeTodoDataWriteEcho?: () => boolean;
@@ -48,39 +56,67 @@ export interface DashboardLifecycleControllerOptions {
     refreshPrompts?: (reason: string) => void;
     publishOpenWorkspace: (followsFocusEvent?: boolean) => void;
     evaluateAiSessionAttention: () => unknown;
+    assertActive?: () => void;
+    logError?: (message: string, error: unknown) => unknown;
 }
 
 export class DashboardLifecycleController {
     constructor(private readonly options: DashboardLifecycleControllerOptions) {
     }
 
+    handleConfigurationChange(event: ConfigurationChangeEventLike): void {
+        void this.handleConfigurationChanged(event).catch(error => {
+            try {
+                this.options.assertActive?.();
+            } catch (_disposedError) {
+                return;
+            }
+            try {
+                this.options.logError?.(
+                    'Failed to handle an Agent Pivot configuration change.',
+                    error
+                );
+            } catch (_logError) {
+                // Configuration listeners must never create unhandled rejections.
+            }
+        });
+    }
+
     async handleConfigurationChanged(event: ConfigurationChangeEventLike): Promise<void> {
-        const todoDataChanged = event.affectsConfiguration('projectSteward.todoData');
+        this.assertActive();
+        if (this.options.prepareConfigurationChange) {
+            await this.options.prepareConfigurationChange(event);
+            this.assertActive();
+        }
+        const todoDataChanged = event.affectsConfiguration(configurationKey('todoData'));
         const localTodoDataWriteEcho = todoDataChanged
             && this.options.consumeTodoDataWriteEcho?.() === true;
         const projectCatalogChange = {
-            syncData: event.affectsConfiguration('projectSteward.projectSyncData'),
-            legacyGroups: event.affectsConfiguration('projectSteward.projectData'),
+            syncData: event.affectsConfiguration(configurationKey('projectSyncData')),
+            legacyGroups: event.affectsConfiguration(configurationKey('projectData')),
         };
         const projectCatalogChanged = projectCatalogChange.syncData
             || projectCatalogChange.legacyGroups;
         const localProjectCatalogWriteEcho = projectCatalogChanged
             && this.options.consumeProjectCatalogWriteEcho?.(projectCatalogChange) === true;
-        const promptDataChanged = event.affectsConfiguration('projectSteward.promptData');
+        const promptDataChanged = event.affectsConfiguration(configurationKey('promptData'));
         const localPromptDataWriteEcho = promptDataChanged
             && this.options.consumePromptDataWriteEcho?.() === true;
-        const nonTodoDashboardConfigurationChanged = event.affectsConfiguration('dashboard')
-            || NON_TODO_DASHBOARD_CONFIGURATION_SECTIONS.some(
+        const nonTodoDashboardConfigurationChanged =
+            NON_TODO_DASHBOARD_CONFIGURATION_SECTIONS.some(
                 section => event.affectsConfiguration(section)
             );
 
-        if (event.affectsConfiguration('projectSteward.storeProjectsInSettings')
-            || event.affectsConfiguration('dashboard.storeProjectsInSettings')) {
+        if (event.affectsConfiguration(configurationKey('storeProjectsInSettings'))) {
             await this.options.checkDataMigration(false);
+            this.assertActive();
         }
 
         if (projectCatalogChanged && !localProjectCatalogWriteEcho) {
-            await this.options.reconcileProjectCatalog?.();
+            if (this.options.reconcileProjectCatalog) {
+                await this.options.reconcileProjectCatalog();
+                this.assertActive();
+            }
         }
 
         const trackedDataChanged = todoDataChanged || projectCatalogChanged || promptDataChanged;
@@ -98,8 +134,7 @@ export class DashboardLifecycleController {
             return;
         }
 
-        if (event.affectsConfiguration('projectSteward')
-            || event.affectsConfiguration('dashboard')) {
+        if (event.affectsConfiguration(AGENT_PIVOT_CONFIG_SECTION)) {
             this.options.applyProjectColorToCurrentWindow();
             this.options.refresh('configuration-changed');
             this.options.publishOpenWorkspace();
@@ -117,5 +152,9 @@ export class DashboardLifecycleController {
             this.options.publishOpenWorkspace(true);
         }
         this.options.evaluateAiSessionAttention();
+    }
+
+    private assertActive(): void {
+        this.options.assertActive?.();
     }
 }

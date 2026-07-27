@@ -233,7 +233,7 @@ function createDashboardHarness({
         'dashboard-search-results': searchResults,
         'dashboard-search-catalog': catalogElement,
     };
-    const storage = new Map([['projectSteward.activeDashboardTab', initialTab]]);
+    const storage = new Map([['agentPivot.activeDashboardTab', initialTab]]);
     const messages = [];
     const frames = [];
     const timers = [];
@@ -264,7 +264,7 @@ function createDashboardHarness({
             scrollY: 0,
             scrollTo: (_x, y) => { context.window.scrollY = y; },
             addEventListener: (type, listener) => { windowListeners[type] = listener; },
-            __projectStewardPrompts: {
+            __agentPivotPrompts: {
                 mount(root, message) {
                     promptMounts.push({ root, html: root.innerHTML, message });
                     return true;
@@ -918,7 +918,7 @@ test('WEBVIEW-DASHBOARD-UPDATE-MESSAGE-001 SESSION-CONTROLLER-001 preserves OPEN
     harness.controller.activateTab('todo');
     assert.equal(harness.messages.filter(message => message.type === 'request-projects-panel').length, 1);
     assert.equal(harness.messages.filter(message => message.type === 'request-todo-panel').length, 1);
-    assert.equal(harness.storage.get('projectSteward.activeDashboardTab'), 'todo');
+    assert.equal(harness.storage.get('agentPivot.activeDashboardTab'), 'todo');
 });
 
 test('WEBVIEW-AI-DASHBOARD-001 restores AI and lazily mounts one correlated authoritative panel', () => {
@@ -932,7 +932,7 @@ test('WEBVIEW-AI-DASHBOARD-001 restores AI and lazily mounts one correlated auth
     assert.ok(aiRequest.requestId.length > 0);
     assert.equal(aiRequest.target, 'global-prompt-library');
     assert.equal(harness.controller.getActiveTab(), 'ai');
-    assert.equal(harness.storage.get('projectSteward.activeDashboardTab'), 'ai');
+    assert.equal(harness.storage.get('agentPivot.activeDashboardTab'), 'ai');
     assert.equal(harness.controller.getAiState(), 'loading');
     assert.equal(harness.collapseButton.disabled, true);
 
@@ -1028,7 +1028,7 @@ test('WEBVIEW-AI-DASHBOARD-001 keeps AI retryable when coherent Prompt mounting 
             const harness = createDashboardHarness({ initialTab: 'ai' });
             const request = harness.messages[0];
             let mountCalls = 0;
-            harness.context.window.__projectStewardPrompts = mount === null
+            harness.context.window.__agentPivotPrompts = mount === null
                 ? undefined
                 : {
                     mount(root, message) {
@@ -1064,7 +1064,7 @@ test('WEBVIEW-AI-DASHBOARD-001 installs one revision-matched Prompt surface befo
     const request = harness.messages[0];
     const html = makeAiPanelHtml(0);
     let observed = null;
-    harness.context.window.__projectStewardPrompts = {
+    harness.context.window.__agentPivotPrompts = {
         mount(root, message) {
             observed = {
                 html: root.innerHTML,
@@ -1137,7 +1137,7 @@ test('WEBVIEW-AI-DASHBOARD-001 queues only the newest Prompt refresh until lazy 
 test('WEBVIEW-AI-DASHBOARD-001 retains a queued Prompt refresh across a failed mount retry', () => {
     const harness = createDashboardHarness({ initialTab: 'ai' });
     const firstRequest = harness.messages[0];
-    const promptController = harness.context.window.__projectStewardPrompts;
+    const promptController = harness.context.window.__agentPivotPrompts;
     const refresh = {
         type: 'prompt-panel-updated',
         version: 1,
@@ -1147,7 +1147,7 @@ test('WEBVIEW-AI-DASHBOARD-001 retains a queued Prompt refresh across a failed m
         html: '<div data-prompt-surface data-prompt-revision="3"></div>',
     };
     harness.windowListeners.message({ data: refresh });
-    harness.context.window.__projectStewardPrompts = {
+    harness.context.window.__agentPivotPrompts = {
         mount() {
             return false;
         },
@@ -1166,7 +1166,7 @@ test('WEBVIEW-AI-DASHBOARD-001 retains a queued Prompt refresh across a failed m
 
     harness.controller.activateTab('ai');
     const retryRequest = harness.messages[1];
-    harness.context.window.__projectStewardPrompts = promptController;
+    harness.context.window.__agentPivotPrompts = promptController;
     assert.equal(harness.controller.applyAiPanelMessage({
         type: 'ai-panel-content',
         version: 1,
@@ -1661,7 +1661,7 @@ test('TODO-TODO-SEARCH-RESULT-RENDERING-001 search reveal requests host data the
     let focused = 0;
     let openedTodoId = null;
     let openedCount = 0;
-    harness.context.window.__projectStewardTodo = {
+    harness.context.window.__agentPivotTodo = {
         openDetail(todoId) {
             openedTodoId = todoId;
             openedCount += 1;
@@ -1757,7 +1757,7 @@ function createProjectVm({
                 getState: () => webviewState,
                 setState: state => { webviewState = state; },
             },
-            __projectStewardDashboard: {
+            __agentPivotDashboard: {
                 replaceSearchCatalog: catalog => replacedCatalogs.push(catalog),
                 getActiveTab: () => activeTab,
             },
@@ -1849,7 +1849,7 @@ function assertCrossProviderBatchScope(source = projectSource) {
     assert.equal(project.hasAttribute('data-ai-session-managing'), true);
     harness.documentListeners.click({ button: 0, target: targetFor('select-unpinned-ai-sessions') });
     assert.deepEqual(
-        toPlain(harness.context.window.__projectStewardBatchAiSessions.snapshot().selectedItems),
+        toPlain(harness.context.window.__agentPivotBatchAiSessions.snapshot().selectedItems),
         [
             { provider: 'codex', sessionId: 'same' },
             { provider: 'claude', sessionId: 'same' },
@@ -1867,7 +1867,7 @@ function assertCrossProviderBatchScope(source = projectSource) {
         ],
     }]);
 
-    const manager = harness.context.window.__projectStewardBatchAiSessions;
+    const manager = harness.context.window.__agentPivotBatchAiSessions;
     harness.windowListeners.message({ data: {
         type: 'ai-session-batch-archive-completed',
         version: 1,
@@ -1953,7 +1953,7 @@ test('PERSIST-MULTI-PROVIDER-BATCH-ARCHIVE-001 announces bounded aggregate outco
         querySelectorAll: selector =>
             selector === '.workspace-card[data-current-workspace][data-id]' ? [project] : [],
     });
-    const manager = harness.context.window.__projectStewardBatchAiSessions;
+    const manager = harness.context.window.__agentPivotBatchAiSessions;
 
     manager.enter('workspace-a');
     manager.toggle('codex', 'codex-sensitive-id');
@@ -2041,7 +2041,7 @@ function assertBatchSelectionReconcilesAuthoritativeRows(source = projectSource)
         querySelectorAll: selector =>
             selector === '.workspace-card[data-current-workspace][data-id]' ? [project] : [],
     });
-    const manager = harness.context.window.__projectStewardBatchAiSessions;
+    const manager = harness.context.window.__agentPivotBatchAiSessions;
     manager.enter('workspace-a');
     manager.toggle('codex', 'same');
     manager.toggle('codex', 'pinned');
@@ -2214,20 +2214,20 @@ test('WEBVIEW-AI-DASHBOARD-001 keeps Collapse disabled across late Projects and 
     });
 
     collapseButton.disabled = false;
-    harness.context.window.__projectStewardSyncCollapseButton();
+    harness.context.window.__agentPivotSyncCollapseButton();
     assert.equal(collapseButton.disabled, true, 'late Projects mount must preserve AI state');
     assert.equal(collapseButton.getAttribute('aria-disabled'), 'true');
     assert.equal(collapseButton.getAttribute('title'), 'No groups to collapse in AI');
 
     collapseButton.disabled = false;
-    harness.context.window.__projectStewardSyncCollapseButton('todo');
+    harness.context.window.__agentPivotSyncCollapseButton('todo');
     assert.equal(collapseButton.disabled, true, 'late TODO update must use the active AI tab');
     assert.equal(collapseButton.getAttribute('aria-disabled'), 'true');
     assert.equal(collapseButton.getAttribute('title'), 'No groups to collapse in AI');
 
-    harness.context.window.__projectStewardDashboard = null;
+    harness.context.window.__agentPivotDashboard = null;
     collapseButton.disabled = false;
-    harness.context.window.__projectStewardSyncCollapseButton();
+    harness.context.window.__agentPivotSyncCollapseButton();
     assert.equal(collapseButton.disabled, true, 'initial mount must read the selected AI tab element');
     assert.equal(collapseButton.getAttribute('title'), 'No groups to collapse in AI');
 });
@@ -2244,13 +2244,13 @@ test('WEBVIEW-AI-DASHBOARD-001 and TODO-AUTHORITATIVE-REFRESH-STATE-001 preserve
             ? [{ classList: createClassList() }]
             : [],
     });
-    const syncCollapse = () => projectVm.context.window.__projectStewardSyncCollapseButton();
+    const syncCollapse = () => projectVm.context.window.__agentPivotSyncCollapseButton();
     const dashboard = createDashboardHarness({
         initialTab: 'projects',
         onProjectsMounted: syncCollapse,
         onTodoMounted: syncCollapse,
     });
-    projectVm.context.window.__projectStewardDashboard = dashboard.controller;
+    projectVm.context.window.__agentPivotDashboard = dashboard.controller;
 
     dashboard.controller.activateTab('ai');
     collapseButton.disabled = false;
@@ -2541,7 +2541,7 @@ function createDndHarness({ projectContainers = [], todoGroups = [], todoLists =
             addEventListener: (type, listener) => { windowListeners[type] = listener; },
             removeEventListener: () => undefined,
             vscode: { postMessage: message => messages.push(message) },
-            __projectStewardTodo: {
+            __agentPivotTodo: {
                 dispatch(action, payload) {
                     messages.push({ action, payload });
                 },
@@ -2605,7 +2605,7 @@ test('WEBVIEW-FAVORITE-DND-001 limits favorite drag to the same virtual containe
 
     harness.context.initDnD(harness.rootElement);
     harness.context.initDnD(harness.rootElement);
-    assert.equal(harness.rootElement.__projectStewardDnDInitialized, true);
+    assert.equal(harness.rootElement.__agentPivotDnDInitialized, true);
     assert.equal(harness.drakes.length, 2);
     harness.drakes[0].handlers.drop({}, favorites, favorites);
     assert.deepEqual(toPlain(harness.messages), [{
@@ -2662,6 +2662,6 @@ test('TODO-TODO-ORDERING-INTERACTION-001 constrains TODO drag state and posts ex
     ]);
 
     harness.context.disposeDnD(harness.rootElement);
-    assert.equal(harness.rootElement.__projectStewardDnDInitialized, undefined);
-    assert.equal(harness.rootElement.__projectStewardDnD, undefined);
+    assert.equal(harness.rootElement.__agentPivotDnDInitialized, undefined);
+    assert.equal(harness.rootElement.__agentPivotDnD, undefined);
 });

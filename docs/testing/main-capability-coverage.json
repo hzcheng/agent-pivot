@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "b41bf2baa668c1a44a25037035d4190bc95bd5d0",
+        "head": "846a5727a5d36b74f91aa20076eb51d8fe77fdf9",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -923,7 +923,10 @@
                 "2cbb52127b26cd424bc4efe4ff6bf844f8203359",
                 "6e0502b98be239953d740213f9e3da5e1fa5317a",
                 "96f2033d1a1e5427c733ce22ca0402d62011d342",
-                "b41bf2baa668c1a44a25037035d4190bc95bd5d0"
+                "b41bf2baa668c1a44a25037035d4190bc95bd5d0",
+                "938905c3ad8bca127535c1188d5c65f2d0a21d1a",
+                "bb74e5abcaafcbf29d31361b95f4e647958169dd",
+                "846a5727a5d36b74f91aa20076eb51d8fe77fdf9"
             ],
             "behaviors": [
                 "SESSION-AI-SESSION-CONVERSATION-ADAPTER-001",
@@ -931,7 +934,9 @@
                 "WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001",
                 "SECURITY-AI-SESSION-CONVERSATION-SOURCE-001",
                 "ACTIVE-SESSION-CONVERSATION-RESTORE-001",
-                "SESSION-CONVERSATION-LOADING-001"
+                "SESSION-CONVERSATION-LOADING-001",
+                "CONVERSATION-VIEWER-USER-EMPHASIS-001",
+                "WEBVIEW-STYLES-ARTIFACT-001"
             ],
             "prGates": [
                 "test:ci:linux"

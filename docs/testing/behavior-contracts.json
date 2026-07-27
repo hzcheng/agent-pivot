@@ -3544,6 +3544,20 @@
     ]
   },
   {
+    "id": "CONVERSATION-VIEWER-USER-EMPHASIS-001",
+    "domain": "webview",
+    "title": "AI Conversation presents User prompts as dominant full-width blocks",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/browser/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "media/conversationViewer.css",
+      "src/aiSessions/conversation/viewer.ts"
+    ]
+  },
+  {
     "id": "SECURITY-AI-SESSION-CONVERSATION-SOURCE-001",
     "domain": "session",
     "title": "Conversation history enforces canonical sources, opaque protocol tokens, and bounded private content",

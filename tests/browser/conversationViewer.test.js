@@ -15,6 +15,29 @@ const viewerScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/conversationViewerScripts.js'),
     'utf8'
 );
+const viewerCss = fs.readFileSync(
+    path.join(__dirname, '../../media/conversationViewer.css'),
+    'utf8'
+);
+const viewerThemeFixtureCss = `
+    :root {
+        --vscode-editor-foreground: #d4d4d4;
+        --vscode-editor-background: #1e1e1e;
+        --vscode-font-family: sans-serif;
+        --vscode-font-size: 13px;
+        --vscode-panel-border: #454545;
+        --vscode-button-background: #0e639c;
+        --vscode-button-foreground: #ffffff;
+        --vscode-button-border: transparent;
+        --vscode-input-background: #252b35;
+        --vscode-input-border: #405677;
+        --vscode-descriptionForeground: #a0a0a0;
+        --vscode-focusBorder: #007fd4;
+        --vscode-textCodeBlock-background: #181818;
+        --vscode-editor-font-family: monospace;
+        --vscode-textLink-foreground: #3794ff;
+    }
+`;
 
 const hostileConversationPage = Object.freeze({
     type: 'conversation-viewer-page',
@@ -250,7 +273,12 @@ async function openHostViewerDocument(t, options) {
             return;
         }
         if (pathname === '/conversationViewer.css') {
-            await route.fulfill({ contentType: 'text/css', body: '' });
+            await route.fulfill({
+                contentType: 'text/css',
+                body: options?.includeStyles
+                    ? `${viewerThemeFixtureCss}\n${viewerCss}`
+                    : '',
+            });
             return;
         }
         await route.fulfill({ contentType: 'text/html', body: html });
@@ -445,6 +473,108 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 keeps disabled real document na
         await button.evaluate(element => element.click());
     }
     assert.deepEqual(await postedMessages(page), []);
+});
+
+test('CONVERSATION-VIEWER-USER-EMPHASIS-001 makes User a full-width Prompt block and keeps Assistant quiet', async t => {
+    const interactionId = 'input-emphasis';
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        interactionIds: [interactionId],
+        interactionId,
+        pageOverrides: {
+            messages: [{
+                id: `${interactionId}:user`,
+                interactionId,
+                role: 'user',
+                markdown: 'Diagnose the loading failure.',
+            }, {
+                id: `${interactionId}:assistant`,
+                interactionId,
+                role: 'assistant',
+                markdown: 'I will inspect the refresh lifecycle.',
+            }],
+            previousCursor: undefined,
+            nextCursor: undefined,
+            isStart: true,
+            isEnd: true,
+        },
+    });
+    const user = page.locator('.conversation-message-user');
+    const assistant = page.locator('.conversation-message-assistant');
+    const styles = await user.evaluate((element) => {
+        const assistantElement = document.querySelector(
+            '.conversation-message-assistant'
+        );
+        const role = element.querySelector('.conversation-role');
+        const userStyle = getComputedStyle(element);
+        const assistantStyle = getComputedStyle(assistantElement);
+        const roleStyle = getComputedStyle(role);
+        return {
+            userBackground: userStyle.backgroundColor,
+            userBorderTop: Number.parseFloat(userStyle.borderTopWidth),
+            userBorderLeft: Number.parseFloat(userStyle.borderLeftWidth),
+            userRadius: Number.parseFloat(userStyle.borderTopLeftRadius),
+            userRoleDisplay: roleStyle.display,
+            userRoleBackground: roleStyle.backgroundColor,
+            userRoleRadius: Number.parseFloat(roleStyle.borderTopLeftRadius),
+            assistantBackground: assistantStyle.backgroundColor,
+            assistantBorderLeft: Number.parseFloat(
+                assistantStyle.borderLeftWidth
+            ),
+            assistantBorderBottom: Number.parseFloat(
+                assistantStyle.borderBottomWidth
+            ),
+            userWidth: Math.round(element.getBoundingClientRect().width),
+            assistantWidth: Math.round(
+                assistantElement.getBoundingClientRect().width
+            ),
+        };
+    });
+
+    assert.notEqual(
+        styles.userBackground,
+        'rgba(0, 0, 0, 0)',
+        'User prompt must have its own filled surface'
+    );
+    assert.equal(styles.userBorderTop, 1);
+    assert.equal(styles.userBorderLeft, 4);
+    assert.ok(styles.userRadius >= 4);
+    assert.equal(styles.userRoleDisplay, 'inline-flex');
+    assert.notEqual(styles.userRoleBackground, 'rgba(0, 0, 0, 0)');
+    assert.ok(styles.userRoleRadius >= 100);
+    assert.equal(styles.assistantBackground, 'rgba(0, 0, 0, 0)');
+    assert.equal(styles.assistantBorderLeft, 0);
+    assert.equal(styles.assistantBorderBottom, 1);
+    assert.equal(styles.userWidth, styles.assistantWidth);
+
+    await user.evaluate(element => {
+        element.classList.add('conversation-selected-interaction');
+        element.tabIndex = -1;
+        element.focus();
+    });
+    const indicators = await user.evaluate(element => {
+        const style = getComputedStyle(element);
+        return {
+            boxShadow: style.boxShadow,
+            outlineWidth: Number.parseFloat(style.outlineWidth),
+        };
+    });
+    assert.notEqual(indicators.boxShadow, 'none');
+    assert.equal(indicators.outlineWidth, 1);
+
+    await page.emulateMedia({ forcedColors: 'active' });
+    assert.equal(
+        await user.evaluate(element =>
+            Number.parseFloat(getComputedStyle(element).borderLeftWidth)
+        ),
+        4
+    );
+    assert.equal(
+        await assistant.evaluate(element =>
+            Number.parseFloat(getComputedStyle(element).borderBottomWidth)
+        ),
+        1
+    );
 });
 
 test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 sanitizes hostile HTML and posts exact version-1 navigation', async t => {

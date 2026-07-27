@@ -91,9 +91,6 @@ button {
 
 .conversation-message {
     margin: 0.75rem 0;
-    padding: 0.75rem 1rem;
-    border-left: 3px solid var(--vscode-textBlockQuote-border);
-    background: var(--vscode-textBlockQuote-background);
 
     &:focus {
         outline: 1px solid var(--vscode-focusBorder);
@@ -106,7 +103,20 @@ button {
 }
 
 .conversation-message-user {
-    border-left-color: var(--vscode-button-background);
+    margin: 1rem 0 1.25rem;
+    padding: 0.875rem 1rem 1rem;
+    border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+    border-left: 4px solid var(--vscode-button-background);
+    border-radius: 4px;
+    background: var(--vscode-input-background, var(--vscode-textBlockQuote-background));
+}
+
+.conversation-message-assistant {
+    margin: 0.75rem 0 1rem;
+    padding: 0.75rem 0.25rem 1rem;
+    border: 0;
+    border-bottom: 1px solid var(--vscode-panel-border);
+    background: transparent;
 }
 
 .conversation-role {
@@ -114,6 +124,20 @@ button {
     margin-bottom: 0.5rem;
     color: var(--vscode-descriptionForeground);
     font-weight: 600;
+}
+
+.conversation-message-user .conversation-role {
+    display: inline-flex;
+    align-items: center;
+    min-height: 1.25rem;
+    padding: 0.1rem 0.45rem;
+    border-radius: 999px;
+    color: var(--vscode-button-foreground);
+    background: var(--vscode-button-background);
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
 }
 
 .conversation-markdown {
@@ -139,6 +163,23 @@ button {
 
     a {
         color: var(--vscode-textLink-foreground);
+    }
+}
+
+@media (forced-colors: active) {
+    .conversation-message-user {
+        border-color: CanvasText;
+        border-left-color: Highlight;
+    }
+
+    .conversation-message-user .conversation-role {
+        border: 1px solid CanvasText;
+        color: HighlightText;
+        background: Highlight;
+    }
+
+    .conversation-message-assistant {
+        border-bottom-color: CanvasText;
     }
 }
 

@@ -10,8 +10,12 @@ const sass = require('sass');
 const root = path.resolve(__dirname, '../../..');
 const stylesPath = path.join(root, 'media/styles.scss');
 const generatedStylesPath = path.join(root, 'media/styles.css');
+const conversationViewerStylesPath = path.join(root, 'media/conversationViewer.scss');
+const generatedConversationViewerStylesPath = path.join(root, 'media/conversationViewer.css');
 const styles = fs.readFileSync(stylesPath, 'utf8');
 const generatedStyles = fs.readFileSync(generatedStylesPath, 'utf8');
+const conversationViewerStyles = fs.readFileSync(conversationViewerStylesPath, 'utf8');
+const generatedConversationViewerStyles = fs.readFileSync(generatedConversationViewerStylesPath, 'utf8');
 
 function extractBlock(source, selector, occurrence = 0) {
     const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -422,17 +426,17 @@ function compileStyles(source) {
     }).css;
 }
 
-function minifyStyles(source) {
-    const result = new CleanCSS({ rebaseTo: path.dirname(generatedStylesPath) }).minify({
-        [generatedStylesPath]: { styles: source },
+function minifyStyles(source, artifactPath = generatedStylesPath) {
+    const result = new CleanCSS({ rebaseTo: path.dirname(artifactPath) }).minify({
+        [artifactPath]: { styles: source },
     });
     assert.deepEqual(result.errors, [], 'WEBVIEW-STYLES-ARTIFACT-001 styles must minify without errors');
     assert.deepEqual(result.warnings, [], 'WEBVIEW-STYLES-ARTIFACT-001 styles must minify without warnings');
     return result.styles;
 }
 
-function assertStyleArtifact(scssSource, cssArtifact) {
-    assert.equal(minifyStyles(compileStyles(scssSource)), cssArtifact,
+function assertStyleArtifact(scssSource, cssArtifact, artifactPath) {
+    assert.equal(minifyStyles(compileStyles(scssSource), artifactPath), cssArtifact,
         'WEBVIEW-STYLES-ARTIFACT-001 committed CSS must equal compiled and minified SCSS');
 }
 
@@ -440,6 +444,11 @@ const compiledStyles = compileStyles(styles);
 
 test('WEBVIEW-STYLES-ARTIFACT-001 committed CSS exactly matches compiled and minified SCSS', () => {
     assertStyleArtifact(styles, generatedStyles);
+    assertStyleArtifact(
+        conversationViewerStyles,
+        generatedConversationViewerStyles,
+        generatedConversationViewerStylesPath
+    );
     const mutatedArtifact = generatedStyles.replace('box-sizing:border-box', 'box-sizing:content-box');
     assert.notEqual(mutatedArtifact, generatedStyles, 'controlled artifact mutation must alter real CSS');
     assert.throws(() => assertStyleArtifact(styles, mutatedArtifact), /WEBVIEW-STYLES-ARTIFACT-001/);

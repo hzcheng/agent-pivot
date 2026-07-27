@@ -2668,7 +2668,7 @@
   {
     "id": "WEBVIEW-STYLES-ARTIFACT-001",
     "domain": "webview",
-    "title": "Committed dashboard CSS matches its SCSS source",
+    "title": "Committed Dashboard and Conversation Viewer CSS match their SCSS sources",
     "priority": "P1",
     "status": "automated",
     "owners": [
@@ -2676,7 +2676,9 @@
     ],
     "evidence": [
       "media/styles.scss",
-      "media/styles.css"
+      "media/styles.css",
+      "media/conversationViewer.scss",
+      "media/conversationViewer.css"
     ]
   },
   {

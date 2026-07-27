@@ -138,27 +138,33 @@ test('WEBVIEW-TWO-STAGE-STARTUP-001 production activation returns while ordered 
 test('WEBVIEW-TWO-STAGE-STARTUP-001 production startup diagnostics preserve exact order and bounded fields', () => {
     const result = runProductionActivation('diagnostics');
     assert.equal(result.failure, null);
-    assert.deepEqual(result.startupDiagnostics.map(({ event }) => event), [
-        'agent-pivot-activation-entered',
-        'agent-pivot-boot-shell-assigned',
-        'agent-pivot-browser-first-paint',
-        'agent-pivot-bootstrap-ready',
+    const normalizedDiagnostics = result.startupDiagnostics.map(diagnostic => {
+        if (!Object.hasOwn(diagnostic, 'durationMs')) {
+            return diagnostic;
+        }
+        assert.equal(Number.isFinite(diagnostic.durationMs), true);
+        assert.ok(diagnostic.durationMs >= 0);
+        return { ...diagnostic, durationMs: '<durationMs>' };
+    });
+    assert.deepEqual(normalizedDiagnostics, [
+        {
+            event: 'agent-pivot-activation-entered',
+        },
+        {
+            event: 'agent-pivot-boot-shell-assigned',
+            generation: 1,
+        },
+        {
+            event: 'agent-pivot-browser-first-paint',
+            generation: 1,
+            durationMs: '<durationMs>',
+        },
+        {
+            event: 'agent-pivot-bootstrap-ready',
+            generation: 1,
+            durationMs: '<durationMs>',
+        },
     ]);
-    assert.deepEqual(result.startupDiagnostics[0], {
-        event: 'agent-pivot-activation-entered',
-    });
-    assert.deepEqual(result.startupDiagnostics[1], {
-        event: 'agent-pivot-boot-shell-assigned',
-        generation: 1,
-    });
-    assert.equal(result.startupDiagnostics[2].event, 'agent-pivot-browser-first-paint');
-    assert.equal(result.startupDiagnostics[2].generation, 1);
-    assert.equal(Number.isFinite(result.startupDiagnostics[2].durationMs), true);
-    assert.ok(result.startupDiagnostics[2].durationMs >= 0);
-    assert.equal(result.startupDiagnostics[3].event, 'agent-pivot-bootstrap-ready');
-    assert.equal(result.startupDiagnostics[3].generation, 1);
-    assert.equal(Number.isFinite(result.startupDiagnostics[3].durationMs), true);
-    assert.ok(result.startupDiagnostics[3].durationMs >= 0);
 });
 
 test('WEBVIEW-TWO-STAGE-STARTUP-001 production failure diagnostic is exact and privacy-safe', () => {

@@ -184,6 +184,32 @@ test('WEBVIEW-TWO-STAGE-STARTUP-001 failure is safe and Retry is single-flight',
     assert.deepEqual(releases, []);
 });
 
+test('WEBVIEW-TWO-STAGE-STARTUP-001 failure cleanup disposal reentrancy remains terminal', async () => {
+    const runGenerations = [];
+    let harness;
+    harness = createHarness({
+        run(generation, resources) {
+            runGenerations.push(generation);
+            resources.own({
+                dispose() {
+                    harness.controller.dispose();
+                },
+            });
+            return Promise.reject(new Error('controlled bootstrap failure'));
+        },
+    });
+
+    harness.controller.start();
+    await settleBackgroundWork();
+    harness.controller.retry();
+    harness.controller.start();
+    await settleBackgroundWork();
+
+    assert.deepEqual(runGenerations, [1]);
+    assert.deepEqual(harness.failures, []);
+    assert.deepEqual(harness.diagnostics, []);
+});
+
 test('WEBVIEW-TWO-STAGE-STARTUP-001 disposal rejects late completion and releases its result', async () => {
     const harness = createHarness();
     const releases = [];

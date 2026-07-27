@@ -170,7 +170,7 @@ function makeConfigurationEvent(...sections) {
     };
 }
 
-function makeStartupController(migrateDataIfNeeded, events) {
+function makeStartupController(migrateDataIfNeeded, events, overrides = {}) {
     return new DashboardStartupController({
         stewardInfos: {
             relevantExtensionsInstalls: { remoteSSH: false, remoteContainers: false },
@@ -190,6 +190,7 @@ function makeStartupController(migrateDataIfNeeded, events) {
         reopenNoneValue: 0,
         getWorkspaceName: () => 'fixture',
         getVisibleEditorLanguageIds: () => [],
+        ...overrides,
     });
 }
 
@@ -1122,4 +1123,91 @@ test('WEBVIEW-DASHBOARD-STARTUP-CONTROLLER-001 retries a failed migration withou
     assert.deepEqual(events.map(event => Array.isArray(event) ? event[0] : event), [
         'log', 'error', 'refresh', 'publish', 'information',
     ]);
+});
+
+test('WEBVIEW-DASHBOARD-STARTUP-CONTROLLER-001 disposal during migration prevents every later startup effect', async () => {
+    const migrationGate = deferred();
+    const effects = [];
+    const disposedGeneration = new Error('controlled disposed generation');
+    let active = true;
+    const controller = makeStartupController(
+        () => migrationGate.promise,
+        effects,
+        {
+            stewardInfos: {
+                relevantExtensionsInstalls: {
+                    remoteSSH: false,
+                    remoteContainers: false,
+                },
+                config: { openOnStartup: 'always' },
+            },
+            assertActive() {
+                if (!active) throw disposedGeneration;
+            },
+            refreshDashboard: async () => effects.push('refresh'),
+            publishOpenWorkspace: () => effects.push('publish'),
+            showInformationMessage: () => effects.push('information'),
+            applyProjectColorToCurrentWindow: () => effects.push('color'),
+            updateReopenReason: () => effects.push('reopen'),
+            showAgentPivot: () => effects.push('open-view'),
+        }
+    );
+
+    const startup = controller.startUp();
+    active = false;
+    migrationGate.resolve({
+        projects: { migrated: true },
+        todos: { migrated: false },
+    });
+
+    await assert.rejects(startup, error => error === disposedGeneration);
+    assert.deepEqual(effects, []);
+});
+
+test('WEBVIEW-DASHBOARD-STARTUP-CONTROLLER-001 disposal during pending workspace completion prevents later window effects', async () => {
+    const pendingWorkspaceGate = deferred();
+    const pendingWorkspaceEntered = deferred();
+    const effects = [];
+    const disposedGeneration = new Error('controlled disposed generation');
+    let active = true;
+    const controller = makeStartupController(
+        async () => ({
+            projects: { migrated: true },
+            todos: { migrated: false },
+        }),
+        effects,
+        {
+            stewardInfos: {
+                relevantExtensionsInstalls: {
+                    remoteSSH: false,
+                    remoteContainers: false,
+                },
+                config: { openOnStartup: 'always' },
+            },
+            assertActive() {
+                if (!active) throw disposedGeneration;
+            },
+            refreshDashboard: async () => effects.push('refresh'),
+            publishOpenWorkspace: () => effects.push('publish'),
+            showInformationMessage: () => effects.push('information'),
+            applyProjectColorToCurrentWindow: () => effects.push('color'),
+            updateReopenReason: () => effects.push('reopen'),
+            showAgentPivot: () => effects.push('open-view'),
+            async afterProjectMigrationSucceeded() {
+                pendingWorkspaceEntered.resolve();
+                await pendingWorkspaceGate.promise;
+            },
+        }
+    );
+
+    const startup = controller.startUp();
+    await pendingWorkspaceEntered.promise;
+    assert.deepEqual(effects, ['refresh', 'publish', 'information']);
+    effects.length = 0;
+
+    active = false;
+    pendingWorkspaceGate.resolve();
+
+    await assert.rejects(startup, error => error === disposedGeneration);
+    assert.deepEqual(effects, []);
 });

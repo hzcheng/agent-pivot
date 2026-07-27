@@ -265,6 +265,18 @@ test('WEBVIEW-TWO-STAGE-STARTUP-001 production activation registers one provider
     );
 });
 
+test('WEBVIEW-DASHBOARD-STARTUP-CONTROLLER-001 production startup uses the bootstrap generation liveness guard', () => {
+    const dashboardSource = fs.readFileSync(
+        path.resolve(__dirname, '../../src/dashboard.ts'),
+        'utf8'
+    );
+
+    assert.match(
+        dashboardSource,
+        /new DashboardStartupController\(\{[\s\S]*?assertActive:\s*\(\)\s*=>\s*resources\.assertActive\(\),[\s\S]*?\}\);/
+    );
+});
+
 test('WEBVIEW-AI-DASHBOARD-001 refreshes external Prompt configuration incrementally and consumes local echoes', async () => {
     const events = [];
     let localEcho = true;

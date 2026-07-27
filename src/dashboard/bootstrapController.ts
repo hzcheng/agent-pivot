@@ -170,6 +170,9 @@ export class DashboardBootstrapController {
             this.pendingResources = undefined;
         }
         this.disposeResources(resources);
+        if (!this.isCurrent(generation)) {
+            return;
+        }
         this.state = 'failed';
         this.callFail(generation);
         this.logFailure(generation);

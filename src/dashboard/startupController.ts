@@ -31,6 +31,7 @@ export interface DashboardStartupControllerOptions {
     stewardInfos: StewardInfos;
     relevantExtensions?: Record<keyof RelevantExtensionInstalls, string>;
     isExtensionInstalled: (extensionId: string) => boolean;
+    assertActive?: () => void;
     migrateDataIfNeeded: () => Promise<DashboardMigrationResult>;
     refreshDashboard: () => unknown;
     publishOpenWorkspace: () => void;
@@ -56,12 +57,14 @@ export class DashboardStartupController {
         try {
             migration = await this.options.migrateDataIfNeeded();
         } catch (error) {
+            this.assertActive();
             this.options.logError('Failed to migrate Agent Pivot data.', error);
             const detail = error instanceof Error ? ` ${error.message}` : '';
             this.options.showErrorMessage(`Could not migrate Agent Pivot data.${detail}`);
             return null;
         }
 
+        this.assertActive();
         this.reportComponentError('project', migration.projects);
         this.reportComponentError('TODO', migration.todos);
         if (!migration.projects.migrated && !migration.todos.migrated) {
@@ -69,6 +72,7 @@ export class DashboardStartupController {
         }
 
         await this.options.refreshDashboard();
+        this.assertActive();
         this.options.publishOpenWorkspace();
         this.options.showInformationMessage('Migrated Agent Pivot projects after changing settings.');
 
@@ -93,10 +97,12 @@ export class DashboardStartupController {
     async startUp(): Promise<void> {
         this.updateRelevantExtensionInstalls();
         const migration = await this.checkDataMigration();
+        this.assertActive();
         if (migration
             && !Object.prototype.hasOwnProperty.call(migration.projects, 'error')
             && this.options.afterProjectMigrationSucceeded) {
             await this.options.afterProjectMigrationSucceeded();
+            this.assertActive();
         }
         this.options.applyProjectColorToCurrentWindow();
 
@@ -112,6 +118,10 @@ export class DashboardStartupController {
         })) {
             this.options.showAgentPivot();
         }
+    }
+
+    private assertActive(): void {
+        this.options.assertActive?.();
     }
 
     private updateRelevantExtensionInstalls(): void {

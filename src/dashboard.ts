@@ -1881,6 +1881,7 @@ async function initializeDashboard(
         stewardInfos,
         relevantExtensions: RelevantExtensions,
         isExtensionInstalled: extensionId => vscode.extensions.getExtension(extensionId) !== undefined,
+        assertActive: () => resources.assertActive(),
         migrateDataIfNeeded: async () => {
             const projectMigration = settleMigration(() => projectService.migrateDataIfNeeded());
             const todoMigration = settleMigration(() => todoService.migrateDataIfNeeded());

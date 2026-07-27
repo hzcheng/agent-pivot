@@ -91,6 +91,36 @@ test('ARCH-AI-SESSION-FALLBACK-REASON-001 accepts an ownership-wrapped focused r
     });
 });
 
+test('ARCH-AI-SESSION-FALLBACK-REASON-001 rejects a parameterized ownership wrapper', t => {
+    const root = copyGuardFixture(t, 'src/dashboard.ts', source => replaceFixtureSource(
+        source,
+        'const tmuxFocusedRuntimeMonitor = ownResource(() =>',
+        'const tmuxFocusedRuntimeMonitor = ownResource((_unexpected) =>',
+    ));
+    assert.throws(
+        () => validateArchitectureGuards(root, {
+            ids: ['ARCH-AI-SESSION-FALLBACK-REASON-001'],
+        }),
+        error => /ARCH-AI-SESSION-FALLBACK-REASON-001/.test(error.message)
+            && /constructed with one options object/.test(error.message),
+    );
+});
+
+test('ARCH-AI-SESSION-FALLBACK-REASON-001 rejects an async ownership wrapper', t => {
+    const root = copyGuardFixture(t, 'src/dashboard.ts', source => replaceFixtureSource(
+        source,
+        'const tmuxFocusedRuntimeMonitor = ownResource(() =>',
+        'const tmuxFocusedRuntimeMonitor = ownResource(async () =>',
+    ));
+    assert.throws(
+        () => validateArchitectureGuards(root, {
+            ids: ['ARCH-AI-SESSION-FALLBACK-REASON-001'],
+        }),
+        error => /ARCH-AI-SESSION-FALLBACK-REASON-001/.test(error.message)
+            && /constructed with one options object/.test(error.message),
+    );
+});
+
 test('ARCH-AI-SESSION-SCAN-BOUNDARY-001 reports the ID and unbounded-scan risk', t => {
     const root = writeFixture(t, {});
     assert.throws(

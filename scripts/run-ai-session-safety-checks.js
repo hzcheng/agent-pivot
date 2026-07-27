@@ -7,6 +7,11 @@ const Module = require('module');
 const os = require('os');
 const path = require('path');
 const ts = require('typescript');
+const {
+    assertBootstrapOwnedResource,
+    withDuplicateBootstrapPush,
+    withRenamedBootstrapFactory,
+} = require('./lib/bootstrapOwnedResource');
 const { validateSafetyScripts } = require('./lib/ciContracts');
 const vm = require('vm');
 const commands = require('../out/aiSessions/commandBuilders');
@@ -5250,8 +5255,36 @@ function runWebviewContentChecks() {
     assert.ok((dashboard.match(/void tmuxFocusedRuntimeMonitor\.request\(\);/g) || []).length >= 2,
         'view visibility and active-terminal changes must both request reconciliation');
     assert.ok(dashboard.includes("logAiSessionRuntimeFailure('sync-focused-runtime', error)"));
-    assert.match(dashboard,
-        /const tmuxFocusedRuntimeMonitor = ownResource\(\(\) =>\s*new TmuxFocusedRuntimeMonitor<vscode\.Terminal>\(\{/);
+    const tmuxMonitorOwnership = {
+        variableName: 'tmuxFocusedRuntimeMonitor',
+        factoryKind: 'new',
+        factoryName: 'TmuxFocusedRuntimeMonitor',
+    };
+    assert.doesNotThrow(() =>
+        assertBootstrapOwnedResource(dashboard, tmuxMonitorOwnership));
+    assert.throws(
+        () => assertBootstrapOwnedResource(
+            withRenamedBootstrapFactory(
+                dashboard,
+                tmuxMonitorOwnership,
+                'UnexpectedRuntimeMonitor',
+            ),
+            tmuxMonitorOwnership,
+        ),
+        /exactly one bootstrap-owned TmuxFocusedRuntimeMonitor factory/,
+        'the focused-runtime monitor must remain linked to its exact constructor',
+    );
+    assert.throws(
+        () => assertBootstrapOwnedResource(
+            withDuplicateBootstrapPush(
+                dashboard,
+                tmuxMonitorOwnership.variableName,
+            ),
+            tmuxMonitorOwnership,
+        ),
+        /tmuxFocusedRuntimeMonitor must not also be pushed directly/,
+        'a bootstrap-owned focused-runtime monitor must reject duplicate context ownership',
+    );
     assert.match(dashboard,
         /beforeRefresh: reason => \{\s*currentAiSessionRefreshReason = reason;\s*postAiSessionAttentionState\(\);\s*\}/,
         'every incremental AI-session render must publish its current attention event map before the HTML update');
@@ -7332,21 +7365,35 @@ function runConversationProductionSafetyChecks() {
         'Claude source scope must come from current workspace root host paths'
     );
 
-    const conversationOwnershipRoots = collectNodes(
-        dashboardAst,
-        node => ts.isCallExpression(node)
-            && ts.isIdentifier(node.expression)
-            && node.expression.text === 'ownResource'
-            && ts.isBinaryExpression(node.parent)
-            && node.parent.right === node
-    ).map(call => propertyAccessPath(call.parent.left))
-        .filter(candidate => candidate?.startsWith(
-            'conversationCapability'
-        ));
-    assert.deepStrictEqual(
-        conversationOwnershipRoots,
-        ['conversationCapability'],
-        'production must register only the aggregate conversation capability'
+    const conversationOwnership = {
+        variableName: 'conversationCapability',
+        factoryKind: 'call',
+        factoryName: 'createConversationCapability',
+    };
+    assert.doesNotThrow(() =>
+        assertBootstrapOwnedResource(dashboard, conversationOwnership));
+    assert.throws(
+        () => assertBootstrapOwnedResource(
+            withRenamedBootstrapFactory(
+                dashboard,
+                conversationOwnership,
+                'createUnexpectedConversationCapability',
+            ),
+            conversationOwnership,
+        ),
+        /exactly one bootstrap-owned createConversationCapability factory/,
+        'the aggregate conversation capability must remain linked to its exact factory',
+    );
+    assert.throws(
+        () => assertBootstrapOwnedResource(
+            withDuplicateBootstrapPush(
+                dashboard,
+                conversationOwnership.variableName,
+            ),
+            conversationOwnership,
+        ),
+        /conversationCapability must not also be pushed directly/,
+        'the aggregate conversation capability must reject duplicate context ownership',
     );
 
     const spawnCalls = collectNodes(

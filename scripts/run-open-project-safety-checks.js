@@ -5,6 +5,11 @@ const fs = require('fs');
 const Module = require('module');
 const os = require('os');
 const path = require('path');
+const {
+    assertBootstrapOwnedResource,
+    withDuplicateBootstrapPush,
+    withRenamedBootstrapFactory,
+} = require('./lib/bootstrapOwnedResource');
 
 const originalModuleLoad = Module._load;
 Module._load = function (request, parent, isMain) {
@@ -3228,9 +3233,36 @@ function runDashboardBridgeLifecycleChecks() {
     assert.ok(dashboard.includes('new DashboardDiagnostics({'));
     assert.ok(!dashboard.includes('function logOpenWorkspaceDiagnostic('));
     assert.ok(dashboard.includes('openWorkspaceController.publish('));
-    assert.ok(dashboard.includes(
-        'openWorkspaceBridgeClient = ownResource(() => new OpenWorkspaceBridgeClient('
-    ));
+    const openWorkspaceBridgeOwnership = {
+        variableName: 'openWorkspaceBridgeClient',
+        factoryKind: 'new',
+        factoryName: 'OpenWorkspaceBridgeClient',
+    };
+    assert.doesNotThrow(() =>
+        assertBootstrapOwnedResource(dashboard, openWorkspaceBridgeOwnership));
+    assert.throws(
+        () => assertBootstrapOwnedResource(
+            withRenamedBootstrapFactory(
+                dashboard,
+                openWorkspaceBridgeOwnership,
+                'UnexpectedOpenWorkspaceBridgeClient',
+            ),
+            openWorkspaceBridgeOwnership,
+        ),
+        /exactly one bootstrap-owned OpenWorkspaceBridgeClient factory/,
+        'the open-workspace bridge must remain linked to its exact constructor',
+    );
+    assert.throws(
+        () => assertBootstrapOwnedResource(
+            withDuplicateBootstrapPush(
+                dashboard,
+                openWorkspaceBridgeOwnership.variableName,
+            ),
+            openWorkspaceBridgeOwnership,
+        ),
+        /openWorkspaceBridgeClient must not also be pushed directly/,
+        'the bootstrap-owned open-workspace bridge must reject duplicate context ownership',
+    );
     assert.ok(!dashboard.includes('get openProjects()'));
     assert.ok(projectedOpenWorkspaces.includes('openWorkspaceDashboardController.getCards()'));
     assert.ok(selectedProjectHandler.includes("projectId.startsWith('__openWorkspaceNavigation-')"));

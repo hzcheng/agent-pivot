@@ -271,6 +271,9 @@ function newExpressionOptionCallback(sourceFile, variableName, constructorName, 
         && constructor.expression.getText(sourceFile) === 'ownResource'
         && constructor.arguments.length === 1
         && ts.isArrowFunction(constructor.arguments[0])
+        && constructor.arguments[0].parameters.length === 0
+        && !constructor.arguments[0].modifiers?.some(
+            modifier => modifier.kind === ts.SyntaxKind.AsyncKeyword)
         && ts.isNewExpression(constructor.arguments[0].body)) {
         constructor = constructor.arguments[0].body;
     }

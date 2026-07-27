@@ -22,6 +22,7 @@ export class AgentPivotViewProvider implements vscode.WebviewViewProvider {
 
     private _view?: vscode.WebviewView;
     private viewGeneration = 0;
+    private preparationGeneration = 0;
     private releaseCurrent?: () => Promise<void>;
     private releaseBarrier: Promise<void> = Promise.resolve();
 
@@ -124,7 +125,10 @@ export class AgentPivotViewProvider implements vscode.WebviewViewProvider {
         webviewView: vscode.WebviewView,
         isCurrent: () => boolean
     ): Promise<void> {
-        if (!isCurrent()) {
+        const preparationGeneration = ++this.preparationGeneration;
+        const isLatest = () =>
+            isCurrent() && preparationGeneration === this.preparationGeneration;
+        if (!isLatest()) {
             return;
         }
         if (webviewView.visible) {
@@ -132,12 +136,12 @@ export class AgentPivotViewProvider implements vscode.WebviewViewProvider {
         }
         try {
             await this.options.onVisibleChanged(webviewView.visible);
-            if (!isCurrent() || !webviewView.visible) {
+            if (!isLatest() || !webviewView.visible) {
                 return;
             }
             await this.options.onVisiblePrepared?.();
         } catch (_error) {
-            if (!isCurrent()) {
+            if (!isLatest()) {
                 return;
             }
             const failure = sanitizedViewFailure();

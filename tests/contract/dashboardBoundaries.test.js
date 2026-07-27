@@ -227,7 +227,7 @@ test('WEBVIEW-NONBLOCKING-FIRST-PAINT-001 composes prepared visibility with incr
     );
     assert.match(
         dashboardSource,
-        /onVisiblePrepared:\s*\(\)\s*=>\s*[\r\n\s]*aiSessionDashboardController\.refreshNow\('dashboard-visible'\)/
+        /onVisiblePrepared:\s*\(\)\s*=>\s*[\r\n\s]*aiSessionDashboardController\.refreshNow\('dashboard-visible',\s*\{[\r\n\s]*fallbackToFullRefresh:\s*false,[\r\n\s]*\}\)/
     );
 });
 

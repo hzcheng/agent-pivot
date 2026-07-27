@@ -312,6 +312,55 @@ test('WEBVIEW-AI-SESSION-DASHBOARD-UNCHANGED-MESSAGE-SKIP-001 retries an unchang
     assert.ok(diagnostics.some(event => event.event === 'ai-session-message-skip'));
 });
 
+test('WEBVIEW-NONBLOCKING-FIRST-PAINT-001 keeps dashboard-visible delivery failures incremental-only', async () => {
+    const refreshes = [];
+    const logs = [];
+    let failureMode = 'undelivered';
+    const { AiSessionDashboardController } = loadFreshWithFakeVscode(
+        '../../../out/aiSessions/dashboardController', {}, __dirname
+    );
+    const controller = new AiSessionDashboardController({
+        providerIds: ['codex'],
+        isVisible: () => true,
+        invalidateCache: () => undefined,
+        watchSessionChanges: () => ({ dispose() {} }),
+        getGroups: () => [],
+        getTodoSearchItems: () => [],
+        getCards: () => {
+            if (failureMode === 'build') {
+                throw new Error('build failed');
+            }
+            return [];
+        },
+        getRunningCardAnimation: () => undefined,
+        getRunningIconAnimation: () => undefined,
+        nextSequence: () => 1,
+        postMessage: () => failureMode === 'rejected'
+            ? Promise.reject(new Error('delivery failed'))
+            : Promise.resolve(false),
+        refresh: reason => refreshes.push(reason),
+        logError: (message, error) => logs.push([message, error.message]),
+        debounceMs: 1,
+        newSessionRefreshDelaysMs: [],
+        setTimeout: callback => { callback(); return {}; },
+        clearTimeout: () => undefined,
+    });
+
+    for (const mode of ['undelivered', 'rejected', 'build']) {
+        failureMode = mode;
+        await controller.refreshNow('dashboard-visible', {
+            fallbackToFullRefresh: false,
+        });
+        await new Promise(resolve => setImmediate(resolve));
+    }
+
+    assert.deepEqual(refreshes, []);
+    assert.deepEqual(logs, [
+        ['Failed to post AI session update message.', 'delivery failed'],
+        ['Failed to update AI sessions incrementally.', 'build failed'],
+    ]);
+});
+
 test('WEBVIEW-ACTIVE-AI-SESSION-TERMINAL-HIGHLIGHT-001 ATTENTION-AI-SESSION-ATTENTION-CONTROLLER-001 terminal close clears focus without publishing completion', () => {
     const terminal = { name: 'fixture terminal' };
     let activeTerminal = terminal;

@@ -1532,7 +1532,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             await dashboardRuntimeController.handleAiSessionViewVisibilityChanged(visible);
         },
         onVisiblePrepared: () =>
-            aiSessionDashboardController.refreshNow('dashboard-visible'),
+            aiSessionDashboardController.refreshNow('dashboard-visible', {
+                fallbackToFullRefresh: false,
+            }),
         onDisposed: () => {
             conversationCapability.controller.resetView();
         },

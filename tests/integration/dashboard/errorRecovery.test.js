@@ -579,6 +579,93 @@ test('WEBVIEW-NONBLOCKING-FIRST-PAINT-001 ignores prepared completion from a sup
     assert.deepEqual(prepared, []);
 });
 
+test('WEBVIEW-NONBLOCKING-FIRST-PAINT-001 ignores prepared completion from an older visibility epoch', async () => {
+    const firstVisibleGate = deferred();
+    const prepared = [];
+    let visibilityChanged;
+    let visibilityCalls = 0;
+    const view = {
+        visible: true,
+        webview: {
+            html: '',
+            options: {},
+            onDidReceiveMessage: () => ({ dispose() {} }),
+            postMessage: async () => true,
+        },
+        onDidChangeVisibility(callback) {
+            visibilityChanged = callback;
+            return { dispose() {} };
+        },
+        onDidDispose: () => ({ dispose() {} }),
+    };
+    const provider = new AgentPivotViewProvider({
+        getWebviewOptions: () => ({}),
+        renderContent: () => '<main>cached dashboard</main>',
+        renderError: () => '<main>safe error</main>',
+        onMessage: async () => undefined,
+        onVisibleChanged: async () => {
+            visibilityCalls += 1;
+            if (visibilityCalls === 1) {
+                await firstVisibleGate.promise;
+            }
+        },
+        onVisiblePrepared: async () => {
+            prepared.push('prepared');
+        },
+        onDisposed: () => undefined,
+        logError: () => undefined,
+    });
+
+    await provider.resolveWebviewView(view, {}, {});
+    await new Promise(resolve => setImmediate(resolve));
+    view.visible = false;
+    await visibilityChanged();
+    view.visible = true;
+    await visibilityChanged();
+    assert.deepEqual(prepared, ['prepared']);
+
+    prepared.length = 0;
+    firstVisibleGate.resolve();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(prepared, []);
+});
+
+test('WEBVIEW-NONBLOCKING-FIRST-PAINT-001 preserves healthy HTML when prepared delivery rejects', async () => {
+    const logs = [];
+    const view = {
+        visible: true,
+        webview: {
+            html: '',
+            options: {},
+            onDidReceiveMessage: () => ({ dispose() {} }),
+            postMessage: async () => true,
+        },
+        onDidChangeVisibility: () => ({ dispose() {} }),
+        onDidDispose: () => ({ dispose() {} }),
+    };
+    const provider = new AgentPivotViewProvider({
+        getWebviewOptions: () => ({}),
+        renderContent: () => '<main>healthy cached dashboard</main>',
+        renderError: () => '<main>safe error</main>',
+        onMessage: async () => undefined,
+        onVisibleChanged: async () => undefined,
+        onVisiblePrepared: async () => {
+            throw new Error('private delivery failure');
+        },
+        onDisposed: () => undefined,
+        logError: (message, error) => logs.push([message, error.message]),
+    });
+
+    await provider.resolveWebviewView(view, {}, {});
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.equal(view.webview.html, '<main>healthy cached dashboard</main>');
+    assert.deepEqual(logs, [[
+        'Failed to prepare Agent Pivot view.',
+        'Unexpected Agent Pivot view failure.',
+    ]]);
+});
+
 test('PRODUCTION-CONVERSATION-UNAVAILABLE-001 isolates constructor failures from dashboard activation and unrelated routes', async () => {
     const privateFailure = [
         '/home/private/conversation.jsonl',

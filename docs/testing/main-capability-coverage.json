@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "846a5727a5d36b74f91aa20076eb51d8fe77fdf9",
+        "head": "a2c5c2d986c5fe2539a2f27369e5d9775dd4398b",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -52,7 +52,8 @@
             "994c0b5e608d015fa5fd566e475bfbc8b6857d73",
             "cd9e16d0f048928e904d7242f9c4fd5f34db2526",
             "f7a8438e0b189907048c7f652e0688d21e850fbb",
-            "a9618126564283fbf57d408541796ed41d6bdc68"
+            "a9618126564283fbf57d408541796ed41d6bdc68",
+            "024c6be9e460ac9ef3e80f40faef9488eb542fcb"
         ]
     },
     "capabilities": [
@@ -83,11 +84,13 @@
                 "4edd2ce42f4670ab1aaaf54c52fefe7b57f6909c",
                 "b150698874e8d16272975191d0411bd12642e122",
                 "c3ef7798505c31137311971ddfcb8f2fd0a3cee7",
-                "f895d42378fa3b2ab422bbf750558e045f57b533"
+                "f895d42378fa3b2ab422bbf750558e045f57b533",
+                "a2c5c2d986c5fe2539a2f27369e5d9775dd4398b"
             ],
             "behaviors": [
                 "PROJECT-ASSIGNMENT-001",
-                "SESSION-WORKSPACE-SCOPE-001"
+                "SESSION-WORKSPACE-SCOPE-001",
+                "ARCH-EXTENSION-HOST-PLACEMENT-001"
             ],
             "prGates": [
                 "test:deterministic:run"

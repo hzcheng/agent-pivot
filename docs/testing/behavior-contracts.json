@@ -2537,8 +2537,7 @@
     "owners": [
       "tests/contract/dashboardBoundaries.test.js",
       "tests/contract/aiSessions/runtimeComposition.test.js",
-      "tests/unit/tooling/extensionHostSuite.test.js",
-      "tests/extension-host/suite/index.js"
+      "tests/unit/tooling/extensionHostSuite.test.js"
     ],
     "evidence": [
       "src/dashboard/commandRegistration.ts",

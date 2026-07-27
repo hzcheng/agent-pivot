@@ -243,10 +243,9 @@ test('SESSION-SIDEBAR-STEWARD-VIEW-PROVIDER-ORDERING-001 keeps view and message 
     assert.ok(logs.every(([, error]) => error.message === 'Unexpected Agent Pivot view failure.'));
 });
 
-test('SESSION-SIDEBAR-STEWARD-VIEW-PROVIDER-ORDERING-001 awaits visible refreshes and never renders hidden or failed state', async () => {
+test('WEBVIEW-NONBLOCKING-FIRST-PAINT-001 renders cached HTML before visible preparation settles', async () => {
+    const visibilityGate = deferred();
     const order = [];
-    let visibilityChanged;
-    let rejectVisibility = false;
     const view = {
         visible: true,
         webview: {
@@ -255,10 +254,7 @@ test('SESSION-SIDEBAR-STEWARD-VIEW-PROVIDER-ORDERING-001 awaits visible refreshe
             onDidReceiveMessage: () => ({ dispose() {} }),
             postMessage: async () => true,
         },
-        onDidChangeVisibility(callback) {
-            visibilityChanged = callback;
-            return { dispose() {} };
-        },
+        onDidChangeVisibility: () => ({ dispose() {} }),
         onDidDispose() {
             return { dispose() {} };
         },
@@ -270,25 +266,69 @@ test('SESSION-SIDEBAR-STEWARD-VIEW-PROVIDER-ORDERING-001 awaits visible refreshe
         onMessage: async () => undefined,
         onVisibleChanged: async visible => {
             order.push(`visible:${visible}:start`);
-            await Promise.resolve();
-            if (rejectVisibility) throw new Error('private refresh failure');
+            await visibilityGate.promise;
             order.push(`visible:${visible}:end`);
         },
-        logError: message => order.push(`log:${message}`),
+        onDisposed: () => undefined,
+        logError: () => undefined,
     });
 
-    await provider.resolveWebviewView(view, {}, {});
-    assert.deepEqual(order, ['visible:true:start', 'visible:true:end', 'render']);
-    view.visible = false;
-    await visibilityChanged();
-    assert.deepEqual(order.slice(-2), ['visible:false:start', 'visible:false:end']);
+    let resolved = false;
+    const resolution = provider.resolveWebviewView(view, {}, {}).then(() => {
+        resolved = true;
+    });
+    await new Promise(resolve => setImmediate(resolve));
 
-    view.visible = true;
-    rejectVisibility = true;
-    await visibilityChanged();
-    assert.equal(order.filter(item => item === 'render').length, 1);
-    assert.equal(view.webview.html, '<main>safe error</main>');
-    assert.ok(order.includes('log:Failed to prepare Agent Pivot view.'));
+    assert.equal(view.webview.html, '<main>fresh</main>');
+    assert.deepEqual(order, ['render', 'visible:true:start']);
+    assert.equal(resolved, true);
+
+    visibilityGate.resolve();
+    await resolution;
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(order, ['render', 'visible:true:start', 'visible:true:end']);
+});
+
+test('SESSION-SIDEBAR-STEWARD-VIEW-PROVIDER-ORDERING-001 preserves healthy HTML when visible preparation fails', async () => {
+    const visibilityGate = deferred();
+    const logs = [];
+    const view = {
+        visible: true,
+        webview: {
+            html: '',
+            options: {},
+            onDidReceiveMessage: () => ({ dispose() {} }),
+            postMessage: async () => true,
+        },
+        onDidChangeVisibility: () => ({ dispose() {} }),
+        onDidDispose: () => ({ dispose() {} }),
+    };
+    const provider = new AgentPivotViewProvider({
+        getWebviewOptions: () => ({}),
+        renderContent: () => '<main>healthy cached dashboard</main>',
+        renderError: () => '<main>safe error</main>',
+        onMessage: async () => undefined,
+        onVisibleChanged: async () => {
+            await visibilityGate.promise;
+            throw new Error('private refresh failure');
+        },
+        onDisposed: () => undefined,
+        logError: (message, error) => logs.push([message, error.message]),
+    });
+
+    const resolution = provider.resolveWebviewView(view, {}, {});
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(view.webview.html, '<main>healthy cached dashboard</main>');
+
+    visibilityGate.resolve();
+    await resolution;
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.equal(view.webview.html, '<main>healthy cached dashboard</main>');
+    assert.deepEqual(logs, [[
+        'Failed to prepare Agent Pivot view.',
+        'Unexpected Agent Pivot view failure.',
+    ]]);
 });
 
 test('RUNTIME-DASHBOARD-VISIBILITY-RESILIENCE-001 renders the dashboard after a runtime refresh failure', async () => {

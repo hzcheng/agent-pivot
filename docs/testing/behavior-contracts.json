@@ -1900,6 +1900,20 @@
     ]
   },
   {
+    "id": "WEBVIEW-NONBLOCKING-FIRST-PAINT-001",
+    "domain": "webview",
+    "title": "Visible Agent Pivot views paint cached HTML before background runtime enrichment settles",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/integration/dashboard/errorRecovery.test.js"
+    ],
+    "evidence": [
+      "src/dashboard/viewProvider.ts",
+      "src/dashboard/runtimeController.ts"
+    ]
+  },
+  {
     "id": "TODO-GROUP-COLLAPSE-CONTROLLER-001",
     "domain": "todo",
     "title": "Group Collapse Controller behavior",

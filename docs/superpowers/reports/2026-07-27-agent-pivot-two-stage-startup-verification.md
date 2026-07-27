@@ -65,12 +65,14 @@ registration.
 
 - adds `WEBVIEW-TWO-STAGE-STARTUP-001` to
   `MAIN-DASHBOARD-WEBVIEW-RECOVERY`;
-- assigns the Task 1–6 implementation and test commits through
-  `2f76bf86b88cda8d37f96fa77d9fdb17cb57a63f`;
+- assigns the Task 1–6 implementation and test commits through the review
+  remediation commit
+  `cb99568a4be2da413d9c94a910701c6d94bea367`;
 - advances `audit.head` to that full hash;
 - accounts for design commit
   `42dadfde510145f80423bf8e6bd318a4a7cfb63b` and plan commit
-  `994c0b5e608d015fa5fd566e475bfbc8b6857d73` through the repository's
+  `994c0b5e608d015fa5fd566e475bfbc8b6857d73`, plus the prior verification
+  report commit `cd9e16d0f048928e904d7242f9c4fd5f34db2526`, through the repository's
   documentation-only exemption convention.
 
 The new verification-time compatibility commits are:
@@ -82,7 +84,11 @@ The new verification-time compatibility commits are:
   observable deadlines;
 - `2f76bf86b88cda8d37f96fa77d9fdb17cb57a63f` — migrate safety harnesses
   from legacy provider/timer/context ownership assumptions to the new
-  lifecycle and bootstrap-resource contract.
+  lifecycle and bootstrap-resource contract;
+- `cb99568a4be2da413d9c94a910701c6d94bea367` — require the exact synchronous,
+  zero-argument bootstrap ownership wrapper and exact factory or constructor
+  for the tmux monitor, conversation capability, and open-workspace bridge;
+  reject duplicate direct context ownership through controlled mutations.
 
 These were test-harness compatibility regressions exposed by broader gates;
 they did not change production startup behavior.
@@ -99,9 +105,11 @@ they did not change production startup behavior.
 | `npm run test:deterministic` | 0 | Unit, contract, and integration layers passed; integration reported 255/255 |
 | `npm run test:browser` | 0 | 84/84 passed, 0 skipped |
 | `npm run test:safety:run` after harness reconciliation | 0 | Workspace parity, tmux, AI-session safety, and open-workspace safety passed |
+| `node --test tests/unit/tooling/architectureGuards.test.js tests/unit/tooling/bootstrapOwnedResource.test.js` | 0 | 63/63 passed, including async/parameterized wrapper rejection and exact-factory/duplicate-push mutations |
+| `node scripts/run-architecture-guards.js` | 0 | Architecture guards passed |
 | Reconciled `npm run test:behavior-contracts` | 0 | 40/40 tooling tests and both repository checks passed |
 | Final `npm run test:ci:linux` | 0 | Exact Linux PR chain passed through build, audit, deterministic, remote-source, performance, browser, safety, dashboard, architecture, release, production build, and coverage |
-| Coverage inside the final Linux gate | 0 | 1063/1063 passed; coverage baseline passed |
+| Coverage inside the final Linux gate | 0 | 1071/1071 passed; coverage baseline passed |
 
 The final browser run reported 84/84 with no skips. The production builds emit
 the repository's existing Webpack deprecation warnings for
@@ -110,16 +118,29 @@ exited successfully.
 
 ## Mutation evidence
 
-Each mutation was applied alone, compiled when required, rejected by its named
-owner, and restored immediately. No mutation was committed.
+Each anchored command below selected exactly one literal callback. For every
+case, the unmodified baseline selected 1 and passed 1; the mutation selected 1,
+passed 0, and failed 1 at the named assertion; restoration selected 1 and
+passed 1. Each mutation was applied alone, compiled when required, and restored
+immediately. No mutation was committed.
 
-| Invariant removed | Named owner | RED evidence | Restored evidence |
-| --- | --- | --- | --- |
-| Public activation awaited the bootstrap flight | `runtimeComposition.test.js` | 0/1; activation timed out while the injected Direct restoration remained pending | 1/1 |
-| Stale generation was allowed to complete | `twoStageStartup.test.js` | 0/1; stale completion returned `true` instead of `false` | 2/2 combined stale/Retry owners |
-| Retry was accepted while already booting | `twoStageStartup.test.js` | 0/1; a second retry event escaped the single-flight boundary | 2/2 combined stale/Retry owners |
-| Reduced-motion shimmer suppression was removed | `dashboardBootShell.test.js` | 0/1; computed animation was `agent-pivot-boot-shimmer` instead of `none` | 1/1 |
-| Raw bootstrap error text was interpolated into failure HTML | `bootContent.test.js` | 0/1; the private-path canary appeared in rendered HTML | 1/1 |
+1. Activation-await mutation:
+   `node --test --test-name-pattern='^WEBVIEW-TWO-STAGE-STARTUP-001 production activation returns while ordered bootstrap is pending$' tests/contract/aiSessions/runtimeComposition.test.js`
+   caught the injected awaited bootstrap with
+   `Timed out waiting for activation to return while Direct restoration is pending`.
+2. Stale-completion mutation:
+   `node --test --test-name-pattern='^WEBVIEW-TWO-STAGE-STARTUP-001 ignores stale completion and stale first-paint acknowledgements$' tests/integration/dashboard/twoStageStartup.test.js`
+   rejected stale completion at the exact `true !== false` assertion.
+3. Retry-in-booting mutation:
+   `node --test --test-name-pattern='^WEBVIEW-TWO-STAGE-STARTUP-001 two exact Retry messages start one pending generation-two flight$' tests/integration/dashboard/twoStageStartup.test.js`
+   observed runs `[1, 2, 3]` instead of `[1, 2]`.
+4. Reduced-motion mutation:
+   `node --test --test-name-pattern='^WEBVIEW-TWO-STAGE-STARTUP-001 boot shell posts one current-generation first paint and suppresses shimmer for reduced motion$' tests/browser/dashboardBootShell.test.js`
+   observed `agent-pivot-boot-shimmer` instead of `none`.
+5. Failure-HTML privacy mutation:
+   `node --test --test-name-pattern='^WEBVIEW-TWO-STAGE-STARTUP-001 failed HTML exposes one safe Retry action$' tests/integration/dashboard/bootContent.test.js`
+   rejected the injected private-path canary at the exact `true !== false`
+   exclusion assertion.
 
 After all restorations, `git diff` was clean for the mutated sources and
 `npm run test-compile` passed.
@@ -139,8 +160,8 @@ The final Linux gate regenerated the release archives:
 
 | Artifact | Identity | Entries | Bytes | Final SHA-256 |
 | --- | --- | ---: | ---: | --- |
-| `artifacts/agent-pivot-1.0.0.vsix` | `hzcheng.agent-pivot@1.0.0`, workspace/UI extension kind | 51 | 403,471 | `fa0dd77e33e4f24f17014ebc9b7272c3345b48e0831616b34a577a20fbbd08df` |
-| `artifacts/agent-pivot-attention-ui-bridge-1.0.0.vsix` | `hzcheng.agent-pivot-attention-ui-bridge@1.0.0`, UI extension kind | 7 | 21,715 | `b471f2904962ea2e9f69b67d9c44235c48e8698ab9dfddfc7c07343f567d2fe2` |
+| `artifacts/agent-pivot-1.0.0.vsix` | `hzcheng.agent-pivot@1.0.0`, workspace/UI extension kind | 51 | 403,471 | `908c768230f8b835ff4aa0370a37b3df7af1637510dbfb6350f129884ce21479` |
+| `artifacts/agent-pivot-attention-ui-bridge-1.0.0.vsix` | `hzcheng.agent-pivot-attention-ui-bridge@1.0.0`, UI extension kind | 7 | 21,715 | `2407c246aea3e9d27eda1f9dc2c44e77df3fdf82d5c01c21f691d426edd58b71` |
 
 `unzip -t` passed for all three archives. The version was not changed and
 nothing was published.
@@ -176,8 +197,8 @@ owned by the exact active Server commit:
 The command exited 0 and reported a successful install. The same executable
 and directories then listed `hzcheng.agent-pivot@1.0.0`, with exactly one
 installed extension directory. A current, separately validated workbench IPC
-channel also reported a successful UI-aware reinstall on
-`Dev Container: DevBox @ reddev`.
+channel also reported a successful UI-aware reinstall in the active Dev
+Container workspace.
 
 The archive installed before the final gate regeneration had SHA-256
 `d34786626a0ae997dcce4f07e5ed8fc8de483b5f1161ad944ec61e2365c91d9b`.

@@ -3344,16 +3344,16 @@ async function runAgentPivotViewProviderOrderingChecks() {
         logError: () => undefined,
     });
     await provider.resolveWebviewView(view, {}, {});
-    assert.deepStrictEqual(order, ['visible:true:start', 'visible:true:end', 'render'],
-        'first visible render must await forced runtime refresh');
+    assert.deepStrictEqual(order, ['render', 'visible:true:start', 'visible:true:end'],
+        'first visible render must paint cached state before forced runtime refresh');
     view.visible = false;
     await visibilityListeners[0]();
     assert.deepStrictEqual(order.slice(-2), ['visible:false:start', 'visible:false:end'],
         'hidden views must not render or force a runtime refresh');
     view.visible = true;
     await visibilityListeners[0]();
-    assert.deepStrictEqual(order.slice(-3), ['visible:true:start', 'visible:true:end', 'render'],
-        'later visible renders must also await refresh and render exactly once');
+    assert.deepStrictEqual(order.slice(-3), ['render', 'visible:true:start', 'visible:true:end'],
+        'later visible renders must also paint before refresh and render exactly once');
 
     let staleRenderCount = 0;
     const failedLogs = [];
@@ -3375,9 +3375,9 @@ async function runAgentPivotViewProviderOrderingChecks() {
         logError: message => { failedLogs.push(message); },
     });
     await failedProvider.resolveWebviewView(failedView, {}, {});
-    assert.strictEqual(staleRenderCount, 0,
-        'a rejected runtime refresh must not render stale state as fresh');
-    assert.strictEqual(failedView.webview.html, '<main>runtime unavailable</main>');
+    assert.strictEqual(staleRenderCount, 1,
+        'a rejected runtime refresh must preserve the immediately rendered cached state');
+    assert.strictEqual(failedView.webview.html, '<main>stale</main>');
     await messageListeners[messageListeners.length - 1]({ type: 'rejected-action' });
     assert.deepStrictEqual(failedLogs, [
         'Failed to prepare Agent Pivot view.',
@@ -3408,7 +3408,8 @@ async function runAgentPivotViewProviderOrderingChecks() {
         'visible error HTML must never include raw executable paths or exception text');
     assert.strictEqual(visibleFailureLogs.some(line => line.includes(secret)), false,
         'the view provider must not forward raw visible-boundary failures to logs');
-    assert.ok(secretView.webview.html.includes('Agent Pivot could not render this view.'));
+    assert.strictEqual(secretView.webview.html, '<main>stale</main>',
+        'a background failure must preserve healthy cached HTML');
 }
 
 async function runAiSessionArchiveRuntimeChecks() {

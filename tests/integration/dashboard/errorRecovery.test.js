@@ -222,14 +222,14 @@ test('SESSION-SIDEBAR-STEWARD-VIEW-PROVIDER-ORDERING-001 keeps view and message 
             return { dispose() {} };
         },
     };
-    const provider = new AgentPivotViewProvider({
+    const provider = new AgentPivotViewProvider({ mode: 'ready', options: {
         getWebviewOptions: () => ({ enableScripts: true }),
         renderContent: () => { throw new Error('private render credential'); },
         renderError: getErrorContent,
         onMessage: async () => { throw new Error('private message credential'); },
         onVisibleChanged: async () => undefined,
         logError: (message, error) => logs.push([message, error]),
-    });
+    }});
 
     await provider.resolveWebviewView(view, {}, {});
     await receiveMessage({ type: 'private-message' });
@@ -259,7 +259,7 @@ test('WEBVIEW-NONBLOCKING-FIRST-PAINT-001 renders cached HTML before visible pre
             return { dispose() {} };
         },
     };
-    const provider = new AgentPivotViewProvider({
+    const provider = new AgentPivotViewProvider({ mode: 'ready', options: {
         getWebviewOptions: () => ({}),
         renderContent: () => { order.push('render'); return '<main>fresh</main>'; },
         renderError: () => '<main>safe error</main>',
@@ -271,7 +271,7 @@ test('WEBVIEW-NONBLOCKING-FIRST-PAINT-001 renders cached HTML before visible pre
         },
         onDisposed: () => undefined,
         logError: () => undefined,
-    });
+    }});
 
     let resolved = false;
     const resolution = provider.resolveWebviewView(view, {}, {}).then(() => {
@@ -303,7 +303,7 @@ test('SESSION-SIDEBAR-STEWARD-VIEW-PROVIDER-ORDERING-001 preserves healthy HTML 
         onDidChangeVisibility: () => ({ dispose() {} }),
         onDidDispose: () => ({ dispose() {} }),
     };
-    const provider = new AgentPivotViewProvider({
+    const provider = new AgentPivotViewProvider({ mode: 'ready', options: {
         getWebviewOptions: () => ({}),
         renderContent: () => '<main>healthy cached dashboard</main>',
         renderError: () => '<main>safe error</main>',
@@ -314,7 +314,7 @@ test('SESSION-SIDEBAR-STEWARD-VIEW-PROVIDER-ORDERING-001 preserves healthy HTML 
         },
         onDisposed: () => undefined,
         logError: (message, error) => logs.push([message, error.message]),
-    });
+    }});
 
     const resolution = provider.resolveWebviewView(view, {}, {});
     await new Promise(resolve => setImmediate(resolve));
@@ -365,7 +365,7 @@ test('RUNTIME-DASHBOARD-VISIBILITY-RESILIENCE-001 renders the dashboard after a 
         onDidChangeVisibility: () => ({ dispose() {} }),
         onDidDispose: () => ({ dispose() {} }),
     };
-    const provider = new AgentPivotViewProvider({
+    const provider = new AgentPivotViewProvider({ mode: 'ready', options: {
         getWebviewOptions: () => ({}),
         renderContent: () => '<main>dashboard ready</main>',
         renderError: getErrorContent,
@@ -377,7 +377,7 @@ test('RUNTIME-DASHBOARD-VISIBILITY-RESILIENCE-001 renders the dashboard after a 
         },
         onDisposed: () => undefined,
         logError: (message, error) => providerLogs.push([message, error.message]),
-    });
+    }});
 
     await provider.resolveWebviewView(view, {}, {});
     await new Promise(resolve => setImmediate(resolve));
@@ -407,7 +407,7 @@ test('SESSION-SIDEBAR-STEWARD-VIEW-PROVIDER-ORDERING-001 releases sidebar-owned 
             return { dispose() {} };
         },
     };
-    const provider = new AgentPivotViewProvider({
+    const provider = new AgentPivotViewProvider({ mode: 'ready', options: {
         getWebviewOptions: () => ({}),
         renderContent: () => '<main>ready</main>',
         renderError: () => '<main>safe error</main>',
@@ -417,7 +417,7 @@ test('SESSION-SIDEBAR-STEWARD-VIEW-PROVIDER-ORDERING-001 releases sidebar-owned 
             disposed += 1;
         },
         logError: () => undefined,
-    });
+    }});
 
     await provider.resolveWebviewView(view, {}, {});
     disposeView();
@@ -466,7 +466,7 @@ test('SESSION-SIDEBAR-STEWARD-VIEW-PROVIDER-OWNERSHIP-001 ignores stale visibili
             fireDispose: () => disposeView(),
         };
     };
-    const provider = new AgentPivotViewProvider({
+    const provider = new AgentPivotViewProvider({ mode: 'ready', options: {
         getWebviewOptions: () => ({}),
         renderContent: webview => {
             renders.push(webview.name);
@@ -486,7 +486,7 @@ test('SESSION-SIDEBAR-STEWARD-VIEW-PROVIDER-OWNERSHIP-001 ignores stale visibili
             disposed += 1;
         },
         logError: () => undefined,
-    });
+    }});
     const viewA = makeView('a');
     const viewB = makeView('b');
 
@@ -547,7 +547,7 @@ test('WEBVIEW-NONBLOCKING-FIRST-PAINT-001 ignores prepared completion from a sup
         onDidChangeVisibility: () => ({ dispose() {} }),
         onDidDispose: () => ({ dispose() {} }),
     });
-    const provider = new AgentPivotViewProvider({
+    const provider = new AgentPivotViewProvider({ mode: 'ready', options: {
         getWebviewOptions: () => ({}),
         renderContent: webview => `<main>${webview.name}</main>`,
         renderError: () => '<main>safe error</main>',
@@ -563,7 +563,7 @@ test('WEBVIEW-NONBLOCKING-FIRST-PAINT-001 ignores prepared completion from a sup
         },
         onDisposed: () => undefined,
         logError: () => undefined,
-    });
+    }});
     const viewA = makeView('a');
     const viewB = makeView('b');
 
@@ -598,7 +598,7 @@ test('WEBVIEW-NONBLOCKING-FIRST-PAINT-001 ignores prepared completion from an ol
         },
         onDidDispose: () => ({ dispose() {} }),
     };
-    const provider = new AgentPivotViewProvider({
+    const provider = new AgentPivotViewProvider({ mode: 'ready', options: {
         getWebviewOptions: () => ({}),
         renderContent: () => '<main>cached dashboard</main>',
         renderError: () => '<main>safe error</main>',
@@ -614,7 +614,7 @@ test('WEBVIEW-NONBLOCKING-FIRST-PAINT-001 ignores prepared completion from an ol
         },
         onDisposed: () => undefined,
         logError: () => undefined,
-    });
+    }});
 
     await provider.resolveWebviewView(view, {}, {});
     await new Promise(resolve => setImmediate(resolve));
@@ -643,7 +643,7 @@ test('WEBVIEW-NONBLOCKING-FIRST-PAINT-001 preserves healthy HTML when prepared d
         onDidChangeVisibility: () => ({ dispose() {} }),
         onDidDispose: () => ({ dispose() {} }),
     };
-    const provider = new AgentPivotViewProvider({
+    const provider = new AgentPivotViewProvider({ mode: 'ready', options: {
         getWebviewOptions: () => ({}),
         renderContent: () => '<main>healthy cached dashboard</main>',
         renderError: () => '<main>safe error</main>',
@@ -654,7 +654,7 @@ test('WEBVIEW-NONBLOCKING-FIRST-PAINT-001 preserves healthy HTML when prepared d
         },
         onDisposed: () => undefined,
         logError: (message, error) => logs.push([message, error.message]),
-    });
+    }});
 
     await provider.resolveWebviewView(view, {}, {});
     await new Promise(resolve => setImmediate(resolve));

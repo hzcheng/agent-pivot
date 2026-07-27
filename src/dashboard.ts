@@ -1507,7 +1507,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             );
         },
     });
-    const provider = new AgentPivotViewProvider({
+    const provider = new AgentPivotViewProvider({ mode: 'ready', options: {
         getWebviewOptions: () => getDashboardWebviewOptions(context.extensionPath, vscode.Uri.file),
         renderContent: webview => getStewardContent(
             context,
@@ -1539,7 +1539,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             conversationCapability.controller.resetView();
         },
         logError,
-    });
+    }});
     let openWorkspaceBridgeClient: OpenWorkspaceBridgeClient;
     openWorkspaceController = new OpenWorkspaceController({
         getWorkspace: resolveCurrentOpenWorkspace,

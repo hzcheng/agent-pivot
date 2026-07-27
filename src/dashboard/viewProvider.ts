@@ -34,6 +34,7 @@ export type AgentPivotViewProviderConfiguration =
     | { mode: 'boot'; options: AgentPivotViewProviderBootOptions };
 
 type ProviderLifecycle =
+    | { kind: 'idle' }
     | { kind: 'booting'; generation: number }
     | { kind: 'failed'; generation: number; retryRequested: boolean }
     | { kind: 'ready'; options: AgentPivotViewProviderOptions };
@@ -54,14 +55,15 @@ export class AgentPivotViewProvider implements vscode.WebviewViewProvider {
     constructor(private readonly configuration: AgentPivotViewProviderConfiguration) {
         this.lifecycle = configuration.mode === 'ready'
             ? { kind: 'ready', options: configuration.options }
-            : { kind: 'booting', generation: 0 };
+            : { kind: 'idle' };
     }
 
     beginBootstrap(generation: number): boolean {
         if (this.configuration.mode !== 'boot'
             || this.lifecycle.kind === 'ready'
             || !isPositiveSafeInteger(generation)
-            || generation <= this.lifecycle.generation) {
+            || (this.lifecycle.kind !== 'idle'
+                && generation <= this.lifecycle.generation)) {
             return false;
         }
 
@@ -183,7 +185,9 @@ export class AgentPivotViewProvider implements vscode.WebviewViewProvider {
             this.renderBootContent(this._view, this.lifecycle.generation);
             return;
         }
-        this.renderBootError(this._view, this.lifecycle.generation);
+        if (this.lifecycle.kind === 'failed') {
+            this.renderBootError(this._view, this.lifecycle.generation);
+        }
     }
 
     postMessage(message: unknown): Thenable<boolean> {

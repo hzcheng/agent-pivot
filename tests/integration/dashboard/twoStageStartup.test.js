@@ -78,6 +78,24 @@ function bootProvider(events) {
     });
 }
 
+test('WEBVIEW-TWO-STAGE-STARTUP-001 keeps generation zero non-renderable before bootstrap begins', async () => {
+    const events = [];
+    const provider = bootProvider(events);
+    const fake = makeVisibleView();
+
+    await provider.resolveWebviewView(fake.view, {}, {});
+
+    assert.deepEqual(fake.assignedHtml, []);
+    assert.deepEqual(events, []);
+});
+
+test('WEBVIEW-TWO-STAGE-STARTUP-001 rejects generation zero completion before bootstrap begins', () => {
+    const events = [];
+    const provider = bootProvider(events);
+
+    assert.equal(provider.completeBootstrap(0, readyOptions(events)), false);
+});
+
 test('WEBVIEW-TWO-STAGE-STARTUP-001 resolves the current view with boot HTML before ready callbacks exist', async () => {
     const events = [];
     const provider = bootProvider(events);

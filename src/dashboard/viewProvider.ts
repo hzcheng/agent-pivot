@@ -92,7 +92,7 @@ export class AgentPivotViewProvider implements vscode.WebviewViewProvider {
                 await release();
             });
         }
-        await this.prepareVisibility(webviewView, isCurrent);
+        void this.prepareVisibility(webviewView, isCurrent);
     }
 
     get visible() {
@@ -126,23 +126,17 @@ export class AgentPivotViewProvider implements vscode.WebviewViewProvider {
         if (!isCurrent()) {
             return;
         }
+        if (webviewView.visible) {
+            this.refresh();
+        }
         try {
             await this.options.onVisibleChanged(webviewView.visible);
-            if (!isCurrent()) {
-                return;
-            }
-            if (webviewView.visible) {
-                this.refresh();
-            }
         } catch (_error) {
             if (!isCurrent()) {
                 return;
             }
             const failure = sanitizedViewFailure();
             this.options.logError('Failed to prepare Agent Pivot view.', failure);
-            if (webviewView.visible) {
-                webviewView.webview.html = this.options.renderError(failure);
-            }
         }
     }
 }

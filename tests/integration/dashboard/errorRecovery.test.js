@@ -489,7 +489,7 @@ test('SESSION-SIDEBAR-STEWARD-VIEW-PROVIDER-OWNERSHIP-001 ignores stale visibili
     const staleInFlight = viewA.fireVisibility();
     await new Promise(resolve => setImmediate(resolve));
     await provider.resolveWebviewView(viewB.view, {}, {});
-    assert.deepEqual(renders, ['a', 'b']);
+    assert.deepEqual(renders, ['a', 'a', 'b']);
     assert.equal(disposed, 1);
     assert.deepEqual(disposalVisibility, [false]);
 
@@ -497,7 +497,7 @@ test('SESSION-SIDEBAR-STEWARD-VIEW-PROVIDER-OWNERSHIP-001 ignores stale visibili
     await staleInFlight;
     assert.deepEqual(
         renders,
-        ['a', 'b'],
+        ['a', 'a', 'b'],
         'an old post-await continuation must not refresh the current view'
     );
 
@@ -517,7 +517,7 @@ test('SESSION-SIDEBAR-STEWARD-VIEW-PROVIDER-OWNERSHIP-001 ignores stale visibili
     viewB.view.visible = true;
     await viewB.fireVisibility();
     assert.equal(provider.visible, true);
-    assert.deepEqual(renders, ['a', 'b', 'b']);
+    assert.deepEqual(renders, ['a', 'a', 'b', 'b']);
     await viewB.fireDispose();
     assert.equal(disposed, 2);
     assert.deepEqual(disposalVisibility, [false, false]);

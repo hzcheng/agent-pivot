@@ -19,17 +19,13 @@ function deferred() {
     return { promise, resolve, reject };
 }
 
-function bootstrapResult(name, releases) {
-    const resources = new DashboardBootstrapResources();
+function bootstrapResult(name, releases, resources) {
     resources.own({
         dispose() {
             releases.push(name);
         },
     });
-    return {
-        options: { name },
-        resources,
-    };
+    return { name };
 }
 
 async function settleBackgroundWork() {
@@ -44,9 +40,9 @@ function createHarness(overrides = {}) {
     const transfers = [];
     const diagnostics = [];
     const controller = new DashboardBootstrapController({
-        run(generation) {
+        run(generation, resources) {
             const pending = deferred();
-            runs.push({ generation, pending });
+            runs.push({ generation, resources, pending });
             return pending.promise;
         },
         begin(generation) {
@@ -93,7 +89,9 @@ test('WEBVIEW-TWO-STAGE-STARTUP-001 activation owner starts without awaiting boo
     harness.controller.retry();
     assert.equal(harness.runs.length, 1);
 
-    harness.runs[0].pending.resolve(bootstrapResult('ready', releases));
+    harness.runs[0].pending.resolve(bootstrapResult(
+        'ready', releases, harness.runs[0].resources
+    ));
     await settleBackgroundWork();
 
     assert.deepEqual(harness.completes.map(item => item.generation), [1]);
@@ -116,7 +114,9 @@ test('WEBVIEW-TWO-STAGE-STARTUP-001 transfers only the latest successful generat
     });
 
     harness.controller.start();
-    const firstResult = bootstrapResult('superseded', releases);
+    const firstResult = bootstrapResult(
+        'superseded', releases, harness.runs[0].resources
+    );
     harness.runs[0].pending.resolve(firstResult);
     await settleBackgroundWork();
 
@@ -125,14 +125,16 @@ test('WEBVIEW-TWO-STAGE-STARTUP-001 transfers only the latest successful generat
 
     harness.controller.retry();
     assert.deepEqual(harness.runs.map(run => run.generation), [1, 2]);
-    const secondResult = bootstrapResult('latest', releases);
+    const secondResult = bootstrapResult(
+        'latest', releases, harness.runs[1].resources
+    );
     harness.runs[1].pending.resolve(secondResult);
     await settleBackgroundWork();
 
     assert.deepEqual(harness.begins, [1, 2]);
     assert.deepEqual(harness.completes.map(item => item.generation), [1, 2]);
     assert.deepEqual(harness.failures, [1]);
-    assert.deepEqual(harness.transfers, [secondResult.resources]);
+    assert.deepEqual(harness.transfers, [harness.runs[1].resources]);
     assert.deepEqual(releases, ['superseded']);
     assert.deepEqual(harness.diagnostics, [{
         event: 'agent-pivot-bootstrap-failed',
@@ -172,7 +174,9 @@ test('WEBVIEW-TWO-STAGE-STARTUP-001 failure is safe and Retry is single-flight',
     assert.deepEqual(harness.runs.map(run => run.generation), [1, 2]);
 
     const releases = [];
-    harness.runs[1].pending.resolve(bootstrapResult('retry', releases));
+    harness.runs[1].pending.resolve(bootstrapResult(
+        'retry', releases, harness.runs[1].resources
+    ));
     await settleBackgroundWork();
 
     assert.deepEqual(harness.completes.map(item => item.generation), [2]);
@@ -185,9 +189,12 @@ test('WEBVIEW-TWO-STAGE-STARTUP-001 disposal rejects late completion and release
     const releases = [];
 
     harness.controller.start();
+    const lateResult = bootstrapResult(
+        'late', releases, harness.runs[0].resources
+    );
     harness.controller.dispose();
     harness.controller.dispose();
-    const lateResult = bootstrapResult('late', releases);
+    assert.deepEqual(releases, ['late']);
     harness.runs[0].pending.resolve(lateResult);
     await settleBackgroundWork();
 
@@ -199,6 +206,41 @@ test('WEBVIEW-TWO-STAGE-STARTUP-001 disposal rejects late completion and release
     harness.controller.start();
     harness.controller.retry();
     assert.equal(harness.runs.length, 1);
+});
+
+test('WEBVIEW-TWO-STAGE-STARTUP-001 disposal immediately releases the in-flight generation scope exactly once', async () => {
+    const pending = deferred();
+    const releases = [];
+    let generationResources;
+    const harness = createHarness({
+        run(generation, resources) {
+            generationResources = resources;
+            resources.own({
+                dispose() {
+                    releases.push(`generation-${generation}`);
+                },
+            });
+            return pending.promise;
+        },
+    });
+
+    harness.controller.start();
+    assert.ok(generationResources instanceof DashboardBootstrapResources);
+
+    harness.controller.dispose();
+    harness.controller.dispose();
+    assert.deepEqual(releases, ['generation-1']);
+    assert.throws(
+        () => generationResources.own({ dispose() {} }),
+        /already been disposed/
+    );
+
+    pending.resolve({ name: 'late' });
+    await settleBackgroundWork();
+
+    assert.deepEqual(releases, ['generation-1']);
+    assert.deepEqual(harness.completes, []);
+    assert.deepEqual(harness.transfers, []);
 });
 
 test('WEBVIEW-TWO-STAGE-STARTUP-001 rejected begin adoption uses the stable failure path', () => {
@@ -267,7 +309,9 @@ test('WEBVIEW-TWO-STAGE-STARTUP-001 complete exceptions dispose the result and f
     });
 
     harness.controller.start();
-    harness.runs[0].pending.resolve(bootstrapResult('complete-exception', releases));
+    harness.runs[0].pending.resolve(bootstrapResult(
+        'complete-exception', releases, harness.runs[0].resources
+    ));
     await settleBackgroundWork();
 
     assert.deepEqual(releases, ['complete-exception']);
@@ -291,7 +335,9 @@ test('WEBVIEW-TWO-STAGE-STARTUP-001 complete disposal reentrancy remains termina
     });
 
     harness.controller.start();
-    harness.runs[0].pending.resolve(bootstrapResult('complete-dispose', releases));
+    harness.runs[0].pending.resolve(bootstrapResult(
+        'complete-dispose', releases, harness.runs[0].resources
+    ));
     await settleBackgroundWork();
     harness.controller.retry();
     harness.controller.start();
@@ -312,7 +358,9 @@ test('WEBVIEW-TWO-STAGE-STARTUP-001 transfer exception keeps adopted resources u
     });
 
     harness.controller.start();
-    harness.runs[0].pending.resolve(bootstrapResult('transfer-exception', releases));
+    harness.runs[0].pending.resolve(bootstrapResult(
+        'transfer-exception', releases, harness.runs[0].resources
+    ));
     await settleBackgroundWork();
     harness.controller.retry();
 
@@ -341,7 +389,9 @@ test('WEBVIEW-TWO-STAGE-STARTUP-001 transfer disposal reentrancy cannot overwrit
     });
 
     harness.controller.start();
-    harness.runs[0].pending.resolve(bootstrapResult('transfer-dispose', releases));
+    harness.runs[0].pending.resolve(bootstrapResult(
+        'transfer-dispose', releases, harness.runs[0].resources
+    ));
     await settleBackgroundWork();
     harness.controller.retry();
     harness.controller.start();
@@ -370,18 +420,22 @@ test('WEBVIEW-TWO-STAGE-STARTUP-001 rejected adoption can retry while the stale 
     });
 
     harness.controller.start();
-    harness.runs[0].pending.resolve(bootstrapResult('rejected-adoption', releases));
+    harness.runs[0].pending.resolve(bootstrapResult(
+        'rejected-adoption', releases, harness.runs[0].resources
+    ));
     await settleBackgroundWork();
 
     assert.deepEqual(harness.runs.map(run => run.generation), [1, 2]);
     assert.deepEqual(releases, ['rejected-adoption']);
 
-    const latest = bootstrapResult('latest-in-flight', releases);
+    const latest = bootstrapResult(
+        'latest-in-flight', releases, harness.runs[1].resources
+    );
     harness.runs[1].pending.resolve(latest);
     await settleBackgroundWork();
 
     assert.deepEqual(harness.completes.map(item => item.generation), [1, 2]);
-    assert.deepEqual(harness.transfers, [latest.resources]);
+    assert.deepEqual(harness.transfers, [harness.runs[1].resources]);
     assert.deepEqual(releases, ['rejected-adoption']);
 });
 
@@ -402,7 +456,9 @@ test('WEBVIEW-TWO-STAGE-STARTUP-001 fulfilled handler clock exceptions never bec
     process.on('unhandledRejection', onUnhandled);
     try {
         harness.controller.start();
-        harness.runs[0].pending.resolve(bootstrapResult('clock', releases));
+        harness.runs[0].pending.resolve(bootstrapResult(
+            'clock', releases, harness.runs[0].resources
+        ));
         await settleBackgroundWork();
         await settleBackgroundWork();
     } finally {
@@ -457,7 +513,9 @@ test('WEBVIEW-TWO-STAGE-STARTUP-001 completion clock disposal suppresses late re
     });
 
     harness.controller.start();
-    harness.runs[0].pending.resolve(bootstrapResult('clock-dispose', releases));
+    harness.runs[0].pending.resolve(bootstrapResult(
+        'clock-dispose', releases, harness.runs[0].resources
+    ));
     await settleBackgroundWork();
     harness.controller.retry();
     harness.controller.start();

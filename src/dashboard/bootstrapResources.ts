@@ -21,6 +21,15 @@ export class DashboardBootstrapResources {
         return disposable;
     }
 
+    assertActive(): void {
+        if (this.state === 'disposed') {
+            throw new Error(DISPOSED_ERROR_MESSAGE);
+        }
+        if (this.state === 'transferred') {
+            throw new Error(TRANSFERRED_ERROR_MESSAGE);
+        }
+    }
+
     transferTo(target: DashboardBootstrapDisposable[]): void {
         this.assertActive();
         target.push(...this.disposables);
@@ -49,15 +58,6 @@ export class DashboardBootstrapResources {
         this.disposables.length = 0;
         if (capturedError) {
             throw firstError;
-        }
-    }
-
-    private assertActive(): void {
-        if (this.state === 'disposed') {
-            throw new Error(DISPOSED_ERROR_MESSAGE);
-        }
-        if (this.state === 'transferred') {
-            throw new Error(TRANSFERRED_ERROR_MESSAGE);
         }
     }
 }

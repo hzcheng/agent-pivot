@@ -129,6 +129,88 @@ test('OPEN-BRIDGE-CLIENT-001 retries the same semantic publication after command
     assert.equal(errors.length, 1);
 });
 
+test('OPEN-BRIDGE-CLIENT-001 rolls back partial constructor registrations before Retry', async t => {
+    const activeRegistrations = new Map();
+    const disposedRegistrations = [];
+    let failDiagnosticRegistration = true;
+    let heartbeatStarts = 0;
+    let heartbeatClears = 0;
+    const registerCommand = (command, callback) => {
+        if (activeRegistrations.has(command)) {
+            throw new Error(`duplicate command registration: ${command}`);
+        }
+        if (command === '_agentPivotOpenWorkspaces.workspace.diagnostic'
+            && failDiagnosticRegistration) {
+            failDiagnosticRegistration = false;
+            throw new Error('controlled diagnostic registration failure');
+        }
+        activeRegistrations.set(command, callback);
+        let disposed = false;
+        return {
+            dispose() {
+                if (disposed) return;
+                disposed = true;
+                disposedRegistrations.push(command);
+                if (activeRegistrations.get(command) === callback) {
+                    activeRegistrations.delete(command);
+                }
+            },
+        };
+    };
+    const dependencies = {
+        instanceId: '7'.repeat(32),
+        now: () => 1000,
+        registerCommand,
+        executeCommand: async command => (
+            command === '_agentPivotOpenWorkspaces.bridge.handshake'
+                ? handshakeResponse()
+                : undefined
+        ),
+        setInterval: () => {
+            heartbeatStarts += 1;
+            return 'heartbeat';
+        },
+        clearInterval: () => {
+            heartbeatClears += 1;
+        },
+    };
+
+    assert.throws(
+        () => new OpenWorkspaceBridgeClient(
+            makeRecord(),
+            () => undefined,
+            () => undefined,
+            dependencies
+        ),
+        /controlled diagnostic registration failure/
+    );
+    assert.deepEqual([...activeRegistrations.keys()], []);
+    assert.deepEqual(disposedRegistrations, [
+        '_agentPivotOpenWorkspaces.workspace.aggregate',
+    ]);
+    assert.equal(heartbeatStarts, 0);
+    assert.equal(heartbeatClears, 0);
+
+    const client = new OpenWorkspaceBridgeClient(
+        makeRecord(),
+        () => undefined,
+        error => { throw error; },
+        dependencies
+    );
+    t.after(() => client.dispose());
+    await flushAsync();
+
+    assert.deepEqual([...activeRegistrations.keys()].sort(), [
+        '_agentPivotOpenWorkspaces.workspace.aggregate',
+        '_agentPivotOpenWorkspaces.workspace.diagnostic',
+    ]);
+    assert.equal(heartbeatStarts, 1);
+
+    client.dispose();
+    assert.deepEqual([...activeRegistrations.keys()], []);
+    assert.equal(heartbeatClears, 1);
+});
+
 test('OPEN-WORKSPACE-BRIDGE-COMPATIBILITY-001 rejects a Bridge without authoritative UI-host navigation', async t => {
     const commands = [];
     const statuses = [];

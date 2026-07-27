@@ -262,8 +262,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     );
 
     bootstrapController = new DashboardBootstrapController({
-        run: async () => {
-            const resources = new DashboardBootstrapResources();
+        run: async (_generation, resources) => {
             try {
                 const options = await initializeDashboard(
                     context,
@@ -271,9 +270,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                     resources,
                     dashboardDiagnostics,
                 );
-                return { options, resources };
+                return options;
             } catch (error) {
-                resources.dispose();
                 dashboardDiagnostics.logError(
                     'Failed to initialize Agent Pivot dashboard.',
                     error,
@@ -344,6 +342,7 @@ async function initializeDashboard(
         readLegacySetting: () =>
             promptConfiguration.inspect<unknown>('promptData')?.globalValue,
     });
+    resources.assertActive();
     const promptService = new PromptService({
         readSetting: promptStore.readSetting,
         writeGlobalSetting: promptStore.writeGlobalSetting,
@@ -560,6 +559,7 @@ async function initializeDashboard(
     } catch (error) {
         logAiSessionRuntimeFailure('restore-inactive-runtimes', error);
     }
+    resources.assertActive();
     const directTerminalRuntimeBackend = new DirectTerminalRuntimeBackend(aiSessionTerminalService);
     const tmuxRuntimeBackend = new TmuxRuntimeBackend<vscode.Terminal>({
         platform: process.platform,
@@ -600,11 +600,13 @@ async function initializeDashboard(
         },
     });
     await aiSessionTerminalService.restorePersistedTerminals(vscode.window.terminals);
+    resources.assertActive();
     try {
         await tmuxRuntimeBackend.restoreAttachTerminals(vscode.window.terminals);
     } catch (error) {
         logAiSessionRuntimeFailure('restore-attach-terminals', error);
     }
+    resources.assertActive();
     const aiSessionPinStore = new AiSessionPinStore(context.globalStoragePath);
     const aiSessionPinController = new AiSessionPinController({
         store: aiSessionPinStore,
@@ -1991,6 +1993,7 @@ async function initializeDashboard(
     }));
 
     await dashboardStartupController.startUp();
+    resources.assertActive();
     return providerOptions;
 
     // ~~~~~~~~~~~~~~~~~~~~~~~~~ Functions ~~~~~~~~~~~~~~~~~~~~~~~~~

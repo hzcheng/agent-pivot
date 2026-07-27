@@ -169,26 +169,55 @@ export default class OpenWorkspaceBridgeClient implements vscode.Disposable {
         this.reportDiagnostic = dependencies.reportDiagnostic || (() => undefined);
         this.reportBridgeDiagnostic = dependencies.reportBridgeDiagnostic || (() => undefined);
         this.onStatusChange = dependencies.onStatusChange || (() => undefined);
-        this.aggregateRegistration = registerCommand(
-            OPEN_WORKSPACE_AGGREGATE_COMMAND,
-            raw => this.receiveAggregate(raw),
-        );
-        this.diagnosticRegistration = registerCommand(
-            OPEN_WORKSPACE_DIAGNOSTIC_COMMAND,
-            raw => this.receiveBridgeDiagnostic(raw),
-        );
-        this.heartbeatHandle = setHeartbeat(
-            () => {
-                void this.enqueuePublication(
-                    this.latestWorkspace,
-                    false,
-                    true,
-                    this.latestGeneration,
-                    this.isRecovering(),
-                );
-            },
-            OPEN_WORKSPACE_HEARTBEAT_MS,
-        );
+        let aggregateRegistration: DisposableLike | undefined;
+        let diagnosticRegistration: DisposableLike | undefined;
+        let heartbeatHandle: unknown;
+        let heartbeatStarted = false;
+        try {
+            aggregateRegistration = registerCommand(
+                OPEN_WORKSPACE_AGGREGATE_COMMAND,
+                raw => this.receiveAggregate(raw),
+            );
+            diagnosticRegistration = registerCommand(
+                OPEN_WORKSPACE_DIAGNOSTIC_COMMAND,
+                raw => this.receiveBridgeDiagnostic(raw),
+            );
+            heartbeatHandle = setHeartbeat(
+                () => {
+                    void this.enqueuePublication(
+                        this.latestWorkspace,
+                        false,
+                        true,
+                        this.latestGeneration,
+                        this.isRecovering(),
+                    );
+                },
+                OPEN_WORKSPACE_HEARTBEAT_MS,
+            );
+            heartbeatStarted = true;
+        } catch (error) {
+            if (heartbeatStarted) {
+                try {
+                    this.clearInterval(heartbeatHandle);
+                } catch (_clearError) {
+                    // Constructor rollback must preserve the acquisition failure.
+                }
+            }
+            try {
+                diagnosticRegistration?.dispose();
+            } catch (_disposeError) {
+                // Continue releasing earlier constructor acquisitions.
+            }
+            try {
+                aggregateRegistration?.dispose();
+            } catch (_disposeError) {
+                // Constructor rollback must preserve the acquisition failure.
+            }
+            throw error;
+        }
+        this.aggregateRegistration = aggregateRegistration;
+        this.diagnosticRegistration = diagnosticRegistration;
+        this.heartbeatHandle = heartbeatHandle;
         this.emitDiagnostic({ event: 'activate', workspaceCount: this.latestWorkspace ? 1 : 0 });
         void this.publish(this.latestWorkspace);
     }

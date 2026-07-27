@@ -125,8 +125,14 @@ test('WEBVIEW-TWO-STAGE-STARTUP-001 production activation returns while ordered 
     const result = runProductionActivation('pending');
     assert.equal(result.failure, null);
     assert.equal(result.providerRegistrations, 1);
+    assert.equal(result.pendingDirectRestoreEntered, true);
     assert.equal(result.activationReturnedBeforeDirectRestoreSettled, true);
     assert.equal(result.bootHtmlAssigned, true);
+    assert.equal(result.inFlightListenerDisposedBeforeGateRelease, true);
+    assert.equal(result.openTerminalListenerDisposals, 1);
+    assert.deepEqual(result.lateResourceAcquisitions, []);
+    assert.deepEqual(result.postDisposePublications, []);
+    assert.equal(result.lateAttentionClientObserved, false);
 });
 
 test('RUNTIME-HOST-RUNTIME-COMPOSITION-001 SESSION-ALIAS-THREAD-SWITCH-001 ATTENTION-ACTIVE-UNREGISTER-ON-DEACTIVATE-001 production activation wires lifecycle ownership and restores before hydration', () => {

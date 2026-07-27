@@ -21,7 +21,7 @@ async function waitFor(predicate, label) {
     throw new Error(`Timed out waiting for ${label}`);
 }
 
-function createVscode() {
+function createVscode(lifecycle) {
     const registeredCommands = [];
     const webviewHtmlHistory = [];
     let bootWebviewMessageCallback;
@@ -52,6 +52,20 @@ function createVscode() {
         onDidChangeVisibility: () => disposable(),
         onDidDispose: () => disposable(),
     };
+    const trackedResource = (kind, onDispose = () => undefined) => {
+        if (lifecycle.activationDisposed) {
+            lifecycle.lateResourceAcquisitions.push(kind);
+        }
+        let disposed = false;
+        return {
+            dispose() {
+                if (disposed) return;
+                disposed = true;
+                onDispose();
+            },
+        };
+    };
+    const trackedListener = kind => trackedResource(kind);
     return {
         registeredCommands,
         webviewHtmlHistory,
@@ -63,7 +77,10 @@ function createVscode() {
         Uri: { file: uri, parse: uri, joinPath: (base, ...parts) => uri(path.join(base.fsPath, ...parts)) },
         window: {
             terminals: [], activeTerminal: null, activeTextEditor: undefined, visibleTextEditors: [],
-            createOutputChannel: () => ({ appendLine() {}, dispose() {} }),
+            createOutputChannel: () => ({
+                appendLine: value => lifecycle.outputLines.push(value),
+                dispose() {},
+            }),
             createTerminal: options => ({ name: options.name || 'fixture', processId: Promise.resolve(1), show() {}, dispose() {}, sendText() {} }),
             registerWebviewViewProvider: (_viewType, provider) => {
                 providerRegistrations += 1;
@@ -73,12 +90,20 @@ function createVscode() {
                     {},
                     { isCancellationRequested: false }
                 ));
-                return disposable();
+                return trackedResource('provider-registration');
             },
-            onDidChangeActiveTerminal: () => disposable(), onDidOpenTerminal: () => disposable(),
-            onDidCloseTerminal: () => disposable(),
-            onDidChangeWindowState: () => disposable(), onDidChangeVisibleTextEditors: () => disposable(),
-            onDidChangeActiveTextEditor: () => disposable(),
+            onDidChangeActiveTerminal: () => trackedListener('active-terminal-listener'),
+            onDidOpenTerminal: () => {
+                lifecycle.activeOpenTerminalListeners += 1;
+                return trackedResource('open-terminal-listener', () => {
+                    lifecycle.activeOpenTerminalListeners -= 1;
+                    lifecycle.openTerminalListenerDisposals += 1;
+                });
+            },
+            onDidCloseTerminal: () => trackedListener('close-terminal-listener'),
+            onDidChangeWindowState: () => trackedListener('window-state-listener'),
+            onDidChangeVisibleTextEditors: () => trackedListener('visible-editors-listener'),
+            onDidChangeActiveTextEditor: () => trackedListener('active-editor-listener'),
             showErrorMessage: async () => undefined, showWarningMessage: async () => undefined,
             showInformationMessage: async () => undefined, showInputBox: async () => undefined,
             showQuickPick: async () => undefined, showOpenDialog: async () => undefined,
@@ -86,15 +111,24 @@ function createVscode() {
         workspace: {
             workspaceFile: undefined, workspaceFolders: undefined,
             getConfiguration: () => configuration, updateWorkspaceFolders: () => true,
-            onDidChangeConfiguration: () => disposable(), onDidChangeWorkspaceFolders: () => disposable(),
-            onWillSaveTextDocument: () => disposable(), openTextDocument: async () => ({}),
+            onDidChangeConfiguration: () => trackedListener('configuration-listener'),
+            onDidChangeWorkspaceFolders: () => trackedListener('workspace-folders-listener'),
+            onWillSaveTextDocument: () => trackedListener('save-document-listener'),
+            openTextDocument: async () => ({}),
         },
         commands: {
             registerCommand: command => {
                 registeredCommands.push(command);
-                return disposable();
+                return trackedResource(`command:${command}`);
             },
-            executeCommand: async () => undefined,
+            executeCommand: async command => {
+                if (lifecycle.activationDisposed
+                    && (command === '_agentPivotAttention.bridge.publish'
+                        || command === '_agentPivotOpenWorkspaces.bridge.publish')) {
+                    lifecycle.postDisposePublications.push(command);
+                }
+                return undefined;
+            },
         },
         env: {
             remoteName: undefined, machineId: 'fixture-machine',
@@ -107,7 +141,15 @@ function createVscode() {
 async function main() {
     const mode = process.argv[2] || 'success';
     const storageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'runtime-host-activation-'));
-    const vscode = createVscode();
+    const lifecycle = {
+        activationDisposed: false,
+        activeOpenTerminalListeners: 0,
+        lateResourceAcquisitions: [],
+        openTerminalListenerDisposals: 0,
+        outputLines: [],
+        postDisposePublications: [],
+    };
+    const vscode = createVscode(lifecycle);
     const previousLoad = Module._load;
     const restores = [];
     const events = [];
@@ -156,6 +198,15 @@ async function main() {
         globalStoragePath: storageRoot, globalStorageUri: uri(storageRoot), extensionPath: root,
         extensionUri: uri(root), subscriptions: [], globalState: state(true), workspaceState: state(),
         extension: { packageJSON: { version: '2.1.3' } }, extensionMode: 3,
+    };
+    let contextSubscriptionsDisposed = false;
+    const disposeContextSubscriptions = () => {
+        if (contextSubscriptionsDisposed) return;
+        contextSubscriptionsDisposed = true;
+        lifecycle.activationDisposed = true;
+        for (const subscription of context.subscriptions.slice().reverse()) {
+            subscription.dispose?.();
+        }
     };
 
     try {
@@ -260,19 +311,13 @@ async function main() {
         })();
         if (mode === 'pending') {
             await waitFor(
-                () => pendingDirectRestoreEntered || activationSettled,
+                () => pendingDirectRestoreEntered,
                 'pending Direct restoration to begin'
             );
-            if (!activationSettled) {
-                try {
-                    await waitFor(
-                        () => activationSettled,
-                        'activation to return while Direct restoration is pending'
-                    );
-                } catch (_error) {
-                    releasePendingDirectRestore?.();
-                }
-            }
+            await waitFor(
+                () => activationSettled,
+                'activation to return while Direct restoration is pending'
+            );
         }
         await activationFlight;
         if (failure === null) {
@@ -301,7 +346,27 @@ async function main() {
                 );
             }
         }
-        if (failure === null) {
+        let inFlightListenerDisposedBeforeGateRelease = false;
+        let lateAttentionClientObserved = false;
+        if (failure === null && mode === 'pending') {
+            const shutdownCallsBeforeDisposal = attentionShutdownCalls;
+            await dashboard.deactivate();
+            events.push('dashboard-deactivated');
+            disposeContextSubscriptions();
+            inFlightListenerDisposedBeforeGateRelease =
+                lifecycle.activeOpenTerminalListeners === 0;
+            releasePendingDirectRestore?.();
+            await waitFor(() => directRestoreSettled, 'released Direct restoration to settle');
+            await waitFor(
+                () => lifecycle.outputLines.includes(
+                    'Failed to initialize Agent Pivot dashboard.'
+                ) || dashboardCommandRegistrationInvocations > 0,
+                'disposed bootstrap to stop or acquire a late command'
+            );
+            await dashboard.deactivate();
+            lateAttentionClientObserved =
+                attentionShutdownCalls > shutdownCallsBeforeDisposal;
+        } else if (failure === null) {
             await dashboard.deactivate();
             events.push('dashboard-deactivated');
         }
@@ -319,6 +384,12 @@ async function main() {
             bootstrapState: vscode.registeredProvider?.lifecycle?.kind || 'unavailable',
             events,
             failure,
+            pendingDirectRestoreEntered,
+            inFlightListenerDisposedBeforeGateRelease,
+            openTerminalListenerDisposals: lifecycle.openTerminalListenerDisposals,
+            lateResourceAcquisitions: lifecycle.lateResourceAcquisitions,
+            postDisposePublications: lifecycle.postDisposePublications,
+            lateAttentionClientObserved,
             rawDirectFailureExposedInHtml: vscode.webviewHtmlHistory.some(
                 html => html.includes('controlled direct restore failure')
             ),
@@ -330,7 +401,7 @@ async function main() {
             synchronizedGlobalStateKeySets,
         }));
     } finally {
-        for (const subscription of context.subscriptions.slice().reverse()) subscription.dispose?.();
+        disposeContextSubscriptions();
         restores.reverse().forEach(restore => restore());
         Module._load = previousLoad;
         fs.rmSync(storageRoot, { recursive: true, force: true });

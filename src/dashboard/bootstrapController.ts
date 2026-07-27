@@ -3,13 +3,11 @@
 import type { AgentPivotViewProviderOptions } from './viewProvider';
 import { DashboardBootstrapResources } from './bootstrapResources';
 
-export interface DashboardBootstrapResult {
-    readonly options: AgentPivotViewProviderOptions;
-    readonly resources: DashboardBootstrapResources;
-}
-
 export interface DashboardBootstrapControllerOptions {
-    run: (generation: number) => Promise<DashboardBootstrapResult>;
+    run: (
+        generation: number,
+        resources: DashboardBootstrapResources,
+    ) => Promise<AgentPivotViewProviderOptions>;
     begin: (generation: number) => boolean;
     complete: (
         generation: number,
@@ -61,6 +59,8 @@ export class DashboardBootstrapController {
     private launch(): void {
         const generation = ++this.generation;
         this.state = 'booting';
+        const resources = new DashboardBootstrapResources();
+        this.pendingResources = resources;
         const startedAtMs = this.nowMs();
         if (!this.isCurrent(generation)) {
             return;
@@ -70,71 +70,71 @@ export class DashboardBootstrapController {
         try {
             began = this.options.begin(generation);
         } catch (_error) {
-            this.handleFailure(generation);
+            this.handleFailure(generation, resources);
             return;
         }
         if (!this.isCurrent(generation)) {
             return;
         }
         if (!began) {
-            this.handleFailure(generation);
+            this.handleFailure(generation, resources);
             return;
         }
 
-        let running: Promise<DashboardBootstrapResult>;
+        let running: Promise<AgentPivotViewProviderOptions>;
         try {
-            running = this.options.run(generation);
+            running = this.options.run(generation, resources);
         } catch (_error) {
-            this.handleFailure(generation);
+            this.handleFailure(generation, resources);
             return;
         }
 
         void Promise.resolve(running).then(
-            result => {
-                this.handleResult(generation, startedAtMs, result);
+            options => {
+                this.handleResult(generation, startedAtMs, resources, options);
             },
             _error => {
-                this.handleFailure(generation);
+                this.handleFailure(generation, resources);
             },
         ).catch(_error => {
-            this.handleFailure(generation);
+            this.handleFailure(generation, resources);
         });
     }
 
     private handleResult(
         generation: number,
         startedAtMs: number,
-        result: DashboardBootstrapResult,
+        resources: DashboardBootstrapResources,
+        options: AgentPivotViewProviderOptions,
     ): void {
         if (!this.isCurrent(generation)) {
-            this.disposeResources(result.resources);
+            this.disposeResources(resources);
             return;
         }
 
-        this.pendingResources = result.resources;
         let accepted: boolean;
         try {
-            accepted = this.options.complete(generation, result.options);
+            accepted = this.options.complete(generation, options);
         } catch (_error) {
-            this.rejectResult(generation, result.resources);
+            this.handleFailure(generation, resources);
             return;
         }
 
         if (!this.isCurrent(generation)) {
-            if (this.pendingResources === result.resources) {
+            if (this.pendingResources === resources) {
                 this.pendingResources = undefined;
             }
-            this.disposeResources(result.resources);
+            this.disposeResources(resources);
             return;
         }
         if (!accepted) {
-            this.rejectResult(generation, result.resources);
+            this.handleFailure(generation, resources);
             return;
         }
 
         this.state = 'ready';
         try {
-            this.options.transfer(result.resources);
+            this.options.transfer(resources);
         } catch (_error) {
             if (this.isAdopted(generation)) {
                 this.logFailure(generation);
@@ -144,7 +144,9 @@ export class DashboardBootstrapController {
         if (!this.isAdopted(generation)) {
             return;
         }
-        this.pendingResources = undefined;
+        if (this.pendingResources === resources) {
+            this.pendingResources = undefined;
+        }
         const finishedAtMs = this.nowMs();
         if (!this.isAdopted(generation)) {
             return;
@@ -156,25 +158,21 @@ export class DashboardBootstrapController {
         });
     }
 
-    private handleFailure(generation: number): void {
+    private handleFailure(
+        generation: number,
+        resources?: DashboardBootstrapResources,
+    ): void {
         if (!this.isCurrent(generation)) {
             return;
         }
 
-        this.state = 'failed';
-        this.callFail(generation);
-        this.logFailure(generation);
-    }
-
-    private rejectResult(
-        generation: number,
-        resources: DashboardBootstrapResources,
-    ): void {
         if (this.pendingResources === resources) {
             this.pendingResources = undefined;
         }
         this.disposeResources(resources);
-        this.handleFailure(generation);
+        this.state = 'failed';
+        this.callFail(generation);
+        this.logFailure(generation);
     }
 
     private isCurrent(generation: number): boolean {

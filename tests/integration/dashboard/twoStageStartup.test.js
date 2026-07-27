@@ -333,3 +333,61 @@ test('WEBVIEW-TWO-STAGE-STARTUP-001 nested completion cannot steal an in-progres
     assert.equal(nestedAccepted, false);
     assert.equal(fake.view.webview.html, '<main>outer dashboard</main>');
 });
+
+test('WEBVIEW-TWO-STAGE-STARTUP-001 nested begin cannot steal ready-option preflight ownership', async () => {
+    const events = [];
+    const bootWebviewOptions = { enableScripts: true };
+    const readyWebviewOptions = { enableScripts: false };
+    const provider = bootProvider(events, () => bootWebviewOptions);
+    const fake = makeVisibleView();
+    provider.beginBootstrap(1);
+    await provider.resolveWebviewView(fake.view, {}, {});
+    let nestedAccepted;
+    const options = {
+        ...readyOptions(events),
+        getWebviewOptions() {
+            nestedAccepted = provider.beginBootstrap(2);
+            return readyWebviewOptions;
+        },
+    };
+
+    assert.equal(provider.completeBootstrap(1, options), true);
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.equal(nestedAccepted, false);
+    assert.deepEqual(fake.assignedOptions, [
+        bootWebviewOptions,
+        readyWebviewOptions,
+    ]);
+    assert.equal(fake.view.webview.html, '<main>ready dashboard</main>');
+    assert.equal(provider.failBootstrap(1), false);
+});
+
+test('WEBVIEW-TWO-STAGE-STARTUP-001 nested failure cannot steal ready-option preflight ownership', async () => {
+    const events = [];
+    const bootWebviewOptions = { enableScripts: true };
+    const readyWebviewOptions = { enableScripts: false };
+    const provider = bootProvider(events, () => bootWebviewOptions);
+    const fake = makeVisibleView();
+    provider.beginBootstrap(1);
+    await provider.resolveWebviewView(fake.view, {}, {});
+    let nestedAccepted;
+    const options = {
+        ...readyOptions(events),
+        getWebviewOptions() {
+            nestedAccepted = provider.failBootstrap(1);
+            return readyWebviewOptions;
+        },
+    };
+
+    assert.equal(provider.completeBootstrap(1, options), true);
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.equal(nestedAccepted, false);
+    assert.deepEqual(fake.assignedOptions, [
+        bootWebviewOptions,
+        readyWebviewOptions,
+    ]);
+    assert.equal(fake.view.webview.html, '<main>ready dashboard</main>');
+    assert.equal(provider.failBootstrap(1), false);
+});

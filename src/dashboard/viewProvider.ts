@@ -61,6 +61,7 @@ export class AgentPivotViewProvider implements vscode.WebviewViewProvider {
 
     beginBootstrap(generation: number): boolean {
         if (this.configuration.mode !== 'boot'
+            || this.completingBootstrapGeneration !== undefined
             || this.lifecycle.kind === 'ready'
             || !isPositiveSafeInteger(generation)
             || (this.lifecycle.kind !== 'idle'
@@ -123,7 +124,9 @@ export class AgentPivotViewProvider implements vscode.WebviewViewProvider {
     }
 
     failBootstrap(generation: number): boolean {
-        if (this.lifecycle.kind !== 'booting' || this.lifecycle.generation !== generation) {
+        if (this.completingBootstrapGeneration !== undefined
+            || this.lifecycle.kind !== 'booting'
+            || this.lifecycle.generation !== generation) {
             return false;
         }
 

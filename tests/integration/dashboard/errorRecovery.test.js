@@ -333,6 +333,7 @@ test('SESSION-SIDEBAR-STEWARD-VIEW-PROVIDER-ORDERING-001 preserves healthy HTML 
 
 test('RUNTIME-DASHBOARD-VISIBILITY-RESILIENCE-001 renders the dashboard after a runtime refresh failure', async () => {
     const diagnostics = [];
+    const incrementalRefreshes = [];
     const providerLogs = [];
     const runtime = new DashboardRuntimeController({
         isVisible: () => true,
@@ -371,14 +372,19 @@ test('RUNTIME-DASHBOARD-VISIBILITY-RESILIENCE-001 renders the dashboard after a 
         onMessage: async () => undefined,
         onVisibleChanged: visible =>
             runtime.handleAiSessionViewVisibilityChanged(visible),
+        onVisiblePrepared: async () => {
+            incrementalRefreshes.push('dashboard-visible');
+        },
         onDisposed: () => undefined,
         logError: (message, error) => providerLogs.push([message, error.message]),
     });
 
     await provider.resolveWebviewView(view, {}, {});
+    await new Promise(resolve => setImmediate(resolve));
 
     assert.equal(view.webview.html, '<main>dashboard ready</main>');
     assert.deepEqual(diagnostics, [['dashboard-visible', 'transient runtime refresh']]);
+    assert.deepEqual(incrementalRefreshes, ['dashboard-visible']);
     assert.deepEqual(providerLogs, []);
 });
 
@@ -523,6 +529,54 @@ test('SESSION-SIDEBAR-STEWARD-VIEW-PROVIDER-OWNERSHIP-001 ignores stale visibili
     assert.deepEqual(disposalVisibility, [false, false]);
     assert.equal(provider.visible, false);
     assert.equal(await provider.postMessage({ type: 'after-b' }), false);
+});
+
+test('WEBVIEW-NONBLOCKING-FIRST-PAINT-001 ignores prepared completion from a superseded view', async () => {
+    const visibilityGate = deferred();
+    const prepared = [];
+    let visibilityCalls = 0;
+    const makeView = name => ({
+        visible: true,
+        webview: {
+            name,
+            html: '',
+            options: {},
+            onDidReceiveMessage: () => ({ dispose() {} }),
+            postMessage: async () => true,
+        },
+        onDidChangeVisibility: () => ({ dispose() {} }),
+        onDidDispose: () => ({ dispose() {} }),
+    });
+    const provider = new AgentPivotViewProvider({
+        getWebviewOptions: () => ({}),
+        renderContent: webview => `<main>${webview.name}</main>`,
+        renderError: () => '<main>safe error</main>',
+        onMessage: async () => undefined,
+        onVisibleChanged: async () => {
+            visibilityCalls += 1;
+            if (visibilityCalls === 1) {
+                await visibilityGate.promise;
+            }
+        },
+        onVisiblePrepared: async () => {
+            prepared.push('prepared');
+        },
+        onDisposed: () => undefined,
+        logError: () => undefined,
+    });
+    const viewA = makeView('a');
+    const viewB = makeView('b');
+
+    await provider.resolveWebviewView(viewA, {}, {});
+    await new Promise(resolve => setImmediate(resolve));
+    await provider.resolveWebviewView(viewB, {}, {});
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(prepared, ['prepared']);
+
+    prepared.length = 0;
+    visibilityGate.resolve();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(prepared, []);
 });
 
 test('PRODUCTION-CONVERSATION-UNAVAILABLE-001 isolates constructor failures from dashboard activation and unrelated routes', async () => {

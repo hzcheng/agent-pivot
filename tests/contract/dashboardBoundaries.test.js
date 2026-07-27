@@ -220,6 +220,17 @@ test('RUNTIME-DASHBOARD-RUNTIME-CONTROLLER-001 maps rejected promises and synchr
     }
 });
 
+test('WEBVIEW-NONBLOCKING-FIRST-PAINT-001 composes prepared visibility with incremental session refresh', () => {
+    const dashboardSource = fs.readFileSync(
+        path.resolve(__dirname, '../../src/dashboard.ts'),
+        'utf8'
+    );
+    assert.match(
+        dashboardSource,
+        /onVisiblePrepared:\s*\(\)\s*=>\s*[\r\n\s]*aiSessionDashboardController\.refreshNow\('dashboard-visible'\)/
+    );
+});
+
 test('WEBVIEW-AI-DASHBOARD-001 refreshes external Prompt configuration incrementally and consumes local echoes', async () => {
     const events = [];
     let localEcho = true;

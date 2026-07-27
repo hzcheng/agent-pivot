@@ -11,6 +11,7 @@ export interface AgentPivotViewProviderOptions {
     renderError: (error: unknown) => string;
     onMessage: (message: unknown) => Promise<void>;
     onVisibleChanged: (visible: boolean) => void | Thenable<void> | Promise<void>;
+    onVisiblePrepared?: () => void | Thenable<void> | Promise<void>;
     onDisposed: () => void | Thenable<void> | Promise<void>;
     logError: (message: string, error: unknown) => void;
 }
@@ -131,6 +132,10 @@ export class AgentPivotViewProvider implements vscode.WebviewViewProvider {
         }
         try {
             await this.options.onVisibleChanged(webviewView.visible);
+            if (!isCurrent() || !webviewView.visible) {
+                return;
+            }
+            await this.options.onVisiblePrepared?.();
         } catch (_error) {
             if (!isCurrent()) {
                 return;

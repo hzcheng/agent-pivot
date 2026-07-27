@@ -13,6 +13,17 @@ function disposable(dispose = () => undefined) {
     return { dispose };
 }
 
+async function waitFor(predicate, label) {
+    const timeoutMs = 5_000;
+    const startedAtMs = Date.now();
+    while (Date.now() - startedAtMs <= timeoutMs) {
+        const value = predicate();
+        if (value) return value;
+        await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    throw new Error(`Timed out waiting for ${label} after ${timeoutMs}ms`);
+}
+
 function createVscode(listeners, commands) {
     const configuration = { get: (_key, fallback) => fallback, inspect: () => undefined, update: async () => undefined };
     const uri = value => ({ scheme: 'file', fsPath: value, path: value, toString: () => value });
@@ -113,7 +124,6 @@ async function runTodoPanelContract(transform) {
 
         const dashboard = loadDashboard(transform);
         await dashboard.activate(context);
-        await new Promise(resolve => setImmediate(resolve));
         assert.ok(listeners.viewProvider,
             'TODO-FUTURE-VERSION-DASHBOARD-001 / RELEASE-SCHEDULED-EXTENSION-HOST-001 activation must register the production view provider');
 
@@ -126,6 +136,10 @@ async function runTodoPanelContract(transform) {
         };
         const view = { visible: false, webview, onDidChangeVisibility: () => disposable() };
         await listeners.viewProvider.resolveWebviewView(view, {}, {});
+        await waitFor(
+            () => webview.html.includes('data-dashboard-tab='),
+            'authoritative dashboard HTML assignment',
+        );
         assert.equal(typeof onMessage, 'function',
             'TODO-FUTURE-VERSION-DASHBOARD-001 must reach the production Webview message callback');
 

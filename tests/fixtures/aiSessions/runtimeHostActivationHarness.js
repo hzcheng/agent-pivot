@@ -13,19 +13,68 @@ function disposable() {
     return { dispose() {} };
 }
 
+async function waitFor(predicate, label) {
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+        if (predicate()) return;
+        await new Promise(resolve => setImmediate(resolve));
+    }
+    throw new Error(`Timed out waiting for ${label}`);
+}
+
 function createVscode() {
     const registeredCommands = [];
+    const webviewHtmlHistory = [];
+    let bootWebviewMessageCallback;
+    let providerRegistrations = 0;
+    let registeredProvider;
+    let providerResolution = Promise.resolve();
     const configuration = { get: (_key, fallback) => fallback, inspect: () => undefined, update: async () => undefined };
     const uri = value => ({ scheme: 'file', fsPath: value, path: value, toString: () => value });
+    const webview = {
+        cspSource: 'fixture-webview',
+        options: {},
+        postMessage: async () => true,
+        asWebviewUri: value => value,
+        onDidReceiveMessage: callback => {
+            bootWebviewMessageCallback = callback;
+            return disposable();
+        },
+        get html() {
+            return webviewHtmlHistory[webviewHtmlHistory.length - 1] || '';
+        },
+        set html(value) {
+            webviewHtmlHistory.push(value);
+        },
+    };
+    const webviewView = {
+        visible: true,
+        webview,
+        onDidChangeVisibility: () => disposable(),
+        onDidDispose: () => disposable(),
+    };
     return {
         registeredCommands,
+        webviewHtmlHistory,
+        get bootWebviewMessageCallback() { return bootWebviewMessageCallback; },
+        get providerRegistrations() { return providerRegistrations; },
+        get providerResolution() { return providerResolution; },
+        get registeredProvider() { return registeredProvider; },
         ConfigurationTarget: { Global: 1, Workspace: 2 }, ExtensionMode: { Test: 3 }, ViewColumn: { One: 1 },
         Uri: { file: uri, parse: uri, joinPath: (base, ...parts) => uri(path.join(base.fsPath, ...parts)) },
         window: {
             terminals: [], activeTerminal: null, activeTextEditor: undefined, visibleTextEditors: [],
             createOutputChannel: () => ({ appendLine() {}, dispose() {} }),
             createTerminal: options => ({ name: options.name || 'fixture', processId: Promise.resolve(1), show() {}, dispose() {}, sendText() {} }),
-            registerWebviewViewProvider: () => disposable(),
+            registerWebviewViewProvider: (_viewType, provider) => {
+                providerRegistrations += 1;
+                registeredProvider = provider;
+                providerResolution = Promise.resolve(provider.resolveWebviewView(
+                    webviewView,
+                    {},
+                    { isCancellationRequested: false }
+                ));
+                return disposable();
+            },
             onDidChangeActiveTerminal: () => disposable(), onDidOpenTerminal: () => disposable(),
             onDidCloseTerminal: () => disposable(),
             onDidChangeWindowState: () => disposable(), onDidChangeVisibleTextEditors: () => disposable(),
@@ -67,6 +116,11 @@ async function main() {
     let simulatedAliasRebind = false;
     let dashboardCommandRegistrationInvocations = 0;
     let attentionShutdownCalls = 0;
+    let activationReturnedBeforeDirectRestoreSettled = false;
+    let directRestoreSettled = false;
+    let initialInactiveRestoreRecorded = false;
+    let pendingDirectRestoreEntered = false;
+    let releasePendingDirectRestore;
     const synchronizedGlobalStateKeySets = [];
     const patch = (prototype, name, replacement) => {
         const original = prototype[name];
@@ -141,12 +195,26 @@ async function main() {
             }
             verified.add('client-store-discovery');
             verified.add('thread-switch-alias-wiring');
-            events.push('inactive-restored');
+            if (!initialInactiveRestoreRecorded) {
+                initialInactiveRestoreRecorded = true;
+                events.push('inactive-restored');
+            }
         });
         patch(TerminalService.prototype, 'restorePersistedTerminals', async function () {
             assert.ok(this instanceof TerminalService);
-            events.push(mode === 'direct-failure' ? 'direct-failed' : 'direct-restored');
-            if (mode === 'direct-failure') throw new Error('controlled direct restore failure');
+            if (mode === 'pending') {
+                pendingDirectRestoreEntered = true;
+                await new Promise(resolve => {
+                    releasePendingDirectRestore = resolve;
+                });
+            }
+            if (mode === 'direct-failure') {
+                events.push('direct-failed');
+                directRestoreSettled = true;
+                throw new Error('controlled direct restore failure');
+            }
+            events.push('direct-restored');
+            directRestoreSettled = true;
         });
         patch(TmuxRuntimeBackend.prototype, 'restoreAttachTerminals', async function () {
             assert.ok(this instanceof TmuxRuntimeBackend);
@@ -179,19 +247,81 @@ async function main() {
         delete require.cache[require.resolve(dashboardPath)];
         const dashboard = require(dashboardPath);
         let failure = null;
-        try {
-            await dashboard.activate(context);
-        } catch (error) {
-            failure = error instanceof Error ? error.message : String(error);
+        let activationSettled = false;
+        const activationFlight = (async () => {
+            try {
+                await dashboard.activate(context);
+            } catch (error) {
+                failure = error instanceof Error ? error.message : String(error);
+            }
+            activationReturnedBeforeDirectRestoreSettled = !directRestoreSettled;
+            events.push('activation-returned');
+            activationSettled = true;
+        })();
+        if (mode === 'pending') {
+            await waitFor(
+                () => pendingDirectRestoreEntered || activationSettled,
+                'pending Direct restoration to begin'
+            );
+            if (!activationSettled) {
+                try {
+                    await waitFor(
+                        () => activationSettled,
+                        'activation to return while Direct restoration is pending'
+                    );
+                } catch (_error) {
+                    releasePendingDirectRestore?.();
+                }
+            }
         }
-        await new Promise(resolve => setImmediate(resolve));
+        await activationFlight;
+        if (failure === null) {
+            await waitFor(() => vscode.providerRegistrations === 1, 'provider registration');
+            await vscode.providerResolution;
+            await waitFor(() => vscode.webviewHtmlHistory.length > 0, 'Webview HTML assignment');
+            const generation = vscode.registeredProvider?.lifecycle?.generation;
+            if (Number.isSafeInteger(generation) && generation > 0
+                && vscode.bootWebviewMessageCallback) {
+                await vscode.bootWebviewMessageCallback({
+                    type: 'agent-pivot-browser-first-paint',
+                    version: 1,
+                    generation,
+                });
+            }
+            if (mode !== 'pending') {
+                await waitFor(
+                    () => ['ready', 'failed'].includes(vscode.registeredProvider?.lifecycle?.kind),
+                    'dashboard bootstrap completion'
+                );
+            }
+            if (mode === 'success') {
+                await waitFor(
+                    () => verified.has('direct-tmux-coordinator'),
+                    'ready dashboard visibility preparation'
+                );
+            }
+        }
         if (failure === null) {
             await dashboard.deactivate();
             events.push('dashboard-deactivated');
         }
+        const bootHtmlAssigned = vscode.webviewHtmlHistory.some(
+            html => html.includes('data-agent-pivot-boot-card-area')
+        );
+        const readyHtmlAssignments = vscode.webviewHtmlHistory.filter(
+            html => !html.includes('agent-pivot-boot-shell')
+        ).length;
         process.stdout.write(JSON.stringify({
+            activationReturnedBeforeDirectRestoreSettled,
+            providerRegistrations: vscode.providerRegistrations,
+            bootHtmlAssigned,
+            readyHtmlAssignments,
+            bootstrapState: vscode.registeredProvider?.lifecycle?.kind || 'unavailable',
             events,
             failure,
+            rawDirectFailureExposedInHtml: vscode.webviewHtmlHistory.some(
+                html => html.includes('controlled direct restore failure')
+            ),
             verified: [...verified].sort(),
             registeredCommands: vscode.registeredCommands,
             dashboardCommandRegistrationInvocations,

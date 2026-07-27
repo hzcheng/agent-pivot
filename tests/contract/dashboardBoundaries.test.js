@@ -231,6 +231,40 @@ test('WEBVIEW-NONBLOCKING-FIRST-PAINT-001 composes prepared visibility with incr
     );
 });
 
+test('WEBVIEW-TWO-STAGE-STARTUP-001 production activation registers one provider before background bootstrap', () => {
+    const dashboardSource = fs.readFileSync(
+        path.resolve(__dirname, '../../src/dashboard.ts'),
+        'utf8'
+    );
+    const activateStart = dashboardSource.indexOf(
+        'export async function activate(context: vscode.ExtensionContext): Promise<void> {'
+    );
+    const deactivateStart = dashboardSource.indexOf(
+        'export async function deactivate(): Promise<void>'
+    );
+    const initializeStart = dashboardSource.indexOf(
+        'async function initializeDashboard(',
+        activateStart
+    );
+    const activationSource = dashboardSource.slice(activateStart, initializeStart);
+    const providerRegistration = activationSource.indexOf('registerWebviewViewProvider(');
+    const backgroundBootstrapStart = activationSource.indexOf('bootstrapController.start();');
+
+    assert.ok(activateStart >= 0);
+    assert.ok(initializeStart > activateStart);
+    assert.ok(deactivateStart > activateStart);
+    assert.ok(providerRegistration >= 0);
+    assert.ok(backgroundBootstrapStart > providerRegistration);
+    assert.doesNotMatch(
+        activationSource,
+        /await\s+dashboardStartupController\.startUp\(\)/
+    );
+    assert.equal(
+        (dashboardSource.match(/registerWebviewViewProvider\(/g) || []).length,
+        1
+    );
+});
+
 test('WEBVIEW-AI-DASHBOARD-001 refreshes external Prompt configuration incrementally and consumes local echoes', async () => {
     const events = [];
     let localEcho = true;

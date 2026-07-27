@@ -109,10 +109,30 @@ function runProductionActivation(mode) {
     return JSON.parse(result.stdout);
 }
 
+const RESTORE_EVENTS = new Set([
+    'inactive-restored',
+    'direct-restored',
+    'direct-failed',
+    'tmux-restored',
+    'hydration-constructed',
+]);
+
+function isRestoreEvent(event) {
+    return RESTORE_EVENTS.has(event);
+}
+
+test('WEBVIEW-TWO-STAGE-STARTUP-001 production activation returns while ordered bootstrap is pending', () => {
+    const result = runProductionActivation('pending');
+    assert.equal(result.failure, null);
+    assert.equal(result.providerRegistrations, 1);
+    assert.equal(result.activationReturnedBeforeDirectRestoreSettled, true);
+    assert.equal(result.bootHtmlAssigned, true);
+});
+
 test('RUNTIME-HOST-RUNTIME-COMPOSITION-001 SESSION-ALIAS-THREAD-SWITCH-001 ATTENTION-ACTIVE-UNREGISTER-ON-DEACTIVATE-001 production activation wires lifecycle ownership and restores before hydration', () => {
     const result = runProductionActivation('success');
     assert.equal(result.failure, null);
-    assert.deepEqual(result.events.slice(0, 4), [
+    assert.deepEqual(result.events.filter(isRestoreEvent), [
         'inactive-restored', 'direct-restored', 'tmux-restored', 'hydration-constructed',
     ]);
     assert.deepEqual(result.events.slice(-2), [
@@ -128,8 +148,15 @@ test('RUNTIME-HOST-RUNTIME-COMPOSITION-001 SESSION-ALIAS-THREAD-SWITCH-001 ATTEN
 
 test('RUNTIME-HOST-RUNTIME-COMPOSITION-001 production activation blocks tmux restore and hydration after Direct failure', () => {
     const result = runProductionActivation('direct-failure');
-    assert.match(result.failure, /controlled direct restore failure/);
-    assert.deepEqual(result.events, ['inactive-restored', 'direct-failed']);
+    assert.equal(result.failure, null);
+    assert.equal(result.bootstrapState, 'failed');
+    assert.deepEqual(result.events.filter(isRestoreEvent), [
+        'inactive-restored',
+        'direct-failed',
+    ]);
+    assert.equal(result.events.includes('tmux-restored'), false);
+    assert.equal(result.events.includes('hydration-constructed'), false);
+    assert.equal(result.rawDirectFailureExposedInHtml, false);
     assert.deepEqual(result.verified, [
         'client-store-discovery', 'thread-switch-alias-wiring',
     ]);

@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "4cb9dfcee2e206deb2dd97295e36435526c9ab59",
+        "head": "2f76bf86b88cda8d37f96fa77d9fdb17cb57a63f",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -47,7 +47,9 @@
             "68dda87fc26fde79209f08db0f4b13ed21a90c66",
             "07e405378cc4beb6dad0362f050290469d5c8d7f",
             "7d2e8854b9be0db2f8e639bad579297a99f21020",
-            "fa887fdc6ce4ed8e580ace32d2869c78361b8d11"
+            "fa887fdc6ce4ed8e580ace32d2869c78361b8d11",
+            "42dadfde510145f80423bf8e6bd318a4a7cfb63b",
+            "994c0b5e608d015fa5fd566e475bfbc8b6857d73"
         ]
     },
     "capabilities": [
@@ -706,17 +708,35 @@
                 "d07e36ba72fe591e6333a89b8c4095ceee20b94a",
                 "5d0d2736c6d0087d90d35862b0209f2f5ed1976f",
                 "37b02e15ac94ece4f5c4e9016ad72c5d118c96cb",
-                "4cb9dfcee2e206deb2dd97295e36435526c9ab59"
+                "4cb9dfcee2e206deb2dd97295e36435526c9ab59",
+                "0bb3ea3bb957bc5140a172163c2d6845a7a9e446",
+                "fb8f989738011fb084c490e7a5c432b58fddb5f2",
+                "416f0e6ad6a5eb21cacfe31143dafa0420cfe177",
+                "36e2725f521a5425e12b59454792aec8009d3288",
+                "cb1e2573e102f62769592665ac560bf5935bf9e9",
+                "60a066ad8088788c24cb901353c6543afad2f590",
+                "b0edb75047f3dfddb71852b8e1a05c72add26aed",
+                "64f19183d35f01655783dddcbe740d016840aab6",
+                "6b8dd6c02441722a9be7f96aac95cb97cbdc7163",
+                "7340e5d4b2e02f28aacf0c073c442ad5efccb269",
+                "20c14da6d5dc17ca62bfd6f7ccc4fd2b5b2d8e49",
+                "01984363cd0a0ad3eb083a65144d175fab001604",
+                "f855600854f9c81c2061b5011233ead5326fb5f2",
+                "5e6009097e935928188c100968c42dea6a13b4b1",
+                "5eb992f8a150e1a40fdf485ceb0cb64363da7dbe",
+                "2f76bf86b88cda8d37f96fa77d9fdb17cb57a63f"
             ],
             "behaviors": [
                 "RUNTIME-DASHBOARD-VISIBILITY-RESILIENCE-001",
                 "WEBVIEW-NONBLOCKING-FIRST-PAINT-001",
+                "WEBVIEW-TWO-STAGE-STARTUP-001",
                 "WEBVIEW-RESOURCE-RECOVERY-001",
                 "WEBVIEW-LAZY-PANEL-RECOVERY-001",
                 "SESSION-SIDEBAR-STEWARD-VIEW-PROVIDER-ORDERING-001"
             ],
             "prGates": [
-                "test:deterministic:run"
+                "test:deterministic:run",
+                "test:browser:run"
             ],
             "scheduledJobs": [],
             "realEnvironmentRequired": false

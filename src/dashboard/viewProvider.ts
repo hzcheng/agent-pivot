@@ -81,8 +81,11 @@ export class AgentPivotViewProvider implements vscode.WebviewViewProvider {
         }
 
         this.lifecycle = { kind: 'ready', options };
-        this.refresh();
         const webviewView = this._view;
+        if (webviewView) {
+            webviewView.webview.options = options.getWebviewOptions();
+        }
+        this.refresh();
         if (webviewView) {
             void this.prepareVisibility(
                 webviewView,

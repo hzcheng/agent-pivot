@@ -9,12 +9,20 @@ function makeVisibleView() {
     let visibilityChanged;
     let disposed;
     const assignedHtml = [];
+    const assignedOptions = [];
     const postedMessages = [];
     let html = '';
+    let options = {};
     const view = {
         visible: true,
         webview: {
-            options: {},
+            get options() {
+                return options;
+            },
+            set options(value) {
+                options = value;
+                assignedOptions.push(value);
+            },
             get html() {
                 return html;
             },
@@ -42,6 +50,7 @@ function makeVisibleView() {
     };
     return {
         assignedHtml,
+        assignedOptions,
         postedMessages,
         receiveMessage: message => receiveMessage(message),
         fireVisibility: () => visibilityChanged(),
@@ -63,11 +72,11 @@ function readyOptions(events) {
     };
 }
 
-function bootProvider(events) {
+function bootProvider(events, getWebviewOptions = () => ({ enableScripts: true })) {
     return new AgentPivotViewProvider({
         mode: 'boot',
         options: {
-            getWebviewOptions: () => ({ enableScripts: true }),
+            getWebviewOptions,
             renderBootContent: (_webview, generation) => `<main>boot ${generation}</main>`,
             renderBootError: (_webview, generation) => `<main>failed ${generation}</main>`,
             onBootShellAssigned: generation => events.push(['shell', generation]),
@@ -128,6 +137,36 @@ test('WEBVIEW-TWO-STAGE-STARTUP-001 adopts ready callbacks once and prepares the
         ['prepared'],
     ]);
     assert.equal(provider.completeBootstrap(1, readyOptions(events)), false);
+});
+
+test('WEBVIEW-TWO-STAGE-STARTUP-001 applies ready webview options before ready rendering and preparation', async () => {
+    const events = [];
+    const bootWebviewOptions = { enableScripts: true };
+    const readyWebviewOptions = { enableScripts: false };
+    const provider = bootProvider(events, () => bootWebviewOptions);
+    const fake = makeVisibleView();
+    const order = [];
+    provider.beginBootstrap(1);
+    await provider.resolveWebviewView(fake.view, {}, {});
+
+    const options = {
+        ...readyOptions(events),
+        getWebviewOptions: () => readyWebviewOptions,
+        renderContent: () => {
+            order.push(['render', fake.view.webview.options]);
+            return '<main>ready dashboard</main>';
+        },
+        onVisibleChanged: async () => {
+            order.push(['visible', fake.view.webview.options]);
+        },
+    };
+    assert.equal(provider.completeBootstrap(1, options), true);
+
+    assert.deepEqual(fake.assignedOptions, [bootWebviewOptions, readyWebviewOptions]);
+    assert.deepEqual(order, [
+        ['render', readyWebviewOptions],
+        ['visible', readyWebviewOptions],
+    ]);
 });
 
 test('WEBVIEW-TWO-STAGE-STARTUP-001 ignores stale completion and stale first-paint acknowledgements', async () => {

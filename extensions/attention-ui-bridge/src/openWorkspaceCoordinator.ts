@@ -149,11 +149,14 @@ export class OpenWorkspaceCoordinator {
                 leaseUpdatedAtMs: timestamp,
                 workspace: publication.workspace,
             };
-            await store.write(registration);
             if (previousInstanceId !== undefined && this.store !== undefined) {
                 await this.store.remove(previousInstanceId);
                 this.retiredInstanceIds.add(previousInstanceId);
+                this.boundInstanceId = publication.instanceId;
+                this.store = store;
+                this.currentRegistration = undefined;
             }
+            await store.write(registration);
             this.boundInstanceId = publication.instanceId;
             this.store = store;
             this.currentRegistration = registration;

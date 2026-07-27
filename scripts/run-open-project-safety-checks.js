@@ -3218,7 +3218,7 @@ function runDashboardBridgeLifecycleChecks() {
     assert.ok(dashboard.includes('error => logOpenWorkspaceBridgeError(error)'),
         'the OpenWorkspaceBridgeClient error callback must use the privacy-bounded diagnostics entry');
     const openWorkspaceBridgeWiring = dashboard.slice(
-        dashboard.indexOf('openWorkspaceBridgeClient = new OpenWorkspaceBridgeClient('),
+        dashboard.indexOf('openWorkspaceBridgeClient = ownResource(() => new OpenWorkspaceBridgeClient('),
         dashboard.indexOf('const activeAiSessionTerminalHighlighter')
     );
     assert.strictEqual(openWorkspaceBridgeWiring.includes("logError('Open workspace bridge unavailable"), false,
@@ -3228,7 +3228,9 @@ function runDashboardBridgeLifecycleChecks() {
     assert.ok(dashboard.includes('new DashboardDiagnostics({'));
     assert.ok(!dashboard.includes('function logOpenWorkspaceDiagnostic('));
     assert.ok(dashboard.includes('openWorkspaceController.publish('));
-    assert.ok(dashboard.includes('context.subscriptions.push(openWorkspaceBridgeClient);'));
+    assert.ok(dashboard.includes(
+        'openWorkspaceBridgeClient = ownResource(() => new OpenWorkspaceBridgeClient('
+    ));
     assert.ok(!dashboard.includes('get openProjects()'));
     assert.ok(projectedOpenWorkspaces.includes('openWorkspaceDashboardController.getCards()'));
     assert.ok(selectedProjectHandler.includes("projectId.startsWith('__openWorkspaceNavigation-')"));

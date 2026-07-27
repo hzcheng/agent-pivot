@@ -3331,7 +3331,7 @@ async function runAgentPivotViewProviderOrderingChecks() {
         onDidChangeVisibility: listener => { visibilityListeners.push(listener); return { dispose() {} }; },
         onDidDispose: () => ({ dispose() {} }),
     };
-    const provider = new AgentPivotViewProvider({
+    const provider = new AgentPivotViewProvider({ mode: 'ready', options: {
         getWebviewOptions: () => ({}),
         renderContent: () => { order.push('render'); return '<main>fresh</main>'; },
         renderError: () => '<main>error</main>',
@@ -3342,7 +3342,7 @@ async function runAgentPivotViewProviderOrderingChecks() {
             order.push(`visible:${visible}:end`);
         },
         logError: () => undefined,
-    });
+    }});
     await provider.resolveWebviewView(view, {}, {});
     assert.deepStrictEqual(order, ['render', 'visible:true:start', 'visible:true:end'],
         'first visible render must paint cached state before forced runtime refresh');
@@ -3366,14 +3366,14 @@ async function runAgentPivotViewProviderOrderingChecks() {
         onDidChangeVisibility: () => ({ dispose() {} }),
         onDidDispose: () => ({ dispose() {} }),
     };
-    const failedProvider = new AgentPivotViewProvider({
+    const failedProvider = new AgentPivotViewProvider({ mode: 'ready', options: {
         getWebviewOptions: () => ({}),
         renderContent: () => { staleRenderCount++; return '<main>stale</main>'; },
         renderError: () => '<main>runtime unavailable</main>',
         onMessage: async () => { throw new Error('raw message failure'); },
         onVisibleChanged: async () => { throw new Error('raw refresh failure'); },
         logError: message => { failedLogs.push(message); },
-    });
+    }});
     await failedProvider.resolveWebviewView(failedView, {}, {});
     assert.strictEqual(staleRenderCount, 1,
         'a rejected runtime refresh must preserve the immediately rendered cached state');
@@ -3395,13 +3395,13 @@ async function runAgentPivotViewProviderOrderingChecks() {
         onDidChangeVisibility: () => ({ dispose() {} }),
         onDidDispose: () => ({ dispose() {} }),
     };
-    const secretProvider = new AgentPivotViewProvider({
+    const secretProvider = new AgentPivotViewProvider({ mode: 'ready', options: {
         getWebviewOptions: () => ({}), renderContent: () => '<main>stale</main>',
         renderError: dashboardErrorContent.getErrorContent,
         onMessage: async () => { throw new Error(secret); },
         onVisibleChanged: async () => { throw new Error(secret); },
         logError: (message, error) => { visibleFailureLogs.push(`${message}|${String(error)}`); },
-    });
+    }});
     await secretProvider.resolveWebviewView(secretView, {}, {});
     await messageListeners[messageListeners.length - 1]({ type: 'secret-failure' });
     assert.strictEqual(secretView.webview.html.includes(secret), false,
@@ -5184,9 +5184,10 @@ function runWebviewContentChecks() {
     assert.ok(dashboard.includes('new WorkspaceSessionHydrationController<vscode.Terminal>({'));
     assert.ok(dashboard.includes('getExecutionSnapshot: () => aiSessionExecutionController.getSnapshot()'));
     assert.ok(dashboard.includes('getActiveSessions: () => aiSessionRuntimeCoordinator.getActive()'));
-    assert.match(dashboard, /aiSessionExecutionInterval = setInterval\(\(\) => \{ aiSessionExecutionController\.evaluate\(\); \}, 1_000\)/);
-    assert.match(dashboard, /setTimeout\(\(\) => \{ aiSessionExecutionController\.evaluate\(\); \}, 0\)/);
-    assert.ok(dashboard.includes('clearInterval(aiSessionExecutionInterval)'));
+    assert.match(dashboard,
+        /ownTimer\(\s*\(\) => setInterval\(\(\) => \{\s*aiSessionExecutionController\.evaluate\(\);\s*\}, 1_000\),\s*handle => clearInterval\(handle\),\s*\)/);
+    assert.match(dashboard,
+        /ownTimer\(\s*\(\) => setTimeout\(\(\) => \{\s*aiSessionExecutionController\.evaluate\(\);\s*\}, 0\),\s*handle => clearTimeout\(handle\),\s*\)/);
     assert.match(dashboard, /onDidCloseTerminal\(terminal => \{[\s\S]*?handleClosedTerminal\(terminal\);[\s\S]*?aiSessionExecutionController\.evaluate\(\);/);
     assert.ok(!evaluateExecutionFunction.includes('isEnabled'));
     assert.ok(!evaluateExecutionFunction.includes('attention'));
@@ -5249,7 +5250,8 @@ function runWebviewContentChecks() {
     assert.ok((dashboard.match(/void tmuxFocusedRuntimeMonitor\.request\(\);/g) || []).length >= 2,
         'view visibility and active-terminal changes must both request reconciliation');
     assert.ok(dashboard.includes("logAiSessionRuntimeFailure('sync-focused-runtime', error)"));
-    assert.ok(dashboard.includes('context.subscriptions.push(tmuxFocusedRuntimeMonitor);'));
+    assert.match(dashboard,
+        /const tmuxFocusedRuntimeMonitor = ownResource\(\(\) =>\s*new TmuxFocusedRuntimeMonitor<vscode\.Terminal>\(\{/);
     assert.match(dashboard,
         /beforeRefresh: reason => \{\s*currentAiSessionRefreshReason = reason;\s*postAiSessionAttentionState\(\);\s*\}/,
         'every incremental AI-session render must publish its current attention event map before the HTML update');
@@ -5291,12 +5293,13 @@ function runWebviewContentChecks() {
         'lifecycle settlement scheduling must not create unhandled fire-and-forget rejections');
     assert.ok(dashboard.includes('getRuntimeById: getAiSessionRuntimeById'));
     assert.ok(!dashboard.includes('getTerminalById: (providerId, sessionId) => aiSessionTerminalService.getActiveById(providerId, sessionId)'));
-    assert.match(dashboard, /aiSessionTerminalCompletionInterval = setInterval\(\(\) => \{[\s\S]*?getCompletedSessions\(\)[\s\S]*?tmuxRuntimeDiscovery\.getInactive\(\)[\s\S]*?\}, 1_000\)/);
+    assert.match(dashboard,
+        /ownTimer\(\s*\(\) => setInterval\(\(\) => \{[\s\S]*?getCompletedSessions\(\)[\s\S]*?tmuxRuntimeDiscovery\.getInactive\(\)[\s\S]*?\}, 1_000\),\s*handle => clearInterval\(handle\),\s*\)/);
     assert.match(dashboard, /queueAiSessionRuntimeSettlements\(\[\.\.\.completedRuntimes, \.\.\.inactiveTmuxRuntimes\]\)/,
         'one completion polling round must queue one structured batch');
     const closeTerminalHandlerStart = dashboard.indexOf('vscode.window.onDidCloseTerminal(terminal => {');
     const closeTerminalHandlerEnd = dashboard.indexOf(
-        'context.subscriptions.push(activeAiSessionTerminalHighlighter);',
+        'const stewardInfos:',
         closeTerminalHandlerStart
     );
     assert.ok(closeTerminalHandlerStart >= 0 && closeTerminalHandlerEnd > closeTerminalHandlerStart);
@@ -5329,7 +5332,7 @@ function runWebviewContentChecks() {
     assert.ok(dashboard.includes('activeAiSessionTerminalHighlighter.setVisible(visible)'));
     assert.ok(dashboard.includes('await dashboardRuntimeController.handleAiSessionViewVisibilityChanged(visible)'));
     const viewProvider = fs.readFileSync(path.join(__dirname, '..', 'src', 'dashboard', 'viewProvider.ts'), 'utf8');
-    assert.ok(viewProvider.includes('await this.options.onVisibleChanged(webviewView.visible)'));
+    assert.ok(viewProvider.includes('await options.onVisibleChanged(webviewView.visible)'));
     const terminalCandidatesSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'aiSessions', 'terminalCandidates.ts'), 'utf8');
     assert.ok(terminalCandidatesSource.includes("reason: 'terminal-candidates'"));
     assert.ok(!terminalCandidatesSource.includes('AI_SESSION_PROVIDER_IDS'));
@@ -7329,18 +7332,19 @@ function runConversationProductionSafetyChecks() {
         'Claude source scope must come from current workspace root host paths'
     );
 
-    const conversationSubscriptionRoots = collectNodes(
+    const conversationOwnershipRoots = collectNodes(
         dashboardAst,
         node => ts.isCallExpression(node)
-            && propertyAccessPath(node.expression)
-                === 'context.subscriptions.push'
-    ).flatMap(call => call.arguments)
-        .map(propertyAccessPath)
+            && ts.isIdentifier(node.expression)
+            && node.expression.text === 'ownResource'
+            && ts.isBinaryExpression(node.parent)
+            && node.parent.right === node
+    ).map(call => propertyAccessPath(call.parent.left))
         .filter(candidate => candidate?.startsWith(
             'conversationCapability'
         ));
     assert.deepStrictEqual(
-        conversationSubscriptionRoots,
+        conversationOwnershipRoots,
         ['conversationCapability'],
         'production must register only the aggregate conversation capability'
     );

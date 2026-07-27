@@ -23,6 +23,8 @@ async function waitFor(predicate, label) {
 
 function createVscode(lifecycle) {
     const registeredCommands = [];
+    const registeredCommandCallbacks = new Map();
+    const executedCommands = [];
     const webviewHtmlHistory = [];
     let bootWebviewMessageCallback;
     let providerRegistrations = 0;
@@ -117,11 +119,13 @@ function createVscode(lifecycle) {
             openTextDocument: async () => ({}),
         },
         commands: {
-            registerCommand: command => {
+            registerCommand: (command, callback) => {
                 registeredCommands.push(command);
+                registeredCommandCallbacks.set(command, callback);
                 return trackedResource(`command:${command}`);
             },
             executeCommand: async command => {
+                executedCommands.push(command);
                 if (lifecycle.activationDisposed
                     && (command === '_agentPivotAttention.bridge.publish'
                         || command === '_agentPivotOpenWorkspaces.bridge.publish')) {
@@ -130,6 +134,8 @@ function createVscode(lifecycle) {
                 return undefined;
             },
         },
+        registeredCommandCallbacks,
+        executedCommands,
         env: {
             remoteName: undefined, machineId: 'fixture-machine',
             clipboard: { writeText: async () => undefined }, openExternal: async () => true,
@@ -328,6 +334,26 @@ async function main() {
             );
         }
         await activationFlight;
+        let pendingOpenRevealedBootShell = false;
+        let pendingUnavailableCommandError = null;
+        if (failure === null && mode === 'pending') {
+            const openCommand = vscode.registeredCommandCallbacks.get('agentPivot.open');
+            const addProjectCommand = vscode.registeredCommandCallbacks.get('agentPivot.addProject');
+            if (openCommand) {
+                await openCommand();
+                pendingOpenRevealedBootShell = vscode.executedCommands.includes(
+                    'workbench.view.extension.agentPivot'
+                ) && vscode.executedCommands.includes('agentPivot.dashboard.focus');
+            }
+            if (addProjectCommand) {
+                try {
+                    await addProjectCommand();
+                } catch (error) {
+                    pendingUnavailableCommandError =
+                        error instanceof Error ? error.message : String(error);
+                }
+            }
+        }
         if (failure === null) {
             await waitFor(() => vscode.providerRegistrations === 1, 'provider registration');
             await vscode.providerResolution;
@@ -410,6 +436,8 @@ async function main() {
             events,
             failure,
             pendingDirectRestoreEntered,
+            pendingOpenRevealedBootShell,
+            pendingUnavailableCommandError,
             inFlightListenerDisposedBeforeGateRelease,
             openTerminalListenerDisposals: lifecycle.openTerminalListenerDisposals,
             lateResourceAcquisitions: lifecycle.lateResourceAcquisitions,

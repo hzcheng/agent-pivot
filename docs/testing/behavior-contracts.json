@@ -1190,6 +1190,21 @@
     ]
   },
   {
+    "id": "RELEASE-ATTENTION-SPIKE-ARTIFACT-VERSION-001",
+    "domain": "release",
+    "title": "Attention spike artifact names and validation instructions follow current package manifests",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/tooling/packageScripts.test.js"
+    ],
+    "evidence": [
+      "scripts/package-attention-extensions.js",
+      "scripts/run-attention-local-bridge-spike-checks.js",
+      "spikes/attention-local-bridge/MANUAL-MATRIX.md"
+    ]
+  },
+  {
     "id": "RUNTIME-RUNTIME-CONFIGURATION-001",
     "domain": "runtime",
     "title": "Runtime Configuration behavior",
@@ -2511,6 +2526,24 @@
     ],
     "evidence": [
       "scripts/run-dashboard-webview-checks.js"
+    ]
+  },
+  {
+    "id": "WEBVIEW-DASHBOARD-COMMAND-AVAILABILITY-001",
+    "domain": "webview",
+    "title": "Every public dashboard command is registered before background bootstrap and delegates only to a live generation",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/dashboardBoundaries.test.js",
+      "tests/contract/aiSessions/runtimeComposition.test.js",
+      "tests/unit/tooling/extensionHostSuite.test.js",
+      "tests/extension-host/suite/index.js"
+    ],
+    "evidence": [
+      "src/dashboard/commandRegistration.ts",
+      "src/dashboard/runtimeController.ts",
+      "src/dashboard.ts"
     ]
   },
   {

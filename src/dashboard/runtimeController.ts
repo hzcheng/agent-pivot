@@ -23,6 +23,22 @@ export interface DashboardRuntimeControllerOptions<TProject extends Project = Pr
     logAiSessionRuntimeFailure?: (operation: string, error: unknown) => void;
 }
 
+export interface RevealAgentPivotDashboardOptions {
+    executeCommand: (command: string, ...args: unknown[]) => Thenable<unknown> | Promise<unknown>;
+    viewType: string;
+}
+
+export function revealAgentPivotDashboard(
+    options: RevealAgentPivotDashboardOptions,
+): Promise<void> {
+    return runAsync(() => options.executeCommand(
+        `workbench.view.extension.${AGENT_PIVOT_VIEW_CONTAINER_ID}`
+    ))
+        .then(() => runAsync(() => options.executeCommand(`${options.viewType}.focus`)))
+        .then(undefined, () => runAsync(() => options.executeCommand(`${options.viewType}.focus`)))
+        .then(undefined, () => undefined);
+}
+
 export class DashboardRuntimeController<TProject extends Project = Project> {
     constructor(private readonly options: DashboardRuntimeControllerOptions<TProject>) {
     }
@@ -63,12 +79,7 @@ export class DashboardRuntimeController<TProject extends Project = Project> {
     }
 
     revealAgentPivotDashboard(): Promise<void> {
-        return this.runAsync(() => this.options.executeCommand(
-            `workbench.view.extension.${AGENT_PIVOT_VIEW_CONTAINER_ID}`
-        ))
-            .then(() => this.runAsync(() => this.options.executeCommand(`${this.options.viewType}.focus`)))
-            .then(undefined, () => this.runAsync(() => this.options.executeCommand(`${this.options.viewType}.focus`)))
-            .then(undefined, () => undefined);
+        return revealAgentPivotDashboard(this.options);
     }
 
     postBatchArchiveCompletion(message: AiSessionBatchArchiveCompletedMessage): void {
@@ -100,10 +111,14 @@ export class DashboardRuntimeController<TProject extends Project = Project> {
     }
 
     private runAsync<T>(operation: () => Thenable<T> | Promise<T> | T): Promise<T> {
-        try {
-            return Promise.resolve(operation());
-        } catch (error) {
-            return Promise.reject(error);
-        }
+        return runAsync(operation);
+    }
+}
+
+function runAsync<T>(operation: () => Thenable<T> | Promise<T> | T): Promise<T> {
+    try {
+        return Promise.resolve(operation());
+    } catch (error) {
+        return Promise.reject(error);
     }
 }

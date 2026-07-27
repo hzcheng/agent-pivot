@@ -139,7 +139,10 @@ import { GroupCollapseController } from './dashboard/groupCollapseController';
 import { DashboardLifecycleController } from './dashboard/lifecycleController';
 import { createDashboardMessageRouter } from './dashboard/messageRouter';
 import { ProjectsPanelController } from './dashboard/projectsPanelController';
-import { DashboardRuntimeController } from './dashboard/runtimeController';
+import {
+    DashboardRuntimeController,
+    revealAgentPivotDashboard,
+} from './dashboard/runtimeController';
 import type { ProjectsPanelUpdateMode } from './dashboard/webviewUpdateMessages';
 import { DashboardStartupController, settleMigration } from './dashboard/startupController';
 import { getDashboardWebviewOptions } from './dashboard/webviewOptions';
@@ -268,14 +271,30 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         ),
     );
 
+    const dashboardCommandRegistration =
+        new DashboardCommandRegistration<vscode.Disposable>({
+            registerCommand: (command, callback) =>
+                vscode.commands.registerCommand(command, callback),
+            pushSubscription: disposable => context.subscriptions.push(disposable),
+            openWhileUnavailable: () => revealAgentPivotDashboard({
+                executeCommand: (command, ...args) =>
+                    vscode.commands.executeCommand(command, ...args),
+                viewType: AGENT_PIVOT_DASHBOARD_VIEW_ID,
+            }),
+        });
+    dashboardCommandRegistration.register();
+    context.subscriptions.push(dashboardCommandRegistration);
+
     bootstrapController = new DashboardBootstrapController({
-        run: async (_generation, resources) => {
+        run: async (generation, resources) => {
             try {
                 const options = await initializeDashboard(
                     context,
                     provider,
                     resources,
                     dashboardDiagnostics,
+                    generation,
+                    dashboardCommandRegistration,
                 );
                 return options;
             } catch (error) {
@@ -287,9 +306,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             }
         },
         begin: generation => provider.beginBootstrap(generation),
-        complete: (generation, options) =>
-            provider.completeBootstrap(generation, options),
-        fail: generation => provider.failBootstrap(generation),
+        complete: (generation, options) => {
+            const accepted = provider.completeBootstrap(generation, options);
+            if (!accepted) {
+                dashboardCommandRegistration.discard(generation);
+                return false;
+            }
+            return dashboardCommandRegistration.activate(generation);
+        },
+        fail: generation => {
+            dashboardCommandRegistration.discard(generation);
+            return provider.failBootstrap(generation);
+        },
         transfer: resources => resources.transferTo(context.subscriptions),
         logDiagnostic: event =>
             dashboardDiagnostics.logDashboardDiagnostic(event),
@@ -303,6 +331,8 @@ async function initializeDashboard(
     provider: AgentPivotViewProvider,
     resources: DashboardBootstrapResources,
     dashboardDiagnostics: DashboardDiagnostics,
+    bootstrapGeneration: number,
+    dashboardCommandRegistration: DashboardCommandRegistration<vscode.Disposable>,
 ): Promise<AgentPivotViewProviderOptions> {
     const ownResource = <T extends { dispose(): unknown }>(factory: () => T): T => {
         let resource: T | undefined;
@@ -1976,22 +2006,18 @@ async function initializeDashboard(
         },
     });
 
-    new DashboardCommandRegistration<vscode.Disposable>({
-        registerCommand: (command, callback) => vscode.commands.registerCommand(command, callback),
-        pushSubscription: disposable => resources.own(disposable),
-        handlers: {
-            open: () => showAgentPivot(),
-            addProject: () => projectMutationController.addProject(),
-            saveProject: () => savedWorkspaceProjectAdapter.saveCurrentWorkspace(),
-            removeProject: () => projectRemovalController.removeProjectPerCommand(),
-            editProjects: () => projectManualEditController.editProjectsManually(),
-            addGroup: () => groupCommandController.addGroup(),
-            removeGroup: () => groupCommandController.removeGroupPerCommand(),
-            addProjectsFromFolder: () => addProjectsFromFolderController.addProjectsFromFolder(),
-            addFileToActiveTerminal: () => activeTerminalFileReferenceController.addFileToActiveTerminal(),
-            insertPromptToActiveTerminal: () => promptTerminalCommandController.insertPromptToActiveTerminal(),
-        },
-    }).register();
+    const commandHandlers = {
+        open: () => showAgentPivot(),
+        addProject: () => projectMutationController.addProject(),
+        saveProject: () => savedWorkspaceProjectAdapter.saveCurrentWorkspace(),
+        removeProject: () => projectRemovalController.removeProjectPerCommand(),
+        editProjects: () => projectManualEditController.editProjectsManually(),
+        addGroup: () => groupCommandController.addGroup(),
+        removeGroup: () => groupCommandController.removeGroupPerCommand(),
+        addProjectsFromFolder: () => addProjectsFromFolderController.addProjectsFromFolder(),
+        addFileToActiveTerminal: () => activeTerminalFileReferenceController.addFileToActiveTerminal(),
+        insertPromptToActiveTerminal: () => promptTerminalCommandController.insertPromptToActiveTerminal(),
+    };
 
     ownResource(() => vscode.workspace.onDidChangeConfiguration(
         event => dashboardLifecycleController.handleConfigurationChange(event)
@@ -2007,6 +2033,12 @@ async function initializeDashboard(
 
     await dashboardStartupController.startUp();
     resources.assertActive();
+    if (!dashboardCommandRegistration.stage(bootstrapGeneration, commandHandlers)) {
+        throw new Error('Agent Pivot dashboard commands rejected the bootstrap generation.');
+    }
+    resources.own({
+        dispose: () => dashboardCommandRegistration.discard(bootstrapGeneration),
+    });
     return providerOptions;
 
     // ~~~~~~~~~~~~~~~~~~~~~~~~~ Functions ~~~~~~~~~~~~~~~~~~~~~~~~~

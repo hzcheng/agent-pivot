@@ -3574,6 +3574,18 @@ async function runDashboardCommandRegistrationChecks() {
     const registered = [];
     const subscriptions = [];
     const calls = [];
+    const handlerNames = [
+        'open',
+        'addProject',
+        'saveProject',
+        'removeProject',
+        'editProjects',
+        'addGroup',
+        'removeGroup',
+        'addProjectsFromFolder',
+        'addFileToActiveTerminal',
+        'insertPromptToActiveTerminal',
+    ];
     const registration = new DashboardCommandRegistration({
         registerCommand: (command, callback) => {
             const disposable = { command, dispose: () => undefined };
@@ -3581,18 +3593,7 @@ async function runDashboardCommandRegistrationChecks() {
             return disposable;
         },
         pushSubscription: disposable => subscriptions.push(disposable),
-        handlers: {
-            open: () => calls.push('open'),
-            addProject: async () => calls.push('addProject'),
-            saveProject: async () => calls.push('saveProject'),
-            removeProject: async () => calls.push('removeProject'),
-            editProjects: async () => calls.push('editProjects'),
-            addGroup: async () => calls.push('addGroup'),
-            removeGroup: async () => calls.push('removeGroup'),
-            addProjectsFromFolder: async () => calls.push('addProjectsFromFolder'),
-            addFileToActiveTerminal: async () => calls.push('addFileToActiveTerminal'),
-            insertPromptToActiveTerminal: async () => calls.push('insertPromptToActiveTerminal'),
-        },
+        openWhileUnavailable: () => calls.push('boot-open'),
     });
 
     registration.register();
@@ -3611,11 +3612,20 @@ async function runDashboardCommandRegistrationChecks() {
     ]);
     assert.deepStrictEqual(subscriptions.map(disposable => disposable.command), registered.map(([command]) => command));
 
+    await registered[0][1]();
+    await assert.rejects(registered[1][1](), /Agent Pivot is still starting/);
+    assert.deepStrictEqual(calls, ['boot-open']);
+
+    assert.strictEqual(registration.stage(1, Object.fromEntries(
+        handlerNames.map(name => [name, async () => calls.push(name)])
+    )), true);
+    assert.strictEqual(registration.activate(1), true);
     for (const [, callback] of registered) {
         await callback();
     }
 
     assert.deepStrictEqual(calls, [
+        'boot-open',
         'open',
         'addProject',
         'saveProject',
@@ -3627,6 +3637,9 @@ async function runDashboardCommandRegistrationChecks() {
         'addFileToActiveTerminal',
         'insertPromptToActiveTerminal',
     ]);
+
+    registration.dispose();
+    await assert.rejects(registered[0][1](), /Agent Pivot is not available/);
 }
 
 async function runActiveTerminalFileReferenceChecks() {

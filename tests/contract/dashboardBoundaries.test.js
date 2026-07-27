@@ -329,7 +329,7 @@ const DASHBOARD_COMMANDS = [
     'agentPivot.addFileToActiveTerminal', 'agentPivot.insertPromptToActiveTerminal',
 ];
 
-test('WEBVIEW-DASHBOARD-COMMAND-REGISTRATION-001 registers exact callbacks and subscriptions', async () => {
+test('WEBVIEW-DASHBOARD-COMMAND-REGISTRATION-001 WEBVIEW-DASHBOARD-COMMAND-AVAILABILITY-001 registers once and switches generation handlers safely', async () => {
     const registered = new Map();
     const subscriptions = [];
     const calls = [];
@@ -337,20 +337,54 @@ test('WEBVIEW-DASHBOARD-COMMAND-REGISTRATION-001 registers exact callbacks and s
         'open', 'addProject', 'saveProject', 'removeProject', 'editProjects', 'addGroup', 'removeGroup',
         'addProjectsFromFolder', 'addFileToActiveTerminal', 'insertPromptToActiveTerminal',
     ];
-    const handlers = Object.fromEntries(handlerNames.map(name => [name, (...args) => calls.push([name, ...args])]));
-    new DashboardCommandRegistration({
+    const facade = new DashboardCommandRegistration({
         registerCommand: (command, callback) => {
             registered.set(command, callback);
             return { command, dispose() {} };
         },
         pushSubscription: disposable => subscriptions.push(disposable),
-        handlers,
-    }).register();
+        openWhileUnavailable: (...args) => calls.push(['boot-open', ...args]),
+    });
+    facade.register();
 
     assert.deepEqual([...registered.keys()], DASHBOARD_COMMANDS);
-    for (const callback of registered.values()) await callback('ignored');
-    assert.deepEqual(calls, handlerNames.map(name => [name, 'ignored']));
     assert.deepEqual(subscriptions.map(value => value.command), DASHBOARD_COMMANDS);
+
+    await registered.get('agentPivot.open')('boot');
+    await assert.rejects(
+        registered.get('agentPivot.addProject')('ignored'),
+        /Agent Pivot is still starting/
+    );
+    assert.deepEqual(calls, [['boot-open', 'boot']]);
+
+    const firstHandlers = Object.fromEntries(
+        handlerNames.map(name => [name, (...args) => calls.push([`first:${name}`, ...args])])
+    );
+    const secondHandlers = Object.fromEntries(
+        handlerNames.map(name => [name, (...args) => calls.push([`second:${name}`, ...args])])
+    );
+    assert.equal(facade.stage(1, firstHandlers), true);
+    assert.equal(facade.activate(2), false);
+    assert.equal(facade.activate(1), true);
+    for (const callback of registered.values()) await callback('ready');
+    assert.deepEqual(
+        calls.slice(1),
+        handlerNames.map(name => [`first:${name}`, 'ready'])
+    );
+
+    assert.equal(facade.stage(2, secondHandlers), true);
+    facade.discard(1);
+    await registered.get('agentPivot.open')('still-first');
+    assert.deepEqual(calls.at(-1), ['boot-open', 'still-first']);
+    assert.equal(facade.activate(2), true);
+    await registered.get('agentPivot.open')('second');
+    assert.deepEqual(calls.at(-1), ['second:open', 'second']);
+
+    facade.dispose();
+    await assert.rejects(
+        registered.get('agentPivot.open')('disposed'),
+        /Agent Pivot is not available/
+    );
 });
 
 test('WEBVIEW-DASHBOARD-COMMAND-REGISTRATION-001 contributes the Prompt terminal command exactly once without a default keybinding', () => {

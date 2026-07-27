@@ -9,6 +9,18 @@ const test = require('node:test');
 const suitePath = path.resolve(__dirname, '../../extension-host/suite/index.js');
 const bridgeId = 'hzcheng.agent-pivot-attention-ui-bridge';
 const commandRegistrationPath = path.resolve(__dirname, '../../../out/dashboard/commandRegistration.js');
+const publicCommands = [
+    'agentPivot.open',
+    'agentPivot.addProject',
+    'agentPivot.saveProject',
+    'agentPivot.removeProject',
+    'agentPivot.editProjects',
+    'agentPivot.addGroup',
+    'agentPivot.removeGroup',
+    'agentPivot.addProjectsFromFolder',
+    'agentPivot.addFileToActiveTerminal',
+    'agentPivot.insertPromptToActiveTerminal',
+];
 
 function loadSuite(vscode) {
     const previousLoad = Module._load;
@@ -24,7 +36,7 @@ function loadSuite(vscode) {
     }
 }
 
-function assertOpenCommandRegistration(transform = source => source) {
+function assertPublicCommandRegistration(transform = source => source) {
     const source = transform(fs.readFileSync(commandRegistrationPath, 'utf8'));
     const loaded = new Module(commandRegistrationPath, module);
     loaded.filename = commandRegistrationPath;
@@ -35,18 +47,13 @@ function assertOpenCommandRegistration(transform = source => source) {
     new loaded.exports.DashboardCommandRegistration({
         registerCommand: command => { commands.push(command); return { dispose: noop }; },
         pushSubscription: noop,
-        handlers: {
-            open: noop, addProject: noop, saveProject: noop, removeProject: noop,
-            editProjects: noop, addGroup: noop, removeGroup: noop,
-            addProjectsFromFolder: noop, addFileToActiveTerminal: noop,
-            insertPromptToActiveTerminal: noop,
-        },
+        openWhileUnavailable: noop,
     }).register();
-    assert.ok(commands.includes('agentPivot.open'),
-        'RELEASE-SCHEDULED-EXTENSION-HOST-001 production activation must register agentPivot.open');
+    assert.deepEqual(commands, publicCommands,
+        'RELEASE-SCHEDULED-EXTENSION-HOST-001 production activation must register every public command');
 }
 
-function createHostFixture() {
+function createHostFixture(availableCommands = publicCommands) {
     const activationCalls = [];
     const executedCommands = [];
     const bridge = {
@@ -68,6 +75,7 @@ function createHostFixture() {
             getExtension: id => id === 'hzcheng.agent-pivot' ? main : id === bridgeId ? bridge : undefined,
         },
         commands: {
+            getCommands: async () => availableCommands,
             executeCommand: async command => { executedCommands.push(command); },
         },
     };
@@ -113,9 +121,26 @@ test('RELEASE-SCHEDULED-EXTENSION-HOST-001 rejects a missing bridge dependency b
 
 // RELEASE-SCHEDULED-EXTENSION-HOST-001
 test('RELEASE-SCHEDULED-EXTENSION-HOST-001 rejects missing production command registration mutation', () => {
-    assertOpenCommandRegistration();
-    assert.throws(() => assertOpenCommandRegistration(source => source.replace(
-        "this.registerCommand('agentPivot.open', this.options.handlers.open);",
+    assertPublicCommandRegistration();
+    assert.throws(() => assertPublicCommandRegistration(source => source.replace(
+        "['agentPivot.open', 'open'],",
         ''
     )), /RELEASE-SCHEDULED-EXTENSION-HOST-001/);
+});
+
+// WEBVIEW-DASHBOARD-COMMAND-AVAILABILITY-001
+test('WEBVIEW-DASHBOARD-COMMAND-AVAILABILITY-001 rejects an incomplete immediate Extension Host command surface', async () => {
+    const fixture = createHostFixture(publicCommands.slice(1));
+    const previousTimeout = process.env.AGENT_PIVOT_EXTENSION_HOST_TIMEOUT_MS;
+    process.env.AGENT_PIVOT_EXTENSION_HOST_TIMEOUT_MS = '1000';
+    try {
+        await assert.rejects(
+            loadSuite(fixture.vscode).run(),
+            /every public Agent Pivot command/
+        );
+    } finally {
+        previousTimeout === undefined
+            ? delete process.env.AGENT_PIVOT_EXTENSION_HOST_TIMEOUT_MS
+            : process.env.AGENT_PIVOT_EXTENSION_HOST_TIMEOUT_MS = previousTimeout;
+    }
 });

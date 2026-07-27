@@ -135,6 +135,26 @@ test('WEBVIEW-TWO-STAGE-STARTUP-001 production activation returns while ordered 
     assert.equal(result.lateAttentionClientObserved, false);
 });
 
+test('WEBVIEW-DASHBOARD-COMMAND-AVAILABILITY-001 production activation exposes stable commands while bootstrap is pending', () => {
+    const result = runProductionActivation('pending');
+    assert.equal(result.failure, null);
+    assert.deepEqual(result.registeredCommands, [
+        'agentPivot.open',
+        'agentPivot.addProject',
+        'agentPivot.saveProject',
+        'agentPivot.removeProject',
+        'agentPivot.editProjects',
+        'agentPivot.addGroup',
+        'agentPivot.removeGroup',
+        'agentPivot.addProjectsFromFolder',
+        'agentPivot.addFileToActiveTerminal',
+        'agentPivot.insertPromptToActiveTerminal',
+    ]);
+    assert.equal(result.dashboardCommandRegistrationInvocations, 1);
+    assert.equal(result.pendingOpenRevealedBootShell, true);
+    assert.match(result.pendingUnavailableCommandError, /Agent Pivot is still starting/);
+});
+
 test('WEBVIEW-TWO-STAGE-STARTUP-001 production startup diagnostics preserve exact order and bounded fields', () => {
     const result = runProductionActivation('diagnostics');
     assert.equal(result.failure, null);

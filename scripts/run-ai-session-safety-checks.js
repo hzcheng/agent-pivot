@@ -7087,7 +7087,13 @@ function runAiSessionIncrementalRefreshSourceChecks() {
     assert.ok(controllerSource.includes('export class AiSessionDashboardController'));
     assert.ok(controllerSource.includes('buildAiSessionsUpdatedMessage'));
     assert.ok(controllerSource.includes('getCards: () => WorkspaceCardViewModel[];'));
-    assert.ok(controllerSource.includes("async refreshNow(reason = 'refresh'): Promise<void>"));
+    assert.match(
+        controllerSource,
+        /async refreshNow\(\s*reason = 'refresh',\s*refreshOptions: AiSessionDashboardRefreshOptions = \{\}\s*\): Promise<void>/
+    );
+    assert.ok(controllerSource.includes(
+        'const fallbackToFullRefresh = refreshOptions.fallbackToFullRefresh !== false;'
+    ));
     assert.ok(controllerSource.includes("this.options.refresh('ai-session-update-not-delivered');"));
     assert.ok(controllerSource.includes("this.options.refresh('ai-session-update-post-error');"));
     assert.ok(controllerSource.includes("this.options.refresh('ai-session-update-build-error');"));

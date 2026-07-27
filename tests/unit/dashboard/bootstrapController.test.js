@@ -131,8 +131,18 @@ test('WEBVIEW-TWO-STAGE-STARTUP-001 transfers only the latest successful generat
 
     assert.deepEqual(harness.begins, [1, 2]);
     assert.deepEqual(harness.completes.map(item => item.generation), [1, 2]);
+    assert.deepEqual(harness.failures, [1]);
     assert.deepEqual(harness.transfers, [secondResult.resources]);
     assert.deepEqual(releases, ['superseded']);
+    assert.deepEqual(harness.diagnostics, [{
+        event: 'agent-pivot-bootstrap-failed',
+        generation: 1,
+        category: 'dashboard-bootstrap',
+    }, {
+        event: 'agent-pivot-bootstrap-ready',
+        generation: 2,
+        durationMs: 0,
+    }]);
 });
 
 test('WEBVIEW-TWO-STAGE-STARTUP-001 failure is safe and Retry is single-flight', async () => {
@@ -188,5 +198,272 @@ test('WEBVIEW-TWO-STAGE-STARTUP-001 disposal rejects late completion and release
 
     harness.controller.start();
     harness.controller.retry();
+    assert.equal(harness.runs.length, 1);
+});
+
+test('WEBVIEW-TWO-STAGE-STARTUP-001 rejected begin adoption uses the stable failure path', () => {
+    const begins = [];
+    const harness = createHarness({
+        begin(generation) {
+            begins.push(generation);
+            return false;
+        },
+    });
+
+    harness.controller.start();
+
+    assert.deepEqual(begins, [1]);
+    assert.deepEqual(harness.runs, []);
+    assert.deepEqual(harness.failures, [1]);
+    assert.deepEqual(harness.diagnostics, [{
+        event: 'agent-pivot-bootstrap-failed',
+        generation: 1,
+        category: 'dashboard-bootstrap',
+    }]);
+});
+
+test('WEBVIEW-TWO-STAGE-STARTUP-001 begin exceptions fail safely without escaping', () => {
+    const harness = createHarness({
+        begin() {
+            throw new Error('private begin failure');
+        },
+    });
+
+    assert.doesNotThrow(() => harness.controller.start());
+
+    assert.deepEqual(harness.runs, []);
+    assert.deepEqual(harness.failures, [1]);
+    assert.deepEqual(harness.diagnostics, [{
+        event: 'agent-pivot-bootstrap-failed',
+        generation: 1,
+        category: 'dashboard-bootstrap',
+    }]);
+});
+
+test('WEBVIEW-TWO-STAGE-STARTUP-001 begin disposal reentrancy cannot launch or overwrite disposed state', () => {
+    let harness;
+    harness = createHarness({
+        begin() {
+            harness.controller.dispose();
+            return true;
+        },
+    });
+
+    harness.controller.start();
+    harness.controller.retry();
+    harness.controller.start();
+
+    assert.deepEqual(harness.runs, []);
+    assert.deepEqual(harness.failures, []);
+    assert.deepEqual(harness.diagnostics, []);
+});
+
+test('WEBVIEW-TWO-STAGE-STARTUP-001 complete exceptions dispose the result and fail safely', async () => {
+    const releases = [];
+    const harness = createHarness({
+        complete() {
+            throw new Error('private complete failure');
+        },
+    });
+
+    harness.controller.start();
+    harness.runs[0].pending.resolve(bootstrapResult('complete-exception', releases));
+    await settleBackgroundWork();
+
+    assert.deepEqual(releases, ['complete-exception']);
+    assert.deepEqual(harness.failures, [1]);
+    assert.deepEqual(harness.transfers, []);
+    assert.deepEqual(harness.diagnostics, [{
+        event: 'agent-pivot-bootstrap-failed',
+        generation: 1,
+        category: 'dashboard-bootstrap',
+    }]);
+});
+
+test('WEBVIEW-TWO-STAGE-STARTUP-001 complete disposal reentrancy remains terminal and cleans exactly once', async () => {
+    const releases = [];
+    let harness;
+    harness = createHarness({
+        complete() {
+            harness.controller.dispose();
+            return false;
+        },
+    });
+
+    harness.controller.start();
+    harness.runs[0].pending.resolve(bootstrapResult('complete-dispose', releases));
+    await settleBackgroundWork();
+    harness.controller.retry();
+    harness.controller.start();
+
+    assert.deepEqual(releases, ['complete-dispose']);
+    assert.deepEqual(harness.failures, []);
+    assert.deepEqual(harness.transfers, []);
+    assert.deepEqual(harness.diagnostics, []);
+    assert.equal(harness.runs.length, 1);
+});
+
+test('WEBVIEW-TWO-STAGE-STARTUP-001 transfer exception keeps adopted resources until terminal disposal', async () => {
+    const releases = [];
+    const harness = createHarness({
+        transfer() {
+            throw new Error('private transfer failure');
+        },
+    });
+
+    harness.controller.start();
+    harness.runs[0].pending.resolve(bootstrapResult('transfer-exception', releases));
+    await settleBackgroundWork();
+    harness.controller.retry();
+
+    assert.deepEqual(releases, []);
+    assert.deepEqual(harness.failures, []);
+    assert.equal(harness.runs.length, 1);
+    assert.deepEqual(harness.diagnostics, [{
+        event: 'agent-pivot-bootstrap-failed',
+        generation: 1,
+        category: 'dashboard-bootstrap',
+    }]);
+
+    harness.controller.dispose();
+    harness.controller.dispose();
+    assert.deepEqual(releases, ['transfer-exception']);
+});
+
+test('WEBVIEW-TWO-STAGE-STARTUP-001 transfer disposal reentrancy cannot overwrite disposed state', async () => {
+    const releases = [];
+    let harness;
+    harness = createHarness({
+        transfer() {
+            harness.controller.dispose();
+            throw new Error('transfer stopped by disposal');
+        },
+    });
+
+    harness.controller.start();
+    harness.runs[0].pending.resolve(bootstrapResult('transfer-dispose', releases));
+    await settleBackgroundWork();
+    harness.controller.retry();
+    harness.controller.start();
+
+    assert.deepEqual(releases, ['transfer-dispose']);
+    assert.deepEqual(harness.failures, []);
+    assert.deepEqual(harness.diagnostics, []);
+    assert.equal(harness.runs.length, 1);
+});
+
+test('WEBVIEW-TWO-STAGE-STARTUP-001 rejected adoption can retry while the stale handler settles', async () => {
+    const releases = [];
+    let harness;
+    harness = createHarness({
+        complete(generation, options) {
+            harness.completes.push({ generation, options });
+            return generation === 2;
+        },
+        fail(generation) {
+            harness.failures.push(generation);
+            if (generation === 1) {
+                harness.controller.retry();
+            }
+            return true;
+        },
+    });
+
+    harness.controller.start();
+    harness.runs[0].pending.resolve(bootstrapResult('rejected-adoption', releases));
+    await settleBackgroundWork();
+
+    assert.deepEqual(harness.runs.map(run => run.generation), [1, 2]);
+    assert.deepEqual(releases, ['rejected-adoption']);
+
+    const latest = bootstrapResult('latest-in-flight', releases);
+    harness.runs[1].pending.resolve(latest);
+    await settleBackgroundWork();
+
+    assert.deepEqual(harness.completes.map(item => item.generation), [1, 2]);
+    assert.deepEqual(harness.transfers, [latest.resources]);
+    assert.deepEqual(releases, ['rejected-adoption']);
+});
+
+test('WEBVIEW-TWO-STAGE-STARTUP-001 fulfilled handler clock exceptions never become unhandled rejection', async () => {
+    const releases = [];
+    const unhandled = [];
+    let clockReads = 0;
+    const harness = createHarness({
+        nowMs() {
+            clockReads++;
+            if (clockReads === 1) {
+                return 10;
+            }
+            throw new Error('private clock failure');
+        },
+    });
+    const onUnhandled = reason => unhandled.push(reason);
+    process.on('unhandledRejection', onUnhandled);
+    try {
+        harness.controller.start();
+        harness.runs[0].pending.resolve(bootstrapResult('clock', releases));
+        await settleBackgroundWork();
+        await settleBackgroundWork();
+    } finally {
+        process.removeListener('unhandledRejection', onUnhandled);
+    }
+
+    assert.deepEqual(unhandled, []);
+    assert.deepEqual(releases, []);
+    assert.equal(harness.transfers.length, 1);
+    assert.deepEqual(harness.diagnostics, [{
+        event: 'agent-pivot-bootstrap-ready',
+        generation: 1,
+        durationMs: 0,
+    }]);
+});
+
+test('WEBVIEW-TWO-STAGE-STARTUP-001 launch clock disposal reentrancy cannot begin work', () => {
+    const begins = [];
+    let harness;
+    harness = createHarness({
+        nowMs() {
+            harness.controller.dispose();
+            return 10;
+        },
+        begin(generation) {
+            begins.push(generation);
+            return true;
+        },
+    });
+
+    harness.controller.start();
+    harness.controller.retry();
+    harness.controller.start();
+
+    assert.deepEqual(begins, []);
+    assert.deepEqual(harness.runs, []);
+    assert.deepEqual(harness.diagnostics, []);
+});
+
+test('WEBVIEW-TWO-STAGE-STARTUP-001 completion clock disposal suppresses late ready diagnostic', async () => {
+    const releases = [];
+    let reads = 0;
+    let harness;
+    harness = createHarness({
+        nowMs() {
+            reads++;
+            if (reads === 2) {
+                harness.controller.dispose();
+            }
+            return reads * 10;
+        },
+    });
+
+    harness.controller.start();
+    harness.runs[0].pending.resolve(bootstrapResult('clock-dispose', releases));
+    await settleBackgroundWork();
+    harness.controller.retry();
+    harness.controller.start();
+
+    assert.deepEqual(releases, []);
+    assert.equal(harness.transfers.length, 1);
+    assert.deepEqual(harness.diagnostics, []);
     assert.equal(harness.runs.length, 1);
 });

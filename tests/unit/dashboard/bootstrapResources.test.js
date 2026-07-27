@@ -82,3 +82,30 @@ test('ownership and transfer after disposal throw a stable programmer error', ()
         );
     }
 });
+
+test('resource disposal preserves throw undefined while releasing every resource exactly once', () => {
+    const releases = [];
+    const resources = new DashboardBootstrapResources();
+    resources.own(trackedDisposable('first', releases));
+    resources.own({
+        dispose() {
+            releases.push('throws-undefined');
+            throw undefined;
+        },
+    });
+    resources.own(trackedDisposable('last', releases));
+
+    let didThrow = false;
+    let thrownValue = 'not-thrown';
+    try {
+        resources.dispose();
+    } catch (error) {
+        didThrow = true;
+        thrownValue = error;
+    }
+    resources.dispose();
+
+    assert.equal(didThrow, true);
+    assert.equal(thrownValue, undefined);
+    assert.deepEqual(releases, ['last', 'throws-undefined', 'first']);
+});

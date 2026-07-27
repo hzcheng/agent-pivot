@@ -60,8 +60,11 @@ export class DashboardBootstrapController {
 
     private launch(): void {
         const generation = ++this.generation;
-        const startedAtMs = this.nowMs();
         this.state = 'booting';
+        const startedAtMs = this.nowMs();
+        if (!this.isCurrent(generation)) {
+            return;
+        }
 
         let began: boolean;
         try {
@@ -70,8 +73,11 @@ export class DashboardBootstrapController {
             this.handleFailure(generation);
             return;
         }
+        if (!this.isCurrent(generation)) {
+            return;
+        }
         if (!began) {
-            this.state = 'failed';
+            this.handleFailure(generation);
             return;
         }
 
@@ -90,7 +96,9 @@ export class DashboardBootstrapController {
             _error => {
                 this.handleFailure(generation);
             },
-        );
+        ).catch(_error => {
+            this.handleFailure(generation);
+        });
     }
 
     private handleResult(
@@ -108,18 +116,19 @@ export class DashboardBootstrapController {
         try {
             accepted = this.options.complete(generation, result.options);
         } catch (_error) {
-            this.pendingResources = undefined;
-            this.disposeResources(result.resources);
-            this.handleFailure(generation);
+            this.rejectResult(generation, result.resources);
             return;
         }
 
-        if (!accepted || !this.isCurrent(generation)) {
-            this.pendingResources = undefined;
-            this.disposeResources(result.resources);
-            if (this.state !== 'disposed') {
-                this.state = 'failed';
+        if (!this.isCurrent(generation)) {
+            if (this.pendingResources === result.resources) {
+                this.pendingResources = undefined;
             }
+            this.disposeResources(result.resources);
+            return;
+        }
+        if (!accepted) {
+            this.rejectResult(generation, result.resources);
             return;
         }
 
@@ -127,18 +136,23 @@ export class DashboardBootstrapController {
         try {
             this.options.transfer(result.resources);
         } catch (_error) {
-            this.pendingResources = undefined;
-            this.disposeResources(result.resources);
-            this.state = 'failed';
-            this.callFail(generation);
-            this.logFailure(generation);
+            if (this.isAdopted(generation)) {
+                this.logFailure(generation);
+            }
+            return;
+        }
+        if (!this.isAdopted(generation)) {
             return;
         }
         this.pendingResources = undefined;
+        const finishedAtMs = this.nowMs();
+        if (!this.isAdopted(generation)) {
+            return;
+        }
         this.logDiagnostic({
             event: 'agent-pivot-bootstrap-ready',
             generation,
-            durationMs: Math.max(0, this.nowMs() - startedAtMs),
+            durationMs: Math.max(0, finishedAtMs - startedAtMs),
         });
     }
 
@@ -152,8 +166,23 @@ export class DashboardBootstrapController {
         this.logFailure(generation);
     }
 
+    private rejectResult(
+        generation: number,
+        resources: DashboardBootstrapResources,
+    ): void {
+        if (this.pendingResources === resources) {
+            this.pendingResources = undefined;
+        }
+        this.disposeResources(resources);
+        this.handleFailure(generation);
+    }
+
     private isCurrent(generation: number): boolean {
         return this.state === 'booting' && this.generation === generation;
+    }
+
+    private isAdopted(generation: number): boolean {
+        return this.state === 'ready' && this.generation === generation;
     }
 
     private callFail(generation: number): void {
@@ -192,6 +221,11 @@ export class DashboardBootstrapController {
     }
 
     private nowMs(): number {
-        return this.options.nowMs ? this.options.nowMs() : Date.now();
+        try {
+            const value = this.options.nowMs ? this.options.nowMs() : Date.now();
+            return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+        } catch (_error) {
+            return 0;
+        }
     }
 }

@@ -34,18 +34,20 @@ export class DashboardBootstrapResources {
         }
 
         this.state = 'disposed';
+        let capturedError = false;
         let firstError: unknown;
         for (let index = this.disposables.length - 1; index >= 0; index--) {
             try {
                 this.disposables[index].dispose();
             } catch (error) {
-                if (firstError === undefined) {
+                if (!capturedError) {
+                    capturedError = true;
                     firstError = error;
                 }
             }
         }
         this.disposables.length = 0;
-        if (firstError !== undefined) {
+        if (capturedError) {
             throw firstError;
         }
     }

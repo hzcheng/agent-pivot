@@ -261,3 +261,75 @@ test('WEBVIEW-TWO-STAGE-STARTUP-001 never replaces a healthy ready dashboard wit
     assert.equal(fake.view.webview.html, '<main>ready dashboard</main>');
     assert.equal(fake.assignedHtml.includes('<main>failed 1</main>'), false);
 });
+
+test('WEBVIEW-TWO-STAGE-STARTUP-001 ready option failure leaves adoption rejectable as failed', async () => {
+    const events = [];
+    const provider = bootProvider(events);
+    const fake = makeVisibleView();
+    provider.beginBootstrap(1);
+    await provider.resolveWebviewView(fake.view, {}, {});
+    const options = {
+        ...readyOptions(events),
+        getWebviewOptions() {
+            throw new Error('private ready options failure');
+        },
+    };
+
+    assert.throws(
+        () => provider.completeBootstrap(1, options),
+        /private ready options failure/
+    );
+    assert.equal(provider.failBootstrap(1), true);
+    assert.equal(fake.view.webview.html, '<main>failed 1</main>');
+});
+
+test('WEBVIEW-TWO-STAGE-STARTUP-001 post-adoption render failures cannot escape completion', async () => {
+    const events = [];
+    const provider = bootProvider(events);
+    const fake = makeVisibleView();
+    provider.beginBootstrap(1);
+    await provider.resolveWebviewView(fake.view, {}, {});
+    const options = {
+        ...readyOptions(events),
+        renderContent() {
+            throw new Error('private render failure');
+        },
+        renderError() {
+            throw new Error('private fallback failure');
+        },
+        logError() {
+            throw new Error('private logger failure');
+        },
+    };
+
+    assert.equal(provider.completeBootstrap(1, options), true);
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.equal(provider.failBootstrap(1), false);
+});
+
+test('WEBVIEW-TWO-STAGE-STARTUP-001 nested completion cannot steal an in-progress adoption', async () => {
+    const events = [];
+    const provider = bootProvider(events);
+    const fake = makeVisibleView();
+    provider.beginBootstrap(1);
+    await provider.resolveWebviewView(fake.view, {}, {});
+    let nestedAccepted;
+    const outerOptions = {
+        ...readyOptions(events),
+        getWebviewOptions() {
+            nestedAccepted = provider.completeBootstrap(1, {
+                ...readyOptions(events),
+                renderContent: () => '<main>nested dashboard</main>',
+            });
+            return { enableScripts: false };
+        },
+        renderContent: () => '<main>outer dashboard</main>',
+    };
+
+    assert.equal(provider.completeBootstrap(1, outerOptions), true);
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.equal(nestedAccepted, false);
+    assert.equal(fake.view.webview.html, '<main>outer dashboard</main>');
+});

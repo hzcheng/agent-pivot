@@ -51,6 +51,7 @@ export class AgentPivotViewProvider implements vscode.WebviewViewProvider {
     private lifecycle: ProviderLifecycle;
     private bootShellAssignedGeneration?: number;
     private firstPaintGeneration?: number;
+    private completingBootstrapGeneration?: number;
 
     constructor(private readonly configuration: AgentPivotViewProviderConfiguration) {
         this.lifecycle = configuration.mode === 'ready'
@@ -76,22 +77,47 @@ export class AgentPivotViewProvider implements vscode.WebviewViewProvider {
         generation: number,
         options: AgentPivotViewProviderOptions,
     ): boolean {
-        if (this.lifecycle.kind !== 'booting' || this.lifecycle.generation !== generation) {
+        if (this.lifecycle.kind !== 'booting'
+            || this.lifecycle.generation !== generation
+            || this.completingBootstrapGeneration !== undefined) {
             return false;
         }
 
-        this.lifecycle = { kind: 'ready', options };
         const webviewView = this._view;
-        if (webviewView) {
-            webviewView.webview.options = options.getWebviewOptions();
+        this.completingBootstrapGeneration = generation;
+        try {
+            if (webviewView) {
+                const webviewOptions = options.getWebviewOptions();
+                webviewView.webview.options = webviewOptions;
+            }
+            if (this.lifecycle.kind !== 'booting'
+                || this.lifecycle.generation !== generation) {
+                return false;
+            }
+
+            this.lifecycle = { kind: 'ready', options };
+        } finally {
+            this.completingBootstrapGeneration = undefined;
         }
-        this.refresh();
+
+        try {
+            this.refresh();
+        } catch (_error) {
+            try {
+                options.logError(
+                    'Failed to render Agent Pivot view.',
+                    sanitizedViewFailure(),
+                );
+            } catch (_logError) {
+                // Ready adoption is terminal even when rendering diagnostics fail.
+            }
+        }
         if (webviewView) {
             void this.prepareVisibility(
                 webviewView,
                 () => this._view === webviewView,
                 false,
-            );
+            ).catch(_error => undefined);
         }
         return true;
     }

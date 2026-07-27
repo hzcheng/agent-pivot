@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "f392bca7ef4a8097b9d4acb9873722bcd3f2b6b0",
+        "head": "a6029db70b0b7a4a0b997c4432ced7d179aed2a2",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -150,7 +150,8 @@
                 "2bb717b5e22ad6058124a9475dc9f2e664541a8b",
                 "e9c29252c0ec9edeef3ecfcaf721bb5b6dacd6cf",
                 "36e5ca3c37eb92abd68286025ad8b1efbe7b09ee",
-                "f392bca7ef4a8097b9d4acb9873722bcd3f2b6b0"
+                "f392bca7ef4a8097b9d4acb9873722bcd3f2b6b0",
+                "a6029db70b0b7a4a0b997c4432ced7d179aed2a2"
             ],
             "behaviors": [
                 "OPEN-PROTOCOL-001",

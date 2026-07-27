@@ -35,7 +35,11 @@ export type AgentPivotViewProviderConfiguration =
 
 type ProviderLifecycle =
     | { kind: 'idle' }
-    | { kind: 'booting'; generation: number }
+    | {
+        kind: 'booting';
+        generation: number;
+        firstPaintAcknowledged: boolean;
+    }
     | { kind: 'failed'; generation: number; retryRequested: boolean }
     | { kind: 'ready'; options: AgentPivotViewProviderOptions };
 
@@ -50,7 +54,6 @@ export class AgentPivotViewProvider implements vscode.WebviewViewProvider {
     private releaseBarrier: Promise<void> = Promise.resolve();
     private lifecycle: ProviderLifecycle;
     private bootShellAssignedGeneration?: number;
-    private firstPaintGeneration?: number;
     private completingBootstrapGeneration?: number;
 
     constructor(private readonly configuration: AgentPivotViewProviderConfiguration) {
@@ -69,7 +72,11 @@ export class AgentPivotViewProvider implements vscode.WebviewViewProvider {
             return false;
         }
 
-        this.lifecycle = { kind: 'booting', generation };
+        this.lifecycle = {
+            kind: 'booting',
+            generation,
+            firstPaintAcknowledged: false,
+        };
         this.refresh();
         return true;
     }
@@ -266,8 +273,8 @@ export class AgentPivotViewProvider implements vscode.WebviewViewProvider {
             if (this.lifecycle.kind === 'booting' && isFirstPaintMessage(
                 message,
                 this.lifecycle.generation,
-            ) && this.firstPaintGeneration !== this.lifecycle.generation) {
-                this.firstPaintGeneration = this.lifecycle.generation;
+            ) && !this.lifecycle.firstPaintAcknowledged) {
+                this.lifecycle.firstPaintAcknowledged = true;
                 this.bootOptions().onFirstPaint(this.lifecycle.generation);
                 return;
             }

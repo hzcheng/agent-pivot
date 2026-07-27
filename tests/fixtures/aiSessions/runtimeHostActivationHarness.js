@@ -140,7 +140,15 @@ function createVscode(lifecycle) {
 
 async function main() {
     const mode = process.argv[2] || 'success';
-    const storageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'runtime-host-activation-'));
+    const storageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'PRIVATE_PATH_CANARY-'));
+    const privacyCanaries = [
+        storageRoot,
+        'PRIVATE_PROJECT_CANARY',
+        'PRIVATE_PROMPT_CANARY',
+        'PRIVATE_SESSION_CANARY',
+        'PRIVATE_PROVIDER_PAYLOAD_CANARY',
+        'PRIVATE_RAW_ERROR_CANARY',
+    ];
     const lifecycle = {
         activationDisposed: false,
         activeOpenTerminalListeners: 0,
@@ -253,7 +261,7 @@ async function main() {
         });
         patch(TerminalService.prototype, 'restorePersistedTerminals', async function () {
             assert.ok(this instanceof TerminalService);
-            if (mode === 'pending') {
+            if (mode === 'pending' || mode === 'diagnostics') {
                 pendingDirectRestoreEntered = true;
                 await new Promise(resolve => {
                     releasePendingDirectRestore = resolve;
@@ -262,7 +270,7 @@ async function main() {
             if (mode === 'direct-failure') {
                 events.push('direct-failed');
                 directRestoreSettled = true;
-                throw new Error('controlled direct restore failure');
+                throw new Error(privacyCanaries.join(' '));
             }
             events.push('direct-restored');
             directRestoreSettled = true;
@@ -333,6 +341,9 @@ async function main() {
                     generation,
                 });
             }
+            if (mode === 'diagnostics') {
+                releasePendingDirectRestore?.();
+            }
             if (mode !== 'pending') {
                 await waitFor(
                     () => ['ready', 'failed'].includes(vscode.registeredProvider?.lifecycle?.kind),
@@ -376,6 +387,20 @@ async function main() {
         const readyHtmlAssignments = vscode.webviewHtmlHistory.filter(
             html => !html.includes('agent-pivot-boot-shell')
         ).length;
+        const dashboardDiagnostics = lifecycle.outputLines
+            .filter(line => line.startsWith('[Dashboard] '))
+            .map(line => JSON.parse(line.slice('[Dashboard] '.length)))
+            .map(({ loggedAt: _loggedAt, ...event }) => event);
+        const startupDiagnosticEvents = new Set([
+            'agent-pivot-activation-entered',
+            'agent-pivot-boot-shell-assigned',
+            'agent-pivot-browser-first-paint',
+            'agent-pivot-bootstrap-ready',
+            'agent-pivot-bootstrap-failed',
+        ]);
+        const startupDiagnostics = dashboardDiagnostics.filter(
+            diagnostic => startupDiagnosticEvents.has(diagnostic.event)
+        );
         process.stdout.write(JSON.stringify({
             activationReturnedBeforeDirectRestoreSettled,
             providerRegistrations: vscode.providerRegistrations,
@@ -391,7 +416,7 @@ async function main() {
             postDisposePublications: lifecycle.postDisposePublications,
             lateAttentionClientObserved,
             rawDirectFailureExposedInHtml: vscode.webviewHtmlHistory.some(
-                html => html.includes('controlled direct restore failure')
+                html => privacyCanaries.some(canary => html.includes(canary))
             ),
             verified: [...verified].sort(),
             registeredCommands: vscode.registeredCommands,
@@ -399,6 +424,7 @@ async function main() {
             aliasRebinds,
             attentionShutdownCalls,
             synchronizedGlobalStateKeySets,
+            startupDiagnostics,
         }));
     } finally {
         disposeContextSubscriptions();

@@ -2,6 +2,7 @@
 
 const assert = require('node:assert/strict');
 const test = require('node:test');
+const { DashboardBootstrapController } = require('../../../out/dashboard/bootstrapController');
 const { AgentPivotViewProvider } = require('../../../out/dashboard/viewProvider');
 
 function makeVisibleView() {
@@ -87,6 +88,18 @@ function bootProvider(events, getWebviewOptions = () => ({ enableScripts: true }
     });
 }
 
+function nextTurn() {
+    return new Promise(resolve => setImmediate(resolve));
+}
+
+function deferred() {
+    let resolve;
+    const promise = new Promise(settle => {
+        resolve = settle;
+    });
+    return { promise, resolve };
+}
+
 test('WEBVIEW-TWO-STAGE-STARTUP-001 keeps generation zero non-renderable before bootstrap begins', async () => {
     const events = [];
     const provider = bootProvider(events);
@@ -115,6 +128,30 @@ test('WEBVIEW-TWO-STAGE-STARTUP-001 resolves the current view with boot HTML bef
 
     assert.deepEqual(fake.assignedHtml, ['<main>boot 1</main>']);
     assert.deepEqual(events, [['shell', 1]]);
+});
+
+test('WEBVIEW-TWO-STAGE-STARTUP-001 reports shell assignment before one current first-paint acknowledgement', async () => {
+    const events = [];
+    const provider = bootProvider(events);
+    const fake = makeVisibleView();
+    provider.beginBootstrap(1);
+    await provider.resolveWebviewView(fake.view, {}, {});
+
+    await fake.receiveMessage({
+        type: 'agent-pivot-browser-first-paint',
+        version: 1,
+        generation: 1,
+    });
+    await fake.receiveMessage({
+        type: 'agent-pivot-browser-first-paint',
+        version: 1,
+        generation: 1,
+    });
+
+    assert.deepEqual(events, [
+        ['shell', 1],
+        ['paint', 1],
+    ]);
 });
 
 test('WEBVIEW-TWO-STAGE-STARTUP-001 adopts ready callbacks once and prepares the same visible view', async () => {
@@ -211,6 +248,37 @@ test('WEBVIEW-TWO-STAGE-STARTUP-001 ignores stale completion and stale first-pai
     ]);
 });
 
+test('WEBVIEW-TWO-STAGE-STARTUP-001 ignores stale first paint after a new generation and deduplicates the current generation', async () => {
+    const events = [];
+    const provider = bootProvider(events);
+    const fake = makeVisibleView();
+    provider.beginBootstrap(1);
+    await provider.resolveWebviewView(fake.view, {}, {});
+    assert.equal(provider.beginBootstrap(2), true);
+
+    await fake.receiveMessage({
+        type: 'agent-pivot-browser-first-paint',
+        version: 1,
+        generation: 1,
+    });
+    await fake.receiveMessage({
+        type: 'agent-pivot-browser-first-paint',
+        version: 1,
+        generation: 2,
+    });
+    await fake.receiveMessage({
+        type: 'agent-pivot-browser-first-paint',
+        version: 1,
+        generation: 2,
+    });
+
+    assert.deepEqual(events, [
+        ['shell', 1],
+        ['shell', 2],
+        ['paint', 2],
+    ]);
+});
+
 test('WEBVIEW-TWO-STAGE-STARTUP-001 routes only exact failed-state Retry messages', async () => {
     const events = [];
     const provider = bootProvider(events);
@@ -246,6 +314,142 @@ test('WEBVIEW-TWO-STAGE-STARTUP-001 routes only exact failed-state Retry message
         ['dashboard-message', { type: 'retry-agent-pivot-bootstrap', version: 1 }],
         ['prepared'],
     ]);
+});
+
+test('WEBVIEW-TWO-STAGE-STARTUP-001 two exact Retry messages start one pending generation-two flight', async () => {
+    const events = [];
+    const runs = [];
+    const retryFlight = deferred();
+    let controller;
+    const provider = new AgentPivotViewProvider({
+        mode: 'boot',
+        options: {
+            getWebviewOptions: () => ({ enableScripts: true }),
+            renderBootContent: (_webview, generation) => `<main>boot ${generation}</main>`,
+            renderBootError: (_webview, generation) => `<main>failed ${generation}</main>`,
+            onBootShellAssigned: generation => events.push(['shell', generation]),
+            onRetry: () => controller.retry(),
+            onFirstPaint: generation => events.push(['paint', generation]),
+            logError: () => undefined,
+        },
+    });
+    controller = new DashboardBootstrapController({
+        begin: generation => provider.beginBootstrap(generation),
+        run: async generation => {
+            runs.push(generation);
+            if (generation === 1) throw new Error('controlled bootstrap failure');
+            return retryFlight.promise;
+        },
+        complete: (generation, options) => provider.completeBootstrap(generation, options),
+        fail: generation => provider.failBootstrap(generation),
+        transfer: resources => resources.dispose(),
+        logDiagnostic: () => undefined,
+    });
+    const fake = makeVisibleView();
+    await provider.resolveWebviewView(fake.view, {}, {});
+    controller.start();
+    await nextTurn();
+
+    await fake.receiveMessage({ type: 'retry-agent-pivot-bootstrap', version: 1 });
+    await fake.receiveMessage({ type: 'retry-agent-pivot-bootstrap', version: 1 });
+
+    assert.deepEqual(runs, [1, 2]);
+    assert.equal(fake.view.webview.html, '<main>boot 2</main>');
+    controller.dispose();
+    retryFlight.resolve(readyOptions(events));
+    await nextTurn();
+});
+
+test('WEBVIEW-TWO-STAGE-STARTUP-001 Retry in ready does not rerender or launch bootstrap', async () => {
+    const events = [];
+    const runs = [];
+    let controller;
+    const provider = new AgentPivotViewProvider({
+        mode: 'boot',
+        options: {
+            getWebviewOptions: () => ({ enableScripts: true }),
+            renderBootContent: (_webview, generation) => `<main>boot ${generation}</main>`,
+            renderBootError: (_webview, generation) => `<main>failed ${generation}</main>`,
+            onBootShellAssigned: generation => events.push(['shell', generation]),
+            onRetry: () => controller.retry(),
+            onFirstPaint: generation => events.push(['paint', generation]),
+            logError: () => undefined,
+        },
+    });
+    controller = new DashboardBootstrapController({
+        begin: generation => provider.beginBootstrap(generation),
+        run: async generation => {
+            runs.push(generation);
+            if (generation === 1) throw new Error('controlled bootstrap failure');
+            return readyOptions(events);
+        },
+        complete: (generation, options) => provider.completeBootstrap(generation, options),
+        fail: generation => provider.failBootstrap(generation),
+        transfer: resources => resources.dispose(),
+        logDiagnostic: () => undefined,
+    });
+    const fake = makeVisibleView();
+    await provider.resolveWebviewView(fake.view, {}, {});
+    controller.start();
+    await nextTurn();
+    await fake.receiveMessage({ type: 'retry-agent-pivot-bootstrap', version: 1 });
+    await nextTurn();
+    const assignedHtmlBeforeReadyRetry = fake.assignedHtml.slice();
+
+    await fake.receiveMessage({ type: 'retry-agent-pivot-bootstrap', version: 1 });
+    await nextTurn();
+
+    assert.deepEqual(runs, [1, 2]);
+    assert.deepEqual(fake.assignedHtml, assignedHtmlBeforeReadyRetry);
+    assert.equal(fake.view.webview.html, '<main>ready dashboard</main>');
+    controller.dispose();
+});
+
+test('WEBVIEW-TWO-STAGE-STARTUP-001 disposal during Retry rejects late ready assignment and disposes its generation scope', async () => {
+    const events = [];
+    const retryFlight = deferred();
+    const disposedGenerations = [];
+    let controller;
+    const provider = new AgentPivotViewProvider({
+        mode: 'boot',
+        options: {
+            getWebviewOptions: () => ({ enableScripts: true }),
+            renderBootContent: (_webview, generation) => `<main>boot ${generation}</main>`,
+            renderBootError: (_webview, generation) => `<main>failed ${generation}</main>`,
+            onBootShellAssigned: generation => events.push(['shell', generation]),
+            onRetry: () => controller.retry(),
+            onFirstPaint: generation => events.push(['paint', generation]),
+            logError: () => undefined,
+        },
+    });
+    controller = new DashboardBootstrapController({
+        begin: generation => provider.beginBootstrap(generation),
+        run: async (generation, resources) => {
+            resources.own({
+                dispose: () => disposedGenerations.push(generation),
+            });
+            if (generation === 1) throw new Error('controlled bootstrap failure');
+            return retryFlight.promise;
+        },
+        complete: (generation, options) => provider.completeBootstrap(generation, options),
+        fail: generation => provider.failBootstrap(generation),
+        transfer: () => undefined,
+        logDiagnostic: () => undefined,
+    });
+    const fake = makeVisibleView();
+    await provider.resolveWebviewView(fake.view, {}, {});
+    controller.start();
+    await nextTurn();
+    await fake.receiveMessage({ type: 'retry-agent-pivot-bootstrap', version: 1 });
+    assert.equal(fake.view.webview.html, '<main>boot 2</main>');
+
+    controller.dispose();
+    await fake.fireDispose();
+    retryFlight.resolve(readyOptions(events));
+    await nextTurn();
+
+    assert.equal(fake.assignedHtml.includes('<main>ready dashboard</main>'), false);
+    assert.deepEqual(disposedGenerations, [1, 2]);
 });
 
 test('WEBVIEW-TWO-STAGE-STARTUP-001 never replaces a healthy ready dashboard with failure HTML', async () => {

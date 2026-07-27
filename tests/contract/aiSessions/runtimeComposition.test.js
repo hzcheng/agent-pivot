@@ -135,6 +135,53 @@ test('WEBVIEW-TWO-STAGE-STARTUP-001 production activation returns while ordered 
     assert.equal(result.lateAttentionClientObserved, false);
 });
 
+test('WEBVIEW-TWO-STAGE-STARTUP-001 production startup diagnostics preserve exact order and bounded fields', () => {
+    const result = runProductionActivation('diagnostics');
+    assert.equal(result.failure, null);
+    assert.deepEqual(result.startupDiagnostics.map(({ event }) => event), [
+        'agent-pivot-activation-entered',
+        'agent-pivot-boot-shell-assigned',
+        'agent-pivot-browser-first-paint',
+        'agent-pivot-bootstrap-ready',
+    ]);
+    assert.deepEqual(result.startupDiagnostics[0], {
+        event: 'agent-pivot-activation-entered',
+    });
+    assert.deepEqual(result.startupDiagnostics[1], {
+        event: 'agent-pivot-boot-shell-assigned',
+        generation: 1,
+    });
+    assert.equal(result.startupDiagnostics[2].event, 'agent-pivot-browser-first-paint');
+    assert.equal(result.startupDiagnostics[2].generation, 1);
+    assert.equal(Number.isFinite(result.startupDiagnostics[2].durationMs), true);
+    assert.ok(result.startupDiagnostics[2].durationMs >= 0);
+    assert.equal(result.startupDiagnostics[3].event, 'agent-pivot-bootstrap-ready');
+    assert.equal(result.startupDiagnostics[3].generation, 1);
+    assert.equal(Number.isFinite(result.startupDiagnostics[3].durationMs), true);
+    assert.ok(result.startupDiagnostics[3].durationMs >= 0);
+});
+
+test('WEBVIEW-TWO-STAGE-STARTUP-001 production failure diagnostic is exact and privacy-safe', () => {
+    const result = runProductionActivation('direct-failure');
+    assert.equal(result.failure, null);
+    assert.deepEqual(result.startupDiagnostics.at(-1), {
+        event: 'agent-pivot-bootstrap-failed',
+        generation: 1,
+        category: 'dashboard-bootstrap',
+    });
+    const serialized = JSON.stringify(result.startupDiagnostics);
+    for (const canary of [
+        'PRIVATE_PATH_CANARY',
+        'PRIVATE_PROJECT_CANARY',
+        'PRIVATE_PROMPT_CANARY',
+        'PRIVATE_SESSION_CANARY',
+        'PRIVATE_PROVIDER_PAYLOAD_CANARY',
+        'PRIVATE_RAW_ERROR_CANARY',
+    ]) {
+        assert.equal(serialized.includes(canary), false, canary);
+    }
+});
+
 test('RUNTIME-HOST-RUNTIME-COMPOSITION-001 SESSION-ALIAS-THREAD-SWITCH-001 ATTENTION-ACTIVE-UNREGISTER-ON-DEACTIVATE-001 production activation wires lifecycle ownership and restores before hydration', () => {
     const result = runProductionActivation('success');
     assert.equal(result.failure, null);

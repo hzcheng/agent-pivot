@@ -41,6 +41,12 @@ async function postedMessages(page) {
     return page.evaluate(() => window.__agentPivotBootMessages);
 }
 
+async function assignWebviewDocument(page, html) {
+    await page.evaluate(markup => {
+        document.documentElement.innerHTML = markup;
+    }, html);
+}
+
 test('WEBVIEW-TWO-STAGE-STARTUP-001 boot shell has bounded geometry and no booting actions', async t => {
     const page = await openBootDocument(t, { kind: 'booting', generation: 7 });
     const root = page.locator('.agent-pivot-boot-shell');
@@ -93,4 +99,40 @@ test('WEBVIEW-TWO-STAGE-STARTUP-001 failed shell provides one focusable Retry th
         { type: 'retry-agent-pivot-bootstrap', version: 1 },
         { type: 'retry-agent-pivot-bootstrap', version: 1 },
     ]);
+});
+
+test('WEBVIEW-TWO-STAGE-STARTUP-001 boot shell becomes authoritative content in the same Webview document', async t => {
+    const page = await openBootDocument(t, { kind: 'booting', generation: 9 });
+    const context = page.context();
+    const initialPageCount = context.pages().length;
+    const popupUrls = [];
+    const dialogs = [];
+    page.on('popup', popup => popupUrls.push(popup.url()));
+    page.on('dialog', dialog => {
+        dialogs.push({ type: dialog.type(), message: dialog.message() });
+        void dialog.dismiss();
+    });
+    await page.evaluate(() => {
+        window.__agentPivotWindowOpenCalls = [];
+        window.open = (...args) => {
+            window.__agentPivotWindowOpenCalls.push(args);
+            return null;
+        };
+    });
+    await page.waitForFunction(() => window.__agentPivotBootMessages?.some(
+        message => message.type === 'agent-pivot-browser-first-paint'
+    ));
+    assert.ok(await page.locator('.agent-pivot-boot-shell').boundingBox());
+
+    await assignWebviewDocument(page, [
+        '<head><title>Agent Pivot</title></head>',
+        '<body><main data-agent-pivot-authoritative="ready">ready dashboard</main></body>',
+    ].join(''));
+
+    assert.equal(await page.locator('[data-agent-pivot-authoritative="ready"]').count(), 1);
+    assert.equal(await page.locator('[data-agent-pivot-authoritative="ready"]').isVisible(), true);
+    assert.equal(await page.evaluate(() => window.__agentPivotWindowOpenCalls.length), 0);
+    assert.equal(context.pages().length, initialPageCount);
+    assert.deepEqual(popupUrls, []);
+    assert.deepEqual(dialogs, []);
 });

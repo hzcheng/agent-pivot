@@ -4,6 +4,7 @@ import * as childProcess from 'child_process';
 import { randomBytes } from 'crypto';
 import { existsSync, statSync } from 'fs';
 import * as path from 'path';
+import { performance } from 'perf_hooks';
 import { Project, GroupOrder, ProjectRemoteType, StewardInfos, ProjectOpenType, ReopenStewardReason, AiSessionProviderId, isAiSessionProviderId } from './models';
 import { getProjectsPanelContent, getStewardContent } from './webview/webviewContent';
 import {
@@ -217,6 +218,8 @@ function runBoundedAiProviderHelp(
 }
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
+    const monotonicNowMs = () => performance.now();
+    const activationStartedAtMs = monotonicNowMs();
     const outputChannel = vscode.window.createOutputChannel('Agent Pivot');
     context.subscriptions.push(outputChannel);
     const dashboardDiagnostics = new DashboardDiagnostics({
@@ -248,6 +251,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                 dashboardDiagnostics.logDashboardDiagnostic({
                     event: 'agent-pivot-browser-first-paint',
                     generation,
+                    durationMs: Math.max(
+                        0,
+                        monotonicNowMs() - activationStartedAtMs,
+                    ),
                 });
             },
             logError: (message, error) =>
@@ -286,6 +293,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         transfer: resources => resources.transferTo(context.subscriptions),
         logDiagnostic: event =>
             dashboardDiagnostics.logDashboardDiagnostic(event),
+        nowMs: monotonicNowMs,
     });
     context.subscriptions.push(bootstrapController);
     bootstrapController.start();

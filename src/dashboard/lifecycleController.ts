@@ -40,6 +40,9 @@ export interface WindowStateLike {
 }
 
 export interface DashboardLifecycleControllerOptions {
+    prepareConfigurationChange?: (
+        event: ConfigurationChangeEventLike
+    ) => Promise<void>;
     checkDataMigration: (openStewardAfterMigrate: boolean) => Promise<void>;
     reconcileProjectCatalog?: () => Promise<void>;
     consumeTodoDataWriteEcho?: () => boolean;
@@ -53,13 +56,38 @@ export interface DashboardLifecycleControllerOptions {
     refreshPrompts?: (reason: string) => void;
     publishOpenWorkspace: (followsFocusEvent?: boolean) => void;
     evaluateAiSessionAttention: () => unknown;
+    assertActive?: () => void;
+    logError?: (message: string, error: unknown) => unknown;
 }
 
 export class DashboardLifecycleController {
     constructor(private readonly options: DashboardLifecycleControllerOptions) {
     }
 
+    handleConfigurationChange(event: ConfigurationChangeEventLike): void {
+        void this.handleConfigurationChanged(event).catch(error => {
+            try {
+                this.options.assertActive?.();
+            } catch (_disposedError) {
+                return;
+            }
+            try {
+                this.options.logError?.(
+                    'Failed to handle an Agent Pivot configuration change.',
+                    error
+                );
+            } catch (_logError) {
+                // Configuration listeners must never create unhandled rejections.
+            }
+        });
+    }
+
     async handleConfigurationChanged(event: ConfigurationChangeEventLike): Promise<void> {
+        this.assertActive();
+        if (this.options.prepareConfigurationChange) {
+            await this.options.prepareConfigurationChange(event);
+            this.assertActive();
+        }
         const todoDataChanged = event.affectsConfiguration(configurationKey('todoData'));
         const localTodoDataWriteEcho = todoDataChanged
             && this.options.consumeTodoDataWriteEcho?.() === true;
@@ -81,10 +109,14 @@ export class DashboardLifecycleController {
 
         if (event.affectsConfiguration(configurationKey('storeProjectsInSettings'))) {
             await this.options.checkDataMigration(false);
+            this.assertActive();
         }
 
         if (projectCatalogChanged && !localProjectCatalogWriteEcho) {
-            await this.options.reconcileProjectCatalog?.();
+            if (this.options.reconcileProjectCatalog) {
+                await this.options.reconcileProjectCatalog();
+                this.assertActive();
+            }
         }
 
         const trackedDataChanged = todoDataChanged || projectCatalogChanged || promptDataChanged;
@@ -120,5 +152,9 @@ export class DashboardLifecycleController {
             this.options.publishOpenWorkspace(true);
         }
         this.options.evaluateAiSessionAttention();
+    }
+
+    private assertActive(): void {
+        this.options.assertActive?.();
     }
 }

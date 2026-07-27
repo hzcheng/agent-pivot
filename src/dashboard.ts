@@ -1910,6 +1910,13 @@ async function initializeDashboard(
         },
     });
     const dashboardLifecycleController = new DashboardLifecycleController({
+        prepareConfigurationChange: async event => {
+            if (event.affectsConfiguration(`${AGENT_PIVOT_CONFIG_SECTION}.aiSessionTerminalMode`)
+                || event.affectsConfiguration(`${AGENT_PIVOT_CONFIG_SECTION}.aiSessionTmuxLayout`)
+                || event.affectsConfiguration(`${AGENT_PIVOT_CONFIG_SECTION}.aiSessionTmuxPath`)) {
+                await handleAiSessionRuntimeConfigurationChanged();
+            }
+        },
         checkDataMigration: async openStewardAfterMigrate => {
             await dashboardStartupController.checkDataMigration(openStewardAfterMigrate);
         },
@@ -1929,6 +1936,8 @@ async function initializeDashboard(
         evaluateAiSessionAttention: () => runSafeAiSessionRuntimeLifecycleTask(
             'evaluate-attention-window-state', evaluateAiSessionAttention
         ),
+        assertActive: () => resources.assertActive(),
+        logError,
     });
     const activeTerminalFileReferenceController = new ActiveTerminalFileReferenceController({
         getActiveTextEditor: () => vscode.window.activeTextEditor,
@@ -1976,14 +1985,9 @@ async function initializeDashboard(
         },
     }).register();
 
-    ownResource(() => vscode.workspace.onDidChangeConfiguration(async event => {
-        if (event.affectsConfiguration(`${AGENT_PIVOT_CONFIG_SECTION}.aiSessionTerminalMode`)
-            || event.affectsConfiguration(`${AGENT_PIVOT_CONFIG_SECTION}.aiSessionTmuxLayout`)
-            || event.affectsConfiguration(`${AGENT_PIVOT_CONFIG_SECTION}.aiSessionTmuxPath`)) {
-            await handleAiSessionRuntimeConfigurationChanged();
-        }
-        await dashboardLifecycleController.handleConfigurationChanged(event);
-    }));
+    ownResource(() => vscode.workspace.onDidChangeConfiguration(
+        event => dashboardLifecycleController.handleConfigurationChange(event)
+    ));
 
     ownResource(() => vscode.workspace.onDidChangeWorkspaceFolders(() => {
         dashboardLifecycleController.handleWorkspaceFoldersChanged();

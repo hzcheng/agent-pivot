@@ -8,6 +8,7 @@ const { getErrorContent } = require('../../../out/dashboard/errorContent');
 const { DashboardLifecycleController } = require('../../../out/dashboard/lifecycleController');
 const { DashboardRuntimeController } = require('../../../out/dashboard/runtimeController');
 const { DashboardStartupController } = require('../../../out/dashboard/startupController');
+const { DashboardBootstrapResources } = require('../../../out/dashboard/bootstrapResources');
 const { AgentPivotViewProvider } = require('../../../out/dashboard/viewProvider');
 const { TmuxRuntimeDiscovery } = require('../../../out/aiSessions/tmuxRuntimeDiscovery');
 const {
@@ -1210,4 +1211,86 @@ test('WEBVIEW-DASHBOARD-STARTUP-CONTROLLER-001 disposal during pending workspace
 
     await assert.rejects(startup, error => error === disposedGeneration);
     assert.deepEqual(effects, []);
+});
+
+test('WEBVIEW-DASHBOARD-STARTUP-CONTROLLER-001 PERSIST-DASHBOARD-LIFECYCLE-CONTROLLER-001 transferred ready startup migrates until actual context disposal', async () => {
+    const migrationGate = deferred();
+    const migrationEntered = deferred();
+    const effects = [];
+    const unhandled = [];
+    const contextSubscriptions = [];
+    const resources = new DashboardBootstrapResources();
+    let migrationAttempts = 0;
+    let ownedDisposals = 0;
+    resources.own({
+        dispose() {
+            ownedDisposals += 1;
+        },
+    });
+    const startupController = makeStartupController(
+        async () => {
+            migrationAttempts += 1;
+            if (migrationAttempts === 2) {
+                migrationEntered.resolve();
+                await migrationGate.promise;
+            }
+            return {
+                projects: { migrated: true },
+                todos: { migrated: false },
+            };
+        },
+        effects,
+        {
+            assertActive: () => resources.assertActive(),
+            refreshDashboard: async () => effects.push('startup-refresh'),
+            publishOpenWorkspace: () => effects.push('startup-publish'),
+            showInformationMessage: () => effects.push('startup-information'),
+        }
+    );
+    const lifecycleController = new DashboardLifecycleController({
+        checkDataMigration: async openAfter => {
+            await startupController.checkDataMigration(openAfter);
+        },
+        assertActive: () => resources.assertActive(),
+        applyProjectColorToCurrentWindow: () => effects.push('lifecycle-color'),
+        refresh: reason => effects.push(['lifecycle-refresh', reason]),
+        publishOpenWorkspace: () => effects.push('lifecycle-publish'),
+        evaluateAiSessionAttention: () => undefined,
+        logError: (message, error) => effects.push(['error', message, error]),
+    });
+    const change = makeConfigurationEvent('agentPivot.storeProjectsInSettings');
+
+    resources.transferTo(contextSubscriptions);
+    await lifecycleController.handleConfigurationChanged(change);
+    assert.deepEqual(effects, [
+        'startup-refresh',
+        'startup-publish',
+        'startup-information',
+        'lifecycle-color',
+        ['lifecycle-refresh', 'configuration-changed'],
+        'lifecycle-publish',
+    ]);
+    effects.length = 0;
+
+    const onUnhandled = reason => unhandled.push(reason);
+    process.on('unhandledRejection', onUnhandled);
+    try {
+        lifecycleController.handleConfigurationChange(change);
+        await migrationEntered.promise;
+        for (const subscription of contextSubscriptions.slice().reverse()) {
+            subscription.dispose();
+        }
+        migrationGate.resolve();
+        await new Promise(resolve => setImmediate(resolve));
+        await new Promise(resolve => setImmediate(resolve));
+        lifecycleController.handleConfigurationChange(change);
+        await new Promise(resolve => setImmediate(resolve));
+    } finally {
+        process.removeListener('unhandledRejection', onUnhandled);
+    }
+
+    assert.equal(migrationAttempts, 2);
+    assert.equal(ownedDisposals, 1);
+    assert.deepEqual(effects, []);
+    assert.deepEqual(unhandled, []);
 });

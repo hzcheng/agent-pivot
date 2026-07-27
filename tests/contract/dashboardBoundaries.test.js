@@ -277,6 +277,22 @@ test('WEBVIEW-DASHBOARD-STARTUP-CONTROLLER-001 production startup uses the boots
     );
 });
 
+test('PERSIST-DASHBOARD-LIFECYCLE-CONTROLLER-001 production configuration listener owns async rejection handling', () => {
+    const dashboardSource = fs.readFileSync(
+        path.resolve(__dirname, '../../src/dashboard.ts'),
+        'utf8'
+    );
+
+    assert.match(
+        dashboardSource,
+        /onDidChangeConfiguration\(\s*event\s*=>\s*dashboardLifecycleController\.handleConfigurationChange\(event\)\s*\)/
+    );
+    assert.doesNotMatch(
+        dashboardSource,
+        /onDidChangeConfiguration\(async\s+event/
+    );
+});
+
 test('WEBVIEW-AI-DASHBOARD-001 refreshes external Prompt configuration incrementally and consumes local echoes', async () => {
     const events = [];
     let localEcho = true;

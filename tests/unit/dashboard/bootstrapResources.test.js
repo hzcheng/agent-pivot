@@ -47,9 +47,8 @@ test('transferTo moves dashboard bootstrap ownership exactly once', () => {
     const second = resources.own(trackedDisposable('second', releases));
 
     resources.transferTo(target);
-    resources.dispose();
 
-    assert.deepEqual(target, [first, second]);
+    assert.deepEqual(target.slice(0, 2), [first, second]);
     assert.deepEqual(releases, []);
     assert.throws(
         () => resources.transferTo([]),
@@ -58,11 +57,50 @@ test('transferTo moves dashboard bootstrap ownership exactly once', () => {
             message: 'Dashboard bootstrap resources have already been transferred.',
         }
     );
+    resources.dispose();
 
     for (const disposable of target) {
         disposable.dispose();
     }
     assert.deepEqual(releases, ['first', 'second']);
+});
+
+test('a transferred bootstrap generation remains live until its context is disposed', () => {
+    const releases = [];
+    const target = [];
+    const resources = new DashboardBootstrapResources();
+    resources.own(trackedDisposable('owned', releases));
+
+    assert.doesNotThrow(() => resources.assertActive());
+    resources.transferTo(target);
+    assert.doesNotThrow(() => resources.assertActive());
+
+    for (const operation of [
+        () => resources.own({ dispose() {} }),
+        () => resources.transferTo([]),
+    ]) {
+        assert.throws(
+            operation,
+            {
+                name: 'Error',
+                message: 'Dashboard bootstrap resources have already been transferred.',
+            }
+        );
+    }
+
+    for (const disposable of target.slice().reverse()) {
+        disposable.dispose();
+    }
+    resources.dispose();
+
+    assert.throws(
+        () => resources.assertActive(),
+        {
+            name: 'Error',
+            message: 'Dashboard bootstrap resources have already been disposed.',
+        }
+    );
+    assert.deepEqual(releases, ['owned']);
 });
 
 test('ownership and transfer after disposal throw a stable programmer error', () => {

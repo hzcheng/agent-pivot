@@ -85,6 +85,12 @@ test('SECURITY-AI-SESSION-CONVERSATION-SOURCE-001 complete production fixture sa
     validateArchitectureGuards(copyGuardFixture(t));
 });
 
+test('ARCH-AI-SESSION-FALLBACK-REASON-001 accepts an ownership-wrapped focused runtime monitor', t => {
+    validateArchitectureGuards(copyGuardFixture(t), {
+        ids: ['ARCH-AI-SESSION-FALLBACK-REASON-001'],
+    });
+});
+
 test('ARCH-AI-SESSION-SCAN-BOUNDARY-001 reports the ID and unbounded-scan risk', t => {
     const root = writeFixture(t, {});
     assert.throws(

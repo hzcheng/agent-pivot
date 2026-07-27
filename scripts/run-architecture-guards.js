@@ -266,13 +266,21 @@ function validateProtocolExpectations(root, id, risk) {
 
 function newExpressionOptionCallback(sourceFile, variableName, constructorName, optionName, id, risk) {
     const variable = findVariable(sourceFile, variableName, id, risk);
-    if (!variable.initializer || !ts.isNewExpression(variable.initializer)
-        || variable.initializer.expression.getText(sourceFile) !== constructorName
-        || variable.initializer.arguments?.length !== 1
-        || !ts.isObjectLiteralExpression(variable.initializer.arguments[0])) {
+    let constructor = variable.initializer;
+    if (constructor && ts.isCallExpression(constructor)
+        && constructor.expression.getText(sourceFile) === 'ownResource'
+        && constructor.arguments.length === 1
+        && ts.isArrowFunction(constructor.arguments[0])
+        && ts.isNewExpression(constructor.arguments[0].body)) {
+        constructor = constructor.arguments[0].body;
+    }
+    if (!constructor || !ts.isNewExpression(constructor)
+        || constructor.expression.getText(sourceFile) !== constructorName
+        || constructor.arguments?.length !== 1
+        || !ts.isObjectLiteralExpression(constructor.arguments[0])) {
         fail(id, risk, `${variableName} must be constructed with one options object`);
     }
-    const option = variable.initializer.arguments[0].properties.filter(property =>
+    const option = constructor.arguments[0].properties.filter(property =>
         ts.isPropertyAssignment(property) && property.name.getText(sourceFile) === optionName);
     if (option.length !== 1 || !ts.isPropertyAssignment(option[0]) || !ts.isArrowFunction(option[0].initializer)) {
         fail(id, risk, `${variableName}.${optionName} must exist exactly once as an arrow callback`);

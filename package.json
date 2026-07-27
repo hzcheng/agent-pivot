@@ -10,8 +10,7 @@
         "vscode": "^1.51.0"
     },
     "extensionKind": [
-        "workspace",
-        "ui"
+        "workspace"
     ],
     "extensionDependencies": [
         "hzcheng.agent-pivot-attention-ui-bridge"

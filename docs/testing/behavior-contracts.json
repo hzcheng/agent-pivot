@@ -2978,6 +2978,20 @@
     ]
   },
   {
+    "id": "ARCH-EXTENSION-HOST-PLACEMENT-001",
+    "domain": "architecture",
+    "title": "Session and filesystem ownership remains in the workspace extension host",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/tooling/extensionHostPlacement.test.js"
+    ],
+    "evidence": [
+      "package.json",
+      "extensions/attention-ui-bridge/package.json"
+    ]
+  },
+  {
     "id": "OPEN-OTHER-WINDOWS-PRIVACY-001",
     "domain": "open-project",
     "title": "OTHER WINDOWS cards expose only privacy-bounded workspace summaries",

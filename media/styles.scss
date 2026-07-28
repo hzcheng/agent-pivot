@@ -4228,8 +4228,14 @@ body.steward-sidebar {
 
     .skills-filter-row {
         display: flex;
+        flex-wrap: wrap;
+        align-items: center;
         gap: 4px;
         margin: 2px 0 8px 2px;
+
+        > button {
+            white-space: nowrap;
+        }
     }
 
     .skill-filter-hidden {
@@ -4500,6 +4506,31 @@ body.steward-sidebar {
         margin-left: auto;
         color: #4ec9b0;
         border-color: rgba(78, 201, 176, .4);
+    }
+
+    .skill-folder-add,
+    .skill-folder-remove {
+        flex: none;
+        width: 16px;
+        height: 16px;
+        padding: 0;
+        border: 0;
+        border-radius: 4px;
+        background: transparent;
+        color: var(--vscode-descriptionForeground);
+        cursor: pointer;
+        font-size: 12px;
+        line-height: 14px;
+        text-align: center;
+
+        &:hover {
+            background: var(--vscode-toolbar-hoverBackground, rgba(127, 127, 127, .2));
+            color: var(--vscode-foreground);
+        }
+    }
+
+    .skill-folder-remove:hover {
+        color: var(--vscode-errorForeground, #f48771);
     }
 
     .skill-source-group + .skill-source-group {
@@ -4953,6 +4984,14 @@ body.steward-sidebar .project .ai-session-attention-indicator {
 
 .ai-tablist {
     @extend .ai-subtabs;
+}
+
+body.steward-sidebar .ai-tablist {
+    position: sticky;
+    top: calc(var(--steward-sticky-header-height) + 4px);
+    z-index: 170;
+    padding-top: 2px;
+    background: var(--vscode-editor-background);
 }
 
 .ai-panel,

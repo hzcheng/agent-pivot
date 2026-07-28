@@ -1210,6 +1210,25 @@ function initDashboard(options) {
             });
             return;
         }
+        var newFolder = event.target && event.target.closest ? event.target.closest('[data-skill-new-folder]') : null;
+        if (newFolder) {
+            event.preventDefault();
+            event.stopPropagation();
+            options.postMessage({ type: 'create-skill-folder', scope: newFolder.getAttribute('data-skill-new-folder') });
+            return;
+        }
+        var removeFolder = event.target && event.target.closest ? event.target.closest('[data-skill-remove-folder]') : null;
+        if (removeFolder) {
+            event.preventDefault();
+            event.stopPropagation();
+            var removeNode = removeFolder.closest('[data-skill-store]');
+            options.postMessage({
+                type: 'remove-skill-folder',
+                storeRoot: removeNode ? removeNode.getAttribute('data-skill-store') : '',
+                folder: removeFolder.getAttribute('data-skill-remove-folder'),
+            });
+            return;
+        }
         var toggle = event.target && event.target.closest ? event.target.closest('[data-skill-toggle]') : null;
         if (toggle) {
             event.preventDefault();

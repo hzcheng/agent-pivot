@@ -1421,6 +1421,37 @@ async function initializeDashboard(
                     void vscode.window.showWarningMessage(`Could not move the skill: ${result.error}`);
                 }
             },
+            'create-skill-folder': async e => {
+                const folder = await vscode.window.showInputBox({
+                    prompt: 'New skill folder (use / for nesting, e.g. xiaohongshu/yunxiao)',
+                    placeHolder: 'folder or folder/subfolder',
+                });
+                if (!folder || !folder.trim()) {
+                    return;
+                }
+                const result = skillDashboardController.handleCreateFolder(
+                    e.scope === 'project' ? 'project' : 'user',
+                    folder.trim(),
+                );
+                if (!result.ok) {
+                    void vscode.window.showWarningMessage(`Could not create the folder: ${result.error}`);
+                }
+            },
+            'remove-skill-folder': async e => {
+                const folderName = String(e.folder || '');
+                const choice = await vscode.window.showWarningMessage(
+                    `Delete the folder "${folderName}"? Only empty folders can be deleted.`,
+                    { modal: true },
+                    'Delete',
+                );
+                if (choice !== 'Delete') {
+                    return;
+                }
+                const result = skillDashboardController.handleRemoveFolder(String(e.storeRoot || ''), folderName);
+                if (!result.ok) {
+                    void vscode.window.showWarningMessage(`Could not delete the folder: ${result.error}`);
+                }
+            },
             'centralize-skill': e => {
                 const result = skillDashboardController.handleCentralize(String(e.dirPath || ''));
                 if (!result.ok) {

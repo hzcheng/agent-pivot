@@ -3,11 +3,11 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { centralizeSkill, FolderLinkResult, moveSkillToFolder, setCentralLink, setFolderLinks } from './centralService';
+import { centralizeSkill, createSkillFolder, FolderLinkResult, moveSkillToFolder, removeSkillFolder, setCentralLink, setFolderLinks } from './centralService';
 import { migrateUserSkillsToCentral, SkillMigrationReport } from './migrateService';
 import { scanSkills } from './discovery';
 import { getCollectionSuggestions, KNOWN_SKILL_COLLECTIONS, SkillCollectionSuggestion } from './knownCollections';
-import { DISABLED_DIR_NAME, getKimiBrandCandidates, getProjectSkillsRoots, getUserSkillsRoots } from './roots';
+import { DISABLED_DIR_NAME, getCentralSkillsRoot, getKimiBrandCandidates, getProjectSkillsRoots, getUserSkillsRoots } from './roots';
 import { computeSkillCopyTargets, copySkillDir, SkillCopyTarget, syncSkillDir } from './syncService';
 import { disableSkill, enableSkill } from './toggleService';
 import { fixSkillDiagnostic } from './fixService';
@@ -90,13 +90,51 @@ export class SkillDashboardController {
         );
     }
 
+    getStoreRoots(): { user: string; project?: string } {
+        const workspaceRoot = this.options.getWorkspaceRoot();
+        return {
+            user: getCentralSkillsRoot(this.options.getHomeDir(), 'user'),
+            project: workspaceRoot ? getCentralSkillsRoot(this.options.getHomeDir(), 'project', workspaceRoot) : undefined,
+        };
+    }
+
     getPanelView(): SkillPanelView {
         return {
             hasWorkspace: Boolean(this.options.getWorkspaceRoot()),
             copyTargets: this.getCopyTargets(),
             conflicts: computeSkillLinkConflicts(this.records),
             suggestions: this.getCollectionSuggestions(),
+            storeRoots: this.getStoreRoots(),
         };
+    }
+
+    handleCreateFolder(scope: SkillScope, folder: string): { ok: boolean; error?: string } {
+        const workspaceRoot = this.options.getWorkspaceRoot();
+        const storeRoot = scope === 'project'
+            ? (workspaceRoot ? getCentralSkillsRoot(this.options.getHomeDir(), 'project', workspaceRoot) : null)
+            : getCentralSkillsRoot(this.options.getHomeDir(), 'user');
+        if (!storeRoot) {
+            return { ok: false, error: 'No workspace is open for project folders.' };
+        }
+        const result = createSkillFolder(storeRoot, folder);
+        if (!result.ok) {
+            this.options.logError('Failed to create the skill folder.', new Error(result.error || 'unknown error'));
+        }
+        this.refresh('create-skill-folder');
+        return result;
+    }
+
+    handleRemoveFolder(storeRoot: string, folder: string): { ok: boolean; error?: string } {
+        const known = Object.values(this.getStoreRoots()).filter(Boolean);
+        if (!known.includes(storeRoot)) {
+            return { ok: false, error: `Unknown skills store: ${storeRoot}` };
+        }
+        const result = removeSkillFolder(storeRoot, folder);
+        if (!result.ok) {
+            this.options.logError('Failed to delete the skill folder.', new Error(result.error || 'unknown error'));
+        }
+        this.refresh('remove-skill-folder');
+        return result;
     }
 
     handleSyncSkill(sourceDir: string, targetDir: string): { ok: boolean; error?: string } {

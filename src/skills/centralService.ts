@@ -271,3 +271,49 @@ export function moveSkillToFolder(
 }
 
 export type { SkillScope, SkillSourceDir };
+
+/**
+ * Create a folder inside a central store (nested paths allowed). Folders are
+ * plain directories; creating them on demand is how the panel's "+" works.
+ */
+export function createSkillFolder(storeRoot: string, targetFolder: string): CentralResult {
+    try {
+        const folder = sanitizeFolder(targetFolder);
+        if (folder === null || folder === '') {
+            return { ok: false, error: `Invalid folder: ${targetFolder}` };
+        }
+        const destination = path.join(storeRoot, folder);
+        if (fs.existsSync(destination)) {
+            return { ok: false, error: `Folder already exists: ${destination}` };
+        }
+        fs.mkdirSync(destination, { recursive: true });
+        return { ok: true, dirPath: destination };
+    } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+}
+
+/**
+ * Delete a folder inside a central store. Only empty folders (no skills
+ * anywhere in the subtree) can be deleted — skills must be moved out first,
+ * which keeps the operation non-destructive.
+ */
+export function removeSkillFolder(storeRoot: string, targetFolder: string): CentralResult {
+    try {
+        const folder = sanitizeFolder(targetFolder);
+        if (folder === null || folder === '') {
+            return { ok: false, error: `Invalid folder: ${targetFolder}` };
+        }
+        const destination = path.join(storeRoot, folder);
+        if (!fs.existsSync(destination) || !fs.statSync(destination).isDirectory()) {
+            return { ok: false, error: `Unknown folder: ${destination}` };
+        }
+        if (walkSkillDirs(destination, []).length) {
+            return { ok: false, error: 'Folder is not empty — move its skills out first.' };
+        }
+        fs.rmSync(destination, { recursive: true, force: true });
+        return { ok: true };
+    } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+}

@@ -543,6 +543,7 @@ runSkillMigrationChecks();
 runSkillFolderDiscoveryChecks();
 runSkillFolderServiceChecks();
 runSkillFolderControllerChecks();
+runSkillFolderMutationChecks();
 console.log('Skill management checks passed.');
 
 function runSkillFixChecks() {
@@ -1329,4 +1330,88 @@ function runSkillCollectionChecks() {
     assert.ok(html.includes('data-skill-apply-suggestion="superpowers"'));
     assert.ok(html.includes('data-skill-dismiss-suggestion="superpowers"'));
     assert.ok(!html.includes('data-skill-collection='), 'no virtual collection markup');
+}
+
+function runSkillFolderMutationChecks() {
+    const centralService = require('../out/skills/centralService');
+    const real = dirPath => fs.realpathSync(dirPath);
+    const home = real(fs.mkdtempSync(path.join(os.tmpdir(), 'skills-fmut-')));
+    const write = (filePath, content) => {
+        fs.mkdirSync(path.dirname(filePath), { recursive: true });
+        fs.writeFileSync(filePath, content);
+    };
+    const storeRoot = path.join(home, '.skills');
+
+    // createSkillFolder
+    write(path.join(storeRoot, 'pack/solo/SKILL.md'), '---\nname: solo\ndescription: S\n---\n');
+    const created = centralService.createSkillFolder(storeRoot, 'xiaohongshu/yunxiao');
+    assert.strictEqual(created.ok, true);
+    assert.ok(fs.statSync(path.join(storeRoot, 'xiaohongshu', 'yunxiao')).isDirectory(), 'nested folder created');
+    assert.strictEqual(centralService.createSkillFolder(storeRoot, 'xiaohongshu').ok, false, 'existing folder refused');
+    assert.strictEqual(centralService.createSkillFolder(storeRoot, '../escape').ok, false);
+    assert.strictEqual(centralService.createSkillFolder(storeRoot, '/abs').ok, false);
+    assert.strictEqual(centralService.createSkillFolder(storeRoot, 'a\\b').ok, false);
+    assert.strictEqual(centralService.createSkillFolder(storeRoot, '  ').ok, false, 'blank name refused');
+
+    // removeSkillFolder
+    assert.strictEqual(centralService.removeSkillFolder(storeRoot, 'pack').ok, false, 'folder with skills refused');
+    assert.ok(fs.existsSync(path.join(storeRoot, 'pack', 'solo', 'SKILL.md')), 'skills untouched by refusal');
+    assert.strictEqual(centralService.removeSkillFolder(storeRoot, 'missing').ok, false, 'unknown folder refused');
+    const removed = centralService.removeSkillFolder(storeRoot, 'xiaohongshu/yunxiao');
+    assert.strictEqual(removed.ok, true, 'empty leaf folder deleted');
+    assert.ok(!fs.existsSync(path.join(storeRoot, 'xiaohongshu', 'yunxiao')));
+    assert.ok(fs.existsSync(path.join(storeRoot, 'xiaohongshu')), 'parent folder kept');
+    assert.strictEqual(centralService.removeSkillFolder(storeRoot, 'xiaohongshu').ok, true, 'now-empty parent deleted');
+
+    // controller: create/remove with containment
+    const controller = new SkillDashboardController({
+        getHomeDir: () => home,
+        getWorkspaceRoot: () => undefined,
+        postMessage: () => Promise.resolve(true),
+        isVisible: () => true,
+        logError: () => undefined,
+    });
+    controller.start();
+    assert.deepStrictEqual(controller.getStoreRoots(), { user: storeRoot, project: undefined });
+    assert.strictEqual(controller.handleCreateFolder('user', 'newpack').ok, true);
+    assert.ok(fs.statSync(path.join(storeRoot, 'newpack')).isDirectory());
+    assert.strictEqual(controller.handleCreateFolder('project', 'p').ok, false, 'no workspace → clean refusal');
+    assert.strictEqual(controller.handleRemoveFolder('/etc', 'newpack').ok, false, 'unknown store refused');
+    assert.strictEqual(controller.handleRemoveFolder(storeRoot, 'newpack').ok, true);
+    assert.ok(!fs.existsSync(path.join(storeRoot, 'newpack')));
+    controller.dispose();
+
+    // rendering: section "+" and folder "×" actions + store roots from the view
+    const tree = skillContent.getSkillsPanelContent([
+        makeRecord({
+            name: 'alpha', source: 'central', dirPath: '/home/dev/.skills/pack/alpha',
+            skillFilePath: '/home/dev/.skills/pack/alpha/SKILL.md', folder: 'pack',
+            central: { dirPath: '/home/dev/.skills/pack/alpha', links: {} },
+        }),
+    ], { hasWorkspace: true, storeRoots: { user: '/home/dev/.skills', project: '/work/app/.skills' } });
+    assert.ok(tree.includes('data-skill-new-folder="user"'), 'global section has a folder-create action');
+    assert.ok(tree.includes('data-skill-remove-folder="pack"'), 'folder header has a delete action');
+    const noViewRoots = skillContent.getSkillsPanelContent([makeRecord({
+        name: 'beta', source: 'central', dirPath: '/home/dev/.skills/pack/beta',
+        skillFilePath: '/home/dev/.skills/pack/beta/SKILL.md', folder: 'pack',
+        central: { dirPath: '/home/dev/.skills/pack/beta', links: {} },
+    })], { hasWorkspace: true });
+    assert.ok(noViewRoots.includes('data-skill-new-folder="user"'), 'store root derived from records when view omits it');
+
+    // wiring
+    const script = fs.readFileSync(path.join(__dirname, '..', 'media', 'webviewDashboardScripts.js'), 'utf8');
+    assert.ok(script.includes("'create-skill-folder'"), 'create folder wiring present');
+    assert.ok(script.includes("'remove-skill-folder'"), 'remove folder wiring present');
+    assert.ok(script.includes('data-skill-new-folder'));
+    assert.ok(script.includes('data-skill-remove-folder'));
+    const dashboard = fs.readFileSync(path.join(__dirname, '..', 'src', 'dashboard.ts'), 'utf8');
+    assert.ok(dashboard.includes("'create-skill-folder'"));
+    assert.ok(dashboard.includes("'remove-skill-folder'"));
+    assert.ok(dashboard.includes('showInputBox'), 'folder name prompted host-side');
+    const styles = fs.readFileSync(path.join(__dirname, '..', 'media', 'styles.scss'), 'utf8');
+    const compiledCss = fs.readFileSync(path.join(__dirname, '..', 'media', 'styles.css'), 'utf8');
+    assert.ok(styles.includes('.skill-folder-add'));
+    assert.ok(styles.includes('.skill-folder-remove'));
+    assert.ok(compiledCss.includes('.skill-folder-add'));
+    assert.ok(compiledCss.includes('body.steward-sidebar .ai-tablist'), 'AI tab row sticks below the main header');
 }

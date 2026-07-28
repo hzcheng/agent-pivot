@@ -23,6 +23,8 @@ export interface SkillPanelView {
     conflicts?: Set<string>;
     /** Known-collection "create folder" suggestions (controller computes). */
     suggestions?: SkillCollectionSuggestion[];
+    /** Central store roots per scope (controller computes); used by the section "+" actions. */
+    storeRoots?: { user: string; project?: string };
 }
 import { sanitizeProjectName } from '../models';
 import { escapeAttribute } from './webviewContent';
@@ -333,6 +335,7 @@ function renderFolderNode(
         </span>
         <span class="group-title-badge">${count}</span>
         <button type="button" class="skill-ios-toggle${folderToggleClass(state)}" title="${escapeAttribute(title)}" data-folder-toggle="${pathAttr}" data-folder-scope="${folderScope}"></button>
+        <button type="button" class="skill-folder-remove" title="Delete empty folder" data-skill-remove-folder="${pathAttr}">×</button>
     </div>
     <div class="group-list skill-folder-list">
         ${children.map(child => renderFolderNode(child, storeRoot, sectionScope, folderScope, view)).join('\n')}
@@ -345,7 +348,8 @@ function renderScopeSection(scope: SkillScope, items: SkillRecord[], view: Skill
     const central = items.filter(record => record.central);
     const unmanaged = items.filter(record => !record.central);
     const tree = buildFolderTree(central);
-    const storeRoot = central.length ? getCentralStoreRoot(central[0]) : '';
+    const viewStoreRoot = scope === 'user' ? view.storeRoots?.user : view.storeRoots?.project;
+    const storeRoot = viewStoreRoot || (central.length ? getCentralStoreRoot(central[0]) : '');
     const viewScope = getViewScope(view);
     // Folder toggles in the global section act at the selected scope; project-section
     // folders are inherently project scope and ignore the selector.
@@ -370,6 +374,7 @@ function renderScopeSection(scope: SkillScope, items: SkillRecord[], view: Skill
             <span class="skill-collection-icon" aria-hidden="true">${folderIcon}</span>${scope === 'user' ? 'global' : 'project'}
         </span>
         <span class="group-title-badge">${items.length}</span>
+        ${storeRoot ? `<button type="button" class="skill-folder-add" title="New folder" data-skill-new-folder="${scope}">+</button>` : ''}
     </div>
     <div class="group-list">
         <div class="drop-signal"></div>

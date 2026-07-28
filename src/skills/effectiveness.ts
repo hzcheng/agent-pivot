@@ -103,7 +103,7 @@ export function applySkillEffectiveness(records: SkillRecord[], input: Effective
     const projectWinnerDir = input.workspaceRoot
         ? (getKimiBrandCandidates(getProjectSkillsRoots(input.workspaceRoot)).find(root => dirExists(root.dirPath))?.dirPath || null)
         : null;
-    for (const record of cloned.filter(candidate => candidate.central && candidate.scope !== 'project' && candidate.central.links.project)) {
+    for (const record of cloned.filter(candidate => candidate.enabled && candidate.central && candidate.scope !== 'project' && candidate.central.links.project)) {
         const projectVisibility = { kimi: 'absent', claude: 'absent', codex: 'absent' } as Record<SkillAgentId, SkillVisibility>;
         const projectShadowedBy: Partial<Record<SkillAgentId, string>> = {};
         applyCentralScope(record, record.central?.links.project || {}, projectWinnerDir, projectVisibility, projectShadowedBy);

@@ -1037,6 +1037,10 @@ function runSkillFolderDiscoveryChecks() {
     // the symlink into <ws>/.claude/skills requires that directory to exist first
     fs.mkdirSync(path.join(ws, '.claude/skills'), { recursive: true });
     fs.symlinkSync(path.join(home, '.skills/solo'), path.join(ws, '.claude/skills/solo'), 'dir');
+    // alpha also linked into a project root that is NOT the project brand winner
+    // (<ws>/.kimi/skills is the winner): its user-active link must inherit into
+    // the project scope and clear the project shadowing.
+    fs.symlinkSync(path.join(home, '.skills/superpowers/alpha'), path.join(ws, '.codex/skills/alpha'), 'dir');
     const scoped = discovery.scanSkills({ homeDir: home, workspaceRoot: ws });
     const soloScoped = scoped.find(record => record.name === 'solo');
     assert.deepStrictEqual(soloScoped.visibility, { kimi: 'absent', claude: 'absent', codex: 'absent' },
@@ -1047,12 +1051,44 @@ function runSkillFolderDiscoveryChecks() {
     assert.strictEqual(soloScoped.projectShadowedBy.kimi, path.join(ws, '.kimi', 'skills'));
     const alphaScoped = scoped.find(record => record.name === 'alpha');
     assert.strictEqual(alphaScoped.visibility.kimi, 'active', 'user link under user winner');
+    assert.strictEqual(alphaScoped.projectVisibility.kimi, 'active', 'user-active inherits into project scope');
+    assert.strictEqual(alphaScoped.projectShadowedBy.kimi, undefined, 'inheritance clears project shadowing');
 
     // symlinked skill inside the store is followed and deduped by realpath
     fs.symlinkSync(path.join(home, '.skills/solo'), path.join(home, '.skills/alias-solo'), 'dir');
     const withAlias = discovery.scanSkills({ homeDir: home, workspaceRoot: ws });
     assert.strictEqual(withAlias.filter(record => record.dirPath === path.join(home, '.skills', 'solo')).length, 1,
         'store-internal alias symlink does not duplicate the record');
+
+    // Parked (disabled) central records are excluded from effectiveness entirely.
+    // A `.disabled` dir inside the central store is skipped by the dot-prefix rule
+    // in scanCentralStore, so discovery can never produce a disabled central record
+    // from the filesystem; build the record by hand and run effectiveness directly.
+    const parkedDir = path.join(home, '.skills', '.disabled', 'parked-central');
+    const parkedCentral = {
+        name: 'parked-central',
+        description: 'P',
+        dirPath: parkedDir,
+        skillFilePath: path.join(parkedDir, 'SKILL.md'),
+        scope: 'user',
+        source: 'central',
+        enabled: false,
+        folder: '',
+        central: {
+            dirPath: parkedDir,
+            links: { project: { codex: path.join(ws, '.codex', 'skills', 'parked-central') } },
+        },
+        visibility: { kimi: 'absent', claude: 'absent', codex: 'absent' },
+        shadowedBy: {},
+        diagnostics: [],
+    };
+    const parkedResult = effectiveness.applySkillEffectiveness([parkedCentral], { homeDir: home, workspaceRoot: ws });
+    assert.deepStrictEqual(parkedResult[0].visibility, { kimi: 'absent', claude: 'absent', codex: 'absent' },
+        'parked record stays all-absent at user scope');
+    assert.strictEqual(parkedResult[0].projectVisibility, undefined,
+        'parked central record is excluded from project effectiveness');
+    assert.strictEqual(parkedResult[0].projectShadowedBy, undefined,
+        'parked central record gets no project shadowing');
 }
 
 function runSkillMigrationChecks() {

@@ -1,362 +1,100 @@
-# Task 7 Report: Safe Reusable AI Conversation Viewer
+# Task 7 Report: Skill card styles
 
 ## Status
 
-DONE
+DONE_WITH_CONCERNS — implementation complete and verified to the extent the worktree allows; the `media/styles.css` regeneration is blocked by the anticipated missing-worktree-`node_modules` environment issue (exact error below). Per instructions, no `npm install` was run and no workaround was applied inside the worktree.
 
-- Base: `a2bc701ae8b5cb39515ad0fe89059d9f6f3fe384`
-- Branch: `docs/active-session-conversation-outline-design`
-- Feature commit: `d73886e feat: add safe AI conversation viewer`
-- Root-review fix: `92eb3f5 fix: harden conversation viewer refresh recovery`
-- Final scoped review verdict: `READY`
-- No push was performed.
-
-## Files
-
-- Created `src/aiSessions/conversation/markdown.ts`
-- Created `src/aiSessions/conversation/viewer.ts`
-- Created `src/webview/conversationViewerScripts.js`
-- Created `media/conversationViewer.scss`
-- Generated `media/conversationViewer.css`
-- Generated `media/conversationViewerScripts.js`
-- Packaged `media/purify.min.js`
-- Created `tests/unit/aiSessions/conversationMarkdown.test.js`
-- Created `tests/integration/dashboard/conversationViewer.test.js`
-- Created `tests/browser/conversationViewer.test.js`
-- Modified `gulpfile.js`
-- Modified `.vscodeignore`
-- Created `.superpowers/sdd/task-7-report.md`
-
-## TDD RED Evidence
-
-The three required test files were created before their production modules.
-
-```bash
-node --test tests/unit/aiSessions/conversationMarkdown.test.js
-```
-
-Exited `1` because
-`out/aiSessions/conversation/markdown` did not exist.
-
-```bash
-node --test tests/integration/dashboard/conversationViewer.test.js
-```
-
-Exited `1` because
-`out/aiSessions/conversation/viewer` did not exist.
-
-```bash
-node --test --test-concurrency=1 \
-  tests/browser/conversationViewer.test.js
-```
-
-Exited `1` with `ENOENT` because
-`src/webview/conversationViewerScripts.js` did not exist.
-
-The first TypeScript compilation after adding the Markdown implementation also
-failed because the extension TypeScript library does not expose the browser
-`URL` global. Importing Node's `URL` explicitly fixed the build without
-weakening protocol validation.
-
-Focused tests added during implementation and review were observed RED before
-their corresponding production changes:
-
-- latest navigation read only one bounded page instead of following the
-  authoritative outline to its final interaction;
-- local navigation retained the original selected item instead of updating
-  selection and global position metadata;
-- snapshot eviction retained the wrong anchor;
-- page-local counts were rendered as global counts;
-- repeated refreshes replaced the earliest unread marker;
-- DOMPurify retained attributes beyond the exact allowlist;
-- Webview asset URIs bypassed `asWebviewUri`;
-- browser publications did not reject every stale request/subscription tuple;
-- a missing initial target silently fell through to the latest item, with the
-  RED assertion observing one page read instead of zero;
-- a viewer that had been at latest retained the old final interaction after an
-  authoritative append;
-- a refresh that won the initial-load race was incorrectly treated as a live
-  append and exposed a false pending indicator.
+NOTE: this report file already existed with stale content from an unrelated task ("Safe Reusable AI Conversation Viewer", different branch). It was overwritten as instructed.
 
 ## Implementation
 
-- `renderConversationMarkdown` uses one `markdown-it` instance with raw HTML,
-  linkification, and forced line breaks disabled. Only exact `https:` links
-  receive an `href`.
-- `ConversationViewer` owns one reusable standalone panel, one active
-  provider/session generation, one watch, and bounded snapshots.
-- Outline and page reads are correlated by generation, monotonically newer
-  request IDs, provider, session, and public revision. Late publications
-  cannot replace newer state.
-- Navigation follows authoritative outline order. It navigates within a loaded
-  page without reading, uses cursors across page boundaries, and reads around
-  the authoritative final interaction for Latest.
-- Refresh preserves a historical selection, follows a newly appended final
-  interaction only when the prior selection was latest, and fails closed if an
-  initial target is no longer authoritative.
-- Snapshots are bounded to 100 interactions and 4 MiB while retaining the
-  selected anchor and a reload cursor toward evicted content.
-- Watch failures retain stale content and expose a bounded error state; a
-  successful later refresh clears it.
-- The standalone panel uses a nonce-only script CSP, limits local roots to the
-  media directory, converts every asset with `asWebviewUri`, and revalidates
-  exact HTTPS URLs in the Host before opening them.
-- The browser sanitizes with DOMPurify's exact tag/attribute policy, disables
-  data and ARIA attribute expansion, and removes every non-HTTPS `href` in an
-  `afterSanitizeAttributes` hook.
-- The browser preserves historical scroll, auto-follows only within the
-  Host-provided 8 px threshold, retains the earliest unread response across
-  consecutive appends, anchors and highlights the selected interaction, and
-  restores keyboard focus for explicit navigation.
-- Disposal aborts active reads, disposes the watch, clears retained snapshots,
-  and invokes the injected focus fallback.
+### Step 1 — failing test (done)
 
-## Contract Clarification
+Appended `runSkillStyleChecks` verbatim from the brief to `scripts/run-skill-management-checks.js` and added the `runSkillStyleChecks();` call in main immediately before `console.log('Skill management checks passed.');`. The script now has 7 check functions; the new one asserts the 5 SCSS-source selectors, 2 compiled-CSS selectors, and the absence of `color-mix(`.
 
-The brief says navigation is authoritative but its displayed
-`ConversationViewerOptions` omitted the only way to obtain a
-`ConversationOutline`. The implemented options therefore add:
+### Step 2 — RED evidence (done)
 
-```ts
-readOutline(
-    provider: AiSessionProviderId,
-    sessionId: string,
-    signal: ConversationAbortSignal
-): Promise<ConversationOutline>;
+`npx gulp buildStyles && node scripts/run-skill-management-checks.js` before implementing:
+
+- gulp itself also failed (same dragula error as below), so `media/styles.css` was never regenerated.
+- The check script failed with `AssertionError [ERR_ASSERTION]` on the first new style assertion (`assert.ok(styles.includes('.skill-card'))`), confirming the new assertions fail on missing selectors.
+
+### Step 3 — implementation (done)
+
+Appended the brief's SCSS block **exactly as shown** (including the deliberately fully-qualified `body.steward-sidebar .skill-card .project-description` rule) at the end of the existing `body.steward-sidebar { … }` block in `media/styles.scss`:
+
+- Verified block structure first: the block spans lines 2031–4072; the new rules were inserted after the final `.project` rules (after `&.import-data { … }` closes at line 4070) and before the block's closing `}` — confirmed by post-edit inspection (rules at ~lines 4071–4234, block close, then the `attention-animate` rule intact).
+- Used 4-space base indentation to match file style; all selectors, properties, and values transcribed 1:1 from the brief (spot-checked distinctive values: `rgba(55, 148, 255, .14)`, `#d97757`, `line-through`, `9.5px`, `width: 74px`, `#3c3c3c`, `inset 0 0 0 1px #555`, `-webkit-line-clamp: 2`, `button.primary` — all present).
+- No `color-mix(` introduced (0 occurrences in both `media/styles.scss` and `media/styles.css`).
+
+### Step 4 — GREEN (blocked by environment)
+
+Both sanctioned build invocations fail identically (exit 1), cwd = the worktree:
+
+```
+$ npx gulp buildStyles
+[08:27:12] Using gulpfile ~/projects/repos/vscode-dashboard/.worktrees/feat-ai-skill-management/gulpfile.js
+[08:27:12] Starting 'buildStyles'...
+[08:27:12] 'buildStyles' errored after 361 ms
+[08:27:12] Error: Ignoring local @import of "../node_modules/dragula/dist/dragula.min.css" as resource is missing.
+
+$ node /home/hzcheng/projects/repos/vscode-dashboard/node_modules/gulp/bin/gulp.js buildStyles
+(same error, exit 1)
 ```
 
-Production construction must bind this function directly to the coordinator.
-That binding remains Task 10 work; Task 7 does not wire the viewer into the
-Dashboard.
+Root cause: `media/styles.scss` line 2 has the **relative** import `@import "../node_modules/dragula/dist/dragula.min.css";` and the worktree has no `node_modules` (npx resolves gulp from the parent repo fine — gulp resolution is not the problem; the SCSS import target is missing on disk).
 
-The brief also asks one six-page fixture to exceed both 100 interactions and
-4 MiB while each valid page is limited to 512 KiB. Six valid pages can contain
-at most 3 MiB, so those bounds cannot be crossed simultaneously. Tests preserve
-the intended coverage with two valid cases:
+Check-script status after implementation:
 
-- six 20-interaction pages exceed the 100-interaction bound;
-- ten individually valid pages exceed the 4 MiB aggregate bound.
-
-## Review
-
-The first read-only review found one Critical and five Important issues:
-authoritative navigation/selection, global counts, pending-response retention,
-exact DOMPurify attributes, Webview media URI conversion, and browser
-publication correlation. Each received a focused failing regression before its
-fix.
-
-The next scoped pass confirmed those findings resolved and found three
-Important race/authority issues: missing initial targets, latest-following
-refresh, and refresh winning initial load. Each was reproduced RED and fixed.
-
-The final tightly scoped re-review reported `READY` and no remaining proven
-Critical or Important defects. The reviewer did not modify the worktree.
-
-## Final GREEN Evidence
-
-The exact Task 7 verification command was run after the final fixes:
-
-```bash
-npm run test-compile \
-  && npx gulp --production \
-  && node --test tests/unit/aiSessions/conversationMarkdown.test.js \
-  && node --test tests/integration/dashboard/conversationViewer.test.js \
-  && node --test --test-concurrency=1 \
-    tests/browser/conversationViewer.test.js \
-  && cmp src/webview/conversationViewerScripts.js \
-    media/conversationViewerScripts.js \
-  && cmp node_modules/dompurify/dist/purify.min.js media/purify.min.js \
-  && git diff --check
+```
+AssertionError [ERR_ASSERTION] at runSkillStyleChecks
+  (scripts/run-skill-management-checks.js:249)
+  assert.ok(compiled.includes('.skill-toggle'))
 ```
 
-Output: exit `0`; TypeScript compiled, production assets built, Markdown tests
-reported `2/2`, viewer integration tests `10/10`, browser viewer tests `7/7`,
-both packaged assets matched their sources, and the diff check was clean.
+i.e. all 6 prior check groups and all 5 new SCSS-source assertions **pass**; only the 2 compiled-CSS assertions fail because `media/styles.css` could not be regenerated (file untouched — confirmed via `git status`).
 
-Relevant conversation and browser regressions:
+## Compile verification (read-only, outside the worktree)
 
-```bash
-node --test \
-  tests/unit/aiSessions/conversation*.test.js \
-  tests/contract/aiSessions/conversation*.test.js \
-  tests/integration/dashboard/conversation*.test.js
+To prove the SCSS is valid and complete despite the blocked build, the worktree's `media/*.scss` was copied to a throwaway `/tmp` dir where `node_modules/dragula` was symlinked from the parent repo, and rendered with the parent repo's `sass`:
 
-node --test --test-concurrency=1 tests/browser/*.test.js
+```
+sass compile OK, css length: 116510
+PASS compiled contains .skill-card
+PASS compiled contains body.steward-sidebar .skill-card
+PASS compiled contains .skill-toggle
+PASS compiled contains .skill-chip
+PASS compiled contains .skill-detail
+PASS compiled contains .skills-empty
+PASS compiled contains .skill-parked-note
+PASS compiled contains .skill-card-disabled
+PASS compiled contains .skill-chip-row
+PASS compiled contains .skill-detail-actions
+PASS no color-mix in compiled
 ```
 
-Output: exit `0`; conversation tests reported `69/69`, and the complete browser
-suite reported `44/44`.
+Temp dir deleted afterwards. Nothing was installed; the worktree was not modified by this verification.
 
-The repository deterministic suite was also run during final hardening:
+## Files changed (worktree only, no git mutations)
 
-```bash
-npm run test:deterministic:run
-```
+- `media/styles.scss` — +164 lines: skill-card/toggle/chip/detail/parked-note/empty styles appended at end of the `body.steward-sidebar` block.
+- `scripts/run-skill-management-checks.js` — appended `runSkillStyleChecks()` + call in main.
+- `media/styles.css` — intentionally **unchanged** (build blocked; see concerns).
 
-Output: exit `0`; its unit phase reported `455/455`, integration phase
-`171/171`, and the contract phase completed without failure.
+`git status` confirms no index changes by this task; `media/styles.css` shows no modification.
 
-Task-owned TypeScript lint:
+## Which gulp invocation worked
 
-```bash
-npx tslint -c tslint.json \
-  src/aiSessions/conversation/viewer.ts \
-  src/aiSessions/conversation/markdown.ts \
-  --format stylish
-```
+Neither — both fail with the identical dragula import error above. `npx gulp` successfully resolves gulp from the parent repo (no local node_modules needed for the CLI); the failure is inside the sass compile step.
 
-Output: exit `0`, no warnings.
+## Self-review findings
 
-`npm run lint:ci` still exits `1` only for the pre-existing
-`src/aiSessions/conversation/codexAppServerClient.ts` semicolon baseline
-(`0=5`). `git diff --exit-code a2bc701 --` for that file exits `0`, proving
-Task 7 did not modify it.
+- Rules placed exactly as the brief shows, inside the `body.steward-sidebar` block end; the fully-qualified `body.steward-sidebar .skill-card .project-description` rule is preserved verbatim (deliberate per brief). Compiled output will contain both `body.steward-sidebar .skill-card …` selectors and the doubled `body.steward-sidebar body.steward-sidebar .skill-card .project-description` — harmless and expected.
+- No `color-mix(` anywhere; all required literal strings present in the SCSS source.
+- Check script edit is verbatim from the brief, called before the final `console.log`.
+- No git mutations, no npm install, no files touched outside the two sanctioned paths (+ this report).
 
-## Concerns
+## Concerns / recommended follow-up
 
-No Task 7 implementation concern remains. Dashboard construction and
-registration are intentionally deferred to Task 10, as required by the brief.
-
-## Root Review Follow-up
-
-An independent root review after the initial Task 7 commits found four
-Important defects. All four were reproduced with tests before production
-changes:
-
-1. Hidden or non-live Webviews could lose a publication because the boolean
-   result of `postMessage` was ignored and no panel view-state replay existed.
-2. `staleRevision` from a page read was treated as a generic failure instead
-   of performing one bounded authoritative outline/page retry.
-3. A live tail refresh replaced the retained 20-interaction window, dropping
-   the oldest visible interaction. The original browser fixture bypassed this
-   Host behavior by sending 21 interactions directly.
-4. A partial 2,000-interaction tail used its local selected index rather than
-   the authoritative global position.
-
-### Follow-up RED Evidence
-
-After adding the first six Host regressions:
-
-```bash
-npm run test-compile \
-  && node --test tests/integration/dashboard/conversationViewer.test.js
-```
-
-Compilation passed. The integration run exited `1`, reporting `10` pass and
-`6` expected failures:
-
-- view-state listener count was `0`, expected `1`;
-- initial, navigation, and persistent-stale cases each read one outline rather
-  than the expected two;
-- refresh publication omitted `input-1`;
-- the final partial-tail position was `2,000`, expected `2,001`.
-
-The real Host-to-browser regression was then run:
-
-```bash
-node --test --test-concurrency=1 \
-  tests/browser/conversationViewer.test.js
-```
-
-It exited `1`, reporting `7` pass and `1` expected failure: after the Host
-refreshed a 20-item tail to interactions 2–21, the DOM contained zero copies of
-`host-input-1`, expected one.
-
-The final product ruling required exact-ID fail-closed behavior rather than
-nearest-index fallback when an interaction disappears during the retry race.
-Two more tests were added and observed RED:
-
-```bash
-node --test tests/integration/dashboard/conversationViewer.test.js
-```
-
-It exited `1`, reporting `16` pass and `2` expected failures:
-
-- initial `r1[input-1]` → stale page → `r2[input-2]` performed two page reads,
-  expected one and unavailable state;
-- an established `input-1` selection removed by refresh performed a second
-  page read, expected retention of the old stale snapshot.
-
-### Follow-up Fixes
-
-- The Host retains only the latest current-generation/current-request
-  publication. A failed delivery immediately rebuilds a bootstrap document,
-  and a hidden-to-visible transition rebuilds the latest bootstrap again.
-  The view-state listener is disposed with the panel.
-- Only exact `ConversationError('staleRevision')` triggers recovery. The same
-  generation/request may read one fresh outline and perform one cursor-free
-  authoritative `around` page read. A second stale error is not retried.
-- Initial targets, established selections, and requested navigation targets
-  must remain present by exact interaction ID. Missing initial IDs render
-  unavailable without another page read; missing established IDs retain and
-  publish the previous snapshot as stale.
-- Refresh reconstructs retained data in authoritative outline order, keeps
-  only loaded IDs still present in the outline, replaces refreshed messages by
-  interaction ID, reconstructs exact public message/state fields, drops old
-  revision cursors, and then applies the existing 100-interaction/4 MiB
-  eviction.
-- Partial-tail positions add the omitted authoritative prefix
-  (`totalInteractions - interactions.length`) to the local selected index.
-  The display denominator remains bounded as `2,000+`.
-- The browser boundary test now obtains its initial and refresh publications
-  from the real compiled `ConversationViewer`, then verifies retained history,
-  a stable 9 px historical scroll with pending content, and 8 px auto-follow.
-
-The follow-up implementation and tests were committed as:
-
-```text
-92eb3f5 fix: harden conversation viewer refresh recovery
-```
-
-### Follow-up GREEN Evidence
-
-The exact focused command was rerun after the final exact-ID change:
-
-```bash
-npm run test-compile \
-  && npx gulp --production \
-  && node --test tests/unit/aiSessions/conversationMarkdown.test.js \
-  && node --test tests/integration/dashboard/conversationViewer.test.js \
-  && node --test --test-concurrency=1 \
-    tests/browser/conversationViewer.test.js \
-  && cmp src/webview/conversationViewerScripts.js \
-    media/conversationViewerScripts.js \
-  && cmp node_modules/dompurify/dist/purify.min.js media/purify.min.js \
-  && git diff --check
-```
-
-Output: exit `0`; compilation and production asset build passed, Markdown
-reported `2/2`, Host viewer integration `18/18`, browser viewer `8/8`, both
-asset comparisons matched, and the diff check was clean.
-
-Fresh full relevant regression:
-
-```bash
-node --test \
-  tests/unit/aiSessions/conversation*.test.js \
-  tests/contract/aiSessions/conversation*.test.js \
-  tests/integration/dashboard/conversation*.test.js
-
-node --test --test-concurrency=1 tests/browser/*.test.js
-```
-
-Output: exit `0`; conversation tests reported `77/77`, and the complete browser
-suite reported `45/45`.
-
-Fresh architecture and Dashboard checks:
-
-```bash
-npm run test:architecture-guards
-npm run test:dashboard:run
-```
-
-Both exited `0`.
-
-Task-owned TypeScript lint and `git diff --check` exited `0`. Repository lint
-remains classified exactly as before: its only failure is the unchanged
-`codexAppServerClient.ts` semicolon baseline (`0=5`).
-
-The final tightly scoped read-only review returned `READY`: exact-ID initial
-failure, established-selection stale retention, and one bounded retry for
-present IDs were all confirmed. No proven Critical or Important finding
-remains.
+1. **Primary concern:** `media/styles.css` is NOT regenerated, so the check script cannot fully pass in this worktree. Once `node_modules/dragula` is resolvable from the worktree (e.g., run `npx gulp buildStyles` in a checkout that has node_modules, or create `node_modules/dragula` symlink — NOT done here per instructions), re-run `npx gulp buildStyles && node scripts/run-skill-management-checks.js`; expected result: `Skill management checks passed.` The temp-dir render above confirms all required compiled selectors will be produced.
+2. The stale pre-existing `task-7-report.md` (unrelated feature) was overwritten per the task instruction; flag if it was meant to be preserved.

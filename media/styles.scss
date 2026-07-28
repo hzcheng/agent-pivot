@@ -4309,6 +4309,91 @@ body.steward-sidebar {
         font-size: 10px;
     }
 
+    .skill-fix {
+        margin-left: 6px;
+        padding: 1px 8px;
+        border: 0;
+        border-radius: 4px;
+        background: var(--vscode-button-secondaryBackground);
+        color: var(--vscode-button-secondaryForeground);
+        cursor: pointer;
+        font-size: 9px;
+    }
+
+    .skill-suggestion {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin: 0 0 8px 2px;
+        padding: 5px 8px;
+        border: 1px solid rgba(201, 166, 242, .35);
+        border-radius: 8px;
+        background: rgba(180, 130, 255, .08);
+        font-size: 10px;
+    }
+
+    .skill-suggestion-text {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .skill-suggestion-apply {
+        flex: none;
+        padding: 2px 9px;
+        border: 0;
+        border-radius: 4px;
+        background: var(--vscode-button-background);
+        color: var(--vscode-button-foreground);
+        cursor: pointer;
+        font-size: 9px;
+    }
+
+    .skill-suggestion-dismiss {
+        flex: none;
+        padding: 0 3px;
+        border: 0;
+        background: transparent;
+        color: var(--vscode-descriptionForeground);
+        cursor: pointer;
+        font-size: 11px;
+    }
+
+    .skill-copy-row {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        margin-top: 5px;
+        color: var(--vscode-descriptionForeground);
+        font-size: 9px;
+    }
+
+    .skill-copy {
+        padding: 1px 7px;
+        border: 1px solid rgba(110, 110, 110, .35);
+        border-radius: 999px;
+        background: transparent;
+        color: var(--vscode-descriptionForeground);
+        cursor: pointer;
+        font-size: 9px;
+
+        &:hover {
+            border-color: var(--vscode-focusBorder, #007fd4);
+            color: var(--vscode-foreground);
+        }
+    }
+
+    .skill-sync {
+        flex: none;
+        margin-left: 6px;
+        padding: 1px 8px;
+        border: 0;
+        border-radius: 4px;
+        background: var(--vscode-button-secondaryBackground);
+        color: var(--vscode-button-secondaryForeground);
+        cursor: pointer;
+        font-size: 9px;
+    }
+
     .skill-expand-hint {
         display: inline-flex;
         margin-left: auto;

@@ -20,6 +20,7 @@ export interface SkillRecord {
     scope: SkillScope;
     source: SkillSourceDir;
     enabled: boolean;
+    contentHash?: string;
     visibility: Record<SkillAgentId, SkillVisibility>;
     shadowedBy: Partial<Record<SkillAgentId, string>>;
     diagnostics: SkillDiagnostic[];

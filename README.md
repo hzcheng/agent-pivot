@@ -51,7 +51,11 @@ skill directories in one place. Each skill shows its effectiveness per agent,
 including shadowing diagnostics when another skill directory takes
 precedence, and can be enabled or disabled with one click. Skills can be
 collected into named groups (maintained by the extension, no file changes)
-with collapsible folder nodes and one-click group enable/disable.
+with collapsible folder nodes and one-click group enable/disable. Duplicate
+copies across agent directories are fingerprinted, so drift is visible and
+resolvable in one click; skills can also be copied between agents, repaired
+with one-click diagnostic fixes, organized from collection suggestions, and
+found through the dashboard's global search.
 
 Agent Pivot does not provide, proxy, or resell access to Codex, Claude, or
 Kimi. Install each provider tool you want to use and authenticate it separately

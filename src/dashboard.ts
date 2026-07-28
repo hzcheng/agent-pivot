@@ -404,7 +404,14 @@ async function initializeDashboard(
         renderPromptSurface: getPromptSurfaceContent,
         renderAiPanel: snapshot => getAiPanelContent(
             snapshot,
-            getSkillsPanelContent(skillDashboardController.getRecords(), skillDashboardController.getGroups()),
+            getSkillsPanelContent(
+                skillDashboardController.getRecords(),
+                {
+                    groups: skillDashboardController.getGroups(),
+                    suggestions: skillDashboardController.getCollectionSuggestions(),
+                    copyTargets: skillDashboardController.getCopyTargets(),
+                },
+            ),
         ),
     });
     const skillDashboardController = ownResource(() => new SkillDashboardController({
@@ -1229,6 +1236,7 @@ async function initializeDashboard(
         watchSessionChanges: (providerId, onDidChange) => getRegisteredAiSessionProvider(providerId).service.watchSessionChanges(onDidChange),
         getGroups: () => projectService.getGroups(),
         getTodoSearchItems: () => todoService.getSearchItems(),
+        getSkillRecords: () => skillDashboardController.getRecords(),
         getCards: getOpenWorkspaceCards,
         getRunningCardAnimation: () => getAgentPivotConfiguration()
             .get<string>('aiSessionRunningCardAnimation', 'current'),
@@ -1350,6 +1358,36 @@ async function initializeDashboard(
                     void vscode.window.showWarningMessage(`Could not toggle the skill group: ${result.error}`);
                 }
             },
+            'apply-skill-collection': async e => {
+                const result = await skillDashboardController.handleApplyCollectionSuggestion(String(e.name || ''));
+                if (!result.ok) {
+                    void vscode.window.showWarningMessage(`Could not create the skill folder: ${result.error}`);
+                }
+            },
+            'dismiss-skill-collection': async e => {
+                await skillDashboardController.handleDismissCollectionSuggestion(String(e.name || ''));
+            },
+            'sync-skill': e => {
+                const result = skillDashboardController.handleSyncSkill(String(e.sourceDir || ''), String(e.targetDir || ''));
+                if (!result.ok) {
+                    void vscode.window.showWarningMessage(`Could not sync the skill: ${result.error}`);
+                }
+            },
+            'copy-skill': e => {
+                const result = skillDashboardController.handleCopySkill(String(e.sourceDir || ''), String(e.targetRoot || ''));
+                if (!result.ok) {
+                    void vscode.window.showWarningMessage(`Could not copy the skill: ${result.error}`);
+                }
+            },
+            'fix-skill-diagnostic': e => {
+                const result = skillDashboardController.handleFixSkillDiagnostic(
+                    String(e.dirPath || ''),
+                    String(e.code || '') as never,
+                );
+                if (!result.ok) {
+                    void vscode.window.showWarningMessage(`Could not fix the skill: ${result.error}`);
+                }
+            },
             'open-skill-file': async e => {
                 const skillFilePath = String(e.skillFilePath || '');
                 if (!skillDashboardController.getRecords().some(record => record.skillFilePath === skillFilePath)) {
@@ -1379,6 +1417,7 @@ async function initializeDashboard(
                             projectService.getGroups(),
                             getOpenWorkspaceCards(),
                             todoService.getSearchItems(),
+                            skillDashboardController.getRecords(),
                         ),
                     });
                 }
@@ -1793,6 +1832,7 @@ async function initializeDashboard(
         getCurrentWorkspaceAiSessions: workspace => workspaceSessionHydrationController.hydrate(workspace),
         getGroups: () => projectService.getGroups(),
         getTodoSearchItems: () => todoService.getSearchItems(),
+        getSkillRecords: () => skillDashboardController.getRecords(),
         getCollapsed: () => Boolean(groupCollapseController.getOpenWorkspacesCollapsed()),
         getRunningCardAnimation: () => getAgentPivotConfiguration()
             .get<string>('aiSessionRunningCardAnimation', 'current'),
@@ -1949,6 +1989,7 @@ async function initializeDashboard(
         get favoritesGroupCollapsed() { return groupCollapseController.getFavoritesCollapsed() },
         get openWorkspacesGroupCollapsed() { return groupCollapseController.getOpenWorkspacesCollapsed() },
         get todoSearchItems() { return todoService.getSearchItems() },
+        get skills() { return skillDashboardController.getRecords() },
     };
     projectsPanelController = new ProjectsPanelController({
         getGroups: () => projectService.getGroups(),
@@ -1956,6 +1997,7 @@ async function initializeDashboard(
             projectService.getGroups(),
             getOpenWorkspaceCards(),
             todoService.getSearchItems(),
+            skillDashboardController.getRecords(),
         ),
         renderHtml: groups => getProjectsPanelContent(groups, stewardInfos),
         postMessage: message => provider.postMessage(message),
@@ -2427,6 +2469,7 @@ async function initializeDashboard(
                     projectService.getGroups(),
                     getOpenWorkspaceCards(),
                     todoService.getSearchItems(),
+                    skillDashboardController.getRecords(),
                 ),
             }
             : {
@@ -2438,6 +2481,7 @@ async function initializeDashboard(
                     projectService.getGroups(),
                     getOpenWorkspaceCards(),
                     todoService.getSearchItems(),
+                    skillDashboardController.getRecords(),
                 ),
             });
     }

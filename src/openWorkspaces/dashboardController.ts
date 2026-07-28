@@ -25,6 +25,7 @@ export interface OpenWorkspaceDashboardControllerOptions {
     getCurrentWorkspaceAiSessions: (workspace: OpenWorkspace) => WorkspaceAiSessionViewModel | null;
     getGroups: () => Group[];
     getTodoSearchItems: () => TodoSearchCatalogItem[];
+    getSkillRecords?: () => import('../skills/types').SkillRecord[];
     getCollapsed: () => boolean;
     getRunningCardAnimation: () => string | undefined;
     getRunningIconAnimation: () => string | undefined;
@@ -116,6 +117,7 @@ export class OpenWorkspaceDashboardController {
             semanticRevision,
             otherWindowsStatus: this.bridgeStatus,
             todoSearchItems: this.options.getTodoSearchItems(),
+            skills: this.options.getSkillRecords ? this.options.getSkillRecords() : [],
             runningCardAnimation: this.options.getRunningCardAnimation(),
             runningIconAnimation: this.options.getRunningIconAnimation(),
         });

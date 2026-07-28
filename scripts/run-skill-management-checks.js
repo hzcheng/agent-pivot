@@ -268,7 +268,7 @@ function runSkillRenderingChecks() {
             name: 'other', dirPath: '/home/dev/.kimi/skills/other',
             skillFilePath: '/home/dev/.kimi/skills/other/SKILL.md',
         })],
-        { '/home/dev/.kimi/skills/demo': 'superpowers' }
+        { groups: { '/home/dev/.kimi/skills/demo': 'superpowers' } }
     );
     assert.ok(groupedHtml.includes('data-skill-collection="superpowers"'), 'collection node renders');
     assert.ok(groupedHtml.includes('data-skill-group-toggle="superpowers"'));
@@ -281,6 +281,9 @@ function runSkillRenderingChecks() {
     assert.ok(groupedHtml.includes('data-skill-ungroup="/home/dev/.kimi/skills/demo"'), 'grouped card shows ungroup action');
     assert.ok(groupedHtml.includes('draggable="true"'), 'cards are draggable into collection nodes');
     assert.ok(groupedHtml.includes('data-skill-scope="user"'));
+    assert.ok(html.includes('data-skill-fix-code="lowercase-filename"'), 'fixable diagnostics render a Fix button');
+    assert.ok(!skillContent.getSkillsPanelContent([makeRecord({ diagnostics: [{ code: 'body-too-long', message: 'x' }] })]).includes('data-skill-fix='),
+        'non-fixable diagnostics render no Fix button');
     // agent filter row + per-card active-agent attributes
     assert.ok(html.includes('data-action="collapse"'), 'skill groups carry the collapse affordance');
     assert.ok(html.includes('collapse-icon'));
@@ -344,6 +347,9 @@ function runSkillWebviewScriptChecks() {
     assert.ok(script.includes('.skill-collection'), 'filter pass covers collection nodes');
     assert.ok(script.includes('onSkillDragStart'), 'drag-into-collection wiring present');
     assert.ok(script.includes('skill-drop-target'));
+    assert.ok(script.includes("'fix-skill-diagnostic'"), 'fix wiring present');
+    assert.ok(script.includes("'apply-skill-collection'"), 'collection suggestion wiring present');
+    assert.ok(script.includes("'dismiss-skill-collection'"));
     assert.ok(script.includes("'toggle-skill'"));
     assert.ok(script.includes("'open-skill-file'"));
     assert.ok(script.includes("'skills-updated'"));
@@ -405,6 +411,8 @@ function runSkillControllerChecks() {
         getGroups: () => groupMap,
         getGroupName: record => groupMap[record.dirPath.replace(`${path.sep}.disabled`, '')],
         setGroup: (record, name) => { setCalls.push([record.name, name]); return Promise.resolve(); },
+        getDismissedCollections: () => [],
+        dismissCollection: () => Promise.resolve(),
     };
     const groupController = new SkillDashboardController({
         getHomeDir: () => groupHome,
@@ -439,6 +447,9 @@ function runSkillWiringChecks() {
     assert.ok(dashboard.includes("'open-skill-file'"));
     assert.ok(dashboard.includes("'set-skill-group'"));
     assert.ok(dashboard.includes("'toggle-skill-group'"));
+    assert.ok(dashboard.includes("'fix-skill-diagnostic'"));
+    assert.ok(dashboard.includes("'apply-skill-collection'"));
+    assert.ok(dashboard.includes("'dismiss-skill-collection'"));
     assert.ok(dashboard.includes('skillDashboardController.getRecords()'));
     const packageJson = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
     assert.ok(packageJson.scripts['test:skills'].includes('run-skill-management-checks.js'));
@@ -456,12 +467,128 @@ runSkillStyleChecks();
 runSkillWebviewScriptChecks();
 runSkillControllerChecks();
 runSkillWiringChecks();
+runSkillFixChecks();
+runSkillCollectionChecks();
+runSkillSearchCatalogChecks();
+runSkillSyncChecks();
 runSkillGroupStoreChecks()
     .then(() => console.log('Skill management checks passed.'))
     .catch(error => {
         console.error(error);
         process.exit(1);
     });
+
+function runSkillFixChecks() {
+    const fixService = require('../out/skills/fixService');
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'skills-fix-'));
+    const write = (rel, content) => {
+        const filePath = path.join(home, rel);
+        fs.mkdirSync(path.dirname(filePath), { recursive: true });
+        fs.writeFileSync(filePath, content);
+        return filePath;
+    };
+    const record = (overrides) => makeRecord({
+        name: 'demo',
+        dirPath: path.join(home, '.kimi', 'skills', 'demo'),
+        ...overrides,
+    });
+
+    // lowercase-filename → rename to SKILL.md
+    const lower = write('.kimi/skills/demo/skill.md', '---\nname: demo\n---\nbody\n');
+    const lowerResult = fixService.fixSkillDiagnostic(
+        record({ skillFilePath: lower }), 'lowercase-filename');
+    assert.strictEqual(lowerResult.ok, true);
+    assert.ok(fs.existsSync(path.join(home, '.kimi/skills/demo/SKILL.md')));
+    const conflict = fixService.fixSkillDiagnostic(record({ skillFilePath: lower }), 'lowercase-filename');
+    assert.strictEqual(conflict.ok, false, 'never overwrite an existing SKILL.md');
+
+    // name-mismatch → frontmatter name becomes the directory name
+    const mismatch = write('.kimi/skills/demo2/SKILL.md', '---\nname: wrong\ndescription: keep me\n---\nbody\n');
+    const mismatchResult = fixService.fixSkillDiagnostic(
+        record({ name: 'demo2', dirPath: path.join(home, '.kimi', 'skills', 'demo2'), skillFilePath: mismatch }),
+        'name-mismatch');
+    assert.strictEqual(mismatchResult.ok, true);
+    const fixed = fs.readFileSync(mismatch, 'utf8');
+    assert.ok(fixed.includes('name: demo2'));
+    assert.ok(fixed.includes('description: keep me'), 'other frontmatter fields are preserved');
+
+    // missing-frontmatter → skeleton prepended
+    const bare = write('.kimi/skills/demo3/SKILL.md', '# Just a body\n');
+    assert.strictEqual(fixService.fixSkillDiagnostic(
+        record({ name: 'demo3', dirPath: path.join(home, '.kimi', 'skills', 'demo3'), skillFilePath: bare }),
+        'missing-frontmatter').ok, true);
+    const skeleton = fs.readFileSync(bare, 'utf8');
+    assert.ok(skeleton.startsWith('---\nname: demo3\ndescription: \n---\n\n# Just a body\n'));
+
+    // missing-name → name inserted into existing frontmatter
+    const noName = write('.kimi/skills/demo4/SKILL.md', '---\ndescription: x\n---\nbody\n');
+    assert.strictEqual(fixService.fixSkillDiagnostic(
+        record({ name: 'demo4', dirPath: path.join(home, '.kimi', 'skills', 'demo4'), skillFilePath: noName }),
+        'missing-name').ok, true);
+    assert.ok(fs.readFileSync(noName, 'utf8').startsWith('---\nname: demo4\ndescription: x\n---\n'));
+
+    // non-fixable code → refusal, no throw
+    assert.strictEqual(fixService.fixSkillDiagnostic(record(), 'body-too-long').ok, false);
+}
+
+function runSkillCollectionChecks() {
+    const knownCollections = require('../out/skills/knownCollections');
+    const records = [
+        makeRecord({ name: 'brainstorming' }),
+        makeRecord({ name: 'writing-plans' }),
+        makeRecord({ name: 'unrelated' }),
+    ];
+    let suggestions = knownCollections.getCollectionSuggestions(records, {}, []);
+    assert.strictEqual(suggestions.length, 1, 'suggests a known collection with >=2 members present');
+    assert.strictEqual(suggestions[0].name, 'superpowers');
+    assert.strictEqual(suggestions[0].presentCount, 2);
+    assert.strictEqual(suggestions[0].ungroupedCount, 2);
+    const allGrouped = {
+        '/home/dev/.kimi/skills/brainstorming': 'superpowers',
+        '/home/dev/.kimi/skills/writing-plans': 'superpowers',
+    };
+    assert.strictEqual(knownCollections.getCollectionSuggestions(records, allGrouped, []).length, 0,
+        'no suggestion once every member is in a folder');
+    assert.strictEqual(knownCollections.getCollectionSuggestions(records, {}, ['superpowers']).length, 0,
+        'dismissed suggestions stay down');
+    suggestions = knownCollections.getCollectionSuggestions(records, { '/home/dev/.kimi/skills/writing-plans': 'my-stuff' }, []);
+    assert.strictEqual(suggestions[0].ungroupedCount, 1);
+    assert.deepStrictEqual(suggestions[0].memberKeys, ['/home/dev/.kimi/skills/brainstorming'],
+        'members already in another folder are left alone');
+    assert.strictEqual(knownCollections.getCollectionSuggestions([records[0]], {}, []).length, 0,
+        'fewer than two members never triggers a suggestion');
+
+    const html = skillContent.getSkillsPanelContent(
+        [makeRecord()],
+        { suggestions: [{ name: 'superpowers', presentCount: 14, ungroupedCount: 12, memberKeys: [] }] },
+    );
+    assert.ok(html.includes('data-skill-apply-suggestion="superpowers"'));
+    assert.ok(html.includes('data-skill-dismiss-suggestion="superpowers"'));
+    assert.ok(html.includes('Create folder'));
+}
+
+function runSkillSearchCatalogChecks() {
+    const viewModel = require('../out/webview/dashboardViewModel');
+    const catalog = viewModel.buildWorkspaceDashboardSearchCatalog(
+        [], [], [],
+        [makeRecord(), makeRecord({
+            name: 'beta', description: 'Gamma knife', scope: 'project', source: 'claude',
+            dirPath: '/work/app/.claude/skills/beta',
+        })],
+    );
+    assert.strictEqual(catalog.skills.length, 2, 'skills enter the search catalog');
+    assert.strictEqual(catalog.skills[0].action, 'reveal-skill');
+    assert.ok(catalog.skills[0].searchText.includes('demo'));
+    assert.ok(catalog.skills[1].searchText.includes('gamma knife'));
+    assert.strictEqual(catalog.skills[1].scope, 'project');
+    assert.strictEqual((viewModel.buildWorkspaceDashboardSearchCatalog([], [], []).skills || []).length, 0,
+        'skills key is omitted when empty (keeps the catalog shape stable)');
+
+    const script = fs.readFileSync(path.join(__dirname, '..', 'media', 'webviewDashboardScripts.js'), 'utf8');
+    assert.ok(script.includes("'reveal-skill'"));
+    assert.ok(script.includes("type: 'skill'"));
+    assert.ok(script.includes('revealSkillCard'));
+}
 
 async function runSkillGroupStoreChecks() {
     const groupStore = require('../out/skills/skillGroupStore');
@@ -510,6 +637,50 @@ async function runSkillGroupStoreChecks() {
     const unknown = await groupController.handleSetSkillGroup(path.join(home, '.kimi', 'skills', 'nope'), 'x');
     assert.strictEqual(unknown.ok, false, 'unknown skill dirPath is refused');
     groupController.dispose();
+
+    // Collection suggestions: apply assigns only ungrouped members; dismiss persists.
+    const colHome = fs.mkdtempSync(path.join(os.tmpdir(), 'skills-col-'));
+    const writeColSkill = rel => {
+        fs.mkdirSync(path.dirname(path.join(colHome, rel)), { recursive: true });
+        fs.writeFileSync(path.join(colHome, rel), '---\nname: x\n---\n');
+    };
+    writeColSkill('.kimi/skills/brainstorming/SKILL.md');
+    writeColSkill('.kimi/skills/writing-plans/SKILL.md');
+    writeColSkill('.kimi/skills/executing-plans/SKILL.md');
+    const colMemento = {
+        values: {},
+        get(key) { return this.values[key]; },
+        update(key, next) { this.values[key] = next; return Promise.resolve(); },
+    };
+    const colStore = new groupStore.SkillGroupStore(colMemento);
+    await colStore.setGroup(
+        makeRecord({ name: 'executing-plans', dirPath: path.join(colHome, '.kimi', 'skills', 'executing-plans') }),
+        'my-stuff',
+    );
+    const colController = new SkillDashboardController({
+        getHomeDir: () => colHome,
+        getWorkspaceRoot: () => undefined,
+        postMessage: () => Promise.resolve(true),
+        isVisible: () => true,
+        logError: () => undefined,
+        groupStore: colStore,
+    });
+    colController.start();
+    const suggestions = colController.getCollectionSuggestions();
+    assert.strictEqual(suggestions.length, 1);
+    assert.strictEqual(suggestions[0].ungroupedCount, 2, 'the already-grouped member stays out');
+    const applied = await colController.handleApplyCollectionSuggestion('superpowers');
+    assert.strictEqual(applied.ok, true);
+    const colGroups = colStore.getGroups();
+    assert.strictEqual(colGroups[path.join(colHome, '.kimi', 'skills', 'brainstorming')], 'superpowers');
+    assert.strictEqual(colGroups[path.join(colHome, '.kimi', 'skills', 'writing-plans')], 'superpowers');
+    assert.strictEqual(colGroups[path.join(colHome, '.kimi', 'skills', 'executing-plans')], 'my-stuff',
+        'apply never steals members from other folders');
+    assert.strictEqual(colController.getCollectionSuggestions().length, 0, 'suggestion resolves after apply');
+    const dismissed = await colController.handleDismissCollectionSuggestion('superpowers');
+    assert.strictEqual(dismissed.ok, true);
+    assert.deepStrictEqual(colStore.getDismissedCollections(), ['superpowers']);
+    colController.dispose();
     return store.setGroup(record, ' superpowers ')
         .then(() => {
             assert.strictEqual(store.getGroupName(record), 'superpowers', 'group name is trimmed');
@@ -523,4 +694,113 @@ async function runSkillGroupStoreChecks() {
                 'only the removed assignment is gone');
             assert.ok(written.length === 3, 'each change persists once');
         });
+}
+
+function runSkillSyncChecks() {
+    const syncService = require('../out/skills/syncService');
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'skills-sync-'));
+    const write = (rel, content) => {
+        const filePath = path.join(home, rel);
+        fs.mkdirSync(path.dirname(filePath), { recursive: true });
+        fs.writeFileSync(filePath, content);
+        return filePath;
+    };
+
+    // fingerprints
+    write('.kimi/skills/demo/SKILL.md', '---\nname: demo\n---\nA\n');
+    write('.kimi/skills/demo/references/r.md', 'ref\n');
+    write('.codex/skills/demo/SKILL.md', '---\nname: demo\n---\nA\n');
+    write('.codex/skills/demo/references/r.md', 'ref\n');
+    const hashA = syncService.hashSkillDirectory(path.join(home, '.kimi', 'skills', 'demo'));
+    const hashB = syncService.hashSkillDirectory(path.join(home, '.codex', 'skills', 'demo'));
+    assert.strictEqual(hashA, hashB, 'identical trees fingerprint identically');
+    write('.codex/skills/demo/references/r.md', 'ref changed\n');
+    assert.notStrictEqual(syncService.hashSkillDirectory(path.join(home, '.codex', 'skills', 'demo')), hashA,
+        'any content change changes the fingerprint');
+
+    // duplicates + drift via real scan
+    write('.claude/skills/demo/SKILL.md', '---\nname: demo\n---\ndifferent\n');
+    const records = discovery.scanSkills({ homeDir: home });
+    const duplicates = syncService.computeSkillDuplicates(records);
+    const group = duplicates.get('user:demo');
+    assert.ok(group, 'same-name copies form a duplicate group');
+    assert.strictEqual(group.copies.length, 3);
+    assert.strictEqual(group.drift, true, 'differing copies drift');
+    write('.claude/skills/demo/SKILL.md', '---\nname: demo\n---\nA\n');
+    write('.claude/skills/demo/references/r.md', 'ref\n');
+    write('.codex/skills/demo/references/r.md', 'ref\n');
+    const synced = syncService.computeSkillDuplicates(discovery.scanSkills({ homeDir: home }));
+    assert.strictEqual(synced.get('user:demo').drift, false, 'identical copies do not drift');
+
+    // copy targets: only brand roots missing the name, agents excluded
+    const copyTargets = syncService.computeSkillCopyTargets(
+        discovery.scanSkills({ homeDir: home }), home);
+    const demoTargets = copyTargets.get(path.join(home, '.kimi', 'skills', 'demo')) || [];
+    assert.strictEqual(demoTargets.length, 0, 'all brand roots already hold demo');
+
+    // sync: source wins, loser parked reversibly
+    write('.kimi/skills/sync-me/SKILL.md', '---\nname: sync-me\n---\nGOOD\n');
+    write('.codex/skills/sync-me/SKILL.md', '---\nname: sync-me\n---\nSTALE\n');
+    const syncResult = syncService.syncSkillDir(
+        path.join(home, '.kimi', 'skills', 'sync-me'),
+        path.join(home, '.codex', 'skills', 'sync-me'));
+    assert.strictEqual(syncResult.ok, true);
+    assert.ok(fs.readFileSync(path.join(home, '.codex', 'skills', 'sync-me', 'SKILL.md'), 'utf8').includes('GOOD'));
+    const parked = fs.readdirSync(path.join(home, '.codex', 'skills', '.disabled'));
+    assert.ok(parked.some(entry => entry.startsWith('sync-me.replaced-')), 'losing copy is parked, not destroyed');
+
+    // copy: J6 into another root, never overwriting
+    const copyResult = syncService.copySkillDir(
+        path.join(home, '.kimi', 'skills', 'demo'),
+        path.join(home, '.claude', 'skills'));
+    assert.strictEqual(copyResult.ok, false, 'existing destination is never overwritten');
+    const copyFresh = syncService.copySkillDir(
+        path.join(home, '.kimi', 'skills', 'sync-me'),
+        path.join(home, '.claude', 'skills'));
+    assert.strictEqual(copyFresh.ok, true);
+    assert.ok(fs.existsSync(path.join(home, '.claude', 'skills', 'sync-me', 'SKILL.md')));
+
+    // controller containment + behavior
+    const controller = new SkillDashboardController({
+        getHomeDir: () => home,
+        getWorkspaceRoot: () => undefined,
+        postMessage: () => Promise.resolve(true),
+        isVisible: () => true,
+        logError: () => undefined,
+    });
+    controller.start();
+    assert.strictEqual(controller.handleSyncSkill(path.join(home, '.kimi', 'skills', 'demo'), '/etc/passwd').ok, false,
+        'sync target must be a discovered record');
+    assert.strictEqual(controller.handleCopySkill('/etc', path.join(home, '.claude', 'skills')).ok, false,
+        'copy source must be a discovered record');
+    assert.strictEqual(controller.handleCopySkill(path.join(home, '.kimi', 'skills', 'demo'), '/tmp/nope').ok, false,
+        'copy destination must be a known skills root');
+    controller.dispose();
+
+    // rendering: drift chip + sync button + copy-to row
+    const driftHtml = skillContent.getSkillsPanelContent([
+        makeRecord({ contentHash: 'aaaaaaaaaaaaaaaa' }),
+        makeRecord({
+            name: 'demo', source: 'codex', dirPath: '/home/dev/.codex/skills/demo',
+            skillFilePath: '/home/dev/.codex/skills/demo/SKILL.md', contentHash: 'bbbbbbbbbbbbbbbb',
+            visibility: { kimi: 'absent', claude: 'absent', codex: 'active' },
+        }),
+    ]);
+    assert.ok(driftHtml.includes('⚠ drift'), 'differing copies get a drift chip');
+    assert.ok(driftHtml.includes('data-skill-sync="/home/dev/.codex/skills/demo"'), 'sync action renders');
+    assert.ok(driftHtml.includes('#aaaaaaa'), 'copies list short fingerprints');
+    const noDriftHtml = skillContent.getSkillsPanelContent([
+        makeRecord({ contentHash: 'aaaaaaaaaaaaaaaa' }),
+        makeRecord({
+            name: 'demo', source: 'codex', dirPath: '/home/dev/.codex/skills/demo',
+            skillFilePath: '/home/dev/.codex/skills/demo/SKILL.md', contentHash: 'aaaaaaaaaaaaaaaa',
+            visibility: { kimi: 'absent', claude: 'absent', codex: 'active' },
+        }),
+    ]);
+    assert.ok(!noDriftHtml.includes('⚠ drift'), 'identical copies show no drift chip');
+    const copyHtml = skillContent.getSkillsPanelContent(
+        [makeRecord()],
+        { copyTargets: new Map([['/home/dev/.kimi/skills/demo', [{ rootDir: '/home/dev/.codex/skills', source: 'codex', scope: 'user' }]]]) },
+    );
+    assert.ok(copyHtml.includes('data-skill-copy-root="/home/dev/.codex/skills"'), 'copy-to action renders');
 }

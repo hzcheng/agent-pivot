@@ -4,11 +4,14 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { scanSkills } from './discovery';
+import { getCollectionSuggestions, KNOWN_SKILL_COLLECTIONS, SkillCollectionSuggestion } from './knownCollections';
 import { DISABLED_DIR_NAME, getProjectSkillsRoots, getUserSkillsRoots } from './roots';
+import { computeSkillCopyTargets, copySkillDir, SkillCopyTarget, syncSkillDir } from './syncService';
 import { disableSkill, enableSkill } from './toggleService';
+import { fixSkillDiagnostic } from './fixService';
 import { getSkillsPanelContent } from '../webview/webviewSkillContent';
 import type { SkillGroupMap, SkillGroupStore } from './skillGroupStore';
-import type { SkillRecord } from './types';
+import type { SkillDiagnostic, SkillRecord } from './types';
 
 export interface SkillDashboardControllerOptions {
     getHomeDir: () => string;
@@ -16,7 +19,10 @@ export interface SkillDashboardControllerOptions {
     postMessage: (message: unknown) => Thenable<boolean>;
     isVisible: () => boolean;
     logError: (message: string, error: unknown) => void;
-    groupStore?: Pick<SkillGroupStore, 'getGroups' | 'getGroupName' | 'setGroup'>;
+    groupStore?: Pick<
+        SkillGroupStore,
+        'getGroups' | 'getGroupName' | 'setGroup' | 'getDismissedCollections' | 'dismissCollection'
+    >;
     nowMs?: () => number;
 }
 
@@ -37,6 +43,76 @@ export class SkillDashboardController {
 
     getGroups(): SkillGroupMap {
         return this.options.groupStore ? this.options.groupStore.getGroups() : {};
+    }
+
+    getCollectionSuggestions(): SkillCollectionSuggestion[] {
+        const store = this.options.groupStore;
+        if (!store) {
+            return [];
+        }
+        return getCollectionSuggestions(this.records, store.getGroups(), store.getDismissedCollections());
+    }
+
+    getCopyTargets(): Map<string, SkillCopyTarget[]> {
+        return computeSkillCopyTargets(
+            this.records,
+            this.options.getHomeDir(),
+            this.options.getWorkspaceRoot(),
+        );
+    }
+
+    handleSyncSkill(sourceDir: string, targetDir: string): { ok: boolean; error?: string } {
+        const known = new Set(this.records.map(record => record.dirPath));
+        if (!known.has(sourceDir) || !known.has(targetDir)) {
+            return { ok: false, error: 'Sync is only allowed between discovered skill copies.' };
+        }
+        const result = syncSkillDir(sourceDir, targetDir);
+        if (!result.ok) {
+            this.options.logError('Failed to sync skills.', new Error(result.error || 'unknown error'));
+        }
+        this.refresh('sync-skill');
+        return result;
+    }
+
+    handleCopySkill(sourceDir: string, targetRoot: string): { ok: boolean; error?: string } {
+        const known = new Set(this.records.map(record => record.dirPath));
+        if (!known.has(sourceDir) || !this.getKnownRootDirs().includes(targetRoot)) {
+            return { ok: false, error: 'Copy is only allowed from a discovered skill into a known skills root.' };
+        }
+        const result = copySkillDir(sourceDir, targetRoot);
+        if (!result.ok) {
+            this.options.logError('Failed to copy the skill.', new Error(result.error || 'unknown error'));
+        }
+        this.refresh('copy-skill');
+        return result;
+    }
+
+    async handleApplyCollectionSuggestion(name: string): Promise<{ ok: boolean; error?: string }> {
+        const store = this.options.groupStore;
+        const collection = KNOWN_SKILL_COLLECTIONS.find(candidate => candidate.name === name);
+        if (!store || !collection) {
+            return { ok: false, error: `Unknown skill collection: ${name}` };
+        }
+        try {
+            for (const record of this.records) {
+                if (collection.members.includes(record.name) && !store.getGroupName(record)) {
+                    await store.setGroup(record, collection.name);
+                }
+            }
+        } catch (error) {
+            this.options.logError('Failed to apply the skill collection suggestion.', error);
+            return { ok: false, error: error instanceof Error ? error.message : String(error) };
+        }
+        this.refresh('apply-skill-collection');
+        return { ok: true };
+    }
+
+    async handleDismissCollectionSuggestion(name: string): Promise<{ ok: boolean }> {
+        if (this.options.groupStore) {
+            await this.options.groupStore.dismissCollection(name);
+        }
+        this.refresh('dismiss-skill-collection');
+        return { ok: true };
     }
 
     start(): void {
@@ -60,7 +136,15 @@ export class SkillDashboardController {
         if (this.options.isVisible()) {
             void this.options.postMessage({
                 type: 'skills-updated',
-                html: getSkillsPanelContent(this.records, this.getGroups()),
+                html: getSkillsPanelContent(this.records, {
+                    groups: this.getGroups(),
+                    suggestions: this.getCollectionSuggestions(),
+                    copyTargets: computeSkillCopyTargets(
+                        this.records,
+                        this.options.getHomeDir(),
+                        this.options.getWorkspaceRoot(),
+                    ),
+                }),
             });
         }
     }
@@ -91,6 +175,19 @@ export class SkillDashboardController {
         }
         this.refresh('set-skill-group');
         return { ok: true };
+    }
+
+    handleFixSkillDiagnostic(dirPath: string, code: SkillDiagnostic['code']): { ok: boolean; error?: string } {
+        const record = this.records.find(candidate => candidate.dirPath === dirPath);
+        if (!record) {
+            return { ok: false, error: `Unknown skill: ${dirPath}` };
+        }
+        const result = fixSkillDiagnostic(record, code);
+        if (!result.ok) {
+            this.options.logError('Failed to fix the skill diagnostic.', new Error(result.error || 'unknown error'));
+        }
+        this.refresh('fix-skill-diagnostic');
+        return result;
     }
 
     handleToggleSkillGroup(name: string, scope: string, enabled: boolean): { ok: boolean; error?: string } {

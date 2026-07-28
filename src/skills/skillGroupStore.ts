@@ -11,6 +11,7 @@ export interface SkillGroupStoreState {
 }
 
 export const SKILL_GROUPS_STATE_KEY = 'agentPivot.skillGroups';
+export const SKILL_COLLECTION_DISMISSALS_KEY = 'agentPivot.dismissedSkillCollectionSuggestions';
 
 export type SkillGroupMap = Record<string, string>;
 
@@ -31,6 +32,7 @@ export function getSkillGroupName(record: SkillRecord, groups: SkillGroupMap): s
 
 export class SkillGroupStore {
     private cache: SkillGroupMap | undefined;
+    private dismissedCache: string[] | undefined;
 
     constructor(private readonly state: SkillGroupStoreState) {
     }
@@ -58,5 +60,19 @@ export class SkillGroupStore {
         }
         this.cache = next;
         await this.state.update(SKILL_GROUPS_STATE_KEY, next);
+    }
+
+    getDismissedCollections(): string[] {
+        if (!this.dismissedCache) {
+            const stored = this.state.get<string[]>(SKILL_COLLECTION_DISMISSALS_KEY);
+            this.dismissedCache = Array.isArray(stored) ? [...stored] : [];
+        }
+        return this.dismissedCache;
+    }
+
+    async dismissCollection(name: string): Promise<void> {
+        const next = [...new Set([...this.getDismissedCollections(), name])];
+        this.dismissedCache = next;
+        await this.state.update(SKILL_COLLECTION_DISMISSALS_KEY, next);
     }
 }

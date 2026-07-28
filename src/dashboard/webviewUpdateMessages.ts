@@ -89,6 +89,7 @@ export interface BuildOpenWorkspacesUpdatedMessageInput {
     semanticRevision: string;
     otherWindowsStatus: OpenWorkspaceBridgeStatus;
     todoSearchItems: TodoSearchCatalogItem[];
+    skills?: import('../skills/types').SkillRecord[];
     runningCardAnimation?: string;
     runningIconAnimation?: string;
 }
@@ -99,6 +100,7 @@ export interface BuildAiSessionsUpdatedMessageInput {
     sequence: number;
     generatedAt: string;
     todoSearchItems: TodoSearchCatalogItem[];
+    skills?: import('../skills/types').SkillRecord[];
     runningCardAnimation?: string;
     runningIconAnimation?: string;
 }
@@ -119,6 +121,7 @@ export function buildOpenWorkspacesUpdatedMessage(
             input.groups,
             input.cards,
             input.todoSearchItems,
+            input.skills,
         ),
         html: getOpenWorkspacesGroupContent(
             input.cards,
@@ -165,6 +168,7 @@ export function buildAiSessionsUpdatedMessage(input: BuildAiSessionsUpdatedMessa
             input.groups,
             input.cards,
             input.todoSearchItems,
+            input.skills,
         ),
     };
 }

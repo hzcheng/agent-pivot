@@ -47,6 +47,17 @@ export interface DashboardWorkspaceSearchCatalog {
     openWorkspaces: DashboardSearchWorkspaceItem[];
     savedProjects: DashboardSearchProjectItem[];
     todos: TodoSearchCatalogItem[];
+    skills?: DashboardSearchSkillItem[];
+}
+
+export interface DashboardSearchSkillItem {
+    key: string;
+    searchText: string;
+    name: string;
+    description: string;
+    dirPath: string;
+    scope: string;
+    action: 'reveal-skill';
 }
 
 export interface DashboardSearchWorkspace {
@@ -138,7 +149,8 @@ function buildSavedProjectSearchItems(groups: Group[]): DashboardSearchProjectIt
 export function buildWorkspaceDashboardSearchCatalog(
     groups: Group[],
     workspaces: DashboardSearchWorkspace[],
-    todos: TodoSearchCatalogItem[] = []
+    todos: TodoSearchCatalogItem[] = [],
+    skills: import('../skills/types').SkillRecord[] = []
 ): DashboardWorkspaceSearchCatalog {
     const current = (workspaces || []).find(workspace => workspace.kind === 'current');
     const byNavigationIdentity = new Map<string, DashboardSearchWorkspace>();
@@ -208,12 +220,23 @@ export function buildWorkspaceDashboardSearchCatalog(
     }
 
     const savedProjects = buildSavedProjectSearchItems(groups);
+    const skillItems: DashboardSearchSkillItem[] = (skills || []).map(record => ({
+        key: `skill:${record.dirPath}`,
+        searchText: searchable(record.name, record.description, record.scope, record.source),
+        name: record.name,
+        description: record.description,
+        dirPath: record.dirPath,
+        scope: record.scope,
+        action: 'reveal-skill' as const,
+    }));
+
     return {
         version: 2,
         sessions,
         openWorkspaces,
         savedProjects,
         todos,
+        ...(skillItems.length ? { skills: skillItems } : {}),
     };
 }
 

@@ -98,7 +98,7 @@ async function openSkillsPage(browser, records, groups = {}) {
         <html>
             <head><style>${styles}</style></head>
             <body class="steward-sidebar">
-                <section role="tabpanel" id="ai-panel-skills">${getSkillsPanelContent(records || makeRecords(), groups)}</section>
+                <section role="tabpanel" id="ai-panel-skills">${getSkillsPanelContent(records || makeRecords(), { groups })}</section>
             </body>
         </html>`);
     await page.evaluate(filterSource => {

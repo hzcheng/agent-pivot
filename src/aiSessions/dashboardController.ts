@@ -16,6 +16,7 @@ export interface AiSessionDashboardControllerOptions {
     watchSessionChanges: (providerId: AiSessionProviderId, onDidChange: () => void) => DisposableLike;
     getGroups: () => Group[];
     getTodoSearchItems: () => TodoSearchCatalogItem[];
+    getSkillRecords?: () => import('../skills/types').SkillRecord[];
     getCards: () => WorkspaceCardViewModel[];
     getRunningCardAnimation: () => string | undefined;
     getRunningIconAnimation: () => string | undefined;
@@ -156,6 +157,7 @@ export class AiSessionDashboardController {
             sequence: this.options.nextSequence(),
             generatedAt: new Date().toISOString(),
             todoSearchItems: this.options.getTodoSearchItems(),
+            skills: this.options.getSkillRecords ? this.options.getSkillRecords() : [],
             runningCardAnimation: this.options.getRunningCardAnimation(),
             runningIconAnimation: this.options.getRunningIconAnimation(),
         });

@@ -4,7 +4,21 @@ import * as path from 'path';
 
 import type { SkillAgentId, SkillRecord, SkillSourceDir, SkillVisibility } from '../skills/types';
 import { DISABLED_DIR_NAME } from '../skills/roots';
-import { getSkillGroupName, SkillGroupMap } from '../skills/skillGroupStore';
+import { FIXABLE_DIAGNOSTIC_CODES } from '../skills/fixService';
+import type { SkillCollectionSuggestion } from '../skills/knownCollections';
+import { getSkillGroupName, getSkillStableKey, SkillGroupMap } from '../skills/skillGroupStore';
+import {
+    computeSkillDuplicates,
+    SkillCopyTarget,
+    SkillDuplicateGroup,
+} from '../skills/syncService';
+
+export interface SkillPanelView {
+    groups?: SkillGroupMap;
+    suggestions?: SkillCollectionSuggestion[];
+    copyTargets?: Map<string, SkillCopyTarget[]>;
+    duplicates?: Map<string, SkillDuplicateGroup>;
+}
 import { sanitizeProjectName } from '../models';
 import { escapeAttribute } from './webviewContent';
 import { collapse as collapseIcon, folder as folderIcon, terminalLine } from './webviewIcons';
@@ -21,7 +35,8 @@ function agentChip(agent: SkillAgentId, visibility: SkillVisibility): string {
     return `<span class="skill-chip agent-absent">${agent}</span>`;
 }
 
-function getSkillDetail(record: SkillRecord, groups: SkillGroupMap): string {
+function getSkillDetail(record: SkillRecord, view: SkillPanelView, duplicate?: SkillDuplicateGroup): string {
+    const groups = view.groups || {};
     const rows = AGENTS.map(agent => {
         const visibility = record.visibility[agent];
         const status = visibility === 'active'
@@ -36,7 +51,25 @@ function getSkillDetail(record: SkillRecord, groups: SkillGroupMap): string {
                 : 'not visible';
         return `<div class="skill-detail-row">${agentChip(agent, visibility === 'shadowed' ? 'shadowed' : visibility)}${status}<span class="skill-detail-path">${detail}</span></div>`;
     }).join('');
-    const notes = record.diagnostics.map(item => `<p class="skill-detail-note">⚠ ${escapeAttribute(item.message)}</p>`).join('');
+    const driftRows = duplicate && duplicate.drift
+        ? `<p class="skill-detail-title">Copies of this skill</p>` + duplicate.copies.map(copy => {
+            const isThis = copy.dirPath === record.dirPath;
+            const hash = copy.contentHash ? `#${copy.contentHash.slice(0, 7)}` : '#???????';
+            return `<div class="skill-detail-row skill-drift-row">`
+                + `<span class="skill-detail-path">${escapeAttribute(copy.dirPath)} ${hash}${isThis ? ' (this copy)' : ''}</span>`
+                + (isThis
+                    ? ''
+                    : `<button type="button" class="skill-sync" data-skill-sync="${escapeAttribute(copy.dirPath)}" data-skill-sync-target="${escapeAttribute(record.dirPath)}">Use this copy</button>`)
+                + `</div>`;
+        }).join('')
+        : '';
+    const notes = record.diagnostics.map(item => {
+        const fixable = FIXABLE_DIAGNOSTIC_CODES.includes(item.code);
+        const fixButton = fixable
+            ? ` <button type="button" class="skill-fix" data-skill-fix="${escapeAttribute(record.dirPath)}" data-skill-fix-code="${item.code}">Fix</button>`
+            : '';
+        return `<p class="skill-detail-note">⚠ ${escapeAttribute(item.message)}${fixButton}</p>`;
+    }).join('');
     const groupName = getSkillGroupName(record, groups);
     const dirPath = escapeAttribute(record.dirPath);
     const groupEditor = `<div class="skill-group-editor">
@@ -48,7 +81,7 @@ function getSkillDetail(record: SkillRecord, groups: SkillGroupMap): string {
     </div>`;
     return `<div class="skill-detail" hidden>
         <p class="skill-detail-title">Effectiveness per agent</p>
-        ${rows}${notes}
+        ${rows}${driftRows}${notes}
         <div class="skill-detail-actions">
             <button class="primary" data-skill-open="${escapeAttribute(record.skillFilePath)}">Open SKILL.md</button>
         </div>
@@ -56,17 +89,26 @@ function getSkillDetail(record: SkillRecord, groups: SkillGroupMap): string {
     </div>`;
 }
 
-function getSkillDiv(record: SkillRecord, groups: SkillGroupMap): string {
+function getSkillDiv(record: SkillRecord, view: SkillPanelView): string {
+    const groups = view.groups || {};
+    const duplicate = view.duplicates ? view.duplicates.get(`${record.scope}:${record.name}`) : undefined;
     const name = escapeAttribute(sanitizeProjectName(record.name));
     const description = escapeAttribute(sanitizeProjectName(record.description));
     const scopeLabel = record.scope === 'user' ? 'User' : 'Project';
     const activeAgents = AGENTS.filter(agent => record.visibility[agent] === 'active').join(' ');
     const shadowed = AGENTS.some(agent => record.visibility[agent] === 'shadowed');
-    const warnChip = shadowed
-        ? `<span class="skill-chip warn" data-skill-warn>⚠ shadowed</span>`
-        : record.diagnostics.length
-            ? `<span class="skill-chip warn" data-skill-warn>⚠ ${record.diagnostics.length} issue${record.diagnostics.length === 1 ? '' : 's'}</span>`
-            : '';
+    const drift = duplicate && duplicate.drift;
+    const warnChip = drift
+        ? `<span class="skill-chip warn" data-skill-warn>⚠ drift</span>`
+        : shadowed
+            ? `<span class="skill-chip warn" data-skill-warn>⚠ shadowed</span>`
+            : record.diagnostics.length
+                ? `<span class="skill-chip warn" data-skill-warn>⚠ ${record.diagnostics.length} issue${record.diagnostics.length === 1 ? '' : 's'}</span>`
+                : '';
+    const copyTargets = view.copyTargets ? view.copyTargets.get(getSkillStableKey(record)) : undefined;
+    const copyRow = copyTargets && copyTargets.length
+        ? `<div class="skill-copy-row">Copy to: ${copyTargets.map(target => `<button type="button" class="skill-copy" data-skill-copy="${escapeAttribute(record.dirPath)}" data-skill-copy-root="${escapeAttribute(target.rootDir)}">${target.source}</button>`).join('')}</div>`
+        : '';
     const chips = `<span class="skill-chip scope-${record.scope}">${scopeLabel}</span>`
         + AGENTS.map(agent => agentChip(agent, record.visibility[agent])).join('')
         + warnChip;
@@ -84,7 +126,8 @@ function getSkillDiv(record: SkillRecord, groups: SkillGroupMap): string {
         <p class="project-description" title="${description}">${description}</p>
         ${parkedNote}
         <div class="skill-chip-row">${chips}<span class="skill-expand-hint" title="Show details">${collapseIcon}</span></div>
-        ${getSkillDetail(record, groups)}
+        ${copyRow}
+        ${getSkillDetail(record, view, duplicate)}
     </div>
 </div>`;
 }
@@ -130,7 +173,7 @@ function groupBySource(records: SkillRecord[]): SkillSourceGroup[] {
         }));
 }
 
-function renderSourceGroup(group: SkillSourceGroup, groups: SkillGroupMap): string {
+function renderSourceGroup(group: SkillSourceGroup, view: SkillPanelView): string {
     const rootDir = escapeAttribute(group.rootDir);
     return `<div class="skill-source-group" data-skill-source="${group.source}">
     <div class="skill-source-header">
@@ -138,11 +181,12 @@ function renderSourceGroup(group: SkillSourceGroup, groups: SkillGroupMap): stri
         <span class="skill-source-path" title="${rootDir}">${rootDir}</span>
         <span class="skill-source-count">${group.items.length}</span>
     </div>
-    ${group.items.map(item => getSkillDiv(item, groups)).join('\n')}
+    ${group.items.map(item => getSkillDiv(item, view)).join('\n')}
 </div>`;
 }
 
-function renderCollection(name: string, scope: string, items: SkillRecord[], groups: SkillGroupMap): string {
+function renderCollection(name: string, scope: string, items: SkillRecord[], view: SkillPanelView): string {
+    const groups = view.groups || {};
     const id = `skill-collection-${scope}-${encodeURIComponent(name)}`;
     const allDisabled = items.every(item => !item.enabled);
     return `<div class="group steward-section skill-collection" data-group-id="${id}" data-skill-collection="${escapeAttribute(name)}" data-skill-collection-scope="${scope}">
@@ -156,12 +200,13 @@ function renderCollection(name: string, scope: string, items: SkillRecord[], gro
     </div>
     <div class="group-list">
         <div class="drop-signal"></div>
-        ${items.map(item => getSkillDiv(item, groups)).join('\n')}
+        ${items.map(item => getSkillDiv(item, view)).join('\n')}
     </div>
 </div>`;
 }
 
-function renderScopeSection(title: string, scope: string, items: SkillRecord[], groups: SkillGroupMap): string {
+function renderScopeSection(title: string, scope: string, items: SkillRecord[], view: SkillPanelView): string {
+    const groups = view.groups || {};
     const grouped = new Map<string, SkillRecord[]>();
     const ungrouped: SkillRecord[] = [];
     for (const item of items) {
@@ -176,8 +221,8 @@ function renderScopeSection(title: string, scope: string, items: SkillRecord[], 
     }
     const collections = [...grouped.keys()]
         .sort((a, b) => a.localeCompare(b))
-        .map(name => renderCollection(name, scope, grouped.get(name) as SkillRecord[], groups));
-    const sourceGroups = groupBySource(ungrouped).map(group => renderSourceGroup(group, groups));
+        .map(name => renderCollection(name, scope, grouped.get(name) as SkillRecord[], view));
+    const sourceGroups = groupBySource(ungrouped).map(group => renderSourceGroup(group, view));
     return `
 <div class="group steward-section" data-group-id="${title === 'USER SKILLS' ? 'user-skills' : 'project-skills'}">
     <div class="group-title steward-section-header steward-group-header">
@@ -203,7 +248,23 @@ function renderFilterRow(): string {
     return `<div class="skills-filter-row" data-skill-filter-row role="group" aria-label="Filter skills by agent">${buttons}</div>`;
 }
 
-export function getSkillsPanelContent(records: SkillRecord[], groups: SkillGroupMap = {}): string {
+function renderSuggestion(suggestion: SkillCollectionSuggestion): string {
+    const name = escapeAttribute(suggestion.name);
+    return `<div class="skill-suggestion" data-skill-suggestion="${name}">
+    <span class="skill-collection-icon" aria-hidden="true">${folderIcon}</span>
+    <span class="skill-suggestion-text">Detected <strong>${name}</strong> collection — ${suggestion.presentCount} skills here, ${suggestion.ungroupedCount} not in a folder yet.</span>
+    <button type="button" class="skill-suggestion-apply" data-skill-apply-suggestion="${name}">Create folder</button>
+    <button type="button" class="skill-suggestion-dismiss" title="Dismiss" data-skill-dismiss-suggestion="${name}">×</button>
+</div>`;
+}
+
+export function getSkillsPanelContent(
+    records: SkillRecord[],
+    view: SkillPanelView = {},
+): string {
+    const groups = view.groups || {};
+    const suggestions = view.suggestions || [];
+    view.duplicates = view.duplicates || computeSkillDuplicates(records || []);
     const user = (records || []).filter(record => record.scope === 'user');
     const project = (records || []).filter(record => record.scope === 'project');
     const sections = [
@@ -221,8 +282,8 @@ export function getSkillsPanelContent(records: SkillRecord[], groups: SkillGroup
     const datalist = groupNames.length
         ? `<datalist id="skill-group-names">${groupNames.map(name => `<option value="${escapeAttribute(name)}"></option>`).join('')}</datalist>`
         : '';
-    return `<div class="sticky-groups-wrapper skills-groups-wrapper">${renderFilterRow()}${datalist}${sections
+    return `<div class="sticky-groups-wrapper skills-groups-wrapper">${renderFilterRow()}${suggestions.map(renderSuggestion).join('')}${datalist}${sections
         .filter(([, , items]) => items.length)
-        .map(([title, scope, items]) => renderScopeSection(title, scope, items, groups)).join('\n')}
+        .map(([title, scope, items]) => renderScopeSection(title, scope, items, view)).join('\n')}
 </div>`;
 }

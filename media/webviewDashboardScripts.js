@@ -186,7 +186,8 @@ function normalizeDashboardSearchCatalog(value) {
         && Array.isArray(value.sessions)
         && Array.isArray(value.openWorkspaces)
         && Array.isArray(value.savedProjects)
-        && Array.isArray(value.todos)) {
+        && Array.isArray(value.todos)
+        && (value.skills === undefined || Array.isArray(value.skills))) {
         return value;
     }
     return { version: 2, sessions: [], openWorkspaces: [], savedProjects: [], todos: [] };
@@ -223,6 +224,7 @@ function filterDashboardCatalog(catalog, query) {
         { id: 'open-workspaces', title: 'OPEN WORKSPACES', type: 'open-workspace', items: catalog.openWorkspaces },
         { id: 'saved-projects', title: 'SAVED PROJECTS', type: 'saved-project', items: catalog.savedProjects },
         { id: 'todos', title: 'TODO RESULTS', type: 'todo', items: catalog.todos },
+        { id: 'skills', title: 'SKILLS', type: 'skill', items: catalog.skills || [] },
     ];
     return sections
         .map(section => ({
@@ -292,6 +294,10 @@ function renderDashboardSearchResults(container, sections) {
                     ? 'show-current-workspace'
                     : 'switch-open-workspace';
                 metadata.textContent = [item.description, item.environmentLabel].filter(Boolean).join(' · ');
+            } else if (section.type === 'skill') {
+                button.dataset.searchAction = 'reveal-skill';
+                button.dataset.skillDir = String(item.dirPath || '');
+                metadata.textContent = [item.scope === 'project' ? 'Project' : 'Global', item.description].filter(Boolean).join(' · ');
             } else if (section.type === 'todo') {
                 button.dataset.searchAction = 'show-todo';
                 button.dataset.todoId = String(item.todoId || '');
@@ -679,6 +685,34 @@ function initDashboard(options) {
         }
     }
 
+    var pendingSkillReveal = null;
+
+    function revealSkillCard(dirPath) {
+        if (!panels.ai || typeof panels.ai.querySelector !== 'function') {
+            return false;
+        }
+        var skillsTab = panels.ai.querySelector('#ai-tab-skills');
+        if (skillsTab && skillsTab.getAttribute('aria-selected') !== 'true' && typeof skillsTab.click === 'function') {
+            skillsTab.click();
+        }
+        var cards = panels.ai.querySelectorAll('.skill-card[data-skill-dir]');
+        for (var i = 0; i < cards.length; i++) {
+            if (cards[i].getAttribute('data-skill-dir') !== dirPath) {
+                continue;
+            }
+            var detail = cards[i].querySelector('.skill-detail');
+            if (detail) {
+                detail.hidden = false;
+                cards[i].classList.add('skill-detail-open');
+            }
+            if (typeof cards[i].scrollIntoView === 'function') {
+                cards[i].scrollIntoView({ block: 'center' });
+            }
+            return true;
+        }
+        return false;
+    }
+
     function onSearchResultClick(event) {
         var button = event.target && event.target.closest
             ? event.target.closest('.dashboard-search-result[data-search-action]')
@@ -701,6 +735,21 @@ function initDashboard(options) {
                 projectId: button.dataset.projectId,
                 sessionId: button.dataset.sessionId,
             });
+            return;
+        }
+        if (action === 'reveal-skill') {
+            if (typeof options.clearSearch === 'function') {
+                options.clearSearch();
+            } else {
+                setSearchQuery('');
+            }
+            pendingSkillReveal = String(button.dataset.skillDir || '');
+            activateTab('ai', false);
+            if (aiState === 'mounted') {
+                var revealDir = pendingSkillReveal;
+                pendingSkillReveal = null;
+                revealSkillCard(revealDir);
+            }
             return;
         }
         if (action === 'reveal-workspace-session') {
@@ -1026,6 +1075,53 @@ function initDashboard(options) {
                 type: 'toggle-skill',
                 dirPath: toggle.getAttribute('data-skill-toggle'),
                 enabled: !toggle.classList.contains('off'),
+            });
+            return;
+        }
+        var applySuggestion = event.target && event.target.closest ? event.target.closest('[data-skill-apply-suggestion]') : null;
+        if (applySuggestion) {
+            event.preventDefault();
+            event.stopPropagation();
+            options.postMessage({ type: 'apply-skill-collection', name: applySuggestion.getAttribute('data-skill-apply-suggestion') });
+            return;
+        }
+        var dismissSuggestion = event.target && event.target.closest ? event.target.closest('[data-skill-dismiss-suggestion]') : null;
+        if (dismissSuggestion) {
+            event.preventDefault();
+            event.stopPropagation();
+            options.postMessage({ type: 'dismiss-skill-collection', name: dismissSuggestion.getAttribute('data-skill-dismiss-suggestion') });
+            return;
+        }
+        var sync = event.target && event.target.closest ? event.target.closest('[data-skill-sync]') : null;
+        if (sync) {
+            event.preventDefault();
+            event.stopPropagation();
+            options.postMessage({
+                type: 'sync-skill',
+                sourceDir: sync.getAttribute('data-skill-sync'),
+                targetDir: sync.getAttribute('data-skill-sync-target'),
+            });
+            return;
+        }
+        var copy = event.target && event.target.closest ? event.target.closest('[data-skill-copy]') : null;
+        if (copy) {
+            event.preventDefault();
+            event.stopPropagation();
+            options.postMessage({
+                type: 'copy-skill',
+                sourceDir: copy.getAttribute('data-skill-copy'),
+                targetRoot: copy.getAttribute('data-skill-copy-root'),
+            });
+            return;
+        }
+        var fix = event.target && event.target.closest ? event.target.closest('[data-skill-fix]') : null;
+        if (fix) {
+            event.preventDefault();
+            event.stopPropagation();
+            options.postMessage({
+                type: 'fix-skill-diagnostic',
+                dirPath: fix.getAttribute('data-skill-fix'),
+                code: fix.getAttribute('data-skill-fix-code'),
             });
             return;
         }
@@ -1468,6 +1564,11 @@ function initDashboard(options) {
         drainPendingPromptRefresh();
         applyPendingAiSubtab();
         applySkillAgentFilter();
+        if (pendingSkillReveal) {
+            var revealDir = pendingSkillReveal;
+            pendingSkillReveal = null;
+            revealSkillCard(revealDir);
+        }
         if (pendingScrollRestoreTab === 'ai') {
             pendingScrollRestoreTab = null;
             if (activeTab === 'ai' && !searchQuery) {

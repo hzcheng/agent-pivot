@@ -6,6 +6,7 @@ import * as path from 'path';
 import { applySkillEffectiveness } from './effectiveness';
 import { getSkillDiagnostics, parseSkillFrontmatter } from './frontmatter';
 import { DISABLED_DIR_NAME, getProjectSkillsRoots, getUserSkillsRoots, SkillsRoot } from './roots';
+import { hashSkillDirectory } from './syncService';
 import type { SkillDiagnostic, SkillRecord } from './types';
 
 export interface ScanSkillsInput {
@@ -40,6 +41,7 @@ function createRecord(root: SkillsRoot, dirName: string, dirPath: string, enable
         scope: root.scope,
         source: root.source,
         enabled,
+        contentHash: hashSkillDirectory(dirPath),
         visibility: { kimi: 'absent', claude: 'absent', codex: 'absent' },
         shadowedBy: {},
         diagnostics: getSkillDiagnostics({

@@ -175,7 +175,7 @@ export function getStewardContent(
     var customCss = infos.config.get('customCss') || '';
     var allGroupsCollapsed = !!infos.openWorkspacesGroupCollapsed;
     var searchCatalog = serializeDashboardSearchCatalog(
-        buildWorkspaceDashboardSearchCatalog(groups, workspaceCards, infos.todoSearchItems || [])
+        buildWorkspaceDashboardSearchCatalog(groups, workspaceCards, infos.todoSearchItems || [], infos.skills || [])
     );
     var openWorkspacesContent = getOpenWorkspacesGroupContent(
         workspaceCards,

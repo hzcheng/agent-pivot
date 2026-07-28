@@ -8,7 +8,7 @@ const test = require('node:test');
 const { makeTempDirectory } = require('../../helpers/tempDirectory');
 const helpers = require('../../../out/aiSessions/sessionHelpers');
 const { getAiSessionScanMaxFiles } = require('../../../out/aiSessions/scanOptions');
-const { isCommandAvailableOnPath } = require('../../../out/aiSessions/providerAvailability');
+const aiSessionProviders = require('../../../out/aiSessions/providers');
 const previousLoad = Module._load;
 let candidates;
 let sessionPaths;
@@ -134,12 +134,17 @@ test('SESSION-SCAN-OPTION-001 removes scan limits only for interactive identity 
     assert.equal(getAiSessionScanMaxFiles('dashboard-refresh', 100), 100);
 });
 
-test('SESSION-AI-SESSION-PROVIDER-AVAILABILITY-001 resolves POSIX and Windows PATH candidates without executing commands', () => {
-    const exists = value => value === '/bin/codex' || value === 'C:\\Tools\\kimi.CMD';
-    assert.equal(isCommandAvailableOnPath('codex', { PATH: '/bin:/usr/bin' }, 'linux', exists), true);
-    assert.equal(isCommandAvailableOnPath('claude', { PATH: '/bin:/usr/bin' }, 'linux', exists), false);
-    assert.equal(isCommandAvailableOnPath('kimi', { Path: 'C:\\Tools', PATHEXT: '.EXE;.CMD' }, 'win32', exists), true);
-    assert.equal(isCommandAvailableOnPath('', { PATH: '/bin' }, 'linux', exists), false);
+test('SESSION-AI-SESSION-PROVIDER-AVAILABILITY-001 keeps every registered provider selectable without reading command paths', () => {
+    const providersWithUnreadableCommands = [
+        { id: 'codex', label: 'Codex', get commandName() { assert.fail('commandName must not be read'); } },
+        { id: 'kimi', label: 'Kimi', get commandName() { assert.fail('commandName must not be read'); } },
+        { id: 'claude', label: 'Claude', get commandName() { assert.fail('commandName must not be read'); } },
+    ];
+    assert.deepEqual(aiSessionProviders.buildAiSessionProviderPicks(providersWithUnreadableCommands), [
+        { label: 'Codex', description: 'Open a new Codex session', providerId: 'codex' },
+        { label: 'Kimi', description: 'Open a new Kimi session', providerId: 'kimi' },
+        { label: 'Claude', description: 'Open a new Claude session', providerId: 'claude' },
+    ]);
 });
 
 test('SESSION-TERMINAL-CWD-001 accepts directories and file parents but rejects URI and missing paths', t => {

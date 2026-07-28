@@ -77,6 +77,22 @@ export function getAiSessionProviderLabel(providerId: AiSessionProviderId): stri
     return getAiSessionProviderDefinition(providerId)?.label || 'AI';
 }
 
+export interface AiSessionProviderPick {
+    label: string;
+    description: string;
+    providerId: AiSessionProviderId;
+}
+
+export function buildAiSessionProviderPicks(
+    providers: readonly Pick<AiSessionProviderDefinition, 'id' | 'label'>[]
+): AiSessionProviderPick[] {
+    return providers.map(provider => ({
+        label: provider.label,
+        description: `Open a new ${provider.label} session`,
+        providerId: provider.id,
+    }));
+}
+
 export interface AiSessionProviderRegistry {
     get(providerId: AiSessionProviderId): AiSessionProvider | null;
     providers(): AiSessionProvider[];

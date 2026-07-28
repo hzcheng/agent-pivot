@@ -9605,6 +9605,11 @@ async function runRuntimeControllerChecks() {
 
 function runHostRuntimeCompositionChecks() {
     const dashboardSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'dashboard.ts'), 'utf8');
+    assert.ok(dashboardSource.includes(
+        'buildAiSessionProviderPicks(getRegisteredAiSessionProviders())'
+    ));
+    assert.ok(!dashboardSource.includes('isCommandAvailableOnPath'));
+    assert.ok(!dashboardSource.includes('was not found on PATH'));
     assert.ok(dashboardSource.includes('new TmuxRuntimeBindingStore'));
     assert.ok(dashboardSource.includes('new TmuxAttachBindingStore(context.workspaceState'));
     assert.ok(dashboardSource.includes('new TmuxClient'));

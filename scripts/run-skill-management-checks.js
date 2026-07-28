@@ -962,15 +962,15 @@ function runSkillCentralChecks() {
     const centralHtml = skillContent.getSkillsPanelContent([centralRecord, makeRecord()]);
     assert.ok(centralHtml.includes('skill-chip central'), 'central chip renders');
     assert.ok(centralHtml.includes('data-skill-source="central"'), 'central source group renders');
-    assert.ok(centralHtml.includes('Linked agents'), 'per-agent link section renders');
-    assert.strictEqual(centralHtml.split('skill-central-links').length - 1, 1, 'agent switches share a single row');
+    assert.ok(!centralHtml.includes('Linked agents'), 'no separate link section remains');
+    assert.strictEqual(centralHtml.split('class="skill-agent-row"').length - 1, 3, 'one iOS-style row per agent');
     assert.strictEqual(centralHtml.split('data-central-source=').length - 1, 3, 'one switch per agent');
     assert.ok(centralHtml.includes('data-central-toggle="/home/dev/.skills/shared"'));
     assert.ok(centralHtml.includes('data-central-source="kimi"'));
     assert.ok(centralHtml.includes('data-central-source="claude"'));
-    assert.ok(centralHtml.includes('skill-central-toggle off'), 'unlinked agents render an off switch');
-    assert.ok(centralHtml.includes('class="skill-central-switch off"'), 'unlinked agents render dimmed');
+    assert.ok(centralHtml.includes('class="skill-ios-toggle off"'), 'unlinked agents render an off switch');
     assert.ok(centralHtml.includes('Disable for kimi (/home/dev/.kimi/skills/shared)'), 'link path moves into the tooltip');
+    assert.ok(centralHtml.includes('Enable for claude'));
     assert.ok(!centralHtml.includes('not linked'), 'no per-agent path rows remain');
     assert.ok(!centralHtml.includes('data-skill-toggle="/home/dev/.skills/shared"'), 'central cards hide the master toggle');
     assert.ok(!centralHtml.includes('data-skill-centralize="/home/dev/.skills/shared"'), 'central cards are not re-centralizable');
@@ -995,9 +995,9 @@ function runSkillCentralChecks() {
     const compiledCss = fs.readFileSync(path.join(__dirname, '..', 'media', 'styles.css'), 'utf8');
     assert.ok(styles.includes('.skill-chip.central'));
     assert.ok(styles.includes('.skill-centralize'));
-    assert.ok(styles.includes('.skill-central-toggle'));
+    assert.ok(styles.includes('.skill-ios-toggle'));
     assert.ok(compiledCss.includes('.skill-centralize'));
-    assert.ok(compiledCss.includes('.skill-central-toggle'));
+    assert.ok(compiledCss.includes('.skill-ios-toggle'));
 }
 
 function runSkillMigrationChecks() {

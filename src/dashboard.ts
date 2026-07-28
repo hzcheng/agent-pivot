@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import * as childProcess from 'child_process';
 import { randomBytes } from 'crypto';
 import { existsSync, statSync } from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { performance } from 'perf_hooks';
 import { Project, GroupOrder, ProjectRemoteType, StewardInfos, ProjectOpenType, ReopenStewardReason, AiSessionProviderId, isAiSessionProviderId } from './models';
@@ -24,6 +25,7 @@ import { PromptDashboardController } from './prompts/dashboardController';
 import { initializePromptMementoStore, PromptService } from './prompts/service';
 import { PromptTerminalCommandController } from './prompts/terminalCommandController';
 import { getAiPanelContent, getPromptSurfaceContent } from './prompts/webviewContent';
+import { SkillDashboardController } from './skills/dashboardController';
 import {
     deleteTodoWithConfirmation,
     renameTodoGroupWithPrompt,
@@ -400,6 +402,14 @@ async function initializeDashboard(
         renderPromptSurface: getPromptSurfaceContent,
         renderAiPanel: getAiPanelContent,
     });
+    const skillDashboardController = ownResource(() => new SkillDashboardController({
+        getHomeDir: () => os.homedir(),
+        getWorkspaceRoot: () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+        postMessage: message => provider.postMessage(message),
+        isVisible: () => provider.visible,
+        logError,
+    }));
+    skillDashboardController.start();
     const todoViewState = todoService.getViewState();
     let revealedTodoId: string | undefined;
     const todoCommandController = new TodoCommandController({
@@ -1309,6 +1319,19 @@ async function initializeDashboard(
                     promptDashboardController.getPanelContent(e.requestId)
                 );
             },
+            'toggle-skill': e => {
+                const result = skillDashboardController.handleToggle(String(e.dirPath || ''), e.enabled === true);
+                if (!result.ok) {
+                    void vscode.window.showWarningMessage(`Could not toggle skill: ${result.error}`);
+                }
+            },
+            'open-skill-file': async e => {
+                const skillFilePath = String(e.skillFilePath || '');
+                if (!skillDashboardController.getRecords().some(record => record.skillFilePath === skillFilePath)) {
+                    return;
+                }
+                await vscode.window.showTextDocument(vscode.Uri.file(skillFilePath));
+            },
             'prompt-command': async e => {
                 const result = await promptDashboardController.handle(e);
                 if (result !== undefined) {
@@ -1901,6 +1924,7 @@ async function initializeDashboard(
         get favoritesGroupCollapsed() { return groupCollapseController.getFavoritesCollapsed() },
         get openWorkspacesGroupCollapsed() { return groupCollapseController.getOpenWorkspacesCollapsed() },
         get todoSearchItems() { return todoService.getSearchItems() },
+        get skills() { return skillDashboardController.getRecords() },
     };
     projectsPanelController = new ProjectsPanelController({
         getGroups: () => projectService.getGroups(),

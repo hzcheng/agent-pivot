@@ -13,6 +13,8 @@ outlines, and returning to projects without losing context.
   Activity Bar view.
 - Finds active and historical Codex, Claude, and Kimi sessions across every
   folder in a workspace.
+- Discovers Kimi, Claude, and Codex skills in one SKILLS tab, with per-agent
+  effectiveness, shadowing diagnostics, and one-click enable/disable.
 - Focuses a running session or resumes an inactive one in a VS Code terminal
   or a managed tmux runtime.
 - Shows bounded user-input conversation outlines and opens provider transcripts
@@ -43,6 +45,11 @@ Conversation outlines contain bounded previews of user input. Selecting an
 outline item opens the matching provider transcript in a read-only editor and
 navigates to that input. Agent Pivot reads the provider-local session metadata
 and transcript only when needed for its session and conversation views.
+
+The SKILLS tab lists Kimi, Claude, and Codex skills from user and project
+skill directories in one place. Each skill shows its effectiveness per agent,
+including shadowing diagnostics when another skill directory takes
+precedence, and can be enabled or disabled with one click.
 
 Agent Pivot does not provide, proxy, or resell access to Codex, Claude, or
 Kimi. Install each provider tool you want to use and authenticate it separately

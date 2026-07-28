@@ -1008,7 +1008,7 @@ test('WEBVIEW-AI-DASHBOARD-001 supports mouse and roving Arrow/Home/End top-leve
     });
     assert.equal(harness.aiButton.classList.contains('focused'), true);
     assert.equal(prevented, 4);
-    assert.equal(harness.context.getAdjacentDashboardTab('todo', 'ArrowRight'), 'ai');
+    assert.equal(harness.context.getAdjacentDashboardTab('todo', 'ArrowRight'), 'skills');
     assert.equal(harness.context.getAdjacentDashboardTab('ai', 'ArrowRight'), 'open');
     assert.equal(harness.context.getAdjacentDashboardTab('projects', 'Home'), 'open');
     assert.equal(harness.context.getAdjacentDashboardTab('projects', 'End'), 'ai');
@@ -1444,7 +1444,7 @@ test('SESSION-CONTROLLER-001 validates lazy responses and preserves independent 
     const harness = createDashboardHarness();
     assert.equal(harness.context.normalizeDashboardTab('unknown'), 'open');
     assert.equal(harness.context.getAdjacentDashboardTab('open', 'ArrowLeft'), 'ai');
-    assert.equal(harness.context.getAdjacentDashboardTab('todo', 'ArrowRight'), 'ai');
+    assert.equal(harness.context.getAdjacentDashboardTab('todo', 'ArrowRight'), 'skills');
     assert.equal(harness.context.validateProjectsPanelMessage({
         type: 'projects-panel-content', version: 1, requestId: 1, html: '',
     }), true);

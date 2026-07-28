@@ -38,13 +38,15 @@ function agentChip(agent: SkillAgentId, visibility: SkillVisibility): string {
 function getSkillDetail(record: SkillRecord, view: SkillPanelView, duplicate?: SkillDuplicateGroup): string {
     const groups = view.groups || {};
     const centralRows = record.central
-        ? `<p class="skill-detail-title">Linked agents</p>` + AGENTS.map(agent => {
+        ? `<p class="skill-detail-title">Linked agents</p><div class="skill-central-links">` + AGENTS.map(agent => {
             const linkPath = record.central?.links[agent];
-            const state = linkPath ? 'on' : 'off';
-            return `<div class="skill-detail-row skill-central-row">${agentChip(agent, linkPath ? 'active' : 'absent')}`
-                + `<button type="button" class="skill-toggle skill-central-toggle${state === 'off' ? ' off' : ''}" title="${linkPath ? 'Disable' : 'Enable'} for ${agent}" data-central-toggle="${escapeAttribute(record.dirPath)}" data-central-source="${agent}"></button>`
-                + `<span class="skill-detail-path">${linkPath ? escapeAttribute(linkPath) : 'not linked'}</span></div>`;
-        }).join('')
+            const off = linkPath ? '' : ' off';
+            const title = linkPath ? `Disable for ${agent} (${linkPath})` : `Enable for ${agent}`;
+            return `<button type="button" class="skill-central-switch${off}" title="${escapeAttribute(title)}"`
+                + ` data-central-toggle="${escapeAttribute(record.dirPath)}" data-central-source="${agent}">`
+                + `<span class="skill-central-switch-name">${agent}</span>`
+                + `<span class="skill-toggle skill-central-toggle${off}"></span></button>`;
+        }).join('') + `</div>`
         : '';
     const rows = AGENTS.map(agent => {
         const visibility = record.visibility[agent];
@@ -89,8 +91,8 @@ function getSkillDetail(record: SkillRecord, view: SkillPanelView, duplicate?: S
         <button type="button" class="skill-setgroup" data-skill-setgroup="${dirPath}">Set</button>
     </div>`;
     return `<div class="skill-detail" hidden>
-        <p class="skill-detail-title">Effectiveness per agent</p>
-        ${centralRows}${rows}${driftRows}${notes}
+        ${centralRows}<p class="skill-detail-title">Effectiveness per agent</p>
+        ${rows}${driftRows}${notes}
         <div class="skill-detail-actions">
             <button class="primary" data-skill-open="${escapeAttribute(record.skillFilePath)}">Open SKILL.md</button>
         </div>

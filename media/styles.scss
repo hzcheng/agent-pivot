@@ -3626,7 +3626,7 @@ body.steward-sidebar {
         }
 
         .codex-session-icon {
-            color: var(--vscode-terminal-ansiCyan);
+            color: var(--vscode-foreground);
             width: 26px;
             height: 26px;
             border: 1px solid var(--vscode-panel-border);
@@ -3641,11 +3641,11 @@ body.steward-sidebar {
         }
 
         .codex-session-row[data-session-provider="kimi"] .codex-session-icon {
-            color: var(--steward-ai-accent);
+            color: var(--vscode-foreground);
         }
 
         .codex-session-row[data-session-provider="claude"] .codex-session-icon {
-            color: var(--steward-ai-accent);
+            color: #d97757;
         }
 
         .active-ai-session-row .codex-session-icon {

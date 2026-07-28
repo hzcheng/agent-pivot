@@ -134,7 +134,6 @@ async function openSkillsPage(browser, records, view = {}) {
             document.addEventListener('dragend', onSkillDragEnd);
             window.__captureSkillCollapsedGroups = captureSkillCollapsedGroups;
             window.__restoreSkillCollapsedGroups = restoreSkillCollapsedGroups;
-            window.__applySkillLinkScope = applySkillLinkScope;
         })();
     }, extractSkillCode());
     return page;
@@ -147,58 +146,54 @@ function switchStates(page) {
     })));
 }
 
-test('SKILLS-SCOPE-SELECT-001 scope selector swaps switch and chip states client-side and persists', async () => {
+test('SKILLS-FOLDER-AGENTS-001 folder dropdown opens per-agent switches and survives HTML replacement', async () => {
     const browser = await chromium.launch();
     try {
         const page = await openSkillsPage(browser);
-        // initial (user scope): kimi linked for alpha, everything else off
-        const initial = await switchStates(page);
-        assert.deepEqual(
-            initial.filter(state => state.agent === 'kimi').map(state => state.off),
-            [false, true, true],
-            'user scope: only alpha kimi is linked'
-        );
-        await page.click('[data-skill-scope-select="project"]');
-        const scoped = await switchStates(page);
-        assert.ok(scoped.every(state => state.off), 'project scope: no links anywhere');
-        const selectorActive = await page.evaluate(() =>
-            document.querySelector('[data-skill-scope-select="project"]').classList.contains('is-active'));
-        assert.ok(selectorActive, 'selector marks the active scope');
-        // scope state survives an authoritative HTML replacement (about:blank blocks
-        // localStorage, so the in-memory path is what this page can exercise)
+        const panelHidden = () => page.evaluate(() =>
+            document.querySelector('[data-folder-agents="superpowers"]').hidden);
+        assert.equal(await panelHidden(), true, 'agents panel starts hidden');
+        await page.click('[data-folder-agents-toggle="superpowers"]');
+        assert.equal(await panelHidden(), false, 'dropdown opens the per-agent panel');
+        // per-agent switch states: alpha links kimi only → kimi indeterminate, claude/codex off
+        const states = await page.evaluate(() =>
+            [...document.querySelectorAll('[data-folder-agents="superpowers"] [data-folder-agent]')].map(el => ({
+                agent: el.getAttribute('data-folder-agent'),
+                cls: el.className,
+            })));
+        assert.deepEqual(states, [
+            { agent: 'kimi', cls: 'skill-ios-toggle indeterminate' },
+            { agent: 'claude', cls: 'skill-ios-toggle off' },
+            { agent: 'codex', cls: 'skill-ios-toggle off' },
+        ]);
+        // dropdown state survives an authoritative HTML replacement
         await page.evaluate(() => {
             const wrapper = document.querySelector('#ai-panel-skills .sticky-groups-wrapper');
+            const open = (function () {
+                const panels = wrapper.querySelectorAll('.skill-folder-agents[data-folder-agents]:not([hidden])');
+                return [...panels].map(panel => panel.getAttribute('data-folder-agents'));
+            })();
             wrapper.outerHTML = wrapper.outerHTML;
-            window.__applySkillLinkScope();
+            const next = document.querySelector('#ai-panel-skills .sticky-groups-wrapper');
+            for (const path of open) {
+                const panel = next.querySelector('.skill-folder-agents[data-folder-agents="' + path + '"]');
+                if (panel) {
+                    panel.hidden = false;
+                }
+            }
         });
-        const afterReplace = await switchStates(page);
-        assert.ok(afterReplace.every(state => state.off), 'project scope preserved across HTML replacement');
-        // folder batch switch recomputes: superpowers has no project links → off
-        const folderOff = await page.evaluate(() =>
-            document.querySelector('[data-folder-toggle="superpowers"]').classList.contains('off'));
-        assert.ok(folderOff, 'folder switch recomputed at the new scope');
-        // back to user scope
-        await page.click('[data-skill-scope-select="user"]');
-        const restored = await switchStates(page);
-        assert.deepEqual(
-            restored.filter(state => state.agent === 'kimi').map(state => state.off),
-            [false, true, true],
-            'user scope restored'
-        );
+        assert.equal(await panelHidden(), false, 'dropdown state restored after replacement');
     } finally {
         await browser.close();
     }
 });
 
-test('SKILLS-FOLDER-TOGGLE-001 folder batch switch posts scope-aware payload; indeterminate completes the set', async () => {
+test('SKILLS-FOLDER-TOGGLE-001 folder agent switch posts a per-agent scope-aware payload; indeterminate completes the set', async () => {
     const browser = await chromium.launch();
     try {
         const page = await openSkillsPage(browser);
-        // superpowers: alpha has kimi only → indeterminate
-        const indeterminate = await page.evaluate(() =>
-            document.querySelector('[data-folder-toggle="superpowers"]').classList.contains('indeterminate'));
-        assert.ok(indeterminate, 'partially linked folder renders indeterminate');
-        await page.click('[data-folder-toggle="superpowers"]');
+        await page.click('[data-folder-agents-toggle="superpowers"]');
+        await page.click('[data-folder-agents="superpowers"] [data-folder-agent="kimi"]');
         const messages = await page.evaluate(() => window.__skillMessages);
         assert.equal(messages.length, 1);
         assert.deepEqual(messages[0], {
@@ -206,8 +201,9 @@ test('SKILLS-FOLDER-TOGGLE-001 folder batch switch posts scope-aware payload; in
             storeRoot: '/home/dev/.skills',
             folder: 'superpowers',
             scope: 'user',
+            agent: 'kimi',
             enabled: false,
-        }, 'indeterminate click means "not fully on" → host completes the set');
+        }, 'indeterminate click means "not fully on for kimi" → host completes the set for kimi');
     } finally {
         await browser.close();
     }

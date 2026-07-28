@@ -333,62 +333,52 @@ function runSkillRenderingChecks() {
             skillFilePath: '/work/app/.skills/pf/proj/SKILL.md', folder: 'pf',
             central: { dirPath: '/work/app/.skills/pf/proj', links: { project: { kimi: '/work/app/.kimi/skills/proj' } } } }),
         makeRecord(), // unmanaged kimi record, folder ''
-    ], { scope: 'user', hasWorkspace: true });
-    // nested folder nodes with paths + store root + batch switches
+    ], { hasWorkspace: true });
+    // nested folder nodes with paths + store root + per-agent dropdowns
     assert.ok(tree.includes('data-skill-folder="superpowers"'));
     assert.ok(tree.includes('data-skill-folder="superpowers/nested"'));
     assert.ok(tree.includes('data-skill-folder="other"'));
     assert.ok(tree.includes('data-skill-store="/home/dev/.skills"'));
     assert.ok(tree.indexOf('data-skill-folder="superpowers"') < tree.indexOf('data-skill-folder="superpowers/nested"'),
         'parent folders render before children');
-    assert.ok(!tree.includes('skill-store-toggle'), 'no store-level batch switch on scope sections');
-    // batch switch states, isolated per folder header
+    // folder dropdown: trigger + hidden per-agent switch panel with scope per section
     const superpowersHeader = folderHeader(tree, 'superpowers');
-    assert.ok(superpowersHeader.includes('skill-ios-toggle indeterminate'), 'partial folder is indeterminate');
+    assert.ok(superpowersHeader.includes('data-folder-agents-toggle="superpowers"'), 'folder has an agents dropdown trigger');
+    assert.ok(superpowersHeader.includes('data-folder-agents="superpowers"'), 'folder has an agents panel');
+    assert.ok(superpowersHeader.includes('data-folder-agent="kimi"'), 'per-agent switches carry the agent');
+    assert.ok(superpowersHeader.includes('data-folder-scope="user"'), 'global-section folder posts user scope');
     assert.ok(superpowersHeader.includes('data-folder-toggle="superpowers"'), 'folder switch posts its relpath');
-    assert.ok(superpowersHeader.includes('data-folder-scope="user"'), 'global-section folder posts the selected scope');
+    // superpowers: alpha links kimi@user, beta nothing → kimi indeterminate, claude/codex off
+    // (kimi is the first agent switch in the panel, so the segment up to its marker
+    // contains only its own button)
+    const spKimiSwitch = superpowersHeader.split('data-folder-agent="kimi"')[0];
+    assert.ok(spKimiSwitch.includes('skill-ios-toggle indeterminate'), 'kimi is indeterminate on a partially linked folder');
+    assert.ok((superpowersHeader.match(/skill-ios-toggle off/g) || []).length === 2, 'claude and codex are off');
     const otherHeader = folderHeader(tree, 'other');
-    assert.ok(otherHeader.includes('skill-ios-toggle off'), 'unlinked folder is off');
-    assert.ok(otherHeader.includes('data-folder-toggle="other"') && otherHeader.includes('data-folder-scope="user"'),
-        'off folder switch carries its relpath and scope');
+    assert.ok(!otherHeader.includes('skill-ios-toggle indeterminate'), 'unlinked folder has no indeterminate agent');
+    assert.strictEqual((otherHeader.match(/skill-ios-toggle off/g) || []).length, 3, 'all three agents off');
     const linkedHeader = folderHeader(tree, 'linked');
-    assert.ok(linkedHeader.includes('class="skill-ios-toggle"'),
-        'fully linked folder is on: neither " off" nor " indeterminate"');
     assert.ok(!linkedHeader.includes('skill-ios-toggle off') && !linkedHeader.includes('skill-ios-toggle indeterminate'),
-        'on switch carries no state suffix');
+        'fully linked folder has every agent on');
     const projectFolderHeader = folderHeader(tree, 'pf');
-    assert.ok(projectFolderHeader.includes('data-folder-toggle="pf"'), 'project-section folder posts its relpath');
     assert.ok(projectFolderHeader.includes('data-folder-scope="project"'), 'project-section folder posts project scope');
-    // scope selector in the filter row
-    assert.ok(tree.includes('data-skill-scope-select="user"'));
-    assert.ok(tree.includes('data-skill-scope-select="project"'));
-    // switches carry both scopes' link state for client-side toggling
-    assert.ok(tree.includes('data-link-user="/home/dev/.kimi/skills/alpha"'));
-    assert.ok(tree.includes('data-link-project="/work/app/.codex/skills/alpha"'));
-    // P badge for project-linked card
-    assert.ok(tree.includes('skill-chip project-linked'));
+    // agent state dots summarize the dropdown when closed
+    assert.ok(superpowersHeader.includes('skill-agent-dot agent-kimi partial'), 'kimi dot half-lit for a partial folder');
+    const linkedDots = folderHeader(tree, 'linked');
+    assert.ok(linkedDots.includes('skill-agent-dot agent-kimi on'), 'fully linked folder dots lit');
+    assert.ok(!otherHeader.includes('skill-agent-dot agent-kimi on') && !otherHeader.includes('skill-agent-dot agent-kimi partial'),
+        'unlinked folder dots unlit');
+    // no scope selector anywhere (scope is positional now); no dual-scope attrs; no P badge
+    assert.ok(!tree.includes('data-skill-scope-select'), 'scope selector removed');
+    assert.ok(!tree.includes('data-link-user'), 'dual-scope link attrs removed');
+    assert.ok(!tree.includes('data-vis-user'), 'dual-scope visibility attrs removed');
+    assert.ok(!tree.includes('skill-chip project-linked'), 'P badge removed');
     // unmanaged section holds the plain record
     assert.ok(tree.includes('skill-unmanaged'));
     // move editor present, old group editor gone
     assert.ok(tree.includes('data-skill-move-folder='));
     assert.ok(!tree.includes('data-skill-group-input'), 'virtual group editor removed');
     assert.ok(!tree.includes('data-skill-collection='), 'virtual collections removed');
-
-    // scope selector: without a workspace the selector hides entirely; with one both buttons render
-    const noWsTree = skillContent.getSkillsPanelContent([makeRecord()], { hasWorkspace: false });
-    assert.ok(!noWsTree.includes('data-skill-scope-select'), 'scope selector hides entirely without a workspace');
-    const wsTree = skillContent.getSkillsPanelContent([makeRecord()], { hasWorkspace: true });
-    assert.ok(wsTree.includes('data-skill-scope-select="user"'), 'Global selector renders with a workspace');
-    assert.ok(wsTree.includes('data-skill-scope-select="project"'), 'project selector renders with a workspace');
-    // project-scope view renders central chips from projectVisibility
-    const projectTree = skillContent.getSkillsPanelContent([
-        makeRecord({ name: 'alpha', source: 'central', dirPath: '/home/dev/.skills/superpowers/alpha',
-            skillFilePath: '/home/dev/.skills/superpowers/alpha/SKILL.md', folder: 'superpowers',
-            central: { dirPath: '/home/dev/.skills/superpowers/alpha', links: { user: { kimi: '/home/dev/.kimi/skills/alpha' }, project: { codex: '/work/app/.codex/skills/alpha' } } },
-            projectVisibility: { kimi: 'active', claude: 'absent', codex: 'active' } }),
-    ], { scope: 'project' });
-    assert.ok(projectTree.includes('data-vis-project="active"'), 'chips carry the project-scope visibility');
-    assert.ok(projectTree.includes('data-vis-user="active"'), 'chips carry the user-scope visibility');
     // name+agent link collisions: controller computes, cards show the conflict chip
     const collisionRecords = [
         makeRecord({ name: 'dup', source: 'central', dirPath: '/home/dev/.skills/f1/dup', folder: 'f1',
@@ -416,14 +406,15 @@ function runSkillStyleChecks() {
     assert.ok(styles.includes('.skill-filter-hidden'));
     assert.ok(styles.includes('.skill-drop-target'));
     assert.ok(styles.includes('.skill-folder'), 'folder node styles');
-    assert.ok(styles.includes('.skill-scope-select'), 'scope segmented control styles');
+    assert.ok(styles.includes('.skill-folder-dropdown'), 'folder dropdown trigger styles');
     assert.ok(styles.includes('.skill-ios-toggle.indeterminate'), 'indeterminate switch styles');
-    assert.ok(styles.includes('.skill-chip.project-linked'), 'P badge styles');
+    assert.ok(styles.includes('.skill-agent-dot'), 'agent dot styles');
+    assert.ok(styles.includes('.skill-folder-agents'), 'folder agents panel styles');
     assert.ok(styles.includes('.skill-unmanaged'), 'unmanaged section styles');
     assert.ok(compiled.includes('.skill-folder'));
-    assert.ok(compiled.includes('.skill-scope-select'));
+    assert.ok(compiled.includes('.skill-folder-agents'));
+    assert.ok(compiled.includes('.skill-agent-dot'));
     assert.ok(compiled.includes('.skill-ios-toggle.indeterminate'));
-    assert.ok(compiled.includes('.skill-chip.project-linked'));
     assert.ok(compiled.includes('.skill-unmanaged'));
     assert.ok(compiled.includes('.skill-toggle'));
     assert.ok(compiled.includes('.skill-chip'));
@@ -442,11 +433,11 @@ function runSkillWebviewScriptChecks() {
     assert.ok(script.includes('skill-filter-hidden'), 'filter hides via class (hidden attr cannot beat author display rules)');
     assert.ok(script.includes('captureSkillCollapsedGroups'), 'collapse state preserved across skills-updated replacement');
     assert.ok(script.includes('restoreSkillCollapsedGroups'));
-    assert.ok(script.includes('data-skill-scope-select'), 'scope selector wiring present');
-    assert.ok(script.includes('applySkillLinkScope'), 'scope applied on init and refresh');
+    assert.ok(!script.includes('data-skill-scope-select'), 'scope selector wiring removed');
+    assert.ok(script.includes('data-folder-agents-toggle'), 'folder agents dropdown wiring present');
+    assert.ok(script.includes('data-folder-agent'), 'per-agent folder switch wiring present');
     assert.ok(script.includes("'folder-toggle-skill-links'"), 'folder batch wiring present');
     assert.ok(script.includes("'move-skill-to-folder'"), 'move wiring present');
-    assert.ok(script.includes('data-link-user'), 'switch state swaps per scope client-side');
     assert.ok(script.includes('data-skill-move-folder'), 'move editor wiring present');
     assert.ok(script.includes('onSkillDragStart'), 'drag-into-folder wiring present');
     assert.ok(script.includes('findSkillDropFolder'));
@@ -892,8 +883,6 @@ function runSkillCentralChecks() {
         'root-level central cards render directly under the scope section, before unmanaged');
     assert.ok(centralHtml.includes('data-skill-move-folder="/home/dev/.skills/shared"'), 'central detail shows the move editor');
     assert.ok(!centralHtml.includes('data-skill-group-input'), 'virtual group editor removed');
-    assert.ok(centralHtml.includes('data-link-user="/home/dev/.kimi/skills/shared"'), 'switch carries the user-scope link');
-    assert.ok(centralHtml.includes('data-link-project=""'), 'switch carries an empty project-scope link');
     assert.ok(!centralHtml.includes('Linked agents'), 'no separate link section remains');
     assert.strictEqual(centralHtml.split('class="skill-agent-row"').length - 1, 3, 'one iOS-style row per agent');
     assert.strictEqual(centralHtml.split('data-central-source=').length - 1, 3, 'one switch per agent');
@@ -1037,10 +1026,11 @@ function runSkillFolderControllerChecks() {
         controller.getRecords().find(record => record.name === 'alpha').central.links.project.kimi,
         path.join(ws, '.kimi', 'skills', 'alpha'));
     assert.strictEqual(controller.handleCentralToggle(alphaDir, 'project', 'kimi', true).ok, true);
-    // folder toggle (folder starts unlinked → current state enabled === false → click links it)
-    const folderResult = controller.handleFolderToggle(storeRoot, 'superpowers', 'user', false);
+    // folder toggle is per-agent now (folder starts unlinked → enabled === false → click links it)
+    const folderResult = controller.handleFolderToggle(storeRoot, 'superpowers', 'user', 'claude', false);
     assert.strictEqual(folderResult.ok, true);
-    assert.ok(fs.lstatSync(path.join(home, '.claude/skills/beta')).isSymbolicLink());
+    assert.ok(fs.lstatSync(path.join(home, '.claude/skills/beta')).isSymbolicLink(), 'batch links every member for that agent');
+    assert.ok(!fs.existsSync(path.join(home, '.kimi/skills/beta')), 'other agents untouched by the batch');
     // move
     assert.strictEqual(controller.handleMoveToFolder(alphaDir, 'collections').ok, true);
     assert.strictEqual(

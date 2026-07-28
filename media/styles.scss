@@ -4585,20 +4585,78 @@ body.steward-sidebar {
         margin-left: 6px;
     }
 
-    .skill-scope-select {
-        padding: 1px 9px;
-        border: 1px solid rgba(110, 110, 110, .35);
+    .skill-agent-dots {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        margin-left: 6px;
+    }
+
+    .skill-agent-dot {
+        width: 6px;
+        height: 6px;
         border-radius: 999px;
+        background: #555;
+
+        &.on.agent-kimi {
+            background: #4ec9b0;
+        }
+
+        &.on.agent-claude {
+            background: #c9a6f2;
+        }
+
+        &.on.agent-codex {
+            background: #7aa2f7;
+        }
+
+        &.partial {
+            background: transparent;
+            box-shadow: inset 0 0 0 2px #888;
+        }
+    }
+
+    .skill-folder-dropdown {
+        flex: none;
+        width: 16px;
+        height: 16px;
+        padding: 0;
+        border: 0;
+        border-radius: 4px;
         background: transparent;
         color: var(--vscode-descriptionForeground);
         cursor: pointer;
-        font-size: 9px;
+        font-size: 10px;
         line-height: 14px;
+        text-align: center;
 
-        &.is-active {
-            background: var(--vscode-button-background);
-            border-color: var(--vscode-button-background);
-            color: var(--vscode-button-foreground);
+        &:hover {
+            background: var(--vscode-toolbar-hoverBackground, rgba(127, 127, 127, .2));
+            color: var(--vscode-foreground);
+        }
+
+        &.open {
+            color: var(--vscode-foreground);
+        }
+    }
+
+    .skill-folder-agents {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 6px 12px;
+        margin: 2px 0 4px 22px;
+        padding: 4px 8px;
+        border: 1px solid var(--vscode-panel-border);
+        border-radius: 6px;
+        background: var(--vscode-editor-background);
+
+        .skill-folder-agent {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            color: var(--vscode-descriptionForeground);
+            font-size: 10px;
         }
     }
 
@@ -4607,12 +4665,6 @@ body.steward-sidebar {
         &::after {
             right: 9px;
         }
-    }
-
-    .skill-chip.project-linked {
-        color: #4ec9b0;
-        background: rgba(78, 201, 176, .13);
-        border-color: rgba(78, 201, 176, .4);
     }
 
     .skill-unmanaged {

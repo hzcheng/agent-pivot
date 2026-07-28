@@ -1408,6 +1408,7 @@ async function initializeDashboard(
                 const result = skillDashboardController.handleFolderToggle(
                     String(e.storeRoot || ''), String(e.folder || ''),
                     (e.scope === 'project' ? 'project' : 'user') as never,
+                    String(e.agent || '') as never,
                     e.enabled === true,
                 );
                 if (!result.ok) {

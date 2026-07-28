@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { DISABLED_DIR_NAME, getCentralSkillsRoot, getProjectSkillsRoots, getUserSkillsRoots, SkillsRoot } from './roots';
-import type { SkillRecord, SkillScope, SkillSourceDir } from './types';
+import type { SkillAgentId, SkillRecord, SkillScope, SkillSourceDir } from './types';
 
 export interface CentralResult {
     ok: boolean;
@@ -188,13 +188,15 @@ function walkSkillDirs(dirPath: string, found: string[]): string[] {
 export function setFolderLinks(
     storeRoot: string, folder: string, scope: SkillScope,
     homeDir: string, workspaceRoot: string | undefined, enable: boolean,
+    agents: SkillAgentId[] = ['kimi', 'claude', 'codex'],
 ): FolderLinkResult {
     if (scope === 'project' && !workspaceRoot) {
         return { ok: false, changed: 0, errors: [{ name: folder || '.', error: 'No workspace is open for project-scope links.' }] };
     }
     const result: FolderLinkResult = { ok: true, changed: 0, errors: [] };
     const roots = scope === 'user' ? getUserSkillsRoots(homeDir) : getProjectSkillsRoots(workspaceRoot as string);
-    const agentRoots = roots.filter(root => root.source === 'kimi' || root.source === 'claude' || root.source === 'codex');
+    const agentRoots = roots.filter(root => agents.includes(root.source as SkillAgentId)
+        && (root.source === 'kimi' || root.source === 'claude' || root.source === 'codex'));
     for (const skillDir of walkSkillDirs(path.join(storeRoot, folder), [])) {
         for (const root of agentRoots) {
             const link = setCentralLink(skillDir, root.dirPath, enable);

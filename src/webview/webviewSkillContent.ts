@@ -13,9 +13,7 @@ import {
 } from '../skills/syncService';
 
 export interface SkillPanelView {
-    /** Selected link scope for central switches + chips; default 'user'. */
-    scope?: SkillScope;
-    /** falsy when no workspace is open: the scope selector hides entirely. */
+    /** falsy when no workspace is open. */
     hasWorkspace?: boolean;
     copyTargets?: Map<string, SkillCopyTarget[]>;
     duplicates?: Map<string, SkillDuplicateGroup>;
@@ -33,39 +31,27 @@ import type { SkillCollectionSuggestion } from '../skills/knownCollections';
 
 const AGENTS: SkillAgentId[] = ['kimi', 'claude', 'codex'];
 
-function getViewScope(view: SkillPanelView): SkillScope {
-    return view.scope === 'project' ? 'project' : 'user';
-}
-
-function agentChip(agent: SkillAgentId, visibility: SkillVisibility, record?: SkillRecord): string {
-    const scoped = record
-        ? ` data-agent="${agent}" data-vis-user="${record.visibility[agent]}" data-vis-project="${(record.projectVisibility || record.visibility)[agent]}"`
-        : '';
+function agentChip(agent: SkillAgentId, visibility: SkillVisibility): string {
     if (visibility === 'active') {
-        return `<span class="skill-chip agent-${agent}"${scoped}>${agent}</span>`;
+        return `<span class="skill-chip agent-${agent}">${agent}</span>`;
     }
     if (visibility === 'shadowed') {
-        return `<span class="skill-chip warn"${scoped}>⚠ ${agent}</span>`;
+        return `<span class="skill-chip warn">⚠ ${agent}</span>`;
     }
-    return `<span class="skill-chip agent-absent"${scoped}>${agent}</span>`;
+    return `<span class="skill-chip agent-absent">${agent}</span>`;
 }
 
 function getSkillDetail(record: SkillRecord, view: SkillPanelView, duplicate?: SkillDuplicateGroup): string {
-    const viewScope = getViewScope(view);
     const rows = AGENTS.map(agent => {
         if (record.central) {
-            // Centralized skills: each agent row is an iOS-style link switch. The off
-            // class + tooltip reflect the selected scope; both scopes' link paths ride
-            // along so the webview can swap states client-side on selector changes.
-            const linkUser = (record.central.links.user || {})[agent] || '';
-            const linkProject = (record.central.links.project || {})[agent] || '';
-            const current = viewScope === 'project' ? linkProject : linkUser;
+            // Centralized skills: each agent row is an iOS-style link switch at the
+            // record's own scope (global store → user roots, project store → project roots).
+            const current = (record.central.links[record.scope] || {})[agent] || '';
             const off = current ? '' : ' off';
             const title = current ? `Disable for ${agent} (${current})` : `Enable for ${agent}`;
             return `<div class="skill-agent-row"><span class="skill-agent-row-name">${agent}</span>`
                 + `<button type="button" class="skill-ios-toggle${off}" title="${escapeAttribute(title)}"`
-                + ` data-central-toggle="${escapeAttribute(record.dirPath)}" data-central-source="${agent}"`
-                + ` data-link-user="${escapeAttribute(linkUser)}" data-link-project="${escapeAttribute(linkProject)}"></button></div>`;
+                + ` data-central-toggle="${escapeAttribute(record.dirPath)}" data-central-source="${agent}"></button></div>`;
         }
         const visibility = record.visibility[agent];
         const status = visibility === 'active'
@@ -78,7 +64,7 @@ function getSkillDetail(record: SkillRecord, view: SkillPanelView, duplicate?: S
             : visibility === 'active'
                 ? escapeAttribute(record.dirPath)
                 : 'not visible';
-        return `<div class="skill-detail-row">${agentChip(agent, visibility === 'shadowed' ? 'shadowed' : visibility, record)}${status}<span class="skill-detail-path">${detail}</span></div>`;
+        return `<div class="skill-detail-row">${agentChip(agent, visibility === 'shadowed' ? 'shadowed' : visibility)}${status}<span class="skill-detail-path">${detail}</span></div>`;
     }).join('');
     const driftRows = duplicate && duplicate.drift
         ? `<p class="skill-detail-title">Copies of this skill</p>` + duplicate.copies.map(copy => {
@@ -122,13 +108,9 @@ function getSkillDiv(record: SkillRecord, view: SkillPanelView): string {
     const name = escapeAttribute(sanitizeProjectName(record.name));
     const description = escapeAttribute(sanitizeProjectName(record.description));
     const scopeLabel = record.scope === 'user' ? 'User' : 'Project';
-    // Chips read the selected scope's effectiveness: project falls back to the record's
-    // own evaluation when no project-scope effectiveness was computed for it.
-    const chipVisibility = getViewScope(view) === 'project'
-        ? (record.projectVisibility || record.visibility)
-        : record.visibility;
-    const activeAgents = AGENTS.filter(agent => chipVisibility[agent] === 'active').join(' ');
-    const shadowed = AGENTS.some(agent => chipVisibility[agent] === 'shadowed');
+    // Chips read the record's own-scope effectiveness (its section determines scope).
+    const activeAgents = AGENTS.filter(agent => record.visibility[agent] === 'active').join(' ');
+    const shadowed = AGENTS.some(agent => record.visibility[agent] === 'shadowed');
     const drift = duplicate && duplicate.drift;
     const conflict = Boolean(view.conflicts && view.conflicts.has(record.dirPath));
     const warnChip = conflict
@@ -144,16 +126,9 @@ function getSkillDiv(record: SkillRecord, view: SkillPanelView): string {
     const copyRow = copyTargets && copyTargets.length
         ? `<div class="skill-copy-row">Copy to: ${copyTargets.map(target => `<button type="button" class="skill-copy" data-skill-copy="${escapeAttribute(record.dirPath)}" data-skill-copy-root="${escapeAttribute(target.rootDir)}">${target.source}</button>`).join('')}</div>`
         : '';
-    const projectLinks = record.central && record.central.links.project
-        ? Object.keys(record.central.links.project).length
-        : 0;
-    const projectBadge = projectLinks
-        ? '<span class="skill-chip project-linked" title="Enabled in this project">P</span>'
-        : '';
     const chips = `<span class="skill-chip scope-${record.scope}">${scopeLabel}</span>`
         + (record.central ? '<span class="skill-chip central" title="Centralized in the shared store">central</span>' : '')
-        + projectBadge
-        + AGENTS.map(agent => agentChip(agent, chipVisibility[agent], record)).join('')
+        + AGENTS.map(agent => agentChip(agent, record.visibility[agent])).join('')
         + warnChip;
     const parkedNote = record.enabled ? '' : `<span class="skill-parked-note">parked at ${escapeAttribute(record.dirPath)}</span>`;
     const centralizeButton = record.central || !record.enabled
@@ -270,7 +245,8 @@ function collectFolderMembers(node: SkillFolderNode, into: SkillRecord[] = []): 
 
 type SkillFolderLinkState = 'on' | 'off' | 'indeterminate';
 
-function folderLinkState(node: SkillFolderNode, scope: SkillScope): SkillFolderLinkState {
+/** Per-agent link state of a folder subtree at the section scope. */
+function folderAgentState(node: SkillFolderNode, scope: SkillScope, agent: SkillAgentId): SkillFolderLinkState {
     const members = collectFolderMembers(node);
     if (!members.length) {
         return 'off';
@@ -279,19 +255,15 @@ function folderLinkState(node: SkillFolderNode, scope: SkillScope): SkillFolderL
     let allLinked = true;
     for (const record of members) {
         const links = (record.central && record.central.links[scope]) || {};
-        const linked = AGENTS.filter(agent => Boolean(links[agent])).length;
-        if (linked > 0) {
+        if (links[agent]) {
             anyLink = true;
-        }
-        if (linked < AGENTS.length) {
+        } else {
             allLinked = false;
         }
     }
     if (allLinked) {
         return 'on';
     }
-    // Some member links present (or members only partially linked) → indeterminate;
-    // no links anywhere in the subtree → off.
     return anyLink ? 'indeterminate' : 'off';
 }
 
@@ -314,19 +286,28 @@ function renderFolderNode(
     node: SkillFolderNode,
     storeRoot: string,
     sectionScope: SkillScope,
-    folderScope: SkillScope,
     view: SkillPanelView,
 ): string {
-    // Batch state is read at the same scope the switch posts (folderScope): the global
-    // section follows the selector, the project section is fixed at project scope.
-    const state = folderLinkState(node, folderScope);
+    // Scope is positional: global-section folders act on user-level agent roots,
+    // project-section folders on the current project's agent roots.
     const count = collectFolderMembers(node).length;
     const children = [...node.children.values()].sort((a, b) => a.name.localeCompare(b.name));
     const items = node.items.slice().sort((a, b) => a.name.localeCompare(b.name));
     const pathAttr = escapeAttribute(node.path);
-    const title = state === 'on'
-        ? `Disable every skill under ${node.path} for all agents`
-        : `Enable every skill under ${node.path} for all agents`;
+    const dots = AGENTS.map(agent => {
+        const state = folderAgentState(node, sectionScope, agent);
+        const stateClass = state === 'on' ? ' on' : state === 'indeterminate' ? ' partial' : '';
+        return `<span class="skill-agent-dot agent-${agent}${stateClass}" title="${agent}: ${state}"></span>`;
+    }).join('');
+    const agentSwitches = AGENTS.map(agent => {
+        const state = folderAgentState(node, sectionScope, agent);
+        const title = state === 'on'
+            ? `Disable every skill under ${node.path} for ${agent}`
+            : `Enable every skill under ${node.path} for ${agent}`;
+        return `<span class="skill-folder-agent">${agent}`
+            + `<button type="button" class="skill-ios-toggle${folderToggleClass(state)}" title="${escapeAttribute(title)}"`
+            + ` data-folder-toggle="${pathAttr}" data-folder-agent="${agent}" data-folder-scope="${sectionScope}"></button></span>`;
+    }).join('');
     return `<div class="skill-folder group steward-section" data-group-id="skill-folder-${sectionScope}-${encodeURIComponent(node.path)}" data-skill-folder="${pathAttr}" data-skill-store="${escapeAttribute(storeRoot)}" data-skill-folder-scope="${sectionScope}">
     <div class="group-title steward-section-header steward-group-header skill-folder-header">
         <span class="group-title-text" data-action="collapse">
@@ -334,11 +315,13 @@ function renderFolderNode(
             <span class="skill-collection-icon" aria-hidden="true">${folderIcon}</span>${escapeAttribute(node.name)}
         </span>
         <span class="group-title-badge">${count}</span>
-        <button type="button" class="skill-ios-toggle${folderToggleClass(state)}" title="${escapeAttribute(title)}" data-folder-toggle="${pathAttr}" data-folder-scope="${folderScope}"></button>
+        <span class="skill-agent-dots">${dots}</span>
+        <button type="button" class="skill-folder-dropdown" title="Choose agents for this folder" data-folder-agents-toggle="${pathAttr}">▾</button>
         <button type="button" class="skill-folder-remove" title="Delete empty folder" data-skill-remove-folder="${pathAttr}">×</button>
     </div>
+    <div class="skill-folder-agents" data-folder-agents="${pathAttr}" hidden>${agentSwitches}</div>
     <div class="group-list skill-folder-list">
-        ${children.map(child => renderFolderNode(child, storeRoot, sectionScope, folderScope, view)).join('\n')}
+        ${children.map(child => renderFolderNode(child, storeRoot, sectionScope, view)).join('\n')}
         ${items.map(item => getSkillDiv(item, view)).join('\n')}
     </div>
 </div>`;
@@ -350,13 +333,9 @@ function renderScopeSection(scope: SkillScope, items: SkillRecord[], view: Skill
     const tree = buildFolderTree(central);
     const viewStoreRoot = scope === 'user' ? view.storeRoots?.user : view.storeRoots?.project;
     const storeRoot = viewStoreRoot || (central.length ? getCentralStoreRoot(central[0]) : '');
-    const viewScope = getViewScope(view);
-    // Folder toggles in the global section act at the selected scope; project-section
-    // folders are inherently project scope and ignore the selector.
-    const folderScope: SkillScope = scope === 'project' ? 'project' : viewScope;
     const folders = [...tree.children.values()]
         .sort((a, b) => a.name.localeCompare(b.name))
-        .map(node => renderFolderNode(node, storeRoot, scope, folderScope, view));
+        .map(node => renderFolderNode(node, storeRoot, scope, view));
     const rootItems = tree.items.slice()
         .sort((a, b) => a.name.localeCompare(b.name))
         .map(record => getSkillDiv(record, view));
@@ -390,15 +369,9 @@ function renderFilterRow(view: SkillPanelView): string {
         const label = agent === 'all' ? 'All' : SOURCE_LABELS[agent as SkillSourceDir];
         return `<button type="button" class="skills-filter${agent === 'all' ? ' is-active' : ''}" data-skill-filter="${agent}">${label}</button>`;
     }).join('');
-    const scope = getViewScope(view);
-    // No workspace → no project scope to select: the selector hides entirely.
-    const scopeButtons = !view.hasWorkspace
-        ? ''
-        : `<button type="button" class="skill-scope-select${scope === 'user' ? ' is-active' : ''}" data-skill-scope-select="user">Global</button>`
-            + `<button type="button" class="skill-scope-select${scope === 'project' ? ' is-active' : ''}" data-skill-scope-select="project">This project</button>`;
     const migrate = '<button type="button" class="skills-filter skills-migrate-central" data-skill-migrate-central '
         + 'title="Move every user skill from ~/.kimi, ~/.claude and ~/.codex into ~/.skills (duplicates parked, no agent links)">Migrate to central</button>';
-    return `<div class="skills-filter-row" data-skill-filter-row role="group" aria-label="Filter skills by agent">${buttons}${scopeButtons}${migrate}</div>`;
+    return `<div class="skills-filter-row" data-skill-filter-row role="group" aria-label="Filter skills by agent">${buttons}${migrate}</div>`;
 }
 
 function renderSuggestion(suggestion: SkillCollectionSuggestion): string {

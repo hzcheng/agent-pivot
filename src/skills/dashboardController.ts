@@ -191,8 +191,8 @@ export class SkillDashboardController {
         return result;
     }
 
-    handleFolderToggle(storeRoot: string, folder: string, scope: SkillScope, enabled: boolean): FolderLinkResult {
-        const result = setFolderLinks(storeRoot, folder, scope, this.options.getHomeDir(), this.options.getWorkspaceRoot(), !enabled);
+    handleFolderToggle(storeRoot: string, folder: string, scope: SkillScope, agent: SkillAgentId, enabled: boolean): FolderLinkResult {
+        const result = setFolderLinks(storeRoot, folder, scope, this.options.getHomeDir(), this.options.getWorkspaceRoot(), !enabled, [agent]);
         for (const error of result.errors) {
             this.options.logError(`Failed to toggle folder link for ${error.name}.`, new Error(error.error));
         }

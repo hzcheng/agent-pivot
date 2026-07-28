@@ -15,7 +15,7 @@ import {
 export interface SkillPanelView {
     /** Selected link scope for central switches + chips; default 'user'. */
     scope?: SkillScope;
-    /** false when no workspace is open: the project scope-selector button hides. */
+    /** falsy when no workspace is open: the scope selector hides entirely. */
     hasWorkspace?: boolean;
     copyTargets?: Map<string, SkillCopyTarget[]>;
     duplicates?: Map<string, SkillDuplicateGroup>;
@@ -353,15 +353,6 @@ function renderScopeSection(scope: SkillScope, items: SkillRecord[], view: Skill
     const rootItems = tree.items.slice()
         .sort((a, b) => a.name.localeCompare(b.name))
         .map(record => getSkillDiv(record, view));
-    // Store-level batch switch: toggles every central skill in the section at the
-    // folder scope (folder '' = store root for the host endpoint).
-    const storeState = folderLinkState(tree, folderScope);
-    const storeTitle = storeState === 'on'
-        ? 'Disable every centralized skill in this store for all agents'
-        : 'Enable every centralized skill in this store for all agents';
-    const storeSwitch = central.length
-        ? `<button type="button" class="skill-ios-toggle${folderToggleClass(storeState)} skill-store-toggle" title="${escapeAttribute(storeTitle)}" data-folder-toggle="" data-folder-scope="${folderScope}"></button>`
-        : '';
     const unmanagedSection = unmanaged.length
         ? `<div class="skill-unmanaged">
         <div class="skill-unmanaged-header">Unmanaged</div>
@@ -376,7 +367,6 @@ function renderScopeSection(scope: SkillScope, items: SkillRecord[], view: Skill
             <span class="skill-collection-icon" aria-hidden="true">${folderIcon}</span>${scope === 'user' ? 'global' : 'project'}
         </span>
         <span class="group-title-badge">${items.length}</span>
-        ${storeSwitch}
     </div>
     <div class="group-list">
         <div class="drop-signal"></div>
@@ -393,10 +383,11 @@ function renderFilterRow(view: SkillPanelView): string {
         return `<button type="button" class="skills-filter${agent === 'all' ? ' is-active' : ''}" data-skill-filter="${agent}">${label}</button>`;
     }).join('');
     const scope = getViewScope(view);
-    const scopeButtons = `<button type="button" class="skill-scope-select${scope === 'user' ? ' is-active' : ''}" data-skill-scope-select="user">Global</button>`
-        + (view.hasWorkspace === false
-            ? ''
-            : `<button type="button" class="skill-scope-select${scope === 'project' ? ' is-active' : ''}" data-skill-scope-select="project">This project</button>`);
+    // No workspace → no project scope to select: the selector hides entirely.
+    const scopeButtons = !view.hasWorkspace
+        ? ''
+        : `<button type="button" class="skill-scope-select${scope === 'user' ? ' is-active' : ''}" data-skill-scope-select="user">Global</button>`
+            + `<button type="button" class="skill-scope-select${scope === 'project' ? ' is-active' : ''}" data-skill-scope-select="project">This project</button>`;
     const migrate = '<button type="button" class="skills-filter skills-migrate-central" data-skill-migrate-central '
         + 'title="Move every user skill from ~/.kimi, ~/.claude and ~/.codex into ~/.skills (duplicates parked, no agent links)">Migrate to central</button>';
     return `<div class="skills-filter-row" data-skill-filter-row role="group" aria-label="Filter skills by agent">${buttons}${scopeButtons}${migrate}</div>`;

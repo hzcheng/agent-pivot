@@ -220,6 +220,19 @@ function makeRecord(overrides = {}) {
     };
 }
 
+// Isolate one folder node's header segment: from its data-skill-folder marker up to
+// the next nested folder or skill card, so batch-switch assertions match only this
+// folder's own switch (never a sibling/parent header or a store-level switch).
+function folderHeader(html, folderPath) {
+    const marker = `data-skill-folder="${folderPath}"`;
+    const start = html.indexOf(marker);
+    assert.ok(start >= 0, `folder node ${folderPath} renders`);
+    const rest = html.slice(start + marker.length);
+    const stops = [rest.indexOf('data-skill-folder='), rest.indexOf('project-container')]
+        .filter(index => index >= 0);
+    return rest.slice(0, stops.length ? Math.min(...stops) : rest.length);
+}
+
 function runSkillRenderingChecks() {
     const html = skillContent.getSkillsPanelContent([
         makeRecord(),
@@ -308,8 +321,19 @@ function runSkillRenderingChecks() {
         makeRecord({ name: 'gamma', source: 'central', dirPath: '/home/dev/.skills/other/gamma',
             skillFilePath: '/home/dev/.skills/other/gamma/SKILL.md', folder: 'other',
             central: { dirPath: '/home/dev/.skills/other/gamma', links: {} } }),
+        // every member of this folder links all three agents at user scope → batch on
+        makeRecord({ name: 'omega', source: 'central', dirPath: '/home/dev/.skills/linked/omega',
+            skillFilePath: '/home/dev/.skills/linked/omega/SKILL.md', folder: 'linked',
+            central: { dirPath: '/home/dev/.skills/linked/omega', links: { user: {
+                kimi: '/home/dev/.kimi/skills/omega',
+                claude: '/home/dev/.claude/skills/omega',
+                codex: '/home/dev/.codex/skills/omega',
+            } } } }),
+        makeRecord({ name: 'proj', scope: 'project', source: 'central', dirPath: '/work/app/.skills/pf/proj',
+            skillFilePath: '/work/app/.skills/pf/proj/SKILL.md', folder: 'pf',
+            central: { dirPath: '/work/app/.skills/pf/proj', links: { project: { kimi: '/work/app/.kimi/skills/proj' } } } }),
         makeRecord(), // unmanaged kimi record, folder ''
-    ], { scope: 'user' });
+    ], { scope: 'user', hasWorkspace: true });
     // nested folder nodes with paths + store root + batch switches
     assert.ok(tree.includes('data-skill-folder="superpowers"'));
     assert.ok(tree.includes('data-skill-folder="superpowers/nested"'));
@@ -317,9 +341,24 @@ function runSkillRenderingChecks() {
     assert.ok(tree.includes('data-skill-store="/home/dev/.skills"'));
     assert.ok(tree.indexOf('data-skill-folder="superpowers"') < tree.indexOf('data-skill-folder="superpowers/nested"'),
         'parent folders render before children');
-    // batch switch states: superpowers partial → indeterminate; other empty → off
-    const superpowersHeader = tree.split('data-skill-folder="superpowers"')[0];
-    assert.ok(/skill-ios-toggle indeterminate/.test(superpowersHeader), 'partial folder is indeterminate');
+    assert.ok(!tree.includes('skill-store-toggle'), 'no store-level batch switch on scope sections');
+    // batch switch states, isolated per folder header
+    const superpowersHeader = folderHeader(tree, 'superpowers');
+    assert.ok(superpowersHeader.includes('skill-ios-toggle indeterminate'), 'partial folder is indeterminate');
+    assert.ok(superpowersHeader.includes('data-folder-toggle="superpowers"'), 'folder switch posts its relpath');
+    assert.ok(superpowersHeader.includes('data-folder-scope="user"'), 'global-section folder posts the selected scope');
+    const otherHeader = folderHeader(tree, 'other');
+    assert.ok(otherHeader.includes('skill-ios-toggle off'), 'unlinked folder is off');
+    assert.ok(otherHeader.includes('data-folder-toggle="other"') && otherHeader.includes('data-folder-scope="user"'),
+        'off folder switch carries its relpath and scope');
+    const linkedHeader = folderHeader(tree, 'linked');
+    assert.ok(linkedHeader.includes('class="skill-ios-toggle"'),
+        'fully linked folder is on: neither " off" nor " indeterminate"');
+    assert.ok(!linkedHeader.includes('skill-ios-toggle off') && !linkedHeader.includes('skill-ios-toggle indeterminate'),
+        'on switch carries no state suffix');
+    const projectFolderHeader = folderHeader(tree, 'pf');
+    assert.ok(projectFolderHeader.includes('data-folder-toggle="pf"'), 'project-section folder posts its relpath');
+    assert.ok(projectFolderHeader.includes('data-folder-scope="project"'), 'project-section folder posts project scope');
     // scope selector in the filter row
     assert.ok(tree.includes('data-skill-scope-select="user"'));
     assert.ok(tree.includes('data-skill-scope-select="project"'));
@@ -335,10 +374,12 @@ function runSkillRenderingChecks() {
     assert.ok(!tree.includes('data-skill-group-input'), 'virtual group editor removed');
     assert.ok(!tree.includes('data-skill-collection='), 'virtual collections removed');
 
-    // scope selector: without a workspace the project button hides, Global stays
+    // scope selector: without a workspace the selector hides entirely; with one both buttons render
     const noWsTree = skillContent.getSkillsPanelContent([makeRecord()], { hasWorkspace: false });
-    assert.ok(noWsTree.includes('data-skill-scope-select="user"'), 'Global selector stays without a workspace');
-    assert.ok(!noWsTree.includes('data-skill-scope-select="project"'), 'project selector hidden without a workspace');
+    assert.ok(!noWsTree.includes('data-skill-scope-select'), 'scope selector hides entirely without a workspace');
+    const wsTree = skillContent.getSkillsPanelContent([makeRecord()], { hasWorkspace: true });
+    assert.ok(wsTree.includes('data-skill-scope-select="user"'), 'Global selector renders with a workspace');
+    assert.ok(wsTree.includes('data-skill-scope-select="project"'), 'project selector renders with a workspace');
     // project-scope view renders central chips from projectVisibility
     const projectTree = skillContent.getSkillsPanelContent([
         makeRecord({ name: 'alpha', source: 'central', dirPath: '/home/dev/.skills/superpowers/alpha',

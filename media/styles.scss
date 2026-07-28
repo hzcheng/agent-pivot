@@ -4069,6 +4069,170 @@ body.steward-sidebar {
         }
     }
 
+    .skill-card {
+        height: auto;
+        min-height: 96px;
+    }
+
+    .skill-toggle {
+        position: absolute;
+        top: 8px;
+        right: 9px;
+        z-index: 3;
+        width: 26px;
+        height: 14px;
+        border: 0;
+        border-radius: 999px;
+        padding: 0;
+        background: var(--vscode-button-background);
+        cursor: pointer;
+
+        &::after {
+            content: "";
+            position: absolute;
+            top: 2px;
+            right: 2px;
+            width: 10px;
+            height: 10px;
+            border-radius: 999px;
+            background: #fff;
+        }
+
+        &.off {
+            background: #3c3c3c;
+            box-shadow: inset 0 0 0 1px #555;
+
+            &::after {
+                right: auto;
+                left: 2px;
+                background: #888;
+            }
+        }
+    }
+
+    .skill-card-disabled {
+        opacity: .55;
+    }
+
+    .skill-parked-note {
+        display: block;
+        margin-top: 2px;
+        font-size: 9px;
+        font-style: italic;
+        color: var(--vscode-descriptionForeground);
+        opacity: .8;
+    }
+
+    .skill-chip-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        align-items: center;
+        margin-top: 6px;
+    }
+
+    .skill-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        padding: 1px 7px;
+        border: 1px solid transparent;
+        border-radius: 999px;
+        font-size: 9px;
+        line-height: 14px;
+        white-space: nowrap;
+
+        &.scope-user { color: #8ab4f8; background: rgba(55, 148, 255, .14); border-color: rgba(138, 180, 248, .4); }
+        &.scope-project { color: #c9a6f2; background: rgba(180, 130, 255, .13); border-color: rgba(201, 166, 242, .35); }
+        &.agent-kimi { color: #7aa2ff; background: rgba(122, 162, 255, .13); border-color: rgba(122, 162, 255, .4); }
+        &.agent-claude { color: #d97757; background: rgba(217, 119, 87, .13); border-color: rgba(217, 119, 87, .4); }
+        &.agent-codex { color: #4ec9b0; background: rgba(78, 201, 176, .13); border-color: rgba(78, 201, 176, .4); }
+        &.agent-absent { color: #6a6a6a; background: rgba(110, 110, 110, .08); border-color: rgba(110, 110, 110, .25); text-decoration: line-through; }
+        &.warn { color: var(--vscode-editorWarning-foreground, #cca700); background: rgba(204, 167, 0, .12); border-color: rgba(204, 167, 0, .4); cursor: pointer; }
+    }
+
+    .skill-detail {
+        margin-top: 8px;
+        padding: 8px 10px;
+        border: 1px solid #3a3d42;
+        border-radius: 12px;
+        background: #1e2023;
+    }
+
+    .skill-detail-title {
+        margin: 0 0 7px;
+        font-size: 11px;
+        font-weight: 600;
+    }
+
+    .skill-detail-row {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        margin: 5px 0;
+        font-size: 10px;
+    }
+
+    .skill-detail-status {
+        flex: none;
+        width: 74px;
+        font-size: 10px;
+
+        &.ok { color: var(--vscode-charts-green); }
+        &.warn { color: var(--vscode-editorWarning-foreground, #cca700); }
+    }
+
+    .skill-detail-path {
+        overflow: hidden;
+        color: var(--vscode-descriptionForeground);
+        font-size: 9.5px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .skill-detail-note {
+        margin: 8px 0 0;
+        padding-top: 7px;
+        border-top: 1px solid #333;
+        color: var(--vscode-editorWarning-foreground, #cca700);
+        font-size: 10px;
+        line-height: 1.5;
+    }
+
+    .skill-detail-actions {
+        display: flex;
+        gap: 6px;
+        margin-top: 8px;
+
+        button {
+            padding: 3px 10px;
+            border: 0;
+            border-radius: 4px;
+            background: var(--vscode-button-secondaryBackground);
+            color: var(--vscode-button-secondaryForeground);
+            cursor: pointer;
+            font-size: 10px;
+        }
+
+        button.primary {
+            background: var(--vscode-button-background);
+            color: var(--vscode-button-foreground);
+        }
+    }
+
+    .skills-empty {
+        padding: 12px 4px;
+        color: var(--vscode-descriptionForeground);
+        font-size: 11px;
+    }
+
+}
+
+body.steward-sidebar .skill-card .project-description {
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
 }
 
 body.steward-sidebar .project .codex-session-row.attention-animate,

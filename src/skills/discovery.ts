@@ -14,7 +14,7 @@ import {
     SkillsRoot,
 } from './roots';
 import { hashSkillDirectory } from './syncService';
-import type { SkillDiagnostic, SkillRecord, SkillSourceDir } from './types';
+import type { SkillDiagnostic, SkillRecord, SkillScope, SkillSourceDir } from './types';
 
 export interface ScanSkillsInput {
     homeDir: string;
@@ -49,6 +49,7 @@ function createRecord(root: SkillsRoot, dirName: string, dirPath: string, enable
         source: root.source,
         enabled,
         contentHash: hashSkillDirectory(dirPath),
+        folder: '',
         visibility: { kimi: 'absent', claude: 'absent', codex: 'absent' },
         shadowedBy: {},
         diagnostics: getSkillDiagnostics({
@@ -62,6 +63,7 @@ function createRecord(root: SkillsRoot, dirName: string, dirPath: string, enable
 
 interface SkillLink {
     source: SkillSourceDir;
+    scope: SkillScope;
     linkPath: string;
     targetPath: string;
 }
@@ -98,7 +100,12 @@ function scanDir(
             // A symlink into the central store is an agent link, not a copy:
             // the record comes from the central-root scan, the link is noted.
             if (isUnderCentralRoot(dirPath, input.homeDir, input.workspaceRoot)) {
-                links.push({ source: root.source, linkPath: path.join(parentDir, entry.name), targetPath: dirPath });
+                links.push({
+                    source: root.source,
+                    scope: root.scope,
+                    linkPath: path.join(parentDir, entry.name),
+                    targetPath: dirPath,
+                });
                 continue;
             }
         } else if (!entry.isDirectory()) {
@@ -117,6 +124,46 @@ function scanRoot(root: SkillsRoot, links: SkillLink[], input: ScanSkillsInput):
     // parked skills are first-level children of the root's `.disabled` directory.
     return scanDir(root, root.dirPath, true, links, input)
         .concat(scanDir(root, path.join(root.dirPath, DISABLED_DIR_NAME), false, links, input));
+}
+
+function scanCentralStore(root: SkillsRoot, records: SkillRecord[]): void {
+    const walk = (dirPath: string, folder: string): void => {
+        let entries: fs.Dirent[];
+        try {
+            entries = fs.readdirSync(dirPath, { withFileTypes: true });
+        } catch (_error) {
+            return;
+        }
+        for (const entry of entries) {
+            if (entry.name.startsWith('.')) {
+                continue;
+            }
+            const fullPath = path.join(dirPath, entry.name);
+            let realPath = fullPath;
+            let isDirectory = entry.isDirectory();
+            if (entry.isSymbolicLink()) {
+                try {
+                    realPath = fs.realpathSync(fullPath);
+                    isDirectory = fs.statSync(realPath).isDirectory();
+                } catch (_error) {
+                    continue;
+                }
+            }
+            if (!isDirectory) {
+                continue;
+            }
+            if (readSkillFile(realPath)) {
+                const record = createRecord(root, entry.name, realPath, true);
+                if (record) {
+                    record.folder = folder;
+                    records.push(record);
+                }
+            } else {
+                walk(realPath, folder ? `${folder}/${entry.name}` : entry.name);
+            }
+        }
+    };
+    walk(root.dirPath, '');
 }
 
 function centralRoots(input: ScanSkillsInput): SkillsRoot[] {
@@ -152,18 +199,25 @@ function mergeCentralRecords(records: SkillRecord[], links: SkillLink[], input: 
     for (const link of links) {
         const record = byDir.get(link.targetPath);
         if (record && record.central && link.source !== 'central') {
-            record.central.links[link.source] = link.linkPath;
+            let scopedLinks = record.central.links[link.scope];
+            if (!scopedLinks) {
+                scopedLinks = {};
+                record.central.links[link.scope] = scopedLinks;
+            }
+            scopedLinks[link.source] = link.linkPath;
         }
     }
     return merged;
 }
 
 export function scanSkills(input: ScanSkillsInput): SkillRecord[] {
-    const roots = getUserSkillsRoots(input.homeDir)
-        .concat(input.workspaceRoot ? getProjectSkillsRoots(input.workspaceRoot) : [])
-        .concat(centralRoots(input));
+    const agentRoots = getUserSkillsRoots(input.homeDir)
+        .concat(input.workspaceRoot ? getProjectSkillsRoots(input.workspaceRoot) : []);
     const links: SkillLink[] = [];
-    const records = roots.reduce<SkillRecord[]>((all, root) => all.concat(scanRoot(root, links, input)), []);
+    const records = agentRoots.reduce<SkillRecord[]>((all, root) => all.concat(scanRoot(root, links, input)), []);
+    for (const root of centralRoots(input)) {
+        scanCentralStore(root, records);
+    }
     return applySkillEffectiveness(
         mergeCentralRecords(records, links, input),
         input

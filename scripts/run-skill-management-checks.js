@@ -473,6 +473,7 @@ runSkillSearchCatalogChecks();
 runSkillSyncChecks();
 runSkillCentralChecks();
 runSkillMigrationChecks();
+runSkillFolderDiscoveryChecks();
 runSkillGroupStoreChecks()
     .then(() => console.log('Skill management checks passed.'))
     .catch(error => {
@@ -843,8 +844,10 @@ function runSkillCentralChecks() {
     assert.deepStrictEqual(shared.central, {
         dirPath: path.join(home, '.skills', 'shared'),
         links: {
-            kimi: path.join(home, '.kimi', 'skills', 'shared'),
-            codex: path.join(home, '.codex', 'skills', 'shared'),
+            user: {
+                kimi: path.join(home, '.kimi', 'skills', 'shared'),
+                codex: path.join(home, '.codex', 'skills', 'shared'),
+            },
         },
     });
     // effectiveness: linked agents are active; kimi follows the link under its winning brand dir
@@ -852,7 +855,7 @@ function runSkillCentralChecks() {
     const proj = scanned.find(record => record.name === 'proj');
     assert.strictEqual(proj.source, 'central');
     assert.strictEqual(proj.scope, 'project', 'project central store scopes correctly');
-    assert.deepStrictEqual(proj.central.links, { claude: path.join(ws, '.claude', 'skills', 'proj') });
+    assert.deepStrictEqual(proj.central.links, { project: { claude: path.join(ws, '.claude', 'skills', 'proj') } });
     assert.deepStrictEqual(proj.visibility, { kimi: 'active', claude: 'active', codex: 'absent' });
 
     // effectiveness: linked only outside the winning brand dir → kimi shadowed
@@ -904,7 +907,7 @@ function runSkillCentralChecks() {
     const enabledSolo = rescanned.filter(record => record.name === 'solo' && record.enabled);
     assert.strictEqual(enabledSolo.length, 1, 'centralized skill merges into one enabled record');
     assert.strictEqual(enabledSolo[0].source, 'central');
-    assert.deepStrictEqual(enabledSolo[0].central.links, { claude: path.join(home, '.claude', 'skills', 'solo') });
+    assert.deepStrictEqual(enabledSolo[0].central.links, { user: { claude: path.join(home, '.claude', 'skills', 'solo') } });
     const parkedSolo = rescanned.find(record => record.name === 'solo' && !record.enabled);
     assert.ok(parkedSolo, 'parked loser stays listed as a parked record');
     assert.strictEqual(centralService.centralizeSkill(enabledSolo[0], [], home, ws).ok, false, 'already centralized is refused');
@@ -924,7 +927,7 @@ function runSkillCentralChecks() {
     assert.strictEqual(controller.handleCentralToggle(sharedDir, 'claude', false).ok, true);
     assert.ok(fs.lstatSync(path.join(home, '.claude', 'skills', 'shared')).isSymbolicLink());
     assert.strictEqual(
-        controller.getRecords().find(record => record.name === 'shared').central.links.claude,
+        controller.getRecords().find(record => record.name === 'shared').central.links.user?.claude,
         path.join(home, '.claude', 'skills', 'shared'),
         'refresh picks up the new link');
     // enabled === true → the link exists → remove it
@@ -957,7 +960,7 @@ function runSkillCentralChecks() {
         name: 'shared', source: 'central',
         dirPath: '/home/dev/.skills/shared', skillFilePath: '/home/dev/.skills/shared/SKILL.md',
         visibility: { kimi: 'active', claude: 'absent', codex: 'active' },
-        central: { dirPath: '/home/dev/.skills/shared', links: { kimi: '/home/dev/.kimi/skills/shared', codex: '/home/dev/.codex/skills/shared' } },
+        central: { dirPath: '/home/dev/.skills/shared', links: { user: { kimi: '/home/dev/.kimi/skills/shared', codex: '/home/dev/.codex/skills/shared' } } },
     });
     const centralHtml = skillContent.getSkillsPanelContent([centralRecord, makeRecord()]);
     assert.ok(centralHtml.includes('skill-chip central'), 'central chip renders');
@@ -998,6 +1001,41 @@ function runSkillCentralChecks() {
     assert.ok(styles.includes('.skill-ios-toggle'));
     assert.ok(compiledCss.includes('.skill-centralize'));
     assert.ok(compiledCss.includes('.skill-ios-toggle'));
+}
+
+function runSkillFolderDiscoveryChecks() {
+    const real = dirPath => fs.realpathSync(dirPath);
+    const home = real(fs.mkdtempSync(path.join(os.tmpdir(), 'skills-folders-')));
+    const ws = real(fs.mkdtempSync(path.join(os.tmpdir(), 'skills-folders-ws-')));
+    const write = (filePath, content) => {
+        fs.mkdirSync(path.dirname(filePath), { recursive: true });
+        fs.writeFileSync(filePath, content);
+    };
+    write(path.join(home, '.skills/superpowers/alpha/SKILL.md'), '---\nname: alpha\ndescription: A\n---\n');
+    write(path.join(home, '.skills/xiaohongshu/reddoc/r/SKILL.md'), '---\nname: r\ndescription: R\n---\n');
+    write(path.join(home, '.skills/solo/SKILL.md'), '---\nname: solo\ndescription: S\n---\n');
+    fs.mkdirSync(path.join(home, '.kimi/skills'), { recursive: true });
+    fs.symlinkSync(path.join(home, '.skills/superpowers/alpha'), path.join(home, '.kimi/skills/alpha'), 'dir');
+    fs.mkdirSync(path.join(ws, '.codex/skills'), { recursive: true });
+    fs.symlinkSync(path.join(home, '.skills/xiaohongshu/reddoc/r'), path.join(ws, '.codex/skills/r'), 'dir');
+
+    const records = discovery.scanSkills({ homeDir: home, workspaceRoot: ws });
+    const alpha = records.find(record => record.name === 'alpha');
+    assert.strictEqual(alpha.source, 'central');
+    assert.strictEqual(alpha.scope, 'user');
+    assert.strictEqual(alpha.folder, 'superpowers');
+    assert.deepStrictEqual(alpha.central.links, { user: { kimi: path.join(home, '.kimi', 'skills', 'alpha') } });
+    const r = records.find(record => record.name === 'r');
+    assert.strictEqual(r.folder, 'xiaohongshu/reddoc');
+    assert.deepStrictEqual(r.central.links, { project: { codex: path.join(ws, '.codex', 'skills', 'r') } });
+    const solo = records.find(record => record.name === 'solo');
+    assert.strictEqual(solo.folder, '');
+    assert.deepStrictEqual(solo.central.links, {});
+    // symlinked skill inside the store is followed and deduped by realpath
+    fs.symlinkSync(path.join(home, '.skills/solo'), path.join(home, '.skills/alias-solo'), 'dir');
+    const withAlias = discovery.scanSkills({ homeDir: home, workspaceRoot: ws });
+    assert.strictEqual(withAlias.filter(record => record.dirPath === path.join(home, '.skills', 'solo')).length, 1,
+        'store-internal alias symlink does not duplicate the record');
 }
 
 function runSkillMigrationChecks() {

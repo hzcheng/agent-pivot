@@ -31,7 +31,9 @@ function applyScope(
         delete record.shadowedBy.kimi;
         if (record.central) {
             // Centralized skills are effective where they are linked.
-            const links = record.central.links;
+            // Compile fix for the scope-nested link map: evaluate the links of
+            // the scope being applied (Task 2 owns the full per-scope behavior).
+            const links = record.central.links[scope] || {};
             if (links.agents) {
                 record.visibility.kimi = 'active';
             } else if (brandWinnerDir && Object.values(links).some(link => link.startsWith(brandWinnerDir + path.sep))) {

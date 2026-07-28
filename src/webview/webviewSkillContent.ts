@@ -40,7 +40,8 @@ function getSkillDetail(record: SkillRecord, view: SkillPanelView, duplicate?: S
     const rows = AGENTS.map(agent => {
         if (record.central) {
             // Centralized skills: each agent row is an iOS-style link switch.
-            const linkPath = record.central.links[agent];
+            // Reads the user-scope link map until the scoped-enablement tasks rewire this view.
+            const linkPath = (record.central.links.user || {})[agent];
             const off = linkPath ? '' : ' off';
             const title = linkPath ? `Disable for ${agent} (${linkPath})` : `Enable for ${agent}`;
             return `<div class="skill-agent-row"><span class="skill-agent-row-name">${agent}</span>`

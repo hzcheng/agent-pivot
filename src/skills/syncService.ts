@@ -113,8 +113,10 @@ export function computeSkillCopyTargets(
             const parent = path.dirname(candidate.dirPath);
             taken.add(path.basename(parent) === DISABLED_DIR_NAME ? path.dirname(parent) : parent);
             if (candidate.central) {
-                for (const link of Object.values(candidate.central.links)) {
-                    taken.add(path.dirname(link));
+                for (const scopedLinks of Object.values(candidate.central.links)) {
+                    for (const link of Object.values(scopedLinks)) {
+                        taken.add(path.dirname(link));
+                    }
                 }
             }
         }

@@ -3589,5 +3589,21 @@
       "src/aiSessions/conversation/coordinator.ts",
       "scripts/run-architecture-guards.js"
     ]
+  },
+  {
+    "id": "AI-SESSION-PROVIDER-ICON-001",
+    "domain": "webview",
+    "title": "AI session rows render each provider's native brand icon and color",
+    "priority": "P2",
+    "status": "automated",
+    "owners": [
+      "tests/integration/dashboard/sessionProviderIcon.test.js"
+    ],
+    "evidence": [
+      "src/webview/webviewContent.ts",
+      "src/webview/webviewIcons.ts",
+      "media/styles.scss",
+      "media/styles.css"
+    ]
   }
 ]

@@ -1027,6 +1027,17 @@ function getAiProviderLabel(providerId: AiSessionProviderId): string {
     }
 }
 
+function getAiProviderIcon(providerId: AiSessionProviderId): string {
+    switch (providerId) {
+        case 'kimi':
+            return Icons.kimiLogo;
+        case 'claude':
+            return Icons.claudeLogo;
+        default:
+            return Icons.openAiLogo;
+    }
+}
+
 function getCodexSessionRow(
     session: RootLabeledAiSession,
     provider: AiSessionProviderId,
@@ -1088,7 +1099,7 @@ function getCodexSessionRow(
     ${batchCheckbox}
     <button type="button" class="ai-session-primary-action" data-action="activate-ai-session" aria-label="${primaryAriaLabel}" title="${primaryAction} ${providerLabel} Session">
         ${attentionIndicator}
-        <span class="codex-session-icon">${Icons.terminalLine}</span>
+        <span class="codex-session-icon">${getAiProviderIcon(provider)}</span>
         <span class="codex-session-text">
             <span class="codex-session-title-line"><span class="codex-session-name">${sessionName}</span>${providerBadge}${rootChip}</span>
             <span class="codex-session-meta">${activeStatus}${active && metadata ? ' · ' : ''}${metadata}</span>
@@ -1187,7 +1198,7 @@ function getActiveAiSessionRow(
     return `<div class="codex-session-row active-ai-session-row" role="group" aria-label="${providerLabel} session ${sessionName}" data-session-provider="${model.provider}" data-execution-state="${model.executionState}"${iconFx ? ` data-session-icon-fx="${iconFx}"` : ''}${runtimeAttributes}${rootAttributes}${pendingAttributes}${model.pinned ? ' data-session-pinned' : ''}${model.focused ? ' data-session-focused' : ''}${model.needsAttention ? ' data-session-needs-attention' : ''}${attentionAttributes}>
         <button type="button" class="ai-session-primary-action" data-action="activate-ai-session" aria-label="${primaryAriaLabel}" title="${primaryAction} ${providerLabel} Session"${conversationButtonAttributes}>
             ${attentionIndicator}
-            <span class="codex-session-icon">${Icons.terminalLine}</span>
+            <span class="codex-session-icon">${getAiProviderIcon(model.provider)}</span>
             <span class="codex-session-text">
                 <span class="codex-session-title-line">${runtimeBadge}<span class="codex-session-name">${sessionName}</span>${rootChip}</span>
                 <span class="codex-session-meta">${metadata}</span>

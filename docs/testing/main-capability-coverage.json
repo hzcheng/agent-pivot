@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "a2c5c2d986c5fe2539a2f27369e5d9775dd4398b",
+        "head": "8bf513d4c673950b98efc1c30d7f288c9e79f196",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -675,7 +675,9 @@
                 "b8e0f8039c4927fc2783951e9d5759ab73b0494d",
                 "37aa1c0a06466d3ae7be3e66af50c1dc71f19508",
                 "bfc9591242d7a1aaeef0287ffbe30af1cbb35beb",
-                "4225e99202541956076bd987af424dbf1ebb391a"
+                "4225e99202541956076bd987af424dbf1ebb391a",
+                "973fd6b9f65c6011edea526b39c8524d605334ad",
+                "8bf513d4c673950b98efc1c30d7f288c9e79f196"
             ],
             "behaviors": [
                 "RUNTIME-TMUX-BACKEND-001",
@@ -691,7 +693,8 @@
                 "WEBVIEW-AI-SESSION-CARD-ACTIVATION-001",
                 "ACTIVE-SESSION-ICON-ANIMATION-001",
                 "WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-001",
-                "PERSIST-MULTI-PROVIDER-BATCH-ARCHIVE-001"
+                "PERSIST-MULTI-PROVIDER-BATCH-ARCHIVE-001",
+                "AI-SESSION-PROVIDER-ICON-001"
             ],
             "prGates": [
                 "test:ci:linux",

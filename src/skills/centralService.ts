@@ -12,6 +12,12 @@ export interface CentralResult {
     error?: string;
 }
 
+export interface FolderLinkResult {
+    ok: boolean;
+    changed: number;
+    errors: Array<{ name: string; error: string }>;
+}
+
 function knownBrandRoots(homeDir: string, workspaceRoot?: string): SkillsRoot[] {
     return getUserSkillsRoots(homeDir)
         .concat(workspaceRoot ? getProjectSkillsRoots(workspaceRoot) : [])
@@ -31,19 +37,21 @@ function isSymlinkTo(linkPath: string, target: string): boolean {
  * removing a symlink `<root>/<name>` → central directory. Never touches
  * real directories and never throws.
  */
-export function setCentralLink(centralDir: string, rootDir: string, enable: boolean): CentralResult {
+export function setCentralLink(
+    centralDir: string, rootDir: string, enable: boolean,
+): CentralResult & { changed?: boolean } {
     const linkPath = path.join(rootDir, path.basename(centralDir));
     try {
         if (enable) {
             if (isSymlinkTo(linkPath, centralDir)) {
-                return { ok: true, dirPath: linkPath };
+                return { ok: true, dirPath: linkPath, changed: false };
             }
             if (fs.existsSync(linkPath)) {
                 return { ok: false, error: `Something else already exists at ${linkPath}` };
             }
             fs.mkdirSync(rootDir, { recursive: true });
             fs.symlinkSync(centralDir, linkPath, 'dir');
-            return { ok: true, dirPath: linkPath };
+            return { ok: true, dirPath: linkPath, changed: true };
         }
         let stat: fs.Stats | null = null;
         try {
@@ -53,13 +61,13 @@ export function setCentralLink(centralDir: string, rootDir: string, enable: bool
             stat = null;
         }
         if (!stat) {
-            return { ok: true };
+            return { ok: true, changed: false };
         }
         if (!stat.isSymbolicLink()) {
             return { ok: false, error: `Refusing to remove a real directory: ${linkPath}` };
         }
         fs.unlinkSync(linkPath);
-        return { ok: true };
+        return { ok: true, changed: true };
     } catch (error) {
         return { ok: false, error: error instanceof Error ? error.message : String(error) };
     }
@@ -134,6 +142,129 @@ export function centralizeSkill(
 export interface CentralizeOptions {
     /** Link the centralized skill back from its original root (default true). */
     linkBack?: boolean;
+}
+
+function walkSkillDirs(dirPath: string, found: string[]): string[] {
+    let entries: fs.Dirent[];
+    try {
+        entries = fs.readdirSync(dirPath, { withFileTypes: true });
+    } catch (_error) {
+        return found;
+    }
+    for (const entry of entries) {
+        if (entry.name.startsWith('.')) {
+            continue;
+        }
+        const fullPath = path.join(dirPath, entry.name);
+        let realPath = fullPath;
+        let isDirectory = entry.isDirectory();
+        if (entry.isSymbolicLink()) {
+            try {
+                realPath = fs.realpathSync(fullPath);
+                isDirectory = fs.statSync(realPath).isDirectory();
+            } catch (_error) {
+                continue;
+            }
+        }
+        if (!isDirectory) {
+            continue;
+        }
+        if (fs.existsSync(path.join(realPath, 'SKILL.md')) || fs.existsSync(path.join(realPath, 'skill.md'))) {
+            if (!found.includes(realPath)) {
+                found.push(realPath);
+            }
+        } else {
+            walkSkillDirs(realPath, found);
+        }
+    }
+    return found;
+}
+
+/**
+ * Batch enable/disable every skill under a central-store folder (recursively)
+ * for all brand agents at one scope. Collects per-skill errors instead of
+ * stopping; `changed` counts only actual create/remove transitions.
+ */
+export function setFolderLinks(
+    storeRoot: string, folder: string, scope: SkillScope,
+    homeDir: string, workspaceRoot: string | undefined, enable: boolean,
+): FolderLinkResult {
+    const result: FolderLinkResult = { ok: true, changed: 0, errors: [] };
+    const roots = scope === 'user' ? getUserSkillsRoots(homeDir) : getProjectSkillsRoots(workspaceRoot as string);
+    const agentRoots = roots.filter(root => root.source === 'kimi' || root.source === 'claude' || root.source === 'codex');
+    for (const skillDir of walkSkillDirs(path.join(storeRoot, folder), [])) {
+        for (const root of agentRoots) {
+            const link = setCentralLink(skillDir, root.dirPath, enable);
+            if (link.ok) {
+                if (link.changed) {
+                    result.changed += 1;
+                }
+            } else {
+                result.ok = false;
+                result.errors.push({ name: path.basename(skillDir), error: link.error || 'unknown error' });
+            }
+        }
+    }
+    return result;
+}
+
+function sanitizeFolder(targetFolder: string): string | null {
+    const trimmed = targetFolder.trim().replace(/\/+$/u, '');
+    if (!trimmed) {
+        return '';
+    }
+    if (path.isAbsolute(trimmed)) {
+        return null;
+    }
+    const segments = trimmed.split('/');
+    if (segments.some(segment => !segment || segment === '.' || segment === '..' || segment.includes('\\'))) {
+        return null;
+    }
+    return segments.join('/');
+}
+
+/**
+ * Move a centralized skill to a different folder inside its central store and
+ * re-point every existing link (both scopes) at the new location.
+ */
+export function moveSkillToFolder(
+    record: SkillRecord, targetFolder: string, homeDir: string, workspaceRoot?: string,
+): CentralResult {
+    try {
+        if (!record.central) {
+            return { ok: false, error: 'Only centralized skills can be moved between folders.' };
+        }
+        const folder = sanitizeFolder(targetFolder);
+        if (folder === null) {
+            return { ok: false, error: `Invalid folder: ${targetFolder}` };
+        }
+        const storeRoot = getCentralSkillsRoot(homeDir, record.scope, workspaceRoot);
+        const destination = folder ? path.join(storeRoot, folder, record.name) : path.join(storeRoot, record.name);
+        if (destination === record.dirPath) {
+            return { ok: true, dirPath: destination };
+        }
+        if (fs.existsSync(destination)) {
+            return { ok: false, error: `Already exists: ${destination}` };
+        }
+        fs.mkdirSync(path.dirname(destination), { recursive: true });
+        fs.renameSync(record.dirPath, destination);
+        // Re-point every existing link (both scopes) at the new location.
+        for (const scopeLinks of Object.values(record.central.links)) {
+            for (const linkPath of Object.values(scopeLinks || {})) {
+                try {
+                    if (fs.lstatSync(linkPath).isSymbolicLink()) {
+                        fs.unlinkSync(linkPath);
+                        fs.symlinkSync(destination, linkPath, 'dir');
+                    }
+                } catch (_error) {
+                    // best effort; a rescan surfaces any stale link
+                }
+            }
+        }
+        return { ok: true, dirPath: destination };
+    } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
 }
 
 export type { SkillScope, SkillSourceDir };

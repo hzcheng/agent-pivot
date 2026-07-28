@@ -474,6 +474,7 @@ runSkillSyncChecks();
 runSkillCentralChecks();
 runSkillMigrationChecks();
 runSkillFolderDiscoveryChecks();
+runSkillFolderServiceChecks();
 runSkillGroupStoreChecks()
     .then(() => console.log('Skill management checks passed.'))
     .catch(error => {
@@ -1001,6 +1002,75 @@ function runSkillCentralChecks() {
     assert.ok(styles.includes('.skill-ios-toggle'));
     assert.ok(compiledCss.includes('.skill-centralize'));
     assert.ok(compiledCss.includes('.skill-ios-toggle'));
+}
+
+function runSkillFolderServiceChecks() {
+    const centralService = require('../out/skills/centralService');
+    const real = dirPath => fs.realpathSync(dirPath);
+    const home = real(fs.mkdtempSync(path.join(os.tmpdir(), 'skills-fsvc-')));
+    const ws = real(fs.mkdtempSync(path.join(os.tmpdir(), 'skills-fsvc-ws-')));
+    const write = (filePath, content) => {
+        fs.mkdirSync(path.dirname(filePath), { recursive: true });
+        fs.writeFileSync(filePath, content);
+    };
+    write(path.join(home, '.skills/superpowers/alpha/SKILL.md'), '---\nname: alpha\ndescription: A\n---\n');
+    write(path.join(home, '.skills/superpowers/nested/beta/SKILL.md'), '---\nname: beta\ndescription: B\n---\n');
+    write(path.join(home, '.skills/other/gamma/SKILL.md'), '---\nname: gamma\ndescription: G\n---\n');
+
+    // batch enable at user scope links every skill under the folder (recursive) for all 3 agents
+    const storeRoot = path.join(home, '.skills');
+    const enabled = centralService.setFolderLinks(storeRoot, 'superpowers', 'user', home, ws, true);
+    assert.strictEqual(enabled.ok, true);
+    assert.strictEqual(enabled.changed, 6, 'two skills × three agents');
+    assert.strictEqual(enabled.errors.length, 0);
+    assert.ok(fs.lstatSync(path.join(home, '.kimi/skills/alpha')).isSymbolicLink());
+    assert.ok(fs.lstatSync(path.join(home, '.claude/skills/beta')).isSymbolicLink());
+    assert.ok(!fs.existsSync(path.join(home, '.kimi/skills/gamma')), 'other folders untouched');
+    const again = centralService.setFolderLinks(storeRoot, 'superpowers', 'user', home, ws, true);
+    assert.strictEqual(again.changed, 0, 'idempotent');
+
+    // batch disable at project scope is a no-op when nothing is linked there
+    const disabledProject = centralService.setFolderLinks(storeRoot, 'superpowers', 'project', home, ws, false);
+    assert.strictEqual(disabledProject.changed, 0);
+    // batch disable at user scope removes every link created above
+    const disabled = centralService.setFolderLinks(storeRoot, 'superpowers', 'user', home, ws, false);
+    assert.strictEqual(disabled.changed, 6);
+    assert.ok(!fs.existsSync(path.join(home, '.kimi/skills/alpha')));
+
+    // batch collects errors instead of stopping: block one link with a real dir
+    fs.mkdirSync(path.join(home, '.kimi/skills/alpha'), { recursive: true });
+    const partial = centralService.setFolderLinks(storeRoot, 'superpowers', 'user', home, ws, true);
+    assert.strictEqual(partial.ok, false);
+    assert.strictEqual(partial.errors.length, 1);
+    assert.strictEqual(partial.errors[0].name, 'alpha');
+    assert.strictEqual(partial.changed, 5, 'remaining links still created');
+    fs.rmSync(path.join(home, '.kimi/skills/alpha'), { recursive: true });
+
+    // moveSkillToFolder: moves the dir, re-creates links at both scopes
+    centralService.setCentralLink(path.join(home, '.skills/other/gamma'), path.join(home, '.kimi/skills'), true);
+    centralService.setCentralLink(path.join(home, '.skills/other/gamma'), path.join(ws, '.codex/skills'), true);
+    const gamma = discovery.scanSkills({ homeDir: home, workspaceRoot: ws })
+        .find(record => record.name === 'gamma');
+    const moved = centralService.moveSkillToFolder(gamma, 'xiaohongshu/yunxiao', home, ws);
+    assert.strictEqual(moved.ok, true);
+    assert.strictEqual(moved.dirPath, path.join(home, '.skills', 'xiaohongshu', 'yunxiao', 'gamma'));
+    assert.ok(fs.existsSync(path.join(moved.dirPath, 'SKILL.md')));
+    assert.strictEqual(fs.realpathSync(path.join(home, '.kimi/skills/gamma')), moved.dirPath, 'user link re-pointed');
+    assert.strictEqual(fs.realpathSync(path.join(ws, '.codex/skills/gamma')), moved.dirPath, 'project link re-pointed');
+    const movedRecord = discovery.scanSkills({ homeDir: home, workspaceRoot: ws })
+        .find(record => record.name === 'gamma');
+    assert.strictEqual(movedRecord.folder, 'xiaohongshu/yunxiao');
+
+    // refuses: existing destination, '..', absolute folder
+    assert.strictEqual(centralService.moveSkillToFolder(movedRecord, '../escape', home, ws).ok, false);
+    assert.strictEqual(centralService.moveSkillToFolder(movedRecord, '/abs', home, ws).ok, false);
+    const alpha2 = discovery.scanSkills({ homeDir: home, workspaceRoot: ws })
+        .find(record => record.name === 'alpha');
+    // materialize a name collision so the destination already exists
+    write(path.join(home, '.skills/xiaohongshu/yunxiao/alpha/SKILL.md'), '---\nname: alpha\ndescription: A2\n---\n');
+    const dup = centralService.moveSkillToFolder(alpha2, 'xiaohongshu/yunxiao', home, ws);
+    assert.strictEqual(dup.ok, false, 'existing destination refused');
+    assert.ok(fs.existsSync(path.join(home, '.skills', 'superpowers', 'alpha', 'SKILL.md')), 'source untouched');
 }
 
 function runSkillFolderDiscoveryChecks() {

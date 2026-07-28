@@ -21,10 +21,13 @@ export interface SkillPanelView {
     duplicates?: Map<string, SkillDuplicateGroup>;
     /** dirPaths of central records with a name+agent link collision (controller computes). */
     conflicts?: Set<string>;
+    /** Known-collection "create folder" suggestions (controller computes). */
+    suggestions?: SkillCollectionSuggestion[];
 }
 import { sanitizeProjectName } from '../models';
 import { escapeAttribute } from './webviewContent';
 import { collapse as collapseIcon, folder as folderIcon, terminalLine } from './webviewIcons';
+import type { SkillCollectionSuggestion } from '../skills/knownCollections';
 
 const AGENTS: SkillAgentId[] = ['kimi', 'claude', 'codex'];
 
@@ -393,6 +396,16 @@ function renderFilterRow(view: SkillPanelView): string {
     return `<div class="skills-filter-row" data-skill-filter-row role="group" aria-label="Filter skills by agent">${buttons}${scopeButtons}${migrate}</div>`;
 }
 
+function renderSuggestion(suggestion: SkillCollectionSuggestion): string {
+    const name = escapeAttribute(suggestion.name);
+    const count = suggestion.unfiledCount;
+    return `<div class="skill-suggestion">
+    <span class="skill-suggestion-text">Create the <strong>${name}</strong> folder and move ${count} skill${count === 1 ? '' : 's'} into it</span>
+    <button type="button" class="skill-suggestion-apply" data-skill-apply-suggestion="${name}">Create</button>
+    <button type="button" class="skill-suggestion-dismiss" title="Dismiss" data-skill-dismiss-suggestion="${name}">×</button>
+</div>`;
+}
+
 export function getSkillsPanelContent(
     records: SkillRecord[],
     view: SkillPanelView = {},
@@ -407,7 +420,8 @@ export function getSkillsPanelContent(
     if (!records || records.length === 0) {
         return '<div class="sticky-groups-wrapper skills-groups-wrapper"><div class="skills-empty">No skills found in agent skill directories.</div></div>';
     }
-    return `<div class="sticky-groups-wrapper skills-groups-wrapper">${renderFilterRow(view)}${sections
+    const suggestions = (view.suggestions || []).map(renderSuggestion).join('');
+    return `<div class="sticky-groups-wrapper skills-groups-wrapper">${renderFilterRow(view)}${suggestions}${sections
         .filter(([, items]) => items.length)
         .map(([scope, items]) => renderScopeSection(scope, items, view)).join('\n')}
 </div>`;

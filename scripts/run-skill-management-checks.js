@@ -505,45 +505,6 @@ function runSkillControllerChecks() {
     const bad = controller.handleToggle(path.join(home, '.kimi', 'skills', 'missing'), true);
     assert.strictEqual(bad.ok, false);
     controller.dispose();
-
-    // Group toggle: batch enable/disable resolves members from the scan (containment by construction).
-    const { home: groupHome } = makeFixture();
-    const groupMap = {
-        [path.join(groupHome, '.kimi', 'skills', 'alpha')]: 'suite',
-        [path.join(groupHome, '.claude', 'skills', 'beta')]: 'suite',
-    };
-    const setCalls = [];
-    const groupStore = {
-        getGroups: () => groupMap,
-        getGroupName: record => groupMap[record.dirPath.replace(`${path.sep}.disabled`, '')],
-        setGroup: (record, name) => { setCalls.push([record.name, name]); return Promise.resolve(); },
-        getDismissedCollections: () => [],
-        dismissCollection: () => Promise.resolve(),
-    };
-    const groupController = new SkillDashboardController({
-        getHomeDir: () => groupHome,
-        getWorkspaceRoot: () => undefined,
-        postMessage: () => Promise.resolve(true),
-        isVisible: () => true,
-        logError: () => undefined,
-        groupStore,
-    });
-    groupController.start();
-    const disableAll = groupController.handleToggleSkillGroup('suite', 'user', true);
-    assert.strictEqual(disableAll.ok, true);
-    assert.ok(fs.existsSync(path.join(groupHome, '.kimi', 'skills', '.disabled', 'alpha', 'SKILL.md')),
-        'group disable parks every enabled member');
-    assert.ok(fs.existsSync(path.join(groupHome, '.claude', 'skills', '.disabled', 'beta', 'SKILL.md')));
-    assert.ok(groupController.getRecords().every(record => record.enabled === false),
-        'all members parked after group disable');
-    const enableAll = groupController.handleToggleSkillGroup('suite', 'user', false);
-    assert.strictEqual(enableAll.ok, true);
-    assert.ok(fs.existsSync(path.join(groupHome, '.kimi', 'skills', 'alpha', 'SKILL.md')),
-        'group enable restores every parked member');
-    assert.strictEqual(groupController.handleToggleSkillGroup('missing-group', 'user', true).ok, false);
-    assert.strictEqual(groupController.handleToggleSkillGroup('suite', 'project', true).ok, false,
-        'group membership is scoped');
-    groupController.dispose();
 }
 
 function runSkillWiringChecks() {
@@ -551,8 +512,8 @@ function runSkillWiringChecks() {
     assert.ok(dashboard.includes('new SkillDashboardController('));
     assert.ok(dashboard.includes("'toggle-skill'"));
     assert.ok(dashboard.includes("'open-skill-file'"));
-    assert.ok(dashboard.includes("'set-skill-group'"));
-    assert.ok(dashboard.includes("'toggle-skill-group'"));
+    assert.ok(!dashboard.includes("'set-skill-group'"), 'virtual group messages removed');
+    assert.ok(!dashboard.includes("'toggle-skill-group'"));
     assert.ok(dashboard.includes("'fix-skill-diagnostic'"));
     assert.ok(dashboard.includes("'apply-skill-collection'"));
     assert.ok(dashboard.includes("'dismiss-skill-collection'"));
@@ -574,8 +535,7 @@ runSkillWebviewScriptChecks();
 runSkillControllerChecks();
 runSkillWiringChecks();
 runSkillFixChecks();
-// TODO(T7): finalized in the group-retirement task — runSkillCollectionChecks removed with the
-// virtual-collection rendering (Task 5).
+runSkillCollectionChecks();
 runSkillSearchCatalogChecks();
 runSkillSyncChecks();
 runSkillCentralChecks();
@@ -583,8 +543,6 @@ runSkillMigrationChecks();
 runSkillFolderDiscoveryChecks();
 runSkillFolderServiceChecks();
 runSkillFolderControllerChecks();
-// TODO(T7): finalized in the group-retirement task — runSkillGroupStoreChecks removed with the
-// virtual group store (Task 5).
 console.log('Skill management checks passed.');
 
 function runSkillFixChecks() {
@@ -1299,4 +1257,76 @@ function runSkillMigrationChecks() {
     const packageJson = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
     const commands = packageJson.contributes.commands.map((item) => item.command);
     assert.ok(commands.includes('agentPivot.migrateSkillsToCentral'), 'palette command contributed');
+}
+
+function runSkillCollectionChecks() {
+    const knownCollections = require('../out/skills/knownCollections');
+    const real = dirPath => fs.realpathSync(dirPath);
+    const home = real(fs.mkdtempSync(path.join(os.tmpdir(), 'skills-collections-')));
+    const write = (filePath, content) => {
+        fs.mkdirSync(path.dirname(filePath), { recursive: true });
+        fs.writeFileSync(filePath, content);
+    };
+    // Two superpowers members at the store root, one already filed, one unmanaged in kimi.
+    write(path.join(home, '.skills/brainstorming/SKILL.md'), '---\nname: brainstorming\ndescription: B\n---\n');
+    write(path.join(home, '.skills/writing-plans/SKILL.md'), '---\nname: writing-plans\ndescription: W\n---\n');
+    write(path.join(home, '.skills/superpowers/systematic-debugging/SKILL.md'), '---\nname: systematic-debugging\ndescription: S\n---\n');
+    write(path.join(home, '.kimi/skills/test-driven-development/SKILL.md'), '---\nname: test-driven-development\ndescription: T\n---\n');
+
+    // suggestion semantics: unfiled = not central or outside <store>/<name>
+    const scanned = discovery.scanSkills({ homeDir: home });
+    const suggestions = knownCollections.getCollectionSuggestions(scanned, []);
+    assert.strictEqual(suggestions.length, 1, 'superpowers suggestion renders');
+    assert.strictEqual(suggestions[0].name, 'superpowers');
+    assert.strictEqual(suggestions[0].unfiledCount, 3, 'filed member does not count');
+    assert.ok(!knownCollections.getCollectionSuggestions(scanned, ['superpowers']).length,
+        'dismissed suggestion stays hidden');
+
+    // controller: apply moves members into the on-disk folder (centralize first for unmanaged)
+    const controller = new SkillDashboardController({
+        getHomeDir: () => home,
+        getWorkspaceRoot: () => undefined,
+        postMessage: () => Promise.resolve(true),
+        isVisible: () => true,
+        logError: () => undefined,
+        groupStore: {
+            getDismissedCollections: () => [],
+            dismissCollection: () => Promise.resolve(),
+        },
+    });
+    controller.start();
+    assert.strictEqual(controller.getCollectionSuggestions().length, 1, 'suggestion comes from the controller');
+    const applied = controller.handleApplyCollectionSuggestion('superpowers');
+    assert.strictEqual(applied.ok, true);
+    assert.ok(fs.existsSync(path.join(home, '.skills', 'superpowers', 'brainstorming', 'SKILL.md')));
+    assert.ok(fs.existsSync(path.join(home, '.skills', 'superpowers', 'writing-plans', 'SKILL.md')));
+    assert.ok(fs.existsSync(path.join(home, '.skills', 'superpowers', 'test-driven-development', 'SKILL.md')),
+        'unmanaged member is centralized into the folder');
+    const tddLink = path.join(home, '.kimi', 'skills', 'test-driven-development');
+    assert.ok(fs.lstatSync(tddLink).isSymbolicLink(), 'centralized member stays linked from its original root');
+    assert.strictEqual(fs.realpathSync(tddLink), path.join(home, '.skills', 'superpowers', 'test-driven-development'),
+        'the link follows the move into the folder');
+    const filed = controller.getRecords().filter(record => record.folder === 'superpowers' && record.enabled);
+    assert.strictEqual(filed.length, 4, 'all four members filed under the folder');
+    assert.strictEqual(controller.getCollectionSuggestions().length, 0, 'suggestion gone once everything is filed');
+    controller.dispose();
+
+    // rendering: suggestion row with new copy, Create/Dismiss actions
+    const html = skillContent.getSkillsPanelContent(
+        [makeRecord({
+            name: 'brainstorming', source: 'central', dirPath: '/home/dev/.skills/brainstorming',
+            skillFilePath: '/home/dev/.skills/brainstorming/SKILL.md',
+            central: { dirPath: '/home/dev/.skills/brainstorming', links: {} },
+        }), makeRecord({
+            name: 'writing-plans', source: 'central', dirPath: '/home/dev/.skills/writing-plans',
+            skillFilePath: '/home/dev/.skills/writing-plans/SKILL.md',
+            central: { dirPath: '/home/dev/.skills/writing-plans', links: {} },
+        })],
+        { suggestions: [{ name: 'superpowers', presentCount: 2, unfiledCount: 2 }] },
+    );
+    assert.ok(html.includes('Create the <strong>superpowers</strong> folder'), 'suggestion copy names the folder');
+    assert.ok(html.includes('move 2 skills into it'));
+    assert.ok(html.includes('data-skill-apply-suggestion="superpowers"'));
+    assert.ok(html.includes('data-skill-dismiss-suggestion="superpowers"'));
+    assert.ok(!html.includes('data-skill-collection='), 'no virtual collection markup');
 }

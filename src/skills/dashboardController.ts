@@ -13,7 +13,7 @@ import { disableSkill, enableSkill } from './toggleService';
 import { fixSkillDiagnostic } from './fixService';
 import { getSkillsPanelContent } from '../webview/webviewSkillContent';
 import type { SkillPanelView } from '../webview/webviewSkillContent';
-import type { SkillGroupMap, SkillGroupStore } from './skillGroupStore';
+import type { SkillGroupStore } from './skillGroupStore';
 import type { SkillAgentId, SkillDiagnostic, SkillRecord, SkillScope } from './types';
 
 export interface SkillDashboardControllerOptions {
@@ -22,10 +22,8 @@ export interface SkillDashboardControllerOptions {
     postMessage: (message: unknown) => Thenable<boolean>;
     isVisible: () => boolean;
     logError: (message: string, error: unknown) => void;
-    groupStore?: Pick<
-        SkillGroupStore,
-        'getGroups' | 'getGroupName' | 'setGroup' | 'getDismissedCollections' | 'dismissCollection'
-    >;
+    /** Only collection-suggestion dismissals still use the store; virtual groups are gone. */
+    groupStore?: Pick<SkillGroupStore, 'getDismissedCollections' | 'dismissCollection'>;
     nowMs?: () => number;
 }
 
@@ -76,16 +74,12 @@ export class SkillDashboardController {
         return this.records;
     }
 
-    getGroups(): SkillGroupMap {
-        return this.options.groupStore ? this.options.groupStore.getGroups() : {};
-    }
-
     getCollectionSuggestions(): SkillCollectionSuggestion[] {
         const store = this.options.groupStore;
         if (!store) {
             return [];
         }
-        return getCollectionSuggestions(this.records, store.getGroups(), store.getDismissedCollections());
+        return getCollectionSuggestions(this.records, store.getDismissedCollections());
     }
 
     getCopyTargets(): Map<string, SkillCopyTarget[]> {
@@ -101,6 +95,7 @@ export class SkillDashboardController {
             hasWorkspace: Boolean(this.options.getWorkspaceRoot()),
             copyTargets: this.getCopyTargets(),
             conflicts: computeSkillLinkConflicts(this.records),
+            suggestions: this.getCollectionSuggestions(),
         };
     }
 
@@ -205,24 +200,46 @@ export class SkillDashboardController {
         return report;
     }
 
-    async handleApplyCollectionSuggestion(name: string): Promise<{ ok: boolean; error?: string }> {
-        const store = this.options.groupStore;
+    handleApplyCollectionSuggestion(name: string): { ok: boolean; error?: string } {
         const collection = KNOWN_SKILL_COLLECTIONS.find(candidate => candidate.name === name);
-        if (!store || !collection) {
+        if (!collection) {
             return { ok: false, error: `Unknown skill collection: ${name}` };
         }
-        try {
-            for (const record of this.records) {
-                if (collection.members.includes(record.name) && !store.getGroupName(record)) {
-                    await store.setGroup(record, collection.name);
+        const homeDir = this.options.getHomeDir();
+        const workspaceRoot = this.options.getWorkspaceRoot();
+        const failures: string[] = [];
+        const unfiled = () => this.records.filter(record =>
+            record.enabled && collection.members.includes(record.name)
+            && (!record.central || record.folder !== collection.name));
+        for (const record of unfiled()) {
+            if (!record.central) {
+                const duplicates = this.records.filter(candidate =>
+                    candidate.scope === record.scope && candidate.name === record.name
+                    && candidate.dirPath !== record.dirPath);
+                const centralized = centralizeSkill(record, duplicates, homeDir, workspaceRoot);
+                if (!centralized.ok) {
+                    failures.push(`${record.name}: ${centralized.error}`);
+                    continue;
                 }
+                this.refresh('apply-skill-collection');
             }
-        } catch (error) {
-            this.options.logError('Failed to apply the skill collection suggestion.', error);
-            return { ok: false, error: error instanceof Error ? error.message : String(error) };
+            const current = this.records.find(candidate =>
+                candidate.central && candidate.scope === record.scope && candidate.name === record.name);
+            if (!current) {
+                failures.push(`${record.name}: lost after centralizing`);
+                continue;
+            }
+            const moved = moveSkillToFolder(current, collection.name, homeDir, workspaceRoot);
+            if (!moved.ok) {
+                failures.push(`${record.name}: ${moved.error}`);
+            }
+            this.refresh('apply-skill-collection');
+        }
+        for (const failure of failures) {
+            this.options.logError('Failed to apply the skill collection suggestion.', new Error(failure));
         }
         this.refresh('apply-skill-collection');
-        return { ok: true };
+        return failures.length ? { ok: false, error: failures.join('; ') } : { ok: true };
     }
 
     async handleDismissCollectionSuggestion(name: string): Promise<{ ok: boolean }> {
@@ -272,21 +289,6 @@ export class SkillDashboardController {
         return result;
     }
 
-    async handleSetSkillGroup(dirPath: string, groupName: string): Promise<{ ok: boolean; error?: string }> {
-        const record = this.records.find(candidate => candidate.dirPath === dirPath);
-        if (!record || !this.options.groupStore) {
-            return { ok: false, error: `Unknown skill: ${dirPath}` };
-        }
-        try {
-            await this.options.groupStore.setGroup(record, groupName);
-        } catch (error) {
-            this.options.logError('Failed to update the skill group.', error);
-            return { ok: false, error: error instanceof Error ? error.message : String(error) };
-        }
-        this.refresh('set-skill-group');
-        return { ok: true };
-    }
-
     handleFixSkillDiagnostic(dirPath: string, code: SkillDiagnostic['code']): { ok: boolean; error?: string } {
         const record = this.records.find(candidate => candidate.dirPath === dirPath);
         if (!record) {
@@ -298,41 +300,6 @@ export class SkillDashboardController {
         }
         this.refresh('fix-skill-diagnostic');
         return result;
-    }
-
-    handleToggleSkillGroup(name: string, scope: string, enabled: boolean): { ok: boolean; error?: string } {
-        const store = this.options.groupStore;
-        if (!store || !name) {
-            return { ok: false, error: 'Missing skill group.' };
-        }
-        const members = this.records.filter(record =>
-            record.scope === scope && store.getGroupName(record) === name
-        );
-        if (!members.length) {
-            return { ok: false, error: `No skills in group "${name}".` };
-        }
-        // Members come from the last scan, so every moved path is contained by
-        // construction: active members live directly under a known root, parked
-        // members directly under its `.disabled` directory.
-        const failures: string[] = [];
-        for (const member of members) {
-            if (enabled && member.enabled) {
-                const result = disableSkill(member.dirPath);
-                if (!result.ok) {
-                    failures.push(`${member.name}: ${result.error}`);
-                }
-            } else if (!enabled && !member.enabled) {
-                const result = enableSkill(member.dirPath);
-                if (!result.ok) {
-                    failures.push(`${member.name}: ${result.error}`);
-                }
-            }
-        }
-        if (failures.length) {
-            this.options.logError('Failed to toggle some skills in the group.', new Error(failures.join('; ')));
-        }
-        this.refresh('toggle-skill-group');
-        return failures.length ? { ok: false, error: failures.join('; ') } : { ok: true };
     }
 
     private getKnownRootDirs(): string[] {

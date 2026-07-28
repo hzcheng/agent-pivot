@@ -1372,27 +1372,8 @@ async function initializeDashboard(
                     void vscode.window.showWarningMessage(`Could not toggle skill: ${result.error}`);
                 }
             },
-            'set-skill-group': async e => {
-                const result = await skillDashboardController.handleSetSkillGroup(
-                    String(e.dirPath || ''),
-                    String(e.group || ''),
-                );
-                if (!result.ok) {
-                    void vscode.window.showWarningMessage(`Could not update the skill group: ${result.error}`);
-                }
-            },
-            'toggle-skill-group': e => {
-                const result = skillDashboardController.handleToggleSkillGroup(
-                    String(e.name || ''),
-                    String(e.scope || ''),
-                    e.enabled === true,
-                );
-                if (!result.ok) {
-                    void vscode.window.showWarningMessage(`Could not toggle the skill group: ${result.error}`);
-                }
-            },
-            'apply-skill-collection': async e => {
-                const result = await skillDashboardController.handleApplyCollectionSuggestion(String(e.name || ''));
+            'apply-skill-collection': e => {
+                const result = skillDashboardController.handleApplyCollectionSuggestion(String(e.name || ''));
                 if (!result.ok) {
                     void vscode.window.showWarningMessage(`Could not create the skill folder: ${result.error}`);
                 }

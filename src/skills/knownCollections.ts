@@ -1,6 +1,5 @@
 'use strict';
 
-import { getSkillGroupName, getSkillStableKey, SkillGroupMap } from './skillGroupStore';
 import type { SkillRecord } from './types';
 
 export interface KnownSkillCollection {
@@ -37,15 +36,18 @@ export const KNOWN_SKILL_COLLECTIONS: ReadonlyArray<KnownSkillCollection> = [
 export interface SkillCollectionSuggestion {
     name: string;
     presentCount: number;
-    ungroupedCount: number;
-    memberKeys: string[];
+    /** Enabled members not yet filed under the collection's store folder. */
+    unfiledCount: number;
 }
 
 const MIN_PRESENT_FOR_SUGGESTION = 2;
 
+/**
+ * Suggest creating a store folder for a known collection. A member counts as
+ * unfiled when it is not centralized yet or lives outside `<store>/<name>`.
+ */
 export function getCollectionSuggestions(
     records: SkillRecord[],
-    groups: SkillGroupMap,
     dismissed: ReadonlyArray<string>,
 ): SkillCollectionSuggestion[] {
     const suggestions: SkillCollectionSuggestion[] = [];
@@ -53,19 +55,18 @@ export function getCollectionSuggestions(
         if (dismissed.includes(collection.name)) {
             continue;
         }
-        const members = records.filter(record => collection.members.includes(record.name));
+        const members = records.filter(record => record.enabled && collection.members.includes(record.name));
         if (members.length < MIN_PRESENT_FOR_SUGGESTION) {
             continue;
         }
-        const ungrouped = members.filter(record => !getSkillGroupName(record, groups));
-        if (!ungrouped.length) {
+        const unfiled = members.filter(record => !record.central || record.folder !== collection.name);
+        if (!unfiled.length) {
             continue;
         }
         suggestions.push({
             name: collection.name,
             presentCount: members.length,
-            ungroupedCount: ungrouped.length,
-            memberKeys: ungrouped.map(record => getSkillStableKey(record)),
+            unfiledCount: unfiled.length,
         });
     }
     return suggestions;

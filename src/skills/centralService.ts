@@ -189,6 +189,9 @@ export function setFolderLinks(
     storeRoot: string, folder: string, scope: SkillScope,
     homeDir: string, workspaceRoot: string | undefined, enable: boolean,
 ): FolderLinkResult {
+    if (scope === 'project' && !workspaceRoot) {
+        return { ok: false, changed: 0, errors: [{ name: folder || '.', error: 'No workspace is open for project-scope links.' }] };
+    }
     const result: FolderLinkResult = { ok: true, changed: 0, errors: [] };
     const roots = scope === 'user' ? getUserSkillsRoots(homeDir) : getProjectSkillsRoots(workspaceRoot as string);
     const agentRoots = roots.filter(root => root.source === 'kimi' || root.source === 'claude' || root.source === 'codex');

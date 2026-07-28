@@ -1046,6 +1046,12 @@ function runSkillFolderServiceChecks() {
     assert.strictEqual(partial.changed, 5, 'remaining links still created');
     fs.rmSync(path.join(home, '.kimi/skills/alpha'), { recursive: true });
 
+    // project scope without a workspace stays error-collecting (no raw TypeError)
+    const noWorkspace = centralService.setFolderLinks(storeRoot, 'superpowers', 'project', home, undefined, true);
+    assert.strictEqual(noWorkspace.ok, false);
+    assert.strictEqual(noWorkspace.changed, 0);
+    assert.ok(noWorkspace.errors[0].error.includes('No workspace'));
+
     // moveSkillToFolder: moves the dir, re-creates links at both scopes
     centralService.setCentralLink(path.join(home, '.skills/other/gamma'), path.join(home, '.kimi/skills'), true);
     centralService.setCentralLink(path.join(home, '.skills/other/gamma'), path.join(ws, '.codex/skills'), true);
@@ -1061,9 +1067,11 @@ function runSkillFolderServiceChecks() {
         .find(record => record.name === 'gamma');
     assert.strictEqual(movedRecord.folder, 'xiaohongshu/yunxiao');
 
-    // refuses: existing destination, '..', absolute folder
+    // refuses: existing destination, '..', absolute folder, empty segment, backslash
     assert.strictEqual(centralService.moveSkillToFolder(movedRecord, '../escape', home, ws).ok, false);
     assert.strictEqual(centralService.moveSkillToFolder(movedRecord, '/abs', home, ws).ok, false);
+    assert.strictEqual(centralService.moveSkillToFolder(movedRecord, 'a//b', home, ws).ok, false, 'empty segment refused');
+    assert.strictEqual(centralService.moveSkillToFolder(movedRecord, 'a\\b', home, ws).ok, false, 'backslash refused');
     const alpha2 = discovery.scanSkills({ homeDir: home, workspaceRoot: ws })
         .find(record => record.name === 'alpha');
     // materialize a name collision so the destination already exists

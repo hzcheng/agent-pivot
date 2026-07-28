@@ -471,6 +471,7 @@ runSkillFixChecks();
 runSkillCollectionChecks();
 runSkillSearchCatalogChecks();
 runSkillSyncChecks();
+runSkillCentralChecks();
 runSkillGroupStoreChecks()
     .then(() => console.log('Skill management checks passed.'))
     .catch(error => {
@@ -803,4 +804,193 @@ function runSkillSyncChecks() {
         { copyTargets: new Map([['/home/dev/.kimi/skills/demo', [{ rootDir: '/home/dev/.codex/skills', source: 'codex', scope: 'user' }]]]) },
     );
     assert.ok(copyHtml.includes('data-skill-copy-root="/home/dev/.codex/skills"'), 'copy-to action renders');
+}
+
+function runSkillCentralChecks() {
+    const centralService = require('../out/skills/centralService');
+    const real = dirPath => fs.realpathSync(dirPath);
+    const makeCentralFixture = () => {
+        const home = real(fs.mkdtempSync(path.join(os.tmpdir(), 'skills-central-')));
+        const ws = real(fs.mkdtempSync(path.join(os.tmpdir(), 'skills-central-ws-')));
+        const write = (filePath, content) => {
+            fs.mkdirSync(path.dirname(filePath), { recursive: true });
+            fs.writeFileSync(filePath, content);
+        };
+        write(path.join(home, '.skills/shared/SKILL.md'), '---\nname: shared\ndescription: Shared skill\n---\n# S\n');
+        fs.mkdirSync(path.join(home, '.kimi/skills'), { recursive: true });
+        fs.mkdirSync(path.join(home, '.codex/skills'), { recursive: true });
+        fs.symlinkSync(path.join(home, '.skills/shared'), path.join(home, '.kimi/skills/shared'), 'dir');
+        fs.symlinkSync(path.join(home, '.skills/shared'), path.join(home, '.codex/skills/shared'), 'dir');
+        write(path.join(home, '.claude/skills/solo/SKILL.md'), '---\nname: solo\ndescription: Solo\n---\n');
+        write(path.join(home, '.codex/skills/solo/SKILL.md'), '---\nname: solo\ndescription: Solo\n---\n');
+        write(path.join(ws, '.skills/proj/SKILL.md'), '---\nname: proj\ndescription: Project skill\n---\n');
+        fs.mkdirSync(path.join(ws, '.claude/skills'), { recursive: true });
+        fs.symlinkSync(path.join(ws, '.skills/proj'), path.join(ws, '.claude/skills/proj'), 'dir');
+        return { home, ws };
+    };
+
+    // discovery: symlinks into the central store merge into a single central record
+    const { home, ws } = makeCentralFixture();
+    const scanned = discovery.scanSkills({ homeDir: home, workspaceRoot: ws });
+    const sharedCopies = scanned.filter(record => record.name === 'shared');
+    assert.strictEqual(sharedCopies.length, 1, 'agent links merge into one central record');
+    const shared = sharedCopies[0];
+    assert.strictEqual(shared.source, 'central');
+    assert.strictEqual(shared.scope, 'user');
+    assert.strictEqual(shared.enabled, true);
+    assert.strictEqual(shared.dirPath, path.join(home, '.skills', 'shared'));
+    assert.deepStrictEqual(shared.central, {
+        dirPath: path.join(home, '.skills', 'shared'),
+        links: {
+            kimi: path.join(home, '.kimi', 'skills', 'shared'),
+            codex: path.join(home, '.codex', 'skills', 'shared'),
+        },
+    });
+    // effectiveness: linked agents are active; kimi follows the link under its winning brand dir
+    assert.deepStrictEqual(shared.visibility, { kimi: 'active', claude: 'absent', codex: 'active' });
+    const proj = scanned.find(record => record.name === 'proj');
+    assert.strictEqual(proj.source, 'central');
+    assert.strictEqual(proj.scope, 'project', 'project central store scopes correctly');
+    assert.deepStrictEqual(proj.central.links, { claude: path.join(ws, '.claude', 'skills', 'proj') });
+    assert.deepStrictEqual(proj.visibility, { kimi: 'active', claude: 'active', codex: 'absent' });
+
+    // effectiveness: linked only outside the winning brand dir → kimi shadowed
+    const shadowHome = real(fs.mkdtempSync(path.join(os.tmpdir(), 'skills-central-shadow-')));
+    fs.mkdirSync(path.join(shadowHome, '.kimi/skills'), { recursive: true });
+    fs.mkdirSync(path.join(shadowHome, '.codex/skills'), { recursive: true });
+    fs.mkdirSync(path.join(shadowHome, '.skills/x'), { recursive: true });
+    fs.writeFileSync(path.join(shadowHome, '.skills/x/SKILL.md'), '---\nname: x\ndescription: X\n---\n');
+    fs.symlinkSync(path.join(shadowHome, '.skills/x'), path.join(shadowHome, '.codex/skills/x'), 'dir');
+    const x = discovery.scanSkills({ homeDir: shadowHome }).find(record => record.name === 'x');
+    assert.strictEqual(x.visibility.kimi, 'shadowed', 'link outside the winning brand dir shadows kimi');
+    assert.strictEqual(x.shadowedBy.kimi, path.join(shadowHome, '.kimi', 'skills'));
+    assert.strictEqual(x.visibility.codex, 'active');
+
+    // setCentralLink: create / idempotent / refuse real dirs / remove
+    const linkHome = real(fs.mkdtempSync(path.join(os.tmpdir(), 'skills-link-')));
+    const centralDir = path.join(linkHome, '.skills', 'tool');
+    fs.mkdirSync(centralDir, { recursive: true });
+    fs.writeFileSync(path.join(centralDir, 'SKILL.md'), '---\nname: tool\ndescription: T\n---\n');
+    const kimiRoot = path.join(linkHome, '.kimi', 'skills');
+    const linkPath = path.join(kimiRoot, 'tool');
+    assert.strictEqual(centralService.setCentralLink(centralDir, kimiRoot, true).ok, true, 'creates the agent link');
+    assert.ok(fs.lstatSync(linkPath).isSymbolicLink());
+    assert.strictEqual(fs.realpathSync(linkPath), centralDir);
+    assert.strictEqual(centralService.setCentralLink(centralDir, kimiRoot, true).ok, true, 're-link is idempotent');
+    assert.strictEqual(centralService.setCentralLink(centralDir, kimiRoot, false).ok, true, 'removes the agent link');
+    assert.ok(!fs.existsSync(linkPath));
+    assert.strictEqual(centralService.setCentralLink(centralDir, kimiRoot, false).ok, true, 're-remove is idempotent');
+    assert.ok(fs.existsSync(path.join(centralDir, 'SKILL.md')), 'link removal never touches the store');
+    fs.mkdirSync(linkPath, { recursive: true });
+    assert.strictEqual(centralService.setCentralLink(centralDir, kimiRoot, true).ok, false, 'never replaces a real directory');
+    assert.strictEqual(centralService.setCentralLink(centralDir, kimiRoot, false).ok, false, 'never deletes a real directory');
+    assert.ok(fs.lstatSync(linkPath).isDirectory());
+
+    // centralizeSkill: winner moves into the store, links back, losers parked reversibly
+    const beforeCentralize = discovery.scanSkills({ homeDir: home, workspaceRoot: ws });
+    const claudSolo = beforeCentralize.find(record => record.name === 'solo' && record.source === 'claude' && record.enabled);
+    const soloDuplicates = beforeCentralize.filter(record =>
+        record.scope === claudSolo.scope && record.name === claudSolo.name && record.dirPath !== claudSolo.dirPath);
+    const centralized = centralService.centralizeSkill(claudSolo, soloDuplicates, home, ws);
+    assert.strictEqual(centralized.ok, true);
+    assert.strictEqual(centralized.dirPath, path.join(home, '.skills', 'solo'));
+    assert.ok(fs.existsSync(path.join(home, '.skills', 'solo', 'SKILL.md')), 'skill content moved into the store');
+    assert.ok(fs.lstatSync(path.join(home, '.claude', 'skills', 'solo')).isSymbolicLink(), 'original root links back');
+    assert.strictEqual(fs.realpathSync(path.join(home, '.claude', 'skills', 'solo')), path.join(home, '.skills', 'solo'));
+    assert.ok(!fs.existsSync(path.join(home, '.codex', 'skills', 'solo')), 'losing copy left its root');
+    assert.ok(fs.existsSync(path.join(home, '.codex', 'skills', '.disabled', 'solo', 'SKILL.md')), 'losing copy parked reversibly');
+    const rescanned = discovery.scanSkills({ homeDir: home, workspaceRoot: ws });
+    const enabledSolo = rescanned.filter(record => record.name === 'solo' && record.enabled);
+    assert.strictEqual(enabledSolo.length, 1, 'centralized skill merges into one enabled record');
+    assert.strictEqual(enabledSolo[0].source, 'central');
+    assert.deepStrictEqual(enabledSolo[0].central.links, { claude: path.join(home, '.claude', 'skills', 'solo') });
+    const parkedSolo = rescanned.find(record => record.name === 'solo' && !record.enabled);
+    assert.ok(parkedSolo, 'parked loser stays listed as a parked record');
+    assert.strictEqual(centralService.centralizeSkill(enabledSolo[0], [], home, ws).ok, false, 'already centralized is refused');
+    assert.strictEqual(centralService.centralizeSkill(parkedSolo, [], home, ws).ok, false, 'parked skills must be enabled first');
+
+    // controller: per-agent link toggle refreshes records; bogus inputs refused
+    const controller = new SkillDashboardController({
+        getHomeDir: () => home,
+        getWorkspaceRoot: () => ws,
+        postMessage: () => Promise.resolve(true),
+        isVisible: () => true,
+        logError: () => undefined,
+    });
+    controller.start();
+    const sharedDir = path.join(home, '.skills', 'shared');
+    // enabled === false → the link does not exist yet → create it
+    assert.strictEqual(controller.handleCentralToggle(sharedDir, 'claude', false).ok, true);
+    assert.ok(fs.lstatSync(path.join(home, '.claude', 'skills', 'shared')).isSymbolicLink());
+    assert.strictEqual(
+        controller.getRecords().find(record => record.name === 'shared').central.links.claude,
+        path.join(home, '.claude', 'skills', 'shared'),
+        'refresh picks up the new link');
+    // enabled === true → the link exists → remove it
+    assert.strictEqual(controller.handleCentralToggle(sharedDir, 'claude', true).ok, true);
+    assert.ok(!fs.existsSync(path.join(home, '.claude', 'skills', 'shared')));
+    assert.strictEqual(controller.handleCentralToggle('/nope', 'claude', false).ok, false, 'unknown skill refused');
+    assert.strictEqual(controller.handleCentralToggle(sharedDir, 'agents', false).ok, false, 'agents root is not a link target');
+    assert.strictEqual(controller.handleCentralToggle(sharedDir, 'central', false).ok, false, 'central source is not a link target');
+    controller.dispose();
+
+    // controller: centralize moves the skill and refreshes into a central record
+    const { home: home2, ws: ws2 } = makeCentralFixture();
+    const controller2 = new SkillDashboardController({
+        getHomeDir: () => home2,
+        getWorkspaceRoot: () => ws2,
+        postMessage: () => Promise.resolve(true),
+        isVisible: () => true,
+        logError: () => undefined,
+    });
+    controller2.start();
+    const soloDir = path.join(home2, '.claude', 'skills', 'solo');
+    assert.strictEqual(controller2.handleCentralize(soloDir).ok, true);
+    assert.strictEqual(controller2.getRecords().find(record => record.name === 'solo' && record.enabled).source, 'central');
+    assert.strictEqual(controller2.handleCentralize(soloDir).ok, false, 'already-central skill is refused');
+    assert.strictEqual(controller2.handleCentralize('/nope').ok, false, 'unknown skill refused');
+    controller2.dispose();
+
+    // rendering: central chip, per-agent link switches, centralize action only on plain skills
+    const centralRecord = makeRecord({
+        name: 'shared', source: 'central',
+        dirPath: '/home/dev/.skills/shared', skillFilePath: '/home/dev/.skills/shared/SKILL.md',
+        visibility: { kimi: 'active', claude: 'absent', codex: 'active' },
+        central: { dirPath: '/home/dev/.skills/shared', links: { kimi: '/home/dev/.kimi/skills/shared', codex: '/home/dev/.codex/skills/shared' } },
+    });
+    const centralHtml = skillContent.getSkillsPanelContent([centralRecord, makeRecord()]);
+    assert.ok(centralHtml.includes('skill-chip central'), 'central chip renders');
+    assert.ok(centralHtml.includes('data-skill-source="central"'), 'central source group renders');
+    assert.ok(centralHtml.includes('Linked agents'), 'per-agent link section renders');
+    assert.ok(centralHtml.includes('data-central-toggle="/home/dev/.skills/shared"'));
+    assert.ok(centralHtml.includes('data-central-source="kimi"'));
+    assert.ok(centralHtml.includes('data-central-source="claude"'));
+    assert.ok(centralHtml.includes('skill-central-toggle off'), 'unlinked agents render an off switch');
+    assert.ok(centralHtml.includes('not linked'));
+    assert.ok(!centralHtml.includes('data-skill-toggle="/home/dev/.skills/shared"'), 'central cards hide the master toggle');
+    assert.ok(!centralHtml.includes('data-skill-centralize="/home/dev/.skills/shared"'), 'central cards are not re-centralizable');
+    assert.ok(centralHtml.includes('data-skill-centralize="/home/dev/.kimi/skills/demo"'), 'plain skills offer Centralize');
+    const parkedOnlyHtml = skillContent.getSkillsPanelContent([makeRecord({
+        name: 'parked', enabled: false, dirPath: '/home/dev/.kimi/skills/.disabled/parked',
+        skillFilePath: '/home/dev/.kimi/skills/.disabled/parked/SKILL.md',
+        visibility: { kimi: 'absent', claude: 'absent', codex: 'absent' },
+    })]);
+    assert.ok(!parkedOnlyHtml.includes('data-skill-centralize'), 'parked skills cannot be centralized');
+
+    // wiring + styles
+    const script = fs.readFileSync(path.join(__dirname, '..', 'media', 'webviewDashboardScripts.js'), 'utf8');
+    assert.ok(script.includes("'central-toggle-skill'"), 'webview posts per-agent link toggles');
+    assert.ok(script.includes("'centralize-skill'"));
+    assert.ok(script.includes('data-central-toggle'));
+    assert.ok(script.includes('data-central-source'));
+    const dashboard = fs.readFileSync(path.join(__dirname, '..', 'src', 'dashboard.ts'), 'utf8');
+    assert.ok(dashboard.includes("'central-toggle-skill'"));
+    assert.ok(dashboard.includes("'centralize-skill'"));
+    const styles = fs.readFileSync(path.join(__dirname, '..', 'media', 'styles.scss'), 'utf8');
+    const compiledCss = fs.readFileSync(path.join(__dirname, '..', 'media', 'styles.css'), 'utf8');
+    assert.ok(styles.includes('.skill-chip.central'));
+    assert.ok(styles.includes('.skill-centralize'));
+    assert.ok(styles.includes('.skill-central-toggle'));
+    assert.ok(compiledCss.includes('.skill-centralize'));
+    assert.ok(compiledCss.includes('.skill-central-toggle'));
 }

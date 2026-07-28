@@ -29,6 +29,27 @@ function applyScope(
         // even when re-applying to records that already went through effectiveness.
         record.visibility.kimi = 'absent';
         delete record.shadowedBy.kimi;
+        if (record.central) {
+            // Centralized skills are effective where they are linked.
+            const links = record.central.links;
+            if (links.agents) {
+                record.visibility.kimi = 'active';
+            } else if (brandWinnerDir && Object.values(links).some(link => link.startsWith(brandWinnerDir + path.sep))) {
+                record.visibility.kimi = 'active';
+            } else if (brandWinnerDir && (links.kimi || links.claude || links.codex)) {
+                record.visibility.kimi = 'shadowed';
+                record.shadowedBy.kimi = brandWinnerDir;
+            }
+            for (const agent of AGENTS) {
+                if (agent === 'kimi') {
+                    continue;
+                }
+                if (links[agent]) {
+                    record.visibility[agent] = 'active';
+                }
+            }
+            continue;
+        }
         if (record.source === 'agents') {
             record.visibility.kimi = 'active';
         } else if (brandWinnerDir && record.dirPath.startsWith(brandWinnerDir + path.sep)) {

@@ -102,14 +102,22 @@ export function computeSkillCopyTargets(
         .filter(root => root.source !== 'agents');
     const result = new Map<string, SkillCopyTarget[]>();
     for (const record of records) {
-        const taken = new Set(
-            records
-                .filter(candidate => candidate.scope === record.scope && candidate.name === record.name)
-                .map(candidate => {
-                    const parent = path.dirname(candidate.dirPath);
-                    return path.basename(parent) === DISABLED_DIR_NAME ? path.dirname(parent) : parent;
-                })
-        );
+        if (record.central) {
+            continue;
+        }
+        const taken = new Set<string>();
+        for (const candidate of records) {
+            if (candidate.scope !== record.scope || candidate.name !== record.name) {
+                continue;
+            }
+            const parent = path.dirname(candidate.dirPath);
+            taken.add(path.basename(parent) === DISABLED_DIR_NAME ? path.dirname(parent) : parent);
+            if (candidate.central) {
+                for (const link of Object.values(candidate.central.links)) {
+                    taken.add(path.dirname(link));
+                }
+            }
+        }
         const targets = brandRoots
             .filter(root => root.scope === record.scope && !taken.has(root.dirPath))
             .map(root => ({ rootDir: root.dirPath, source: root.source, scope: root.scope }));

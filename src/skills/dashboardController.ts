@@ -3,6 +3,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { centralizeSkill, setCentralLink } from './centralService';
 import { scanSkills } from './discovery';
 import { getCollectionSuggestions, KNOWN_SKILL_COLLECTIONS, SkillCollectionSuggestion } from './knownCollections';
 import { DISABLED_DIR_NAME, getProjectSkillsRoots, getUserSkillsRoots } from './roots';
@@ -11,7 +12,7 @@ import { disableSkill, enableSkill } from './toggleService';
 import { fixSkillDiagnostic } from './fixService';
 import { getSkillsPanelContent } from '../webview/webviewSkillContent';
 import type { SkillGroupMap, SkillGroupStore } from './skillGroupStore';
-import type { SkillDiagnostic, SkillRecord } from './types';
+import type { SkillDiagnostic, SkillRecord, SkillSourceDir } from './types';
 
 export interface SkillDashboardControllerOptions {
     getHomeDir: () => string;
@@ -84,6 +85,42 @@ export class SkillDashboardController {
             this.options.logError('Failed to copy the skill.', new Error(result.error || 'unknown error'));
         }
         this.refresh('copy-skill');
+        return result;
+    }
+
+    handleCentralToggle(dirPath: string, source: SkillSourceDir, enabled: boolean): { ok: boolean; error?: string } {
+        const record = this.records.find(candidate => candidate.central && candidate.dirPath === dirPath);
+        if (!record || !record.central) {
+            return { ok: false, error: `Unknown centralized skill: ${dirPath}` };
+        }
+        const roots = getUserSkillsRoots(this.options.getHomeDir())
+            .concat(this.options.getWorkspaceRoot() ? getProjectSkillsRoots(this.options.getWorkspaceRoot() as string) : []);
+        const root = roots.find(candidate => candidate.source === source && candidate.scope === record.scope);
+        if (!root || source === 'central' || source === 'agents') {
+            return { ok: false, error: `Unknown skills root for ${source}.` };
+        }
+        // enabled === true means the link currently exists → remove it; false → create it.
+        const result = setCentralLink(dirPath, root.dirPath, !enabled);
+        if (!result.ok) {
+            this.options.logError('Failed to toggle the skill link.', new Error(result.error || 'unknown error'));
+        }
+        this.refresh('central-toggle-skill');
+        return result;
+    }
+
+    handleCentralize(dirPath: string): { ok: boolean; error?: string } {
+        const record = this.records.find(candidate => candidate.dirPath === dirPath && !candidate.central);
+        if (!record) {
+            return { ok: false, error: `Unknown skill to centralize: ${dirPath}` };
+        }
+        const duplicates = this.records.filter(candidate =>
+            candidate.scope === record.scope && candidate.name === record.name && candidate.dirPath !== record.dirPath
+        );
+        const result = centralizeSkill(record, duplicates, this.options.getHomeDir(), this.options.getWorkspaceRoot());
+        if (!result.ok) {
+            this.options.logError('Failed to centralize the skill.', new Error(result.error || 'unknown error'));
+        }
+        this.refresh('centralize-skill');
         return result;
     }
 

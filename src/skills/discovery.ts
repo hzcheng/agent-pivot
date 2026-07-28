@@ -5,9 +5,16 @@ import * as path from 'path';
 
 import { applySkillEffectiveness } from './effectiveness';
 import { getSkillDiagnostics, parseSkillFrontmatter } from './frontmatter';
-import { DISABLED_DIR_NAME, getProjectSkillsRoots, getUserSkillsRoots, SkillsRoot } from './roots';
+import {
+    DISABLED_DIR_NAME,
+    getCentralSkillsRoot,
+    getProjectSkillsRoots,
+    getUserSkillsRoots,
+    isUnderCentralRoot,
+    SkillsRoot,
+} from './roots';
 import { hashSkillDirectory } from './syncService';
-import type { SkillDiagnostic, SkillRecord } from './types';
+import type { SkillDiagnostic, SkillRecord, SkillSourceDir } from './types';
 
 export interface ScanSkillsInput {
     homeDir: string;
@@ -53,7 +60,19 @@ function createRecord(root: SkillsRoot, dirName: string, dirPath: string, enable
     };
 }
 
-function scanDir(root: SkillsRoot, parentDir: string, enabled: boolean): SkillRecord[] {
+interface SkillLink {
+    source: SkillSourceDir;
+    linkPath: string;
+    targetPath: string;
+}
+
+function scanDir(
+    root: SkillsRoot,
+    parentDir: string,
+    enabled: boolean,
+    links: SkillLink[],
+    input: ScanSkillsInput,
+): SkillRecord[] {
     let entries: fs.Dirent[];
     try {
         entries = fs.readdirSync(parentDir, { withFileTypes: true });
@@ -62,10 +81,30 @@ function scanDir(root: SkillsRoot, parentDir: string, enabled: boolean): SkillRe
     }
     const records: SkillRecord[] = [];
     for (const entry of entries) {
-        if (!entry.isDirectory() || entry.name.startsWith('.')) {
+        if (entry.name.startsWith('.')) {
             continue;
         }
-        const record = createRecord(root, entry.name, path.join(parentDir, entry.name), enabled);
+        let dirPath = path.join(parentDir, entry.name);
+        if (entry.isSymbolicLink()) {
+            try {
+                const resolved = fs.realpathSync(dirPath);
+                if (!fs.statSync(resolved).isDirectory()) {
+                    continue;
+                }
+                dirPath = resolved;
+            } catch (_error) {
+                continue;
+            }
+            // A symlink into the central store is an agent link, not a copy:
+            // the record comes from the central-root scan, the link is noted.
+            if (isUnderCentralRoot(dirPath, input.homeDir, input.workspaceRoot)) {
+                links.push({ source: root.source, linkPath: path.join(parentDir, entry.name), targetPath: dirPath });
+                continue;
+            }
+        } else if (!entry.isDirectory()) {
+            continue;
+        }
+        const record = createRecord(root, entry.name, dirPath, enabled);
         if (record) {
             records.push(record);
         }
@@ -73,18 +112,60 @@ function scanDir(root: SkillsRoot, parentDir: string, enabled: boolean): SkillRe
     return records;
 }
 
-function scanRoot(root: SkillsRoot): SkillRecord[] {
+function scanRoot(root: SkillsRoot, links: SkillLink[], input: ScanSkillsInput): SkillRecord[] {
     // Active skills come from the root listing (dot-directories stay skipped there);
     // parked skills are first-level children of the root's `.disabled` directory.
-    return scanDir(root, root.dirPath, true)
-        .concat(scanDir(root, path.join(root.dirPath, DISABLED_DIR_NAME), false));
+    return scanDir(root, root.dirPath, true, links, input)
+        .concat(scanDir(root, path.join(root.dirPath, DISABLED_DIR_NAME), false, links, input));
+}
+
+function centralRoots(input: ScanSkillsInput): SkillsRoot[] {
+    const roots: SkillsRoot[] = [
+        { source: 'central', scope: 'user', dirPath: getCentralSkillsRoot(input.homeDir, 'user') },
+    ];
+    if (input.workspaceRoot) {
+        roots.push({ source: 'central', scope: 'project', dirPath: getCentralSkillsRoot(input.homeDir, 'project', input.workspaceRoot) });
+    }
+    return roots;
+}
+
+function mergeCentralRecords(records: SkillRecord[], links: SkillLink[], input: ScanSkillsInput): SkillRecord[] {
+    const byDir = new Map<string, SkillRecord>();
+    const merged: SkillRecord[] = [];
+    for (const record of records) {
+        if (record.source === 'central' || isUnderCentralRoot(record.dirPath, input.homeDir, input.workspaceRoot)) {
+            let existing = byDir.get(record.dirPath);
+            if (!existing) {
+                existing = {
+                    ...record,
+                    source: 'central',
+                    scope: isUnderCentralRoot(record.dirPath, input.homeDir, input.workspaceRoot)?.scope || record.scope,
+                    central: { dirPath: record.dirPath, links: {} },
+                };
+                byDir.set(record.dirPath, existing);
+                merged.push(existing);
+            }
+        } else {
+            merged.push(record);
+        }
+    }
+    for (const link of links) {
+        const record = byDir.get(link.targetPath);
+        if (record && record.central && link.source !== 'central') {
+            record.central.links[link.source] = link.linkPath;
+        }
+    }
+    return merged;
 }
 
 export function scanSkills(input: ScanSkillsInput): SkillRecord[] {
     const roots = getUserSkillsRoots(input.homeDir)
-        .concat(input.workspaceRoot ? getProjectSkillsRoots(input.workspaceRoot) : []);
+        .concat(input.workspaceRoot ? getProjectSkillsRoots(input.workspaceRoot) : [])
+        .concat(centralRoots(input));
+    const links: SkillLink[] = [];
+    const records = roots.reduce<SkillRecord[]>((all, root) => all.concat(scanRoot(root, links, input)), []);
     return applySkillEffectiveness(
-        roots.reduce<SkillRecord[]>((records, root) => records.concat(scanRoot(root)), []),
+        mergeCentralRecords(records, links, input),
         input
     );
 }

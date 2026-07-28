@@ -11,6 +11,27 @@ export interface SkillsRoot {
 }
 
 export const DISABLED_DIR_NAME = '.disabled';
+export const CENTRAL_DIR_NAME = '.skills';
+
+export function getCentralSkillsRoot(homeDir: string, scope: SkillScope, workspaceRoot?: string): string {
+    return scope === 'user'
+        ? path.join(homeDir, CENTRAL_DIR_NAME)
+        : path.join(workspaceRoot as string, CENTRAL_DIR_NAME);
+}
+
+export function isUnderCentralRoot(dirPath: string, homeDir: string, workspaceRoot?: string): { scope: SkillScope } | null {
+    const userCentral = getCentralSkillsRoot(homeDir, 'user');
+    if (dirPath.startsWith(userCentral + path.sep)) {
+        return { scope: 'user' };
+    }
+    if (workspaceRoot) {
+        const projectCentral = getCentralSkillsRoot(homeDir, 'project', workspaceRoot);
+        if (dirPath.startsWith(projectCentral + path.sep)) {
+            return { scope: 'project' };
+        }
+    }
+    return null;
+}
 
 export function getUserSkillsRoots(homeDir: string): SkillsRoot[] {
     return [

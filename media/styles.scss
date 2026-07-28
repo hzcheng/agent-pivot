@@ -4278,6 +4278,27 @@ body.steward-sidebar {
         border-color: rgba(201, 166, 242, .35);
     }
 
+    .skill-chip.central {
+        color: #4ec9b0;
+        background: rgba(78, 201, 176, .13);
+        border-color: rgba(78, 201, 176, .4);
+    }
+
+    .skill-centralize {
+        padding: 1px 7px;
+        border: 1px solid rgba(78, 201, 176, .4);
+        border-radius: 999px;
+        background: transparent;
+        color: #4ec9b0;
+        cursor: pointer;
+        font-size: 9px;
+    }
+
+    .skill-toggle.skill-central-toggle {
+        position: static;
+        flex: none;
+    }
+
     .skill-ungroup {
         padding: 0 0 0 2px;
         border: 0;

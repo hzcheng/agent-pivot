@@ -37,6 +37,15 @@ function agentChip(agent: SkillAgentId, visibility: SkillVisibility): string {
 
 function getSkillDetail(record: SkillRecord, view: SkillPanelView, duplicate?: SkillDuplicateGroup): string {
     const groups = view.groups || {};
+    const centralRows = record.central
+        ? `<p class="skill-detail-title">Linked agents</p>` + AGENTS.map(agent => {
+            const linkPath = record.central?.links[agent];
+            const state = linkPath ? 'on' : 'off';
+            return `<div class="skill-detail-row skill-central-row">${agentChip(agent, linkPath ? 'active' : 'absent')}`
+                + `<button type="button" class="skill-toggle skill-central-toggle${state === 'off' ? ' off' : ''}" title="${linkPath ? 'Disable' : 'Enable'} for ${agent}" data-central-toggle="${escapeAttribute(record.dirPath)}" data-central-source="${agent}"></button>`
+                + `<span class="skill-detail-path">${linkPath ? escapeAttribute(linkPath) : 'not linked'}</span></div>`;
+        }).join('')
+        : '';
     const rows = AGENTS.map(agent => {
         const visibility = record.visibility[agent];
         const status = visibility === 'active'
@@ -81,7 +90,7 @@ function getSkillDetail(record: SkillRecord, view: SkillPanelView, duplicate?: S
     </div>`;
     return `<div class="skill-detail" hidden>
         <p class="skill-detail-title">Effectiveness per agent</p>
-        ${rows}${driftRows}${notes}
+        ${centralRows}${rows}${driftRows}${notes}
         <div class="skill-detail-actions">
             <button class="primary" data-skill-open="${escapeAttribute(record.skillFilePath)}">Open SKILL.md</button>
         </div>
@@ -110,34 +119,42 @@ function getSkillDiv(record: SkillRecord, view: SkillPanelView): string {
         ? `<div class="skill-copy-row">Copy to: ${copyTargets.map(target => `<button type="button" class="skill-copy" data-skill-copy="${escapeAttribute(record.dirPath)}" data-skill-copy-root="${escapeAttribute(target.rootDir)}">${target.source}</button>`).join('')}</div>`
         : '';
     const chips = `<span class="skill-chip scope-${record.scope}">${scopeLabel}</span>`
+        + (record.central ? '<span class="skill-chip central" title="Centralized in the shared store">central</span>' : '')
         + AGENTS.map(agent => agentChip(agent, record.visibility[agent])).join('')
         + warnChip;
     const parkedNote = record.enabled ? '' : `<span class="skill-parked-note">parked at ${escapeAttribute(record.dirPath)}</span>`;
+    const centralizeButton = record.central || !record.enabled
+        ? ''
+        : `<button type="button" class="skill-centralize" title="Move into the shared store and link from agents" data-skill-centralize="${escapeAttribute(record.dirPath)}">Centralize</button>`;
+    const masterToggle = record.central
+        ? ''
+        : `<button class="skill-toggle${record.enabled ? '' : ' off'}" title="${record.enabled ? 'Disable' : 'Enable'} skill" data-skill-toggle="${escapeAttribute(record.dirPath)}"></button>`;
     return `
 <div class="project-container" draggable="true" data-skill-scope="${record.scope}">
     <div class="project steward-item-card skill-card${record.enabled ? '' : ' skill-card-disabled'}" data-skill-dir="${escapeAttribute(record.dirPath)}" data-skill-agents="${activeAgents}">
         <div class="project-aura"></div>
         <div class="project-border steward-item-accent"></div>
-        <button class="skill-toggle${record.enabled ? '' : ' off'}" title="${record.enabled ? 'Disable' : 'Enable'} skill" data-skill-toggle="${escapeAttribute(record.dirPath)}"></button>
+        ${masterToggle}
         <div class="fitty-container project-title-row">
             <span class="project-kind-icon">${terminalLine}</span>
             <h2 class="project-header">${name}</h2>
         </div>
         <p class="project-description" title="${description}">${description}</p>
         ${parkedNote}
-        <div class="skill-chip-row">${chips}<span class="skill-expand-hint" title="Show details">${collapseIcon}</span></div>
+        <div class="skill-chip-row">${chips}${centralizeButton}<span class="skill-expand-hint" title="Show details">${collapseIcon}</span></div>
         ${copyRow}
         ${getSkillDetail(record, view, duplicate)}
     </div>
 </div>`;
 }
 
-const SOURCE_ORDER: SkillSourceDir[] = ['kimi', 'claude', 'codex', 'agents'];
+const SOURCE_ORDER: SkillSourceDir[] = ['kimi', 'claude', 'codex', 'agents', 'central'];
 const SOURCE_LABELS: Record<SkillSourceDir, string> = {
     kimi: 'Kimi',
     claude: 'Claude',
     codex: 'Codex',
     agents: 'Agents',
+    central: 'Central',
 };
 
 interface SkillSourceGroup {

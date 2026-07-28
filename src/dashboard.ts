@@ -1379,6 +1379,22 @@ async function initializeDashboard(
                     void vscode.window.showWarningMessage(`Could not copy the skill: ${result.error}`);
                 }
             },
+            'central-toggle-skill': e => {
+                const result = skillDashboardController.handleCentralToggle(
+                    String(e.dirPath || ''),
+                    String(e.source || '') as never,
+                    e.enabled === true,
+                );
+                if (!result.ok) {
+                    void vscode.window.showWarningMessage(`Could not toggle the skill link: ${result.error}`);
+                }
+            },
+            'centralize-skill': e => {
+                const result = skillDashboardController.handleCentralize(String(e.dirPath || ''));
+                if (!result.ok) {
+                    void vscode.window.showWarningMessage(`Could not centralize the skill: ${result.error}`);
+                }
+            },
             'fix-skill-diagnostic': e => {
                 const result = skillDashboardController.handleFixSkillDiagnostic(
                     String(e.dirPath || ''),

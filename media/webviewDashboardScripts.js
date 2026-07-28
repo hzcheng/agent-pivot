@@ -1092,6 +1092,25 @@ function initDashboard(options) {
             options.postMessage({ type: 'dismiss-skill-collection', name: dismissSuggestion.getAttribute('data-skill-dismiss-suggestion') });
             return;
         }
+        var centralToggle = event.target && event.target.closest ? event.target.closest('[data-central-toggle]') : null;
+        if (centralToggle) {
+            event.preventDefault();
+            event.stopPropagation();
+            options.postMessage({
+                type: 'central-toggle-skill',
+                dirPath: centralToggle.getAttribute('data-central-toggle'),
+                source: centralToggle.getAttribute('data-central-source'),
+                enabled: !centralToggle.classList.contains('off'),
+            });
+            return;
+        }
+        var centralize = event.target && event.target.closest ? event.target.closest('[data-skill-centralize]') : null;
+        if (centralize) {
+            event.preventDefault();
+            event.stopPropagation();
+            options.postMessage({ type: 'centralize-skill', dirPath: centralize.getAttribute('data-skill-centralize') });
+            return;
+        }
         var sync = event.target && event.target.closest ? event.target.closest('[data-skill-sync]') : null;
         if (sync) {
             event.preventDefault();

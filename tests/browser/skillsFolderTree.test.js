@@ -153,8 +153,14 @@ test('SKILLS-FOLDER-AGENTS-001 folder dropdown opens per-agent switches and surv
         const panelHidden = () => page.evaluate(() =>
             document.querySelector('[data-folder-agents="superpowers"]').hidden);
         assert.equal(await panelHidden(), true, 'agents panel starts hidden');
+        const panelDisplay = await page.evaluate(() =>
+            getComputedStyle(document.querySelector('[data-folder-agents="superpowers"]')).display);
+        assert.equal(panelDisplay, 'none', 'the hidden attribute wins over the panel display rule');
         await page.click('[data-folder-agents-toggle="superpowers"]');
         assert.equal(await panelHidden(), false, 'dropdown opens the per-agent panel');
+        const openedDisplay = await page.evaluate(() =>
+            getComputedStyle(document.querySelector('[data-folder-agents="superpowers"]')).display);
+        assert.equal(openedDisplay, 'flex', 'open panel is visible');
         // per-agent switch states: alpha links kimi only → kimi indeterminate, claude/codex off
         const states = await page.evaluate(() =>
             [...document.querySelectorAll('[data-folder-agents="superpowers"] [data-folder-agent]')].map(el => ({

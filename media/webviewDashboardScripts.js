@@ -1122,6 +1122,16 @@ function initDashboard(options) {
             }
             return;
         }
+        var parkedToggle = event.target && event.target.closest ? event.target.closest('[data-skill-parked-toggle]') : null;
+        if (parkedToggle) {
+            event.preventDefault();
+            var parkedPanel = parkedToggle.nextElementSibling;
+            if (parkedPanel && parkedPanel.classList.contains('skill-parked-duplicates')) {
+                parkedPanel.hidden = !parkedPanel.hidden;
+                parkedToggle.textContent = parkedToggle.textContent.replace(parkedPanel.hidden ? 'hide' : 'show', parkedPanel.hidden ? 'show' : 'hide');
+            }
+            return;
+        }
         var folderToggle = event.target && event.target.closest ? event.target.closest('[data-folder-toggle]') : null;
         if (folderToggle) {
             event.preventDefault();

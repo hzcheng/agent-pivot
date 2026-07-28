@@ -362,12 +362,13 @@ function runSkillRenderingChecks() {
         'fully linked folder has every agent on');
     const projectFolderHeader = folderHeader(tree, 'pf');
     assert.ok(projectFolderHeader.includes('data-folder-scope="project"'), 'project-section folder posts project scope');
-    // agent state dots summarize the dropdown when closed
-    assert.ok(superpowersHeader.includes('skill-agent-dot agent-kimi partial'), 'kimi dot half-lit for a partial folder');
+    // per-agent chips summarize + trigger the dropdown
+    assert.ok(superpowersHeader.includes('skill-folder-agents-select'), 'chips trigger the dropdown');
+    assert.ok(superpowersHeader.includes('skill-folder-agent-chip agent-kimi partial'), 'kimi chip half-lit for a partial folder');
     const linkedDots = folderHeader(tree, 'linked');
-    assert.ok(linkedDots.includes('skill-agent-dot agent-kimi on'), 'fully linked folder dots lit');
-    assert.ok(!otherHeader.includes('skill-agent-dot agent-kimi on') && !otherHeader.includes('skill-agent-dot agent-kimi partial'),
-        'unlinked folder dots unlit');
+    assert.ok(linkedDots.includes('skill-folder-agent-chip agent-kimi on'), 'fully linked folder chips lit');
+    assert.ok(!otherHeader.includes('skill-folder-agent-chip agent-kimi on') && !otherHeader.includes('skill-folder-agent-chip agent-kimi partial'),
+        'unlinked folder chips unlit');
     // no scope selector anywhere (scope is positional now); no dual-scope attrs; no P badge
     assert.ok(!tree.includes('data-skill-scope-select'), 'scope selector removed');
     assert.ok(!tree.includes('data-link-user'), 'dual-scope link attrs removed');
@@ -375,6 +376,28 @@ function runSkillRenderingChecks() {
     assert.ok(!tree.includes('skill-chip project-linked'), 'P badge removed');
     // unmanaged section holds the plain record
     assert.ok(tree.includes('skill-unmanaged'));
+    // parked duplicates of central skills hide behind a disclosure; re-enable candidates stay visible
+    const dupTree = skillContent.getSkillsPanelContent([
+        makeRecord({ name: 'alpha', source: 'central', dirPath: '/home/dev/.skills/alpha',
+            skillFilePath: '/home/dev/.skills/alpha/SKILL.md',
+            central: { dirPath: '/home/dev/.skills/alpha', links: {} } }),
+        makeRecord({ name: 'alpha', enabled: false, source: 'codex', dirPath: '/home/dev/.codex/skills/.disabled/alpha',
+            skillFilePath: '/home/dev/.codex/skills/.disabled/alpha/SKILL.md',
+            visibility: { kimi: 'absent', claude: 'absent', codex: 'absent' } }),
+        makeRecord({ name: 'loose', enabled: false, source: 'codex', dirPath: '/home/dev/.codex/skills/.disabled/loose',
+            skillFilePath: '/home/dev/.codex/skills/.disabled/loose/SKILL.md',
+            visibility: { kimi: 'absent', claude: 'absent', codex: 'absent' } }),
+    ]);
+    assert.ok(dupTree.includes('data-skill-parked-toggle'), 'parked duplicates get a disclosure toggle');
+    assert.ok(dupTree.includes('1 parked duplicate copy in .disabled'));
+    const unmanagedPart = dupTree.split('skill-unmanaged-header')[1].split('data-skill-parked-toggle')[0];
+    assert.ok(unmanagedPart.includes('data-skill-dir="/home/dev/.codex/skills/.disabled/loose"'),
+        'parked records without a central twin stay visible for re-enabling');
+    assert.ok(!unmanagedPart.includes('data-skill-dir="/home/dev/.codex/skills/.disabled/alpha"'),
+        'parked duplicates leave the visible list');
+    const parkedPanel = dupTree.split('data-skill-parked-toggle')[1];
+    assert.ok(parkedPanel.includes('data-skill-dir="/home/dev/.codex/skills/.disabled/alpha"'),
+        'the disclosure reveals parked duplicates on demand');
     // move editor present, old group editor gone
     assert.ok(tree.includes('data-skill-move-folder='));
     assert.ok(!tree.includes('data-skill-group-input'), 'virtual group editor removed');
@@ -406,14 +429,17 @@ function runSkillStyleChecks() {
     assert.ok(styles.includes('.skill-filter-hidden'));
     assert.ok(styles.includes('.skill-drop-target'));
     assert.ok(styles.includes('.skill-folder'), 'folder node styles');
-    assert.ok(styles.includes('.skill-folder-dropdown'), 'folder dropdown trigger styles');
+    assert.ok(styles.includes('.skill-folder-agents-select'), 'folder agents trigger styles');
     assert.ok(styles.includes('.skill-ios-toggle.indeterminate'), 'indeterminate switch styles');
-    assert.ok(styles.includes('.skill-agent-dot'), 'agent dot styles');
+    assert.ok(styles.includes('.skill-folder-agent-chip'), 'agent chip styles');
+    assert.ok(styles.includes('.skill-folder-agents[hidden]') || styles.includes('&[hidden]'), 'hidden panels beat author display rules');
+    assert.ok(styles.includes('.skill-parked-duplicates'), 'parked duplicates disclosure styles');
     assert.ok(styles.includes('.skill-folder-agents'), 'folder agents panel styles');
     assert.ok(styles.includes('.skill-unmanaged'), 'unmanaged section styles');
     assert.ok(compiled.includes('.skill-folder'));
     assert.ok(compiled.includes('.skill-folder-agents'));
-    assert.ok(compiled.includes('.skill-agent-dot'));
+    assert.ok(compiled.includes('.skill-folder-agent-chip'));
+    assert.ok(compiled.includes('.skill-parked-duplicates'));
     assert.ok(compiled.includes('.skill-ios-toggle.indeterminate'));
     assert.ok(compiled.includes('.skill-unmanaged'));
     assert.ok(compiled.includes('.skill-toggle'));

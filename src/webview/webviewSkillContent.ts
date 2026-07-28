@@ -294,10 +294,10 @@ function renderFolderNode(
     const children = [...node.children.values()].sort((a, b) => a.name.localeCompare(b.name));
     const items = node.items.slice().sort((a, b) => a.name.localeCompare(b.name));
     const pathAttr = escapeAttribute(node.path);
-    const dots = AGENTS.map(agent => {
+    const chips = AGENTS.map(agent => {
         const state = folderAgentState(node, sectionScope, agent);
         const stateClass = state === 'on' ? ' on' : state === 'indeterminate' ? ' partial' : '';
-        return `<span class="skill-agent-dot agent-${agent}${stateClass}" title="${agent}: ${state}"></span>`;
+        return `<span class="skill-folder-agent-chip agent-${agent}${stateClass}">${agent}</span>`;
     }).join('');
     const agentSwitches = AGENTS.map(agent => {
         const state = folderAgentState(node, sectionScope, agent);
@@ -315,11 +315,9 @@ function renderFolderNode(
             <span class="skill-collection-icon" aria-hidden="true">${folderIcon}</span>${escapeAttribute(node.name)}
         </span>
         <span class="group-title-badge">${count}</span>
-        <span class="skill-agent-dots">${dots}</span>
-        <button type="button" class="skill-folder-dropdown" title="Choose agents for this folder" data-folder-agents-toggle="${pathAttr}">▾</button>
-        <button type="button" class="skill-folder-remove" title="Delete empty folder" data-skill-remove-folder="${pathAttr}">×</button>
+        <button type="button" class="skill-folder-agents-select" title="Enable this folder for agents…" data-folder-agents-toggle="${pathAttr}">${chips}<span class="skill-folder-agents-caret">▾</span></button>
     </div>
-    <div class="skill-folder-agents" data-folder-agents="${pathAttr}" hidden>${agentSwitches}</div>
+    <div class="skill-folder-agents" data-folder-agents="${pathAttr}" hidden>${agentSwitches}<button type="button" class="skill-folder-remove" title="Delete empty folder" data-skill-remove-folder="${pathAttr}">Delete empty folder</button></div>
     <div class="group-list skill-folder-list">
         ${children.map(child => renderFolderNode(child, storeRoot, sectionScope, view)).join('\n')}
         ${items.map(item => getSkillDiv(item, view)).join('\n')}
@@ -329,7 +327,12 @@ function renderFolderNode(
 
 function renderScopeSection(scope: SkillScope, items: SkillRecord[], view: SkillPanelView): string {
     const central = items.filter(record => record.central);
+    const centralNames = new Set(central.map(record => record.name));
     const unmanaged = items.filter(record => !record.central);
+    // Parked copies that duplicate a central skill are archive noise: they hide
+    // behind a disclosure instead of cluttering Unmanaged.
+    const parkedDuplicates = unmanaged.filter(record => !record.enabled && centralNames.has(record.name));
+    const actionable = unmanaged.filter(record => record.enabled || !centralNames.has(record.name));
     const tree = buildFolderTree(central);
     const viewStoreRoot = scope === 'user' ? view.storeRoots?.user : view.storeRoots?.project;
     const storeRoot = viewStoreRoot || (central.length ? getCentralStoreRoot(central[0]) : '');
@@ -339,10 +342,17 @@ function renderScopeSection(scope: SkillScope, items: SkillRecord[], view: Skill
     const rootItems = tree.items.slice()
         .sort((a, b) => a.name.localeCompare(b.name))
         .map(record => getSkillDiv(record, view));
-    const unmanagedSection = unmanaged.length
+    const duplicatesDisclosure = parkedDuplicates.length
+        ? `<button type="button" class="skill-parked-duplicates-toggle" data-skill-parked-toggle>${parkedDuplicates.length} parked duplicate${parkedDuplicates.length === 1 ? ' copy' : ' copies'} in .disabled — show</button>
+        <div class="skill-parked-duplicates" hidden>
+        ${groupBySource(parkedDuplicates).map(group => renderSourceGroup(group, view)).join('\n')}
+    </div>`
+        : '';
+    const unmanagedSection = (actionable.length || parkedDuplicates.length)
         ? `<div class="skill-unmanaged">
         <div class="skill-unmanaged-header">Unmanaged</div>
-        ${groupBySource(unmanaged).map(group => renderSourceGroup(group, view)).join('\n')}
+        ${groupBySource(actionable).map(group => renderSourceGroup(group, view)).join('\n')}
+        ${duplicatesDisclosure}
     </div>`
         : '';
     return `

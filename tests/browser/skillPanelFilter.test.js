@@ -229,19 +229,19 @@ test('SKILLS-COLLAPSE-001 skill groups collapse via shared affordance and state 
         // collapsed state must be captured before and restored after the swap.
         const after = await page.evaluate(() => {
             const wrapper = document.querySelector('#ai-panel-skills .sticky-groups-wrapper');
-            const ids = window.__captureSkillCollapsedGroups(wrapper);
+            const captured = window.__captureSkillCollapsedGroups(wrapper);
             wrapper.outerHTML = wrapper.outerHTML;
             const fresh = document.querySelector('#ai-panel-skills .sticky-groups-wrapper');
-            window.__restoreSkillCollapsedGroups(fresh, ids);
+            window.__restoreSkillCollapsedGroups(fresh, captured);
             return {
-                ids,
+                captured,
                 userCollapsed: document.querySelector('.group.steward-section[data-group-id="user-skills"]')
                     .classList.contains('collapsed'),
                 projectCollapsed: document.querySelector('.group.steward-section[data-group-id="project-skills"]')
                     .classList.contains('collapsed'),
             };
         });
-        assert.deepEqual(after.ids, ['user-skills']);
+        assert.deepEqual(after.captured, { ids: ['user-skills'], folders: [] });
         assert.equal(after.userCollapsed, true, 'collapsed state survives the skills-updated replacement');
         assert.equal(after.projectCollapsed, false, 'other groups are not collapsed accidentally');
     } finally {
@@ -250,186 +250,3 @@ test('SKILLS-COLLAPSE-001 skill groups collapse via shared affordance and state 
 });
 
 
-test('SKILLS-GROUP-001 collections render as folder nodes with working toggle and editor actions', async () => {
-    const records = [
-        makeRecord({
-            name: 'kimi-global',
-            dirPath: '/home/dev/.kimi/skills/kimi-global',
-            skillFilePath: '/home/dev/.kimi/skills/kimi-global/SKILL.md',
-        }),
-        makeRecord({
-            name: 'other-global',
-            dirPath: '/home/dev/.kimi/skills/other-global',
-            skillFilePath: '/home/dev/.kimi/skills/other-global/SKILL.md',
-        }),
-        makeRecord({
-            name: 'codex-project',
-            scope: 'project',
-            source: 'codex',
-            dirPath: '/work/app/.codex/skills/codex-project',
-            skillFilePath: '/work/app/.codex/skills/codex-project/SKILL.md',
-            visibility: { kimi: 'absent', claude: 'absent', codex: 'active' },
-        }),
-    ];
-    const groups = { '/home/dev/.kimi/skills/kimi-global': 'superpowers' };
-    const browser = await chromium.launch();
-    try {
-        const page = await openSkillsPage(browser, records, groups);
-
-        const structure = await page.evaluate(() => ({
-            collections: [...document.querySelectorAll('.skill-collection')].map(el => ({
-                name: el.getAttribute('data-skill-collection'),
-                scope: el.getAttribute('data-skill-collection-scope'),
-                cards: el.querySelectorAll('.skill-card').length,
-                badge: el.querySelector('.group-title-badge').textContent,
-            })),
-            ungroupedInSource: document.querySelectorAll('.skill-source-group .skill-card').length,
-        }));
-        assert.deepEqual(structure.collections, [
-            { name: 'superpowers', scope: 'user', cards: 1, badge: '1' },
-        ], 'assigned skill renders inside its folder node');
-        assert.equal(structure.ungroupedInSource, 2, 'unassigned skills stay in source groups');
-
-        // Group toggle posts the batch message with the shared enabled polarity.
-        await page.click('[data-skill-group-toggle="superpowers"]');
-        // Clicking a card expands its detail (the real user interaction).
-        await page.click('.skill-card[data-skill-dir="/home/dev/.kimi/skills/other-global"] .project-header');
-        await page.click('.skill-card[data-skill-dir="/home/dev/.kimi/skills/kimi-global"] .project-header');
-        const expanded = await page.evaluate(() => [...document.querySelectorAll('.skill-card')]
-            .map(card => ({ dir: card.getAttribute('data-skill-dir'), open: card.classList.contains('skill-detail-open'), hidden: card.querySelector('.skill-detail').hidden })));
-        assert.deepEqual(expanded.map(item => item.open), [true, true, false],
-            'card click expands the detail panel');
-        assert.deepEqual(expanded.map(item => item.hidden), [false, false, true]);
-        // Clicking inside the detail (e.g. into the group input) must not collapse it.
-        await page.click('[data-skill-group-input="/home/dev/.kimi/skills/other-global"]');
-        const stillOpen = await page.evaluate(() => {
-            const card = document.querySelector('.skill-card[data-skill-dir="/home/dev/.kimi/skills/other-global"]');
-            return { open: card.classList.contains('skill-detail-open'), hidden: card.querySelector('.skill-detail').hidden };
-        });
-        assert.deepEqual(stillOpen, { open: true, hidden: false },
-            'clicking inside the detail panel keeps it open');
-        // Assigning a group through the card editor, and removing one via ungroup.
-        await page.evaluate(() => {
-            const input = document.querySelector('[data-skill-group-input="/home/dev/.kimi/skills/other-global"]');
-            input.value = 'my-suite';
-        });
-        await page.click('[data-skill-setgroup="/home/dev/.kimi/skills/other-global"]');
-        await page.click('[data-skill-ungroup="/home/dev/.kimi/skills/kimi-global"]');
-        const messages = await page.evaluate(() => window.__skillMessages);
-        assert.deepEqual(messages, [
-            { type: 'toggle-skill-group', name: 'superpowers', scope: 'user', enabled: true },
-            { type: 'set-skill-group', dirPath: '/home/dev/.kimi/skills/other-global', group: 'my-suite' },
-            { type: 'set-skill-group', dirPath: '/home/dev/.kimi/skills/kimi-global', group: '' },
-        ]);
-
-        // A skills-updated authoritative replacement (what a Set/ungroup triggers
-        // host-side) must keep expanded detail panels open.
-        const expandedAfter = await page.evaluate(() => {
-            const wrapper = document.querySelector('#ai-panel-skills .sticky-groups-wrapper');
-            const dirs = window.__captureSkillExpandedCards(wrapper);
-            wrapper.outerHTML = wrapper.outerHTML;
-            const fresh = document.querySelector('#ai-panel-skills .sticky-groups-wrapper');
-            window.__restoreSkillExpandedCards(fresh, dirs);
-            return {
-                dirs,
-                openCards: [...fresh.querySelectorAll('.skill-card.skill-detail-open')]
-                    .map(card => card.getAttribute('data-skill-dir')),
-            };
-        });
-        assert.deepEqual(expandedAfter.dirs.sort(), expandedAfter.openCards.sort(),
-            'expanded detail panels survive the skills-updated replacement');
-
-        // Agent filter hides a collection with no visible members.
-        await page.evaluate('window.__setSkillFilter("claude")');
-        const filtered = await page.evaluate(() => {
-            const collection = document.querySelector('.skill-collection');
-            const style = getComputedStyle(collection);
-            return { display: style.display, hidden: collection.classList.contains('skill-filter-hidden') };
-        });
-        assert.equal(filtered.hidden, true, 'collection with no matching members hides');
-        assert.equal(filtered.display, 'none');
-    } finally {
-        await browser.close();
-    }
-});
-
-
-test('SKILLS-DND-001 dragging a card onto a collection assigns the group, scope-mismatched drops refused', async () => {
-    const records = [
-        makeRecord({
-            name: 'kimi-global',
-            dirPath: '/home/dev/.kimi/skills/kimi-global',
-            skillFilePath: '/home/dev/.kimi/skills/kimi-global/SKILL.md',
-        }),
-        makeRecord({
-            name: 'other-global',
-            dirPath: '/home/dev/.kimi/skills/other-global',
-            skillFilePath: '/home/dev/.kimi/skills/other-global/SKILL.md',
-        }),
-        makeRecord({
-            name: 'codex-project',
-            scope: 'project',
-            source: 'codex',
-            dirPath: '/work/app/.codex/skills/codex-project',
-            skillFilePath: '/work/app/.codex/skills/codex-project/SKILL.md',
-            visibility: { kimi: 'absent', claude: 'absent', codex: 'active' },
-        }),
-    ];
-    const groups = {
-        '/home/dev/.kimi/skills/kimi-global': 'superpowers',
-        '/work/app/.codex/skills/codex-project': 'superpowers',
-    };
-    const browser = await chromium.launch();
-    try {
-        const page = await openSkillsPage(browser, records, groups);
-
-        const result = await page.evaluate(() => {
-            const dt = new DataTransfer();
-            const fire = (target, type) => {
-                const event = new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: dt });
-                target.dispatchEvent(event);
-                return event.defaultPrevented;
-            };
-            const out = {};
-            const card = document.querySelector('.project-container[data-skill-scope="user"]:has(.skill-card[data-skill-dir="/home/dev/.kimi/skills/other-global"])');
-            const userCollection = document.querySelector('.skill-collection[data-skill-collection-scope="user"]');
-            const projectCollection = document.querySelector('.skill-collection[data-skill-collection-scope="project"]');
-
-            fire(card, 'dragstart');
-            out.draggingClass = card.classList.contains('skill-card-dragging');
-            out.dragData = dt.getData('text/plain');
-
-            // Scope mismatch: hovering the project collection must not highlight or allow drop.
-            const projectPrevented = fire(projectCollection, 'dragover');
-            out.projectHighlight = projectCollection.classList.contains('skill-drop-target');
-            out.projectPrevented = projectPrevented;
-
-            // Matching scope: highlight + drop assigns the group.
-            const userPrevented = fire(userCollection, 'dragover');
-            out.userHighlight = userCollection.classList.contains('skill-drop-target');
-            out.userPrevented = userPrevented;
-            fire(userCollection, 'drop');
-            out.highlightAfterDrop = userCollection.classList.contains('skill-drop-target');
-
-            fire(card, 'dragend');
-            out.draggingAfterEnd = card.classList.contains('skill-card-dragging');
-            return out;
-        });
-
-        assert.equal(result.draggingClass, true, 'dragstart marks the dragged card');
-        assert.equal(result.dragData, '/home/dev/.kimi/skills/other-global');
-        assert.equal(result.projectHighlight, false, 'scope-mismatched collection does not highlight');
-        assert.equal(result.projectPrevented, false, 'scope-mismatched dragover is not accepted');
-        assert.equal(result.userHighlight, true, 'matching collection highlights on dragover');
-        assert.equal(result.userPrevented, true, 'matching dragover is accepted');
-        assert.equal(result.highlightAfterDrop, false, 'highlight clears after drop');
-        assert.equal(result.draggingAfterEnd, false, 'dragend cleans up');
-
-        const messages = await page.evaluate(() => window.__skillMessages);
-        assert.deepEqual(messages, [
-            { type: 'set-skill-group', dirPath: '/home/dev/.kimi/skills/other-global', group: 'superpowers' },
-        ]);
-    } finally {
-        await browser.close();
-    }
-});

@@ -36,7 +36,6 @@ import { projectAiSessionHistory } from '../aiSessions/historyProjection';
 import { CONVERSATION_LIMITS } from '../aiSessions/conversation/types';
 import type { OpenWorkspaceBridgeStatus } from '../openWorkspaces/bridgeClient';
 import { removeWorkspaceWindowDecorations } from '../workspaces/contextResolver';
-import { getSkillsPanelContent } from './webviewSkillContent';
 
 const FAVORITES_GROUP_NAME = 'FAVORITES';
 const OPEN_CURRENT_WORKSPACE_GROUP_NAME = 'CURRENT WORKSPACE';
@@ -236,7 +235,6 @@ export function getStewardContent(
                     <span class="dashboard-tab-icon" aria-hidden="true">${Icons.manage}</span>
                     <span class="dashboard-tab-label">TODO</span>
                 </button>
-                <button type="button" id="dashboard-tab-skills-button" class="dashboard-tab-button" role="tab" aria-selected="false" aria-controls="dashboard-tab-skills" tabindex="-1" data-dashboard-tab="skills">SKILLS</button>
                 <button type="button" id="dashboard-tab-ai-button" class="dashboard-tab-button" role="tab" aria-selected="false" aria-controls="dashboard-panel-ai" tabindex="-1" data-dashboard-tab="ai" aria-label="AI" title="AI">
                     <span class="dashboard-tab-icon" aria-hidden="true">${Icons.terminalLine}</span>
                     <span class="dashboard-tab-label">AI</span>
@@ -254,9 +252,6 @@ export function getStewardContent(
             </section>
             <section id="dashboard-tab-todo" class="dashboard-tab-panel" role="tabpanel" aria-labelledby="dashboard-tab-todo-button" hidden>
                 <div class="dashboard-todo-loading" role="status" hidden>Loading todos…</div>
-            </section>
-            <section id="dashboard-tab-skills" class="dashboard-tab-panel" role="tabpanel" aria-labelledby="dashboard-tab-skills-button" hidden>
-                ${getSkillsPanelContent(infos.skills || [])}
             </section>
             <section id="dashboard-panel-ai" class="dashboard-tab-panel" role="tabpanel" aria-labelledby="dashboard-tab-ai-button" hidden>
                 <div class="dashboard-ai-loading" role="status" hidden>Loading AI configuration…</div>

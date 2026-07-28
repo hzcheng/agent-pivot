@@ -197,7 +197,6 @@ export interface StewardInfos {
     favoritesGroupCollapsed?: boolean;
     openWorkspacesGroupCollapsed?: boolean;
     todoSearchItems?: TodoSearchCatalogItem[];
-    skills?: import('./skills/types').SkillRecord[];
 }
 
 export enum ProjectPathType {

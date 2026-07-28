@@ -30,6 +30,7 @@ Module._load = function (request, parent, isMain) {
 };
 const skillContent = require('../out/webview/webviewSkillContent');
 const webviewContent = require('../out/webview/webviewContent');
+const promptWebviewContent = require('../out/prompts/webviewContent');
 // dashboardController transitively requires webviewSkillContent → webviewContent → vscode,
 // so it must be required while the vscode stub is still active.
 const { SkillDashboardController } = require('../out/skills/dashboardController');
@@ -228,11 +229,16 @@ function runSkillRenderingChecks() {
             visibility: { kimi: 'shadowed', claude: 'active', codex: 'absent' },
             shadowedBy: { kimi: '/work/app/.kimi/skills' },
         }),
-        makeRecord({ name: 'parked', enabled: false, dirPath: '/home/dev/.kimi/skills/.disabled/parked' }),
+        makeRecord({
+            name: 'parked', enabled: false, dirPath: '/home/dev/.kimi/skills/.disabled/parked',
+            visibility: { kimi: 'absent', claude: 'absent', codex: 'absent' },
+        }),
         makeRecord({ name: 'broken', diagnostics: [{ code: 'lowercase-filename', message: 'x' }, { code: 'missing-name', message: 'y' }] }),
     ]);
-    assert.ok(html.includes('USER SKILLS'));
-    assert.ok(html.includes('PROJECT SKILLS'));
+    // tree: two top-level folders (global / project) with collection folders nested inside
+    assert.ok(html.includes('</span>global'), 'top-level global folder');
+    assert.ok(html.includes('</span>project'), 'top-level project folder');
+    assert.ok((html.match(/skill-collection-icon/g) || []).length >= 2, 'folder icons on tree nodes');
     assert.ok(html.includes('data-skill-toggle="/home/dev/.kimi/skills/demo"'));
     assert.ok(html.includes('data-skill-open="/home/dev/.kimi/skills/demo/SKILL.md"'),
         'clean records (no shadowing, no diagnostics) render the Open SKILL.md action');
@@ -245,17 +251,63 @@ function runSkillRenderingChecks() {
     assert.ok(html.includes('Effectiveness per agent'));
     assert.ok(html.includes('~/.kimi/skills') === false, 'paths render verbatim, not home-shortened');
     assert.ok(!html.includes('undefined'));
-    // tab registration
+    // scope × source two-level grouping
+    assert.ok(html.includes('data-skill-source="kimi"'), 'source sub-groups render');
+    assert.ok(html.includes('data-skill-source="claude"'));
+    assert.ok(html.includes('<span class="skill-source-path" title="/home/dev/.kimi/skills">/home/dev/.kimi/skills</span>'),
+        'source root renders verbatim');
+    assert.strictEqual(html.split('data-skill-source="kimi"').length - 1, 1,
+        'parked skill folds into the same source group as its active siblings');
+    assert.ok(html.indexOf('data-skill-source="kimi"') < html.indexOf('data-skill-source="claude"'),
+        'source groups follow kimi > claude order');
+    assert.ok(html.includes('<span class="skill-source-count">3</span>'), 'source group shows its skill count');
+    assert.ok(html.indexOf('>broken</h2>') < html.indexOf('>demo</h2>'), 'cards sort by name within a source group');
+    // grouping: assigned skills collect into a folder node; unassigned stay in source groups
+    const groupedHtml = skillContent.getSkillsPanelContent(
+        [makeRecord(), makeRecord({
+            name: 'other', dirPath: '/home/dev/.kimi/skills/other',
+            skillFilePath: '/home/dev/.kimi/skills/other/SKILL.md',
+        })],
+        { '/home/dev/.kimi/skills/demo': 'superpowers' }
+    );
+    assert.ok(groupedHtml.includes('data-skill-collection="superpowers"'), 'collection node renders');
+    assert.ok(groupedHtml.includes('data-skill-group-toggle="superpowers"'));
+    assert.ok(groupedHtml.includes('data-skill-group-scope="user"'));
+    assert.ok(groupedHtml.includes('skill-collection-user-superpowers'));
+    assert.ok(groupedHtml.includes('<option value="superpowers"></option>'), 'datalist offers existing group names');
+    assert.ok(groupedHtml.indexOf('data-skill-collection="superpowers"') < groupedHtml.indexOf('data-skill-source="kimi"'),
+        'collections render before source groups');
+    assert.ok(groupedHtml.includes('data-skill-group-input="/home/dev/.kimi/skills/demo"'), 'card group editor renders');
+    assert.ok(groupedHtml.includes('data-skill-ungroup="/home/dev/.kimi/skills/demo"'), 'grouped card shows ungroup action');
+    assert.ok(groupedHtml.includes('draggable="true"'), 'cards are draggable into collection nodes');
+    assert.ok(groupedHtml.includes('data-skill-scope="user"'));
+    // agent filter row + per-card active-agent attributes
+    assert.ok(html.includes('data-action="collapse"'), 'skill groups carry the collapse affordance');
+    assert.ok(html.includes('collapse-icon'));
+    assert.ok(html.includes('data-skill-filter-row'), 'filter row renders');
+    assert.ok(html.includes('data-skill-filter="all"'));
+    assert.ok(html.includes('data-skill-filter="kimi"'));
+    assert.ok(html.includes('data-skill-filter="claude"'));
+    assert.ok(html.includes('data-skill-filter="codex"'));
+    assert.ok(html.includes('data-skill-agents="kimi"'), 'demo is active for kimi only');
+    assert.ok(html.includes('data-skill-agents=""'), 'parked skill is active for no agent');
+    // SKILLS lives as a subtab inside the AI panel, not as a top-level dashboard tab
     const stewardHtml = webviewContent.getStewardContent(
         { extensionPath: '/extension' },
         { cspSource: 'test', asWebviewUri: uri => uri.toString() },
-        [], { config: { get: (k, d) => d }, relevantExtensionsInstalls: { remoteSSH: false, remoteContainers: false }, otherStorageHasData: false, openProjects: [], skills: [makeRecord()] },
+        [], { config: { get: (k, d) => d }, relevantExtensionsInstalls: { remoteSSH: false, remoteContainers: false }, otherStorageHasData: false, openProjects: [] },
         true
     );
-    assert.ok(stewardHtml.includes('data-dashboard-tab="skills"'));
-    assert.ok(stewardHtml.includes('id="dashboard-tab-skills"'));
-    assert.ok(stewardHtml.includes('>SKILLS</button>'));
-    assert.ok(stewardHtml.includes('data-skill-toggle='));
+    assert.ok(!stewardHtml.includes('data-dashboard-tab="skills"'), 'no top-level SKILLS tab');
+    const aiPanelHtml = promptWebviewContent.getAiPanelContent(
+        { prompts: [], selectedPromptId: null, revision: 0 },
+        html
+    );
+    assert.ok(aiPanelHtml.includes('id="ai-tab-skills"'));
+    assert.ok(aiPanelHtml.includes('id="ai-panel-skills"'));
+    assert.ok(aiPanelHtml.includes('data-skill-toggle='), 'skills surface embedded in the AI panel');
+    assert.ok(!promptWebviewContent.getAiPanelContent({ prompts: [], selectedPromptId: null, revision: 0 }).includes('data-skill-toggle='),
+        'placeholder renders without a skills surface');
 }
 
 function runSkillStyleChecks() {
@@ -266,20 +318,37 @@ function runSkillStyleChecks() {
     assert.ok(styles.includes('.skill-toggle'));
     assert.ok(styles.includes('.skill-chip'));
     assert.ok(styles.includes('.skill-detail'));
+    assert.ok(styles.includes('.skill-source-header'));
+    assert.ok(styles.includes('.skill-filter-hidden'));
+    assert.ok(styles.includes('.skill-drop-target'));
     assert.ok(compiled.includes('.skill-toggle'));
     assert.ok(compiled.includes('.skill-chip'));
+    assert.ok(compiled.includes('.skill-source-header'));
+    assert.ok(compiled.includes('.skill-filter-hidden'));
+    assert.ok(compiled.includes('.skill-drop-target'));
     assert.ok(!styles.includes('color-mix('));
 }
 
 function runSkillWebviewScriptChecks() {
     const script = fs.readFileSync(path.join(__dirname, '..', 'media', 'webviewDashboardScripts.js'), 'utf8');
-    assert.ok(script.includes("panels.skills") || script.includes('skills: document.getElementById'));
-    assert.ok(script.includes("tab === 'skills'"));
+    assert.ok(script.includes('#ai-panel-skills .sticky-groups-wrapper'), 'skills-updated targets the AI subtab');
+    assert.ok(!script.includes('dashboard-tab-skills'), 'no top-level skills panel remains');
+    assert.ok(script.includes('data-skill-filter'), 'agent filter wiring present');
+    assert.ok(script.includes('data-skill-agents'), 'agent filter matches card attributes');
+    assert.ok(script.includes('skill-filter-hidden'), 'filter hides via class (hidden attr cannot beat author display rules)');
+    assert.ok(script.includes('captureSkillCollapsedGroups'), 'collapse state preserved across skills-updated replacement');
+    assert.ok(script.includes('restoreSkillCollapsedGroups'));
+    assert.ok(script.includes("'set-skill-group'"), 'group assignment wiring present');
+    assert.ok(script.includes("'toggle-skill-group'"), 'group toggle wiring present');
+    assert.ok(script.includes('data-skill-group-input'));
+    assert.ok(script.includes('.skill-collection'), 'filter pass covers collection nodes');
+    assert.ok(script.includes('onSkillDragStart'), 'drag-into-collection wiring present');
+    assert.ok(script.includes('skill-drop-target'));
     assert.ok(script.includes("'toggle-skill'"));
     assert.ok(script.includes("'open-skill-file'"));
     assert.ok(script.includes("'skills-updated'"));
     assert.ok(script.includes('data-skill-toggle'));
-    assert.ok(script.includes('data-skill-warn'));
+    assert.ok(script.includes('skill-detail-open'), 'card click expands the detail panel');
 }
 
 function runSkillControllerChecks() {
@@ -324,6 +393,43 @@ function runSkillControllerChecks() {
     const bad = controller.handleToggle(path.join(home, '.kimi', 'skills', 'missing'), true);
     assert.strictEqual(bad.ok, false);
     controller.dispose();
+
+    // Group toggle: batch enable/disable resolves members from the scan (containment by construction).
+    const { home: groupHome } = makeFixture();
+    const groupMap = {
+        [path.join(groupHome, '.kimi', 'skills', 'alpha')]: 'suite',
+        [path.join(groupHome, '.claude', 'skills', 'beta')]: 'suite',
+    };
+    const setCalls = [];
+    const groupStore = {
+        getGroups: () => groupMap,
+        getGroupName: record => groupMap[record.dirPath.replace(`${path.sep}.disabled`, '')],
+        setGroup: (record, name) => { setCalls.push([record.name, name]); return Promise.resolve(); },
+    };
+    const groupController = new SkillDashboardController({
+        getHomeDir: () => groupHome,
+        getWorkspaceRoot: () => undefined,
+        postMessage: () => Promise.resolve(true),
+        isVisible: () => true,
+        logError: () => undefined,
+        groupStore,
+    });
+    groupController.start();
+    const disableAll = groupController.handleToggleSkillGroup('suite', 'user', true);
+    assert.strictEqual(disableAll.ok, true);
+    assert.ok(fs.existsSync(path.join(groupHome, '.kimi', 'skills', '.disabled', 'alpha', 'SKILL.md')),
+        'group disable parks every enabled member');
+    assert.ok(fs.existsSync(path.join(groupHome, '.claude', 'skills', '.disabled', 'beta', 'SKILL.md')));
+    assert.ok(groupController.getRecords().every(record => record.enabled === false),
+        'all members parked after group disable');
+    const enableAll = groupController.handleToggleSkillGroup('suite', 'user', false);
+    assert.strictEqual(enableAll.ok, true);
+    assert.ok(fs.existsSync(path.join(groupHome, '.kimi', 'skills', 'alpha', 'SKILL.md')),
+        'group enable restores every parked member');
+    assert.strictEqual(groupController.handleToggleSkillGroup('missing-group', 'user', true).ok, false);
+    assert.strictEqual(groupController.handleToggleSkillGroup('suite', 'project', true).ok, false,
+        'group membership is scoped');
+    groupController.dispose();
 }
 
 function runSkillWiringChecks() {
@@ -331,6 +437,8 @@ function runSkillWiringChecks() {
     assert.ok(dashboard.includes('new SkillDashboardController('));
     assert.ok(dashboard.includes("'toggle-skill'"));
     assert.ok(dashboard.includes("'open-skill-file'"));
+    assert.ok(dashboard.includes("'set-skill-group'"));
+    assert.ok(dashboard.includes("'toggle-skill-group'"));
     assert.ok(dashboard.includes('skillDashboardController.getRecords()'));
     const packageJson = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
     assert.ok(packageJson.scripts['test:skills'].includes('run-skill-management-checks.js'));
@@ -348,4 +456,71 @@ runSkillStyleChecks();
 runSkillWebviewScriptChecks();
 runSkillControllerChecks();
 runSkillWiringChecks();
-console.log('Skill management checks passed.');
+runSkillGroupStoreChecks()
+    .then(() => console.log('Skill management checks passed.'))
+    .catch(error => {
+        console.error(error);
+        process.exit(1);
+    });
+
+async function runSkillGroupStoreChecks() {
+    const groupStore = require('../out/skills/skillGroupStore');
+    const record = makeRecord({
+        name: 'demo',
+        dirPath: '/home/dev/.kimi/skills/demo',
+    });
+    const parked = makeRecord({
+        name: 'demo',
+        enabled: false,
+        dirPath: '/home/dev/.kimi/skills/.disabled/demo',
+    });
+    const activeKey = groupStore.getSkillStableKey(record);
+    assert.strictEqual(activeKey, '/home/dev/.kimi/skills/demo');
+    assert.strictEqual(groupStore.getSkillStableKey(parked), activeKey,
+        'stable key survives disable (parked under .disabled)');
+
+    const written = [];
+    const memento = {
+        value: undefined,
+        get(key) { return this.value; },
+        update(key, next) { written.push(next); this.value = next; return Promise.resolve(); },
+    };
+    const store = new groupStore.SkillGroupStore(memento);
+    assert.strictEqual(store.getGroupName(record), undefined);
+    // setGroup through the controller (async path) resolves the record from the last scan
+    const { home } = makeFixture();
+    const groupController = new SkillDashboardController({
+        getHomeDir: () => home,
+        getWorkspaceRoot: () => undefined,
+        postMessage: () => Promise.resolve(true),
+        isVisible: () => true,
+        logError: () => undefined,
+        groupStore: store,
+    });
+    groupController.start();
+    const setResult = await groupController.handleSetSkillGroup(
+        path.join(home, '.kimi', 'skills', 'alpha'),
+        'superpowers',
+    );
+    assert.strictEqual(setResult.ok, true);
+    assert.strictEqual(store.getGroupName(makeRecord({
+        name: 'alpha',
+        dirPath: path.join(home, '.kimi', 'skills', '.disabled', 'alpha'),
+    })), 'superpowers', 'group assignment sticks to the parked copy too');
+    const unknown = await groupController.handleSetSkillGroup(path.join(home, '.kimi', 'skills', 'nope'), 'x');
+    assert.strictEqual(unknown.ok, false, 'unknown skill dirPath is refused');
+    groupController.dispose();
+    return store.setGroup(record, ' superpowers ')
+        .then(() => {
+            assert.strictEqual(store.getGroupName(record), 'superpowers', 'group name is trimmed');
+            assert.strictEqual(store.getGroupName(parked), 'superpowers', 'parked copy shares the group');
+            return store.setGroup(record, '  ');
+        })
+        .then(() => {
+            assert.strictEqual(store.getGroupName(record), undefined, 'blank group name removes the assignment');
+            const alphaKey = path.join(home, '.kimi', 'skills', 'alpha');
+            assert.deepStrictEqual(memento.value, { [alphaKey]: 'superpowers' },
+                'only the removed assignment is gone');
+            assert.ok(written.length === 3, 'each change persists once');
+        });
+}

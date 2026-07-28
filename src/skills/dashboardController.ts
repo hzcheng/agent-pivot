@@ -7,6 +7,7 @@ import { scanSkills } from './discovery';
 import { DISABLED_DIR_NAME, getProjectSkillsRoots, getUserSkillsRoots } from './roots';
 import { disableSkill, enableSkill } from './toggleService';
 import { getSkillsPanelContent } from '../webview/webviewSkillContent';
+import type { SkillGroupMap, SkillGroupStore } from './skillGroupStore';
 import type { SkillRecord } from './types';
 
 export interface SkillDashboardControllerOptions {
@@ -15,6 +16,7 @@ export interface SkillDashboardControllerOptions {
     postMessage: (message: unknown) => Thenable<boolean>;
     isVisible: () => boolean;
     logError: (message: string, error: unknown) => void;
+    groupStore?: Pick<SkillGroupStore, 'getGroups' | 'getGroupName' | 'setGroup'>;
     nowMs?: () => number;
 }
 
@@ -31,6 +33,10 @@ export class SkillDashboardController {
 
     getRecords(): SkillRecord[] {
         return this.records;
+    }
+
+    getGroups(): SkillGroupMap {
+        return this.options.groupStore ? this.options.groupStore.getGroups() : {};
     }
 
     start(): void {
@@ -54,7 +60,7 @@ export class SkillDashboardController {
         if (this.options.isVisible()) {
             void this.options.postMessage({
                 type: 'skills-updated',
-                html: getSkillsPanelContent(this.records),
+                html: getSkillsPanelContent(this.records, this.getGroups()),
             });
         }
     }
@@ -70,6 +76,56 @@ export class SkillDashboardController {
         }
         this.refresh('toggle');
         return result;
+    }
+
+    async handleSetSkillGroup(dirPath: string, groupName: string): Promise<{ ok: boolean; error?: string }> {
+        const record = this.records.find(candidate => candidate.dirPath === dirPath);
+        if (!record || !this.options.groupStore) {
+            return { ok: false, error: `Unknown skill: ${dirPath}` };
+        }
+        try {
+            await this.options.groupStore.setGroup(record, groupName);
+        } catch (error) {
+            this.options.logError('Failed to update the skill group.', error);
+            return { ok: false, error: error instanceof Error ? error.message : String(error) };
+        }
+        this.refresh('set-skill-group');
+        return { ok: true };
+    }
+
+    handleToggleSkillGroup(name: string, scope: string, enabled: boolean): { ok: boolean; error?: string } {
+        const store = this.options.groupStore;
+        if (!store || !name) {
+            return { ok: false, error: 'Missing skill group.' };
+        }
+        const members = this.records.filter(record =>
+            record.scope === scope && store.getGroupName(record) === name
+        );
+        if (!members.length) {
+            return { ok: false, error: `No skills in group "${name}".` };
+        }
+        // Members come from the last scan, so every moved path is contained by
+        // construction: active members live directly under a known root, parked
+        // members directly under its `.disabled` directory.
+        const failures: string[] = [];
+        for (const member of members) {
+            if (enabled && member.enabled) {
+                const result = disableSkill(member.dirPath);
+                if (!result.ok) {
+                    failures.push(`${member.name}: ${result.error}`);
+                }
+            } else if (!enabled && !member.enabled) {
+                const result = enableSkill(member.dirPath);
+                if (!result.ok) {
+                    failures.push(`${member.name}: ${result.error}`);
+                }
+            }
+        }
+        if (failures.length) {
+            this.options.logError('Failed to toggle some skills in the group.', new Error(failures.join('; ')));
+        }
+        this.refresh('toggle-skill-group');
+        return failures.length ? { ok: false, error: failures.join('; ') } : { ok: true };
     }
 
     private getKnownRootDirs(): string[] {

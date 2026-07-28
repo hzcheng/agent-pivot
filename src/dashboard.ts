@@ -8,6 +8,7 @@ import * as path from 'path';
 import { performance } from 'perf_hooks';
 import { Project, GroupOrder, ProjectRemoteType, StewardInfos, ProjectOpenType, ReopenStewardReason, AiSessionProviderId, isAiSessionProviderId } from './models';
 import { getProjectsPanelContent, getStewardContent } from './webview/webviewContent';
+import { getSkillsPanelContent } from './webview/webviewSkillContent';
 import {
     AGENT_PIVOT_CONFIG_SECTION,
     AGENT_PIVOT_DASHBOARD_VIEW_ID,
@@ -26,6 +27,7 @@ import { initializePromptMementoStore, PromptService } from './prompts/service';
 import { PromptTerminalCommandController } from './prompts/terminalCommandController';
 import { getAiPanelContent, getPromptSurfaceContent } from './prompts/webviewContent';
 import { SkillDashboardController } from './skills/dashboardController';
+import { SkillGroupStore } from './skills/skillGroupStore';
 import {
     deleteTodoWithConfirmation,
     renameTodoGroupWithPrompt,
@@ -400,7 +402,10 @@ async function initializeDashboard(
             return choice === 'Delete';
         },
         renderPromptSurface: getPromptSurfaceContent,
-        renderAiPanel: getAiPanelContent,
+        renderAiPanel: snapshot => getAiPanelContent(
+            snapshot,
+            getSkillsPanelContent(skillDashboardController.getRecords(), skillDashboardController.getGroups()),
+        ),
     });
     const skillDashboardController = ownResource(() => new SkillDashboardController({
         getHomeDir: () => os.homedir(),
@@ -408,6 +413,7 @@ async function initializeDashboard(
         postMessage: message => provider.postMessage(message),
         isVisible: () => provider.visible,
         logError,
+        groupStore: new SkillGroupStore(context.globalState),
     }));
     skillDashboardController.start();
     const todoViewState = todoService.getViewState();
@@ -1325,6 +1331,25 @@ async function initializeDashboard(
                     void vscode.window.showWarningMessage(`Could not toggle skill: ${result.error}`);
                 }
             },
+            'set-skill-group': async e => {
+                const result = await skillDashboardController.handleSetSkillGroup(
+                    String(e.dirPath || ''),
+                    String(e.group || ''),
+                );
+                if (!result.ok) {
+                    void vscode.window.showWarningMessage(`Could not update the skill group: ${result.error}`);
+                }
+            },
+            'toggle-skill-group': e => {
+                const result = skillDashboardController.handleToggleSkillGroup(
+                    String(e.name || ''),
+                    String(e.scope || ''),
+                    e.enabled === true,
+                );
+                if (!result.ok) {
+                    void vscode.window.showWarningMessage(`Could not toggle the skill group: ${result.error}`);
+                }
+            },
             'open-skill-file': async e => {
                 const skillFilePath = String(e.skillFilePath || '');
                 if (!skillDashboardController.getRecords().some(record => record.skillFilePath === skillFilePath)) {
@@ -1924,7 +1949,6 @@ async function initializeDashboard(
         get favoritesGroupCollapsed() { return groupCollapseController.getFavoritesCollapsed() },
         get openWorkspacesGroupCollapsed() { return groupCollapseController.getOpenWorkspacesCollapsed() },
         get todoSearchItems() { return todoService.getSearchItems() },
-        get skills() { return skillDashboardController.getRecords() },
     };
     projectsPanelController = new ProjectsPanelController({
         getGroups: () => projectService.getGroups(),

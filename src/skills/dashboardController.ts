@@ -12,6 +12,7 @@ import { computeSkillCopyTargets, copySkillDir, SkillCopyTarget, syncSkillDir } 
 import { disableSkill, enableSkill } from './toggleService';
 import { fixSkillDiagnostic } from './fixService';
 import { getSkillsPanelContent } from '../webview/webviewSkillContent';
+import type { SkillPanelView } from '../webview/webviewSkillContent';
 import type { SkillGroupMap, SkillGroupStore } from './skillGroupStore';
 import type { SkillAgentId, SkillDiagnostic, SkillRecord, SkillScope } from './types';
 
@@ -29,6 +30,38 @@ export interface SkillDashboardControllerOptions {
 }
 
 const WATCH_DEBOUNCE_MS = 300;
+
+const LINK_AGENTS: SkillAgentId[] = ['kimi', 'claude', 'codex'];
+const LINK_SCOPES: SkillScope[] = ['user', 'project'];
+
+/**
+ * dirPaths of central records that share a name and both link the same agent at the
+ * same scope. On disk only one link can win the <root>/<name> slot, so both cards get
+ * a conflict chip (effectiveness marks the loser shadowed).
+ */
+export function computeSkillLinkConflicts(records: SkillRecord[]): Set<string> {
+    const conflicts = new Set<string>();
+    const central = records.filter(record => record.central && record.enabled);
+    for (let i = 0; i < central.length; i += 1) {
+        for (let j = i + 1; j < central.length; j += 1) {
+            const a = central[i];
+            const b = central[j];
+            if (a.name !== b.name) {
+                continue;
+            }
+            const collides = LINK_SCOPES.some(scope => {
+                const aLinks = (a.central && a.central.links[scope]) || {};
+                const bLinks = (b.central && b.central.links[scope]) || {};
+                return LINK_AGENTS.some(agent => Boolean(aLinks[agent] && bLinks[agent]));
+            });
+            if (collides) {
+                conflicts.add(a.dirPath);
+                conflicts.add(b.dirPath);
+            }
+        }
+    }
+    return conflicts;
+}
 
 export class SkillDashboardController {
     private records: SkillRecord[] = [];
@@ -61,6 +94,14 @@ export class SkillDashboardController {
             this.options.getHomeDir(),
             this.options.getWorkspaceRoot(),
         );
+    }
+
+    getPanelView(): SkillPanelView {
+        return {
+            hasWorkspace: Boolean(this.options.getWorkspaceRoot()),
+            copyTargets: this.getCopyTargets(),
+            conflicts: computeSkillLinkConflicts(this.records),
+        };
     }
 
     handleSyncSkill(sourceDir: string, targetDir: string): { ok: boolean; error?: string } {
@@ -213,15 +254,7 @@ export class SkillDashboardController {
         if (this.options.isVisible()) {
             void this.options.postMessage({
                 type: 'skills-updated',
-                html: getSkillsPanelContent(this.records, {
-                    groups: this.getGroups(),
-                    suggestions: this.getCollectionSuggestions(),
-                    copyTargets: computeSkillCopyTargets(
-                        this.records,
-                        this.options.getHomeDir(),
-                        this.options.getWorkspaceRoot(),
-                    ),
-                }),
+                html: getSkillsPanelContent(this.records, this.getPanelView()),
             });
         }
     }

@@ -406,11 +406,7 @@ async function initializeDashboard(
             snapshot,
             getSkillsPanelContent(
                 skillDashboardController.getRecords(),
-                {
-                    groups: skillDashboardController.getGroups(),
-                    suggestions: skillDashboardController.getCollectionSuggestions(),
-                    copyTargets: skillDashboardController.getCopyTargets(),
-                },
+                skillDashboardController.getPanelView(),
             ),
         ),
     });

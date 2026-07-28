@@ -4537,6 +4537,95 @@ body.steward-sidebar {
         opacity: .75;
     }
 
+    // Folder-tree skills panel (on-disk store folders)
+
+    .skill-folder > .group-list {
+        margin-left: 5px;
+        padding-left: 8px;
+        border-left: 1px solid var(--vscode-panel-border);
+    }
+
+    .skill-folder.skill-drop-target .group-title {
+        outline: 1px dashed var(--vscode-focusBorder, #007fd4);
+        outline-offset: 2px;
+    }
+
+    .skill-folder-header .skill-ios-toggle,
+    .skill-store-toggle {
+        margin-left: 6px;
+    }
+
+    .skill-scope-select {
+        padding: 1px 9px;
+        border: 1px solid rgba(110, 110, 110, .35);
+        border-radius: 999px;
+        background: transparent;
+        color: var(--vscode-descriptionForeground);
+        cursor: pointer;
+        font-size: 9px;
+        line-height: 14px;
+
+        &.is-active {
+            background: var(--vscode-button-background);
+            border-color: var(--vscode-button-background);
+            color: var(--vscode-button-foreground);
+        }
+    }
+
+    .skill-ios-toggle.indeterminate {
+        // green track (inherits .skill-ios-toggle), knob centered on the 34px track
+        &::after {
+            right: 9px;
+        }
+    }
+
+    .skill-chip.project-linked {
+        color: #4ec9b0;
+        background: rgba(78, 201, 176, .13);
+        border-color: rgba(78, 201, 176, .4);
+    }
+
+    .skill-unmanaged {
+        margin-top: 10px;
+    }
+
+    .skill-unmanaged-header {
+        margin: 0 0 4px 2px;
+        color: var(--vscode-descriptionForeground);
+        font-size: 9px;
+        font-weight: 600;
+        letter-spacing: .4px;
+        text-transform: uppercase;
+    }
+
+    .skill-move-editor {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 8px;
+    }
+
+    .skill-move-input {
+        flex: 1;
+        min-width: 0;
+        padding: 2px 7px;
+        border: 1px solid var(--vscode-input-border, #3c3c3c);
+        border-radius: 4px;
+        background: var(--vscode-input-background);
+        color: var(--vscode-input-foreground);
+        font-size: 10px;
+    }
+
+    .skill-move-set {
+        padding: 3px 10px;
+        border: 0;
+        border-radius: 4px;
+        background: var(--vscode-button-secondaryBackground);
+        color: var(--vscode-button-secondaryForeground);
+        cursor: pointer;
+        font-size: 10px;
+    }
+
 }
 
 body.steward-sidebar .skill-card .project-description {

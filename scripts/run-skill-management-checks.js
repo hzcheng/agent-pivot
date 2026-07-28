@@ -33,7 +33,7 @@ const webviewContent = require('../out/webview/webviewContent');
 const promptWebviewContent = require('../out/prompts/webviewContent');
 // dashboardController transitively requires webviewSkillContent → webviewContent → vscode,
 // so it must be required while the vscode stub is still active.
-const { SkillDashboardController } = require('../out/skills/dashboardController');
+const { SkillDashboardController, computeSkillLinkConflicts } = require('../out/skills/dashboardController');
 Module._load = originalModuleLoad;
 
 function runFrontmatterChecks() {
@@ -215,7 +215,7 @@ function makeRecord(overrides = {}) {
     return {
         name: 'demo', description: 'Demo skill', dirPath: '/home/dev/.kimi/skills/demo',
         skillFilePath: '/home/dev/.kimi/skills/demo/SKILL.md', scope: 'user', source: 'kimi',
-        enabled: true, visibility: { kimi: 'active', claude: 'absent', codex: 'absent' },
+        enabled: true, folder: '', visibility: { kimi: 'active', claude: 'absent', codex: 'absent' },
         shadowedBy: {}, diagnostics: [], ...overrides,
     };
 }
@@ -262,25 +262,10 @@ function runSkillRenderingChecks() {
         'source groups follow kimi > claude order');
     assert.ok(html.includes('<span class="skill-source-count">3</span>'), 'source group shows its skill count');
     assert.ok(html.indexOf('>broken</h2>') < html.indexOf('>demo</h2>'), 'cards sort by name within a source group');
-    // grouping: assigned skills collect into a folder node; unassigned stay in source groups
-    const groupedHtml = skillContent.getSkillsPanelContent(
-        [makeRecord(), makeRecord({
-            name: 'other', dirPath: '/home/dev/.kimi/skills/other',
-            skillFilePath: '/home/dev/.kimi/skills/other/SKILL.md',
-        })],
-        { groups: { '/home/dev/.kimi/skills/demo': 'superpowers' } }
-    );
-    assert.ok(groupedHtml.includes('data-skill-collection="superpowers"'), 'collection node renders');
-    assert.ok(groupedHtml.includes('data-skill-group-toggle="superpowers"'));
-    assert.ok(groupedHtml.includes('data-skill-group-scope="user"'));
-    assert.ok(groupedHtml.includes('skill-collection-user-superpowers'));
-    assert.ok(groupedHtml.includes('<option value="superpowers"></option>'), 'datalist offers existing group names');
-    assert.ok(groupedHtml.indexOf('data-skill-collection="superpowers"') < groupedHtml.indexOf('data-skill-source="kimi"'),
-        'collections render before source groups');
-    assert.ok(groupedHtml.includes('data-skill-group-input="/home/dev/.kimi/skills/demo"'), 'card group editor renders');
-    assert.ok(groupedHtml.includes('data-skill-ungroup="/home/dev/.kimi/skills/demo"'), 'grouped card shows ungroup action');
-    assert.ok(groupedHtml.includes('draggable="true"'), 'cards are draggable into collection nodes');
-    assert.ok(groupedHtml.includes('data-skill-scope="user"'));
+    // TODO(T7): finalized in the group-retirement task — virtual collection node, datalist,
+    // ungroup and group-editor rendering assertions removed with the folder-tree rendering (Task 5).
+    assert.ok(html.includes('draggable="true"'), 'cards stay draggable for folder moves');
+    assert.ok(html.includes('data-skill-scope="user"'));
     assert.ok(html.includes('data-skill-fix-code="lowercase-filename"'), 'fixable diagnostics render a Fix button');
     assert.ok(!skillContent.getSkillsPanelContent([makeRecord({ diagnostics: [{ code: 'body-too-long', message: 'x' }] })]).includes('data-skill-fix='),
         'non-fixable diagnostics render no Fix button');
@@ -311,6 +296,71 @@ function runSkillRenderingChecks() {
     assert.ok(aiPanelHtml.includes('data-skill-toggle='), 'skills surface embedded in the AI panel');
     assert.ok(!promptWebviewContent.getAiPanelContent({ prompts: [], selectedPromptId: null, revision: 0 }).includes('data-skill-toggle='),
         'placeholder renders without a skills surface');
+
+    const tree = skillContent.getSkillsPanelContent([
+        makeRecord({ name: 'alpha', source: 'central', dirPath: '/home/dev/.skills/superpowers/alpha',
+            skillFilePath: '/home/dev/.skills/superpowers/alpha/SKILL.md', folder: 'superpowers',
+            central: { dirPath: '/home/dev/.skills/superpowers/alpha', links: { user: { kimi: '/home/dev/.kimi/skills/alpha' }, project: { codex: '/work/app/.codex/skills/alpha' } } },
+            projectVisibility: { kimi: 'active', claude: 'absent', codex: 'active' } }),
+        makeRecord({ name: 'beta', source: 'central', dirPath: '/home/dev/.skills/superpowers/nested/beta',
+            skillFilePath: '/home/dev/.skills/superpowers/nested/beta/SKILL.md', folder: 'superpowers/nested',
+            central: { dirPath: '/home/dev/.skills/superpowers/nested/beta', links: {} } }),
+        makeRecord({ name: 'gamma', source: 'central', dirPath: '/home/dev/.skills/other/gamma',
+            skillFilePath: '/home/dev/.skills/other/gamma/SKILL.md', folder: 'other',
+            central: { dirPath: '/home/dev/.skills/other/gamma', links: {} } }),
+        makeRecord(), // unmanaged kimi record, folder ''
+    ], { scope: 'user' });
+    // nested folder nodes with paths + store root + batch switches
+    assert.ok(tree.includes('data-skill-folder="superpowers"'));
+    assert.ok(tree.includes('data-skill-folder="superpowers/nested"'));
+    assert.ok(tree.includes('data-skill-folder="other"'));
+    assert.ok(tree.includes('data-skill-store="/home/dev/.skills"'));
+    assert.ok(tree.indexOf('data-skill-folder="superpowers"') < tree.indexOf('data-skill-folder="superpowers/nested"'),
+        'parent folders render before children');
+    // batch switch states: superpowers partial → indeterminate; other empty → off
+    const superpowersHeader = tree.split('data-skill-folder="superpowers"')[0];
+    assert.ok(/skill-ios-toggle indeterminate/.test(superpowersHeader), 'partial folder is indeterminate');
+    // scope selector in the filter row
+    assert.ok(tree.includes('data-skill-scope-select="user"'));
+    assert.ok(tree.includes('data-skill-scope-select="project"'));
+    // switches carry both scopes' link state for client-side toggling
+    assert.ok(tree.includes('data-link-user="/home/dev/.kimi/skills/alpha"'));
+    assert.ok(tree.includes('data-link-project="/work/app/.codex/skills/alpha"'));
+    // P badge for project-linked card
+    assert.ok(tree.includes('skill-chip project-linked'));
+    // unmanaged section holds the plain record
+    assert.ok(tree.includes('skill-unmanaged'));
+    // move editor present, old group editor gone
+    assert.ok(tree.includes('data-skill-move-folder='));
+    assert.ok(!tree.includes('data-skill-group-input'), 'virtual group editor removed');
+    assert.ok(!tree.includes('data-skill-collection='), 'virtual collections removed');
+
+    // scope selector: without a workspace the project button hides, Global stays
+    const noWsTree = skillContent.getSkillsPanelContent([makeRecord()], { hasWorkspace: false });
+    assert.ok(noWsTree.includes('data-skill-scope-select="user"'), 'Global selector stays without a workspace');
+    assert.ok(!noWsTree.includes('data-skill-scope-select="project"'), 'project selector hidden without a workspace');
+    // project-scope view renders central chips from projectVisibility
+    const projectTree = skillContent.getSkillsPanelContent([
+        makeRecord({ name: 'alpha', source: 'central', dirPath: '/home/dev/.skills/superpowers/alpha',
+            skillFilePath: '/home/dev/.skills/superpowers/alpha/SKILL.md', folder: 'superpowers',
+            central: { dirPath: '/home/dev/.skills/superpowers/alpha', links: { user: { kimi: '/home/dev/.kimi/skills/alpha' }, project: { codex: '/work/app/.codex/skills/alpha' } } },
+            projectVisibility: { kimi: 'active', claude: 'absent', codex: 'active' } }),
+    ], { scope: 'project' });
+    assert.ok(projectTree.includes('data-vis-project="active"'), 'chips carry the project-scope visibility');
+    assert.ok(projectTree.includes('data-vis-user="active"'), 'chips carry the user-scope visibility');
+    // name+agent link collisions: controller computes, cards show the conflict chip
+    const collisionRecords = [
+        makeRecord({ name: 'dup', source: 'central', dirPath: '/home/dev/.skills/f1/dup', folder: 'f1',
+            central: { dirPath: '/home/dev/.skills/f1/dup', links: { user: { kimi: '/home/dev/.kimi/skills/dup' } } } }),
+        makeRecord({ name: 'dup', source: 'central', dirPath: '/home/dev/.skills/f2/dup', folder: 'f2',
+            central: { dirPath: '/home/dev/.skills/f2/dup', links: { user: { kimi: '/home/dev/.kimi/skills/dup' } } } }),
+    ];
+    const collisions = computeSkillLinkConflicts(collisionRecords);
+    assert.ok(collisions.has('/home/dev/.skills/f1/dup') && collisions.has('/home/dev/.skills/f2/dup'),
+        'same-name central records linking the same agent+scope collide');
+    assert.strictEqual(computeSkillLinkConflicts([collisionRecords[0]]).size, 0, 'a single record never collides');
+    const collisionHtml = skillContent.getSkillsPanelContent(collisionRecords, { conflicts: collisions });
+    assert.strictEqual(collisionHtml.split('⚠ name conflict').length - 1, 2, 'both colliding cards show the conflict chip');
 }
 
 function runSkillStyleChecks() {
@@ -324,6 +374,16 @@ function runSkillStyleChecks() {
     assert.ok(styles.includes('.skill-source-header'));
     assert.ok(styles.includes('.skill-filter-hidden'));
     assert.ok(styles.includes('.skill-drop-target'));
+    assert.ok(styles.includes('.skill-folder'), 'folder node styles');
+    assert.ok(styles.includes('.skill-scope-select'), 'scope segmented control styles');
+    assert.ok(styles.includes('.skill-ios-toggle.indeterminate'), 'indeterminate switch styles');
+    assert.ok(styles.includes('.skill-chip.project-linked'), 'P badge styles');
+    assert.ok(styles.includes('.skill-unmanaged'), 'unmanaged section styles');
+    assert.ok(compiled.includes('.skill-folder'));
+    assert.ok(compiled.includes('.skill-scope-select'));
+    assert.ok(compiled.includes('.skill-ios-toggle.indeterminate'));
+    assert.ok(compiled.includes('.skill-chip.project-linked'));
+    assert.ok(compiled.includes('.skill-unmanaged'));
     assert.ok(compiled.includes('.skill-toggle'));
     assert.ok(compiled.includes('.skill-chip'));
     assert.ok(compiled.includes('.skill-source-header'));
@@ -468,7 +528,8 @@ runSkillWebviewScriptChecks();
 runSkillControllerChecks();
 runSkillWiringChecks();
 runSkillFixChecks();
-runSkillCollectionChecks();
+// TODO(T7): finalized in the group-retirement task — runSkillCollectionChecks removed with the
+// virtual-collection rendering (Task 5).
 runSkillSearchCatalogChecks();
 runSkillSyncChecks();
 runSkillCentralChecks();
@@ -476,12 +537,9 @@ runSkillMigrationChecks();
 runSkillFolderDiscoveryChecks();
 runSkillFolderServiceChecks();
 runSkillFolderControllerChecks();
-runSkillGroupStoreChecks()
-    .then(() => console.log('Skill management checks passed.'))
-    .catch(error => {
-        console.error(error);
-        process.exit(1);
-    });
+// TODO(T7): finalized in the group-retirement task — runSkillGroupStoreChecks removed with the
+// virtual group store (Task 5).
+console.log('Skill management checks passed.');
 
 function runSkillFixChecks() {
     const fixService = require('../out/skills/fixService');
@@ -536,42 +594,6 @@ function runSkillFixChecks() {
     assert.strictEqual(fixService.fixSkillDiagnostic(record(), 'body-too-long').ok, false);
 }
 
-function runSkillCollectionChecks() {
-    const knownCollections = require('../out/skills/knownCollections');
-    const records = [
-        makeRecord({ name: 'brainstorming' }),
-        makeRecord({ name: 'writing-plans' }),
-        makeRecord({ name: 'unrelated' }),
-    ];
-    let suggestions = knownCollections.getCollectionSuggestions(records, {}, []);
-    assert.strictEqual(suggestions.length, 1, 'suggests a known collection with >=2 members present');
-    assert.strictEqual(suggestions[0].name, 'superpowers');
-    assert.strictEqual(suggestions[0].presentCount, 2);
-    assert.strictEqual(suggestions[0].ungroupedCount, 2);
-    const allGrouped = {
-        '/home/dev/.kimi/skills/brainstorming': 'superpowers',
-        '/home/dev/.kimi/skills/writing-plans': 'superpowers',
-    };
-    assert.strictEqual(knownCollections.getCollectionSuggestions(records, allGrouped, []).length, 0,
-        'no suggestion once every member is in a folder');
-    assert.strictEqual(knownCollections.getCollectionSuggestions(records, {}, ['superpowers']).length, 0,
-        'dismissed suggestions stay down');
-    suggestions = knownCollections.getCollectionSuggestions(records, { '/home/dev/.kimi/skills/writing-plans': 'my-stuff' }, []);
-    assert.strictEqual(suggestions[0].ungroupedCount, 1);
-    assert.deepStrictEqual(suggestions[0].memberKeys, ['/home/dev/.kimi/skills/brainstorming'],
-        'members already in another folder are left alone');
-    assert.strictEqual(knownCollections.getCollectionSuggestions([records[0]], {}, []).length, 0,
-        'fewer than two members never triggers a suggestion');
-
-    const html = skillContent.getSkillsPanelContent(
-        [makeRecord()],
-        { suggestions: [{ name: 'superpowers', presentCount: 14, ungroupedCount: 12, memberKeys: [] }] },
-    );
-    assert.ok(html.includes('data-skill-apply-suggestion="superpowers"'));
-    assert.ok(html.includes('data-skill-dismiss-suggestion="superpowers"'));
-    assert.ok(html.includes('Create folder'));
-}
-
 function runSkillSearchCatalogChecks() {
     const viewModel = require('../out/webview/dashboardViewModel');
     const catalog = viewModel.buildWorkspaceDashboardSearchCatalog(
@@ -593,112 +615,6 @@ function runSkillSearchCatalogChecks() {
     assert.ok(script.includes("'reveal-skill'"));
     assert.ok(script.includes("type: 'skill'"));
     assert.ok(script.includes('revealSkillCard'));
-}
-
-async function runSkillGroupStoreChecks() {
-    const groupStore = require('../out/skills/skillGroupStore');
-    const record = makeRecord({
-        name: 'demo',
-        dirPath: '/home/dev/.kimi/skills/demo',
-    });
-    const parked = makeRecord({
-        name: 'demo',
-        enabled: false,
-        dirPath: '/home/dev/.kimi/skills/.disabled/demo',
-    });
-    const activeKey = groupStore.getSkillStableKey(record);
-    assert.strictEqual(activeKey, '/home/dev/.kimi/skills/demo');
-    assert.strictEqual(groupStore.getSkillStableKey(parked), activeKey,
-        'stable key survives disable (parked under .disabled)');
-
-    const written = [];
-    const memento = {
-        value: undefined,
-        get(key) { return this.value; },
-        update(key, next) { written.push(next); this.value = next; return Promise.resolve(); },
-    };
-    const store = new groupStore.SkillGroupStore(memento);
-    assert.strictEqual(store.getGroupName(record), undefined);
-    // setGroup through the controller (async path) resolves the record from the last scan
-    const { home } = makeFixture();
-    const groupController = new SkillDashboardController({
-        getHomeDir: () => home,
-        getWorkspaceRoot: () => undefined,
-        postMessage: () => Promise.resolve(true),
-        isVisible: () => true,
-        logError: () => undefined,
-        groupStore: store,
-    });
-    groupController.start();
-    const setResult = await groupController.handleSetSkillGroup(
-        path.join(home, '.kimi', 'skills', 'alpha'),
-        'superpowers',
-    );
-    assert.strictEqual(setResult.ok, true);
-    assert.strictEqual(store.getGroupName(makeRecord({
-        name: 'alpha',
-        dirPath: path.join(home, '.kimi', 'skills', '.disabled', 'alpha'),
-    })), 'superpowers', 'group assignment sticks to the parked copy too');
-    const unknown = await groupController.handleSetSkillGroup(path.join(home, '.kimi', 'skills', 'nope'), 'x');
-    assert.strictEqual(unknown.ok, false, 'unknown skill dirPath is refused');
-    groupController.dispose();
-
-    // Collection suggestions: apply assigns only ungrouped members; dismiss persists.
-    const colHome = fs.mkdtempSync(path.join(os.tmpdir(), 'skills-col-'));
-    const writeColSkill = rel => {
-        fs.mkdirSync(path.dirname(path.join(colHome, rel)), { recursive: true });
-        fs.writeFileSync(path.join(colHome, rel), '---\nname: x\n---\n');
-    };
-    writeColSkill('.kimi/skills/brainstorming/SKILL.md');
-    writeColSkill('.kimi/skills/writing-plans/SKILL.md');
-    writeColSkill('.kimi/skills/executing-plans/SKILL.md');
-    const colMemento = {
-        values: {},
-        get(key) { return this.values[key]; },
-        update(key, next) { this.values[key] = next; return Promise.resolve(); },
-    };
-    const colStore = new groupStore.SkillGroupStore(colMemento);
-    await colStore.setGroup(
-        makeRecord({ name: 'executing-plans', dirPath: path.join(colHome, '.kimi', 'skills', 'executing-plans') }),
-        'my-stuff',
-    );
-    const colController = new SkillDashboardController({
-        getHomeDir: () => colHome,
-        getWorkspaceRoot: () => undefined,
-        postMessage: () => Promise.resolve(true),
-        isVisible: () => true,
-        logError: () => undefined,
-        groupStore: colStore,
-    });
-    colController.start();
-    const suggestions = colController.getCollectionSuggestions();
-    assert.strictEqual(suggestions.length, 1);
-    assert.strictEqual(suggestions[0].ungroupedCount, 2, 'the already-grouped member stays out');
-    const applied = await colController.handleApplyCollectionSuggestion('superpowers');
-    assert.strictEqual(applied.ok, true);
-    const colGroups = colStore.getGroups();
-    assert.strictEqual(colGroups[path.join(colHome, '.kimi', 'skills', 'brainstorming')], 'superpowers');
-    assert.strictEqual(colGroups[path.join(colHome, '.kimi', 'skills', 'writing-plans')], 'superpowers');
-    assert.strictEqual(colGroups[path.join(colHome, '.kimi', 'skills', 'executing-plans')], 'my-stuff',
-        'apply never steals members from other folders');
-    assert.strictEqual(colController.getCollectionSuggestions().length, 0, 'suggestion resolves after apply');
-    const dismissed = await colController.handleDismissCollectionSuggestion('superpowers');
-    assert.strictEqual(dismissed.ok, true);
-    assert.deepStrictEqual(colStore.getDismissedCollections(), ['superpowers']);
-    colController.dispose();
-    return store.setGroup(record, ' superpowers ')
-        .then(() => {
-            assert.strictEqual(store.getGroupName(record), 'superpowers', 'group name is trimmed');
-            assert.strictEqual(store.getGroupName(parked), 'superpowers', 'parked copy shares the group');
-            return store.setGroup(record, '  ');
-        })
-        .then(() => {
-            assert.strictEqual(store.getGroupName(record), undefined, 'blank group name removes the assignment');
-            const alphaKey = path.join(home, '.kimi', 'skills', 'alpha');
-            assert.deepStrictEqual(memento.value, { [alphaKey]: 'superpowers' },
-                'only the removed assignment is gone');
-            assert.ok(written.length === 3, 'each change persists once');
-        });
 }
 
 function runSkillSyncChecks() {
@@ -966,7 +882,13 @@ function runSkillCentralChecks() {
     });
     const centralHtml = skillContent.getSkillsPanelContent([centralRecord, makeRecord()]);
     assert.ok(centralHtml.includes('skill-chip central'), 'central chip renders');
-    assert.ok(centralHtml.includes('data-skill-source="central"'), 'central source group renders');
+    assert.ok(!centralHtml.includes('data-skill-source="central"'), 'central records no longer render in source groups');
+    assert.ok(centralHtml.indexOf('data-skill-dir="/home/dev/.skills/shared"') < centralHtml.indexOf('skill-unmanaged'),
+        'root-level central cards render directly under the scope section, before unmanaged');
+    assert.ok(centralHtml.includes('data-skill-move-folder="/home/dev/.skills/shared"'), 'central detail shows the move editor');
+    assert.ok(!centralHtml.includes('data-skill-group-input'), 'virtual group editor removed');
+    assert.ok(centralHtml.includes('data-link-user="/home/dev/.kimi/skills/shared"'), 'switch carries the user-scope link');
+    assert.ok(centralHtml.includes('data-link-project=""'), 'switch carries an empty project-scope link');
     assert.ok(!centralHtml.includes('Linked agents'), 'no separate link section remains');
     assert.strictEqual(centralHtml.split('class="skill-agent-row"').length - 1, 3, 'one iOS-style row per agent');
     assert.strictEqual(centralHtml.split('data-central-source=').length - 1, 3, 'one switch per agent');

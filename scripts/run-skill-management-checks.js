@@ -475,6 +475,7 @@ runSkillCentralChecks();
 runSkillMigrationChecks();
 runSkillFolderDiscoveryChecks();
 runSkillFolderServiceChecks();
+runSkillFolderControllerChecks();
 runSkillGroupStoreChecks()
     .then(() => console.log('Skill management checks passed.'))
     .catch(error => {
@@ -925,18 +926,18 @@ function runSkillCentralChecks() {
     controller.start();
     const sharedDir = path.join(home, '.skills', 'shared');
     // enabled === false → the link does not exist yet → create it
-    assert.strictEqual(controller.handleCentralToggle(sharedDir, 'claude', false).ok, true);
+    assert.strictEqual(controller.handleCentralToggle(sharedDir, 'user', 'claude', false).ok, true);
     assert.ok(fs.lstatSync(path.join(home, '.claude', 'skills', 'shared')).isSymbolicLink());
     assert.strictEqual(
         controller.getRecords().find(record => record.name === 'shared').central.links.user?.claude,
         path.join(home, '.claude', 'skills', 'shared'),
         'refresh picks up the new link');
     // enabled === true → the link exists → remove it
-    assert.strictEqual(controller.handleCentralToggle(sharedDir, 'claude', true).ok, true);
+    assert.strictEqual(controller.handleCentralToggle(sharedDir, 'user', 'claude', true).ok, true);
     assert.ok(!fs.existsSync(path.join(home, '.claude', 'skills', 'shared')));
-    assert.strictEqual(controller.handleCentralToggle('/nope', 'claude', false).ok, false, 'unknown skill refused');
-    assert.strictEqual(controller.handleCentralToggle(sharedDir, 'agents', false).ok, false, 'agents root is not a link target');
-    assert.strictEqual(controller.handleCentralToggle(sharedDir, 'central', false).ok, false, 'central source is not a link target');
+    assert.strictEqual(controller.handleCentralToggle('/nope', 'user', 'claude', false).ok, false, 'unknown skill refused');
+    assert.strictEqual(controller.handleCentralToggle(sharedDir, 'user', 'agents', false).ok, false, 'agents root is not a link target');
+    assert.strictEqual(controller.handleCentralToggle(sharedDir, 'user', 'central', false).ok, false, 'central source is not a link target');
     controller.dispose();
 
     // controller: centralize moves the skill and refreshes into a central record
@@ -1079,6 +1080,63 @@ function runSkillFolderServiceChecks() {
     const dup = centralService.moveSkillToFolder(alpha2, 'xiaohongshu/yunxiao', home, ws);
     assert.strictEqual(dup.ok, false, 'existing destination refused');
     assert.ok(fs.existsSync(path.join(home, '.skills', 'superpowers', 'alpha', 'SKILL.md')), 'source untouched');
+}
+
+function runSkillFolderControllerChecks() {
+    const real = dirPath => fs.realpathSync(dirPath);
+    const home = real(fs.mkdtempSync(path.join(os.tmpdir(), 'skills-fctrl-')));
+    const ws = real(fs.mkdtempSync(path.join(os.tmpdir(), 'skills-fctrl-ws-')));
+    const write = (filePath, content) => {
+        fs.mkdirSync(path.dirname(filePath), { recursive: true });
+        fs.writeFileSync(filePath, content);
+    };
+    write(path.join(home, '.skills/superpowers/alpha/SKILL.md'), '---\nname: alpha\ndescription: A\n---\n');
+    write(path.join(home, '.skills/superpowers/nested/beta/SKILL.md'), '---\nname: beta\ndescription: B\n---\n');
+
+    const storeRoot = path.join(home, '.skills');
+    const controller = new SkillDashboardController({
+        getHomeDir: () => home,
+        getWorkspaceRoot: () => ws,
+        postMessage: () => Promise.resolve(true),
+        isVisible: () => true,
+        logError: () => undefined,
+    });
+    controller.start();
+    // per-agent toggle at project scope
+    const alphaDir = path.join(home, '.skills', 'superpowers', 'alpha');
+    assert.strictEqual(controller.handleCentralToggle(alphaDir, 'project', 'kimi', false).ok, true);
+    assert.ok(fs.lstatSync(path.join(ws, '.kimi/skills/alpha')).isSymbolicLink());
+    assert.strictEqual(
+        controller.getRecords().find(record => record.name === 'alpha').central.links.project.kimi,
+        path.join(ws, '.kimi', 'skills', 'alpha'));
+    assert.strictEqual(controller.handleCentralToggle(alphaDir, 'project', 'kimi', true).ok, true);
+    // folder toggle (folder starts unlinked → current state enabled === false → click links it)
+    const folderResult = controller.handleFolderToggle(storeRoot, 'superpowers', 'user', false);
+    assert.strictEqual(folderResult.ok, true);
+    assert.ok(fs.lstatSync(path.join(home, '.claude/skills/beta')).isSymbolicLink());
+    // move
+    assert.strictEqual(controller.handleMoveToFolder(alphaDir, 'collections').ok, true);
+    assert.strictEqual(
+        controller.getRecords().find(record => record.name === 'alpha').folder, 'collections');
+    assert.strictEqual(controller.handleMoveToFolder(alphaDir, 'collections').ok, false,
+        'stale dirPath refused after the move');
+    controller.dispose();
+
+    // project-scope endpoints without a workspace refuse cleanly (no throw)
+    const noWsController = new SkillDashboardController({
+        getHomeDir: () => home,
+        getWorkspaceRoot: () => undefined,
+        postMessage: () => Promise.resolve(true),
+        isVisible: () => true,
+        logError: () => undefined,
+    });
+    noWsController.start();
+    const movedAlphaDir = path.join(home, '.skills', 'collections', 'alpha');
+    const noWsToggle = noWsController.handleCentralToggle(movedAlphaDir, 'project', 'kimi', false);
+    assert.strictEqual(noWsToggle.ok, false, 'project-scope toggle without a workspace refuses cleanly');
+    const noWsFolder = noWsController.handleFolderToggle(storeRoot, 'superpowers', 'project', false);
+    assert.strictEqual(noWsFolder.ok, false, 'project-scope folder toggle without a workspace refuses cleanly');
+    noWsController.dispose();
 }
 
 function runSkillFolderDiscoveryChecks() {

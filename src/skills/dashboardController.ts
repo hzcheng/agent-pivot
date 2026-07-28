@@ -3,17 +3,17 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { centralizeSkill, setCentralLink } from './centralService';
+import { centralizeSkill, FolderLinkResult, moveSkillToFolder, setCentralLink, setFolderLinks } from './centralService';
 import { migrateUserSkillsToCentral, SkillMigrationReport } from './migrateService';
 import { scanSkills } from './discovery';
 import { getCollectionSuggestions, KNOWN_SKILL_COLLECTIONS, SkillCollectionSuggestion } from './knownCollections';
-import { DISABLED_DIR_NAME, getProjectSkillsRoots, getUserSkillsRoots } from './roots';
+import { DISABLED_DIR_NAME, getKimiBrandCandidates, getProjectSkillsRoots, getUserSkillsRoots } from './roots';
 import { computeSkillCopyTargets, copySkillDir, SkillCopyTarget, syncSkillDir } from './syncService';
 import { disableSkill, enableSkill } from './toggleService';
 import { fixSkillDiagnostic } from './fixService';
 import { getSkillsPanelContent } from '../webview/webviewSkillContent';
 import type { SkillGroupMap, SkillGroupStore } from './skillGroupStore';
-import type { SkillDiagnostic, SkillRecord, SkillSourceDir } from './types';
+import type { SkillAgentId, SkillDiagnostic, SkillRecord, SkillScope } from './types';
 
 export interface SkillDashboardControllerOptions {
     getHomeDir: () => string;
@@ -89,16 +89,24 @@ export class SkillDashboardController {
         return result;
     }
 
-    handleCentralToggle(dirPath: string, source: SkillSourceDir, enabled: boolean): { ok: boolean; error?: string } {
+    handleCentralToggle(dirPath: string, scope: SkillScope, agent: SkillAgentId, enabled: boolean): { ok: boolean; error?: string } {
         const record = this.records.find(candidate => candidate.central && candidate.dirPath === dirPath);
         if (!record || !record.central) {
             return { ok: false, error: `Unknown centralized skill: ${dirPath}` };
         }
-        const roots = getUserSkillsRoots(this.options.getHomeDir())
-            .concat(this.options.getWorkspaceRoot() ? getProjectSkillsRoots(this.options.getWorkspaceRoot() as string) : []);
-        const root = roots.find(candidate => candidate.source === source && candidate.scope === record.scope);
-        if (!root || source === 'central' || source === 'agents') {
-            return { ok: false, error: `Unknown skills root for ${source}.` };
+        const workspaceRoot = this.options.getWorkspaceRoot();
+        if (scope === 'project' && !workspaceRoot) {
+            return { ok: false, error: `Unknown ${scope} skills root for ${agent}.` };
+        }
+        const roots = scope === 'user'
+            ? getUserSkillsRoots(this.options.getHomeDir())
+            : getProjectSkillsRoots(workspaceRoot as string);
+        // Brand agents only: the SkillAgentId type excludes agents/central at compile
+        // time, but the webview message channel is untyped at runtime.
+        const root = getKimiBrandCandidates(roots)
+            .find(candidate => candidate.source === agent && candidate.scope === scope);
+        if (!root) {
+            return { ok: false, error: `Unknown ${scope} skills root for ${agent}.` };
         }
         // enabled === true means the link currently exists → remove it; false → create it.
         const result = setCentralLink(dirPath, root.dirPath, !enabled);
@@ -106,6 +114,28 @@ export class SkillDashboardController {
             this.options.logError('Failed to toggle the skill link.', new Error(result.error || 'unknown error'));
         }
         this.refresh('central-toggle-skill');
+        return result;
+    }
+
+    handleFolderToggle(storeRoot: string, folder: string, scope: SkillScope, enabled: boolean): FolderLinkResult {
+        const result = setFolderLinks(storeRoot, folder, scope, this.options.getHomeDir(), this.options.getWorkspaceRoot(), !enabled);
+        for (const error of result.errors) {
+            this.options.logError(`Failed to toggle folder link for ${error.name}.`, new Error(error.error));
+        }
+        this.refresh('folder-toggle-skill-links');
+        return result;
+    }
+
+    handleMoveToFolder(dirPath: string, folder: string): { ok: boolean; error?: string } {
+        const record = this.records.find(candidate => candidate.central && candidate.dirPath === dirPath);
+        if (!record) {
+            return { ok: false, error: `Unknown centralized skill: ${dirPath}` };
+        }
+        const result = moveSkillToFolder(record, folder, this.options.getHomeDir(), this.options.getWorkspaceRoot());
+        if (!result.ok) {
+            this.options.logError('Failed to move the skill.', new Error(result.error || 'unknown error'));
+        }
+        this.refresh('move-skill-to-folder');
         return result;
     }
 

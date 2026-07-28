@@ -1419,11 +1419,29 @@ async function initializeDashboard(
             'central-toggle-skill': e => {
                 const result = skillDashboardController.handleCentralToggle(
                     String(e.dirPath || ''),
+                    (e.scope === 'project' ? 'project' : 'user') as never,
                     String(e.source || '') as never,
                     e.enabled === true,
                 );
                 if (!result.ok) {
                     void vscode.window.showWarningMessage(`Could not toggle the skill link: ${result.error}`);
+                }
+            },
+            'folder-toggle-skill-links': e => {
+                const result = skillDashboardController.handleFolderToggle(
+                    String(e.storeRoot || ''), String(e.folder || ''),
+                    (e.scope === 'project' ? 'project' : 'user') as never,
+                    e.enabled === true,
+                );
+                if (!result.ok) {
+                    void vscode.window.showWarningMessage(
+                        `Some folder links failed: ${result.errors.map(item => item.name).join(', ')}`);
+                }
+            },
+            'move-skill-to-folder': e => {
+                const result = skillDashboardController.handleMoveToFolder(String(e.dirPath || ''), String(e.folder || ''));
+                if (!result.ok) {
+                    void vscode.window.showWarningMessage(`Could not move the skill: ${result.error}`);
                 }
             },
             'centralize-skill': e => {

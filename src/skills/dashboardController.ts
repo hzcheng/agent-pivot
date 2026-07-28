@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { centralizeSkill, setCentralLink } from './centralService';
+import { migrateUserSkillsToCentral, SkillMigrationReport } from './migrateService';
 import { scanSkills } from './discovery';
 import { getCollectionSuggestions, KNOWN_SKILL_COLLECTIONS, SkillCollectionSuggestion } from './knownCollections';
 import { DISABLED_DIR_NAME, getProjectSkillsRoots, getUserSkillsRoots } from './roots';
@@ -122,6 +123,15 @@ export class SkillDashboardController {
         }
         this.refresh('centralize-skill');
         return result;
+    }
+
+    handleMigrateToCentral(): SkillMigrationReport {
+        const report = migrateUserSkillsToCentral(this.records, this.options.getHomeDir());
+        for (const error of report.errors) {
+            this.options.logError(`Failed to migrate skill ${error.name}.`, new Error(error.error));
+        }
+        this.refresh('migrate-skills-to-central');
+        return report;
     }
 
     async handleApplyCollectionSuggestion(name: string): Promise<{ ok: boolean; error?: string }> {

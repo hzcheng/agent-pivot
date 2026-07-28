@@ -17,6 +17,7 @@ export interface DashboardCommandHandlers {
     addProjectsFromFolder: DashboardCommandHandler;
     addFileToActiveTerminal: DashboardCommandHandler;
     insertPromptToActiveTerminal: DashboardCommandHandler;
+    migrateSkillsToCentral: DashboardCommandHandler;
 }
 
 export interface DashboardCommandRegistrationOptions<TDisposable extends DisposableLike = DisposableLike> {
@@ -41,6 +42,7 @@ const DASHBOARD_COMMANDS: ReadonlyArray<readonly [string, DashboardCommandName]>
     ['agentPivot.addProjectsFromFolder', 'addProjectsFromFolder'],
     ['agentPivot.addFileToActiveTerminal', 'addFileToActiveTerminal'],
     ['agentPivot.insertPromptToActiveTerminal', 'insertPromptToActiveTerminal'],
+    ['agentPivot.migrateSkillsToCentral', 'migrateSkillsToCentral'],
 ];
 
 interface DashboardCommandGeneration {

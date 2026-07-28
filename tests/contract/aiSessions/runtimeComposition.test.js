@@ -149,6 +149,7 @@ test('WEBVIEW-DASHBOARD-COMMAND-AVAILABILITY-001 production activation exposes s
         'agentPivot.addProjectsFromFolder',
         'agentPivot.addFileToActiveTerminal',
         'agentPivot.insertPromptToActiveTerminal',
+        'agentPivot.migrateSkillsToCentral',
     ]);
     assert.equal(result.dashboardCommandRegistrationInvocations, 1);
     assert.equal(result.pendingOpenRevealedBootShell, true);

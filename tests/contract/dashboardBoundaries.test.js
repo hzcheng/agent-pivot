@@ -327,6 +327,7 @@ const DASHBOARD_COMMANDS = [
     'agentPivot.removeProject', 'agentPivot.editProjects', 'agentPivot.addGroup',
     'agentPivot.removeGroup', 'agentPivot.addProjectsFromFolder',
     'agentPivot.addFileToActiveTerminal', 'agentPivot.insertPromptToActiveTerminal',
+    'agentPivot.migrateSkillsToCentral',
 ];
 
 test('WEBVIEW-DASHBOARD-COMMAND-REGISTRATION-001 WEBVIEW-DASHBOARD-COMMAND-AVAILABILITY-001 registers once and switches generation handlers safely', async () => {
@@ -336,6 +337,7 @@ test('WEBVIEW-DASHBOARD-COMMAND-REGISTRATION-001 WEBVIEW-DASHBOARD-COMMAND-AVAIL
     const handlerNames = [
         'open', 'addProject', 'saveProject', 'removeProject', 'editProjects', 'addGroup', 'removeGroup',
         'addProjectsFromFolder', 'addFileToActiveTerminal', 'insertPromptToActiveTerminal',
+        'migrateSkillsToCentral',
     ];
     const facade = new DashboardCommandRegistration({
         registerCommand: (command, callback) => {

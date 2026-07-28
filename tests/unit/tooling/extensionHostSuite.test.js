@@ -20,6 +20,7 @@ const publicCommands = [
     'agentPivot.addProjectsFromFolder',
     'agentPivot.addFileToActiveTerminal',
     'agentPivot.insertPromptToActiveTerminal',
+    'agentPivot.migrateSkillsToCentral',
 ];
 
 function loadSuite(vscode) {

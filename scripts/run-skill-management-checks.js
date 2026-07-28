@@ -472,6 +472,7 @@ runSkillCollectionChecks();
 runSkillSearchCatalogChecks();
 runSkillSyncChecks();
 runSkillCentralChecks();
+runSkillMigrationChecks();
 runSkillGroupStoreChecks()
     .then(() => console.log('Skill management checks passed.'))
     .catch(error => {
@@ -993,4 +994,110 @@ function runSkillCentralChecks() {
     assert.ok(styles.includes('.skill-central-toggle'));
     assert.ok(compiledCss.includes('.skill-centralize'));
     assert.ok(compiledCss.includes('.skill-central-toggle'));
+}
+
+function runSkillMigrationChecks() {
+    const migrateService = require('../out/skills/migrateService');
+    const real = dirPath => fs.realpathSync(dirPath);
+    const makeMigrationFixture = () => {
+        const home = real(fs.mkdtempSync(path.join(os.tmpdir(), 'skills-migrate-')));
+        const write = (filePath, content) => {
+            fs.mkdirSync(path.dirname(filePath), { recursive: true });
+            fs.writeFileSync(filePath, content);
+        };
+        // Identical copies of 'same' in kimi + codex (kimi wins, codex parked).
+        write(path.join(home, '.kimi/skills/same/SKILL.md'), '---\nname: same\ndescription: Same\n---\n');
+        write(path.join(home, '.codex/skills/same/SKILL.md'), '---\nname: same\ndescription: Same\n---\n');
+        // Drifted copies of 'drifty' in claude + codex (claude wins by priority).
+        write(path.join(home, '.claude/skills/drifty/SKILL.md'), '---\nname: drifty\ndescription: Claude\n---\n');
+        write(path.join(home, '.codex/skills/drifty/SKILL.md'), '---\nname: drifty\ndescription: Codex\n---\n');
+        // Already-central 'shared' + its codex link + a leftover real-dir copy
+        // in kimi (must be skipped, link untouched).
+        write(path.join(home, '.skills/shared/SKILL.md'), '---\nname: shared\ndescription: Shared\n---\n');
+        write(path.join(home, '.kimi/skills/shared/SKILL.md'), '---\nname: shared\ndescription: Shared\n---\n');
+        fs.mkdirSync(path.join(home, '.codex/skills'), { recursive: true });
+        fs.symlinkSync(path.join(home, '.skills/shared'), path.join(home, '.codex/skills/shared'), 'dir');
+        // Kimi-only skill.
+        write(path.join(home, '.kimi/skills/solo/SKILL.md'), '---\nname: solo\ndescription: Solo\n---\n');
+        // Generic agents dir skill (outside migration scope).
+        write(path.join(home, '.agents/skills/generic/SKILL.md'), '---\nname: generic\ndescription: Generic\n---\n');
+        // A parked copy of 'same' in claude must stay parked and not interfere.
+        write(path.join(home, '.claude/skills/.disabled/same/SKILL.md'), '---\nname: same\ndescription: Parked\n---\n');
+        return { home };
+    };
+
+    const { home } = makeMigrationFixture();
+    const before = discovery.scanSkills({ homeDir: home });
+    const report = migrateService.migrateUserSkillsToCentral(before, home);
+
+    assert.strictEqual(report.ok, true);
+    assert.deepStrictEqual(report.migrated.sort(), ['drifty', 'same', 'solo']);
+    assert.deepStrictEqual(report.drifted, ['drifty'], 'drift is reported when copies differ');
+    assert.strictEqual(report.parked.length, 2, 'codex copies of same and drifty are parked');
+    assert.ok(report.skipped.some(item => item.name === 'shared' && item.reason === 'already in the central store'));
+    assert.ok(report.skipped.some(item => item.name === 'generic' && item.reason === 'lives outside the kimi/claude/codex roots'));
+
+    // Real contents: winner copies moved into ~/.skills; losers parked under root .disabled
+    assert.ok(fs.existsSync(path.join(home, '.skills', 'same', 'SKILL.md')));
+    assert.ok(fs.existsSync(path.join(home, '.skills', 'drifty', 'SKILL.md')));
+    assert.ok(fs.existsSync(path.join(home, '.skills', 'solo', 'SKILL.md')));
+    assert.ok(fs.existsSync(path.join(home, '.codex', 'skills', '.disabled', 'same', 'SKILL.md')));
+    assert.ok(fs.existsSync(path.join(home, '.codex', 'skills', '.disabled', 'drifty', 'SKILL.md')));
+    assert.ok(!fs.existsSync(path.join(home, '.kimi', 'skills', 'same')), 'winner left its original root');
+    assert.ok(!fs.existsSync(path.join(home, '.codex', 'skills', 'same')), 'loser left its original root');
+    assert.ok(!fs.existsSync(path.join(home, '.claude', 'skills', 'drifty')));
+
+    // Migration creates no agent links for the migrated skills (clean slate).
+    const brandRoots = ['.kimi/skills', '.claude/skills', '.codex/skills'];
+    for (const brandRoot of brandRoots) {
+        const rootPath = path.join(home, brandRoot);
+        if (!fs.existsSync(rootPath)) {
+            continue;
+        }
+        for (const entry of fs.readdirSync(rootPath)) {
+            const fullPath = path.join(rootPath, entry);
+            if (['same', 'drifty', 'solo'].includes(entry) && fs.lstatSync(fullPath).isSymbolicLink()) {
+                assert.fail(`migration must not create links: ${fullPath}`);
+            }
+        }
+    }
+    // Pre-existing central links (shared) are left untouched.
+    assert.ok(fs.lstatSync(path.join(home, '.codex', 'skills', 'shared')).isSymbolicLink());
+
+    // Idempotent second run migrates nothing
+    const repeat = migrateService.migrateUserSkillsToCentral(discovery.scanSkills({ homeDir: home }), home);
+    assert.strictEqual(repeat.migrated.length, 0, 'second run migrates nothing');
+    assert.deepStrictEqual(repeat.skipped.map(item => item.name).sort(), ['generic', 'shared'],
+        'only out-of-scope and already-central leftovers are reported on the second run');
+
+    // controller endpoint refreshes records
+    const controller = new SkillDashboardController({
+        getHomeDir: () => home,
+        getWorkspaceRoot: () => undefined,
+        postMessage: () => Promise.resolve(true),
+        isVisible: () => true,
+        logError: () => undefined,
+    });
+    controller.start();
+    const ctrlReport = controller.handleMigrateToCentral();
+    assert.strictEqual(ctrlReport.migrated.length, 0, 'controller migration is idempotent after prior migration');
+    assert.strictEqual(controller.getRecords().filter(record => record.central && ['same', 'drifty', 'solo'].includes(record.name)).length, 3);
+    controller.dispose();
+
+    // rendering and wiring
+    const html = skillContent.getSkillsPanelContent([makeRecord()]);
+    assert.ok(html.includes('data-skill-migrate-central'), 'migrate button renders in filter row');
+    assert.ok(html.includes('Migrate to central'));
+    const script = fs.readFileSync(path.join(__dirname, '..', 'media', 'webviewDashboardScripts.js'), 'utf8');
+    assert.ok(script.includes("'migrate-skills-to-central'"), 'webview posts migrate command');
+    assert.ok(script.includes('data-skill-migrate-central'));
+    const dashboard = fs.readFileSync(path.join(__dirname, '..', 'src', 'dashboard.ts'), 'utf8');
+    assert.ok(dashboard.includes("'migrate-skills-to-central'"), 'dashboard handles migrate message');
+    assert.ok(dashboard.includes('migrateSkillsToCentral: () => runSkillMigrationToCentral()'), 'palette command handler wired');
+    const reg = fs.readFileSync(path.join(__dirname, '..', 'src', 'dashboard', 'commandRegistration.ts'), 'utf8');
+    assert.ok(reg.includes("'agentPivot.migrateSkillsToCentral'"), 'command id registered');
+    assert.ok(reg.includes('migrateSkillsToCentral: DashboardCommandHandler'), 'handler type declared');
+    const packageJson = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
+    const commands = packageJson.contributes.commands.map((item) => item.command);
+    assert.ok(commands.includes('agentPivot.migrateSkillsToCentral'), 'palette command contributed');
 }

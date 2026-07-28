@@ -1111,6 +1111,13 @@ function initDashboard(options) {
             options.postMessage({ type: 'centralize-skill', dirPath: centralize.getAttribute('data-skill-centralize') });
             return;
         }
+        var migrateCentral = event.target && event.target.closest ? event.target.closest('[data-skill-migrate-central]') : null;
+        if (migrateCentral) {
+            event.preventDefault();
+            event.stopPropagation();
+            options.postMessage({ type: 'migrate-skills-to-central' });
+            return;
+        }
         var sync = event.target && event.target.closest ? event.target.closest('[data-skill-sync]') : null;
         if (sync) {
             event.preventDefault();

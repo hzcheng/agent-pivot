@@ -423,6 +423,43 @@ async function initializeDashboard(
         groupStore: new SkillGroupStore(context.globalState),
     }));
     skillDashboardController.start();
+    const runSkillMigrationToCentral = async (): Promise<void> => {
+        const migratable = skillDashboardController.getRecords()
+            .filter(record => record.scope === 'user' && record.enabled && !record.central
+                && (record.source === 'kimi' || record.source === 'claude' || record.source === 'codex'));
+        if (!migratable.length) {
+            void vscode.window.showInformationMessage('Every user skill is already centralized.');
+            return;
+        }
+        const names = [...new Set(migratable.map(record => record.name))].length;
+        const choice = await vscode.window.showWarningMessage(
+            `Migrate ${names} user skill(s) from ~/.kimi, ~/.claude and ~/.codex into ~/.skills? `
+            + 'The kimi > claude > codex copy wins, other copies are parked reversibly, '
+            + 'and no agent links are created — enable agents per card afterwards.',
+            { modal: true },
+            'Migrate',
+        );
+        if (choice !== 'Migrate') {
+            return;
+        }
+        const report = skillDashboardController.handleMigrateToCentral();
+        const parts = [`Migrated ${report.migrated.length} skill(s) into ~/.skills`];
+        if (report.drifted.length) {
+            parts.push(`${report.drifted.length} had drift (brand-priority winner)`);
+        }
+        if (report.parked.length) {
+            parts.push(`${report.parked.length} duplicate(s) parked`);
+        }
+        if (report.skipped.length) {
+            parts.push(`${report.skipped.length} skipped`);
+        }
+        const summary = `${parts.join('; ')}.`;
+        if (report.errors.length) {
+            void vscode.window.showWarningMessage(`${summary} ${report.errors.length} failed: ${report.errors[0].error}`);
+        } else {
+            void vscode.window.showInformationMessage(summary);
+        }
+    };
     const todoViewState = todoService.getViewState();
     let revealedTodoId: string | undefined;
     const todoCommandController = new TodoCommandController({
@@ -1395,6 +1432,9 @@ async function initializeDashboard(
                     void vscode.window.showWarningMessage(`Could not centralize the skill: ${result.error}`);
                 }
             },
+            'migrate-skills-to-central': () => {
+                void runSkillMigrationToCentral();
+            },
             'fix-skill-diagnostic': e => {
                 const result = skillDashboardController.handleFixSkillDiagnostic(
                     String(e.dirPath || ''),
@@ -2123,6 +2163,7 @@ async function initializeDashboard(
         addProjectsFromFolder: () => addProjectsFromFolderController.addProjectsFromFolder(),
         addFileToActiveTerminal: () => activeTerminalFileReferenceController.addFileToActiveTerminal(),
         insertPromptToActiveTerminal: () => promptTerminalCommandController.insertPromptToActiveTerminal(),
+        migrateSkillsToCentral: () => runSkillMigrationToCentral(),
     };
 
     ownResource(() => vscode.workspace.onDidChangeConfiguration(

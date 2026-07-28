@@ -85,6 +85,10 @@
             {
                 "command": "agentPivot.insertPromptToActiveTerminal",
                 "title": "Agent Pivot: Insert Prompt into Active Terminal"
+            },
+            {
+                "command": "agentPivot.migrateSkillsToCentral",
+                "title": "Agent Pivot: Migrate Skills to Central Store"
             }
         ],
         "keybindings": [

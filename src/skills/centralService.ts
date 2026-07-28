@@ -90,6 +90,7 @@ export function centralizeSkill(
     duplicates: SkillRecord[],
     homeDir: string,
     workspaceRoot?: string,
+    options: CentralizeOptions = {},
 ): CentralResult {
     try {
         if (record.central) {
@@ -108,7 +109,7 @@ export function centralizeSkill(
         // Link back from the record's original root so current effectiveness holds.
         const ownRoot = knownBrandRoots(homeDir, workspaceRoot)
             .find(root => root.source === record.source && root.scope === record.scope);
-        if (ownRoot) {
+        if (options.linkBack !== false && ownRoot) {
             const link = setCentralLink(destination, ownRoot.dirPath, true);
             if (!link.ok) {
                 return link;
@@ -128,6 +129,11 @@ export function centralizeSkill(
     } catch (error) {
         return { ok: false, error: error instanceof Error ? error.message : String(error) };
     }
+}
+
+export interface CentralizeOptions {
+    /** Link the centralized skill back from its original root (default true). */
+    linkBack?: boolean;
 }
 
 export type { SkillScope, SkillSourceDir };

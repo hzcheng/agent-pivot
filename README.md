@@ -55,7 +55,11 @@ with collapsible folder nodes and one-click group enable/disable. Duplicate
 copies across agent directories are fingerprinted, so drift is visible and
 resolvable in one click; skills can also be copied between agents, repaired
 with one-click diagnostic fixes, organized from collection suggestions, and
-found through the dashboard's global search.
+found through the dashboard's global search. Skills can be centralized into
+a shared store (`~/.skills` or `<project>/.skills`) and enabled per agent
+through symlinks, either card by card or in one shot with the
+"Agent Pivot: Migrate Skills to Central Store" command (duplicates are
+parked reversibly, links stay off until you enable them per card).
 
 Agent Pivot does not provide, proxy, or resell access to Codex, Claude, or
 Kimi. Install each provider tool you want to use and authenticate it separately

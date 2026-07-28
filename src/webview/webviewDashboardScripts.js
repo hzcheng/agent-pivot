@@ -900,16 +900,88 @@ function initDashboard(options) {
         }
     }
 
-    function onSkillGroupInputKeydown(event) {
-        var input = event.target && event.target.closest ? event.target.closest('[data-skill-group-input]') : null;
+    function onSkillMoveInputKeydown(event) {
+        var input = event.target && event.target.closest ? event.target.closest('[data-skill-move-folder]') : null;
         if (!input || event.key !== 'Enter') {
             return;
         }
         event.preventDefault();
-        var editor = input.closest('.skill-group-editor');
-        var button = editor && editor.querySelector('[data-skill-setgroup]');
+        var detail = input.closest('.skill-detail');
+        var button = detail && detail.querySelector('[data-skill-move-set]');
         if (button && typeof button.click === 'function') {
             button.click();
+        }
+    }
+
+    var skillLinkScope = 'user';
+    try {
+        skillLinkScope = localStorage.getItem('agentPivot.skillLinkScope') === 'project' ? 'project' : 'user';
+    } catch (_error) {
+        skillLinkScope = 'user';
+    }
+
+    function getSkillLinkScope() {
+        return skillLinkScope;
+    }
+
+    function skillLinkPath(sw, scope) {
+        return sw.getAttribute(scope === 'project' ? 'data-link-project' : 'data-link-user') || '';
+    }
+
+    function applyVisToChip(chip, visibility, agent) {
+        chip.classList.remove('warn', 'agent-absent', 'agent-kimi', 'agent-claude', 'agent-codex');
+        if (visibility === 'active') {
+            chip.classList.add('agent-' + agent);
+            chip.textContent = agent;
+        } else if (visibility === 'shadowed') {
+            chip.classList.add('warn');
+            chip.textContent = '⚠ ' + agent;
+        } else {
+            chip.classList.add('agent-absent');
+            chip.textContent = agent;
+        }
+    }
+
+    function recomputeFolderSwitch(button) {
+        var node = button.closest('.skill-folder');
+        if (!node) {
+            return;
+        }
+        var sectionScope = node.getAttribute('data-skill-folder-scope');
+        var scope = sectionScope === 'project' ? 'project' : skillLinkScope;
+        button.setAttribute('data-folder-scope', scope);
+        var switches = node.querySelectorAll('.skill-folder-list [data-central-toggle]');
+        var linked = 0;
+        for (var i = 0; i < switches.length; i++) {
+            if (skillLinkPath(switches[i], scope) !== '') {
+                linked += 1;
+            }
+        }
+        button.classList.toggle('off', linked === 0);
+        button.classList.toggle('indeterminate', linked > 0 && linked < switches.length);
+    }
+
+    function applySkillLinkScope() {
+        var buttons = document.querySelectorAll('[data-skill-scope-select]');
+        for (var b = 0; b < buttons.length; b++) {
+            buttons[b].classList.toggle('is-active', buttons[b].getAttribute('data-skill-scope-select') === skillLinkScope);
+        }
+        var switches = document.querySelectorAll('[data-central-toggle]');
+        for (var s = 0; s < switches.length; s++) {
+            var inProject = !!(switches[s].closest && switches[s].closest('[data-group-id="project-skills"]'));
+            var scope = inProject ? 'project' : skillLinkScope;
+            switches[s].classList.toggle('off', skillLinkPath(switches[s], scope) === '');
+        }
+        var chips = document.querySelectorAll('[data-vis-user]');
+        for (var c = 0; c < chips.length; c++) {
+            var chipProject = !!(chips[c].closest && chips[c].closest('[data-group-id="project-skills"]'));
+            var chipScope = chipProject ? 'project' : skillLinkScope;
+            var vis = chips[c].getAttribute(chipScope === 'project' ? 'data-vis-project' : 'data-vis-user');
+            applyVisToChip(chips[c], vis || 'absent', chips[c].getAttribute('data-agent') || '');
+        }
+        var folderToggles = document.querySelectorAll('[data-folder-toggle]');
+        for (var f = 0; f < folderToggles.length; f++) {
+            recomputeFolderSwitch(folderToggles[f]);
         }
     }
 
@@ -943,16 +1015,32 @@ function initDashboard(options) {
 
     var skillDragState = null;
 
-    function findSkillDropCollection(event) {
-        var collection = event.target && event.target.closest
-            ? event.target.closest('.skill-collection')
-            : null;
-        if (!collection || !skillDragState) {
+    function findSkillDropFolder(event) {
+        if (!skillDragState) {
             return null;
         }
-        return collection.getAttribute('data-skill-collection-scope') === skillDragState.scope
-            ? collection
+        var folder = event.target && event.target.closest
+            ? event.target.closest('.skill-folder')
             : null;
+        var section = event.target && event.target.closest
+            ? event.target.closest('.group.steward-section[data-skill-store]')
+            : null;
+        var target = folder || section;
+        if (!target) {
+            return null;
+        }
+        // A card can only move inside its own store: user skills in the global
+        // section, project skills in the project section.
+        var targetScope = folder
+            ? folder.getAttribute('data-skill-folder-scope')
+            : (section.getAttribute('data-group-id') === 'project-skills' ? 'project' : 'user');
+        if (targetScope !== skillDragState.scope) {
+            return null;
+        }
+        return {
+            element: target,
+            folder: folder ? folder.getAttribute('data-skill-folder') || '' : '',
+        };
     }
 
     function onSkillDragStart(event) {
@@ -978,38 +1066,38 @@ function initDashboard(options) {
     }
 
     function onSkillDragOver(event) {
-        var collection = findSkillDropCollection(event);
-        if (!collection) {
+        var target = findSkillDropFolder(event);
+        if (!target) {
             return;
         }
         event.preventDefault();
         if (event.dataTransfer) {
             event.dataTransfer.dropEffect = 'move';
         }
-        collection.classList.add('skill-drop-target');
+        target.element.classList.add('skill-drop-target');
     }
 
     function onSkillDragLeave(event) {
-        var collection = findSkillDropCollection(event);
-        if (collection && event.relatedTarget && collection.contains(event.relatedTarget)) {
+        var target = findSkillDropFolder(event);
+        if (target && event.relatedTarget && target.element.contains(event.relatedTarget)) {
             return;
         }
-        if (collection) {
-            collection.classList.remove('skill-drop-target');
+        if (target) {
+            target.element.classList.remove('skill-drop-target');
         }
     }
 
     function onSkillDrop(event) {
-        var collection = findSkillDropCollection(event);
-        if (!collection) {
+        var target = findSkillDropFolder(event);
+        if (!target) {
             return;
         }
         event.preventDefault();
-        collection.classList.remove('skill-drop-target');
+        target.element.classList.remove('skill-drop-target');
         options.postMessage({
-            type: 'set-skill-group',
+            type: 'move-skill-to-folder',
             dirPath: skillDragState.dirPath,
-            group: collection.getAttribute('data-skill-collection'),
+            folder: target.folder,
         });
     }
 
@@ -1035,35 +1123,42 @@ function initDashboard(options) {
             applySkillAgentFilter();
             return;
         }
-        var groupToggle = event.target && event.target.closest ? event.target.closest('[data-skill-group-toggle]') : null;
-        if (groupToggle) {
+        var scopeSelect = event.target && event.target.closest ? event.target.closest('[data-skill-scope-select]') : null;
+        if (scopeSelect) {
+            event.preventDefault();
+            skillLinkScope = scopeSelect.getAttribute('data-skill-scope-select') === 'project' ? 'project' : 'user';
+            try {
+                localStorage.setItem('agentPivot.skillLinkScope', skillLinkScope);
+            } catch (_error) {
+                // persistence is best-effort
+            }
+            applySkillLinkScope();
+            return;
+        }
+        var folderToggle = event.target && event.target.closest ? event.target.closest('[data-folder-toggle]') : null;
+        if (folderToggle) {
             event.preventDefault();
             event.stopPropagation();
+            var folderNode = folderToggle.closest('[data-skill-store]');
             options.postMessage({
-                type: 'toggle-skill-group',
-                name: groupToggle.getAttribute('data-skill-group-toggle'),
-                scope: groupToggle.getAttribute('data-skill-group-scope'),
-                enabled: !groupToggle.classList.contains('off'),
+                type: 'folder-toggle-skill-links',
+                storeRoot: folderNode ? folderNode.getAttribute('data-skill-store') : '',
+                folder: folderToggle.getAttribute('data-folder-toggle'),
+                scope: folderToggle.getAttribute('data-folder-scope'),
+                enabled: !folderToggle.classList.contains('off') && !folderToggle.classList.contains('indeterminate'),
             });
             return;
         }
-        var ungroup = event.target && event.target.closest ? event.target.closest('[data-skill-ungroup]') : null;
-        if (ungroup) {
+        var moveSet = event.target && event.target.closest ? event.target.closest('[data-skill-move-set]') : null;
+        if (moveSet) {
             event.preventDefault();
             event.stopPropagation();
-            options.postMessage({ type: 'set-skill-group', dirPath: ungroup.getAttribute('data-skill-ungroup'), group: '' });
-            return;
-        }
-        var setgroup = event.target && event.target.closest ? event.target.closest('[data-skill-setgroup]') : null;
-        if (setgroup) {
-            event.preventDefault();
-            event.stopPropagation();
-            var editor = setgroup.closest('.skill-group-editor');
-            var input = editor && editor.querySelector('[data-skill-group-input]');
+            var moveDetail = moveSet.closest('.skill-detail');
+            var moveInput = moveDetail && moveDetail.querySelector('[data-skill-move-folder]');
             options.postMessage({
-                type: 'set-skill-group',
-                dirPath: setgroup.getAttribute('data-skill-setgroup'),
-                group: input ? input.value : '',
+                type: 'move-skill-to-folder',
+                dirPath: moveSet.getAttribute('data-skill-move-set'),
+                folder: moveInput ? moveInput.value : '',
             });
             return;
         }
@@ -1100,6 +1195,7 @@ function initDashboard(options) {
                 type: 'central-toggle-skill',
                 dirPath: centralToggle.getAttribute('data-central-toggle'),
                 source: centralToggle.getAttribute('data-central-source'),
+                scope: centralToggle.closest && centralToggle.closest('[data-group-id="project-skills"]') ? 'project' : getSkillLinkScope(),
                 enabled: !centralToggle.classList.contains('off'),
             });
             return;
@@ -1711,6 +1807,7 @@ function initDashboard(options) {
                 var nextSkillsWrapper = document.querySelector('#ai-panel-skills .sticky-groups-wrapper');
                 restoreSkillCollapsedGroups(nextSkillsWrapper, collapsedSkillGroups);
                 restoreSkillExpandedCards(nextSkillsWrapper, expandedSkillCards);
+                applySkillLinkScope();
                 applySkillAgentFilter();
             }
         }
@@ -1735,7 +1832,7 @@ function initDashboard(options) {
     }
     if (typeof document.addEventListener === 'function') {
         document.addEventListener('click', onSkillCardClick);
-        document.addEventListener('keydown', onSkillGroupInputKeydown);
+        document.addEventListener('keydown', onSkillMoveInputKeydown);
         document.addEventListener('dragstart', onSkillDragStart);
         document.addEventListener('dragover', onSkillDragOver);
         document.addEventListener('dragleave', onSkillDragLeave);
@@ -1743,6 +1840,7 @@ function initDashboard(options) {
         document.addEventListener('dragend', onSkillDragEnd);
     }
     renderActiveTab();
+    applySkillLinkScope();
     if (searchQuery) {
         renderSearchMode();
     } else if (activeTab === 'projects') {

@@ -34,7 +34,7 @@ function getViewScope(view: SkillPanelView): SkillScope {
 
 function agentChip(agent: SkillAgentId, visibility: SkillVisibility, record?: SkillRecord): string {
     const scoped = record
-        ? ` data-vis-user="${record.visibility[agent]}" data-vis-project="${(record.projectVisibility || record.visibility)[agent]}"`
+        ? ` data-agent="${agent}" data-vis-user="${record.visibility[agent]}" data-vis-project="${(record.projectVisibility || record.visibility)[agent]}"`
         : '';
     if (visibility === 'active') {
         return `<span class="skill-chip agent-${agent}"${scoped}>${agent}</span>`;

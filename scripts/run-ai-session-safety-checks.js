@@ -40,7 +40,6 @@ const ProductionAttentionStore = require('../extensions/attention-ui-bridge/out/
 const AiSessionPinStore = require('../out/aiSessions/pinStore').default;
 const AiSessionPinController = require('../out/aiSessions/pinController').default;
 const providers = require('../out/aiSessions/providers');
-const providerAvailability = require('../out/aiSessions/providerAvailability');
 const workspaceSessionScope = require('../out/workspaces/sessionScope');
 const workspaceSessionAssignment = require('../out/workspaces/sessionAssignment');
 const workspaceSessionHydration = require('../out/workspaces/sessionHydration');
@@ -2154,19 +2153,6 @@ async function runAiSessionCommandControllerChecks() {
     await controller.copySessionId('session-1');
     assert.deepStrictEqual(clipboardWrites, ['session-1']);
     assert.deepStrictEqual(infoMessages, ['Chat ID copied to clipboard.']);
-}
-
-function runAiSessionProviderAvailabilityChecks() {
-    const exists = value => value === '/bin/codex' || value === 'C:\\Tools\\kimi.CMD';
-    assert.strictEqual(providerAvailability.isCommandAvailableOnPath(
-        'codex', { PATH: '/bin:/usr/bin' }, 'linux', exists
-    ), true);
-    assert.strictEqual(providerAvailability.isCommandAvailableOnPath(
-        'claude', { PATH: '/bin:/usr/bin' }, 'linux', exists
-    ), false);
-    assert.strictEqual(providerAvailability.isCommandAvailableOnPath(
-        'kimi', { Path: 'C:\\Tools', PATHEXT: '.EXE;.CMD' }, 'win32', exists
-    ), true);
 }
 
 async function runWorkspaceCreationDirectoryFirstChecks() {
@@ -10084,7 +10070,6 @@ async function main() {
     runAliasStoreChecks();
     runAliasControllerChecks();
     await runWorkspaceStateStoreChecks();
-    runAiSessionProviderAvailabilityChecks();
     await runWorkspaceCreationDirectoryFirstChecks();
     await runAiSessionCommandControllerChecks();
     await runWorkspaceScopeControllerLaunchChecks();

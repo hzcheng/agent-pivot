@@ -842,7 +842,7 @@ function initDashboard(options) {
             var container = cards[c].closest('.project-container') || cards[c];
             container.classList.toggle('skill-filter-hidden', !show);
         }
-        var groups = panel.querySelectorAll('.skill-source-group, .skill-collection');
+        var groups = panel.querySelectorAll('.skill-source-group, .skill-folder');
         for (var g = 0; g < groups.length; g++) {
             var groupCards = groups[g].querySelectorAll('.skill-card[data-skill-dir]');
             var groupVisible = 0;
@@ -878,24 +878,48 @@ function initDashboard(options) {
     }
 
     function captureSkillCollapsedGroups(wrapper) {
+        // Folder nodes are keyed by store + folder path (stable across re-renders);
+        // every other section keeps its data-group-id key.
         var ids = [];
+        var folders = [];
         if (wrapper && wrapper.querySelectorAll) {
             var collapsed = wrapper.querySelectorAll('.group.steward-section.collapsed');
             for (var i = 0; i < collapsed.length; i++) {
+                if (collapsed[i].classList.contains('skill-folder')) {
+                    continue;
+                }
                 ids.push(collapsed[i].getAttribute('data-group-id'));
             }
+            var folderNodes = wrapper.querySelectorAll('.skill-folder[data-skill-folder]');
+            for (var f = 0; f < folderNodes.length; f++) {
+                if (folderNodes[f].classList.contains('collapsed')) {
+                    folders.push(folderNodes[f].getAttribute('data-skill-store') + '|' + folderNodes[f].getAttribute('data-skill-folder'));
+                }
+            }
         }
-        return ids;
+        return { ids: ids, folders: folders };
     }
 
-    function restoreSkillCollapsedGroups(wrapper, ids) {
-        if (!wrapper || !ids || !ids.length) {
+    function restoreSkillCollapsedGroups(wrapper, state) {
+        if (!wrapper || !state) {
             return;
         }
+        var ids = state.ids || [];
         for (var i = 0; i < ids.length; i++) {
             var group = wrapper.querySelector('.group.steward-section[data-group-id="' + ids[i] + '"]');
             if (group) {
                 group.classList.add('collapsed');
+            }
+        }
+        var folderKeys = state.folders || [];
+        if (!folderKeys.length || !wrapper.querySelectorAll) {
+            return;
+        }
+        var folderNodes = wrapper.querySelectorAll('.skill-folder[data-skill-folder]');
+        for (var f = 0; f < folderNodes.length; f++) {
+            var key = folderNodes[f].getAttribute('data-skill-store') + '|' + folderNodes[f].getAttribute('data-skill-folder');
+            if (folderKeys.indexOf(key) !== -1) {
+                folderNodes[f].classList.add('collapsed');
             }
         }
     }
@@ -942,13 +966,13 @@ function initDashboard(options) {
         }
     }
 
-    function recomputeFolderSwitch(button) {
+    function recomputeFolderSwitch(button, selectedScope) {
         var node = button.closest('.skill-folder');
         if (!node) {
             return;
         }
         var sectionScope = node.getAttribute('data-skill-folder-scope');
-        var scope = sectionScope === 'project' ? 'project' : skillLinkScope;
+        var scope = sectionScope === 'project' ? 'project' : selectedScope;
         button.setAttribute('data-folder-scope', scope);
         var switches = node.querySelectorAll('.skill-folder-list [data-central-toggle]');
         var linked = 0;
@@ -961,28 +985,58 @@ function initDashboard(options) {
         button.classList.toggle('indeterminate', linked > 0 && linked < switches.length);
     }
 
+    // Keep the agent filter consistent with the swapped chips: data-skill-agents
+    // is rendered for the host's view scope, so recompute it from the chips.
+    function syncSkillCardAgents() {
+        var agents = ['kimi', 'claude', 'codex'];
+        var cards = document.querySelectorAll('.skill-card[data-skill-dir]');
+        for (var c = 0; c < cards.length; c++) {
+            var active = [];
+            for (var a = 0; a < agents.length; a++) {
+                if (cards[c].querySelector('.skill-chip.agent-' + agents[a])) {
+                    active.push(agents[a]);
+                }
+            }
+            cards[c].setAttribute('data-skill-agents', active.join(' '));
+        }
+    }
+
     function applySkillLinkScope() {
         var buttons = document.querySelectorAll('[data-skill-scope-select]');
+        // Without a workspace the selector hides entirely: only the user scope is meaningful.
+        var scope = buttons.length ? skillLinkScope : 'user';
         for (var b = 0; b < buttons.length; b++) {
-            buttons[b].classList.toggle('is-active', buttons[b].getAttribute('data-skill-scope-select') === skillLinkScope);
+            buttons[b].classList.toggle('is-active', buttons[b].getAttribute('data-skill-scope-select') === scope);
         }
         var switches = document.querySelectorAll('[data-central-toggle]');
         for (var s = 0; s < switches.length; s++) {
             var inProject = !!(switches[s].closest && switches[s].closest('[data-group-id="project-skills"]'));
-            var scope = inProject ? 'project' : skillLinkScope;
-            switches[s].classList.toggle('off', skillLinkPath(switches[s], scope) === '');
+            var switchScope = inProject ? 'project' : scope;
+            switches[s].classList.toggle('off', skillLinkPath(switches[s], switchScope) === '');
         }
         var chips = document.querySelectorAll('[data-vis-user]');
         for (var c = 0; c < chips.length; c++) {
             var chipProject = !!(chips[c].closest && chips[c].closest('[data-group-id="project-skills"]'));
-            var chipScope = chipProject ? 'project' : skillLinkScope;
+            var chipScope = chipProject ? 'project' : scope;
             var vis = chips[c].getAttribute(chipScope === 'project' ? 'data-vis-project' : 'data-vis-user');
             applyVisToChip(chips[c], vis || 'absent', chips[c].getAttribute('data-agent') || '');
         }
+        syncSkillCardAgents();
         var folderToggles = document.querySelectorAll('[data-folder-toggle]');
         for (var f = 0; f < folderToggles.length; f++) {
-            recomputeFolderSwitch(folderToggles[f]);
+            recomputeFolderSwitch(folderToggles[f], scope);
         }
+    }
+
+    function setSkillLinkScope(scope) {
+        skillLinkScope = scope === 'project' ? 'project' : 'user';
+        try {
+            localStorage.setItem('agentPivot.skillLinkScope', skillLinkScope);
+        } catch (_error) {
+            // persistence is best-effort; the in-DOM swap still applies
+        }
+        applySkillLinkScope();
+        applySkillAgentFilter();
     }
 
     function captureSkillExpandedCards(wrapper) {
@@ -1126,13 +1180,7 @@ function initDashboard(options) {
         var scopeSelect = event.target && event.target.closest ? event.target.closest('[data-skill-scope-select]') : null;
         if (scopeSelect) {
             event.preventDefault();
-            skillLinkScope = scopeSelect.getAttribute('data-skill-scope-select') === 'project' ? 'project' : 'user';
-            try {
-                localStorage.setItem('agentPivot.skillLinkScope', skillLinkScope);
-            } catch (_error) {
-                // persistence is best-effort
-            }
-            applySkillLinkScope();
+            setSkillLinkScope(scopeSelect.getAttribute('data-skill-scope-select'));
             return;
         }
         var folderToggle = event.target && event.target.closest ? event.target.closest('[data-folder-toggle]') : null;
@@ -1191,13 +1239,20 @@ function initDashboard(options) {
         if (centralToggle) {
             event.preventDefault();
             event.stopPropagation();
+            var toggleScope = centralToggle.closest && centralToggle.closest('[data-group-id="project-skills"]') ? 'project' : getSkillLinkScope();
+            var wasLinked = !centralToggle.classList.contains('off');
             options.postMessage({
                 type: 'central-toggle-skill',
                 dirPath: centralToggle.getAttribute('data-central-toggle'),
                 source: centralToggle.getAttribute('data-central-source'),
-                scope: centralToggle.closest && centralToggle.closest('[data-group-id="project-skills"]') ? 'project' : getSkillLinkScope(),
-                enabled: !centralToggle.classList.contains('off'),
+                scope: toggleScope,
+                enabled: wasLinked,
             });
+            // Best-effort client update: flip the switch and recompute the affected
+            // folder batch switches. The authoritative skills-updated refresh
+            // corrects any drift (the real link path is only known host-side).
+            centralToggle.setAttribute(toggleScope === 'project' ? 'data-link-project' : 'data-link-user', wasLinked ? '' : '(pending)');
+            applySkillLinkScope();
             return;
         }
         var centralize = event.target && event.target.closest ? event.target.closest('[data-skill-centralize]') : null;
@@ -1685,6 +1740,7 @@ function initDashboard(options) {
         aiState = 'mounted';
         drainPendingPromptRefresh();
         applyPendingAiSubtab();
+        applySkillLinkScope();
         applySkillAgentFilter();
         if (pendingSkillReveal) {
             var revealDir = pendingSkillReveal;

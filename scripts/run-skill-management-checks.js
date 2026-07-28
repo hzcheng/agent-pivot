@@ -1031,6 +1031,23 @@ function runSkillFolderDiscoveryChecks() {
     const solo = records.find(record => record.name === 'solo');
     assert.strictEqual(solo.folder, '');
     assert.deepStrictEqual(solo.central.links, {});
+
+    // effectiveness: project links inherit user links; project brand winner shadows
+    fs.mkdirSync(path.join(ws, '.kimi/skills'), { recursive: true });
+    // the symlink into <ws>/.claude/skills requires that directory to exist first
+    fs.mkdirSync(path.join(ws, '.claude/skills'), { recursive: true });
+    fs.symlinkSync(path.join(home, '.skills/solo'), path.join(ws, '.claude/skills/solo'), 'dir');
+    const scoped = discovery.scanSkills({ homeDir: home, workspaceRoot: ws });
+    const soloScoped = scoped.find(record => record.name === 'solo');
+    assert.deepStrictEqual(soloScoped.visibility, { kimi: 'absent', claude: 'absent', codex: 'absent' },
+        'no user links → user scope absent');
+    assert.strictEqual(soloScoped.projectVisibility.claude, 'active');
+    assert.strictEqual(soloScoped.projectVisibility.kimi, 'shadowed',
+        'project link outside the project brand winner shadows kimi');
+    assert.strictEqual(soloScoped.projectShadowedBy.kimi, path.join(ws, '.kimi', 'skills'));
+    const alphaScoped = scoped.find(record => record.name === 'alpha');
+    assert.strictEqual(alphaScoped.visibility.kimi, 'active', 'user link under user winner');
+
     // symlinked skill inside the store is followed and deduped by realpath
     fs.symlinkSync(path.join(home, '.skills/solo'), path.join(home, '.skills/alias-solo'), 'dir');
     const withAlias = discovery.scanSkills({ homeDir: home, workspaceRoot: ws });

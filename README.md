@@ -46,20 +46,24 @@ outline item opens the matching provider transcript in a read-only editor and
 navigates to that input. Agent Pivot reads the provider-local session metadata
 and transcript only when needed for its session and conversation views.
 
-The AI tab's SKILLS subtab lists Kimi, Claude, and Codex skills from user and project
-skill directories in one place. Each skill shows its effectiveness per agent,
-including shadowing diagnostics when another skill directory takes
-precedence, and can be enabled or disabled with one click. Skills can be
-collected into named groups (maintained by the extension, no file changes)
-with collapsible folder nodes and one-click group enable/disable. Duplicate
-copies across agent directories are fingerprinted, so drift is visible and
-resolvable in one click; skills can also be copied between agents, repaired
-with one-click diagnostic fixes, organized from collection suggestions, and
-found through the dashboard's global search. Skills can be centralized into
-a shared store (`~/.skills` or `<project>/.skills`) and enabled per agent
-through symlinks, either card by card or in one shot with the
-"Agent Pivot: Migrate Skills to Central Store" command (duplicates are
-parked reversibly, links stay off until you enable them per card).
+The AI tab's SKILLS subtab organizes skills as the on-disk folder tree of the
+shared stores (`~/.skills` globally, `<project>/.skills` per project) —
+folders are real directories you can also manage with shell or git, never
+extension state. Each skill is enabled per agent (Kimi, Claude, Codex)
+through iOS-style switches that create top-level symlinks in the agent's
+skills directory, and a Global / This project selector chooses whether the
+switches apply everywhere or only to the current workspace. Folder headers
+carry batch switches that enable or disable every skill inside (with an
+indeterminate state for partial folders), and cards can be filed by
+drag-and-drop or a "Move to folder…" editor — both perform real `mv`
+operations and keep existing links pointed at the skill. Skills still
+living in agent directories appear in an Unmanaged section and can be
+centralized card by card or in one shot with the "Agent Pivot: Migrate
+Skills to Central Store" command (duplicates are parked reversibly).
+Duplicate copies are fingerprinted so drift is visible and resolvable in
+one click; skills can also be copied between agents, repaired with
+one-click diagnostic fixes, filed from collection suggestions, and found
+through the dashboard's global search.
 
 Agent Pivot does not provide, proxy, or resell access to Codex, Claude, or
 Kimi. Install each provider tool you want to use and authenticate it separately

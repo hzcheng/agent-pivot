@@ -35,7 +35,13 @@ function createVscode(lifecycle) {
     const webview = {
         cspSource: 'fixture-webview',
         options: {},
-        postMessage: async () => true,
+        postMessage: async message => {
+            lifecycle.postedWebviewMessages.push(message);
+            if (lifecycle.activationDisposed) {
+                lifecycle.postDisposeWebviewMessages.push(message?.type || 'unknown');
+            }
+            return true;
+        },
         asWebviewUri: value => value,
         onDidReceiveMessage: callback => {
             bootWebviewMessageCallback = callback;
@@ -162,6 +168,8 @@ async function main() {
         openTerminalListenerDisposals: 0,
         outputLines: [],
         postDisposePublications: [],
+        postDisposeWebviewMessages: [],
+        postedWebviewMessages: [],
     };
     const vscode = createVscode(lifecycle);
     const previousLoad = Module._load;
@@ -177,6 +185,9 @@ async function main() {
     let initialInactiveRestoreRecorded = false;
     let pendingDirectRestoreEntered = false;
     let releasePendingDirectRestore;
+    let pendingTmuxRestoreEntered = false;
+    let tmuxRestoreSettled = false;
+    let releasePendingTmuxRestore;
     const synchronizedGlobalStateKeySets = [];
     const patch = (prototype, name, replacement) => {
         const original = prototype[name];
@@ -287,7 +298,14 @@ async function main() {
             assert.ok(this.dependencies.runtimeStore instanceof TmuxRuntimeBindingStore);
             assert.ok(this.dependencies.attachStore instanceof TmuxAttachBindingStore);
             verified.add('tmux-backend');
+            if (mode === 'slow-tmux-restore' || mode === 'slow-tmux-restore-dispose') {
+                pendingTmuxRestoreEntered = true;
+                await new Promise(resolve => {
+                    releasePendingTmuxRestore = resolve;
+                });
+            }
             events.push('tmux-restored');
+            tmuxRestoreSettled = true;
         });
         patch(AiSessionRuntimeCoordinator.prototype, 'getActive', function () {
             assert.ok(this.dependencies.direct instanceof DirectTerminalRuntimeBackend);
@@ -323,6 +341,8 @@ async function main() {
             events.push('activation-returned');
             activationSettled = true;
         })();
+        let dashboardDeactivated = false;
+        let readyBeforeTmuxRestoreSettled = false;
         if (mode === 'pending') {
             await waitFor(
                 () => pendingDirectRestoreEntered,
@@ -334,6 +354,42 @@ async function main() {
             );
         }
         await activationFlight;
+        if (mode === 'slow-tmux-restore' || mode === 'slow-tmux-restore-dispose') {
+            await waitFor(
+                () => pendingTmuxRestoreEntered,
+                'pending tmux restoration to begin'
+            );
+            const deadline = Date.now() + 1_500;
+            while (Date.now() < deadline
+                && vscode.registeredProvider?.lifecycle?.kind !== 'ready') {
+                await new Promise(resolve => setTimeout(resolve, 10));
+            }
+            readyBeforeTmuxRestoreSettled =
+                vscode.registeredProvider?.lifecycle?.kind === 'ready'
+                && !tmuxRestoreSettled;
+            if (mode === 'slow-tmux-restore-dispose' && readyBeforeTmuxRestoreSettled) {
+                await dashboard.deactivate();
+                events.push('dashboard-deactivated');
+                disposeContextSubscriptions();
+                dashboardDeactivated = true;
+            }
+            releasePendingTmuxRestore?.();
+            await waitFor(() => tmuxRestoreSettled, 'released tmux restoration to settle');
+            if (mode === 'slow-tmux-restore') {
+                const refreshDeadline = Date.now() + 1_500;
+                while (Date.now() < refreshDeadline
+                    && !lifecycle.outputLines.some(line =>
+                        line.includes('"reason":"tmux-bootstrap-restore"'))) {
+                    await new Promise(resolve => setTimeout(resolve, 10));
+                }
+                assert.equal(
+                    lifecycle.outputLines.some(line =>
+                        line.includes('"reason":"tmux-bootstrap-restore"')),
+                    true,
+                    'Timed out waiting for deferred tmux restoration refresh'
+                );
+            }
+        }
         let pendingOpenRevealedBootShell = false;
         let pendingUnavailableCommandError = null;
         if (failure === null && mode === 'pending') {
@@ -403,7 +459,7 @@ async function main() {
             await dashboard.deactivate();
             lateAttentionClientObserved =
                 attentionShutdownCalls > shutdownCallsBeforeDisposal;
-        } else if (failure === null) {
+        } else if (failure === null && !dashboardDeactivated) {
             await dashboard.deactivate();
             events.push('dashboard-deactivated');
         }
@@ -424,10 +480,15 @@ async function main() {
             'agent-pivot-bootstrap-phases',
             'agent-pivot-bootstrap-ready',
             'agent-pivot-bootstrap-failed',
+            'agent-pivot-bootstrap-tmux-restore-deferred',
+            'agent-pivot-bootstrap-tmux-restore-settled',
         ]);
         const startupDiagnostics = dashboardDiagnostics.filter(
             diagnostic => startupDiagnosticEvents.has(diagnostic.event)
         );
+        const aiSessionDiagnostics = lifecycle.outputLines
+            .filter(line => line.startsWith('[AiSessions] '))
+            .map(line => JSON.parse(line.slice('[AiSessions] '.length)));
         process.stdout.write(JSON.stringify({
             activationReturnedBeforeDirectRestoreSettled,
             providerRegistrations: vscode.providerRegistrations,
@@ -443,7 +504,17 @@ async function main() {
             openTerminalListenerDisposals: lifecycle.openTerminalListenerDisposals,
             lateResourceAcquisitions: lifecycle.lateResourceAcquisitions,
             postDisposePublications: lifecycle.postDisposePublications,
+            postDisposeWebviewMessages: lifecycle.postDisposeWebviewMessages,
             lateAttentionClientObserved,
+            pendingTmuxRestoreEntered,
+            readyBeforeTmuxRestoreSettled,
+            tmuxRestoreRefreshCount: aiSessionDiagnostics.filter(
+                diagnostic => diagnostic.event === 'ai-session-message-build'
+                    && diagnostic.reason === 'tmux-bootstrap-restore'
+            ).length,
+            tmuxRestoreDiagnostics: startupDiagnostics.filter(diagnostic =>
+                diagnostic.event === 'agent-pivot-bootstrap-tmux-restore-deferred'
+                    || diagnostic.event === 'agent-pivot-bootstrap-tmux-restore-settled'),
             rawDirectFailureExposedInHtml: vscode.webviewHtmlHistory.some(
                 html => privacyCanaries.some(canary => html.includes(canary))
             ),

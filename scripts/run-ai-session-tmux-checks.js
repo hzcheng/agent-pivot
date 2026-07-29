@@ -9663,16 +9663,29 @@ function runHostRuntimeCompositionChecks() {
     assert.ok(dashboardSource.includes("runtime.backend === 'tmux'"));
     assert.ok(dashboardSource.includes("runtime.attached ? 'attached' : 'detached'"));
     const directRestore = dashboardSource.indexOf(
-        'await aiSessionTerminalService.restorePersistedTerminals(vscode.window.terminals)'
+        'aiSessionTerminalService.restorePersistedTerminals(vscode.window.terminals)'
+    );
+    const tmuxRestoreTask = dashboardSource.indexOf(
+        'const tmuxRestoreTask = persistedInactiveRestoreTask.then'
     );
     const tmuxRestore = dashboardSource.indexOf(
-        'await tmuxRuntimeBackend.restoreAttachTerminals(vscode.window.terminals)'
+        'tmuxRuntimeBackend.restoreAttachTerminals(vscode.window.terminals)'
+    );
+    const tmuxRestoreBudgetWait = dashboardSource.indexOf(
+        'settlesWithinBudget(tmuxRestoreTask, AI_SESSION_TMUX_RESTORE_BUDGET_MS)'
     );
     const hydrationConstruction = dashboardSource.indexOf(
         'const workspaceSessionHydrationController = new WorkspaceSessionHydrationController'
     );
-    assert.ok(directRestore >= 0 && tmuxRestore > directRestore && hydrationConstruction > tmuxRestore,
-        'Direct and tmux attachment restoration must finish before first hydration is possible');
+    assert.ok(directRestore >= 0
+        && tmuxRestoreTask > directRestore
+        && tmuxRestore > tmuxRestoreTask
+        && tmuxRestoreBudgetWait > tmuxRestore
+        && hydrationConstruction > tmuxRestoreBudgetWait,
+    'Direct restoration and the bounded tmux wait must precede first hydration');
+    assert.ok(dashboardSource.includes(
+        "aiSessionDashboardController.refreshNow('tmux-bootstrap-restore')"
+    ), 'deferred tmux restoration must publish one incremental refresh path');
 }
 
 function runTmuxWebviewExperienceChecks() {

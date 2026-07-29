@@ -168,6 +168,7 @@ test('WEBVIEW-TWO-STAGE-STARTUP-001 production startup diagnostics preserve exac
                 'tmux-persisted-inactive-restore',
                 'direct-terminal-restore',
                 'tmux-attach-restore',
+                'tmux-restore-wait',
                 'startup-sequence',
             ]);
             for (const value of Object.values(normalized.phases)) {
@@ -260,6 +261,48 @@ test('RUNTIME-HOST-RUNTIME-COMPOSITION-001 production activation blocks tmux res
     assert.equal(result.rawDirectFailureExposedInHtml, false);
     assert.deepEqual(result.verified, [
         'client-store-discovery', 'thread-switch-alias-wiring',
+    ]);
+});
+
+test('RUNTIME-BOOTSTRAP-TMUX-RESTORE-DEFERRAL-001 slow tmux recovery does not block ready rendering and refreshes after settlement', () => {
+    const result = runProductionActivation('slow-tmux-restore');
+    assert.equal(result.failure, null);
+    assert.equal(result.pendingTmuxRestoreEntered, true);
+    assert.equal(result.readyBeforeTmuxRestoreSettled, true);
+    assert.deepEqual(result.events.filter(isRestoreEvent), [
+        'inactive-restored',
+        'direct-restored',
+        'hydration-constructed',
+        'tmux-restored',
+    ]);
+    assert.equal(result.tmuxRestoreRefreshCount, 1);
+    assert.deepEqual(result.tmuxRestoreDiagnostics, [
+        {
+            event: 'agent-pivot-bootstrap-tmux-restore-deferred',
+            generation: 1,
+            budgetMs: 800,
+        },
+        {
+            event: 'agent-pivot-bootstrap-tmux-restore-settled',
+            generation: 1,
+            outcome: 'restored',
+        },
+    ]);
+});
+
+test('RUNTIME-BOOTSTRAP-TMUX-RESTORE-DEFERRAL-001 disposed bootstrap ignores late tmux recovery settlement', () => {
+    const result = runProductionActivation('slow-tmux-restore-dispose');
+    assert.equal(result.failure, null);
+    assert.equal(result.readyBeforeTmuxRestoreSettled, true);
+    assert.deepEqual(result.postDisposePublications, []);
+    assert.deepEqual(result.postDisposeWebviewMessages, []);
+    assert.equal(result.tmuxRestoreRefreshCount, 0);
+    assert.deepEqual(result.tmuxRestoreDiagnostics, [
+        {
+            event: 'agent-pivot-bootstrap-tmux-restore-deferred',
+            generation: 1,
+            budgetMs: 800,
+        },
     ]);
 });
 

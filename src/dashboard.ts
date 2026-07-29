@@ -171,6 +171,15 @@ const NEW_AI_SESSION_REFRESH_DELAYS_MS = [250, 1000, 2500, 5000];
 const AI_SESSION_REFRESH_DEBOUNCE_MS = 3000;
 const AI_SESSION_WATCHER_REFRESH_MIN_INTERVAL_MS = 10000;
 const AI_SESSION_INCREMENTAL_SCAN_MAX_FILES = 2000;
+const AI_SESSION_TMUX_RESTORE_BUDGET_MS = 800;
+const DASHBOARD_BOOTSTRAP_PHASE_ORDER = [
+    'skill-scan',
+    'tmux-persisted-inactive-restore',
+    'direct-terminal-restore',
+    'tmux-attach-restore',
+    'tmux-restore-wait',
+    'startup-sequence',
+];
 // Mirrors vscode.TerminalExitReason.User. The extension's minimum VS Code typings
 // predate TerminalExitStatus.reason, while supported hosts expose it at runtime.
 const USER_TERMINAL_EXIT_REASON = 3;
@@ -198,6 +207,25 @@ function resolveAiProviderExecutable(commandName: string): string | null {
         }
     }
     return null;
+}
+
+async function settlesWithinBudget<T>(
+    task: Promise<T>,
+    budgetMs: number
+): Promise<boolean> {
+    let timeout: NodeJS.Timeout | undefined;
+    try {
+        return await Promise.race([
+            task.then(() => true),
+            new Promise<boolean>(resolve => {
+                timeout = setTimeout(() => resolve(false), budgetMs);
+            }),
+        ]);
+    } finally {
+        if (timeout) {
+            clearTimeout(timeout);
+        }
+    }
 }
 
 function runBoundedAiProviderHelp(
@@ -676,12 +704,14 @@ async function initializeDashboard(
         ),
         markerIsCurrent: isCurrentRuntimeMarker,
     });
-    try {
-        await timeBootstrapPhase('tmux-persisted-inactive-restore', () =>
-            tmuxRuntimeDiscovery.loadPersistedInactive());
-    } catch (error) {
-        logAiSessionRuntimeFailure('restore-inactive-runtimes', error);
-    }
+    const persistedInactiveRestoreTask = (async (): Promise<void> => {
+        try {
+            await timeBootstrapPhase('tmux-persisted-inactive-restore', () =>
+                tmuxRuntimeDiscovery.loadPersistedInactive());
+        } catch (error) {
+            logAiSessionRuntimeFailure('restore-inactive-runtimes', error);
+        }
+    })();
     resources.assertActive();
     const directTerminalRuntimeBackend = new DirectTerminalRuntimeBackend(aiSessionTerminalService);
     const tmuxRuntimeBackend = new TmuxRuntimeBackend<vscode.Terminal>({
@@ -725,13 +755,48 @@ async function initializeDashboard(
     await timeBootstrapPhase('direct-terminal-restore', () =>
         aiSessionTerminalService.restorePersistedTerminals(vscode.window.terminals));
     resources.assertActive();
-    try {
-        await timeBootstrapPhase('tmux-attach-restore', () =>
-            tmuxRuntimeBackend.restoreAttachTerminals(vscode.window.terminals));
-    } catch (error) {
-        logAiSessionRuntimeFailure('restore-attach-terminals', error);
-    }
+    const tmuxRestoreTask = persistedInactiveRestoreTask.then(async (): Promise<'restored' | 'failed' | 'disposed'> => {
+        try {
+            resources.assertActive();
+        } catch (_error) {
+            return 'disposed';
+        }
+        try {
+            await timeBootstrapPhase('tmux-attach-restore', () =>
+                tmuxRuntimeBackend.restoreAttachTerminals(vscode.window.terminals));
+            return 'restored';
+        } catch (error) {
+            logAiSessionRuntimeFailure('restore-attach-terminals', error);
+            return 'failed';
+        }
+    });
+    const tmuxRestoreCompleted = await timeBootstrapPhase('tmux-restore-wait', () =>
+        settlesWithinBudget(tmuxRestoreTask, AI_SESSION_TMUX_RESTORE_BUDGET_MS));
     resources.assertActive();
+    let deferredTmuxRestoreSettled = false;
+    let deferredTmuxRestoreRefreshReady = false;
+    let deferredTmuxRestoreRefreshPublished = false;
+    if (!tmuxRestoreCompleted) {
+        logDashboardDiagnostic({
+            event: 'agent-pivot-bootstrap-tmux-restore-deferred',
+            generation: bootstrapGeneration,
+            budgetMs: AI_SESSION_TMUX_RESTORE_BUDGET_MS,
+        });
+        void tmuxRestoreTask.then(outcome => {
+            try {
+                resources.assertActive();
+            } catch (_error) {
+                return;
+            }
+            deferredTmuxRestoreSettled = true;
+            logDashboardDiagnostic({
+                event: 'agent-pivot-bootstrap-tmux-restore-settled',
+                generation: bootstrapGeneration,
+                outcome,
+            });
+            publishDeferredTmuxRestoreIfReady();
+        });
+    }
     const aiSessionPinStore = new AiSessionPinStore(context.globalStoragePath);
     const aiSessionPinController = new AiSessionPinController({
         store: aiSessionPinStore,
@@ -1912,12 +1977,15 @@ async function initializeDashboard(
                 void tmuxFocusedRuntimeMonitor.request();
             }
             await dashboardRuntimeController.handleAiSessionViewVisibilityChanged(visible);
+            deferredTmuxRestoreRefreshReady = true;
+            publishDeferredTmuxRestoreIfReady();
         },
         onVisiblePrepared: () =>
             aiSessionDashboardController.refreshNow('dashboard-visible', {
                 fallbackToFullRefresh: false,
             }),
         onDisposed: () => {
+            deferredTmuxRestoreRefreshReady = false;
             conversationCapability.controller.resetView();
         },
         logError,
@@ -2259,10 +2327,16 @@ async function initializeDashboard(
     await timeBootstrapPhase('startup-sequence', () =>
         dashboardStartupController.startUp());
     resources.assertActive();
+    const orderedBootstrapPhaseTimings: Record<string, number> = {};
+    for (const phase of DASHBOARD_BOOTSTRAP_PHASE_ORDER) {
+        if (Object.prototype.hasOwnProperty.call(bootstrapPhaseTimings, phase)) {
+            orderedBootstrapPhaseTimings[phase] = bootstrapPhaseTimings[phase];
+        }
+    }
     logDashboardDiagnostic({
         event: 'agent-pivot-bootstrap-phases',
         generation: bootstrapGeneration,
-        phases: { ...bootstrapPhaseTimings },
+        phases: orderedBootstrapPhaseTimings,
     });
     if (!dashboardCommandRegistration.stage(bootstrapGeneration, commandHandlers)) {
         throw new Error('Agent Pivot dashboard commands rejected the bootstrap generation.');
@@ -2609,6 +2683,22 @@ async function initializeDashboard(
 
     function refreshAiSessionViewsIncrementally() {
         void aiSessionDashboardController.refreshNow();
+    }
+
+    function publishDeferredTmuxRestoreIfReady(): void {
+        if (!deferredTmuxRestoreSettled
+            || !deferredTmuxRestoreRefreshReady
+            || deferredTmuxRestoreRefreshPublished
+            || !provider.visible) {
+            return;
+        }
+        try {
+            resources.assertActive();
+        } catch (_error) {
+            return;
+        }
+        deferredTmuxRestoreRefreshPublished = true;
+        void aiSessionDashboardController.refreshNow('tmux-bootstrap-restore');
     }
 
     function postAiSessionAttentionState() {

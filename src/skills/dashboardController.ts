@@ -231,9 +231,11 @@ export class SkillDashboardController {
         return result;
     }
 
-    handleMigrateToCentral(): SkillMigrationReport {
-        const report = migrateSkillsToCentral(this.records, this.options.getHomeDir(), 'user');
-        if (this.options.getWorkspaceRoot()) {
+    handleMigrateToCentral(scope?: SkillScope): SkillMigrationReport {
+        const report = scope === 'project'
+            ? migrateSkillsToCentral(this.records, this.options.getHomeDir(), 'project', this.options.getWorkspaceRoot())
+            : migrateSkillsToCentral(this.records, this.options.getHomeDir(), 'user');
+        if (!scope && this.options.getWorkspaceRoot()) {
             const projectReport = migrateSkillsToCentral(this.records, this.options.getHomeDir(), 'project', this.options.getWorkspaceRoot());
             report.ok = report.ok && projectReport.ok;
             report.migrated.push(...projectReport.migrated);

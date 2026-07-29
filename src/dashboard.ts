@@ -419,13 +419,16 @@ async function initializeDashboard(
         groupStore: new SkillGroupStore(context.globalState),
     }));
     skillDashboardController.start();
-    const runSkillMigrationToCentral = async (): Promise<void> => {
+    const runSkillMigrationToCentral = async (scope?: 'user' | 'project'): Promise<void> => {
         const hasWorkspace = Boolean(vscode.workspace.workspaceFolders?.length);
         const migratable = skillDashboardController.getRecords()
             .filter(record => record.enabled && !record.central
+                && (!scope || record.scope === scope)
                 && (record.source === 'kimi' || record.source === 'claude' || record.source === 'codex'));
         if (!migratable.length) {
-            void vscode.window.showInformationMessage('Every skill is already centralized.');
+            void vscode.window.showInformationMessage(scope
+                ? `Every ${scope === 'user' ? 'user' : 'project'} skill is already centralized.`
+                : 'Every skill is already centralized.');
             return;
         }
         const userNames = new Set(migratable.filter(record => record.scope === 'user').map(record => record.name));
@@ -447,7 +450,7 @@ async function initializeDashboard(
         if (choice !== 'Migrate') {
             return;
         }
-        const report = skillDashboardController.handleMigrateToCentral();
+        const report = skillDashboardController.handleMigrateToCentral(scope);
         const parts = [`Migrated ${report.migrated.length} skill(s) into the central stores`];
         if (report.drifted.length) {
             parts.push(`${report.drifted.length} had drift (brand-priority winner)`);
@@ -1472,8 +1475,8 @@ async function initializeDashboard(
                     void vscode.window.showWarningMessage(`Could not centralize the skill: ${result.error}`);
                 }
             },
-            'migrate-skills-to-central': () => {
-                void runSkillMigrationToCentral();
+            'migrate-skills-to-central': e => {
+                void runSkillMigrationToCentral(e.scope === 'project' ? 'project' : e.scope === 'user' ? 'user' : undefined);
             },
             'fix-skill-diagnostic': e => {
                 const result = skillDashboardController.handleFixSkillDiagnostic(

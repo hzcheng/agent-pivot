@@ -379,3 +379,21 @@ test('SKILLS-FOLDER-MENU-CREATE-001 ⋯ menus offer folder creation at folder an
         await browser.close();
     }
 });
+
+test('SKILLS-SECTION-MENU-MIGRATE-001 section ⋯ menu carries a scoped Migrate to central action', async () => {
+    const browser = await chromium.launch();
+    try {
+        const page = await openSkillsPage(browser);
+        await page.click('[data-section-menu="user"]');
+        const migrateItem = await page.evaluate(() =>
+            document.querySelector('.skill-folder-menu [data-skill-menu-migrate="user"]')?.textContent);
+        assert.equal(migrateItem, 'Migrate to central…', 'global section menu offers scoped migration');
+        await page.click('.skill-folder-menu [data-skill-menu-migrate="user"]');
+        const messages = await page.evaluate(() => window.__skillMessages);
+        assert.deepEqual(messages, [{ type: 'migrate-skills-to-central', scope: 'user' }]);
+        const menuVisible = await page.evaluate(() => Boolean(document.querySelector('.skill-folder-menu.visible')));
+        assert.equal(menuVisible, false, 'menu closes on action');
+    } finally {
+        await browser.close();
+    }
+});

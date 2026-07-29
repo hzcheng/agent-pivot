@@ -389,9 +389,7 @@ function renderFilterRow(view: SkillPanelView): string {
         const label = agent === 'all' ? 'All' : SOURCE_LABELS[agent as SkillSourceDir];
         return `<button type="button" class="skills-filter${agent === 'all' ? ' is-active' : ''}" data-skill-filter="${agent}">${label}</button>`;
     }).join('');
-    const migrate = '<button type="button" class="skills-filter skills-migrate-central" data-skill-migrate-central '
-        + 'title="Move every user skill from ~/.kimi, ~/.claude and ~/.codex into ~/.skills (duplicates parked, no agent links)">Migrate to central</button>';
-    return `<div class="skills-filter-row" data-skill-filter-row role="group" aria-label="Filter skills by agent">${buttons}${migrate}</div>`;
+    return `<div class="skills-filter-row" data-skill-filter-row role="group" aria-label="Filter skills by agent">${buttons}</div>`;
 }
 
 function renderSuggestion(suggestion: SkillCollectionSuggestion): string {

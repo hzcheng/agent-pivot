@@ -1309,16 +1309,16 @@ function runSkillMigrationChecks() {
     assert.strictEqual(controller.getRecords().filter(record => record.central && ['same', 'drifty', 'solo'].includes(record.name)).length, 3);
     controller.dispose();
 
-    // rendering and wiring
+    // rendering and wiring: migrate lives in the section ⋯ menu, not the filter row
     const html = skillContent.getSkillsPanelContent([makeRecord()]);
-    assert.ok(html.includes('data-skill-migrate-central'), 'migrate button renders in filter row');
-    assert.ok(html.includes('Migrate to central'));
+    assert.ok(!html.includes('data-skill-migrate-central'), 'filter row migrate button removed');
+    assert.ok(!html.includes('Migrate to central'), 'filter row has no migrate label');
     const script = fs.readFileSync(path.join(__dirname, '..', 'media', 'webviewDashboardScripts.js'), 'utf8');
     assert.ok(script.includes("'migrate-skills-to-central'"), 'webview posts migrate command');
-    assert.ok(script.includes('data-skill-migrate-central'));
+    assert.ok(script.includes('data-skill-menu-migrate'), 'section ⋯ menu carries migrate');
     const dashboard = fs.readFileSync(path.join(__dirname, '..', 'src', 'dashboard.ts'), 'utf8');
     assert.ok(dashboard.includes("'migrate-skills-to-central'"), 'dashboard handles migrate message');
-    assert.ok(dashboard.includes('migrateSkillsToCentral: () => runSkillMigrationToCentral()'), 'palette command handler wired');
+    assert.ok(dashboard.includes('migrateSkillsToCentral: () => runSkillMigrationToCentral(),'), 'palette command handler wired');
     const reg = fs.readFileSync(path.join(__dirname, '..', 'src', 'dashboard', 'commandRegistration.ts'), 'utf8');
     assert.ok(reg.includes("'agentPivot.migrateSkillsToCentral'"), 'command id registered');
     assert.ok(reg.includes('migrateSkillsToCentral: DashboardCommandHandler'), 'handler type declared');

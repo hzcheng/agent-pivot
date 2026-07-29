@@ -1023,7 +1023,8 @@ function initDashboard(options) {
         if (storeNode) {
             menu.setAttribute('data-skill-store', storeNode.getAttribute('data-skill-store'));
         }
-        menu.innerHTML = '<div class="custom-context-menu-item skill-folder-menu-new" data-skill-menu-new-folder="" data-folder-scope="' + scope + '">New folder</div>';
+        menu.innerHTML = '<div class="custom-context-menu-item skill-folder-menu-new" data-skill-menu-new-folder="" data-folder-scope="' + scope + '">New folder</div>'
+            + '<div class="custom-context-menu-item skill-folder-menu-migrate" data-skill-menu-migrate="' + scope + '">Migrate to central…</div>';
         document.body.appendChild(menu);
         var rect = menu.getBoundingClientRect();
         var anchor = button.getBoundingClientRect();
@@ -1322,11 +1323,12 @@ function initDashboard(options) {
             options.postMessage({ type: 'centralize-skill', dirPath: centralize.getAttribute('data-skill-centralize') });
             return;
         }
-        var migrateCentral = event.target && event.target.closest ? event.target.closest('[data-skill-migrate-central]') : null;
+        var migrateCentral = event.target && event.target.closest ? event.target.closest('[data-skill-menu-migrate]') : null;
         if (migrateCentral) {
             event.preventDefault();
             event.stopPropagation();
-            options.postMessage({ type: 'migrate-skills-to-central' });
+            closeSkillFolderMenu();
+            options.postMessage({ type: 'migrate-skills-to-central', scope: migrateCentral.getAttribute('data-skill-menu-migrate') });
             return;
         }
         var sync = event.target && event.target.closest ? event.target.closest('[data-skill-sync]') : null;

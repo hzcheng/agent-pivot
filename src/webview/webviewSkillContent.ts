@@ -338,6 +338,27 @@ function renderFolderNode(
 function renderScopeSection(scope: SkillScope, items: SkillRecord[], view: SkillPanelView): string {
     const central = items.filter(record => record.central);
     const centralNames = new Set(central.map(record => record.name));
+    // Section-level batch state per agent: every central record in the section.
+    const sectionAgentState = (agent: SkillAgentId): SkillFolderLinkState => {
+        if (!central.length) {
+            return 'off';
+        }
+        let anyLink = false;
+        let allLinked = true;
+        for (const record of central) {
+            const links = (record.central && record.central.links[scope]) || {};
+            if (links[agent]) {
+                anyLink = true;
+            } else {
+                allLinked = false;
+            }
+        }
+        if (allLinked) {
+            return 'on';
+        }
+        return anyLink ? 'indeterminate' : 'off';
+    };
+    const sectionStateAttrs = AGENTS.map(agent => ` data-state-${agent}="${sectionAgentState(agent)}"`).join('');
     const unmanaged = items.filter(record => !record.central);
     // Parked copies that duplicate a central skill are archive noise: they hide
     // behind a disclosure instead of cluttering Unmanaged.
@@ -373,7 +394,7 @@ function renderScopeSection(scope: SkillScope, items: SkillRecord[], view: Skill
             <span class="skill-collection-icon" aria-hidden="true">${folderIcon}</span>${scope === 'user' ? 'global' : 'project'}
         </span>
         <span class="group-title-badge">${items.length}</span>
-        ${storeRoot ? `<button type="button" class="skill-folder-more" title="Section actions" data-section-menu="${scope}">⋯</button>` : ''}
+        ${storeRoot ? `<button type="button" class="skill-folder-more" title="Section actions" data-section-menu="${scope}" data-folder-scope="${scope}"${sectionStateAttrs}>⋯</button>` : ''}
     </div>
     <div class="group-list">
         <div class="drop-signal"></div>

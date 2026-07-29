@@ -988,9 +988,21 @@ function runSkillFolderServiceChecks() {
     // batch disable at project scope is a no-op when nothing is linked there
     const disabledProject = centralService.setFolderLinks(storeRoot, 'superpowers', 'project', home, ws, false);
     assert.strictEqual(disabledProject.changed, 0);
-    // batch disable at user scope removes every link created above
+
+    // empty folder path = whole store (section-level batch): alpha/beta are
+    // already codex-linked from the folder batch above, so only gamma changes
+    const wholeStore = centralService.setFolderLinks(storeRoot, '', 'user', home, ws, true, ['codex']);
+    assert.strictEqual(wholeStore.ok, true);
+    assert.strictEqual(wholeStore.changed, 1, 'already-linked skills are not re-created');
+    assert.ok(fs.lstatSync(path.join(home, '.codex/skills/gamma')).isSymbolicLink(), 'other folder linked too');
+    const wholeOff = centralService.setFolderLinks(storeRoot, '', 'user', home, ws, false, ['codex']);
+    assert.strictEqual(wholeOff.changed, 3, 'section batch removes every codex link in the store');
+    assert.ok(!fs.existsSync(path.join(home, '.codex/skills/gamma')));
+    assert.ok(!fs.existsSync(path.join(home, '.codex/skills/alpha')));
+    // batch disable at user scope removes the remaining links (codex links
+    // were already removed by the section batch above: 6 - 2 = 4 left)
     const disabled = centralService.setFolderLinks(storeRoot, 'superpowers', 'user', home, ws, false);
-    assert.strictEqual(disabled.changed, 6);
+    assert.strictEqual(disabled.changed, 4);
     assert.ok(!fs.existsSync(path.join(home, '.kimi/skills/alpha')));
 
     // batch collects errors instead of stopping: block one link with a real dir
@@ -1457,6 +1469,7 @@ function runSkillFolderMutationChecks() {
         }),
     ], { hasWorkspace: true, storeRoots: { user: '/home/dev/.skills', project: '/work/app/.skills' } });
     assert.ok(tree.includes('data-section-menu="user"'), 'global section has a ⋯ menu (create folder inside)');
+    assert.ok(tree.includes('data-state-kimi='), 'section ⋯ button carries per-agent batch states');
     assert.ok(tree.includes('data-folder-menu="pack"'), 'folder header has the ⋯ menu (delete lives inside)');
     const noViewRoots = skillContent.getSkillsPanelContent([makeRecord({
         name: 'beta', source: 'central', dirPath: '/home/dev/.skills/pack/beta',

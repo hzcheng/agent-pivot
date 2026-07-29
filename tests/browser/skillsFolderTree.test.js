@@ -380,6 +380,37 @@ test('SKILLS-FOLDER-MENU-CREATE-001 ⋯ menus offer folder creation at folder an
     }
 });
 
+test('SKILLS-SECTION-MENU-AGENTS-001 section ⋯ menu offers per-agent batch switches for the whole store', async () => {
+    const browser = await chromium.launch();
+    try {
+        const page = await openSkillsPage(browser);
+        await page.click('[data-section-menu="user"]');
+        const states = await page.evaluate(() =>
+            [...document.querySelectorAll('.skill-folder-menu [data-folder-agent]')].map(el => ({
+                agent: el.getAttribute('data-folder-agent'),
+                cls: el.className,
+                folder: el.getAttribute('data-folder-toggle'),
+            })));
+        assert.deepEqual(states, [
+            { agent: 'kimi', cls: 'skill-ios-toggle indeterminate', folder: '' },
+            { agent: 'claude', cls: 'skill-ios-toggle off', folder: '' },
+            { agent: 'codex', cls: 'skill-ios-toggle off', folder: '' },
+        ], 'section menu shows store-wide per-agent switches (empty folder = store root)');
+        await page.click('.skill-folder-menu [data-folder-agent="claude"]');
+        const messages = await page.evaluate(() => window.__skillMessages);
+        assert.deepEqual(messages, [{
+            type: 'folder-toggle-skill-links',
+            storeRoot: '/home/dev/.skills',
+            folder: '',
+            scope: 'user',
+            agent: 'claude',
+            enabled: false,
+        }], 'section switch posts a whole-store batch for that agent');
+    } finally {
+        await browser.close();
+    }
+});
+
 test('SKILLS-SECTION-MENU-MIGRATE-001 section ⋯ menu carries a scoped Migrate to central action', async () => {
     const browser = await chromium.launch();
     try {

@@ -89,6 +89,10 @@
             {
                 "command": "agentPivot.migrateSkillsToCentral",
                 "title": "Agent Pivot: Migrate Skills to Central Store"
+            },
+            {
+                "command": "agentPivot.openCurrentAiSessionConversation",
+                "title": "Agent Pivot: Open Current AI Session Conversation"
             }
         ],
         "keybindings": [

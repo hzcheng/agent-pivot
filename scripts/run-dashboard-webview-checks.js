@@ -3586,6 +3586,7 @@ async function runDashboardCommandRegistrationChecks() {
         'addFileToActiveTerminal',
         'insertPromptToActiveTerminal',
         'migrateSkillsToCentral',
+        'openCurrentAiSessionConversation',
     ];
     const registration = new DashboardCommandRegistration({
         registerCommand: (command, callback) => {
@@ -3611,6 +3612,7 @@ async function runDashboardCommandRegistrationChecks() {
         'agentPivot.addFileToActiveTerminal',
         'agentPivot.insertPromptToActiveTerminal',
         'agentPivot.migrateSkillsToCentral',
+        'agentPivot.openCurrentAiSessionConversation',
     ]);
     assert.deepStrictEqual(subscriptions.map(disposable => disposable.command), registered.map(([command]) => command));
 
@@ -3639,6 +3641,7 @@ async function runDashboardCommandRegistrationChecks() {
         'addFileToActiveTerminal',
         'insertPromptToActiveTerminal',
         'migrateSkillsToCentral',
+        'openCurrentAiSessionConversation',
     ]);
 
     registration.dispose();

@@ -2226,6 +2226,7 @@ async function initializeDashboard(
         addFileToActiveTerminal: () => activeTerminalFileReferenceController.addFileToActiveTerminal(),
         insertPromptToActiveTerminal: () => promptTerminalCommandController.insertPromptToActiveTerminal(),
         migrateSkillsToCentral: () => runSkillMigrationToCentral(),
+        openCurrentAiSessionConversation: () => openCurrentAiSessionConversation(),
     };
 
     ownResource(() => vscode.workspace.onDidChangeConfiguration(
@@ -2450,6 +2451,60 @@ async function initializeDashboard(
         return tmuxRuntime && runtimeBelongsToCurrentWorkspace(tmuxRuntime)
             ? tmuxRuntime.identity
             : activeAiSessionTerminalHighlighter.getIdentity();
+    }
+
+    async function openCurrentAiSessionConversation(): Promise<void> {
+        const target = getCurrentWorkspaceActionTargetWithoutCardId();
+        if (!target) {
+            void vscode.window.showInformationMessage(
+                'Agent Pivot: no current workspace with AI sessions.'
+            );
+            return;
+        }
+        const candidates = target.sessions.activeSessions
+            .filter(session => session.sessionId);
+        if (!candidates.length) {
+            void vscode.window.showInformationMessage(
+                'Agent Pivot: no active AI session in the current workspace.'
+            );
+            return;
+        }
+        let selected = candidates.find(session => session.focused);
+        if (!selected && candidates.length === 1) {
+            selected = candidates[0];
+        }
+        if (!selected) {
+            const picked = await vscode.window.showQuickPick(
+                candidates.map(session => ({
+                    label: session.name || session.sessionId as string,
+                    description: session.provider,
+                    session,
+                })),
+                { placeHolder: 'Select an AI session to open its conversation' }
+            );
+            selected = picked?.session;
+        }
+        if (!selected?.sessionId) {
+            return;
+        }
+        const result = await conversationCapability.openLatestConversation({
+            projectId: target.cardId,
+            provider: selected.provider,
+            sessionId: selected.sessionId,
+        });
+        if (result === 'empty') {
+            void vscode.window.showInformationMessage(
+                'Agent Pivot: this AI session has no conversation yet.'
+            );
+        } else if (result === 'unknownSession') {
+            void vscode.window.showWarningMessage(
+                'Agent Pivot: the selected AI session is no longer active.'
+            );
+        } else if (result === 'unavailable') {
+            void vscode.window.showWarningMessage(
+                'Agent Pivot: unable to read the AI session conversation.'
+            );
+        }
     }
 
     function runtimeBelongsToCurrentWorkspace(

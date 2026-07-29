@@ -46,10 +46,22 @@ import {
     ConversationViewerOptions,
 } from './viewer';
 
+export interface ConversationSessionOpenTarget {
+    projectId: string;
+    provider: AiSessionProviderId;
+    sessionId: string;
+}
+
+export type OpenLatestConversationResult =
+    'opened' | 'unavailable' | 'empty' | 'unknownSession';
+
 export interface ConversationCapability {
     controller: ConversationHostController;
     viewer: ConversationViewerApi;
     availability: 'available' | 'unavailable';
+    openLatestConversation(
+        target: ConversationSessionOpenTarget
+    ): Promise<OpenLatestConversationResult>;
     reconcile(): Promise<void>;
     dispose(): void;
 }
@@ -215,6 +227,8 @@ function createAvailableConversationCapability(
         controller,
         viewer,
         availability: 'available',
+        openLatestConversation: target =>
+            openLatestConversation(options, coordinator, viewer, target),
         async reconcile(): Promise<void> {
             if (disposed) {
                 return;
@@ -280,6 +294,9 @@ function createUnavailableConversationCapability(
         controller,
         viewer,
         availability: 'unavailable',
+        async openLatestConversation(): Promise<OpenLatestConversationResult> {
+            return 'unavailable';
+        },
         async reconcile(): Promise<void> {
             if (!disposed) {
                 controller.reconcile();
@@ -294,6 +311,53 @@ function createUnavailableConversationCapability(
             viewer.dispose();
         },
     };
+}
+
+async function openLatestConversation(
+    options: ConversationCapabilityOptions,
+    coordinator: ConversationCoordinator,
+    viewer: ConversationViewerApi,
+    target: ConversationSessionOpenTarget
+): Promise<OpenLatestConversationResult> {
+    const authoritativeTarget = resolveExactTarget(options, target);
+    if (!authoritativeTarget) {
+        return 'unknownSession';
+    }
+    coordinator.setSessionStopped(
+        target.provider,
+        target.sessionId,
+        authoritativeTarget.executionState === 'stopped'
+    );
+    let outline;
+    try {
+        outline = await coordinator.readOutline(
+            target.provider,
+            target.sessionId
+        );
+    } catch (_error) {
+        return 'unavailable';
+    }
+    const latest = outline.interactions[outline.interactions.length - 1];
+    if (!latest) {
+        return 'empty';
+    }
+    const displayMetadata = authoritativeTarget as ActiveAiSessionViewModel & {
+        conversationDisplayName?: string;
+        duplicateConversationDisplayName?: boolean;
+    };
+    const trimmedName = String(authoritativeTarget.name || '').trim();
+    await viewer.open({
+        projectId: target.projectId,
+        provider: target.provider,
+        sessionId: target.sessionId,
+        interactionId: latest.id,
+        expectedRevision: outline.sourceRevision,
+        displayName: displayMetadata.conversationDisplayName
+            || (trimmedName || `${target.provider} conversation`),
+        duplicateDisplayName:
+            displayMetadata.duplicateConversationDisplayName === true,
+    });
+    return 'opened';
 }
 
 function resolveExactTarget(

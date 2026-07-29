@@ -146,24 +146,18 @@ function switchStates(page) {
     })));
 }
 
-test('SKILLS-FOLDER-AGENTS-001 folder dropdown opens per-agent switches and survives HTML replacement', async () => {
+test('SKILLS-FOLDER-AGENTS-001 the ⋯ menu opens per-agent switches, closes on outside click and on action', async () => {
     const browser = await chromium.launch();
     try {
         const page = await openSkillsPage(browser);
-        const panelHidden = () => page.evaluate(() =>
-            document.querySelector('[data-folder-agents="superpowers"]').hidden);
-        assert.equal(await panelHidden(), true, 'agents panel starts hidden');
-        const panelDisplay = await page.evaluate(() =>
-            getComputedStyle(document.querySelector('[data-folder-agents="superpowers"]')).display);
-        assert.equal(panelDisplay, 'none', 'the hidden attribute wins over the panel display rule');
-        await page.click('[data-folder-agents-toggle="superpowers"]');
-        assert.equal(await panelHidden(), false, 'dropdown opens the per-agent panel');
-        const openedDisplay = await page.evaluate(() =>
-            getComputedStyle(document.querySelector('[data-folder-agents="superpowers"]')).display);
-        assert.equal(openedDisplay, 'flex', 'open panel is visible');
-        // per-agent switch states: alpha links kimi only → kimi indeterminate, claude/codex off
+        const menuVisible = () => page.evaluate(() =>
+            Boolean(document.querySelector('.skill-folder-menu.visible')));
+        assert.equal(await menuVisible(), false, 'no menu initially');
+        await page.click('[data-folder-menu="superpowers"]');
+        assert.equal(await menuVisible(), true, '⋯ opens the menu');
+        // menu rows carry per-agent switches with the right state
         const states = await page.evaluate(() =>
-            [...document.querySelectorAll('[data-folder-agents="superpowers"] [data-folder-agent]')].map(el => ({
+            [...document.querySelectorAll('.skill-folder-menu [data-folder-agent]')].map(el => ({
                 agent: el.getAttribute('data-folder-agent'),
                 cls: el.className,
             })));
@@ -172,23 +166,30 @@ test('SKILLS-FOLDER-AGENTS-001 folder dropdown opens per-agent switches and surv
             { agent: 'claude', cls: 'skill-ios-toggle off' },
             { agent: 'codex', cls: 'skill-ios-toggle off' },
         ]);
-        // dropdown state survives an authoritative HTML replacement
-        await page.evaluate(() => {
-            const wrapper = document.querySelector('#ai-panel-skills .sticky-groups-wrapper');
-            const open = (function () {
-                const panels = wrapper.querySelectorAll('.skill-folder-agents[data-folder-agents]:not([hidden])');
-                return [...panels].map(panel => panel.getAttribute('data-folder-agents'));
-            })();
-            wrapper.outerHTML = wrapper.outerHTML;
-            const next = document.querySelector('#ai-panel-skills .sticky-groups-wrapper');
-            for (const path of open) {
-                const panel = next.querySelector('.skill-folder-agents[data-folder-agents="' + path + '"]');
-                if (panel) {
-                    panel.hidden = false;
-                }
-            }
-        });
-        assert.equal(await panelHidden(), false, 'dropdown state restored after replacement');
+        // delete lives inside the menu
+        const removeLabel = await page.evaluate(() =>
+            document.querySelector('.skill-folder-menu [data-skill-remove-folder="superpowers"]')?.textContent);
+        assert.equal(removeLabel, 'Delete empty folder');
+        // clicking a switch closes the menu and posts the batch toggle
+        await page.click('.skill-folder-menu [data-folder-agent="kimi"]');
+        assert.equal(await menuVisible(), false, 'menu closes on action');
+        const messages = await page.evaluate(() => window.__skillMessages);
+        assert.deepEqual(messages, [{
+            type: 'folder-toggle-skill-links',
+            storeRoot: '/home/dev/.skills',
+            folder: 'superpowers',
+            scope: 'user',
+            agent: 'kimi',
+            enabled: false,
+        }]);
+        // reopen, then outside click closes without posting
+        await page.click('[data-folder-menu="superpowers"]');
+        assert.equal(await menuVisible(), true, 'menu reopens');
+        await page.evaluate(() => { window.__skillMessages = []; });
+        await page.click('body', { position: { x: 2, y: 2 } });
+        assert.equal(await menuVisible(), false, 'outside click closes the menu');
+        const afterOutside = await page.evaluate(() => window.__skillMessages || []);
+        assert.deepEqual(afterOutside, [], 'outside click posts nothing');
     } finally {
         await browser.close();
     }
@@ -198,8 +199,8 @@ test('SKILLS-FOLDER-TOGGLE-001 folder agent switch posts a per-agent scope-aware
     const browser = await chromium.launch();
     try {
         const page = await openSkillsPage(browser);
-        await page.click('[data-folder-agents-toggle="superpowers"]');
-        await page.click('[data-folder-agents="superpowers"] [data-folder-agent="kimi"]');
+        await page.click('[data-folder-menu="superpowers"]');
+        await page.click('.skill-folder-menu [data-folder-agent="kimi"]');
         const messages = await page.evaluate(() => window.__skillMessages);
         assert.equal(messages.length, 1);
         assert.deepEqual(messages[0], {

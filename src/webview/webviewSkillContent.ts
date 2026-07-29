@@ -317,20 +317,8 @@ function renderFolderNode(
     const children = [...node.children.values()].sort((a, b) => a.name.localeCompare(b.name));
     const items = node.items.slice().sort((a, b) => a.name.localeCompare(b.name));
     const pathAttr = escapeAttribute(node.path);
-    const chips = AGENTS.map(agent => {
-        const state = folderAgentState(node, sectionScope, agent);
-        const stateClass = state === 'on' ? ' on' : state === 'indeterminate' ? ' partial' : '';
-        return `<span class="skill-folder-agent-chip agent-${agent}${stateClass}">${agent}</span>`;
-    }).join('');
-    const agentSwitches = AGENTS.map(agent => {
-        const state = folderAgentState(node, sectionScope, agent);
-        const title = state === 'on'
-            ? `Disable every skill under ${node.path} for ${agent}`
-            : `Enable every skill under ${node.path} for ${agent}`;
-        return `<span class="skill-folder-agent">${agent}`
-            + `<button type="button" class="skill-ios-toggle${folderToggleClass(state)}" title="${escapeAttribute(title)}"`
-            + ` data-folder-toggle="${pathAttr}" data-folder-agent="${agent}" data-folder-scope="${sectionScope}"></button></span>`;
-    }).join('');
+    const stateAttrs = AGENTS.map(agent =>
+        ` data-state-${agent}="${folderAgentState(node, sectionScope, agent)}"`).join('');
     return `<div class="skill-folder group steward-section" data-group-id="skill-folder-${sectionScope}-${encodeURIComponent(node.path)}" data-skill-folder="${pathAttr}" data-skill-store="${escapeAttribute(storeRoot)}" data-skill-folder-scope="${sectionScope}">
     <div class="group-title steward-section-header steward-group-header skill-folder-header">
         <span class="group-title-text" data-action="collapse">
@@ -338,9 +326,8 @@ function renderFolderNode(
             <span class="skill-collection-icon" aria-hidden="true">${folderIcon}</span>${escapeAttribute(node.name)}
         </span>
         <span class="group-title-badge">${count}</span>
-        <button type="button" class="skill-folder-agents-select" title="Enable this folder for agents…" data-folder-agents-toggle="${pathAttr}">${chips}<span class="skill-folder-agents-caret">▾</span></button>
+        <button type="button" class="skill-folder-more" title="Folder actions" data-folder-menu="${pathAttr}" data-folder-scope="${sectionScope}"${stateAttrs}>⋯</button>
     </div>
-    <div class="skill-folder-agents" data-folder-agents="${pathAttr}" hidden>${agentSwitches}<button type="button" class="skill-folder-remove" title="Delete empty folder" data-skill-remove-folder="${pathAttr}">Delete empty folder</button></div>
     <div class="group-list skill-folder-list">
         ${children.map(child => renderFolderNode(child, storeRoot, sectionScope, view)).join('\n')}
         ${items.map(item => getSkillDiv(item, view)).join('\n')}

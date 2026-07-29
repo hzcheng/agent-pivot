@@ -341,34 +341,23 @@ function runSkillRenderingChecks() {
     assert.ok(tree.includes('data-skill-store="/home/dev/.skills"'));
     assert.ok(tree.indexOf('data-skill-folder="superpowers"') < tree.indexOf('data-skill-folder="superpowers/nested"'),
         'parent folders render before children');
-    // folder dropdown: trigger + hidden per-agent switch panel with scope per section
+    // folder ⋯ menu button carries per-agent states + scope per section
     const superpowersHeader = folderHeader(tree, 'superpowers');
-    assert.ok(superpowersHeader.includes('data-folder-agents-toggle="superpowers"'), 'folder has an agents dropdown trigger');
-    assert.ok(superpowersHeader.includes('data-folder-agents="superpowers"'), 'folder has an agents panel');
-    assert.ok(superpowersHeader.includes('data-folder-agent="kimi"'), 'per-agent switches carry the agent');
+    assert.ok(superpowersHeader.includes('data-folder-menu="superpowers"'), 'folder has a ⋯ menu button');
     assert.ok(superpowersHeader.includes('data-folder-scope="user"'), 'global-section folder posts user scope');
-    assert.ok(superpowersHeader.includes('data-folder-toggle="superpowers"'), 'folder switch posts its relpath');
-    // superpowers: alpha links kimi@user, beta nothing → kimi indeterminate, claude/codex off
-    // (kimi is the first agent switch in the panel, so the segment up to its marker
-    // contains only its own button)
-    const spKimiSwitch = superpowersHeader.split('data-folder-agent="kimi"')[0];
-    assert.ok(spKimiSwitch.includes('skill-ios-toggle indeterminate'), 'kimi is indeterminate on a partially linked folder');
-    assert.ok((superpowersHeader.match(/skill-ios-toggle off/g) || []).length === 2, 'claude and codex are off');
+    assert.ok(superpowersHeader.includes('data-state-kimi="indeterminate"'), 'kimi is indeterminate on a partially linked folder');
+    assert.ok(superpowersHeader.includes('data-state-claude="off"') && superpowersHeader.includes('data-state-codex="off"'),
+        'claude and codex are off');
     const otherHeader = folderHeader(tree, 'other');
-    assert.ok(!otherHeader.includes('skill-ios-toggle indeterminate'), 'unlinked folder has no indeterminate agent');
-    assert.strictEqual((otherHeader.match(/skill-ios-toggle off/g) || []).length, 3, 'all three agents off');
+    assert.ok(otherHeader.includes('data-state-kimi="off"'), 'unlinked folder is off');
+    assert.ok(!otherHeader.includes('indeterminate'), 'unlinked folder has no indeterminate agent');
     const linkedHeader = folderHeader(tree, 'linked');
-    assert.ok(!linkedHeader.includes('skill-ios-toggle off') && !linkedHeader.includes('skill-ios-toggle indeterminate'),
-        'fully linked folder has every agent on');
+    assert.ok(linkedHeader.includes('data-state-kimi="on"') && linkedHeader.includes('data-state-claude="on"')
+        && linkedHeader.includes('data-state-codex="on"'), 'fully linked folder has every agent on');
     const projectFolderHeader = folderHeader(tree, 'pf');
     assert.ok(projectFolderHeader.includes('data-folder-scope="project"'), 'project-section folder posts project scope');
-    // per-agent chips summarize + trigger the dropdown
-    assert.ok(superpowersHeader.includes('skill-folder-agents-select'), 'chips trigger the dropdown');
-    assert.ok(superpowersHeader.includes('skill-folder-agent-chip agent-kimi partial'), 'kimi chip half-lit for a partial folder');
-    const linkedDots = folderHeader(tree, 'linked');
-    assert.ok(linkedDots.includes('skill-folder-agent-chip agent-kimi on'), 'fully linked folder chips lit');
-    assert.ok(!otherHeader.includes('skill-folder-agent-chip agent-kimi on') && !otherHeader.includes('skill-folder-agent-chip agent-kimi partial'),
-        'unlinked folder chips unlit');
+    assert.ok(!tree.includes('data-folder-agents-toggle'), 'old dropdown trigger removed');
+    assert.ok(!tree.includes('skill-folder-agents'), 'static agents panel removed');
     // no scope selector anywhere (scope is positional now); no dual-scope attrs; no P badge
     assert.ok(!tree.includes('data-skill-scope-select'), 'scope selector removed');
     assert.ok(!tree.includes('data-link-user'), 'dual-scope link attrs removed');
@@ -394,7 +383,7 @@ function runSkillRenderingChecks() {
     assert.ok(emptyTree2.includes('data-skill-folder="newpack/nested"'), 'empty nested folder renders');
     const newpackHeader = folderHeader(emptyTree2, 'newpack');
     assert.ok(newpackHeader.includes('<span class="group-title-badge">0</span>'), 'empty folder shows a zero count');
-    assert.ok(newpackHeader.includes('data-skill-remove-folder="newpack"'), 'empty folder offers delete');
+    assert.ok(newpackHeader.includes('data-folder-menu="newpack"'), 'empty folder offers the ⋯ menu (delete lives inside)');
     assert.ok(emptyTree.includes('data-skill-folder="newpack"'), 'empty store with folders still renders the tree');
     const noFolderTree = skillContent.getSkillsPanelContent([], {});
     assert.ok(noFolderTree.includes('skills-empty'), 'zero records and zero folders renders the empty hint');
@@ -453,16 +442,14 @@ function runSkillStyleChecks() {
     assert.ok(styles.includes('.skill-filter-hidden'));
     assert.ok(styles.includes('.skill-drop-target'));
     assert.ok(styles.includes('.skill-folder'), 'folder node styles');
-    assert.ok(styles.includes('.skill-folder-agents-select'), 'folder agents trigger styles');
+    assert.ok(styles.includes('.skill-folder-more'), 'folder ⋯ button styles');
     assert.ok(styles.includes('.skill-ios-toggle.indeterminate'), 'indeterminate switch styles');
-    assert.ok(styles.includes('.skill-folder-agent-chip'), 'agent chip styles');
-    assert.ok(styles.includes('.skill-folder-agents[hidden]') || styles.includes('&[hidden]'), 'hidden panels beat author display rules');
+    assert.ok(styles.includes('.skill-folder-menu-item'), 'folder menu item styles');
     assert.ok(styles.includes('.skill-parked-duplicates'), 'parked duplicates disclosure styles');
-    assert.ok(styles.includes('.skill-folder-agents'), 'folder agents panel styles');
     assert.ok(styles.includes('.skill-unmanaged'), 'unmanaged section styles');
     assert.ok(compiled.includes('.skill-folder'));
-    assert.ok(compiled.includes('.skill-folder-agents'));
-    assert.ok(compiled.includes('.skill-folder-agent-chip'));
+    assert.ok(compiled.includes('.skill-folder-more'));
+    assert.ok(compiled.includes('.skill-folder-menu-item'));
     assert.ok(compiled.includes('.skill-parked-duplicates'));
     assert.ok(compiled.includes('.skill-ios-toggle.indeterminate'));
     assert.ok(compiled.includes('.skill-unmanaged'));
@@ -484,7 +471,9 @@ function runSkillWebviewScriptChecks() {
     assert.ok(script.includes('captureSkillCollapsedGroups'), 'collapse state preserved across skills-updated replacement');
     assert.ok(script.includes('restoreSkillCollapsedGroups'));
     assert.ok(!script.includes('data-skill-scope-select'), 'scope selector wiring removed');
-    assert.ok(script.includes('data-folder-agents-toggle'), 'folder agents dropdown wiring present');
+    assert.ok(script.includes('data-folder-menu'), 'folder ⋯ menu wiring present');
+    assert.ok(script.includes('openSkillFolderMenu'));
+    assert.ok(script.includes('closeSkillFolderMenu'));
     assert.ok(script.includes('data-folder-agent'), 'per-agent folder switch wiring present');
     assert.ok(script.includes("'folder-toggle-skill-links'"), 'folder batch wiring present');
     assert.ok(script.includes("'move-skill-to-folder'"), 'move wiring present');
@@ -1440,7 +1429,7 @@ function runSkillFolderMutationChecks() {
         }),
     ], { hasWorkspace: true, storeRoots: { user: '/home/dev/.skills', project: '/work/app/.skills' } });
     assert.ok(tree.includes('data-skill-new-folder="user"'), 'global section has a folder-create action');
-    assert.ok(tree.includes('data-skill-remove-folder="pack"'), 'folder header has a delete action');
+    assert.ok(tree.includes('data-folder-menu="pack"'), 'folder header has the ⋯ menu (delete lives inside)');
     const noViewRoots = skillContent.getSkillsPanelContent([makeRecord({
         name: 'beta', source: 'central', dirPath: '/home/dev/.skills/pack/beta',
         skillFilePath: '/home/dev/.skills/pack/beta/SKILL.md', folder: 'pack',

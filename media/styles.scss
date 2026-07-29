@@ -4585,88 +4585,39 @@ body.steward-sidebar {
         margin-left: 6px;
     }
 
-    .skill-folder-agents-select {
-        display: inline-flex;
+    .skill-folder-menu-item {
+        display: flex;
         align-items: center;
-        gap: 3px;
-        margin-left: 6px;
-        padding: 1px 3px;
+        justify-content: space-between;
+        gap: 18px;
+
+        .skill-folder-menu-agent {
+            font-size: 11px;
+        }
+    }
+
+    .skill-folder-menu-remove {
+        font-size: 11px;
+    }
+
+    .skill-folder-more {
+        flex: none;
+        width: 18px;
+        height: 16px;
+        padding: 0;
         border: 0;
-        border-radius: 5px;
+        border-radius: 4px;
         background: transparent;
+        color: var(--vscode-descriptionForeground);
         cursor: pointer;
+        font-size: 11px;
+        line-height: 14px;
+        text-align: center;
+        letter-spacing: 1px;
 
         &:hover {
-            background: var(--vscode-toolbar-hoverBackground, rgba(127, 127, 127, .18));
-        }
-
-        .skill-folder-agents-caret {
-            color: var(--vscode-descriptionForeground);
-            font-size: 8px;
-        }
-    }
-
-    .skill-folder-agent-chip {
-        padding: 0 5px;
-        border: 1px solid transparent;
-        border-radius: 999px;
-        color: #777;
-        font-size: 8px;
-        line-height: 12px;
-
-        &.partial {
-            border-color: currentColor;
-            opacity: .85;
-        }
-
-        &.on {
-            border-color: transparent;
-        }
-
-        &.agent-kimi.on,
-        &.agent-kimi.partial {
-            color: #4ec9b0;
-        }
-
-        &.agent-claude.on,
-        &.agent-claude.partial {
-            color: #c9a6f2;
-        }
-
-        &.agent-codex.on,
-        &.agent-codex.partial {
-            color: #7aa2f7;
-        }
-    }
-
-    .skill-folder-agents {
-        display: flex;
-        flex-wrap: wrap;
-        align-items: center;
-        gap: 6px 12px;
-        margin: 2px 0 4px 22px;
-        padding: 4px 8px;
-        border: 1px solid var(--vscode-panel-border);
-        border-radius: 6px;
-        background: var(--vscode-editor-background);
-
-        &[hidden] {
-            display: none !important;
-        }
-
-        .skill-folder-agent {
-            display: inline-flex;
-            align-items: center;
-            gap: 5px;
-            color: var(--vscode-descriptionForeground);
-            font-size: 10px;
-        }
-
-        .skill-folder-remove {
-            margin-left: auto;
-            white-space: nowrap;
-            color: var(--vscode-descriptionForeground);
-            font-size: 9px;
+            background: var(--vscode-toolbar-hoverBackground, rgba(127, 127, 127, .2));
+            color: var(--vscode-foreground);
         }
     }
 

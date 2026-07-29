@@ -948,32 +948,68 @@ function initDashboard(options) {
         return el.closest && el.closest('[data-group-id="project-skills"]') ? 'project' : 'user';
     }
 
-    function captureSkillFolderAgentPanels(wrapper) {
-        var open = [];
-        if (wrapper && wrapper.querySelectorAll) {
-            var panels = wrapper.querySelectorAll('.skill-folder-agents[data-folder-agents]:not([hidden])');
-            for (var i = 0; i < panels.length; i++) {
-                open.push(panels[i].getAttribute('data-folder-agents'));
-            }
+    var skillFolderMenu = null;
+
+    function closeSkillFolderMenu() {
+        if (skillFolderMenu) {
+            skillFolderMenu.remove();
+            skillFolderMenu = null;
         }
-        return open;
     }
 
-    function restoreSkillFolderAgentPanels(wrapper, open) {
-        if (!wrapper || !open || !open.length) {
-            return;
+    function onSkillFolderMenuKeydown(event) {
+        if (event.key === 'Escape') {
+            closeSkillFolderMenu();
         }
-        for (var i = 0; i < open.length; i++) {
-            var panel = wrapper.querySelector('.skill-folder-agents[data-folder-agents="' + open[i] + '"]');
-            if (panel) {
-                panel.hidden = false;
-                var folder = panel.closest('.skill-folder');
-                var trigger = folder && folder.querySelector('[data-folder-agents-toggle]');
-                if (trigger) {
-                    trigger.classList.add('open');
-                }
-            }
+    }
+
+    // One shared context menu for folder batch actions (VS Code "More Actions"
+    // style): agent switches + delete, built from the ⋯ button's data attributes.
+    function openSkillFolderMenu(button) {
+        closeSkillFolderMenu();
+        var folder = button.getAttribute('data-folder-menu') || '';
+        var scope = button.getAttribute('data-folder-scope') || 'user';
+        var storeNode = button.closest('[data-skill-store]');
+        var agents = ['kimi', 'claude', 'codex'];
+        var menu = document.createElement('div');
+        menu.className = 'custom-context-menu skill-folder-menu visible';
+        if (storeNode) {
+            menu.setAttribute('data-skill-store', storeNode.getAttribute('data-skill-store'));
         }
+        var html = '';
+        for (var i = 0; i < agents.length; i++) {
+            var agent = agents[i];
+            var state = button.getAttribute('data-state-' + agent) || 'off';
+            var cls = state === 'on' ? '' : ' ' + state;
+            var title = state === 'on'
+                ? 'Disable every skill under ' + folder + ' for ' + agent
+                : 'Enable every skill under ' + folder + ' for ' + agent;
+            html += '<div class="custom-context-menu-item skill-folder-menu-item"><span class="skill-folder-menu-agent">' + agent + '</span>'
+                + '<button type="button" class="skill-ios-toggle' + cls + '" title="' + title + '"'
+                + ' data-folder-toggle="' + folder + '" data-folder-agent="' + agent + '" data-folder-scope="' + scope + '"></button></div>';
+        }
+        html += '<div class="custom-context-menu-separator"></div>';
+        html += '<div class="custom-context-menu-item skill-folder-menu-remove" data-skill-remove-folder="' + folder + '">Delete empty folder</div>';
+        menu.innerHTML = html;
+        document.body.appendChild(menu);
+        var rect = menu.getBoundingClientRect();
+        var anchor = button.getBoundingClientRect();
+        var viewportPadding = 4;
+        var left = anchor.right - rect.width;
+        var top = anchor.bottom + 2;
+        if (left + rect.width + viewportPadding > window.innerWidth) {
+            left = Math.max(viewportPadding, window.innerWidth - rect.width - viewportPadding);
+        }
+        if (left < viewportPadding) {
+            left = viewportPadding;
+        }
+        if (top + rect.height + viewportPadding > window.innerHeight) {
+            top = Math.max(viewportPadding, anchor.top - rect.height - 2);
+        }
+        menu.style.left = left + 'px';
+        menu.style.top = top + 'px';
+        menu.__sourceButton = button;
+        skillFolderMenu = menu;
     }
 
     function captureSkillExpandedCards(wrapper) {
@@ -1114,15 +1150,17 @@ function initDashboard(options) {
             applySkillAgentFilter();
             return;
         }
-        var folderAgentsToggle = event.target && event.target.closest ? event.target.closest('[data-folder-agents-toggle]') : null;
-        if (folderAgentsToggle) {
+        if (skillFolderMenu && !(event.target && event.target.closest && event.target.closest('.skill-folder-menu'))) {
+            closeSkillFolderMenu();
+        }
+        var folderMenuButton = event.target && event.target.closest ? event.target.closest('[data-folder-menu]') : null;
+        if (folderMenuButton) {
             event.preventDefault();
             event.stopPropagation();
-            var agentsFolder = folderAgentsToggle.closest('.skill-folder');
-            var agentsPanel = agentsFolder && agentsFolder.querySelector('.skill-folder-agents[data-folder-agents]');
-            if (agentsPanel) {
-                agentsPanel.hidden = !agentsPanel.hidden;
-                folderAgentsToggle.classList.toggle('open', !agentsPanel.hidden);
+            if (skillFolderMenu && skillFolderMenu.__sourceButton === folderMenuButton) {
+                closeSkillFolderMenu();
+            } else {
+                openSkillFolderMenu(folderMenuButton);
             }
             return;
         }
@@ -1140,6 +1178,7 @@ function initDashboard(options) {
         if (folderToggle) {
             event.preventDefault();
             event.stopPropagation();
+            closeSkillFolderMenu();
             var folderNode = folderToggle.closest('[data-skill-store]');
             options.postMessage({
                 type: 'folder-toggle-skill-links',
@@ -1175,7 +1214,13 @@ function initDashboard(options) {
         if (removeFolder) {
             event.preventDefault();
             event.stopPropagation();
-            var removeNode = removeFolder.closest('[data-skill-store]');
+            var menuFolder = removeFolder.closest('.skill-folder-menu');
+            var removeNode = menuFolder
+                ? (skillFolderMenu && skillFolderMenu.__sourceButton
+                    ? skillFolderMenu.__sourceButton.closest('[data-skill-store]')
+                    : null)
+                : removeFolder.closest('[data-skill-store]');
+            closeSkillFolderMenu();
             options.postMessage({
                 type: 'remove-skill-folder',
                 storeRoot: removeNode ? removeNode.getAttribute('data-skill-store') : '',
@@ -1824,12 +1869,11 @@ function initDashboard(options) {
             if (skillsWrapper && typeof event.data.html === 'string') {
                 var collapsedSkillGroups = captureSkillCollapsedGroups(skillsWrapper);
                 var expandedSkillCards = captureSkillExpandedCards(skillsWrapper);
-                var openFolderAgentPanels = captureSkillFolderAgentPanels(skillsWrapper);
+                closeSkillFolderMenu();
                 skillsWrapper.outerHTML = event.data.html;
                 var nextSkillsWrapper = document.querySelector('#ai-panel-skills .sticky-groups-wrapper');
                 restoreSkillCollapsedGroups(nextSkillsWrapper, collapsedSkillGroups);
                 restoreSkillExpandedCards(nextSkillsWrapper, expandedSkillCards);
-                restoreSkillFolderAgentPanels(nextSkillsWrapper, openFolderAgentPanels);
                 applySkillAgentFilter();
             }
         }
@@ -1855,6 +1899,7 @@ function initDashboard(options) {
     if (typeof document.addEventListener === 'function') {
         document.addEventListener('click', onSkillCardClick);
         document.addEventListener('keydown', onSkillMoveInputKeydown);
+        document.addEventListener('keydown', onSkillFolderMenuKeydown);
         document.addEventListener('dragstart', onSkillDragStart);
         document.addEventListener('dragover', onSkillDragOver);
         document.addEventListener('dragleave', onSkillDragLeave);

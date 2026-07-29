@@ -4103,24 +4103,28 @@ body.steward-sidebar {
     }
 
     .skill-detail {
-        margin-top: 8px;
-        padding: 8px 10px;
-        border: 1px solid #3a3d42;
-        border-radius: 12px;
-        background: #1e2023;
+        margin-top: 6px;
+        padding: 6px 0 2px;
+        border: 0;
+        border-top: 1px solid var(--vscode-panel-border);
+        border-radius: 0;
+        background: transparent;
     }
 
     .skill-detail-title {
-        margin: 0 0 7px;
-        font-size: 11px;
+        margin: 0 0 4px;
+        color: var(--vscode-descriptionForeground);
+        font-size: 9px;
         font-weight: 600;
+        letter-spacing: .4px;
+        text-transform: uppercase;
     }
 
     .skill-detail-row {
         display: flex;
         align-items: center;
         gap: 7px;
-        margin: 5px 0;
+        margin: 4px 0;
         font-size: 10px;
     }
 
@@ -4134,17 +4138,19 @@ body.steward-sidebar {
     }
 
     .skill-detail-path {
+        flex: 1 1 auto;
         overflow: hidden;
         color: var(--vscode-descriptionForeground);
         font-size: 9.5px;
+        text-align: right;
         text-overflow: ellipsis;
         white-space: nowrap;
     }
 
     .skill-detail-note {
-        margin: 8px 0 0;
-        padding-top: 7px;
-        border-top: 1px solid #333;
+        margin: 6px 0 0;
+        padding-top: 6px;
+        border-top: 1px solid var(--vscode-panel-border);
         color: var(--vscode-editorWarning-foreground, #cca700);
         font-size: 10px;
         line-height: 1.5;
@@ -4153,7 +4159,7 @@ body.steward-sidebar {
     .skill-detail-actions {
         display: flex;
         gap: 6px;
-        margin-top: 8px;
+        margin-top: 6px;
 
         button {
             padding: 3px 10px;
@@ -4410,7 +4416,7 @@ body.steward-sidebar {
 
     .skill-sync {
         flex: none;
-        margin-left: 6px;
+        margin-left: auto;
         padding: 1px 8px;
         border: 0;
         border-radius: 4px;
@@ -4624,6 +4630,7 @@ body.steward-sidebar {
         }
 
         .skill-card {
+            align-items: stretch;
             min-height: 0;
             margin-bottom: 3px;
             padding: 4px 8px 4px 12px;
@@ -4663,7 +4670,7 @@ body.steward-sidebar {
         display: flex;
         align-items: center;
         gap: 6px;
-        margin-top: 8px;
+        margin-top: 6px;
     }
 
     .skill-move-input {

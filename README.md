@@ -62,7 +62,10 @@ or a "Move to folder…" editor — both perform real `mv` operations and keep
 existing links pointed at the skill. Skills still living in agent
 directories appear in an Unmanaged section and can be centralized card by
 card or in one shot with the "Agent Pivot: Migrate Skills to Central Store"
-command (duplicates are parked reversibly). Duplicate copies are
+command, and unmanaged cards can also be deleted outright (with
+confirmation). Centralizing or migrating picks the
+kimi > claude > codex copy as the winner and deletes the other duplicate
+copies. Duplicate copies are
 fingerprinted so drift is visible and resolvable in one click; skills can
 also be copied between agents, repaired with one-click diagnostic fixes,
 filed from collection suggestions, and found through the dashboard's global

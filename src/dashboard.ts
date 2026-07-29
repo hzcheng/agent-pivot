@@ -422,7 +422,7 @@ async function initializeDashboard(
     const runSkillMigrationToCentral = async (scope?: 'user' | 'project'): Promise<void> => {
         const hasWorkspace = Boolean(vscode.workspace.workspaceFolders?.length);
         const migratable = skillDashboardController.getRecords()
-            .filter(record => record.enabled && !record.central
+            .filter(record => !record.central
                 && (!scope || record.scope === scope)
                 && (record.source === 'kimi' || record.source === 'claude' || record.source === 'codex'));
         if (!migratable.length) {
@@ -442,7 +442,7 @@ async function initializeDashboard(
         }
         const choice = await vscode.window.showWarningMessage(
             `Migrate ${segments.join(' and ')}? `
-            + 'The kimi > claude > codex copy wins, other copies are parked reversibly, '
+            + 'The kimi > claude > codex copy wins, other copies are deleted, '
             + 'and no agent links are created — enable agents per card afterwards.',
             { modal: true },
             'Migrate',
@@ -455,8 +455,8 @@ async function initializeDashboard(
         if (report.drifted.length) {
             parts.push(`${report.drifted.length} had drift (brand-priority winner)`);
         }
-        if (report.parked.length) {
-            parts.push(`${report.parked.length} duplicate(s) parked`);
+        if (report.deleted.length) {
+            parts.push(`${report.deleted.length} duplicate(s) deleted`);
         }
         if (report.skipped.length) {
             parts.push(`${report.skipped.length} skipped`);
@@ -1378,10 +1378,21 @@ async function initializeDashboard(
                     promptDashboardController.getPanelContent(e.requestId)
                 );
             },
-            'toggle-skill': e => {
-                const result = skillDashboardController.handleToggle(String(e.dirPath || ''), e.enabled === true);
+            'delete-skill': async e => {
+                const dirPath = String(e.dirPath || '');
+                const record = skillDashboardController.getRecords().find(candidate => candidate.dirPath === dirPath);
+                const label = record ? record.name : dirPath;
+                const choice = await vscode.window.showWarningMessage(
+                    `Delete skill "${label}" permanently? This cannot be undone.`,
+                    { modal: true },
+                    'Delete',
+                );
+                if (choice !== 'Delete') {
+                    return;
+                }
+                const result = skillDashboardController.handleDeleteSkill(dirPath);
                 if (!result.ok) {
-                    void vscode.window.showWarningMessage(`Could not toggle skill: ${result.error}`);
+                    void vscode.window.showWarningMessage(`Could not delete the skill: ${result.error}`);
                 }
             },
             'apply-skill-collection': e => {

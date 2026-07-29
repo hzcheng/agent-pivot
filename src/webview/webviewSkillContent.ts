@@ -3,7 +3,6 @@
 import * as path from 'path';
 
 import type { SkillAgentId, SkillRecord, SkillScope, SkillSourceDir, SkillVisibility } from '../skills/types';
-import { DISABLED_DIR_NAME } from '../skills/roots';
 import { FIXABLE_DIAGNOSTIC_CODES } from '../skills/fixService';
 import { getSkillStableKey } from '../skills/skillGroupStore';
 import {
@@ -132,26 +131,23 @@ function getSkillDiv(record: SkillRecord, view: SkillPanelView): string {
         + (record.central ? '<span class="skill-chip central" title="Centralized in the shared store">central</span>' : '')
         + AGENTS.map(agent => agentChip(agent, record.visibility[agent])).join('')
         + warnChip;
-    const parkedNote = record.enabled ? '' : `<span class="skill-parked-note">parked at ${escapeAttribute(record.dirPath)}</span>`;
-    const centralizeButton = record.central || !record.enabled
+    const centralizeButton = record.central
         ? ''
         : `<button type="button" class="skill-centralize" title="Move into the shared store and link from agents" data-skill-centralize="${escapeAttribute(record.dirPath)}">Centralize</button>`;
-    const masterToggle = record.central
+    const deleteButton = record.central
         ? ''
-        : `<button class="skill-toggle${record.enabled ? '' : ' off'}" title="${record.enabled ? 'Disable' : 'Enable'} skill" data-skill-toggle="${escapeAttribute(record.dirPath)}"></button>`;
+        : `<button type="button" class="skill-delete" title="Delete this skill permanently" data-skill-delete="${escapeAttribute(record.dirPath)}">Delete</button>`;
     return `
 <div class="project-container" draggable="true" data-skill-scope="${record.scope}">
-    <div class="project steward-item-card skill-card${record.enabled ? '' : ' skill-card-disabled'}" data-skill-dir="${escapeAttribute(record.dirPath)}" data-skill-agents="${activeAgents}">
+    <div class="project steward-item-card skill-card" data-skill-dir="${escapeAttribute(record.dirPath)}" data-skill-agents="${activeAgents}">
         <div class="project-aura"></div>
         <div class="project-border steward-item-accent"></div>
-        ${masterToggle}
         <div class="fitty-container project-title-row">
             <span class="project-kind-icon">${terminalLine}</span>
             <h2 class="project-header">${name}</h2>
         </div>
         <p class="project-description" title="${description}">${description}</p>
-        ${parkedNote}
-        <div class="skill-chip-row">${chips}${centralizeButton}<span class="skill-expand-hint" title="Show details">${collapseIcon}</span></div>
+        <div class="skill-chip-row">${chips}${centralizeButton}${deleteButton}<span class="skill-expand-hint" title="Show details">${collapseIcon}</span></div>
         ${copyRow}
         ${getSkillDetail(record, view, duplicate)}
     </div>
@@ -174,8 +170,7 @@ interface SkillSourceGroup {
 }
 
 function getSkillRootDir(record: SkillRecord): string {
-    const parent = path.dirname(record.dirPath);
-    return path.basename(parent) === DISABLED_DIR_NAME ? path.dirname(parent) : parent;
+    return path.dirname(record.dirPath);
 }
 
 function groupBySource(records: SkillRecord[]): SkillSourceGroup[] {
@@ -337,7 +332,6 @@ function renderFolderNode(
 
 function renderScopeSection(scope: SkillScope, items: SkillRecord[], view: SkillPanelView): string {
     const central = items.filter(record => record.central);
-    const centralNames = new Set(central.map(record => record.name));
     // Section-level batch state per agent: every central record in the section.
     const sectionAgentState = (agent: SkillAgentId): SkillFolderLinkState => {
         if (!central.length) {
@@ -360,10 +354,6 @@ function renderScopeSection(scope: SkillScope, items: SkillRecord[], view: Skill
     };
     const sectionStateAttrs = AGENTS.map(agent => ` data-state-${agent}="${sectionAgentState(agent)}"`).join('');
     const unmanaged = items.filter(record => !record.central);
-    // Parked copies that duplicate a central skill are archive noise: they hide
-    // behind a disclosure instead of cluttering Unmanaged.
-    const parkedDuplicates = unmanaged.filter(record => !record.enabled && centralNames.has(record.name));
-    const actionable = unmanaged.filter(record => record.enabled || !centralNames.has(record.name));
     const tree = buildFolderTree(central, (view.storeFolders && view.storeFolders[scope]) || []);
     const viewStoreRoot = scope === 'user' ? view.storeRoots?.user : view.storeRoots?.project;
     const storeRoot = viewStoreRoot || (central.length ? getCentralStoreRoot(central[0]) : '');
@@ -373,17 +363,10 @@ function renderScopeSection(scope: SkillScope, items: SkillRecord[], view: Skill
     const rootItems = tree.items.slice()
         .sort((a, b) => a.name.localeCompare(b.name))
         .map(record => getSkillDiv(record, view));
-    const duplicatesDisclosure = parkedDuplicates.length
-        ? `<button type="button" class="skill-parked-duplicates-toggle" data-skill-parked-toggle>${parkedDuplicates.length} parked duplicate${parkedDuplicates.length === 1 ? ' copy' : ' copies'} in .disabled — show</button>
-        <div class="skill-parked-duplicates" hidden>
-        ${groupBySource(parkedDuplicates).map(group => renderSourceGroup(group, view)).join('\n')}
-    </div>`
-        : '';
-    const unmanagedSection = (actionable.length || parkedDuplicates.length)
+    const unmanagedSection = unmanaged.length
         ? `<div class="skill-unmanaged">
         <div class="skill-unmanaged-header">Unmanaged</div>
-        ${groupBySource(actionable).map(group => renderSourceGroup(group, view)).join('\n')}
-        ${duplicatesDisclosure}
+        ${groupBySource(unmanaged).map(group => renderSourceGroup(group, view)).join('\n')}
     </div>`
         : '';
     return `

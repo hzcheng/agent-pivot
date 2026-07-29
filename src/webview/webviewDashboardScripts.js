@@ -1224,16 +1224,6 @@ function initDashboard(options) {
             }
             return;
         }
-        var parkedToggle = event.target && event.target.closest ? event.target.closest('[data-skill-parked-toggle]') : null;
-        if (parkedToggle) {
-            event.preventDefault();
-            var parkedPanel = parkedToggle.nextElementSibling;
-            if (parkedPanel && parkedPanel.classList.contains('skill-parked-duplicates')) {
-                parkedPanel.hidden = !parkedPanel.hidden;
-                parkedToggle.textContent = parkedToggle.textContent.replace(parkedPanel.hidden ? 'hide' : 'show', parkedPanel.hidden ? 'show' : 'hide');
-            }
-            return;
-        }
         var folderToggle = event.target && event.target.closest ? event.target.closest('[data-folder-toggle]') : null;
         if (folderToggle) {
             event.preventDefault();
@@ -1293,15 +1283,11 @@ function initDashboard(options) {
             });
             return;
         }
-        var toggle = event.target && event.target.closest ? event.target.closest('[data-skill-toggle]') : null;
-        if (toggle) {
+        var deleteSkill = event.target && event.target.closest ? event.target.closest('[data-skill-delete]') : null;
+        if (deleteSkill) {
             event.preventDefault();
             event.stopPropagation();
-            options.postMessage({
-                type: 'toggle-skill',
-                dirPath: toggle.getAttribute('data-skill-toggle'),
-                enabled: !toggle.classList.contains('off'),
-            });
+            options.postMessage({ type: 'delete-skill', dirPath: deleteSkill.getAttribute('data-skill-delete') });
             return;
         }
         var applySuggestion = event.target && event.target.closest ? event.target.closest('[data-skill-apply-suggestion]') : null;

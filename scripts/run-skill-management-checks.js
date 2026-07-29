@@ -9,7 +9,6 @@ const frontmatter = require('../out/skills/frontmatter');
 const roots = require('../out/skills/roots');
 const discovery = require('../out/skills/discovery');
 const effectiveness = require('../out/skills/effectiveness');
-const toggleService = require('../out/skills/toggleService');
 
 // Stub `vscode` before requiring webview modules (mirrors run-open-project-safety-checks.js).
 // getMediaResource calls vscode.Uri.file at render time, so the stub needs a minimal Uri.file.
@@ -92,7 +91,7 @@ function runRootsChecks() {
 
     const brand = roots.getKimiBrandCandidates(userRoots);
     assert.deepStrictEqual(brand.map(root => root.source), ['kimi', 'claude', 'codex']);
-    assert.strictEqual(roots.DISABLED_DIR_NAME, '.disabled');
+    assert.strictEqual(roots.DISABLED_DIR_NAME, undefined, 'the .disabled mechanism is retired');
 }
 
 function makeFixture(t) {
@@ -105,6 +104,7 @@ function makeFixture(t) {
     write(path.join(home, '.kimi/skills/alpha/SKILL.md'), '---\nname: alpha\ndescription: Alpha skill\n---\n# A\n');
     write(path.join(home, '.claude/skills/beta/SKILL.md'), '---\nname: beta\ndescription: Beta skill\n---\n# B\n');
     write(path.join(home, '.kimi/skills/.hidden/SKILL.md'), '---\nname: hidden\ndescription: x\n---\n');
+    // Legacy `.disabled` directories are dot-skipped like any other hidden dir.
     write(path.join(home, '.kimi/skills/.disabled/parked/SKILL.md'), '---\nname: parked\ndescription: x\n---\n');
     write(path.join(ws, '.claude/skills/gamma/SKILL.md'), '---\nname: gamma\ndescription: Gamma\n---\n# G\n');
     write(path.join(ws, '.agents/skills/delta/skill.md'), '---\nname: delta\ndescription: Delta\n---\n');
@@ -116,10 +116,9 @@ function runDiscoveryChecks() {
     const records = discovery.scanSkills({ homeDir: home, workspaceRoot: ws });
     const byName = new Map(records.map(record => [record.name, record]));
 
-    assert.deepStrictEqual(records.map(record => record.name).sort(), ['alpha', 'beta', 'delta', 'gamma', 'parked']);
+    assert.deepStrictEqual(records.map(record => record.name).sort(), ['alpha', 'beta', 'delta', 'gamma']);
     assert.strictEqual(byName.get('alpha').scope, 'user');
     assert.strictEqual(byName.get('alpha').source, 'kimi');
-    assert.strictEqual(byName.get('alpha').enabled, true);
     assert.strictEqual(byName.get('alpha').description, 'Alpha skill');
     assert.deepStrictEqual(byName.get('alpha').diagnostics, []);
     assert.strictEqual(byName.get('gamma').scope, 'project');
@@ -128,15 +127,10 @@ function runDiscoveryChecks() {
         byName.get('delta').diagnostics.map(item => item.code),
         ['lowercase-filename']
     );
-    const parked = byName.get('parked');
-    assert.ok(parked, '.disabled skills are scanned as parked records');
-    assert.strictEqual(parked.enabled, false);
-    assert.strictEqual(parked.scope, 'user');
-    assert.strictEqual(parked.source, 'kimi');
-    assert.strictEqual(parked.dirPath, path.join(home, '.kimi', 'skills', '.disabled', 'parked'));
-    assert.strictEqual(parked.description, 'x', 'parked records keep frontmatter parsing');
+    assert.ok(!byName.has('parked'), '.disabled content is dot-skipped, never scanned');
     assert.ok(!byName.has('hidden'), 'dot-directories must be skipped');
     assert.ok(!byName.has('.hidden'));
+    assert.strictEqual(byName.get('alpha').enabled, undefined, 'SkillRecord.enabled is retired');
     assert.deepStrictEqual(byName.get('alpha').visibility, { kimi: 'active', claude: 'absent', codex: 'absent' });
 }
 
@@ -160,10 +154,6 @@ function runEffectivenessChecks() {
     assert.strictEqual(byName.get('gamma').visibility.kimi, 'active');
     assert.strictEqual(byName.get('delta').visibility.claude, 'absent');
 
-    // Parked records are excluded from effectiveness even when a brand dir exists
-    assert.deepStrictEqual(byName.get('parked').visibility, { kimi: 'absent', claude: 'absent', codex: 'absent' });
-    assert.deepStrictEqual(byName.get('parked').shadowedBy, {});
-
     // No brand dirs at all → kimi absent
     const emptyHome = fs.mkdtempSync(path.join(os.tmpdir(), 'skills-empty-'));
     const lonely = discovery.scanSkills({ homeDir: emptyHome });
@@ -174,48 +164,13 @@ function runEffectivenessChecks() {
     });
     assert.strictEqual(gammaOnly.find(r => r.name === 'alpha').visibility.kimi, 'absent');
     assert.strictEqual(gammaOnly.find(r => r.name === 'delta').visibility.kimi, 'active', 'generic group is independent of brand dirs');
-    assert.deepStrictEqual(
-        gammaOnly.find(r => r.name === 'parked').visibility,
-        { kimi: 'absent', claude: 'absent', codex: 'absent' },
-        'parked records stay absent on re-application'
-    );
-}
-
-function runToggleChecks() {
-    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'skills-toggle-'));
-    const skillDir = path.join(home, '.kimi', 'skills', 'alpha');
-    fs.mkdirSync(skillDir, { recursive: true });
-    fs.writeFileSync(path.join(skillDir, 'SKILL.md'), '---\nname: alpha\n---\n');
-
-    const disabled = toggleService.disableSkill(skillDir);
-    assert.strictEqual(disabled.ok, true);
-    assert.strictEqual(disabled.dirPath, path.join(home, '.kimi', 'skills', '.disabled', 'alpha'));
-    assert.ok(!fs.existsSync(skillDir));
-    assert.ok(fs.existsSync(path.join(disabled.dirPath, 'SKILL.md')));
-
-    const again = toggleService.disableSkill(disabled.dirPath);
-    assert.strictEqual(again.ok, false, 'already parked is not a valid disable');
-
-    const enabled = toggleService.enableSkill(disabled.dirPath);
-    assert.strictEqual(enabled.ok, true);
-    assert.strictEqual(enabled.dirPath, skillDir);
-    assert.ok(fs.existsSync(path.join(skillDir, 'SKILL.md')));
-
-    const conflictDir = path.join(home, '.kimi', 'skills', '.disabled', 'alpha');
-    fs.mkdirSync(conflictDir, { recursive: true });
-    const conflict = toggleService.disableSkill(skillDir);
-    assert.strictEqual(conflict.ok, false);
-    assert.match(conflict.error, /already exists/i);
-    assert.ok(fs.existsSync(skillDir), 'source untouched on conflict');
-
-    assert.strictEqual(toggleService.enableSkill(skillDir).ok, false, 'not parked → cannot enable');
 }
 
 function makeRecord(overrides = {}) {
     return {
         name: 'demo', description: 'Demo skill', dirPath: '/home/dev/.kimi/skills/demo',
         skillFilePath: '/home/dev/.kimi/skills/demo/SKILL.md', scope: 'user', source: 'kimi',
-        enabled: true, folder: '', visibility: { kimi: 'active', claude: 'absent', codex: 'absent' },
+        folder: '', visibility: { kimi: 'active', claude: 'absent', codex: 'absent' },
         shadowedBy: {}, diagnostics: [], ...overrides,
     };
 }
@@ -242,25 +197,22 @@ function runSkillRenderingChecks() {
             visibility: { kimi: 'shadowed', claude: 'active', codex: 'absent' },
             shadowedBy: { kimi: '/work/app/.kimi/skills' },
         }),
-        makeRecord({
-            name: 'parked', enabled: false, dirPath: '/home/dev/.kimi/skills/.disabled/parked',
-            visibility: { kimi: 'absent', claude: 'absent', codex: 'absent' },
-        }),
         makeRecord({ name: 'broken', diagnostics: [{ code: 'lowercase-filename', message: 'x' }, { code: 'missing-name', message: 'y' }] }),
     ]);
     // tree: two top-level folders (global / project) with collection folders nested inside
     assert.ok(html.includes('</span>global'), 'top-level global folder');
     assert.ok(html.includes('</span>project'), 'top-level project folder');
     assert.ok((html.match(/skill-collection-icon/g) || []).length >= 2, 'folder icons on tree nodes');
-    assert.ok(html.includes('data-skill-toggle="/home/dev/.kimi/skills/demo"'));
+    assert.ok(html.includes('data-skill-delete="/home/dev/.kimi/skills/demo"'), 'unmanaged cards render the Delete action');
+    assert.ok(!html.includes('data-skill-toggle='), 'master toggle retired');
     assert.ok(html.includes('data-skill-open="/home/dev/.kimi/skills/demo/SKILL.md"'),
         'clean records (no shadowing, no diagnostics) render the Open SKILL.md action');
     assert.ok(html.includes('class="skill-chip agent-kimi"'));
     assert.ok(html.includes('class="skill-chip agent-absent"'));
     assert.ok(html.includes('⚠ shadowed'));
     assert.ok(html.includes('⚠ 2 issues'));
-    assert.ok(html.includes('skill-card-disabled'));
-    assert.ok(html.includes('parked at /home/dev/.kimi/skills/.disabled/parked'));
+    assert.ok(!html.includes('skill-card-disabled'), 'disabled card styling retired');
+    assert.ok(!html.includes('skill-parked-note'), 'parked note retired');
     assert.ok(html.includes('Effectiveness per agent'));
     assert.ok(html.includes('~/.kimi/skills') === false, 'paths render verbatim, not home-shortened');
     assert.ok(!html.includes('undefined'));
@@ -270,10 +222,10 @@ function runSkillRenderingChecks() {
     assert.ok(html.includes('<span class="skill-source-path" title="/home/dev/.kimi/skills">/home/dev/.kimi/skills</span>'),
         'source root renders verbatim');
     assert.strictEqual(html.split('data-skill-source="kimi"').length - 1, 1,
-        'parked skill folds into the same source group as its active siblings');
+        'one kimi source group for the unmanaged records');
     assert.ok(html.indexOf('data-skill-source="kimi"') < html.indexOf('data-skill-source="claude"'),
         'source groups follow kimi > claude order');
-    assert.ok(html.includes('<span class="skill-source-count">3</span>'), 'source group shows its skill count');
+    assert.ok(html.includes('<span class="skill-source-count">2</span>'), 'source group shows its skill count');
     assert.ok(html.indexOf('>broken</h2>') < html.indexOf('>demo</h2>'), 'cards sort by name within a source group');
     // TODO(T7): finalized in the group-retirement task — virtual collection node, datalist,
     // ungroup and group-editor rendering assertions removed with the folder-tree rendering (Task 5).
@@ -291,7 +243,6 @@ function runSkillRenderingChecks() {
     assert.ok(html.includes('data-skill-filter="claude"'));
     assert.ok(html.includes('data-skill-filter="codex"'));
     assert.ok(html.includes('data-skill-agents="kimi"'), 'demo is active for kimi only');
-    assert.ok(html.includes('data-skill-agents=""'), 'parked skill is active for no agent');
     // SKILLS lives as a subtab inside the AI panel, not as a top-level dashboard tab
     const stewardHtml = webviewContent.getStewardContent(
         { extensionPath: '/extension' },
@@ -306,8 +257,8 @@ function runSkillRenderingChecks() {
     );
     assert.ok(aiPanelHtml.includes('id="ai-tab-skills"'));
     assert.ok(aiPanelHtml.includes('id="ai-panel-skills"'));
-    assert.ok(aiPanelHtml.includes('data-skill-toggle='), 'skills surface embedded in the AI panel');
-    assert.ok(!promptWebviewContent.getAiPanelContent({ prompts: [], selectedPromptId: null, revision: 0 }).includes('data-skill-toggle='),
+    assert.ok(aiPanelHtml.includes('data-skill-delete='), 'skills surface embedded in the AI panel');
+    assert.ok(!promptWebviewContent.getAiPanelContent({ prompts: [], selectedPromptId: null, revision: 0 }).includes('data-skill-delete='),
         'placeholder renders without a skills surface');
 
     const tree = skillContent.getSkillsPanelContent([
@@ -389,28 +340,24 @@ function runSkillRenderingChecks() {
     assert.ok(noFolderTree.includes('skills-empty'), 'zero records and zero folders renders the empty hint');
     // unmanaged section holds the plain record
     assert.ok(tree.includes('skill-unmanaged'));
-    // parked duplicates of central skills hide behind a disclosure; re-enable candidates stay visible
+    // every unmanaged record renders in the list — there is no parked/disabled state
     const dupTree = skillContent.getSkillsPanelContent([
         makeRecord({ name: 'alpha', source: 'central', dirPath: '/home/dev/.skills/alpha',
             skillFilePath: '/home/dev/.skills/alpha/SKILL.md',
             central: { dirPath: '/home/dev/.skills/alpha', links: {} } }),
-        makeRecord({ name: 'alpha', enabled: false, source: 'codex', dirPath: '/home/dev/.codex/skills/.disabled/alpha',
-            skillFilePath: '/home/dev/.codex/skills/.disabled/alpha/SKILL.md',
-            visibility: { kimi: 'absent', claude: 'absent', codex: 'absent' } }),
-        makeRecord({ name: 'loose', enabled: false, source: 'codex', dirPath: '/home/dev/.codex/skills/.disabled/loose',
-            skillFilePath: '/home/dev/.codex/skills/.disabled/loose/SKILL.md',
-            visibility: { kimi: 'absent', claude: 'absent', codex: 'absent' } }),
+        makeRecord({ name: 'alpha', source: 'codex', dirPath: '/home/dev/.codex/skills/alpha',
+            skillFilePath: '/home/dev/.codex/skills/alpha/SKILL.md',
+            visibility: { kimi: 'absent', claude: 'absent', codex: 'active' } }),
+        makeRecord({ name: 'loose', source: 'codex', dirPath: '/home/dev/.codex/skills/loose',
+            skillFilePath: '/home/dev/.codex/skills/loose/SKILL.md',
+            visibility: { kimi: 'absent', claude: 'absent', codex: 'active' } }),
     ]);
-    assert.ok(dupTree.includes('data-skill-parked-toggle'), 'parked duplicates get a disclosure toggle');
-    assert.ok(dupTree.includes('1 parked duplicate copy in .disabled'));
-    const unmanagedPart = dupTree.split('skill-unmanaged-header')[1].split('data-skill-parked-toggle')[0];
-    assert.ok(unmanagedPart.includes('data-skill-dir="/home/dev/.codex/skills/.disabled/loose"'),
-        'parked records without a central twin stay visible for re-enabling');
-    assert.ok(!unmanagedPart.includes('data-skill-dir="/home/dev/.codex/skills/.disabled/alpha"'),
-        'parked duplicates leave the visible list');
-    const parkedPanel = dupTree.split('data-skill-parked-toggle')[1];
-    assert.ok(parkedPanel.includes('data-skill-dir="/home/dev/.codex/skills/.disabled/alpha"'),
-        'the disclosure reveals parked duplicates on demand');
+    assert.ok(!dupTree.includes('data-skill-parked-toggle'), 'parked disclosure retired');
+    assert.ok(!dupTree.includes('skill-parked-duplicates'), 'parked panel styles retired from markup');
+    assert.ok(dupTree.includes('data-skill-dir="/home/dev/.codex/skills/alpha"'),
+        'unmanaged duplicate of a central skill stays visible');
+    assert.ok(dupTree.includes('data-skill-dir="/home/dev/.codex/skills/loose"'),
+        'plain unmanaged record stays visible');
     // move editor present, old group editor gone
     assert.ok(tree.includes('data-skill-move-folder='));
     assert.ok(!tree.includes('data-skill-group-input'), 'virtual group editor removed');
@@ -435,7 +382,9 @@ function runSkillStyleChecks() {
     const compiled = fs.readFileSync(path.join(__dirname, '..', 'media', 'styles.css'), 'utf8');
     assert.ok(styles.includes('.skill-card'));
     assert.ok(styles.includes('body.steward-sidebar .skill-card'));
-    assert.ok(styles.includes('.skill-toggle'));
+    assert.ok(styles.includes('.skill-delete'), 'delete button styles');
+    assert.ok(!styles.includes('.skill-parked'), 'parked styles retired');
+    assert.ok(!styles.includes('.skill-card-disabled'), 'disabled card styles retired');
     assert.ok(styles.includes('.skill-chip'));
     assert.ok(styles.includes('.skill-detail'));
     assert.ok(styles.includes('.skill-source-header'));
@@ -445,15 +394,14 @@ function runSkillStyleChecks() {
     assert.ok(styles.includes('.skill-folder-more'), 'folder ⋯ button styles');
     assert.ok(styles.includes('.skill-ios-toggle.indeterminate'), 'indeterminate switch styles');
     assert.ok(styles.includes('.skill-folder-menu-item'), 'folder menu item styles');
-    assert.ok(styles.includes('.skill-parked-duplicates'), 'parked duplicates disclosure styles');
     assert.ok(styles.includes('.skill-unmanaged'), 'unmanaged section styles');
     assert.ok(compiled.includes('.skill-folder'));
     assert.ok(compiled.includes('.skill-folder-more'));
     assert.ok(compiled.includes('.skill-folder-menu-item'));
-    assert.ok(compiled.includes('.skill-parked-duplicates'));
+    assert.ok(compiled.includes('.skill-delete'));
+    assert.ok(!compiled.includes('.skill-parked-duplicates'));
     assert.ok(compiled.includes('.skill-ios-toggle.indeterminate'));
     assert.ok(compiled.includes('.skill-unmanaged'));
-    assert.ok(compiled.includes('.skill-toggle'));
     assert.ok(compiled.includes('.skill-chip'));
     assert.ok(compiled.includes('.skill-source-header'));
     assert.ok(compiled.includes('.skill-filter-hidden'));
@@ -486,10 +434,13 @@ function runSkillWebviewScriptChecks() {
     assert.ok(script.includes("'fix-skill-diagnostic'"), 'fix wiring present');
     assert.ok(script.includes("'apply-skill-collection'"), 'collection suggestion wiring present');
     assert.ok(script.includes("'dismiss-skill-collection'"));
-    assert.ok(script.includes("'toggle-skill'"));
+    assert.ok(script.includes("'delete-skill'"), 'delete wiring present');
+    assert.ok(!script.includes("'toggle-skill'"), 'toggle wiring retired');
     assert.ok(script.includes("'open-skill-file'"));
     assert.ok(script.includes("'skills-updated'"));
-    assert.ok(script.includes('data-skill-toggle'));
+    assert.ok(script.includes('data-skill-delete'));
+    assert.ok(!script.includes('data-skill-toggle'), 'toggle markup wiring retired');
+    assert.ok(!script.includes('data-skill-parked-toggle'), 'parked disclosure wiring retired');
     assert.ok(script.includes('skill-detail-open'), 'card click expands the detail panel');
 }
 
@@ -509,38 +460,42 @@ function runSkillControllerChecks() {
     assert.ok(posted.some(message => message.type === 'skills-updated' && message.html.includes('alpha')));
 
     const skillDir = path.join(home, '.kimi', 'skills', 'alpha');
-    const result = controller.handleToggle(skillDir, true);
+    const result = controller.handleDeleteSkill(skillDir);
     assert.strictEqual(result.ok, true);
-    const afterDisable = controller.getRecords().find(record => record.name === 'alpha');
-    assert.ok(afterDisable, 'disabled skill stays listed as a parked record');
-    assert.strictEqual(afterDisable.enabled, false);
-    const parkedPath = path.join(home, '.kimi', 'skills', '.disabled', 'alpha');
-    assert.strictEqual(controller.handleToggle(parkedPath, false).ok, true);
-    const afterEnable = controller.getRecords().find(record => record.name === 'alpha');
-    assert.ok(afterEnable, 're-enabled skill is back in the scan');
-    assert.strictEqual(afterEnable.enabled, true);
+    assert.ok(!fs.existsSync(skillDir), 'delete removes the skill directory');
+    assert.ok(!controller.getRecords().some(record => record.name === 'alpha'),
+        'deleted skill leaves the scan after refresh');
 
-    // Path containment: mutation endpoints must refuse paths outside known skills roots.
-    const outsideDisable = controller.handleToggle(path.join(os.tmpdir(), 'not-a-skill-dir', 'x'), true);
-    assert.strictEqual(outsideDisable.ok, false, 'disable outside known roots is refused');
-    const disableDisabledDir = controller.handleToggle(path.join(home, '.kimi', 'skills', '.disabled'), true);
-    assert.strictEqual(disableDisabledDir.ok, false, 'the .disabled directory itself is not a toggle target');
-    const outsideEnable = controller.handleToggle(path.join(os.tmpdir(), 'elsewhere', '.disabled', 'x'), false);
-    assert.strictEqual(outsideEnable.ok, false, 'enable outside a known root .disabled dir is refused');
-    const enableActive = controller.handleToggle(skillDir, false);
-    assert.strictEqual(enableActive.ok, false, 'enable on an active (non-parked) path is refused');
-    assert.ok(fs.existsSync(path.join(skillDir, 'SKILL.md')), 'refused toggles never touch the filesystem');
+    // Path containment: delete must refuse unknown and out-of-scan paths.
+    const unknownDelete = controller.handleDeleteSkill(path.join(os.tmpdir(), 'not-a-skill-dir', 'x'));
+    assert.strictEqual(unknownDelete.ok, false, 'unknown skill is refused');
+    const missingDelete = controller.handleDeleteSkill(path.join(home, '.kimi', 'skills', 'missing'));
+    assert.strictEqual(missingDelete.ok, false, 'path not in the scan is refused');
 
-    posted.length = 0;
-    const bad = controller.handleToggle(path.join(home, '.kimi', 'skills', 'missing'), true);
-    assert.strictEqual(bad.ok, false);
+    // A root entry that symlinks to a directory outside the known roots resolves
+    // into the scan, but its realpath fails the direct-child check: delete is
+    // refused and the outside directory is never touched.
+    const outsideDir = path.join(home, 'outside-skill');
+    fs.mkdirSync(outsideDir, { recursive: true });
+    fs.writeFileSync(path.join(outsideDir, 'SKILL.md'), '---\nname: outside\ndescription: x\n---\n');
+    const outsideReal = fs.realpathSync(outsideDir);
+    fs.symlinkSync(outsideDir, path.join(home, '.claude', 'skills', 'alias'), 'dir');
+    controller.start();
+    const aliasRecord = controller.getRecords().find(record => record.dirPath === outsideReal);
+    assert.ok(aliasRecord, 'symlinked entry resolves into the scan');
+    const symlinkDelete = controller.handleDeleteSkill(outsideReal);
+    assert.strictEqual(symlinkDelete.ok, false, 'delete of a symlink-resolved skill is refused');
+    assert.ok(fs.existsSync(path.join(outsideDir, 'SKILL.md')), 'outside directory untouched');
+
     controller.dispose();
 }
 
 function runSkillWiringChecks() {
     const dashboard = fs.readFileSync(path.join(__dirname, '..', 'src', 'dashboard.ts'), 'utf8');
     assert.ok(dashboard.includes('new SkillDashboardController('));
-    assert.ok(dashboard.includes("'toggle-skill'"));
+    assert.ok(dashboard.includes("'delete-skill'"));
+    assert.ok(!dashboard.includes("'toggle-skill'"), 'toggle message retired');
+    assert.ok(dashboard.includes('permanently? This cannot be undone.'), 'delete confirmation modal wired');
     assert.ok(dashboard.includes("'open-skill-file'"));
     assert.ok(!dashboard.includes("'set-skill-group'"), 'virtual group messages removed');
     assert.ok(!dashboard.includes("'toggle-skill-group'"));
@@ -558,7 +513,6 @@ runFrontmatterChecks();
 runRootsChecks();
 runDiscoveryChecks();
 runEffectivenessChecks();
-runToggleChecks();
 runSkillRenderingChecks();
 runSkillStyleChecks();
 runSkillWebviewScriptChecks();
@@ -694,7 +648,7 @@ function runSkillSyncChecks() {
     const demoTargets = copyTargets.get(path.join(home, '.kimi', 'skills', 'demo')) || [];
     assert.strictEqual(demoTargets.length, 0, 'all brand roots already hold demo');
 
-    // sync: source wins, loser parked reversibly
+    // sync: source wins, loser deleted (no .disabled parking anywhere)
     write('.kimi/skills/sync-me/SKILL.md', '---\nname: sync-me\n---\nGOOD\n');
     write('.codex/skills/sync-me/SKILL.md', '---\nname: sync-me\n---\nSTALE\n');
     const syncResult = syncService.syncSkillDir(
@@ -702,8 +656,10 @@ function runSkillSyncChecks() {
         path.join(home, '.codex', 'skills', 'sync-me'));
     assert.strictEqual(syncResult.ok, true);
     assert.ok(fs.readFileSync(path.join(home, '.codex', 'skills', 'sync-me', 'SKILL.md'), 'utf8').includes('GOOD'));
-    const parked = fs.readdirSync(path.join(home, '.codex', 'skills', '.disabled'));
-    assert.ok(parked.some(entry => entry.startsWith('sync-me.replaced-')), 'losing copy is parked, not destroyed');
+    assert.ok(!fs.existsSync(path.join(home, '.codex', 'skills', '.disabled')),
+        'losing copy is deleted, never parked');
+    const leftovers = fs.readdirSync(os.tmpdir()).filter(entry => entry.startsWith('agent-pivot-skill-sync-'));
+    assert.deepStrictEqual(leftovers, [], 'sync temp aside is cleaned up');
 
     // copy: J6 into another root, never overwriting
     const copyResult = syncService.copySkillDir(
@@ -792,7 +748,6 @@ function runSkillCentralChecks() {
     const shared = sharedCopies[0];
     assert.strictEqual(shared.source, 'central');
     assert.strictEqual(shared.scope, 'user');
-    assert.strictEqual(shared.enabled, true);
     assert.strictEqual(shared.dirPath, path.join(home, '.skills', 'shared'));
     assert.deepStrictEqual(shared.central, {
         dirPath: path.join(home, '.skills', 'shared'),
@@ -843,9 +798,9 @@ function runSkillCentralChecks() {
     assert.strictEqual(centralService.setCentralLink(centralDir, kimiRoot, false).ok, false, 'never deletes a real directory');
     assert.ok(fs.lstatSync(linkPath).isDirectory());
 
-    // centralizeSkill: winner moves into the store, links back, losers parked reversibly
+    // centralizeSkill: winner moves into the store, links back, losers deleted
     const beforeCentralize = discovery.scanSkills({ homeDir: home, workspaceRoot: ws });
-    const claudSolo = beforeCentralize.find(record => record.name === 'solo' && record.source === 'claude' && record.enabled);
+    const claudSolo = beforeCentralize.find(record => record.name === 'solo' && record.source === 'claude');
     const soloDuplicates = beforeCentralize.filter(record =>
         record.scope === claudSolo.scope && record.name === claudSolo.name && record.dirPath !== claudSolo.dirPath);
     const centralized = centralService.centralizeSkill(claudSolo, soloDuplicates, home, ws);
@@ -855,16 +810,14 @@ function runSkillCentralChecks() {
     assert.ok(fs.lstatSync(path.join(home, '.claude', 'skills', 'solo')).isSymbolicLink(), 'original root links back');
     assert.strictEqual(fs.realpathSync(path.join(home, '.claude', 'skills', 'solo')), path.join(home, '.skills', 'solo'));
     assert.ok(!fs.existsSync(path.join(home, '.codex', 'skills', 'solo')), 'losing copy left its root');
-    assert.ok(fs.existsSync(path.join(home, '.codex', 'skills', '.disabled', 'solo', 'SKILL.md')), 'losing copy parked reversibly');
+    assert.ok(!fs.existsSync(path.join(home, '.codex', 'skills', '.disabled')),
+        'losing copy is deleted, never parked');
     const rescanned = discovery.scanSkills({ homeDir: home, workspaceRoot: ws });
-    const enabledSolo = rescanned.filter(record => record.name === 'solo' && record.enabled);
-    assert.strictEqual(enabledSolo.length, 1, 'centralized skill merges into one enabled record');
-    assert.strictEqual(enabledSolo[0].source, 'central');
-    assert.deepStrictEqual(enabledSolo[0].central.links, { user: { claude: path.join(home, '.claude', 'skills', 'solo') } });
-    const parkedSolo = rescanned.find(record => record.name === 'solo' && !record.enabled);
-    assert.ok(parkedSolo, 'parked loser stays listed as a parked record');
-    assert.strictEqual(centralService.centralizeSkill(enabledSolo[0], [], home, ws).ok, false, 'already centralized is refused');
-    assert.strictEqual(centralService.centralizeSkill(parkedSolo, [], home, ws).ok, false, 'parked skills must be enabled first');
+    const soloRecords = rescanned.filter(record => record.name === 'solo');
+    assert.strictEqual(soloRecords.length, 1, 'centralized skill merges into one record');
+    assert.strictEqual(soloRecords[0].source, 'central');
+    assert.deepStrictEqual(soloRecords[0].central.links, { user: { claude: path.join(home, '.claude', 'skills', 'solo') } });
+    assert.strictEqual(centralService.centralizeSkill(soloRecords[0], [], home, ws).ok, false, 'already centralized is refused');
 
     // controller: per-agent link toggle refreshes records; bogus inputs refused
     const controller = new SkillDashboardController({
@@ -903,7 +856,7 @@ function runSkillCentralChecks() {
     controller2.start();
     const soloDir = path.join(home2, '.claude', 'skills', 'solo');
     assert.strictEqual(controller2.handleCentralize(soloDir).ok, true);
-    assert.strictEqual(controller2.getRecords().find(record => record.name === 'solo' && record.enabled).source, 'central');
+    assert.strictEqual(controller2.getRecords().find(record => record.name === 'solo').source, 'central');
     assert.strictEqual(controller2.handleCentralize(soloDir).ok, false, 'already-central skill is refused');
     assert.strictEqual(controller2.handleCentralize('/nope').ok, false, 'unknown skill refused');
     controller2.dispose();
@@ -932,15 +885,10 @@ function runSkillCentralChecks() {
     assert.ok(centralHtml.includes('Disable for kimi (/home/dev/.kimi/skills/shared)'), 'link path moves into the tooltip');
     assert.ok(centralHtml.includes('Enable for claude'));
     assert.ok(!centralHtml.includes('not linked'), 'no per-agent path rows remain');
-    assert.ok(!centralHtml.includes('data-skill-toggle="/home/dev/.skills/shared"'), 'central cards hide the master toggle');
+    assert.ok(!centralHtml.includes('data-skill-delete="/home/dev/.skills/shared"'), 'central cards hide the Delete action');
     assert.ok(!centralHtml.includes('data-skill-centralize="/home/dev/.skills/shared"'), 'central cards are not re-centralizable');
     assert.ok(centralHtml.includes('data-skill-centralize="/home/dev/.kimi/skills/demo"'), 'plain skills offer Centralize');
-    const parkedOnlyHtml = skillContent.getSkillsPanelContent([makeRecord({
-        name: 'parked', enabled: false, dirPath: '/home/dev/.kimi/skills/.disabled/parked',
-        skillFilePath: '/home/dev/.kimi/skills/.disabled/parked/SKILL.md',
-        visibility: { kimi: 'absent', claude: 'absent', codex: 'absent' },
-    })]);
-    assert.ok(!parkedOnlyHtml.includes('data-skill-centralize'), 'parked skills cannot be centralized');
+    assert.ok(centralHtml.includes('data-skill-delete="/home/dev/.kimi/skills/demo"'), 'plain skills offer Delete');
 
     // wiring + styles
     const script = fs.readFileSync(path.join(__dirname, '..', 'media', 'webviewDashboardScripts.js'), 'utf8');
@@ -1174,35 +1122,10 @@ function runSkillFolderDiscoveryChecks() {
     assert.ok(detailed.storeFolders.user.includes('empty'), 'its parent listed too');
     assert.ok(detailed.storeFolders.project.includes('ws-empty'), 'project empty folder listed');
 
-    // Parked (disabled) central records are excluded from effectiveness entirely.
-    // A `.disabled` dir inside the central store is skipped by the dot-prefix rule
-    // in scanCentralStore, so discovery can never produce a disabled central record
-    // from the filesystem; build the record by hand and run effectiveness directly.
-    const parkedDir = path.join(home, '.skills', '.disabled', 'parked-central');
-    const parkedCentral = {
-        name: 'parked-central',
-        description: 'P',
-        dirPath: parkedDir,
-        skillFilePath: path.join(parkedDir, 'SKILL.md'),
-        scope: 'user',
-        source: 'central',
-        enabled: false,
-        folder: '',
-        central: {
-            dirPath: parkedDir,
-            links: { project: { codex: path.join(ws, '.codex', 'skills', 'parked-central') } },
-        },
-        visibility: { kimi: 'absent', claude: 'absent', codex: 'absent' },
-        shadowedBy: {},
-        diagnostics: [],
-    };
-    const parkedResult = effectiveness.applySkillEffectiveness([parkedCentral], { homeDir: home, workspaceRoot: ws });
-    assert.deepStrictEqual(parkedResult[0].visibility, { kimi: 'absent', claude: 'absent', codex: 'absent' },
-        'parked record stays all-absent at user scope');
-    assert.strictEqual(parkedResult[0].projectVisibility, undefined,
-        'parked central record is excluded from project effectiveness');
-    assert.strictEqual(parkedResult[0].projectShadowedBy, undefined,
-        'parked central record gets no project shadowing');
+    // A `.disabled` dir inside the central store is dot-skipped like anywhere else.
+    write(path.join(home, '.skills', '.disabled', 'parked-central', 'SKILL.md'), '---\nname: parked-central\ndescription: P\n---\n');
+    assert.ok(!discovery.scanSkills({ homeDir: home, workspaceRoot: ws })
+        .some(record => record.name === 'parked-central'), 'store `.disabled` content is never scanned');
 }
 
 function runSkillMigrationChecks() {
@@ -1214,7 +1137,7 @@ function runSkillMigrationChecks() {
             fs.mkdirSync(path.dirname(filePath), { recursive: true });
             fs.writeFileSync(filePath, content);
         };
-        // Identical copies of 'same' in kimi + codex (kimi wins, codex parked).
+        // Identical copies of 'same' in kimi + codex (kimi wins, codex deleted).
         write(path.join(home, '.kimi/skills/same/SKILL.md'), '---\nname: same\ndescription: Same\n---\n');
         write(path.join(home, '.codex/skills/same/SKILL.md'), '---\nname: same\ndescription: Same\n---\n');
         // Drifted copies of 'drifty' in claude + codex (claude wins by priority).
@@ -1230,7 +1153,7 @@ function runSkillMigrationChecks() {
         write(path.join(home, '.kimi/skills/solo/SKILL.md'), '---\nname: solo\ndescription: Solo\n---\n');
         // Generic agents dir skill (outside migration scope).
         write(path.join(home, '.agents/skills/generic/SKILL.md'), '---\nname: generic\ndescription: Generic\n---\n');
-        // A parked copy of 'same' in claude must stay parked and not interfere.
+        // A legacy `.disabled` copy of 'same' in claude is dot-skipped and left untouched.
         write(path.join(home, '.claude/skills/.disabled/same/SKILL.md'), '---\nname: same\ndescription: Parked\n---\n');
         return { home };
     };
@@ -1242,16 +1165,18 @@ function runSkillMigrationChecks() {
     assert.strictEqual(report.ok, true);
     assert.deepStrictEqual(report.migrated.sort(), ['drifty', 'same', 'solo']);
     assert.deepStrictEqual(report.drifted, ['drifty'], 'drift is reported when copies differ');
-    assert.strictEqual(report.parked.length, 2, 'codex copies of same and drifty are parked');
+    assert.strictEqual(report.deleted.length, 2, 'codex copies of same and drifty are deleted');
     assert.ok(report.skipped.some(item => item.name === 'shared' && item.reason === 'already in the central store'));
     assert.ok(report.skipped.some(item => item.name === 'generic' && item.reason === 'lives outside the kimi/claude/codex roots'));
 
-    // Real contents: winner copies moved into ~/.skills; losers parked under root .disabled
+    // Real contents: winner copies moved into ~/.skills; losers deleted, never parked
     assert.ok(fs.existsSync(path.join(home, '.skills', 'same', 'SKILL.md')));
     assert.ok(fs.existsSync(path.join(home, '.skills', 'drifty', 'SKILL.md')));
     assert.ok(fs.existsSync(path.join(home, '.skills', 'solo', 'SKILL.md')));
-    assert.ok(fs.existsSync(path.join(home, '.codex', 'skills', '.disabled', 'same', 'SKILL.md')));
-    assert.ok(fs.existsSync(path.join(home, '.codex', 'skills', '.disabled', 'drifty', 'SKILL.md')));
+    assert.ok(!fs.existsSync(path.join(home, '.codex', 'skills', '.disabled', 'same')), 'codex loser deleted');
+    assert.ok(!fs.existsSync(path.join(home, '.codex', 'skills', '.disabled', 'drifty')), 'codex loser deleted');
+    assert.ok(fs.existsSync(path.join(home, '.claude', 'skills', '.disabled', 'same', 'SKILL.md')),
+        'pre-existing .disabled content is left untouched');
     assert.ok(!fs.existsSync(path.join(home, '.kimi', 'skills', 'same')), 'winner left its original root');
     assert.ok(!fs.existsSync(path.join(home, '.codex', 'skills', 'same')), 'loser left its original root');
     assert.ok(!fs.existsSync(path.join(home, '.claude', 'skills', 'drifty')));
@@ -1295,8 +1220,8 @@ function runSkillMigrationChecks() {
     assert.deepStrictEqual(pReport.migrated.sort(), ['alpha', 'beta']);
     assert.ok(fs.existsSync(path.join(pWs, '.skills', 'alpha', 'SKILL.md')), 'winner moved into the project store');
     assert.ok(fs.existsSync(path.join(pWs, '.skills', 'beta', 'SKILL.md')));
-    assert.ok(fs.existsSync(path.join(pWs, '.codex', 'skills', '.disabled', 'alpha', 'SKILL.md')),
-        'project loser parked under its root');
+    assert.ok(!fs.existsSync(path.join(pWs, '.codex', 'skills', '.disabled', 'alpha')),
+        'project loser deleted, never parked');
     assert.ok(!fs.existsSync(path.join(pWs, '.kimi', 'skills', 'alpha')), 'winner left its project root');
     for (const entry of ['.kimi/skills', '.claude/skills', '.codex/skills']) {
         for (const name of fs.readdirSync(path.join(pWs, entry)).filter(name => !name.startsWith('.'))) {
@@ -1386,7 +1311,7 @@ function runSkillCollectionChecks() {
     assert.ok(fs.lstatSync(tddLink).isSymbolicLink(), 'centralized member stays linked from its original root');
     assert.strictEqual(fs.realpathSync(tddLink), path.join(home, '.skills', 'superpowers', 'test-driven-development'),
         'the link follows the move into the folder');
-    const filed = controller.getRecords().filter(record => record.folder === 'superpowers' && record.enabled);
+    const filed = controller.getRecords().filter(record => record.folder === 'superpowers');
     assert.strictEqual(filed.length, 4, 'all four members filed under the folder');
     assert.strictEqual(controller.getCollectionSuggestions().length, 0, 'suggestion gone once everything is filed');
     controller.dispose();

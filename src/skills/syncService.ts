@@ -2,9 +2,10 @@
 
 import * as crypto from 'crypto';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 
-import { DISABLED_DIR_NAME, getProjectSkillsRoots, getUserSkillsRoots } from './roots';
+import { getProjectSkillsRoots, getUserSkillsRoots } from './roots';
 import { getSkillStableKey } from './skillGroupStore';
 import type { SkillRecord, SkillScope, SkillSourceDir } from './types';
 
@@ -111,7 +112,7 @@ export function computeSkillCopyTargets(
                 continue;
             }
             const parent = path.dirname(candidate.dirPath);
-            taken.add(path.basename(parent) === DISABLED_DIR_NAME ? path.dirname(parent) : parent);
+            taken.add(parent);
             if (candidate.central) {
                 for (const scopedLinks of Object.values(candidate.central.links)) {
                     for (const link of Object.values(scopedLinks)) {
@@ -153,29 +154,32 @@ function copyDirRecursive(sourceDir: string, targetDir: string): void {
 }
 
 /**
- * Drift resolution: park the losing copy under `.disabled/<name>.replaced-<ts>`
- * (reversible, never destroyed) and copy the winning copy into its place.
+ * Drift resolution: the losing target is moved aside into a temp directory,
+ * the winning copy is copied into its place, and the aside is deleted. On
+ * copy failure the aside is rolled back so the target never ends up missing.
  */
 export function syncSkillDir(sourceDir: string, targetDir: string): SkillFsResult {
+    let aside: string | null = null;
     try {
         const name = path.basename(targetDir);
-        const parkedDir = path.join(path.dirname(targetDir), DISABLED_DIR_NAME);
-        let parkedPath = path.join(parkedDir, `${name}.replaced-${Date.now()}`);
-        if (fs.existsSync(parkedPath)) {
-            parkedPath = path.join(parkedDir, `${name}.replaced-${Date.now()}-${Math.floor(Math.random() * 1000)}`);
-        }
-        fs.mkdirSync(parkedDir, { recursive: true });
-        fs.renameSync(targetDir, parkedPath);
+        aside = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-skill-sync-'));
+        const asidePath = path.join(aside, name);
+        fs.renameSync(targetDir, asidePath);
         try {
             copyDirRecursive(sourceDir, targetDir);
         } catch (error) {
-            // Roll the parked copy back so the target never ends up missing.
-            fs.renameSync(parkedPath, targetDir);
+            // Roll the aside back so the target never ends up missing.
+            fs.renameSync(asidePath, targetDir);
             throw error;
         }
+        fs.rmSync(aside, { recursive: true, force: true });
         return { ok: true, dirPath: targetDir };
     } catch (error) {
         return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    } finally {
+        if (aside) {
+            try { fs.rmSync(aside, { recursive: true, force: true }); } catch (_error) { /* best effort */ }
+        }
     }
 }
 

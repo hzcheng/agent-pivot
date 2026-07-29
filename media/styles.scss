@@ -4074,55 +4074,6 @@ body.steward-sidebar {
         min-height: 96px;
     }
 
-    .skill-toggle {
-        position: absolute;
-        top: 8px;
-        right: 9px;
-        z-index: 3;
-        width: 26px;
-        height: 14px;
-        border: 0;
-        border-radius: 999px;
-        padding: 0;
-        background: var(--vscode-button-background);
-        cursor: pointer;
-
-        &::after {
-            content: "";
-            position: absolute;
-            top: 2px;
-            right: 2px;
-            width: 10px;
-            height: 10px;
-            border-radius: 999px;
-            background: #fff;
-        }
-
-        &.off {
-            background: #3c3c3c;
-            box-shadow: inset 0 0 0 1px #555;
-
-            &::after {
-                right: auto;
-                left: 2px;
-                background: #888;
-            }
-        }
-    }
-
-    .skill-card-disabled {
-        opacity: .55;
-    }
-
-    .skill-parked-note {
-        display: block;
-        margin-top: 2px;
-        font-size: 9px;
-        font-style: italic;
-        color: var(--vscode-descriptionForeground);
-        opacity: .8;
-    }
-
     .skill-chip-row {
         display: flex;
         flex-wrap: wrap;
@@ -4265,12 +4216,6 @@ body.steward-sidebar {
         border-left: 1px solid var(--vscode-panel-border);
     }
 
-    .skill-toggle.skill-group-toggle {
-        position: static;
-        flex: none;
-        margin-left: 6px;
-    }
-
     .skill-group-editor {
         display: flex;
         align-items: center;
@@ -4298,6 +4243,20 @@ body.steward-sidebar {
         color: #4ec9b0;
         cursor: pointer;
         font-size: 9px;
+    }
+
+    .skill-delete {
+        padding: 1px 7px;
+        border: 1px solid rgba(244, 71, 71, .4);
+        border-radius: 999px;
+        background: transparent;
+        color: #f44747;
+        cursor: pointer;
+        font-size: 9px;
+
+        &:hover {
+            background: rgba(244, 71, 71, .13);
+        }
     }
 
     .skill-agent-row {
@@ -4613,24 +4572,6 @@ body.steward-sidebar {
             background: var(--vscode-toolbar-hoverBackground, rgba(127, 127, 127, .2));
             color: var(--vscode-foreground);
         }
-    }
-
-    .skill-parked-duplicates-toggle {
-        margin: 2px 0 2px 2px;
-        padding: 0;
-        border: 0;
-        background: transparent;
-        color: var(--vscode-descriptionForeground);
-        cursor: pointer;
-        font-size: 10px;
-
-        &:hover {
-            color: var(--vscode-foreground);
-        }
-    }
-
-    .skill-parked-duplicates[hidden] {
-        display: none !important;
     }
 
     .skill-ios-toggle.indeterminate {

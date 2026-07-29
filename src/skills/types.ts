@@ -22,7 +22,6 @@ export interface SkillRecord {
     skillFilePath: string;
     scope: SkillScope;
     source: SkillSourceDir;
-    enabled: boolean;
     contentHash?: string;
     /** Folder path inside the central store ('' = store root, 'a/b' = nested). Always '' for non-central records. */
     folder: string;

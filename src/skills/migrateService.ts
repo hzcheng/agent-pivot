@@ -15,8 +15,8 @@ export interface SkillMigrationReport {
     migrated: string[];
     /** Migrated skills whose copies disagreed (winner picked by brand priority). */
     drifted: string[];
-    /** Losing copy directories parked under `.disabled/`. */
-    parked: string[];
+    /** Losing copy directories deleted after the winner was secured. */
+    deleted: string[];
     skipped: Array<{ name: string; reason: string }>;
     errors: Array<{ name: string; error: string }>;
 }
@@ -27,11 +27,11 @@ function priorityOf(record: SkillRecord): number {
 }
 
 /**
- * One-shot migration of every enabled skill living in the three brand agent
+ * One-shot migration of every skill living in the three brand agent
  * roots at one scope into that scope's central store (`~/.skills` for user,
  * `<project>/.skills` for project). The highest priority copy
- * (kimi > claude > codex) wins; all other real-directory copies are parked
- * reversibly under their root's `.disabled/`. No agent links are created —
+ * (kimi > claude > codex) wins; all other real-directory copies are
+ * deleted once the winner is secured. No agent links are created —
  * users enable agents per card afterwards.
  */
 export function migrateSkillsToCentral(
@@ -41,7 +41,7 @@ export function migrateSkillsToCentral(
     workspaceRoot?: string,
 ): SkillMigrationReport {
     const report: SkillMigrationReport = {
-        ok: true, migrated: [], drifted: [], parked: [], skipped: [], errors: [],
+        ok: true, migrated: [], drifted: [], deleted: [], skipped: [], errors: [],
     };
     if (scope === 'project' && !workspaceRoot) {
         report.ok = false;
@@ -59,15 +59,15 @@ export function migrateSkillsToCentral(
     }
     const centralRoot = getCentralSkillsRoot(homeDir, scope, workspaceRoot);
     for (const [name, copies] of [...groups.entries()].sort(([a], [b]) => a.localeCompare(b))) {
-        const enabledRealDirs = copies.filter(copy => copy.enabled && !copy.central);
-        if (!enabledRealDirs.length) {
+        const realDirs = copies.filter(copy => !copy.central);
+        if (!realDirs.length) {
             continue;
         }
         if (copies.some(copy => copy.central) || fs.existsSync(path.join(centralRoot, name))) {
             report.skipped.push({ name, reason: 'already in the central store' });
             continue;
         }
-        const migratable = enabledRealDirs.filter(copy => MIGRATION_PRIORITY.includes(copy.source));
+        const migratable = realDirs.filter(copy => MIGRATION_PRIORITY.includes(copy.source));
         if (!migratable.length) {
             report.skipped.push({ name, reason: 'lives outside the kimi/claude/codex roots' });
             continue;
@@ -86,7 +86,7 @@ export function migrateSkillsToCentral(
         if (drifted) {
             report.drifted.push(name);
         }
-        report.parked.push(...loserDirs.filter(dirPath => !fs.existsSync(dirPath)));
+        report.deleted.push(...loserDirs.filter(dirPath => !fs.existsSync(dirPath)));
     }
     return report;
 }

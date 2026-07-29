@@ -3,7 +3,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { DISABLED_DIR_NAME, getCentralSkillsRoot, getProjectSkillsRoots, getUserSkillsRoots, SkillsRoot } from './roots';
+import { getCentralSkillsRoot, getProjectSkillsRoots, getUserSkillsRoots, SkillsRoot } from './roots';
 import type { SkillAgentId, SkillRecord, SkillScope, SkillSourceDir } from './types';
 
 export interface CentralResult {
@@ -73,16 +73,10 @@ export function setCentralLink(
     }
 }
 
-function parkRealDir(dirPath: string): CentralResult {
+function deleteRealDir(dirPath: string): CentralResult {
     try {
-        const parkedDir = path.join(path.dirname(dirPath), DISABLED_DIR_NAME);
-        let parkedPath = path.join(parkedDir, path.basename(dirPath));
-        if (fs.existsSync(parkedPath)) {
-            parkedPath = path.join(parkedDir, `${path.basename(dirPath)}.replaced-${Date.now()}`);
-        }
-        fs.mkdirSync(parkedDir, { recursive: true });
-        fs.renameSync(dirPath, parkedPath);
-        return { ok: true, dirPath: parkedPath };
+        fs.rmSync(dirPath, { recursive: true, force: true });
+        return { ok: true };
     } catch (error) {
         return { ok: false, error: error instanceof Error ? error.message : String(error) };
     }
@@ -91,7 +85,7 @@ function parkRealDir(dirPath: string): CentralResult {
 /**
  * Move a real-directory skill into the central store and link it back from
  * its original root. Duplicate real-dir copies (same scope + name) are
- * parked under `.disabled/` — reversible, never destroyed.
+ * deleted once the winner is secured (move + link-back succeeded).
  */
 export function centralizeSkill(
     record: SkillRecord,
@@ -103,9 +97,6 @@ export function centralizeSkill(
     try {
         if (record.central) {
             return { ok: false, error: 'Skill is already centralized.' };
-        }
-        if (!record.enabled) {
-            return { ok: false, error: 'Enable the skill before centralizing it.' };
         }
         const centralRoot = getCentralSkillsRoot(homeDir, record.scope, workspaceRoot);
         const destination = path.join(centralRoot, record.name);
@@ -123,14 +114,14 @@ export function centralizeSkill(
                 return link;
             }
         }
-        // Park duplicate real-dir copies.
+        // Delete duplicate real-dir copies now that the winner is secured.
         for (const duplicate of duplicates) {
-            if (duplicate.dirPath === record.dirPath || duplicate.central || !duplicate.enabled) {
+            if (duplicate.dirPath === record.dirPath || duplicate.central) {
                 continue;
             }
-            const parked = parkRealDir(duplicate.dirPath);
-            if (!parked.ok) {
-                return parked;
+            const deleted = deleteRealDir(duplicate.dirPath);
+            if (!deleted.ok) {
+                return deleted;
             }
         }
         return { ok: true, dirPath: destination };

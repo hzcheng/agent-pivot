@@ -6,7 +6,6 @@ import * as path from 'path';
 import { applySkillEffectiveness } from './effectiveness';
 import { getSkillDiagnostics, parseSkillFrontmatter } from './frontmatter';
 import {
-    DISABLED_DIR_NAME,
     getCentralSkillsRoot,
     getProjectSkillsRoots,
     getUserSkillsRoots,
@@ -33,7 +32,7 @@ function readSkillFile(dirPath: string): { fileName: string; content: string } |
     return null;
 }
 
-function createRecord(root: SkillsRoot, dirName: string, dirPath: string, enabled: boolean): SkillRecord | null {
+function createRecord(root: SkillsRoot, dirName: string, dirPath: string): SkillRecord | null {
     const skillFile = readSkillFile(dirPath);
     if (!skillFile) {
         return null;
@@ -47,7 +46,6 @@ function createRecord(root: SkillsRoot, dirName: string, dirPath: string, enable
         skillFilePath: path.join(dirPath, skillFile.fileName),
         scope: root.scope,
         source: root.source,
-        enabled,
         contentHash: hashSkillDirectory(dirPath),
         folder: '',
         visibility: { kimi: 'absent', claude: 'absent', codex: 'absent' },
@@ -71,7 +69,6 @@ interface SkillLink {
 function scanDir(
     root: SkillsRoot,
     parentDir: string,
-    enabled: boolean,
     links: SkillLink[],
     input: ScanSkillsInput,
 ): SkillRecord[] {
@@ -111,7 +108,7 @@ function scanDir(
         } else if (!entry.isDirectory()) {
             continue;
         }
-        const record = createRecord(root, entry.name, dirPath, enabled);
+        const record = createRecord(root, entry.name, dirPath);
         if (record) {
             records.push(record);
         }
@@ -120,10 +117,8 @@ function scanDir(
 }
 
 function scanRoot(root: SkillsRoot, links: SkillLink[], input: ScanSkillsInput): SkillRecord[] {
-    // Active skills come from the root listing (dot-directories stay skipped there);
-    // parked skills are first-level children of the root's `.disabled` directory.
-    return scanDir(root, root.dirPath, true, links, input)
-        .concat(scanDir(root, path.join(root.dirPath, DISABLED_DIR_NAME), false, links, input));
+    // Dot-directories (including any legacy `.disabled`) stay skipped.
+    return scanDir(root, root.dirPath, links, input);
 }
 
 function scanCentralStore(root: SkillsRoot, records: SkillRecord[], folders: string[]): void {
@@ -153,7 +148,7 @@ function scanCentralStore(root: SkillsRoot, records: SkillRecord[], folders: str
                 continue;
             }
             if (readSkillFile(realPath)) {
-                const record = createRecord(root, entry.name, realPath, true);
+                const record = createRecord(root, entry.name, realPath);
                 if (record) {
                     record.folder = folder;
                     records.push(record);

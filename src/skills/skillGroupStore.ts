@@ -2,7 +2,6 @@
 
 import * as path from 'path';
 
-import { DISABLED_DIR_NAME } from './roots';
 import type { SkillRecord } from './types';
 
 export interface SkillGroupStoreState {
@@ -15,14 +14,9 @@ export const SKILL_COLLECTION_DISMISSALS_KEY = 'agentPivot.dismissedSkillCollect
 
 export type SkillGroupMap = Record<string, string>;
 
-/**
- * Stable identity for a skill that survives enable/disable moves:
- * `<skills root>/<name>` even when the skill is parked under `.disabled/`.
- */
+/** Stable identity for a skill: `<skills root>/<name>`. */
 export function getSkillStableKey(record: SkillRecord): string {
-    const parent = path.dirname(record.dirPath);
-    const rootDir = path.basename(parent) === DISABLED_DIR_NAME ? path.dirname(parent) : parent;
-    return path.join(rootDir, record.name);
+    return path.join(path.dirname(record.dirPath), record.name);
 }
 
 export function getSkillGroupName(record: SkillRecord, groups: SkillGroupMap): string | undefined {

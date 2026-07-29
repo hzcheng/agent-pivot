@@ -10,7 +10,6 @@ export interface SkillsRoot {
     dirPath: string;
 }
 
-export const DISABLED_DIR_NAME = '.disabled';
 export const CENTRAL_DIR_NAME = '.skills';
 
 export function getCentralSkillsRoot(homeDir: string, scope: SkillScope, workspaceRoot?: string): string {

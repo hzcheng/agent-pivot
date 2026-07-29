@@ -55,7 +55,7 @@ export function getCollectionSuggestions(
         if (dismissed.includes(collection.name)) {
             continue;
         }
-        const members = records.filter(record => record.enabled && collection.members.includes(record.name));
+        const members = records.filter(record => collection.members.includes(record.name));
         if (members.length < MIN_PRESENT_FOR_SUGGESTION) {
             continue;
         }

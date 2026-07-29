@@ -7,9 +7,8 @@ import { centralizeSkill, createSkillFolder, FolderLinkResult, moveSkillToFolder
 import { migrateSkillsToCentral, SkillMigrationReport } from './migrateService';
 import { scanSkillsDetailed } from './discovery';
 import { getCollectionSuggestions, KNOWN_SKILL_COLLECTIONS, SkillCollectionSuggestion } from './knownCollections';
-import { DISABLED_DIR_NAME, getCentralSkillsRoot, getKimiBrandCandidates, getProjectSkillsRoots, getUserSkillsRoots } from './roots';
+import { getCentralSkillsRoot, getKimiBrandCandidates, getProjectSkillsRoots, getUserSkillsRoots } from './roots';
 import { computeSkillCopyTargets, copySkillDir, SkillCopyTarget, syncSkillDir } from './syncService';
-import { disableSkill, enableSkill } from './toggleService';
 import { fixSkillDiagnostic } from './fixService';
 import { getSkillsPanelContent } from '../webview/webviewSkillContent';
 import type { SkillPanelView } from '../webview/webviewSkillContent';
@@ -39,7 +38,7 @@ const LINK_SCOPES: SkillScope[] = ['user', 'project'];
  */
 export function computeSkillLinkConflicts(records: SkillRecord[]): Set<string> {
     const conflicts = new Set<string>();
-    const central = records.filter(record => record.central && record.enabled);
+    const central = records.filter(record => record.central);
     for (let i = 0; i < central.length; i += 1) {
         for (let j = i + 1; j < central.length; j += 1) {
             const a = central[i];
@@ -240,7 +239,7 @@ export class SkillDashboardController {
             report.ok = report.ok && projectReport.ok;
             report.migrated.push(...projectReport.migrated);
             report.drifted.push(...projectReport.drifted);
-            report.parked.push(...projectReport.parked);
+            report.deleted.push(...projectReport.deleted);
             report.skipped.push(...projectReport.skipped);
             report.errors.push(...projectReport.errors);
         }
@@ -260,7 +259,7 @@ export class SkillDashboardController {
         const workspaceRoot = this.options.getWorkspaceRoot();
         const failures: string[] = [];
         const unfiled = () => this.records.filter(record =>
-            record.enabled && collection.members.includes(record.name)
+            collection.members.includes(record.name)
             && (!record.central || record.folder !== collection.name));
         for (const record of unfiled()) {
             if (!record.central) {
@@ -329,17 +328,21 @@ export class SkillDashboardController {
         }
     }
 
-    handleToggle(dirPath: string, enabled: boolean): { ok: boolean; error?: string } {
-        const containmentError = this.checkToggleContainment(dirPath, enabled);
+    handleDeleteSkill(dirPath: string): { ok: boolean; error?: string } {
+        const containmentError = this.checkDeleteContainment(dirPath);
         if (containmentError) {
             return { ok: false, error: containmentError };
         }
-        const result = enabled ? disableSkill(dirPath) : enableSkill(dirPath);
-        if (!result.ok) {
-            this.options.logError('Failed to toggle skill.', new Error(result.error || 'unknown error'));
+        try {
+            fs.rmSync(dirPath, { recursive: true, force: true });
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            this.options.logError('Failed to delete the skill.', new Error(message));
+            this.refresh('delete-skill');
+            return { ok: false, error: message };
         }
-        this.refresh('toggle');
-        return result;
+        this.refresh('delete-skill');
+        return { ok: true };
     }
 
     handleFixSkillDiagnostic(dirPath: string, code: SkillDiagnostic['code']): { ok: boolean; error?: string } {
@@ -362,23 +365,29 @@ export class SkillDashboardController {
             .map(root => root.dirPath);
     }
 
-    private checkToggleContainment(dirPath: string, enabled: boolean): string | null {
+    private checkDeleteContainment(dirPath: string): string | null {
         if (!dirPath) {
             return 'Missing skill path.';
         }
-        const rootDirs = this.getKnownRootDirs();
-        const parentDir = path.dirname(dirPath);
-        if (enabled) {
-            // Disable: the target must be a direct child of a known skills root
-            // (and never the root's `.disabled` directory itself).
-            if (path.basename(dirPath) === DISABLED_DIR_NAME || !rootDirs.includes(parentDir)) {
-                return `Refusing to disable a skill outside the known skills roots: ${dirPath}`;
-            }
-            return null;
+        const record = this.records.find(candidate => candidate.dirPath === dirPath);
+        if (!record) {
+            return `Unknown skill: ${dirPath}`;
         }
-        // Enable: the target must be a direct child of a known root's `.disabled` directory.
-        if (path.basename(parentDir) !== DISABLED_DIR_NAME || !rootDirs.includes(path.dirname(parentDir))) {
-            return `Refusing to enable a skill outside a known skills root ${DISABLED_DIR_NAME} directory: ${dirPath}`;
+        if (record.central) {
+            return `Refusing to delete a centralized skill: ${dirPath}`;
+        }
+        // The target must be a direct child of a known skills root. Symlinked
+        // entries resolve outside the roots, so they fail this check naturally;
+        // the lstat guard below is the belt-and-braces for realpath races.
+        if (!this.getKnownRootDirs().includes(path.dirname(dirPath))) {
+            return `Refusing to delete a skill outside the known skills roots: ${dirPath}`;
+        }
+        try {
+            if (fs.lstatSync(dirPath).isSymbolicLink()) {
+                return `Refusing to delete a symlinked skill: ${dirPath}`;
+            }
+        } catch (_error) {
+            return `Skill path does not exist: ${dirPath}`;
         }
         return null;
     }

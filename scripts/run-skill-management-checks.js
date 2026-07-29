@@ -412,6 +412,7 @@ function runSkillStyleChecks() {
     assert.ok(compiled.includes('.skills-groups-wrapper .group'), 'compact tree node rhythm');
     assert.ok(compiled.includes('.skill-ios-toggle.indeterminate'));
     assert.ok(compiled.includes('.skill-toggle-pending'), 'pending switch styles');
+    assert.ok(compiled.includes('.skill-folder-menu'), 'beautified ⋯ menu styles');
     assert.ok(compiled.includes('.skill-unmanaged'));
     assert.ok(compiled.includes('.skill-chip'));
     assert.ok(compiled.includes('.skill-source-header'));

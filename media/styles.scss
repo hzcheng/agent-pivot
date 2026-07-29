@@ -4589,19 +4589,46 @@ body.steward-sidebar {
         margin-left: 6px;
     }
 
-    .skill-folder-menu-item {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 18px;
+    // Beautified ⋯ menu: rounded floating card matching the panel aesthetic,
+    // soft elevation, pill-shaped hover rows, danger styling for delete.
+    .skill-folder-menu {
+        min-width: 172px;
+        padding: 4px;
+        border: 1px solid var(--vscode-menu-border, var(--vscode-panel-border));
+        border-radius: 8px;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, .35), 0 1px 4px rgba(0, 0, 0, .2);
 
-        .skill-folder-menu-agent {
+        .custom-context-menu-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 18px;
+            margin: 1px 2px;
+            padding: 5px 8px;
+            border-radius: 5px;
             font-size: 11px;
+        }
+
+        .custom-context-menu-separator {
+            margin: 3px 8px;
+            opacity: 1;
+        }
+
+        .skill-folder-menu-remove {
+            color: var(--vscode-errorForeground, #f48771);
+
+            &:hover,
+            &:focus-visible {
+                background: rgba(244, 71, 71, .12);
+                color: var(--vscode-errorForeground, #f48771);
+            }
         }
     }
 
-    .skill-folder-menu-remove {
-        font-size: 11px;
+    .skill-folder-menu-item {
+        .skill-folder-menu-agent {
+            font-size: 11px;
+        }
     }
 
     .skill-folder-more {

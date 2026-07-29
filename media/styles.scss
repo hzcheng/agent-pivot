@@ -4594,6 +4594,45 @@ body.steward-sidebar {
         text-transform: uppercase;
     }
 
+    // Compact file-tree rhythm: skill cards nest inside the folder guides
+    // like rows in a file explorer instead of floating dashboard tiles.
+    .skills-groups-wrapper {
+        .skill-card {
+            min-height: 0;
+            margin-bottom: 3px;
+            padding: 4px 8px 4px 12px;
+
+            .project-description {
+                display: block;
+                margin-top: 1px;
+                min-height: 0;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+
+            .skill-chip-row {
+                margin-top: 2px;
+            }
+
+            .skill-detail {
+                margin-top: 4px;
+            }
+        }
+
+        .skill-source-group + .skill-source-group {
+            margin-top: 6px;
+        }
+
+        .skill-source-header {
+            margin-bottom: 2px;
+        }
+
+        .skill-unmanaged {
+            margin-top: 6px;
+        }
+    }
+
     .skill-move-editor {
         display: flex;
         align-items: center;

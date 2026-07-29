@@ -54,8 +54,12 @@ import AttentionBridgeClient from './aiSessions/attentionBridgeClient';
 import { getAttentionRuntimeSessionKey, withAttentionProject } from './aiSessions/attentionProject';
 import type { ActiveAiSessionTerminalIdentity } from './aiSessions/activeTerminalHighlight';
 import { getAiSessionKey } from './aiSessions/sessionHelpers';
-import { AI_SESSION_PROVIDER_DEFINITIONS, createAiSessionProviderRegistry, getAiSessionProviderLabel } from './aiSessions/providers';
-import { isCommandAvailableOnPath } from './aiSessions/providerAvailability';
+import {
+    AI_SESSION_PROVIDER_DEFINITIONS,
+    buildAiSessionProviderPicks,
+    createAiSessionProviderRegistry,
+    getAiSessionProviderLabel,
+} from './aiSessions/providers';
 import { ProviderDirectoryCapabilityProbe } from './aiSessions/providerDirectoryCapability';
 import type {
     BoundedChildProcessOptions,
@@ -859,37 +863,16 @@ async function initializeDashboard(
         refresh: refreshAiSessionViewsIncrementally,
     });
     const pickAiSessionProvider = async (): Promise<AiSessionProviderId | undefined> => {
-        while (true) {
-            const picks = getRegisteredAiSessionProviders().map(providerDefinition => {
-                const available = isCommandAvailableOnPath(
-                    providerDefinition.commandName,
-                    process.env,
-                    process.platform,
-                    existsSync
-                );
-                return {
-                    label: available ? providerDefinition.label : `$(circle-slash) ${providerDefinition.label}`,
-                    description: available
-                        ? `Open a new ${providerDefinition.label} session`
-                        : `Unavailable — ${providerDefinition.commandName} was not found on PATH`,
-                    providerId: providerDefinition.id,
-                    available,
-                };
-            });
-            const quickPickOptions: vscode.QuickPickOptions = {
-                placeHolder: 'Select an AI provider',
-                ignoreFocusOut: true,
-            };
-            (quickPickOptions as vscode.QuickPickOptions & { title?: string }).title = 'Select an AI provider';
-            const selected = await vscode.window.showQuickPick(picks, quickPickOptions);
-            if (!selected) {
-                return undefined;
-            }
-            if (selected.available) {
-                return selected.providerId;
-            }
-            await vscode.window.showWarningMessage(selected.description);
-        }
+        const quickPickOptions: vscode.QuickPickOptions = {
+            placeHolder: 'Select an AI provider',
+            ignoreFocusOut: true,
+        };
+        (quickPickOptions as vscode.QuickPickOptions & { title?: string }).title = 'Select an AI provider';
+        const selected = await vscode.window.showQuickPick(
+            buildAiSessionProviderPicks(getRegisteredAiSessionProviders()),
+            quickPickOptions
+        );
+        return selected?.providerId;
     };
     const aiSessionCreationController = new AiSessionCreationController({
         isProviderId: isAiSessionProviderId,

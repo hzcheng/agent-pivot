@@ -400,14 +400,15 @@
   {
     "id": "SESSION-AI-SESSION-PROVIDER-AVAILABILITY-001",
     "domain": "session",
-    "title": "AI Session Provider Availability behavior",
+    "title": "New AI sessions keep every registered provider selectable until runtime launch",
     "priority": "P1",
     "status": "automated",
     "owners": [
       "tests/unit/aiSessions/sessionBoundaries.test.js"
     ],
     "evidence": [
-      "scripts/run-ai-session-safety-checks.js"
+      "src/aiSessions/providers.ts",
+      "src/dashboard.ts"
     ]
   },
   {

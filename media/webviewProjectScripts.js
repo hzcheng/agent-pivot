@@ -3263,7 +3263,9 @@ function initProjects() {
         contextMenuAiSessionBackend = null;
         contextMenuAiSessionConflict = false;
         contextMenuAiSessionOrigin = null;
-        document.querySelectorAll(".custom-context-menu").forEach(element =>
+        // Only close menus this script owns; the dashboard script owns the
+        // skill folder menu and keeps it open across per-agent toggles.
+        document.querySelectorAll(".custom-context-menu:not(.skill-folder-menu)").forEach(element =>
             element.classList.remove("visible")
         );
     }

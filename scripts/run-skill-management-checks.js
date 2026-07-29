@@ -432,6 +432,9 @@ function runSkillWebviewScriptChecks() {
     assert.ok(script.includes('captureSkillFolderMenuState'), '⋯ menu state captured across skills-updated');
     assert.ok(script.includes('restoreSkillFolderMenuState'), '⋯ menu re-synced after authoritative refresh');
     assert.ok(script.includes('skill-toggle-pending'), 'toggle pending state wired');
+    const projectScript = fs.readFileSync(path.join(__dirname, '..', 'media', 'webviewProjectScripts.js'), 'utf8');
+    assert.ok(projectScript.includes('.custom-context-menu:not(.skill-folder-menu)'),
+        'project script never closes the dashboard-owned skill folder menu');
     assert.ok(!script.includes('data-skill-scope-select'), 'scope selector wiring removed');
     assert.ok(script.includes('data-folder-menu'), 'folder ⋯ menu wiring present');
     assert.ok(script.includes('openSkillFolderMenu'));

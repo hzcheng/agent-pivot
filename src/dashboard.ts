@@ -1423,16 +1423,20 @@ async function initializeDashboard(
                 }
             },
             'create-skill-folder': async e => {
+                const parentFolder = String(e.parentFolder || '').replace(/^\/+|\/+$/g, '');
                 const folder = await vscode.window.showInputBox({
-                    prompt: 'New skill folder (use / for nesting, e.g. xiaohongshu/yunxiao)',
+                    prompt: parentFolder
+                        ? `New subfolder inside ${parentFolder} (use / for deeper nesting)`
+                        : 'New skill folder (use / for nesting, e.g. xiaohongshu/yunxiao)',
                     placeHolder: 'folder or folder/subfolder',
                 });
                 if (!folder || !folder.trim()) {
                     return;
                 }
+                const target = parentFolder ? `${parentFolder}/${folder.trim()}` : folder.trim();
                 const result = skillDashboardController.handleCreateFolder(
                     e.scope === 'project' ? 'project' : 'user',
-                    folder.trim(),
+                    target,
                 );
                 if (!result.ok) {
                     void vscode.window.showWarningMessage(`Could not create the folder: ${result.error}`);

@@ -373,7 +373,7 @@ function renderScopeSection(scope: SkillScope, items: SkillRecord[], view: Skill
             <span class="skill-collection-icon" aria-hidden="true">${folderIcon}</span>${scope === 'user' ? 'global' : 'project'}
         </span>
         <span class="group-title-badge">${items.length}</span>
-        ${storeRoot ? `<button type="button" class="skill-folder-add" title="New folder" data-skill-new-folder="${scope}">+</button>` : ''}
+        ${storeRoot ? `<button type="button" class="skill-folder-more" title="Section actions" data-section-menu="${scope}">⋯</button>` : ''}
     </div>
     <div class="group-list">
         <div class="drop-signal"></div>

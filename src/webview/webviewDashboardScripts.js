@@ -989,8 +989,41 @@ function initDashboard(options) {
                 + ' data-folder-toggle="' + folder + '" data-folder-agent="' + agent + '" data-folder-scope="' + scope + '"></button></div>';
         }
         html += '<div class="custom-context-menu-separator"></div>';
+        html += '<div class="custom-context-menu-item skill-folder-menu-new" data-skill-menu-new-folder="' + folder + '" data-folder-scope="' + scope + '">New subfolder</div>';
         html += '<div class="custom-context-menu-item skill-folder-menu-remove" data-skill-remove-folder="' + folder + '">Delete empty folder</div>';
         menu.innerHTML = html;
+        document.body.appendChild(menu);
+        var rect = menu.getBoundingClientRect();
+        var anchor = button.getBoundingClientRect();
+        var viewportPadding = 4;
+        var left = anchor.right - rect.width;
+        var top = anchor.bottom + 2;
+        if (left + rect.width + viewportPadding > window.innerWidth) {
+            left = Math.max(viewportPadding, window.innerWidth - rect.width - viewportPadding);
+        }
+        if (left < viewportPadding) {
+            left = viewportPadding;
+        }
+        if (top + rect.height + viewportPadding > window.innerHeight) {
+            top = Math.max(viewportPadding, anchor.top - rect.height - 2);
+        }
+        menu.style.left = left + 'px';
+        menu.style.top = top + 'px';
+        menu.__sourceButton = button;
+        skillFolderMenu = menu;
+    }
+
+    // Section (global / project) ⋯ menu: store-level actions, currently New folder.
+    function openSkillSectionMenu(button) {
+        closeSkillFolderMenu();
+        var scope = button.getAttribute('data-section-menu') || 'user';
+        var menu = document.createElement('div');
+        menu.className = 'custom-context-menu skill-folder-menu visible';
+        var storeNode = button.closest('[data-skill-store]');
+        if (storeNode) {
+            menu.setAttribute('data-skill-store', storeNode.getAttribute('data-skill-store'));
+        }
+        menu.innerHTML = '<div class="custom-context-menu-item skill-folder-menu-new" data-skill-menu-new-folder="" data-folder-scope="' + scope + '">New folder</div>';
         document.body.appendChild(menu);
         var rect = menu.getBoundingClientRect();
         var anchor = button.getBoundingClientRect();
@@ -1153,6 +1186,17 @@ function initDashboard(options) {
         if (skillFolderMenu && !(event.target && event.target.closest && event.target.closest('.skill-folder-menu'))) {
             closeSkillFolderMenu();
         }
+        var sectionMenuButton = event.target && event.target.closest ? event.target.closest('[data-section-menu]') : null;
+        if (sectionMenuButton) {
+            event.preventDefault();
+            event.stopPropagation();
+            if (skillFolderMenu && skillFolderMenu.__sourceButton === sectionMenuButton) {
+                closeSkillFolderMenu();
+            } else {
+                openSkillSectionMenu(sectionMenuButton);
+            }
+            return;
+        }
         var folderMenuButton = event.target && event.target.closest ? event.target.closest('[data-folder-menu]') : null;
         if (folderMenuButton) {
             event.preventDefault();
@@ -1203,11 +1247,16 @@ function initDashboard(options) {
             });
             return;
         }
-        var newFolder = event.target && event.target.closest ? event.target.closest('[data-skill-new-folder]') : null;
+        var newFolder = event.target && event.target.closest ? event.target.closest('[data-skill-menu-new-folder]') : null;
         if (newFolder) {
             event.preventDefault();
             event.stopPropagation();
-            options.postMessage({ type: 'create-skill-folder', scope: newFolder.getAttribute('data-skill-new-folder') });
+            closeSkillFolderMenu();
+            options.postMessage({
+                type: 'create-skill-folder',
+                scope: newFolder.getAttribute('data-folder-scope'),
+                parentFolder: newFolder.getAttribute('data-skill-menu-new-folder'),
+            });
             return;
         }
         var removeFolder = event.target && event.target.closest ? event.target.closest('[data-skill-remove-folder]') : null;

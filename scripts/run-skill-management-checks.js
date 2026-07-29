@@ -1428,20 +1428,21 @@ function runSkillFolderMutationChecks() {
             central: { dirPath: '/home/dev/.skills/pack/alpha', links: {} },
         }),
     ], { hasWorkspace: true, storeRoots: { user: '/home/dev/.skills', project: '/work/app/.skills' } });
-    assert.ok(tree.includes('data-skill-new-folder="user"'), 'global section has a folder-create action');
+    assert.ok(tree.includes('data-section-menu="user"'), 'global section has a ⋯ menu (create folder inside)');
     assert.ok(tree.includes('data-folder-menu="pack"'), 'folder header has the ⋯ menu (delete lives inside)');
     const noViewRoots = skillContent.getSkillsPanelContent([makeRecord({
         name: 'beta', source: 'central', dirPath: '/home/dev/.skills/pack/beta',
         skillFilePath: '/home/dev/.skills/pack/beta/SKILL.md', folder: 'pack',
         central: { dirPath: '/home/dev/.skills/pack/beta', links: {} },
     })], { hasWorkspace: true });
-    assert.ok(noViewRoots.includes('data-skill-new-folder="user"'), 'store root derived from records when view omits it');
+    assert.ok(noViewRoots.includes('data-section-menu="user"'), 'store root derived from records when view omits it');
 
     // wiring
     const script = fs.readFileSync(path.join(__dirname, '..', 'media', 'webviewDashboardScripts.js'), 'utf8');
     assert.ok(script.includes("'create-skill-folder'"), 'create folder wiring present');
     assert.ok(script.includes("'remove-skill-folder'"), 'remove folder wiring present');
-    assert.ok(script.includes('data-skill-new-folder'));
+    assert.ok(script.includes('data-skill-menu-new-folder'));
+    assert.ok(script.includes('data-section-menu'), 'section ⋯ menu wiring present');
     assert.ok(script.includes('data-skill-remove-folder'));
     const dashboard = fs.readFileSync(path.join(__dirname, '..', 'src', 'dashboard.ts'), 'utf8');
     assert.ok(dashboard.includes("'create-skill-folder'"));

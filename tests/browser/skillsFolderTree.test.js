@@ -345,3 +345,37 @@ test('SKILLS-FILTER-EMPTY-FOLDER-001 empty folders stay visible under the agent 
         await browser.close();
     }
 });
+
+test('SKILLS-FOLDER-MENU-CREATE-001 ⋯ menus offer folder creation at folder and section level', async () => {
+    const browser = await chromium.launch();
+    try {
+        const page = await openSkillsPage(browser);
+        // folder ⋯ menu contains New subfolder posting scope + parentFolder
+        await page.click('[data-folder-menu="superpowers"]');
+        await page.click('.skill-folder-menu [data-skill-menu-new-folder="superpowers"]');
+        let messages = await page.evaluate(() => window.__skillMessages);
+        assert.deepEqual(messages, [{
+            type: 'create-skill-folder',
+            scope: 'user',
+            parentFolder: 'superpowers',
+        }], 'New subfolder posts the parent folder');
+        // menu closed on action
+        const menuVisible = await page.evaluate(() => Boolean(document.querySelector('.skill-folder-menu.visible')));
+        assert.equal(menuVisible, false, 'menu closes on action');
+        // section ⋯ menu contains New folder posting an empty parent
+        await page.evaluate(() => { window.__skillMessages = []; });
+        await page.click('[data-section-menu="user"]');
+        const sectionNew = await page.evaluate(() =>
+            Boolean(document.querySelector('.skill-folder-menu [data-skill-menu-new-folder=""]')));
+        assert.equal(sectionNew, true, 'section menu offers New folder');
+        await page.click('.skill-folder-menu [data-skill-menu-new-folder=""]');
+        messages = await page.evaluate(() => window.__skillMessages);
+        assert.deepEqual(messages, [{
+            type: 'create-skill-folder',
+            scope: 'user',
+            parentFolder: '',
+        }], 'section New folder posts an empty parent (store root)');
+    } finally {
+        await browser.close();
+    }
+});

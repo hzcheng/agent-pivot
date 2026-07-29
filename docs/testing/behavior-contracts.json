@@ -3606,5 +3606,50 @@
       "media/styles.scss",
       "media/styles.css"
     ]
+  },
+  {
+    "id": "PERSIST-AI-SKILL-CENTRAL-STORE-001",
+    "domain": "persistence",
+    "title": "Central skill store mutation safety",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "scripts/run-skill-management-checks.js"
+    ],
+    "evidence": [
+      "src/skills/centralService.ts",
+      "src/skills/dashboardController.ts",
+      "src/skills/migrateService.ts",
+      "src/skills/syncService.ts"
+    ]
+  },
+  {
+    "id": "PERSIST-AI-SKILL-DISCOVERY-001",
+    "domain": "persistence",
+    "title": "Scoped skill discovery and effectiveness",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "scripts/run-skill-management-checks.js"
+    ],
+    "evidence": [
+      "src/skills/discovery.ts",
+      "src/skills/effectiveness.ts"
+    ]
+  },
+  {
+    "id": "WEBVIEW-AI-SKILL-PANEL-001",
+    "domain": "webview",
+    "title": "Skill folder tree panel interactions",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/browser/skillsFolderTree.test.js",
+      "tests/browser/skillPanelFilter.test.js"
+    ],
+    "evidence": [
+      "src/webview/webviewSkillContent.ts",
+      "src/webview/webviewDashboardScripts.js"
+    ]
   }
 ]

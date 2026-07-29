@@ -1267,6 +1267,34 @@ function runSkillMigrationChecks() {
     assert.deepStrictEqual(repeat.skipped.map(item => item.name).sort(), ['generic', 'shared'],
         'only out-of-scope and already-central leftovers are reported on the second run');
 
+    // project scope: same dedupe rules into <project>/.skills against project roots
+    const pHome = real(fs.mkdtempSync(path.join(os.tmpdir(), 'skills-migrate-p-')));
+    const pWs = real(fs.mkdtempSync(path.join(os.tmpdir(), 'skills-migrate-pws-')));
+    const pWrite = (filePath, content) => {
+        fs.mkdirSync(path.dirname(filePath), { recursive: true });
+        fs.writeFileSync(filePath, content);
+    };
+    pWrite(path.join(pWs, '.kimi/skills/alpha/SKILL.md'), '---\nname: alpha\ndescription: A\n---\n');
+    pWrite(path.join(pWs, '.codex/skills/alpha/SKILL.md'), '---\nname: alpha\ndescription: A\n---\n');
+    pWrite(path.join(pWs, '.claude/skills/beta/SKILL.md'), '---\nname: beta\ndescription: B\n---\n');
+    const pReport = migrateService.migrateSkillsToCentral(
+        discovery.scanSkills({ homeDir: pHome, workspaceRoot: pWs }), pHome, 'project', pWs);
+    assert.strictEqual(pReport.ok, true);
+    assert.deepStrictEqual(pReport.migrated.sort(), ['alpha', 'beta']);
+    assert.ok(fs.existsSync(path.join(pWs, '.skills', 'alpha', 'SKILL.md')), 'winner moved into the project store');
+    assert.ok(fs.existsSync(path.join(pWs, '.skills', 'beta', 'SKILL.md')));
+    assert.ok(fs.existsSync(path.join(pWs, '.codex', 'skills', '.disabled', 'alpha', 'SKILL.md')),
+        'project loser parked under its root');
+    assert.ok(!fs.existsSync(path.join(pWs, '.kimi', 'skills', 'alpha')), 'winner left its project root');
+    for (const entry of ['.kimi/skills', '.claude/skills', '.codex/skills']) {
+        for (const name of fs.readdirSync(path.join(pWs, entry)).filter(name => !name.startsWith('.'))) {
+            assert.ok(!fs.lstatSync(path.join(pWs, entry, name)).isSymbolicLink(),
+                `project migration creates no links (${entry}/${name})`);
+        }
+    }
+    const noWs = migrateService.migrateSkillsToCentral([], pHome, 'project');
+    assert.strictEqual(noWs.ok, false, 'project migration without a workspace refuses cleanly');
+
     // controller endpoint refreshes records
     const controller = new SkillDashboardController({
         getHomeDir: () => home,

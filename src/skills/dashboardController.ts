@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { centralizeSkill, createSkillFolder, FolderLinkResult, moveSkillToFolder, removeSkillFolder, setCentralLink, setFolderLinks } from './centralService';
-import { migrateUserSkillsToCentral, SkillMigrationReport } from './migrateService';
+import { migrateSkillsToCentral, SkillMigrationReport } from './migrateService';
 import { scanSkillsDetailed } from './discovery';
 import { getCollectionSuggestions, KNOWN_SKILL_COLLECTIONS, SkillCollectionSuggestion } from './knownCollections';
 import { DISABLED_DIR_NAME, getCentralSkillsRoot, getKimiBrandCandidates, getProjectSkillsRoots, getUserSkillsRoots } from './roots';
@@ -232,7 +232,16 @@ export class SkillDashboardController {
     }
 
     handleMigrateToCentral(): SkillMigrationReport {
-        const report = migrateUserSkillsToCentral(this.records, this.options.getHomeDir());
+        const report = migrateSkillsToCentral(this.records, this.options.getHomeDir(), 'user');
+        if (this.options.getWorkspaceRoot()) {
+            const projectReport = migrateSkillsToCentral(this.records, this.options.getHomeDir(), 'project', this.options.getWorkspaceRoot());
+            report.ok = report.ok && projectReport.ok;
+            report.migrated.push(...projectReport.migrated);
+            report.drifted.push(...projectReport.drifted);
+            report.parked.push(...projectReport.parked);
+            report.skipped.push(...projectReport.skipped);
+            report.errors.push(...projectReport.errors);
+        }
         for (const error of report.errors) {
             this.options.logError(`Failed to migrate skill ${error.name}.`, new Error(error.error));
         }

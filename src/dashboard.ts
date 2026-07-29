@@ -420,16 +420,25 @@ async function initializeDashboard(
     }));
     skillDashboardController.start();
     const runSkillMigrationToCentral = async (): Promise<void> => {
+        const hasWorkspace = Boolean(vscode.workspace.workspaceFolders?.length);
         const migratable = skillDashboardController.getRecords()
-            .filter(record => record.scope === 'user' && record.enabled && !record.central
+            .filter(record => record.enabled && !record.central
                 && (record.source === 'kimi' || record.source === 'claude' || record.source === 'codex'));
         if (!migratable.length) {
-            void vscode.window.showInformationMessage('Every user skill is already centralized.');
+            void vscode.window.showInformationMessage('Every skill is already centralized.');
             return;
         }
-        const names = [...new Set(migratable.map(record => record.name))].length;
+        const userNames = new Set(migratable.filter(record => record.scope === 'user').map(record => record.name));
+        const projectNames = new Set(migratable.filter(record => record.scope === 'project').map(record => record.name));
+        const segments: string[] = [];
+        if (userNames.size) {
+            segments.push(`${userNames.size} user skill(s) into ~/.skills`);
+        }
+        if (hasWorkspace && projectNames.size) {
+            segments.push(`${projectNames.size} project skill(s) into this project's .skills`);
+        }
         const choice = await vscode.window.showWarningMessage(
-            `Migrate ${names} user skill(s) from ~/.kimi, ~/.claude and ~/.codex into ~/.skills? `
+            `Migrate ${segments.join(' and ')}? `
             + 'The kimi > claude > codex copy wins, other copies are parked reversibly, '
             + 'and no agent links are created — enable agents per card afterwards.',
             { modal: true },
@@ -439,7 +448,7 @@ async function initializeDashboard(
             return;
         }
         const report = skillDashboardController.handleMigrateToCentral();
-        const parts = [`Migrated ${report.migrated.length} skill(s) into ~/.skills`];
+        const parts = [`Migrated ${report.migrated.length} skill(s) into the central stores`];
         if (report.drifted.length) {
             parts.push(`${report.drifted.length} had drift (brand-priority winner)`);
         }

@@ -4604,6 +4604,19 @@ body.steward-sidebar {
             margin-top: 2px;
         }
 
+        // The default 10px list top-padding survives collapse (height:0 keeps
+        // padding), leaving a ghost strip under every collapsed folder header.
+        .group-list,
+        .group.collapsed .group-list {
+            padding-top: 0;
+        }
+
+        // Sections/folders are grid containers: keep the header-to-list gap minimal.
+        &.steward-section,
+        .group.steward-section {
+            gap: 2px;
+        }
+
         .steward-group-header {
             padding: 2px 6px;
             border-radius: 5px;

@@ -440,6 +440,7 @@ function runSkillWebviewScriptChecks() {
     assert.ok(script.includes('data-folder-menu'), 'folder ⋯ menu wiring present');
     assert.ok(script.includes('openSkillFolderMenu'));
     assert.ok(script.includes('closeSkillFolderMenu'));
+    assert.ok(!script.includes('menu.innerHTML'), '⋯ menus are DOM-built so disk-derived names cannot inject markup');
     assert.ok(script.includes('data-folder-agent'), 'per-agent folder switch wiring present');
     assert.ok(script.includes("'folder-toggle-skill-links'"), 'folder batch wiring present');
     assert.ok(script.includes("'move-skill-to-folder'"), 'move wiring present');
@@ -678,6 +679,9 @@ function runSkillSyncChecks() {
         'losing copy is deleted, never parked');
     const leftovers = fs.readdirSync(os.tmpdir()).filter(entry => entry.startsWith('agent-pivot-skill-sync-'));
     assert.deepStrictEqual(leftovers, [], 'sync temp aside is cleaned up');
+    const asideLeftovers = fs.readdirSync(path.join(home, '.codex', 'skills'))
+        .filter(entry => entry.startsWith('.agent-pivot-skill-sync-'));
+    assert.deepStrictEqual(asideLeftovers, [], 'sync aside lives next to the target (same filesystem) and is cleaned up');
 
     // copy: J6 into another root, never overwriting
     const copyResult = syncService.copySkillDir(
@@ -815,6 +819,16 @@ function runSkillCentralChecks() {
     assert.strictEqual(centralService.setCentralLink(centralDir, kimiRoot, true).ok, false, 'never replaces a real directory');
     assert.strictEqual(centralService.setCentralLink(centralDir, kimiRoot, false).ok, false, 'never deletes a real directory');
     assert.ok(fs.lstatSync(linkPath).isDirectory());
+    fs.rmSync(linkPath, { recursive: true });
+    // a same-named conflict winner may own the <root>/<name> slot — disabling
+    // the loser must never remove a link that points at someone else
+    const foreignDir = path.join(linkHome, '.skills', 'other-folder', 'tool');
+    fs.mkdirSync(foreignDir, { recursive: true });
+    fs.writeFileSync(path.join(foreignDir, 'SKILL.md'), '---\nname: tool\n---\n');
+    fs.symlinkSync(foreignDir, linkPath, 'dir');
+    assert.strictEqual(centralService.setCentralLink(centralDir, kimiRoot, false).ok, false,
+        'disabling refuses a link that points elsewhere');
+    assert.strictEqual(fs.realpathSync(linkPath), foreignDir, 'foreign link left intact');
 
     // centralizeSkill: winner moves into the store, links back, losers deleted
     const beforeCentralize = discovery.scanSkills({ homeDir: home, workspaceRoot: ws });
@@ -986,6 +1000,9 @@ function runSkillFolderServiceChecks() {
     assert.strictEqual(noWorkspace.ok, false);
     assert.strictEqual(noWorkspace.changed, 0);
     assert.ok(noWorkspace.errors[0].error.includes('No workspace'));
+    const unsafeFolder = centralService.setFolderLinks(storeRoot, '../escape', 'user', home, ws, true);
+    assert.strictEqual(unsafeFolder.ok, false, 'unsanitized folder input is refused');
+    assert.strictEqual(unsafeFolder.changed, 0);
 
     // moveSkillToFolder: moves the dir, re-creates links at both scopes
     centralService.setCentralLink(path.join(home, '.skills/other/gamma'), path.join(home, '.kimi/skills'), true);
@@ -1014,6 +1031,21 @@ function runSkillFolderServiceChecks() {
     const dup = centralService.moveSkillToFolder(alpha2, 'xiaohongshu/yunxiao', home, ws);
     assert.strictEqual(dup.ok, false, 'existing destination refused');
     assert.ok(fs.existsSync(path.join(home, '.skills', 'superpowers', 'alpha', 'SKILL.md')), 'source untouched');
+
+    // moving a conflict loser must never re-point the winner's link: two
+    // same-named central skills, the <root>/<name> slot belongs to the other
+    write(path.join(home, '.skills/superpowers/zeta/SKILL.md'), '---\nname: zeta\ndescription: Z1\n---\n');
+    write(path.join(home, '.skills/other-folder/zeta/SKILL.md'), '---\nname: zeta\ndescription: Z2\n---\n');
+    const zetaLink = path.join(home, '.kimi/skills/zeta');
+    fs.symlinkSync(path.join(home, '.skills', 'other-folder', 'zeta'), zetaLink, 'dir');
+    const zetaLoser = discovery.scanSkills({ homeDir: home, workspaceRoot: ws })
+        .find(record => record.central && record.name === 'zeta'
+            && record.dirPath === path.join(home, '.skills', 'superpowers', 'zeta'));
+    const zetaMoved = centralService.moveSkillToFolder(zetaLoser, 'xiaohongshu/yunxiao', home, ws);
+    assert.strictEqual(zetaMoved.ok, true);
+    assert.strictEqual(fs.realpathSync(zetaLink), path.join(home, '.skills', 'other-folder', 'zeta'),
+        "loser move leaves the winner's link alone");
+    fs.unlinkSync(zetaLink);
 }
 
 function runSkillFolderControllerChecks() {
@@ -1055,6 +1087,9 @@ function runSkillFolderControllerChecks() {
         controller.getRecords().find(record => record.name === 'alpha').folder, 'collections');
     assert.strictEqual(controller.handleMoveToFolder(alphaDir, 'collections').ok, false,
         'stale dirPath refused after the move');
+    const bogusStore = controller.handleFolderToggle('/not/a/store', 'superpowers', 'user', 'kimi', false);
+    assert.strictEqual(bogusStore.ok, false, 'folder toggle rejects an unknown storeRoot');
+    assert.ok(bogusStore.errors[0].error.includes('Unknown skills store'));
     controller.dispose();
 
     // project-scope endpoints without a workspace refuse cleanly (no throw)
@@ -1385,6 +1420,23 @@ function runSkillFolderMutationChecks() {
     assert.ok(!fs.existsSync(path.join(storeRoot, 'xiaohongshu', 'yunxiao')));
     assert.ok(fs.existsSync(path.join(storeRoot, 'xiaohongshu')), 'parent folder kept');
     assert.strictEqual(centralService.removeSkillFolder(storeRoot, 'xiaohongshu').ok, true, 'now-empty parent deleted');
+
+    // truly empty means no files either (matches the confirmation modal)
+    const messyFolder = path.join(storeRoot, 'messy');
+    fs.mkdirSync(messyFolder, { recursive: true });
+    fs.writeFileSync(path.join(messyFolder, 'notes.txt'), 'x');
+    assert.strictEqual(centralService.removeSkillFolder(storeRoot, 'messy').ok, false,
+        'folder with arbitrary files is refused');
+    assert.ok(fs.existsSync(messyFolder), 'messy folder left untouched');
+
+    // intermediate symlink in the path must not let recursive delete escape the store
+    const trapParent = real(fs.mkdtempSync(path.join(os.tmpdir(), 'skills-trap-')));
+    fs.mkdirSync(path.join(storeRoot, 'trap'), { recursive: true });
+    fs.symlinkSync(trapParent, path.join(storeRoot, 'trap', 'external'), 'dir');
+    fs.mkdirSync(path.join(trapParent, 'sub'), { recursive: true });
+    assert.strictEqual(centralService.removeSkillFolder(storeRoot, 'trap/external/sub').ok, false,
+        'resolved path escaping the store is refused');
+    assert.ok(fs.existsSync(path.join(trapParent, 'sub')), 'external folder untouched');
 
     // controller: create/remove with containment
     const controller = new SkillDashboardController({

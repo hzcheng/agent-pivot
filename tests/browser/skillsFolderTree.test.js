@@ -453,3 +453,40 @@ test('SKILLS-SECTION-MENU-MIGRATE-001 section ⋯ menu carries a scoped Migrate 
         await browser.close();
     }
 });
+
+test('SKILLS-MENU-XSS-001 folder names with quotes cannot inject markup into the ⋯ menu', async () => {
+    const browser = await chromium.launch();
+    try {
+        const evilFolder = 'evil" autofocus onfocus="window.__pwned=1" x="';
+        const page = await openSkillsPage(browser, [
+            centralRecord({
+                name: 'gamma',
+                dirPath: `/home/dev/.skills/${evilFolder}/gamma`,
+                skillFilePath: `/home/dev/.skills/${evilFolder}/gamma/SKILL.md`,
+                folder: evilFolder,
+                central: { dirPath: `/home/dev/.skills/${evilFolder}/gamma`, links: { user: {}, project: {} } },
+            }),
+        ]);
+        await page.evaluate(() => {
+            const button = [...document.querySelectorAll('[data-folder-menu]')]
+                .find(el => el.getAttribute('data-folder-menu').startsWith('evil'));
+            button.click();
+        });
+        const result = await page.evaluate(() => ({
+            pwned: Boolean(window.__pwned),
+            menuVisible: Boolean(document.querySelector('.skill-folder-menu.visible')),
+            toggleFolder: document.querySelector('.skill-folder-menu [data-folder-agent="kimi"]')?.getAttribute('data-folder-toggle'),
+            toggleTitle: document.querySelector('.skill-folder-menu [data-folder-agent="kimi"]')?.getAttribute('title'),
+            newFolder: document.querySelector('.skill-folder-menu [data-skill-menu-new-folder]')?.getAttribute('data-skill-menu-new-folder'),
+            removeFolder: document.querySelector('.skill-folder-menu [data-skill-remove-folder]')?.getAttribute('data-skill-remove-folder'),
+        }));
+        assert.equal(result.pwned, false, 'no inline handler is injected');
+        assert.equal(result.menuVisible, true, 'menu still opens');
+        assert.equal(result.toggleFolder, evilFolder, 'folder attribute preserved verbatim');
+        assert.equal(result.newFolder, evilFolder);
+        assert.equal(result.removeFolder, evilFolder);
+        assert.ok(result.toggleTitle.includes(evilFolder), 'title carries the raw folder name safely');
+    } finally {
+        await browser.close();
+    }
+});

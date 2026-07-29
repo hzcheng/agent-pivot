@@ -5,7 +5,7 @@ import * as path from 'path';
 
 import { centralizeSkill, createSkillFolder, FolderLinkResult, moveSkillToFolder, removeSkillFolder, setCentralLink, setFolderLinks } from './centralService';
 import { migrateUserSkillsToCentral, SkillMigrationReport } from './migrateService';
-import { scanSkills } from './discovery';
+import { scanSkillsDetailed } from './discovery';
 import { getCollectionSuggestions, KNOWN_SKILL_COLLECTIONS, SkillCollectionSuggestion } from './knownCollections';
 import { DISABLED_DIR_NAME, getCentralSkillsRoot, getKimiBrandCandidates, getProjectSkillsRoots, getUserSkillsRoots } from './roots';
 import { computeSkillCopyTargets, copySkillDir, SkillCopyTarget, syncSkillDir } from './syncService';
@@ -63,6 +63,7 @@ export function computeSkillLinkConflicts(records: SkillRecord[]): Set<string> {
 
 export class SkillDashboardController {
     private records: SkillRecord[] = [];
+    private storeFolders: Partial<Record<SkillScope, string[]>> = {};
     private watchers: fs.FSWatcher[] = [];
     private refreshTimer: NodeJS.Timeout | null = null;
     private disposed = false;
@@ -105,6 +106,7 @@ export class SkillDashboardController {
             conflicts: computeSkillLinkConflicts(this.records),
             suggestions: this.getCollectionSuggestions(),
             storeRoots: this.getStoreRoots(),
+            storeFolders: this.storeFolders,
         };
     }
 
@@ -297,10 +299,12 @@ export class SkillDashboardController {
             return;
         }
         try {
-            this.records = scanSkills({
+            const scan = scanSkillsDetailed({
                 homeDir: this.options.getHomeDir(),
                 workspaceRoot: this.options.getWorkspaceRoot(),
             });
+            this.records = scan.records;
+            this.storeFolders = scan.storeFolders;
         } catch (error) {
             this.options.logError('Skill scan failed.', error);
             this.records = [];

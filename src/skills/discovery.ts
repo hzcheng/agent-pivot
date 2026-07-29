@@ -126,7 +126,7 @@ function scanRoot(root: SkillsRoot, links: SkillLink[], input: ScanSkillsInput):
         .concat(scanDir(root, path.join(root.dirPath, DISABLED_DIR_NAME), false, links, input));
 }
 
-function scanCentralStore(root: SkillsRoot, records: SkillRecord[]): void {
+function scanCentralStore(root: SkillsRoot, records: SkillRecord[], folders: string[]): void {
     const walk = (dirPath: string, folder: string): void => {
         let entries: fs.Dirent[];
         try {
@@ -159,11 +159,40 @@ function scanCentralStore(root: SkillsRoot, records: SkillRecord[]): void {
                     records.push(record);
                 }
             } else {
-                walk(realPath, folder ? `${folder}/${entry.name}` : entry.name);
+                const childFolder = folder ? `${folder}/${entry.name}` : entry.name;
+                // Folder nodes exist even when empty (e.g. created via the panel "+").
+                folders.push(childFolder);
+                walk(realPath, childFolder);
             }
         }
     };
     walk(root.dirPath, '');
+}
+
+export interface ScanSkillsResult {
+    records: SkillRecord[];
+    /** Folder paths (relative to the store root) present in each central store, including empty ones. */
+    storeFolders: Partial<Record<SkillScope, string[]>>;
+}
+
+export function scanSkillsDetailed(input: ScanSkillsInput): ScanSkillsResult {
+    const roots = getUserSkillsRoots(input.homeDir)
+        .concat(input.workspaceRoot ? getProjectSkillsRoots(input.workspaceRoot) : [])
+        .concat(centralRoots(input));
+    const links: SkillLink[] = [];
+    const records: SkillRecord[] = [];
+    const storeFolders: Partial<Record<SkillScope, string[]>> = { user: [], project: [] };
+    for (const root of roots) {
+        if (root.source === 'central') {
+            scanCentralStore(root, records, storeFolders[root.scope] as string[]);
+        } else {
+            records.push(...scanRoot(root, links, input));
+        }
+    }
+    return {
+        records: applySkillEffectiveness(mergeCentralRecords(records, links, input), input),
+        storeFolders,
+    };
 }
 
 function centralRoots(input: ScanSkillsInput): SkillsRoot[] {
@@ -211,15 +240,5 @@ function mergeCentralRecords(records: SkillRecord[], links: SkillLink[], input: 
 }
 
 export function scanSkills(input: ScanSkillsInput): SkillRecord[] {
-    const agentRoots = getUserSkillsRoots(input.homeDir)
-        .concat(input.workspaceRoot ? getProjectSkillsRoots(input.workspaceRoot) : []);
-    const links: SkillLink[] = [];
-    const records = agentRoots.reduce<SkillRecord[]>((all, root) => all.concat(scanRoot(root, links, input)), []);
-    for (const root of centralRoots(input)) {
-        scanCentralStore(root, records);
-    }
-    return applySkillEffectiveness(
-        mergeCentralRecords(records, links, input),
-        input
-    );
+    return scanSkillsDetailed(input).records;
 }

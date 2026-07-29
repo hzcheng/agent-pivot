@@ -374,6 +374,30 @@ function runSkillRenderingChecks() {
     assert.ok(!tree.includes('data-link-user'), 'dual-scope link attrs removed');
     assert.ok(!tree.includes('data-vis-user'), 'dual-scope visibility attrs removed');
     assert.ok(!tree.includes('skill-chip project-linked'), 'P badge removed');
+    // empty folders render as nodes (badge 0, all chips unlit, delete action present)
+    const emptyTree = skillContent.getSkillsPanelContent([], {
+        hasWorkspace: true,
+        storeRoots: { user: '/home/dev/.skills' },
+        storeFolders: { user: ['newpack', 'newpack/nested'] },
+    });
+    // empty panel short-circuits on zero records → use one central record to force the tree
+    const emptyTree2 = skillContent.getSkillsPanelContent([makeRecord({
+        name: 'solo', source: 'central', dirPath: '/home/dev/.skills/solo',
+        skillFilePath: '/home/dev/.skills/solo/SKILL.md',
+        central: { dirPath: '/home/dev/.skills/solo', links: {} },
+    })], {
+        hasWorkspace: true,
+        storeRoots: { user: '/home/dev/.skills' },
+        storeFolders: { user: ['newpack', 'newpack/nested'] },
+    });
+    assert.ok(emptyTree2.includes('data-skill-folder="newpack"'), 'empty folder renders as a node');
+    assert.ok(emptyTree2.includes('data-skill-folder="newpack/nested"'), 'empty nested folder renders');
+    const newpackHeader = folderHeader(emptyTree2, 'newpack');
+    assert.ok(newpackHeader.includes('<span class="group-title-badge">0</span>'), 'empty folder shows a zero count');
+    assert.ok(newpackHeader.includes('data-skill-remove-folder="newpack"'), 'empty folder offers delete');
+    assert.ok(emptyTree.includes('data-skill-folder="newpack"'), 'empty store with folders still renders the tree');
+    const noFolderTree = skillContent.getSkillsPanelContent([], {});
+    assert.ok(noFolderTree.includes('skills-empty'), 'zero records and zero folders renders the empty hint');
     // unmanaged section holds the plain record
     assert.ok(tree.includes('skill-unmanaged'));
     // parked duplicates of central skills hide behind a disclosure; re-enable candidates stay visible
@@ -1138,6 +1162,16 @@ function runSkillFolderDiscoveryChecks() {
     const withAlias = discovery.scanSkills({ homeDir: home, workspaceRoot: ws });
     assert.strictEqual(withAlias.filter(record => record.dirPath === path.join(home, '.skills', 'solo')).length, 1,
         'store-internal alias symlink does not duplicate the record');
+
+    // empty folders are listed per store (nodes render even with no skills inside)
+    fs.mkdirSync(path.join(home, '.skills/empty/parent'), { recursive: true });
+    fs.mkdirSync(path.join(ws, '.skills/ws-empty'), { recursive: true });
+    const detailed = discovery.scanSkillsDetailed({ homeDir: home, workspaceRoot: ws });
+    assert.ok(detailed.storeFolders.user.includes('superpowers'));
+    assert.ok(detailed.storeFolders.user.includes('xiaohongshu/reddoc'));
+    assert.ok(detailed.storeFolders.user.includes('empty/parent'), 'empty nested folder listed');
+    assert.ok(detailed.storeFolders.user.includes('empty'), 'its parent listed too');
+    assert.ok(detailed.storeFolders.project.includes('ws-empty'), 'project empty folder listed');
 
     // Parked (disabled) central records are excluded from effectiveness entirely.
     // A `.disabled` dir inside the central store is skipped by the dot-prefix rule

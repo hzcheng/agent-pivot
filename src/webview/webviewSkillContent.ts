@@ -23,6 +23,8 @@ export interface SkillPanelView {
     suggestions?: SkillCollectionSuggestion[];
     /** Central store roots per scope (controller computes); used by the section "+" actions. */
     storeRoots?: { user: string; project?: string };
+    /** Folder paths present in each store, including empty ones (controller computes). */
+    storeFolders?: Partial<Record<SkillScope, string[]>>;
 }
 import { sanitizeProjectName } from '../models';
 import { escapeAttribute } from './webviewContent';
@@ -217,8 +219,29 @@ interface SkillFolderNode {
     items: SkillRecord[];   // records whose folder === node.path
 }
 
-function buildFolderTree(records: SkillRecord[]): SkillFolderNode {
+function buildFolderTree(records: SkillRecord[], folderPaths: string[] = []): SkillFolderNode {
     const root: SkillFolderNode = { path: '', name: '', children: new Map(), items: [] };
+    const ensureNode = (folderPath: string): void => {
+        const segments = folderPath.split('/');
+        let node = root;
+        let current = '';
+        for (const segment of segments) {
+            current = current ? `${current}/${segment}` : segment;
+            let child = node.children.get(segment);
+            if (!child) {
+                child = { path: current, name: segment, children: new Map(), items: [] };
+                node.children.set(segment, child);
+            }
+            node = child;
+        }
+    };
+    // Folders exist on disk even when empty — they must render (e.g. after the
+    // panel "+" creates one), so seed the tree before placing records.
+    for (const folderPath of folderPaths) {
+        if (folderPath) {
+            ensureNode(folderPath);
+        }
+    }
     for (const record of records.filter(candidate => candidate.central)) {
         const segments = record.folder ? record.folder.split('/') : [];
         let node = root;
@@ -333,7 +356,7 @@ function renderScopeSection(scope: SkillScope, items: SkillRecord[], view: Skill
     // behind a disclosure instead of cluttering Unmanaged.
     const parkedDuplicates = unmanaged.filter(record => !record.enabled && centralNames.has(record.name));
     const actionable = unmanaged.filter(record => record.enabled || !centralNames.has(record.name));
-    const tree = buildFolderTree(central);
+    const tree = buildFolderTree(central, (view.storeFolders && view.storeFolders[scope]) || []);
     const viewStoreRoot = scope === 'user' ? view.storeRoots?.user : view.storeRoots?.project;
     const storeRoot = viewStoreRoot || (central.length ? getCentralStoreRoot(central[0]) : '');
     const folders = [...tree.children.values()]
@@ -406,11 +429,17 @@ export function getSkillsPanelContent(
         ['project', project],
     ] as const;
     if (!records || records.length === 0) {
-        return '<div class="sticky-groups-wrapper skills-groups-wrapper"><div class="skills-empty">No skills found in agent skill directories.</div></div>';
+        const hasFolders = Boolean(view.storeFolders
+            && ((view.storeFolders.user || []).length || (view.storeFolders.project || []).length));
+        if (!hasFolders) {
+            return '<div class="sticky-groups-wrapper skills-groups-wrapper"><div class="skills-empty">No skills found in agent skill directories.</div></div>';
+        }
+        // Empty store with folders on disk (e.g. just created via "+"): fall through
+        // and render the tree of empty folder nodes.
     }
     const suggestions = (view.suggestions || []).map(renderSuggestion).join('');
     return `<div class="sticky-groups-wrapper skills-groups-wrapper">${renderFilterRow(view)}${suggestions}${sections
-        .filter(([, items]) => items.length)
+        .filter(([scope, items]) => items.length || ((view.storeFolders && view.storeFolders[scope as SkillScope]) || []).length)
         .map(([scope, items]) => renderScopeSection(scope, items, view)).join('\n')}
 </div>`;
 }

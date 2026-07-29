@@ -305,6 +305,11 @@ function createSyntheticTmuxStore(initial = {}) {
         },
         removeKnown: async (provider, sessionId) => { known.delete(`${provider}:${sessionId}`); },
         listInactive: async () => [...inactive.values()].map(cloneBinding),
+        listFinalSnapshot: async () => ({
+            pending: [...pending.values()].map(cloneBinding),
+            known: [...known.values()].map(cloneBinding),
+            inactive: [...inactive.values()].map(cloneBinding),
+        }),
         setInactive: async record => { inactive.set(`${record.provider}:${record.sessionId}`, cloneBinding(record)); },
         transitionKnownToInactive: async (record, expectedLastSeenAtMs) => {
             const key = `${record.provider}:${record.sessionId}`;

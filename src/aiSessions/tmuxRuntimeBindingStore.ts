@@ -88,6 +88,12 @@ export interface TmuxInactiveRuntimeBinding {
 export type TmuxInactiveAcknowledgementResult = 'acknowledged' | 'stale' | 'missing';
 export type TmuxKnownRebindResult = 'rebound' | 'stale' | 'missing';
 
+export interface TmuxFinalBindingSnapshot {
+    pending: TmuxPendingRuntimeBinding[];
+    known: TmuxKnownRuntimeBinding[];
+    inactive: TmuxInactiveRuntimeBinding[];
+}
+
 interface TmuxKnownRebindIntent {
     version: 1;
     state: 'rebind-known';
@@ -200,6 +206,14 @@ export class TmuxRuntimeBindingStore {
 
     listInactive(): Promise<TmuxInactiveRuntimeBinding[]> {
         return this.serializeFinal(() => this.listInactiveUnlocked(true));
+    }
+
+    listFinalSnapshot(): Promise<TmuxFinalBindingSnapshot> {
+        return this.serializeFinal(async () => ({
+            pending: await this.listPendingUnlocked(),
+            known: await this.listKnownUnlocked(true),
+            inactive: await this.listInactiveUnlocked(true),
+        }));
     }
 
     getPending(identity: AiSessionRuntimeIdentity): Promise<TmuxPendingRuntimeBinding | null> {

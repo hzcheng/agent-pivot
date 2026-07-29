@@ -1,5 +1,7 @@
 'use strict';
 
+// Covers PERSIST-AI-SKILL-CENTRAL-STORE-001 and PERSIST-AI-SKILL-DISCOVERY-001.
+
 const assert = require('assert');
 const fs = require('fs');
 const os = require('os');

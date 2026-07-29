@@ -1,5 +1,7 @@
 'use strict';
 
+// Covers WEBVIEW-AI-SKILL-PANEL-001.
+
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const Module = require('node:module');

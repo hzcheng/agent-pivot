@@ -193,6 +193,10 @@ export class SkillDashboardController {
     }
 
     handleFolderToggle(storeRoot: string, folder: string, scope: SkillScope, agent: SkillAgentId, enabled: boolean): FolderLinkResult {
+        const known = Object.values(this.getStoreRoots()).filter(Boolean);
+        if (!known.includes(storeRoot)) {
+            return { ok: false, changed: 0, errors: [{ name: folder || '.', error: `Unknown skills store: ${storeRoot}` }] };
+        }
         const result = setFolderLinks(storeRoot, folder, scope, this.options.getHomeDir(), this.options.getWorkspaceRoot(), !enabled, [agent]);
         for (const error of result.errors) {
             this.options.logError(`Failed to toggle folder link for ${error.name}.`, new Error(error.error));
@@ -221,6 +225,8 @@ export class SkillDashboardController {
         }
         const duplicates = this.records.filter(candidate =>
             candidate.scope === record.scope && candidate.name === record.name && candidate.dirPath !== record.dirPath
+            && !candidate.central
+            && (candidate.source === 'kimi' || candidate.source === 'claude' || candidate.source === 'codex')
         );
         const result = centralizeSkill(record, duplicates, this.options.getHomeDir(), this.options.getWorkspaceRoot());
         if (!result.ok) {

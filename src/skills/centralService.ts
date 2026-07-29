@@ -66,6 +66,11 @@ export function setCentralLink(
         if (!stat.isSymbolicLink()) {
             return { ok: false, error: `Refusing to remove a real directory: ${linkPath}` };
         }
+        // Only remove the link if it actually points at this skill — a
+        // same-named conflict winner may own the <root>/<name> slot instead.
+        if (!isSymlinkTo(linkPath, centralDir)) {
+            return { ok: false, error: `Refusing to remove a link that points elsewhere: ${linkPath}` };
+        }
         fs.unlinkSync(linkPath);
         return { ok: true, changed: true };
     } catch (error) {
@@ -184,11 +189,16 @@ export function setFolderLinks(
     if (scope === 'project' && !workspaceRoot) {
         return { ok: false, changed: 0, errors: [{ name: folder || '.', error: 'No workspace is open for project-scope links.' }] };
     }
+    // The webview channel is untyped at runtime; never join unsanitized input.
+    const safeFolder = sanitizeFolder(folder);
+    if (safeFolder === null) {
+        return { ok: false, changed: 0, errors: [{ name: folder || '.', error: `Invalid folder: ${folder}` }] };
+    }
     const result: FolderLinkResult = { ok: true, changed: 0, errors: [] };
     const roots = scope === 'user' ? getUserSkillsRoots(homeDir) : getProjectSkillsRoots(workspaceRoot as string);
     const agentRoots = roots.filter(root => agents.includes(root.source as SkillAgentId)
         && (root.source === 'kimi' || root.source === 'claude' || root.source === 'codex'));
-    for (const skillDir of walkSkillDirs(path.join(storeRoot, folder), [])) {
+    for (const skillDir of walkSkillDirs(path.join(storeRoot, safeFolder), [])) {
         for (const root of agentRoots) {
             const link = setCentralLink(skillDir, root.dirPath, enable);
             if (link.ok) {
@@ -244,11 +254,14 @@ export function moveSkillToFolder(
         }
         fs.mkdirSync(path.dirname(destination), { recursive: true });
         fs.renameSync(record.dirPath, destination);
-        // Re-point every existing link (both scopes) at the new location.
+        // Re-point every existing link (both scopes) at the new location. The
+        // old path is gone after the rename, so compare raw link targets — and
+        // never rewrite a link that points at a different (conflict winner's)
+        // directory.
         for (const scopeLinks of Object.values(record.central.links)) {
             for (const linkPath of Object.values(scopeLinks || {})) {
                 try {
-                    if (fs.lstatSync(linkPath).isSymbolicLink()) {
+                    if (fs.lstatSync(linkPath).isSymbolicLink() && fs.readlinkSync(linkPath) === record.dirPath) {
                         fs.unlinkSync(linkPath);
                         fs.symlinkSync(destination, linkPath, 'dir');
                     }
@@ -287,9 +300,10 @@ export function createSkillFolder(storeRoot: string, targetFolder: string): Cent
 }
 
 /**
- * Delete a folder inside a central store. Only empty folders (no skills
- * anywhere in the subtree) can be deleted — skills must be moved out first,
- * which keeps the operation non-destructive.
+ * Delete a folder inside a central store. Only truly empty folders can be
+ * deleted (matching the confirmation modal), and the resolved path must stay
+ * inside the store — an intermediate symlink must not let the recursive
+ * delete escape onto the rest of the disk.
  */
 export function removeSkillFolder(storeRoot: string, targetFolder: string): CentralResult {
     try {
@@ -298,13 +312,24 @@ export function removeSkillFolder(storeRoot: string, targetFolder: string): Cent
             return { ok: false, error: `Invalid folder: ${targetFolder}` };
         }
         const destination = path.join(storeRoot, folder);
-        if (!fs.existsSync(destination) || !fs.statSync(destination).isDirectory()) {
+        let rootReal: string;
+        let destReal: string;
+        try {
+            rootReal = fs.realpathSync(storeRoot);
+            destReal = fs.realpathSync(destination);
+        } catch (_error) {
             return { ok: false, error: `Unknown folder: ${destination}` };
         }
-        if (walkSkillDirs(destination, []).length) {
+        if (destReal === rootReal || !destReal.startsWith(rootReal + path.sep)) {
+            return { ok: false, error: `Refusing to delete outside the skills store: ${destination}` };
+        }
+        if (!fs.statSync(destReal).isDirectory()) {
+            return { ok: false, error: `Unknown folder: ${destination}` };
+        }
+        if (fs.readdirSync(destReal).length) {
             return { ok: false, error: 'Folder is not empty — move its skills out first.' };
         }
-        fs.rmSync(destination, { recursive: true, force: true });
+        fs.rmSync(destReal, { recursive: true, force: true });
         return { ok: true };
     } catch (error) {
         return { ok: false, error: error instanceof Error ? error.message : String(error) };

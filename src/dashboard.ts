@@ -1480,8 +1480,33 @@ async function initializeDashboard(
                     void vscode.window.showWarningMessage(`Could not delete the folder: ${result.error}`);
                 }
             },
-            'centralize-skill': e => {
-                const result = skillDashboardController.handleCentralize(String(e.dirPath || ''));
+            'centralize-skill': async e => {
+                const dirPath = String(e.dirPath || '');
+                const record = skillDashboardController.getRecords()
+                    .find(candidate => candidate.dirPath === dirPath && !candidate.central);
+                if (record) {
+                    // Centralize permanently deletes the losing duplicate copies;
+                    // confirm first, naming them and flagging content drift.
+                    const duplicates = skillDashboardController.getRecords().filter(candidate =>
+                        candidate.scope === record.scope && candidate.name === record.name
+                        && candidate.dirPath !== record.dirPath && !candidate.central
+                        && (candidate.source === 'kimi' || candidate.source === 'claude' || candidate.source === 'codex'));
+                    if (duplicates.length) {
+                        const drifted = new Set([record.contentHash || '', ...duplicates.map(copy => copy.contentHash || '')]).size > 1;
+                        const choice = await vscode.window.showWarningMessage(
+                            `Centralize "${record.name}" into the ${record.scope} store? `
+                            + `The other ${duplicates.length} ${record.scope} ${duplicates.length === 1 ? 'copy' : 'copies'} will be deleted permanently:\n`
+                            + duplicates.map(copy => copy.dirPath).join('\n')
+                            + (drifted ? '\nWarning: the copies have different content; only the clicked copy is kept.' : ''),
+                            { modal: true },
+                            'Centralize',
+                        );
+                        if (choice !== 'Centralize') {
+                            return;
+                        }
+                    }
+                }
+                const result = skillDashboardController.handleCentralize(dirPath);
                 if (!result.ok) {
                     void vscode.window.showWarningMessage(`Could not centralize the skill: ${result.error}`);
                 }

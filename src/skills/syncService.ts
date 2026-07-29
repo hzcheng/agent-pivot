@@ -2,7 +2,6 @@
 
 import * as crypto from 'crypto';
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 
 import { getProjectSkillsRoots, getUserSkillsRoots } from './roots';
@@ -162,7 +161,9 @@ export function syncSkillDir(sourceDir: string, targetDir: string): SkillFsResul
     let aside: string | null = null;
     try {
         const name = path.basename(targetDir);
-        aside = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-skill-sync-'));
+        // The aside must live on the same filesystem as the target: renameSync
+        // throws EXDEV across mounts (e.g. tmpfs /tmp vs $HOME on Linux).
+        aside = fs.mkdtempSync(path.join(path.dirname(targetDir), '.agent-pivot-skill-sync-'));
         const asidePath = path.join(aside, name);
         fs.renameSync(targetDir, asidePath);
         try {

@@ -3289,8 +3289,11 @@ function runDashboardBridgeLifecycleChecks() {
         < startupWiring.indexOf('afterProjectMigrationSucceeded: async () => {'));
     assert.strictEqual((dashboard.match(/dashboardStartupController\.startUp\(\)/g) || []).length, 1,
         'activation must start one migration/pending-completion sequence');
-    assert.ok(dashboard.includes('await dashboardStartupController.startUp();'),
-        'activation must await the one ordered migration/pending-completion startup transaction');
+    assert.match(
+        dashboard,
+        /await timeBootstrapPhase\('startup-sequence', \(\) =>\s*dashboardStartupController\.startUp\(\)\);/,
+        'activation must await the one ordered migration/pending-completion startup transaction'
+    );
     assert.strictEqual(dashboard.includes('void dashboardStartupController.startUp();'), false);
     const saveAdapterWiring = dashboard.slice(
         dashboard.indexOf('const savedWorkspaceProjectAdapter = new SavedWorkspaceProjectAdapter({'),

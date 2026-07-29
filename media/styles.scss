@@ -4597,6 +4597,19 @@ body.steward-sidebar {
     // Compact file-tree rhythm: skill cards nest inside the folder guides
     // like rows in a file explorer instead of floating dashboard tiles.
     .skills-groups-wrapper {
+        // Tree nodes (sections and folders are .group) sit nearly flush;
+        // the default 12px group gap reads as wasted space inside a tree.
+        .group,
+        .group:first-child {
+            margin-top: 2px;
+        }
+
+        .steward-group-header {
+            padding: 2px 6px;
+            border-radius: 5px;
+            font-size: 13px;
+        }
+
         .skill-card {
             min-height: 0;
             margin-bottom: 3px;

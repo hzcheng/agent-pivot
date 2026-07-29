@@ -400,6 +400,8 @@ function runSkillStyleChecks() {
     assert.ok(compiled.includes('.skill-folder-menu-item'));
     assert.ok(compiled.includes('.skill-delete'));
     assert.ok(!compiled.includes('.skill-parked-duplicates'));
+    assert.ok(compiled.includes('.skills-groups-wrapper .skill-card'), 'compact card rhythm');
+    assert.ok(compiled.includes('.skills-groups-wrapper .group'), 'compact tree node rhythm');
     assert.ok(compiled.includes('.skill-ios-toggle.indeterminate'));
     assert.ok(compiled.includes('.skill-unmanaged'));
     assert.ok(compiled.includes('.skill-chip'));

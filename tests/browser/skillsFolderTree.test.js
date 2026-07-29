@@ -134,6 +134,8 @@ async function openSkillsPage(browser, records, view = {}) {
             document.addEventListener('dragend', onSkillDragEnd);
             window.__captureSkillCollapsedGroups = captureSkillCollapsedGroups;
             window.__restoreSkillCollapsedGroups = restoreSkillCollapsedGroups;
+            window.__captureSkillFolderMenuState = captureSkillFolderMenuState;
+            window.__restoreSkillFolderMenuState = restoreSkillFolderMenuState;
         })();
     }, extractSkillCode());
     return page;
@@ -170,9 +172,15 @@ test('SKILLS-FOLDER-AGENTS-001 the ⋯ menu opens per-agent switches, closes on 
         const removeLabel = await page.evaluate(() =>
             document.querySelector('.skill-folder-menu [data-skill-remove-folder="superpowers"]')?.textContent);
         assert.equal(removeLabel, 'Delete empty folder');
-        // clicking a switch closes the menu and posts the batch toggle
+        // clicking a switch keeps the menu open, marks the switch pending, posts the batch toggle
         await page.click('.skill-folder-menu [data-folder-agent="kimi"]');
-        assert.equal(await menuVisible(), false, 'menu closes on action');
+        assert.equal(await menuVisible(), true, 'menu stays open for multi-agent changes');
+        const pending = await page.evaluate(() => {
+            const sw = document.querySelector('.skill-folder-menu [data-folder-agent="kimi"]');
+            return { pending: sw.classList.contains('skill-toggle-pending'), disabled: sw.disabled };
+        });
+        assert.deepEqual(pending, { pending: true, disabled: true },
+            'clicked switch shows a pending look, never an optimistic committed state');
         const messages = await page.evaluate(() => window.__skillMessages);
         assert.deepEqual(messages, [{
             type: 'folder-toggle-skill-links',
@@ -182,9 +190,26 @@ test('SKILLS-FOLDER-AGENTS-001 the ⋯ menu opens per-agent switches, closes on 
             agent: 'kimi',
             enabled: false,
         }]);
-        // reopen, then outside click closes without posting
-        await page.click('[data-folder-menu="superpowers"]');
-        assert.equal(await menuVisible(), true, 'menu reopens');
+        // a second agent toggles from the same open menu
+        await page.click('.skill-folder-menu [data-folder-agent="claude"]');
+        const messages2 = await page.evaluate(() => window.__skillMessages);
+        assert.equal(messages2.length, 2, 'second toggle from the same menu');
+        assert.equal(messages2[1].agent, 'claude');
+        // authoritative skills-updated re-syncs the menu: pending clears, states re-read
+        await page.evaluate(() => {
+            const wrapper = document.querySelector('#ai-panel-skills .sticky-groups-wrapper');
+            const menuState = window.__captureSkillFolderMenuState();
+            wrapper.outerHTML = wrapper.outerHTML;
+            window.__restoreSkillFolderMenuState(menuState);
+        });
+        assert.equal(await menuVisible(), true, 'menu survives the authoritative refresh');
+        const resynced = await page.evaluate(() => {
+            const sw = document.querySelector('.skill-folder-menu [data-folder-agent="kimi"]');
+            return { pending: sw.classList.contains('skill-toggle-pending'), disabled: sw.disabled, cls: sw.className };
+        });
+        assert.deepEqual(resynced, { pending: false, disabled: false, cls: 'skill-ios-toggle indeterminate' },
+            'refresh re-syncs the switch from authoritative state');
+        // outside click closes without posting
         await page.evaluate(() => { window.__skillMessages = []; });
         await page.click('body', { position: { x: 2, y: 2 } });
         assert.equal(await menuVisible(), false, 'outside click closes the menu');

@@ -965,6 +965,25 @@ function initDashboard(options) {
 
     // One shared context menu for folder batch actions (VS Code "More Actions"
     // style): agent switches + delete, built from the ⋯ button's data attributes.
+    function positionSkillFolderMenu(menu, button) {
+        var rect = menu.getBoundingClientRect();
+        var anchor = button.getBoundingClientRect();
+        var viewportPadding = 4;
+        var left = anchor.right - rect.width;
+        var top = anchor.bottom + 2;
+        if (left + rect.width + viewportPadding > window.innerWidth) {
+            left = Math.max(viewportPadding, window.innerWidth - rect.width - viewportPadding);
+        }
+        if (left < viewportPadding) {
+            left = viewportPadding;
+        }
+        if (top + rect.height + viewportPadding > window.innerHeight) {
+            top = Math.max(viewportPadding, anchor.top - rect.height - 2);
+        }
+        menu.style.left = left + 'px';
+        menu.style.top = top + 'px';
+    }
+
     function openSkillFolderMenu(button) {
         closeSkillFolderMenu();
         var folder = button.getAttribute('data-folder-menu') || '';
@@ -993,23 +1012,9 @@ function initDashboard(options) {
         html += '<div class="custom-context-menu-item skill-folder-menu-remove" data-skill-remove-folder="' + folder + '">Delete empty folder</div>';
         menu.innerHTML = html;
         document.body.appendChild(menu);
-        var rect = menu.getBoundingClientRect();
-        var anchor = button.getBoundingClientRect();
-        var viewportPadding = 4;
-        var left = anchor.right - rect.width;
-        var top = anchor.bottom + 2;
-        if (left + rect.width + viewportPadding > window.innerWidth) {
-            left = Math.max(viewportPadding, window.innerWidth - rect.width - viewportPadding);
-        }
-        if (left < viewportPadding) {
-            left = viewportPadding;
-        }
-        if (top + rect.height + viewportPadding > window.innerHeight) {
-            top = Math.max(viewportPadding, anchor.top - rect.height - 2);
-        }
-        menu.style.left = left + 'px';
-        menu.style.top = top + 'px';
+        positionSkillFolderMenu(menu, button);
         menu.__sourceButton = button;
+        menu.__identity = { section: false, folder: folder, scope: scope };
         skillFolderMenu = menu;
     }
 
@@ -1041,24 +1046,66 @@ function initDashboard(options) {
         html += '<div class="custom-context-menu-item skill-folder-menu-migrate" data-skill-menu-migrate="' + scope + '">Migrate to central…</div>';
         menu.innerHTML = html;
         document.body.appendChild(menu);
-        var rect = menu.getBoundingClientRect();
-        var anchor = button.getBoundingClientRect();
-        var viewportPadding = 4;
-        var left = anchor.right - rect.width;
-        var top = anchor.bottom + 2;
-        if (left + rect.width + viewportPadding > window.innerWidth) {
-            left = Math.max(viewportPadding, window.innerWidth - rect.width - viewportPadding);
-        }
-        if (left < viewportPadding) {
-            left = viewportPadding;
-        }
-        if (top + rect.height + viewportPadding > window.innerHeight) {
-            top = Math.max(viewportPadding, anchor.top - rect.height - 2);
-        }
-        menu.style.left = left + 'px';
-        menu.style.top = top + 'px';
+        positionSkillFolderMenu(menu, button);
         menu.__sourceButton = button;
+        menu.__identity = { section: true, folder: '', scope: scope };
         skillFolderMenu = menu;
+    }
+
+    // Keep the ⋯ menu open across per-agent toggles: the switch gets a pending
+    // look (never an optimistic committed state) and the authoritative
+    // skills-updated re-syncs it afterwards. Popup state stays webview-local.
+    function captureSkillFolderMenuState() {
+        if (!skillFolderMenu || !skillFolderMenu.__identity) {
+            return null;
+        }
+        return { identity: skillFolderMenu.__identity };
+    }
+
+    function restoreSkillFolderMenuState(state) {
+        if (!state || !skillFolderMenu) {
+            return;
+        }
+        var identity = state.identity;
+        var candidates = document.querySelectorAll(identity.section ? '[data-section-menu]' : '[data-folder-menu]');
+        var button = null;
+        for (var i = 0; i < candidates.length; i++) {
+            var candidate = candidates[i];
+            if (identity.section) {
+                if (candidate.getAttribute('data-section-menu') === identity.scope) {
+                    button = candidate;
+                    break;
+                }
+            } else if (candidate.getAttribute('data-folder-menu') === identity.folder
+                && candidate.getAttribute('data-folder-scope') === identity.scope) {
+                button = candidate;
+                break;
+            }
+        }
+        if (!button) {
+            closeSkillFolderMenu();
+            return;
+        }
+        var menu = skillFolderMenu;
+        var agents = ['kimi', 'claude', 'codex'];
+        for (var j = 0; j < agents.length; j++) {
+            var agent = agents[j];
+            var sw = menu.querySelector('[data-folder-agent="' + agent + '"]');
+            if (!sw) {
+                continue;
+            }
+            var next = button.getAttribute('data-state-' + agent) || 'off';
+            sw.classList.remove('off', 'indeterminate', 'skill-toggle-pending');
+            sw.disabled = false;
+            if (next !== 'on') {
+                sw.classList.add(next);
+            }
+            var folder = sw.getAttribute('data-folder-toggle') || '';
+            var target = folder ? 'every skill under ' + folder : 'every skill in this section';
+            sw.setAttribute('title', (next === 'on' ? 'Disable ' : 'Enable ') + target + ' for ' + agent);
+        }
+        menu.__sourceButton = button;
+        positionSkillFolderMenu(menu, button);
     }
 
     function captureSkillExpandedCards(wrapper) {
@@ -1228,8 +1275,11 @@ function initDashboard(options) {
         if (folderToggle) {
             event.preventDefault();
             event.stopPropagation();
-            closeSkillFolderMenu();
             var folderNode = folderToggle.closest('[data-skill-store]');
+            // The menu stays open for multi-agent changes; pending ≠ committed,
+            // the authoritative skills-updated re-syncs the switch.
+            folderToggle.classList.add('skill-toggle-pending');
+            folderToggle.disabled = true;
             options.postMessage({
                 type: 'folder-toggle-skill-links',
                 storeRoot: folderNode ? folderNode.getAttribute('data-skill-store') : '',
@@ -1921,11 +1971,12 @@ function initDashboard(options) {
             if (skillsWrapper && typeof event.data.html === 'string') {
                 var collapsedSkillGroups = captureSkillCollapsedGroups(skillsWrapper);
                 var expandedSkillCards = captureSkillExpandedCards(skillsWrapper);
-                closeSkillFolderMenu();
+                var folderMenuState = captureSkillFolderMenuState();
                 skillsWrapper.outerHTML = event.data.html;
                 var nextSkillsWrapper = document.querySelector('#ai-panel-skills .sticky-groups-wrapper');
                 restoreSkillCollapsedGroups(nextSkillsWrapper, collapsedSkillGroups);
                 restoreSkillExpandedCards(nextSkillsWrapper, expandedSkillCards);
+                restoreSkillFolderMenuState(folderMenuState);
                 applySkillAgentFilter();
             }
         }

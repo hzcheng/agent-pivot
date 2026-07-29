@@ -411,6 +411,7 @@ function runSkillStyleChecks() {
     assert.ok(compiled.includes('.skills-groups-wrapper .skill-card'), 'compact card rhythm');
     assert.ok(compiled.includes('.skills-groups-wrapper .group'), 'compact tree node rhythm');
     assert.ok(compiled.includes('.skill-ios-toggle.indeterminate'));
+    assert.ok(compiled.includes('.skill-toggle-pending'), 'pending switch styles');
     assert.ok(compiled.includes('.skill-unmanaged'));
     assert.ok(compiled.includes('.skill-chip'));
     assert.ok(compiled.includes('.skill-source-header'));
@@ -428,6 +429,9 @@ function runSkillWebviewScriptChecks() {
     assert.ok(script.includes('skill-filter-hidden'), 'filter hides via class (hidden attr cannot beat author display rules)');
     assert.ok(script.includes('captureSkillCollapsedGroups'), 'collapse state preserved across skills-updated replacement');
     assert.ok(script.includes('restoreSkillCollapsedGroups'));
+    assert.ok(script.includes('captureSkillFolderMenuState'), '⋯ menu state captured across skills-updated');
+    assert.ok(script.includes('restoreSkillFolderMenuState'), '⋯ menu re-synced after authoritative refresh');
+    assert.ok(script.includes('skill-toggle-pending'), 'toggle pending state wired');
     assert.ok(!script.includes('data-skill-scope-select'), 'scope selector wiring removed');
     assert.ok(script.includes('data-folder-menu'), 'folder ⋯ menu wiring present');
     assert.ok(script.includes('openSkillFolderMenu'));

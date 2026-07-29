@@ -4632,6 +4632,11 @@ body.steward-sidebar {
         }
     }
 
+    .skill-ios-toggle.skill-toggle-pending {
+        opacity: .45;
+        cursor: wait;
+    }
+
     .skill-unmanaged {
         margin-top: 10px;
     }

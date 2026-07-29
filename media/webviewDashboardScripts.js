@@ -1023,8 +1023,23 @@ function initDashboard(options) {
         if (storeNode) {
             menu.setAttribute('data-skill-store', storeNode.getAttribute('data-skill-store'));
         }
-        menu.innerHTML = '<div class="custom-context-menu-item skill-folder-menu-new" data-skill-menu-new-folder="" data-folder-scope="' + scope + '">New folder</div>'
-            + '<div class="custom-context-menu-item skill-folder-menu-migrate" data-skill-menu-migrate="' + scope + '">Migrate to central…</div>';
+        var agents = ['kimi', 'claude', 'codex'];
+        var html = '';
+        for (var i = 0; i < agents.length; i++) {
+            var agent = agents[i];
+            var state = button.getAttribute('data-state-' + agent) || 'off';
+            var cls = state === 'on' ? '' : ' ' + state;
+            var title = state === 'on'
+                ? 'Disable every skill in this section for ' + agent
+                : 'Enable every skill in this section for ' + agent;
+            html += '<div class="custom-context-menu-item skill-folder-menu-item"><span class="skill-folder-menu-agent">' + agent + '</span>'
+                + '<button type="button" class="skill-ios-toggle' + cls + '" title="' + title + '"'
+                + ' data-folder-toggle="" data-folder-agent="' + agent + '" data-folder-scope="' + scope + '"></button></div>';
+        }
+        html += '<div class="custom-context-menu-separator"></div>';
+        html += '<div class="custom-context-menu-item skill-folder-menu-new" data-skill-menu-new-folder="" data-folder-scope="' + scope + '">New folder</div>';
+        html += '<div class="custom-context-menu-item skill-folder-menu-migrate" data-skill-menu-migrate="' + scope + '">Migrate to central…</div>';
+        menu.innerHTML = html;
         document.body.appendChild(menu);
         var rect = menu.getBoundingClientRect();
         var anchor = button.getBoundingClientRect();

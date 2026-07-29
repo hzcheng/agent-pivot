@@ -984,33 +984,59 @@ function initDashboard(options) {
         menu.style.top = top + 'px';
     }
 
+    function appendMenuAgentToggles(menu, button, folder, scope) {
+        var agents = ['kimi', 'claude', 'codex'];
+        for (var i = 0; i < agents.length; i++) {
+            var agent = agents[i];
+            var state = button.getAttribute('data-state-' + agent) || 'off';
+            var item = document.createElement('div');
+            item.className = 'custom-context-menu-item skill-folder-menu-item';
+            var label = document.createElement('span');
+            label.className = 'skill-folder-menu-agent';
+            label.textContent = agent;
+            var toggle = document.createElement('button');
+            toggle.type = 'button';
+            toggle.className = 'skill-ios-toggle' + (state === 'on' ? '' : ' ' + state);
+            toggle.title = (state === 'on' ? 'Disable every skill under ' : 'Enable every skill under ')
+                + (folder || 'this section') + ' for ' + agent;
+            toggle.setAttribute('data-folder-toggle', folder);
+            toggle.setAttribute('data-folder-agent', agent);
+            toggle.setAttribute('data-folder-scope', scope);
+            item.appendChild(label);
+            item.appendChild(toggle);
+            menu.appendChild(item);
+        }
+        var separator = document.createElement('div');
+        separator.className = 'custom-context-menu-separator';
+        menu.appendChild(separator);
+    }
+
+    function appendMenuAction(menu, className, text) {
+        var item = document.createElement('div');
+        item.className = 'custom-context-menu-item ' + className;
+        item.textContent = text;
+        menu.appendChild(item);
+        return item;
+    }
+
     function openSkillFolderMenu(button) {
         closeSkillFolderMenu();
         var folder = button.getAttribute('data-folder-menu') || '';
         var scope = button.getAttribute('data-folder-scope') || 'user';
         var storeNode = button.closest('[data-skill-store]');
-        var agents = ['kimi', 'claude', 'codex'];
         var menu = document.createElement('div');
         menu.className = 'custom-context-menu skill-folder-menu visible';
         if (storeNode) {
             menu.setAttribute('data-skill-store', storeNode.getAttribute('data-skill-store'));
         }
-        var html = '';
-        for (var i = 0; i < agents.length; i++) {
-            var agent = agents[i];
-            var state = button.getAttribute('data-state-' + agent) || 'off';
-            var cls = state === 'on' ? '' : ' ' + state;
-            var title = state === 'on'
-                ? 'Disable every skill under ' + folder + ' for ' + agent
-                : 'Enable every skill under ' + folder + ' for ' + agent;
-            html += '<div class="custom-context-menu-item skill-folder-menu-item"><span class="skill-folder-menu-agent">' + agent + '</span>'
-                + '<button type="button" class="skill-ios-toggle' + cls + '" title="' + title + '"'
-                + ' data-folder-toggle="' + folder + '" data-folder-agent="' + agent + '" data-folder-scope="' + scope + '"></button></div>';
-        }
-        html += '<div class="custom-context-menu-separator"></div>';
-        html += '<div class="custom-context-menu-item skill-folder-menu-new" data-skill-menu-new-folder="' + folder + '" data-folder-scope="' + scope + '">New subfolder</div>';
-        html += '<div class="custom-context-menu-item skill-folder-menu-remove" data-skill-remove-folder="' + folder + '">Delete empty folder</div>';
-        menu.innerHTML = html;
+        // DOM construction (not innerHTML) so disk-derived folder names can
+        // never break out of attributes and inject markup.
+        appendMenuAgentToggles(menu, button, folder, scope);
+        var newItem = appendMenuAction(menu, 'skill-folder-menu-new', 'New subfolder');
+        newItem.setAttribute('data-skill-menu-new-folder', folder);
+        newItem.setAttribute('data-folder-scope', scope);
+        var removeItem = appendMenuAction(menu, 'skill-folder-menu-remove', 'Delete empty folder');
+        removeItem.setAttribute('data-skill-remove-folder', folder);
         document.body.appendChild(menu);
         positionSkillFolderMenu(menu, button);
         menu.__sourceButton = button;
@@ -1028,23 +1054,12 @@ function initDashboard(options) {
         if (storeNode) {
             menu.setAttribute('data-skill-store', storeNode.getAttribute('data-skill-store'));
         }
-        var agents = ['kimi', 'claude', 'codex'];
-        var html = '';
-        for (var i = 0; i < agents.length; i++) {
-            var agent = agents[i];
-            var state = button.getAttribute('data-state-' + agent) || 'off';
-            var cls = state === 'on' ? '' : ' ' + state;
-            var title = state === 'on'
-                ? 'Disable every skill in this section for ' + agent
-                : 'Enable every skill in this section for ' + agent;
-            html += '<div class="custom-context-menu-item skill-folder-menu-item"><span class="skill-folder-menu-agent">' + agent + '</span>'
-                + '<button type="button" class="skill-ios-toggle' + cls + '" title="' + title + '"'
-                + ' data-folder-toggle="" data-folder-agent="' + agent + '" data-folder-scope="' + scope + '"></button></div>';
-        }
-        html += '<div class="custom-context-menu-separator"></div>';
-        html += '<div class="custom-context-menu-item skill-folder-menu-new" data-skill-menu-new-folder="" data-folder-scope="' + scope + '">New folder</div>';
-        html += '<div class="custom-context-menu-item skill-folder-menu-migrate" data-skill-menu-migrate="' + scope + '">Migrate to central…</div>';
-        menu.innerHTML = html;
+        appendMenuAgentToggles(menu, button, '', scope);
+        var newItem = appendMenuAction(menu, 'skill-folder-menu-new', 'New folder');
+        newItem.setAttribute('data-skill-menu-new-folder', '');
+        newItem.setAttribute('data-folder-scope', scope);
+        var migrateItem = appendMenuAction(menu, 'skill-folder-menu-migrate', 'Migrate to central…');
+        migrateItem.setAttribute('data-skill-menu-migrate', scope);
         document.body.appendChild(menu);
         positionSkillFolderMenu(menu, button);
         menu.__sourceButton = button;

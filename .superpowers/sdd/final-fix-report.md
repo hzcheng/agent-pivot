@@ -197,3 +197,32 @@ Fresh final-state verification passed:
 - Fresh `npm run test:ci:linux`: exit 0.
 
 The worktree was clean immediately after the final CI build.
+
+---
+
+## Final whole-branch review fixes (2026-07-28)
+
+### Fix 1 (Critical): parked skills visible as disabled cards
+- `src/skills/discovery.ts`: refactored `scanRoot` into `createRecord` + `scanDir`; each root now also scans `<root>/.disabled/` first-level children (dot-children skipped) as records with `enabled: false`, inheriting the root's scope/source, with the same frontmatter parsing, description, and diagnostics. Active root listing still skips dot-directories.
+- `src/skills/effectiveness.ts`: `applyScope` now skips records with `enabled === false`; parked records keep all-`'absent'` visibility and empty `shadowedBy`.
+- `scripts/run-skill-management-checks.js` updated: T3 expects `parked` present (`enabled: false`, scope `user`, source `kimi`, parked dirPath, parsed description) while keeping `.hidden` exclusions; T4 asserts parked visibility stays all-`'absent'` (also on re-application); T9 controller test expects alpha STILL PRESENT with `enabled === false` after disable and `enabled === true` after re-enable.
+
+### Fix 2 (Important): path containment on mutation/open endpoints
+- `src/skills/dashboardController.ts`: `handleToggle` now runs `checkToggleContainment` before any fs mutation — disable requires the target to be a direct child of a known skills root (never `.disabled` itself); enable requires the parent to be `<known root>/.disabled`. Violations return `{ ok: false, error }` without touching the filesystem or calling toggleService.
+- `src/dashboard.ts`: `'open-skill-file'` only opens paths that equal a current record's `skillFilePath` from `skillDashboardController.getRecords()`; otherwise silent no-op (matches neighboring handler validation style).
+- Check script controller suite: added refused-toggle assertions (`/tmp`-outside disable, disabling `.disabled` itself, enable outside a known root's `.disabled`, enable on an active path) plus a "valid disable still works" and "refused toggles never touch the filesystem" assertion.
+
+### Fix 3 (Important): clean skills can open SKILL.md
+- `src/webview/webviewSkillContent.ts`: removed the `shadowed || diagnostics.length` gate — `getSkillDetail(record)` (hidden detail block with the `data-skill-open` button) now renders for every card; warn chip logic unchanged.
+- Check script rendering suite: asserts a clean record renders `data-skill-open="/home/dev/.kimi/skills/demo/SKILL.md"`.
+
+### Fix 4 (Important): trailing whitespace in staged mockups
+- Stripped trailing whitespace from `docs/superpowers/specs/assets/skill-management-diagnostic.html` and `skill-management-tab-list.html` (working-tree edit only; index NOT re-staged).
+
+### Verification outputs
+1. `npm run test:skills` → `Skill management checks passed.`
+2. `npm run test:dashboard` → `Dashboard Webview checks passed.`
+3. `npm run test:safety` → `Workspace parity checks passed.` / `AI session tmux checks passed.` / `AI session safety checks passed.` / `Open workspace safety checks passed.` / `Skill management checks passed.`
+4. `git diff --check HEAD -- docs/superpowers/specs/assets/` → clean (no output); full `git diff --check HEAD` exit 0.
+
+No git mutations (no add/stash/commit); working-tree edits only. No unexpected assertion breakage encountered.

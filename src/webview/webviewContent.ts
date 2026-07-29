@@ -175,7 +175,7 @@ export function getStewardContent(
     var customCss = infos.config.get('customCss') || '';
     var allGroupsCollapsed = !!infos.openWorkspacesGroupCollapsed;
     var searchCatalog = serializeDashboardSearchCatalog(
-        buildWorkspaceDashboardSearchCatalog(groups, workspaceCards, infos.todoSearchItems || [])
+        buildWorkspaceDashboardSearchCatalog(groups, workspaceCards, infos.todoSearchItems || [], infos.skills || [])
     );
     var openWorkspacesContent = getOpenWorkspacesGroupContent(
         workspaceCards,
@@ -1250,7 +1250,7 @@ function getProjectIconTitle(remoteType: ProjectRemoteType): string {
     }
 }
 
-function escapeAttribute(value: string): string {
+export function escapeAttribute(value: string): string {
     return (value || '')
         .replace(/&/g, '&amp;')
         .replace(/"/g, '&quot;')

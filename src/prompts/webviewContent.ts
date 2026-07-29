@@ -104,7 +104,9 @@ function renderReadOnlyContent(reason: 'invalid-data' | 'unsupported-version'): 
     </div>`;
 }
 
-function renderAiPanel(promptSurface: string): string {
+const AI_PANEL_SKILLS_PLACEHOLDER = '<div class="ai-coming-soon steward-empty-state">Coming Soon</div>';
+
+function renderAiPanel(promptSurface: string, skillsSurface?: string): string {
     return `<div class="ai-panel" data-ai-panel>
         <div class="ai-tablist" role="tablist" aria-label="AI configuration">
             <button type="button" role="tab" id="ai-tab-prompts" aria-controls="ai-panel-prompts" aria-selected="true" tabindex="0">PROMPTS</button>
@@ -113,7 +115,7 @@ function renderAiPanel(promptSurface: string): string {
             <button type="button" role="tab" id="ai-tab-hooks" aria-controls="ai-panel-hooks" aria-selected="false" tabindex="-1">HOOKS</button>
         </div>
         <section role="tabpanel" id="ai-panel-prompts" aria-labelledby="ai-tab-prompts">${promptSurface}</section>
-        <section role="tabpanel" id="ai-panel-skills" aria-labelledby="ai-tab-skills" hidden><div class="ai-coming-soon steward-empty-state">Coming Soon</div></section>
+        <section role="tabpanel" id="ai-panel-skills" aria-labelledby="ai-tab-skills" hidden>${skillsSurface || AI_PANEL_SKILLS_PLACEHOLDER}</section>
         <section role="tabpanel" id="ai-panel-mcp" aria-labelledby="ai-tab-mcp" hidden><div class="ai-coming-soon steward-empty-state">Coming Soon</div></section>
         <section role="tabpanel" id="ai-panel-hooks" aria-labelledby="ai-tab-hooks" hidden><div class="ai-coming-soon steward-empty-state">Coming Soon</div></section>
     </div>`;
@@ -156,10 +158,10 @@ export function getPromptRecoveryContent(snapshot: PromptPanelSnapshot): string 
     </div>`;
 }
 
-export function getAiPanelContent(snapshot: PromptPanelSnapshot): string {
-    return renderAiPanel(getPromptSurfaceContent(snapshot));
+export function getAiPanelContent(snapshot: PromptPanelSnapshot, skillsSurface?: string): string {
+    return renderAiPanel(getPromptSurfaceContent(snapshot), skillsSurface);
 }
 
-export function getAiPanelRecoveryContent(snapshot: PromptPanelSnapshot): string {
-    return renderAiPanel(getPromptRecoveryContent(snapshot));
+export function getAiPanelRecoveryContent(snapshot: PromptPanelSnapshot, skillsSurface?: string): string {
+    return renderAiPanel(getPromptRecoveryContent(snapshot), skillsSurface);
 }

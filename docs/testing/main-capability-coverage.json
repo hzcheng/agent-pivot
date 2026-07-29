@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "8e7a9c2a3885d2a3e6a1ad783cc867fc2e70815c",
+        "head": "a732939522c647edf588f29c0f9cbc6e8fa87077",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -952,6 +952,72 @@
             "scheduledJobs": [
                 "scheduled-macos"
             ],
+            "realEnvironmentRequired": false
+        },
+        {
+            "id": "MAIN-AI-SKILL-MANAGEMENT",
+            "title": "Central AI skill store with scoped agent links",
+            "requirement": "Skills live in a central on-disk store with folder trees; per-agent enablement is symlink-based per scope, and every mutation (centralize, migrate, sync, delete, folder batch) enforces containment and survives authoritative webview refreshes.",
+            "commits": [
+                "b50fcc95bdd5cc05af97ce227389c9ade3bc37bf",
+                "c44ce9548239bf376c85c652f875ee471dd85be9",
+                "875c3658370b8247d5fc0521d10b63a9f227a1dd",
+                "d3ad6205700156f56a4d30786fc466714e0fd8ea",
+                "02d05b50f44b82ca478511354567e6b8f36c9089",
+                "7b08617d6f0de03806b6a3744147b56ae083fb11",
+                "9cab0aee508e035f77307e433bde3eea40ed5df8",
+                "aa22a8b2ca7d846ee45ef4ae5c76c116a16d717b",
+                "f176246dd2e38a73b672c580223978aaca7a90a7",
+                "75294c7d79e6ff9bfe55e9d1fbac98fa5032366a",
+                "979f514bab20513c974358c044562ccad61403ee",
+                "232b874bcd339b7f5c88808f57cae5cab4d56321",
+                "db0360cb46354ed2357cc15cc6a7ab3c2e653fee",
+                "b28cc96bcd281c832bfcd1407c7d4e543081a03a",
+                "a06f14ea12e3c612e9ce0b346b21cd8634c13da8",
+                "87456a2d0e996063e9caf0145ce6fb74720accfd",
+                "05f4e86809b2c0daaa414da5d3bee34b8086f46e",
+                "1e351f745659410b951695c0c0bd4ddf57091da1",
+                "2139938de731c063742166d696069931f2b0f89a",
+                "650356b4df05fc05285337f7ea4451d1aa413ec6",
+                "3ef473f98798d36948716becec3323159f0d1ed4",
+                "47dc316b0f5eb53ae83d8c8dba9816894cc271c4",
+                "94d7517cb70f1da99c64650475f97460e70c9664",
+                "a6762d49815c6fdf71b6869d08e655be1e3c8161",
+                "bf90322543b6c174e02b3c5fa45e071d983c10e6",
+                "3739c9b034e3ab2be627f31342e60e528bd9c281",
+                "e925426b52e0365732252450b9340c9689437906",
+                "ac291cbfb43cd3364f92a688b30adbfc647acc20",
+                "08fb36c54e41ad233042c5891a410375ee3d4b51",
+                "7f8455895cf83bdc4791eb52a4e78ebe48b9136c",
+                "3e66773734d4f517be68d61a8d9a787e53228fa5",
+                "11429dce02a40197856bc1162b194033adab5693",
+                "359b7e805235a43e08089b8ca59b0d0d342bb0ce",
+                "45211240ab675364e8c22a17469371c333a302f6",
+                "a11f722d6ba4a2c32e1ec354c9e8637e1e3c38c5",
+                "12da2d651683ed5768da7152d817705608ddcedc",
+                "edb684df133dd5f846b35b9d9418f9820f70a914",
+                "c1b0dfbd26e9f50514d0532468853ac7e90e4d65",
+                "60e70c057d039b209975bdc2ab3993b07d6186a8",
+                "f596c08aa25f7312b4d891ce05d3b3c24b48003c",
+                "7e1faf1369debda0ad2f862d5168586dfd111052",
+                "8528d39549b013cfe1fdc447af053ba7400bcc24",
+                "07962749e471db62f1e824db404673b6a02d52e3",
+                "cdb44a09ee552b29b566089e409024e3bcca48fd",
+                "e4b885de35211191473f72c0bb27a95ce72eb921",
+                "4a6149ea6edf8607a488aed01c72d4463f069f61",
+                "a732939522c647edf588f29c0f9cbc6e8fa87077"
+            ],
+            "behaviors": [
+                "PERSIST-AI-SKILL-CENTRAL-STORE-001",
+                "PERSIST-AI-SKILL-DISCOVERY-001",
+                "WEBVIEW-AI-SKILL-PANEL-001"
+            ],
+            "prGates": [
+                "test:skills",
+                "test:browser:run",
+                "test:safety:run"
+            ],
+            "scheduledJobs": [],
             "realEnvironmentRequired": false
         }
     ]

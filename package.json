@@ -85,6 +85,10 @@
             {
                 "command": "agentPivot.insertPromptToActiveTerminal",
                 "title": "Agent Pivot: Insert Prompt into Active Terminal"
+            },
+            {
+                "command": "agentPivot.migrateSkillsToCentral",
+                "title": "Agent Pivot: Migrate Skills to Central Store"
             }
         ],
         "keybindings": [
@@ -387,10 +391,11 @@
         "test:main-capabilities": "node --test tests/unit/tooling/mainCapabilityCoverage.test.js && node scripts/check-behavior-contracts.js",
         "test:behavior-contracts": "node --test tests/unit/tooling/behaviorCatalog.test.js tests/unit/tooling/mainCapabilityCoverage.test.js && node scripts/check-behavior-contracts.js",
         "test:open-projects": "npm run test-compile && node scripts/run-open-project-safety-checks.js",
+        "test:skills": "npm run test-compile && node scripts/run-skill-management-checks.js",
         "test:dashboard:run": "node scripts/run-dashboard-webview-checks.js",
         "test:dashboard": "npm run test-compile && npm run test:dashboard:run",
         "test:workspace-parity": "npm run test-compile && node scripts/run-workspace-parity-checks.js",
-        "test:safety:run": "node scripts/run-workspace-parity-checks.js && node scripts/run-ai-session-tmux-checks.js && node scripts/run-ai-session-safety-checks.js && node scripts/run-open-project-safety-checks.js",
+        "test:safety:run": "node scripts/run-workspace-parity-checks.js && node scripts/run-ai-session-tmux-checks.js && node scripts/run-ai-session-safety-checks.js && node scripts/run-open-project-safety-checks.js && node scripts/run-skill-management-checks.js",
         "test:safety": "npm run test-compile && npm run test:safety:run",
         "test:tmux": "npm run test-compile && node scripts/run-ai-session-tmux-checks.js",
         "test:tmux:smoke": "npm run test-compile && node scripts/run-ai-session-tmux-smoke-checks.js",

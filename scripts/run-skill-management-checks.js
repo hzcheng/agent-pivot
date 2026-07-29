@@ -207,8 +207,13 @@ function runSkillRenderingChecks() {
     assert.ok(!html.includes('data-skill-toggle='), 'master toggle retired');
     assert.ok(html.includes('data-skill-open="/home/dev/.kimi/skills/demo/SKILL.md"'),
         'clean records (no shadowing, no diagnostics) render the Open SKILL.md action');
-    assert.ok(html.includes('class="skill-chip agent-kimi"'));
-    assert.ok(html.includes('class="skill-chip agent-absent"'));
+    assert.ok(!html.includes('class="skill-chip agent-kimi"'), 'agent chips retired on cards');
+    assert.ok(!html.includes('class="skill-chip agent-absent"'), 'absent chips retired on cards');
+    assert.ok(!html.includes('skill-chip scope-'), 'scope chips retired (section conveys scope)');
+    assert.ok((html.match(/skill-agent-dot /g) || []).length >= 3, 'agent dots render on cards');
+    assert.ok(html.includes('skill-agent-dot active'), 'active dot renders');
+    assert.ok(html.includes('skill-agent-dot shadowed'), 'shadowed dot renders');
+    assert.ok(html.includes('skill-detail-desc'), 'expanded detail shows the full description');
     assert.ok(html.includes('⚠ shadowed'));
     assert.ok(html.includes('⚠ 2 issues'));
     assert.ok(!html.includes('skill-card-disabled'), 'disabled card styling retired');
@@ -296,6 +301,9 @@ function runSkillRenderingChecks() {
     const superpowersHeader = folderHeader(tree, 'superpowers');
     assert.ok(superpowersHeader.includes('data-folder-menu="superpowers"'), 'folder has a ⋯ menu button');
     assert.ok(superpowersHeader.includes('data-folder-scope="user"'), 'global-section folder posts user scope');
+    assert.ok(superpowersHeader.includes('skill-agent-dots'), 'folder header shows per-agent state dots');
+    assert.ok(superpowersHeader.includes('skill-agent-dot indeterminate') && (superpowersHeader.match(/skill-agent-dot off/g) || []).length === 2,
+        'folder dots show indeterminate kimi with claude and codex off');
     assert.ok(superpowersHeader.includes('data-state-kimi="indeterminate"'), 'kimi is indeterminate on a partially linked folder');
     assert.ok(superpowersHeader.includes('data-state-claude="off"') && superpowersHeader.includes('data-state-codex="off"'),
         'claude and codex are off');
@@ -871,7 +879,8 @@ function runSkillCentralChecks() {
         central: { dirPath: '/home/dev/.skills/shared', links: { user: { kimi: '/home/dev/.kimi/skills/shared', codex: '/home/dev/.codex/skills/shared' } } },
     });
     const centralHtml = skillContent.getSkillsPanelContent([centralRecord, makeRecord()]);
-    assert.ok(centralHtml.includes('skill-chip central'), 'central chip renders');
+    assert.ok(!centralHtml.includes('skill-chip central'), 'central chip retired on cards');
+    assert.ok(centralHtml.includes('skill-agent-dots'), 'central cards show agent dots');
     assert.ok(!centralHtml.includes('data-skill-source="central"'), 'central records no longer render in source groups');
     assert.ok(centralHtml.indexOf('data-skill-dir="/home/dev/.skills/shared"') < centralHtml.indexOf('skill-unmanaged'),
         'root-level central cards render directly under the scope section, before unmanaged');
@@ -1397,6 +1406,7 @@ function runSkillFolderMutationChecks() {
     ], { hasWorkspace: true, storeRoots: { user: '/home/dev/.skills', project: '/work/app/.skills' } });
     assert.ok(tree.includes('data-section-menu="user"'), 'global section has a ⋯ menu (create folder inside)');
     assert.ok(tree.includes('data-state-kimi='), 'section ⋯ button carries per-agent batch states');
+    assert.ok(tree.split('data-section-menu')[0].includes('skill-agent-dots'), 'section header shows per-agent state dots');
     assert.ok(tree.includes('data-folder-menu="pack"'), 'folder header has the ⋯ menu (delete lives inside)');
     const noViewRoots = skillContent.getSkillsPanelContent([makeRecord({
         name: 'beta', source: 'central', dirPath: '/home/dev/.skills/pack/beta',

@@ -4120,6 +4120,14 @@ body.steward-sidebar {
         text-transform: uppercase;
     }
 
+    .skill-detail-desc {
+        margin: 0 0 6px;
+        color: var(--vscode-descriptionForeground);
+        font-size: 10px;
+        line-height: 1.45;
+        white-space: normal;
+    }
+
     .skill-detail-row {
         display: flex;
         align-items: center;
@@ -4239,6 +4247,43 @@ body.steward-sidebar {
         color: #4ec9b0;
         background: rgba(78, 201, 176, .13);
         border-color: rgba(78, 201, 176, .4);
+    }
+
+    // Quiet per-agent status dots (cards + folder/section headers):
+    // filled teal = active/linked, amber = shadowed, hollow = off,
+    // teal ring with light fill = partially linked (folders/sections).
+    .skill-agent-dots {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+    }
+
+    .skill-agent-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: transparent;
+        box-shadow: inset 0 0 0 1.5px rgba(127, 127, 127, .55);
+
+        &.active,
+        &.on {
+            background: #4ec9b0;
+            box-shadow: none;
+        }
+
+        &.shadowed {
+            background: var(--vscode-editorWarning-foreground, #cca700);
+            box-shadow: none;
+        }
+
+        &.indeterminate {
+            background: rgba(78, 201, 176, .35);
+            box-shadow: inset 0 0 0 1.5px rgba(78, 201, 176, .9);
+        }
+    }
+
+    .group-title .skill-agent-dots {
+        margin: 0 2px;
     }
 
     .skill-centralize {

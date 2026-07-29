@@ -32,14 +32,23 @@ import type { SkillCollectionSuggestion } from '../skills/knownCollections';
 
 const AGENTS: SkillAgentId[] = ['kimi', 'claude', 'codex'];
 
-function agentChip(agent: SkillAgentId, visibility: SkillVisibility): string {
-    if (visibility === 'active') {
-        return `<span class="skill-chip agent-${agent}">${agent}</span>`;
-    }
-    if (visibility === 'shadowed') {
-        return `<span class="skill-chip warn">⚠ ${agent}</span>`;
-    }
-    return `<span class="skill-chip agent-absent">${agent}</span>`;
+// Quiet per-agent status dots on cards and folder/section headers: teal =
+// active/linked, amber = shadowed, hollow = off, teal ring = partially linked.
+function agentDot(state: 'active' | 'shadowed' | 'off' | 'on' | 'indeterminate', title: string): string {
+    return `<span class="skill-agent-dot ${state}" title="${escapeAttribute(title)}"></span>`;
+}
+
+function cardAgentDots(record: SkillRecord): string {
+    const dots = AGENTS.map(agent => {
+        const visibility = record.visibility[agent];
+        const title = visibility === 'active'
+            ? `${agent}: active`
+            : visibility === 'shadowed'
+                ? `${agent}: shadowed by ${record.shadowedBy[agent] || 'another copy'}`
+                : `${agent}: off`;
+        return agentDot(visibility === 'active' ? 'active' : visibility === 'shadowed' ? 'shadowed' : 'off', title);
+    }).join('');
+    return `<span class="skill-agent-dots">${dots}</span>`;
 }
 
 function getSkillDetail(record: SkillRecord, view: SkillPanelView, duplicate?: SkillDuplicateGroup): string {
@@ -65,7 +74,7 @@ function getSkillDetail(record: SkillRecord, view: SkillPanelView, duplicate?: S
             : visibility === 'active'
                 ? escapeAttribute(record.dirPath)
                 : 'not visible';
-        return `<div class="skill-detail-row">${agentChip(agent, visibility === 'shadowed' ? 'shadowed' : visibility)}${status}<span class="skill-detail-path">${detail}</span></div>`;
+        return `<div class="skill-detail-row"><span class="skill-agent-row-name">${agent}</span>${status}<span class="skill-detail-path">${detail}</span></div>`;
     }).join('');
     const driftRows = duplicate && duplicate.drift
         ? `<p class="skill-detail-title">Copies of this skill</p>` + duplicate.copies.map(copy => {
@@ -94,7 +103,11 @@ function getSkillDetail(record: SkillRecord, view: SkillPanelView, duplicate?: S
         <button type="button" class="skill-move-set" data-skill-move-set="${dirPath}">Move</button>
     </div>`
         : '';
+    const fullDescription = record.description
+        ? `<p class="skill-detail-desc">${escapeAttribute(sanitizeProjectName(record.description))}</p>`
+        : '';
     return `<div class="skill-detail" hidden>
+        ${fullDescription}
         <p class="skill-detail-title">Effectiveness per agent</p>
         ${rows}${driftRows}${notes}
         <div class="skill-detail-actions">
@@ -108,7 +121,6 @@ function getSkillDiv(record: SkillRecord, view: SkillPanelView): string {
     const duplicate = view.duplicates ? view.duplicates.get(`${record.scope}:${record.name}`) : undefined;
     const name = escapeAttribute(sanitizeProjectName(record.name));
     const description = escapeAttribute(sanitizeProjectName(record.description));
-    const scopeLabel = record.scope === 'user' ? 'User' : 'Project';
     // Chips read the record's own-scope effectiveness (its section determines scope).
     const activeAgents = AGENTS.filter(agent => record.visibility[agent] === 'active').join(' ');
     const shadowed = AGENTS.some(agent => record.visibility[agent] === 'shadowed');
@@ -127,10 +139,7 @@ function getSkillDiv(record: SkillRecord, view: SkillPanelView): string {
     const copyRow = copyTargets && copyTargets.length
         ? `<div class="skill-copy-row">Copy to: ${copyTargets.map(target => `<button type="button" class="skill-copy" data-skill-copy="${escapeAttribute(record.dirPath)}" data-skill-copy-root="${escapeAttribute(target.rootDir)}">${target.source}</button>`).join('')}</div>`
         : '';
-    const chips = `<span class="skill-chip scope-${record.scope}">${scopeLabel}</span>`
-        + (record.central ? '<span class="skill-chip central" title="Centralized in the shared store">central</span>' : '')
-        + AGENTS.map(agent => agentChip(agent, record.visibility[agent])).join('')
-        + warnChip;
+    const chips = cardAgentDots(record) + warnChip;
     const centralizeButton = record.central
         ? ''
         : `<button type="button" class="skill-centralize" title="Move into the shared store and link from agents" data-skill-centralize="${escapeAttribute(record.dirPath)}">Centralize</button>`;
@@ -285,10 +294,6 @@ function folderAgentState(node: SkillFolderNode, scope: SkillScope, agent: Skill
     return anyLink ? 'indeterminate' : 'off';
 }
 
-function folderToggleClass(state: SkillFolderLinkState): string {
-    return state === 'on' ? '' : ` ${state}`;
-}
-
 // Central dirPaths are <storeRoot>/<folder…>/<name> by construction (discovery scans
 // the store recursively): strip the skill name and the folder segments to recover the
 // store root. All central records in one scope section share the same store root.
@@ -312,14 +317,17 @@ function renderFolderNode(
     const children = [...node.children.values()].sort((a, b) => a.name.localeCompare(b.name));
     const items = node.items.slice().sort((a, b) => a.name.localeCompare(b.name));
     const pathAttr = escapeAttribute(node.path);
-    const stateAttrs = AGENTS.map(agent =>
-        ` data-state-${agent}="${folderAgentState(node, sectionScope, agent)}"`).join('');
+    const agentStates = AGENTS.map(agent => ({ agent, state: folderAgentState(node, sectionScope, agent) }));
+    const stateAttrs = agentStates.map(({ agent, state }) => ` data-state-${agent}="${state}"`).join('');
+    const dots = `<span class="skill-agent-dots">${agentStates.map(({ agent, state }) =>
+        agentDot(state, `${agent}: ${state === 'on' ? 'all linked' : state === 'indeterminate' ? 'some linked' : 'off'}`)).join('')}</span>`;
     return `<div class="skill-folder group steward-section" data-group-id="skill-folder-${sectionScope}-${encodeURIComponent(node.path)}" data-skill-folder="${pathAttr}" data-skill-store="${escapeAttribute(storeRoot)}" data-skill-folder-scope="${sectionScope}">
     <div class="group-title steward-section-header steward-group-header skill-folder-header">
         <span class="group-title-text" data-action="collapse">
             <span class="collapse-icon" title="Open/Collapse Group">${collapseIcon}</span>
             <span class="skill-collection-icon" aria-hidden="true">${folderIcon}</span>${escapeAttribute(node.name)}
         </span>
+        ${dots}
         <span class="group-title-badge">${count}</span>
         <button type="button" class="skill-folder-more" title="Folder actions" data-folder-menu="${pathAttr}" data-folder-scope="${sectionScope}"${stateAttrs}>⋯</button>
     </div>
@@ -352,7 +360,10 @@ function renderScopeSection(scope: SkillScope, items: SkillRecord[], view: Skill
         }
         return anyLink ? 'indeterminate' : 'off';
     };
-    const sectionStateAttrs = AGENTS.map(agent => ` data-state-${agent}="${sectionAgentState(agent)}"`).join('');
+    const sectionAgentStates = AGENTS.map(agent => ({ agent, state: sectionAgentState(agent) }));
+    const sectionStateAttrs = sectionAgentStates.map(({ agent, state }) => ` data-state-${agent}="${state}"`).join('');
+    const sectionDots = `<span class="skill-agent-dots">${sectionAgentStates.map(({ agent, state }) =>
+        agentDot(state, `${agent}: ${state === 'on' ? 'all linked' : state === 'indeterminate' ? 'some linked' : 'off'}`)).join('')}</span>`;
     const unmanaged = items.filter(record => !record.central);
     const tree = buildFolderTree(central, (view.storeFolders && view.storeFolders[scope]) || []);
     const viewStoreRoot = scope === 'user' ? view.storeRoots?.user : view.storeRoots?.project;
@@ -376,6 +387,7 @@ function renderScopeSection(scope: SkillScope, items: SkillRecord[], view: Skill
             <span class="collapse-icon" title="Open/Collapse Group">${collapseIcon}</span>
             <span class="skill-collection-icon" aria-hidden="true">${folderIcon}</span>${scope === 'user' ? 'global' : 'project'}
         </span>
+        ${sectionDots}
         <span class="group-title-badge">${items.length}</span>
         ${storeRoot ? `<button type="button" class="skill-folder-more" title="Section actions" data-section-menu="${scope}" data-folder-scope="${scope}"${sectionStateAttrs}>⋯</button>` : ''}
     </div>

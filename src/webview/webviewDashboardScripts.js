@@ -842,26 +842,12 @@ function initDashboard(options) {
             var container = cards[c].closest('.project-container') || cards[c];
             container.classList.toggle('skill-filter-hidden', !show);
         }
-        var groups = panel.querySelectorAll('.skill-source-group, .skill-folder');
-        for (var g = 0; g < groups.length; g++) {
-            var groupCards = groups[g].querySelectorAll('.skill-card[data-skill-dir]');
-            var groupVisible = 0;
-            for (var gc = 0; gc < groupCards.length; gc++) {
-                var gcContainer = groupCards[gc].closest('.project-container') || groupCards[gc];
-                if (!gcContainer.classList.contains('skill-filter-hidden')) {
-                    groupVisible += 1;
-                }
-            }
-            groups[g].classList.toggle('skill-filter-hidden', groupVisible === 0);
-            var countEl = groups[g].querySelector('.skill-source-count')
-                || groups[g].querySelector('.group-title-badge');
-            if (countEl) {
-                countEl.textContent = String(groupVisible);
-            }
-        }
-        var sections = panel.querySelectorAll('.group.steward-section');
-        for (var s = 0; s < sections.length; s++) {
-            var sectionCards = sections[s].querySelectorAll('.skill-card[data-skill-dir]');
+        // Children first (reverse document order) so parent folders see their
+        // children's computed visibility.
+        var sections = panel.querySelectorAll('.group.steward-section, .skill-source-group');
+        for (var s = sections.length - 1; s >= 0; s--) {
+            var section = sections[s];
+            var sectionCards = section.querySelectorAll('.skill-card[data-skill-dir]');
             var sectionVisible = 0;
             for (var sc = 0; sc < sectionCards.length; sc++) {
                 var scContainer = sectionCards[sc].closest('.project-container') || sectionCards[sc];
@@ -869,10 +855,28 @@ function initDashboard(options) {
                     sectionVisible += 1;
                 }
             }
-            sections[s].classList.toggle('skill-filter-hidden', sectionVisible === 0);
-            var badge = sections[s].querySelector('.group-title-badge');
-            if (badge) {
-                badge.textContent = String(sectionVisible);
+            if (section.classList.contains('skill-source-group')) {
+                section.classList.toggle('skill-filter-hidden', sectionVisible === 0);
+            } else {
+                var childFolders = section.querySelectorAll('.skill-folder');
+                var visibleChildFolders = 0;
+                for (var cf = 0; cf < childFolders.length; cf++) {
+                    if (!childFolders[cf].classList.contains('skill-filter-hidden')) {
+                        visibleChildFolders += 1;
+                    }
+                }
+                // Empty leaf folders (created via "+") always stay visible; a folder
+                // or section hides only when nothing inside it — cards or child
+                // folders — is visible.
+                var emptyLeaf = section.classList.contains('skill-folder')
+                    && sectionCards.length === 0 && childFolders.length === 0;
+                section.classList.toggle('skill-filter-hidden',
+                    sectionVisible === 0 && visibleChildFolders === 0 && !emptyLeaf);
+            }
+            var countEl = section.querySelector(':scope > .group-title > .group-title-badge')
+                || section.querySelector(':scope > .skill-source-header > .skill-source-count');
+            if (countEl) {
+                countEl.textContent = String(sectionVisible);
             }
         }
     }

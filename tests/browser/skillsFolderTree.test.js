@@ -286,3 +286,61 @@ test('SKILLS-FOLDER-COLLAPSE-001 folder collapse state survives authoritative HT
         await browser.close();
     }
 });
+
+test('SKILLS-FILTER-EMPTY-FOLDER-001 empty folders stay visible under the agent filter', async () => {
+    const browser = await chromium.launch();
+    try {
+        const records = treeRecords().concat([centralRecord({
+            name: 'proj-empty-parent',
+            dirPath: '/home/dev/.skills/solo-x',
+            skillFilePath: '/home/dev/.skills/solo-x/SKILL.md',
+            folder: '',
+            central: { dirPath: '/home/dev/.skills/solo-x', links: { user: {} } },
+        })]);
+        const { getSkillsPanelContent } = loadSkillContent();
+        const page = await browser.newPage({ viewport: { width: 340, height: 600 } });
+        await page.setContent(`<!doctype html>
+            <html>
+                <head><style>${styles}</style></head>
+                <body class="steward-sidebar">
+                    <section role="tabpanel" id="ai-panel-skills">
+                        <div class="sticky-groups-wrapper skills-groups-wrapper">${getSkillsPanelContent(records, {
+                            hasWorkspace: true,
+                            storeRoots: { user: '/home/dev/.skills' },
+                            storeFolders: { user: ['superpowers', 'xiaohongshu', 'xiaohongshu/reddoc'] },
+                        })}</div>
+                    </section>
+                </body>
+            </html>`);
+        await page.evaluate(skillSource => {
+            (function () {
+                var options = { postMessage() { return Promise.resolve(true); } };
+                eval(skillSource);
+                document.addEventListener('click', onSkillCardClick);
+                window.__setSkillFilter = function (value) {
+                    skillAgentFilter = value;
+                    applySkillAgentFilter();
+                };
+            })();
+        }, extractSkillCode());
+        const folderVisible = (path) => page.evaluate(p => {
+            const el = document.querySelector(`.skill-folder[data-skill-folder="${p}"]`);
+            return el && !el.classList.contains('skill-filter-hidden')
+                && getComputedStyle(el).display !== 'none';
+        }, path);
+        // empty folders (xiaohongshu + its empty child) are visible at All
+        assert.equal(await folderVisible('xiaohongshu'), true, 'empty folder visible at All');
+        assert.equal(await folderVisible('xiaohongshu/reddoc'), true, 'empty nested folder visible at All');
+        // and under a real filter
+        await page.evaluate('window.__setSkillFilter("kimi")');
+        assert.equal(await folderVisible('xiaohongshu'), true, 'empty folder stays visible under a filter');
+        assert.equal(await folderVisible('xiaohongshu/reddoc'), true, 'empty nested folder stays visible under a filter');
+        assert.equal(await folderVisible('superpowers'), true, 'folder with matching cards stays visible');
+        await page.evaluate('window.__setSkillFilter("claude")');
+        assert.equal(await folderVisible('superpowers'), false,
+            'folder whose cards are all filtered out hides');
+        assert.equal(await folderVisible('xiaohongshu'), true, 'empty folder still visible');
+    } finally {
+        await browser.close();
+    }
+});

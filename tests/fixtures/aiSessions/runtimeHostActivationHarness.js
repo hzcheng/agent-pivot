@@ -421,6 +421,7 @@ async function main() {
             'agent-pivot-activation-entered',
             'agent-pivot-boot-shell-assigned',
             'agent-pivot-browser-first-paint',
+            'agent-pivot-bootstrap-phases',
             'agent-pivot-bootstrap-ready',
             'agent-pivot-bootstrap-failed',
         ]);

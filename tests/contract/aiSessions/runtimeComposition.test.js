@@ -161,12 +161,27 @@ test('WEBVIEW-TWO-STAGE-STARTUP-001 production startup diagnostics preserve exac
     const result = runProductionActivation('diagnostics');
     assert.equal(result.failure, null);
     const normalizedDiagnostics = result.startupDiagnostics.map(diagnostic => {
-        if (!Object.hasOwn(diagnostic, 'durationMs')) {
-            return diagnostic;
+        let normalized = diagnostic;
+        if (Object.hasOwn(normalized, 'phases')) {
+            assert.deepEqual(Object.keys(normalized.phases), [
+                'skill-scan',
+                'tmux-persisted-inactive-restore',
+                'direct-terminal-restore',
+                'tmux-attach-restore',
+                'startup-sequence',
+            ]);
+            for (const value of Object.values(normalized.phases)) {
+                assert.equal(Number.isFinite(value), true);
+                assert.ok(value >= 0);
+            }
+            normalized = { ...normalized, phases: '<phases>' };
         }
-        assert.equal(Number.isFinite(diagnostic.durationMs), true);
-        assert.ok(diagnostic.durationMs >= 0);
-        return { ...diagnostic, durationMs: '<durationMs>' };
+        if (!Object.hasOwn(normalized, 'durationMs')) {
+            return normalized;
+        }
+        assert.equal(Number.isFinite(normalized.durationMs), true);
+        assert.ok(normalized.durationMs >= 0);
+        return { ...normalized, durationMs: '<durationMs>' };
     });
     assert.deepEqual(normalizedDiagnostics, [
         {
@@ -180,6 +195,11 @@ test('WEBVIEW-TWO-STAGE-STARTUP-001 production startup diagnostics preserve exac
             event: 'agent-pivot-browser-first-paint',
             generation: 1,
             durationMs: '<durationMs>',
+        },
+        {
+            event: 'agent-pivot-bootstrap-phases',
+            generation: 1,
+            phases: '<phases>',
         },
         {
             event: 'agent-pivot-bootstrap-ready',

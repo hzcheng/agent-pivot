@@ -367,6 +367,18 @@ async function initializeDashboard(
     const logDashboardDiagnostic = (event: Record<string, unknown>) => dashboardDiagnostics.logDashboardDiagnostic(event);
     const logOpenWorkspaceDiagnostic = (component: string, event: unknown) => dashboardDiagnostics.logOpenWorkspaceDiagnostic(component, event);
     const logOpenWorkspaceBridgeError = (error: unknown) => dashboardDiagnostics.logOpenWorkspaceBridgeError(error);
+    const bootstrapPhaseTimings: Record<string, number> = {};
+    const timeBootstrapPhase = async <T>(
+        phase: string,
+        run: () => T | Promise<T>
+    ): Promise<T> => {
+        const startedAtMs = Date.now();
+        try {
+            return await run();
+        } finally {
+            bootstrapPhaseTimings[phase] = Math.max(0, Date.now() - startedAtMs);
+        }
+    };
 
     const colorService = new ColorService(context);
     const projectService = new ProjectService(context, colorService, {
@@ -422,7 +434,7 @@ async function initializeDashboard(
         logError,
         groupStore: new SkillGroupStore(context.globalState),
     }));
-    skillDashboardController.start();
+    timeBootstrapPhase('skill-scan', () => skillDashboardController.start());
     const runSkillMigrationToCentral = async (scope?: 'user' | 'project'): Promise<void> => {
         const hasWorkspace = Boolean(vscode.workspace.workspaceFolders?.length);
         const migratable = skillDashboardController.getRecords()
@@ -665,7 +677,8 @@ async function initializeDashboard(
         markerIsCurrent: isCurrentRuntimeMarker,
     });
     try {
-        await tmuxRuntimeDiscovery.loadPersistedInactive();
+        await timeBootstrapPhase('tmux-persisted-inactive-restore', () =>
+            tmuxRuntimeDiscovery.loadPersistedInactive());
     } catch (error) {
         logAiSessionRuntimeFailure('restore-inactive-runtimes', error);
     }
@@ -709,10 +722,12 @@ async function initializeDashboard(
             }
         },
     });
-    await aiSessionTerminalService.restorePersistedTerminals(vscode.window.terminals);
+    await timeBootstrapPhase('direct-terminal-restore', () =>
+        aiSessionTerminalService.restorePersistedTerminals(vscode.window.terminals));
     resources.assertActive();
     try {
-        await tmuxRuntimeBackend.restoreAttachTerminals(vscode.window.terminals);
+        await timeBootstrapPhase('tmux-attach-restore', () =>
+            tmuxRuntimeBackend.restoreAttachTerminals(vscode.window.terminals));
     } catch (error) {
         logAiSessionRuntimeFailure('restore-attach-terminals', error);
     }
@@ -2241,8 +2256,14 @@ async function initializeDashboard(
         dashboardLifecycleController.handleWindowStateChanged(windowState);
     }));
 
-    await dashboardStartupController.startUp();
+    await timeBootstrapPhase('startup-sequence', () =>
+        dashboardStartupController.startUp());
     resources.assertActive();
+    logDashboardDiagnostic({
+        event: 'agent-pivot-bootstrap-phases',
+        generation: bootstrapGeneration,
+        phases: { ...bootstrapPhaseTimings },
+    });
     if (!dashboardCommandRegistration.stage(bootstrapGeneration, commandHandlers)) {
         throw new Error('Agent Pivot dashboard commands rejected the bootstrap generation.');
     }

@@ -3575,6 +3575,20 @@
     ]
   },
   {
+    "id": "CONVERSATION-OPEN-LATEST-001",
+    "domain": "session",
+    "title": "Open Current AI Session Conversation opens the viewer at the latest interaction of the focused or selected active session",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/integration/dashboard/conversationOpenLatest.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/composition.ts",
+      "src/dashboard.ts"
+    ]
+  },
+  {
     "id": "SECURITY-AI-SESSION-CONVERSATION-SOURCE-001",
     "domain": "session",
     "title": "Conversation history enforces canonical sources, opaque protocol tokens, and bounded private content",

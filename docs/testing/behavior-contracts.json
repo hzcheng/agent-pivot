@@ -3562,7 +3562,7 @@
   {
     "id": "WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001",
     "domain": "webview",
-    "title": "Conversation markers open one bounded sanitized read-only viewer",
+    "title": "Conversation markers open one bounded sanitized rich Markdown viewer with HTTPS images and Mermaid diagrams",
     "priority": "P0",
     "status": "automated",
     "owners": [
@@ -3572,7 +3572,8 @@
     "evidence": [
       "src/aiSessions/conversation/viewer.ts",
       "src/aiSessions/conversation/markdown.ts",
-      "src/webview/conversationViewerScripts.js"
+      "src/webview/conversationViewerScripts.js",
+      "media/conversationViewer.scss"
     ]
   },
   {
@@ -3600,6 +3601,65 @@
     "evidence": [
       "media/conversationViewer.css",
       "src/aiSessions/conversation/viewer.ts"
+    ]
+  },
+  {
+    "id": "CONVERSATION-COMMENTS-001",
+    "domain": "session",
+    "title": "AI Conversation comments remain bounded and Host-authoritative with correlated deduplication and failure-safe drafts",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/conversationComments.test.js",
+      "tests/integration/dashboard/conversationRouting.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/comments.ts",
+      "src/aiSessions/conversation/viewer.ts"
+    ]
+  },
+  {
+    "id": "CONVERSATION-COMMENTS-SUBMIT-001",
+    "domain": "session",
+    "title": "One comment batch targets the exact idle runtime or resumes the exact stopped session with its prompt",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/conversationSubmission.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/submission.ts",
+      "src/aiSessions/resumeController.ts",
+      "src/aiSessions/commandBuilders.ts",
+      "src/dashboard.ts"
+    ]
+  },
+  {
+    "id": "CONVERSATION-COMMENTS-UI-001",
+    "domain": "webview",
+    "title": "AI Conversation collects multiple text selections and submits one correlated comment batch",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/browser/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/viewer.ts",
+      "src/webview/conversationViewerScripts.js"
+    ]
+  },
+  {
+    "id": "CONVERSATION-COMMENTS-LAYOUT-001",
+    "domain": "webview",
+    "title": "The Comments panel is compact, collapsible, keyboard-resizable, and restores local layout state",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/browser/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/webview/conversationViewerScripts.js",
+      "media/conversationViewer.scss"
     ]
   },
   {

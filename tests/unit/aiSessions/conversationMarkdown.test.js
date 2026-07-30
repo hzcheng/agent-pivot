@@ -43,3 +43,31 @@ test('CONVERSATION-VIEWER-MARKDOWN-002 emits href attributes only for HTTPS link
     assert.match(html, /\[http\]\(http:\/\/example\.test\/path\)/);
     assert.match(html, /\[javascript\]\(javascript:alert\(1\)\)/);
 });
+
+test('CONVERSATION-VIEWER-MARKDOWN-003 emits rich content only with safe image sources', () => {
+    const html = renderConversationMarkdown([
+        '![safe icon](https://example.test/icon.svg "Status")',
+        '',
+        '![unsafe icon](data:image/svg+xml,unsafe)',
+        '',
+        '| State | Result |',
+        '| --- | --- |',
+        '| Build | Ready |',
+        '',
+        '```mermaid',
+        'flowchart LR',
+        '    A --> B',
+        '```',
+    ].join('\n'));
+
+    assert.match(
+        html,
+        /<img src="https:\/\/example\.test\/icon\.svg" alt="safe icon" title="Status">/
+    );
+    assert.equal((html.match(/<img /g) || []).length, 1);
+    assert.match(html, /<table>[\s\S]*<th>State<\/th>[\s\S]*<td>Ready<\/td>/);
+    assert.match(
+        html,
+        /<pre><code class="language-mermaid">flowchart LR\n    A --&gt; B\n<\/code><\/pre>/
+    );
+});

@@ -148,6 +148,11 @@ function fakePanel() {
             disposed = true;
             Array.from(disposeListeners).forEach(listener => listener());
         },
+        async receiveMessage(message) {
+            await Promise.all(
+                Array.from(messageListeners).map(listener => listener(message))
+            );
+        },
     };
     return panel;
 }
@@ -388,6 +393,7 @@ function createDashboardConversationHarness(options = {}) {
                 onDiagnostic: event => diagnostics.push(event),
                 getWorkspaceRootHostPaths:
                     options.getWorkspaceRootHostPaths,
+                submitPrompt: options.submitPrompt || (async () => undefined),
             }, internalFactories);
             router = createDashboardMessageRouter({
                 handlers: {
@@ -843,6 +849,155 @@ test('PRODUCTION-CONVERSATION-LIFECYCLE-003 accepts a fresh Webview generation a
     await harness.dispose();
 });
 
+test('PRODUCTION-CONVERSATION-COMMENTS-001 settles mutations once and submits one host-owned batch', async () => {
+    const prompts = [];
+    const harness = createDashboardConversationHarness({
+        useConcreteViewer: true,
+        submitPrompt: async (_target, prompt) => {
+            prompts.push(prompt);
+        },
+    });
+    await harness.activate();
+    await harness.route(makeOutlineRequest());
+    await harness.route(makeOpenRequest());
+    const panel = harness.panels[0];
+    const base = {
+        version: 1,
+        subscriptionGeneration: 1,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    };
+
+    await panel.receiveMessage({
+        ...base,
+        type: 'conversation-viewer-comment-mutation',
+        requestId: 'comment:add:1',
+        operation: 'add',
+        expectedRevision: 0,
+        payload: {
+            messageId: 'input-a:user',
+            interactionId: 'input-a',
+            quote: 'input-a',
+            prefix: '',
+            suffix: '',
+            comment: 'Explain this behavior.',
+        },
+    });
+    const added = panel.postedMessages.at(-1);
+    assert.equal(added.type, 'conversation-viewer-comments-result');
+    assert.equal(added.success, true);
+    assert.equal(added.revision, 1);
+    assert.equal(added.comments.length, 1);
+
+    await panel.receiveMessage({
+        ...base,
+        type: 'conversation-viewer-comment-mutation',
+        requestId: 'comment:update:2',
+        operation: 'update',
+        expectedRevision: 1,
+        payload: {
+            commentId: added.comments[0].id,
+            comment: 'Explain and test this behavior.',
+        },
+    });
+    const updated = panel.postedMessages.at(-1);
+    assert.equal(updated.revision, 2);
+    assert.equal(
+        updated.comments[0].comment,
+        'Explain and test this behavior.'
+    );
+
+    const send = {
+        ...base,
+        type: 'conversation-viewer-send-comments',
+        requestId: 'comment:send:3',
+        operation: 'sendComments',
+        expectedRevision: 2,
+        payload: {},
+    };
+    await panel.receiveMessage(send);
+    const sent = panel.postedMessages.at(-1);
+    assert.equal(sent.success, true);
+    assert.equal(sent.revision, 3);
+    assert.deepEqual(sent.comments, []);
+    assert.equal(prompts.length, 1);
+    assert.match(prompts[0], /\[批注 1\]/);
+    assert.match(prompts[0], /Explain and test this behavior\./);
+
+    await panel.receiveMessage(send);
+    assert.equal(prompts.length, 1, 'a duplicate send request must not resubmit');
+    assert.deepEqual(panel.postedMessages.at(-1), sent);
+    await panel.receiveMessage({
+        ...base,
+        type: 'conversation-viewer-comment-mutation',
+        requestId: send.requestId,
+        operation: 'delete',
+        expectedRevision: 3,
+        payload: { commentId: added.comments[0].id },
+    });
+    const collision = panel.postedMessages.at(-1);
+    assert.equal(collision.operation, 'delete');
+    assert.equal(collision.success, false);
+    assert.equal(collision.error, 'invalid');
+    assert.equal(prompts.length, 1);
+    await harness.dispose();
+});
+
+test('PRODUCTION-CONVERSATION-COMMENTS-002 keeps authoritative drafts after submission failure', async () => {
+    const harness = createDashboardConversationHarness({
+        useConcreteViewer: true,
+        submitPrompt: async () => {
+            throw new Error('private provider failure');
+        },
+    });
+    await harness.activate();
+    await harness.route(makeOutlineRequest());
+    await harness.route(makeOpenRequest());
+    const panel = harness.panels[0];
+    const base = {
+        version: 1,
+        subscriptionGeneration: 1,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    };
+    await panel.receiveMessage({
+        ...base,
+        type: 'conversation-viewer-comment-mutation',
+        requestId: 'failure:add:1',
+        operation: 'add',
+        expectedRevision: 0,
+        payload: {
+            messageId: 'input-a:user',
+            interactionId: 'input-a',
+            quote: 'input-a',
+            prefix: '',
+            suffix: '',
+            comment: 'Keep this draft.',
+        },
+    });
+    await panel.receiveMessage({
+        ...base,
+        type: 'conversation-viewer-send-comments',
+        requestId: 'failure:send:2',
+        operation: 'sendComments',
+        expectedRevision: 1,
+        payload: {},
+    });
+
+    const failure = panel.postedMessages.at(-1);
+    assert.equal(failure.success, false);
+    assert.equal(failure.error, 'failed');
+    assert.equal(failure.revision, 1);
+    assert.equal(failure.comments.length, 1);
+    assert.equal(
+        JSON.stringify(failure).includes('private provider failure'),
+        false
+    );
+    await harness.dispose();
+});
+
 test('PRODUCTION-CONVERSATION-DISPLAY-001 derives duplicate metadata only from normalized same-provider active names', async () => {
     const focused = {
         key: 'codex:session-a',
@@ -1033,7 +1188,7 @@ test('PRODUCTION-CONVERSATION-FOCUS-002 rejected reveal and hidden delivery rema
     await harness.dispose();
 });
 
-test('opens one read-only AI Conversation panel through the composed Kimi flow', async t => {
+test('opens one comment-enabled AI Conversation panel through the composed Kimi flow', async t => {
     const fixture = await createKimiConversationFixture(t);
     const harness = createDashboardConversationHarness({
         providerHomes: { kimi: fixture.providerHome },
@@ -1063,7 +1218,7 @@ test('opens one read-only AI Conversation panel through the composed Kimi flow',
         true
     );
     assert.equal(panelHtml.includes('contenteditable'), false);
-    assert.equal(panelHtml.includes('<textarea'), false);
+    assert.equal(panelHtml.includes('data-comment-input'), true);
     assert.equal(panelHtml.includes('secret-thought'), false);
     assert.equal(panelHtml.includes('local/path'), false);
     assert.ok(harness.kimiSourceCalls.length >= 1);

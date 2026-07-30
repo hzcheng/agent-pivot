@@ -464,6 +464,7 @@
         "dompurify": "3.4.12",
         "dragula": "^3.7.3",
         "fitty": "^2.3.5",
-        "markdown-it": "14.3.0"
+        "markdown-it": "14.3.0",
+        "mermaid": "11.16.0"
     }
 }

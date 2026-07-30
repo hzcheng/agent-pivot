@@ -117,7 +117,8 @@ export interface AiSessionProviderDefinition {
         sessionId: string,
         scope: AiSessionDirectoryScope,
         markerPath: string,
-        launchOptions: AiSessionLaunchOptions
+        launchOptions: AiSessionLaunchOptions,
+        prompt?: string
     ) => AiSessionLaunchSpec;
     buildNewSessionLaunchSpec: (
         scope: AiSessionDirectoryScope,

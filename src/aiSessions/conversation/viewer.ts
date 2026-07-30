@@ -6,6 +6,17 @@ import * as vscode from 'vscode';
 import { AGENT_PIVOT_CONVERSATION_VIEW_TYPE } from '../../constants';
 import type { AiSessionProviderId } from '../../models';
 import type { AiSessionDisposable } from '../types';
+import {
+    buildConversationCommentsPrompt,
+    cloneConversationComments,
+    CONVERSATION_COMMENT_LIMITS,
+    ConversationCommentDraft,
+    ConversationCommentError,
+    ConversationCommentOperation,
+    ConversationCommentSelection,
+    createConversationComment,
+    updateConversationComment,
+} from './comments';
 import { renderConversationMarkdown } from './markdown';
 import {
     CONVERSATION_LIMITS,
@@ -49,6 +60,10 @@ export interface ConversationViewerOptions {
     ) => void | PromiseLike<void>;
     openExternal: (uri: vscode.Uri) => Thenable<boolean>;
     mediaUri: (fileName: string) => vscode.Uri;
+    submitPrompt: (
+        target: ConversationViewerTarget,
+        prompt: string
+    ) => PromiseLike<void> | Promise<void>;
 }
 
 export interface ConversationViewerApi extends AiSessionDisposable {
@@ -94,8 +109,52 @@ interface ConversationViewerOpenLinkMessage {
     href: string;
 }
 
+interface ConversationViewerCommentMutationMessage {
+    type: 'conversation-viewer-comment-mutation';
+    version: 1;
+    requestId: string;
+    subscriptionGeneration: number;
+    projectId: string;
+    provider: AiSessionProviderId;
+    sessionId: string;
+    operation: 'add' | 'update' | 'delete';
+    expectedRevision: number;
+    payload: unknown;
+}
+
+interface ConversationViewerSendCommentsMessage {
+    type: 'conversation-viewer-send-comments';
+    version: 1;
+    requestId: string;
+    subscriptionGeneration: number;
+    projectId: string;
+    provider: AiSessionProviderId;
+    sessionId: string;
+    operation: 'sendComments';
+    expectedRevision: number;
+    payload: Record<string, never>;
+}
+
+interface ConversationViewerCommentsResultMessage {
+    type: 'conversation-viewer-comments-result';
+    version: 1;
+    requestId: string;
+    subscriptionGeneration: number;
+    projectId: string;
+    provider: AiSessionProviderId;
+    sessionId: string;
+    operation: ConversationCommentOperation;
+    success: boolean;
+    revision: number;
+    comments: ConversationCommentDraft[];
+    error?: ConversationCommentError['code'];
+}
+
 type ConversationViewerMessage =
-    ConversationViewerNavigationMessage | ConversationViewerOpenLinkMessage;
+    ConversationViewerNavigationMessage
+    | ConversationViewerOpenLinkMessage
+    | ConversationViewerCommentMutationMessage
+    | ConversationViewerSendCommentsMessage;
 
 const NAVIGATION_MESSAGE_TYPES = new Set([
     'conversation-viewer-previous',
@@ -124,6 +183,11 @@ export class ConversationViewer implements ConversationViewerApi {
     private suspended = false;
     private authoritativeLoadInFlight?: Promise<boolean>;
     private authoritativeRefreshPending = false;
+    private comments: ConversationCommentDraft[] = [];
+    private commentRevision = 0;
+    private commentOperationQueue: Promise<void> = Promise.resolve();
+    private readonly commentSettlements =
+        new Map<string, ConversationViewerCommentsResultMessage>();
 
     constructor(private readonly options: ConversationViewerOptions) {}
 
@@ -219,6 +283,9 @@ export class ConversationViewer implements ConversationViewerApi {
         this.outline = undefined;
         this.stale = false;
         this.latestPublication = undefined;
+        this.comments = [];
+        this.commentRevision = 0;
+        this.commentSettlements.clear();
         this.target = { ...target };
         this.selectedInteractionId = target.interactionId;
         this.suspended = false;
@@ -294,6 +361,9 @@ export class ConversationViewer implements ConversationViewerApi {
         this.selectedInteractionId = undefined;
         this.stale = false;
         this.latestPublication = undefined;
+        this.comments = [];
+        this.commentRevision = 0;
+        this.commentSettlements.clear();
         this.panelWasVisible = false;
         this.suspended = false;
         this.subscriptionGeneration += 1;
@@ -313,6 +383,11 @@ export class ConversationViewer implements ConversationViewerApi {
             await this.openLink(parsed.href);
             return;
         }
+        if (parsed.type === 'conversation-viewer-comment-mutation'
+            || parsed.type === 'conversation-viewer-send-comments') {
+            await this.enqueueCommentOperation(parsed);
+            return;
+        }
         if (parsed.type === 'conversation-viewer-previous') {
             await this.navigate('before');
             return;
@@ -322,6 +397,195 @@ export class ConversationViewer implements ConversationViewerApi {
             return;
         }
         await this.navigateLatest();
+    }
+
+    private enqueueCommentOperation(
+        request: ConversationViewerCommentMutationMessage
+            | ConversationViewerSendCommentsMessage
+    ): Promise<void> {
+        const operation = () => this.handleCommentOperation(request);
+        const queued = this.commentOperationQueue.then(operation, operation);
+        this.commentOperationQueue = queued.catch(() => undefined);
+        return queued;
+    }
+
+    private async handleCommentOperation(
+        request: ConversationViewerCommentMutationMessage
+            | ConversationViewerSendCommentsMessage
+    ): Promise<void> {
+        const target = this.target;
+        if (!target || !this.panel) {
+            return;
+        }
+        const settlementKey = getCommentSettlementKey(request);
+        const settled = this.commentSettlements.get(settlementKey);
+        if (settled) {
+            await this.publishCommentSettlement(
+                settled.operation === request.operation
+                    ? settled
+                    : {
+                        ...settled,
+                        operation: request.operation,
+                        success: false,
+                        revision: this.commentRevision,
+                        comments: cloneConversationComments(this.comments),
+                        error: 'invalid',
+                    },
+                false
+            );
+            return;
+        }
+        if (!commentRequestTargetsViewer(
+            request,
+            target,
+            this.subscriptionGeneration
+        )) {
+            await this.settleCommentRequest(request, false, 'stale');
+            return;
+        }
+        if (request.expectedRevision !== this.commentRevision) {
+            await this.settleCommentRequest(request, false, 'stale');
+            return;
+        }
+        try {
+            if (request.operation === 'sendComments') {
+                await this.sendComments(target);
+            } else {
+                this.mutateComments(request);
+            }
+            await this.settleCommentRequest(request, true);
+        } catch (error) {
+            await this.settleCommentRequest(
+                request,
+                false,
+                toConversationCommentErrorCode(error)
+            );
+        }
+    }
+
+    private mutateComments(
+        request: ConversationViewerCommentMutationMessage
+    ): void {
+        if (request.operation === 'add') {
+            if (this.comments.length
+                >= CONVERSATION_COMMENT_LIMITS.maxComments) {
+                throw new ConversationCommentError('limit');
+            }
+            const payload = parseCommentSelection(request.payload);
+            const message = this.messages().find(candidate =>
+                candidate.id === payload.messageId
+                && candidate.interactionId === payload.interactionId
+            );
+            if (!message) {
+                throw new ConversationCommentError('stale');
+            }
+            this.comments.push(createConversationComment(
+                randomBytes(16).toString('hex'),
+                payload,
+                message
+            ));
+            this.commentRevision += 1;
+            return;
+        }
+        const payload = parseExistingCommentPayload(
+            request.operation,
+            request.payload
+        );
+        const index = this.comments.findIndex(
+            comment => comment.id === payload.commentId
+        );
+        if (index < 0) {
+            throw new ConversationCommentError('stale');
+        }
+        if (request.operation === 'delete') {
+            this.comments.splice(index, 1);
+        } else {
+            this.comments[index] = updateConversationComment(
+                this.comments[index],
+                payload.comment
+            );
+        }
+        this.commentRevision += 1;
+    }
+
+    private async sendComments(target: ConversationViewerTarget): Promise<void> {
+        const prompt = buildConversationCommentsPrompt(this.comments);
+        try {
+            await Promise.resolve(this.options.submitPrompt(
+                { ...target },
+                prompt
+            ));
+        } catch (error) {
+            if (error instanceof ConversationCommentError) {
+                throw error;
+            }
+            throw new ConversationCommentError('failed');
+        }
+        if (this.target !== target) {
+            throw new ConversationCommentError('stale');
+        }
+        this.comments = [];
+        this.commentRevision += 1;
+    }
+
+    private async settleCommentRequest(
+        request: ConversationViewerCommentMutationMessage
+            | ConversationViewerSendCommentsMessage,
+        success: boolean,
+        error?: ConversationCommentError['code']
+    ): Promise<void> {
+        const settlement: ConversationViewerCommentsResultMessage = {
+            type: 'conversation-viewer-comments-result',
+            version: 1,
+            requestId: request.requestId,
+            subscriptionGeneration: request.subscriptionGeneration,
+            projectId: request.projectId,
+            provider: request.provider,
+            sessionId: request.sessionId,
+            operation: request.operation,
+            success,
+            revision: this.commentRevision,
+            comments: cloneConversationComments(this.comments),
+            ...(error ? { error } : {}),
+        };
+        this.rememberCommentSettlement(
+            getCommentSettlementKey(request),
+            settlement
+        );
+        await this.publishCommentSettlement(settlement, true);
+    }
+
+    private rememberCommentSettlement(
+        key: string,
+        settlement: ConversationViewerCommentsResultMessage
+    ): void {
+        this.commentSettlements.set(key, settlement);
+        while (this.commentSettlements.size > 100) {
+            const oldest = this.commentSettlements.keys().next().value;
+            if (typeof oldest !== 'string') {
+                break;
+            }
+            this.commentSettlements.delete(oldest);
+        }
+    }
+
+    private async publishCommentSettlement(
+        settlement: ConversationViewerCommentsResultMessage,
+        rebuildOnFailure: boolean
+    ): Promise<void> {
+        const panel = this.panel;
+        if (!panel) {
+            return;
+        }
+        let delivered = false;
+        try {
+            delivered = await panel.webview.postMessage(settlement);
+        } catch (_error) {
+            delivered = false;
+        }
+        if (!delivered && rebuildOnFailure && this.panel === panel) {
+            this.rebuildLatestDocument();
+        }
     }
 
     private async openLink(href: string): Promise<void> {
@@ -1042,6 +1306,9 @@ export class ConversationViewer implements ConversationViewerApi {
         const purify = panel.webview.asWebviewUri(
             this.options.mediaUri('purify.min.js')
         );
+        const mermaid = panel.webview.asWebviewUri(
+            this.options.mediaUri('mermaid.min.js')
+        );
         const script = panel.webview.asWebviewUri(
             this.options.mediaUri('conversationViewerScripts.js')
         );
@@ -1051,12 +1318,25 @@ export class ConversationViewer implements ConversationViewerApi {
         const initialPageAttribute = initialPage
             ? ` data-initial-page="${escapeAttribute(JSON.stringify(initialPage))}"`
             : '';
+        const commentStateAttribute = ` data-initial-comments="${escapeAttribute(
+            JSON.stringify({
+                revision: this.commentRevision,
+                comments: cloneConversationComments(this.comments),
+            })
+        )}"`;
+        const targetAttribute = ` data-conversation-target="${escapeAttribute(
+            JSON.stringify({
+                projectId: target.projectId,
+                provider: target.provider,
+                sessionId: target.sessionId,
+            })
+        )}"`;
         return `<!doctype html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta http-equiv="Content-Security-Policy"
-        content="default-src 'none'; style-src ${escapeAttribute(
+        content="default-src 'none'; img-src https: blob:; style-src ${escapeAttribute(
             panel.webview.cspSource
         )}; script-src 'nonce-${escapeAttribute(nonce)}';">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -1064,7 +1344,8 @@ export class ConversationViewer implements ConversationViewerApi {
     <title>AI Conversation</title>
 </head>
 <body data-auto-scroll-threshold="${CONVERSATION_LIMITS.autoScrollThresholdPx}"
-    data-subscription-generation="${this.subscriptionGeneration}"${initialPageAttribute}>
+    data-mermaid-src="${escapeAttribute(mermaid.toString())}"
+    data-subscription-generation="${this.subscriptionGeneration}"${initialPageAttribute}${commentStateAttribute}${targetAttribute}>
     <header class="conversation-header">
         <div class="conversation-identity">
             <strong>${escapeHtml(providerLabel(target.provider))}</strong>
@@ -1075,15 +1356,51 @@ export class ConversationViewer implements ConversationViewerApi {
             <button type="button" data-action="previous">Previous</button>
             <button type="button" data-action="next">Next</button>
             <button type="button" data-action="latest">Latest</button>
+            <button type="button" data-action="toggle-comments"
+                aria-controls="conversation-comments-panel"
+                aria-expanded="true">Comments (0)</button>
             <button type="button" data-action="close">Close</button>
         </nav>
     </header>
     <div class="conversation-status" data-conversation-status aria-live="polite">${escapeHtml(
         initialStatus
     )}</div>
-    <main class="conversation-scroll" data-conversation-scroll tabindex="0">
-        <div class="conversation-messages" data-conversation-messages></div>
-    </main>
+    <div class="conversation-workspace">
+        <main class="conversation-scroll" data-conversation-scroll tabindex="0">
+            <div class="conversation-messages" data-conversation-messages></div>
+        </main>
+        <div class="conversation-comments-resizer" data-comments-resizer
+            role="separator" aria-label="Resize comments panel"
+            aria-orientation="vertical" aria-valuemin="192"
+            aria-valuemax="420" aria-valuenow="240" tabindex="0"></div>
+        <aside id="conversation-comments-panel"
+            class="conversation-comments" data-conversation-comments
+            aria-label="Conversation comments">
+            <div class="conversation-comments-header">
+                <strong>Comments</strong>
+                <span data-comment-count>0</span>
+            </div>
+            <div class="conversation-comment-composer" data-comment-composer hidden>
+                <blockquote data-comment-selection></blockquote>
+                <label for="conversation-comment-input">Comment</label>
+                <textarea id="conversation-comment-input" data-comment-input
+                    rows="3" maxlength="${CONVERSATION_COMMENT_LIMITS.maxCommentGraphemes}"
+                    placeholder="What should the AI address?"></textarea>
+                <div class="conversation-comment-actions">
+                    <button type="button" data-comment-action="cancel-add">Cancel</button>
+                    <button type="button" data-comment-action="confirm-add">Add comment</button>
+                </div>
+            </div>
+            <div class="conversation-comment-list" data-comment-list></div>
+            <p class="conversation-comment-empty" data-comment-empty>
+                Select text in the conversation to add a comment.
+            </p>
+            <button class="conversation-comments-send" type="button"
+                data-comment-action="send" disabled>Send comments to this session</button>
+        </aside>
+    </div>
+    <button class="conversation-add-comment" type="button"
+        data-add-comment hidden>Add comment</button>
     <button class="new-response" type="button" data-new-response hidden>New response content</button>
     <script nonce="${escapeAttribute(nonce)}" src="${escapeAttribute(
         purify.toString()
@@ -1111,19 +1428,156 @@ function parseViewerMessage(message: unknown): ConversationViewerMessage | undef
         }
         return value as unknown as ConversationViewerNavigationMessage;
     }
-    if (value.type !== 'conversation-viewer-open-link'
-        || keys.length !== 3
-        || !hasOwn(value, 'type')
-        || !hasOwn(value, 'version')
-        || !hasOwn(value, 'href')
-        || typeof value.href !== 'string') {
+    if (value.type === 'conversation-viewer-open-link') {
+        if (keys.length !== 3
+            || !hasOwn(value, 'type')
+            || !hasOwn(value, 'version')
+            || !hasOwn(value, 'href')
+            || typeof value.href !== 'string') {
+            return undefined;
+        }
+        return value as unknown as ConversationViewerOpenLinkMessage;
+    }
+    if ((value.type !== 'conversation-viewer-comment-mutation'
+            && value.type !== 'conversation-viewer-send-comments')
+        || keys.length !== 10
+        || !hasExactKeys(value, [
+            'type', 'version', 'requestId', 'subscriptionGeneration',
+            'projectId', 'provider', 'sessionId', 'operation',
+            'expectedRevision', 'payload',
+        ])
+        || !isCommentRequestId(value.requestId)
+        || !Number.isSafeInteger(value.subscriptionGeneration)
+        || (value.subscriptionGeneration as number) < 1
+        || !isCommentTargetId(value.projectId)
+        || !isProvider(value.provider)
+        || !isCommentTargetId(value.sessionId)
+        || !Number.isSafeInteger(value.expectedRevision)
+        || (value.expectedRevision as number) < 0
+        || !value.payload
+        || typeof value.payload !== 'object'
+        || Array.isArray(value.payload)) {
         return undefined;
     }
-    return value as unknown as ConversationViewerOpenLinkMessage;
+    if (value.type === 'conversation-viewer-comment-mutation') {
+        if (value.operation !== 'add'
+            && value.operation !== 'update'
+            && value.operation !== 'delete') {
+            return undefined;
+        }
+        return value as unknown as ConversationViewerCommentMutationMessage;
+    }
+    if (value.operation !== 'sendComments'
+        || Object.keys(value.payload as object).length !== 0) {
+        return undefined;
+    }
+    return value as unknown as ConversationViewerSendCommentsMessage;
 }
 
 function hasOwn(value: object, key: string): boolean {
     return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+function hasExactKeys(
+    value: object,
+    expected: readonly string[]
+): boolean {
+    const keys = Object.keys(value);
+    return keys.length === expected.length
+        && expected.every(key => hasOwn(value, key));
+}
+
+function isCommentRequestId(value: unknown): value is string {
+    return typeof value === 'string'
+        && value.length > 0
+        && value.length <= 128
+        && /^[A-Za-z0-9._:-]+$/.test(value);
+}
+
+function isCommentTargetId(value: unknown): value is string {
+    return typeof value === 'string'
+        && value.length > 0
+        && value.length <= CONVERSATION_COMMENT_LIMITS.maxIdLength
+        && !/[\u0000-\u001f\u007f]/.test(value);
+}
+
+function isProvider(value: unknown): value is AiSessionProviderId {
+    return value === 'codex' || value === 'kimi' || value === 'claude';
+}
+
+function commentRequestTargetsViewer(
+    request: ConversationViewerCommentMutationMessage
+        | ConversationViewerSendCommentsMessage,
+    target: ConversationViewerTarget,
+    subscriptionGeneration: number
+): boolean {
+    return request.subscriptionGeneration === subscriptionGeneration
+        && request.projectId === target.projectId
+        && request.provider === target.provider
+        && request.sessionId === target.sessionId;
+}
+
+function getCommentSettlementKey(
+    request: ConversationViewerCommentMutationMessage
+        | ConversationViewerSendCommentsMessage
+): string {
+    return JSON.stringify([
+        request.projectId,
+        request.provider,
+        request.sessionId,
+        request.requestId,
+    ]);
+}
+
+function parseCommentSelection(payload: unknown): ConversationCommentSelection {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)
+        || !hasExactKeys(payload, [
+            'messageId', 'interactionId', 'quote', 'prefix', 'suffix', 'comment',
+        ])) {
+        throw new ConversationCommentError('invalid');
+    }
+    const value = payload as Record<string, unknown>;
+    if (typeof value.messageId !== 'string'
+        || typeof value.interactionId !== 'string'
+        || typeof value.quote !== 'string'
+        || typeof value.prefix !== 'string'
+        || typeof value.suffix !== 'string'
+        || typeof value.comment !== 'string') {
+        throw new ConversationCommentError('invalid');
+    }
+    return value as unknown as ConversationCommentSelection;
+}
+
+function parseExistingCommentPayload(
+    operation: 'update' | 'delete',
+    payload: unknown
+): { commentId: string; comment?: string } {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+        throw new ConversationCommentError('invalid');
+    }
+    const value = payload as Record<string, unknown>;
+    const expected = operation === 'update'
+        ? ['commentId', 'comment']
+        : ['commentId'];
+    if (!hasExactKeys(value, expected)
+        || !isCommentTargetId(value.commentId)
+        || (operation === 'update' && typeof value.comment !== 'string')) {
+        throw new ConversationCommentError('invalid');
+    }
+    return {
+        commentId: value.commentId,
+        ...(operation === 'update'
+            ? { comment: value.comment as string }
+            : {}),
+    };
+}
+
+function toConversationCommentErrorCode(
+    error: unknown
+): ConversationCommentError['code'] {
+    return error instanceof ConversationCommentError
+        ? error.code
+        : 'failed';
 }
 
 function isStaleRevision(error: unknown): error is ConversationError {
@@ -1143,6 +1597,7 @@ function copyMessage(message: ConversationMessage): ConversationMessage {
 function renderMessages(messages: ConversationMessage[]): string {
     return messages.map(message => `<article class="conversation-message conversation-message-${message.role}"
     data-message-id="${escapeAttribute(message.id)}"
+    data-conversation-message-id="${escapeAttribute(encodeURIComponent(message.id))}"
     data-interaction-id="${escapeAttribute(message.interactionId)}">
     <span class="conversation-role">${message.role === 'user' ? 'User' : 'Assistant'}</span>
     <section class="conversation-markdown">${renderConversationMarkdown(

@@ -7157,9 +7157,12 @@ function runAiSessionIncrementalRefreshSourceChecks() {
     assert.ok(dashboard.includes('getCurrentWorkspaceAiSessions: workspace => workspaceSessionHydrationController.hydrate(workspace)'));
     assert.strictEqual(
         (dashboard.match(/getWorkspaceTarget: getCurrentWorkspaceActionTarget/g) || []).length,
-        6,
+        7,
         'all live AI action and attention controllers must resolve the v2 current workspace',
     );
+    assert.ok(dashboard.includes(
+        'submitPrompt: (viewerTarget, prompt) => submitConversationPrompt({'
+    ));
     assert.strictEqual(dashboard.includes('as unknown as Project[]'), false);
     assert.strictEqual((dashboard.match(/\.service\.getSessions\(/g) || []).length, 0);
 

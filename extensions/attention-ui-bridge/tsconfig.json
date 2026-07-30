@@ -5,6 +5,7 @@
         "outDir": "out",
         "rootDir": "../..",
         "lib": ["es6"],
+        "types": ["node", "vscode"],
         "sourceMap": true,
         "strict": true,
         "esModuleInterop": true

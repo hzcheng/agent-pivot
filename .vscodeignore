@@ -29,6 +29,7 @@ media/brand/**
 !media/webviewTodoScripts.js
 !media/conversationViewerScripts.js
 !media/conversationViewer.css
+!media/mermaid.min.js
 !media/purify.min.js
 !media/styles.css
 webpack.config.json
@@ -38,3 +39,4 @@ spikes/**
 extensions/**
 shared/**
 !licenses/DOMPurify-Apache-2.0.txt
+!licenses/Mermaid-MIT.txt

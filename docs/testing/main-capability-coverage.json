@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "63ef8eb965b1a37f956ceaf5eacc11b25baa014e",
+        "head": "c8c41bcf9438cb8f9569b17bf6e24f8e2e2e7399",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -902,7 +902,7 @@
         {
             "id": "MAIN-AI-SESSION-CONVERSATION-OUTLINE",
             "title": "Active Session conversation outline",
-            "requirement": "Codex, Kimi, and Claude expose bounded user-input outlines and one sanitized read-only conversation viewer from canonical extension-host sources.",
+            "requirement": "Codex, Kimi, and Claude expose bounded user-input outlines, one sanitized rich conversation viewer, and Host-authoritative comment batches targeting the exact session.",
             "commits": [
                 "02bf30cd13b5d695fd40c7f0b914fc6e7284f701",
                 "970f137ae17fcada4796632fa67a6fac8fca5dad",
@@ -952,7 +952,10 @@
                 "bb74e5abcaafcbf29d31361b95f4e647958169dd",
                 "846a5727a5d36b74f91aa20076eb51d8fe77fdf9",
                 "571270717cff080db395df2ce0393624d1ed12ee",
-                "e5e0c103006ab7f37b57b61c670e062e1e2b909f"
+                "e5e0c103006ab7f37b57b61c670e062e1e2b909f",
+                "6d6b32d617f618b70e11b4ceea462ff0017620fc",
+                "7f935db19842e697524bc84ebfd18f2bf7307ca6",
+                "c8c41bcf9438cb8f9569b17bf6e24f8e2e2e7399"
             ],
             "behaviors": [
                 "SESSION-AI-SESSION-CONVERSATION-ADAPTER-001",
@@ -963,6 +966,10 @@
                 "SESSION-CONVERSATION-LOADING-001",
                 "CONVERSATION-VIEWER-LOADING-001",
                 "CONVERSATION-VIEWER-USER-EMPHASIS-001",
+                "CONVERSATION-COMMENTS-001",
+                "CONVERSATION-COMMENTS-SUBMIT-001",
+                "CONVERSATION-COMMENTS-UI-001",
+                "CONVERSATION-COMMENTS-LAYOUT-001",
                 "WEBVIEW-STYLES-ARTIFACT-001",
                 "CONVERSATION-OPEN-LATEST-001"
             ],

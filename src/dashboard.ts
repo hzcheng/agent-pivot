@@ -99,6 +99,9 @@ import {
 import {
     withConversationDisplayMetadata,
 } from './aiSessions/conversation/conversationHostController';
+import {
+    submitConversationPrompt,
+} from './aiSessions/conversation/submission';
 import { AiSessionDashboardController } from './aiSessions/dashboardController';
 import { AiSessionCommandController } from './aiSessions/commandController';
 import { AiSessionCreationController } from './aiSessions/creationController';
@@ -1463,6 +1466,18 @@ async function initializeDashboard(
         setTimer: setTimeout,
         clearTimer: clearTimeout,
         onDiagnostic: event => logAiSessionDiagnostic({ ...event }),
+        submitPrompt: (viewerTarget, prompt) => submitConversationPrompt({
+            getWorkspaceTarget: getCurrentWorkspaceActionTarget,
+            getRuntime: getAiSessionRuntimeById,
+            resume: (projectId, providerId, sessionId, rootId, resumePrompt) =>
+                aiSessionResumeController.resumeProjectSession(
+                    projectId,
+                    providerId,
+                    sessionId,
+                    rootId,
+                    resumePrompt
+                ),
+        }, viewerTarget, prompt),
     }));
     const conversationHandlers = {
         'request-ai-session-conversation-outline': message =>

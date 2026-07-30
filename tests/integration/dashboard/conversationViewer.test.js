@@ -525,6 +525,7 @@ test('CONVERSATION-VIEWER-SECURITY-001 emits a nonce-only CSP and opens only HTT
     await viewer.open(target('session-a'));
 
     assert.match(panel.webview.html, /default-src 'none';/);
+    assert.match(panel.webview.html, /img-src https: blob:;/);
     assert.match(panel.webview.html, /style-src fixture-csp;/);
     assert.match(panel.webview.html, /script-src 'nonce-[^']+';/);
     assert.equal(panel.webview.html.includes("'unsafe-inline'"), false);
@@ -536,6 +537,10 @@ test('CONVERSATION-VIEWER-SECURITY-001 emits a nonce-only CSP and opens only HTT
     assert.match(
         panel.webview.html,
         /src="webview:\/\/fixture\/\/extension\/media\/purify\.min\.js"/
+    );
+    assert.match(
+        panel.webview.html,
+        /data-mermaid-src="webview:\/\/fixture\/\/extension\/media\/mermaid\.min\.js"/
     );
     assert.match(
         panel.webview.html,

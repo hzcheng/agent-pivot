@@ -132,6 +132,28 @@ test('SESSION-AI-SESSION-YOLO-LAUNCH-002 rejects malformed truthy launch options
     }
 });
 
+test('SESSION-CONVERSATION-COMMENTS-RESUME-001 passes one prompt through each provider resume argv', () => {
+    const prompt = 'Handle comments 1 and 2.\nThen run tests.';
+    assert.deepEqual(
+        commands.buildCodexResumeLaunchSpec(
+            sessionId, directoryScope, markerPath, { yolo: false }, prompt
+        ).args,
+        ['resume', '--cd', cwd, sessionId, prompt]
+    );
+    assert.deepEqual(
+        commands.buildKimiResumeLaunchSpec(
+            sessionId, directoryScope, markerPath, { yolo: false }, prompt
+        ).args,
+        ['--work-dir', cwd, '--resume', sessionId, '--prompt', prompt]
+    );
+    assert.deepEqual(
+        commands.buildClaudeResumeLaunchSpec(
+            sessionId, directoryScope, markerPath, { yolo: false }, prompt
+        ).args,
+        ['--resume', sessionId, prompt]
+    );
+});
+
 test('SESSION-COMMAND-BUILDER-001 quotes PowerShell single quotes without interpolation', () => {
     assert.equal(commands.quotePowerShellArg("O'Brien & 100%"), "'O''Brien & 100%'");
 });

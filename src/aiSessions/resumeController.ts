@@ -29,7 +29,8 @@ export interface AiSessionResumeProvider {
         sessionId: string,
         scope: AiSessionDirectoryScope,
         markerPath: string,
-        launchOptions: AiSessionLaunchOptions
+        launchOptions: AiSessionLaunchOptions,
+        prompt?: string
     ) => AiSessionLaunchSpec;
 }
 
@@ -93,8 +94,9 @@ export class AiSessionResumeController<
         projectId: string,
         providerId: AiSessionProviderId | null,
         sessionId: string,
-        explicitRootId?: string
-    ): Promise<void> {
+        explicitRootId?: string,
+        prompt?: string
+    ): Promise<AiSessionRuntimeActionResult<TTerminal> | undefined> {
         if (!providerId) {
             return;
         }
@@ -120,7 +122,14 @@ export class AiSessionResumeController<
             return;
         }
 
-        await this.resumeRuntime(target, providerId, sessionProvider, directoryScope, this.options);
+        return this.resumeRuntime(
+            target,
+            providerId,
+            sessionProvider,
+            directoryScope,
+            this.options,
+            prompt
+        );
     }
 
     private async resumeRuntime(
@@ -128,8 +137,9 @@ export class AiSessionResumeController<
         providerId: AiSessionProviderId,
         sessionProvider: AiSessionResumeProvider,
         directoryScope: AiSessionDirectoryScope,
-        options: AiSessionResumeRuntimeControllerOptions<TTerminal>
-    ): Promise<void> {
+        options: AiSessionResumeRuntimeControllerOptions<TTerminal>,
+        prompt?: string
+    ): Promise<AiSessionRuntimeActionResult<TTerminal> | undefined> {
         const session = target.session;
         if (options.getRuntimeConflict?.(
             providerId, session.id, directoryScope.workspaceScopeIdentity
@@ -165,7 +175,8 @@ export class AiSessionResumeController<
                     session.id,
                     launchScope,
                     markerPath,
-                    options.getLaunchOptions()
+                    options.getLaunchOptions(),
+                    prompt
                 )),
             directoryScope,
         };
@@ -206,6 +217,7 @@ export class AiSessionResumeController<
         }
         await options.showActiveTab(target.id);
         options.refresh();
+        return result;
     }
 }
 

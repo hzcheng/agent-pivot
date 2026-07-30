@@ -695,7 +695,7 @@ test('CONVERSATION-COMMENTS-LAYOUT-001 toggles, resizes, and restores the commen
     );
 });
 
-test('CONVERSATION-COMMENTS-UI-001 collects multiple selections and sends one correlated batch', async t => {
+test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-REVIEW-001 reviews multiple anchored selections as one correlated batch', async t => {
     const interactionId = 'input-comments';
     const { page } = await openHostViewerDocument(t, {
         interactionIds: [interactionId],
@@ -791,10 +791,35 @@ test('CONVERSATION-COMMENTS-UI-001 collects multiple selections and sends one co
         }, { request, revision, comments });
     }
 
+    async function settleLocate(request, success = true) {
+        await page.evaluate(({ request, success }) => {
+            window.dispatchEvent(new MessageEvent('message', {
+                data: {
+                    type: 'conversation-viewer-locate-comment-result',
+                    version: 1,
+                    requestId: request.requestId,
+                    subscriptionGeneration: request.subscriptionGeneration,
+                    projectId: request.projectId,
+                    provider: request.provider,
+                    sessionId: request.sessionId,
+                    commentId: request.commentId,
+                    success,
+                    ...(success ? {} : { error: 'stale' }),
+                },
+            }));
+        }, { request, success });
+    }
+
     const comments = [];
     await selectText('beta', 1);
     await page.locator('[data-comment-input]').fill('Explain beta.');
-    await page.locator('[data-comment-action="confirm-add"]').click();
+    assert.equal(
+        await page.locator('[data-comment-input]').getAttribute(
+            'aria-keyshortcuts'
+        ),
+        'Control+Enter Meta+Enter'
+    );
+    await page.locator('[data-comment-input]').press('Control+Enter');
     let requests = await postedMessages(page);
     const first = requests.at(-1);
     assert.equal(first.type, 'conversation-viewer-comment-mutation');
@@ -811,6 +836,7 @@ test('CONVERSATION-COMMENTS-UI-001 collects multiple selections and sends one co
         prefix: 'Alpha beta gamma ',
         suffix: ' delta.',
         comment: 'Explain beta.',
+        status: 'open',
     });
     await settle(first, 1, comments);
     assert.deepEqual(
@@ -830,7 +856,7 @@ test('CONVERSATION-COMMENTS-UI-001 collects multiple selections and sends one co
 
     await selectText('gamma');
     await page.locator('[data-comment-input]').fill('Change gamma.');
-    await page.locator('[data-comment-action="confirm-add"]').click();
+    await page.locator('[data-comment-input]').press('Meta+Enter');
     requests = await postedMessages(page);
     const second = requests.at(-1);
     assert.equal(second.expectedRevision, 1);
@@ -843,11 +869,90 @@ test('CONVERSATION-COMMENTS-UI-001 collects multiple selections and sends one co
         prefix: 'Alpha beta ',
         suffix: ' beta delta.',
         comment: 'Change gamma.',
+        status: 'open',
     });
     await settle(second, 2, comments);
 
     assert.equal(await page.locator('[data-comment-id]').count(), 2);
     assert.equal(await page.locator('[data-comment-count]').textContent(), '2');
+    assert.equal(
+        await page.locator('[data-action="toggle-comments"]').textContent(),
+        'Comments (2 open)'
+    );
+
+    await sendPage(page, {
+        type: 'conversation-viewer-page',
+        version: 1,
+        requestId: 100,
+        subscriptionGeneration: 1,
+        updateKind: 'navigation',
+        html: `<article data-conversation-message-id="other%3Auser"
+            data-interaction-id="other">
+            <section class="conversation-markdown"><p>Other input.</p></section>
+        </article>`,
+        selectedInteractionId: 'other',
+        selectedInput: 2,
+        totalInputs: 2,
+        partial: false,
+        atLatest: true,
+        stale: false,
+    });
+    await page.locator('[data-comment-id="comment-1"]')
+        .locator('[data-comment-action="locate"]').click();
+    requests = await postedMessages(page);
+    const locate = requests.at(-1);
+    assert.equal(locate.type, 'conversation-viewer-locate-comment');
+    assert.equal(locate.commentId, 'comment-1');
+    assert.equal(locate.projectId, 'project-a');
+    assert.equal(
+        await page.locator('[data-conversation-comments]').getAttribute(
+            'aria-busy'
+        ),
+        'true'
+    );
+    assert.equal(
+        await page.locator('[data-comment-action="send"]').isDisabled(),
+        true
+    );
+
+    await sendPage(page, {
+        type: 'conversation-viewer-page',
+        version: 1,
+        requestId: 101,
+        subscriptionGeneration: 1,
+        updateKind: 'navigation',
+        html: `<article data-conversation-message-id="${
+            encodeURIComponent(`${interactionId}:user`)
+        }"
+            data-interaction-id="${interactionId}">
+            <section class="conversation-markdown">
+                <p>Alpha beta gamma beta delta.</p>
+            </section>
+        </article>`,
+        selectedInteractionId: interactionId,
+        selectedInput: 1,
+        totalInputs: 2,
+        partial: false,
+        atLatest: false,
+        stale: false,
+    });
+    assert.match(
+        await page.locator('[data-conversation-messages]').innerHTML(),
+        /Alpha beta gamma beta delta\./
+    );
+    await settleLocate(locate);
+    assert.equal(
+        await page.locator(`[data-interaction-id="${interactionId}"]`)
+            .evaluate(element => document.activeElement === element),
+        true
+    );
+    assert.equal(
+        await page.locator('[data-conversation-comments]').getAttribute(
+            'aria-busy'
+        ),
+        'false'
+    );
+
     await page.locator('[data-comment-action="send"]').click();
     requests = await postedMessages(page);
     const send = requests.at(-1);
@@ -855,12 +960,52 @@ test('CONVERSATION-COMMENTS-UI-001 collects multiple selections and sends one co
     assert.equal(send.operation, 'sendComments');
     assert.equal(send.expectedRevision, 2);
     assert.deepEqual(send.payload, {});
-    await settle(send, 3, []);
+    comments.forEach(comment => {
+        comment.status = 'sent';
+    });
+    await settle(send, 3, comments);
 
-    assert.equal(await page.locator('[data-comment-id]').count(), 0);
+    assert.equal(await page.locator('[data-comment-id]').count(), 2);
+    assert.deepEqual(
+        await page.locator('[data-comment-status-label]').allTextContents(),
+        ['Sent', 'Sent']
+    );
+    assert.equal(
+        await page.locator('[data-comment-action="send"]').isDisabled(),
+        true
+    );
     assert.equal(
         await page.locator('[data-conversation-status]').textContent(),
         'Comments sent to this session.'
+    );
+
+    await page.locator('[data-comment-id="comment-1"]')
+        .locator('[data-comment-action="resolve"]').click();
+    requests = await postedMessages(page);
+    const resolve = requests.at(-1);
+    assert.equal(resolve.operation, 'resolve');
+    comments[0].status = 'resolved';
+    await settle(resolve, 4, comments);
+    assert.equal(
+        await page.locator('[data-comment-id="comment-1"]')
+            .getAttribute('data-comment-status'),
+        'resolved'
+    );
+
+    await page.locator('[data-comment-id="comment-1"]')
+        .locator('[data-comment-action="reopen"]').click();
+    requests = await postedMessages(page);
+    const reopen = requests.at(-1);
+    assert.equal(reopen.operation, 'reopen');
+    comments[0].status = 'open';
+    await settle(reopen, 5, comments);
+    assert.equal(
+        await page.locator('[data-action="toggle-comments"]').textContent(),
+        'Comments (1 open)'
+    );
+    assert.equal(
+        await page.locator('[data-comment-action="send"]').isEnabled(),
+        true
     );
 });
 
@@ -1282,7 +1427,7 @@ test('CONVERSATION-VIEWER-PARTIAL-001 labels capped input positions and partial 
     );
 });
 
-test('CONVERSATION-VIEWER-BROWSER-SCROLL-001 auto-follows at exactly 8px but not at 9px', async t => {
+test('CONVERSATION-VIEWER-BROWSER-SCROLL-001 CONVERSATION-READING-FOCUS-001 preserves the reading viewport and semantic focus on refresh', async t => {
     const page = await openViewerPage(t);
     const baseHtml = messageHtml('follow', 20);
     const appendedHtml = baseHtml + messageHtml('follow-new', 1);
@@ -1299,9 +1444,15 @@ test('CONVERSATION-VIEWER-BROWSER-SCROLL-001 auto-follows at exactly 8px but not
     const scroll = page.locator('[data-conversation-scroll]');
 
     await sendPage(page, baseMessage);
-    await scroll.evaluate(element => {
-        element.scrollTop = element.scrollHeight - element.clientHeight - 8;
+    const focusedMessage = page.locator('[data-message-id="follow-10"]');
+    await focusedMessage.evaluate(element => {
+        element.tabIndex = -1;
+        element.focus();
     });
+    await scroll.evaluate(element => {
+        element.scrollTop = element.scrollHeight - element.clientHeight;
+    });
+    const bottomBefore = await scroll.evaluate(element => element.scrollTop);
     await sendPage(page, {
         ...baseMessage,
         requestId: 2,
@@ -1309,9 +1460,18 @@ test('CONVERSATION-VIEWER-BROWSER-SCROLL-001 auto-follows at exactly 8px but not
         html: appendedHtml,
         totalInputs: 21,
     });
-    assert.equal(await scroll.evaluate(element =>
-        Math.round(element.scrollHeight - element.scrollTop - element.clientHeight)
-    ), 0);
+    assert.equal(
+        await scroll.evaluate(element => element.scrollTop),
+        bottomBefore
+    );
+    assert.equal(
+        await page.evaluate(() =>
+            document.activeElement?.getAttribute('data-message-id')),
+        'follow-10'
+    );
+    assert.equal(await page.getByRole('button', {
+        name: 'New response content',
+    }).isVisible(), true);
 
     await sendPage(page, {
         ...baseMessage,
@@ -1423,7 +1583,7 @@ test('CONVERSATION-VIEWER-BROWSER-RACE-001 treats a refresh that wins initial lo
     ).count(), 1);
 });
 
-test('CONVERSATION-VIEWER-BROWSER-REFRESH-001 preserves a real Host history window at 9px and auto-follows at 8px', async t => {
+test('CONVERSATION-VIEWER-BROWSER-REFRESH-001 CONVERSATION-READING-FOCUS-001 preserves a real Host history window at every reading position', async t => {
     const publications = await realHostAppendPublications();
     for (const distance of [9, 8]) {
         const page = await openViewerPage(t);
@@ -1444,22 +1604,12 @@ test('CONVERSATION-VIEWER-BROWSER-REFRESH-001 preserves a real Host history wind
         assert.equal(await page.locator(
             '[data-interaction-id="host-input-21"]'
         ).count(), 1);
-        if (distance === 9) {
-            assert.equal(
-                await scroll.evaluate(element => element.scrollTop),
-                before
-            );
-            assert.equal(await page.getByRole('button', {
-                name: 'New response content',
-            }).isVisible(), true);
-        } else {
-            assert.equal(await scroll.evaluate(element =>
-                Math.round(element.scrollHeight - element.scrollTop
-                    - element.clientHeight)
-            ), 0);
-            assert.equal(await page.getByRole('button', {
-                name: 'New response content',
-            }).isHidden(), true);
-        }
+        assert.equal(
+            await scroll.evaluate(element => element.scrollTop),
+            before
+        );
+        assert.equal(await page.getByRole('button', {
+            name: 'New response content',
+        }).isVisible(), true);
     }
 });

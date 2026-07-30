@@ -15,6 +15,9 @@ import {
     ConversationCommentOperation,
     ConversationCommentSelection,
     createConversationComment,
+    markConversationCommentsSent,
+    reopenConversationComment,
+    resolveConversationComment,
     updateConversationComment,
 } from './comments';
 import { renderConversationMarkdown } from './markdown';
@@ -63,6 +66,12 @@ export interface ConversationViewerOptions {
     submitPrompt: (
         target: ConversationViewerTarget,
         prompt: string
+    ) => PromiseLike<void> | Promise<void>;
+    focusSession?: (
+        target: Pick<
+            ConversationViewerTarget,
+            'projectId' | 'provider' | 'sessionId'
+        >
     ) => PromiseLike<void> | Promise<void>;
 }
 
@@ -117,9 +126,33 @@ interface ConversationViewerCommentMutationMessage {
     projectId: string;
     provider: AiSessionProviderId;
     sessionId: string;
-    operation: 'add' | 'update' | 'delete';
+    operation: 'add' | 'update' | 'delete' | 'resolve' | 'reopen';
     expectedRevision: number;
     payload: unknown;
+}
+
+interface ConversationViewerLocateCommentMessage {
+    type: 'conversation-viewer-locate-comment';
+    version: 1;
+    requestId: string;
+    subscriptionGeneration: number;
+    projectId: string;
+    provider: AiSessionProviderId;
+    sessionId: string;
+    commentId: string;
+}
+
+interface ConversationViewerLocateCommentResultMessage {
+    type: 'conversation-viewer-locate-comment-result';
+    version: 1;
+    requestId: string;
+    subscriptionGeneration: number;
+    projectId: string;
+    provider: AiSessionProviderId;
+    sessionId: string;
+    commentId: string;
+    success: boolean;
+    error?: 'stale';
 }
 
 interface ConversationViewerSendCommentsMessage {
@@ -154,7 +187,8 @@ type ConversationViewerMessage =
     ConversationViewerNavigationMessage
     | ConversationViewerOpenLinkMessage
     | ConversationViewerCommentMutationMessage
-    | ConversationViewerSendCommentsMessage;
+    | ConversationViewerSendCommentsMessage
+    | ConversationViewerLocateCommentMessage;
 
 const NAVIGATION_MESSAGE_TYPES = new Set([
     'conversation-viewer-previous',
@@ -388,6 +422,10 @@ export class ConversationViewer implements ConversationViewerApi {
             await this.enqueueCommentOperation(parsed);
             return;
         }
+        if (parsed.type === 'conversation-viewer-locate-comment') {
+            await this.locateComment(parsed);
+            return;
+        }
         if (parsed.type === 'conversation-viewer-previous') {
             await this.navigate('before');
             return;
@@ -454,12 +492,30 @@ export class ConversationViewer implements ConversationViewerApi {
                 this.mutateComments(request);
             }
             await this.settleCommentRequest(request, true);
+            if (request.operation === 'sendComments') {
+                await this.focusSessionAfterCommentSend(target);
+            }
         } catch (error) {
             await this.settleCommentRequest(
                 request,
                 false,
                 toConversationCommentErrorCode(error)
             );
+        }
+    }
+
+    private async focusSessionAfterCommentSend(
+        target: ConversationViewerTarget
+    ): Promise<void> {
+        try {
+            await Promise.resolve(this.options.focusSession?.({
+                projectId: target.projectId,
+                provider: target.provider,
+                sessionId: target.sessionId,
+            }));
+        } catch (_error) {
+            // The prompt was already submitted and settled. A focus failure
+            // must not make the user retry and submit the same batch twice.
         }
     }
 
@@ -499,17 +555,28 @@ export class ConversationViewer implements ConversationViewerApi {
         }
         if (request.operation === 'delete') {
             this.comments.splice(index, 1);
-        } else {
+        } else if (request.operation === 'update') {
             this.comments[index] = updateConversationComment(
                 this.comments[index],
                 payload.comment
+            );
+        } else if (request.operation === 'resolve') {
+            this.comments[index] = resolveConversationComment(
+                this.comments[index]
+            );
+        } else {
+            this.comments[index] = reopenConversationComment(
+                this.comments[index]
             );
         }
         this.commentRevision += 1;
     }
 
     private async sendComments(target: ConversationViewerTarget): Promise<void> {
-        const prompt = buildConversationCommentsPrompt(this.comments);
+        const openComments = this.comments.filter(
+            comment => comment.status === 'open'
+        );
+        const prompt = buildConversationCommentsPrompt(openComments);
         try {
             await Promise.resolve(this.options.submitPrompt(
                 { ...target },
@@ -524,8 +591,38 @@ export class ConversationViewer implements ConversationViewerApi {
         if (this.target !== target) {
             throw new ConversationCommentError('stale');
         }
-        this.comments = [];
+        this.comments = markConversationCommentsSent(this.comments);
         this.commentRevision += 1;
+    }
+
+    private async locateComment(
+        request: ConversationViewerLocateCommentMessage
+    ): Promise<void> {
+        const target = this.target;
+        const comment = this.comments.find(
+            candidate => candidate.id === request.commentId
+        );
+        const targetMatches = Boolean(target)
+            && request.subscriptionGeneration === this.subscriptionGeneration
+            && request.projectId === target?.projectId
+            && request.provider === target?.provider
+            && request.sessionId === target?.sessionId;
+        const success = targetMatches && comment
+            ? await this.navigateToInteraction(comment.interactionId)
+            : false;
+        const settlement: ConversationViewerLocateCommentResultMessage = {
+            type: 'conversation-viewer-locate-comment-result',
+            version: 1,
+            requestId: request.requestId,
+            subscriptionGeneration: request.subscriptionGeneration,
+            projectId: request.projectId,
+            provider: request.provider,
+            sessionId: request.sessionId,
+            commentId: request.commentId,
+            success,
+            ...(success ? {} : { error: 'stale' }),
+        };
+        await this.publishTransientSettlement(settlement);
     }
 
     private async settleCommentRequest(
@@ -584,6 +681,26 @@ export class ConversationViewer implements ConversationViewerApi {
             delivered = false;
         }
         if (!delivered && rebuildOnFailure && this.panel === panel) {
+            this.rebuildLatestDocument();
+        }
+    }
+
+    private async publishTransientSettlement(
+        settlement: ConversationViewerLocateCommentResultMessage
+    ): Promise<void> {
+        const panel = this.panel;
+        if (!panel) {
+            return;
+        }
+        let delivered = false;
+        try {
+            delivered = await panel.webview.postMessage(settlement);
+        } catch (_error) {
+            delivered = false;
+        }
+        if (!delivered && this.panel === panel) {
+            // Replacing the document clears any Webview-owned pending locate
+            // state while preserving the Host-owned comments and current page.
             this.rebuildLatestDocument();
         }
     }
@@ -675,6 +792,29 @@ export class ConversationViewer implements ConversationViewerApi {
         }, 'replace', false, 'navigation', latestInteractionId);
     }
 
+    private async navigateToInteraction(
+        interactionId: string
+    ): Promise<boolean> {
+        const target = this.target;
+        const outline = this.outline;
+        if (!target || !outline || !outline.interactions.some(
+            interaction => interaction.id === interactionId
+        )) {
+            return false;
+        }
+        if (this.interactionIds().includes(interactionId)) {
+            return this.publishSelection(interactionId, 'navigation');
+        }
+        return this.read({
+            provider: target.provider,
+            sessionId: target.sessionId,
+            anchorInteractionId: interactionId,
+            direction: 'around',
+            expectedRevision: outline.sourceRevision,
+            limit: CONVERSATION_LIMITS.maxPageInteractions,
+        }, 'replace', false, 'navigation', interactionId);
+    }
+
     private loadAuthoritative(
         updateKind: 'initial' | 'refresh',
         replaceDocument: boolean
@@ -720,15 +860,7 @@ export class ConversationViewer implements ConversationViewerApi {
         const generation = this.subscriptionGeneration;
         const requestId = this.allocateRequestId();
         this.currentRequestId = requestId;
-        const previousOutline = this.outline;
         const previousSelectedInteractionId = this.selectedInteractionId;
-        const previousWasLatest = Boolean(
-            previousOutline
-            && previousSelectedInteractionId
-            && previousOutline.interactions[
-                previousOutline.interactions.length - 1
-            ]?.id === previousSelectedInteractionId
-        );
         try {
             let outline = await this.options.readOutline(
                 target.provider,
@@ -760,9 +892,7 @@ export class ConversationViewer implements ConversationViewerApi {
             }
             const selectedInteractionId = updateKind === 'initial'
                 ? target.interactionId
-                : previousWasLatest
-                    ? interactionIds[interactionIds.length - 1]
-                    : previousSelectedInteractionId as string;
+                : previousSelectedInteractionId as string;
             let page: ConversationPage;
             try {
                 page = await this.options.readPage({
@@ -1385,10 +1515,12 @@ export class ConversationViewer implements ConversationViewerApi {
                 <label for="conversation-comment-input">Comment</label>
                 <textarea id="conversation-comment-input" data-comment-input
                     rows="3" maxlength="${CONVERSATION_COMMENT_LIMITS.maxCommentGraphemes}"
+                    aria-keyshortcuts="Control+Enter Meta+Enter"
                     placeholder="What should the AI address?"></textarea>
                 <div class="conversation-comment-actions">
                     <button type="button" data-comment-action="cancel-add">Cancel</button>
-                    <button type="button" data-comment-action="confirm-add">Add comment</button>
+                    <button type="button" data-comment-action="confirm-add"
+                        title="Add comment (Ctrl+Enter or Cmd+Enter)">Add comment</button>
                 </div>
             </div>
             <div class="conversation-comment-list" data-comment-list></div>
@@ -1438,6 +1570,22 @@ function parseViewerMessage(message: unknown): ConversationViewerMessage | undef
         }
         return value as unknown as ConversationViewerOpenLinkMessage;
     }
+    if (value.type === 'conversation-viewer-locate-comment') {
+        if (!hasExactKeys(value, [
+            'type', 'version', 'requestId', 'subscriptionGeneration',
+            'projectId', 'provider', 'sessionId', 'commentId',
+        ])
+            || !isCommentRequestId(value.requestId)
+            || !Number.isSafeInteger(value.subscriptionGeneration)
+            || (value.subscriptionGeneration as number) < 1
+            || !isCommentTargetId(value.projectId)
+            || !isProvider(value.provider)
+            || !isCommentTargetId(value.sessionId)
+            || !isCommentTargetId(value.commentId)) {
+            return undefined;
+        }
+        return value as unknown as ConversationViewerLocateCommentMessage;
+    }
     if ((value.type !== 'conversation-viewer-comment-mutation'
             && value.type !== 'conversation-viewer-send-comments')
         || keys.length !== 10
@@ -1462,7 +1610,9 @@ function parseViewerMessage(message: unknown): ConversationViewerMessage | undef
     if (value.type === 'conversation-viewer-comment-mutation') {
         if (value.operation !== 'add'
             && value.operation !== 'update'
-            && value.operation !== 'delete') {
+            && value.operation !== 'delete'
+            && value.operation !== 'resolve'
+            && value.operation !== 'reopen') {
             return undefined;
         }
         return value as unknown as ConversationViewerCommentMutationMessage;
@@ -1549,7 +1699,7 @@ function parseCommentSelection(payload: unknown): ConversationCommentSelection {
 }
 
 function parseExistingCommentPayload(
-    operation: 'update' | 'delete',
+    operation: 'update' | 'delete' | 'resolve' | 'reopen',
     payload: unknown
 ): { commentId: string; comment?: string } {
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {

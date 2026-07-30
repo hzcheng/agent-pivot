@@ -118,6 +118,7 @@ function fakePanel() {
     const panel = {
         title: '',
         visible: true,
+        postMessageResult: true,
         postedMessages: [],
         webview: {
             html: '',
@@ -128,7 +129,7 @@ function fakePanel() {
             },
             postMessage: async message => {
                 panel.postedMessages.push(message);
-                return true;
+                return panel.postMessageResult;
             },
             asWebviewUri: uri => fakeUri(
                 uri.toString().replace('file://', 'webview://fixture/')
@@ -269,6 +270,7 @@ function createDashboardConversationHarness(options = {}) {
     const diagnostics = [];
     const panels = [];
     const viewerTargets = [];
+    const sessionFocusTargets = [];
     const authorityCalls = [];
     const kimiSourceCalls = [];
     const focusedSession = options.focusedSession || {
@@ -356,6 +358,7 @@ function createDashboardConversationHarness(options = {}) {
         diagnostics,
         panels,
         viewerTargets,
+        sessionFocusTargets,
         authorityCalls,
         kimiSourceCalls,
         get capability() {
@@ -394,6 +397,9 @@ function createDashboardConversationHarness(options = {}) {
                 getWorkspaceRootHostPaths:
                     options.getWorkspaceRootHostPaths,
                 submitPrompt: options.submitPrompt || (async () => undefined),
+                focusSession: target => {
+                    sessionFocusTargets.push(target);
+                },
             }, internalFactories);
             router = createDashboardMessageRouter({
                 handlers: {
@@ -849,7 +855,7 @@ test('PRODUCTION-CONVERSATION-LIFECYCLE-003 accepts a fresh Webview generation a
     await harness.dispose();
 });
 
-test('PRODUCTION-CONVERSATION-COMMENTS-001 settles mutations once and submits one host-owned batch', async () => {
+test('PRODUCTION-CONVERSATION-COMMENTS-001 CONVERSATION-COMMENTS-REVIEW-001 settles review mutations, cross-page location, and one host-owned batch', async () => {
     const prompts = [];
     const harness = createDashboardConversationHarness({
         useConcreteViewer: true,
@@ -889,11 +895,46 @@ test('PRODUCTION-CONVERSATION-COMMENTS-001 settles mutations once and submits on
     assert.equal(added.success, true);
     assert.equal(added.revision, 1);
     assert.equal(added.comments.length, 1);
+    assert.equal(added.comments[0].status, 'open');
+
+    await panel.receiveMessage({
+        type: 'conversation-viewer-next',
+        version: 1,
+    });
+    assert.equal(
+        panel.postedMessages.at(-1).selectedInteractionId,
+        'input-b'
+    );
+    await panel.receiveMessage({
+        ...base,
+        type: 'conversation-viewer-locate-comment',
+        requestId: 'comment:locate:2',
+        commentId: added.comments[0].id,
+    });
+    const located = panel.postedMessages.at(-1);
+    assert.equal(located.type, 'conversation-viewer-locate-comment-result');
+    assert.equal(located.success, true);
+    assert.equal(located.commentId, added.comments[0].id);
+    assert.equal(
+        panel.postedMessages.at(-2).selectedInteractionId,
+        'input-a'
+    );
+
+    const htmlBeforeUndeliveredLocate = panel.webview.html;
+    panel.postMessageResult = false;
+    await panel.receiveMessage({
+        ...base,
+        type: 'conversation-viewer-locate-comment',
+        requestId: 'comment:locate:undelivered',
+        commentId: added.comments[0].id,
+    });
+    assert.notEqual(panel.webview.html, htmlBeforeUndeliveredLocate);
+    panel.postMessageResult = true;
 
     await panel.receiveMessage({
         ...base,
         type: 'conversation-viewer-comment-mutation',
-        requestId: 'comment:update:2',
+        requestId: 'comment:update:3',
         operation: 'update',
         expectedRevision: 1,
         payload: {
@@ -911,7 +952,7 @@ test('PRODUCTION-CONVERSATION-COMMENTS-001 settles mutations once and submits on
     const send = {
         ...base,
         type: 'conversation-viewer-send-comments',
-        requestId: 'comment:send:3',
+        requestId: 'comment:send:4',
         operation: 'sendComments',
         expectedRevision: 2,
         payload: {},
@@ -920,13 +961,24 @@ test('PRODUCTION-CONVERSATION-COMMENTS-001 settles mutations once and submits on
     const sent = panel.postedMessages.at(-1);
     assert.equal(sent.success, true);
     assert.equal(sent.revision, 3);
-    assert.deepEqual(sent.comments, []);
+    assert.equal(sent.comments.length, 1);
+    assert.equal(sent.comments[0].status, 'sent');
     assert.equal(prompts.length, 1);
+    assert.deepEqual(harness.sessionFocusTargets, [{
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    }]);
     assert.match(prompts[0], /\[批注 1\]/);
     assert.match(prompts[0], /Explain and test this behavior\./);
 
     await panel.receiveMessage(send);
     assert.equal(prompts.length, 1, 'a duplicate send request must not resubmit');
+    assert.equal(
+        harness.sessionFocusTargets.length,
+        1,
+        'a duplicate send request must not refocus the session'
+    );
     assert.deepEqual(panel.postedMessages.at(-1), sent);
     await panel.receiveMessage({
         ...base,
@@ -941,6 +993,32 @@ test('PRODUCTION-CONVERSATION-COMMENTS-001 settles mutations once and submits on
     assert.equal(collision.success, false);
     assert.equal(collision.error, 'invalid');
     assert.equal(prompts.length, 1);
+
+    await panel.receiveMessage({
+        ...base,
+        type: 'conversation-viewer-comment-mutation',
+        requestId: 'comment:resolve:5',
+        operation: 'resolve',
+        expectedRevision: 3,
+        payload: { commentId: added.comments[0].id },
+    });
+    const resolved = panel.postedMessages.at(-1);
+    assert.equal(resolved.success, true);
+    assert.equal(resolved.revision, 4);
+    assert.equal(resolved.comments[0].status, 'resolved');
+
+    await panel.receiveMessage({
+        ...base,
+        type: 'conversation-viewer-comment-mutation',
+        requestId: 'comment:reopen:6',
+        operation: 'reopen',
+        expectedRevision: 4,
+        payload: { commentId: added.comments[0].id },
+    });
+    const reopened = panel.postedMessages.at(-1);
+    assert.equal(reopened.success, true);
+    assert.equal(reopened.revision, 5);
+    assert.equal(reopened.comments[0].status, 'open');
     await harness.dispose();
 });
 

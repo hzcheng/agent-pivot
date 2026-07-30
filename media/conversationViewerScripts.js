@@ -75,6 +75,7 @@
         commentRevision: 0,
         commentRequestSequence: 0,
         pendingCommentRequest: null,
+        pendingLocateRequest: null,
         selectedCommentText: null,
         commentsPanelOpen: true,
         commentsPanelWidth: 240,
@@ -142,7 +143,8 @@
 
     function updateCommentsToggle() {
         if (!commentUiAvailable) return;
-        commentsToggle.textContent = 'Comments (' + state.comments.length + ')';
+        commentsToggle.textContent = 'Comments (' + openCommentCount()
+            + ' open)';
         commentsToggle.setAttribute(
             'aria-expanded',
             state.commentsPanelOpen ? 'true' : 'false'
@@ -474,7 +476,7 @@
         }
         var keys = [
             'id', 'messageId', 'interactionId', 'role',
-            'quote', 'prefix', 'suffix', 'comment',
+            'quote', 'prefix', 'suffix', 'comment', 'status',
         ];
         return Object.keys(value).length === keys.length
             && keys.every(function (key) {
@@ -487,7 +489,10 @@
             && typeof value.quote === 'string'
             && typeof value.prefix === 'string'
             && typeof value.suffix === 'string'
-            && typeof value.comment === 'string';
+            && typeof value.comment === 'string'
+            && (value.status === 'open'
+                || value.status === 'sent'
+                || value.status === 'resolved');
     }
 
     function validInitialComments(value) {
@@ -527,6 +532,8 @@
             && (value.operation === 'add'
                 || value.operation === 'update'
                 || value.operation === 'delete'
+                || value.operation === 'resolve'
+                || value.operation === 'reopen'
                 || value.operation === 'sendComments')
             && typeof value.success === 'boolean'
             && Number.isSafeInteger(value.revision)
@@ -538,6 +545,40 @@
                 'invalid', 'stale', 'limit', 'tooLarge',
                 'unavailable', 'busy', 'conflict', 'failed',
             ].includes(value.error));
+    }
+
+    function validLocateResult(value) {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) {
+            return false;
+        }
+        var required = [
+            'type', 'version', 'requestId', 'subscriptionGeneration',
+            'projectId', 'provider', 'sessionId', 'commentId', 'success',
+        ];
+        var allowed = new Set(required.concat(['error']));
+        return Object.keys(value).every(function (key) {
+            return allowed.has(key);
+        }) && required.every(function (key) {
+            return Object.prototype.hasOwnProperty.call(value, key);
+        })
+            && value.type === 'conversation-viewer-locate-comment-result'
+            && value.version === 1
+            && typeof value.requestId === 'string'
+            && Number.isSafeInteger(value.subscriptionGeneration)
+            && typeof value.projectId === 'string'
+            && (value.provider === 'codex'
+                || value.provider === 'kimi'
+                || value.provider === 'claude')
+            && typeof value.sessionId === 'string'
+            && typeof value.commentId === 'string'
+            && typeof value.success === 'boolean'
+            && (value.error === undefined || value.error === 'stale');
+    }
+
+    function openCommentCount() {
+        return state.comments.filter(function (comment) {
+            return comment.status === 'open';
+        }).length;
     }
 
     function nextCommentRequestId() {
@@ -569,13 +610,15 @@
         );
         addComment.disabled = pending;
         if (!pending) {
-            commentSend.disabled = state.comments.length === 0;
+            commentSend.disabled = openCommentCount() === 0;
         }
         commentsRoot.setAttribute('aria-busy', pending ? 'true' : 'false');
     }
 
     function postCommentOperation(operation, payload) {
-        if (!commentUiAvailable || state.pendingCommentRequest) return;
+        if (!commentUiAvailable
+            || state.pendingCommentRequest
+            || state.pendingLocateRequest) return;
         var requestId = nextCommentRequestId();
         state.pendingCommentRequest = { requestId: requestId, operation: operation };
         setCommentPending(true);
@@ -606,8 +649,7 @@
             }
         );
         if (!message) {
-            status.textContent = 'The commented message is not on this page.';
-            return;
+            return false;
         }
         message.scrollIntoView({ block: 'center' });
         message.tabIndex = -1;
@@ -616,6 +658,32 @@
         window.setTimeout(function () {
             message.classList.remove('conversation-comment-located');
         }, 1600);
+        return true;
+    }
+
+    function requestCommentLocation(comment) {
+        if (locateComment(comment)) {
+            status.textContent = 'Comment source located.';
+            return;
+        }
+        if (state.pendingLocateRequest || state.pendingCommentRequest) return;
+        var requestId = nextCommentRequestId();
+        state.pendingLocateRequest = {
+            requestId: requestId,
+            commentId: comment.id,
+        };
+        setCommentPending(true);
+        status.textContent = 'Loading the commented message…';
+        post({
+            type: 'conversation-viewer-locate-comment',
+            version: 1,
+            requestId: requestId,
+            subscriptionGeneration: state.subscriptionGeneration,
+            projectId: commentTarget.projectId,
+            provider: commentTarget.provider,
+            sessionId: commentTarget.sessionId,
+            commentId: comment.id,
+        });
     }
 
     function renderComments() {
@@ -625,16 +693,26 @@
             var item = document.createElement('article');
             item.className = 'conversation-comment';
             item.setAttribute('data-comment-id', comment.id);
+            item.setAttribute('data-comment-status', comment.status);
 
             var heading = document.createElement('div');
             heading.className = 'conversation-comment-heading';
+            var identity = document.createElement('div');
+            identity.className = 'conversation-comment-identity';
             var label = document.createElement('strong');
             label.textContent = 'Comment ' + (index + 1);
+            var statusLabel = document.createElement('span');
+            statusLabel.className = 'conversation-comment-status';
+            statusLabel.setAttribute('data-comment-status-label', '');
+            statusLabel.textContent = comment.status === 'open'
+                ? 'Open'
+                : comment.status === 'sent' ? 'Sent' : 'Resolved';
+            identity.append(label, statusLabel);
             var locate = document.createElement('button');
             locate.type = 'button';
             locate.setAttribute('data-comment-action', 'locate');
             locate.textContent = 'Show text';
-            heading.append(label, locate);
+            heading.append(identity, locate);
 
             var quote = document.createElement('blockquote');
             quote.textContent = comment.quote;
@@ -642,7 +720,12 @@
             input.rows = 2;
             input.maxLength = 4000;
             input.value = comment.comment;
+            input.readOnly = comment.status !== 'open';
             input.setAttribute('aria-label', 'Comment ' + (index + 1));
+            input.setAttribute(
+                'aria-keyshortcuts',
+                'Control+Enter Meta+Enter'
+            );
             input.setAttribute('data-comment-edit', '');
             var actions = document.createElement('div');
             actions.className = 'conversation-comment-actions';
@@ -650,18 +733,43 @@
             remove.type = 'button';
             remove.setAttribute('data-comment-action', 'delete');
             remove.textContent = 'Delete';
-            var save = document.createElement('button');
-            save.type = 'button';
-            save.setAttribute('data-comment-action', 'update');
-            save.textContent = 'Save';
-            actions.append(remove, save);
+            actions.appendChild(remove);
+            if (comment.status === 'open') {
+                var save = document.createElement('button');
+                save.type = 'button';
+                save.setAttribute('data-comment-action', 'update');
+                save.title = 'Save comment (Ctrl+Enter or Cmd+Enter)';
+                save.textContent = 'Save';
+                actions.appendChild(save);
+            }
+            var review = document.createElement('button');
+            review.type = 'button';
+            if (comment.status === 'resolved') {
+                review.setAttribute('data-comment-action', 'reopen');
+                review.textContent = 'Reopen';
+            } else if (comment.status === 'sent') {
+                review.setAttribute('data-comment-action', 'resolve');
+                review.textContent = 'Resolve';
+                var reopen = document.createElement('button');
+                reopen.type = 'button';
+                reopen.setAttribute('data-comment-action', 'reopen');
+                reopen.textContent = 'Reopen';
+                actions.appendChild(reopen);
+            } else {
+                review.setAttribute('data-comment-action', 'resolve');
+                review.textContent = 'Resolve';
+            }
+            actions.appendChild(review);
             item.append(heading, quote, input, actions);
             commentList.appendChild(item);
         });
         commentCount.textContent = String(state.comments.length);
         updateCommentsToggle();
         commentEmpty.hidden = state.comments.length > 0;
-        commentSend.disabled = state.comments.length === 0
+        var openCount = openCommentCount();
+        commentSend.textContent = 'Send ' + openCount + ' open comment'
+            + (openCount === 1 ? '' : 's') + ' to this session';
+        commentSend.disabled = openCount === 0
             || !!state.pendingCommentRequest;
         updateCommentHighlights();
     }
@@ -723,6 +831,7 @@
         );
         var ranges = [];
         state.comments.forEach(function (comment) {
+            if (comment.status === 'resolved') return;
             var message = Array.prototype.find.call(
                 messages.querySelectorAll(conversationMessageSelector()),
                 function (candidate) {
@@ -773,6 +882,31 @@
                 : 'Comments saved.';
         } else {
             status.textContent = commentErrorMessage(message.error);
+        }
+        return true;
+    }
+
+    function applyLocateResult(message) {
+        if (!commentUiAvailable
+            || !validLocateResult(message)
+            || message.subscriptionGeneration !== state.subscriptionGeneration
+            || message.projectId !== commentTarget.projectId
+            || message.provider !== commentTarget.provider
+            || message.sessionId !== commentTarget.sessionId
+            || !state.pendingLocateRequest
+            || message.requestId !== state.pendingLocateRequest.requestId
+            || message.commentId !== state.pendingLocateRequest.commentId) {
+            return false;
+        }
+        var comment = state.comments.find(function (candidate) {
+            return candidate.id === message.commentId;
+        });
+        state.pendingLocateRequest = null;
+        setCommentPending(false);
+        if (message.success && comment && locateComment(comment)) {
+            status.textContent = 'Comment source located.';
+        } else {
+            status.textContent = 'The commented message is no longer available.';
         }
         return true;
     }
@@ -922,16 +1056,37 @@
         return signatures;
     }
 
-    function threshold() {
-        var value = Number(document.body.getAttribute(
-            'data-auto-scroll-threshold'
-        ));
-        return Number.isFinite(value) && value >= 0 ? value : 0;
+    function captureReadingAnchor() {
+        var scrollBounds = scroll.getBoundingClientRect();
+        var candidates = messages.querySelectorAll(
+            conversationMessageSelector()
+        );
+        for (var index = 0; index < candidates.length; index += 1) {
+            var bounds = candidates[index].getBoundingClientRect();
+            if (bounds.bottom > scrollBounds.top) {
+                return {
+                    messageId: conversationMessageId(candidates[index]),
+                    top: bounds.top - scrollBounds.top,
+                };
+            }
+        }
+        return null;
     }
 
-    function distanceFromBottom() {
-        return Math.max(0, scroll.scrollHeight - scroll.scrollTop
-            - scroll.clientHeight);
+    function restoreReadingPosition(anchor, fallbackScrollTop) {
+        scroll.scrollTop = fallbackScrollTop;
+        if (!anchor || !anchor.messageId) return;
+        var candidate = Array.prototype.find.call(
+            messages.querySelectorAll(conversationMessageSelector()),
+            function (message) {
+                return conversationMessageId(message) === anchor.messageId;
+            }
+        );
+        if (!candidate) return;
+        var scrollBounds = scroll.getBoundingClientRect();
+        var currentTop = candidate.getBoundingClientRect().top
+            - scrollBounds.top;
+        scroll.scrollTop += currentTop - anchor.top;
     }
 
     function updatePosition(message) {
@@ -950,10 +1105,14 @@
         var previousScrollTop = scroll.scrollTop;
         var isLiveRefresh = state.initialized
             && message.updateKind === 'refresh';
-        var shouldFollow = isLiveRefresh
-            && state.atLatest
-            && distanceFromBottom() <= threshold()
-            && message.atLatest;
+        var readingAnchor = isLiveRefresh ? captureReadingAnchor() : null;
+        var focusedMessage = document.activeElement
+            && document.activeElement.closest
+            ? document.activeElement.closest(conversationMessageSelector())
+            : null;
+        var focusedMessageId = focusedMessage
+            ? conversationMessageId(focusedMessage)
+            : null;
         var oldIds = new Set(state.messageIds);
         var oldSignatures = state.messageSignatures;
         state.renderGeneration += 1;
@@ -1012,12 +1171,23 @@
                 candidate.classList.remove('conversation-selected-interaction');
             }, 1600);
         });
+        if (isLiveRefresh && focusedMessageId) {
+            var restoredFocus = Array.prototype.find.call(
+                messages.querySelectorAll(conversationMessageSelector()),
+                function (candidate) {
+                    return conversationMessageId(candidate)
+                        === focusedMessageId;
+                }
+            );
+            if (restoredFocus) {
+                restoredFocus.tabIndex = -1;
+                restoredFocus.focus({ preventScroll: true });
+            }
+        }
         renderMermaidDiagrams(renderGeneration).then(function () {
             if (renderGeneration !== state.renderGeneration) return;
-            if (shouldFollow) {
-                scroll.scrollTop = scroll.scrollHeight;
-            } else if (isLiveRefresh) {
-                scroll.scrollTop = previousScrollTop;
+            if (isLiveRefresh) {
+                restoreReadingPosition(readingAnchor, previousScrollTop);
             } else if (selectedMessages[0]) {
                 selectedMessages[0].scrollIntoView({ block: 'center' });
             }
@@ -1037,14 +1207,7 @@
             return;
         }
 
-        if (shouldFollow) {
-            scroll.scrollTop = scroll.scrollHeight;
-            state.firstNewMessageId = null;
-            newResponse.hidden = true;
-            return;
-        }
-
-        scroll.scrollTop = previousScrollTop;
+        restoreReadingPosition(readingAnchor, previousScrollTop);
         if (state.firstNewMessageId
             && !nextIds.includes(state.firstNewMessageId)) {
             state.firstNewMessageId = null;
@@ -1169,7 +1332,8 @@
                 ? event.target.closest('[data-comment-action]')
                 : null;
             if (!button || !commentsRoot.contains(button)
-                || state.pendingCommentRequest) {
+                || state.pendingCommentRequest
+                || state.pendingLocateRequest) {
                 return;
             }
             var action = button.getAttribute('data-comment-action');
@@ -1204,11 +1368,15 @@
             });
             if (!item || !comment) return;
             if (action === 'locate') {
-                locateComment(comment);
+                requestCommentLocation(comment);
                 return;
             }
             if (action === 'delete') {
                 postCommentOperation('delete', { commentId: comment.id });
+                return;
+            }
+            if (action === 'resolve' || action === 'reopen') {
+                postCommentOperation(action, { commentId: comment.id });
                 return;
             }
             if (action === 'update') {
@@ -1227,6 +1395,30 @@
         });
     }
     document.addEventListener('keydown', function (event) {
+        if (commentUiAvailable
+            && event.key === 'Enter'
+            && (event.ctrlKey || event.metaKey)
+            && !event.altKey) {
+            var target = event.target;
+            if (target === commentInput && !commentComposer.hidden) {
+                event.preventDefault();
+                commentComposer.querySelector(
+                    '[data-comment-action="confirm-add"]'
+                )?.click();
+                return;
+            }
+            if (target && target.matches?.('[data-comment-edit]')) {
+                var item = target.closest('[data-comment-id]');
+                var save = item?.querySelector(
+                    '[data-comment-action="update"]'
+                );
+                if (save) {
+                    event.preventDefault();
+                    save.click();
+                    return;
+                }
+            }
+        }
         if (event.key !== 'Escape') return;
         if (commentUiAvailable && !commentComposer.hidden) {
             event.preventDefault();
@@ -1238,6 +1430,7 @@
     });
     window.addEventListener('message', function (event) {
         if (applyCommentsResult(event.data)) return;
+        if (applyLocateResult(event.data)) return;
         applyPage(event.data);
     });
     window.addEventListener('unload', releaseMermaidObjectUrls);

@@ -6,6 +6,9 @@ const {
     buildConversationCommentsPrompt,
     ConversationCommentError,
     createConversationComment,
+    markConversationCommentsSent,
+    reopenConversationComment,
+    resolveConversationComment,
     updateConversationComment,
 } = require('../../../out/aiSessions/conversation/comments');
 
@@ -16,7 +19,7 @@ const message = Object.freeze({
     markdown: 'The original response.',
 });
 
-test('CONVERSATION-COMMENTS-001 creates bounded host-authoritative drafts', () => {
+test('CONVERSATION-COMMENTS-001 CONVERSATION-COMMENTS-REVIEW-001 creates bounded host-authoritative drafts and review states', () => {
     const draft = createConversationComment('comment-a', {
         messageId: 'message-a',
         interactionId: 'interaction-a',
@@ -35,10 +38,23 @@ test('CONVERSATION-COMMENTS-001 creates bounded host-authoritative drafts', () =
         prefix: 'The ',
         suffix: '.',
         comment: 'Explain this.',
+        status: 'open',
     });
     assert.equal(
         updateConversationComment(draft, '  Add a test.  ').comment,
         'Add a test.'
+    );
+    assert.equal(resolveConversationComment(draft).status, 'resolved');
+    assert.equal(
+        reopenConversationComment(resolveConversationComment(draft)).status,
+        'open'
+    );
+    assert.deepEqual(
+        markConversationCommentsSent([
+            draft,
+            resolveConversationComment(draft),
+        ]).map(comment => comment.status),
+        ['sent', 'resolved']
     );
     assert.throws(
         () => createConversationComment('comment-b', {
@@ -64,6 +80,7 @@ test('CONVERSATION-COMMENTS-002 builds one numbered prompt and expands quote fen
         prefix: '',
         suffix: '',
         comment: 'Explain it.',
+        status: 'open',
     }, {
         id: 'comment-b',
         messageId: 'message-b',
@@ -73,6 +90,7 @@ test('CONVERSATION-COMMENTS-002 builds one numbered prompt and expands quote fen
         prefix: '',
         suffix: '',
         comment: 'Implement this.',
+        status: 'open',
     }]);
 
     assert.match(prompt, /\[批注 1\]/);
@@ -97,6 +115,7 @@ test('CONVERSATION-COMMENTS-003 rejects empty and oversized batches', () => {
             prefix: '',
             suffix: '',
             comment: 'x'.repeat(4_001),
+            status: 'open',
         }]),
         error => error instanceof ConversationCommentError
             && error.code === 'invalid'

@@ -882,7 +882,7 @@ test('CONVERSATION-VIEWER-AUTHORITY-001 fails closed when an initial marker no l
     assert.equal(panel.webview.html.includes('wrong-interaction'), false);
 });
 
-test('CONVERSATION-VIEWER-REFRESH-002 follows a new authoritative last input only when selection was latest', async () => {
+test('CONVERSATION-VIEWER-REFRESH-002 CONVERSATION-READING-FOCUS-001 preserves the selected interaction when a refresh adds a new last input', async () => {
     let onChange;
     let outlineRead = 0;
     const { viewer, panel } = createViewer({
@@ -912,10 +912,10 @@ test('CONVERSATION-VIEWER-REFRESH-002 follows a new authoritative last input onl
 
     const publication = panel.postedMessages.filter(message =>
         message.type === 'conversation-viewer-page').at(-1);
-    assert.equal(publication.selectedInteractionId, 'input-2');
-    assert.equal(publication.selectedInput, 2);
+    assert.equal(publication.selectedInteractionId, 'input-1');
+    assert.equal(publication.selectedInput, 1);
     assert.equal(publication.totalInputs, 2);
-    assert.equal(publication.atLatest, true);
+    assert.equal(publication.atLatest, false);
 });
 
 test('CONVERSATION-VIEWER-DELIVERY-001 rebuilds the latest hidden publication when the panel becomes visible and disposes its listener', async () => {
@@ -954,7 +954,7 @@ test('CONVERSATION-VIEWER-DELIVERY-001 rebuilds the latest hidden publication wh
     await panel.setVisible(true);
 
     assert.equal(panel.webview.html.includes('visible-r2'), true);
-    assert.equal(panel.webview.html.includes('&quot;selectedInput&quot;:2'), true);
+    assert.equal(panel.webview.html.includes('&quot;selectedInput&quot;:1'), true);
     assert.equal(panel.webview.html.includes('&quot;subscriptionGeneration&quot;:1'), true);
 
     panel.dispose();
@@ -1181,7 +1181,7 @@ test('CONVERSATION-VIEWER-AUTHORITY-002 retains stale content when the establish
     );
 });
 
-test('CONVERSATION-VIEWER-REFRESH-003 merges a new tail page into retained history by interaction ID', async () => {
+test('CONVERSATION-VIEWER-REFRESH-003 CONVERSATION-READING-FOCUS-001 merges a new tail page without advancing the selected interaction', async () => {
     let onChange;
     let revision = 1;
     const firstIds = Array.from(
@@ -1222,7 +1222,7 @@ test('CONVERSATION-VIEWER-REFRESH-003 merges a new tail page into retained histo
 
     const publication = panel.postedMessages.filter(message =>
         message.type === 'conversation-viewer-page').at(-1);
-    assert.equal(publication.selectedInteractionId, 'input-21');
+    assert.equal(publication.selectedInteractionId, 'input-20');
     assert.equal(publication.html.includes('data-interaction-id="input-1"'), true);
     assert.equal(publication.html.includes('data-interaction-id="input-21"'), true);
     assert.equal(

@@ -3649,6 +3649,38 @@
     ]
   },
   {
+    "id": "CONVERSATION-COMMENTS-REVIEW-001",
+    "domain": "webview",
+    "title": "AI Conversation comments support keyboard saving, retain Host-authoritative review states, locate exact sources, and focus the session after sending",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/conversationComments.test.js",
+      "tests/integration/dashboard/conversationRouting.test.js",
+      "tests/browser/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/comments.ts",
+      "src/aiSessions/conversation/viewer.ts",
+      "src/webview/conversationViewerScripts.js"
+    ]
+  },
+  {
+    "id": "CONVERSATION-READING-FOCUS-001",
+    "domain": "webview",
+    "title": "AI Conversation refreshes preserve the selected interaction, reading viewport, and semantic message focus",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/integration/dashboard/conversationViewer.test.js",
+      "tests/browser/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/viewer.ts",
+      "src/webview/conversationViewerScripts.js"
+    ]
+  },
+  {
     "id": "CONVERSATION-COMMENTS-LAYOUT-001",
     "domain": "webview",
     "title": "The Comments panel is compact, collapsible, keyboard-resizable, and restores local layout state",

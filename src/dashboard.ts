@@ -1478,6 +1478,12 @@ async function initializeDashboard(
                     resumePrompt
                 ),
         }, viewerTarget, prompt),
+        focusSession: viewerTarget =>
+            aiSessionTerminalCommandController.focusActive(
+                viewerTarget.projectId,
+                viewerTarget.provider,
+                viewerTarget.sessionId
+            ),
     }));
     const conversationHandlers = {
         'request-ai-session-conversation-outline': message =>

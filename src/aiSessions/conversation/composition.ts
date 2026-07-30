@@ -87,6 +87,9 @@ export interface ConversationCapabilityOptions {
         target: ConversationViewerTarget,
         prompt: string
     ) => PromiseLike<void> | Promise<void>;
+    focusSession?: (
+        target: ConversationSessionOpenTarget
+    ) => PromiseLike<void> | Promise<void>;
 }
 
 interface ConversationCapabilityInternalFactories {
@@ -209,6 +212,7 @@ function createAvailableConversationCapability(
         openExternal: options.openExternal,
         mediaUri: getConversationMediaUri,
         submitPrompt: options.submitPrompt,
+        focusSession: options.focusSession,
     }));
     const controller = ownership.own(factories.createController({
         coordinator,

@@ -238,6 +238,7 @@
                 securityLevel: 'strict',
                 suppressErrorRendering: true,
                 maxTextSize: 50000,
+                htmlLabels: false,
                 theme: 'base',
                 fontFamily: themeValue(
                     '--vscode-font-family',

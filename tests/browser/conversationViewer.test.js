@@ -1099,7 +1099,7 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 sanitizes hostile HTML and post
     });
 });
 
-test('CONVERSATION-VIEWER-RICH-MARKDOWN-001 renders HTTPS images, tables, and Mermaid while retaining safe fallbacks', async t => {
+test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 CONVERSATION-VIEWER-RICH-MARKDOWN-001 preserves visible Mermaid node labels while retaining safe fallbacks', async t => {
     const page = await openViewerPage(t, { includeMermaid: true });
     await sendPage(page, {
         ...hostileConversationPage,
@@ -1139,6 +1139,12 @@ test('CONVERSATION-VIEWER-RICH-MARKDOWN-001 renders HTTPS images, tables, and Me
         const image = document.querySelector('.conversation-mermaid-image');
         return image && image.complete && image.naturalWidth > 0;
     });
+    const normalizedSvg = await diagram.evaluate(async image =>
+        (await fetch(image.src)).text()
+    );
+    assert.doesNotMatch(normalizedSvg, /<foreignObject/i);
+    assert.match(normalizedSvg, />Request</);
+    assert.match(normalizedSvg, />Rendered</);
     assert.equal(
         await page.locator('pre > code.language-mermaid').count(),
         0

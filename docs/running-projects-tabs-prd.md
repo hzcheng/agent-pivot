@@ -63,11 +63,10 @@ Agent Pivot 最初主要承担“保存、分组和打开项目”的项目库�
 - 搜索框、展开/折叠全部按钮和设置按钮位于第一行，并在内容滚动时保持可见。
 - 设置按钮在所有页面状态下执行相同操作，始终打开 Agent Pivot 设置。
 - 展开/折叠全部按钮在普通状态下只作用于当前 active Tab：
-  - `OPEN`：折叠或展开 `OTHER WINDOWS`；`CURRENT WORKSPACE` 始终可见，项目卡片的 AI session 展开状态继续由卡片自身控制。
+  - `OPEN`：只折叠或展开 `OPEN WINDOWS`；`CURRENT WINDOW` 始终可见，详细卡片的 AI session 展开状态继续由卡片自身控制。
   - `PROJECTS`：折叠或展开 Favorites 和所有普通项目组。
 - 两个 Tab 分别保存自己的分组折叠状态。切换 Tab 后，按钮图标、tooltip 和 `aria-label` 根据新页面的状态立即更新。
-- `OPEN` 没有 `OTHER WINDOWS` 时禁用展开/折叠按钮并设置 `aria-disabled="true"`；tooltip 说明当前没有可折叠的其他窗口项目。
-- `OPEN` 的按钮 tooltip 使用 `Collapse Other Windows` / `Expand Other Windows`，`PROJECTS` 使用 `Collapse All Groups` / `Expand All Groups`。
+- `OPEN` 的按钮 tooltip 使用 `Collapse Open Windows` / `Expand Open Windows`，`PROJECTS` 使用 `Collapse All Groups` / `Expand All Groups`。
 - 搜索状态下隐藏展开/折叠全部按钮，避免用户把刚刚筛选出的结果全部折叠；设置按钮继续显示。
 
 ### 5.2 Tab 导航
@@ -107,21 +106,26 @@ Agent Pivot 最初主要承担“保存、分组和打开项目”的项目库�
 
 ```text
 OPEN
-├── CURRENT WORKSPACE
-│   └── 当前窗口项目卡片（一个或多个 workspace root）
+├── CURRENT WINDOW
+│   └── 当前窗口详细项目卡片
 │       └── AI sessions
-└── OTHER WINDOWS
-    └── 其他窗口项目导航卡片
+└── OPEN WINDOWS
+    ├── 已 Pin 项目卡片（按首次 Pin 时间正序）
+    └── 未 Pin 项目卡片（按首次打开时间正序）
+        ├── 当前窗口项目的紧凑投影（高亮并标记 CURRENT）
+        └── 其他窗口项目的紧凑导航卡片
 ```
 
-`CURRENT WORKSPACE` 是工作台的核心状态区，始终可见。用户仍可通过项目卡片自身展开或收起 AI sessions。`OTHER WINDOWS` 是可折叠 section，由全局工具栏中的展开/折叠全部按钮控制。
+`CURRENT WINDOW` 是始终可见的详细状态区，继续承载当前项目的 AI sessions。`OPEN WINDOWS` 是独立的可折叠列表，展示所有活动窗口的紧凑项目卡片，因此当前项目会在这个列表中再次出现，并以 `CURRENT` 和主题高亮明确标识。两个投影用途不同：上方用于操作当前项目与 sessions，下方用于查看、Pin 和切换全部窗口。
 
 ### 6.2 当前工作区
 
-- 当前窗口项目始终位于最前面。
-- 多根工作区中的每个 root 继续使用独立项目卡片。
-- 卡片保留当前工作区高亮、项目颜色、名称和描述。
-- 点击卡片主体展开或收起 AI sessions。
+- 当前窗口详细卡片固定在 `CURRENT WINDOW`，不参与 Pin 排序。
+- 当前窗口的紧凑投影参与 `OPEN WINDOWS` 的统一 Pin 和打开时间排序，不强制位于第一张。
+- 一个窗口只生成一张工作区卡片；多根工作区的 roots 在该卡片和 AI session 内容中表达。
+- `CURRENT WINDOW` 详细卡片保留项目颜色、名称、描述和 AI session 操作，不显示 Pin。
+- `OPEN WINDOWS` 中的当前项目投影保留项目颜色、名称和描述，增加 `CURRENT` 标识与主题高亮，并提供与其他窗口一致的 `Pin Window` / `Unpin Window` 操作。
+- 点击上方详细卡片主体展开或收起 AI sessions；点击下方当前项目投影不重复打开或折叠 sessions。
 - 保留 provider 选择、新建 session、管理、置顶、重命名、归档和恢复 session 等现有能力。
 - attention 红点和数量仅在当前项目卡片及其 session row 内显示。
 - `OPEN` Tab、其他窗口导航卡和 `PROJECTS` 页面都不复制该提醒。
@@ -132,18 +136,19 @@ AI attention 红点只显示在 `OPEN` 动态页面：当前工作区显示项�
 
 | 页面或区域 | 显示 attention 红点 |
 | --- | --- |
-| `OPEN → CURRENT WORKSPACE → 当前项目卡片` | 是 |
-| `OPEN → CURRENT WORKSPACE → session row` | 是 |
-| `OPEN → OTHER WINDOWS → 项目导航卡片` | 是，仅显示项目级未读 session 数量 |
+| `CURRENT WINDOW → 当前项目详细卡片` | 是 |
+| `CURRENT WINDOW → session row` | 是 |
+| `OPEN WINDOWS → 当前窗口紧凑投影` | 是，仅显示项目级摘要 |
+| `OPEN WINDOWS → 其他窗口导航卡片` | 是，仅显示项目级未读 session 数量 |
 | `OPEN` / `PROJECTS` Tab 标签 | 否 |
 | `PROJECTS` 中的 Favorites、项目组和项目卡片 | 否 |
 | 全局搜索结果 | 否 |
 
 该限制只约束红点的展示位置，不改变 attention 后台监控。用户停留在 `PROJECTS` 或全局搜索状态时，所有活动窗口发布的 attention 仍可更新；返回 `OPEN` 后在对应当前项目卡片、session row 或其他窗口导航卡中显示最新状态。
 
-### 6.4 其他窗口
+### 6.4 窗口排序与其他窗口隐私边界
 
-- 只展示当前 VS Code Profile 中，由其他活动窗口发布的去重项目。
+- 展示当前窗口以及当前 VS Code Profile 中由其他活动窗口发布的去重项目；这不会替代上方 `CURRENT WINDOW` 详细卡片。
 - 使用紧凑导航卡，不使用可展开的完整 AI 项目卡。
 - 卡片展示：
   - 项目名称；
@@ -158,10 +163,12 @@ AI attention 红点只显示在 `OPEN` 动态页面：当前工作区显示项�
   - 当前工作区高亮。
 - attention badge 使用现有全局 aggregate 中按隐私安全 project key 聚合的不同未读逻辑 session 数，不要求其他窗口重新扫描 session，也不扩展 open-project 协议。
 - 新 attention 到达时，导航卡和 badge 沿用现有有限次数闪烁动画；动画结束后 badge 持续显示，直到对应 session 被确认。
-- 每张其他窗口卡片提供 `Pin Window` / `Unpin Window` 按钮。Pin 只管理 `OPEN → OTHER WINDOWS` 的窗口顺序，不会把项目加入 `PROJECTS → Favorites`。
-- 已 Pin 的项目固定在最上方，并按首次 Pin 时间正序排列（最早 Pin 的在最上方）；窗口焦点变化不会改变这一区域的顺序。
-- 未 Pin 的项目继续按最近聚焦窗口时间倒序排列。
-- Pin 状态按规范化窗口导航身份持久化并在同一 VS Code Profile 的窗口间共享。窗口关闭时保留偏好；项目重新打开后回到原 Pin 顺序。项目成为当前工作区时不显示导航副本，但不清除 Pin。
+- 每张窗口卡片（包括当前窗口）提供 `Pin Window` / `Unpin Window` 按钮。Pin 只管理 `OPEN WINDOWS` 的窗口顺序，不会把项目加入 `PROJECTS → Favorites`。
+- 已 Pin 的窗口固定在最上方，并按首次 Pin 时间正序排列（最早 Pin 的在最上方）。
+- 未 Pin 的窗口按首次打开时间正序排列（最早打开的在最上方，新窗口追加在后方）。
+- 窗口获得焦点、心跳续租、attention 更新和普通增量刷新都不得改变卡片顺序。
+- 同一项目由多个窗口发布时，使用这些活动实例中最早的打开时间定位去重卡片；焦点导致代表实例改变时位置不变。
+- Pin 状态按规范化窗口导航身份持久化并在同一 VS Code Profile 的窗口间共享。窗口关闭时保留偏好；项目重新打开后回到原 Pin 顺序。项目成为当前工作区时继续显示同一逻辑卡片，并保留 Pin。
 - Pin/Unpin 操作等待 UI Bridge 的权威持久化结果后再改变按钮状态与卡片位置；失败时保持原状态并允许重试。
 - 同一规范化项目 URI 只展示一次；如果当前窗口已经包含该项目，不再显示导航副本。
 - 同一项目由多个窗口发布时，导航卡仍只显示一次，badge 聚合该项目全部未确认逻辑 sessions。
@@ -171,10 +178,10 @@ AI attention 红点只显示在 `OPEN` 动态页面：当前工作区显示项�
 
 | 状态 | 表现 |
 | --- | --- |
-| 当前窗口有项目，其他窗口无项目 | 只显示 `CURRENT WORKSPACE`，不渲染空的 `OTHER WINDOWS` 区域 |
-| 当前窗口和其他窗口都有项目 | 展示两个区域，其他窗口使用紧凑卡片 |
-| 当前窗口无工作区，其他窗口有项目 | 提示当前窗口未打开文件夹，同时展示 `OTHER WINDOWS` |
-| 所有窗口都无项目 | 展示“打开文件夹后查看运行项目”的空状态 |
+| 当前窗口有项目，其他窗口无项目 | `CURRENT WINDOW` 显示详细卡片；`OPEN WINDOWS` 显示一张高亮的当前项目紧凑投影 |
+| 当前窗口和其他窗口都有项目 | 保留 `CURRENT WINDOW`；`OPEN WINDOWS` 内按 Pin / 打开时间稳定排序，当前项目投影保持高亮 |
+| 当前窗口无工作区，其他窗口有项目 | `CURRENT WINDOW` 提示当前窗口未打开文件夹；`OPEN WINDOWS` 展示其他窗口 |
+| 所有窗口都无项目 | `CURRENT WINDOW` 展示“打开文件夹后查看运行项目”；`OPEN WINDOWS` 保持空列表 |
 | 其他窗口项目过期或关闭 | 按现有 lease/聚合刷新移除卡片，不影响当前项目 |
 | 已 Pin 的窗口关闭后重新打开 | 关闭期间不显示卡片；重新打开后恢复到原 Pin 顺序 |
 | 点击项目时项目刚刚失效 | 沿用现有错误提示并刷新 `OPEN` 页面 |
@@ -255,9 +262,9 @@ PROJECTS
 - 第二行使用紧凑 segmented control 形式的 Tab 导航，选中态有背景、边框和较高文字对比度。
 - 全局工具栏和 Tab 导航组成统一 sticky header，避免产生第三层大型标题。
 - 搜索状态下隐藏第二行 Tab 导航和展开/折叠全部按钮，搜索结果紧接全局工具栏显示。
-- `CURRENT WORKSPACE` 和 `OTHER WINDOWS` 使用小号 section label，不复用现有大尺寸 group 标题。
-- `CURRENT WORKSPACE` 不显示折叠箭头；`OTHER WINDOWS` 显示明确的折叠箭头。
-- 当前项目卡片保持现有圆角、边框、色条和展开 session 结构。
+- `CURRENT WINDOW` 和 `OPEN WINDOWS` 使用两个小号 section label；前者不显示折叠箭头，后者显示明确的折叠箭头。
+- `CURRENT WINDOW` 详细卡片保持现有圆角、边框、色条和展开 session 结构。
+- `OPEN WINDOWS` 的当前项目紧凑投影增加主题兼容的高亮边框与 `CURRENT` 标识。
 - 其他窗口卡片高度接近普通紧凑项目卡，只增加弱化的环境 badge。
 - `PROJECTS` 沿用现有卡片与项目组视觉，Tab 改造不重新设计项目库。
 - 窄宽度下优先截断项目描述和路径，不压缩 Tab、环境 badge 或主要点击区域。
@@ -269,7 +276,7 @@ PROJECTS
 - 首次打开侧边栏时优先渲染 active Tab，不要求为了全局搜索而预先挂载两个页面的完整卡片 DOM。
 - 全局搜索应基于轻量搜索索引生成匹配结果，只渲染命中的 session、打开项目和已保存项目。
 - 切换 Tab 或进入搜索状态不得触发无关 AI provider 历史扫描；其他窗口项目继续保持 navigation-only。
-- OTHER WINDOWS attention 通过 navigation card 的规范化项目路径计算隐私安全 project key，并与现有 attention aggregate 做前端投影连接；不得把 session 明细加入 open-project publication。
+- `OPEN WINDOWS` 的紧凑卡片 attention 通过规范化项目路径计算隐私安全 project key，并与现有 attention aggregate 做前端投影连接；不得把 session 明细加入 open-project publication。
 - `OPEN` 的增量更新只替换对应项目或 section，不得重建整个 Webview，也不得重置 `PROJECTS` 状态。
 - 用户首次访问另一个 Tab 后，其滚动和折叠状态在当前 Webview 生命周期内保留。
 
@@ -291,13 +298,15 @@ PROJECTS
 7. 顶部搜索同时覆盖 `OPEN` 和 `PROJECTS`；搜索期间隐藏 Tab 和展开/折叠全部按钮，清空后恢复搜索前页面状态。
 8. Session 搜索直接展示匹配 row，不受原项目展开状态和 provider 选择影响。
 9. Saved Project 搜索结果按规范化 URI 去重，并显示 Favorites/项目组归属。
-10. 展开/折叠全部按钮在 `OPEN` 只控制 `OTHER WINDOWS`，在 `PROJECTS` 控制 Favorites 和普通项目组。
+10. 展开/折叠全部按钮在 `OPEN` 只控制 `OPEN WINDOWS`，`CURRENT WINDOW` 始终可见；在 `PROJECTS` 控制 Favorites 和普通项目组。
 11. 项目组折叠、拖拽、收藏和编辑能力在 `PROJECTS` 中保持可用。
 12. 跨窗口项目增删不会重置 Tab、搜索词、滚动位置或当前项目 session 展开状态。
 13. Local、SSH、WSL、Dev Container 和其他 Remote 项目均能在 `OPEN` 中显示正确环境标识并复用现有打开逻辑。
 14. 首次打开只需完成 active Tab 的主要渲染；全局搜索和 `OPEN` 增量更新不得触发整个 Webview 重建。
 15. 现有项目卡片、项目组和 AI session 的核心 CSS class 保持可用，已知层级兼容变化写入发布说明。
 16. 点击带 attention 的 Other Windows 卡片只切换项目，不确认事件；目标窗口继续显示红点，直到具体 session 被处理。
+17. `CURRENT WINDOW` 保持独立详细卡片；`OPEN WINDOWS` 同时包含当前项目紧凑投影和其他窗口卡片。
+18. `OPEN WINDOWS` 的 Pin 顺序和非 Pin 打开顺序稳定，焦点切换不会让卡片跳动。
 
 ## 12. 评审重点
 

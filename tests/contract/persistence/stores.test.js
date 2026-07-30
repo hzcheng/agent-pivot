@@ -442,7 +442,7 @@ test('PERSIST-STORE-001 counts corrupt and oversized open-workspace records, ign
     assert.deepEqual((await store.scan(NOW)).registrations, [registration]);
     await assert.rejects(store.write({ ...registration, sequence: 1 }), /sequence decreased/);
 
-    const instances = path.join(root, 'open-workspaces', 'v3', 'instances');
+    const instances = path.join(root, 'open-workspaces', 'v4', 'instances');
     const ownerPath = path.join(instances, `${SELF}.json`);
     fs.writeFileSync(ownerPath, '{"protocolVersion":1', 'utf8');
     fs.writeFileSync(path.join(instances, `${SELF}.partial.tmp`), '{}', 'utf8');

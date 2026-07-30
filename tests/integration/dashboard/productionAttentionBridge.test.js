@@ -75,7 +75,7 @@ test('ATTENTION-PRODUCTION-ATTENTION-BRIDGE-INTEGRATION-001 OPEN-WORKSPACE-UI-HO
 
         const openWorkspacePublish = registered.get('_agentPivotOpenWorkspaces.bridge.publish');
         await openWorkspacePublish({
-            protocolVersion: 3,
+            protocolVersion: 4,
             instanceId: 'c'.repeat(32),
             sequence: 1,
             followsFocusEvent: true,
@@ -102,11 +102,11 @@ test('ATTENTION-PRODUCTION-ATTENTION-BRIDGE-INTEGRATION-001 OPEN-WORKSPACE-UI-HO
             .find(registration => registration.instanceId === 'c'.repeat(32)).workspace;
         const navigate = registered.get('_agentPivotOpenWorkspaces.bridge.navigate');
         const navigationOutcome = await navigate({
-            protocolVersion: 3,
+            protocolVersion: 4,
             navigationIdentity: authoritativeWorkspace.navigationIdentity,
         });
         assert.deepEqual(navigationOutcome, {
-            protocolVersion: 3,
+            protocolVersion: 4,
             opened: true,
         });
         assert.deepEqual(
@@ -182,7 +182,7 @@ test('ATTENTION-PRODUCTION-ATTENTION-BRIDGE-INTEGRATION-001 OPEN-WORKSPACE-UI-HO
             snapshots: true, acknowledgements: true, atomicReplace: true,
         });
         assert.equal((await registered.get('_agentPivotOpenWorkspaces.bridge.handshake')({
-            protocolVersion: 3,
+            protocolVersion: 4,
             mainExtensionVersion: '2.1.3',
             instanceId: 'd'.repeat(32),
             capabilities: {

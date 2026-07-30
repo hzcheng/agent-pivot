@@ -101,6 +101,7 @@ export class OpenWorkspaceCoordinator {
     private boundInstanceId: string | undefined;
     private store: OpenWorkspaceStoreLike | undefined;
     private currentRegistration: OpenWorkspaceRegistration | undefined;
+    private openedAtMs: number | undefined;
     private lastFocusedAtMs: number | undefined;
     private lastDeliveredRevision: string | undefined;
     private mutationQueue: Promise<void> = Promise.resolve();
@@ -114,7 +115,7 @@ export class OpenWorkspaceCoordinator {
         private readonly rootDirectory: string,
         private readonly dependencies: OpenWorkspaceCoordinatorDependencies,
     ) {
-        const instancesDirectory = path.join(rootDirectory, 'open-workspaces', 'v3', 'instances');
+        const instancesDirectory = path.join(rootDirectory, 'open-workspaces', 'v4', 'instances');
         this.watcher = dependencies.createWatcher(instancesDirectory, () => {
             void this.scanAndDeliver().catch(error => this.reportError('watcher', error));
         });
@@ -138,6 +139,12 @@ export class OpenWorkspaceCoordinator {
                 ? this.store
                 : this.createStore(publication.instanceId);
             const timestamp = validateTimestamp(this.dependencies.now());
+            if (this.openedAtMs === undefined) {
+                const existing = (await store.scan(timestamp)).registrations.find(
+                    registration => registration.instanceId === publication.instanceId,
+                );
+                this.openedAtMs = existing?.openedAtMs ?? timestamp;
+            }
             const lastFocusedAtMs = publication.followsFocusEvent
                 ? timestamp
                 : this.lastFocusedAtMs ?? 0;
@@ -145,6 +152,7 @@ export class OpenWorkspaceCoordinator {
                 protocolVersion: OPEN_WORKSPACE_PROTOCOL_VERSION,
                 instanceId: publication.instanceId,
                 sequence: publication.sequence,
+                openedAtMs: this.openedAtMs,
                 lastFocusedAtMs,
                 leaseUpdatedAtMs: timestamp,
                 workspace: publication.workspace,

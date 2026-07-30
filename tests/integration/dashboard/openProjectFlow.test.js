@@ -72,20 +72,23 @@ function createOpenWorkspaceUpdateVm(wrapper, catalogs) {
             const projectTags = Array.from(wrapper.innerHTML.matchAll(/<div class="([^"]*)"[^>]*data-id=[^>]*>/g))
                 .filter(match => hasClassTokens(match[1], 'project', 'steward-item-card'))
                 .map(match => match[0]);
-            if (selector === '.sticky-groups-wrapper .workspace-card[data-current-workspace][data-workspace-scope-identity]') {
+            if (selector.includes('[data-current-workspace][data-workspace-scope-identity]')) {
                 return projectTags.filter(tag => tag.includes('data-current-workspace')
                     && tag.includes('data-workspace-scope-identity')).map(() => ({}));
             }
-            if (selector === '.sticky-groups-wrapper .workspace-card[data-other-workspace][data-workspace-navigation-identity]') {
-                return projectTags.filter(tag => tag.includes('data-other-workspace')
+            if (selector.includes('[data-open-workspace-list-card][data-workspace-navigation-identity]')) {
+                return projectTags.filter(tag => tag.includes('data-open-workspace-list-card')
                     && tag.includes('data-workspace-navigation-identity')).map(tag => ({
+                        hasAttribute(name) {
+                            return new RegExp(`\\s${name}(?:\\s|=|>)`).test(tag);
+                        },
                         getAttribute(name) {
                             const match = tag.match(new RegExp(`${name}="([^"]*)"`));
                             return match ? match[1] : null;
                         },
                     }));
             }
-            if (selector === '.sticky-groups-wrapper .open-other-windows-group') {
+            if (selector.endsWith('.open-other-windows-group')) {
                 return wrapper.innerHTML.includes('open-other-windows-group') ? [{}] : [];
             }
             return [];
@@ -159,7 +162,7 @@ test('ARCH-COORDINATOR-WIRING-001 carries sequenced publications through the bri
     commands.register('_agentPivotOpenWorkspaces.bridge.unregister', raw => coordinator.unregister(raw));
     commands.register('_agentPivotOpenWorkspaces.bridge.handshake', () => ({
         accepted: true,
-        protocolVersion: 3,
+        protocolVersion: 4,
         bridgeExtensionVersion: '0.1.4',
         capabilities: {
             workspaces: true,
@@ -169,6 +172,7 @@ test('ARCH-COORDINATOR-WIRING-001 carries sequenced publications through the bri
             uiHostNavigation: true,
             savedProjectNavigation: true,
             workspacePins: true,
+            stableOpenOrder: true,
         },
         pinSnapshot: createOpenWorkspacePinSnapshot([]),
     }));
@@ -249,8 +253,9 @@ test('OPEN-OPEN-PROJECT-INCREMENTAL-RENDERING-001 applies consistent updates and
     const validHtml = [
         '<div class="group open-current-workspace-group"><div class="workspace-card project steward-item-card" data-id="current" data-current-workspace data-workspace-scope-identity="scope"></div></div>',
         '<div class="group open-other-windows-group" data-other-windows-status="ready">',
-        '<div class="workspace-card project steward-item-card" data-id="other-a" data-other-workspace data-workspace-navigation-identity="navigation-a"></div>',
-        '<div class="workspace-card project steward-item-card" data-id="other-b" data-other-workspace data-workspace-navigation-identity="navigation-b"></div>',
+        '<div class="workspace-card project steward-item-card" data-id="current" data-open-workspace-list-card data-open-workspace-current data-workspace-navigation-identity="navigation-current"></div>',
+        '<div class="workspace-card project steward-item-card" data-id="other-a" data-open-workspace-list-card data-workspace-navigation data-other-workspace data-workspace-navigation-identity="navigation-a"></div>',
+        '<div class="workspace-card project steward-item-card" data-id="other-b" data-open-workspace-list-card data-workspace-navigation data-other-workspace data-workspace-navigation-identity="navigation-b"></div>',
         '</div>',
     ].join('');
 

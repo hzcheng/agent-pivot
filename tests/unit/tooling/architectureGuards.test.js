@@ -133,7 +133,7 @@ test('ARCH-AI-SESSION-SCAN-BOUNDARY-001 reports the ID and unbounded-scan risk',
 
 test('ARCH-PROTOCOL-001 reports the ID and compatibility risk for an unstable protocol', t => {
     const root = writeFixture(t, {
-        'src/openWorkspaces/protocol.ts': 'export const OPEN_WORKSPACE_PROTOCOL_VERSION = 4;\n',
+        'src/openWorkspaces/protocol.ts': 'export const OPEN_WORKSPACE_PROTOCOL_VERSION = 3;\n',
     });
     assert.throws(
         () => validateArchitectureGuards(root, { ids: ['ARCH-PROTOCOL-001'] }),
@@ -578,10 +578,10 @@ for (const mutation of [
     {
         id: 'ARCH-PROTOCOL-001',
         file: 'src/openWorkspaces/protocol.ts',
-        expectedDetail: 'open-workspace protocol version must remain 3 until an explicit migration exists',
+        expectedDetail: 'open-workspace protocol version must remain 4 until an explicit migration exists',
         mutate: source => replaceFixtureSource(source,
-            'OPEN_WORKSPACE_PROTOCOL_VERSION = 3', 'OPEN_WORKSPACE_PROTOCOL_VERSION = 4',
-            '\nconst OLD_OPEN_WORKSPACE_PROTOCOL_VERSION = 3;\n'),
+            'OPEN_WORKSPACE_PROTOCOL_VERSION = 4', 'OPEN_WORKSPACE_PROTOCOL_VERSION = 5',
+            '\nconst OLD_OPEN_WORKSPACE_PROTOCOL_VERSION = 4;\n'),
     },
     {
         id: 'ARCH-PROTOCOL-001',

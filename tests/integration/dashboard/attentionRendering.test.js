@@ -113,7 +113,10 @@ test('ATTENTION-ATTENTION-PROJECT-RENDERING-001 OPEN cards render positive count
             backend: 'vscode', attached: true, stale: false,
         }],
     }]);
-    assert.doesNotMatch(activeHtml, /class="project-ai-attention-badge"/);
+    const projectAttentionBadges = activeHtml.match(/class="project-ai-attention-badge"/g) || [];
+    assert.equal(projectAttentionBadges.length, 1,
+        'only the compact current projection in OPEN WINDOWS owns the project attention badge');
+    assert.match(activeHtml, /data-open-workspace-list-card data-open-workspace-current/);
     assert.match(activeHtml, /class="project-codex-badge"/);
     assert.doesNotMatch(activeHtml, /project-codex-badge has-attention/);
     assert.match(activeHtml, /class="ai-session-total-count">AI 1<\/span>/);

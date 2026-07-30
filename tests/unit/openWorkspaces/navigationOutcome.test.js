@@ -38,7 +38,7 @@ function harness(initialRecord) {
     const warnings = [];
     const refreshes = [];
     let failExecution = false;
-    let outcome = { protocolVersion: 3, opened: true };
+    let outcome = { protocolVersion: 4, opened: true };
     const controller = new WorkspaceNavigationController({
         getRecord: cardId => cardId === 'live-card' ? current : null,
         executeCommand: async (...args) => {
@@ -85,7 +85,7 @@ test('OPEN-WORKSPACE-NAVIGATION-001 OPEN-WORKSPACE-UI-HOST-NAVIGATION-001 routes
             assert.deepEqual(navigation.executions, [[
                 '_agentPivotOpenWorkspaces.bridge.navigate',
                 {
-                    protocolVersion: 3,
+                    protocolVersion: 4,
                     navigationIdentity: current.navigationIdentity,
                 },
             ]]);
@@ -126,7 +126,7 @@ test('OPEN-WORKSPACE-NAVIGATION-001 fails closed to Switch Window without a memb
     assert.deepEqual(navigation.executions, [[
         '_agentPivotOpenWorkspaces.bridge.navigate',
         {
-            protocolVersion: 3,
+            protocolVersion: 4,
             navigationIdentity: current.navigationIdentity,
         },
     ]]);

@@ -378,7 +378,8 @@ function runDashboardUpdateMessageChecks() {
         openWorkspacesMessage.searchCatalog.openWorkspaces.map(item => item.action),
         ['show-current-workspace', 'switch-open-workspace'],
     );
-    assert.ok(openWorkspacesMessage.html.includes('OTHER WINDOWS'));
+    assert.ok(openWorkspacesMessage.html.includes('OPEN WINDOWS'));
+    assert.strictEqual(openWorkspacesMessage.html.includes('OTHER WINDOWS'), false);
     assert.ok(openWorkspacesMessage.html.includes('data-session-icon-fx="sharingan-obito-kakashi"'),
         'open-workspace incremental updates must use the configured running icon animation');
     assert.ok(openWorkspacesMessage.html.includes('data-session-fx="sharingan-madara-eternal"'),
@@ -473,6 +474,10 @@ function runWorkspaceCardRenderingChecks() {
         'single-root workspaces must not repeat the only root on every session row');
     assert.ok(singleHtml.includes('class="codex-sessions" data-ai-session-region'),
         'the existing AI Sessions root must define the non-toggle click boundary');
+    assert.strictEqual(singleHtml.includes('class="current-window-indicator"'), false,
+        'the dedicated CURRENT WINDOW card must not duplicate the OPEN WINDOWS marker');
+    assert.strictEqual(singleHtml.includes('data-action="toggle-open-workspace-pin"'), false,
+        'Pin belongs to the OPEN WINDOWS list projection, not the detailed current card');
     assert.strictEqual(singleHtml.includes('workspace-card-summary'), false,
         'the click boundary must not add a summary wrapper that could alter card layout');
     const coloredCurrentCard = makeWorkspaceCardFixture(1);
@@ -494,7 +499,7 @@ function runWorkspaceCardRenderingChecks() {
     assert.ok(collapsedSessionIndex >= 0, 'collapsed current workspace cards must retain the hidden session module');
     const collapsedCardSummary = collapsedCardBody.slice(0, collapsedSessionIndex);
     const collapsedContentChildren = extractDirectHtmlChildOpeningTags(collapsedCardSummary).filter(tag =>
-        !/class="[^"]*\b(?:project-aura|steward-item-accent|project-session-fx|project-codex-badge)\b/.test(tag)
+        !/class="[^"]*\b(?:project-aura|steward-item-accent|project-session-fx|project-codex-badge|project-pin-badge)\b/.test(tag)
     );
     assert.deepStrictEqual(collapsedContentChildren, [
         '<div class="fitty-container project-title-row">',
@@ -660,7 +665,29 @@ function runWorkspaceCardRenderingChecks() {
         'ready',
         'sharingan-shisui',
     );
-    const otherWindowsHtml = workspaceHtml.slice(workspaceHtml.indexOf('OTHER WINDOWS'));
+    const navigationOpeningTag = workspaceHtml.match(
+        /<div class="workspace-card[^>]*data-workspace-card-kind="navigation"[^>]*>/
+    )[0];
+    const currentOpenListOpeningTag = workspaceHtml.match(
+        /<div class="workspace-card[^>]*data-open-workspace-current[^>]*>/
+    )[0];
+    assert.ok(workspaceHtml.includes('CURRENT WINDOW'));
+    assert.ok(workspaceHtml.includes('OPEN WINDOWS'));
+    assert.ok(currentOpenListOpeningTag.includes('data-open-workspace-list-card'));
+    assert.ok(currentOpenListOpeningTag.includes('data-has-pin-action'));
+    assert.ok(workspaceHtml.includes('class="current-window-indicator"'));
+    assert.strictEqual(
+        (workspaceHtml.match(/data-action="toggle-open-workspace-pin"/g) || []).length,
+        2,
+        'OPEN WINDOWS must expose Pin on the current and navigation list cards only',
+    );
+    assert.strictEqual(
+        (workspaceHtml.match(/data-current-workspace/g) || []).length,
+        1,
+        'only the dedicated CURRENT WINDOW detail card may own current-session behavior',
+    );
+    const otherWindowsHtml = navigationOpeningTag
+        + extractHtmlElementBody(workspaceHtml, navigationOpeningTag);
     assert.strictEqual((otherWindowsHtml.match(/class="workspace-card/g) || []).length, 1);
     assert.ok(otherWindowsHtml.includes('data-other-workspace'));
     assert.ok(otherWindowsHtml.includes('style="--project-color: #abcdef;"'));
@@ -673,7 +700,7 @@ function runWorkspaceCardRenderingChecks() {
     assert.ok(otherWindowsHtml.includes('<p class="project-description workspace-metadata">1 folder</p>'));
     assert.ok(otherWindowsHtml.includes('data-action="toggle-open-workspace-pin"'));
     assert.ok(otherWindowsHtml.includes('aria-label="Pin Window" aria-pressed="false"'));
-    assert.ok(otherWindowsHtml.includes('data-open-workspace-pin-live-region'));
+    assert.ok(workspaceHtml.includes('data-open-workspace-pin-live-region'));
     const pinnedWindowHtml = webviewContent.getOpenWorkspacesGroupContent([{
         ...navigationCard,
         pinned: true,
@@ -719,7 +746,6 @@ function runWorkspaceCardRenderingChecks() {
         'update-required',
     );
     const updateRequiredGroupIndex = updateRequiredHtml.indexOf('<div class="group steward-section open-other-windows-group');
-    const updateRequiredCurrentHtml = updateRequiredHtml.slice(0, updateRequiredGroupIndex);
     const updateRequiredOtherHtml = updateRequiredHtml.slice(updateRequiredGroupIndex);
     assert.ok(updateRequiredOtherHtml.includes('data-other-windows-status="update-required"'));
     assert.strictEqual(updateRequiredOtherHtml.includes('open-other-windows-group collapsed'), false,
@@ -727,12 +753,16 @@ function runWorkspaceCardRenderingChecks() {
     assert.ok(updateRequiredOtherHtml.includes('Update the Agent Pivot UI Bridge'));
     assert.ok(updateRequiredOtherHtml.includes('data-action="open-bridge-extension"'),
         'the bridge mismatch state must include an actionable upgrade control');
-    assert.strictEqual(updateRequiredOtherHtml.includes('class="codex-sessions"'), false,
-        'the bridge mismatch state must not create a session expander');
-    assert.ok(updateRequiredCurrentHtml.includes('data-current-workspace'));
-    assert.ok(updateRequiredCurrentHtml.includes('data-action="create-ai-session"'),
+    assert.strictEqual(
+        (updateRequiredOtherHtml.match(/class="codex-sessions"/g) || []).length,
+        0,
+        'OPEN WINDOWS must keep its current projection compact during bridge degradation'
+    );
+    assert.ok(updateRequiredOtherHtml.includes('data-open-workspace-current'));
+    assert.strictEqual(updateRequiredOtherHtml.includes('data-current-workspace'), false);
+    assert.ok(updateRequiredHtml.includes('data-action="create-ai-session"'),
         'the local current workspace NEW action must remain enabled during bridge degradation');
-    assert.strictEqual(updateRequiredCurrentHtml.includes('data-action="new-session-in"'), false);
+    assert.strictEqual(updateRequiredOtherHtml.includes('data-action="new-session-in"'), false);
 
     const projectSource = fs.readFileSync(projectScriptPath, 'utf8');
     const consistencyBody = extractFunctionBody(projectSource, 'isWorkspaceUpdateDomConsistent');
@@ -4557,18 +4587,18 @@ function runSourceContractChecks(source) {
     assert.ok(onWindowMessageBody.includes('applyTodoMutationResult(message, document);'));
     assert.ok(onWindowMessageBody.includes('disposeDnD(todoRoot);'));
     assert.ok(onWindowMessageBody.includes('initDnD(todoRoot);'));
-    assert.ok(projectSource.includes('Collapse Other Windows'));
-    assert.ok(projectSource.includes('Expand Other Windows'));
+    assert.ok(projectSource.includes('Collapse Open Windows'));
+    assert.ok(projectSource.includes('Expand Open Windows'));
     assert.ok(projectSource.includes('aria-disabled'));
 
     const projectContext = {};
     vm.runInNewContext(projectSource, projectContext);
     assert.deepStrictEqual(
         JSON.parse(JSON.stringify(projectContext.getCollapseButtonState('open', []))),
-        { disabled: true, collapsed: false, title: 'No other windows to collapse' }
+        { disabled: true, collapsed: false, title: 'No open windows to collapse' }
     );
-    assert.strictEqual(projectContext.getCollapseButtonState('open', [false]).title, 'Collapse Other Windows');
-    assert.strictEqual(projectContext.getCollapseButtonState('open', [true]).title, 'Expand Other Windows');
+    assert.strictEqual(projectContext.getCollapseButtonState('open', [false]).title, 'Collapse Open Windows');
+    assert.strictEqual(projectContext.getCollapseButtonState('open', [true]).title, 'Expand Open Windows');
     assert.strictEqual(projectContext.getCollapseButtonState('projects', [false, true]).title, 'Collapse All Groups');
     assert.strictEqual(projectContext.getCollapseButtonState('projects', [true, true]).title, 'Expand All Groups');
     assert.strictEqual(projectContext.getCollapseButtonState('todo', [false, true]).title, 'Collapse TODO Groups');

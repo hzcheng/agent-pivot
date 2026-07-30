@@ -119,7 +119,7 @@ test('OPEN-OPEN-PROJECT-AUTHORITATIVE-IDENTITY-001 keeps same-path authorities a
     assert.equal(projections.length, 3);
     assert.deepEqual(
         projectionsFromContainer.map(projection => projection.workspace.environment),
-        ['ssh', 'local']
+        ['local', 'ssh']
     );
     assert.equal(
         ssh.navigationIdentity,
@@ -272,16 +272,24 @@ test('OPEN-OTHER-WINDOWS-PRIVACY-001 exposes only the latest privacy-bounded wor
     assert.equal(JSON.stringify(cards[0]).includes('/private/'), false);
 });
 
-test('OPEN-WORKSPACE-PIN-SORT-001 keeps pinned windows first in original pin order while retaining recency for the rest', () => {
+test('OPEN-WORKSPACE-PIN-SORT-001 keeps pinned windows first in pin order and unpinned windows in stable open order', () => {
     const oldestPin = makeRecord({ uri: '/work/oldest-pin', name: 'Oldest pin' });
     const newerPin = makeRecord({ uri: '/work/newer-pin', name: 'Newer pin' });
     const recent = makeRecord({ uri: '/work/recent', name: 'Recent' });
     const older = makeRecord({ uri: '/work/older', name: 'Older' });
     const aggregate = makeAggregate([
-        makeRegistration(OTHER, 100, oldestPin.navigationUri, { workspace: oldestPin }),
-        makeRegistration(OLDER, 9000, newerPin.navigationUri, { workspace: newerPin }),
-        makeRegistration(NEWER, 8000, recent.navigationUri, { workspace: recent }),
-        makeRegistration('5'.repeat(32), 2000, older.navigationUri, { workspace: older }),
+        makeRegistration(OTHER, 100, oldestPin.navigationUri, {
+            openedAtMs: 4000, workspace: oldestPin,
+        }),
+        makeRegistration(OLDER, 9000, newerPin.navigationUri, {
+            openedAtMs: 3000, workspace: newerPin,
+        }),
+        makeRegistration(NEWER, 8000, recent.navigationUri, {
+            openedAtMs: 2000, workspace: recent,
+        }),
+        makeRegistration('5'.repeat(32), 2000, older.navigationUri, {
+            openedAtMs: 1000, workspace: older,
+        }),
     ]);
     const pinTimes = new Map([
         [newerPin.navigationIdentity, 2000],
@@ -300,10 +308,10 @@ test('OPEN-WORKSPACE-PIN-SORT-001 keeps pinned windows first in original pin ord
     }, SELF, null, pinTimes);
 
     assert.deepEqual(first.map(card => card.name), [
-        'Oldest pin', 'Newer pin', 'Recent', 'Older',
+        'Oldest pin', 'Newer pin', 'Older', 'Recent',
     ]);
     assert.deepEqual(focusChanged.map(card => card.name), [
-        'Oldest pin', 'Newer pin', 'Recent', 'Older',
+        'Oldest pin', 'Newer pin', 'Older', 'Recent',
     ]);
     assert.deepEqual(first.map(card => card.pinned), [true, true, false, false]);
 });

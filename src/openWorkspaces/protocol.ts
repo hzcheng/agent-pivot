@@ -5,7 +5,7 @@ import { URL } from 'url';
 
 import type { OpenWorkspaceEnvironment, OpenWorkspaceKind } from '../workspaces/types';
 
-export const OPEN_WORKSPACE_PROTOCOL_VERSION = 3;
+export const OPEN_WORKSPACE_PROTOCOL_VERSION = 4;
 export const OPEN_WORKSPACE_NAVIGATE_COMMAND = '_agentPivotOpenWorkspaces.bridge.navigate';
 export const OPEN_WORKSPACE_CAPABILITIES = {
     workspaces: true,
@@ -15,6 +15,7 @@ export const OPEN_WORKSPACE_CAPABILITIES = {
     uiHostNavigation: true,
     savedProjectNavigation: true,
     workspacePins: true,
+    stableOpenOrder: true,
 } as const;
 export const OPEN_WORKSPACE_HEARTBEAT_MS = 10_000;
 export const OPEN_WORKSPACE_LEASE_MS = 30_000;
@@ -48,43 +49,44 @@ export interface OpenWorkspaceRecord {
     roots: OpenWorkspaceRootRecord[];
 }
 
-export interface OpenWorkspacePublicationV3 {
-    protocolVersion: 3;
+export interface OpenWorkspacePublicationV4 {
+    protocolVersion: 4;
     instanceId: string;
     sequence: number;
     followsFocusEvent: boolean;
     workspace: OpenWorkspaceRecord | null;
 }
 
-export interface OpenWorkspaceRegistrationV3 {
-    protocolVersion: 3;
+export interface OpenWorkspaceRegistrationV4 {
+    protocolVersion: 4;
     instanceId: string;
     sequence: number;
+    openedAtMs: number;
     lastFocusedAtMs: number;
     leaseUpdatedAtMs: number;
     workspace: OpenWorkspaceRecord | null;
 }
 
-export interface OpenWorkspaceAggregateV3 {
-    protocolVersion: 3;
+export interface OpenWorkspaceAggregateV4 {
+    protocolVersion: 4;
     semanticRevision: string;
     observedAtMs: number;
-    registrations: OpenWorkspaceRegistrationV3[];
+    registrations: OpenWorkspaceRegistrationV4[];
 }
 
-export interface OpenWorkspaceNavigationRequestV3 {
-    protocolVersion: 3;
+export interface OpenWorkspaceNavigationRequestV4 {
+    protocolVersion: 4;
     navigationIdentity: string;
 }
 
-export interface OpenWorkspaceNavigationOutcomeV3 {
-    protocolVersion: 3;
+export interface OpenWorkspaceNavigationOutcomeV4 {
+    protocolVersion: 4;
     opened: true;
 }
 
-export type OpenWorkspacePublication = OpenWorkspacePublicationV3;
-export type OpenWorkspaceRegistration = OpenWorkspaceRegistrationV3;
-export type OpenWorkspaceAggregate = OpenWorkspaceAggregateV3;
+export type OpenWorkspacePublication = OpenWorkspacePublicationV4;
+export type OpenWorkspaceRegistration = OpenWorkspaceRegistrationV4;
+export type OpenWorkspaceAggregate = OpenWorkspaceAggregateV4;
 
 function requireObject(value: unknown, label: string): Record<string, unknown> {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) {
@@ -103,7 +105,7 @@ function requireExactKeys(value: Record<string, unknown>, label: string, require
     }
 }
 
-function requireProtocolVersion(value: unknown): 3 {
+function requireProtocolVersion(value: unknown): 4 {
     if (value !== OPEN_WORKSPACE_PROTOCOL_VERSION) {
         throw new Error(`protocolVersion must equal ${OPEN_WORKSPACE_PROTOCOL_VERSION}`);
     }
@@ -255,7 +257,7 @@ function validateOptionalWorkspace(value: unknown): OpenWorkspaceRecord | null {
     return value === null ? null : validateOpenWorkspaceRecord(value);
 }
 
-export function validateOpenWorkspacePublication(value: unknown): OpenWorkspacePublicationV3 {
+export function validateOpenWorkspacePublication(value: unknown): OpenWorkspacePublicationV4 {
     const publication = requireObject(value, 'open workspace publication');
     requireExactKeys(publication, 'open workspace publication', [
         'protocolVersion',
@@ -277,12 +279,13 @@ export function validateOpenWorkspacePublication(value: unknown): OpenWorkspaceP
     };
 }
 
-export function validateOpenWorkspaceRegistration(value: unknown): OpenWorkspaceRegistrationV3 {
+export function validateOpenWorkspaceRegistration(value: unknown): OpenWorkspaceRegistrationV4 {
     const registration = requireObject(value, 'open workspace registration');
     requireExactKeys(registration, 'open workspace registration', [
         'protocolVersion',
         'instanceId',
         'sequence',
+        'openedAtMs',
         'lastFocusedAtMs',
         'leaseUpdatedAtMs',
         'workspace',
@@ -292,13 +295,14 @@ export function validateOpenWorkspaceRegistration(value: unknown): OpenWorkspace
         protocolVersion: OPEN_WORKSPACE_PROTOCOL_VERSION,
         instanceId: requireInstanceId(registration.instanceId),
         sequence: requireSafeNonNegativeInteger(registration.sequence, 'sequence'),
+        openedAtMs: requireFiniteNonNegativeNumber(registration.openedAtMs, 'openedAtMs'),
         lastFocusedAtMs: requireFiniteNonNegativeNumber(registration.lastFocusedAtMs, 'lastFocusedAtMs'),
         leaseUpdatedAtMs: requireFiniteNonNegativeNumber(registration.leaseUpdatedAtMs, 'leaseUpdatedAtMs'),
         workspace: validateOptionalWorkspace(registration.workspace),
     };
 }
 
-export function validateOpenWorkspaceAggregate(value: unknown): OpenWorkspaceAggregateV3 {
+export function validateOpenWorkspaceAggregate(value: unknown): OpenWorkspaceAggregateV4 {
     const aggregate = requireObject(value, 'open workspace aggregate');
     requireExactKeys(aggregate, 'open workspace aggregate', [
         'protocolVersion',
@@ -327,7 +331,7 @@ export function validateOpenWorkspaceAggregate(value: unknown): OpenWorkspaceAgg
     };
 }
 
-export function validateOpenWorkspaceNavigationRequest(value: unknown): OpenWorkspaceNavigationRequestV3 {
+export function validateOpenWorkspaceNavigationRequest(value: unknown): OpenWorkspaceNavigationRequestV4 {
     const request = requireObject(value, 'open workspace navigation request');
     requireExactKeys(request, 'open workspace navigation request', [
         'protocolVersion',
@@ -339,7 +343,7 @@ export function validateOpenWorkspaceNavigationRequest(value: unknown): OpenWork
     };
 }
 
-export function validateOpenWorkspaceNavigationOutcome(value: unknown): OpenWorkspaceNavigationOutcomeV3 {
+export function validateOpenWorkspaceNavigationOutcome(value: unknown): OpenWorkspaceNavigationOutcomeV4 {
     const outcome = requireObject(value, 'open workspace navigation outcome');
     requireExactKeys(outcome, 'open workspace navigation outcome', [
         'protocolVersion',
@@ -378,11 +382,12 @@ function createWorkspaceSemanticDescriptor(workspace: OpenWorkspaceRecord | null
     ];
 }
 
-export function createOpenWorkspaceSemanticRevision(registrations: OpenWorkspaceRegistrationV3[]): string {
+export function createOpenWorkspaceSemanticRevision(registrations: OpenWorkspaceRegistrationV4[]): string {
     const semanticRegistrations = (registrations || [])
         .map(validateOpenWorkspaceRegistration)
         .map(registration => [
             registration.instanceId,
+            registration.openedAtMs,
             registration.lastFocusedAtMs,
             createWorkspaceSemanticDescriptor(registration.workspace),
         ])

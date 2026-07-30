@@ -819,8 +819,8 @@ const guards = {
         const risk = 'protocol drift breaks compatibility between workspace and UI extension hosts';
         const openProtocol = parseTypescript(root, 'src/openWorkspaces/protocol.ts', this.id, risk);
         const attentionProtocol = parseTypescript(root, 'src/aiSessions/attentionPayload.ts', this.id, risk);
-        if (numericInitializer(openProtocol, 'OPEN_WORKSPACE_PROTOCOL_VERSION', this.id, risk) !== 3) {
-            fail(this.id, risk, 'open-workspace protocol version must remain 3 until an explicit migration exists');
+        if (numericInitializer(openProtocol, 'OPEN_WORKSPACE_PROTOCOL_VERSION', this.id, risk) !== 4) {
+            fail(this.id, risk, 'open-workspace protocol version must remain 4 until an explicit migration exists');
         }
         if (numericInitializer(attentionProtocol, 'ATTENTION_PAYLOAD_VERSION', this.id, risk) !== 1) {
             fail(this.id, risk, 'attention payload version must remain 1 until an explicit migration exists');

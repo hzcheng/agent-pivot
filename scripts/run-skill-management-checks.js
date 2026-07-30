@@ -5,6 +5,7 @@
 // PERSIST-AI-SKILL-GLOBAL-STORE-LOCATION-001.
 
 const assert = require('assert');
+const childProcess = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -611,6 +612,135 @@ function runGlobalStoreLocationChecks() {
     assert.strictEqual(recoveredLock.ok, true,
         'an abandoned lock owned by a dead Extension Host is recovered');
     recoveredLock.lock.release();
+    const raceTarget = path.join(home, 'stale-lock-race-target');
+    const raceSeed = globalStore.acquireTargetMutationLock(raceTarget);
+    assert.strictEqual(raceSeed.ok, true);
+    const raceLockPath = raceSeed.lock.lockPath;
+    raceSeed.lock.release();
+    fs.writeFileSync(raceLockPath, JSON.stringify({
+        pid: 2_147_483_647,
+        createdAt: Date.now() - 60_000,
+    }));
+    const raceState = path.join(home, 'stale-lock-race-state');
+    fs.mkdirSync(raceState, { recursive: true });
+    const childSource = String.raw`
+        const fs = require('fs');
+        const [modulePath, targetPath, lockPath, statePath, id] = process.argv.slice(1);
+        const service = require(modulePath);
+        const pause = milliseconds => Atomics.wait(
+            new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
+        const waitFor = (predicate, timeout = 5000) => {
+            const deadline = Date.now() + timeout;
+            while (!predicate()) {
+                if (Date.now() >= deadline) {
+                    throw new Error('barrier timeout for ' + id);
+                }
+                pause(5);
+            }
+        };
+        waitFor(() => fs.existsSync(statePath + '/start'));
+        const realLstat = fs.lstatSync;
+        const realUnlink = fs.unlinkSync;
+        let observed = false;
+        let delayedDelete = false;
+        fs.lstatSync = candidate => {
+            if (candidate === lockPath && !observed) {
+                const staleStats = realLstat(candidate);
+                observed = true;
+                fs.writeFileSync(statePath + '/seen-' + id, '');
+                try {
+                    waitFor(() => fs.existsSync(statePath + '/seen-B')
+                        && fs.existsSync(statePath + '/seen-C'), 750);
+                } catch (_error) {
+                    // With the recovery guard only one process reaches the
+                    // stale main lock; without it both cross this barrier.
+                }
+                return staleStats;
+            }
+            return realLstat(candidate);
+        };
+        fs.unlinkSync = candidate => {
+            if (candidate === lockPath && id === 'C' && !delayedDelete
+                && fs.existsSync(statePath + '/seen-B')
+                && fs.existsSync(statePath + '/seen-C')) {
+                delayedDelete = true;
+                waitFor(() => fs.existsSync(statePath + '/acquired-B'));
+            }
+            return realUnlink(candidate);
+        };
+        try {
+            const result = service.acquireTargetMutationLock(targetPath);
+            const outcome = result.ok ? 'acquired' : 'blocked';
+            fs.writeFileSync(statePath + '/' + outcome + '-' + id, '');
+            fs.writeFileSync(statePath + '/result-' + id, outcome);
+            if (result.ok) {
+                waitFor(() => fs.existsSync(statePath + '/result-B')
+                    && fs.existsSync(statePath + '/result-C'));
+                pause(100);
+                result.lock.release();
+            }
+        } catch (error) {
+            fs.writeFileSync(statePath + '/result-' + id, 'error:' + error.message);
+        } finally {
+            fs.writeFileSync(statePath + '/done-' + id, '');
+        }
+    `;
+    const modulePath = require.resolve('../out/skills/globalStoreService');
+    const children = ['B', 'C'].map(id => childProcess.spawn(
+        process.execPath,
+        ['-e', childSource, modulePath, raceTarget, raceLockPath, raceState, id],
+        { stdio: 'ignore' },
+    ));
+    fs.writeFileSync(path.join(raceState, 'start'), '');
+    const waitForRace = (predicate, message) => {
+        const deadline = Date.now() + 10_000;
+        while (!predicate()) {
+            assert.ok(Date.now() < deadline, message);
+            Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5);
+        }
+    };
+    waitForRace(
+        () => fs.existsSync(path.join(raceState, 'result-B'))
+            && fs.existsSync(path.join(raceState, 'result-C')),
+        'stale lock recovery children timed out',
+    );
+    const raceOutcomes = ['B', 'C'].map(id =>
+        fs.readFileSync(path.join(raceState, `result-${id}`), 'utf8'));
+    assert.strictEqual(
+        raceOutcomes.filter(outcome => outcome === 'acquired').length,
+        1,
+        `exactly one stale-lock recovery contender acquires: ${raceOutcomes.join(', ')}`,
+    );
+    waitForRace(
+        () => fs.existsSync(path.join(raceState, 'done-B'))
+            && fs.existsSync(path.join(raceState, 'done-C')),
+        'stale lock recovery children did not finish',
+    );
+    for (const child of children) {
+        if (child.exitCode === null) {
+            child.kill();
+        }
+    }
+    const crashedGuardPath = `${raceLockPath}.guard`;
+    fs.mkdirSync(crashedGuardPath);
+    fs.writeFileSync(path.join(crashedGuardPath, 'owner.json'), JSON.stringify({
+        pid: 2_147_483_647,
+        createdAt: Date.now() - 60_000,
+    }));
+    const recoveredGuard = globalStore.acquireTargetMutationLock(raceTarget);
+    assert.strictEqual(recoveredGuard.ok, true,
+        'a recovery guard abandoned by a dead Extension Host is recovered');
+    recoveredGuard.lock.release();
+    const crashedQuarantinePath = `${crashedGuardPath}.quarantine`;
+    fs.mkdirSync(crashedQuarantinePath);
+    fs.writeFileSync(path.join(crashedQuarantinePath, 'owner.json'), JSON.stringify({
+        pid: 2_147_483_647,
+        createdAt: Date.now() - 60_000,
+    }));
+    const recoveredQuarantine = globalStore.acquireTargetMutationLock(raceTarget);
+    assert.strictEqual(recoveredQuarantine.ok, true,
+        'a guard crash during quarantine is normalized and recovered');
+    recoveredQuarantine.lock.release();
     const sharedSource = path.join(home, 'shared-source-lock');
     const sourceAndTargetLock = globalStore.acquireSkillsMutationLocks([
         sharedSource,

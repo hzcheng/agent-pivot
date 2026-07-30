@@ -205,6 +205,207 @@ function isProcessAlive(pid: number): boolean {
     }
 }
 
+interface MutationGuardState {
+    identity: fs.Stats;
+    stale: boolean;
+}
+
+function ownerIsStale(raw: string, mtimeMs: number): boolean {
+    try {
+        const owner = JSON.parse(raw) as { pid?: unknown };
+        return Number.isInteger(owner.pid) && (owner.pid as number) > 0
+            ? !isProcessAlive(owner.pid as number)
+            : Date.now() - mtimeMs > 30_000;
+    } catch (_error) {
+        // A creator can crash between the atomic directory claim and metadata
+        // initialization. Keep a grace period for a live initializer.
+        return Date.now() - mtimeMs > 30_000;
+    }
+}
+
+function inspectMutationGuard(guardPath: string): MutationGuardState | null {
+    try {
+        const identity = fs.lstatSync(guardPath);
+        if (!identity.isDirectory() || identity.isSymbolicLink()) {
+            return null;
+        }
+        let raw = '';
+        try {
+            raw = fs.readFileSync(path.join(guardPath, 'owner.json'), 'utf8');
+        } catch (_error) {
+            // An empty directory is a potentially live initializer until its
+            // grace period expires.
+        }
+        return { identity, stale: ownerIsStale(raw, identity.mtimeMs) };
+    } catch (_error) {
+        return null;
+    }
+}
+
+function sameIdentity(left: fs.Stats, right: fs.Stats): boolean {
+    return left.dev === right.dev && left.ino === right.ino;
+}
+
+function moveGuardIfUnchanged(
+    sourcePath: string,
+    destinationPath: string,
+    expected: fs.Stats,
+): boolean {
+    try {
+        fs.renameSync(sourcePath, destinationPath);
+        const moved = fs.lstatSync(destinationPath);
+        if (sameIdentity(moved, expected)) {
+            return true;
+        }
+        // A delayed stale observer moved a newer live guard. Keep the fixed
+        // quarantine occupied while restoring it so no third process can
+        // acquire through the temporary gap.
+        try {
+            fs.renameSync(destinationPath, sourcePath);
+        } catch (_restoreError) {
+            // The owner or another contender will reconcile the quarantine.
+        }
+        return false;
+    } catch (_error) {
+        return false;
+    }
+}
+
+function releaseMutationGuard(
+    guardPath: string,
+    quarantinePath: string,
+    identity: fs.Stats,
+): void {
+    for (const candidate of [guardPath, quarantinePath]) {
+        let current: fs.Stats;
+        try {
+            current = fs.lstatSync(candidate);
+        } catch (_error) {
+            continue;
+        }
+        if (!sameIdentity(current, identity)) {
+            continue;
+        }
+        const cleanupPath = `${quarantinePath}.cleanup-${
+            process.pid}-${randomBytes(8).toString('hex')}`;
+        if (!moveGuardIfUnchanged(candidate, cleanupPath, identity)) {
+            continue;
+        }
+        try {
+            fs.rmSync(cleanupPath, { recursive: true, force: true });
+        } catch (_error) {
+            // The unique cleanup path cannot affect later lock ownership.
+        }
+        return;
+    }
+}
+
+function acquireMutationRecoveryGuard(
+    lockPath: string,
+): { ok: true; lock: TargetMutationLock } | { ok: false; error: string } {
+    const guardPath = `${lockPath}.guard`;
+    const quarantinePath = `${guardPath}.quarantine`;
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+        // A crashed or delayed observer may leave the live guard in the fixed
+        // quarantine. Normalize it before anybody can create a new guard.
+        if (fs.existsSync(quarantinePath)) {
+            if (!fs.existsSync(guardPath)) {
+                try {
+                    fs.renameSync(quarantinePath, guardPath);
+                    continue;
+                } catch (_error) {
+                    continue;
+                }
+            }
+            return { ok: false, error: `Skills mutation recovery is already in progress: ${quarantinePath}` };
+        }
+
+        try {
+            fs.mkdirSync(guardPath, { mode: 0o700 });
+        } catch (error) {
+            const observed = inspectMutationGuard(guardPath);
+            if (!observed || !observed.stale) {
+                return {
+                    ok: false,
+                    error: `Another Agent Pivot window is already acquiring this Skills lock: ${
+                        guardPath}. ${error instanceof Error ? error.message : String(error)}`,
+                };
+            }
+            if (!moveGuardIfUnchanged(guardPath, quarantinePath, observed.identity)) {
+                continue;
+            }
+            // The fixed quarantine prevents an old observer from deleting a
+            // newer guard. Move the verified stale generation to a unique path
+            // before removal; new acquisitions may proceed once this rename
+            // succeeds without being touched by the cleanup.
+            const cleanupPath = `${quarantinePath}.cleanup-${
+                process.pid}-${randomBytes(8).toString('hex')}`;
+            if (!moveGuardIfUnchanged(quarantinePath, cleanupPath, observed.identity)) {
+                continue;
+            }
+            try {
+                fs.rmSync(cleanupPath, { recursive: true, force: true });
+            } catch (_error) {
+                // The unique cleanup path no longer participates in locking.
+            }
+            continue;
+        }
+
+        const identity = fs.lstatSync(guardPath);
+        try {
+            const ownerPath = path.join(guardPath, 'owner.json');
+            const descriptor = fs.openSync(ownerPath, 'wx', 0o600);
+            try {
+                fs.writeFileSync(descriptor, JSON.stringify({
+                    pid: process.pid,
+                    createdAt: Date.now(),
+                    token: randomBytes(16).toString('hex'),
+                }), 'utf8');
+                fs.fsyncSync(descriptor);
+            } finally {
+                fs.closeSync(descriptor);
+            }
+        } catch (error) {
+            releaseMutationGuard(guardPath, quarantinePath, identity);
+            return {
+                ok: false,
+                error: `Could not initialize the Skills recovery guard: ${
+                    error instanceof Error ? error.message : String(error)}`,
+            };
+        }
+
+        // A delayed observer can move this generation only into quarantine.
+        // If that happened, release our exact identity and retry instead of
+        // proceeding without a canonical guard.
+        let current: fs.Stats | undefined;
+        try {
+            current = fs.lstatSync(guardPath);
+        } catch (_error) {
+            current = undefined;
+        }
+        if (!current || !sameIdentity(current, identity) || fs.existsSync(quarantinePath)) {
+            releaseMutationGuard(guardPath, quarantinePath, identity);
+            continue;
+        }
+
+        let released = false;
+        return {
+            ok: true,
+            lock: {
+                lockPath: guardPath,
+                release: () => {
+                    if (released) {
+                        return;
+                    }
+                    released = true;
+                    releaseMutationGuard(guardPath, quarantinePath, identity);
+                },
+            },
+        };
+    }
+    return { ok: false, error: `Could not acquire the Skills recovery guard: ${guardPath}` };
+}
+
 function recoverStaleMutationLock(lockPath: string): boolean {
     let descriptor: number | undefined;
     try {
@@ -213,10 +414,7 @@ function recoverStaleMutationLock(lockPath: string): boolean {
         const raw = fs.readFileSync(descriptor, 'utf8');
         let stale = false;
         try {
-            const owner = JSON.parse(raw) as { pid?: unknown; createdAt?: unknown };
-            stale = Number.isInteger(owner.pid) && (owner.pid as number) > 0
-                ? !isProcessAlive(owner.pid as number)
-                : Date.now() - identity.mtimeMs > 30_000;
+            stale = ownerIsStale(raw, identity.mtimeMs);
         } catch (_error) {
             // A creator can crash between exclusive open and metadata write.
             // Give an active creator a grace period before recovering it.
@@ -250,77 +448,86 @@ export function acquireTargetMutationLock(
     const absolute = path.resolve(targetPath);
     const digest = createHash('sha256').update(absolute).digest('hex').slice(0, 24);
     const lockPath = path.join(path.dirname(absolute), `.agent-pivot-target-${digest}.lock`);
-    let descriptor: number | undefined;
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-        try {
-            descriptor = fs.openSync(lockPath, 'wx', 0o600);
-        } catch (error) {
-            if (attempt === 0 && recoverStaleMutationLock(lockPath)) {
-                continue;
-            }
-            return {
-                ok: false,
-                error: `Another Agent Pivot window is already changing this Skills location: ${
-                    lockPath}. ${error instanceof Error ? error.message : String(error)}`,
-            };
-        }
-        let identity: fs.Stats | undefined;
-        try {
-            identity = fs.fstatSync(descriptor);
-            fs.writeFileSync(descriptor, JSON.stringify({
-                pid: process.pid,
-                createdAt: Date.now(),
-            }), 'utf8');
-            fs.fsyncSync(descriptor);
-        } catch (error) {
-            try { fs.closeSync(descriptor); } catch (_closeError) { /* best effort */ }
-            descriptor = undefined;
-            try {
-                const current = fs.lstatSync(lockPath);
-                if (identity && current.isFile()
-                    && current.dev === identity.dev
-                    && current.ino === identity.ino) {
-                    fs.unlinkSync(lockPath);
-                }
-            } catch (_cleanupError) {
-                // A missing or replaced lock must never be deleted by this owner.
-            }
-            return {
-                ok: false,
-                error: `Could not initialize the Skills mutation lock: ${
-                    error instanceof Error ? error.message : String(error)}`,
-            };
-        }
-        let released = false;
-        return {
-            ok: true,
-            lock: {
-                lockPath,
-                release: () => {
-                    if (released) {
-                        return;
-                    }
-                    released = true;
-                    try {
-                        fs.closeSync(descriptor as number);
-                    } catch (_error) {
-                        // Continue with identity-checked cleanup.
-                    }
-                    try {
-                        const current = fs.lstatSync(lockPath);
-                        if (current.isFile()
-                            && current.dev === identity.dev
-                            && current.ino === identity.ino) {
-                            fs.unlinkSync(lockPath);
-                        }
-                    } catch (_error) {
-                        // A missing or replaced lock must never be deleted by this owner.
-                    }
-                },
-            },
-        };
+    const guardResult = acquireMutationRecoveryGuard(lockPath);
+    if (guardResult.ok === false) {
+        return { ok: false, error: guardResult.error };
     }
-    return { ok: false, error: `Could not acquire the Skills mutation lock: ${lockPath}` };
+    try {
+        let descriptor: number | undefined;
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+            try {
+                descriptor = fs.openSync(lockPath, 'wx', 0o600);
+            } catch (error) {
+                if (attempt === 0 && recoverStaleMutationLock(lockPath)) {
+                    continue;
+                }
+                return {
+                    ok: false,
+                    error: `Another Agent Pivot window is already changing this Skills location: ${
+                        lockPath}. ${error instanceof Error ? error.message : String(error)}`,
+                };
+            }
+            let identity: fs.Stats | undefined;
+            try {
+                identity = fs.fstatSync(descriptor);
+                fs.writeFileSync(descriptor, JSON.stringify({
+                    pid: process.pid,
+                    createdAt: Date.now(),
+                }), 'utf8');
+                fs.fsyncSync(descriptor);
+            } catch (error) {
+                try { fs.closeSync(descriptor); } catch (_closeError) { /* best effort */ }
+                descriptor = undefined;
+                try {
+                    const current = fs.lstatSync(lockPath);
+                    if (identity && current.isFile()
+                        && current.dev === identity.dev
+                        && current.ino === identity.ino) {
+                        fs.unlinkSync(lockPath);
+                    }
+                } catch (_cleanupError) {
+                    // The recovery guard prevents a cooperating owner from
+                    // replacing this path before cleanup.
+                }
+                return {
+                    ok: false,
+                    error: `Could not initialize the Skills mutation lock: ${
+                        error instanceof Error ? error.message : String(error)}`,
+                };
+            }
+            let released = false;
+            return {
+                ok: true,
+                lock: {
+                    lockPath,
+                    release: () => {
+                        if (released) {
+                            return;
+                        }
+                        released = true;
+                        try {
+                            fs.closeSync(descriptor as number);
+                        } catch (_error) {
+                            // Continue with identity-checked cleanup.
+                        }
+                        try {
+                            const current = fs.lstatSync(lockPath);
+                            if (current.isFile()
+                                && current.dev === identity.dev
+                                && current.ino === identity.ino) {
+                                fs.unlinkSync(lockPath);
+                            }
+                        } catch (_error) {
+                            // A missing or replaced lock must never be deleted by this owner.
+                        }
+                    },
+                },
+            };
+        }
+        return { ok: false, error: `Could not acquire the Skills mutation lock: ${lockPath}` };
+    } finally {
+        guardResult.lock.release();
+    }
 }
 
 export function acquireSkillsMutationLocks(

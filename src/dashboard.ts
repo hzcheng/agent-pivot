@@ -27,6 +27,7 @@ import { initializePromptMementoStore, PromptService } from './prompts/service';
 import { PromptTerminalCommandController } from './prompts/terminalCommandController';
 import { getAiPanelContent, getPromptSurfaceContent } from './prompts/webviewContent';
 import { SkillDashboardController } from './skills/dashboardController';
+import { skillDirectoriesEqual } from './skills/scopeService';
 import { SkillGroupStore } from './skills/skillGroupStore';
 import {
     deleteTodoWithConfirmation,
@@ -462,6 +463,41 @@ async function initializeDashboard(
         logError,
         groupStore: new SkillGroupStore(context.globalState),
     }));
+    const completedSkillScopeActionRequests = new Set<string>();
+    const publishSkillScopeActionSettlement = async (settlement: {
+        version: 1;
+        requestId: string;
+        dirPath: string;
+        operation: 'apply-to-project' | 'move-to-global';
+        ok: boolean;
+        code?: string;
+        resultDirPath?: string;
+    }): Promise<void> => {
+        let delivered = false;
+        try {
+            delivered = await skillDashboardController.refresh('skill-scope-action', settlement);
+        } catch (error) {
+            logError('Failed to publish the authoritative Skill scope update.', error);
+        }
+        if (delivered) {
+            return;
+        }
+        try {
+            provider.refresh();
+        } catch (error) {
+            logError('Failed to refresh the dashboard after a Skill scope action.', error);
+        }
+        try {
+            await provider.postMessage({
+                type: 'skill-scope-action-result',
+                ...settlement,
+                ok: false,
+                code: 'refresh-failed',
+            });
+        } catch (error) {
+            logError('Failed to settle the Skill scope action.', error);
+        }
+    };
     timeBootstrapPhase('skill-scan', () => skillDashboardController.start());
     const runSkillMigrationToCentral = async (scope?: 'user' | 'project'): Promise<void> => {
         const hasWorkspace = Boolean(vscode.workspace.workspaceFolders?.length);
@@ -1477,6 +1513,120 @@ async function initializeDashboard(
                 const result = skillDashboardController.handleCopySkill(String(e.sourceDir || ''), String(e.targetRoot || ''));
                 if (!result.ok) {
                     void vscode.window.showWarningMessage(`Could not copy the skill: ${result.error}`);
+                }
+            },
+            'skill-scope-action': async e => {
+                const keys = Object.keys(e).sort().join(',');
+                if (keys !== 'dirPath,operation,requestId,type,version'
+                    || e.version !== 1
+                    || typeof e.requestId !== 'string'
+                    || e.requestId.length < 1
+                    || e.requestId.length > 128
+                    || typeof e.dirPath !== 'string'
+                    || e.dirPath.length < 1
+                    || e.dirPath.length > 4096
+                    || (e.operation !== 'apply-to-project' && e.operation !== 'move-to-global')
+                    || completedSkillScopeActionRequests.has(e.requestId)) {
+                    return;
+                }
+                completedSkillScopeActionRequests.add(e.requestId);
+                if (completedSkillScopeActionRequests.size > 256) {
+                    completedSkillScopeActionRequests.delete(completedSkillScopeActionRequests.values().next().value as string);
+                }
+                const settlement = {
+                    version: 1 as const,
+                    requestId: e.requestId,
+                    dirPath: e.dirPath,
+                    operation: e.operation as 'apply-to-project' | 'move-to-global',
+                    ok: false,
+                    code: 'cancelled',
+                    resultDirPath: undefined as string | undefined,
+                };
+                try {
+                    const record = skillDashboardController.getRecords().find(candidate =>
+                        candidate.central && candidate.dirPath === e.dirPath);
+                if (!record || (e.operation === 'apply-to-project' && record.scope !== 'user')
+                    || (e.operation === 'move-to-global' && record.scope !== 'project')) {
+                    settlement.code = 'invalid';
+                    await publishSkillScopeActionSettlement(settlement);
+                    return;
+                }
+                if (e.operation === 'apply-to-project') {
+                    const agents = ['kimi', 'claude', 'codex'] as const;
+                    const current = new Set(agents.filter(agent => Boolean(record.central?.links.project?.[agent])));
+                    const defaults = current.size
+                        ? current
+                        : new Set(agents.filter(agent => Boolean(record.central?.links.user?.[agent])));
+                    const items: Array<vscode.QuickPickItem & { agent: typeof agents[number] }> = agents.map(agent => ({
+                        label: agent === 'kimi' ? 'Kimi' : agent === 'claude' ? 'Claude' : 'Codex',
+                        description: current.has(agent) ? 'Currently available in this project' : undefined,
+                        picked: defaults.has(agent),
+                        agent,
+                    }));
+                    const selected = await vscode.window.showQuickPick(items, {
+                        canPickMany: true,
+                        placeHolder: current.size
+                            ? `Use "${record.name}": choose project agents; clear all to remove project access`
+                            : `Use "${record.name}": choose the agents that should use this global skill`,
+                    });
+                    if (selected === undefined) {
+                        await publishSkillScopeActionSettlement(settlement);
+                        return;
+                    }
+                    if (!current.size && !selected.length) {
+                        settlement.code = 'invalid';
+                        void vscode.window.showInformationMessage('Choose at least one project agent.');
+                        await publishSkillScopeActionSettlement(settlement);
+                        return;
+                    }
+                    const result = skillDashboardController.handleSetGlobalSkillProjectAgents(
+                        e.dirPath, selected.map(item => item.agent));
+                    settlement.ok = result.ok;
+                    settlement.code = result.ok ? 'applied' : (result.code || 'failed');
+                    settlement.resultDirPath = result.dirPath;
+                    if (!result.ok) {
+                        void vscode.window.showWarningMessage(`Could not apply the skill to this project: ${result.error}`);
+                    }
+                    await publishSkillScopeActionSettlement(settlement);
+                    return;
+                }
+
+                const existingGlobal = skillDashboardController.getRecords().find(candidate =>
+                    candidate.central && candidate.scope === 'user' && candidate.name === record.name);
+                if (existingGlobal && !skillDirectoriesEqual(record.dirPath, existingGlobal.dirPath)) {
+                    settlement.code = 'conflict';
+                    void vscode.window.showWarningMessage(
+                        `A different global skill named "${record.name}" already exists. Rename or reconcile it first.`);
+                    await publishSkillScopeActionSettlement(settlement);
+                    return;
+                }
+                const choice = await vscode.window.showWarningMessage(
+                    existingGlobal
+                        ? `Consolidate project skill "${record.name}" into the identical Global skill? `
+                            + 'The project source directory will be removed and its existing project links will be preserved.'
+                        : `Move project skill "${record.name}" to Global management? `
+                            + 'Its source directory will leave this project (and may appear deleted in Git), '
+                            + 'while its existing project links keep working. It will not be enabled globally.',
+                    { modal: true },
+                    existingGlobal ? 'Consolidate into Global' : 'Move to Global',
+                );
+                if (choice !== (existingGlobal ? 'Consolidate into Global' : 'Move to Global')) {
+                    await publishSkillScopeActionSettlement(settlement);
+                    return;
+                }
+                const result = skillDashboardController.handleMoveProjectSkillToGlobal(e.dirPath);
+                settlement.ok = result.ok;
+                settlement.code = result.ok ? 'moved' : (result.code || 'failed');
+                settlement.resultDirPath = result.dirPath;
+                if (!result.ok) {
+                    void vscode.window.showWarningMessage(`Could not move the skill to Global: ${result.error}`);
+                }
+                await publishSkillScopeActionSettlement(settlement);
+                } catch (error) {
+                    settlement.ok = false;
+                    settlement.code = 'failed';
+                    logError('Skill scope action failed unexpectedly.', error);
+                    await publishSkillScopeActionSettlement(settlement);
                 }
             },
             'central-toggle-skill': e => {

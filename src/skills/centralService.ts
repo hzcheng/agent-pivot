@@ -26,7 +26,8 @@ function knownBrandRoots(homeDir: string, workspaceRoot?: string): SkillsRoot[] 
 
 function isSymlinkTo(linkPath: string, target: string): boolean {
     try {
-        return fs.lstatSync(linkPath).isSymbolicLink() && fs.realpathSync(linkPath) === target;
+        return fs.lstatSync(linkPath).isSymbolicLink()
+            && fs.realpathSync(linkPath) === fs.realpathSync(target);
     } catch (_error) {
         return false;
     }

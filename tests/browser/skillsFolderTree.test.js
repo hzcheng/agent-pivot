@@ -1,6 +1,6 @@
 'use strict';
 
-// Covers WEBVIEW-AI-SKILL-PANEL-001.
+// Covers WEBVIEW-AI-SKILL-PANEL-001 and PERSIST-AI-SKILL-SCOPE-ACTION-001.
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -138,10 +138,169 @@ async function openSkillsPage(browser, records, view = {}) {
             window.__restoreSkillCollapsedGroups = restoreSkillCollapsedGroups;
             window.__captureSkillFolderMenuState = captureSkillFolderMenuState;
             window.__restoreSkillFolderMenuState = restoreSkillFolderMenuState;
+            window.__replaceSkillsHtml = replaceSkillsHtml;
         })();
     }, extractSkillCode());
     return page;
 }
+
+test('PERSIST-AI-SKILL-SCOPE-ACTION-001 card scope actions use correlated pending state and authoritative replacement', async () => {
+    const browser = await chromium.launch();
+    try {
+        const project = centralRecord({
+            name: 'project-only',
+            scope: 'project',
+            dirPath: '/work/app/.skills/project-only',
+            skillFilePath: '/work/app/.skills/project-only/SKILL.md',
+            folder: '',
+            central: { dirPath: '/work/app/.skills/project-only', links: { project: { claude: '/work/app/.claude/skills/project-only' } } },
+            visibility: { kimi: 'absent', claude: 'active', codex: 'absent' },
+        });
+        const records = [centralRecord(), project];
+        const page = await openSkillsPage(browser, records);
+        const globalButton = '[data-skill-scope-action="/home/dev/.skills/superpowers/alpha"]';
+        const projectButton = '[data-skill-scope-action="/work/app/.skills/project-only"]';
+        assert.equal(await page.textContent(globalButton), 'Use in project');
+        assert.equal(await page.textContent(projectButton), 'Move to Global');
+
+        await page.click(globalButton);
+        const afterClick = await page.evaluate(selector => {
+            const button = document.querySelector(selector);
+            return {
+                messages: window.__skillMessages,
+                text: button.textContent,
+                disabled: button.disabled,
+                ariaDisabled: button.getAttribute('aria-disabled'),
+                pending: button.classList.contains('pending'),
+            };
+        }, globalButton);
+        assert.equal(afterClick.messages.length, 1);
+        assert.equal(afterClick.messages[0].type, 'skill-scope-action');
+        assert.equal(afterClick.messages[0].version, 1);
+        assert.equal(afterClick.messages[0].dirPath, '/home/dev/.skills/superpowers/alpha');
+        assert.equal(afterClick.messages[0].operation, 'apply-to-project');
+        assert.ok(afterClick.messages[0].requestId);
+        assert.deepEqual(
+            {
+                text: afterClick.text,
+                disabled: afterClick.disabled,
+                ariaDisabled: afterClick.ariaDisabled,
+                pending: afterClick.pending,
+            },
+            { text: 'Applying…', disabled: false, ariaDisabled: 'true', pending: true });
+
+        const { getSkillsPanelContent } = loadSkillContent();
+        const linked = centralRecord({
+            central: {
+                dirPath: '/home/dev/.skills/superpowers/alpha',
+                links: {
+                    user: { kimi: '/home/dev/.kimi/skills/alpha' },
+                    project: {
+                        kimi: '/work/app/.kimi/skills/alpha',
+                        codex: '/work/app/.codex/skills/alpha',
+                    },
+                },
+            },
+        });
+        const replacement = getSkillsPanelContent([linked, project], { hasWorkspace: true });
+        await page.evaluate(({ html }) => {
+            window.__replaceSkillsHtml(html, {
+                version: 1,
+                requestId: 'stale-request',
+                dirPath: '/home/dev/.skills/superpowers/alpha',
+                operation: 'apply-to-project',
+                ok: true,
+            });
+        }, { html: replacement });
+        assert.equal(await page.textContent(globalButton), 'Applying…',
+            'stale settlement cannot clear the matching request');
+        await page.evaluate(({ html }) => {
+            const request = window.__skillMessages[0];
+            window.__replaceSkillsHtml(html, {
+                version: 1,
+                requestId: request.requestId,
+                dirPath: '/wrong/skill',
+                operation: request.operation,
+                ok: 'true',
+            });
+        }, { html: replacement });
+        const malformed = await page.evaluate(selector => ({
+            text: document.querySelector(selector).textContent,
+            status: document.querySelector('[data-skill-scope-status]').textContent,
+            focused: document.activeElement?.getAttribute('data-skill-scope-action'),
+        }), globalButton);
+        assert.deepEqual(malformed, {
+            text: 'Applying…',
+            status: '',
+            focused: '/home/dev/.skills/superpowers/alpha',
+        }, 'same-id malformed settlement is ignored and pending focus survives replacement');
+
+        await page.evaluate(({ html }) => {
+            const request = window.__skillMessages[0];
+            window.__replaceSkillsHtml(html, {
+                version: 1,
+                requestId: request.requestId,
+                dirPath: request.dirPath,
+                operation: request.operation,
+                ok: true,
+            });
+        }, { html: replacement });
+        const settled = await page.evaluate(selector => {
+            const button = document.querySelector(selector);
+            return {
+                text: button.textContent,
+                disabled: button.disabled,
+                pending: button.classList.contains('pending'),
+                status: document.querySelector('[data-skill-scope-status]').textContent,
+            };
+        }, globalButton);
+        assert.deepEqual(settled, {
+            text: 'In project · 2',
+            disabled: false,
+            pending: false,
+            status: 'Project skill access updated.',
+        },
+            'matching settlement clears pending only after authoritative HTML replacement');
+
+        await page.click(projectButton);
+        const movedRecord = centralRecord({
+            name: 'project-only',
+            scope: 'user',
+            dirPath: '/home/dev/.skills/project-only',
+            skillFilePath: '/home/dev/.skills/project-only/SKILL.md',
+            folder: '',
+            central: {
+                dirPath: '/home/dev/.skills/project-only',
+                links: { user: {}, project: { claude: '/work/app/.claude/skills/project-only' } },
+            },
+            visibility: { kimi: 'absent', claude: 'absent', codex: 'absent' },
+        });
+        const movedHtml = getSkillsPanelContent([linked, movedRecord], { hasWorkspace: true });
+        await page.evaluate(({ html }) => {
+            const request = window.__skillMessages[1];
+            window.__replaceSkillsHtml(html, {
+                version: 1,
+                requestId: request.requestId,
+                dirPath: request.dirPath,
+                operation: request.operation,
+                ok: true,
+                resultDirPath: '/home/dev/.skills/project-only',
+            });
+        }, { html: movedHtml });
+        const moveFocus = await page.evaluate(() => ({
+            dirPath: document.activeElement?.getAttribute('data-skill-scope-action'),
+            operation: document.activeElement?.getAttribute('data-skill-scope-operation'),
+            status: document.querySelector('[data-skill-scope-status]').textContent,
+        }));
+        assert.deepEqual(moveFocus, {
+            dirPath: '/home/dev/.skills/project-only',
+            operation: 'apply-to-project',
+            status: 'Skill moved to Global management.',
+        }, 'move success focuses the new Global card action');
+    } finally {
+        await browser.close();
+    }
+});
 
 function switchStates(page) {
     return page.evaluate(() => [...document.querySelectorAll('[data-central-toggle]')].map(el => ({

@@ -143,6 +143,20 @@ function getSkillDiv(record: SkillRecord, view: SkillPanelView): string {
     const centralizeButton = record.central
         ? ''
         : `<button type="button" class="skill-centralize" title="Move into the shared store and link from agents" data-skill-centralize="${escapeAttribute(record.dirPath)}">Centralize</button>`;
+    const projectLinkCount = record.central
+        ? AGENTS.filter(agent => Boolean(record.central?.links.project?.[agent])).length
+        : 0;
+    const scopeActionButton = !record.central
+        ? ''
+        : record.scope === 'user'
+            ? `<button type="button" class="skill-scope-action" data-skill-scope-action="${escapeAttribute(record.dirPath)}"`
+                + ` data-skill-scope-operation="apply-to-project"`
+                + (view.hasWorkspace
+                    ? ` title="Choose which project agents can use this global skill">${projectLinkCount ? `In project · ${projectLinkCount}` : 'Use in project'}`
+                    : ` title="Open a project to apply this global skill" disabled>Open a project`)
+                + `</button>`
+            : `<button type="button" class="skill-scope-action" data-skill-scope-action="${escapeAttribute(record.dirPath)}"`
+                + ` data-skill-scope-operation="move-to-global" title="Move this project's source into Global management">Move to Global</button>`;
     const deleteButton = record.central
         ? ''
         : `<button type="button" class="skill-delete" title="Delete this skill permanently" data-skill-delete="${escapeAttribute(record.dirPath)}">Delete</button>`;
@@ -156,7 +170,7 @@ function getSkillDiv(record: SkillRecord, view: SkillPanelView): string {
             <h2 class="project-header">${name}</h2>
         </div>
         <p class="project-description" title="${description}">${description}</p>
-        <div class="skill-chip-row">${chips}${centralizeButton}${deleteButton}<span class="skill-expand-hint" title="Show details">${collapseIcon}</span></div>
+        <div class="skill-chip-row">${chips}${scopeActionButton}${centralizeButton}${deleteButton}<span class="skill-expand-hint" title="Show details">${collapseIcon}</span></div>
         ${copyRow}
         ${getSkillDetail(record, view, duplicate)}
     </div>
@@ -439,7 +453,7 @@ export function getSkillsPanelContent(
         // and render the tree of empty folder nodes.
     }
     const suggestions = (view.suggestions || []).map(renderSuggestion).join('');
-    return `<div class="sticky-groups-wrapper skills-groups-wrapper">${renderFilterRow(view)}${suggestions}${sections
+    return `<div class="sticky-groups-wrapper skills-groups-wrapper"><div class="skill-scope-status" data-skill-scope-status role="status" aria-live="polite"></div>${renderFilterRow(view)}${suggestions}${sections
         .filter(([scope, items]) => items.length || ((view.storeFolders && view.storeFolders[scope as SkillScope]) || []).length)
         .map(([scope, items]) => renderScopeSection(scope, items, view)).join('\n')}
 </div>`;

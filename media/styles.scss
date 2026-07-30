@@ -4296,6 +4296,41 @@ body.steward-sidebar {
         font-size: 9px;
     }
 
+    .skill-scope-action {
+        padding: 1px 7px;
+        border: 1px solid rgba(138, 180, 248, .45);
+        border-radius: 999px;
+        background: rgba(55, 148, 255, .08);
+        color: #8ab4f8;
+        cursor: pointer;
+        font-size: 9px;
+
+        &:hover:not(:disabled) {
+            background: rgba(55, 148, 255, .16);
+        }
+
+        &:disabled,
+        &[aria-disabled='true'] {
+            cursor: default;
+            opacity: .5;
+        }
+
+        &.pending {
+            border-style: dashed;
+            opacity: .72;
+        }
+    }
+
+    .skill-scope-status {
+        min-height: 0;
+        color: var(--vscode-descriptionForeground);
+        font-size: 10px;
+
+        &:empty {
+            display: none;
+        }
+    }
+
     .skill-delete {
         padding: 1px 7px;
         border: 1px solid rgba(244, 71, 71, .4);

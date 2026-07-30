@@ -816,6 +816,127 @@ function initDashboard(options) {
     }
 
     var skillAgentFilter = 'all';
+    var skillScopeActionSequence = 0;
+    var skillScopeActionPending = {};
+
+    function nextSkillScopeActionRequestId() {
+        skillScopeActionSequence += 1;
+        return 'skill-scope-' + Date.now().toString(36) + '-' + skillScopeActionSequence.toString(36);
+    }
+
+    function findSkillScopeActionButton(dirPath, operation) {
+        var buttons = document.querySelectorAll
+            ? document.querySelectorAll('[data-skill-scope-action]')
+            : [];
+        for (var i = 0; i < buttons.length; i++) {
+            if (buttons[i].getAttribute('data-skill-scope-action') === dirPath
+                && buttons[i].getAttribute('data-skill-scope-operation') === operation) {
+                return buttons[i];
+            }
+        }
+        return null;
+    }
+
+    function markSkillScopeActionPending(button, pending) {
+        if (!button || !pending) {
+            return;
+        }
+        button.setAttribute('aria-disabled', 'true');
+        button.classList.add('pending');
+        button.textContent = pending.operation === 'move-to-global' ? 'Moving…' : 'Applying…';
+    }
+
+    function restorePendingSkillScopeActions() {
+        Object.keys(skillScopeActionPending).forEach(function (requestId) {
+            var pending = skillScopeActionPending[requestId];
+            markSkillScopeActionPending(
+                findSkillScopeActionButton(pending.dirPath, pending.operation),
+                pending
+            );
+        });
+    }
+
+    function isMatchingSkillScopeSettlement(settlement, pending) {
+        return Boolean(settlement && settlement.version === 1
+            && settlement.requestId === pending.requestId
+            && settlement.dirPath === pending.dirPath
+            && settlement.operation === pending.operation
+            && typeof settlement.ok === 'boolean');
+    }
+
+    function announceSkillScopeSettlement(settlement, pending) {
+        var status = document.querySelector ? document.querySelector('[data-skill-scope-status]') : null;
+        if (!status || !settlement || !pending) {
+            return;
+        }
+        status.textContent = settlement.ok
+            ? (pending.operation === 'move-to-global'
+                ? 'Skill moved to Global management.'
+                : 'Project skill access updated.')
+            : (settlement.code === 'cancelled' ? 'Skill action cancelled.' : 'Skill action failed.');
+    }
+
+    function replaceSkillsHtml(html, settlement) {
+        var skillsWrapper = document.querySelector
+            ? document.querySelector('#ai-panel-skills .sticky-groups-wrapper')
+            : null;
+        if (!skillsWrapper || typeof html !== 'string') {
+            return false;
+        }
+        var collapsedSkillGroups = captureSkillCollapsedGroups(skillsWrapper);
+        var expandedSkillCards = captureSkillExpandedCards(skillsWrapper);
+        var folderMenuState = captureSkillFolderMenuState();
+        var focused = document.activeElement && document.activeElement.getAttribute
+            ? {
+                dirPath: document.activeElement.getAttribute('data-skill-scope-action'),
+                operation: document.activeElement.getAttribute('data-skill-scope-operation'),
+            }
+            : null;
+        var candidatePending = settlement ? skillScopeActionPending[settlement.requestId] : null;
+        var settledPending = candidatePending && isMatchingSkillScopeSettlement(settlement, candidatePending)
+            ? candidatePending
+            : null;
+        if (settledPending) {
+            delete skillScopeActionPending[settlement.requestId];
+        }
+        skillsWrapper.outerHTML = html;
+        var nextSkillsWrapper = document.querySelector('#ai-panel-skills .sticky-groups-wrapper');
+        restoreSkillCollapsedGroups(nextSkillsWrapper, collapsedSkillGroups);
+        restoreSkillExpandedCards(nextSkillsWrapper, expandedSkillCards);
+        restoreSkillFolderMenuState(folderMenuState);
+        restorePendingSkillScopeActions();
+        applySkillAgentFilter();
+        announceSkillScopeSettlement(settlement, settledPending);
+        if (focused && focused.dirPath) {
+            var nextFocused = findSkillScopeActionButton(focused.dirPath, focused.operation);
+            if (!nextFocused && settledPending && settlement.ok && settlement.resultDirPath) {
+                nextFocused = findSkillScopeActionButton(settlement.resultDirPath, 'apply-to-project');
+            }
+            if (nextFocused && typeof nextFocused.focus === 'function') {
+                nextFocused.focus();
+            } else if (settledPending && nextSkillsWrapper && typeof nextSkillsWrapper.focus === 'function') {
+                nextSkillsWrapper.setAttribute('tabindex', '-1');
+                nextSkillsWrapper.focus();
+            }
+        }
+        return true;
+    }
+
+    function settleSkillScopeActionWithoutHtml(settlement) {
+        var pending = settlement && skillScopeActionPending[settlement.requestId];
+        if (!pending || !isMatchingSkillScopeSettlement(settlement, pending) || settlement.ok) {
+            return false;
+        }
+        delete skillScopeActionPending[settlement.requestId];
+        var button = findSkillScopeActionButton(pending.dirPath, pending.operation);
+        if (button) {
+            button.removeAttribute('aria-disabled');
+            button.classList.remove('pending');
+            button.textContent = pending.label;
+        }
+        announceSkillScopeSettlement(settlement, pending);
+        return true;
+    }
 
     function applySkillAgentFilter() {
         var panel = document.querySelector
@@ -1263,6 +1384,32 @@ function initDashboard(options) {
         }
         if (skillFolderMenu && !(event.target && event.target.closest && event.target.closest('.skill-folder-menu'))) {
             closeSkillFolderMenu();
+        }
+        var scopeAction = event.target && event.target.closest ? event.target.closest('[data-skill-scope-action]') : null;
+        if (scopeAction) {
+            event.preventDefault();
+            event.stopPropagation();
+            if (scopeAction.disabled || scopeAction.getAttribute('aria-disabled') === 'true'
+                || scopeAction.classList.contains('pending')) {
+                return;
+            }
+            var requestId = nextSkillScopeActionRequestId();
+            var pending = {
+                requestId: requestId,
+                dirPath: scopeAction.getAttribute('data-skill-scope-action') || '',
+                operation: scopeAction.getAttribute('data-skill-scope-operation') || '',
+                label: scopeAction.textContent || '',
+            };
+            skillScopeActionPending[requestId] = pending;
+            markSkillScopeActionPending(scopeAction, pending);
+            options.postMessage({
+                type: 'skill-scope-action',
+                version: 1,
+                requestId: requestId,
+                dirPath: pending.dirPath,
+                operation: pending.operation,
+            });
+            return;
         }
         var sectionMenuButton = event.target && event.target.closest ? event.target.closest('[data-section-menu]') : null;
         if (sectionMenuButton) {
@@ -1980,20 +2127,10 @@ function initDashboard(options) {
             applyPromptPanelUpdatedMessage(event.data);
         }
         if (event && event.data && event.data.type === 'skills-updated') {
-            var skillsWrapper = document.querySelector
-                ? document.querySelector('#ai-panel-skills .sticky-groups-wrapper')
-                : null;
-            if (skillsWrapper && typeof event.data.html === 'string') {
-                var collapsedSkillGroups = captureSkillCollapsedGroups(skillsWrapper);
-                var expandedSkillCards = captureSkillExpandedCards(skillsWrapper);
-                var folderMenuState = captureSkillFolderMenuState();
-                skillsWrapper.outerHTML = event.data.html;
-                var nextSkillsWrapper = document.querySelector('#ai-panel-skills .sticky-groups-wrapper');
-                restoreSkillCollapsedGroups(nextSkillsWrapper, collapsedSkillGroups);
-                restoreSkillExpandedCards(nextSkillsWrapper, expandedSkillCards);
-                restoreSkillFolderMenuState(folderMenuState);
-                applySkillAgentFilter();
-            }
+            replaceSkillsHtml(event.data.html, event.data.settlement);
+        }
+        if (event && event.data && event.data.type === 'skill-scope-action-result') {
+            settleSkillScopeActionWithoutHtml(event.data);
         }
         if (event && event.data
             && event.data.type === 'select-dashboard-tab'

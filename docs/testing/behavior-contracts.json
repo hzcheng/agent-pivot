@@ -3691,5 +3691,23 @@
       "src/webview/webviewSkillContent.ts",
       "src/webview/webviewDashboardScripts.js"
     ]
+  },
+  {
+    "id": "PERSIST-AI-SKILL-SCOPE-ACTION-001",
+    "domain": "persistence",
+    "title": "Cross-scope skill application and migration",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "scripts/run-skill-management-checks.js",
+      "tests/browser/skillsFolderTree.test.js"
+    ],
+    "evidence": [
+      "src/skills/scopeService.ts",
+      "src/skills/centralService.ts",
+      "src/skills/dashboardController.ts",
+      "src/webview/webviewSkillContent.ts",
+      "src/webview/webviewDashboardScripts.js"
+    ]
   }
 ]

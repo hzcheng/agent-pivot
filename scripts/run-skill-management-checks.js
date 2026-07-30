@@ -1,6 +1,7 @@
 'use strict';
 
-// Covers PERSIST-AI-SKILL-CENTRAL-STORE-001 and PERSIST-AI-SKILL-DISCOVERY-001.
+// Covers PERSIST-AI-SKILL-CENTRAL-STORE-001, PERSIST-AI-SKILL-DISCOVERY-001,
+// and PERSIST-AI-SKILL-SCOPE-ACTION-001.
 
 const assert = require('assert');
 const fs = require('fs');
@@ -743,6 +744,7 @@ function runSkillSyncChecks() {
 
 function runSkillCentralChecks() {
     const centralService = require('../out/skills/centralService');
+    const scopeService = require('../out/skills/scopeService');
     const real = dirPath => fs.realpathSync(dirPath);
     const makeCentralFixture = () => {
         const home = real(fs.mkdtempSync(path.join(os.tmpdir(), 'skills-central-')));
@@ -895,6 +897,406 @@ function runSkillCentralChecks() {
     assert.strictEqual(controller2.handleCentralize('/nope').ok, false, 'unknown skill refused');
     controller2.dispose();
 
+    // PERSIST-AI-SKILL-SCOPE-ACTION-001: global skills link into exactly the
+    // selected project agents; project skills move to Global without becoming
+    // globally enabled.
+    const { home: scopeHome, ws: scopeWs } = makeCentralFixture();
+    const scopeController = new SkillDashboardController({
+        getHomeDir: () => scopeHome,
+        getWorkspaceRoot: () => scopeWs,
+        postMessage: () => Promise.resolve(true),
+        isVisible: () => true,
+        logError: () => undefined,
+    });
+    scopeController.start();
+    const globalShared = path.join(scopeHome, '.skills', 'shared');
+    fs.mkdirSync(path.join(scopeWs, '.kimi', 'skills', 'shared'), { recursive: true });
+    fs.writeFileSync(path.join(scopeWs, '.kimi', 'skills', 'shared', 'SKILL.md'),
+        '---\nname: shared\ndescription: Foreign project copy\n---\n');
+    assert.strictEqual(
+        scopeController.handleSetGlobalSkillProjectAgents(globalShared, ['claude', 'codex']).ok,
+        true,
+        'global skill applies to selected project agents');
+    assert.strictEqual(fs.realpathSync(path.join(scopeWs, '.claude', 'skills', 'shared')), globalShared);
+    assert.strictEqual(fs.realpathSync(path.join(scopeWs, '.codex', 'skills', 'shared')), globalShared);
+    assert.ok(fs.lstatSync(path.join(scopeWs, '.kimi', 'skills', 'shared')).isDirectory(),
+        'unselected foreign project slot is left untouched');
+    fs.rmSync(path.join(scopeWs, '.kimi', 'skills', 'shared'), { recursive: true });
+    scopeController.refresh('test-scope-link');
+    assert.strictEqual(
+        scopeController.handleSetGlobalSkillProjectAgents(globalShared, ['kimi']).ok,
+        true,
+        'selection is authoritative and can replace existing project links');
+    assert.strictEqual(fs.realpathSync(path.join(scopeWs, '.kimi', 'skills', 'shared')), globalShared);
+    assert.ok(!fs.existsSync(path.join(scopeWs, '.claude', 'skills', 'shared')));
+    assert.ok(!fs.existsSync(path.join(scopeWs, '.codex', 'skills', 'shared')));
+
+    scopeController.refresh('test-project-move');
+    const projectDir = path.join(scopeWs, '.skills', 'proj');
+    fs.mkdirSync(path.join(scopeWs, '.codex', 'skills'), { recursive: true });
+    fs.symlinkSync(projectDir, path.join(scopeWs, '.codex', 'skills', 'proj'), 'dir');
+    const moved = scopeController.handleMoveProjectSkillToGlobal(projectDir);
+    assert.strictEqual(moved.ok, true, 'project skill moves to Global');
+    assert.strictEqual(moved.dirPath, path.join(scopeHome, '.skills', 'proj'));
+    assert.ok(!fs.existsSync(projectDir), 'project source leaves the project');
+    assert.ok(fs.existsSync(path.join(scopeHome, '.skills', 'proj', 'SKILL.md')));
+    assert.strictEqual(
+        fs.realpathSync(path.join(scopeWs, '.claude', 'skills', 'proj')),
+        path.join(scopeHome, '.skills', 'proj'),
+        'existing project agent link is preserved and retargeted');
+    assert.strictEqual(
+        fs.realpathSync(path.join(scopeWs, '.codex', 'skills', 'proj')),
+        path.join(scopeHome, '.skills', 'proj'),
+        'a project link added after the last scan is discovered and retargeted');
+    assert.ok(!fs.existsSync(path.join(scopeHome, '.claude', 'skills', 'proj')),
+        'moving to Global does not enable the skill globally');
+    scopeController.dispose();
+
+    const { home: conflictHome, ws: conflictWs } = makeCentralFixture();
+    fs.mkdirSync(path.join(conflictHome, '.skills', 'proj'), { recursive: true });
+    fs.writeFileSync(path.join(conflictHome, '.skills', 'proj', 'SKILL.md'),
+        '---\nname: proj\ndescription: different global content\n---\n');
+    const conflictController = new SkillDashboardController({
+        getHomeDir: () => conflictHome,
+        getWorkspaceRoot: () => conflictWs,
+        postMessage: () => Promise.resolve(true),
+        isVisible: () => true,
+        logError: () => undefined,
+    });
+    conflictController.start();
+    const conflictingProject = path.join(conflictWs, '.skills', 'proj');
+    const rejectedMove = conflictController.handleMoveProjectSkillToGlobal(conflictingProject);
+    assert.strictEqual(rejectedMove.ok, false, 'different same-name Global content blocks migration');
+    assert.strictEqual(rejectedMove.code, 'conflict');
+    assert.ok(fs.existsSync(path.join(conflictingProject, 'SKILL.md')), 'blocked project source remains intact');
+    assert.strictEqual(fs.realpathSync(path.join(conflictWs, '.claude', 'skills', 'proj')), conflictingProject,
+        'blocked migration leaves project links intact');
+    conflictController.dispose();
+
+    const { home: identicalHome, ws: identicalWs } = makeCentralFixture();
+    fs.mkdirSync(path.join(identicalHome, '.skills', 'proj'), { recursive: true });
+    fs.copyFileSync(
+        path.join(identicalWs, '.skills', 'proj', 'SKILL.md'),
+        path.join(identicalHome, '.skills', 'proj', 'SKILL.md'));
+    const identicalController = new SkillDashboardController({
+        getHomeDir: () => identicalHome,
+        getWorkspaceRoot: () => identicalWs,
+        postMessage: () => Promise.resolve(true),
+        isVisible: () => true,
+        logError: () => undefined,
+    });
+    identicalController.start();
+    const consolidated = identicalController.handleMoveProjectSkillToGlobal(
+        path.join(identicalWs, '.skills', 'proj'));
+    assert.strictEqual(consolidated.ok, true, 'identical same-name skills consolidate into Global');
+    assert.ok(!fs.existsSync(path.join(identicalWs, '.skills', 'proj')));
+    assert.strictEqual(
+        fs.realpathSync(path.join(identicalWs, '.claude', 'skills', 'proj')),
+        path.join(identicalHome, '.skills', 'proj'),
+        'consolidation retargets the project link to the existing Global source');
+    assert.ok(!fs.existsSync(path.join(identicalHome, '.claude', 'skills', 'proj')),
+        'consolidation still does not enable a Global agent link');
+    identicalController.dispose();
+
+    const { home: symlinkDiffHome, ws: symlinkDiffWs } = makeCentralFixture();
+    fs.mkdirSync(path.join(symlinkDiffHome, '.skills', 'proj'), { recursive: true });
+    fs.copyFileSync(
+        path.join(symlinkDiffWs, '.skills', 'proj', 'SKILL.md'),
+        path.join(symlinkDiffHome, '.skills', 'proj', 'SKILL.md'));
+    fs.symlinkSync('project-target', path.join(symlinkDiffWs, '.skills', 'proj', 'reference-link'));
+    const symlinkDiffController = new SkillDashboardController({
+        getHomeDir: () => symlinkDiffHome,
+        getWorkspaceRoot: () => symlinkDiffWs,
+        postMessage: () => Promise.resolve(true),
+        isVisible: () => true,
+        logError: () => undefined,
+    });
+    symlinkDiffController.start();
+    const symlinkDiffResult = symlinkDiffController.handleMoveProjectSkillToGlobal(
+        path.join(symlinkDiffWs, '.skills', 'proj'));
+    assert.strictEqual(symlinkDiffResult.ok, false,
+        'fresh exact comparison blocks consolidation when only a symlink differs');
+    assert.ok(fs.lstatSync(path.join(symlinkDiffWs, '.skills', 'proj', 'reference-link')).isSymbolicLink());
+    symlinkDiffController.dispose();
+
+    const { home: escapedHome, ws: escapedWs } = makeCentralFixture();
+    const escapedSource = path.join(escapedWs, '.skills', 'team', 'escape');
+    fs.mkdirSync(escapedSource, { recursive: true });
+    fs.writeFileSync(path.join(escapedSource, 'SKILL.md'),
+        '---\nname: escape\ndescription: Must stay managed\n---\n');
+    const externalStore = real(fs.mkdtempSync(path.join(os.tmpdir(), 'skills-external-store-')));
+    fs.symlinkSync(externalStore, path.join(escapedHome, '.skills', 'team'), 'dir');
+    const escapedController = new SkillDashboardController({
+        getHomeDir: () => escapedHome,
+        getWorkspaceRoot: () => escapedWs,
+        postMessage: () => Promise.resolve(true),
+        isVisible: () => true,
+        logError: () => undefined,
+    });
+    escapedController.start();
+    const escapedResult = escapedController.handleMoveProjectSkillToGlobal(escapedSource);
+    assert.strictEqual(escapedResult.ok, false, 'symlinked Global parent cannot redirect the destination outside the store');
+    assert.strictEqual(escapedResult.code, 'invalid');
+    assert.ok(fs.existsSync(path.join(escapedSource, 'SKILL.md')), 'rejected escape leaves project source intact');
+    assert.ok(!fs.existsSync(path.join(externalStore, 'escape')), 'nothing is written through the symlinked parent');
+    escapedController.dispose();
+
+    const { home: danglingHome, ws: danglingWs } = makeCentralFixture();
+    const danglingSource = path.join(danglingWs, '.skills', 'dangling');
+    fs.mkdirSync(danglingSource, { recursive: true });
+    fs.writeFileSync(path.join(danglingSource, 'SKILL.md'),
+        '---\nname: dangling\ndescription: Preserve occupied slots\n---\n');
+    const danglingDestination = path.join(danglingHome, '.skills', 'dangling');
+    fs.symlinkSync(path.join(danglingHome, 'missing-target'), danglingDestination, 'dir');
+    const danglingController = new SkillDashboardController({
+        getHomeDir: () => danglingHome,
+        getWorkspaceRoot: () => danglingWs,
+        postMessage: () => Promise.resolve(true),
+        isVisible: () => true,
+        logError: () => undefined,
+    });
+    danglingController.start();
+    const danglingResult = danglingController.handleMoveProjectSkillToGlobal(danglingSource);
+    assert.strictEqual(danglingResult.ok, false, 'dangling symlink occupies the Global destination slot');
+    assert.strictEqual(danglingResult.code, 'conflict');
+    assert.ok(fs.lstatSync(danglingDestination).isSymbolicLink(), 'migration never replaces the dangling link');
+    assert.ok(fs.existsSync(path.join(danglingSource, 'SKILL.md')), 'blocked source remains in the project');
+    danglingController.dispose();
+
+    const { home: missingHome, ws: missingWs } = makeCentralFixture();
+    const missingController = new SkillDashboardController({
+        getHomeDir: () => missingHome,
+        getWorkspaceRoot: () => missingWs,
+        postMessage: () => Promise.resolve(true),
+        isVisible: () => true,
+        logError: () => undefined,
+    });
+    missingController.start();
+    const missingGlobal = path.join(missingHome, '.skills', 'shared');
+    fs.rmSync(missingGlobal, { recursive: true });
+    const missingApply = missingController.handleSetGlobalSkillProjectAgents(missingGlobal, ['claude']);
+    assert.strictEqual(missingApply.ok, false, 'deleted global source cannot create project links');
+    assert.strictEqual(missingApply.code, 'invalid');
+    assert.ok(!fs.existsSync(path.join(missingWs, '.claude', 'skills', 'shared')));
+    missingController.dispose();
+
+    const { home: applyRollbackHome, ws: applyRollbackWs } = makeCentralFixture();
+    const applyRollbackController = new SkillDashboardController({
+        getHomeDir: () => applyRollbackHome,
+        getWorkspaceRoot: () => applyRollbackWs,
+        postMessage: () => Promise.resolve(true),
+        isVisible: () => true,
+        logError: () => undefined,
+    });
+    applyRollbackController.start();
+    const actualSetCentralLink = centralService.setCentralLink;
+    centralService.setCentralLink = (centralDir, rootDir, enable) => {
+        if (rootDir === path.join(applyRollbackWs, '.claude', 'skills') && enable) {
+            return { ok: false, error: 'simulated second-agent failure' };
+        }
+        if (rootDir === path.join(applyRollbackWs, '.kimi', 'skills') && !enable) {
+            return { ok: false, error: 'simulated apply rollback failure' };
+        }
+        return actualSetCentralLink(centralDir, rootDir, enable);
+    };
+    let applyRollbackResult;
+    try {
+        applyRollbackResult = applyRollbackController.handleSetGlobalSkillProjectAgents(
+            path.join(applyRollbackHome, '.skills', 'shared'), ['kimi', 'claude']);
+    } finally {
+        centralService.setCentralLink = actualSetCentralLink;
+    }
+    assert.strictEqual(applyRollbackResult.ok, false);
+    assert.strictEqual(applyRollbackResult.code, 'rollback',
+        'partial Apply rollback is surfaced instead of disguised as an ordinary failure');
+    applyRollbackController.dispose();
+
+    const { home: crossDeviceHome, ws: crossDeviceWs } = makeCentralFixture();
+    const portableSource = path.join(crossDeviceWs, '.skills', 'portable');
+    fs.mkdirSync(portableSource, { recursive: true });
+    fs.writeFileSync(path.join(portableSource, 'SKILL.md'),
+        '---\nname: portable\ndescription: Cross-device fixture\n---\n');
+    fs.mkdirSync(path.join(portableSource, 'references'));
+    fs.writeFileSync(path.join(portableSource, 'references', 'info.md'), 'portable reference\n');
+    fs.symlinkSync('references/info.md', path.join(portableSource, 'reference-link'));
+    const portableRecord = discovery.scanSkills({
+        homeDir: crossDeviceHome,
+        workspaceRoot: crossDeviceWs,
+    }).find(record => record.name === 'portable');
+    const portableDestination = path.join(crossDeviceHome, '.skills', 'portable');
+    const portableResult = scopeService.moveProjectSkillToGlobal(
+        portableRecord, undefined, crossDeviceHome, crossDeviceWs);
+    assert.strictEqual(portableResult.ok, true, 'migration copies into an atomically owned Global directory');
+    assert.ok(fs.lstatSync(path.join(portableDestination, 'reference-link')).isSymbolicLink(),
+        'cross-device copy preserves skill symlinks');
+    assert.strictEqual(fs.readlinkSync(path.join(portableDestination, 'reference-link')), 'references/info.md');
+    assert.ok(!fs.existsSync(portableSource), 'cross-device migration removes the project source only after copying');
+
+    const { home: cleanupHome, ws: cleanupWs } = makeCentralFixture();
+    const cleanupRecord = discovery.scanSkills({
+        homeDir: cleanupHome,
+        workspaceRoot: cleanupWs,
+    }).find(record => record.name === 'proj');
+    const cleanupDestination = path.join(cleanupHome, '.skills', 'proj');
+    const originalCleanupRm = fs.rmSync;
+    fs.rmSync = (target, options) => {
+        if (path.basename(String(target)) === 'proj'
+            && path.basename(path.dirname(String(target))).startsWith('.agent-pivot-scope-')) {
+            originalCleanupRm(path.join(String(target), 'SKILL.md'), { force: true });
+            const error = new Error('simulated partial backup cleanup failure');
+            error.code = 'EACCES';
+            throw error;
+        }
+        return originalCleanupRm(target, options);
+    };
+    let cleanupResult;
+    try {
+        cleanupResult = scopeService.moveProjectSkillToGlobal(
+            cleanupRecord, undefined, cleanupHome, cleanupWs);
+    } finally {
+        fs.rmSync = originalCleanupRm;
+    }
+    assert.strictEqual(cleanupResult.ok, true,
+        'backup cleanup failure never rolls back a verified committed migration');
+    assert.ok(fs.existsSync(path.join(cleanupDestination, 'SKILL.md')),
+        'the complete committed Global destination remains intact');
+    assert.strictEqual(
+        fs.realpathSync(path.join(cleanupWs, '.claude', 'skills', 'proj')),
+        cleanupDestination,
+        'project link remains on the committed Global destination');
+
+    const { home: freshConflictHome, ws: freshConflictWs } = makeCentralFixture();
+    const freshConflictController = new SkillDashboardController({
+        getHomeDir: () => freshConflictHome,
+        getWorkspaceRoot: () => freshConflictWs,
+        postMessage: () => Promise.resolve(true),
+        isVisible: () => true,
+        logError: () => undefined,
+    });
+    freshConflictController.start();
+    fs.mkdirSync(path.join(freshConflictHome, '.skills', 'other', 'proj'), { recursive: true });
+    fs.writeFileSync(path.join(freshConflictHome, '.skills', 'other', 'proj', 'SKILL.md'),
+        '---\nname: proj\ndescription: Appeared after controller start\n---\n');
+    const freshConflictResult = freshConflictController.handleMoveProjectSkillToGlobal(
+        path.join(freshConflictWs, '.skills', 'proj'));
+    assert.strictEqual(freshConflictResult.ok, false,
+        'fresh migration scan catches a same-name Global skill created after controller start');
+    assert.strictEqual(freshConflictResult.code, 'conflict');
+    assert.ok(fs.existsSync(path.join(freshConflictWs, '.skills', 'proj', 'SKILL.md')));
+    freshConflictController.dispose();
+
+    const { home: raceHome, ws: raceWs } = makeCentralFixture();
+    const raceSource = path.join(raceWs, '.skills', 'race');
+    fs.mkdirSync(raceSource, { recursive: true });
+    fs.writeFileSync(path.join(raceSource, 'SKILL.md'),
+        '---\nname: race\ndescription: Slot ownership race\n---\n');
+    const raceRecord = discovery.scanSkills({
+        homeDir: raceHome,
+        workspaceRoot: raceWs,
+    }).find(record => record.name === 'race');
+    const raceDestination = path.join(raceHome, '.skills', 'race');
+    const originalRaceMkdir = fs.mkdirSync;
+    fs.mkdirSync = (dirPath, options) => {
+        if (dirPath === raceDestination && options && options.recursive === false) {
+            originalRaceMkdir(raceDestination);
+            fs.writeFileSync(path.join(raceDestination, 'foreign.txt'), 'do not delete\n');
+        }
+        return originalRaceMkdir(dirPath, options);
+    };
+    let raceResult;
+    try {
+        raceResult = scopeService.moveProjectSkillToGlobal(
+            raceRecord, undefined, raceHome, raceWs);
+    } finally {
+        fs.mkdirSync = originalRaceMkdir;
+    }
+    assert.strictEqual(raceResult.ok, false, 'a destination created during the operation wins the slot');
+    assert.strictEqual(fs.readFileSync(path.join(raceDestination, 'foreign.txt'), 'utf8'), 'do not delete\n',
+        'rollback never deletes a destination it did not create');
+    assert.ok(fs.existsSync(path.join(raceSource, 'SKILL.md')), 'slot race restores the project source');
+
+    const { home: rollbackHome, ws: rollbackWs } = makeCentralFixture();
+    const rollbackRecord = discovery.scanSkills({
+        homeDir: rollbackHome,
+        workspaceRoot: rollbackWs,
+    }).find(record => record.name === 'proj');
+    const rollbackSource = rollbackRecord.dirPath;
+    const rollbackDestination = path.join(rollbackHome, '.skills', 'proj');
+    const originalRollbackMkdir = fs.mkdirSync;
+    const originalRollbackSymlink = fs.symlinkSync;
+    fs.mkdirSync = (dirPath, options) => {
+        if (dirPath === rollbackSource && options && options.recursive === false) {
+            originalRollbackMkdir(rollbackSource);
+            fs.writeFileSync(path.join(rollbackSource, 'foreign.txt'), 'late rollback claimant\n');
+        }
+        return originalRollbackMkdir(dirPath, options);
+    };
+    fs.symlinkSync = (target, linkPath, type) => {
+        if (target === rollbackDestination) {
+            const error = new Error('simulated new-link failure');
+            error.code = 'EACCES';
+            throw error;
+        }
+        return originalRollbackSymlink(target, linkPath, type);
+    };
+    let rollbackResult;
+    try {
+        rollbackResult = scopeService.moveProjectSkillToGlobal(
+            rollbackRecord, undefined, rollbackHome, rollbackWs);
+    } finally {
+        fs.mkdirSync = originalRollbackMkdir;
+        fs.symlinkSync = originalRollbackSymlink;
+    }
+    assert.strictEqual(rollbackResult.ok, false);
+    assert.strictEqual(rollbackResult.code, 'rollback', 'failed source restoration is reported explicitly');
+    const rollbackContainers = fs.readdirSync(path.join(rollbackWs, '.skills'))
+        .filter(name => name.startsWith('.agent-pivot-scope-'));
+    assert.strictEqual(rollbackContainers.length, 1, 'the sole recoverable backup is never cleaned up');
+    assert.ok(fs.existsSync(path.join(
+        rollbackWs, '.skills', rollbackContainers[0], 'proj', 'SKILL.md')));
+    assert.strictEqual(fs.readFileSync(path.join(rollbackSource, 'foreign.txt'), 'utf8'), 'late rollback claimant\n',
+        'atomic rollback slot claim never replaces a foreign path that appears after the precheck');
+    assert.ok(!fs.existsSync(path.join(rollbackWs, '.claude', 'skills', 'proj')),
+        'rollback does not create a dangling link to the unavailable original path');
+
+    const { home: claimedHome, ws: claimedWs } = makeCentralFixture();
+    const claimedRecord = discovery.scanSkills({
+        homeDir: claimedHome,
+        workspaceRoot: claimedWs,
+    }).find(record => record.name === 'proj');
+    const claimedSource = claimedRecord.dirPath;
+    const claimedDestination = path.join(claimedHome, '.skills', 'proj');
+    const originalClaimedCopy = fs.copyFileSync;
+    fs.copyFileSync = (source, target, mode) => {
+        if (String(target).startsWith(claimedDestination + path.sep)) {
+            fs.mkdirSync(claimedSource, { recursive: true });
+            fs.writeFileSync(path.join(claimedSource, 'foreign.txt'), 'foreign claimant\n');
+            const error = new Error('simulated copy failure after source slot claim');
+            error.code = 'EIO';
+            throw error;
+        }
+        return originalClaimedCopy(source, target, mode);
+    };
+    let claimedResult;
+    try {
+        claimedResult = scopeService.moveProjectSkillToGlobal(
+            claimedRecord, undefined, claimedHome, claimedWs);
+    } finally {
+        fs.copyFileSync = originalClaimedCopy;
+    }
+    assert.strictEqual(claimedResult.ok, false);
+    assert.strictEqual(claimedResult.code, 'rollback');
+    assert.strictEqual(fs.readFileSync(path.join(claimedSource, 'foreign.txt'), 'utf8'), 'foreign claimant\n',
+        'rollback never replaces a newly occupied original project slot');
+    assert.ok(!fs.existsSync(path.join(claimedWs, '.claude', 'skills', 'proj')),
+        'rollback never points the project agent at the foreign claimant');
+    const claimedContainers = fs.readdirSync(path.join(claimedWs, '.skills'))
+        .filter(name => name.startsWith('.agent-pivot-scope-'));
+    assert.strictEqual(claimedContainers.length, 1);
+    assert.ok(fs.existsSync(path.join(
+        claimedWs, '.skills', claimedContainers[0], 'proj', 'SKILL.md')),
+    'the recoverable original source remains in the hidden backup');
+
     // rendering: central chip, per-agent link switches, centralize action only on plain skills
     const centralRecord = makeRecord({
         name: 'shared', source: 'central',
@@ -902,7 +1304,7 @@ function runSkillCentralChecks() {
         visibility: { kimi: 'active', claude: 'absent', codex: 'active' },
         central: { dirPath: '/home/dev/.skills/shared', links: { user: { kimi: '/home/dev/.kimi/skills/shared', codex: '/home/dev/.codex/skills/shared' } } },
     });
-    const centralHtml = skillContent.getSkillsPanelContent([centralRecord, makeRecord()]);
+    const centralHtml = skillContent.getSkillsPanelContent([centralRecord, makeRecord()], { hasWorkspace: true });
     assert.ok(!centralHtml.includes('skill-chip central'), 'central chip retired on cards');
     assert.ok(centralHtml.includes('skill-agent-dots'), 'central cards show agent dots');
     assert.ok(!centralHtml.includes('data-skill-source="central"'), 'central records no longer render in source groups');
@@ -922,6 +1324,9 @@ function runSkillCentralChecks() {
     assert.ok(!centralHtml.includes('not linked'), 'no per-agent path rows remain');
     assert.ok(!centralHtml.includes('data-skill-delete="/home/dev/.skills/shared"'), 'central cards hide the Delete action');
     assert.ok(!centralHtml.includes('data-skill-centralize="/home/dev/.skills/shared"'), 'central cards are not re-centralizable');
+    assert.ok(centralHtml.includes('data-skill-scope-action="/home/dev/.skills/shared"'));
+    assert.ok(centralHtml.includes('data-skill-scope-operation="apply-to-project"'));
+    assert.ok(centralHtml.includes('Use in project'));
     assert.ok(centralHtml.includes('data-skill-centralize="/home/dev/.kimi/skills/demo"'), 'plain skills offer Centralize');
     assert.ok(centralHtml.includes('data-skill-delete="/home/dev/.kimi/skills/demo"'), 'plain skills offer Delete');
 
@@ -929,11 +1334,14 @@ function runSkillCentralChecks() {
     const script = fs.readFileSync(path.join(__dirname, '..', 'media', 'webviewDashboardScripts.js'), 'utf8');
     assert.ok(script.includes("'central-toggle-skill'"), 'webview posts per-agent link toggles');
     assert.ok(script.includes("'centralize-skill'"));
+    assert.ok(script.includes("'skill-scope-action'"));
+    assert.ok(script.includes('replaceSkillsHtml'));
     assert.ok(script.includes('data-central-toggle'));
     assert.ok(script.includes('data-central-source'));
     const dashboard = fs.readFileSync(path.join(__dirname, '..', 'src', 'dashboard.ts'), 'utf8');
     assert.ok(dashboard.includes("'central-toggle-skill'"));
     assert.ok(dashboard.includes("'centralize-skill'"));
+    assert.ok(dashboard.includes("'skill-scope-action'"));
     const styles = fs.readFileSync(path.join(__dirname, '..', 'media', 'styles.scss'), 'utf8');
     const compiledCss = fs.readFileSync(path.join(__dirname, '..', 'media', 'styles.css'), 'utf8');
     assert.ok(styles.includes('.skill-chip.central'));

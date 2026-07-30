@@ -10,6 +10,7 @@ import { getCollectionSuggestions, KNOWN_SKILL_COLLECTIONS, SkillCollectionSugge
 import { getCentralSkillsRoot, getKimiBrandCandidates, getProjectSkillsRoots, getUserSkillsRoots } from './roots';
 import { computeSkillCopyTargets, copySkillDir, SkillCopyTarget, syncSkillDir } from './syncService';
 import { fixSkillDiagnostic } from './fixService';
+import { moveProjectSkillToGlobal, setGlobalSkillProjectAgents, SkillScopeActionResult } from './scopeService';
 import { getSkillsPanelContent } from '../webview/webviewSkillContent';
 import type { SkillPanelView } from '../webview/webviewSkillContent';
 import type { SkillGroupStore } from './skillGroupStore';
@@ -192,6 +193,55 @@ export class SkillDashboardController {
         return result;
     }
 
+    handleSetGlobalSkillProjectAgents(dirPath: string, agents: SkillAgentId[]): SkillScopeActionResult {
+        const record = this.records.find(candidate =>
+            candidate.central && candidate.scope === 'user' && candidate.dirPath === dirPath);
+        const workspaceRoot = this.options.getWorkspaceRoot();
+        if (!record || !workspaceRoot) {
+            return { ok: false, error: !workspaceRoot
+                ? 'Open a project before applying a global skill.'
+                : `Unknown global skill: ${dirPath}`, code: 'invalid' };
+        }
+        const result = setGlobalSkillProjectAgents(record, agents, this.options.getHomeDir(), workspaceRoot);
+        if (!result.ok) {
+            this.options.logError('Failed to apply the global skill to the project.', new Error(result.error || 'unknown error'));
+        }
+        return result;
+    }
+
+    handleMoveProjectSkillToGlobal(dirPath: string): SkillScopeActionResult {
+        const workspaceRoot = this.options.getWorkspaceRoot();
+        const freshRecords = workspaceRoot
+            ? scanSkillsDetailed({
+                homeDir: this.options.getHomeDir(),
+                workspaceRoot,
+            }).records
+            : [];
+        const record = freshRecords.find(candidate =>
+            candidate.central && candidate.scope === 'project' && candidate.dirPath === dirPath);
+        if (!record || !workspaceRoot) {
+            return { ok: false, error: !workspaceRoot
+                ? 'Open the project that owns this skill before moving it.'
+                : `Unknown project skill: ${dirPath}`, code: 'invalid' };
+        }
+        const globalMatches = freshRecords.filter(candidate =>
+            candidate.central && candidate.scope === 'user' && candidate.name === record.name);
+        if (globalMatches.length > 1) {
+            return {
+                ok: false,
+                error: `Multiple global skills named "${record.name}" already exist.`,
+                code: 'conflict',
+            };
+        }
+        const existingGlobal = globalMatches[0];
+        const result = moveProjectSkillToGlobal(
+            record, existingGlobal, this.options.getHomeDir(), workspaceRoot);
+        if (!result.ok) {
+            this.options.logError('Failed to move the project skill to Global.', new Error(result.error || 'unknown error'));
+        }
+        return result;
+    }
+
     handleFolderToggle(storeRoot: string, folder: string, scope: SkillScope, agent: SkillAgentId, enabled: boolean): FolderLinkResult {
         const known = Object.values(this.getStoreRoots()).filter(Boolean);
         if (!known.includes(storeRoot)) {
@@ -310,9 +360,9 @@ export class SkillDashboardController {
         this.refresh('start');
     }
 
-    refresh(_reason = 'refresh'): void {
+    refresh(_reason = 'refresh', settlement?: unknown): Promise<boolean> {
         if (this.disposed) {
-            return;
+            return Promise.resolve(false);
         }
         try {
             const scan = scanSkillsDetailed({
@@ -327,11 +377,13 @@ export class SkillDashboardController {
         }
         this.resetWatchers();
         if (this.options.isVisible()) {
-            void this.options.postMessage({
+            return Promise.resolve(this.options.postMessage({
                 type: 'skills-updated',
                 html: getSkillsPanelContent(this.records, this.getPanelView()),
-            });
+                ...(settlement ? { settlement } : {}),
+            }));
         }
+        return Promise.resolve(false);
     }
 
     handleDeleteSkill(dirPath: string): { ok: boolean; error?: string } {

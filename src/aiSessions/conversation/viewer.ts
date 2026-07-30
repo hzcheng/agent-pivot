@@ -122,6 +122,8 @@ export class ConversationViewer implements ConversationViewerApi {
     private latestPublication?: ConversationViewerPageMessage;
     private panelWasVisible = false;
     private suspended = false;
+    private authoritativeLoadInFlight?: Promise<boolean>;
+    private authoritativeRefreshPending = false;
 
     constructor(private readonly options: ConversationViewerOptions) {}
 
@@ -166,6 +168,8 @@ export class ConversationViewer implements ConversationViewerApi {
                 return;
             }
             this.suspended = true;
+            this.authoritativeLoadInFlight = undefined;
+            this.authoritativeRefreshPending = false;
             this.abortController?.abort();
             this.abortController = undefined;
             this.watch?.dispose();
@@ -205,6 +209,8 @@ export class ConversationViewer implements ConversationViewerApi {
     }
 
     private replaceTarget(target: ConversationViewerTarget): number {
+        this.authoritativeLoadInFlight = undefined;
+        this.authoritativeRefreshPending = false;
         this.abortController?.abort();
         this.abortController = undefined;
         this.watch?.dispose();
@@ -270,6 +276,8 @@ export class ConversationViewer implements ConversationViewerApi {
     }
 
     private clear(_restoreTarget: ConversationViewerTarget | undefined): void {
+        this.authoritativeLoadInFlight = undefined;
+        this.authoritativeRefreshPending = false;
         this.abortController?.abort();
         this.abortController = undefined;
         this.watch?.dispose();
@@ -403,7 +411,37 @@ export class ConversationViewer implements ConversationViewerApi {
         }, 'replace', false, 'navigation', latestInteractionId);
     }
 
-    private async loadAuthoritative(
+    private loadAuthoritative(
+        updateKind: 'initial' | 'refresh',
+        replaceDocument: boolean
+    ): Promise<boolean> {
+        if (this.authoritativeLoadInFlight) {
+            this.authoritativeRefreshPending = true;
+            return this.authoritativeLoadInFlight;
+        }
+        let loadInFlight: Promise<boolean>;
+        loadInFlight = this.performAuthoritativeLoad(
+            updateKind,
+            replaceDocument
+        ).finally(() => {
+            if (this.authoritativeLoadInFlight !== loadInFlight) {
+                return;
+            }
+            this.authoritativeLoadInFlight = undefined;
+            if (!this.authoritativeRefreshPending
+                || !this.target
+                || !this.panel
+                || this.suspended) {
+                return;
+            }
+            this.authoritativeRefreshPending = false;
+            void this.loadAuthoritative('refresh', false);
+        });
+        this.authoritativeLoadInFlight = loadInFlight;
+        return loadInFlight;
+    }
+
+    private async performAuthoritativeLoad(
         updateKind: 'initial' | 'refresh',
         replaceDocument: boolean
     ): Promise<boolean> {

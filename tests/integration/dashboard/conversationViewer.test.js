@@ -612,6 +612,64 @@ test('CONVERSATION-VIEWER-REFRESH-001 retains stale content after a watched fail
     assert.equal(publication.partial, true);
 });
 
+test('CONVERSATION-VIEWER-LOADING-001 coalesces watched invalidations without starving the initial publication', async t => {
+    let onChange;
+    let outlineReads = 0;
+    let initialSignal;
+    const initialOutline = deferred();
+    const { viewer, panel } = createViewer({
+        watch: (_provider, _sessionId, callback) => {
+            onChange = callback;
+            return { dispose() {} };
+        },
+        readOutline: async (_provider, sessionId, signal) => {
+            outlineReads += 1;
+            if (outlineReads === 1) {
+                initialSignal = signal;
+                return initialOutline.promise;
+            }
+            return outline(sessionId, ['input-1'], {
+                sourceRevision: `r${outlineReads}`,
+            });
+        },
+        readPage: async request => page(
+            request.sessionId,
+            request.anchorInteractionId,
+            `visible-${request.expectedRevision}`,
+            { sourceRevision: request.expectedRevision }
+        ),
+    });
+    t.after(() => viewer.dispose());
+
+    const opening = viewer.open(target('session-a', 'input-1'));
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(outlineReads, 1);
+
+    onChange();
+    onChange();
+    onChange();
+    await new Promise(resolve => setImmediate(resolve));
+    const initialWasAborted = initialSignal.aborted;
+    const readsBeforeInitialSettled = outlineReads;
+
+    initialOutline.resolve(outline('session-a', ['input-1'], {
+        sourceRevision: 'r1',
+    }));
+    await opening;
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.equal(initialWasAborted, false);
+    assert.equal(readsBeforeInitialSettled, 1);
+    assert.equal(outlineReads, 2);
+    const publications = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page');
+    assert.equal(panel.webview.html.includes('visible-r1'), true);
+    assert.equal(publications.length, 1);
+    assert.equal(publications[0].updateKind, 'refresh');
+    assert.equal(publications[0].html.includes('visible-r2'), true);
+    assert.equal(panel.webview.html.includes('Loading conversation…'), false);
+});
+
 test('CONVERSATION-VIEWER-AUTHORITY-003 suspends exact authority without clearing the snapshot and resumes with a fresh watch/read', async () => {
     let outlineReads = 0;
     let pageReads = 0;

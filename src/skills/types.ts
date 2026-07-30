@@ -35,7 +35,7 @@ export interface SkillRecord {
 }
 
 export interface SkillCentralInfo {
-    /** Real directory inside the central store (`~/.skills` or `<project>/.skills`). */
+    /** Real directory inside the configured Global store or `<project>/.skills`. */
     dirPath: string;
     /** Which agent/generic skills roots link to the central directory, by scope. */
     links: SkillLinkMap;

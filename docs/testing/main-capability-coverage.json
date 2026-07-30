@@ -966,8 +966,8 @@
         },
         {
             "id": "MAIN-AI-SKILL-MANAGEMENT",
-            "title": "Central AI skill store with scoped agent links",
-            "requirement": "Skills live in a central on-disk store with folder trees; per-agent enablement is symlink-based per scope, and every mutation (centralize, migrate, sync, delete, folder batch) enforces containment and survives authoritative webview refreshes.",
+            "title": "Configurable central AI skill store with scoped agent links",
+            "requirement": "Skills live in a configurable Global on-disk store or project-relative store with folder trees; per-agent enablement is symlink-based per scope, and every mutation (centralize, migrate, relocate, sync, delete, folder batch) enforces containment and survives authoritative webview refreshes.",
             "commits": [
                 "b50fcc95bdd5cc05af97ce227389c9ade3bc37bf",
                 "c44ce9548239bf376c85c652f875ee471dd85be9",
@@ -1022,10 +1022,12 @@
                 "PERSIST-AI-SKILL-CENTRAL-STORE-001",
                 "PERSIST-AI-SKILL-DISCOVERY-001",
                 "WEBVIEW-AI-SKILL-PANEL-001",
-                "PERSIST-AI-SKILL-SCOPE-ACTION-001"
+                "PERSIST-AI-SKILL-SCOPE-ACTION-001",
+                "PERSIST-AI-SKILL-GLOBAL-STORE-LOCATION-001"
             ],
             "prGates": [
                 "test:skills",
+                "test:contract",
                 "test:browser:run",
                 "test:safety:run"
             ],

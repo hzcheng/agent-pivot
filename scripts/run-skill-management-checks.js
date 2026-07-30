@@ -1,7 +1,8 @@
 'use strict';
 
 // Covers PERSIST-AI-SKILL-CENTRAL-STORE-001, PERSIST-AI-SKILL-DISCOVERY-001,
-// and PERSIST-AI-SKILL-SCOPE-ACTION-001.
+// PERSIST-AI-SKILL-SCOPE-ACTION-001, and
+// PERSIST-AI-SKILL-GLOBAL-STORE-LOCATION-001.
 
 const assert = require('assert');
 const fs = require('fs');
@@ -10,6 +11,7 @@ const path = require('path');
 
 const frontmatter = require('../out/skills/frontmatter');
 const roots = require('../out/skills/roots');
+const globalStore = require('../out/skills/globalStoreService');
 const discovery = require('../out/skills/discovery');
 const effectiveness = require('../out/skills/effectiveness');
 
@@ -533,6 +535,7 @@ function runSkillWiringChecks() {
 
 runFrontmatterChecks();
 runRootsChecks();
+runGlobalStoreLocationChecks();
 runDiscoveryChecks();
 runEffectivenessChecks();
 runSkillRenderingChecks();
@@ -551,6 +554,330 @@ runSkillFolderServiceChecks();
 runSkillFolderControllerChecks();
 runSkillFolderMutationChecks();
 console.log('Skill management checks passed.');
+
+function runGlobalStoreLocationChecks() {
+    const real = dirPath => fs.realpathSync(dirPath);
+    const home = real(fs.mkdtempSync(path.join(os.tmpdir(), 'skills-global-store-')));
+    const workspace = real(fs.mkdtempSync(path.join(os.tmpdir(), 'skills-global-workspace-')));
+    const resolve = value => globalStore.resolveGlobalSkillsLocation(value, {
+        homeDir: home,
+        workspaceRoots: [workspace],
+    });
+
+    assert.deepStrictEqual(resolve('~/.skills'), {
+        ok: true,
+        configuredPath: path.join(home, '.skills'),
+        rootPath: path.join(home, '.skills'),
+    });
+    assert.deepStrictEqual(resolve('~/shared/agent-skills'), {
+        ok: true,
+        configuredPath: path.join(home, 'shared', 'agent-skills'),
+        rootPath: path.join(home, 'shared', 'agent-skills'),
+    });
+    assert.strictEqual(resolve('relative/skills').ok, false, 'relative paths are rejected');
+    assert.strictEqual(resolve('~other/skills').ok, false, 'other-user tilde paths are rejected');
+    assert.strictEqual(resolve(path.parse(home).root).ok, false, 'filesystem root is rejected');
+    assert.strictEqual(resolve(home).ok, false, 'home directory itself is rejected');
+    assert.strictEqual(resolve(workspace).ok, false, 'workspace root itself is rejected');
+    assert.strictEqual(resolve(path.join(home, '.codex', 'skills', 'central')).ok, false,
+        'a store inside an agent root is rejected');
+    assert.strictEqual(resolve(path.join(home, '.codex')).ok, false,
+        'an ancestor of an agent root is rejected');
+    assert.strictEqual(resolve(path.join(workspace, '.skills')).ok, false,
+        'the project central store cannot also be the global store');
+
+    const sourceRoot = path.join(home, '.skills');
+    const targetRoot = path.join(home, 'shared', 'skills');
+    const write = (filePath, content) => {
+        fs.mkdirSync(path.dirname(filePath), { recursive: true });
+        fs.writeFileSync(filePath, content);
+    };
+    const lockedTarget = path.join(home, 'locked-target');
+    const firstLock = globalStore.acquireTargetMutationLock(lockedTarget);
+    assert.strictEqual(firstLock.ok, true);
+    const competingLock = globalStore.acquireTargetMutationLock(lockedTarget);
+    assert.strictEqual(competingLock.ok, false,
+        'cooperating windows cannot mutate the same target concurrently');
+    firstLock.lock.release();
+    const releasedLock = globalStore.acquireTargetMutationLock(lockedTarget);
+    assert.strictEqual(releasedLock.ok, true, 'a completed mutation releases its target lock');
+    releasedLock.lock.release();
+    const sharedSource = path.join(home, 'shared-source-lock');
+    const sourceAndTargetLock = globalStore.acquireSkillsMutationLocks([
+        sharedSource,
+        path.join(home, 'target-a'),
+    ]);
+    assert.strictEqual(sourceAndTargetLock.ok, true);
+    const splitBrainLock = globalStore.acquireSkillsMutationLocks([
+        sharedSource,
+        path.join(home, 'target-b'),
+    ]);
+    assert.strictEqual(splitBrainLock.ok, false,
+        'one source cannot be migrated concurrently to two different targets');
+    sourceAndTargetLock.lock.release();
+
+    write(path.join(sourceRoot, 'pack', 'alpha', 'SKILL.md'),
+        '---\nname: alpha\ndescription: A\n---\n');
+    assert.strictEqual(globalStore.hasGlobalSkillsStoreContent(sourceRoot), true);
+    const agentRoot = path.join(home, '.codex', 'skills');
+    fs.mkdirSync(agentRoot, { recursive: true });
+    fs.symlinkSync(path.join(sourceRoot, 'pack', 'alpha'), path.join(agentRoot, 'alpha'), 'dir');
+    const moved = globalStore.relocateGlobalSkillsStore(sourceRoot, targetRoot);
+    assert.strictEqual(moved.ok, true);
+    assert.strictEqual(moved.moved, true);
+    assert.strictEqual(moved.aliasCreated, true);
+    assert.ok(fs.lstatSync(sourceRoot).isSymbolicLink(), 'old root becomes a compatibility alias');
+    assert.strictEqual(real(sourceRoot), real(targetRoot));
+    assert.ok(fs.existsSync(path.join(targetRoot, 'pack', 'alpha', 'SKILL.md')));
+    assert.strictEqual(
+        fs.readdirSync(targetRoot).some(name => name.startsWith('.agent-pivot-owner-')),
+        false,
+        'a committed relocation releases its ownership marker',
+    );
+    assert.strictEqual(real(path.join(agentRoot, 'alpha')), real(path.join(targetRoot, 'pack', 'alpha')),
+        'an existing agent link through the old root remains valid');
+
+    const aliasResolution = resolve('~/.skills');
+    assert.strictEqual(aliasResolution.ok, true);
+    assert.strictEqual(aliasResolution.configuredPath, sourceRoot);
+    assert.strictEqual(aliasResolution.rootPath, real(targetRoot),
+        'configured aliases resolve to the physical managed store');
+
+    const occupiedSource = path.join(home, 'occupied-source');
+    const occupiedTarget = path.join(home, 'occupied-target');
+    write(path.join(occupiedSource, 'beta', 'SKILL.md'), 'beta');
+    write(path.join(occupiedTarget, 'foreign.txt'), 'foreign');
+    const occupied = globalStore.relocateGlobalSkillsStore(occupiedSource, occupiedTarget);
+    assert.strictEqual(occupied.ok, false, 'non-empty targets are never merged or overwritten');
+    assert.ok(fs.existsSync(path.join(occupiedSource, 'beta', 'SKILL.md')));
+    assert.strictEqual(fs.readFileSync(path.join(occupiedTarget, 'foreign.txt'), 'utf8'), 'foreign');
+
+    const crossSource = path.join(home, 'cross-source');
+    const crossTarget = path.join(home, 'cross-target');
+    write(path.join(crossSource, 'nested', 'gamma', 'SKILL.md'), 'gamma');
+    const cross = globalStore.relocateGlobalSkillsStore(crossSource, crossTarget);
+    assert.strictEqual(cross.ok, true, 'migration uses a verified copy protocol');
+    assert.ok(fs.lstatSync(crossSource).isSymbolicLink());
+    assert.ok(fs.existsSync(path.join(crossTarget, 'nested', 'gamma', 'SKILL.md')));
+
+    const lateSource = path.join(home, 'late-source');
+    const lateTarget = path.join(home, 'late-target');
+    write(path.join(lateSource, 'epsilon', 'SKILL.md'), 'epsilon');
+    const late = globalStore.relocateGlobalSkillsStore(lateSource, lateTarget, {
+        renameSync(from, to) {
+            if (path.basename(from) === path.basename(lateSource)
+                && to.includes(`${path.sep}.agent-pivot-global-store-`)) {
+                write(path.join(from, 'late.txt'), 'arrived during migration');
+            }
+            fs.renameSync(from, to);
+        },
+    });
+    assert.strictEqual(late.ok, false,
+        'a write that arrives after the first verification aborts migration');
+    assert.strictEqual(
+        fs.readFileSync(path.join(lateSource, 'late.txt'), 'utf8'),
+        'arrived during migration',
+        'the late write remains authoritative at the source',
+    );
+    assert.strictEqual(late.recoveryPath, lateTarget);
+    assert.ok(fs.existsSync(lateTarget),
+        'a failed public target is retained for safe recovery');
+
+    const occupiedRollbackSource = path.join(home, 'occupied-rollback-source');
+    const occupiedRollbackTarget = path.join(home, 'occupied-rollback-target');
+    write(path.join(occupiedRollbackSource, 'zeta', 'SKILL.md'), 'zeta');
+    const occupiedRollback = globalStore.relocateGlobalSkillsStore(
+        occupiedRollbackSource,
+        occupiedRollbackTarget,
+        {
+            renameSync(from, to) {
+                fs.renameSync(from, to);
+                if (path.basename(from) === path.basename(occupiedRollbackSource)
+                    && to.includes(`${path.sep}.agent-pivot-global-store-`)) {
+                    fs.mkdirSync(from);
+                    write(path.join(from, 'concurrent.txt'), 'do not overwrite');
+                }
+            },
+        },
+    );
+    assert.strictEqual(occupiedRollback.ok, false);
+    assert.strictEqual(
+        fs.readFileSync(path.join(occupiedRollbackSource, 'concurrent.txt'), 'utf8'),
+        'do not overwrite',
+        'rollback never overwrites a concurrently occupied source slot',
+    );
+    assert.ok(occupiedRollback.recoveryPath);
+    assert.ok(occupiedRollback.error.includes(occupiedRollback.recoveryPath));
+    assert.ok(fs.existsSync(path.join(occupiedRollback.recoveryPath, 'zeta', 'SKILL.md')),
+        'the original store remains recoverable at the reported path');
+    assert.ok(fs.existsSync(occupiedRollbackTarget),
+        'the incomplete target is retained without touching the concurrent source');
+
+    const rollbackSource = path.join(home, 'rollback-source');
+    const rollbackTarget = path.join(home, 'rollback-target');
+    write(path.join(rollbackSource, 'delta', 'SKILL.md'), 'delta');
+    const rollback = globalStore.relocateGlobalSkillsStore(rollbackSource, rollbackTarget, {
+        copyFileSync() {
+            throw new Error('copy failed');
+        },
+    });
+    assert.strictEqual(rollback.ok, false);
+    assert.ok(fs.existsSync(path.join(rollbackSource, 'delta', 'SKILL.md')),
+        'failed copy leaves the source authoritative');
+    assert.strictEqual(rollback.recoveryPath, rollbackTarget);
+    assert.ok(fs.existsSync(rollbackTarget), 'failed target is retained for safe recovery');
+
+    const destinationRaceSource = path.join(home, 'destination-race-source');
+    const destinationRaceTarget = path.join(home, 'destination-race-target');
+    write(path.join(destinationRaceSource, 'eta', 'SKILL.md'), 'eta');
+    const destinationRace = globalStore.relocateGlobalSkillsStore(
+        destinationRaceSource,
+        destinationRaceTarget,
+        {
+            mkdirSync(candidate, options) {
+                if (candidate === destinationRaceTarget) {
+                    fs.mkdirSync(destinationRaceTarget);
+                }
+                return fs.mkdirSync(candidate, options);
+            },
+        },
+    );
+    assert.strictEqual(destinationRace.ok, false,
+        'a destination claimed by another window aborts relocation');
+    assert.ok(fs.existsSync(path.join(destinationRaceSource, 'eta', 'SKILL.md')));
+    assert.ok(fs.existsSync(destinationRaceTarget),
+        'the concurrently claimed destination is not removed');
+    assert.deepStrictEqual(fs.readdirSync(destinationRaceTarget), []);
+
+    const replacedTargetSource = path.join(home, 'replaced-target-source');
+    const replacedTarget = path.join(home, 'replaced-target');
+    write(path.join(replacedTargetSource, 'theta', 'SKILL.md'), 'theta');
+    const replaced = globalStore.relocateGlobalSkillsStore(
+        replacedTargetSource,
+        replacedTarget,
+        {
+            copyFileSync() {
+                fs.rmSync(replacedTarget, { recursive: true, force: true });
+                fs.mkdirSync(replacedTarget);
+                write(path.join(replacedTarget, 'foreign.txt'), 'foreign owner');
+                throw new Error('copy lost ownership');
+            },
+        },
+    );
+    assert.strictEqual(replaced.ok, false);
+    assert.strictEqual(replaced.recoveryPath, replacedTarget);
+    assert.ok(replaced.error.includes(replacedTarget));
+    assert.strictEqual(
+        fs.readFileSync(path.join(replacedTarget, 'foreign.txt'), 'utf8'),
+        'foreign owner',
+        'failed relocation never deletes a target replaced after the atomic claim',
+    );
+    assert.ok(fs.existsSync(path.join(replacedTargetSource, 'theta', 'SKILL.md')));
+
+    const preCaptureSource = path.join(home, 'pre-capture-source');
+    const preCaptureTarget = path.join(home, 'pre-capture-target');
+    write(path.join(preCaptureSource, 'iota', 'SKILL.md'), 'iota');
+    const preCapture = globalStore.relocateGlobalSkillsStore(
+        preCaptureSource,
+        preCaptureTarget,
+        {
+            mkdirSync(candidate, options) {
+                const result = fs.mkdirSync(candidate, options);
+                if (candidate === preCaptureTarget) {
+                    fs.rmSync(preCaptureTarget, { recursive: true, force: true });
+                    fs.mkdirSync(preCaptureTarget);
+                    write(path.join(preCaptureTarget, 'iota', 'SKILL.md'), 'foreign before marker');
+                }
+                return result;
+            },
+        },
+    );
+    assert.strictEqual(preCapture.ok, false);
+    assert.strictEqual(preCapture.recoveryPath, preCaptureTarget);
+    assert.strictEqual(
+        fs.readFileSync(path.join(preCaptureTarget, 'iota', 'SKILL.md'), 'utf8'),
+        'foreign before marker',
+        'relocation preserves a target replaced before identity capture',
+    );
+    assert.ok(fs.existsSync(path.join(preCaptureSource, 'iota', 'SKILL.md')));
+
+    const customRoot = path.join(home, 'configured-global-skills');
+    write(path.join(customRoot, 'custom', 'SKILL.md'),
+        '---\nname: custom\ndescription: Custom\n---\n');
+    fs.symlinkSync(path.join(customRoot, 'custom'), path.join(agentRoot, 'custom'), 'dir');
+    const scan = discovery.scanSkills({
+        homeDir: home,
+        workspaceRoot: workspace,
+        globalSkillsRoot: customRoot,
+    });
+    const custom = scan.find(record => record.name === 'custom');
+    assert.ok(custom?.central, 'configured Global root is discovered as central');
+    assert.strictEqual(custom.dirPath, path.join(customRoot, 'custom'));
+    assert.strictEqual(custom.central.links.user.codex, path.join(agentRoot, 'custom'));
+
+    assert.strictEqual(
+        roots.getCentralSkillsRoot(home, 'user', undefined, customRoot),
+        customRoot,
+        'all Global central root resolution accepts the configured root'
+    );
+    assert.strictEqual(
+        roots.getCentralSkillsRoot(home, 'project', workspace, customRoot),
+        path.join(workspace, '.skills'),
+        'Project central root stays fixed even when Global is configured'
+    );
+
+    write(path.join(home, '.kimi', 'skills', 'configured-destination', 'SKILL.md'),
+        '---\nname: configured-destination\ndescription: Destination\n---\n');
+    const controller = new SkillDashboardController({
+        getHomeDir: () => home,
+        getWorkspaceRoot: () => workspace,
+        getGlobalSkillsRoot: () => customRoot,
+        postMessage: () => Promise.resolve(true),
+        isVisible: () => false,
+        logError: () => undefined,
+    });
+    controller.start();
+    assert.deepStrictEqual(controller.getStoreRoots(), {
+        user: customRoot,
+        project: path.join(workspace, '.skills'),
+    });
+    assert.strictEqual(
+        controller.handleCentralize(
+            path.join(home, '.kimi', 'skills', 'configured-destination'),
+        ).ok,
+        true,
+        'controller mutations use the configured Global root',
+    );
+    assert.ok(fs.existsSync(path.join(customRoot, 'configured-destination', 'SKILL.md')));
+    controller.dispose();
+
+    const sourceScript = fs.readFileSync(
+        path.join(__dirname, '..', 'src', 'webview', 'webviewDashboardScripts.js'),
+        'utf8',
+    );
+    assert.ok(sourceScript.includes('Change Global Skills Location…'));
+    assert.ok(sourceScript.includes("if (scope === 'user')"),
+        'the location action is only added to the Global section');
+    assert.ok(sourceScript.includes("type: 'change-global-skills-location'"));
+    const dashboard = fs.readFileSync(path.join(__dirname, '..', 'src', 'dashboard.ts'), 'utf8');
+    assert.ok(dashboard.includes("'change-global-skills-location'"));
+    assert.ok(dashboard.includes(
+        'globalStoreLocationController.changeInteractively()',
+    ));
+    const packageJson = JSON.parse(
+        fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'),
+    );
+    const setting = packageJson.contributes.configuration.properties[
+        'agentPivot.skills.globalStorePath'
+    ];
+    assert.deepStrictEqual(
+        { type: setting.type, default: setting.default, scope: setting.scope },
+        { type: 'string', default: '~/.skills', scope: 'machine' },
+    );
+    assert.ok(packageJson.contributes.commands.some(
+        command => command.command === 'agentPivot.changeGlobalSkillsLocation',
+    ));
+}
 
 function runSkillFixChecks() {
     const fixService = require('../out/skills/fixService');
@@ -843,6 +1170,12 @@ function runSkillCentralChecks() {
     assert.strictEqual(centralized.ok, true);
     assert.strictEqual(centralized.dirPath, path.join(home, '.skills', 'solo'));
     assert.ok(fs.existsSync(path.join(home, '.skills', 'solo', 'SKILL.md')), 'skill content moved into the store');
+    assert.strictEqual(
+        fs.readdirSync(path.join(home, '.skills', 'solo'))
+            .some(name => name.startsWith('.agent-pivot-owner-')),
+        false,
+        'a committed centralize releases its ownership marker',
+    );
     assert.ok(fs.lstatSync(path.join(home, '.claude', 'skills', 'solo')).isSymbolicLink(), 'original root links back');
     assert.strictEqual(fs.realpathSync(path.join(home, '.claude', 'skills', 'solo')), path.join(home, '.skills', 'solo'));
     assert.ok(!fs.existsSync(path.join(home, '.codex', 'skills', 'solo')), 'losing copy left its root');
@@ -852,6 +1185,216 @@ function runSkillCentralChecks() {
     const soloRecords = rescanned.filter(record => record.name === 'solo');
     assert.strictEqual(soloRecords.length, 1, 'centralized skill merges into one record');
     assert.strictEqual(soloRecords[0].source, 'central');
+
+    const crossHome = real(fs.mkdtempSync(path.join(os.tmpdir(), 'skills-central-cross-')));
+    const crossStore = path.join(crossHome, 'configured-global');
+    const crossSource = path.join(crossHome, '.kimi', 'skills', 'cross');
+    fs.mkdirSync(crossSource, { recursive: true });
+    fs.writeFileSync(path.join(crossSource, 'SKILL.md'),
+        '---\nname: cross\ndescription: Cross-device\n---\n');
+    const crossRecord = discovery.scanSkills({ homeDir: crossHome })
+        .find(record => record.name === 'cross');
+    const crossCentralized = centralService.centralizeSkill(
+        crossRecord,
+        [],
+        crossHome,
+        undefined,
+        {
+            globalSkillsRoot: crossStore,
+        },
+    );
+    assert.strictEqual(crossCentralized.ok, true,
+        'centralize uses a verified copy protocol across configured roots');
+    assert.ok(fs.existsSync(path.join(crossStore, 'cross', 'SKILL.md')));
+    assert.strictEqual(
+        fs.realpathSync(crossSource),
+        path.join(crossStore, 'cross'),
+        'cross-device centralize links the original agent slot to the configured store',
+    );
+
+    const changingSource = path.join(crossHome, '.claude', 'skills', 'changing');
+    fs.mkdirSync(changingSource, { recursive: true });
+    fs.writeFileSync(path.join(changingSource, 'SKILL.md'),
+        '---\nname: changing\ndescription: Changing\n---\n');
+    const changingRecord = discovery.scanSkills({
+        homeDir: crossHome,
+        globalSkillsRoot: crossStore,
+    }).find(record => record.name === 'changing');
+    const changing = centralService.centralizeSkill(
+        changingRecord,
+        [],
+        crossHome,
+        undefined,
+        {
+            globalSkillsRoot: crossStore,
+            renameSync(from, to) {
+                if (path.basename(from) === path.basename(changingSource)
+                    && to.includes(`${path.sep}.agent-pivot-centralize-`)) {
+                    fs.writeFileSync(path.join(from, 'late.txt'), 'late');
+                }
+                fs.renameSync(from, to);
+            },
+        },
+    );
+    assert.strictEqual(changing.ok, false,
+        'cross-device centralize aborts when the source changes before commit');
+    assert.strictEqual(fs.readFileSync(path.join(changingSource, 'late.txt'), 'utf8'), 'late');
+    assert.strictEqual(changing.recoveryPath, path.join(crossStore, 'changing'));
+    assert.ok(fs.existsSync(path.join(crossStore, 'changing')));
+
+    const occupiedSource = path.join(crossHome, '.codex', 'skills', 'occupied');
+    fs.mkdirSync(occupiedSource, { recursive: true });
+    fs.writeFileSync(path.join(occupiedSource, 'SKILL.md'),
+        '---\nname: occupied\ndescription: Occupied rollback\n---\n');
+    const occupiedRecord = discovery.scanSkills({
+        homeDir: crossHome,
+        globalSkillsRoot: crossStore,
+    }).find(record => record.name === 'occupied');
+    const occupiedCentralize = centralService.centralizeSkill(
+        occupiedRecord,
+        [],
+        crossHome,
+        undefined,
+        {
+            globalSkillsRoot: crossStore,
+            renameSync(from, to) {
+                fs.renameSync(from, to);
+                if (path.basename(from) === path.basename(occupiedSource)
+                    && to.includes(`${path.sep}.agent-pivot-centralize-`)) {
+                    fs.mkdirSync(from);
+                    fs.writeFileSync(path.join(from, 'concurrent.txt'), 'concurrent');
+                }
+            },
+        },
+    );
+    assert.strictEqual(occupiedCentralize.ok, false);
+    assert.ok(occupiedCentralize.recoveryPath,
+        'an incomplete centralize rollback reports the authoritative recovery path');
+    assert.ok(occupiedCentralize.error.includes(occupiedCentralize.recoveryPath));
+    assert.ok(fs.existsSync(path.join(occupiedCentralize.recoveryPath, 'SKILL.md')));
+    assert.strictEqual(
+        fs.readFileSync(path.join(occupiedSource, 'concurrent.txt'), 'utf8'),
+        'concurrent',
+        'centralize rollback never overwrites a concurrently occupied source slot',
+    );
+
+    const destinationRaceSource = path.join(crossHome, '.kimi', 'skills', 'destination-race');
+    fs.mkdirSync(destinationRaceSource, { recursive: true });
+    fs.writeFileSync(path.join(destinationRaceSource, 'SKILL.md'),
+        '---\nname: destination-race\ndescription: Destination race\n---\n');
+    const destinationRaceRecord = discovery.scanSkills({
+        homeDir: crossHome,
+        globalSkillsRoot: crossStore,
+    }).find(record => record.name === 'destination-race');
+    const destinationRaceTarget = path.join(crossStore, 'destination-race');
+    const destinationRaceCentralize = centralService.centralizeSkill(
+        destinationRaceRecord,
+        [],
+        crossHome,
+        undefined,
+        {
+            globalSkillsRoot: crossStore,
+            mkdirSync(candidate, options) {
+                if (candidate === destinationRaceTarget) {
+                    fs.mkdirSync(destinationRaceTarget);
+                }
+                return fs.mkdirSync(candidate, options);
+            },
+        },
+    );
+    assert.strictEqual(destinationRaceCentralize.ok, false,
+        'centralize aborts when another window claims the destination');
+    assert.ok(fs.existsSync(path.join(destinationRaceSource, 'SKILL.md')));
+    assert.ok(fs.existsSync(destinationRaceTarget),
+        'centralize does not remove a concurrently claimed destination');
+    assert.deepStrictEqual(fs.readdirSync(destinationRaceTarget), []);
+
+    const replacedDestinationSource = path.join(
+        crossHome,
+        '.claude',
+        'skills',
+        'replaced-destination',
+    );
+    fs.mkdirSync(replacedDestinationSource, { recursive: true });
+    fs.writeFileSync(path.join(replacedDestinationSource, 'SKILL.md'),
+        '---\nname: replaced-destination\ndescription: Replaced destination\n---\n');
+    const replacedDestinationRecord = discovery.scanSkills({
+        homeDir: crossHome,
+        globalSkillsRoot: crossStore,
+    }).find(record => record.name === 'replaced-destination');
+    const replacedDestinationTarget = path.join(crossStore, 'replaced-destination');
+    const replacedDestination = centralService.centralizeSkill(
+        replacedDestinationRecord,
+        [],
+        crossHome,
+        undefined,
+        {
+            globalSkillsRoot: crossStore,
+            copyFileSync() {
+                fs.rmSync(replacedDestinationTarget, { recursive: true, force: true });
+                fs.mkdirSync(replacedDestinationTarget);
+                fs.writeFileSync(
+                    path.join(replacedDestinationTarget, 'foreign.txt'),
+                    'foreign owner',
+                );
+                throw new Error('copy lost ownership');
+            },
+        },
+    );
+    assert.strictEqual(replacedDestination.ok, false);
+    assert.strictEqual(replacedDestination.recoveryPath, replacedDestinationTarget);
+    assert.ok(replacedDestination.error.includes(replacedDestinationTarget));
+    assert.strictEqual(
+        fs.readFileSync(path.join(replacedDestinationTarget, 'foreign.txt'), 'utf8'),
+        'foreign owner',
+        'failed centralization never deletes a target replaced after the atomic claim',
+    );
+    assert.ok(fs.existsSync(path.join(replacedDestinationSource, 'SKILL.md')));
+
+    const preCaptureDestinationSource = path.join(
+        crossHome,
+        '.codex',
+        'skills',
+        'pre-capture-destination',
+    );
+    fs.mkdirSync(preCaptureDestinationSource, { recursive: true });
+    fs.writeFileSync(path.join(preCaptureDestinationSource, 'SKILL.md'),
+        '---\nname: pre-capture-destination\ndescription: Pre-capture destination\n---\n');
+    const preCaptureDestinationRecord = discovery.scanSkills({
+        homeDir: crossHome,
+        globalSkillsRoot: crossStore,
+    }).find(record => record.name === 'pre-capture-destination');
+    const preCaptureDestinationTarget = path.join(crossStore, 'pre-capture-destination');
+    const preCaptureDestination = centralService.centralizeSkill(
+        preCaptureDestinationRecord,
+        [],
+        crossHome,
+        undefined,
+        {
+            globalSkillsRoot: crossStore,
+            mkdirSync(candidate, options) {
+                const result = fs.mkdirSync(candidate, options);
+                if (candidate === preCaptureDestinationTarget) {
+                    fs.rmSync(preCaptureDestinationTarget, { recursive: true, force: true });
+                    fs.mkdirSync(preCaptureDestinationTarget);
+                    fs.writeFileSync(
+                        path.join(preCaptureDestinationTarget, 'SKILL.md'),
+                        'foreign before marker',
+                    );
+                }
+                return result;
+            },
+        },
+    );
+    assert.strictEqual(preCaptureDestination.ok, false);
+    assert.strictEqual(preCaptureDestination.recoveryPath, preCaptureDestinationTarget);
+    assert.strictEqual(
+        fs.readFileSync(path.join(preCaptureDestinationTarget, 'SKILL.md'), 'utf8'),
+        'foreign before marker',
+        'centralize preserves a target replaced before identity capture',
+    );
+    assert.ok(fs.existsSync(path.join(preCaptureDestinationSource, 'SKILL.md')));
+
     assert.deepStrictEqual(soloRecords[0].central.links, { user: { claude: path.join(home, '.claude', 'skills', 'solo') } });
     assert.strictEqual(centralService.centralizeSkill(soloRecords[0], [], home, ws).ok, false, 'already centralized is refused');
 

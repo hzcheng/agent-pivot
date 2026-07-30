@@ -12,20 +12,37 @@ export interface SkillsRoot {
 
 export const CENTRAL_DIR_NAME = '.skills';
 
-export function getCentralSkillsRoot(homeDir: string, scope: SkillScope, workspaceRoot?: string): string {
+export function getCentralSkillsRoot(
+    homeDir: string,
+    scope: SkillScope,
+    workspaceRoot?: string,
+    globalSkillsRoot?: string,
+): string {
     return scope === 'user'
-        ? path.join(homeDir, CENTRAL_DIR_NAME)
+        ? (globalSkillsRoot || path.join(homeDir, CENTRAL_DIR_NAME))
         : path.join(workspaceRoot as string, CENTRAL_DIR_NAME);
 }
 
-export function isUnderCentralRoot(dirPath: string, homeDir: string, workspaceRoot?: string): { scope: SkillScope } | null {
-    const userCentral = getCentralSkillsRoot(homeDir, 'user');
-    if (dirPath.startsWith(userCentral + path.sep)) {
+export function isUnderCentralRoot(
+    dirPath: string,
+    homeDir: string,
+    workspaceRoot?: string,
+    globalSkillsRoot?: string,
+): { scope: SkillScope } | null {
+    const isDescendant = (root: string): boolean => {
+        const relative = path.relative(path.resolve(root), path.resolve(dirPath));
+        return Boolean(relative)
+            && relative !== '..'
+            && !relative.startsWith(`..${path.sep}`)
+            && !path.isAbsolute(relative);
+    };
+    const userCentral = getCentralSkillsRoot(homeDir, 'user', undefined, globalSkillsRoot);
+    if (isDescendant(userCentral)) {
         return { scope: 'user' };
     }
     if (workspaceRoot) {
         const projectCentral = getCentralSkillsRoot(homeDir, 'project', workspaceRoot);
-        if (dirPath.startsWith(projectCentral + path.sep)) {
+        if (isDescendant(projectCentral)) {
             return { scope: 'project' };
         }
     }

@@ -28,8 +28,8 @@ function priorityOf(record: SkillRecord): number {
 
 /**
  * One-shot migration of every skill living in the three brand agent
- * roots at one scope into that scope's central store (`~/.skills` for user,
- * `<project>/.skills` for project). The highest priority copy
+ * roots at one scope into that scope's central store (the configured Global
+ * store for user, `<project>/.skills` for project). The highest priority copy
  * (kimi > claude > codex) wins; all other real-directory copies are
  * deleted once the winner is secured. No agent links are created —
  * users enable agents per card afterwards.
@@ -39,6 +39,7 @@ export function migrateSkillsToCentral(
     homeDir: string,
     scope: SkillScope,
     workspaceRoot?: string,
+    globalSkillsRoot?: string,
 ): SkillMigrationReport {
     const report: SkillMigrationReport = {
         ok: true, migrated: [], drifted: [], deleted: [], skipped: [], errors: [],
@@ -57,7 +58,7 @@ export function migrateSkillsToCentral(
         list.push(record);
         groups.set(record.name, list);
     }
-    const centralRoot = getCentralSkillsRoot(homeDir, scope, workspaceRoot);
+    const centralRoot = getCentralSkillsRoot(homeDir, scope, workspaceRoot, globalSkillsRoot);
     for (const [name, copies] of [...groups.entries()].sort(([a], [b]) => a.localeCompare(b))) {
         const realDirs = copies.filter(copy => !copy.central);
         if (!realDirs.length) {
@@ -76,7 +77,10 @@ export function migrateSkillsToCentral(
         const winner = [...migratable].sort((a, b) => priorityOf(a) - priorityOf(b))[0];
         const losers = migratable.filter(copy => copy.dirPath !== winner.dirPath);
         const loserDirs = losers.map(copy => copy.dirPath);
-        const result = centralizeSkill(winner, losers, homeDir, workspaceRoot, { linkBack: false });
+        const result = centralizeSkill(winner, losers, homeDir, workspaceRoot, {
+            linkBack: false,
+            globalSkillsRoot,
+        });
         if (!result.ok) {
             report.ok = false;
             report.errors.push({ name, error: result.error || 'unknown error' });
@@ -91,7 +95,11 @@ export function migrateSkillsToCentral(
     return report;
 }
 
-/** Back-compat wrapper: migrate the user scope (`~/.skills`). */
-export function migrateUserSkillsToCentral(records: SkillRecord[], homeDir: string): SkillMigrationReport {
-    return migrateSkillsToCentral(records, homeDir, 'user');
+/** Back-compat wrapper: migrate the user scope into its Global store. */
+export function migrateUserSkillsToCentral(
+    records: SkillRecord[],
+    homeDir: string,
+    globalSkillsRoot?: string,
+): SkillMigrationReport {
+    return migrateSkillsToCentral(records, homeDir, 'user', undefined, globalSkillsRoot);
 }

@@ -230,11 +230,15 @@ export function setGlobalSkillProjectAgents(
     agents: SkillAgentId[],
     homeDir: string,
     workspaceRoot: string,
+    globalSkillsRoot?: string,
 ): SkillScopeActionResult {
     if (!record.central || record.scope !== 'user') {
         return fail('Only a centralized global skill can be applied to a project.', 'invalid');
     }
-    if (!isManagedDescendant(record.dirPath, getCentralSkillsRoot(homeDir, 'user'))) {
+    if (!isManagedDescendant(
+        record.dirPath,
+        getCentralSkillsRoot(homeDir, 'user', undefined, globalSkillsRoot),
+    )) {
         return fail('The global skill resolves outside the managed Global store.', 'invalid');
     }
     if (!isReadableSkillDirectory(record.dirPath)) {
@@ -307,12 +311,13 @@ export function moveProjectSkillToGlobal(
     existingGlobal: SkillRecord | undefined,
     homeDir: string,
     workspaceRoot: string,
+    globalSkillsRoot?: string,
 ): SkillScopeActionResult {
     if (!record.central || record.scope !== 'project') {
         return fail('Only a centralized project skill can be moved to Global.', 'invalid');
     }
     const projectStore = getCentralSkillsRoot(homeDir, 'project', workspaceRoot);
-    const globalStore = getCentralSkillsRoot(homeDir, 'user');
+    const globalStore = getCentralSkillsRoot(homeDir, 'user', undefined, globalSkillsRoot);
     if (!isManagedDescendant(record.dirPath, projectStore)) {
         return fail('The project skill resolves outside this project’s managed store.', 'invalid');
     }

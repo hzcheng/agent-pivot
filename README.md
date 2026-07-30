@@ -47,7 +47,8 @@ navigates to that input. Agent Pivot reads the provider-local session metadata
 and transcript only when needed for its session and conversation views.
 
 The AI tab's SKILLS subtab organizes skills as the on-disk folder tree of the
-shared stores (`~/.skills` globally, `<project>/.skills` per project) —
+shared stores (`~/.skills` globally by default, configurable from Settings or the
+Global section menu; `<project>/.skills` per project) —
 folders are real directories you can also manage with shell or git, never
 extension state. Scope is positional: skills in the global store are enabled
 into the user-level agent directories (`~/.kimi/skills` and friends), skills

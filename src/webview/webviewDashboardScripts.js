@@ -1165,7 +1165,7 @@ function initDashboard(options) {
         skillFolderMenu = menu;
     }
 
-    // Section (global / project) ⋯ menu: store-level actions, currently New folder.
+    // Section (global / project) ⋯ menu: store-level actions.
     function openSkillSectionMenu(button) {
         closeSkillFolderMenu();
         var scope = button.getAttribute('data-section-menu') || 'user';
@@ -1181,6 +1181,14 @@ function initDashboard(options) {
         newItem.setAttribute('data-folder-scope', scope);
         var migrateItem = appendMenuAction(menu, 'skill-folder-menu-migrate', 'Migrate to central…');
         migrateItem.setAttribute('data-skill-menu-migrate', scope);
+        if (scope === 'user') {
+            var locationItem = appendMenuAction(
+                menu,
+                'skill-folder-menu-location',
+                'Change Global Skills Location…'
+            );
+            locationItem.setAttribute('data-change-global-skills-location', '');
+        }
         document.body.appendChild(menu);
         positionSkillFolderMenu(menu, button);
         menu.__sourceButton = button;
@@ -1542,6 +1550,16 @@ function initDashboard(options) {
             event.stopPropagation();
             closeSkillFolderMenu();
             options.postMessage({ type: 'migrate-skills-to-central', scope: migrateCentral.getAttribute('data-skill-menu-migrate') });
+            return;
+        }
+        var changeGlobalSkillsLocation = event.target && event.target.closest
+            ? event.target.closest('[data-change-global-skills-location]')
+            : null;
+        if (changeGlobalSkillsLocation) {
+            event.preventDefault();
+            event.stopPropagation();
+            closeSkillFolderMenu();
+            options.postMessage({ type: 'change-global-skills-location' });
             return;
         }
         var sync = event.target && event.target.closest ? event.target.closest('[data-skill-sync]') : null;

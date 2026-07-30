@@ -1611,7 +1611,7 @@ var nextOpenWorkspacePinRequestId = 0;
 
 function findOpenWorkspacePinButton(cardId, root) {
     return Array.from((root || document).querySelectorAll(
-        '.workspace-card[data-other-workspace][data-id] .project-pin-badge[data-action="toggle-open-workspace-pin"]'
+        '.open-other-windows-group .workspace-card[data-open-workspace-list-card][data-id] .project-pin-badge[data-action="toggle-open-workspace-pin"]'
     )).find(button => button.closest('.workspace-card')?.getAttribute('data-id') === cardId) || null;
 }
 
@@ -1801,10 +1801,14 @@ function getOpenWorkspacesUpdateDomState() {
     var otherWindowsGroup = document.querySelector(
         '.sticky-groups-wrapper .open-other-windows-group[data-other-windows-status]'
     );
-    var navigationCards = Array.from(document.querySelectorAll(
-        '.sticky-groups-wrapper .workspace-card[data-other-workspace][data-workspace-navigation-identity]'
+    var openWorkspaceCards = Array.from(document.querySelectorAll(
+        '.sticky-groups-wrapper .open-other-windows-group '
+        + '.workspace-card[data-open-workspace-list-card][data-workspace-navigation-identity]'
     ));
-    var navigationIdentities = navigationCards.map(card =>
+    var navigationCards = openWorkspaceCards.filter(card =>
+        card.hasAttribute('data-workspace-navigation')
+    );
+    var navigationIdentities = openWorkspaceCards.map(card =>
         card.getAttribute('data-workspace-navigation-identity')
     );
     return {
@@ -1812,6 +1816,7 @@ function getOpenWorkspacesUpdateDomState() {
             '.sticky-groups-wrapper .workspace-card[data-current-workspace][data-workspace-scope-identity]'
         ).length,
         navigationWorkspaceCount: navigationCards.length,
+        openWorkspaceListCount: openWorkspaceCards.length,
         hasUniqueNavigationIdentities: navigationIdentities.every(identity => !!identity)
             && new Set(navigationIdentities).size === navigationIdentities.length,
         hasOtherWindowsGroup: document.querySelectorAll(
@@ -1829,9 +1834,9 @@ function isOpenWorkspacesUpdateDomConsistent(message) {
         && rendered.navigationWorkspaceCount === message.navigationWorkspaceCount
         && rendered.hasUniqueNavigationIdentities
         && rendered.otherWindowsStatus === message.otherWindowsStatus
-        && ((message.navigationWorkspaceCount === 0 && message.otherWindowsStatus === 'ready')
-            ? !rendered.hasOtherWindowsGroup
-            : rendered.hasOtherWindowsGroup)
+        && rendered.hasOtherWindowsGroup
+        && rendered.openWorkspaceListCount
+            === message.currentWorkspaceCount + message.navigationWorkspaceCount
         && message.searchCatalog.openWorkspaces.length
             === message.currentWorkspaceCount + message.navigationWorkspaceCount;
 }
@@ -1853,9 +1858,9 @@ function getCollapseButtonState(tab, collapsedStates) {
         }
         : tab === 'open'
             ? {
-                empty: 'No other windows to collapse',
-                collapse: 'Collapse Other Windows',
-                expand: 'Expand Other Windows',
+                empty: 'No open windows to collapse',
+                collapse: 'Collapse Open Windows',
+                expand: 'Expand Open Windows',
             }
             : {
                 empty: 'No project groups to collapse',
@@ -2301,6 +2306,10 @@ function initProjects() {
                 return;
 
             toggleCodexSessions(projectDiv, dataId);
+            return;
+        }
+
+        if (projectDiv.hasAttribute("data-open-workspace-current")) {
             return;
         }
 

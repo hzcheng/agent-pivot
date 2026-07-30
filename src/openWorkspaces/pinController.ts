@@ -1,11 +1,9 @@
 'use strict';
 
-import type { OpenWorkspaceRecord } from './protocol';
-
 export const OPEN_WORKSPACE_PIN_WEBVIEW_PROTOCOL_VERSION = 1;
 
 export interface OpenWorkspacePinControllerOptions {
-    getRecord(cardId: string): OpenWorkspaceRecord | null;
+    getNavigationIdentity(cardId: string): string | null;
     setPinned(
         requestId: number,
         navigationIdentity: string,
@@ -38,7 +36,7 @@ function parseRequest(raw: unknown): ParsedPinRequest | null {
         || !Number.isSafeInteger(value.requestId)
         || (value.requestId as number) < 1
         || typeof value.cardId !== 'string'
-        || !/^__openWorkspaceNavigation-[a-f0-9]{24}$/.test(value.cardId)
+        || !/^__(?:openWorkspaceNavigation|currentWorkspace)-[a-f0-9]{24}$/.test(value.cardId)
         || typeof value.pinned !== 'boolean') {
         return null;
     }
@@ -59,8 +57,8 @@ export class OpenWorkspacePinController {
             await this.settleMalformed(raw);
             return;
         }
-        const record = this.options.getRecord(request.cardId);
-        if (!record) {
+        const navigationIdentity = this.options.getNavigationIdentity(request.cardId);
+        if (!navigationIdentity) {
             await this.settle(request, false);
             return;
         }
@@ -68,7 +66,7 @@ export class OpenWorkspacePinController {
         try {
             await this.options.setPinned(
                 request.requestId,
-                record.navigationIdentity,
+                navigationIdentity,
                 request.pinned,
             );
             await this.options.publishAuthoritativeUpdate();

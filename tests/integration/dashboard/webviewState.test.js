@@ -470,7 +470,7 @@ test('WEBVIEW-WEBVIEW-OPTIONS-001 enables scripts and limits local resources to 
     });
 });
 
-test('WEBVIEW-CURRENT-WORKSPACE-RENDERING-001 WEBVIEW-DISPLAY-001 distinguishes current and navigation OPEN cards', () => {
+test('OPEN-ALL-WINDOWS-LIST-001 WEBVIEW-CURRENT-WORKSPACE-RENDERING-001 WEBVIEW-DISPLAY-001 keeps CURRENT WINDOW and duplicates its compact projection in OPEN WINDOWS', () => {
     const config = { get: (_key, fallback) => fallback };
     const html = webviewModules.content.getOpenWorkspacesGroupContent([
         makeWorkspaceCard({
@@ -483,13 +483,26 @@ test('WEBVIEW-CURRENT-WORKSPACE-RENDERING-001 WEBVIEW-DISPLAY-001 distinguishes 
         makeWorkspaceCard({ id: 'navigation', kind: 'navigation', name: 'Other' }),
     ], false, 'ready');
 
-    const currentTag = html.match(/<div class="[^"]*project[^"]*"[^>]*data-id="current"[^>]*>/)[0];
+    const currentTags = Array.from(html.matchAll(
+        /<div class="[^"]*project[^"]*"[^>]*data-id="current"[^>]*>/g
+    )).map(match => match[0]);
     const navigationTag = html.match(/<div class="[^"]*project[^"]*"[^>]*data-id="navigation"[^>]*>/)[0];
-    assert.match(currentTag, /data-current-workspace/);
-    assert.match(currentTag, /data-workspace-scope-identity/);
+    assert.equal(currentTags.length, 2);
+    const currentDetailTag = currentTags.find(tag => /data-current-workspace/.test(tag));
+    const currentOpenListTag = currentTags.find(tag => /data-open-workspace-current/.test(tag));
+    assert.match(currentDetailTag, /data-workspace-scope-identity/);
+    assert.match(currentOpenListTag, /data-open-workspace-list-card/);
+    assert.doesNotMatch(currentOpenListTag, /data-current-workspace/);
     assert.doesNotMatch(navigationTag, /data-current-workspace/);
+    assert.match(navigationTag, /data-open-workspace-list-card/);
     assert.match(navigationTag, /data-workspace-navigation/);
     assert.match(navigationTag, /data-readonly-project/);
+    assert.equal((html.match(/CURRENT WINDOW/g) || []).length, 1);
+    assert.equal((html.match(/OPEN WINDOWS/g) || []).length, 1);
+    assert.equal(html.includes('CURRENT WORKSPACE'), false);
+    assert.equal(html.includes('OTHER WINDOWS'), false);
+    assert.match(html, /class="current-window-indicator"/);
+    assert.equal((html.match(/data-action="toggle-open-workspace-pin"/g) || []).length, 2);
     assert.equal((html.match(/class="codex-sessions"/g) || []).length, 1);
     assert.equal(html.includes('Leaked'), false);
 });
@@ -2175,10 +2188,10 @@ test('SESSION-CONTROLLER-001 preserves AI tab helpers, persisted state, and sema
 
 function assertCollapseButtonBehavior(context) {
     assert.deepEqual(toPlain(context.getCollapseButtonState('open', [])), {
-        disabled: true, collapsed: false, title: 'No other windows to collapse',
+        disabled: true, collapsed: false, title: 'No open windows to collapse',
     });
-    assert.equal(context.getCollapseButtonState('open', [false]).title, 'Collapse Other Windows');
-    assert.equal(context.getCollapseButtonState('open', [true]).title, 'Expand Other Windows');
+    assert.equal(context.getCollapseButtonState('open', [false]).title, 'Collapse Open Windows');
+    assert.equal(context.getCollapseButtonState('open', [true]).title, 'Expand Open Windows');
     assert.equal(context.getCollapseButtonState('projects', [false, true]).title, 'Collapse All Groups');
     assert.equal(context.getCollapseButtonState('todo', [true, true]).title, 'Expand TODO Groups');
     assert.deepEqual(toPlain(context.getCollapseButtonState('ai', [false])), {
@@ -2188,7 +2201,7 @@ function assertCollapseButtonBehavior(context) {
 
 test('WEBVIEW-COLLAPSE-BUTTON-STATE-001 exposes disabled and exact action labels for each dashboard tab', () => {
     assertCollapseButtonBehavior(createProjectVm().context);
-    const mutated = projectSource.replace('No other windows to collapse', 'Nothing to collapse');
+    const mutated = projectSource.replace('No open windows to collapse', 'Nothing to collapse');
     assert.throws(() => assertCollapseButtonBehavior(createProjectVm({ source: mutated }).context));
 });
 

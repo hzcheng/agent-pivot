@@ -143,13 +143,14 @@ function openWorkspaceAggregate(workspace, revisionCharacter) {
         roots: workspace.roots.map(({ hostPath: _hostPath, ...root }) => root),
     };
     return {
-        protocolVersion: 3,
+        protocolVersion: 4,
         semanticRevision: revisionCharacter.repeat(64),
         observedAtMs: 300,
         registrations: [{
-            protocolVersion: 3,
+            protocolVersion: 4,
             instanceId: OTHER_INSTANCE,
             sequence: 1,
+            openedAtMs: 270,
             lastFocusedAtMs: 280,
             leaseUpdatedAtMs: 290,
             workspace: publishedWorkspace,

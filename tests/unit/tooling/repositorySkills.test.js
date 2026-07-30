@@ -41,6 +41,8 @@ test('ARCH-REPOSITORY-SKILL-GUIDANCE-001 keeps regression audits path-based and 
         ['behavior-contract validation', /npm run test:behavior-contracts/i],
         ['audit-head currency', /audit.head/i],
         ['skill and owner-test implementation paths', /\.codex\/skills\/[\s\S]*skill-owner tests[\s\S]*implementation paths/i],
+        ['post-commit SHA audit sequence', /final implementation commit[\s\S]*full SHA[\s\S]*assign it exactly once[\s\S]*audit\.head/i],
+        ['explicit GitHub repository selection', /origin[\s\S]*upstream[\s\S]*--repo <owner\/name>/i],
     ]);
 });
 
@@ -66,5 +68,33 @@ test('ARCH-REPOSITORY-SKILL-GUIDANCE-001 requires whole-branch review and blocks
         ['merge-base-to-HEAD integration review', /merge-base-to-HEAD/i],
         ['unexplained CI or harness failures', /unexplained[\s\S]*(?:CI|harness)[\s\S]*failures/i],
         ['blocking failure classification', /blocking[\s\S]*classif|classif[\s\S]*blocking/i],
+        ['build-cleaner dependency ordering', /cleans or rebuilds `out\/`[\s\S]*consume `out\/`/i],
+        ['post-implementation capability audit', /final implementation or skill-owner commit[\s\S]*audit\.head/i],
+    ]);
+});
+
+test('ARCH-REPOSITORY-SKILL-GUIDANCE-001 verifies ambiguous GitHub writes and transport recovery', () => {
+    const skill = readSkill('.codex/skills/publishing-and-merging-github-prs/SKILL.md');
+
+    assertSkillMentions(skill, [
+        ['workflow lesson harvest before audit', /harvesting-workflow-lessons[\s\S]*before[\s\S]*final capability audit/i],
+        ['explicit repository selection', /--repo <owner\/name>[\s\S]*automatic remote[\s\S]*selection/i],
+        ['transport result verification', /HTTP 408[\s\S]*unexpected EOF[\s\S]*remote branch SHA/i],
+        ['HTTP/1.1 retry', /http\.version=HTTP\/1\.1 push/i],
+        ['non-force retry', /same non-force refspec/i],
+    ]);
+});
+
+test('ARCH-REPOSITORY-SKILL-GUIDANCE-001 harvests evidence-backed workflow lessons without forced churn', () => {
+    const skill = readSkill('.codex/skills/harvesting-workflow-lessons/SKILL.md');
+
+    assertSkillMentions(skill, [
+        ['task-local evidence', /user corrections[\s\S]*failed checks[\s\S]*false starts/i],
+        ['instruction versus compliance gap', /instruction gap[\s\S]*compliance gap/i],
+        ['existing skill before new skill', /improve[\s\S]*existing skill[\s\S]*create a new skill only/i],
+        ['validated skill iteration', /skill-creator[\s\S]*quick_validate\.py[\s\S]*owner tests/i],
+        ['implementation-path audit sequence', /\.codex\/skills\/[\s\S]*implementation paths[\s\S]*full commit SHA[\s\S]*audit\.head/i],
+        ['valid no-change decision', /no skill change/i],
+        ['bounded non-recursive pass', /only one harvest pass[\s\S]*do[\s\S]*not recursively trigger/i],
     ]);
 });

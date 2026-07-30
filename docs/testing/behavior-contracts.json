@@ -3345,7 +3345,9 @@
     "evidence": [
       ".codex/skills/resilient-webview-mutation-protocols/SKILL.md",
       ".codex/skills/fixing-regressions-with-ci/SKILL.md",
+      ".codex/skills/harvesting-workflow-lessons/SKILL.md",
       ".codex/skills/installing-vscode-extensions-locally/SKILL.md",
+      ".codex/skills/publishing-and-merging-github-prs/SKILL.md",
       ".codex/skills/review-fix-commit-loop/SKILL.md"
     ]
   },
@@ -3778,11 +3780,27 @@
   {
     "id": "OPEN-WORKSPACE-PIN-SORT-001",
     "domain": "open-project",
-    "title": "Pinned windows remain first in original pin order while unpinned windows use recency",
+    "title": "Pinned windows keep original pin order while unpinned windows keep stable first-opened order",
     "priority": "P0",
     "status": "automated",
     "owners": ["tests/contract/openProjects/projection.test.js"],
     "evidence": ["src/openWorkspaces/projection.ts"]
+  },
+  {
+    "id": "OPEN-ALL-WINDOWS-LIST-001",
+    "domain": "open-project",
+    "title": "CURRENT WINDOW stays detailed while OPEN WINDOWS includes a highlighted, pinnable current projection in stable order",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/openProjects/dashboardController.test.js",
+      "tests/integration/dashboard/webviewState.test.js"
+    ],
+    "evidence": [
+      "src/openWorkspaces/dashboardController.ts",
+      "src/webview/webviewContent.ts",
+      "src/webview/webviewProjectScripts.js"
+    ]
   },
   {
     "id": "OPEN-WORKSPACE-PIN-WEBVIEW-001",

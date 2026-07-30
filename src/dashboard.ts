@@ -2264,7 +2264,8 @@ async function initializeDashboard(
         }
     ));
     openWorkspacePinController = new OpenWorkspacePinController({
-        getRecord: cardId => openWorkspaceDashboardController.getNavigationWorkspace(cardId),
+        getNavigationIdentity: cardId =>
+            openWorkspaceDashboardController.getPinNavigationIdentity(cardId),
         setPinned: (requestId, navigationIdentity, pinned) =>
             openWorkspaceBridgeClient.setPinned(requestId, navigationIdentity, pinned),
         publishAuthoritativeUpdate: async () => {

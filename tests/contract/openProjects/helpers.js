@@ -40,7 +40,7 @@ function makeRecord(overrides = {}) {
 
 function makePublication(overrides = {}) {
     return {
-        protocolVersion: 3,
+        protocolVersion: 4,
         instanceId: SELF,
         sequence: 1,
         followsFocusEvent: false,
@@ -51,9 +51,10 @@ function makePublication(overrides = {}) {
 
 function makeRegistration(instanceId = SELF, lastFocusedAtMs = 4000, uri = '/work/shared', overrides = {}) {
     return {
-        protocolVersion: 3,
+        protocolVersion: 4,
         instanceId,
         sequence: 1,
+        openedAtMs: overrides.openedAtMs ?? lastFocusedAtMs,
         lastFocusedAtMs,
         leaseUpdatedAtMs: 4500,
         workspace: overrides.workspace || overrides.projects?.[0] || makeRecord({ uri }),
@@ -63,7 +64,7 @@ function makeRegistration(instanceId = SELF, lastFocusedAtMs = 4000, uri = '/wor
 
 function makeAggregate(registrations, overrides = {}) {
     return {
-        protocolVersion: 3,
+        protocolVersion: 4,
         semanticRevision: 'a'.repeat(64),
         observedAtMs: 5000,
         registrations,

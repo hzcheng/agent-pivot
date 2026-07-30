@@ -92,6 +92,7 @@ test('ARCH-COORDINATOR-001 preserves focus order across heartbeat publications a
     await harness.coordinator.publish(makePublication({ sequence: 3 }));
 
     const registration = (await harness.store.scan(3000)).registrations[0];
+    assert.equal(registration.openedAtMs, 1000);
     assert.equal(registration.lastFocusedAtMs, 2000);
     assert.equal(registration.leaseUpdatedAtMs, 3000);
     assert.equal(harness.deliveries.length, 2, 'lease-only changes must suppress aggregate delivery');
@@ -101,6 +102,22 @@ test('ARCH-COORDINATOR-001 preserves focus order across heartbeat publications a
     await flushAsync();
     assert.equal((await harness.store.scan(14_000)).registrations[0].leaseUpdatedAtMs, 14_000);
     assert.equal(harness.deliveries.length, 2);
+});
+
+test('OPEN-ALL-WINDOWS-LIST-001 preserves first-opened time across coordinator recreation', async t => {
+    const store = createSyntheticOpenWorkspaceStore();
+    const first = createCoordinator('/synthetic-first-opened', { store });
+    await first.coordinator.publish(makePublication());
+    first.coordinator.dispose();
+
+    const recreated = createCoordinator('/synthetic-first-opened', { store });
+    t.after(() => recreated.coordinator.dispose());
+    recreated.setNow(5000);
+    await recreated.coordinator.publish(makePublication({ sequence: 2 }));
+
+    const registration = (await store.scan(5000)).registrations[0];
+    assert.equal(registration.openedAtMs, 1000);
+    assert.equal(registration.leaseUpdatedAtMs, 5000);
 });
 
 test('OPEN-WORKSPACE-INSTANCE-ROLLOVER-001 replaces a reloaded Extension Host instance without stale reclaim', async t => {
@@ -133,7 +150,7 @@ test('OPEN-WORKSPACE-INSTANCE-ROLLOVER-001 replaces a reloaded Extension Host in
         /retired instanceId/
     );
     await harness.coordinator.unregister({
-        protocolVersion: 3,
+        protocolVersion: 4,
         instanceId: SELF,
     });
 

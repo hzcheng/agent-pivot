@@ -5718,6 +5718,7 @@ function runCurrentWorkspaceRenderingChecks() {
         environment: 'local',
         environmentLabel: 'Local',
         attentionCount: 0,
+        runningSessionCount: 1,
         roots: [
             { id: 'root-app', name: 'App', ordinal: 0 },
             { id: 'root-api', name: 'API', ordinal: 1 },
@@ -5808,14 +5809,20 @@ function runCurrentWorkspaceRenderingChecks() {
     const currentTags = getCardTags(html, current.id);
     const navigationTags = getCardTags(html, navigation.id);
 
-    assert.strictEqual(currentTags.length, 1);
-    assert.ok(currentTags[0].includes('data-current-workspace'));
-    assert.ok(currentTags[0].includes('data-workspace-card-kind="current"'));
-    assert.ok(currentTags[0].includes('session-running'));
-    assert.ok(currentTags[0].includes('data-session-fx="sharingan-madara"'),
+    assert.strictEqual(currentTags.length, 2);
+    const currentDetailTag = currentTags.find(tag => tag.includes('data-current-workspace'));
+    const currentOpenListTag = currentTags.find(tag => tag.includes('data-open-workspace-current'));
+    assert.ok(currentDetailTag);
+    assert.ok(currentOpenListTag);
+    assert.ok(currentDetailTag.includes('data-workspace-card-kind="current"'));
+    assert.ok(currentDetailTag.includes('session-running'));
+    assert.ok(currentDetailTag.includes('data-session-fx="sharingan-madara"'),
         'the full Webview render must use the configured running animation');
+    assert.ok(currentOpenListTag.includes('data-open-workspace-list-card'));
+    assert.ok(currentOpenListTag.includes('data-has-pin-action'));
+    assert.ok(!currentOpenListTag.includes('data-current-workspace'));
     assert.ok(html.includes('title="Workspace — 1 active session running"'));
-    assert.strictEqual((html.match(/class="project-session-fx"/g) || []).length, 1);
+    assert.strictEqual((html.match(/class="project-session-fx"/g) || []).length, 2);
     assert.strictEqual(navigationTags.length, 1);
     assert.ok(navigationTags[0].includes('data-workspace-navigation'));
     assert.ok(navigationTags[0].includes('data-other-workspace'));
@@ -5825,14 +5832,17 @@ function runCurrentWorkspaceRenderingChecks() {
         assert.strictEqual(navigationTags[0].includes(forbidden), false,
             `navigation cards must structurally omit ${forbidden}`);
     }
-    assert.strictEqual((html.match(/class="workspace-card/g) || []).length, 2);
+    assert.strictEqual((html.match(/class="workspace-card/g) || []).length, 3);
     assert.strictEqual((html.match(/class="codex-sessions"/g) || []).length, 1);
     assert.strictEqual(html.includes('class="workspace-root-tags"'), false);
     assert.strictEqual(html.includes('class="workspace-root-tag"'), false);
     assert.strictEqual(html.includes('data-workspace-root-id'), false);
     assert.ok(html.includes('data-primary-root-id="root-api"'));
     assert.ok(html.includes('AI 1'));
-    const otherWindowsHtml = html.slice(html.indexOf('OTHER WINDOWS'));
+    const navigationOpeningTag = html.match(
+        /<div class="workspace-card[^>]*data-workspace-card-kind="navigation"[^>]*>/
+    )[0];
+    const otherWindowsHtml = html.slice(html.indexOf(navigationOpeningTag));
     assert.ok(otherWindowsHtml.includes(
         '<span class="project-ai-attention-badge" title="2 items need attention" aria-label="2 items need attention">2</span>'
     ));
@@ -5873,15 +5883,21 @@ function runCurrentWorkspaceRenderingChecks() {
     const navigationOnly = webviewContentModule.getOpenWorkspacesGroupContent([navigation], false);
     const noCards = webviewContentModule.getOpenWorkspacesGroupContent([], false);
 
-    assert.ok(currentOnly.includes('CURRENT WORKSPACE'));
+    assert.ok(currentOnly.includes('OPEN WINDOWS'));
+    assert.ok(currentOnly.includes('CURRENT WINDOW'));
+    assert.strictEqual(currentOnly.includes('CURRENT WORKSPACE'), false);
     assert.strictEqual(currentOnly.includes('OTHER WINDOWS'), false);
-    assert.ok(currentAndOther.includes('CURRENT WORKSPACE'));
-    assert.ok(currentAndOther.includes('OTHER WINDOWS'));
+    assert.ok(currentAndOther.includes('OPEN WINDOWS'));
+    assert.ok(currentAndOther.includes('CURRENT WINDOW'));
+    assert.strictEqual(currentAndOther.includes('CURRENT WORKSPACE'), false);
+    assert.strictEqual(currentAndOther.includes('OTHER WINDOWS'), false);
     assert.ok(navigationOnly.includes('No folder is open in this window.'));
-    assert.ok(navigationOnly.includes('OTHER WINDOWS'));
+    assert.ok(navigationOnly.includes('OPEN WINDOWS'));
     assert.ok(noCards.includes('Open a folder to see running projects.'));
+    assert.ok(noCards.includes('CURRENT WINDOW'));
+    assert.ok(noCards.includes('OPEN WINDOWS'));
     assert.strictEqual(noCards.includes('OTHER WINDOWS'), false);
-    assert.strictEqual((currentOnly.match(/data-action="collapse"/g) || []).length, 0);
+    assert.strictEqual((currentOnly.match(/data-action="collapse"/g) || []).length, 1);
 
     const projectsHtml = webviewContentModule.getProjectsPanelContent([{
         id: 'group', groupName: 'Work', collapsed: false,
@@ -6002,7 +6018,11 @@ function runAttentionProjectRenderingChecks() {
             },
         }]
     );
-    assert.ok(!openProjectHtml.includes('class="project-ai-attention-badge"'));
+    assert.strictEqual(
+        (openProjectHtml.match(/class="project-ai-attention-badge"/g) || []).length,
+        1,
+        'the compact current projection in OPEN WINDOWS must expose one project-level attention badge',
+    );
     assert.ok(openProjectHtml.includes('class="project-codex-badge"'));
     assert.ok(!openProjectHtml.includes('project-codex-badge has-attention'));
     assert.ok(openProjectHtml.includes('class="ai-session-total-count">AI 1</span>'));

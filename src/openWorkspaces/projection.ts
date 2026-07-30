@@ -7,13 +7,14 @@ import type { WorkspaceCardViewModel } from '../models';
 import { getWorkspaceAttentionSummary } from '../workspaces/attentionProjection';
 import type { OpenWorkspace, OpenWorkspaceEnvironment } from '../workspaces/types';
 import {
-    OpenWorkspaceAggregateV3,
+    OpenWorkspaceAggregateV4,
     OpenWorkspaceRecord,
     validateOpenWorkspaceRecord,
 } from './protocol';
 
 interface NavigationCandidate {
     instanceId: string;
+    openedAtMs: number;
     lastFocusedAtMs: number;
     pinnedAtMs: number | null;
     workspace: OpenWorkspaceRecord;
@@ -22,6 +23,30 @@ interface NavigationCandidate {
 export interface OpenWorkspaceNavigationCardProjection {
     card: WorkspaceCardViewModel;
     workspace: OpenWorkspaceRecord;
+    openedAtMs: number;
+    pinnedAtMs: number | null;
+}
+
+export interface OpenWorkspaceCardOrder {
+    navigationIdentity: string;
+    openedAtMs: number;
+    pinnedAtMs: number | null;
+}
+
+export function getLogicalWorkspaceOpenedAtMs(
+    aggregate: OpenWorkspaceAggregateV4 | null,
+    navigationIdentity: string,
+): number | null {
+    let openedAtMs: number | null = null;
+    for (const registration of aggregate?.registrations || []) {
+        if (registration.workspace?.navigationIdentity !== navigationIdentity) {
+            continue;
+        }
+        openedAtMs = openedAtMs === null
+            ? registration.openedAtMs
+            : Math.min(openedAtMs, registration.openedAtMs);
+    }
+    return openedAtMs;
 }
 
 function compareText(left: string, right: string): number {
@@ -56,7 +81,10 @@ function candidateWins(candidate: NavigationCandidate, previous: NavigationCandi
     ) < 0;
 }
 
-function compareCandidates(left: NavigationCandidate, right: NavigationCandidate): number {
+export function compareOpenWorkspaceCardOrder(
+    left: OpenWorkspaceCardOrder,
+    right: OpenWorkspaceCardOrder,
+): number {
     if (left.pinnedAtMs !== null || right.pinnedAtMs !== null) {
         if (left.pinnedAtMs === null) {
             return 1;
@@ -67,12 +95,24 @@ function compareCandidates(left: NavigationCandidate, right: NavigationCandidate
         if (left.pinnedAtMs !== right.pinnedAtMs) {
             return left.pinnedAtMs < right.pinnedAtMs ? -1 : 1;
         }
-        return compareText(left.workspace.navigationIdentity, right.workspace.navigationIdentity);
+        return compareText(left.navigationIdentity, right.navigationIdentity);
     }
-    if (left.lastFocusedAtMs !== right.lastFocusedAtMs) {
-        return left.lastFocusedAtMs > right.lastFocusedAtMs ? -1 : 1;
+    if (left.openedAtMs !== right.openedAtMs) {
+        return left.openedAtMs < right.openedAtMs ? -1 : 1;
     }
-    return compareText(left.workspace.navigationIdentity, right.workspace.navigationIdentity);
+    return compareText(left.navigationIdentity, right.navigationIdentity);
+}
+
+function compareCandidates(left: NavigationCandidate, right: NavigationCandidate): number {
+    return compareOpenWorkspaceCardOrder({
+        navigationIdentity: left.workspace.navigationIdentity,
+        openedAtMs: left.openedAtMs,
+        pinnedAtMs: left.pinnedAtMs,
+    }, {
+        navigationIdentity: right.workspace.navigationIdentity,
+        openedAtMs: right.openedAtMs,
+        pinnedAtMs: right.pinnedAtMs,
+    });
 }
 
 function getEnvironmentLabel(environment: OpenWorkspaceEnvironment): string {
@@ -143,7 +183,7 @@ function createNavigationCard(
 
 export function projectOpenWorkspaceCards(
     currentWorkspace: Pick<OpenWorkspace, 'navigationIdentity'> | null,
-    aggregate: OpenWorkspaceAggregateV3 | null,
+    aggregate: OpenWorkspaceAggregateV4 | null,
     ownInstanceId: string,
     attentionAggregate: AttentionAggregate | null = null,
     pinTimes: ReadonlyMap<string, number> = new Map(),
@@ -159,7 +199,7 @@ export function projectOpenWorkspaceCards(
 
 export function projectOpenWorkspaceNavigationCards(
     currentWorkspace: Pick<OpenWorkspace, 'navigationIdentity'> | null,
-    aggregate: OpenWorkspaceAggregateV3 | null,
+    aggregate: OpenWorkspaceAggregateV4 | null,
     ownInstanceId: string,
     attentionAggregate: AttentionAggregate | null = null,
     pinTimes: ReadonlyMap<string, number> = new Map(),
@@ -179,13 +219,27 @@ export function projectOpenWorkspaceNavigationCards(
         }
         const candidate: NavigationCandidate = {
             instanceId: registration.instanceId,
+            openedAtMs: registration.openedAtMs,
             lastFocusedAtMs: registration.lastFocusedAtMs,
             pinnedAtMs: pinTimes.get(workspace.navigationIdentity) ?? null,
             workspace,
         };
         const previous = navigationByIdentity.get(workspace.navigationIdentity);
-        if (!previous || candidateWins(candidate, previous)) {
+        if (!previous) {
             navigationByIdentity.set(workspace.navigationIdentity, candidate);
+            continue;
+        }
+        const openedAtMs = Math.min(previous.openedAtMs, candidate.openedAtMs);
+        if (candidateWins(candidate, previous)) {
+            navigationByIdentity.set(workspace.navigationIdentity, {
+                ...candidate,
+                openedAtMs,
+            });
+        } else if (previous.openedAtMs !== openedAtMs) {
+            navigationByIdentity.set(workspace.navigationIdentity, {
+                ...previous,
+                openedAtMs,
+            });
         }
     }
     return Array.from(navigationByIdentity.values())
@@ -193,5 +247,7 @@ export function projectOpenWorkspaceNavigationCards(
         .map(candidate => ({
             card: createNavigationCard(candidate, attentionAggregate),
             workspace: candidate.workspace,
+            openedAtMs: candidate.openedAtMs,
+            pinnedAtMs: candidate.pinnedAtMs,
         }));
 }

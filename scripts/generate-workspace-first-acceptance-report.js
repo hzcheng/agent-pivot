@@ -116,7 +116,7 @@ const productCriteria = [
     ['6', 'Primary-root ordering, longest nested match, and root chips are correct.', 'Session-scope, assignment, hydration, and Dashboard checks.'],
     ['7', 'Invalid root, Restricted Mode, unavailable provider, or missing capability creates no partial launch.', 'Creation/resume preflight and side-effect ledger checks.'],
     ['8', 'Runtime ownership is immutable and removed-root continuity alone yields Outside workspace.', 'Runtime v2/Tmux/Direct hydration and explicit Outside workspace rendering checks.'],
-    ['9', 'Strict v3 publication is zero-or-one per instance and bridge failure degrades only OTHER WINDOWS.', 'Bridge client/store/coordinator/degradation checks.'],
+    ['9', 'Strict v4 publication is zero-or-one per instance, carries stable open time, and bridge failure degrades only cross-window discovery.', 'Bridge client/store/coordinator/degradation checks.'],
     ['10', 'Workspace saving adds one project while preserving every existing saved-project field and member entry.', 'Checked-in Group[] fixture through real ProjectService startup migration, ordinary reads, ProjectMutationController, saved adapter, and serialized-prefix equivalence checks.'],
     ['11', 'Attention de-duplicates workspace evidence and search headings/targets are workspace-native.', 'Attention projection and exact Dashboard search-catalog checks.'],
     ['12', 'Production retains no v1 live-project/runtime compatibility path.', 'Architecture source gate and final forbidden-vocabulary scan.'],

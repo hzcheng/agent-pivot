@@ -29,7 +29,7 @@ function makeRecord(overrides = {}) {
 
 function makePublication(overrides = {}) {
     return {
-        protocolVersion: 3,
+        protocolVersion: 4,
         instanceId: FIRST_INSTANCE_ID,
         sequence: 1,
         followsFocusEvent: false,
@@ -40,9 +40,10 @@ function makePublication(overrides = {}) {
 
 function makeRegistration(instanceId = FIRST_INSTANCE_ID, overrides = {}) {
     return {
-        protocolVersion: 3,
+        protocolVersion: 4,
         instanceId,
         sequence: 1,
+        openedAtMs: 3500,
         lastFocusedAtMs: 4000,
         leaseUpdatedAtMs: 4500,
         workspace: makeRecord(),
@@ -54,7 +55,7 @@ test('ARCH-PROTOCOL-001 / OPEN-PROTOCOL-001 validates complete protocol envelope
     const publication = makePublication();
     const registration = makeRegistration();
     const aggregate = {
-        protocolVersion: 3,
+        protocolVersion: 4,
         semanticRevision: 'd'.repeat(64),
         observedAtMs: 5000,
         registrations: [registration],
@@ -90,7 +91,7 @@ test('OPEN-PROTOCOL-002 rejects publication payloads with non-protocol keys', ()
 test('OPEN-PROTOCOL-003 rejects aggregate registrations that share an instance ID', () => {
     assert.throws(
         () => validateOpenWorkspaceAggregate({
-            protocolVersion: 3,
+            protocolVersion: 4,
             semanticRevision: 'd'.repeat(64),
             observedAtMs: 5000,
             registrations: [makeRegistration(), makeRegistration(FIRST_INSTANCE_ID, { sequence: 2 })],
@@ -137,6 +138,10 @@ test('OPEN-PROTOCOL-005 keeps semantic revisions stable when only transient regi
     );
     assert.notEqual(
         createOpenWorkspaceSemanticRevision([{ ...registration, lastFocusedAtMs: 4001 }]),
+        revision
+    );
+    assert.notEqual(
+        createOpenWorkspaceSemanticRevision([{ ...registration, openedAtMs: 3501 }]),
         revision
     );
 });

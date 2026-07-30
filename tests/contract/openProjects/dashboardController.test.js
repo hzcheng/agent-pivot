@@ -4,6 +4,8 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 const { DashboardStartupController } = require('../../../out/dashboard/startupController');
 const {
+    NEWER,
+    OLDER,
     SELF,
     flushAsync,
     loadWithFakeVscode,
@@ -11,6 +13,9 @@ const {
     makeRecord,
     makeRegistration,
 } = require('./helpers');
+const {
+    createOpenWorkspacePinSnapshot,
+} = require('../../../out/openWorkspaces/pinProtocol');
 const {
     OpenWorkspaceDashboardController,
 } = loadWithFakeVscode('../../../out/openWorkspaces/dashboardController');
@@ -99,6 +104,147 @@ test('OPEN-OPEN-PROJECT-DASHBOARD-CONTROLLER-001 posts each semantic revision on
     await flushAsync();
     assert.equal(posted.length, 2);
     assert.notEqual(posted[0].semanticRevision, posted[1].semanticRevision);
+});
+
+test('OPEN-ALL-WINDOWS-LIST-001 orders current and navigation cards together without focus-driven movement', () => {
+    const current = makeRecord({ name: 'Current', uri: '/work/current' });
+    const oldest = makeRecord({ name: 'Oldest', uri: '/work/oldest' });
+    const newer = makeRecord({ name: 'Newer', uri: '/work/newer' });
+    const controller = new OpenWorkspaceDashboardController(createOptions({
+        getCurrentWorkspace: () => ({
+            ...current,
+            roots: current.roots.map(root => ({ ...root, hostPath: '/work/current' })),
+        }),
+    }));
+    const aggregate = makeAggregate([
+        makeRegistration(SELF, 9000, current.navigationUri, {
+            openedAtMs: 3000,
+            workspace: current,
+        }),
+        makeRegistration(OLDER, 8000, oldest.navigationUri, {
+            openedAtMs: 1000,
+            workspace: oldest,
+        }),
+        makeRegistration(NEWER, 7000, newer.navigationUri, {
+            openedAtMs: 2000,
+            workspace: newer,
+        }),
+    ]);
+
+    controller.setAggregate(aggregate);
+    const first = controller.getCards();
+    assert.deepEqual(first.map(card => card.name), ['Oldest', 'Newer', 'Current']);
+    assert.equal(first[2].kind, 'current');
+    assert.equal(
+        controller.getPinNavigationIdentity(first[2].id),
+        current.navigationIdentity,
+    );
+
+    controller.setAggregate({
+        ...aggregate,
+        semanticRevision: 'focus-only-change',
+        registrations: aggregate.registrations.map(registration => ({
+            ...registration,
+            lastFocusedAtMs: registration.instanceId === OLDER ? 20_000 : 1,
+        })),
+    });
+    assert.deepEqual(controller.getCards().map(card => card.name), [
+        'Oldest', 'Newer', 'Current',
+    ]);
+
+    controller.setPinSnapshot(createOpenWorkspacePinSnapshot([{
+        protocolVersion: 1,
+        navigationIdentity: current.navigationIdentity,
+        pinnedAtMs: 500,
+    }]));
+    const pinned = controller.getCards();
+    assert.deepEqual(pinned.map(card => card.name), ['Current', 'Oldest', 'Newer']);
+    assert.equal(pinned[0].pinned, true);
+});
+
+test('OPEN-ALL-WINDOWS-LIST-001 gives every remote window the same authoritative project order', () => {
+    const localProjectA = makeRecord({ name: 'Project A', uri: '/work/project-a' });
+    const localProjectB = makeRecord({ name: 'Project B', uri: '/work/project-b' });
+    const localProjectC = makeRecord({ name: 'Project C', uri: '/work/project-c' });
+    const projectA = makeRecord({
+        ...localProjectA,
+        navigationIdentity: 'a'.repeat(64),
+    });
+    const projectB = makeRecord({
+        ...localProjectB,
+        navigationIdentity: 'b'.repeat(64),
+    });
+    const projectC = makeRecord({
+        ...localProjectC,
+        navigationIdentity: 'c'.repeat(64),
+    });
+    const aggregate = makeAggregate([
+        makeRegistration(SELF, 9000, projectA.navigationUri, {
+            openedAtMs: 3000,
+            workspace: projectA,
+        }),
+        makeRegistration(OLDER, 8000, projectB.navigationUri, {
+            openedAtMs: 1000,
+            workspace: projectB,
+        }),
+        makeRegistration(NEWER, 7000, projectC.navigationUri, {
+            openedAtMs: 2000,
+            workspace: projectC,
+        }),
+    ]);
+    const createWorkspace = record => ({
+        ...record,
+        roots: record.roots.map(root => ({ ...root, hostPath: root.uri })),
+    });
+    const projectAWindow = new OpenWorkspaceDashboardController(createOptions({
+        getCurrentWorkspace: () => createWorkspace(localProjectA),
+        getBridgeInstanceId: () => SELF,
+    }));
+    const projectBWindow = new OpenWorkspaceDashboardController(createOptions({
+        getCurrentWorkspace: () => createWorkspace(localProjectB),
+        getBridgeInstanceId: () => OLDER,
+    }));
+    const projectCWindow = new OpenWorkspaceDashboardController(createOptions({
+        getCurrentWorkspace: () => createWorkspace(localProjectC),
+        getBridgeInstanceId: () => NEWER,
+    }));
+
+    projectAWindow.setAggregate(aggregate);
+    projectBWindow.setAggregate(aggregate);
+    projectCWindow.setAggregate(aggregate);
+
+    assert.deepEqual(projectAWindow.getCards().map(card => card.name), [
+        'Project B', 'Project C', 'Project A',
+    ]);
+    assert.deepEqual(projectBWindow.getCards().map(card => card.name), [
+        'Project B', 'Project C', 'Project A',
+    ]);
+    assert.deepEqual(projectCWindow.getCards().map(card => card.name), [
+        'Project B', 'Project C', 'Project A',
+    ]);
+    assert.equal(projectAWindow.getCards()[2].kind, 'current');
+    assert.equal(projectBWindow.getCards()[0].kind, 'current');
+    assert.equal(projectCWindow.getCards()[1].kind, 'current');
+    assert.equal(projectAWindow.getCards()[2].navigationIdentity, projectA.navigationIdentity);
+
+    const pinnedProjectA = createOpenWorkspacePinSnapshot([{
+        protocolVersion: 1,
+        navigationIdentity: projectA.navigationIdentity,
+        pinnedAtMs: 500,
+    }]);
+    projectAWindow.setPinSnapshot(pinnedProjectA);
+    projectBWindow.setPinSnapshot(pinnedProjectA);
+    projectCWindow.setPinSnapshot(pinnedProjectA);
+    assert.deepEqual(projectAWindow.getCards().map(card => card.name), [
+        'Project A', 'Project B', 'Project C',
+    ]);
+    assert.deepEqual(projectBWindow.getCards().map(card => card.name), [
+        'Project A', 'Project B', 'Project C',
+    ]);
+    assert.deepEqual(projectCWindow.getCards().map(card => card.name), [
+        'Project A', 'Project B', 'Project C',
+    ]);
+    assert.equal(projectAWindow.getCards()[0].pinned, true);
 });
 
 test('PROJECT-INCREMENTAL-REFRESH-001 republishes OPEN search when only the saved project catalog changes', async () => {

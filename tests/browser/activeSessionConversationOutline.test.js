@@ -156,6 +156,9 @@ async function postListWorkspaceUpdate(page, activeAiSessions, historySessions, 
 async function postListOpenWorkspacesUpdate(page, activeAiSessions, historySessions, selectedTab = 'active') {
     const html = `<div class="open-current-workspace-group">
         ${listProjectMarkup(activeAiSessions, historySessions, selectedTab)}
+    </div>
+    <div class="open-other-windows-group" data-other-windows-status="ready">
+        ${currentOpenWorkspaceProjectMarkup()}
     </div>`;
     await page.evaluate(htmlValue => {
         window.dispatchEvent(new MessageEvent('message', { data: {
@@ -240,13 +243,16 @@ function projectMarkup(activeAiSessions, markerCount = 0) {
     </div>`;
 }
 
-function navigationProjectMarkup(activeAiSessions) {
-    return `<div class="project workspace-card" data-id="project-a" data-other-workspace
-        data-codex-expanded
-        data-workspace-navigation-identity="navigation-other"
-        style="--steward-ai-session-list-max-height: 130px">
-        ${sessionSurfaceMarkup(activeAiSessions)}
-    </div>`;
+function navigationProjectMarkup() {
+    return `<div class="project workspace-card" data-id="project-other"
+        data-open-workspace-list-card data-workspace-navigation data-other-workspace
+        data-workspace-navigation-identity="navigation-other"></div>`;
+}
+
+function currentOpenWorkspaceProjectMarkup() {
+    return `<div class="project workspace-card" data-id="project-a"
+        data-open-workspace-list-card data-open-workspace-current
+        data-workspace-navigation-identity="navigation-project-a"></div>`;
 }
 
 function documentMarkup(activeAiSessions) {
@@ -486,11 +492,13 @@ async function postOpenWorkspacesUpdate(page, options) {
             ${projectMarkup(options.currentSessions, options.markerCount || 0)}
         </div>`
         : '<div class="open-current-workspace-group"></div>';
-    const navigationMarkup = options.navigationSessions
-        ? `<div class="open-other-windows-group" data-other-windows-status="ready">
-            ${navigationProjectMarkup(options.navigationSessions)}
-        </div>`
-        : '';
+    const navigationMarkup = `<div class="open-other-windows-group"
+        data-other-windows-status="ready">
+        ${options.currentSessions ? currentOpenWorkspaceProjectMarkup() : ''}
+        ${options.navigationSessions
+        ? navigationProjectMarkup(options.navigationSessions)
+        : ''}
+    </div>`;
     const currentWorkspaceCount = options.currentSessions ? 1 : 0;
     const navigationWorkspaceCount = options.navigationSessions ? 1 : 0;
     await page.evaluate(value => {

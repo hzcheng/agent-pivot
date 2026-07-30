@@ -11,7 +11,11 @@ import type { TodoSearchCatalogItem } from '../todos/types';
 import { getWorkspaceAttentionSummary } from '../workspaces/attentionProjection';
 import type { OpenWorkspace } from '../workspaces/types';
 import type { OpenWorkspaceBridgeStatus } from './bridgeClient';
-import { projectOpenWorkspaceNavigationCards } from './projection';
+import {
+    compareOpenWorkspaceCardOrder,
+    getLogicalWorkspaceOpenedAtMs,
+    projectOpenWorkspaceNavigationCards,
+} from './projection';
 import type { OpenWorkspaceAggregate, OpenWorkspaceRecord } from './protocol';
 import {
     createOpenWorkspacePinSnapshot,
@@ -50,16 +54,20 @@ export class OpenWorkspaceDashboardController {
     private pinSnapshot: OpenWorkspacePinSnapshot = createOpenWorkspacePinSnapshot([]);
     private bridgeStatus: OpenWorkspaceBridgeStatus = 'ready';
     private navigationWorkspacesById = new Map<string, OpenWorkspaceRecord>();
+    private pinNavigationIdentityById = new Map<string, string>();
     private lastPostedSemanticRevision: string | null = null;
     private deliveryGeneration = 0;
+    private readonly fallbackOpenedAtMs: number;
 
     constructor(private readonly options: OpenWorkspaceDashboardControllerOptions) {
+        this.fallbackOpenedAtMs = this.nowMs();
     }
 
     setAggregate(aggregate: OpenWorkspaceAggregate | null): boolean {
         if (aggregate?.semanticRevision === this.aggregate?.semanticRevision) { return false; }
         this.aggregate = aggregate;
         this.navigationWorkspacesById.clear();
+        this.pinNavigationIdentityById.clear();
         return true;
     }
 
@@ -76,6 +84,7 @@ export class OpenWorkspaceDashboardController {
         if (status !== 'ready') {
             this.aggregate = null;
             this.navigationWorkspacesById.clear();
+            this.pinNavigationIdentityById.clear();
         }
         return true;
     }
@@ -88,29 +97,72 @@ export class OpenWorkspaceDashboardController {
         return this.navigationWorkspacesById.get(cardId) || null;
     }
 
+    getPinNavigationIdentity(cardId: string): string | null {
+        return this.pinNavigationIdentityById.get(cardId) || null;
+    }
+
     getCards(): WorkspaceCardViewModel[] {
         const startedAt = this.nowMs();
         const currentWorkspace = this.options.getCurrentWorkspace();
         const attentionAggregate = this.options.getAttentionAggregate();
+        const pinTimes = getOpenWorkspacePinTimes(this.pinSnapshot);
+        const ownRegistration = this.aggregate?.registrations.find(
+            registration => registration.instanceId === this.options.getBridgeInstanceId()
+        );
+        const currentNavigationIdentity = ownRegistration?.workspace?.navigationIdentity
+            || currentWorkspace?.navigationIdentity
+            || null;
         const currentCard = currentWorkspace
-            ? this.createCurrentCard(currentWorkspace, attentionAggregate)
+            ? this.createCurrentCard(
+                currentWorkspace,
+                attentionAggregate,
+                currentNavigationIdentity || currentWorkspace.navigationIdentity,
+                pinTimes.has(currentNavigationIdentity || currentWorkspace.navigationIdentity),
+            )
             : null;
         const navigationProjections = projectOpenWorkspaceNavigationCards(
-            currentWorkspace,
+            currentNavigationIdentity ? { navigationIdentity: currentNavigationIdentity } : null,
             this.aggregate,
             this.options.getBridgeInstanceId(),
             attentionAggregate,
-            getOpenWorkspacePinTimes(this.pinSnapshot),
+            pinTimes,
         );
         this.navigationWorkspacesById = new Map(navigationProjections.map(projection => [
             projection.card.id,
             projection.workspace,
         ]));
         const navigationCards = navigationProjections.map(projection => ({
-            ...projection.card,
-            color: this.getWorkspaceCardColor(projection.workspace),
+            card: {
+                ...projection.card,
+                color: this.getWorkspaceCardColor(projection.workspace),
+            },
+            openedAtMs: projection.openedAtMs,
+            pinnedAtMs: projection.pinnedAtMs,
         }));
-        const cards = currentCard ? [currentCard, ...navigationCards] : navigationCards;
+        const orderedCards = [
+            ...(currentCard ? [{
+                card: currentCard,
+                openedAtMs: getLogicalWorkspaceOpenedAtMs(
+                    this.aggregate,
+                    currentCard.navigationIdentity,
+                ) ?? this.fallbackOpenedAtMs,
+                pinnedAtMs: pinTimes.get(currentCard.navigationIdentity) ?? null,
+            }] : []),
+            ...navigationCards,
+        ].sort((left, right) => compareOpenWorkspaceCardOrder({
+            navigationIdentity: left.card.navigationIdentity,
+            openedAtMs: left.openedAtMs,
+            pinnedAtMs: left.pinnedAtMs,
+        }, {
+            navigationIdentity: right.card.navigationIdentity,
+            openedAtMs: right.openedAtMs,
+            pinnedAtMs: right.pinnedAtMs,
+        }));
+        const cards = orderedCards.map(entry => entry.card);
+        this.pinNavigationIdentityById = new Map(cards.map(card => [
+            card.id,
+            card.navigationIdentity,
+        ]));
         this.options.logDiagnostic('Renderer', {
             event: 'open-workspace-cards-build',
             durationMs: this.nowMs() - startedAt,
@@ -168,6 +220,8 @@ export class OpenWorkspaceDashboardController {
     private createCurrentCard(
         workspace: OpenWorkspace,
         attentionAggregate: AttentionAggregate | null,
+        navigationIdentity: string,
+        pinned: boolean,
     ): WorkspaceCardViewModel {
         const digest = crypto.createHash('sha256').update(workspace.scopeIdentity).digest('hex').slice(0, 24);
         const aiSessions = this.options.getCurrentWorkspaceAiSessions(workspace) || undefined;
@@ -177,9 +231,10 @@ export class OpenWorkspaceDashboardController {
             workspaceKind: workspace.kind,
             showSaveAction: workspace.kind === 'untitledMultiRoot'
                 || !this.options.isWorkspaceSavedAsProject(workspace),
+            pinned,
             runningSessionCount: (aiSessions?.activeSessions || [])
                 .filter(session => session.executionState === 'running').length,
-            navigationIdentity: workspace.navigationIdentity,
+            navigationIdentity,
             scopeIdentity: workspace.scopeIdentity,
             name: workspace.displayName,
             environment: workspace.environment,

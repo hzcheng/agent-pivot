@@ -1,0 +1,4 @@
+interface:
+  display_name: "Harvest Workflow Lessons"
+  short_description: "Turn task friction into reusable agent guidance"
+  default_prompt: "Use $harvesting-workflow-lessons before publishing this PR to capture reusable workflow improvements."

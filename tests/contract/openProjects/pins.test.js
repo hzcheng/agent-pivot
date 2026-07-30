@@ -166,8 +166,11 @@ test('OPEN-WORKSPACE-PIN-HOST-001 resolves card identity authoritatively and set
     const mutations = [];
     let publishCount = 0;
     const controller = new OpenWorkspacePinController({
-        getRecord: cardId => cardId === '__openWorkspaceNavigation-' + 'a'.repeat(24)
-            ? record
+        getNavigationIdentity: cardId => [
+            '__openWorkspaceNavigation-' + 'a'.repeat(24),
+            '__currentWorkspace-' + 'c'.repeat(24),
+        ].includes(cardId)
+            ? record.navigationIdentity
             : null,
         setPinned: async (...args) => mutations.push(args),
         publishAuthoritativeUpdate: async () => { publishCount += 1; },
@@ -186,15 +189,26 @@ test('OPEN-WORKSPACE-PIN-HOST-001 resolves card identity authoritatively and set
     await controller.handle({
         type: 'set-open-workspace-pin',
         version: 1,
+        requestId: 9,
+        cardId: '__currentWorkspace-' + 'c'.repeat(24),
+        pinned: false,
+    });
+    await controller.handle({
+        type: 'set-open-workspace-pin',
+        version: 1,
         requestId: 8,
         cardId: '__openWorkspaceNavigation-' + 'b'.repeat(24),
         pinned: false,
     });
 
-    assert.deepEqual(mutations, [[7, record.navigationIdentity, true]]);
-    assert.equal(publishCount, 1);
+    assert.deepEqual(mutations, [
+        [7, record.navigationIdentity, true],
+        [9, record.navigationIdentity, false],
+    ]);
+    assert.equal(publishCount, 2);
     assert.deepEqual(posted.map(message => [message.requestId, message.success]), [
         [7, true],
+        [9, true],
         [8, false],
     ]);
 });

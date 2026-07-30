@@ -44,17 +44,29 @@
     var commentsResizer = document.querySelector('[data-comments-resizer]');
     var commentsRoot = document.querySelector('[data-conversation-comments]');
     var commentCount = document.querySelector('[data-comment-count]');
+    var commentSummary = document.querySelector('[data-comment-summary]');
     var commentComposer = document.querySelector('[data-comment-composer]');
     var commentSelection = document.querySelector('[data-comment-selection]');
     var commentInput = document.querySelector('[data-comment-input]');
     var commentList = document.querySelector('[data-comment-list]');
     var commentEmpty = document.querySelector('[data-comment-empty]');
     var commentSend = document.querySelector('[data-comment-action="send"]');
+    var commentClearSent = document.querySelector(
+        '[data-comment-action="clearSent"]'
+    );
+    var commentClearResolved = document.querySelector(
+        '[data-comment-action="clearResolved"]'
+    );
+    var commentClearAll = document.querySelector(
+        '[data-comment-action="clearAll"]'
+    );
     var addComment = document.querySelector('[data-add-comment]');
     var commentTarget = readJsonAttribute('data-conversation-target');
     var commentUiAvailable = !!commentsRoot && !!commentCount
+        && !!commentSummary
         && !!commentComposer && !!commentSelection && !!commentInput
         && !!commentList && !!commentEmpty && !!commentSend && !!addComment
+        && !!commentClearSent && !!commentClearResolved && !!commentClearAll
         && !!commentsToggle && !!commentsWorkspace && !!commentsResizer
         && validCommentTarget(commentTarget);
     var state = {
@@ -76,6 +88,7 @@
         commentRequestSequence: 0,
         pendingCommentRequest: null,
         pendingLocateRequest: null,
+        clearAllConfirmation: false,
         selectedCommentText: null,
         commentsPanelOpen: true,
         commentsPanelWidth: 240,
@@ -534,6 +547,9 @@
                 || value.operation === 'delete'
                 || value.operation === 'resolve'
                 || value.operation === 'reopen'
+                || value.operation === 'clearSent'
+                || value.operation === 'clearResolved'
+                || value.operation === 'clearAll'
                 || value.operation === 'sendComments')
             && typeof value.success === 'boolean'
             && Number.isSafeInteger(value.revision)
@@ -581,6 +597,45 @@
         }).length;
     }
 
+    function commentStatusCounts() {
+        return state.comments.reduce(function (counts, comment) {
+            counts[comment.status] += 1;
+            return counts;
+        }, { open: 0, sent: 0, resolved: 0 });
+    }
+
+    function resetClearAllConfirmation() {
+        if (!commentUiAvailable) return;
+        state.clearAllConfirmation = false;
+        commentClearAll.textContent = 'Clear all';
+        commentClearAll.removeAttribute('data-confirming');
+        commentClearAll.setAttribute('aria-label', 'Clear all comments');
+    }
+
+    function updateCommentControls() {
+        if (!commentUiAvailable) return;
+        var counts = commentStatusCounts();
+        var pending = !!state.pendingCommentRequest
+            || !!state.pendingLocateRequest;
+        var summary = [];
+        if (counts.open) summary.push(counts.open + ' open');
+        if (counts.sent) summary.push(counts.sent + ' sent');
+        if (counts.resolved) summary.push(counts.resolved + ' resolved');
+        commentSummary.textContent = summary.length
+            ? summary.join(' · ')
+            : 'No comments yet';
+        commentCount.textContent = String(state.comments.length);
+        commentCount.setAttribute(
+            'aria-label',
+            state.comments.length + ' comment'
+                + (state.comments.length === 1 ? '' : 's')
+        );
+        commentSend.disabled = counts.open === 0 || pending;
+        commentClearSent.disabled = counts.sent === 0 || pending;
+        commentClearResolved.disabled = counts.resolved === 0 || pending;
+        commentClearAll.disabled = state.comments.length === 0 || pending;
+    }
+
     function nextCommentRequestId() {
         state.commentRequestSequence += 1;
         return [
@@ -610,7 +665,7 @@
         );
         addComment.disabled = pending;
         if (!pending) {
-            commentSend.disabled = openCommentCount() === 0;
+            updateCommentControls();
         }
         commentsRoot.setAttribute('aria-busy', pending ? 'true' : 'false');
     }
@@ -620,11 +675,16 @@
             || state.pendingCommentRequest
             || state.pendingLocateRequest) return;
         var requestId = nextCommentRequestId();
+        resetClearAllConfirmation();
         state.pendingCommentRequest = { requestId: requestId, operation: operation };
         setCommentPending(true);
         status.textContent = operation === 'sendComments'
             ? 'Sending comments to this session…'
-            : 'Saving comment…';
+            : operation === 'clearSent'
+                || operation === 'clearResolved'
+                || operation === 'clearAll'
+                ? 'Clearing comments…'
+                : 'Saving comment…';
         post({
             type: operation === 'sendComments'
                 ? 'conversation-viewer-send-comments'
@@ -688,6 +748,7 @@
 
     function renderComments() {
         if (!commentUiAvailable) return;
+        resetClearAllConfirmation();
         commentList.replaceChildren();
         state.comments.forEach(function (comment, index) {
             var item = document.createElement('article');
@@ -710,12 +771,19 @@
             identity.append(label, statusLabel);
             var locate = document.createElement('button');
             locate.type = 'button';
+            locate.className = 'conversation-comment-locate';
             locate.setAttribute('data-comment-action', 'locate');
             locate.textContent = 'Show text';
             heading.append(identity, locate);
 
+            var quoteGroup = document.createElement('div');
+            quoteGroup.className = 'conversation-comment-quote';
+            var quoteLabel = document.createElement('span');
+            quoteLabel.className = 'conversation-comment-quote-label';
+            quoteLabel.textContent = 'Selected text';
             var quote = document.createElement('blockquote');
             quote.textContent = comment.quote;
+            quoteGroup.append(quoteLabel, quote);
             var input = document.createElement('textarea');
             input.rows = 2;
             input.maxLength = 4000;
@@ -731,6 +799,7 @@
             actions.className = 'conversation-comment-actions';
             var remove = document.createElement('button');
             remove.type = 'button';
+            remove.className = 'conversation-comment-delete';
             remove.setAttribute('data-comment-action', 'delete');
             remove.textContent = 'Delete';
             actions.appendChild(remove);
@@ -760,17 +829,15 @@
                 review.textContent = 'Resolve';
             }
             actions.appendChild(review);
-            item.append(heading, quote, input, actions);
+            item.append(heading, quoteGroup, input, actions);
             commentList.appendChild(item);
         });
-        commentCount.textContent = String(state.comments.length);
         updateCommentsToggle();
         commentEmpty.hidden = state.comments.length > 0;
         var openCount = openCommentCount();
         commentSend.textContent = 'Send ' + openCount + ' open comment'
             + (openCount === 1 ? '' : 's') + ' to this session';
-        commentSend.disabled = openCount === 0
-            || !!state.pendingCommentRequest;
+        updateCommentControls();
         updateCommentHighlights();
     }
 
@@ -879,7 +946,13 @@
         if (message.success) {
             status.textContent = operation === 'sendComments'
                 ? 'Comments sent to this session.'
-                : 'Comments saved.';
+                : operation === 'clearSent'
+                    ? 'Sent comments cleared.'
+                    : operation === 'clearResolved'
+                        ? 'Resolved comments cleared.'
+                        : operation === 'clearAll'
+                            ? 'All comments cleared.'
+                            : 'Comments saved.';
         } else {
             status.textContent = commentErrorMessage(message.error);
         }
@@ -1337,6 +1410,9 @@
                 return;
             }
             var action = button.getAttribute('data-comment-action');
+            if (action !== 'clearAll' && state.clearAllConfirmation) {
+                resetClearAllConfirmation();
+            }
             if (action === 'cancel-add') {
                 closeCommentComposer();
                 return;
@@ -1359,6 +1435,26 @@
             }
             if (action === 'send') {
                 postCommentOperation('sendComments', {});
+                return;
+            }
+            if (action === 'clearSent' || action === 'clearResolved') {
+                postCommentOperation(action, {});
+                return;
+            }
+            if (action === 'clearAll') {
+                if (!state.clearAllConfirmation) {
+                    state.clearAllConfirmation = true;
+                    commentClearAll.textContent = 'Confirm clear all';
+                    commentClearAll.setAttribute('data-confirming', 'true');
+                    commentClearAll.setAttribute(
+                        'aria-label',
+                        'Confirm clearing all comments'
+                    );
+                    status.textContent =
+                        'Select Clear all again to remove every comment.';
+                    return;
+                }
+                postCommentOperation('clearAll', {});
                 return;
             }
             var item = button.closest('[data-comment-id]');
@@ -1420,6 +1516,13 @@
             }
         }
         if (event.key !== 'Escape') return;
+        if (commentUiAvailable && state.clearAllConfirmation) {
+            event.preventDefault();
+            resetClearAllConfirmation();
+            status.textContent = 'Clear all cancelled.';
+            commentClearAll.focus();
+            return;
+        }
         if (commentUiAvailable && !commentComposer.hidden) {
             event.preventDefault();
             closeCommentComposer();

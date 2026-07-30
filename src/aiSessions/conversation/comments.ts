@@ -42,7 +42,11 @@ export interface ConversationCommentSelection {
 }
 
 export type ConversationCommentOperation =
-    'add' | 'update' | 'delete' | 'resolve' | 'reopen' | 'sendComments';
+    'add' | 'update' | 'delete' | 'resolve' | 'reopen'
+    | 'clearSent' | 'clearResolved' | 'clearAll' | 'sendComments';
+
+export type ConversationCommentClearOperation =
+    'clearSent' | 'clearResolved' | 'clearAll';
 
 export class ConversationCommentError extends Error {
     constructor(
@@ -136,6 +140,26 @@ export function markConversationCommentsSent(
             ? { ...comment, status: 'sent' }
             : { ...comment };
     });
+}
+
+export function clearConversationComments(
+    comments: readonly ConversationCommentDraft[],
+    operation: ConversationCommentClearOperation
+): ConversationCommentDraft[] {
+    if (!Array.isArray(comments)
+        || (operation !== 'clearSent'
+            && operation !== 'clearResolved'
+            && operation !== 'clearAll')) {
+        throw new ConversationCommentError('invalid');
+    }
+    return comments.filter(comment => {
+        validateDraft(comment);
+        return operation === 'clearAll'
+            ? false
+            : comment.status !== (
+                operation === 'clearSent' ? 'sent' : 'resolved'
+            );
+    }).map(comment => ({ ...comment }));
 }
 
 export function buildConversationCommentsPrompt(

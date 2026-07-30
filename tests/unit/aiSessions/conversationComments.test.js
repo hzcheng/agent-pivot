@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 const {
     buildConversationCommentsPrompt,
+    clearConversationComments,
     ConversationCommentError,
     createConversationComment,
     markConversationCommentsSent,
@@ -119,5 +120,57 @@ test('CONVERSATION-COMMENTS-003 rejects empty and oversized batches', () => {
         }]),
         error => error instanceof ConversationCommentError
             && error.code === 'invalid'
+    );
+});
+
+test('CONVERSATION-COMMENTS-BULK-001 clears sent, resolved, or all comments without mutating the input', () => {
+    const comments = [{
+        id: 'comment-open',
+        messageId: 'message-a',
+        interactionId: 'interaction-a',
+        role: 'assistant',
+        quote: 'Open quote',
+        prefix: '',
+        suffix: '',
+        comment: 'Open question.',
+        status: 'open',
+    }, {
+        id: 'comment-sent',
+        messageId: 'message-a',
+        interactionId: 'interaction-a',
+        role: 'assistant',
+        quote: 'Sent quote',
+        prefix: '',
+        suffix: '',
+        comment: 'Sent question.',
+        status: 'sent',
+    }, {
+        id: 'comment-resolved',
+        messageId: 'message-a',
+        interactionId: 'interaction-a',
+        role: 'assistant',
+        quote: 'Resolved quote',
+        prefix: '',
+        suffix: '',
+        comment: 'Resolved question.',
+        status: 'resolved',
+    }];
+
+    assert.deepEqual(
+        clearConversationComments(comments, 'clearSent').map(
+            comment => comment.id
+        ),
+        ['comment-open', 'comment-resolved']
+    );
+    assert.deepEqual(
+        clearConversationComments(comments, 'clearResolved').map(
+            comment => comment.id
+        ),
+        ['comment-open', 'comment-sent']
+    );
+    assert.deepEqual(clearConversationComments(comments, 'clearAll'), []);
+    assert.deepEqual(
+        comments.map(comment => comment.id),
+        ['comment-open', 'comment-sent', 'comment-resolved']
     );
 });

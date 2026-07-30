@@ -3590,6 +3590,20 @@
     ]
   },
   {
+    "id": "CONVERSATION-OUTLINE-DELIVERY-001",
+    "domain": "webview",
+    "title": "Undelivered initial conversation outline results remain retryable after authoritative Dashboard replacement instead of stranding Loading",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/integration/dashboard/conversationRouting.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/conversationHostController.ts",
+      "src/webview/webviewProjectScripts.js"
+    ]
+  },
+  {
     "id": "CONVERSATION-VIEWER-USER-EMPHASIS-001",
     "domain": "webview",
     "title": "AI Conversation presents User prompts as dominant full-width blocks",
@@ -3666,6 +3680,23 @@
     ]
   },
   {
+    "id": "CONVERSATION-COMMENTS-BULK-001",
+    "domain": "webview",
+    "title": "AI Conversation clears sent, resolved, or all comments through correlated Host-authoritative batch mutations with explicit clear-all confirmation",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/conversationComments.test.js",
+      "tests/integration/dashboard/conversationRouting.test.js",
+      "tests/browser/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/comments.ts",
+      "src/aiSessions/conversation/viewer.ts",
+      "src/webview/conversationViewerScripts.js"
+    ]
+  },
+  {
     "id": "CONVERSATION-READING-FOCUS-001",
     "domain": "webview",
     "title": "AI Conversation refreshes preserve the selected interaction, reading viewport, and semantic message focus",
@@ -3683,7 +3714,7 @@
   {
     "id": "CONVERSATION-COMMENTS-LAYOUT-001",
     "domain": "webview",
-    "title": "The Comments panel is compact, collapsible, keyboard-resizable, and restores local layout state",
+    "title": "The Comments panel keeps a compact grouped action bar and fully visible cards across extreme widths while remaining collapsible, resizable, and locally restorable",
     "priority": "P1",
     "status": "automated",
     "owners": [

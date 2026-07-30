@@ -14,6 +14,9 @@ const {
     ConversationCoordinator,
 } = require('../../../out/aiSessions/conversation/coordinator');
 const {
+    ConversationError,
+} = require('../../../out/aiSessions/conversation/types');
+const {
     withConversationDisplayMetadata,
 } = require('../../../out/aiSessions/conversation/conversationHostController');
 const ClaudeSessionService = require(
@@ -228,6 +231,9 @@ function createFakeAdapter(provider, options, events) {
     return {
         async readOutline(sessionId) {
             events.push(`read-outline:${provider}`);
+            if (options.testReadOutline) {
+                return options.testReadOutline(provider, sessionId);
+            }
             if (provider === 'codex' && !codexConnected) {
                 codexConnected = true;
                 await options.client.request('thread/read', {
@@ -306,7 +312,10 @@ function createDashboardConversationHarness(options = {}) {
     let router;
     const createAdapter = provider => adapterOptions => {
         events.push(`adapter:${provider}`);
-        return createFakeAdapter(provider, adapterOptions, events);
+        return createFakeAdapter(provider, {
+            ...adapterOptions,
+            testReadOutline: options.readOutline,
+        }, events);
     };
     const internalFactories = {
         ...(!options.useConcreteKimi
@@ -378,7 +387,9 @@ function createDashboardConversationHarness(options = {}) {
                 },
                 publish: async message => {
                     publications.push(message);
-                    return options.publishResult ?? true;
+                    return typeof options.publishResult === 'function'
+                        ? options.publishResult(message)
+                        : options.publishResult ?? true;
                 },
                 createPanel: (...args) => {
                     const panel = fakePanel();
@@ -733,6 +744,37 @@ test('PRODUCTION-CONVERSATION-COMPOSITION-002 keeps exact current-workspace auth
     await harness.dispose();
 });
 
+test('CONVERSATION-OUTLINE-DELIVERY-001 retries an undelivered initial error after authoritative Dashboard replacement', async () => {
+    let delivered = false;
+    let reads = 0;
+    const harness = createDashboardConversationHarness({
+        publishResult: () => delivered,
+        readOutline: (provider, sessionId) => {
+            reads += 1;
+            if (reads === 1) {
+                throw new ConversationError('staleRevision');
+            }
+            return fakeConversationOutline(provider, sessionId);
+        },
+    });
+    await harness.activate();
+    await harness.route(makeOutlineRequest());
+
+    assert.deepEqual(harness.publications.at(-1).error, {
+        code: 'staleRevision',
+        reason: undefined,
+        retryAfterMs: undefined,
+    });
+
+    delivered = true;
+    await harness.reconcile();
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.equal(reads, 2);
+    assert.equal(harness.publications.at(-1).payload.interactions.length, 2);
+    await harness.dispose();
+});
+
 test('PRODUCTION-CONVERSATION-LIFECYCLE-001 hidden sidebar keeps the exact viewer authority lifecycle live', async () => {
     let targetAvailable = true;
     const focusedSession = {
@@ -855,7 +897,7 @@ test('PRODUCTION-CONVERSATION-LIFECYCLE-003 accepts a fresh Webview generation a
     await harness.dispose();
 });
 
-test('PRODUCTION-CONVERSATION-COMMENTS-001 CONVERSATION-COMMENTS-REVIEW-001 settles review mutations, cross-page location, and one host-owned batch', async () => {
+test('PRODUCTION-CONVERSATION-COMMENTS-001 CONVERSATION-COMMENTS-REVIEW-001 CONVERSATION-COMMENTS-BULK-001 settles review mutations, cross-page location, and Host-owned batches', async () => {
     const prompts = [];
     const harness = createDashboardConversationHarness({
         useConcreteViewer: true,
@@ -1019,6 +1061,27 @@ test('PRODUCTION-CONVERSATION-COMMENTS-001 CONVERSATION-COMMENTS-REVIEW-001 sett
     assert.equal(reopened.success, true);
     assert.equal(reopened.revision, 5);
     assert.equal(reopened.comments[0].status, 'open');
+
+    const clearAll = {
+        ...base,
+        type: 'conversation-viewer-comment-mutation',
+        requestId: 'comment:clear-all:7',
+        operation: 'clearAll',
+        expectedRevision: 5,
+        payload: {},
+    };
+    await panel.receiveMessage(clearAll);
+    const cleared = panel.postedMessages.at(-1);
+    assert.equal(cleared.success, true);
+    assert.equal(cleared.revision, 6);
+    assert.deepEqual(cleared.comments, []);
+
+    await panel.receiveMessage(clearAll);
+    assert.deepEqual(
+        panel.postedMessages.at(-1),
+        cleared,
+        'a duplicate bulk mutation must not execute twice'
+    );
     await harness.dispose();
 });
 
@@ -1230,6 +1293,7 @@ test('PRODUCTION-CONVERSATION-FOCUS-001 panel close reveals the sidebar before p
 
 test('PRODUCTION-CONVERSATION-FOCUS-002 rejected reveal and hidden delivery remain isolated while publishing the fallback', async t => {
     executedCommands.length = 0;
+    let publishResult = true;
     focusCommandFailure = new Error([
         '/private/focus/path',
         'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
@@ -1239,12 +1303,13 @@ test('PRODUCTION-CONVERSATION-FOCUS-002 rejected reveal and hidden delivery rema
         focusCommandFailure = null;
     });
     const harness = createDashboardConversationHarness({
-        publishResult: false,
+        publishResult: () => publishResult,
         useConcreteViewer: true,
     });
     await harness.activate();
     await harness.route(makeOutlineRequest());
     await harness.route(makeOpenRequest());
+    publishResult = false;
     harness.setVisible(false);
     harness.panels[0].dispose();
     await new Promise(resolve => setImmediate(resolve));

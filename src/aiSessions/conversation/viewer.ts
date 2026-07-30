@@ -8,6 +8,7 @@ import type { AiSessionProviderId } from '../../models';
 import type { AiSessionDisposable } from '../types';
 import {
     buildConversationCommentsPrompt,
+    clearConversationComments,
     cloneConversationComments,
     CONVERSATION_COMMENT_LIMITS,
     ConversationCommentDraft,
@@ -126,7 +127,8 @@ interface ConversationViewerCommentMutationMessage {
     projectId: string;
     provider: AiSessionProviderId;
     sessionId: string;
-    operation: 'add' | 'update' | 'delete' | 'resolve' | 'reopen';
+    operation: 'add' | 'update' | 'delete' | 'resolve' | 'reopen'
+        | 'clearSent' | 'clearResolved' | 'clearAll';
     expectedRevision: number;
     payload: unknown;
 }
@@ -541,6 +543,22 @@ export class ConversationViewer implements ConversationViewerApi {
                 message
             ));
             this.commentRevision += 1;
+            return;
+        }
+        if (request.operation === 'clearSent'
+            || request.operation === 'clearResolved'
+            || request.operation === 'clearAll') {
+            if (!hasExactKeys(request.payload as object, [])) {
+                throw new ConversationCommentError('invalid');
+            }
+            const comments = clearConversationComments(
+                this.comments,
+                request.operation
+            );
+            if (comments.length !== this.comments.length) {
+                this.comments = comments;
+                this.commentRevision += 1;
+            }
             return;
         }
         const payload = parseExistingCommentPayload(
@@ -1507,8 +1525,11 @@ export class ConversationViewer implements ConversationViewerApi {
             class="conversation-comments" data-conversation-comments
             aria-label="Conversation comments">
             <div class="conversation-comments-header">
-                <strong>Comments</strong>
-                <span data-comment-count>0</span>
+                <div class="conversation-comments-heading">
+                    <strong>Review comments</strong>
+                    <span data-comment-summary>No comments yet</span>
+                </div>
+                <span data-comment-count aria-label="0 comments">0</span>
             </div>
             <div class="conversation-comment-composer" data-comment-composer hidden>
                 <blockquote data-comment-selection></blockquote>
@@ -1527,8 +1548,21 @@ export class ConversationViewer implements ConversationViewerApi {
             <p class="conversation-comment-empty" data-comment-empty>
                 Select text in the conversation to add a comment.
             </p>
-            <button class="conversation-comments-send" type="button"
-                data-comment-action="send" disabled>Send comments to this session</button>
+            <div class="conversation-comments-toolbar" data-comments-toolbar
+                role="group" aria-label="Comment actions">
+                <button class="conversation-comments-clear" type="button"
+                    data-comment-action="clearSent" title="Clear sent comments"
+                    disabled>Clear sent</button>
+                <button class="conversation-comments-clear" type="button"
+                    data-comment-action="clearResolved"
+                    title="Clear resolved comments" disabled>Clear resolved</button>
+                <button class="conversation-comments-clear conversation-comments-clear-all"
+                    type="button" data-comment-action="clearAll"
+                    title="Clear all comments" disabled>Clear all</button>
+                <button class="conversation-comments-send" type="button"
+                    data-comment-action="send" disabled
+                    title="Send open comments to this session">Send open comments to this session</button>
+            </div>
         </aside>
     </div>
     <button class="conversation-add-comment" type="button"
@@ -1612,7 +1646,10 @@ function parseViewerMessage(message: unknown): ConversationViewerMessage | undef
             && value.operation !== 'update'
             && value.operation !== 'delete'
             && value.operation !== 'resolve'
-            && value.operation !== 'reopen') {
+            && value.operation !== 'reopen'
+            && value.operation !== 'clearSent'
+            && value.operation !== 'clearResolved'
+            && value.operation !== 'clearAll') {
             return undefined;
         }
         return value as unknown as ConversationViewerCommentMutationMessage;

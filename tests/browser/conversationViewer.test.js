@@ -693,11 +693,75 @@ test('CONVERSATION-COMMENTS-LAYOUT-001 toggles, resizes, and restores the commen
             .getAttribute('aria-valuenow'),
         '312'
     );
+
+    const narrow = await openHostViewerDocument(t, {
+        ...options,
+        viewport: { width: 700, height: 600 },
+        initialWebviewState: {
+            conversationCommentsPanel: { open: true, width: 240 },
+        },
+    });
+    assert.deepEqual(
+        await narrow.page.evaluate(() => {
+            const workspace = document.querySelector(
+                '.conversation-workspace'
+            ).getBoundingClientRect();
+            const conversation = document.querySelector(
+                '[data-conversation-scroll]'
+            ).getBoundingClientRect();
+            const comments = document.querySelector(
+                '[data-conversation-comments]'
+            ).getBoundingClientRect();
+            return {
+                commentsRightAligned:
+                    Math.abs(comments.right - workspace.right) < 1,
+                commentsBesideConversation:
+                    comments.left >= conversation.right,
+            };
+        }),
+        {
+            commentsRightAligned: true,
+            commentsBesideConversation: true,
+        }
+    );
+    assert.equal(
+        await narrow.page.locator('[data-comments-resizer]').isVisible(),
+        true
+    );
+
+    const extraNarrow = await openHostViewerDocument(t, {
+        ...options,
+        viewport: { width: 180, height: 600 },
+        initialWebviewState: {
+            conversationCommentsPanel: { open: true, width: 240 },
+        },
+    });
+    assert.deepEqual(
+        await extraNarrow.page.evaluate(() => {
+            const comments = document.querySelector(
+                '[data-conversation-comments]'
+            ).getBoundingClientRect();
+            return {
+                leftVisible: comments.left >= 0,
+                rightVisible: comments.right <= window.innerWidth,
+            };
+        }),
+        {
+            leftVisible: true,
+            rightVisible: true,
+        }
+    );
 });
 
-test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-REVIEW-001 reviews multiple anchored selections as one correlated batch', async t => {
+test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-REVIEW-001 CONVERSATION-COMMENTS-BULK-001 CONVERSATION-COMMENTS-LAYOUT-001 reviews contained cards and Host-owned comment batches', async t => {
     const interactionId = 'input-comments';
     const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+        viewport: { width: 850, height: 600 },
+        initialWebviewState: {
+            conversationCommentsPanel: { open: true, width: 192 },
+        },
         interactionIds: [interactionId],
         interactionId,
         markdown: 'Alpha beta gamma beta delta.',
@@ -879,6 +943,71 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-REVIEW-001 reviews mult
         await page.locator('[data-action="toggle-comments"]').textContent(),
         'Comments (2 open)'
     );
+    const commentToolbar = page.locator('[data-comments-toolbar]');
+    assert.equal(await commentToolbar.count(), 1);
+    assert.equal(
+        await commentToolbar.locator('[data-comment-action]').count(),
+        4
+    );
+    const commentToolbarHeight = await commentToolbar.evaluate(element =>
+        element.getBoundingClientRect().height
+    );
+    assert.ok(
+        commentToolbarHeight <= 64,
+        `comment toolbar height ${commentToolbarHeight}px must remain compact`
+    );
+    assert.deepEqual(
+        await page.locator('[data-comment-id]').evaluateAll(cards =>
+            cards.map(card => {
+                const bounds = card.getBoundingClientRect();
+                const controls = Array.from(card.querySelectorAll('button'));
+                return {
+                    cardContained: card.scrollWidth <= card.clientWidth,
+                    controlsContained: controls.every(control => {
+                        const controlBounds = control.getBoundingClientRect();
+                        return controlBounds.left >= bounds.left
+                            && controlBounds.right <= bounds.right;
+                    }),
+                    actionsWrap: getComputedStyle(
+                        card.querySelector('.conversation-comment-actions')
+                    ).flexWrap,
+                };
+            })
+        ),
+        [{
+            cardContained: true,
+            controlsContained: true,
+            actionsWrap: 'wrap',
+        }, {
+            cardContained: true,
+            controlsContained: true,
+            actionsWrap: 'wrap',
+        }]
+    );
+
+    await page.setViewportSize({ width: 180, height: 600 });
+    assert.deepEqual(
+        await page.locator('[data-comment-id]').evaluateAll(cards =>
+            cards.map(card => {
+                const bounds = card.getBoundingClientRect();
+                return {
+                    leftVisible: bounds.left >= 0,
+                    rightVisible: bounds.right <= window.innerWidth,
+                    contentContained: card.scrollWidth <= card.clientWidth,
+                };
+            })
+        ),
+        [{
+            leftVisible: true,
+            rightVisible: true,
+            contentContained: true,
+        }, {
+            leftVisible: true,
+            rightVisible: true,
+            contentContained: true,
+        }]
+    );
+    await page.setViewportSize({ width: 850, height: 600 });
 
     await sendPage(page, {
         type: 'conversation-viewer-page',
@@ -1005,6 +1134,77 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-REVIEW-001 reviews mult
     );
     assert.equal(
         await page.locator('[data-comment-action="send"]').isEnabled(),
+        true
+    );
+
+    await page.locator('[data-comment-action="clearSent"]').click();
+    requests = await postedMessages(page);
+    const clearSent = requests.at(-1);
+    assert.equal(clearSent.operation, 'clearSent');
+    assert.equal(clearSent.expectedRevision, 5);
+    assert.deepEqual(clearSent.payload, {});
+    comments.splice(1, 1);
+    await settle(clearSent, 6, comments);
+    assert.deepEqual(
+        await page.locator('[data-comment-status-label]').allTextContents(),
+        ['Open']
+    );
+
+    await page.locator('[data-comment-id="comment-1"]')
+        .locator('[data-comment-action="resolve"]').click();
+    requests = await postedMessages(page);
+    const resolveRemaining = requests.at(-1);
+    comments[0].status = 'resolved';
+    await settle(resolveRemaining, 7, comments);
+
+    await page.locator('[data-comment-action="clearResolved"]').click();
+    requests = await postedMessages(page);
+    const clearResolved = requests.at(-1);
+    assert.equal(clearResolved.operation, 'clearResolved');
+    assert.equal(clearResolved.expectedRevision, 7);
+    comments.splice(0);
+    await settle(clearResolved, 8, comments);
+    assert.equal(await page.locator('[data-comment-id]').count(), 0);
+
+    await selectText('gamma');
+    await page.locator('[data-comment-input]').fill('Check gamma again.');
+    await page.locator('[data-comment-input]').press('Control+Enter');
+    requests = await postedMessages(page);
+    const third = requests.at(-1);
+    comments.push({
+        id: 'comment-3',
+        messageId: `${interactionId}:user`,
+        interactionId,
+        role: 'user',
+        quote: 'gamma',
+        prefix: 'Alpha beta ',
+        suffix: ' beta delta.',
+        comment: 'Check gamma again.',
+        status: 'open',
+    });
+    await settle(third, 9, comments);
+
+    const messageCountBeforeConfirmation = (await postedMessages(page)).length;
+    await page.locator('[data-comment-action="clearAll"]').click();
+    assert.equal(
+        (await postedMessages(page)).length,
+        messageCountBeforeConfirmation
+    );
+    assert.equal(
+        await page.locator('[data-comment-action="clearAll"]').textContent(),
+        'Confirm clear all'
+    );
+    await page.locator('[data-comment-action="clearAll"]').click();
+    requests = await postedMessages(page);
+    const clearAll = requests.at(-1);
+    assert.equal(clearAll.operation, 'clearAll');
+    assert.equal(clearAll.expectedRevision, 9);
+    assert.deepEqual(clearAll.payload, {});
+    comments.splice(0);
+    await settle(clearAll, 10, comments);
+    assert.equal(await page.locator('[data-comment-id]').count(), 0);
+    assert.equal(
+        await page.locator('[data-comment-action="clearAll"]').isDisabled(),
         true
     );
 });

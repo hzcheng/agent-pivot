@@ -18,6 +18,7 @@ const {
     makeRegistration,
 } = require('../../contract/openProjects/helpers');
 const { projectOpenWorkspaceCards } = require('../../../out/openWorkspaces/projection');
+const { createOpenWorkspacePinSnapshot } = require('../../../out/openWorkspaces/pinProtocol');
 const { OpenWorkspaceCoordinator } = require('../../../extensions/attention-ui-bridge/out/extensions/attention-ui-bridge/src/openWorkspaceCoordinator');
 
 const OpenWorkspaceBridgeClient = loadWithFakeVscode(
@@ -167,7 +168,9 @@ test('ARCH-COORDINATOR-WIRING-001 carries sequenced publications through the bri
             authoritativeUris: true,
             uiHostNavigation: true,
             savedProjectNavigation: true,
+            workspacePins: true,
         },
+        pinSnapshot: createOpenWorkspacePinSnapshot([]),
     }));
 
     const client = new OpenWorkspaceBridgeClient(
@@ -322,6 +325,59 @@ test('OPEN-OPEN-PROJECT-INCREMENTAL-RENDERING-001 applies consistent updates and
         searchCatalog: catalog,
     }), false);
     assert.equal(wrapper.innerHTML, runningHtml);
+});
+
+test('OPEN-WORKSPACE-PIN-WEBVIEW-001 waits for authoritative markup before changing pin state', () => {
+    const wrapper = { innerHTML: '<div>old</div>' };
+    const context = createOpenWorkspaceUpdateVm(wrapper, []);
+    const cardId = '__openWorkspaceNavigation-' + 'a'.repeat(24);
+    const attributes = new Map([['aria-pressed', 'false']]);
+    const card = {
+        getAttribute: name => name === 'data-id' ? cardId : null,
+        querySelector: () => ({ textContent: 'Other window' }),
+    };
+    const button = {
+        getAttribute: name => attributes.has(name) ? attributes.get(name) : null,
+        setAttribute: (name, value) => attributes.set(name, value),
+        removeAttribute: name => attributes.delete(name),
+        closest: selector => selector === '.workspace-card' ? card : null,
+    };
+    const announcements = [];
+    const region = {
+        set textContent(value) { announcements.push(value); },
+    };
+    const posted = [];
+    context.window.vscode = { postMessage: message => posted.push(message) };
+    context.document.querySelector = selector =>
+        selector === '[data-open-workspace-pin-live-region]' ? region : null;
+    context.document.querySelectorAll = selector =>
+        selector.includes('.project-pin-badge') ? [button] : [];
+
+    context.requestOpenWorkspacePin(button, cardId);
+
+    assert.equal(attributes.get('aria-pressed'), 'false',
+        'the webview must not optimistically flip persistent pin state');
+    assert.equal(attributes.get('aria-disabled'), 'true');
+    assert.equal(posted.length, 1);
+    assert.equal(posted[0].pinned, true);
+
+    context.completeOpenWorkspacePin({
+        type: 'open-workspace-pin-result',
+        version: 1,
+        requestId: posted[0].requestId,
+        cardId,
+        pinned: true,
+        success: true,
+    });
+    assert.equal(attributes.get('aria-pressed'), 'false');
+    assert.equal(attributes.get('aria-disabled'), 'true',
+        'an acknowledgement alone must not clear pending state');
+
+    attributes.set('aria-pressed', 'true');
+    context.reconcilePendingOpenWorkspacePins(context.document);
+    assert.equal(attributes.has('aria-disabled'), false);
+    assert.equal(context.pendingOpenWorkspacePins.size, 0);
+    assert.equal(announcements.at(-1), 'Window pinned.');
 });
 
 test('WEBVIEW-WEBVIEW-REFRESH-FOCUS-001 focuses active search on initialization without blurring editor focus', () => {

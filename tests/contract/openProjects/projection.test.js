@@ -250,6 +250,7 @@ test('OPEN-OTHER-WINDOWS-PRIVACY-001 exposes only the latest privacy-bounded wor
         'kind',
         'name',
         'navigationIdentity',
+        'pinned',
         'roots',
         'runningSessionCount',
         'scopeIdentity',
@@ -269,6 +270,42 @@ test('OPEN-OTHER-WINDOWS-PRIVACY-001 exposes only the latest privacy-bounded wor
     assertPrivacyBounded(cards[0]);
     assert.equal(JSON.stringify(cards[0]).includes('Secret title'), false);
     assert.equal(JSON.stringify(cards[0]).includes('/private/'), false);
+});
+
+test('OPEN-WORKSPACE-PIN-SORT-001 keeps pinned windows first in original pin order while retaining recency for the rest', () => {
+    const oldestPin = makeRecord({ uri: '/work/oldest-pin', name: 'Oldest pin' });
+    const newerPin = makeRecord({ uri: '/work/newer-pin', name: 'Newer pin' });
+    const recent = makeRecord({ uri: '/work/recent', name: 'Recent' });
+    const older = makeRecord({ uri: '/work/older', name: 'Older' });
+    const aggregate = makeAggregate([
+        makeRegistration(OTHER, 100, oldestPin.navigationUri, { workspace: oldestPin }),
+        makeRegistration(OLDER, 9000, newerPin.navigationUri, { workspace: newerPin }),
+        makeRegistration(NEWER, 8000, recent.navigationUri, { workspace: recent }),
+        makeRegistration('5'.repeat(32), 2000, older.navigationUri, { workspace: older }),
+    ]);
+    const pinTimes = new Map([
+        [newerPin.navigationIdentity, 2000],
+        [oldestPin.navigationIdentity, 1000],
+    ]);
+
+    const first = projectOpenWorkspaceCards(null, aggregate, SELF, null, pinTimes);
+    const focusChanged = projectOpenWorkspaceCards(null, {
+        ...aggregate,
+        registrations: aggregate.registrations.map(registration => ({
+            ...registration,
+            lastFocusedAtMs: registration.workspace.navigationIdentity === oldestPin.navigationIdentity
+                ? 20_000
+                : registration.lastFocusedAtMs,
+        })),
+    }, SELF, null, pinTimes);
+
+    assert.deepEqual(first.map(card => card.name), [
+        'Oldest pin', 'Newer pin', 'Recent', 'Older',
+    ]);
+    assert.deepEqual(focusChanged.map(card => card.name), [
+        'Oldest pin', 'Newer pin', 'Recent', 'Older',
+    ]);
+    assert.deepEqual(first.map(card => card.pinned), [true, true, false, false]);
 });
 
 test('ATTENTION-REMOTE-ATTENTION-IDENTITY-001 derives attention identity from the exact remote URI', () => {

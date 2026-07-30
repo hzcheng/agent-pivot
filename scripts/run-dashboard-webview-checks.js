@@ -671,6 +671,16 @@ function runWorkspaceCardRenderingChecks() {
     assert.ok(otherWindowsHtml.includes('<span class="ai-session-active-count" aria-label="2 active AI sessions">●2</span>'));
     assert.ok(otherWindowsHtml.includes('<h2 class="project-header">App</h2>'));
     assert.ok(otherWindowsHtml.includes('<p class="project-description workspace-metadata">1 folder</p>'));
+    assert.ok(otherWindowsHtml.includes('data-action="toggle-open-workspace-pin"'));
+    assert.ok(otherWindowsHtml.includes('aria-label="Pin Window" aria-pressed="false"'));
+    assert.ok(otherWindowsHtml.includes('data-open-workspace-pin-live-region'));
+    const pinnedWindowHtml = webviewContent.getOpenWorkspacesGroupContent([{
+        ...navigationCard,
+        pinned: true,
+    }], false);
+    assert.ok(pinnedWindowHtml.includes(
+        'class="project-pin-badge active" title="Unpin Window" aria-label="Unpin Window" aria-pressed="true"'
+    ));
     assert.strictEqual(otherWindowsHtml.includes('[Dev Container:'), false,
         'navigation cards must not repeat VS Code remote window decorations in their title');
     assert.strictEqual(otherWindowsHtml.includes('Dev Container ·'), false,

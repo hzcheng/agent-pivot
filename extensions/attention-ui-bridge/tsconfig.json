@@ -13,6 +13,8 @@
         "src/**/*.ts",
         "../../src/aiSessions/attentionPayload.ts",
         "../../src/aiSessions/attentionAggregate.ts",
+        "../../src/aiSessions/tmuxCreationLock.ts",
+        "../../src/openWorkspaces/pinProtocol.ts",
         "../../src/openWorkspaces/protocol.ts",
         "../../src/workspaces/types.ts",
         "../../shared/attention-bridge/**/*.ts"

@@ -20,6 +20,7 @@ Module._load = function (request, parent, isMain) {
 };
 const workspaceProtocol = require('../out/openWorkspaces/protocol');
 const workspaceProjection = require('../out/openWorkspaces/projection');
+const workspacePinProtocol = require('../out/openWorkspaces/pinProtocol');
 const { default: OpenWorkspaceBridgeClient } = require('../out/openWorkspaces/bridgeClient');
 const { OpenWorkspaceDashboardController } = require('../out/openWorkspaces/dashboardController');
 const { OpenWorkspaceController } = require('../out/openWorkspaces/workspaceController');
@@ -593,6 +594,7 @@ function runWorkspaceProjectionV3Checks() {
         'kind',
         'name',
         'navigationIdentity',
+        'pinned',
         'roots',
         'runningSessionCount',
         'scopeIdentity',
@@ -1069,7 +1071,9 @@ async function runOpenWorkspaceClientAndControllerChecks() {
                         authoritativeUris: true,
                         uiHostNavigation: true,
                         savedProjectNavigation: true,
+                        workspacePins: true,
                     },
+                    pinSnapshot: workspacePinProtocol.createOpenWorkspacePinSnapshot([]),
                 };
             }
             return { accepted: true };
@@ -1411,7 +1415,9 @@ async function runOpenWorkspaceHardeningChecks() {
             authoritativeUris: true,
             uiHostNavigation: true,
             savedProjectNavigation: true,
+            workspacePins: true,
         },
+        pinSnapshot: workspacePinProtocol.createOpenWorkspacePinSnapshot([]),
     };
 
     const terminalHandshakeCases = [
@@ -3727,6 +3733,7 @@ async function runCoordinatorWiringChecks() {
                 authoritativeUris: true,
                 uiHostNavigation: true,
                 savedProjectNavigation: true,
+                workspacePins: true,
             },
         }), {
             accepted: false,
@@ -3739,7 +3746,9 @@ async function runCoordinatorWiringChecks() {
                 authoritativeUris: true,
                 uiHostNavigation: true,
                 savedProjectNavigation: true,
+                workspacePins: true,
             },
+            pinSnapshot: workspacePinProtocol.createOpenWorkspacePinSnapshot([]),
             errorCode: 'update-required',
         });
         assert.strictEqual((await handshake({
@@ -3753,6 +3762,7 @@ async function runCoordinatorWiringChecks() {
                 authoritativeUris: true,
                 uiHostNavigation: true,
                 savedProjectNavigation: true,
+                workspacePins: true,
             },
         })).accepted, true);
 

@@ -13,6 +13,12 @@ import type { OpenWorkspace } from '../workspaces/types';
 import type { OpenWorkspaceBridgeStatus } from './bridgeClient';
 import { projectOpenWorkspaceNavigationCards } from './projection';
 import type { OpenWorkspaceAggregate, OpenWorkspaceRecord } from './protocol';
+import {
+    createOpenWorkspacePinSnapshot,
+    getOpenWorkspacePinTimes,
+    OpenWorkspacePinSnapshot,
+    validateOpenWorkspacePinSnapshot,
+} from './pinProtocol';
 
 export interface OpenWorkspaceDashboardState {
     otherWindows: { status: OpenWorkspaceBridgeStatus };
@@ -41,6 +47,7 @@ export interface OpenWorkspaceDashboardControllerOptions {
 
 export class OpenWorkspaceDashboardController {
     private aggregate: OpenWorkspaceAggregate | null = null;
+    private pinSnapshot: OpenWorkspacePinSnapshot = createOpenWorkspacePinSnapshot([]);
     private bridgeStatus: OpenWorkspaceBridgeStatus = 'ready';
     private navigationWorkspacesById = new Map<string, OpenWorkspaceRecord>();
     private lastPostedSemanticRevision: string | null = null;
@@ -53,6 +60,13 @@ export class OpenWorkspaceDashboardController {
         if (aggregate?.semanticRevision === this.aggregate?.semanticRevision) { return false; }
         this.aggregate = aggregate;
         this.navigationWorkspacesById.clear();
+        return true;
+    }
+
+    setPinSnapshot(snapshot: OpenWorkspacePinSnapshot): boolean {
+        const normalized = validateOpenWorkspacePinSnapshot(snapshot);
+        if (normalized.revision === this.pinSnapshot.revision) { return false; }
+        this.pinSnapshot = normalized;
         return true;
     }
 
@@ -86,6 +100,7 @@ export class OpenWorkspaceDashboardController {
             this.aggregate,
             this.options.getBridgeInstanceId(),
             attentionAggregate,
+            getOpenWorkspacePinTimes(this.pinSnapshot),
         );
         this.navigationWorkspacesById = new Map(navigationProjections.map(projection => [
             projection.card.id,
@@ -106,10 +121,10 @@ export class OpenWorkspaceDashboardController {
         return cards;
     }
 
-    postUpdated(): void {
-        if (!this.options.isVisible()) { return; }
+    postUpdated(): Promise<void> {
+        if (!this.options.isVisible()) { return Promise.resolve(); }
         const semanticRevision = this.getViewSemanticRevision();
-        if (semanticRevision === this.lastPostedSemanticRevision) { return; }
+        if (semanticRevision === this.lastPostedSemanticRevision) { return Promise.resolve(); }
         const message = buildOpenWorkspacesUpdatedMessage({
             groups: this.options.getGroups(),
             cards: this.getCards(),
@@ -123,7 +138,7 @@ export class OpenWorkspaceDashboardController {
         });
         this.lastPostedSemanticRevision = message.semanticRevision;
         const deliveryGeneration = this.deliveryGeneration;
-        this.options.postMessage(message).then(delivered => {
+        return Promise.resolve(this.options.postMessage(message)).then(delivered => {
             if (!delivered) {
                 const current = this.clearPostedSemanticRevision(
                     message.semanticRevision,
@@ -219,6 +234,7 @@ export class OpenWorkspaceDashboardController {
         return crypto.createHash('sha256').update(JSON.stringify([
             this.bridgeStatus,
             this.aggregate?.semanticRevision || null,
+            this.pinSnapshot.revision,
             this.options.getAttentionAggregate()?.aggregateRevision || null,
             this.options.getRunningCardAnimation(),
             this.options.getRunningIconAnimation(),

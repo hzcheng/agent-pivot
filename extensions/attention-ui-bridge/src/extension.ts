@@ -6,6 +6,7 @@ import * as vscode from 'vscode';
 import { resolveBridgeStorageRoot } from './bridgeStorageRoot';
 import { LocalStore } from './localStore';
 import { OpenWorkspaceCoordinator } from './openWorkspaceCoordinator';
+import { OpenWorkspacePinCoordinator } from './openWorkspacePinCoordinator';
 import {
     AuthoritativeOpenWorkspaceUri,
     replaceOpenWorkspacePublicationUris,
@@ -25,6 +26,10 @@ import {
     OPEN_WORKSPACE_NAVIGATE_COMMAND,
     OPEN_WORKSPACE_PROTOCOL_VERSION,
 } from '../../../src/openWorkspaces/protocol';
+import {
+    OPEN_WORKSPACE_PIN_SET_COMMAND,
+    OPEN_WORKSPACE_PIN_SNAPSHOT_COMMAND,
+} from '../../../src/openWorkspaces/pinProtocol';
 import {
     SAVED_PROJECT_NAVIGATE_COMMAND,
     SAVED_PROJECT_NAVIGATION_PROTOCOL_VERSION,
@@ -101,6 +106,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             void vscode.commands.executeCommand(OPEN_WORKSPACE_DIAGNOSTIC, event).then(
                 () => undefined,
                 () => undefined,
+            );
+        },
+    });
+    const openWorkspacePinCoordinator = new OpenWorkspacePinCoordinator(bridgeRoot, {
+        now: () => Date.now(),
+        setInterval: (callback, intervalMs) => setInterval(callback, intervalMs),
+        clearInterval: handle => clearInterval(handle as NodeJS.Timeout),
+        createWatcher: (directory, onDidChange) => {
+            fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+            return fs.watch(directory, onDidChange);
+        },
+        deliverSnapshot: snapshot => vscode.commands.executeCommand(
+            OPEN_WORKSPACE_PIN_SNAPSHOT_COMMAND,
+            snapshot,
+        ),
+        reportError: error => {
+            outputChannel.appendLine(
+                `[OpenWorkspacePins] ${error instanceof Error ? error.message : String(error)}`,
             );
         },
     });
@@ -215,13 +238,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     });
     const openWorkspaceHandshakeDisposable = vscode.commands.registerCommand(
         OPEN_WORKSPACE_BRIDGE_HANDSHAKE,
-        (raw: unknown) => {
+        async (raw: unknown) => {
             const compatible = isOpenWorkspaceHandshakeCompatible(raw);
             return {
                 accepted: compatible,
                 protocolVersion: OPEN_WORKSPACE_PROTOCOL_VERSION,
                 bridgeExtensionVersion,
                 capabilities: OPEN_WORKSPACE_CAPABILITIES,
+                pinSnapshot: await openWorkspacePinCoordinator.getSnapshot(),
                 ...(compatible ? {} : { errorCode: 'update-required' }),
             };
         },
@@ -243,6 +267,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const openWorkspaceUnregisterDisposable = vscode.commands.registerCommand(
         OPEN_WORKSPACE_BRIDGE_UNREGISTER,
         (raw: unknown) => openWorkspaceCoordinator.unregister(raw),
+    );
+    const openWorkspaceSetPinDisposable = vscode.commands.registerCommand(
+        OPEN_WORKSPACE_PIN_SET_COMMAND,
+        (raw: unknown) => openWorkspacePinCoordinator.setPinned(raw),
     );
     const openWorkspaceNavigateDisposable = vscode.commands.registerCommand(
         OPEN_WORKSPACE_NAVIGATE_COMMAND,
@@ -349,6 +377,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         openWorkspaceHandshakeDisposable,
         openWorkspacePublishDisposable,
         openWorkspaceUnregisterDisposable,
+        openWorkspaceSetPinDisposable,
         openWorkspaceNavigateDisposable,
         savedProjectNavigateDisposable,
         statusDisposable,
@@ -356,6 +385,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         clearDisposable,
         scanRegistration,
         openWorkspaceCoordinator,
+        openWorkspacePinCoordinator,
         {
             dispose: () => {
                 if (scanTimer !== null) {

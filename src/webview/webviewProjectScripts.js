@@ -1606,6 +1606,130 @@ function applyWorkspaceUpdate(message, options) {
 }
 
 var lastAppliedOpenWorkspacesSemanticRevision = null;
+var pendingOpenWorkspacePins = new Map();
+var nextOpenWorkspacePinRequestId = 0;
+
+function findOpenWorkspacePinButton(cardId, root) {
+    return Array.from((root || document).querySelectorAll(
+        '.workspace-card[data-other-workspace][data-id] .project-pin-badge[data-action="toggle-open-workspace-pin"]'
+    )).find(button => button.closest('.workspace-card')?.getAttribute('data-id') === cardId) || null;
+}
+
+function announceOpenWorkspacePin(message) {
+    var region = document.querySelector('[data-open-workspace-pin-live-region]');
+    if (region) {
+        region.textContent = message;
+    }
+}
+
+function setOpenWorkspacePinPending(button, pending) {
+    if (!button) return;
+    if (pending) {
+        button.setAttribute('data-pin-pending', '');
+        button.setAttribute('aria-disabled', 'true');
+    } else {
+        button.removeAttribute('data-pin-pending');
+        button.removeAttribute('aria-disabled');
+    }
+}
+
+function clearOpenWorkspacePinPending(cardId, button) {
+    var pending = pendingOpenWorkspacePins.get(cardId);
+    if (pending && pending.timeoutHandle !== null
+        && typeof window.clearTimeout === 'function') {
+        window.clearTimeout(pending.timeoutHandle);
+    }
+    pendingOpenWorkspacePins.delete(cardId);
+    setOpenWorkspacePinPending(button, false);
+}
+
+function reconcilePendingOpenWorkspacePins(root) {
+    pendingOpenWorkspacePins.forEach((pending, cardId) => {
+        var button = findOpenWorkspacePinButton(cardId, root || document);
+        if (button && (button.getAttribute('aria-pressed') === 'true') === pending.pinned) {
+            clearOpenWorkspacePinPending(cardId, button);
+            announceOpenWorkspacePin(pending.pinned ? 'Window pinned.' : 'Window unpinned.');
+            return;
+        }
+        if (!button && pending.acknowledged) {
+            clearOpenWorkspacePinPending(cardId, null);
+            announceOpenWorkspacePin(pending.pinned ? 'Window pinned.' : 'Window unpinned.');
+            return;
+        }
+        setOpenWorkspacePinPending(button, true);
+    });
+}
+
+function requestOpenWorkspacePin(button, cardId) {
+    if (!button || pendingOpenWorkspacePins.has(cardId)) {
+        return;
+    }
+    nextOpenWorkspacePinRequestId = nextOpenWorkspacePinRequestId >= Number.MAX_SAFE_INTEGER
+        ? 1
+        : nextOpenWorkspacePinRequestId + 1;
+    var pinned = button.getAttribute('aria-pressed') !== 'true';
+    var card = button.closest('.workspace-card');
+    var name = card?.querySelector('.project-header')?.textContent?.trim() || 'window';
+    var pending = {
+        requestId: nextOpenWorkspacePinRequestId,
+        pinned: pinned,
+        acknowledged: false,
+        timeoutHandle: null,
+    };
+    if (typeof window.setTimeout === 'function') {
+        pending.timeoutHandle = window.setTimeout(() => {
+            if (pendingOpenWorkspacePins.get(cardId) !== pending) {
+                return;
+            }
+            clearOpenWorkspacePinPending(cardId, findOpenWorkspacePinButton(cardId));
+            announceOpenWorkspacePin('Pinned window update timed out. Try again.');
+            requestFullRefresh('open-workspace-pin-timeout');
+        }, 15_000);
+    }
+    pendingOpenWorkspacePins.set(cardId, pending);
+    setOpenWorkspacePinPending(button, true);
+    announceOpenWorkspacePin(`${pinned ? 'Pinning' : 'Unpinning'} ${name}…`);
+    window.vscode.postMessage({
+        type: 'set-open-workspace-pin',
+        version: 1,
+        requestId: pending.requestId,
+        cardId: cardId,
+        pinned: pinned,
+    });
+}
+
+function completeOpenWorkspacePin(message) {
+    if (!message
+        || Object.keys(message).sort().join('\n') !== [
+            'cardId', 'pinned', 'requestId', 'success', 'type', 'version',
+        ].sort().join('\n')
+        || message.type !== 'open-workspace-pin-result'
+        || message.version !== 1
+        || !Number.isSafeInteger(message.requestId)
+        || message.requestId < 1
+        || typeof message.cardId !== 'string'
+        || typeof message.pinned !== 'boolean'
+        || typeof message.success !== 'boolean') {
+        return false;
+    }
+    var pending = pendingOpenWorkspacePins.get(message.cardId);
+    if (!pending
+        || pending.requestId !== message.requestId
+        || pending.pinned !== message.pinned) {
+        return true;
+    }
+    if (!message.success) {
+        clearOpenWorkspacePinPending(
+            message.cardId,
+            findOpenWorkspacePinButton(message.cardId),
+        );
+        announceOpenWorkspacePin('Could not update the pinned window.');
+        return true;
+    }
+    pending.acknowledged = true;
+    reconcilePendingOpenWorkspacePins(document);
+    return true;
+}
 
 function applyOpenWorkspacesUpdate(message) {
     if (!message
@@ -1626,11 +1750,18 @@ function applyOpenWorkspacesUpdate(message) {
         return false;
     }
     if (message.semanticRevision === lastAppliedOpenWorkspacesSemanticRevision) {
+        reconcilePendingOpenWorkspacePins(document);
         return true;
     }
     var wrapper = document.querySelector('.sticky-groups-wrapper');
     if (!wrapper) return false;
     var previousHtml = wrapper.innerHTML;
+    var focusedPinButton = document.activeElement
+        && document.activeElement.matches?.(
+            '.project-pin-badge[data-action="toggle-open-workspace-pin"]'
+        )
+        ? document.activeElement.closest('.workspace-card')?.getAttribute('data-id')
+        : null;
     var aiSessionStates = captureCurrentWorkspaceAiSessionStates(wrapper);
     wrapper.innerHTML = message.html;
     if (!isOpenWorkspacesUpdateDomConsistent(message)) {
@@ -1652,6 +1783,13 @@ function applyOpenWorkspacesUpdate(message) {
     restoreCurrentWorkspaceAiSessionViewStates(wrapper, aiSessionStates);
     restoreCurrentWorkspaceAiSessionConversations(wrapper, aiSessionStates);
     restoreCurrentWorkspaceAiSessionAnchorsAndFocus(wrapper, aiSessionStates);
+    reconcilePendingOpenWorkspacePins(wrapper);
+    var restoredPinButton = focusedPinButton
+        ? findOpenWorkspacePinButton(focusedPinButton, wrapper)
+        : null;
+    if (restoredPinButton && typeof restoredPinButton.focus === 'function') {
+        restoredPinButton.focus({ preventScroll: true });
+    }
     if (typeof window.__agentPivotSyncCollapseButton === 'function') {
         window.__agentPivotSyncCollapseButton();
     }
@@ -3010,6 +3148,11 @@ function initProjects() {
             return true;
         }
 
+        if (action === 'toggle-open-workspace-pin') {
+            requestOpenWorkspacePin(actionDiv, projectId);
+            return true;
+        }
+
         window.vscode.postMessage({
             type: action + '-project',
             projectId,
@@ -3541,6 +3684,10 @@ function initProjects() {
                 hasOtherWindowsGroup: renderedOpenWorkspaceState.hasOtherWindowsGroup,
                 otherWindowsStatus: renderedOpenWorkspaceState.otherWindowsStatus,
             });
+            return;
+        }
+        if (message && message.type === 'open-workspace-pin-result') {
+            completeOpenWorkspacePin(message);
             return;
         }
         if (message && message.type === 'ai-session-tab-selection-requested') {

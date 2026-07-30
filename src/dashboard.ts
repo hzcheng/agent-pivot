@@ -159,6 +159,7 @@ import { getDashboardWebviewOptions } from './dashboard/webviewOptions';
 import OpenWorkspaceBridgeClient from './openWorkspaces/bridgeClient';
 import { OpenWorkspaceDashboardController } from './openWorkspaces/dashboardController';
 import { WorkspaceNavigationController } from './openWorkspaces/navigationController';
+import { OpenWorkspacePinController } from './openWorkspaces/pinController';
 import { OpenWorkspaceController } from './openWorkspaces/workspaceController';
 import { WorkspaceContextResolver } from './workspaces/contextResolver';
 import { WorkspacePrimaryRootStore } from './workspaces/primaryRootStore';
@@ -876,6 +877,7 @@ async function initializeDashboard(
     let openWorkspaceDashboardController: OpenWorkspaceDashboardController;
     let projectsPanelController: ProjectsPanelController | undefined;
     let workspaceNavigationController: WorkspaceNavigationController;
+    let openWorkspacePinController: OpenWorkspacePinController;
     const resolveCurrentOpenWorkspace = (): OpenWorkspace | null => workspaceContextResolver.resolve({
         workspaceFile: vscode.workspace.workspaceFile,
         workspaceFolders: vscode.workspace.workspaceFolders,
@@ -1970,6 +1972,7 @@ async function initializeDashboard(
                 await acknowledgeAiSessionAttentionEventIds(attentionProject.aiSessionAttentionEventIds);
                 await projectOpenController.openProject(project, projectOpenType);
             },
+            'set-open-workspace-pin': e => openWorkspacePinController.handle(e),
             'add-project': async e => {
                 await projectMutationController.addProject(e.groupId as string);
             },
@@ -2253,8 +2256,25 @@ async function initializeDashboard(
                     postOpenWorkspacesUpdated();
                 }
             },
+            onPinSnapshot: snapshot => {
+                if (openWorkspaceDashboardController.setPinSnapshot(snapshot)) {
+                    postOpenWorkspacesUpdated();
+                }
+            },
         }
     ));
+    openWorkspacePinController = new OpenWorkspacePinController({
+        getRecord: cardId => openWorkspaceDashboardController.getNavigationWorkspace(cardId),
+        setPinned: (requestId, navigationIdentity, pinned) =>
+            openWorkspaceBridgeClient.setPinned(requestId, navigationIdentity, pinned),
+        publishAuthoritativeUpdate: async () => {
+            openWorkspaceDashboardController.invalidatePendingUpdates();
+            await openWorkspaceDashboardController.postUpdated();
+        },
+        postMessage: message => provider.postMessage(message),
+        showError: message => vscode.window.showErrorMessage(message),
+        logError,
+    });
     const activeAiSessionTerminalHighlighter = ownResource(() =>
         new ActiveAiSessionTerminalHighlighter<
         vscode.Terminal,

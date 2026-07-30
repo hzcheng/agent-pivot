@@ -45,7 +45,19 @@ export async function withTmuxCreationLock<T>(
     key: string,
     operation: () => Promise<T>
 ): Promise<T> {
-    const directory = path.join(root, LOCK_DIRECTORY);
+    return withFilesystemMutationLock(root, LOCK_DIRECTORY, key, operation);
+}
+
+export async function withFilesystemMutationLock<T>(
+    root: string,
+    lockDirectoryName: string,
+    key: string,
+    operation: () => Promise<T>
+): Promise<T> {
+    if (!/^[a-z0-9][a-z0-9-]*$/.test(lockDirectoryName)) {
+        throw new Error('Filesystem mutation lock directory name is invalid.');
+    }
+    const directory = path.join(root, lockDirectoryName);
     const digest = createHash('sha256').update(key, 'utf8').digest('hex');
     const lockPath = path.join(directory, `${digest}.lock`);
     const heldPath = path.join(lockPath, HELD_DIRECTORY);
@@ -86,7 +98,7 @@ export async function withTmuxCreationLock<T>(
 
     if (!await hasLockIdentity(lockPath, heldPath, owner)) {
         await removeOwnerClaim(lockPath, heldPath, owner);
-        throw new Error(`Tmux creation lock identity changed before entry ${digest}.`);
+        throw new Error(`Filesystem mutation lock identity changed before entry ${digest}.`);
     }
 
     const heartbeat = startOwnerHeartbeat(lockPath, heldPath, owner);
@@ -151,11 +163,11 @@ async function renewOwnerClaim(
     owner: LockOwner
 ): Promise<void> {
     if (path.dirname(owner.claimPath) !== heldPath || !await hasLockIdentity(lockPath, heldPath, owner)) {
-        throw new Error('Tmux creation lock identity changed during heartbeat.');
+        throw new Error('Filesystem mutation lock identity changed during heartbeat.');
     }
     const claim = await readClaim(owner.claimPath);
     if (!claim || !claimMatchesIdentity(claim.record, owner)) {
-        throw new Error('Tmux creation lock claim changed during heartbeat.');
+        throw new Error('Filesystem mutation lock claim changed during heartbeat.');
     }
 
     let handle: fs.FileHandle | undefined;
@@ -165,7 +177,7 @@ async function renewOwnerClaim(
         if (!stat.isFile() || stat.dev !== claim.stat.dev || stat.ino !== claim.stat.ino
             || stat.birthtimeMs !== claim.stat.birthtimeMs
             || !await hasLockIdentity(lockPath, heldPath, owner)) {
-            throw new Error('Tmux creation lock claim identity changed during heartbeat.');
+            throw new Error('Filesystem mutation lock claim identity changed during heartbeat.');
         }
         const now = new Date();
         await handle.utimes(now, now);
@@ -173,7 +185,7 @@ async function renewOwnerClaim(
         await handle?.close();
     }
     if (!await hasLockIdentity(lockPath, heldPath, owner)) {
-        throw new Error('Tmux creation lock identity changed after heartbeat.');
+        throw new Error('Filesystem mutation lock identity changed after heartbeat.');
     }
 }
 
@@ -424,7 +436,7 @@ function claimMatchesIdentity(record: LockClaimRecord, identity: LockIdentity): 
 
 async function waitForRetry(deadline: number, digest: string): Promise<void> {
     if (Date.now() >= deadline) {
-        throw new Error(`Timed out waiting for tmux creation lock ${digest}.`);
+        throw new Error(`Timed out waiting for filesystem mutation lock ${digest}.`);
     }
     await delay(POLL_INTERVAL_MS);
 }

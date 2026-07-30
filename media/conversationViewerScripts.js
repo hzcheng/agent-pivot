@@ -9,7 +9,8 @@
     ];
     var allowedAttributes = [
         'href', 'src', 'alt', 'title', 'class',
-        'data-message-id', 'data-interaction-id',
+        'data-message-id', 'data-conversation-message-id',
+        'data-interaction-id',
     ];
     var maxMermaidDiagrams = 40;
     var viewerScript = document.currentScript;
@@ -36,6 +37,26 @@
     var next = document.querySelector('[data-action="next"]');
     var latest = document.querySelector('[data-action="latest"]');
     var close = document.querySelector('[data-action="close"]');
+    var commentsToggle = document.querySelector(
+        '[data-action="toggle-comments"]'
+    );
+    var commentsWorkspace = document.querySelector('.conversation-workspace');
+    var commentsResizer = document.querySelector('[data-comments-resizer]');
+    var commentsRoot = document.querySelector('[data-conversation-comments]');
+    var commentCount = document.querySelector('[data-comment-count]');
+    var commentComposer = document.querySelector('[data-comment-composer]');
+    var commentSelection = document.querySelector('[data-comment-selection]');
+    var commentInput = document.querySelector('[data-comment-input]');
+    var commentList = document.querySelector('[data-comment-list]');
+    var commentEmpty = document.querySelector('[data-comment-empty]');
+    var commentSend = document.querySelector('[data-comment-action="send"]');
+    var addComment = document.querySelector('[data-add-comment]');
+    var commentTarget = readJsonAttribute('data-conversation-target');
+    var commentUiAvailable = !!commentsRoot && !!commentCount
+        && !!commentComposer && !!commentSelection && !!commentInput
+        && !!commentList && !!commentEmpty && !!commentSend && !!addComment
+        && !!commentsToggle && !!commentsWorkspace && !!commentsResizer
+        && validCommentTarget(commentTarget);
     var state = {
         atLatest: false,
         initialized: false,
@@ -50,11 +71,119 @@
         mermaidObjectUrls: [],
         mermaidLoad: null,
         renderGeneration: 0,
+        comments: [],
+        commentRevision: 0,
+        commentRequestSequence: 0,
+        pendingCommentRequest: null,
+        selectedCommentText: null,
+        commentsPanelOpen: true,
+        commentsPanelWidth: 240,
     };
 
     if (!scroll || !messages || !position || !status || !newResponse
         || !previous || !next || !latest || !close || !window.DOMPurify) {
         return;
+    }
+
+    var commentsPanelMinWidth = 192;
+    var commentsPanelMaxWidth = 420;
+    var conversationMinWidth = 320;
+
+    function readCommentsPanelState() {
+        if (!vscodeApi || typeof vscodeApi.getState !== 'function') return null;
+        try {
+            var saved = vscodeApi.getState();
+            var panelState = saved && saved.conversationCommentsPanel;
+            return panelState && typeof panelState === 'object'
+                && !Array.isArray(panelState)
+                ? panelState
+                : null;
+        } catch (_error) {
+            return null;
+        }
+    }
+
+    function saveCommentsPanelState() {
+        if (!vscodeApi || typeof vscodeApi.setState !== 'function') return;
+        try {
+            var saved = typeof vscodeApi.getState === 'function'
+                ? vscodeApi.getState()
+                : null;
+            var next = saved && typeof saved === 'object'
+                && !Array.isArray(saved)
+                ? Object.assign({}, saved)
+                : {};
+            next.conversationCommentsPanel = {
+                open: state.commentsPanelOpen,
+                width: state.commentsPanelWidth,
+            };
+            vscodeApi.setState(next);
+        } catch (_error) {
+            // Layout persistence is best-effort local Webview state.
+        }
+    }
+
+    function availableCommentsPanelMaxWidth() {
+        return Math.max(
+            commentsPanelMinWidth,
+            Math.min(
+                commentsPanelMaxWidth,
+                commentsWorkspace.clientWidth - conversationMinWidth
+            )
+        );
+    }
+
+    function clampCommentsPanelWidth(value) {
+        return Math.max(
+            commentsPanelMinWidth,
+            Math.min(availableCommentsPanelMaxWidth(), value)
+        );
+    }
+
+    function updateCommentsToggle() {
+        if (!commentUiAvailable) return;
+        commentsToggle.textContent = 'Comments (' + state.comments.length + ')';
+        commentsToggle.setAttribute(
+            'aria-expanded',
+            state.commentsPanelOpen ? 'true' : 'false'
+        );
+        var label = state.commentsPanelOpen
+            ? 'Hide comments panel'
+            : 'Show comments panel';
+        commentsToggle.setAttribute('aria-label', label);
+        commentsToggle.title = label;
+    }
+
+    function applyCommentsPanelLayout() {
+        if (!commentUiAvailable) return;
+        var width = clampCommentsPanelWidth(state.commentsPanelWidth);
+        commentsWorkspace.style.setProperty(
+            '--conversation-comments-width',
+            width + 'px'
+        );
+        commentsWorkspace.setAttribute(
+            'data-comments-open',
+            state.commentsPanelOpen ? 'true' : 'false'
+        );
+        commentsRoot.hidden = !state.commentsPanelOpen;
+        commentsResizer.hidden = !state.commentsPanelOpen;
+        commentsResizer.setAttribute('aria-valuemax', String(
+            availableCommentsPanelMaxWidth()
+        ));
+        commentsResizer.setAttribute('aria-valuenow', String(width));
+        updateCommentsToggle();
+    }
+
+    function setCommentsPanelOpen(open, persist) {
+        state.commentsPanelOpen = open;
+        applyCommentsPanelLayout();
+        if (persist) saveCommentsPanelState();
+    }
+
+    function setCommentsPanelWidth(width, persist) {
+        state.commentsPanelWidth = clampCommentsPanelWidth(width);
+        applyCommentsPanelLayout();
+        if (persist) saveCommentsPanelState();
     }
 
     function isHttps(value) {
@@ -296,6 +425,436 @@
         }
     }
 
+    function conversationMessageSelector() {
+        return '[data-conversation-message-id],[data-message-id]';
+    }
+
+    function conversationMessageId(message) {
+        var encoded = message.getAttribute('data-conversation-message-id');
+        if (encoded) {
+            try {
+                return decodeURIComponent(encoded);
+            } catch (_error) {
+                return '';
+            }
+        }
+        return message.getAttribute('data-message-id');
+    }
+
+    function readJsonAttribute(name) {
+        var value = document.body.getAttribute(name);
+        if (!value) return null;
+        document.body.removeAttribute(name);
+        try {
+            return JSON.parse(value);
+        } catch (_error) {
+            return null;
+        }
+    }
+
+    function validCommentTarget(value) {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) {
+            return false;
+        }
+        var keys = Object.keys(value);
+        return keys.length === 3
+            && typeof value.projectId === 'string'
+            && value.projectId.length > 0
+            && (value.provider === 'codex'
+                || value.provider === 'kimi'
+                || value.provider === 'claude')
+            && typeof value.sessionId === 'string'
+            && value.sessionId.length > 0;
+    }
+
+    function validComment(value) {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) {
+            return false;
+        }
+        var keys = [
+            'id', 'messageId', 'interactionId', 'role',
+            'quote', 'prefix', 'suffix', 'comment',
+        ];
+        return Object.keys(value).length === keys.length
+            && keys.every(function (key) {
+                return Object.prototype.hasOwnProperty.call(value, key);
+            })
+            && typeof value.id === 'string'
+            && typeof value.messageId === 'string'
+            && typeof value.interactionId === 'string'
+            && (value.role === 'user' || value.role === 'assistant')
+            && typeof value.quote === 'string'
+            && typeof value.prefix === 'string'
+            && typeof value.suffix === 'string'
+            && typeof value.comment === 'string';
+    }
+
+    function validInitialComments(value) {
+        return value && typeof value === 'object' && !Array.isArray(value)
+            && Object.keys(value).length === 2
+            && Number.isSafeInteger(value.revision)
+            && value.revision >= 0
+            && Array.isArray(value.comments)
+            && value.comments.length <= 20
+            && value.comments.every(validComment);
+    }
+
+    function validCommentsResult(value) {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) {
+            return false;
+        }
+        var required = [
+            'type', 'version', 'requestId', 'subscriptionGeneration',
+            'projectId', 'provider', 'sessionId', 'operation', 'success',
+            'revision', 'comments',
+        ];
+        var allowed = new Set(required.concat(['error']));
+        return Object.keys(value).every(function (key) {
+            return allowed.has(key);
+        }) && required.every(function (key) {
+            return Object.prototype.hasOwnProperty.call(value, key);
+        })
+            && value.type === 'conversation-viewer-comments-result'
+            && value.version === 1
+            && typeof value.requestId === 'string'
+            && Number.isSafeInteger(value.subscriptionGeneration)
+            && typeof value.projectId === 'string'
+            && (value.provider === 'codex'
+                || value.provider === 'kimi'
+                || value.provider === 'claude')
+            && typeof value.sessionId === 'string'
+            && (value.operation === 'add'
+                || value.operation === 'update'
+                || value.operation === 'delete'
+                || value.operation === 'sendComments')
+            && typeof value.success === 'boolean'
+            && Number.isSafeInteger(value.revision)
+            && value.revision >= 0
+            && Array.isArray(value.comments)
+            && value.comments.length <= 20
+            && value.comments.every(validComment)
+            && (value.error === undefined || [
+                'invalid', 'stale', 'limit', 'tooLarge',
+                'unavailable', 'busy', 'conflict', 'failed',
+            ].includes(value.error));
+    }
+
+    function nextCommentRequestId() {
+        state.commentRequestSequence += 1;
+        return [
+            'conversation-comment',
+            Date.now().toString(36),
+            state.commentRequestSequence.toString(36),
+        ].join(':');
+    }
+
+    function commentErrorMessage(error) {
+        if (error === 'stale') return 'Comments changed. Review the latest draft and try again.';
+        if (error === 'limit') return 'A maximum of 20 comments can be sent at once.';
+        if (error === 'tooLarge') return 'The combined comments are too large to send.';
+        if (error === 'busy') return 'Wait for the current AI response to finish, then send again.';
+        if (error === 'conflict') return 'Multiple runtimes match this session. Resolve the conflict first.';
+        if (error === 'unavailable') return 'This session is unavailable and the comments were not sent.';
+        return 'The comment action failed. Your comments were kept.';
+    }
+
+    function setCommentPending(pending) {
+        if (!commentUiAvailable) return;
+        Array.prototype.forEach.call(
+            commentsRoot.querySelectorAll('button, textarea'),
+            function (control) {
+                control.disabled = pending;
+            }
+        );
+        addComment.disabled = pending;
+        if (!pending) {
+            commentSend.disabled = state.comments.length === 0;
+        }
+        commentsRoot.setAttribute('aria-busy', pending ? 'true' : 'false');
+    }
+
+    function postCommentOperation(operation, payload) {
+        if (!commentUiAvailable || state.pendingCommentRequest) return;
+        var requestId = nextCommentRequestId();
+        state.pendingCommentRequest = { requestId: requestId, operation: operation };
+        setCommentPending(true);
+        status.textContent = operation === 'sendComments'
+            ? 'Sending comments to this session…'
+            : 'Saving comment…';
+        post({
+            type: operation === 'sendComments'
+                ? 'conversation-viewer-send-comments'
+                : 'conversation-viewer-comment-mutation',
+            version: 1,
+            requestId: requestId,
+            subscriptionGeneration: state.subscriptionGeneration,
+            projectId: commentTarget.projectId,
+            provider: commentTarget.provider,
+            sessionId: commentTarget.sessionId,
+            operation: operation,
+            expectedRevision: state.commentRevision,
+            payload: payload,
+        });
+    }
+
+    function locateComment(comment) {
+        var message = Array.prototype.find.call(
+            messages.querySelectorAll(conversationMessageSelector()),
+            function (candidate) {
+                return conversationMessageId(candidate) === comment.messageId;
+            }
+        );
+        if (!message) {
+            status.textContent = 'The commented message is not on this page.';
+            return;
+        }
+        message.scrollIntoView({ block: 'center' });
+        message.tabIndex = -1;
+        message.focus({ preventScroll: true });
+        message.classList.add('conversation-comment-located');
+        window.setTimeout(function () {
+            message.classList.remove('conversation-comment-located');
+        }, 1600);
+    }
+
+    function renderComments() {
+        if (!commentUiAvailable) return;
+        commentList.replaceChildren();
+        state.comments.forEach(function (comment, index) {
+            var item = document.createElement('article');
+            item.className = 'conversation-comment';
+            item.setAttribute('data-comment-id', comment.id);
+
+            var heading = document.createElement('div');
+            heading.className = 'conversation-comment-heading';
+            var label = document.createElement('strong');
+            label.textContent = 'Comment ' + (index + 1);
+            var locate = document.createElement('button');
+            locate.type = 'button';
+            locate.setAttribute('data-comment-action', 'locate');
+            locate.textContent = 'Show text';
+            heading.append(label, locate);
+
+            var quote = document.createElement('blockquote');
+            quote.textContent = comment.quote;
+            var input = document.createElement('textarea');
+            input.rows = 2;
+            input.maxLength = 4000;
+            input.value = comment.comment;
+            input.setAttribute('aria-label', 'Comment ' + (index + 1));
+            input.setAttribute('data-comment-edit', '');
+            var actions = document.createElement('div');
+            actions.className = 'conversation-comment-actions';
+            var remove = document.createElement('button');
+            remove.type = 'button';
+            remove.setAttribute('data-comment-action', 'delete');
+            remove.textContent = 'Delete';
+            var save = document.createElement('button');
+            save.type = 'button';
+            save.setAttribute('data-comment-action', 'update');
+            save.textContent = 'Save';
+            actions.append(remove, save);
+            item.append(heading, quote, input, actions);
+            commentList.appendChild(item);
+        });
+        commentCount.textContent = String(state.comments.length);
+        updateCommentsToggle();
+        commentEmpty.hidden = state.comments.length > 0;
+        commentSend.disabled = state.comments.length === 0
+            || !!state.pendingCommentRequest;
+        updateCommentHighlights();
+    }
+
+    function findQuoteRange(root, comment) {
+        var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+        var nodes = [];
+        var combined = '';
+        var node;
+        while ((node = walker.nextNode())) {
+            nodes.push({ node: node, start: combined.length });
+            combined += node.nodeValue || '';
+        }
+        var candidates = [];
+        var candidate = combined.indexOf(comment.quote);
+        while (candidate >= 0) {
+            candidates.push(candidate);
+            candidate = combined.indexOf(
+                comment.quote,
+                candidate + 1
+            );
+        }
+        var start = candidates.find(function (offset) {
+            var before = combined.slice(
+                Math.max(0, offset - comment.prefix.length),
+                offset
+            );
+            var after = combined.slice(
+                offset + comment.quote.length,
+                offset + comment.quote.length + comment.suffix.length
+            );
+            return before === comment.prefix && after === comment.suffix;
+        });
+        if (start === undefined) start = candidates[0];
+        if (start === undefined) return null;
+        var end = start + comment.quote.length;
+        var startRecord = nodes.find(function (record) {
+            return start >= record.start
+                && start <= record.start + (record.node.nodeValue || '').length;
+        });
+        var endRecord = nodes.find(function (record) {
+            return end >= record.start
+                && end <= record.start + (record.node.nodeValue || '').length;
+        });
+        if (!startRecord || !endRecord) return null;
+        var range = document.createRange();
+        range.setStart(startRecord.node, start - startRecord.start);
+        range.setEnd(endRecord.node, end - endRecord.start);
+        return range;
+    }
+
+    function updateCommentHighlights() {
+        if (!commentUiAvailable) return;
+        Array.prototype.forEach.call(
+            messages.querySelectorAll('.conversation-has-comment'),
+            function (message) {
+                message.classList.remove('conversation-has-comment');
+            }
+        );
+        var ranges = [];
+        state.comments.forEach(function (comment) {
+            var message = Array.prototype.find.call(
+                messages.querySelectorAll(conversationMessageSelector()),
+                function (candidate) {
+                    return conversationMessageId(candidate)
+                        === comment.messageId;
+                }
+            );
+            if (!message) return;
+            message.classList.add('conversation-has-comment');
+            var markdown = message.querySelector('.conversation-markdown');
+            var range = markdown && findQuoteRange(markdown, comment);
+            if (range) ranges.push(range);
+        });
+        if (window.CSS && CSS.highlights && typeof Highlight === 'function') {
+            CSS.highlights.delete('conversation-comments');
+            if (ranges.length) {
+                CSS.highlights.set(
+                    'conversation-comments',
+                    new Highlight(...ranges)
+                );
+            }
+        }
+    }
+
+    function applyCommentsResult(message) {
+        if (!commentUiAvailable
+            || !validCommentsResult(message)
+            || message.subscriptionGeneration !== state.subscriptionGeneration
+            || message.projectId !== commentTarget.projectId
+            || message.provider !== commentTarget.provider
+            || message.sessionId !== commentTarget.sessionId
+            || !state.pendingCommentRequest
+            || message.requestId !== state.pendingCommentRequest.requestId
+            || message.operation !== state.pendingCommentRequest.operation) {
+            return false;
+        }
+        state.commentRevision = message.revision;
+        state.comments = message.comments.map(function (comment) {
+            return Object.assign({}, comment);
+        });
+        renderComments();
+        var operation = state.pendingCommentRequest.operation;
+        state.pendingCommentRequest = null;
+        setCommentPending(false);
+        if (message.success) {
+            status.textContent = operation === 'sendComments'
+                ? 'Comments sent to this session.'
+                : 'Comments saved.';
+        } else {
+            status.textContent = commentErrorMessage(message.error);
+        }
+        return true;
+    }
+
+    function selectionContext(range, markdown) {
+        var before = document.createRange();
+        before.selectNodeContents(markdown);
+        before.setEnd(range.startContainer, range.startOffset);
+        var after = document.createRange();
+        after.selectNodeContents(markdown);
+        after.setStart(range.endContainer, range.endOffset);
+        return {
+            prefix: before.toString().slice(-240),
+            suffix: after.toString().slice(0, 240),
+        };
+    }
+
+    function captureCommentSelection() {
+        if (!commentUiAvailable || state.pendingCommentRequest) return;
+        var selection = window.getSelection();
+        if (!selection || selection.rangeCount !== 1 || selection.isCollapsed) {
+            addComment.hidden = true;
+            state.selectedCommentText = null;
+            return;
+        }
+        var range = selection.getRangeAt(0);
+        var startElement = range.startContainer.nodeType === Node.ELEMENT_NODE
+            ? range.startContainer
+            : range.startContainer.parentElement;
+        var endElement = range.endContainer.nodeType === Node.ELEMENT_NODE
+            ? range.endContainer
+            : range.endContainer.parentElement;
+        var startMessage = startElement && startElement.closest
+            ? startElement.closest(conversationMessageSelector())
+            : null;
+        var endMessage = endElement && endElement.closest
+            ? endElement.closest(conversationMessageSelector())
+            : null;
+        var markdown = startElement && startElement.closest
+            ? startElement.closest('.conversation-markdown')
+            : null;
+        var quote = selection.toString().trim();
+        if (!startMessage || startMessage !== endMessage || !markdown
+            || !messages.contains(startMessage) || !quote
+            || Array.from(quote).length > 4000) {
+            addComment.hidden = true;
+            state.selectedCommentText = null;
+            return;
+        }
+        var context = selectionContext(range, markdown);
+        state.selectedCommentText = {
+            messageId: conversationMessageId(startMessage),
+            interactionId: startMessage.getAttribute('data-interaction-id'),
+            quote: quote,
+            prefix: context.prefix,
+            suffix: context.suffix,
+        };
+        var rect = range.getBoundingClientRect();
+        addComment.style.left = Math.max(
+            8,
+            Math.min(window.innerWidth - 120, rect.left)
+        ) + 'px';
+        addComment.style.top = Math.max(8, rect.bottom + 6) + 'px';
+        addComment.hidden = false;
+    }
+
+    function openCommentComposer() {
+        if (!state.selectedCommentText) return;
+        setCommentsPanelOpen(true, true);
+        addComment.hidden = true;
+        commentSelection.textContent = state.selectedCommentText.quote;
+        commentInput.value = '';
+        commentComposer.hidden = false;
+        commentInput.focus();
+    }
+
+    function closeCommentComposer() {
+        commentComposer.hidden = true;
+        commentInput.value = '';
+        state.selectedCommentText = null;
+        addComment.hidden = true;
+    }
+
     function validPage(message) {
         if (!message || typeof message !== 'object' || Array.isArray(message)) {
             return false;
@@ -341,9 +900,9 @@
 
     function getMessageIds() {
         return Array.prototype.map.call(
-            messages.querySelectorAll('[data-message-id]'),
+            messages.querySelectorAll(conversationMessageSelector()),
             function (message) {
-                return message.getAttribute('data-message-id');
+                return conversationMessageId(message);
             }
         );
     }
@@ -351,10 +910,10 @@
     function getMessageSignatures() {
         var signatures = new Map();
         Array.prototype.forEach.call(
-            messages.querySelectorAll('[data-message-id]'),
+            messages.querySelectorAll(conversationMessageSelector()),
             function (message) {
                 signatures.set(
-                    message.getAttribute('data-message-id'),
+                    conversationMessageId(message),
                     message.innerHTML
                 );
             }
@@ -425,6 +984,7 @@
         state.messageSignatures = nextSignatures;
         state.atLatest = message.atLatest;
         state.initialized = true;
+        updateCommentHighlights();
         updatePosition(message);
         previous.disabled = message.previousCursor === undefined;
         next.disabled = message.nextCursor === undefined;
@@ -510,11 +1070,55 @@
     close.addEventListener('click', function () {
         postNavigation('conversation-viewer-closed');
     });
+    if (commentUiAvailable) {
+        commentsToggle.addEventListener('click', function () {
+            setCommentsPanelOpen(!state.commentsPanelOpen, true);
+        });
+        var resizingPointerId = null;
+        commentsResizer.addEventListener('pointerdown', function (event) {
+            if (event.button !== 0) return;
+            resizingPointerId = event.pointerId;
+            commentsResizer.setPointerCapture(event.pointerId);
+            event.preventDefault();
+        });
+        commentsResizer.addEventListener('pointermove', function (event) {
+            if (event.pointerId !== resizingPointerId) return;
+            var bounds = commentsWorkspace.getBoundingClientRect();
+            setCommentsPanelWidth(bounds.right - event.clientX, false);
+        });
+        function finishCommentsResize(event) {
+            if (event.pointerId !== resizingPointerId) return;
+            resizingPointerId = null;
+            saveCommentsPanelState();
+        }
+        commentsResizer.addEventListener('pointerup', finishCommentsResize);
+        commentsResizer.addEventListener(
+            'pointercancel',
+            finishCommentsResize
+        );
+        commentsResizer.addEventListener('keydown', function (event) {
+            var nextWidth;
+            if (event.key === 'ArrowLeft') {
+                nextWidth = state.commentsPanelWidth + 16;
+            } else if (event.key === 'ArrowRight') {
+                nextWidth = state.commentsPanelWidth - 16;
+            } else if (event.key === 'Home') {
+                nextWidth = commentsPanelMinWidth;
+            } else if (event.key === 'End') {
+                nextWidth = availableCommentsPanelMaxWidth();
+            } else {
+                return;
+            }
+            event.preventDefault();
+            setCommentsPanelWidth(nextWidth, true);
+        });
+        window.addEventListener('resize', applyCommentsPanelLayout);
+    }
     newResponse.addEventListener('click', function () {
         var target = Array.prototype.find.call(
-            messages.querySelectorAll('[data-message-id]'),
+            messages.querySelectorAll(conversationMessageSelector()),
             function (message) {
-                return message.getAttribute('data-message-id')
+                return conversationMessageId(message)
                     === state.firstNewMessageId;
             }
         );
@@ -543,12 +1147,96 @@
             href: href,
         });
     });
+    if (commentUiAvailable) {
+        messages.addEventListener('mouseup', function () {
+            window.setTimeout(captureCommentSelection, 0);
+        });
+        messages.addEventListener('keyup', function (event) {
+            if (event.key === 'Shift'
+                || event.key.startsWith('Arrow')
+                || event.key === 'Home'
+                || event.key === 'End') {
+                window.setTimeout(captureCommentSelection, 0);
+            }
+        });
+        scroll.addEventListener('scroll', function () {
+            addComment.hidden = true;
+        });
+        addComment.addEventListener('click', openCommentComposer);
+        commentsRoot.addEventListener('click', function (event) {
+            var button = event.target && event.target.closest
+                ? event.target.closest('[data-comment-action]')
+                : null;
+            if (!button || !commentsRoot.contains(button)
+                || state.pendingCommentRequest) {
+                return;
+            }
+            var action = button.getAttribute('data-comment-action');
+            if (action === 'cancel-add') {
+                closeCommentComposer();
+                return;
+            }
+            if (action === 'confirm-add') {
+                var text = commentInput.value.trim();
+                if (!state.selectedCommentText || !text) {
+                    status.textContent = 'Enter a comment before adding it.';
+                    commentInput.focus();
+                    return;
+                }
+                var payload = Object.assign(
+                    {},
+                    state.selectedCommentText,
+                    { comment: text }
+                );
+                closeCommentComposer();
+                postCommentOperation('add', payload);
+                return;
+            }
+            if (action === 'send') {
+                postCommentOperation('sendComments', {});
+                return;
+            }
+            var item = button.closest('[data-comment-id]');
+            var commentId = item && item.getAttribute('data-comment-id');
+            var comment = state.comments.find(function (candidate) {
+                return candidate.id === commentId;
+            });
+            if (!item || !comment) return;
+            if (action === 'locate') {
+                locateComment(comment);
+                return;
+            }
+            if (action === 'delete') {
+                postCommentOperation('delete', { commentId: comment.id });
+                return;
+            }
+            if (action === 'update') {
+                var edit = item.querySelector('[data-comment-edit]');
+                var updated = edit ? edit.value.trim() : '';
+                if (!updated) {
+                    status.textContent = 'A comment cannot be empty.';
+                    if (edit) edit.focus();
+                    return;
+                }
+                postCommentOperation('update', {
+                    commentId: comment.id,
+                    comment: updated,
+                });
+            }
+        });
+    }
     document.addEventListener('keydown', function (event) {
         if (event.key !== 'Escape') return;
+        if (commentUiAvailable && !commentComposer.hidden) {
+            event.preventDefault();
+            closeCommentComposer();
+            return;
+        }
         event.preventDefault();
         postNavigation('conversation-viewer-closed');
     });
     window.addEventListener('message', function (event) {
+        if (applyCommentsResult(event.data)) return;
         applyPage(event.data);
     });
     window.addEventListener('unload', releaseMermaidObjectUrls);
@@ -560,6 +1248,30 @@
             applyPage(JSON.parse(initialPage));
         } catch (_error) {
             status.textContent = 'Conversation history unavailable.';
+        }
+    }
+    if (commentUiAvailable) {
+        var savedCommentsPanel = readCommentsPanelState();
+        if (savedCommentsPanel) {
+            if (typeof savedCommentsPanel.open === 'boolean') {
+                state.commentsPanelOpen = savedCommentsPanel.open;
+            }
+            if (Number.isFinite(savedCommentsPanel.width)) {
+                state.commentsPanelWidth = Math.round(
+                    savedCommentsPanel.width
+                );
+            }
+        }
+        applyCommentsPanelLayout();
+        var initialComments = readJsonAttribute('data-initial-comments');
+        if (validInitialComments(initialComments)) {
+            state.commentRevision = initialComments.revision;
+            state.comments = initialComments.comments.map(function (comment) {
+                return Object.assign({}, comment);
+            });
+            renderComments();
+        } else {
+            status.textContent = 'Comment drafts are unavailable.';
         }
     }
 }());

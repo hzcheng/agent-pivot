@@ -288,6 +288,7 @@ async function renderHostViewerDocument(options = {}) {
         openExternal: async () => true,
         mediaUri: fileName =>
             fakeHostUri(`file:///extension/media/${fileName}`),
+        submitPrompt: options.submitPrompt || (async () => {}),
     });
     await viewer.open({
         projectId: 'project-a',
@@ -301,8 +302,10 @@ async function renderHostViewerDocument(options = {}) {
     return panel.webview.html;
 }
 
-async function openHostViewerDocument(t, options) {
-    const page = await browser.newPage({ viewport: { width: 700, height: 500 } });
+async function openHostViewerDocument(t, options = {}) {
+    const page = await browser.newPage({
+        viewport: options.viewport || { width: 700, height: 500 },
+    });
     t.after(() => page.close());
     const html = await renderHostViewerDocument(options);
     await page.route('https://viewer.test/**', async route => {
@@ -339,18 +342,25 @@ async function openHostViewerDocument(t, options) {
         }
         await route.fulfill({ contentType: 'text/html', body: html });
     });
-    await page.addInitScript(() => {
+    await page.addInitScript(initialWebviewState => {
         window.__acquireCount = 0;
         window.__postedMessages = [];
+        window.__webviewState = initialWebviewState || {};
         window.acquireVsCodeApi = () => {
             window.__acquireCount += 1;
             return {
                 postMessage(message) {
                     window.__postedMessages.push(message);
                 },
+                getState() {
+                    return window.__webviewState;
+                },
+                setState(next) {
+                    window.__webviewState = next;
+                },
             };
         };
-    });
+    }, options.initialWebviewState);
     await page.goto('https://viewer.test/');
     return { page };
 }
@@ -460,6 +470,7 @@ async function realHostAppendPublications() {
         restoreFocus() {},
         openExternal: async () => true,
         mediaUri: fileName => fakeHostUri(`file:///media/${fileName}`),
+        submitPrompt: async () => {},
     });
 
     await viewer.open({
@@ -620,6 +631,237 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 keeps disabled real document na
         await button.evaluate(element => element.click());
     }
     assert.deepEqual(await postedMessages(page), []);
+});
+
+test('CONVERSATION-COMMENTS-LAYOUT-001 toggles, resizes, and restores the comments panel', async t => {
+    const options = {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+        viewport: { width: 1100, height: 600 },
+        interactionIds: ['input-layout'],
+        interactionId: 'input-layout',
+        pageOverrides: {
+            previousCursor: undefined,
+            nextCursor: undefined,
+            isStart: true,
+            isEnd: true,
+        },
+    };
+    const { page } = await openHostViewerDocument(t, options);
+    const toggle = page.locator('[data-action="toggle-comments"]');
+    const panel = page.locator('[data-conversation-comments]');
+    const resizer = page.locator('[data-comments-resizer]');
+
+    assert.equal(await toggle.getAttribute('aria-expanded'), 'true');
+    assert.equal(await panel.isVisible(), true);
+    assert.equal(await resizer.getAttribute('aria-valuenow'), '240');
+
+    await resizer.press('ArrowLeft');
+    await resizer.press('ArrowLeft');
+    assert.equal(await resizer.getAttribute('aria-valuenow'), '272');
+    assert.deepEqual(
+        await page.evaluate(() => window.__webviewState),
+        { conversationCommentsPanel: { open: true, width: 272 } }
+    );
+
+    await toggle.click();
+    assert.equal(await toggle.getAttribute('aria-expanded'), 'false');
+    assert.equal(await panel.isHidden(), true);
+    assert.equal(await resizer.isHidden(), true);
+    assert.deepEqual(
+        await page.evaluate(() => window.__webviewState),
+        { conversationCommentsPanel: { open: false, width: 272 } }
+    );
+
+    const restored = await openHostViewerDocument(t, {
+        ...options,
+        initialWebviewState: {
+            conversationCommentsPanel: { open: false, width: 312 },
+        },
+    });
+    const restoredToggle = restored.page.locator(
+        '[data-action="toggle-comments"]'
+    );
+    assert.equal(await restoredToggle.getAttribute('aria-expanded'), 'false');
+    assert.equal(
+        await restored.page.locator('[data-conversation-comments]').isHidden(),
+        true
+    );
+    await restoredToggle.click();
+    assert.equal(
+        await restored.page.locator('[data-comments-resizer]')
+            .getAttribute('aria-valuenow'),
+        '312'
+    );
+});
+
+test('CONVERSATION-COMMENTS-UI-001 collects multiple selections and sends one correlated batch', async t => {
+    const interactionId = 'input-comments';
+    const { page } = await openHostViewerDocument(t, {
+        interactionIds: [interactionId],
+        interactionId,
+        markdown: 'Alpha beta gamma beta delta.',
+        pageOverrides: {
+            previousCursor: undefined,
+            nextCursor: undefined,
+            isStart: true,
+            isEnd: true,
+        },
+    });
+
+    async function selectText(text, occurrence = 0) {
+        const selectionState = await page.locator('.conversation-markdown').evaluate((element, selectionTarget) => {
+            const node = element.querySelector('p').firstChild;
+            let start = -1;
+            let searchFrom = 0;
+            for (let index = 0; index <= selectionTarget.occurrence; index += 1) {
+                start = node.nodeValue.indexOf(
+                    selectionTarget.text,
+                    searchFrom
+                );
+                searchFrom = start + selectionTarget.text.length;
+            }
+            const range = document.createRange();
+            range.setStart(node, start);
+            range.setEnd(node, start + selectionTarget.text.length);
+            const selection = window.getSelection();
+            selection.removeAllRanges();
+            selection.addRange(range);
+            element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+            return {
+                selected: selection.toString(),
+                initialCommentsConsumed:
+                    !document.body.hasAttribute('data-initial-comments'),
+                targetConsumed:
+                    !document.body.hasAttribute('data-conversation-target'),
+            };
+        }, { text, occurrence });
+        await page.waitForTimeout(20);
+        const capturedState = await page.evaluate(() => {
+            const selection = window.getSelection();
+            const range = selection && selection.rangeCount
+                ? selection.getRangeAt(0)
+                : null;
+            const startElement = range && (range.startContainer.nodeType === Node.ELEMENT_NODE
+                ? range.startContainer
+                : range.startContainer.parentElement);
+            const endElement = range && (range.endContainer.nodeType === Node.ELEMENT_NODE
+                ? range.endContainer
+                : range.endContainer.parentElement);
+            const selector =
+                '[data-conversation-message-id],[data-message-id]';
+            const startMessage = startElement?.closest?.(selector);
+            const endMessage = endElement?.closest?.(selector);
+            return {
+                selected: selection?.toString(),
+                sameMessage: !!startMessage && startMessage === endMessage,
+                hasMarkdown: !!startElement?.closest?.('.conversation-markdown'),
+                article: startElement?.closest?.('article')?.outerHTML,
+                inMessages: !!startMessage
+                    && document.querySelector('[data-conversation-messages]')
+                        .contains(startMessage),
+                addHidden: document.querySelector('[data-add-comment]').hidden,
+            };
+        });
+        assert.equal(
+            await page.locator('[data-add-comment]').isVisible(),
+            true,
+            JSON.stringify({ selectionState, capturedState })
+        );
+        await page.locator('[data-add-comment]').click();
+    }
+
+    async function settle(request, revision, comments) {
+        await page.evaluate(({ request, revision, comments }) => {
+            window.dispatchEvent(new MessageEvent('message', {
+                data: {
+                    type: 'conversation-viewer-comments-result',
+                    version: 1,
+                    requestId: request.requestId,
+                    subscriptionGeneration: request.subscriptionGeneration,
+                    projectId: request.projectId,
+                    provider: request.provider,
+                    sessionId: request.sessionId,
+                    operation: request.operation,
+                    success: true,
+                    revision,
+                    comments,
+                },
+            }));
+        }, { request, revision, comments });
+    }
+
+    const comments = [];
+    await selectText('beta', 1);
+    await page.locator('[data-comment-input]').fill('Explain beta.');
+    await page.locator('[data-comment-action="confirm-add"]').click();
+    let requests = await postedMessages(page);
+    const first = requests.at(-1);
+    assert.equal(first.type, 'conversation-viewer-comment-mutation');
+    assert.equal(first.operation, 'add');
+    assert.equal(first.expectedRevision, 0);
+    assert.equal(first.projectId, 'project-a');
+    assert.equal(first.sessionId, 'session-host-document');
+    comments.push({
+        id: 'comment-1',
+        messageId: `${interactionId}:user`,
+        interactionId,
+        role: 'user',
+        quote: 'beta',
+        prefix: 'Alpha beta gamma ',
+        suffix: ' delta.',
+        comment: 'Explain beta.',
+    });
+    await settle(first, 1, comments);
+    assert.deepEqual(
+        await page.evaluate(() => {
+            const highlight = window.CSS?.highlights?.get(
+                'conversation-comments'
+            );
+            return highlight
+                ? Array.from(highlight).map(range => ({
+                    text: range.toString(),
+                    startOffset: range.startOffset,
+                }))
+                : [];
+        }),
+        [{ text: 'beta', startOffset: 17 }]
+    );
+
+    await selectText('gamma');
+    await page.locator('[data-comment-input]').fill('Change gamma.');
+    await page.locator('[data-comment-action="confirm-add"]').click();
+    requests = await postedMessages(page);
+    const second = requests.at(-1);
+    assert.equal(second.expectedRevision, 1);
+    comments.push({
+        id: 'comment-2',
+        messageId: `${interactionId}:user`,
+        interactionId,
+        role: 'user',
+        quote: 'gamma',
+        prefix: 'Alpha beta ',
+        suffix: ' beta delta.',
+        comment: 'Change gamma.',
+    });
+    await settle(second, 2, comments);
+
+    assert.equal(await page.locator('[data-comment-id]').count(), 2);
+    assert.equal(await page.locator('[data-comment-count]').textContent(), '2');
+    await page.locator('[data-comment-action="send"]').click();
+    requests = await postedMessages(page);
+    const send = requests.at(-1);
+    assert.equal(send.type, 'conversation-viewer-send-comments');
+    assert.equal(send.operation, 'sendComments');
+    assert.equal(send.expectedRevision, 2);
+    assert.deepEqual(send.payload, {});
+    await settle(send, 3, []);
+
+    assert.equal(await page.locator('[data-comment-id]').count(), 0);
+    assert.equal(
+        await page.locator('[data-conversation-status]').textContent(),
+        'Comments sent to this session.'
+    );
 });
 
 test('CONVERSATION-VIEWER-USER-EMPHASIS-001 makes User a full-width Prompt block and keeps Assistant quiet', async t => {

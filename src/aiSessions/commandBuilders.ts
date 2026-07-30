@@ -29,7 +29,7 @@ function buildClaudeAdditionalDirectoryArgs(scope: AiSessionDirectoryScope): str
     return additionalDirectories.length ? ['--add-dir', ...additionalDirectories] : [];
 }
 
-export function buildCodexResumeLaunchSpec(sessionId: string, scope: AiSessionDirectoryScope, markerPath: string = null, launchOptions: AiSessionLaunchOptions = SAFE_LAUNCH_OPTIONS): AiSessionLaunchSpec {
+export function buildCodexResumeLaunchSpec(sessionId: string, scope: AiSessionDirectoryScope, markerPath: string = null, launchOptions: AiSessionLaunchOptions = SAFE_LAUNCH_OPTIONS, prompt: string = null): AiSessionLaunchSpec {
     return {
         executable: 'codex',
         args: [
@@ -38,6 +38,7 @@ export function buildCodexResumeLaunchSpec(sessionId: string, scope: AiSessionDi
             ...(scope?.primaryCwd ? ['--cd', scope.primaryCwd] : []),
             ...buildRepeatedAdditionalDirectoryArgs(scope),
             sessionId,
+            ...(prompt ? [prompt] : []),
         ],
         markerPath,
         windowsDirectShell: 'current',
@@ -58,7 +59,7 @@ export function buildCodexNewSessionLaunchSpec(scope: AiSessionDirectoryScope, p
     };
 }
 
-export function buildKimiResumeLaunchSpec(sessionId: string, scope: AiSessionDirectoryScope, markerPath: string = null, launchOptions: AiSessionLaunchOptions = SAFE_LAUNCH_OPTIONS): AiSessionLaunchSpec {
+export function buildKimiResumeLaunchSpec(sessionId: string, scope: AiSessionDirectoryScope, markerPath: string = null, launchOptions: AiSessionLaunchOptions = SAFE_LAUNCH_OPTIONS, prompt: string = null): AiSessionLaunchSpec {
     return {
         executable: 'kimi',
         args: [
@@ -66,6 +67,7 @@ export function buildKimiResumeLaunchSpec(sessionId: string, scope: AiSessionDir
             ...buildRepeatedAdditionalDirectoryArgs(scope),
             ...yoloArg(launchOptions, '--yolo'),
             '--resume', sessionId,
+            ...(prompt ? ['--prompt', prompt] : []),
         ],
         markerPath,
         windowsDirectShell: 'current',
@@ -86,13 +88,14 @@ export function buildKimiNewSessionLaunchSpec(scope: AiSessionDirectoryScope, pr
     };
 }
 
-export function buildClaudeResumeLaunchSpec(sessionId: string, scope: AiSessionDirectoryScope, markerPath: string = null, launchOptions: AiSessionLaunchOptions = SAFE_LAUNCH_OPTIONS): AiSessionLaunchSpec {
+export function buildClaudeResumeLaunchSpec(sessionId: string, scope: AiSessionDirectoryScope, markerPath: string = null, launchOptions: AiSessionLaunchOptions = SAFE_LAUNCH_OPTIONS, prompt: string = null): AiSessionLaunchSpec {
     return {
         executable: 'claude',
         args: [
             ...buildClaudeAdditionalDirectoryArgs(scope),
             ...yoloArg(launchOptions, '--dangerously-skip-permissions'),
             '--resume', sessionId,
+            ...(prompt ? [prompt] : []),
         ],
         cwd: scope?.primaryCwd || undefined,
         markerPath,

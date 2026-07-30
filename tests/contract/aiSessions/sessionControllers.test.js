@@ -104,6 +104,7 @@ test('SESSION-AI-SESSION-RESUME-CONTROLLER-001 delegates scoped resume and revea
     const requests = [];
     const launchSpecs = [];
     const receivedLaunchOptions = [];
+    const receivedPrompts = [];
     let launchOptionReads = 0;
     const controller = new AiSessionResumeController({
         getWorkspaceTarget: id => id === 'p'
@@ -116,9 +117,16 @@ test('SESSION-AI-SESSION-RESUME-CONTROLLER-001 delegates scoped resume and revea
         getProvider: () => ({
             label: 'Codex',
             terminalEnvKey: 'CODEX',
-            buildResumeLaunchSpec: (_id, _scope, _markerPath, launchOptions) => {
+            buildResumeLaunchSpec: (
+                _id, _scope, _markerPath, launchOptions, prompt
+            ) => {
                 receivedLaunchOptions.push(launchOptions);
-                return { executable: 'codex', args: ['resume', 's'], cwd: '/work' };
+                receivedPrompts.push(prompt);
+                return {
+                    executable: 'codex',
+                    args: ['resume', 's', prompt],
+                    cwd: '/work',
+                };
             },
         }),
         resolveWorkspaceDirectoryScope: () => directoryScope,
@@ -135,7 +143,9 @@ test('SESSION-AI-SESSION-RESUME-CONTROLLER-001 delegates scoped resume and revea
             },
         },
     });
-    await controller.resumeProjectSession('p', 'codex', 's');
+    const result = await controller.resumeProjectSession(
+        'p', 'codex', 's', undefined, 'Handle both comments.'
+    );
     assert.deepEqual(effects, ['tab:p', 'refresh']);
     assert.equal(requests.length, 1);
     assert.equal(requests[0].identity.sessionId, 's');
@@ -143,10 +153,14 @@ test('SESSION-AI-SESSION-RESUME-CONTROLLER-001 delegates scoped resume and revea
     assert.equal(requests[0].launch, undefined);
     assert.equal(typeof requests[0].createLaunchSpec, 'function');
     assert.deepEqual(launchSpecs, [{
-        executable: 'codex', args: ['resume', 's'], cwd: '/work',
+        executable: 'codex',
+        args: ['resume', 's', 'Handle both comments.'],
+        cwd: '/work',
     }]);
     assert.equal(launchOptionReads, 1);
     assert.deepEqual(receivedLaunchOptions, [{ yolo: true }]);
+    assert.deepEqual(receivedPrompts, ['Handle both comments.']);
+    assert.equal(result.status, 'started');
 });
 
 test('SESSION-AI-SESSION-YOLO-LAZY-001 does not read options or build specs for non-dispatch controller results', async () => {

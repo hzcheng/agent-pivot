@@ -44,6 +44,7 @@ import {
     ConversationViewer,
     ConversationViewerApi,
     ConversationViewerOptions,
+    ConversationViewerTarget,
 } from './viewer';
 
 export interface ConversationSessionOpenTarget {
@@ -82,6 +83,10 @@ export interface ConversationCapabilityOptions {
     clearTimer: typeof clearTimeout;
     onDiagnostic: (event: SanitizedConversationDiagnostic) => void;
     getWorkspaceRootHostPaths?: () => readonly string[];
+    submitPrompt: (
+        target: ConversationViewerTarget,
+        prompt: string
+    ) => PromiseLike<void> | Promise<void>;
 }
 
 interface ConversationCapabilityInternalFactories {
@@ -203,6 +208,7 @@ function createAvailableConversationCapability(
         restoreFocus: target => restoreConversationFocus(options, target),
         openExternal: options.openExternal,
         mediaUri: getConversationMediaUri,
+        submitPrompt: options.submitPrompt,
     }));
     const controller = ownership.own(factories.createController({
         coordinator,

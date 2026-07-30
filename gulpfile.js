@@ -11,6 +11,7 @@ const cleanCSS = require('gulp-clean-css');
 const sassTask = gulpSass(sass);
 const browserNodeAssets = [
     'node_modules/dompurify/dist/purify.min.js',
+    'node_modules/mermaid/dist/mermaid.min.js',
 ];
 
 // Sass configuration

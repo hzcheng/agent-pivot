@@ -45,6 +45,7 @@ const EXPECTED_MAIN_ENTRIES = Object.freeze([
     'extension/changelog.md',
     'extension/dist/dashboard.js',
     'extension/licenses/DOMPurify-Apache-2.0.txt',
+    'extension/licenses/Mermaid-MIT.txt',
     'extension/media/conversationViewer.css',
     'extension/media/conversationViewerScripts.js',
     'extension/media/dom-autoscroller.min.js',
@@ -52,6 +53,7 @@ const EXPECTED_MAIN_ENTRIES = Object.freeze([
     'extension/media/extension_icon.png',
     'extension/media/fitty.min.js',
     'extension/media/icon.svg',
+    'extension/media/mermaid.min.js',
     'extension/media/purify.min.js',
     'extension/media/sharingan/mangekyou-sharingan-itachi.svg',
     'extension/media/sharingan/mangekyou-sharingan-madara-eternal.svg',
@@ -398,6 +400,7 @@ function runRealVsixArchiveChecks(mainPackage, bridgePackage) {
     for (const relativePath of [
         'THIRD_PARTY_NOTICES.md',
         'licenses/DOMPurify-Apache-2.0.txt',
+        'licenses/Mermaid-MIT.txt',
         'media/extension_icon.png',
         'media/icon.svg',
         'media/sharingan/mangekyou-sharingan-itachi.svg',
@@ -844,6 +847,7 @@ function run() {
     assertIncludes(mainIgnore, '.codex/**', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, 'media/brand/**', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!licenses/DOMPurify-Apache-2.0.txt', 'main VSIX ignore rules');
+    assertIncludes(mainIgnore, '!licenses/Mermaid-MIT.txt', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!out/workspaces/*.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!out/openWorkspaces/*.js', 'main VSIX ignore rules');
     assertNotIncludes(mainIgnore, '!out/workspaces/**', 'main VSIX ignore rules');
@@ -853,6 +857,7 @@ function run() {
     assertIncludes(mainIgnore, '!media/webviewPromptScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewScrollStateScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewTodoScripts.js', 'main VSIX ignore rules');
+    assertIncludes(mainIgnore, '!media/mermaid.min.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/styles.css', 'main VSIX ignore rules');
     assertIncludes(bridgeIgnore, 'src/**', 'UI Bridge VSIX ignore rules');
     assertIncludes(bridgeIgnore, 'out/**', 'UI Bridge VSIX ignore rules');
@@ -872,6 +877,7 @@ function run() {
         'media/webviewPromptScripts.js',
         'media/webviewScrollStateScripts.js',
         'media/webviewTodoScripts.js',
+        'media/mermaid.min.js',
         'media/styles.css',
         'extensions/attention-ui-bridge/dist/extension.js',
     ]) {

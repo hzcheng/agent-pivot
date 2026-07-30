@@ -11,6 +11,10 @@ const purifyScript = fs.readFileSync(
     path.join(__dirname, '../../node_modules/dompurify/dist/purify.min.js'),
     'utf8'
 );
+const mermaidScript = fs.readFileSync(
+    path.join(__dirname, '../../node_modules/mermaid/dist/mermaid.min.js'),
+    'utf8'
+);
 const viewerScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/conversationViewerScripts.js'),
     'utf8'
@@ -118,7 +122,7 @@ test.after(async () => {
     await browser.close();
 });
 
-async function openViewerPage(t) {
+async function openViewerPage(t, options = {}) {
     const page = await browser.newPage({ viewport: { width: 700, height: 500 } });
     t.after(() => page.close());
     await page.setContent(`<!doctype html>
@@ -149,6 +153,9 @@ async function openViewerPage(t) {
         };
     });
     await page.addScriptTag({ content: purifyScript });
+    if (options.includeMermaid) {
+        await page.addScriptTag({ content: mermaidScript });
+    }
     await page.addScriptTag({ content: viewerScript });
     await page.locator('script').evaluateAll(elements =>
         elements.forEach(element => element.remove()));
@@ -263,7 +270,8 @@ async function renderHostViewerDocument(options = {}) {
                 id: `${interactionId}:user`,
                 interactionId,
                 role: 'user',
-                markdown: '[safe](https://example.test/safe)',
+                markdown: options.markdown
+                    || '[safe](https://example.test/safe)',
             }],
             interactionStates: [{
                 interactionId,
@@ -310,6 +318,13 @@ async function openHostViewerDocument(t, options) {
             await route.fulfill({
                 contentType: 'text/javascript',
                 body: viewerScript,
+            });
+            return;
+        }
+        if (pathname === '/mermaid.min.js') {
+            await route.fulfill({
+                contentType: 'text/javascript',
+                body: mermaidScript,
             });
             return;
         }
@@ -840,6 +855,94 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 sanitizes hostile HTML and post
         type: 'conversation-viewer-closed',
         version: 1,
     });
+});
+
+test('CONVERSATION-VIEWER-RICH-MARKDOWN-001 renders HTTPS images, tables, and Mermaid while retaining safe fallbacks', async t => {
+    const page = await openViewerPage(t, { includeMermaid: true });
+    await sendPage(page, {
+        ...hostileConversationPage,
+        html: `<article data-message-id="rich" data-interaction-id="input-4">
+            <section class="conversation-markdown">
+                <img src="https://example.test/icon.svg" alt="status icon"
+                    title="Status">
+                <img src="data:image/svg+xml,unsafe" alt="unsafe icon">
+                <table><thead><tr><th>State</th></tr></thead>
+                    <tbody><tr><td>Ready</td></tr></tbody></table>
+                <pre><code class="language-mermaid">flowchart LR
+                    A[Request] --&gt; B[Rendered]</code></pre>
+            </section>
+        </article>`,
+    });
+
+    const remoteImage = page.locator('img[alt="status icon"]');
+    assert.equal(await remoteImage.count(), 1);
+    assert.equal(
+        await remoteImage.getAttribute('src'),
+        'https://example.test/icon.svg'
+    );
+    assert.equal(await remoteImage.getAttribute('loading'), 'lazy');
+    assert.equal(await remoteImage.getAttribute('referrerpolicy'), 'no-referrer');
+    assert.equal(await page.locator('img[alt="unsafe icon"][src]').count(), 0);
+    assert.equal(await page.locator('table th').textContent(), 'State');
+    assert.equal(await page.locator('table td').textContent(), 'Ready');
+
+    const diagram = page.locator('.conversation-mermaid-image');
+    await diagram.waitFor();
+    assert.match(await diagram.getAttribute('src'), /^blob:/);
+    assert.match(
+        await diagram.getAttribute('alt'),
+        /^Mermaid diagram: flowchart LR/
+    );
+    await page.waitForFunction(() => {
+        const image = document.querySelector('.conversation-mermaid-image');
+        return image && image.complete && image.naturalWidth > 0;
+    });
+    assert.equal(
+        await page.locator('pre > code.language-mermaid').count(),
+        0
+    );
+
+    await sendPage(page, {
+        ...hostileConversationPage,
+        requestId: 2,
+        html: `<article data-message-id="invalid" data-interaction-id="input-4">
+            <section class="conversation-markdown">
+                <pre><code class="language-mermaid">not a diagram</code></pre>
+            </section>
+        </article>`,
+    });
+    await page.locator('.conversation-mermaid-error-label').waitFor();
+    assert.equal(
+        await page.locator('.conversation-mermaid-error-label').textContent(),
+        'Mermaid diagram could not be rendered.'
+    );
+    assert.equal(
+        await page.locator('pre > code.language-mermaid').textContent(),
+        'not a diagram'
+    );
+});
+
+test('CONVERSATION-VIEWER-RICH-MARKDOWN-002 lazy-loads Mermaid in the nonce-only Host document', async t => {
+    const { page } = await openHostViewerDocument(t, {
+        markdown: [
+            '```mermaid',
+            'flowchart LR',
+            '    Source --> Viewer',
+            '```',
+        ].join('\n'),
+    });
+
+    const diagram = page.locator('.conversation-mermaid-image');
+    await diagram.waitFor();
+    await page.waitForFunction(() => {
+        const image = document.querySelector('.conversation-mermaid-image');
+        return image && image.complete && image.naturalWidth > 0;
+    });
+    assert.equal(
+        await page.locator('script[src$="/mermaid.min.js"]').count(),
+        1
+    );
+    assert.match(await diagram.getAttribute('src'), /^blob:/);
 });
 
 test('CONVERSATION-VIEWER-BROWSER-NAVIGATION-001 preserves historical scroll and focuses the first appended message', async t => {

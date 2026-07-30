@@ -63,6 +63,11 @@ DOMPurify is available under an Apache License 2.0 option. The complete
 installed-package license is shipped at
 [`licenses/DOMPurify-Apache-2.0.txt`](licenses/DOMPurify-Apache-2.0.txt).
 
+## Mermaid 11.16.0 — MIT — Copyright Knut Sveidqvist
+
+The complete installed-package license is shipped at
+[`licenses/Mermaid-MIT.txt`](licenses/Mermaid-MIT.txt).
+
 ## Sharingan loading animation — CC BY-SA 3.0 — retained source/author attribution
 
 Agent Pivot includes the following unmodified SVG files authored by

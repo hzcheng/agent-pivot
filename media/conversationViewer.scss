@@ -164,6 +164,57 @@ button {
     a {
         color: var(--vscode-textLink-foreground);
     }
+
+    img {
+        display: block;
+        width: auto;
+        max-width: 100%;
+        height: auto;
+        margin: 0.75rem auto;
+        border-radius: 4px;
+    }
+
+    table {
+        display: block;
+        max-width: 100%;
+        overflow-x: auto;
+        border-spacing: 0;
+        border-collapse: collapse;
+    }
+
+    th,
+    td {
+        padding: 0.4rem 0.6rem;
+        border: 1px solid var(--vscode-panel-border);
+        text-align: start;
+    }
+
+    th {
+        background: var(--vscode-textCodeBlock-background);
+        font-weight: 600;
+    }
+}
+
+.conversation-mermaid {
+    max-width: 100%;
+    margin: 1rem 0;
+    overflow-x: auto;
+
+    .conversation-mermaid-image {
+        min-width: min(100%, 24rem);
+        margin: 0 auto;
+    }
+}
+
+.conversation-mermaid-error-label {
+    display: block;
+    margin-bottom: 0.35rem;
+    color: var(--vscode-errorForeground);
+    font-size: 0.9em;
+}
+
+.conversation-mermaid-error {
+    border-left: 3px solid var(--vscode-errorForeground);
 }
 
 @media (forced-colors: active) {
@@ -180,6 +231,15 @@ button {
 
     .conversation-message-assistant {
         border-bottom-color: CanvasText;
+    }
+
+    .conversation-markdown th,
+    .conversation-markdown td {
+        border-color: CanvasText;
+    }
+
+    .conversation-mermaid-error {
+        border-left-color: Mark;
     }
 }
 

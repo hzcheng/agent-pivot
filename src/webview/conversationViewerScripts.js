@@ -4,11 +4,18 @@
     var allowedTags = [
         'p', 'br', 'pre', 'code', 'blockquote', 'ul', 'ol', 'li',
         'strong', 'em', 'del', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
-        'a', 'span', 'section', 'article',
+        'a', 'img', 'hr', 'table', 'thead', 'tbody', 'tr', 'th', 'td',
+        'span', 'section', 'article',
     ];
     var allowedAttributes = [
-        'href', 'class', 'data-message-id', 'data-interaction-id',
+        'href', 'src', 'alt', 'title', 'class',
+        'data-message-id', 'data-interaction-id',
     ];
+    var maxMermaidDiagrams = 40;
+    var viewerScript = document.currentScript;
+    var scriptNonce = viewerScript ? viewerScript.nonce : '';
+    var mermaidSource = document.body.getAttribute('data-mermaid-src') || '';
+    document.body.removeAttribute('data-mermaid-src');
     var vscodeApi = null;
     try {
         if (typeof acquireVsCodeApi === 'function') {
@@ -39,6 +46,10 @@
         messageIds: [],
         messageSignatures: new Map(),
         firstNewMessageId: null,
+        mermaidInitialized: false,
+        mermaidObjectUrls: [],
+        mermaidLoad: null,
+        renderGeneration: 0,
     };
 
     if (!scroll || !messages || !position || !status || !newResponse
@@ -46,19 +57,238 @@
         return;
     }
 
-    window.DOMPurify.addHook('afterSanitizeAttributes', function (node) {
-        if (!node.hasAttribute || !node.hasAttribute('href')) {
-            return;
-        }
-        var href = node.getAttribute('href');
+    function isHttps(value) {
         try {
-            if (new URL(href, document.baseURI).protocol !== 'https:') {
-                node.removeAttribute('href');
-            }
+            return new URL(value, document.baseURI).protocol === 'https:';
         } catch (_error) {
+            return false;
+        }
+    }
+
+    window.DOMPurify.addHook('afterSanitizeAttributes', function (node) {
+        if (!node.hasAttribute) return;
+        if (node.hasAttribute('href') && !isHttps(
+            node.getAttribute('href')
+        )) {
             node.removeAttribute('href');
         }
+        if (node.hasAttribute('src') && !isHttps(
+            node.getAttribute('src')
+        )) {
+            node.removeAttribute('src');
+        }
     });
+
+    function releaseMermaidObjectUrls() {
+        state.mermaidObjectUrls.forEach(function (url) {
+            try {
+                URL.revokeObjectURL(url);
+            } catch (_error) {
+                // Revocation is best-effort during document teardown.
+            }
+        });
+        state.mermaidObjectUrls = [];
+    }
+
+    function themeValue(name, fallback) {
+        var value = window.getComputedStyle(document.body)
+            .getPropertyValue(name)
+            .trim();
+        return value || fallback;
+    }
+
+    function initializeMermaid() {
+        if (state.mermaidInitialized) return true;
+        if (!window.mermaid
+            || typeof window.mermaid.initialize !== 'function') {
+            return false;
+        }
+        try {
+            window.mermaid.initialize({
+                startOnLoad: false,
+                securityLevel: 'strict',
+                suppressErrorRendering: true,
+                maxTextSize: 50000,
+                theme: 'base',
+                fontFamily: themeValue(
+                    '--vscode-font-family',
+                    'system-ui, sans-serif'
+                ),
+                flowchart: {
+                    htmlLabels: false,
+                },
+                themeVariables: {
+                    darkMode: document.body.classList.contains('vscode-dark')
+                        || document.body.classList.contains(
+                            'vscode-high-contrast'
+                        ),
+                    background: themeValue(
+                        '--vscode-editor-background',
+                        '#1e1e1e'
+                    ),
+                    primaryColor: themeValue(
+                        '--vscode-textCodeBlock-background',
+                        '#252526'
+                    ),
+                    primaryTextColor: themeValue(
+                        '--vscode-editor-foreground',
+                        '#d4d4d4'
+                    ),
+                    primaryBorderColor: themeValue(
+                        '--vscode-panel-border',
+                        '#454545'
+                    ),
+                    lineColor: themeValue(
+                        '--vscode-descriptionForeground',
+                        '#a0a0a0'
+                    ),
+                    secondaryColor: themeValue(
+                        '--vscode-input-background',
+                        '#252526'
+                    ),
+                    tertiaryColor: themeValue(
+                        '--vscode-editor-background',
+                        '#1e1e1e'
+                    ),
+                },
+            });
+            state.mermaidInitialized = true;
+            return true;
+        } catch (_error) {
+            return false;
+        }
+    }
+
+    function loadMermaid() {
+        if (window.mermaid) {
+            return Promise.resolve(initializeMermaid());
+        }
+        if (state.mermaidLoad) return state.mermaidLoad;
+        if (!mermaidSource) return Promise.resolve(false);
+        state.mermaidLoad = new Promise(function (resolve) {
+            var script = document.createElement('script');
+            script.src = mermaidSource;
+            if (scriptNonce) script.nonce = scriptNonce;
+            script.addEventListener('load', function () {
+                resolve(initializeMermaid());
+            }, { once: true });
+            script.addEventListener('error', function () {
+                resolve(false);
+            }, { once: true });
+            document.head.appendChild(script);
+        });
+        return state.mermaidLoad;
+    }
+
+    function mermaidAlt(source) {
+        var summary = source.split(/\r?\n/).map(function (line) {
+            return line.trim();
+        }).find(function (line) {
+            return line.length > 0;
+        }) || 'diagram';
+        return 'Mermaid diagram: ' + summary.slice(0, 120);
+    }
+
+    function normalizeSvg(svg) {
+        var clean = window.DOMPurify.sanitize(svg, {
+            USE_PROFILES: {
+                svg: true,
+                svgFilters: true,
+            },
+            FORBID_TAGS: ['foreignObject', 'script'],
+            ALLOW_DATA_ATTR: false,
+        });
+        var documentValue = new DOMParser().parseFromString(
+            clean,
+            'image/svg+xml'
+        );
+        var root = documentValue.documentElement;
+        if (!root
+            || root.localName !== 'svg'
+            || documentValue.querySelector('parsererror')) {
+            throw new Error('Mermaid returned invalid SVG.');
+        }
+        var viewBox = (root.getAttribute('viewBox') || '')
+            .trim()
+            .split(/[\s,]+/)
+            .map(Number);
+        if (viewBox.length === 4
+            && viewBox.every(Number.isFinite)
+            && viewBox[2] > 0
+            && viewBox[3] > 0) {
+            root.setAttribute('width', String(Math.min(viewBox[2], 4096)));
+            root.setAttribute('height', String(Math.min(viewBox[3], 4096)));
+        }
+        return new XMLSerializer().serializeToString(root);
+    }
+
+    function renderMermaidDiagram(pre, source, id, generation) {
+        pre.setAttribute('aria-busy', 'true');
+        return Promise.resolve(window.mermaid.render(id, source))
+            .then(function (result) {
+                if (generation !== state.renderGeneration
+                    || !pre.isConnected) {
+                    return;
+                }
+                var svg = normalizeSvg(result.svg);
+                var objectUrl = URL.createObjectURL(new Blob([svg], {
+                    type: 'image/svg+xml',
+                }));
+                if (generation !== state.renderGeneration
+                    || !pre.isConnected) {
+                    URL.revokeObjectURL(objectUrl);
+                    return;
+                }
+                state.mermaidObjectUrls.push(objectUrl);
+                var figure = document.createElement('figure');
+                figure.className = 'conversation-mermaid';
+                var image = document.createElement('img');
+                image.className = 'conversation-mermaid-image';
+                image.src = objectUrl;
+                image.alt = mermaidAlt(source);
+                image.decoding = 'async';
+                figure.appendChild(image);
+                pre.replaceWith(figure);
+            })
+            .catch(function () {
+                if (generation !== state.renderGeneration
+                    || !pre.isConnected) {
+                    return;
+                }
+                pre.removeAttribute('aria-busy');
+                pre.classList.add('conversation-mermaid-error');
+                var label = document.createElement('span');
+                label.className = 'conversation-mermaid-error-label';
+                label.setAttribute('role', 'status');
+                label.textContent = 'Mermaid diagram could not be rendered.';
+                pre.parentNode.insertBefore(label, pre);
+                var temporary = document.getElementById(id);
+                if (temporary) temporary.remove();
+            });
+    }
+
+    function renderMermaidDiagrams(generation) {
+        var codeBlocks = Array.prototype.slice.call(
+            messages.querySelectorAll('pre > code.language-mermaid'),
+            0,
+            maxMermaidDiagrams
+        );
+        if (!codeBlocks.length) return Promise.resolve();
+        return loadMermaid().then(function (available) {
+            if (!available || generation !== state.renderGeneration) return;
+            return codeBlocks.reduce(function (promise, code, index) {
+                return promise.then(function () {
+                    if (generation !== state.renderGeneration) return undefined;
+                    return renderMermaidDiagram(
+                        code.parentElement,
+                        code.textContent || '',
+                        'conversation-mermaid-' + generation + '-' + index,
+                        generation
+                    );
+                });
+            }, Promise.resolve());
+        });
+    }
 
     function post(message) {
         if (vscodeApi && typeof vscodeApi.postMessage === 'function') {
@@ -166,6 +396,9 @@
             && message.atLatest;
         var oldIds = new Set(state.messageIds);
         var oldSignatures = state.messageSignatures;
+        state.renderGeneration += 1;
+        var renderGeneration = state.renderGeneration;
+        releaseMermaidObjectUrls();
         var clean = window.DOMPurify.sanitize(message.html, {
             ALLOWED_TAGS: allowedTags,
             ALLOWED_ATTR: allowedAttributes,
@@ -174,6 +407,14 @@
         });
 
         messages.innerHTML = clean;
+        Array.prototype.forEach.call(
+            messages.querySelectorAll('img'),
+            function (image) {
+                image.loading = 'lazy';
+                image.decoding = 'async';
+                image.referrerPolicy = 'no-referrer';
+            }
+        );
         var nextIds = getMessageIds();
         var nextSignatures = getMessageSignatures();
         var appendedOrChanged = nextIds.filter(function (id) {
@@ -209,6 +450,16 @@
             window.setTimeout(function () {
                 candidate.classList.remove('conversation-selected-interaction');
             }, 1600);
+        });
+        renderMermaidDiagrams(renderGeneration).then(function () {
+            if (renderGeneration !== state.renderGeneration) return;
+            if (shouldFollow) {
+                scroll.scrollTop = scroll.scrollHeight;
+            } else if (isLiveRefresh) {
+                scroll.scrollTop = previousScrollTop;
+            } else if (selectedMessages[0]) {
+                selectedMessages[0].scrollIntoView({ block: 'center' });
+            }
         });
 
         if (!isLiveRefresh) {
@@ -300,6 +551,7 @@
     window.addEventListener('message', function (event) {
         applyPage(event.data);
     });
+    window.addEventListener('unload', releaseMermaidObjectUrls);
 
     var initialPage = document.body.getAttribute('data-initial-page');
     if (initialPage) {

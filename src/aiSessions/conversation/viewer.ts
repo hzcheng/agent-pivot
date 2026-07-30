@@ -1042,6 +1042,9 @@ export class ConversationViewer implements ConversationViewerApi {
         const purify = panel.webview.asWebviewUri(
             this.options.mediaUri('purify.min.js')
         );
+        const mermaid = panel.webview.asWebviewUri(
+            this.options.mediaUri('mermaid.min.js')
+        );
         const script = panel.webview.asWebviewUri(
             this.options.mediaUri('conversationViewerScripts.js')
         );
@@ -1056,7 +1059,7 @@ export class ConversationViewer implements ConversationViewerApi {
 <head>
     <meta charset="UTF-8">
     <meta http-equiv="Content-Security-Policy"
-        content="default-src 'none'; style-src ${escapeAttribute(
+        content="default-src 'none'; img-src https: blob:; style-src ${escapeAttribute(
             panel.webview.cspSource
         )}; script-src 'nonce-${escapeAttribute(nonce)}';">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -1064,6 +1067,7 @@ export class ConversationViewer implements ConversationViewerApi {
     <title>AI Conversation</title>
 </head>
 <body data-auto-scroll-threshold="${CONVERSATION_LIMITS.autoScrollThresholdPx}"
+    data-mermaid-src="${escapeAttribute(mermaid.toString())}"
     data-subscription-generation="${this.subscriptionGeneration}"${initialPageAttribute}>
     <header class="conversation-header">
         <div class="conversation-identity">

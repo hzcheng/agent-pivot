@@ -2,3 +2,4 @@
 * text=auto
 
 media/sharingan/*.svg -text whitespace=cr-at-eol
+media/mermaid.min.js -text -diff

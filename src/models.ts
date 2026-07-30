@@ -96,6 +96,7 @@ export interface WorkspaceCardViewModel {
     roots: Array<{ id: string; name: string; ordinal: number }>;
     aiSessions?: WorkspaceAiSessionViewModel;
     attentionCount: number;
+    pinned?: boolean;
 }
 
 export function sanitizeProjectName(name: string) {

@@ -393,6 +393,7 @@ export function getOpenWorkspacesGroupContent(
         <span class="group-title-badge">${otherWindowsStatus === 'update-required' ? 'Update required' : otherWindowsStatus === 'unavailable' ? 'Unavailable' : 'Live'}</span>
     </div>
     <div class="group-list">
+        <div class="open-workspace-pin-live-region" data-open-workspace-pin-live-region role="status" aria-live="polite" aria-atomic="true"></div>
         <div class="drop-signal"></div>
         ${statusContent}
     </div>
@@ -419,6 +420,10 @@ function getWorkspaceCardDiv(
     const showSaveAction = isCurrent && card.showSaveAction;
     const saveBadge = showSaveAction
         ? `<span data-action="save-current-workspace" class="project-save-badge" title="Save Workspace" aria-label="Save Workspace">${Icons.save}</span>`
+        : '';
+    const pinTitle = card.pinned ? 'Unpin Window' : 'Pin Window';
+    const pinBadge = !isCurrent
+        ? `<button type="button" data-action="toggle-open-workspace-pin" class="project-pin-badge${card.pinned ? ' active' : ''}" title="${pinTitle}" aria-label="${pinTitle}" aria-pressed="${card.pinned ? 'true' : 'false'}">${Icons.pin}</button>`
         : '';
     const aiSessions = isCurrent ? card.aiSessions : undefined;
     const runningSessionCount = isCurrent
@@ -466,11 +471,12 @@ function getWorkspaceCardDiv(
     const colorStyles = getCardColorStyles(card.color);
 
     return `<div class="project-container" data-nodrag>
-    <div class="workspace-card project steward-item-card${runningSessionCount > 0 ? ' session-running' : ''}" style="${colorStyles.cardStyle}" data-id="${escapeAttribute(card.id)}" data-name="${escapeAttribute(`${card.name || ''} ${card.environmentLabel || ''} ${roots.map(root => root.name).join(' ')}`.toLowerCase())}" data-workspace-card-kind="${card.kind}" data-workspace-navigation-identity="${escapeAttribute(card.navigationIdentity)}" data-workspace-scope-identity="${escapeAttribute(card.scopeIdentity)}" ${sessionFx ? `data-session-fx="${sessionFx}"` : ''}${runningTitle ? ` title="${runningTitle}"` : ''} ${isCurrent ? 'data-current-workspace' : 'data-workspace-navigation data-other-workspace'}${currentSummaryBadge || navigationRunningBadge ? ' data-has-ai-session-badge' : ''}${showSaveAction ? ' data-has-save-action' : ''} data-readonly-project${aiSessions?.expanded ? ' data-codex-expanded' : ''}>
+    <div class="workspace-card project steward-item-card${runningSessionCount > 0 ? ' session-running' : ''}" style="${colorStyles.cardStyle}" data-id="${escapeAttribute(card.id)}" data-name="${escapeAttribute(`${card.name || ''} ${card.environmentLabel || ''} ${roots.map(root => root.name).join(' ')}`.toLowerCase())}" data-workspace-card-kind="${card.kind}" data-workspace-navigation-identity="${escapeAttribute(card.navigationIdentity)}" data-workspace-scope-identity="${escapeAttribute(card.scopeIdentity)}" ${sessionFx ? `data-session-fx="${sessionFx}"` : ''}${runningTitle ? ` title="${runningTitle}"` : ''} ${isCurrent ? 'data-current-workspace' : 'data-workspace-navigation data-other-workspace'}${currentSummaryBadge || navigationRunningBadge ? ' data-has-ai-session-badge' : ''}${showSaveAction ? ' data-has-save-action' : ''}${!isCurrent ? ' data-has-pin-action' : ''} data-readonly-project${aiSessions?.expanded ? ' data-codex-expanded' : ''}>
         <div class="project-aura"></div>
         <div class="project-border steward-item-accent" style="${colorStyles.accentStyle}"></div>
         ${sessionFx && sessionFx !== 'none' ? '<div class="project-session-fx"></div>' : ''}
         ${saveBadge}
+        ${pinBadge}
         <div class="fitty-container project-title-row">
             <span class="project-kind-icon" title="${projectIconTitle}">${projectIcon}</span>
             <h2 class="project-header">${workspaceName}</h2>

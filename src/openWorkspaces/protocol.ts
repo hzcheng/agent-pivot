@@ -14,6 +14,7 @@ export const OPEN_WORKSPACE_CAPABILITIES = {
     authoritativeUris: true,
     uiHostNavigation: true,
     savedProjectNavigation: true,
+    workspacePins: true,
 } as const;
 export const OPEN_WORKSPACE_HEARTBEAT_MS = 10_000;
 export const OPEN_WORKSPACE_LEASE_MS = 30_000;

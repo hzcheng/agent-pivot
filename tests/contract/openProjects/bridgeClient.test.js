@@ -15,6 +15,9 @@ const {
 } = require('./helpers');
 
 const OpenWorkspaceBridgeClient = loadWithFakeVscode('../../../out/openWorkspaces/bridgeClient').default;
+const {
+    createOpenWorkspacePinSnapshot,
+} = require('../../../out/openWorkspaces/pinProtocol');
 
 function handshakeResponse() {
     return {
@@ -28,7 +31,9 @@ function handshakeResponse() {
             authoritativeUris: true,
             uiHostNavigation: true,
             savedProjectNavigation: true,
+            workspacePins: true,
         },
+        pinSnapshot: createOpenWorkspacePinSnapshot([]),
     };
 }
 
@@ -186,6 +191,7 @@ test('OPEN-BRIDGE-CLIENT-001 rolls back partial constructor registrations before
     );
     assert.deepEqual([...activeRegistrations.keys()], []);
     assert.deepEqual(disposedRegistrations, [
+        '_agentPivotOpenWorkspaces.workspace.pinSnapshot',
         '_agentPivotOpenWorkspaces.workspace.aggregate',
     ]);
     assert.equal(heartbeatStarts, 0);
@@ -203,12 +209,54 @@ test('OPEN-BRIDGE-CLIENT-001 rolls back partial constructor registrations before
     assert.deepEqual([...activeRegistrations.keys()].sort(), [
         '_agentPivotOpenWorkspaces.workspace.aggregate',
         '_agentPivotOpenWorkspaces.workspace.diagnostic',
+        '_agentPivotOpenWorkspaces.workspace.pinSnapshot',
     ]);
     assert.equal(heartbeatStarts, 1);
 
     client.dispose();
     assert.deepEqual([...activeRegistrations.keys()], []);
     assert.equal(heartbeatClears, 1);
+});
+
+test('OPEN-WORKSPACE-PIN-CLIENT-001 applies authoritative pin snapshots and validates correlated mutation results', async t => {
+    const commands = createCommandRegistry();
+    const snapshots = [];
+    const identity = makeRecord().navigationIdentity;
+    commands.register('_agentPivotOpenWorkspaces.bridge.handshake', handshakeResponse);
+    commands.register('_agentPivotOpenWorkspaces.bridge.publish', () => undefined);
+    commands.register('_agentPivotOpenWorkspaces.bridge.unregister', () => undefined);
+    commands.register('_agentPivotOpenWorkspaces.bridge.setPin', request => ({
+        protocolVersion: 1,
+        requestId: request.requestId,
+        navigationIdentity: request.navigationIdentity,
+        pinned: request.pinned,
+        snapshot: createOpenWorkspacePinSnapshot([{
+            protocolVersion: 1,
+            navigationIdentity: request.navigationIdentity,
+            pinnedAtMs: 1234,
+        }]),
+    }));
+    const client = new OpenWorkspaceBridgeClient(
+        makeRecord(),
+        () => undefined,
+        error => { throw error; },
+        {
+            instanceId: SELF,
+            registerCommand: commands.register,
+            executeCommand: commands.execute,
+            setInterval: () => 'heartbeat',
+            clearInterval: () => undefined,
+            onPinSnapshot: snapshot => snapshots.push(snapshot),
+        },
+    );
+    t.after(() => client.dispose());
+    await flushAsync();
+
+    const outcome = await client.setPinned(7, identity, true);
+
+    assert.equal(outcome.requestId, 7);
+    assert.equal(outcome.pinned, true);
+    assert.deepEqual(snapshots.map(snapshot => snapshot.pins.length), [0, 1]);
 });
 
 test('OPEN-WORKSPACE-BRIDGE-COMPATIBILITY-001 rejects a Bridge without authoritative UI-host navigation', async t => {

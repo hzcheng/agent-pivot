@@ -3729,5 +3729,71 @@
       "src/dashboard.ts",
       "src/webview/webviewDashboardScripts.js"
     ]
+  },
+  {
+    "id": "OPEN-WORKSPACE-PIN-PROTOCOL-001",
+    "domain": "open-project",
+    "title": "Strict and deterministic open-window pin protocol",
+    "priority": "P0",
+    "status": "automated",
+    "owners": ["tests/contract/openProjects/pins.test.js"],
+    "evidence": ["src/openWorkspaces/pinProtocol.ts"]
+  },
+  {
+    "id": "OPEN-WORKSPACE-PIN-STORE-001",
+    "domain": "persistence",
+    "title": "Concurrent open-window pin persistence preserves original pin order",
+    "priority": "P0",
+    "status": "automated",
+    "owners": ["tests/contract/openProjects/pins.test.js"],
+    "evidence": ["extensions/attention-ui-bridge/src/openWorkspacePinStore.ts"]
+  },
+  {
+    "id": "OPEN-WORKSPACE-PIN-COORDINATOR-001",
+    "domain": "open-project",
+    "title": "Durable pin mutations survive transient cross-window delivery failures",
+    "priority": "P0",
+    "status": "automated",
+    "owners": ["tests/contract/openProjects/pins.test.js"],
+    "evidence": ["extensions/attention-ui-bridge/src/openWorkspacePinCoordinator.ts"]
+  },
+  {
+    "id": "OPEN-WORKSPACE-PIN-CLIENT-001",
+    "domain": "open-project",
+    "title": "Workspace bridge client validates correlated pin outcomes and snapshots",
+    "priority": "P0",
+    "status": "automated",
+    "owners": ["tests/contract/openProjects/bridgeClient.test.js"],
+    "evidence": ["src/openWorkspaces/bridgeClient.ts"]
+  },
+  {
+    "id": "OPEN-WORKSPACE-PIN-HOST-001",
+    "domain": "open-project",
+    "title": "Host resolves pin targets authoritatively and settles every recognized mutation",
+    "priority": "P0",
+    "status": "automated",
+    "owners": ["tests/contract/openProjects/pins.test.js"],
+    "evidence": ["src/openWorkspaces/pinController.ts"]
+  },
+  {
+    "id": "OPEN-WORKSPACE-PIN-SORT-001",
+    "domain": "open-project",
+    "title": "Pinned windows remain first in original pin order while unpinned windows use recency",
+    "priority": "P0",
+    "status": "automated",
+    "owners": ["tests/contract/openProjects/projection.test.js"],
+    "evidence": ["src/openWorkspaces/projection.ts"]
+  },
+  {
+    "id": "OPEN-WORKSPACE-PIN-WEBVIEW-001",
+    "domain": "webview",
+    "title": "Pin UI waits for authoritative HTML and preserves pending state across acknowledgements",
+    "priority": "P0",
+    "status": "automated",
+    "owners": ["tests/integration/dashboard/openProjectFlow.test.js"],
+    "evidence": [
+      "src/webview/webviewContent.ts",
+      "src/webview/webviewProjectScripts.js"
+    ]
   }
 ]

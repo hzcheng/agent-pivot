@@ -154,11 +154,15 @@ AI attention 红点只显示在 `OPEN` 动态页面：当前工作区显示项�
 - 卡片不展示：
   - AI session 数量或列表；
   - session 名称、provider 或具体 attention 原因；
-  - Save、Favorite、颜色编辑、删除和上下文菜单；
+  - Save、PROJECTS Favorite、颜色编辑、删除和上下文菜单；
   - 当前工作区高亮。
 - attention badge 使用现有全局 aggregate 中按隐私安全 project key 聚合的不同未读逻辑 session 数，不要求其他窗口重新扫描 session，也不扩展 open-project 协议。
 - 新 attention 到达时，导航卡和 badge 沿用现有有限次数闪烁动画；动画结束后 badge 持续显示，直到对应 session 被确认。
-- 排序继续使用现有规则：当前窗口项目优先，其他项目按最近聚焦窗口时间倒序排列。
+- 每张其他窗口卡片提供 `Pin Window` / `Unpin Window` 按钮。Pin 只管理 `OPEN → OTHER WINDOWS` 的窗口顺序，不会把项目加入 `PROJECTS → Favorites`。
+- 已 Pin 的项目固定在最上方，并按首次 Pin 时间正序排列（最早 Pin 的在最上方）；窗口焦点变化不会改变这一区域的顺序。
+- 未 Pin 的项目继续按最近聚焦窗口时间倒序排列。
+- Pin 状态按规范化窗口导航身份持久化并在同一 VS Code Profile 的窗口间共享。窗口关闭时保留偏好；项目重新打开后回到原 Pin 顺序。项目成为当前工作区时不显示导航副本，但不清除 Pin。
+- Pin/Unpin 操作等待 UI Bridge 的权威持久化结果后再改变按钮状态与卡片位置；失败时保持原状态并允许重试。
 - 同一规范化项目 URI 只展示一次；如果当前窗口已经包含该项目，不再显示导航副本。
 - 同一项目由多个窗口发布时，导航卡仍只显示一次，badge 聚合该项目全部未确认逻辑 sessions。
 - 点击卡片继续通过现有 `openProject` / `vscode.openFolder` 路径切换或打开项目。该操作不确认或清除 attention；切换到目标窗口后，badge 继续显示在目标窗口的当前项目卡片中，直到用户点击或处理具体 session。
@@ -172,6 +176,7 @@ AI attention 红点只显示在 `OPEN` 动态页面：当前工作区显示项�
 | 当前窗口无工作区，其他窗口有项目 | 提示当前窗口未打开文件夹，同时展示 `OTHER WINDOWS` |
 | 所有窗口都无项目 | 展示“打开文件夹后查看运行项目”的空状态 |
 | 其他窗口项目过期或关闭 | 按现有 lease/聚合刷新移除卡片，不影响当前项目 |
+| 已 Pin 的窗口关闭后重新打开 | 关闭期间不显示卡片；重新打开后恢复到原 Pin 顺序 |
 | 点击项目时项目刚刚失效 | 沿用现有错误提示并刷新 `OPEN` 页面 |
 | 搜索无结果 | 在全局搜索状态显示无匹配结果，保留搜索框和清除入口 |
 

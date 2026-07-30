@@ -13,6 +13,15 @@ import {
     validateOpenWorkspacePublication,
     validateOpenWorkspaceRecord,
 } from './protocol';
+import {
+    OPEN_WORKSPACE_PIN_PROTOCOL_VERSION,
+    OPEN_WORKSPACE_PIN_SET_COMMAND,
+    OPEN_WORKSPACE_PIN_SNAPSHOT_COMMAND,
+    OpenWorkspacePinSetOutcome,
+    OpenWorkspacePinSnapshot,
+    validateOpenWorkspacePinSetOutcome,
+    validateOpenWorkspacePinSnapshot,
+} from './pinProtocol';
 
 export const OPEN_WORKSPACE_PUBLISH_COMMAND = '_agentPivotOpenWorkspaces.bridge.publish';
 export const OPEN_WORKSPACE_UNREGISTER_COMMAND = '_agentPivotOpenWorkspaces.bridge.unregister';
@@ -49,6 +58,7 @@ export interface OpenWorkspaceBridgeClientDependencies {
     reportDiagnostic?: (event: OpenWorkspaceClientDiagnosticEvent) => void;
     reportBridgeDiagnostic?: (event: unknown) => void;
     onStatusChange?: (status: OpenWorkspaceBridgeStatus) => void;
+    onPinSnapshot?: (snapshot: OpenWorkspacePinSnapshot) => unknown;
 }
 
 export interface OpenWorkspaceClientDiagnosticEvent {
@@ -69,6 +79,7 @@ interface OpenWorkspaceHandshakeResponse {
     protocolVersion: 3;
     bridgeExtensionVersion: string;
     capabilities: typeof OPEN_WORKSPACE_CAPABILITIES;
+    pinSnapshot: OpenWorkspacePinSnapshot;
     errorCode?: 'update-required';
 }
 
@@ -86,8 +97,8 @@ function validateHandshakeResponse(raw: unknown): OpenWorkspaceHandshakeResponse
     }
     const response = raw as Record<string, unknown>;
     const expected = response.errorCode === undefined
-        ? ['accepted', 'protocolVersion', 'bridgeExtensionVersion', 'capabilities']
-        : ['accepted', 'protocolVersion', 'bridgeExtensionVersion', 'capabilities', 'errorCode'];
+        ? ['accepted', 'protocolVersion', 'bridgeExtensionVersion', 'capabilities', 'pinSnapshot']
+        : ['accepted', 'protocolVersion', 'bridgeExtensionVersion', 'capabilities', 'pinSnapshot', 'errorCode'];
     if (!exactKeys(response, expected)
         || response.protocolVersion !== OPEN_WORKSPACE_PROTOCOL_VERSION
         || typeof response.accepted !== 'boolean'
@@ -110,7 +121,14 @@ function validateHandshakeResponse(raw: unknown): OpenWorkspaceHandshakeResponse
     if (response.accepted !== true) {
         return incompatibleHandshake();
     }
-    return response as unknown as OpenWorkspaceHandshakeResponse;
+    try {
+        return {
+            ...response,
+            pinSnapshot: validateOpenWorkspacePinSnapshot(response.pinSnapshot),
+        } as unknown as OpenWorkspaceHandshakeResponse;
+    } catch (_error) {
+        return incompatibleHandshake();
+    }
 }
 
 export default class OpenWorkspaceBridgeClient implements vscode.Disposable {
@@ -121,6 +139,7 @@ export default class OpenWorkspaceBridgeClient implements vscode.Disposable {
     private latestGeneration = 0;
     private lastSemantic = '';
     private lastAggregateRevision = '';
+    private lastPinRevision = '';
     private connected = false;
     private incompatible = false;
     private disposed = false;
@@ -140,7 +159,9 @@ export default class OpenWorkspaceBridgeClient implements vscode.Disposable {
     private readonly reportDiagnostic: (event: OpenWorkspaceClientDiagnosticEvent) => void;
     private readonly reportBridgeDiagnostic: (event: unknown) => void;
     private readonly onStatusChange: (status: OpenWorkspaceBridgeStatus) => void;
+    private readonly onPinSnapshot: (snapshot: OpenWorkspacePinSnapshot) => unknown;
     private readonly aggregateRegistration: DisposableLike;
+    private readonly pinSnapshotRegistration: DisposableLike;
     private readonly diagnosticRegistration: DisposableLike;
     private readonly heartbeatHandle: unknown;
 
@@ -169,7 +190,9 @@ export default class OpenWorkspaceBridgeClient implements vscode.Disposable {
         this.reportDiagnostic = dependencies.reportDiagnostic || (() => undefined);
         this.reportBridgeDiagnostic = dependencies.reportBridgeDiagnostic || (() => undefined);
         this.onStatusChange = dependencies.onStatusChange || (() => undefined);
+        this.onPinSnapshot = dependencies.onPinSnapshot || (() => undefined);
         let aggregateRegistration: DisposableLike | undefined;
+        let pinSnapshotRegistration: DisposableLike | undefined;
         let diagnosticRegistration: DisposableLike | undefined;
         let heartbeatHandle: unknown;
         let heartbeatStarted = false;
@@ -177,6 +200,10 @@ export default class OpenWorkspaceBridgeClient implements vscode.Disposable {
             aggregateRegistration = registerCommand(
                 OPEN_WORKSPACE_AGGREGATE_COMMAND,
                 raw => this.receiveAggregate(raw),
+            );
+            pinSnapshotRegistration = registerCommand(
+                OPEN_WORKSPACE_PIN_SNAPSHOT_COMMAND,
+                raw => this.receivePinSnapshot(raw),
             );
             diagnosticRegistration = registerCommand(
                 OPEN_WORKSPACE_DIAGNOSTIC_COMMAND,
@@ -209,6 +236,11 @@ export default class OpenWorkspaceBridgeClient implements vscode.Disposable {
                 // Continue releasing earlier constructor acquisitions.
             }
             try {
+                pinSnapshotRegistration?.dispose();
+            } catch (_disposeError) {
+                // Continue releasing earlier constructor acquisitions.
+            }
+            try {
                 aggregateRegistration?.dispose();
             } catch (_disposeError) {
                 // Constructor rollback must preserve the acquisition failure.
@@ -216,6 +248,7 @@ export default class OpenWorkspaceBridgeClient implements vscode.Disposable {
             throw error;
         }
         this.aggregateRegistration = aggregateRegistration;
+        this.pinSnapshotRegistration = pinSnapshotRegistration;
         this.diagnosticRegistration = diagnosticRegistration;
         this.heartbeatHandle = heartbeatHandle;
         this.emitDiagnostic({ event: 'activate', workspaceCount: this.latestWorkspace ? 1 : 0 });
@@ -257,11 +290,55 @@ export default class OpenWorkspaceBridgeClient implements vscode.Disposable {
         }
     }
 
+    async receivePinSnapshot(raw: unknown): Promise<void> {
+        if (this.disposed) { return; }
+        try {
+            const snapshot = validateOpenWorkspacePinSnapshot(raw);
+            if (snapshot.revision === this.lastPinRevision) { return; }
+            await this.onPinSnapshot(snapshot);
+            this.lastPinRevision = snapshot.revision;
+        } catch (error) {
+            try {
+                this.onError(error);
+            } catch (_reportError) {
+                // Pin acknowledgement must reflect delivery, not local logging.
+            }
+            throw new Error('open workspace pin snapshot delivery failed');
+        }
+    }
+
+    async setPinned(
+        requestId: number,
+        navigationIdentity: string,
+        pinned: boolean,
+    ): Promise<OpenWorkspacePinSetOutcome> {
+        if (this.disposed || !await this.ensureHandshake() || this.disposed) {
+            throw new Error('open workspace pin bridge is unavailable');
+        }
+        const outcome = validateOpenWorkspacePinSetOutcome(await this.executeCommand(
+            OPEN_WORKSPACE_PIN_SET_COMMAND,
+            {
+                protocolVersion: OPEN_WORKSPACE_PIN_PROTOCOL_VERSION,
+                requestId,
+                navigationIdentity,
+                pinned,
+            },
+        ));
+        if (outcome.requestId !== requestId
+            || outcome.navigationIdentity !== navigationIdentity
+            || outcome.pinned !== pinned) {
+            throw new Error('open workspace pin response does not match its request');
+        }
+        await this.receivePinSnapshot(outcome.snapshot);
+        return outcome;
+    }
+
     dispose(): void {
         if (this.disposed) { return; }
         this.disposed = true;
         this.recoveryAcknowledgementRequired = false;
         this.aggregateRegistration.dispose();
+        this.pinSnapshotRegistration.dispose();
         this.diagnosticRegistration.dispose();
         this.clearInterval(this.heartbeatHandle);
         if (this.retryTimer !== null) { this.cancelTimeout(this.retryTimer); }
@@ -388,6 +465,8 @@ export default class OpenWorkspaceBridgeClient implements vscode.Disposable {
                     capabilities: OPEN_WORKSPACE_CAPABILITIES,
                 },
             ));
+            if (this.disposed) { return false; }
+            await this.receivePinSnapshot(response.pinSnapshot);
             if (this.disposed) { return false; }
             this.connected = true;
             if (this.retryTimer !== null) { this.cancelTimeout(this.retryTimer); }

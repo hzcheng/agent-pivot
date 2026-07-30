@@ -70,6 +70,8 @@ const EXPECTED_MAIN_ENTRIES = Object.freeze([
     'extension/out/openWorkspaces/bridgeClient.js',
     'extension/out/openWorkspaces/dashboardController.js',
     'extension/out/openWorkspaces/navigationController.js',
+    'extension/out/openWorkspaces/pinController.js',
+    'extension/out/openWorkspaces/pinProtocol.js',
     'extension/out/openWorkspaces/projection.js',
     'extension/out/openWorkspaces/protocol.js',
     'extension/out/openWorkspaces/workspaceController.js',
@@ -863,6 +865,8 @@ function run() {
         'out/openWorkspaces/protocol.js',
         'out/openWorkspaces/bridgeClient.js',
         'out/openWorkspaces/navigationController.js',
+        'out/openWorkspaces/pinController.js',
+        'out/openWorkspaces/pinProtocol.js',
         'dist/dashboard.js',
         'media/webviewProjectScripts.js',
         'media/webviewPromptScripts.js',
@@ -877,6 +881,7 @@ function run() {
 
     const bridgeBundle = readText('extensions/attention-ui-bridge/dist/extension.js');
     assertIncludes(bridgeBundle, '_agentPivotOpenWorkspaces', 'UI Bridge bundle');
+    assertIncludes(bridgeBundle, '_agentPivotOpenWorkspaces.bridge.setPin', 'UI Bridge bundle');
     assert.match(bridgeBundle, /["']open-workspaces["'],["']v3["'],["']instances["']/,
         'UI Bridge bundle must retain the open-workspaces/v3/instances registry path');
     assertNotIncludes(bridgeBundle, '_agentPivotOpenProjects', 'UI Bridge bundle');

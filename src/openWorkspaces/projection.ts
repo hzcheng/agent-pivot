@@ -15,6 +15,7 @@ import {
 interface NavigationCandidate {
     instanceId: string;
     lastFocusedAtMs: number;
+    pinnedAtMs: number | null;
     workspace: OpenWorkspaceRecord;
 }
 
@@ -56,6 +57,18 @@ function candidateWins(candidate: NavigationCandidate, previous: NavigationCandi
 }
 
 function compareCandidates(left: NavigationCandidate, right: NavigationCandidate): number {
+    if (left.pinnedAtMs !== null || right.pinnedAtMs !== null) {
+        if (left.pinnedAtMs === null) {
+            return 1;
+        }
+        if (right.pinnedAtMs === null) {
+            return -1;
+        }
+        if (left.pinnedAtMs !== right.pinnedAtMs) {
+            return left.pinnedAtMs < right.pinnedAtMs ? -1 : 1;
+        }
+        return compareText(left.workspace.navigationIdentity, right.workspace.navigationIdentity);
+    }
     if (left.lastFocusedAtMs !== right.lastFocusedAtMs) {
         return left.lastFocusedAtMs > right.lastFocusedAtMs ? -1 : 1;
     }
@@ -113,6 +126,7 @@ function createNavigationCard(
         kind: 'navigation',
         workspaceKind: workspace.kind,
         showSaveAction: false,
+        pinned: candidate.pinnedAtMs !== null,
         runningSessionCount: workspace.runningAiSessionCount,
         navigationIdentity: workspace.navigationIdentity,
         scopeIdentity: workspace.scopeIdentity,
@@ -131,13 +145,15 @@ export function projectOpenWorkspaceCards(
     currentWorkspace: Pick<OpenWorkspace, 'navigationIdentity'> | null,
     aggregate: OpenWorkspaceAggregateV3 | null,
     ownInstanceId: string,
-    attentionAggregate: AttentionAggregate | null = null
+    attentionAggregate: AttentionAggregate | null = null,
+    pinTimes: ReadonlyMap<string, number> = new Map(),
 ): WorkspaceCardViewModel[] {
     return projectOpenWorkspaceNavigationCards(
         currentWorkspace,
         aggregate,
         ownInstanceId,
         attentionAggregate,
+        pinTimes,
     ).map(projection => projection.card);
 }
 
@@ -145,7 +161,8 @@ export function projectOpenWorkspaceNavigationCards(
     currentWorkspace: Pick<OpenWorkspace, 'navigationIdentity'> | null,
     aggregate: OpenWorkspaceAggregateV3 | null,
     ownInstanceId: string,
-    attentionAggregate: AttentionAggregate | null = null
+    attentionAggregate: AttentionAggregate | null = null,
+    pinTimes: ReadonlyMap<string, number> = new Map(),
 ): OpenWorkspaceNavigationCardProjection[] {
     if (!aggregate) {
         return [];
@@ -163,6 +180,7 @@ export function projectOpenWorkspaceNavigationCards(
         const candidate: NavigationCandidate = {
             instanceId: registration.instanceId,
             lastFocusedAtMs: registration.lastFocusedAtMs,
+            pinnedAtMs: pinTimes.get(workspace.navigationIdentity) ?? null,
             workspace,
         };
         const previous = navigationByIdentity.get(workspace.navigationIdentity);

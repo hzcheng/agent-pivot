@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "9f88b5972cbfd8e712186652a99d162a669575f8",
+        "head": "7ebe4973e9fed30042171f08f8048e142f2a2f49",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -966,8 +966,8 @@
         },
         {
             "id": "MAIN-AI-SKILL-MANAGEMENT",
-            "title": "Central AI skill store with scoped agent links",
-            "requirement": "Skills live in a central on-disk store with folder trees; per-agent enablement is symlink-based per scope, and every mutation (centralize, migrate, sync, delete, folder batch) enforces containment and survives authoritative webview refreshes.",
+            "title": "Configurable central AI skill store with scoped agent links",
+            "requirement": "Skills live in a configurable Global on-disk store or project-relative store with folder trees; per-agent enablement is symlink-based per scope, and every mutation (centralize, migrate, relocate, sync, delete, folder batch) enforces containment and survives authoritative webview refreshes.",
             "commits": [
                 "b50fcc95bdd5cc05af97ce227389c9ade3bc37bf",
                 "c44ce9548239bf376c85c652f875ee471dd85be9",
@@ -1016,16 +1016,21 @@
                 "e4b885de35211191473f72c0bb27a95ce72eb921",
                 "4a6149ea6edf8607a488aed01c72d4463f069f61",
                 "a732939522c647edf588f29c0f9cbc6e8fa87077",
-                "9f88b5972cbfd8e712186652a99d162a669575f8"
+                "9f88b5972cbfd8e712186652a99d162a669575f8",
+                "75f261ee54b28569284b15e6260576831f7b2e81",
+                "6056ad799f05619a93fabe4af56e5955246e2231",
+                "7ebe4973e9fed30042171f08f8048e142f2a2f49"
             ],
             "behaviors": [
                 "PERSIST-AI-SKILL-CENTRAL-STORE-001",
                 "PERSIST-AI-SKILL-DISCOVERY-001",
                 "WEBVIEW-AI-SKILL-PANEL-001",
-                "PERSIST-AI-SKILL-SCOPE-ACTION-001"
+                "PERSIST-AI-SKILL-SCOPE-ACTION-001",
+                "PERSIST-AI-SKILL-GLOBAL-STORE-LOCATION-001"
             ],
             "prGates": [
                 "test:skills",
+                "test:contract",
                 "test:browser:run",
                 "test:safety:run"
             ],

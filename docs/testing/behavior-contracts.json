@@ -3709,5 +3709,25 @@
       "src/webview/webviewSkillContent.ts",
       "src/webview/webviewDashboardScripts.js"
     ]
+  },
+  {
+    "id": "PERSIST-AI-SKILL-GLOBAL-STORE-LOCATION-001",
+    "domain": "persistence",
+    "title": "Configurable Global Skills store relocation safety",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "scripts/run-skill-management-checks.js",
+      "tests/contract/skills/globalStoreLocationController.test.js"
+    ],
+    "evidence": [
+      "package.json",
+      "src/skills/globalStoreService.ts",
+      "src/skills/globalStoreLocationController.ts",
+      "src/skills/discovery.ts",
+      "src/skills/dashboardController.ts",
+      "src/dashboard.ts",
+      "src/webview/webviewDashboardScripts.js"
+    ]
   }
 ]

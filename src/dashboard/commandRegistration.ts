@@ -18,6 +18,7 @@ export interface DashboardCommandHandlers {
     addFileToActiveTerminal: DashboardCommandHandler;
     insertPromptToActiveTerminal: DashboardCommandHandler;
     migrateSkillsToCentral: DashboardCommandHandler;
+    changeGlobalSkillsLocation: DashboardCommandHandler;
     openCurrentAiSessionConversation: DashboardCommandHandler;
 }
 
@@ -44,6 +45,7 @@ const DASHBOARD_COMMANDS: ReadonlyArray<readonly [string, DashboardCommandName]>
     ['agentPivot.addFileToActiveTerminal', 'addFileToActiveTerminal'],
     ['agentPivot.insertPromptToActiveTerminal', 'insertPromptToActiveTerminal'],
     ['agentPivot.migrateSkillsToCentral', 'migrateSkillsToCentral'],
+    ['agentPivot.changeGlobalSkillsLocation', 'changeGlobalSkillsLocation'],
     ['agentPivot.openCurrentAiSessionConversation', 'openCurrentAiSessionConversation'],
 ];
 

@@ -91,6 +91,10 @@
                 "title": "Agent Pivot: Migrate Skills to Central Store"
             },
             {
+                "command": "agentPivot.changeGlobalSkillsLocation",
+                "title": "Agent Pivot: Change Global Skills Location"
+            },
+            {
                 "command": "agentPivot.openCurrentAiSessionConversation",
                 "title": "Agent Pivot: Open Current AI Session Conversation"
             }
@@ -303,6 +307,12 @@
                     "type": "boolean",
                     "default": true,
                     "description": "Show attention indicators when Agent Pivot AI sessions finish or may need input."
+                },
+                "agentPivot.skills.globalStorePath": {
+                    "type": "string",
+                    "default": "~/.skills",
+                    "scope": "machine",
+                    "markdownDescription": "Location of the Global Skills store. Use `~` or an absolute path. Agent Pivot can safely move existing skills when this changes. Project Skills remain in each project's `.skills` folder."
                 },
                 "agentPivot.displayProjectPath": {
                     "type": "boolean",

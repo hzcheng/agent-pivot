@@ -3,12 +3,24 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
+import {
+    acquireSkillsMutationLocks,
+    captureDirectoryIdentity,
+    copyDirectoryContents,
+    DirectoryIdentity,
+    directoryTreesEqual,
+    releaseDirectoryIdentity,
+    retainFailedTarget,
+    restoreDirectoryWithoutOverwrite,
+    TargetMutationLock,
+} from './globalStoreService';
 import { getCentralSkillsRoot, getProjectSkillsRoots, getUserSkillsRoots, SkillsRoot } from './roots';
 import type { SkillAgentId, SkillRecord, SkillScope, SkillSourceDir } from './types';
 
 export interface CentralResult {
     ok: boolean;
     dirPath?: string;
+    recoveryPath?: string;
     error?: string;
 }
 
@@ -88,6 +100,16 @@ function deleteRealDir(dirPath: string): CentralResult {
     }
 }
 
+function pathSlotOccupied(candidate: string): boolean {
+    try {
+        fs.lstatSync(candidate);
+        return true;
+    } catch (error) {
+        return !(error instanceof Error) || !('code' in error)
+            || (error as NodeJS.ErrnoException).code !== 'ENOENT';
+    }
+}
+
 /**
  * Move a real-directory skill into the central store and link it back from
  * its original root. Duplicate real-dir copies (same scope + name) are
@@ -100,24 +122,76 @@ export function centralizeSkill(
     workspaceRoot?: string,
     options: CentralizeOptions = {},
 ): CentralResult {
+    const renameSync = options.renameSync || fs.renameSync;
+    const copyFileSync = options.copyFileSync || fs.copyFileSync;
+    const mkdirSync = options.mkdirSync || fs.mkdirSync;
+    let destination = '';
+    let ownRoot: SkillsRoot | undefined;
+    let destinationCreated = false;
+    let destinationIdentity: DirectoryIdentity | undefined;
+    let targetLock: TargetMutationLock | undefined;
+    let linkCreated = false;
+    let asideContainer: string | undefined;
+    let aside: string | undefined;
     try {
         if (record.central) {
             return { ok: false, error: 'Skill is already centralized.' };
         }
-        const centralRoot = getCentralSkillsRoot(homeDir, record.scope, workspaceRoot);
-        const destination = path.join(centralRoot, record.name);
-        if (fs.existsSync(destination)) {
+        const centralRoot = getCentralSkillsRoot(
+            homeDir,
+            record.scope,
+            workspaceRoot,
+            options.globalSkillsRoot,
+        );
+        destination = path.join(centralRoot, record.name);
+        fs.mkdirSync(centralRoot, { recursive: true });
+        const lockResult = acquireSkillsMutationLocks([centralRoot, record.dirPath, destination]);
+        if (lockResult.ok === false) {
+            return { ok: false, error: lockResult.error };
+        }
+        targetLock = lockResult.lock;
+        if (pathSlotOccupied(destination)) {
             return { ok: false, error: `Central store already has ${record.name}: ${destination}` };
         }
-        fs.mkdirSync(centralRoot, { recursive: true });
-        fs.renameSync(record.dirPath, destination);
+        // mkdir is the atomic no-overwrite claim on every filesystem. A direct
+        // rename could replace a concurrently created empty destination.
+        mkdirSync(destination, { recursive: false });
+        destinationCreated = true;
+        destinationIdentity = captureDirectoryIdentity(destination);
+        copyDirectoryContents(record.dirPath, destination, copyFileSync);
+        if (!directoryTreesEqual(record.dirPath, destination, destinationIdentity)) {
+            throw new Error('Copied skill content did not verify.');
+        }
+        asideContainer = fs.mkdtempSync(
+            path.join(path.dirname(record.dirPath), '.agent-pivot-centralize-'),
+        );
+        aside = path.join(asideContainer, path.basename(record.dirPath));
+        renameSync(record.dirPath, aside);
+        if (!directoryTreesEqual(aside, destination, destinationIdentity)) {
+            throw new Error('The skill changed during centralization.');
+        }
         // Link back from the record's original root so current effectiveness holds.
-        const ownRoot = knownBrandRoots(homeDir, workspaceRoot)
+        ownRoot = knownBrandRoots(homeDir, workspaceRoot)
             .find(root => root.source === record.source && root.scope === record.scope);
         if (options.linkBack !== false && ownRoot) {
             const link = setCentralLink(destination, ownRoot.dirPath, true);
             if (!link.ok) {
-                return link;
+                throw new Error(link.error || 'Could not link the centralized skill.');
+            }
+            linkCreated = link.changed === true;
+        }
+        const released = releaseDirectoryIdentity(destination, destinationIdentity);
+        if (!released.ok) {
+            throw new Error(released.error);
+        }
+        if (asideContainer) {
+            try {
+                fs.rmSync(asideContainer, { recursive: true, force: true });
+                aside = undefined;
+                asideContainer = undefined;
+            } catch (_error) {
+                // The verified destination and link are authoritative. Retaining
+                // the hidden backup is safer than rolling back a committed move.
             }
         }
         // Delete duplicate real-dir copies now that the winner is secured.
@@ -132,13 +206,66 @@ export function centralizeSkill(
         }
         return { ok: true, dirPath: destination };
     } catch (error) {
-        return { ok: false, error: error instanceof Error ? error.message : String(error) };
+        const rollbackErrors: string[] = [];
+        let targetRecoveryPath: string | undefined;
+        if (linkCreated && ownRoot) {
+            const removed = setCentralLink(destination, ownRoot.dirPath, false);
+            if (!removed.ok) {
+                rollbackErrors.push(removed.error || 'Could not remove the new agent link.');
+            }
+        }
+        if (aside) {
+            const cleanup = retainFailedTarget(destination, destinationIdentity);
+            if (cleanup.ok) {
+                destinationCreated = false;
+            } else {
+                rollbackErrors.push(cleanup.error || 'Could not safely remove the target.');
+                targetRecoveryPath = cleanup.recoveryPath;
+            }
+            const restored = restoreDirectoryWithoutOverwrite(
+                aside,
+                record.dirPath,
+                copyFileSync,
+            );
+            if (restored.ok) {
+                aside = undefined;
+            } else {
+                rollbackErrors.push(restored.error || 'Could not restore the original skill.');
+            }
+        } else if (destinationCreated && destination) {
+            const cleanup = retainFailedTarget(destination, destinationIdentity);
+            if (!cleanup.ok) {
+                rollbackErrors.push(cleanup.error || 'Could not safely remove the target.');
+                targetRecoveryPath = cleanup.recoveryPath;
+            }
+        }
+        if (!aside && asideContainer) {
+            try { fs.rmSync(asideContainer, { recursive: true, force: true }); } catch (_error) { /* best effort */ }
+        }
+        const message = error instanceof Error ? error.message : String(error);
+        const recoveryPath = aside || targetRecoveryPath;
+        return {
+            ok: false,
+            error: rollbackErrors.length
+                ? `${message} Rollback was incomplete: ${rollbackErrors.join(' ')}`
+                    + (recoveryPath ? ` Recovery data is at ${recoveryPath}.` : '')
+                : message,
+            recoveryPath,
+        };
+    } finally {
+        targetLock?.release();
     }
 }
 
 export interface CentralizeOptions {
     /** Link the centralized skill back from its original root (default true). */
     linkBack?: boolean;
+    /** Active physical Global store root. Project stores remain workspace-relative. */
+    globalSkillsRoot?: string;
+    /** Injectable filesystem operations used by cross-device safety tests. */
+    renameSync?: typeof fs.renameSync;
+    copyFileSync?: typeof fs.copyFileSync;
+    mkdirSync?: typeof fs.mkdirSync;
 }
 
 function walkSkillDirs(dirPath: string, found: string[]): string[] {
@@ -199,20 +326,32 @@ export function setFolderLinks(
     const roots = scope === 'user' ? getUserSkillsRoots(homeDir) : getProjectSkillsRoots(workspaceRoot as string);
     const agentRoots = roots.filter(root => agents.includes(root.source as SkillAgentId)
         && (root.source === 'kimi' || root.source === 'claude' || root.source === 'codex'));
-    for (const skillDir of walkSkillDirs(path.join(storeRoot, safeFolder), [])) {
-        for (const root of agentRoots) {
-            const link = setCentralLink(skillDir, root.dirPath, enable);
-            if (link.ok) {
-                if (link.changed) {
-                    result.changed += 1;
+    const lockResult = acquireSkillsMutationLocks([storeRoot]);
+    if (lockResult.ok === false) {
+        return {
+            ok: false,
+            changed: 0,
+            errors: [{ name: folder || '.', error: lockResult.error }],
+        };
+    }
+    try {
+        for (const skillDir of walkSkillDirs(path.join(storeRoot, safeFolder), [])) {
+            for (const root of agentRoots) {
+                const link = setCentralLink(skillDir, root.dirPath, enable);
+                if (link.ok) {
+                    if (link.changed) {
+                        result.changed += 1;
+                    }
+                } else {
+                    result.ok = false;
+                    result.errors.push({ name: path.basename(skillDir), error: link.error || 'unknown error' });
                 }
-            } else {
-                result.ok = false;
-                result.errors.push({ name: path.basename(skillDir), error: link.error || 'unknown error' });
             }
         }
+        return result;
+    } finally {
+        lockResult.lock.release();
     }
-    return result;
 }
 
 function sanitizeFolder(targetFolder: string): string | null {
@@ -235,8 +374,13 @@ function sanitizeFolder(targetFolder: string): string | null {
  * re-point every existing link (both scopes) at the new location.
  */
 export function moveSkillToFolder(
-    record: SkillRecord, targetFolder: string, homeDir: string, workspaceRoot?: string,
+    record: SkillRecord,
+    targetFolder: string,
+    homeDir: string,
+    workspaceRoot?: string,
+    globalSkillsRoot?: string,
 ): CentralResult {
+    let storeLock: TargetMutationLock | undefined;
     try {
         if (!record.central) {
             return { ok: false, error: 'Only centralized skills can be moved between folders.' };
@@ -245,8 +389,15 @@ export function moveSkillToFolder(
         if (folder === null) {
             return { ok: false, error: `Invalid folder: ${targetFolder}` };
         }
-        const storeRoot = getCentralSkillsRoot(homeDir, record.scope, workspaceRoot);
+        const storeRoot = getCentralSkillsRoot(homeDir, record.scope, workspaceRoot, globalSkillsRoot);
         const destination = folder ? path.join(storeRoot, folder, record.name) : path.join(storeRoot, record.name);
+        // The store-root lock serializes every destination below it, including
+        // nested folders whose parent does not exist yet.
+        const lockResult = acquireSkillsMutationLocks([storeRoot, record.dirPath]);
+        if (lockResult.ok === false) {
+            return { ok: false, error: lockResult.error };
+        }
+        storeLock = lockResult.lock;
         if (destination === record.dirPath) {
             return { ok: true, dirPath: destination };
         }
@@ -274,6 +425,8 @@ export function moveSkillToFolder(
         return { ok: true, dirPath: destination };
     } catch (error) {
         return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    } finally {
+        storeLock?.release();
     }
 }
 
@@ -284,12 +437,18 @@ export type { SkillScope, SkillSourceDir };
  * plain directories; creating them on demand is how the panel's "+" works.
  */
 export function createSkillFolder(storeRoot: string, targetFolder: string): CentralResult {
+    let storeLock: TargetMutationLock | undefined;
     try {
         const folder = sanitizeFolder(targetFolder);
         if (folder === null || folder === '') {
             return { ok: false, error: `Invalid folder: ${targetFolder}` };
         }
         const destination = path.join(storeRoot, folder);
+        const lockResult = acquireSkillsMutationLocks([storeRoot]);
+        if (lockResult.ok === false) {
+            return { ok: false, error: lockResult.error };
+        }
+        storeLock = lockResult.lock;
         if (fs.existsSync(destination)) {
             return { ok: false, error: `Folder already exists: ${destination}` };
         }
@@ -297,6 +456,8 @@ export function createSkillFolder(storeRoot: string, targetFolder: string): Cent
         return { ok: true, dirPath: destination };
     } catch (error) {
         return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    } finally {
+        storeLock?.release();
     }
 }
 
@@ -307,12 +468,18 @@ export function createSkillFolder(storeRoot: string, targetFolder: string): Cent
  * delete escape onto the rest of the disk.
  */
 export function removeSkillFolder(storeRoot: string, targetFolder: string): CentralResult {
+    let storeLock: TargetMutationLock | undefined;
     try {
         const folder = sanitizeFolder(targetFolder);
         if (folder === null || folder === '') {
             return { ok: false, error: `Invalid folder: ${targetFolder}` };
         }
         const destination = path.join(storeRoot, folder);
+        const lockResult = acquireSkillsMutationLocks([storeRoot]);
+        if (lockResult.ok === false) {
+            return { ok: false, error: lockResult.error };
+        }
+        storeLock = lockResult.lock;
         let rootReal: string;
         let destReal: string;
         try {
@@ -334,5 +501,7 @@ export function removeSkillFolder(storeRoot: string, targetFolder: string): Cent
         return { ok: true };
     } catch (error) {
         return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    } finally {
+        storeLock?.release();
     }
 }

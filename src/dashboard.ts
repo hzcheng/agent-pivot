@@ -27,6 +27,7 @@ import { initializePromptMementoStore, PromptService } from './prompts/service';
 import { PromptTerminalCommandController } from './prompts/terminalCommandController';
 import { getAiPanelContent, getPromptSurfaceContent } from './prompts/webviewContent';
 import { SkillDashboardController } from './skills/dashboardController';
+import { GlobalStoreLocationController } from './skills/globalStoreLocationController';
 import { skillDirectoriesEqual } from './skills/scopeService';
 import { SkillGroupStore } from './skills/skillGroupStore';
 import {
@@ -436,6 +437,30 @@ async function initializeDashboard(
         createId: () => randomBytes(16).toString('hex'),
         logDiagnostic: event => logDashboardDiagnostic({ event: 'prompt-store', ...event }),
     });
+    const getWorkspaceRootPaths = (): string[] =>
+        (vscode.workspace.workspaceFolders || []).map(folder => folder.uri.fsPath);
+    const globalStoreLocationController = new GlobalStoreLocationController({
+        homeDir: os.homedir(),
+        getWorkspaceRoots: getWorkspaceRootPaths,
+        readSetting: () => getAgentPivotConfiguration().get<string>(
+            'skills.globalStorePath',
+            '~/.skills',
+        ),
+        writeSetting: value => getAgentPivotConfiguration().update(
+            'skills.globalStorePath',
+            value,
+            vscode.ConfigurationTarget.Global,
+        ),
+        showInputBox: options => vscode.window.showInputBox(options),
+        showWarningMessage: (message, options, ...items) => options
+            ? vscode.window.showWarningMessage(message, options, ...items)
+            : vscode.window.showWarningMessage(message),
+        showErrorMessage: message => vscode.window.showErrorMessage(message),
+        refresh: () => skillDashboardController.refresh(
+            'global-skills-location-changed',
+        ),
+        logError,
+    });
     const promptDashboardController = new PromptDashboardController({
         service: promptService,
         confirmDelete: async prompt => {
@@ -458,6 +483,7 @@ async function initializeDashboard(
     const skillDashboardController = ownResource(() => new SkillDashboardController({
         getHomeDir: () => os.homedir(),
         getWorkspaceRoot: () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+        getGlobalSkillsRoot: () => globalStoreLocationController.getActiveRoot(),
         postMessage: message => provider.postMessage(message),
         isVisible: () => provider.visible,
         logError,
@@ -515,7 +541,10 @@ async function initializeDashboard(
         const projectNames = new Set(migratable.filter(record => record.scope === 'project').map(record => record.name));
         const segments: string[] = [];
         if (userNames.size) {
-            segments.push(`${userNames.size} user skill(s) into ~/.skills`);
+            segments.push(
+                `${userNames.size} user skill(s) into `
+                + skillDashboardController.getStoreRoots().user,
+            );
         }
         if (hasWorkspace && projectNames.size) {
             segments.push(`${projectNames.size} project skill(s) into this project's .skills`);
@@ -1727,6 +1756,9 @@ async function initializeDashboard(
             'migrate-skills-to-central': e => {
                 void runSkillMigrationToCentral(e.scope === 'project' ? 'project' : e.scope === 'user' ? 'user' : undefined);
             },
+            'change-global-skills-location': () => {
+                void globalStoreLocationController.changeInteractively();
+            },
             'fix-skill-diagnostic': e => {
                 const result = skillDashboardController.handleFixSkillDiagnostic(
                     String(e.dirPath || ''),
@@ -2390,6 +2422,11 @@ async function initializeDashboard(
     });
     const dashboardLifecycleController = new DashboardLifecycleController({
         prepareConfigurationChange: async event => {
+            if (event.affectsConfiguration(
+                `${AGENT_PIVOT_CONFIG_SECTION}.skills.globalStorePath`,
+            )) {
+                await globalStoreLocationController.handleConfigurationChange();
+            }
             if (event.affectsConfiguration(`${AGENT_PIVOT_CONFIG_SECTION}.aiSessionTerminalMode`)
                 || event.affectsConfiguration(`${AGENT_PIVOT_CONFIG_SECTION}.aiSessionTmuxLayout`)
                 || event.affectsConfiguration(`${AGENT_PIVOT_CONFIG_SECTION}.aiSessionTmuxPath`)) {
@@ -2459,6 +2496,8 @@ async function initializeDashboard(
         addFileToActiveTerminal: () => activeTerminalFileReferenceController.addFileToActiveTerminal(),
         insertPromptToActiveTerminal: () => promptTerminalCommandController.insertPromptToActiveTerminal(),
         migrateSkillsToCentral: () => runSkillMigrationToCentral(),
+        changeGlobalSkillsLocation: () =>
+            globalStoreLocationController.changeInteractively(),
         openCurrentAiSessionConversation: () => openCurrentAiSessionConversation(),
     };
 

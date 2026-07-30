@@ -18,6 +18,7 @@ import type { SkillDiagnostic, SkillRecord, SkillScope, SkillSourceDir } from '.
 export interface ScanSkillsInput {
     homeDir: string;
     workspaceRoot?: string;
+    globalSkillsRoot?: string;
 }
 
 function readSkillFile(dirPath: string): { fileName: string; content: string } | null {
@@ -96,7 +97,7 @@ function scanDir(
             }
             // A symlink into the central store is an agent link, not a copy:
             // the record comes from the central-root scan, the link is noted.
-            if (isUnderCentralRoot(dirPath, input.homeDir, input.workspaceRoot)) {
+            if (isUnderCentralRoot(dirPath, input.homeDir, input.workspaceRoot, input.globalSkillsRoot)) {
                 links.push({
                     source: root.source,
                     scope: root.scope,
@@ -192,7 +193,11 @@ export function scanSkillsDetailed(input: ScanSkillsInput): ScanSkillsResult {
 
 function centralRoots(input: ScanSkillsInput): SkillsRoot[] {
     const roots: SkillsRoot[] = [
-        { source: 'central', scope: 'user', dirPath: getCentralSkillsRoot(input.homeDir, 'user') },
+        {
+            source: 'central',
+            scope: 'user',
+            dirPath: getCentralSkillsRoot(input.homeDir, 'user', undefined, input.globalSkillsRoot),
+        },
     ];
     if (input.workspaceRoot) {
         roots.push({ source: 'central', scope: 'project', dirPath: getCentralSkillsRoot(input.homeDir, 'project', input.workspaceRoot) });
@@ -204,13 +209,19 @@ function mergeCentralRecords(records: SkillRecord[], links: SkillLink[], input: 
     const byDir = new Map<string, SkillRecord>();
     const merged: SkillRecord[] = [];
     for (const record of records) {
-        if (record.source === 'central' || isUnderCentralRoot(record.dirPath, input.homeDir, input.workspaceRoot)) {
+        const centralScope = isUnderCentralRoot(
+            record.dirPath,
+            input.homeDir,
+            input.workspaceRoot,
+            input.globalSkillsRoot,
+        )?.scope;
+        if (record.source === 'central' || centralScope) {
             let existing = byDir.get(record.dirPath);
             if (!existing) {
                 existing = {
                     ...record,
                     source: 'central',
-                    scope: isUnderCentralRoot(record.dirPath, input.homeDir, input.workspaceRoot)?.scope || record.scope,
+                    scope: centralScope || record.scope,
                     central: { dirPath: record.dirPath, links: {} },
                 };
                 byDir.set(record.dirPath, existing);

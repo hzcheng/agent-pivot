@@ -7,6 +7,7 @@ import { centralizeSkill, createSkillFolder, FolderLinkResult, moveSkillToFolder
 import { migrateSkillsToCentral, SkillMigrationReport } from './migrateService';
 import { scanSkillsDetailed } from './discovery';
 import { getCollectionSuggestions, KNOWN_SKILL_COLLECTIONS, SkillCollectionSuggestion } from './knownCollections';
+import { acquireSkillsMutationLocks } from './globalStoreService';
 import { getCentralSkillsRoot, getKimiBrandCandidates, getProjectSkillsRoots, getUserSkillsRoots } from './roots';
 import { computeSkillCopyTargets, copySkillDir, SkillCopyTarget, syncSkillDir } from './syncService';
 import { fixSkillDiagnostic } from './fixService';
@@ -19,6 +20,7 @@ import type { SkillAgentId, SkillDiagnostic, SkillRecord, SkillScope } from './t
 export interface SkillDashboardControllerOptions {
     getHomeDir: () => string;
     getWorkspaceRoot: () => string | undefined;
+    getGlobalSkillsRoot?: () => string;
     postMessage: (message: unknown) => Thenable<boolean>;
     isVisible: () => boolean;
     logError: (message: string, error: unknown) => void;
@@ -94,7 +96,7 @@ export class SkillDashboardController {
     getStoreRoots(): { user: string; project?: string } {
         const workspaceRoot = this.options.getWorkspaceRoot();
         return {
-            user: getCentralSkillsRoot(this.options.getHomeDir(), 'user'),
+            user: this.getGlobalSkillsRoot(),
             project: workspaceRoot ? getCentralSkillsRoot(this.options.getHomeDir(), 'project', workspaceRoot) : undefined,
         };
     }
@@ -114,7 +116,7 @@ export class SkillDashboardController {
         const workspaceRoot = this.options.getWorkspaceRoot();
         const storeRoot = scope === 'project'
             ? (workspaceRoot ? getCentralSkillsRoot(this.options.getHomeDir(), 'project', workspaceRoot) : null)
-            : getCentralSkillsRoot(this.options.getHomeDir(), 'user');
+            : this.getGlobalSkillsRoot();
         if (!storeRoot) {
             return { ok: false, error: 'No workspace is open for project folders.' };
         }
@@ -140,29 +142,58 @@ export class SkillDashboardController {
     }
 
     handleSyncSkill(sourceDir: string, targetDir: string): { ok: boolean; error?: string } {
-        const known = new Set(this.records.map(record => record.dirPath));
-        if (!known.has(sourceDir) || !known.has(targetDir)) {
+        const sourceRecord = this.records.find(record => record.dirPath === sourceDir);
+        const targetRecord = this.records.find(record => record.dirPath === targetDir);
+        if (!sourceRecord || !targetRecord) {
             return { ok: false, error: 'Sync is only allowed between discovered skill copies.' };
         }
-        const result = syncSkillDir(sourceDir, targetDir);
-        if (!result.ok) {
-            this.options.logError('Failed to sync skills.', new Error(result.error || 'unknown error'));
+        const lockPaths = [sourceDir, targetDir];
+        for (const record of [sourceRecord, targetRecord]) {
+            const storeRoot = this.getCentralStoreRoot(record);
+            if (storeRoot) {
+                lockPaths.push(storeRoot);
+            }
         }
-        this.refresh('sync-skill');
-        return result;
+        const lockResult = acquireSkillsMutationLocks(lockPaths);
+        if (lockResult.ok === false) {
+            return { ok: false, error: lockResult.error };
+        }
+        try {
+            const result = syncSkillDir(sourceDir, targetDir);
+            if (!result.ok) {
+                this.options.logError('Failed to sync skills.', new Error(result.error || 'unknown error'));
+            }
+            this.refresh('sync-skill');
+            return result;
+        } finally {
+            lockResult.lock.release();
+        }
     }
 
     handleCopySkill(sourceDir: string, targetRoot: string): { ok: boolean; error?: string } {
-        const known = new Set(this.records.map(record => record.dirPath));
-        if (!known.has(sourceDir) || !this.getKnownRootDirs().includes(targetRoot)) {
+        const sourceRecord = this.records.find(record => record.dirPath === sourceDir);
+        if (!sourceRecord || !this.getKnownRootDirs().includes(targetRoot)) {
             return { ok: false, error: 'Copy is only allowed from a discovered skill into a known skills root.' };
         }
-        const result = copySkillDir(sourceDir, targetRoot);
-        if (!result.ok) {
-            this.options.logError('Failed to copy the skill.', new Error(result.error || 'unknown error'));
+        const storeRoot = this.getCentralStoreRoot(sourceRecord);
+        const lockPaths = storeRoot ? [storeRoot, sourceDir] : [sourceDir];
+        if (Object.values(this.getStoreRoots()).filter(Boolean).includes(targetRoot)) {
+            lockPaths.push(targetRoot);
         }
-        this.refresh('copy-skill');
-        return result;
+        const lockResult = acquireSkillsMutationLocks(lockPaths);
+        if (lockResult.ok === false) {
+            return { ok: false, error: lockResult.error };
+        }
+        try {
+            const result = copySkillDir(sourceDir, targetRoot);
+            if (!result.ok) {
+                this.options.logError('Failed to copy the skill.', new Error(result.error || 'unknown error'));
+            }
+            this.refresh('copy-skill');
+            return result;
+        } finally {
+            lockResult.lock.release();
+        }
     }
 
     handleCentralToggle(dirPath: string, scope: SkillScope, agent: SkillAgentId, enabled: boolean): { ok: boolean; error?: string } {
@@ -184,13 +215,22 @@ export class SkillDashboardController {
         if (!root) {
             return { ok: false, error: `Unknown ${scope} skills root for ${agent}.` };
         }
-        // enabled === true means the link currently exists → remove it; false → create it.
-        const result = setCentralLink(dirPath, root.dirPath, !enabled);
-        if (!result.ok) {
-            this.options.logError('Failed to toggle the skill link.', new Error(result.error || 'unknown error'));
+        const storeRoot = this.getCentralStoreRoot(record);
+        const lockResult = acquireSkillsMutationLocks(storeRoot ? [storeRoot] : [dirPath]);
+        if (lockResult.ok === false) {
+            return { ok: false, error: lockResult.error };
         }
-        this.refresh('central-toggle-skill');
-        return result;
+        try {
+            // enabled === true means the link currently exists → remove it; false → create it.
+            const result = setCentralLink(dirPath, root.dirPath, !enabled);
+            if (!result.ok) {
+                this.options.logError('Failed to toggle the skill link.', new Error(result.error || 'unknown error'));
+            }
+            this.refresh('central-toggle-skill');
+            return result;
+        } finally {
+            lockResult.lock.release();
+        }
     }
 
     handleSetGlobalSkillProjectAgents(dirPath: string, agents: SkillAgentId[]): SkillScopeActionResult {
@@ -202,7 +242,13 @@ export class SkillDashboardController {
                 ? 'Open a project before applying a global skill.'
                 : `Unknown global skill: ${dirPath}`, code: 'invalid' };
         }
-        const result = setGlobalSkillProjectAgents(record, agents, this.options.getHomeDir(), workspaceRoot);
+        const result = setGlobalSkillProjectAgents(
+            record,
+            agents,
+            this.options.getHomeDir(),
+            workspaceRoot,
+            this.getGlobalSkillsRoot(),
+        );
         if (!result.ok) {
             this.options.logError('Failed to apply the global skill to the project.', new Error(result.error || 'unknown error'));
         }
@@ -215,6 +261,7 @@ export class SkillDashboardController {
             ? scanSkillsDetailed({
                 homeDir: this.options.getHomeDir(),
                 workspaceRoot,
+                globalSkillsRoot: this.getGlobalSkillsRoot(),
             }).records
             : [];
         const record = freshRecords.find(candidate =>
@@ -235,7 +282,12 @@ export class SkillDashboardController {
         }
         const existingGlobal = globalMatches[0];
         const result = moveProjectSkillToGlobal(
-            record, existingGlobal, this.options.getHomeDir(), workspaceRoot);
+            record,
+            existingGlobal,
+            this.options.getHomeDir(),
+            workspaceRoot,
+            this.getGlobalSkillsRoot(),
+        );
         if (!result.ok) {
             this.options.logError('Failed to move the project skill to Global.', new Error(result.error || 'unknown error'));
         }
@@ -260,7 +312,13 @@ export class SkillDashboardController {
         if (!record) {
             return { ok: false, error: `Unknown centralized skill: ${dirPath}` };
         }
-        const result = moveSkillToFolder(record, folder, this.options.getHomeDir(), this.options.getWorkspaceRoot());
+        const result = moveSkillToFolder(
+            record,
+            folder,
+            this.options.getHomeDir(),
+            this.options.getWorkspaceRoot(),
+            this.getGlobalSkillsRoot(),
+        );
         if (!result.ok) {
             this.options.logError('Failed to move the skill.', new Error(result.error || 'unknown error'));
         }
@@ -278,7 +336,13 @@ export class SkillDashboardController {
             && !candidate.central
             && (candidate.source === 'kimi' || candidate.source === 'claude' || candidate.source === 'codex')
         );
-        const result = centralizeSkill(record, duplicates, this.options.getHomeDir(), this.options.getWorkspaceRoot());
+        const result = centralizeSkill(
+            record,
+            duplicates,
+            this.options.getHomeDir(),
+            this.options.getWorkspaceRoot(),
+            { globalSkillsRoot: this.getGlobalSkillsRoot() },
+        );
         if (!result.ok) {
             this.options.logError('Failed to centralize the skill.', new Error(result.error || 'unknown error'));
         }
@@ -289,7 +353,13 @@ export class SkillDashboardController {
     handleMigrateToCentral(scope?: SkillScope): SkillMigrationReport {
         const report = scope === 'project'
             ? migrateSkillsToCentral(this.records, this.options.getHomeDir(), 'project', this.options.getWorkspaceRoot())
-            : migrateSkillsToCentral(this.records, this.options.getHomeDir(), 'user');
+            : migrateSkillsToCentral(
+                this.records,
+                this.options.getHomeDir(),
+                'user',
+                undefined,
+                this.getGlobalSkillsRoot(),
+            );
         if (!scope && this.options.getWorkspaceRoot()) {
             const projectReport = migrateSkillsToCentral(this.records, this.options.getHomeDir(), 'project', this.options.getWorkspaceRoot());
             report.ok = report.ok && projectReport.ok;
@@ -322,7 +392,9 @@ export class SkillDashboardController {
                 const duplicates = this.records.filter(candidate =>
                     candidate.scope === record.scope && candidate.name === record.name
                     && candidate.dirPath !== record.dirPath);
-                const centralized = centralizeSkill(record, duplicates, homeDir, workspaceRoot);
+                const centralized = centralizeSkill(record, duplicates, homeDir, workspaceRoot, {
+                    globalSkillsRoot: this.getGlobalSkillsRoot(),
+                });
                 if (!centralized.ok) {
                     failures.push(`${record.name}: ${centralized.error}`);
                     continue;
@@ -335,7 +407,13 @@ export class SkillDashboardController {
                 failures.push(`${record.name}: lost after centralizing`);
                 continue;
             }
-            const moved = moveSkillToFolder(current, collection.name, homeDir, workspaceRoot);
+            const moved = moveSkillToFolder(
+                current,
+                collection.name,
+                homeDir,
+                workspaceRoot,
+                this.getGlobalSkillsRoot(),
+            );
             if (!moved.ok) {
                 failures.push(`${record.name}: ${moved.error}`);
             }
@@ -368,6 +446,7 @@ export class SkillDashboardController {
             const scan = scanSkillsDetailed({
                 homeDir: this.options.getHomeDir(),
                 workspaceRoot: this.options.getWorkspaceRoot(),
+                globalSkillsRoot: this.getGlobalSkillsRoot(),
             });
             this.records = scan.records;
             this.storeFolders = scan.storeFolders;
@@ -391,6 +470,16 @@ export class SkillDashboardController {
         if (containmentError) {
             return { ok: false, error: containmentError };
         }
+        const record = this.records.find(candidate => candidate.dirPath === dirPath);
+        const lockPaths = [dirPath];
+        const storeRoot = record ? this.getCentralStoreRoot(record) : null;
+        if (storeRoot) {
+            lockPaths.push(storeRoot);
+        }
+        const lockResult = acquireSkillsMutationLocks(lockPaths);
+        if (lockResult.ok === false) {
+            return { ok: false, error: lockResult.error };
+        }
         try {
             fs.rmSync(dirPath, { recursive: true, force: true });
         } catch (error) {
@@ -398,6 +487,8 @@ export class SkillDashboardController {
             this.options.logError('Failed to delete the skill.', new Error(message));
             this.refresh('delete-skill');
             return { ok: false, error: message };
+        } finally {
+            lockResult.lock.release();
         }
         this.refresh('delete-skill');
         return { ok: true };
@@ -408,12 +499,23 @@ export class SkillDashboardController {
         if (!record) {
             return { ok: false, error: `Unknown skill: ${dirPath}` };
         }
-        const result = fixSkillDiagnostic(record, code);
-        if (!result.ok) {
-            this.options.logError('Failed to fix the skill diagnostic.', new Error(result.error || 'unknown error'));
+        const storeRoot = this.getCentralStoreRoot(record);
+        const lockResult = acquireSkillsMutationLocks(
+            storeRoot ? [storeRoot, dirPath] : [dirPath],
+        );
+        if (lockResult.ok === false) {
+            return { ok: false, error: lockResult.error };
         }
-        this.refresh('fix-skill-diagnostic');
-        return result;
+        try {
+            const result = fixSkillDiagnostic(record, code);
+            if (!result.ok) {
+                this.options.logError('Failed to fix the skill diagnostic.', new Error(result.error || 'unknown error'));
+            }
+            this.refresh('fix-skill-diagnostic');
+            return result;
+        } finally {
+            lockResult.lock.release();
+        }
     }
 
     private getKnownRootDirs(): string[] {
@@ -421,6 +523,24 @@ export class SkillDashboardController {
         return getUserSkillsRoots(this.options.getHomeDir())
             .concat(workspaceRoot ? getProjectSkillsRoots(workspaceRoot) : [])
             .map(root => root.dirPath);
+    }
+
+    private getGlobalSkillsRoot(): string {
+        return this.options.getGlobalSkillsRoot?.()
+            || getCentralSkillsRoot(this.options.getHomeDir(), 'user');
+    }
+
+    private getCentralStoreRoot(record: SkillRecord): string | null {
+        if (!record.central) {
+            return null;
+        }
+        if (record.scope === 'user') {
+            return this.getGlobalSkillsRoot();
+        }
+        const workspaceRoot = this.options.getWorkspaceRoot();
+        return workspaceRoot
+            ? getCentralSkillsRoot(this.options.getHomeDir(), 'project', workspaceRoot)
+            : null;
     }
 
     private checkDeleteContainment(dirPath: string): string | null {
@@ -471,6 +591,7 @@ export class SkillDashboardController {
         const roots = getUserSkillsRoots(this.options.getHomeDir())
             .concat(workspaceRoot ? getProjectSkillsRoots(workspaceRoot) : []);
         const dirs = roots.map(root => root.dirPath)
+            .concat(this.getGlobalSkillsRoot())
             .concat(this.records.map(record => record.dirPath));
         for (const dirPath of dirs) {
             try {

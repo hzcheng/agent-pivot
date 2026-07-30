@@ -42,6 +42,51 @@ test('RUNTIME-TMUX-DISCOVERY-001 RUNTIME-TMUX-FOCUSED-RUNTIME-MONITOR-001 caches
     assert.equal(lists, 3);
 });
 
+test('RUNTIME-TMUX-DISCOVERY-001 enumerate prefers one final snapshot read over separate binding lists', async () => {
+    const row = makeTmuxDiscoveryRow({ sessionId: 'snapshot-read' });
+    const store = createSyntheticTmuxStore();
+    let snapshotCalls = 0;
+    const separateCalls = [];
+    const baseSnapshot = store.listFinalSnapshot;
+    store.listFinalSnapshot = async () => {
+        snapshotCalls += 1;
+        return baseSnapshot();
+    };
+    for (const method of ['listPending', 'listKnown', 'listInactive']) {
+        const base = store[method];
+        store[method] = async () => {
+            separateCalls.push(method);
+            return base();
+        };
+    }
+    const discovery = new TmuxRuntimeDiscovery({
+        client: { listWindows: async () => [row] },
+        bindingStore: store,
+        markerIsCurrent: () => false,
+        cacheTtlMs: 0,
+    });
+
+    await discovery.refresh(true);
+    assert.equal(snapshotCalls, 1);
+    assert.deepEqual(separateCalls, []);
+    assert.equal(discovery.getActive().length, 1);
+});
+
+test('RUNTIME-TMUX-DISCOVERY-001 enumerate falls back to separate binding lists without snapshot support', async () => {
+    const row = makeTmuxDiscoveryRow({ sessionId: 'fallback-read' });
+    const store = createSyntheticTmuxStore();
+    delete store.listFinalSnapshot;
+    const discovery = new TmuxRuntimeDiscovery({
+        client: { listWindows: async () => [row] },
+        bindingStore: store,
+        markerIsCurrent: () => false,
+        cacheTtlMs: 0,
+    });
+
+    await discovery.refresh(true);
+    assert.equal(discovery.getActive().length, 1);
+});
+
 test('RUNTIME-TMUX-DISCOVERY-001 coalesces refreshes and marks retained state stale after failure', async () => {
     const first = createDeferred();
     let lists = 0;

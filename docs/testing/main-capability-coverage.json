@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "a732939522c647edf588f29c0f9cbc6e8fa87077",
+        "head": "c97615cee3b2629102643cf3f4560f98201e49d4",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -53,7 +53,8 @@
             "cd9e16d0f048928e904d7242f9c4fd5f34db2526",
             "f7a8438e0b189907048c7f652e0688d21e850fbb",
             "a9618126564283fbf57d408541796ed41d6bdc68",
-            "024c6be9e460ac9ef3e80f40faef9488eb542fcb"
+            "024c6be9e460ac9ef3e80f40faef9488eb542fcb",
+            "35a3e2e3a2bddc828277b30e94d5ecc5ce63a7aa"
         ]
     },
     "capabilities": [
@@ -678,7 +679,10 @@
                 "4225e99202541956076bd987af424dbf1ebb391a",
                 "973fd6b9f65c6011edea526b39c8524d605334ad",
                 "8bf513d4c673950b98efc1c30d7f288c9e79f196",
-                "8e7a9c2a3885d2a3e6a1ad783cc867fc2e70815c"
+                "8e7a9c2a3885d2a3e6a1ad783cc867fc2e70815c",
+                "f11aca71aab64a08dddb0f1028809c0e0d52f0ab",
+                "2bc4a8a330bc498ffafe5df92ed807b27e0b8e79",
+                "c97615cee3b2629102643cf3f4560f98201e49d4"
             ],
             "behaviors": [
                 "RUNTIME-TMUX-BACKEND-001",
@@ -742,9 +746,11 @@
                 "5eb992f8a150e1a40fdf485ceb0cb64363da7dbe",
                 "2f76bf86b88cda8d37f96fa77d9fdb17cb57a63f",
                 "cb99568a4be2da413d9c94a910701c6d94bea367",
-                "bf0174af2b1ad9d80cad458cabca60e7407f5c62"
+                "bf0174af2b1ad9d80cad458cabca60e7407f5c62",
+                "adf59d17328ff629dece01d2dcb32953512995aa"
             ],
             "behaviors": [
+                "RUNTIME-BOOTSTRAP-TMUX-RESTORE-DEFERRAL-001",
                 "RUNTIME-DASHBOARD-VISIBILITY-RESILIENCE-001",
                 "WEBVIEW-NONBLOCKING-FIRST-PAINT-001",
                 "WEBVIEW-TWO-STAGE-STARTUP-001",
@@ -934,7 +940,8 @@
                 "b41bf2baa668c1a44a25037035d4190bc95bd5d0",
                 "938905c3ad8bca127535c1188d5c65f2d0a21d1a",
                 "bb74e5abcaafcbf29d31361b95f4e647958169dd",
-                "846a5727a5d36b74f91aa20076eb51d8fe77fdf9"
+                "846a5727a5d36b74f91aa20076eb51d8fe77fdf9",
+                "571270717cff080db395df2ce0393624d1ed12ee"
             ],
             "behaviors": [
                 "SESSION-AI-SESSION-CONVERSATION-ADAPTER-001",
@@ -944,7 +951,8 @@
                 "ACTIVE-SESSION-CONVERSATION-RESTORE-001",
                 "SESSION-CONVERSATION-LOADING-001",
                 "CONVERSATION-VIEWER-USER-EMPHASIS-001",
-                "WEBVIEW-STYLES-ARTIFACT-001"
+                "WEBVIEW-STYLES-ARTIFACT-001",
+                "CONVERSATION-OPEN-LATEST-001"
             ],
             "prGates": [
                 "test:ci:linux"

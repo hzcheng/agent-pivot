@@ -21,6 +21,7 @@ const publicCommands = [
     'agentPivot.addFileToActiveTerminal',
     'agentPivot.insertPromptToActiveTerminal',
     'agentPivot.migrateSkillsToCentral',
+    'agentPivot.openCurrentAiSessionConversation',
 ];
 
 function loadSuite(vscode) {

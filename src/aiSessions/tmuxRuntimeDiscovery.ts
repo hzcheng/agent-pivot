@@ -22,6 +22,7 @@ import {
     cloneAiSessionRuntimeIdentity,
 } from './runtimeTypes';
 import type {
+    TmuxFinalBindingSnapshot,
     TmuxInactiveAcknowledgementResult,
     TmuxInactiveRuntimeBinding,
     TmuxKnownRebindResult,
@@ -51,6 +52,7 @@ interface TmuxDiscoveryBindingStore {
     listPending(): Promise<TmuxPendingRuntimeBinding[]>;
     listKnown(): Promise<TmuxKnownRuntimeBinding[]>;
     listInactive?(): Promise<TmuxInactiveRuntimeBinding[]>;
+    listFinalSnapshot?(): Promise<TmuxFinalBindingSnapshot>;
     setInactive?(record: TmuxInactiveRuntimeBinding): Promise<void>;
     transitionKnownToInactive?(
         record: TmuxInactiveRuntimeBinding,
@@ -334,13 +336,18 @@ export class TmuxRuntimeDiscovery {
             throw new Error('The tmux window enumeration exceeded its bounded row limit.');
         }
         const rows = listed.slice();
-        const [pendingBindings, knownBindings, persistedInactiveBindings] = await Promise.all([
-            this.options.bindingStore.listPending(),
-            this.options.bindingStore.listKnown(),
-            this.options.bindingStore.listInactive
-                ? this.options.bindingStore.listInactive()
-                : Promise.resolve([] as TmuxInactiveRuntimeBinding[]),
-        ]);
+        const snapshot = this.options.bindingStore.listFinalSnapshot
+            ? await this.options.bindingStore.listFinalSnapshot()
+            : null;
+        const [pendingBindings, knownBindings, persistedInactiveBindings] = snapshot
+            ? [snapshot.pending, snapshot.known, snapshot.inactive]
+            : await Promise.all([
+                this.options.bindingStore.listPending(),
+                this.options.bindingStore.listKnown(),
+                this.options.bindingStore.listInactive
+                    ? this.options.bindingStore.listInactive()
+                    : Promise.resolve([] as TmuxInactiveRuntimeBinding[]),
+            ]);
         const pendingByLocator = groupPendingByLocator(pendingBindings);
         const previousActive = this.active.filter(runtime => runtime.state === 'active');
         const activeByKey = new Map<string, AiSessionRuntimeSnapshot>();

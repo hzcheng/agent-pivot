@@ -150,6 +150,7 @@ test('WEBVIEW-DASHBOARD-COMMAND-AVAILABILITY-001 production activation exposes s
         'agentPivot.addFileToActiveTerminal',
         'agentPivot.insertPromptToActiveTerminal',
         'agentPivot.migrateSkillsToCentral',
+        'agentPivot.openCurrentAiSessionConversation',
     ]);
     assert.equal(result.dashboardCommandRegistrationInvocations, 1);
     assert.equal(result.pendingOpenRevealedBootShell, true);
@@ -160,12 +161,28 @@ test('WEBVIEW-TWO-STAGE-STARTUP-001 production startup diagnostics preserve exac
     const result = runProductionActivation('diagnostics');
     assert.equal(result.failure, null);
     const normalizedDiagnostics = result.startupDiagnostics.map(diagnostic => {
-        if (!Object.hasOwn(diagnostic, 'durationMs')) {
-            return diagnostic;
+        let normalized = diagnostic;
+        if (Object.hasOwn(normalized, 'phases')) {
+            assert.deepEqual(Object.keys(normalized.phases), [
+                'skill-scan',
+                'tmux-persisted-inactive-restore',
+                'direct-terminal-restore',
+                'tmux-attach-restore',
+                'tmux-restore-wait',
+                'startup-sequence',
+            ]);
+            for (const value of Object.values(normalized.phases)) {
+                assert.equal(Number.isFinite(value), true);
+                assert.ok(value >= 0);
+            }
+            normalized = { ...normalized, phases: '<phases>' };
         }
-        assert.equal(Number.isFinite(diagnostic.durationMs), true);
-        assert.ok(diagnostic.durationMs >= 0);
-        return { ...diagnostic, durationMs: '<durationMs>' };
+        if (!Object.hasOwn(normalized, 'durationMs')) {
+            return normalized;
+        }
+        assert.equal(Number.isFinite(normalized.durationMs), true);
+        assert.ok(normalized.durationMs >= 0);
+        return { ...normalized, durationMs: '<durationMs>' };
     });
     assert.deepEqual(normalizedDiagnostics, [
         {
@@ -179,6 +196,11 @@ test('WEBVIEW-TWO-STAGE-STARTUP-001 production startup diagnostics preserve exac
             event: 'agent-pivot-browser-first-paint',
             generation: 1,
             durationMs: '<durationMs>',
+        },
+        {
+            event: 'agent-pivot-bootstrap-phases',
+            generation: 1,
+            phases: '<phases>',
         },
         {
             event: 'agent-pivot-bootstrap-ready',
@@ -239,6 +261,48 @@ test('RUNTIME-HOST-RUNTIME-COMPOSITION-001 production activation blocks tmux res
     assert.equal(result.rawDirectFailureExposedInHtml, false);
     assert.deepEqual(result.verified, [
         'client-store-discovery', 'thread-switch-alias-wiring',
+    ]);
+});
+
+test('RUNTIME-BOOTSTRAP-TMUX-RESTORE-DEFERRAL-001 slow tmux recovery does not block ready rendering and refreshes after settlement', () => {
+    const result = runProductionActivation('slow-tmux-restore');
+    assert.equal(result.failure, null);
+    assert.equal(result.pendingTmuxRestoreEntered, true);
+    assert.equal(result.readyBeforeTmuxRestoreSettled, true);
+    assert.deepEqual(result.events.filter(isRestoreEvent), [
+        'inactive-restored',
+        'direct-restored',
+        'hydration-constructed',
+        'tmux-restored',
+    ]);
+    assert.equal(result.tmuxRestoreRefreshCount, 1);
+    assert.deepEqual(result.tmuxRestoreDiagnostics, [
+        {
+            event: 'agent-pivot-bootstrap-tmux-restore-deferred',
+            generation: 1,
+            budgetMs: 800,
+        },
+        {
+            event: 'agent-pivot-bootstrap-tmux-restore-settled',
+            generation: 1,
+            outcome: 'restored',
+        },
+    ]);
+});
+
+test('RUNTIME-BOOTSTRAP-TMUX-RESTORE-DEFERRAL-001 disposed bootstrap ignores late tmux recovery settlement', () => {
+    const result = runProductionActivation('slow-tmux-restore-dispose');
+    assert.equal(result.failure, null);
+    assert.equal(result.readyBeforeTmuxRestoreSettled, true);
+    assert.deepEqual(result.postDisposePublications, []);
+    assert.deepEqual(result.postDisposeWebviewMessages, []);
+    assert.equal(result.tmuxRestoreRefreshCount, 0);
+    assert.deepEqual(result.tmuxRestoreDiagnostics, [
+        {
+            event: 'agent-pivot-bootstrap-tmux-restore-deferred',
+            generation: 1,
+            budgetMs: 800,
+        },
     ]);
 });
 

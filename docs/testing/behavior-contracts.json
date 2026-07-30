@@ -1418,6 +1418,19 @@
     ]
   },
   {
+    "id": "RUNTIME-BOOTSTRAP-TMUX-RESTORE-DEFERRAL-001",
+    "domain": "runtime",
+    "title": "Slow tmux recovery does not block ready rendering and cannot publish after bootstrap disposal",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/aiSessions/runtimeComposition.test.js"
+    ],
+    "evidence": [
+      "src/dashboard.ts"
+    ]
+  },
+  {
     "id": "RUNTIME-TMUX-WEBVIEW-EXPERIENCE-001",
     "domain": "runtime",
     "title": "Tmux Webview Experience behavior",
@@ -3572,6 +3585,20 @@
     "evidence": [
       "media/conversationViewer.css",
       "src/aiSessions/conversation/viewer.ts"
+    ]
+  },
+  {
+    "id": "CONVERSATION-OPEN-LATEST-001",
+    "domain": "session",
+    "title": "Open Current AI Session Conversation opens the viewer at the latest interaction of the focused or selected active session",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/integration/dashboard/conversationOpenLatest.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/composition.ts",
+      "src/dashboard.ts"
     ]
   },
   {

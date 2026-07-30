@@ -17,6 +17,7 @@ const PUBLIC_COMMANDS = [
     'agentPivot.addFileToActiveTerminal',
     'agentPivot.insertPromptToActiveTerminal',
     'agentPivot.migrateSkillsToCentral',
+    'agentPivot.openCurrentAiSessionConversation',
 ];
 
 async function verifyExtensionHostLifecycle() {

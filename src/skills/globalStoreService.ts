@@ -195,6 +195,55 @@ export interface TargetMutationLock {
     release: () => void;
 }
 
+function isProcessAlive(pid: number): boolean {
+    try {
+        process.kill(pid, 0);
+        return true;
+    } catch (error) {
+        return !(error instanceof Error) || !('code' in error)
+            || (error as NodeJS.ErrnoException).code !== 'ESRCH';
+    }
+}
+
+function recoverStaleMutationLock(lockPath: string): boolean {
+    let descriptor: number | undefined;
+    try {
+        descriptor = fs.openSync(lockPath, 'r');
+        const identity = fs.fstatSync(descriptor);
+        const raw = fs.readFileSync(descriptor, 'utf8');
+        let stale = false;
+        try {
+            const owner = JSON.parse(raw) as { pid?: unknown; createdAt?: unknown };
+            stale = Number.isInteger(owner.pid) && (owner.pid as number) > 0
+                ? !isProcessAlive(owner.pid as number)
+                : Date.now() - identity.mtimeMs > 30_000;
+        } catch (_error) {
+            // A creator can crash between exclusive open and metadata write.
+            // Give an active creator a grace period before recovering it.
+            stale = Date.now() - identity.mtimeMs > 30_000;
+        }
+        fs.closeSync(descriptor);
+        descriptor = undefined;
+        if (!stale) {
+            return false;
+        }
+        const current = fs.lstatSync(lockPath);
+        if (!current.isFile()
+            || current.dev !== identity.dev
+            || current.ino !== identity.ino) {
+            return false;
+        }
+        fs.unlinkSync(lockPath);
+        return true;
+    } catch (_error) {
+        return false;
+    } finally {
+        if (descriptor !== undefined) {
+            try { fs.closeSync(descriptor); } catch (_error) { /* best effort */ }
+        }
+    }
+}
+
 export function acquireTargetMutationLock(
     targetPath: string,
 ): { ok: true; lock: TargetMutationLock } | { ok: false; error: string } {
@@ -202,9 +251,46 @@ export function acquireTargetMutationLock(
     const digest = createHash('sha256').update(absolute).digest('hex').slice(0, 24);
     const lockPath = path.join(path.dirname(absolute), `.agent-pivot-target-${digest}.lock`);
     let descriptor: number | undefined;
-    try {
-        descriptor = fs.openSync(lockPath, 'wx', 0o600);
-        const identity = fs.fstatSync(descriptor);
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+            descriptor = fs.openSync(lockPath, 'wx', 0o600);
+        } catch (error) {
+            if (attempt === 0 && recoverStaleMutationLock(lockPath)) {
+                continue;
+            }
+            return {
+                ok: false,
+                error: `Another Agent Pivot window is already changing this Skills location: ${
+                    lockPath}. ${error instanceof Error ? error.message : String(error)}`,
+            };
+        }
+        let identity: fs.Stats | undefined;
+        try {
+            identity = fs.fstatSync(descriptor);
+            fs.writeFileSync(descriptor, JSON.stringify({
+                pid: process.pid,
+                createdAt: Date.now(),
+            }), 'utf8');
+            fs.fsyncSync(descriptor);
+        } catch (error) {
+            try { fs.closeSync(descriptor); } catch (_closeError) { /* best effort */ }
+            descriptor = undefined;
+            try {
+                const current = fs.lstatSync(lockPath);
+                if (identity && current.isFile()
+                    && current.dev === identity.dev
+                    && current.ino === identity.ino) {
+                    fs.unlinkSync(lockPath);
+                }
+            } catch (_cleanupError) {
+                // A missing or replaced lock must never be deleted by this owner.
+            }
+            return {
+                ok: false,
+                error: `Could not initialize the Skills mutation lock: ${
+                    error instanceof Error ? error.message : String(error)}`,
+            };
+        }
         let released = false;
         return {
             ok: true,
@@ -233,16 +319,8 @@ export function acquireTargetMutationLock(
                 },
             },
         };
-    } catch (error) {
-        if (descriptor !== undefined) {
-            try { fs.closeSync(descriptor); } catch (_closeError) { /* best effort */ }
-        }
-        return {
-            ok: false,
-            error: `Another Agent Pivot window is already changing this Skills location: ${
-                lockPath}. ${error instanceof Error ? error.message : String(error)}`,
-        };
     }
+    return { ok: false, error: `Could not acquire the Skills mutation lock: ${lockPath}` };
 }
 
 export function acquireSkillsMutationLocks(

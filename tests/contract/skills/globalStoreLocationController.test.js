@@ -90,16 +90,16 @@ test('PERSIST-AI-SKILL-GLOBAL-STORE-LOCATION-001 command moves, persists, and re
     assert.ok(fs.existsSync(path.join(newRoot, 'demo', 'SKILL.md')));
 });
 
-test('PERSIST-AI-SKILL-GLOBAL-STORE-LOCATION-001 direct cancellation restores the previous setting', async t => {
+test('PERSIST-AI-SKILL-GLOBAL-STORE-LOCATION-001 adopts a persisted cross-window setting without rollback', async t => {
     const state = fixture(t);
     writeSkill(path.join(state.homeDir, '.skills'));
     const controller = new GlobalStoreLocationController(state.options);
     state.setSetting(path.join(state.homeDir, 'other-skills'));
-    state.setWarningChoice(undefined);
 
-    assert.equal(await controller.handleConfigurationChange(), false);
-    assert.deepEqual(state.writes, ['~/.skills']);
-    assert.equal(controller.getActiveRoot(), path.join(state.homeDir, '.skills'));
+    assert.equal(await controller.handleConfigurationChange(), true);
+    assert.deepEqual(state.writes, []);
+    assert.equal(controller.getActiveRoot(), path.join(state.homeDir, 'other-skills'));
+    assert.equal(state.warnings.length, 0);
 });
 
 test('PERSIST-AI-SKILL-GLOBAL-STORE-LOCATION-001 accepts a cross-window compatibility alias without prompting or rollback', async t => {
@@ -121,16 +121,12 @@ test('PERSIST-AI-SKILL-GLOBAL-STORE-LOCATION-001 serializes coalesced direct con
     const state = fixture(t);
     writeSkill(path.join(state.homeDir, '.skills'));
     let releaseFirst;
-    let warningCalls = 0;
-    state.options.showWarningMessage = async (_message, options) => {
-        if (!options) {
-            return undefined;
-        }
-        warningCalls += 1;
-        if (warningCalls === 1) {
+    let refreshCalls = 0;
+    state.options.refresh = async () => {
+        refreshCalls += 1;
+        if (refreshCalls === 1) {
             await new Promise(resolve => { releaseFirst = resolve; });
         }
-        return 'Use New Location';
     };
     const controller = new GlobalStoreLocationController(state.options);
     const firstRoot = path.join(state.homeDir, 'first');
@@ -147,10 +143,11 @@ test('PERSIST-AI-SKILL-GLOBAL-STORE-LOCATION-001 serializes coalesced direct con
     assert.equal(await first, true);
     assert.equal(await second, true);
     assert.equal(controller.getActiveRoot(), secondRoot);
-    assert.equal(warningCalls, 1);
+    assert.equal(refreshCalls, 2);
+    assert.deepEqual(state.writes, []);
 });
 
-test('PERSIST-AI-SKILL-GLOBAL-STORE-LOCATION-001 cancelling an older prompt never overwrites a newer setting', async t => {
+test('PERSIST-AI-SKILL-GLOBAL-STORE-LOCATION-001 cancelling an interactive prompt never overwrites a newer setting', async t => {
     const state = fixture(t);
     writeSkill(path.join(state.homeDir, '.skills'));
     let releaseFirst;
@@ -169,8 +166,8 @@ test('PERSIST-AI-SKILL-GLOBAL-STORE-LOCATION-001 cancelling an older prompt neve
     const controller = new GlobalStoreLocationController(state.options);
     const firstRoot = path.join(state.homeDir, 'cancelled');
     const secondRoot = path.join(state.homeDir, 'newer');
-    state.setSetting(firstRoot);
-    const first = controller.handleConfigurationChange();
+    state.setInput(firstRoot);
+    const first = controller.changeInteractively();
     while (!releaseFirst) {
         await new Promise(resolve => setImmediate(resolve));
     }

@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { setCentralLink } from './centralService';
+import { acquireSkillsMutationLocks } from './globalStoreService';
 import { getCentralSkillsRoot, getProjectSkillsRoots } from './roots';
 import type { SkillAgentId, SkillRecord } from './types';
 
@@ -235,15 +236,21 @@ export function setGlobalSkillProjectAgents(
     if (!record.central || record.scope !== 'user') {
         return fail('Only a centralized global skill can be applied to a project.', 'invalid');
     }
+    const globalStore = getCentralSkillsRoot(homeDir, 'user', undefined, globalSkillsRoot);
     if (!isManagedDescendant(
         record.dirPath,
-        getCentralSkillsRoot(homeDir, 'user', undefined, globalSkillsRoot),
+        globalStore,
     )) {
         return fail('The global skill resolves outside the managed Global store.', 'invalid');
     }
     if (!isReadableSkillDirectory(record.dirPath)) {
         return fail('The global skill source is missing or unreadable.', 'invalid');
     }
+    const lockResult = acquireSkillsMutationLocks([globalStore]);
+    if (lockResult.ok === false) {
+        return fail(lockResult.error);
+    }
+    try {
     const desired = new Set(agents);
     if (agents.some(agent => !AGENTS.includes(agent)) || desired.size !== agents.length) {
         return fail('Unknown or duplicate project agent.', 'invalid');
@@ -298,6 +305,9 @@ export function setGlobalSkillProjectAgents(
             return fail(`${message} Rollback was incomplete. ${rollbackErrors.join(' ')}`, 'rollback');
         }
         return fail(message, message.includes('already exists') || message.includes('points elsewhere') ? 'conflict' : 'io');
+    }
+    } finally {
+        lockResult.lock.release();
     }
 }
 
@@ -355,18 +365,27 @@ export function moveProjectSkillToGlobal(
         return fail('The Global destination escapes the managed store.', 'invalid');
     }
 
-    const removed: SkillAgentId[] = [];
-    const created: SkillAgentId[] = [];
-    let asideContainer: string;
-    try {
-        asideContainer = fs.mkdtempSync(path.join(path.dirname(record.dirPath), '.agent-pivot-scope-'));
-    } catch (error) {
-        return fail(error instanceof Error ? error.message : String(error));
+    const lockResult = acquireSkillsMutationLocks([
+        projectStore,
+        globalStore,
+        record.dirPath,
+    ]);
+    if (lockResult.ok === false) {
+        return fail(lockResult.error);
     }
-    const aside = path.join(asideContainer, path.basename(record.dirPath));
-    let sourceAtAside = false;
-    let destinationCreated = false;
     try {
+        const removed: SkillAgentId[] = [];
+        const created: SkillAgentId[] = [];
+        let asideContainer: string;
+        try {
+            asideContainer = fs.mkdtempSync(path.join(path.dirname(record.dirPath), '.agent-pivot-scope-'));
+        } catch (error) {
+            return fail(error instanceof Error ? error.message : String(error));
+        }
+        const aside = path.join(asideContainer, path.basename(record.dirPath));
+        let sourceAtAside = false;
+        let destinationCreated = false;
+        try {
         for (const agent of projectAgents) {
             const root = roots.get(agent);
             if (!root) {
@@ -429,8 +448,8 @@ export function moveProjectSkillToGlobal(
             // container is safer than rolling back a completed migration.
         }
         return { ok: true, dirPath: destination };
-    } catch (error) {
-        const rollbackErrors: string[] = [];
+        } catch (error) {
+            const rollbackErrors: string[] = [];
         for (const agent of created.reverse()) {
             const result = setCentralLink(destination, roots.get(agent) as string, false);
             if (!result.ok) {
@@ -492,6 +511,9 @@ export function moveProjectSkillToGlobal(
                 + rollbackErrors.join(' '),
                 'rollback');
         }
-        return fail(message, message.includes('already exists') || message.includes('points elsewhere') ? 'conflict' : 'io');
+            return fail(message, message.includes('already exists') || message.includes('points elsewhere') ? 'conflict' : 'io');
+        }
+    } finally {
+        lockResult.lock.release();
     }
 }

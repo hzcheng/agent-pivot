@@ -88,7 +88,10 @@ export class GlobalStoreLocationController {
             // latest effective machine value.
             const requestedValue = this.options.readSetting();
             const previousValue = this.activeValue;
-            if (await this.apply(requestedValue)) {
+            // A configuration event is already persisted machine authority,
+            // possibly confirmed in another window. Adopt it without opening
+            // a second relocation prompt that could write the old value back.
+            if (await this.apply(requestedValue, false)) {
                 return true;
             }
             if (this.options.readSetting() !== requestedValue) {
@@ -136,7 +139,7 @@ export class GlobalStoreLocationController {
         }
     }
 
-    private async apply(requestedValue: string): Promise<boolean> {
+    private async apply(requestedValue: string, offerRelocation = true): Promise<boolean> {
         const currentResolved = this.resolve(this.activeRoot);
         if (currentResolved.ok && currentResolved.rootPath) {
             // Another Extension Host may have relocated the machine-wide store
@@ -161,7 +164,7 @@ export class GlobalStoreLocationController {
             return false;
         }
 
-        if (hasGlobalSkillsStoreContent(this.activeRoot)) {
+        if (offerRelocation && hasGlobalSkillsStoreContent(this.activeRoot)) {
             const choice = await this.options.showWarningMessage(
                 `Change the Global Skills Location from ${this.activeRoot} `
                 + `to ${resolved.rootPath}? Existing skills can be moved safely, `

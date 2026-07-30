@@ -601,7 +601,16 @@ function runGlobalStoreLocationChecks() {
     firstLock.lock.release();
     const releasedLock = globalStore.acquireTargetMutationLock(lockedTarget);
     assert.strictEqual(releasedLock.ok, true, 'a completed mutation releases its target lock');
+    const staleLockPath = releasedLock.lock.lockPath;
     releasedLock.lock.release();
+    fs.writeFileSync(staleLockPath, JSON.stringify({
+        pid: 2_147_483_647,
+        createdAt: Date.now() - 60_000,
+    }));
+    const recoveredLock = globalStore.acquireTargetMutationLock(lockedTarget);
+    assert.strictEqual(recoveredLock.ok, true,
+        'an abandoned lock owned by a dead Extension Host is recovered');
+    recoveredLock.lock.release();
     const sharedSource = path.join(home, 'shared-source-lock');
     const sourceAndTargetLock = globalStore.acquireSkillsMutationLocks([
         sharedSource,
@@ -623,7 +632,7 @@ function runGlobalStoreLocationChecks() {
     fs.mkdirSync(agentRoot, { recursive: true });
     fs.symlinkSync(path.join(sourceRoot, 'pack', 'alpha'), path.join(agentRoot, 'alpha'), 'dir');
     const moved = globalStore.relocateGlobalSkillsStore(sourceRoot, targetRoot);
-    assert.strictEqual(moved.ok, true);
+    assert.strictEqual(moved.ok, true, moved.error);
     assert.strictEqual(moved.moved, true);
     assert.strictEqual(moved.aliasCreated, true);
     assert.ok(fs.lstatSync(sourceRoot).isSymbolicLink(), 'old root becomes a compatibility alias');
@@ -1166,6 +1175,16 @@ function runSkillCentralChecks() {
     const claudSolo = beforeCentralize.find(record => record.name === 'solo' && record.source === 'claude');
     const soloDuplicates = beforeCentralize.filter(record =>
         record.scope === claudSolo.scope && record.name === claudSolo.name && record.dirPath !== claudSolo.dirPath);
+    const relocatingStoreLock = globalStore.acquireSkillsMutationLocks([
+        path.join(home, '.skills'),
+    ]);
+    assert.strictEqual(relocatingStoreLock.ok, true);
+    assert.strictEqual(
+        centralService.centralizeSkill(claudSolo, soloDuplicates, home, ws).ok,
+        false,
+        'a Global store relocation lock blocks child centralization',
+    );
+    relocatingStoreLock.lock.release();
     const centralized = centralService.centralizeSkill(claudSolo, soloDuplicates, home, ws);
     assert.strictEqual(centralized.ok, true);
     assert.strictEqual(centralized.dirPath, path.join(home, '.skills', 'solo'));

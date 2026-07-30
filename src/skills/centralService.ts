@@ -145,7 +145,7 @@ export function centralizeSkill(
         );
         destination = path.join(centralRoot, record.name);
         fs.mkdirSync(centralRoot, { recursive: true });
-        const lockResult = acquireSkillsMutationLocks([record.dirPath, destination]);
+        const lockResult = acquireSkillsMutationLocks([centralRoot, record.dirPath, destination]);
         if (lockResult.ok === false) {
             return { ok: false, error: lockResult.error };
         }
@@ -326,20 +326,32 @@ export function setFolderLinks(
     const roots = scope === 'user' ? getUserSkillsRoots(homeDir) : getProjectSkillsRoots(workspaceRoot as string);
     const agentRoots = roots.filter(root => agents.includes(root.source as SkillAgentId)
         && (root.source === 'kimi' || root.source === 'claude' || root.source === 'codex'));
-    for (const skillDir of walkSkillDirs(path.join(storeRoot, safeFolder), [])) {
-        for (const root of agentRoots) {
-            const link = setCentralLink(skillDir, root.dirPath, enable);
-            if (link.ok) {
-                if (link.changed) {
-                    result.changed += 1;
+    const lockResult = acquireSkillsMutationLocks([storeRoot]);
+    if (lockResult.ok === false) {
+        return {
+            ok: false,
+            changed: 0,
+            errors: [{ name: folder || '.', error: lockResult.error }],
+        };
+    }
+    try {
+        for (const skillDir of walkSkillDirs(path.join(storeRoot, safeFolder), [])) {
+            for (const root of agentRoots) {
+                const link = setCentralLink(skillDir, root.dirPath, enable);
+                if (link.ok) {
+                    if (link.changed) {
+                        result.changed += 1;
+                    }
+                } else {
+                    result.ok = false;
+                    result.errors.push({ name: path.basename(skillDir), error: link.error || 'unknown error' });
                 }
-            } else {
-                result.ok = false;
-                result.errors.push({ name: path.basename(skillDir), error: link.error || 'unknown error' });
             }
         }
+        return result;
+    } finally {
+        lockResult.lock.release();
     }
-    return result;
 }
 
 function sanitizeFolder(targetFolder: string): string | null {
@@ -368,6 +380,7 @@ export function moveSkillToFolder(
     workspaceRoot?: string,
     globalSkillsRoot?: string,
 ): CentralResult {
+    let storeLock: TargetMutationLock | undefined;
     try {
         if (!record.central) {
             return { ok: false, error: 'Only centralized skills can be moved between folders.' };
@@ -378,6 +391,13 @@ export function moveSkillToFolder(
         }
         const storeRoot = getCentralSkillsRoot(homeDir, record.scope, workspaceRoot, globalSkillsRoot);
         const destination = folder ? path.join(storeRoot, folder, record.name) : path.join(storeRoot, record.name);
+        // The store-root lock serializes every destination below it, including
+        // nested folders whose parent does not exist yet.
+        const lockResult = acquireSkillsMutationLocks([storeRoot, record.dirPath]);
+        if (lockResult.ok === false) {
+            return { ok: false, error: lockResult.error };
+        }
+        storeLock = lockResult.lock;
         if (destination === record.dirPath) {
             return { ok: true, dirPath: destination };
         }
@@ -405,6 +425,8 @@ export function moveSkillToFolder(
         return { ok: true, dirPath: destination };
     } catch (error) {
         return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    } finally {
+        storeLock?.release();
     }
 }
 
@@ -415,12 +437,18 @@ export type { SkillScope, SkillSourceDir };
  * plain directories; creating them on demand is how the panel's "+" works.
  */
 export function createSkillFolder(storeRoot: string, targetFolder: string): CentralResult {
+    let storeLock: TargetMutationLock | undefined;
     try {
         const folder = sanitizeFolder(targetFolder);
         if (folder === null || folder === '') {
             return { ok: false, error: `Invalid folder: ${targetFolder}` };
         }
         const destination = path.join(storeRoot, folder);
+        const lockResult = acquireSkillsMutationLocks([storeRoot]);
+        if (lockResult.ok === false) {
+            return { ok: false, error: lockResult.error };
+        }
+        storeLock = lockResult.lock;
         if (fs.existsSync(destination)) {
             return { ok: false, error: `Folder already exists: ${destination}` };
         }
@@ -428,6 +456,8 @@ export function createSkillFolder(storeRoot: string, targetFolder: string): Cent
         return { ok: true, dirPath: destination };
     } catch (error) {
         return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    } finally {
+        storeLock?.release();
     }
 }
 
@@ -438,12 +468,18 @@ export function createSkillFolder(storeRoot: string, targetFolder: string): Cent
  * delete escape onto the rest of the disk.
  */
 export function removeSkillFolder(storeRoot: string, targetFolder: string): CentralResult {
+    let storeLock: TargetMutationLock | undefined;
     try {
         const folder = sanitizeFolder(targetFolder);
         if (folder === null || folder === '') {
             return { ok: false, error: `Invalid folder: ${targetFolder}` };
         }
         const destination = path.join(storeRoot, folder);
+        const lockResult = acquireSkillsMutationLocks([storeRoot]);
+        if (lockResult.ok === false) {
+            return { ok: false, error: lockResult.error };
+        }
+        storeLock = lockResult.lock;
         let rootReal: string;
         let destReal: string;
         try {
@@ -465,5 +501,7 @@ export function removeSkillFolder(storeRoot: string, targetFolder: string): Cent
         return { ok: true };
     } catch (error) {
         return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    } finally {
+        storeLock?.release();
     }
 }

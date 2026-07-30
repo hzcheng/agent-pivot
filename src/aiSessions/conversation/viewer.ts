@@ -15,12 +15,18 @@ import {
     ConversationCommentError,
     ConversationCommentOperation,
     ConversationCommentSelection,
+    ConversationCommentTarget,
     createConversationComment,
     markConversationCommentsSent,
     reopenConversationComment,
     resolveConversationComment,
     updateConversationComment,
+    validateConversationComments,
 } from './comments';
+import type {
+    ConversationCommentSnapshot,
+    ConversationCommentStore,
+} from './commentStore';
 import { renderConversationMarkdown } from './markdown';
 import {
     CONVERSATION_LIMITS,
@@ -74,6 +80,7 @@ export interface ConversationViewerOptions {
             'projectId' | 'provider' | 'sessionId'
         >
     ) => PromiseLike<void> | Promise<void>;
+    commentStore?: ConversationCommentStore;
 }
 
 export interface ConversationViewerApi extends AiSessionDisposable {
@@ -233,6 +240,15 @@ export class ConversationViewer implements ConversationViewerApi {
 
     async open(target: ConversationViewerTarget): Promise<void> {
         const generation = this.replaceTarget(target);
+        const activeTarget = this.target;
+        if (!activeTarget) {
+            return;
+        }
+        await this.restoreComments(activeTarget, generation);
+        if (this.target !== activeTarget
+            || this.subscriptionGeneration !== generation) {
+            return;
+        }
         const panel = this.ensurePanel();
         panel.title = 'AI Conversation';
         panel.reveal(vscode.ViewColumn.Active);
@@ -489,9 +505,16 @@ export class ConversationViewer implements ConversationViewerApi {
         }
         try {
             if (request.operation === 'sendComments') {
-                await this.sendComments(target);
+                await this.sendComments(
+                    target,
+                    this.subscriptionGeneration
+                );
             } else {
-                this.mutateComments(request);
+                await this.mutateComments(
+                    request,
+                    target,
+                    this.subscriptionGeneration
+                );
             }
             await this.settleCommentRequest(request, true);
             if (request.operation === 'sendComments') {
@@ -521,11 +544,15 @@ export class ConversationViewer implements ConversationViewerApi {
         }
     }
 
-    private mutateComments(
-        request: ConversationViewerCommentMutationMessage
-    ): void {
+    private async mutateComments(
+        request: ConversationViewerCommentMutationMessage,
+        target: ConversationViewerTarget,
+        generation: number
+    ): Promise<void> {
+        let comments = cloneConversationComments(this.comments);
+        let revision = this.commentRevision;
         if (request.operation === 'add') {
-            if (this.comments.length
+            if (comments.length
                 >= CONVERSATION_COMMENT_LIMITS.maxComments) {
                 throw new ConversationCommentError('limit');
             }
@@ -537,70 +564,91 @@ export class ConversationViewer implements ConversationViewerApi {
             if (!message) {
                 throw new ConversationCommentError('stale');
             }
-            this.comments.push(createConversationComment(
+            comments.push(createConversationComment(
                 randomBytes(16).toString('hex'),
                 payload,
                 message
             ));
-            this.commentRevision += 1;
-            return;
-        }
-        if (request.operation === 'clearSent'
+            revision += 1;
+        } else if (request.operation === 'clearSent'
             || request.operation === 'clearResolved'
             || request.operation === 'clearAll') {
             if (!hasExactKeys(request.payload as object, [])) {
                 throw new ConversationCommentError('invalid');
             }
-            const comments = clearConversationComments(
-                this.comments,
+            const remainingComments = clearConversationComments(
+                comments,
                 request.operation
             );
-            if (comments.length !== this.comments.length) {
-                this.comments = comments;
-                this.commentRevision += 1;
+            if (remainingComments.length !== comments.length) {
+                comments = remainingComments;
+                revision += 1;
             }
-            return;
-        }
-        const payload = parseExistingCommentPayload(
-            request.operation,
-            request.payload
-        );
-        const index = this.comments.findIndex(
-            comment => comment.id === payload.commentId
-        );
-        if (index < 0) {
-            throw new ConversationCommentError('stale');
-        }
-        if (request.operation === 'delete') {
-            this.comments.splice(index, 1);
-        } else if (request.operation === 'update') {
-            this.comments[index] = updateConversationComment(
-                this.comments[index],
-                payload.comment
-            );
-        } else if (request.operation === 'resolve') {
-            this.comments[index] = resolveConversationComment(
-                this.comments[index]
-            );
         } else {
-            this.comments[index] = reopenConversationComment(
-                this.comments[index]
+            const payload = parseExistingCommentPayload(
+                request.operation,
+                request.payload
             );
+            const index = comments.findIndex(
+                comment => comment.id === payload.commentId
+            );
+            if (index < 0) {
+                throw new ConversationCommentError('stale');
+            }
+            if (request.operation === 'delete') {
+                comments.splice(index, 1);
+            } else if (request.operation === 'update') {
+                comments[index] = updateConversationComment(
+                    comments[index],
+                    payload.comment
+                );
+            } else if (request.operation === 'resolve') {
+                comments[index] = resolveConversationComment(comments[index]);
+            } else {
+                comments[index] = reopenConversationComment(comments[index]);
+            }
+            revision += 1;
         }
-        this.commentRevision += 1;
+        const snapshot = { revision, comments };
+        await this.persistComments(target, snapshot);
+        this.commitPersistedComments(
+            target,
+            generation,
+            request.expectedRevision,
+            snapshot
+        );
     }
 
-    private async sendComments(target: ConversationViewerTarget): Promise<void> {
+    private async sendComments(
+        target: ConversationViewerTarget,
+        generation: number
+    ): Promise<void> {
         const openComments = this.comments.filter(
             comment => comment.status === 'open'
         );
         const prompt = buildConversationCommentsPrompt(openComments);
+        const previousSnapshot = {
+            revision: this.commentRevision,
+            comments: cloneConversationComments(this.comments),
+        };
+        const sentSnapshot = {
+            revision: this.commentRevision + 1,
+            comments: markConversationCommentsSent(this.comments),
+        };
+        await this.persistComments(target, sentSnapshot);
+        if (this.target !== target
+            || this.subscriptionGeneration !== generation
+            || this.commentRevision !== previousSnapshot.revision) {
+            await this.persistComments(target, previousSnapshot);
+            throw new ConversationCommentError('stale');
+        }
         try {
             await Promise.resolve(this.options.submitPrompt(
                 { ...target },
                 prompt
             ));
         } catch (error) {
+            await this.persistComments(target, previousSnapshot);
             if (error instanceof ConversationCommentError) {
                 throw error;
             }
@@ -609,8 +657,68 @@ export class ConversationViewer implements ConversationViewerApi {
         if (this.target !== target) {
             throw new ConversationCommentError('stale');
         }
-        this.comments = markConversationCommentsSent(this.comments);
-        this.commentRevision += 1;
+        this.comments = sentSnapshot.comments;
+        this.commentRevision = sentSnapshot.revision;
+    }
+
+    private async restoreComments(
+        target: ConversationViewerTarget,
+        generation: number
+    ): Promise<void> {
+        if (!this.options.commentStore) {
+            return;
+        }
+        let snapshot: ConversationCommentSnapshot;
+        try {
+            snapshot = await this.options.commentStore.load(
+                toCommentTarget(target)
+            );
+            validateConversationComments(snapshot.comments);
+            if (!Number.isSafeInteger(snapshot.revision)
+                || snapshot.revision < 0) {
+                throw new ConversationCommentError('invalid');
+            }
+        } catch (_error) {
+            return;
+        }
+        if (this.target !== target
+            || this.subscriptionGeneration !== generation) {
+            return;
+        }
+        this.comments = cloneConversationComments(snapshot.comments);
+        this.commentRevision = snapshot.revision;
+    }
+
+    private async persistComments(
+        target: ConversationViewerTarget,
+        snapshot: ConversationCommentSnapshot
+    ): Promise<void> {
+        if (!this.options.commentStore) {
+            return;
+        }
+        try {
+            await this.options.commentStore.save(
+                toCommentTarget(target),
+                snapshot
+            );
+        } catch (_error) {
+            throw new ConversationCommentError('failed');
+        }
+    }
+
+    private commitPersistedComments(
+        target: ConversationViewerTarget,
+        generation: number,
+        expectedRevision: number,
+        snapshot: ConversationCommentSnapshot
+    ): void {
+        if (this.target !== target
+            || this.subscriptionGeneration !== generation
+            || this.commentRevision !== expectedRevision) {
+            throw new ConversationCommentError('stale');
+        }
+        this.comments = snapshot.comments;
+        this.commentRevision = snapshot.revision;
     }
 
     private async locateComment(
@@ -1690,6 +1798,16 @@ function isCommentTargetId(value: unknown): value is string {
 
 function isProvider(value: unknown): value is AiSessionProviderId {
     return value === 'codex' || value === 'kimi' || value === 'claude';
+}
+
+function toCommentTarget(
+    target: ConversationViewerTarget
+): ConversationCommentTarget {
+    return {
+        projectId: target.projectId,
+        provider: target.provider,
+        sessionId: target.sessionId,
+    };
 }
 
 function commentRequestTargetsViewer(

@@ -27,6 +27,7 @@ import {
     ConversationHostController,
     ConversationHostControllerOptions,
 } from './conversationHostController';
+import type { ConversationCommentStore } from './commentStore';
 import {
     ConversationCoordinator,
     ConversationCoordinatorOptions,
@@ -90,6 +91,7 @@ export interface ConversationCapabilityOptions {
     focusSession?: (
         target: ConversationSessionOpenTarget
     ) => PromiseLike<void> | Promise<void>;
+    commentStore?: ConversationCommentStore;
 }
 
 interface ConversationCapabilityInternalFactories {
@@ -213,6 +215,7 @@ function createAvailableConversationCapability(
         mediaUri: getConversationMediaUri,
         submitPrompt: options.submitPrompt,
         focusSession: options.focusSession,
+        commentStore: options.commentStore,
     }));
     const controller = ownership.own(factories.createController({
         coordinator,

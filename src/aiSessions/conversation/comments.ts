@@ -206,6 +206,23 @@ export function cloneConversationComments(
     return comments.map(comment => ({ ...comment }));
 }
 
+export function validateConversationComments(
+    comments: readonly ConversationCommentDraft[]
+): void {
+    if (!Array.isArray(comments)
+        || comments.length > CONVERSATION_COMMENT_LIMITS.maxComments) {
+        throw new ConversationCommentError('invalid');
+    }
+    const ids = new Set<string>();
+    comments.forEach(comment => {
+        validateDraft(comment);
+        if (ids.has(comment.id)) {
+            throw new ConversationCommentError('invalid');
+        }
+        ids.add(comment.id);
+    });
+}
+
 function validateDraft(draft: ConversationCommentDraft): void {
     if (!draft
         || !isBoundedId(draft.id)

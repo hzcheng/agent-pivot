@@ -407,6 +407,7 @@ function createDashboardConversationHarness(options = {}) {
                 onDiagnostic: event => diagnostics.push(event),
                 getWorkspaceRootHostPaths:
                     options.getWorkspaceRootHostPaths,
+                commentStore: options.commentStore,
                 submitPrompt: options.submitPrompt || (async () => undefined),
                 focusSession: target => {
                     sessionFocusTargets.push(target);
@@ -1086,8 +1087,27 @@ test('PRODUCTION-CONVERSATION-COMMENTS-001 CONVERSATION-COMMENTS-REVIEW-001 CONV
 });
 
 test('PRODUCTION-CONVERSATION-COMMENTS-002 keeps authoritative drafts after submission failure', async () => {
+    let persisted = { revision: 0, comments: [] };
     const harness = createDashboardConversationHarness({
         useConcreteViewer: true,
+        commentStore: {
+            async load() {
+                return {
+                    revision: persisted.revision,
+                    comments: persisted.comments.map(comment => ({
+                        ...comment,
+                    })),
+                };
+            },
+            async save(_target, snapshot) {
+                persisted = {
+                    revision: snapshot.revision,
+                    comments: snapshot.comments.map(comment => ({
+                        ...comment,
+                    })),
+                };
+            },
+        },
         submitPrompt: async () => {
             throw new Error('private provider failure');
         },
@@ -1132,10 +1152,150 @@ test('PRODUCTION-CONVERSATION-COMMENTS-002 keeps authoritative drafts after subm
     assert.equal(failure.error, 'failed');
     assert.equal(failure.revision, 1);
     assert.equal(failure.comments.length, 1);
+    assert.equal(persisted.revision, 1);
+    assert.equal(persisted.comments[0].status, 'open');
     assert.equal(
         JSON.stringify(failure).includes('private provider failure'),
         false
     );
+    await harness.dispose();
+});
+
+test('CONVERSATION-COMMENTS-PERSISTENCE-001 restores Host-owned comments after the Conversation panel is closed and reopened', async () => {
+    const snapshots = new Map();
+    const commentStore = {
+        async load(target) {
+            const snapshot = snapshots.get(JSON.stringify(target));
+            return snapshot
+                ? {
+                    revision: snapshot.revision,
+                    comments: snapshot.comments.map(comment => ({ ...comment })),
+                }
+                : { revision: 0, comments: [] };
+        },
+        async save(target, snapshot) {
+            snapshots.set(JSON.stringify(target), {
+                revision: snapshot.revision,
+                comments: snapshot.comments.map(comment => ({ ...comment })),
+            });
+        },
+    };
+    const harness = createDashboardConversationHarness({
+        useConcreteViewer: true,
+        commentStore,
+    });
+    await harness.activate();
+    await harness.route(makeOutlineRequest());
+    await harness.route(makeOpenRequest());
+    const firstPanel = harness.panels[0];
+    const target = {
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    };
+    await firstPanel.receiveMessage({
+        type: 'conversation-viewer-comment-mutation',
+        version: 1,
+        requestId: 'persist:add:1',
+        subscriptionGeneration: 1,
+        ...target,
+        operation: 'add',
+        expectedRevision: 0,
+        payload: {
+            messageId: 'input-a:user',
+            interactionId: 'input-a',
+            quote: 'input-a',
+            prefix: '',
+            suffix: '',
+            comment: 'Keep this across panel lifecycles.',
+        },
+    });
+    assert.equal(firstPanel.postedMessages.at(-1).success, true);
+    firstPanel.dispose();
+
+    await harness.route(makeOpenRequest());
+    const reopenedPanel = harness.panels[1];
+    await reopenedPanel.receiveMessage({
+        type: 'conversation-viewer-comment-mutation',
+        version: 1,
+        requestId: 'persist:update:2',
+        subscriptionGeneration: 3,
+        ...target,
+        operation: 'update',
+        expectedRevision: 1,
+        payload: {
+            commentId: firstPanel.postedMessages.at(-1).comments[0].id,
+            comment: 'The restored draft remains editable.',
+        },
+    });
+
+    const restored = reopenedPanel.postedMessages.at(-1);
+    assert.equal(restored.success, true);
+    assert.equal(restored.revision, 2);
+    assert.equal(
+        restored.comments[0].comment,
+        'The restored draft remains editable.'
+    );
+    await harness.dispose();
+});
+
+test('CONVERSATION-COMMENTS-PERSISTENCE-001 rejects a comment mutation until its durable write succeeds', async () => {
+    let failWrites = true;
+    const harness = createDashboardConversationHarness({
+        useConcreteViewer: true,
+        commentStore: {
+            async load() {
+                return { revision: 0, comments: [] };
+            },
+            async save() {
+                if (failWrites) {
+                    throw new Error('private storage unavailable');
+                }
+            },
+        },
+    });
+    await harness.activate();
+    await harness.route(makeOutlineRequest());
+    await harness.route(makeOpenRequest());
+    const panel = harness.panels[0];
+    const mutation = {
+        type: 'conversation-viewer-comment-mutation',
+        version: 1,
+        subscriptionGeneration: 1,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+        operation: 'add',
+        expectedRevision: 0,
+        payload: {
+            messageId: 'input-a:user',
+            interactionId: 'input-a',
+            quote: 'input-a',
+            prefix: '',
+            suffix: '',
+            comment: 'Persist before acknowledging this.',
+        },
+    };
+
+    await panel.receiveMessage({
+        ...mutation,
+        requestId: 'persist:failed:1',
+    });
+    const failed = panel.postedMessages.at(-1);
+    assert.equal(failed.success, false);
+    assert.equal(failed.error, 'failed');
+    assert.equal(failed.revision, 0);
+    assert.deepEqual(failed.comments, []);
+
+    failWrites = false;
+    await panel.receiveMessage({
+        ...mutation,
+        requestId: 'persist:retry:2',
+    });
+    const saved = panel.postedMessages.at(-1);
+    assert.equal(saved.success, true);
+    assert.equal(saved.revision, 1);
+    assert.equal(saved.comments.length, 1);
     await harness.dispose();
 });
 

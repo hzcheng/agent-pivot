@@ -38,8 +38,11 @@ Turn every confirmed regression into a CI-owned behavior before changing product
 7. **Maintain audit currency**
    - In every automated owner file, use literal behavior IDs for the behaviors it owns. After any implementation, owner, catalog, or audit change, run `npm run test:behavior-contracts`.
    - Classify commits by changed paths and protected behavior, never by a subject prefix. Treat `.codex/skills/` and skill-owner tests as implementation paths: tests and owner-marker commits remain implementation evidence even with a `docs:` subject.
+   - Form the final implementation commit before completing the audit. Record its full SHA, assign it exactly once to the matching capability, advance `audit.head` to that SHA, and commit the manifest update separately as a genuine documentation-only audit commit.
+   - If another implementation path changes after that audit, including `.codex/skills/`, repeat the sequence with the new implementation SHA. A pre-commit local pass cannot prove commit-level audit currency because the final SHA does not exist yet.
    - Advance `audit.head` only after every implementation commit has a complete main-capability assignment with CI-reachable behavior ownership. Only genuine documentation-only commits may remain after the audit head.
    - Treat audit-currency failures as immediate failures. A later audit commit cannot create missing RED evidence or retroactively make an implementation commit documentation-only.
+   - In repositories with both `origin` and `upstream`, pass the intended `--repo <owner/name>` to every `gh pr checks`, `gh run view`, and Actions log command. Do not let local remote ordering select the repository.
 
 ## Automation Boundary
 

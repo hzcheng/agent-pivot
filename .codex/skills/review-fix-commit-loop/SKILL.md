@@ -49,6 +49,11 @@ commit only the intended files.
    - Also run fresh branch-level checks needed for the PR; do not reuse results
      from before the final fix.
    - Include `git diff --check` when code or docs changed.
+   - Model verification dependencies before parallelizing. Run any command that
+     cleans or rebuilds `out/` before checks that consume `out/`; parallelize
+     only checks whose inputs and outputs do not overlap. Classify
+     `MODULE_NOT_FOUND` from a concurrently deleted build tree as a scheduling
+     failure only after the affected checks pass in dependency order.
 
 7. Complete final integration review after all task-level reviews.
    - Run one final, read-only review of the complete merge-base-to-HEAD diff;
@@ -65,6 +70,10 @@ commit only the intended files.
    - Stage explicit paths.
    - Use a commit message that names the fixed issue, e.g. `fix: tighten open projects update consistency`.
    - Re-check `git status -sb`.
+   - After the final implementation or skill-owner commit exists, complete the
+     main-capability assignment and `audit.head` update in a separate
+     documentation-only audit commit, then rerun
+     `npm run test:behavior-contracts` before push.
 
 ## Reporting
 
@@ -80,3 +89,4 @@ Summarize:
 - Do not call a review complete until fresh verification has run after the final fix.
 - Do not bury review fixes inside unrelated feature commits unless the user requested squashing.
 - Do not trust subagent output blindly; inspect the actual diff and rerun evidence-producing commands.
+- Do not treat a pre-commit behavior-contract pass as proof of commit-level audit currency.

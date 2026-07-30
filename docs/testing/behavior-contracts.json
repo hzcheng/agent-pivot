@@ -3345,7 +3345,9 @@
     "evidence": [
       ".codex/skills/resilient-webview-mutation-protocols/SKILL.md",
       ".codex/skills/fixing-regressions-with-ci/SKILL.md",
+      ".codex/skills/harvesting-workflow-lessons/SKILL.md",
       ".codex/skills/installing-vscode-extensions-locally/SKILL.md",
+      ".codex/skills/publishing-and-merging-github-prs/SKILL.md",
       ".codex/skills/review-fix-commit-loop/SKILL.md"
     ]
   },

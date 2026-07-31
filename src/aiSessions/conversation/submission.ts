@@ -26,6 +26,9 @@ export interface ConversationPromptSubmissionOptions<
     ): Promise<AiSessionRuntimeActionResult<TTerminal> | undefined>;
 }
 
+const BRACKETED_PASTE_START = '\u001b[200~';
+const BRACKETED_PASTE_END = '\u001b[201~';
+
 export async function submitConversationPrompt<
     TTerminal extends ConversationPromptTerminal
 >(
@@ -53,7 +56,7 @@ export async function submitConversationPrompt<
         throw new ConversationCommentError('conflict');
     }
     if (existing?.state === 'active' && existing.terminal) {
-        existing.terminal.sendText(prompt, false);
+        stagePrompt(existing.terminal, prompt);
         return;
     }
     const result = await options.resume(
@@ -67,7 +70,7 @@ export async function submitConversationPrompt<
         const runtime = result.runtime
             || options.getRuntime(target.provider, target.sessionId);
         if (runtime?.terminal) {
-            runtime.terminal.sendText(prompt, false);
+            stagePrompt(runtime.terminal, prompt);
             return;
         }
         throw new ConversationCommentError('unavailable');
@@ -79,4 +82,14 @@ export async function submitConversationPrompt<
         throw new ConversationCommentError('busy');
     }
     throw new ConversationCommentError('unavailable');
+}
+
+function stagePrompt(
+    terminal: ConversationPromptTerminal,
+    prompt: string
+): void {
+    const terminalText = prompt.includes('\n')
+        ? `${BRACKETED_PASTE_START}${prompt}${BRACKETED_PASTE_END}`
+        : prompt;
+    terminal.sendText(terminalText, false);
 }

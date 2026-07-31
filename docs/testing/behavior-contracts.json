@@ -960,6 +960,20 @@
     ]
   },
   {
+    "id": "SESSION-CLAUDE-SUBAGENT-LIFECYCLE-001",
+    "domain": "session",
+    "title": "Claude remains running while any background subagent is active instead of surfacing a false stopped attention state",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/aiSessions/providerSpecificBehavior.test.js"
+    ],
+    "evidence": [
+      "src/services/claudeSessionService.ts",
+      "src/aiSessions/lifecycle.ts"
+    ]
+  },
+  {
     "id": "SESSION-COMMAND-BUILDER-001",
     "domain": "session",
     "title": "Command Builder behavior",
@@ -3651,7 +3665,7 @@
   {
     "id": "CONVERSATION-COMMENTS-UI-001",
     "domain": "webview",
-    "title": "AI Conversation collects multiple text selections and stages one correlated comment batch in the session input",
+    "title": "AI Conversation collects selected excerpts and session-wide notes, then stages one correlated comment batch in the session input",
     "priority": "P0",
     "status": "automated",
     "owners": [

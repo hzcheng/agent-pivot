@@ -595,7 +595,24 @@ button {
     }
 }
 
-.conversation-comments-header > [data-comment-count] {
+.conversation-comments-header-actions {
+    display: flex;
+    min-width: 0;
+    gap: 0.35rem;
+    align-items: center;
+
+    [data-comment-action="new"] {
+        min-width: 0;
+        padding: 0.18rem 0.45rem;
+        border-color: var(--vscode-button-secondaryBackground);
+        color: var(--vscode-button-secondaryForeground);
+        background: var(--vscode-button-secondaryBackground);
+        font-size: 0.75rem;
+        white-space: nowrap;
+    }
+}
+
+.conversation-comments-header-actions > [data-comment-count] {
     min-width: 1.65rem;
     padding: 0.1rem 0.45rem;
     border-radius: 999px;
@@ -694,6 +711,12 @@ button {
     border-radius: 999px;
     color: var(--vscode-badge-foreground);
     background: var(--vscode-badge-background);
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.conversation-comment-scope {
+    color: var(--vscode-descriptionForeground);
     font-size: 0.75rem;
     font-weight: 600;
 }

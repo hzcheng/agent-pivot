@@ -15,8 +15,10 @@ import {
     ConversationCommentError,
     ConversationCommentOperation,
     ConversationCommentSelection,
+    ConversationCommentSessionNote,
     ConversationCommentTarget,
     createConversationComment,
+    createConversationSessionComment,
     markConversationCommentsSent,
     reopenConversationComment,
     resolveConversationComment,
@@ -619,19 +621,26 @@ export class ConversationViewer implements ConversationViewerApi {
                 >= CONVERSATION_COMMENT_LIMITS.maxComments) {
                 throw new ConversationCommentError('limit');
             }
-            const payload = parseCommentSelection(request.payload);
-            const message = this.messages().find(candidate =>
-                candidate.id === payload.messageId
-                && candidate.interactionId === payload.interactionId
-            );
-            if (!message) {
-                throw new ConversationCommentError('stale');
+            const payload = parseCommentInput(request.payload);
+            if (payload.scope === 'session') {
+                comments.push(createConversationSessionComment(
+                    randomBytes(16).toString('hex'),
+                    payload.comment
+                ));
+            } else {
+                const message = this.messages().find(candidate =>
+                    candidate.id === payload.messageId
+                    && candidate.interactionId === payload.interactionId
+                );
+                if (!message) {
+                    throw new ConversationCommentError('stale');
+                }
+                comments.push(createConversationComment(
+                    randomBytes(16).toString('hex'),
+                    payload,
+                    message
+                ));
             }
-            comments.push(createConversationComment(
-                randomBytes(16).toString('hex'),
-                payload,
-                message
-            ));
             revision += 1;
         } else if (request.operation === 'clearSent'
             || request.operation === 'clearResolved'
@@ -1806,7 +1815,11 @@ export class ConversationViewer implements ConversationViewerApi {
                         <strong>Review comments</strong>
                         <span data-comment-summary>No comments yet</span>
                     </div>
-                    <span data-comment-count aria-label="0 comments">0</span>
+                    <div class="conversation-comments-header-actions">
+                        <button type="button" data-comment-action="new"
+                            title="Add a note about this Session">+ Note</button>
+                        <span data-comment-count aria-label="0 comments">0</span>
+                    </div>
                 </div>
                 <div class="conversation-comment-composer"
                     data-comment-composer hidden>
@@ -1827,7 +1840,7 @@ export class ConversationViewer implements ConversationViewerApi {
                 <div class="conversation-comment-list"
                     data-comment-list></div>
                 <p class="conversation-comment-empty" data-comment-empty>
-                    Select text in the conversation to add a comment.
+                    Select text to comment on it, or add a Session note.
                 </p>
                 <div class="conversation-comments-toolbar"
                     data-comments-toolbar role="group"
@@ -2019,14 +2032,24 @@ function getCommentSettlementKey(
     ]);
 }
 
-function parseCommentSelection(payload: unknown): ConversationCommentSelection {
-    if (!payload || typeof payload !== 'object' || Array.isArray(payload)
-        || !hasExactKeys(payload, [
-            'messageId', 'interactionId', 'quote', 'prefix', 'suffix', 'comment',
-        ])) {
+function parseCommentInput(
+    payload: unknown
+): ConversationCommentSelection | ConversationCommentSessionNote {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
         throw new ConversationCommentError('invalid');
     }
     const value = payload as Record<string, unknown>;
+    if (hasExactKeys(value, ['scope', 'comment'])) {
+        if (value.scope !== 'session' || typeof value.comment !== 'string') {
+            throw new ConversationCommentError('invalid');
+        }
+        return value as unknown as ConversationCommentSessionNote;
+    }
+    if (!hasExactKeys(value, [
+        'messageId', 'interactionId', 'quote', 'prefix', 'suffix', 'comment',
+    ])) {
+        throw new ConversationCommentError('invalid');
+    }
     if (typeof value.messageId !== 'string'
         || typeof value.interactionId !== 'string'
         || typeof value.quote !== 'string'
@@ -2035,7 +2058,15 @@ function parseCommentSelection(payload: unknown): ConversationCommentSelection {
         || typeof value.comment !== 'string') {
         throw new ConversationCommentError('invalid');
     }
-    return value as unknown as ConversationCommentSelection;
+    return {
+        scope: 'selection',
+        messageId: value.messageId,
+        interactionId: value.interactionId,
+        quote: value.quote,
+        prefix: value.prefix,
+        suffix: value.suffix,
+        comment: value.comment,
+    } as ConversationCommentSelection;
 }
 
 function parseExistingCommentPayload(

@@ -78,6 +78,7 @@
     var commentInput = document.querySelector('[data-comment-input]');
     var commentList = document.querySelector('[data-comment-list]');
     var commentEmpty = document.querySelector('[data-comment-empty]');
+    var commentNew = document.querySelector('[data-comment-action="new"]');
     var commentSend = document.querySelector('[data-comment-action="send"]');
     var commentClearSent = document.querySelector(
         '[data-comment-action="clearSent"]'
@@ -99,7 +100,8 @@
         && !!commentsRoot && !!commentCount
         && !!commentSummary
         && !!commentComposer && !!commentSelection && !!commentInput
-        && !!commentList && !!commentEmpty && !!commentSend && !!addComment
+        && !!commentList && !!commentEmpty && !!commentNew
+        && !!commentSend && !!addComment
         && !!commentClearSent && !!commentClearResolved && !!commentClearAll
         && validCommentTarget(commentTarget);
     var state = {
@@ -700,10 +702,13 @@
             'id', 'messageId', 'interactionId', 'role',
             'quote', 'prefix', 'suffix', 'comment', 'status',
         ];
-        return Object.keys(value).length === keys.length
+        var actualKeys = Object.keys(value);
+        var hasSessionScope = value.scope === 'session';
+        return actualKeys.length === keys.length + (hasSessionScope ? 1 : 0)
             && keys.every(function (key) {
                 return Object.prototype.hasOwnProperty.call(value, key);
             })
+            && (value.scope === undefined || hasSessionScope)
             && typeof value.id === 'string'
             && typeof value.messageId === 'string'
             && typeof value.interactionId === 'string'
@@ -712,6 +717,13 @@
             && typeof value.prefix === 'string'
             && typeof value.suffix === 'string'
             && typeof value.comment === 'string'
+            && (!hasSessionScope
+                || (value.messageId === ''
+                    && value.interactionId === ''
+                    && value.role === 'user'
+                    && value.quote === ''
+                    && value.prefix === ''
+                    && value.suffix === ''))
             && (value.status === 'open'
                 || value.status === 'sent'
                 || value.status === 'resolved');
@@ -840,6 +852,7 @@
                 + (state.comments.length === 1 ? '' : 's')
         );
         commentSend.disabled = counts.open === 0 || pending;
+        commentNew.disabled = pending;
         commentClearSent.disabled = counts.sent === 0 || pending;
         commentClearResolved.disabled = counts.resolved === 0 || pending;
         commentClearAll.disabled = state.comments.length === 0 || pending;
@@ -911,6 +924,7 @@
     }
 
     function locateComment(comment) {
+        if (comment.scope === 'session') return false;
         var message = Array.prototype.find.call(
             messages.querySelectorAll(conversationMessageSelector()),
             function (candidate) {
@@ -964,6 +978,10 @@
             item.className = 'conversation-comment';
             item.setAttribute('data-comment-id', comment.id);
             item.setAttribute('data-comment-status', comment.status);
+            item.setAttribute(
+                'data-comment-scope',
+                comment.scope === 'session' ? 'session' : 'selection'
+            );
 
             var heading = document.createElement('div');
             heading.className = 'conversation-comment-heading';
@@ -971,19 +989,30 @@
             identity.className = 'conversation-comment-identity';
             var label = document.createElement('strong');
             label.textContent = 'Comment ' + (index + 1);
+            if (comment.scope === 'session') {
+                var scope = document.createElement('span');
+                scope.className = 'conversation-comment-scope';
+                scope.textContent = 'Session note';
+                identity.append(label, scope);
+            } else {
+                identity.appendChild(label);
+            }
             var statusLabel = document.createElement('span');
             statusLabel.className = 'conversation-comment-status';
             statusLabel.setAttribute('data-comment-status-label', '');
             statusLabel.textContent = comment.status === 'open'
                 ? 'Open'
                 : comment.status === 'sent' ? 'Added' : 'Resolved';
-            identity.append(label, statusLabel);
-            var locate = document.createElement('button');
-            locate.type = 'button';
-            locate.className = 'conversation-comment-locate';
-            locate.setAttribute('data-comment-action', 'locate');
-            locate.textContent = 'Show text';
-            heading.append(identity, locate);
+            identity.appendChild(statusLabel);
+            heading.appendChild(identity);
+            if (comment.scope !== 'session') {
+                var locate = document.createElement('button');
+                locate.type = 'button';
+                locate.className = 'conversation-comment-locate';
+                locate.setAttribute('data-comment-action', 'locate');
+                locate.textContent = 'Show text';
+                heading.appendChild(locate);
+            }
 
             var quoteGroup = document.createElement('div');
             quoteGroup.className = 'conversation-comment-quote';
@@ -1038,7 +1067,11 @@
                 review.textContent = 'Resolve';
             }
             actions.appendChild(review);
-            item.append(heading, quoteGroup, input, actions);
+            item.appendChild(heading);
+            if (comment.scope !== 'session') {
+                item.appendChild(quoteGroup);
+            }
+            item.append(input, actions);
             commentList.appendChild(item);
         });
         updateCommentsToggle();
@@ -1107,7 +1140,8 @@
         );
         var ranges = [];
         state.comments.forEach(function (comment) {
-            if (comment.status === 'resolved') return;
+            if (comment.status === 'resolved'
+                || comment.scope === 'session') return;
             var message = Array.prototype.find.call(
                 messages.querySelectorAll(conversationMessageSelector()),
                 function (candidate) {
@@ -1260,6 +1294,21 @@
         setSidebarView('comments', true, true);
         addComment.hidden = true;
         commentSelection.textContent = state.selectedCommentText.quote;
+        commentComposer.setAttribute('data-comment-composer-scope', 'selection');
+        commentInput.value = '';
+        commentComposer.hidden = false;
+        commentInput.focus();
+    }
+
+    function openSessionCommentComposer() {
+        if (!commentUiAvailable
+            || state.pendingCommentRequest
+            || state.pendingLocateRequest) return;
+        setSidebarView('comments', true, true);
+        addComment.hidden = true;
+        state.selectedCommentText = { scope: 'session' };
+        commentSelection.textContent = 'Session note';
+        commentComposer.setAttribute('data-comment-composer-scope', 'session');
         commentInput.value = '';
         commentComposer.hidden = false;
         commentInput.focus();
@@ -1267,6 +1316,7 @@
 
     function closeCommentComposer() {
         commentComposer.hidden = true;
+        commentComposer.removeAttribute('data-comment-composer-scope');
         commentInput.value = '';
         state.selectedCommentText = null;
         addComment.hidden = true;
@@ -2228,6 +2278,10 @@
             var action = button.getAttribute('data-comment-action');
             if (action !== 'clearAll' && state.clearAllConfirmation) {
                 resetClearAllConfirmation();
+            }
+            if (action === 'new') {
+                openSessionCommentComposer();
+                return;
             }
             if (action === 'cancel-add') {
                 closeCommentComposer();

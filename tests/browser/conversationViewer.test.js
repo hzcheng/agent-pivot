@@ -1055,6 +1055,91 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 CONVERSATION-COMMENTS-LAYOUT-001 share
     );
 });
 
+test('CONVERSATION-COMMENTS-UI-001 adds a session-wide note without selecting conversation text', async t => {
+    const interactionId = 'input-session-note';
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+        interactionIds: [interactionId],
+        interactionId,
+        initialWebviewState: {
+            conversationSidebar: {
+                open: true,
+                width: 240,
+                view: 'comments',
+                query: '',
+            },
+        },
+        pageOverrides: {
+            previousCursor: undefined,
+            nextCursor: undefined,
+            isStart: true,
+            isEnd: true,
+        },
+    });
+
+    const newNote = page.locator('[data-comment-action="new"]');
+    assert.equal(await newNote.isVisible(), true);
+    await newNote.click();
+    assert.equal(
+        await page.locator('[data-comment-selection]').textContent(),
+        'Session note'
+    );
+    await page.locator('[data-comment-input]').fill(
+        'Remember the rollout constraint.'
+    );
+    await page.locator('[data-comment-input]').press('Control+Enter');
+    const request = (await postedMessages(page)).at(-1);
+    assert.equal(request.type, 'conversation-viewer-comment-mutation');
+    assert.equal(request.operation, 'add');
+    assert.deepEqual(request.payload, {
+        scope: 'session',
+        comment: 'Remember the rollout constraint.',
+    });
+
+    const comment = {
+        id: 'session-note-1',
+        scope: 'session',
+        messageId: '',
+        interactionId: '',
+        role: 'user',
+        quote: '',
+        prefix: '',
+        suffix: '',
+        comment: 'Remember the rollout constraint.',
+        status: 'open',
+    };
+    await page.evaluate(({ request, comment }) => {
+        window.dispatchEvent(new MessageEvent('message', {
+            data: {
+                type: 'conversation-viewer-comments-result',
+                version: 1,
+                requestId: request.requestId,
+                subscriptionGeneration: request.subscriptionGeneration,
+                projectId: request.projectId,
+                provider: request.provider,
+                sessionId: request.sessionId,
+                operation: request.operation,
+                success: true,
+                revision: 1,
+                comments: [comment],
+            },
+        }));
+    }, { request, comment });
+
+    const card = page.locator('[data-comment-id="session-note-1"]');
+    assert.equal(await card.getAttribute('data-comment-scope'), 'session');
+    assert.equal(
+        await card.locator('.conversation-comment-scope').textContent(),
+        'Session note'
+    );
+    assert.equal(
+        await card.locator('[data-comment-action="locate"]').count(),
+        0
+    );
+    assert.equal(await card.locator('blockquote').count(), 0);
+});
+
 test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-REVIEW-001 CONVERSATION-COMMENTS-BULK-001 CONVERSATION-COMMENTS-LAYOUT-001 reviews contained cards and Host-owned comment batches', async t => {
     const interactionId = 'input-comments';
     const { page } = await openHostViewerDocument(t, {

@@ -145,6 +145,86 @@ test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 Claude accepts canonical strin
     );
 });
 
+test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 Claude excludes meta injections and background task notifications from User prompts', async t => {
+    const source = await createFixture(t);
+    const records = [{
+        type: 'user',
+        uuid: 'real-human-request',
+        origin: { kind: 'human' },
+        promptSource: 'typed',
+        message: {
+            role: 'user',
+            content: 'Review the active-active design.',
+        },
+    }, {
+        type: 'user',
+        uuid: 'skill-injection',
+        isMeta: true,
+        sourceToolUseID: 'tool-skill',
+        message: {
+            role: 'user',
+            content: [{
+                type: 'text',
+                text: 'Base directory for this skill: /private/skill',
+            }],
+        },
+    }, {
+        type: 'assistant',
+        uuid: 'visible-progress',
+        message: {
+            role: 'assistant',
+            content: [{
+                type: 'text',
+                text: 'I started the background reviews.',
+            }],
+        },
+    }, {
+        type: 'user',
+        uuid: 'background-task-notification',
+        origin: { kind: 'task-notification' },
+        promptSource: 'system',
+        message: {
+            role: 'user',
+            content: '<task-notification>private agent output</task-notification>',
+        },
+    }, {
+        type: 'assistant',
+        uuid: 'visible-final',
+        message: {
+            role: 'assistant',
+            content: [{
+                type: 'text',
+                text: 'The consolidated review is ready.',
+            }],
+        },
+    }];
+    await fs.promises.writeFile(
+        source.sourcePath,
+        `${records.map(record => JSON.stringify(record)).join('\n')}\n`
+    );
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+
+    const { outline, page } = await readWholeConversation(adapter);
+    assert.deepEqual(
+        outline.interactions.map(item => item.userPreview),
+        ['Review the active-active design.']
+    );
+    assert.deepEqual(
+        page.messages.map(message => [message.role, message.markdown]),
+        [
+            ['user', 'Review the active-active design.'],
+            ['assistant', 'I started the background reviews.'],
+            ['assistant', 'The consolidated review is ready.'],
+        ]
+    );
+    assert.equal(
+        JSON.stringify({ outline, page }).includes('task-notification')
+            || JSON.stringify({ outline, page }).includes('private/skill'),
+        false
+    );
+});
+
 test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 Claude treats string and array interrupt sentinels as interaction state only', async t => {
     const source = await createFixture(t);
     const records = [

@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-    "head": "b9a911e41f924864633f0e7b9c4552e1405b534c",
+    "head": "57f42aa6a293f77b0a27b5114f56d7c29cae2b5a",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -817,12 +817,14 @@
                 "4bf34c47bd1b7e03d682f5f8769e5a0b8cb3a501",
                 "7f01a053875e93efc93322539ea336fdd2ba3420",
                 "3923daf388b22192b9a64032a45d70ff3b24c73f",
-                "63ef8eb965b1a37f956ceaf5eacc11b25baa014e"
+                "63ef8eb965b1a37f956ceaf5eacc11b25baa014e",
+                "57f42aa6a293f77b0a27b5114f56d7c29cae2b5a"
             ],
             "behaviors": [
                 "ARCH-CI-QUALITY-GATE-001",
                 "ARCH-MAIN-CAPABILITY-COVERAGE-001",
                 "ARCH-MAIN-CAPABILITY-CURRENCY-001",
+                "COVERAGE-CHANGED-CODE-001",
                 "ARCH-REPOSITORY-SKILL-GUIDANCE-001",
                 "RELEASE-VSIX-PACKAGING-001",
                 "WEBVIEW-AI-SESSION-LIST-SCROLL-001",
@@ -975,7 +977,8 @@
                 "731a2b5e6edc5e1679a85040b15ea2ddb24f703a",
         "2083ec487f4e3bd894614cb2bac3053e9c020636",
         "e2c8e97cc289445e9506364a6e44f012c9dbf0bc",
-        "b9a911e41f924864633f0e7b9c4552e1405b534c"
+        "b9a911e41f924864633f0e7b9c4552e1405b534c",
+                "cc399e86dc85f92bad836769bd93c420e08695e3"
             ],
             "behaviors": [
                 "SESSION-AI-SESSION-CONVERSATION-ADAPTER-001",
@@ -988,6 +991,7 @@
                 "CONVERSATION-VIEWER-LOADING-001",
                 "CONVERSATION-PROTOCOL-VALIDATOR-001",
                 "CONVERSATION-REFRESH-PERFORMANCE-001",
+                "CONVERSATION-COMMENTS-DOM-STABILITY-001",
                 "CONVERSATION-OUTLINE-DELIVERY-001",
                 "CONVERSATION-VIEWER-USER-EMPHASIS-001",
                 "CONVERSATION-COMMENTS-001",
@@ -998,9 +1002,11 @@
                 "CONVERSATION-COMMENTS-PERSISTENCE-001",
                 "CONVERSATION-COMMENTS-LAYOUT-001",
                 "CONVERSATION-OUTLINE-NAVIGATION-001",
+                "CONVERSATION-OUTLINE-CONTROLLER-001",
                 "CONVERSATION-OUTLINE-BOOKMARKS-001",
                 "CONVERSATION-READING-FOCUS-001",
                 "CONVERSATION-TELEMETRY-001",
+                "CONVERSATION-TELEMETRY-CONTROLLER-001",
                 "WEBVIEW-STYLES-ARTIFACT-001",
                 "CONVERSATION-OPEN-LATEST-001",
                 "CONVERSATION-FOLLOW-ACTIVE-SESSION-001"

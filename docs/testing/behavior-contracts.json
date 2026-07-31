@@ -3211,6 +3211,22 @@
     ]
   },
   {
+    "id": "COVERAGE-CHANGED-CODE-001",
+    "domain": "architecture",
+    "title": "Pull requests keep instrumented changed executable lines at or above the reviewed coverage threshold",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/tooling/changedCoverage.test.js"
+    ],
+    "evidence": [
+      ".ci/changed-coverage.json",
+      "scripts/check-changed-coverage.js",
+      "package.json",
+      ".github/workflows/verify.yml"
+    ]
+  },
+  {
     "id": "WEBVIEW-LAZY-PANEL-RECOVERY-001",
     "domain": "webview",
     "title": "Lazy dashboard panels recover from a missing initial response",
@@ -3799,6 +3815,21 @@
     ]
   },
   {
+    "id": "CONVERSATION-OUTLINE-CONTROLLER-001",
+    "domain": "webview",
+    "title": "AI Conversation isolates authoritative outline selection, adjacency, and bounded publication projection behind one controller",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/conversationOutlineController.test.js",
+      "tests/integration/dashboard/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/outlineController.ts",
+      "src/aiSessions/conversation/viewer.ts"
+    ]
+  },
+  {
     "id": "CONVERSATION-OUTLINE-BOOKMARKS-001",
     "domain": "webview",
     "title": "AI Conversation persists current-Session input bookmarks, settles star changes through the Host, keeps stars and text compact, filters favorites on demand, and never reorders the outline",
@@ -3832,6 +3863,35 @@
       "src/aiSessions/conversation/viewer.ts",
       "src/webview/conversationViewerScripts.js",
       "media/conversationTelemetry.css"
+    ]
+  },
+  {
+    "id": "CONVERSATION-TELEMETRY-CONTROLLER-001",
+    "domain": "webview",
+    "title": "AI Conversation isolates correlated telemetry reads, current-Session delivery, fallback rebuilds, and initial markup behind one controller",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/conversationTelemetryController.test.js",
+      "tests/browser/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/conversationTelemetryController.ts",
+      "src/aiSessions/conversation/viewer.ts"
+    ]
+  },
+  {
+    "id": "CONVERSATION-COMMENTS-DOM-STABILITY-001",
+    "domain": "webview",
+    "title": "One hundred side-panel toggles and resizes preserve the exact Conversation DOM without message child-list mutations",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/browser/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/webview/conversationViewerScripts.js",
+      "media/conversationViewer.scss"
     ]
   },
   {

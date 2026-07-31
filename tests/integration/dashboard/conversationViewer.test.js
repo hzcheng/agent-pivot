@@ -464,7 +464,7 @@ test('CONVERSATION-VIEWER-NAVIGATION-002 moves within a loaded page without read
     assert.equal(reads, 1);
 });
 
-test('CONVERSATION-OUTLINE-NAVIGATION-001 publishes the current Session outline and loads an exact selected input', async () => {
+test('CONVERSATION-OUTLINE-NAVIGATION-001 CONVERSATION-OUTLINE-CONTROLLER-001 publishes the current Session outline and loads an exact selected input', async () => {
     const requests = [];
     const interactionIds = ['input-1', 'input-2', 'input-3'];
     const { viewer, panel } = createViewer({

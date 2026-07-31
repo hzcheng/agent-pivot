@@ -1872,6 +1872,54 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 sanitizes hostile HTML and post
     });
 });
 
+test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 preserves ordered numbering across loose multi-paragraph list items', async t => {
+    const { page } = await openHostViewerDocument(t, {
+        markdown: [
+            '1. Conversation modularization',
+            '',
+            'Split the current large modules by responsibility:',
+            '',
+            '- CommentController',
+            '- OutlineController',
+            '',
+            'Move behavior without changing the UI or protocol.',
+            '',
+            '2. Upgrade product regression gates',
+            '',
+            'Add required PR checks.',
+            '',
+            '3. Add user-visible performance budgets',
+            '',
+            'Measure refresh and rendering.',
+            '',
+            '4. Establish pre-release product journeys',
+            '',
+            'Treat critical paths as release blockers.',
+        ].join('\n'),
+    });
+
+    const orderedLists = await page.locator(
+        '.conversation-markdown > ol'
+    ).evaluateAll(elements => elements.map(list => ({
+        start: list.start,
+        text: list.textContent.trim(),
+    })));
+
+    assert.deepEqual(
+        orderedLists.map(list => list.start),
+        [1, 2, 3, 4]
+    );
+    assert.deepEqual(
+        orderedLists.map(list => list.text),
+        [
+            'Conversation modularization',
+            'Upgrade product regression gates',
+            'Add user-visible performance budgets',
+            'Establish pre-release product journeys',
+        ]
+    );
+});
+
 test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 CONVERSATION-VIEWER-RICH-MARKDOWN-001 preserves visible Mermaid node labels while retaining safe fallbacks', async t => {
     const page = await openViewerPage(t, { includeMermaid: true });
     await sendPage(page, {

@@ -8,7 +8,7 @@
         'span', 'section', 'article',
     ];
     var allowedAttributes = [
-        'href', 'src', 'alt', 'title', 'class',
+        'href', 'src', 'alt', 'title', 'class', 'start',
         'data-message-id', 'data-conversation-message-id',
         'data-interaction-id',
     ];

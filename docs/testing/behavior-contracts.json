@@ -4271,5 +4271,18 @@
     "evidence": [
       "src/aiSessions/notify/types.ts"
     ]
+  },
+  {
+    "id": "ATTENTION-NOTIFY-CORRELATION-001",
+    "domain": "attention",
+    "title": "Notifications carry a stable short correlation id",
+    "priority": "P2",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/notify/correlation.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/notify/correlation.ts"
+    ]
   }
 ]

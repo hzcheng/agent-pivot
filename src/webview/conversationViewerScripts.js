@@ -627,7 +627,11 @@
                     indent.className = 'conversation-code-indent';
                     indent.style.setProperty(
                         '--conversation-code-indent-step',
-                        indentStep + 'ch'
+                        (indentStep * 2) + 'ch'
+                    );
+                    indent.style.setProperty(
+                        '--conversation-code-indent-offset',
+                        codeIndentColumns(match[0]) + 'ch'
                     );
                     indent.textContent = match[0];
                     fragment.appendChild(indent);

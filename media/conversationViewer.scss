@@ -214,6 +214,7 @@ button {
     .conversation-code-indent {
         position: relative;
         display: inline-block;
+        padding-inline-start: var(--conversation-code-indent-offset);
         white-space: pre;
 
         &::before {

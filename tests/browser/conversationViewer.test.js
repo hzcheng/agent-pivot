@@ -1946,12 +1946,21 @@ service DtsService {
         elements.map(element => ({
             text: element.textContent,
             width: element.getBoundingClientRect().width,
+            characterWidth: (() => {
+                const range = new Range();
+                range.setStart(element.nextSibling, 0);
+                range.setEnd(element.nextSibling, 1);
+                return range.getBoundingClientRect().width;
+            })(),
             guide: getComputedStyle(element, '::before').backgroundImage,
         }))
     );
     presentation.forEach(indent => {
         assert.equal(indent.text, '  ');
-        assert.ok(indent.width > 0);
+        assert.ok(
+            indent.width >= indent.characterWidth * 3.75,
+            'one source indentation level must have a clear four-column offset'
+        );
         assert.notEqual(indent.guide, 'none');
     });
 });

@@ -528,6 +528,7 @@ button {
 
 .conversation-comments-header {
     display: flex;
+    flex: 0 0 auto;
     min-width: 0;
     gap: 0.625rem;
     align-items: flex-start;
@@ -569,6 +570,7 @@ button {
     bottom: 0;
     z-index: 1;
     display: grid;
+    flex: 0 0 auto;
     min-width: 0;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 0.25rem;
@@ -684,6 +686,11 @@ button {
     border: 1px solid var(--vscode-panel-border);
     border-radius: 8px;
     background: var(--vscode-editor-background);
+}
+
+.conversation-comment-composer,
+.conversation-comment-list {
+    flex: 0 0 auto;
 }
 
 .conversation-comment {

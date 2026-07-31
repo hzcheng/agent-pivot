@@ -1132,6 +1132,37 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-REVIEW-001 CONVERSATION
         }]
     );
 
+    await selectText('delta');
+    assert.deepEqual(
+        await page.evaluate(() => {
+            const composer = document.querySelector(
+                '[data-comment-composer]'
+            );
+            const actions = composer.querySelector(
+                '.conversation-comment-actions'
+            );
+            const firstCard = document.querySelector('[data-comment-id]');
+            const composerBounds = composer.getBoundingClientRect();
+            const actionsBounds = actions.getBoundingClientRect();
+            const firstCardBounds = firstCard.getBoundingClientRect();
+            return {
+                contentUnclipped:
+                    composer.scrollHeight <= composer.clientHeight,
+                actionsContained:
+                    actionsBounds.top >= composerBounds.top
+                    && actionsBounds.bottom <= composerBounds.bottom,
+                clearOfFirstCard:
+                    composerBounds.bottom <= firstCardBounds.top,
+            };
+        }),
+        {
+            contentUnclipped: true,
+            actionsContained: true,
+            clearOfFirstCard: true,
+        }
+    );
+    await page.locator('[data-comment-action="cancel-add"]').click();
+
     await page.setViewportSize({ width: 180, height: 600 });
     assert.deepEqual(
         await page.locator('[data-comment-id]').evaluateAll(cards =>

@@ -910,6 +910,9 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 filters the current Session outline an
 test('CONVERSATION-OUTLINE-BOOKMARKS-001 settles stars authoritatively, filters favorites, and preserves input order', async t => {
     const interactionIds = ['input-1', 'input-2', 'input-3'];
     const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+        viewport: { width: 1050, height: 620 },
         interactionIds,
         interactionId: 'input-2',
         bookmarkStore: {
@@ -929,6 +932,29 @@ test('CONVERSATION-OUTLINE-BOOKMARKS-001 settles stars authoritatively, filters 
     );
 
     assert.deepEqual(await orderedIds(), interactionIds);
+    const leftGeometry = await page.evaluate(() => {
+        const outline = document.querySelector('[data-conversation-outline]');
+        const star = document.querySelector(
+            '[data-outline-bookmark-id="input-1"]'
+        );
+        const preview = document.querySelector(
+            '[data-outline-interaction-id="input-1"]'
+        )?.querySelector('.conversation-outline-preview');
+        return {
+            starInset: star.getBoundingClientRect().left
+                - outline.getBoundingClientRect().left,
+            previewInset: preview.getBoundingClientRect().left
+                - outline.getBoundingClientRect().left,
+        };
+    });
+    assert.ok(
+        leftGeometry.previewInset <= 48,
+        `outline text should stay compact, got ${leftGeometry.previewInset}px`
+    );
+    assert.ok(
+        leftGeometry.starInset <= 6,
+        `bookmark star should hug the left edge, got ${leftGeometry.starInset}px`
+    );
     assert.equal(await inputOneStar.getAttribute('aria-pressed'), 'false');
     assert.equal(
         await page.locator(

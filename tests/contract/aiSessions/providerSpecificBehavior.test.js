@@ -339,3 +339,86 @@ test('SESSION-CLAUDE-SUBAGENT-LIFECYCLE-001 keeps Claude running while any backg
     assert.equal(completed.reason, 'completed');
     assert.equal(completed.executionState, 'stopped');
 });
+
+test('SESSION-CLAUDE-SESSION-SERVICE-001 stats each session file once instead of once per sort comparison', t => {
+    const root = makeTempDirectory(t, 'provider-claude-sort-');
+    setEnvironment(t, 'CLAUDE_HOME', root);
+    const sessionDir = path.join(root, 'projects', '-work-app');
+    fs.mkdirSync(sessionDir, { recursive: true });
+
+    // Enough files that an O(n log n) comparator is clearly distinguishable
+    // from an O(n) decorate-sort pass.
+    const sessionCount = 32;
+    const sessionIds = [];
+    for (let index = 0; index < sessionCount; index += 1) {
+        const sessionId = crypto.randomUUID();
+        sessionIds.push(sessionId);
+        fs.writeFileSync(
+            path.join(sessionDir, `${sessionId}.jsonl`),
+            `${JSON.stringify({
+                sessionId, cwd: '/work/app', timestamp: '2026-01-01T00:00:00.000Z',
+            })}\n`,
+            'utf8'
+        );
+    }
+
+    let stats = 0;
+    const realStatSync = fs.statSync;
+    fs.statSync = function countingStatSync(...args) {
+        stats += 1;
+        return realStatSync.apply(fs, args);
+    };
+    t.after(() => { fs.statSync = realStatSync; });
+
+    const service = new ClaudeSessionService();
+    stats = 0;
+    const result = service.getSessions({ forceRefresh: true, candidatePaths: ['/work/app'] });
+
+    assert.equal(result.available, true);
+    assert.equal(result.sessions.length, sessionCount);
+    // Ordering by recency must not cost a syscall per comparison. Allow a small
+    // constant of extra probes, but nothing that scales with log n.
+    assert.ok(
+        stats <= sessionCount * 2,
+        `expected at most ${sessionCount * 2} statSync calls for ${sessionCount} sessions, saw ${stats}`
+    );
+});
+
+test('SESSION-CODEX-SESSION-SERVICE-001 stats each session file once per change poll', t => {
+    const root = makeTempDirectory(t, 'provider-codex-fingerprint-');
+    setEnvironment(t, 'CODEX_HOME', root);
+    const sessionsDir = path.join(root, 'sessions', '2026', '07', '14');
+    fs.mkdirSync(sessionsDir, { recursive: true });
+
+    const sessionCount = 32;
+    for (let index = 0; index < sessionCount; index += 1) {
+        const sessionId = crypto.randomUUID();
+        writeCodexSessionMetaFile(sessionsDir, sessionId, {
+            id: sessionId, session_id: sessionId, cwd: '/work/app',
+            timestamp: '2026-07-14T01:00:00.000Z', source: 'vscode',
+        });
+    }
+    fs.writeFileSync(path.join(root, 'session_index.jsonl'), '', 'utf8');
+
+    let stats = 0;
+    const realStatSync = fs.statSync;
+    fs.statSync = function countingStatSync(...args) {
+        stats += 1;
+        return realStatSync.apply(fs, args);
+    };
+    t.after(() => { fs.statSync = realStatSync; });
+
+    const service = new CodexSessionService();
+    stats = 0;
+    // watchSessionChanges runs this every 3s per provider.
+    const fingerprint = service.getSessionFingerprint();
+
+    assert.ok(fingerprint.length > 0);
+    // Listing already stats every file to order by recency; the signature must
+    // reuse that instead of stat'ing the same paths a second time. One extra
+    // call covers session_index.jsonl.
+    assert.ok(
+        stats <= sessionCount + 4,
+        `expected at most ${sessionCount + 4} statSync calls for ${sessionCount} sessions, saw ${stats}`
+    );
+});

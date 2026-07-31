@@ -2,7 +2,11 @@
 
 import type { AiSessionProviderId, CodexSession } from '../models';
 import type { AttentionAggregate } from './attentionAggregate';
-import { aggregateAttentionSnapshots, filterAcknowledgedAttentionAggregate } from './attentionAggregate';
+import {
+    aggregateAttentionSnapshots,
+    filterAcknowledgedAttentionAggregate,
+    filterLocallyClearedAttentionAggregate,
+} from './attentionAggregate';
 import { MAX_ATTENTION_ITEMS } from './attentionPayload';
 import type { AttentionPayloadItem } from './attentionPayload';
 import AiSessionAttentionMonitor from './attentionMonitor';
@@ -15,6 +19,8 @@ import type {
 import { getAttentionProjectKeys, getLogicalAttentionSessionKey } from './attentionProject';
 import { getAiSessionKey } from './sessionHelpers';
 import type { WorkspaceAiSessionActionTarget, WorkspaceAiSessionViewModel } from './types';
+
+const DEFAULT_BRIDGE_OUTAGE_MS = 10_000;
 
 export interface AiSessionAttentionRuntimeEntry {
     runStartedAtMs: number;
@@ -37,6 +43,8 @@ export interface AiSessionAttentionControllerOptions<TRuntime extends AiSessionA
     publish: (items: AttentionPayloadItem[], forceHeartbeat?: boolean) => Promise<boolean>;
     scheduleRefresh: (reason: string) => void;
     nowMs: () => number;
+    /** How long publishing must keep failing before the bridge counts as out. */
+    bridgeOutageMs?: number;
 }
 
 export interface AiSessionAttentionEvaluation {
@@ -60,6 +68,7 @@ export class AiSessionAttentionController<TRuntime extends AiSessionAttentionRun
     private localItems: AttentionPayloadItem[] = [];
     private attentionKeysBySession = new Map<string, string[]>();
     private locallyAcknowledgedEventIds = new Set<string>();
+    private publishFailingSinceMs: number | null = null;
 
     constructor(private readonly options: AiSessionAttentionControllerOptions<TRuntime>) {
         this.monitor = new AiSessionAttentionMonitor({ now: options.nowMs });
@@ -76,6 +85,7 @@ export class AiSessionAttentionController<TRuntime extends AiSessionAttentionRun
             this.attentionKeysBySession.clear();
             this.locallyAcknowledgedEventIds.clear();
             const published = await this.options.publish([], true);
+            this.recordPublishResult(published);
             this.options.scheduleRefresh('attention');
             return {
                 enabled: false,
@@ -134,6 +144,7 @@ export class AiSessionAttentionController<TRuntime extends AiSessionAttentionRun
         const localResult = this.buildLocalItems(workspaceTarget, providers);
         this.localItems = localResult.items;
         const published = await this.options.publish(this.localItems);
+        this.recordPublishResult(published);
         return {
             enabled: true,
             published,
@@ -174,7 +185,11 @@ export class AiSessionAttentionController<TRuntime extends AiSessionAttentionRun
     }
 
     getEffectiveAggregate(): AttentionAggregate {
-        const aggregate = this.remoteAggregate || (() => {
+        // A sustained publish outage means the bridge cannot be reached at all, so
+        // its last aggregate is unverifiable and no peer can be acknowledging our
+        // events either. Local state is then the only honest source.
+        const remote = this.isBridgeOut() ? null : this.remoteAggregate;
+        const aggregate = remote || (() => {
             const now = this.options.nowMs();
             return aggregateAttentionSnapshots([{
                 version: 1,
@@ -185,7 +200,49 @@ export class AiSessionAttentionController<TRuntime extends AiSessionAttentionRun
                 heartbeat: 0,
             }], new Set<string>(), now);
         })();
-        return filterAcknowledgedAttentionAggregate(aggregate, this.locallyAcknowledgedEventIds);
+        return filterLocallyClearedAttentionAggregate(
+            filterAcknowledgedAttentionAggregate(aggregate, this.locallyAcknowledgedEventIds),
+            sessionKey => this.isLocallyCleared(sessionKey)
+        );
+    }
+
+    private recordPublishResult(published: boolean): void {
+        if (published) {
+            this.publishFailingSinceMs = null;
+            return;
+        }
+        if (this.publishFailingSinceMs === null) {
+            this.publishFailingSinceMs = this.options.nowMs();
+        }
+    }
+
+    /**
+     * Whether publishing has been failing long enough to call the bridge out.
+     * A single failure is not enough: the client retries at 100ms, 500ms and 2s,
+     * so a bridge restart would otherwise flicker peer windows off the view.
+     */
+    private isBridgeOut(): boolean {
+        if (this.publishFailingSinceMs === null) {
+            return false;
+        }
+        const outageMs = this.options.bridgeOutageMs ?? DEFAULT_BRIDGE_OUTAGE_MS;
+        return this.options.nowMs() - this.publishFailingSinceMs >= outageMs;
+    }
+
+    /**
+     * Whether this window owns the session and its monitor no longer reports
+     * attention. Sessions this window does not track are never claimed, because
+     * for those the aggregate is the only thing that knows anything.
+     */
+    private isLocallyCleared(sessionKey: string): boolean {
+        const attentionKeys = this.attentionKeysBySession.get(
+            getLogicalAttentionSessionKey(sessionKey)
+        );
+        if (!attentionKeys?.length) {
+            return false;
+        }
+        const snapshot = this.monitor.getSnapshot();
+        return !attentionKeys.some(key => snapshot[key]?.state === 'needsAttention');
     }
 
     getLocalSnapshot(): Record<string, AiSessionAttentionSnapshot> {

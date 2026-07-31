@@ -24,6 +24,13 @@ interface CodexSessionMeta {
     isExcluded?: boolean;
 }
 
+interface CodexDiscoveredSessionFile {
+    id: string;
+    filePath: string;
+    mtimeMs: number;
+    sizeBytes: number;
+}
+
 export interface CodexSessionReadResult {
     available: boolean;
     sessions: CodexSession[];
@@ -279,9 +286,11 @@ export default class CodexSessionService {
     }
 
     private getSessionFilesSignature(codexHome: string): string {
-        let sessionFiles = this.getSessionFiles(codexHome);
-        return Array.from(sessionFiles.entries())
-            .map(([sessionId, filePath]) => `${sessionId}:${filePath}:${this.getFileSignature(filePath)}`)
+        // Discovery already stats every file to order by recency, so the change
+        // signature reuses that instead of stat'ing every path a second time.
+        return this.discoverSessionFiles(codexHome)
+            .map(entry =>
+                `${entry.id}:${entry.filePath}:${entry.filePath}:${entry.sizeBytes}:${entry.mtimeMs}`)
             .sort()
             .join(',');
     }
@@ -323,16 +332,24 @@ export default class CodexSessionService {
         return Number.isFinite(maxFiles) && maxFiles > 0 ? Math.floor(maxFiles) : 0;
     }
 
-    private getSessionFiles(codexHome: string, maxFiles = 0, stats?: { discoveredFiles: number }): Map<string, string> {
-        let discovered: Array<{ id: string; filePath: string; mtimeMs: number }> = [];
+    private discoverSessionFiles(
+        codexHome: string,
+        maxFiles = 0,
+        stats?: { discoveredFiles: number }
+    ): CodexDiscoveredSessionFile[] {
+        let discovered: CodexDiscoveredSessionFile[] = [];
         this.addSessionFiles(path.join(codexHome, 'sessions'), discovered, true);
         if (stats) {
             stats.discoveredFiles = discovered.length;
         }
-        let files = new Map<string, string>();
-        for (let entry of discovered
+        return discovered
             .sort((a, b) => b.mtimeMs - a.mtimeMs || a.filePath.localeCompare(b.filePath))
-            .slice(0, maxFiles || undefined)) {
+            .slice(0, maxFiles || undefined);
+    }
+
+    private getSessionFiles(codexHome: string, maxFiles = 0, stats?: { discoveredFiles: number }): Map<string, string> {
+        let files = new Map<string, string>();
+        for (let entry of this.discoverSessionFiles(codexHome, maxFiles, stats)) {
             files.set(entry.id, entry.filePath);
         }
         for (let [sessionId, filePath] of files) {
@@ -342,7 +359,7 @@ export default class CodexSessionService {
         return files;
     }
 
-    private addSessionFiles(sessionPath: string, files: Array<{ id: string; filePath: string; mtimeMs: number }>, recursive: boolean) {
+    private addSessionFiles(sessionPath: string, files: CodexDiscoveredSessionFile[], recursive: boolean) {
         if (!fs.existsSync(sessionPath)) {
             return;
         }
@@ -361,7 +378,7 @@ export default class CodexSessionService {
 
                 let id = this.getSessionIdFromFileName(entry.name);
                 if (id) {
-                    files.push({ id, filePath: entryPath, mtimeMs: this.getFileMtimeMs(entryPath) });
+                    files.push({ id, filePath: entryPath, ...this.getFileStat(entryPath) });
                 }
             }
         } catch (e) {
@@ -369,11 +386,13 @@ export default class CodexSessionService {
         }
     }
 
-    private getFileMtimeMs(filePath: string): number {
+    /** One stat carries both the ordering key and the change signature. */
+    private getFileStat(filePath: string): { mtimeMs: number; sizeBytes: number } {
         try {
-            return fs.statSync(filePath).mtimeMs;
+            let stat = fs.statSync(filePath);
+            return { mtimeMs: stat.mtimeMs, sizeBytes: stat.size };
         } catch (e) {
-            return 0;
+            return { mtimeMs: 0, sizeBytes: 0 };
         }
     }
 

@@ -3655,7 +3655,8 @@
     "status": "automated",
     "owners": [
       "scripts/run-conversation-performance-checks.js",
-      "tests/browser/conversationViewer.test.js"
+      "tests/browser/conversationViewer.test.js",
+      "tests/unit/tooling/conversationPerformance.test.js"
     ],
     "evidence": [
       ".ci/conversation-performance.json",

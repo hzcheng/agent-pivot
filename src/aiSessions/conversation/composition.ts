@@ -28,6 +28,7 @@ import {
     ConversationHostControllerOptions,
 } from './conversationHostController';
 import type { ConversationCommentStore } from './commentStore';
+import type { ConversationBookmarkStore } from './bookmarkStore';
 import {
     ConversationCoordinator,
     ConversationCoordinatorOptions,
@@ -97,6 +98,7 @@ export interface ConversationCapabilityOptions {
         target: ConversationSessionOpenTarget
     ) => PromiseLike<void> | Promise<void>;
     commentStore?: ConversationCommentStore;
+    bookmarkStore?: ConversationBookmarkStore;
 }
 
 interface ConversationCapabilityInternalFactories {
@@ -222,6 +224,7 @@ function createAvailableConversationCapability(
         submitPrompt: options.submitPrompt,
         focusSession: options.focusSession,
         commentStore: options.commentStore,
+        bookmarkStore: options.bookmarkStore,
     }));
     let viewerIntentGeneration = 0;
     const controller = ownership.own(factories.createController({

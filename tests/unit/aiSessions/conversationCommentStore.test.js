@@ -30,6 +30,17 @@ function snapshot() {
             suffix: '',
             comment: 'Please clarify this.',
             status: 'open',
+        }, {
+            id: 'comment-session',
+            scope: 'session',
+            messageId: '',
+            interactionId: '',
+            role: 'user',
+            quote: '',
+            prefix: '',
+            suffix: '',
+            comment: 'Remember this Session note.',
+            status: 'open',
         }],
     };
 }

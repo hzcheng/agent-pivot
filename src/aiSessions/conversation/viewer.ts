@@ -15,8 +15,10 @@ import {
     ConversationCommentError,
     ConversationCommentOperation,
     ConversationCommentSelection,
+    ConversationCommentSessionNote,
     ConversationCommentTarget,
     createConversationComment,
+    createConversationSessionComment,
     markConversationCommentsSent,
     reopenConversationComment,
     resolveConversationComment,
@@ -27,6 +29,12 @@ import type {
     ConversationCommentSnapshot,
     ConversationCommentStore,
 } from './commentStore';
+import {
+    ConversationBookmarkSnapshot,
+    ConversationBookmarkStore,
+    isConversationBookmarkSnapshot,
+    MAX_CONVERSATION_BOOKMARKS,
+} from './bookmarkStore';
 import { renderConversationMarkdown } from './markdown';
 import {
     CONVERSATION_LIMITS,
@@ -88,6 +96,7 @@ export interface ConversationViewerOptions {
         >
     ) => PromiseLike<void> | Promise<void>;
     commentStore?: ConversationCommentStore;
+    bookmarkStore?: ConversationBookmarkStore;
 }
 
 export interface ConversationViewerApi extends AiSessionDisposable {
@@ -222,13 +231,45 @@ interface ConversationViewerCommentsResultMessage {
     error?: ConversationCommentError['code'];
 }
 
+interface ConversationViewerBookmarkMutationMessage {
+    type: 'conversation-viewer-bookmark-mutation';
+    version: 1;
+    requestId: string;
+    subscriptionGeneration: number;
+    projectId: string;
+    provider: AiSessionProviderId;
+    sessionId: string;
+    operation: 'set';
+    expectedRevision: number;
+    payload: {
+        interactionId: string;
+        bookmarked: boolean;
+    };
+}
+
+interface ConversationViewerBookmarksResultMessage {
+    type: 'conversation-viewer-bookmarks-result';
+    version: 1;
+    requestId: string;
+    subscriptionGeneration: number;
+    projectId: string;
+    provider: AiSessionProviderId;
+    sessionId: string;
+    operation: 'set';
+    success: boolean;
+    revision: number;
+    interactionIds: string[];
+    error?: 'invalid' | 'stale' | 'failed' | 'limit';
+}
+
 type ConversationViewerMessage =
     ConversationViewerNavigationMessage
     | ConversationViewerSelectInteractionMessage
     | ConversationViewerOpenLinkMessage
     | ConversationViewerCommentMutationMessage
     | ConversationViewerSendCommentsMessage
-    | ConversationViewerLocateCommentMessage;
+    | ConversationViewerLocateCommentMessage
+    | ConversationViewerBookmarkMutationMessage;
 
 const NAVIGATION_MESSAGE_TYPES = new Set([
     'conversation-viewer-previous',
@@ -263,6 +304,11 @@ export class ConversationViewer implements ConversationViewerApi {
     private commentOperationQueue: Promise<void> = Promise.resolve();
     private readonly commentSettlements =
         new Map<string, ConversationViewerCommentsResultMessage>();
+    private bookmarkIds = new Set<string>();
+    private bookmarkRevision = 0;
+    private bookmarkOperationQueue: Promise<void> = Promise.resolve();
+    private readonly bookmarkSettlements =
+        new Map<string, ConversationViewerBookmarksResultMessage>();
 
     constructor(private readonly options: ConversationViewerOptions) {}
 
@@ -295,7 +341,10 @@ export class ConversationViewer implements ConversationViewerApi {
         if (!activeTarget) {
             return false;
         }
-        await this.restoreComments(activeTarget, generation);
+        await Promise.all([
+            this.restoreComments(activeTarget, generation),
+            this.restoreBookmarks(activeTarget, generation),
+        ]);
         if (this.target !== activeTarget
             || this.subscriptionGeneration !== generation) {
             return false;
@@ -396,6 +445,9 @@ export class ConversationViewer implements ConversationViewerApi {
         this.comments = [];
         this.commentRevision = 0;
         this.commentSettlements.clear();
+        this.bookmarkIds.clear();
+        this.bookmarkRevision = 0;
+        this.bookmarkSettlements.clear();
         this.target = { ...target };
         this.selectedInteractionId = target.interactionId;
         this.suspended = false;
@@ -475,6 +527,9 @@ export class ConversationViewer implements ConversationViewerApi {
         this.comments = [];
         this.commentRevision = 0;
         this.commentSettlements.clear();
+        this.bookmarkIds.clear();
+        this.bookmarkRevision = 0;
+        this.bookmarkSettlements.clear();
         this.panelWasVisible = false;
         this.suspended = false;
         this.subscriptionGeneration += 1;
@@ -497,6 +552,10 @@ export class ConversationViewer implements ConversationViewerApi {
         if (parsed.type === 'conversation-viewer-comment-mutation'
             || parsed.type === 'conversation-viewer-send-comments') {
             await this.enqueueCommentOperation(parsed);
+            return;
+        }
+        if (parsed.type === 'conversation-viewer-bookmark-mutation') {
+            await this.enqueueBookmarkOperation(parsed);
             return;
         }
         if (parsed.type === 'conversation-viewer-locate-comment') {
@@ -526,6 +585,121 @@ export class ConversationViewer implements ConversationViewerApi {
         const queued = this.commentOperationQueue.then(operation, operation);
         this.commentOperationQueue = queued.catch(() => undefined);
         return queued;
+    }
+
+    private enqueueBookmarkOperation(
+        request: ConversationViewerBookmarkMutationMessage
+    ): Promise<void> {
+        const operation = () => this.handleBookmarkOperation(request);
+        const queued = this.bookmarkOperationQueue.then(operation, operation);
+        this.bookmarkOperationQueue = queued.catch(() => undefined);
+        return queued;
+    }
+
+    private async handleBookmarkOperation(
+        request: ConversationViewerBookmarkMutationMessage
+    ): Promise<void> {
+        const target = this.target;
+        const panel = this.panel;
+        if (!target || !panel) {
+            return;
+        }
+        const settlementKey = getBookmarkSettlementKey(request);
+        const settled = this.bookmarkSettlements.get(settlementKey);
+        if (settled) {
+            await this.publishTransientSettlement(settled);
+            return;
+        }
+        if (!bookmarkRequestTargetsViewer(
+            request,
+            target,
+            this.subscriptionGeneration
+        ) || request.expectedRevision !== this.bookmarkRevision) {
+            await this.settleBookmarkRequest(request, false, 'stale');
+            return;
+        }
+        const interactionExists = this.outline?.interactions.some(
+            interaction =>
+                interaction.id === request.payload.interactionId
+        ) === true;
+        if (!interactionExists) {
+            await this.settleBookmarkRequest(request, false, 'stale');
+            return;
+        }
+        const next = new Set(this.bookmarkIds);
+        if (request.payload.bookmarked) {
+            next.add(request.payload.interactionId);
+        } else {
+            next.delete(request.payload.interactionId);
+        }
+        if (next.size > MAX_CONVERSATION_BOOKMARKS) {
+            await this.settleBookmarkRequest(request, false, 'limit');
+            return;
+        }
+        const changed = next.size !== this.bookmarkIds.size
+            || [...next].some(id => !this.bookmarkIds.has(id));
+        const snapshot = {
+            revision: this.bookmarkRevision + (changed ? 1 : 0),
+            interactionIds: [...next],
+        };
+        const previousSnapshot = {
+            revision: this.bookmarkRevision,
+            interactionIds: [...this.bookmarkIds],
+        };
+        try {
+            await this.persistBookmarks(target, snapshot);
+            if (this.target !== target
+                || this.subscriptionGeneration
+                    !== request.subscriptionGeneration
+                || this.bookmarkRevision !== request.expectedRevision) {
+                await this.persistBookmarks(target, previousSnapshot);
+                throw new Error('stale');
+            }
+            this.bookmarkIds = next;
+            this.bookmarkRevision = snapshot.revision;
+            await this.settleBookmarkRequest(request, true);
+        } catch (error) {
+            await this.settleBookmarkRequest(
+                request,
+                false,
+                error instanceof Error && error.message === 'stale'
+                    ? 'stale'
+                    : 'failed'
+            );
+        }
+    }
+
+    private async settleBookmarkRequest(
+        request: ConversationViewerBookmarkMutationMessage,
+        success: boolean,
+        error?: ConversationViewerBookmarksResultMessage['error']
+    ): Promise<void> {
+        const settlement: ConversationViewerBookmarksResultMessage = {
+            type: 'conversation-viewer-bookmarks-result',
+            version: 1,
+            requestId: request.requestId,
+            subscriptionGeneration: request.subscriptionGeneration,
+            projectId: request.projectId,
+            provider: request.provider,
+            sessionId: request.sessionId,
+            operation: 'set',
+            success,
+            revision: this.bookmarkRevision,
+            interactionIds: [...this.bookmarkIds],
+            ...(error ? { error } : {}),
+        };
+        this.bookmarkSettlements.set(
+            getBookmarkSettlementKey(request),
+            settlement
+        );
+        while (this.bookmarkSettlements.size > 100) {
+            const oldest = this.bookmarkSettlements.keys().next().value;
+            if (typeof oldest !== 'string') {
+                break;
+            }
+            this.bookmarkSettlements.delete(oldest);
+        }
+        await this.publishTransientSettlement(settlement);
     }
 
     private async handleCommentOperation(
@@ -619,19 +793,26 @@ export class ConversationViewer implements ConversationViewerApi {
                 >= CONVERSATION_COMMENT_LIMITS.maxComments) {
                 throw new ConversationCommentError('limit');
             }
-            const payload = parseCommentSelection(request.payload);
-            const message = this.messages().find(candidate =>
-                candidate.id === payload.messageId
-                && candidate.interactionId === payload.interactionId
-            );
-            if (!message) {
-                throw new ConversationCommentError('stale');
+            const payload = parseCommentInput(request.payload);
+            if (payload.scope === 'session') {
+                comments.push(createConversationSessionComment(
+                    randomBytes(16).toString('hex'),
+                    payload.comment
+                ));
+            } else {
+                const message = this.messages().find(candidate =>
+                    candidate.id === payload.messageId
+                    && candidate.interactionId === payload.interactionId
+                );
+                if (!message) {
+                    throw new ConversationCommentError('stale');
+                }
+                comments.push(createConversationComment(
+                    randomBytes(16).toString('hex'),
+                    payload,
+                    message
+                ));
             }
-            comments.push(createConversationComment(
-                randomBytes(16).toString('hex'),
-                payload,
-                message
-            ));
             revision += 1;
         } else if (request.operation === 'clearSent'
             || request.operation === 'clearResolved'
@@ -750,6 +931,42 @@ export class ConversationViewer implements ConversationViewerApi {
         }
         this.comments = cloneConversationComments(snapshot.comments);
         this.commentRevision = snapshot.revision;
+    }
+
+    private async restoreBookmarks(
+        target: ConversationViewerTarget,
+        generation: number
+    ): Promise<void> {
+        if (!this.options.bookmarkStore) {
+            return;
+        }
+        let snapshot: ConversationBookmarkSnapshot;
+        try {
+            snapshot = await this.options.bookmarkStore.load(
+                toBookmarkTarget(target)
+            );
+            if (!isConversationBookmarkSnapshot(snapshot)) {
+                return;
+            }
+        } catch (_error) {
+            return;
+        }
+        if (this.target !== target
+            || this.subscriptionGeneration !== generation) {
+            return;
+        }
+        this.bookmarkIds = new Set(snapshot.interactionIds);
+        this.bookmarkRevision = snapshot.revision;
+    }
+
+    private async persistBookmarks(
+        target: ConversationViewerTarget,
+        snapshot: ConversationBookmarkSnapshot
+    ): Promise<void> {
+        if (!this.options.bookmarkStore) {
+            return;
+        }
+        await this.options.bookmarkStore.save(toBookmarkTarget(target), snapshot);
     }
 
     private async persistComments(
@@ -876,6 +1093,7 @@ export class ConversationViewer implements ConversationViewerApi {
 
     private async publishTransientSettlement(
         settlement: ConversationViewerLocateCommentResultMessage
+            | ConversationViewerBookmarksResultMessage
     ): Promise<void> {
         const panel = this.panel;
         if (!panel) {
@@ -888,8 +1106,8 @@ export class ConversationViewer implements ConversationViewerApi {
             delivered = false;
         }
         if (!delivered && this.panel === panel) {
-            // Replacing the document clears any Webview-owned pending locate
-            // state while preserving the Host-owned comments and current page.
+            // Replacing the document clears Webview-owned pending state while
+            // preserving Host-owned comments, bookmarks, and the current page.
             this.rebuildLatestDocument();
         }
     }
@@ -1702,6 +1920,12 @@ export class ConversationViewer implements ConversationViewerApi {
                 comments: cloneConversationComments(this.comments),
             })
         )}"`;
+        const bookmarkStateAttribute = ` data-initial-bookmarks="${escapeAttribute(
+            JSON.stringify({
+                revision: this.bookmarkRevision,
+                interactionIds: [...this.bookmarkIds],
+            })
+        )}"`;
         const targetAttribute = ` data-conversation-target="${escapeAttribute(
             JSON.stringify({
                 projectId: target.projectId,
@@ -1725,7 +1949,7 @@ export class ConversationViewer implements ConversationViewerApi {
 </head>
 <body data-auto-scroll-threshold="${CONVERSATION_LIMITS.autoScrollThresholdPx}"
     data-mermaid-src="${escapeAttribute(mermaid.toString())}"
-    data-subscription-generation="${this.subscriptionGeneration}"${initialPageAttribute}${commentStateAttribute}${targetAttribute}>
+    data-subscription-generation="${this.subscriptionGeneration}"${initialPageAttribute}${commentStateAttribute}${bookmarkStateAttribute}${targetAttribute}>
     <header class="conversation-header">
         <div class="conversation-identity">
             <strong>${escapeHtml(providerLabel(target.provider))}</strong>
@@ -1788,6 +2012,10 @@ export class ConversationViewer implements ConversationViewerApi {
                     for="conversation-outline-search">Search inputs</label>
                 <input id="conversation-outline-search" type="search"
                     data-outline-search placeholder="Search user inputs">
+                <button type="button" class="conversation-outline-bookmarks-only"
+                    data-outline-bookmarks-only aria-pressed="false">
+                    ☆ Bookmarks
+                </button>
                 <p class="conversation-outline-partial"
                     data-outline-partial hidden>
                     Showing the newest inputs available in this Session.
@@ -1806,7 +2034,11 @@ export class ConversationViewer implements ConversationViewerApi {
                         <strong>Review comments</strong>
                         <span data-comment-summary>No comments yet</span>
                     </div>
-                    <span data-comment-count aria-label="0 comments">0</span>
+                    <div class="conversation-comments-header-actions">
+                        <button type="button" data-comment-action="new"
+                            title="Add a note about this Session">+ Note</button>
+                        <span data-comment-count aria-label="0 comments">0</span>
+                    </div>
                 </div>
                 <div class="conversation-comment-composer"
                     data-comment-composer hidden>
@@ -1827,7 +2059,7 @@ export class ConversationViewer implements ConversationViewerApi {
                 <div class="conversation-comment-list"
                     data-comment-list></div>
                 <p class="conversation-comment-empty" data-comment-empty>
-                    Select text in the conversation to add a comment.
+                    Select text to comment on it, or add a Session note.
                 </p>
                 <div class="conversation-comments-toolbar"
                     data-comments-toolbar role="group"
@@ -1913,6 +2145,31 @@ function parseViewerMessage(message: unknown): ConversationViewerMessage | undef
         }
         return value as unknown as ConversationViewerLocateCommentMessage;
     }
+    if (value.type === 'conversation-viewer-bookmark-mutation') {
+        if (!hasExactKeys(value, [
+            'type', 'version', 'requestId', 'subscriptionGeneration',
+            'projectId', 'provider', 'sessionId', 'operation',
+            'expectedRevision', 'payload',
+        ])
+            || !isCommentRequestId(value.requestId)
+            || !Number.isSafeInteger(value.subscriptionGeneration)
+            || (value.subscriptionGeneration as number) < 1
+            || !isCommentTargetId(value.projectId)
+            || !isProvider(value.provider)
+            || !isCommentTargetId(value.sessionId)
+            || value.operation !== 'set'
+            || !Number.isSafeInteger(value.expectedRevision)
+            || (value.expectedRevision as number) < 0
+            || !isRecord(value.payload)
+            || !hasExactKeys(value.payload, [
+                'interactionId', 'bookmarked',
+            ])
+            || !isCommentTargetId(value.payload.interactionId)
+            || typeof value.payload.bookmarked !== 'boolean') {
+            return undefined;
+        }
+        return value as unknown as ConversationViewerBookmarkMutationMessage;
+    }
     if ((value.type !== 'conversation-viewer-comment-mutation'
             && value.type !== 'conversation-viewer-send-comments')
         || keys.length !== 10
@@ -1958,6 +2215,12 @@ function hasOwn(value: object, key: string): boolean {
     return Object.prototype.hasOwnProperty.call(value, key);
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return Boolean(value)
+        && typeof value === 'object'
+        && !Array.isArray(value);
+}
+
 function hasExactKeys(
     value: object,
     expected: readonly string[]
@@ -1995,6 +2258,42 @@ function toCommentTarget(
     };
 }
 
+function toBookmarkTarget(
+    target: ConversationViewerTarget
+): Pick<
+    ConversationViewerTarget,
+    'projectId' | 'provider' | 'sessionId'
+> {
+    return {
+        projectId: target.projectId,
+        provider: target.provider,
+        sessionId: target.sessionId,
+    };
+}
+
+function bookmarkRequestTargetsViewer(
+    request: ConversationViewerBookmarkMutationMessage,
+    target: ConversationViewerTarget,
+    subscriptionGeneration: number
+): boolean {
+    return request.subscriptionGeneration === subscriptionGeneration
+        && request.projectId === target.projectId
+        && request.provider === target.provider
+        && request.sessionId === target.sessionId;
+}
+
+function getBookmarkSettlementKey(
+    request: ConversationViewerBookmarkMutationMessage
+): string {
+    return [
+        request.subscriptionGeneration,
+        request.projectId,
+        request.provider,
+        request.sessionId,
+        request.requestId,
+    ].join('\u0000');
+}
+
 function commentRequestTargetsViewer(
     request: ConversationViewerCommentMutationMessage
         | ConversationViewerSendCommentsMessage,
@@ -2019,14 +2318,24 @@ function getCommentSettlementKey(
     ]);
 }
 
-function parseCommentSelection(payload: unknown): ConversationCommentSelection {
-    if (!payload || typeof payload !== 'object' || Array.isArray(payload)
-        || !hasExactKeys(payload, [
-            'messageId', 'interactionId', 'quote', 'prefix', 'suffix', 'comment',
-        ])) {
+function parseCommentInput(
+    payload: unknown
+): ConversationCommentSelection | ConversationCommentSessionNote {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
         throw new ConversationCommentError('invalid');
     }
     const value = payload as Record<string, unknown>;
+    if (hasExactKeys(value, ['scope', 'comment'])) {
+        if (value.scope !== 'session' || typeof value.comment !== 'string') {
+            throw new ConversationCommentError('invalid');
+        }
+        return value as unknown as ConversationCommentSessionNote;
+    }
+    if (!hasExactKeys(value, [
+        'messageId', 'interactionId', 'quote', 'prefix', 'suffix', 'comment',
+    ])) {
+        throw new ConversationCommentError('invalid');
+    }
     if (typeof value.messageId !== 'string'
         || typeof value.interactionId !== 'string'
         || typeof value.quote !== 'string'
@@ -2035,7 +2344,15 @@ function parseCommentSelection(payload: unknown): ConversationCommentSelection {
         || typeof value.comment !== 'string') {
         throw new ConversationCommentError('invalid');
     }
-    return value as unknown as ConversationCommentSelection;
+    return {
+        scope: 'selection',
+        messageId: value.messageId,
+        interactionId: value.interactionId,
+        quote: value.quote,
+        prefix: value.prefix,
+        suffix: value.suffix,
+        comment: value.comment,
+    } as ConversationCommentSelection;
 }
 
 function parseExistingCommentPayload(

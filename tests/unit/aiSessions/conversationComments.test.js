@@ -7,6 +7,7 @@ const {
     clearConversationComments,
     ConversationCommentError,
     createConversationComment,
+    createConversationSessionComment,
     markConversationCommentsSent,
     reopenConversationComment,
     resolveConversationComment,
@@ -69,6 +70,31 @@ test('CONVERSATION-COMMENTS-001 CONVERSATION-COMMENTS-REVIEW-001 creates bounded
         error => error instanceof ConversationCommentError
             && error.code === 'invalid'
     );
+});
+
+test('CONVERSATION-COMMENTS-001 creates a session-wide note without a selected message', () => {
+    const draft = createConversationSessionComment(
+        'comment-session',
+        ' Remember this decision. '
+    );
+    assert.deepEqual(draft, {
+        id: 'comment-session',
+        scope: 'session',
+        messageId: '',
+        interactionId: '',
+        role: 'user',
+        quote: '',
+        prefix: '',
+        suffix: '',
+        comment: 'Remember this decision.',
+        status: 'open',
+    });
+
+    const prompt = buildConversationCommentsPrompt([draft]);
+    assert.match(prompt, /\[批注 1\]/);
+    assert.match(prompt, /范围：当前 Session/);
+    assert.match(prompt, /Remember this decision\./);
+    assert.doesNotMatch(prompt, /选中原文|对话角色/);
 });
 
 test('CONVERSATION-COMMENTS-002 builds one numbered prompt and expands quote fences safely', () => {

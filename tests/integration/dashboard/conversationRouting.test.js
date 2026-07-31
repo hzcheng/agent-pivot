@@ -1164,6 +1164,65 @@ test('PRODUCTION-CONVERSATION-COMMENTS-002 keeps authoritative drafts after subm
     await harness.dispose();
 });
 
+test('CONVERSATION-COMMENTS-001 accepts and stages a Host-authoritative session-wide note', async () => {
+    const prompts = [];
+    const harness = createDashboardConversationHarness({
+        useConcreteViewer: true,
+        submitPrompt: async (_target, prompt) => {
+            prompts.push(prompt);
+        },
+    });
+    await harness.activate();
+    await harness.route(makeOutlineRequest());
+    await harness.route(makeOpenRequest());
+    const panel = harness.panels[0];
+    const base = {
+        version: 1,
+        subscriptionGeneration: 1,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    };
+    await panel.receiveMessage({
+        ...base,
+        type: 'conversation-viewer-comment-mutation',
+        requestId: 'comment:session-note:add',
+        operation: 'add',
+        expectedRevision: 0,
+        payload: {
+            scope: 'session',
+            comment: 'Remember the rollout constraint.',
+        },
+    });
+    const added = panel.postedMessages.at(-1);
+    assert.equal(added.success, true);
+    assert.equal(added.revision, 1);
+    assert.deepEqual(added.comments.map(comment => ({
+        scope: comment.scope,
+        comment: comment.comment,
+        status: comment.status,
+    })), [{
+        scope: 'session',
+        comment: 'Remember the rollout constraint.',
+        status: 'open',
+    }]);
+
+    await panel.receiveMessage({
+        ...base,
+        type: 'conversation-viewer-send-comments',
+        requestId: 'comment:session-note:send',
+        operation: 'sendComments',
+        expectedRevision: 1,
+        payload: {},
+    });
+    assert.equal(panel.postedMessages.at(-1).success, true);
+    assert.equal(prompts.length, 1);
+    assert.match(prompts[0], /范围：当前 Session/);
+    assert.match(prompts[0], /Remember the rollout constraint\./);
+    assert.doesNotMatch(prompts[0], /选中原文/);
+    await harness.dispose();
+});
+
 test('CONVERSATION-COMMENTS-PERSISTENCE-001 restores Host-owned comments after the Conversation panel is closed and reopened', async () => {
     const snapshots = new Map();
     const commentStore = {

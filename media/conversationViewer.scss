@@ -357,7 +357,7 @@ button {
     flex-direction: column;
     gap: 0.6rem;
     overflow: hidden;
-    padding: 0.75rem 0.5rem 0.5rem;
+    padding: 0.75rem 0.3rem 0.5rem;
 }
 
 .conversation-outline[hidden],
@@ -424,6 +424,26 @@ button {
     }
 }
 
+.conversation-outline-bookmarks-only {
+    justify-self: start;
+    min-height: 1.65rem;
+    padding: 0.2rem 0.45rem;
+    border-color: var(--vscode-panel-border);
+    border-radius: 999px;
+    color: var(--vscode-descriptionForeground);
+    background: transparent;
+    font-size: 0.75rem;
+
+    &[aria-pressed="true"] {
+        color: var(
+            --vscode-charts-yellow,
+            var(--vscode-editorWarning-foreground)
+        );
+        border-color: currentColor;
+        background: var(--vscode-list-hoverBackground);
+    }
+}
+
 .conversation-outline-partial {
     margin: 0;
     padding: 0 0.25rem;
@@ -441,20 +461,23 @@ button {
 }
 
 .conversation-outline-item {
+    display: grid;
+    grid-template-columns: 1rem minmax(0, 1fr);
+    align-items: stretch;
     margin: 0.1rem 0;
 
     &[hidden] {
         display: none;
     }
 
-    button {
+    [data-outline-interaction-id] {
         display: grid;
         width: 100%;
         min-width: 0;
-        grid-template-columns: 2.1rem minmax(0, 1fr) 0.55rem;
-        gap: 0.35rem;
+        grid-template-columns: max-content minmax(0, 1fr) 0.45rem;
+        gap: 0.25rem;
         align-items: start;
-        padding: 0.42rem 0.45rem;
+        padding: 0.42rem 0.2rem;
         border-color: transparent;
         border-radius: 4px;
         color: var(--vscode-editor-foreground);
@@ -477,8 +500,35 @@ button {
     }
 }
 
+.conversation-outline-bookmark {
+    align-self: stretch;
+    justify-self: center;
+    width: 1.5rem;
+    min-width: 1.5rem;
+    margin: 0 -0.25rem;
+    padding: 0.35rem 0.1rem;
+    border-color: transparent;
+    border-radius: 4px;
+    color: var(--vscode-descriptionForeground);
+    background: transparent;
+    font-size: 1rem;
+    line-height: 1;
+    text-align: center;
+
+    &:hover,
+    &:focus-visible,
+    &.is-bookmarked {
+        color: var(
+            --vscode-charts-yellow,
+            var(--vscode-editorWarning-foreground)
+        );
+        background: var(--vscode-list-hoverBackground);
+    }
+}
+
 .conversation-outline-number {
     color: var(--vscode-descriptionForeground);
+    font-size: 0.7rem;
     font-variant-numeric: tabular-nums;
     text-align: right;
 }
@@ -595,7 +645,24 @@ button {
     }
 }
 
-.conversation-comments-header > [data-comment-count] {
+.conversation-comments-header-actions {
+    display: flex;
+    min-width: 0;
+    gap: 0.35rem;
+    align-items: center;
+
+    [data-comment-action="new"] {
+        min-width: 0;
+        padding: 0.18rem 0.45rem;
+        border-color: var(--vscode-button-secondaryBackground);
+        color: var(--vscode-button-secondaryForeground);
+        background: var(--vscode-button-secondaryBackground);
+        font-size: 0.75rem;
+        white-space: nowrap;
+    }
+}
+
+.conversation-comments-header-actions > [data-comment-count] {
     min-width: 1.65rem;
     padding: 0.1rem 0.45rem;
     border-radius: 999px;
@@ -694,6 +761,12 @@ button {
     border-radius: 999px;
     color: var(--vscode-badge-foreground);
     background: var(--vscode-badge-background);
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.conversation-comment-scope {
+    color: var(--vscode-descriptionForeground);
     font-size: 0.75rem;
     font-weight: 600;
 }

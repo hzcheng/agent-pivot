@@ -80,6 +80,14 @@ function containsBlock(value: unknown, type: string): boolean {
     return contentBlocks(value).some(block => block.type === type);
 }
 
+function isVisibleUserEvent(event: Record<string, any>): boolean {
+    const origin = asRecord(event.origin);
+    return event.isMeta !== true
+        && typeof event.sourceToolUseID !== 'string'
+        && event.promptSource !== 'system'
+        && (!origin || origin.kind === undefined || origin.kind === 'human');
+}
+
 function visibleInputParts(value: unknown): VisibleUserInputPart[] {
     if (typeof value === 'string') {
         return [{ kind: 'text', text: value }];
@@ -303,6 +311,7 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
                     timeoutOpenInteractionIndex = undefined;
                 } else if (event.type === 'user'
                     && message?.role === 'user'
+                    && isVisibleUserEvent(event)
                     && !event.sourceToolAssistantUUID
                     && !event.toolUseResult
                     && !containsBlock(message.content, 'tool_result')) {

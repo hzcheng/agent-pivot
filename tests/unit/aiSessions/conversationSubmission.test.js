@@ -53,6 +53,23 @@ test('CONVERSATION-COMMENTS-SUBMIT-001 stages one complete batch in an idle atta
     assert.equal(resumes, 0);
 });
 
+test('CONVERSATION-COMMENTS-SUBMIT-001 stages a multiline batch as one bracketed paste without executing its first line', async () => {
+    const writes = [];
+    const prompt = '批注第一行\n批注第二行\n批注第三行';
+    await submitConversationPrompt({
+        getWorkspaceTarget: () => workspace(),
+        getRuntime: () => activeRuntime({
+            sendText: (text, newline) => writes.push({ text, newline }),
+        }),
+        resume: async () => ({ status: 'started' }),
+    }, target, prompt);
+
+    assert.deepEqual(writes, [{
+        text: `\u001b[200~${prompt}\u001b[201~`,
+        newline: false,
+    }]);
+});
+
 test('CONVERSATION-COMMENTS-SUBMIT-002 resumes a stopped runtime before staging the batch without submitting it', async () => {
     const resumes = [];
     const writes = [];

@@ -16,6 +16,13 @@ interface ClaudeSessionEvent {
     cwd?: string;
     timestamp?: string;
     type?: string;
+    isMeta?: boolean;
+    sourceToolUseID?: string;
+    sourceToolAssistantUUID?: string;
+    promptSource?: string;
+    origin?: {
+        kind?: string;
+    };
     customTitle?: string;
     aiTitle?: string;
     lastPrompt?: string;
@@ -42,6 +49,7 @@ export default class ClaudeSessionService {
     private readonly changePollIntervalMs = 3000;
     private readonly cwdScanChunkBytes = 64 * 1024;
     private readonly sessionSampleBytes = 128 * 1024;
+    private readonly maxLifecycleSubagentFiles = 64;
 
     resolveConversationSource(
         sessionId: string,
@@ -108,10 +116,10 @@ export default class ClaudeSessionService {
     }
 
     getLifecycleSignals(requests: readonly AiSessionLifecycleRequest[]): Record<string, AiSessionLifecycleSignal> {
-        let activeSessionIds = new Set<string>();
+        let retainedLifecycleKeys = new Set<string>();
         let claudeHome = this.getClaudeHome();
         if (!claudeHome) {
-            this.lifecycleReader.retain(activeSessionIds);
+            this.lifecycleReader.retain(retainedLifecycleKeys);
             return {};
         }
         let projectRoot = path.join(claudeHome, 'projects');
@@ -121,7 +129,7 @@ export default class ClaudeSessionService {
             if (!request?.sessionId || !Number.isFinite(request.runStartedAtMs)) {
                 continue;
             }
-            activeSessionIds.add(request.sessionId);
+            retainedLifecycleKeys.add(request.sessionId);
             if (signals[request.sessionId]) {
                 continue;
             }
@@ -140,17 +148,55 @@ export default class ClaudeSessionService {
                 this.lifecycleReader.delete(request.sessionId);
                 continue;
             }
-            let signal = this.lifecycleReader.read(
+            let mainSignal = this.lifecycleReader.read(
                 request.sessionId,
                 sessionFile,
                 request.runStartedAtMs,
                 () => createClaudeLifecycleAccumulator(request.runStartedAtMs)
             );
+            let runningSubagents: AiSessionLifecycleSignal[] = [];
+            for (let subagentFile of this.getLifecycleSubagentFiles(
+                sessionFile,
+                request.sessionId
+            )) {
+                let key = `${request.sessionId}:subagent:${path.basename(
+                    subagentFile
+                )}`;
+                retainedLifecycleKeys.add(key);
+                let subagentSignal = this.lifecycleReader.read(
+                    key,
+                    subagentFile,
+                    request.runStartedAtMs,
+                    () => createClaudeLifecycleAccumulator(
+                        request.runStartedAtMs
+                    )
+                );
+                if (subagentSignal?.executionState === 'running') {
+                    runningSubagents.push(subagentSignal);
+                }
+            }
+            let signal = mainSignal;
+            if (runningSubagents.length
+                && !this.isTerminalMainLifecycleSignal(mainSignal)) {
+                let latest = runningSubagents.reduce((current, candidate) =>
+                    candidate.occurredAtMs > current.occurredAtMs
+                        ? candidate
+                        : current
+                );
+                signal = {
+                    token: `claude:subagent-running:${
+                        runningSubagents.length
+                    }:${latest.occurredAtMs}`,
+                    phase: 'running',
+                    executionState: 'running',
+                    occurredAtMs: latest.occurredAtMs,
+                };
+            }
             if (signal) {
                 signals[request.sessionId] = signal;
             }
         }
-        this.lifecycleReader.retain(activeSessionIds);
+        this.lifecycleReader.retain(retainedLifecycleKeys);
         return signals;
     }
 
@@ -289,6 +335,41 @@ export default class ClaudeSessionService {
         } catch (e) {
             return 0;
         }
+    }
+
+    private getLifecycleSubagentFiles(
+        sessionFile: string,
+        sessionId: string
+    ): string[] {
+        let subagentDirectory = path.join(
+            path.dirname(sessionFile),
+            sessionId,
+            'subagents'
+        );
+        try {
+            return fs.readdirSync(
+                subagentDirectory,
+                { withFileTypes: true }
+            ).filter(entry =>
+                entry.isFile()
+                && /^agent-[A-Za-z0-9_-]{1,128}\.jsonl$/.test(entry.name)
+            ).map(entry =>
+                path.join(subagentDirectory, entry.name)
+            ).sort((a, b) =>
+                this.getFileMtimeMs(b) - this.getFileMtimeMs(a)
+                    || a.localeCompare(b)
+            ).slice(0, this.maxLifecycleSubagentFiles);
+        } catch (e) {
+            return [];
+        }
+    }
+
+    private isTerminalMainLifecycleSignal(
+        signal: AiSessionLifecycleSignal | null
+    ): boolean {
+        return signal?.reason === 'failed'
+            || signal?.reason === 'input-required'
+            || Boolean(signal?.token?.startsWith('claude:user_interrupt:'));
     }
 
     private findSessionFile(projectRoot: string, sessionId: string): string {
@@ -475,6 +556,13 @@ export default class ClaudeSessionService {
 
     private getMessageText(event: ClaudeSessionEvent): string {
         if (event.type !== 'user' || !event.message || event.message.role !== 'user') {
+            return null;
+        }
+        if (event.isMeta
+            || event.sourceToolUseID
+            || event.sourceToolAssistantUUID
+            || event.promptSource === 'system'
+            || (event.origin?.kind && event.origin.kind !== 'human')) {
             return null;
         }
 

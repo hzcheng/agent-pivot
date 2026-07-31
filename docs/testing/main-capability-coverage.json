@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "3b3e3072da942e839e25e87317352669a95f58f9",
+        "head": "731a2b5e6edc5e1679a85040b15ea2ddb24f703a",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -967,10 +967,16 @@
                 "e997c332681215bd153addfad07b98539c36b6d7",
                 "7148d7c80712e0ee970fc6180c8cc1f124e4c2b3",
                 "d84a5a26714ae07fdb1bbed2c99ab167f92df3b3",
-                "3b3e3072da942e839e25e87317352669a95f58f9"
+                "3b3e3072da942e839e25e87317352669a95f58f9",
+                "54a1852b81634543f2bf1523504ed30041ec3e42",
+                "ac95c7ba1ca733cf568a883ad2679da21c04fac2",
+                "805e4c404de5931b99e8e9280b67bdf62004a910",
+                "d1c8ac78fb80482b5752764a871d7c9917d597df",
+                "731a2b5e6edc5e1679a85040b15ea2ddb24f703a"
             ],
             "behaviors": [
                 "SESSION-AI-SESSION-CONVERSATION-ADAPTER-001",
+                "SESSION-CLAUDE-SUBAGENT-LIFECYCLE-001",
                 "WEBVIEW-AI-SESSION-CONVERSATION-OUTLINE-001",
                 "WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001",
                 "SECURITY-AI-SESSION-CONVERSATION-SOURCE-001",
@@ -987,6 +993,7 @@
                 "CONVERSATION-COMMENTS-PERSISTENCE-001",
                 "CONVERSATION-COMMENTS-LAYOUT-001",
                 "CONVERSATION-OUTLINE-NAVIGATION-001",
+                "CONVERSATION-OUTLINE-BOOKMARKS-001",
                 "CONVERSATION-READING-FOCUS-001",
                 "CONVERSATION-TELEMETRY-001",
                 "WEBVIEW-STYLES-ARTIFACT-001",

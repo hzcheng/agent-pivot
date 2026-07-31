@@ -449,6 +449,7 @@ async function renderHostViewerDocument(options = {}) {
         mediaUri: fileName =>
             fakeHostUri(`file:///extension/media/${fileName}`),
         submitPrompt: options.submitPrompt || (async () => {}),
+        bookmarkStore: options.bookmarkStore,
     });
     await viewer.open({
         projectId: 'project-a',
@@ -906,6 +907,129 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 filters the current Session outline an
     assert.equal(await comments.isHidden(), true);
 });
 
+test('CONVERSATION-OUTLINE-BOOKMARKS-001 settles stars authoritatively, filters favorites, and preserves input order', async t => {
+    const interactionIds = ['input-1', 'input-2', 'input-3'];
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+        viewport: { width: 1050, height: 620 },
+        interactionIds,
+        interactionId: 'input-2',
+        bookmarkStore: {
+            async load() {
+                return { revision: 3, interactionIds: ['input-3'] };
+            },
+            async save() {},
+        },
+    });
+    const orderedIds = () => page.locator(
+        '[data-outline-interaction-id]'
+    ).evaluateAll(elements => elements.map(element =>
+        element.getAttribute('data-outline-interaction-id')
+    ));
+    const inputOneStar = page.locator(
+        '[data-outline-bookmark-id="input-1"]'
+    );
+
+    assert.deepEqual(await orderedIds(), interactionIds);
+    const leftGeometry = await page.evaluate(() => {
+        const outline = document.querySelector('[data-conversation-outline]');
+        const star = document.querySelector(
+            '[data-outline-bookmark-id="input-1"]'
+        );
+        const preview = document.querySelector(
+            '[data-outline-interaction-id="input-1"]'
+        )?.querySelector('.conversation-outline-preview');
+        return {
+            starInset: star.getBoundingClientRect().left
+                - outline.getBoundingClientRect().left,
+            previewInset: preview.getBoundingClientRect().left
+                - outline.getBoundingClientRect().left,
+        };
+    });
+    assert.ok(
+        leftGeometry.previewInset <= 48,
+        `outline text should stay compact, got ${leftGeometry.previewInset}px`
+    );
+    assert.ok(
+        leftGeometry.starInset <= 6,
+        `bookmark star should hug the left edge, got ${leftGeometry.starInset}px`
+    );
+    assert.equal(await inputOneStar.getAttribute('aria-pressed'), 'false');
+    assert.equal(
+        await page.locator(
+            '[data-outline-bookmark-id="input-3"]'
+        ).getAttribute('aria-pressed'),
+        'true'
+    );
+
+    await inputOneStar.click();
+    assert.equal(
+        await inputOneStar.getAttribute('aria-pressed'),
+        'false',
+        'the star must not update optimistically'
+    );
+    let requests = await postedMessages(page);
+    const requestId = requests.at(-1).requestId;
+    assert.match(requestId, /^conversation-bookmark:[a-z0-9]+:1$/);
+    assert.deepEqual(requests.at(-1), {
+        type: 'conversation-viewer-bookmark-mutation',
+        version: 1,
+        requestId,
+        subscriptionGeneration: 1,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-host-document',
+        operation: 'set',
+        expectedRevision: 3,
+        payload: {
+            interactionId: 'input-1',
+            bookmarked: true,
+        },
+    });
+    assert.equal(
+        requests.some(message =>
+            message.type === 'conversation-viewer-select-interaction'),
+        false,
+        'clicking a star must not navigate'
+    );
+
+    await page.evaluate(settlementRequestId => window.postMessage({
+        type: 'conversation-viewer-bookmarks-result',
+        version: 1,
+        requestId: settlementRequestId,
+        subscriptionGeneration: 1,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-host-document',
+        operation: 'set',
+        success: true,
+        revision: 4,
+        interactionIds: ['input-3', 'input-1'],
+    }, '*'), requestId);
+    await page.waitForFunction(() =>
+        document.querySelector(
+            '[data-outline-bookmark-id="input-1"]'
+        )?.getAttribute('aria-pressed') === 'true'
+    );
+    assert.equal(await inputOneStar.getAttribute('aria-pressed'), 'true');
+    assert.deepEqual(await orderedIds(), interactionIds);
+
+    await page.locator('[data-outline-bookmarks-only]').click();
+    assert.equal(
+        await page.locator('[data-outline-interaction-id]:visible').count(),
+        2
+    );
+    assert.deepEqual(
+        await page.locator(
+            '[data-outline-interaction-id]:visible'
+        ).evaluateAll(elements => elements.map(element =>
+            element.getAttribute('data-outline-interaction-id')
+        )),
+        ['input-1', 'input-3']
+    );
+});
+
 test('CONVERSATION-OUTLINE-NAVIGATION-001 CONVERSATION-COMMENTS-LAYOUT-001 shares one resizable and responsive Outline or Comments panel', async t => {
     const options = {
         includeStyles: true,
@@ -1053,6 +1177,91 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 CONVERSATION-COMMENTS-LAYOUT-001 share
             rightVisible: true,
         }
     );
+});
+
+test('CONVERSATION-COMMENTS-UI-001 adds a session-wide note without selecting conversation text', async t => {
+    const interactionId = 'input-session-note';
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+        interactionIds: [interactionId],
+        interactionId,
+        initialWebviewState: {
+            conversationSidebar: {
+                open: true,
+                width: 240,
+                view: 'comments',
+                query: '',
+            },
+        },
+        pageOverrides: {
+            previousCursor: undefined,
+            nextCursor: undefined,
+            isStart: true,
+            isEnd: true,
+        },
+    });
+
+    const newNote = page.locator('[data-comment-action="new"]');
+    assert.equal(await newNote.isVisible(), true);
+    await newNote.click();
+    assert.equal(
+        await page.locator('[data-comment-selection]').textContent(),
+        'Session note'
+    );
+    await page.locator('[data-comment-input]').fill(
+        'Remember the rollout constraint.'
+    );
+    await page.locator('[data-comment-input]').press('Control+Enter');
+    const request = (await postedMessages(page)).at(-1);
+    assert.equal(request.type, 'conversation-viewer-comment-mutation');
+    assert.equal(request.operation, 'add');
+    assert.deepEqual(request.payload, {
+        scope: 'session',
+        comment: 'Remember the rollout constraint.',
+    });
+
+    const comment = {
+        id: 'session-note-1',
+        scope: 'session',
+        messageId: '',
+        interactionId: '',
+        role: 'user',
+        quote: '',
+        prefix: '',
+        suffix: '',
+        comment: 'Remember the rollout constraint.',
+        status: 'open',
+    };
+    await page.evaluate(({ request, comment }) => {
+        window.dispatchEvent(new MessageEvent('message', {
+            data: {
+                type: 'conversation-viewer-comments-result',
+                version: 1,
+                requestId: request.requestId,
+                subscriptionGeneration: request.subscriptionGeneration,
+                projectId: request.projectId,
+                provider: request.provider,
+                sessionId: request.sessionId,
+                operation: request.operation,
+                success: true,
+                revision: 1,
+                comments: [comment],
+            },
+        }));
+    }, { request, comment });
+
+    const card = page.locator('[data-comment-id="session-note-1"]');
+    assert.equal(await card.getAttribute('data-comment-scope'), 'session');
+    assert.equal(
+        await card.locator('.conversation-comment-scope').textContent(),
+        'Session note'
+    );
+    assert.equal(
+        await card.locator('[data-comment-action="locate"]').count(),
+        0
+    );
+    assert.equal(await card.locator('blockquote').count(), 0);
 });
 
 test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-REVIEW-001 CONVERSATION-COMMENTS-BULK-001 CONVERSATION-COMMENTS-LAYOUT-001 reviews contained cards and Host-owned comment batches', async t => {
@@ -1785,6 +1994,54 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 sanitizes hostile HTML and post
         type: 'conversation-viewer-closed',
         version: 1,
     });
+});
+
+test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 preserves ordered numbering across loose multi-paragraph list items', async t => {
+    const { page } = await openHostViewerDocument(t, {
+        markdown: [
+            '1. Conversation modularization',
+            '',
+            'Split the current large modules by responsibility:',
+            '',
+            '- CommentController',
+            '- OutlineController',
+            '',
+            'Move behavior without changing the UI or protocol.',
+            '',
+            '2. Upgrade product regression gates',
+            '',
+            'Add required PR checks.',
+            '',
+            '3. Add user-visible performance budgets',
+            '',
+            'Measure refresh and rendering.',
+            '',
+            '4. Establish pre-release product journeys',
+            '',
+            'Treat critical paths as release blockers.',
+        ].join('\n'),
+    });
+
+    const orderedLists = await page.locator(
+        '.conversation-markdown > ol'
+    ).evaluateAll(elements => elements.map(list => ({
+        start: list.start,
+        text: list.textContent.trim(),
+    })));
+
+    assert.deepEqual(
+        orderedLists.map(list => list.start),
+        [1, 2, 3, 4]
+    );
+    assert.deepEqual(
+        orderedLists.map(list => list.text),
+        [
+            'Conversation modularization',
+            'Upgrade product regression gates',
+            'Add user-visible performance budgets',
+            'Establish pre-release product journeys',
+        ]
+    );
 });
 
 test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 CONVERSATION-VIEWER-RICH-MARKDOWN-001 preserves visible Mermaid node labels while retaining safe fallbacks', async t => {

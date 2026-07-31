@@ -255,3 +255,87 @@ test('SESSION-CLAUDE-SESSION-001 finds cwd in the middle of a large top-level fi
     assert.equal(result.sessions[0].cwd, '/work/app');
     assert.equal(result.scannedFiles, 1);
 });
+
+test('SESSION-CLAUDE-SUBAGENT-LIFECYCLE-001 keeps Claude running while any background subagent is active', t => {
+    const root = makeTempDirectory(t, 'provider-claude-lifecycle-subagents-');
+    const sessionId = '22222222-2222-4222-8222-222222222222';
+    const runStartedAtMs = Date.parse('2026-07-31T07:00:00.000Z');
+    setEnvironment(t, 'CLAUDE_HOME', root);
+    const sessionDir = path.join(root, 'projects', '-work-app');
+    const sessionFile = path.join(sessionDir, `${sessionId}.jsonl`);
+    const subagentDir = path.join(sessionDir, sessionId, 'subagents');
+    fs.mkdirSync(subagentDir, { recursive: true });
+    fs.writeFileSync(sessionFile, [{
+        sessionId,
+        cwd: '/work/app',
+        timestamp: '2026-07-31T07:00:01.000Z',
+        type: 'user',
+        uuid: 'main-user',
+        message: { role: 'user', content: 'Run parallel reviews.' },
+    }, {
+        sessionId,
+        timestamp: '2026-07-31T07:00:05.000Z',
+        type: 'assistant',
+        uuid: 'main-waiting',
+        message: {
+            role: 'assistant',
+            stop_reason: 'end_turn',
+            content: [{ type: 'text', text: 'Waiting for reviewers.' }],
+        },
+    }].map(record => JSON.stringify(record)).join('\n') + '\n', 'utf8');
+    const completedSubagent = path.join(
+        subagentDir,
+        'agent-a1111111111111111.jsonl'
+    );
+    fs.writeFileSync(completedSubagent, [{
+        timestamp: '2026-07-31T07:00:02.000Z',
+        type: 'user',
+        uuid: 'completed-user',
+        message: { role: 'user', content: 'Review one.' },
+    }, {
+        timestamp: '2026-07-31T07:00:03.000Z',
+        type: 'assistant',
+        uuid: 'completed-assistant',
+        message: { role: 'assistant', stop_reason: 'end_turn', content: [] },
+    }].map(record => JSON.stringify(record)).join('\n') + '\n', 'utf8');
+    const runningSubagent = path.join(
+        subagentDir,
+        'agent-a2222222222222222.jsonl'
+    );
+    fs.writeFileSync(runningSubagent, [{
+        timestamp: '2026-07-31T07:00:04.000Z',
+        type: 'user',
+        uuid: 'running-user',
+        message: { role: 'user', content: 'Review two.' },
+    }, {
+        timestamp: '2026-07-31T07:00:06.000Z',
+        type: 'assistant',
+        uuid: 'running-assistant',
+        message: {
+            role: 'assistant',
+            stop_reason: 'tool_use',
+            content: [{ type: 'tool_use', name: 'Read' }],
+        },
+    }].map(record => JSON.stringify(record)).join('\n') + '\n', 'utf8');
+
+    const service = new ClaudeSessionService();
+    service.getSessions({ forceRefresh: true });
+    const request = { sessionId, runStartedAtMs };
+    const running = service.getLifecycleSignals([request])[sessionId];
+    assert.ok(running);
+    assert.equal(running.phase, 'running');
+    assert.equal(running.executionState, 'running');
+    assert.match(running.token, /^claude:subagent-running:/);
+
+    fs.appendFileSync(runningSubagent, `${JSON.stringify({
+        timestamp: '2026-07-31T07:00:07.000Z',
+        type: 'assistant',
+        uuid: 'running-completed',
+        message: { role: 'assistant', stop_reason: 'end_turn', content: [] },
+    })}\n`, 'utf8');
+    const completed = service.getLifecycleSignals([request])[sessionId];
+    assert.ok(completed);
+    assert.equal(completed.phase, 'needsAttention');
+    assert.equal(completed.reason, 'completed');
+    assert.equal(completed.executionState, 'stopped');
+});

@@ -20,6 +20,7 @@ export interface ConversationCommentTarget {
 
 export interface ConversationCommentDraft {
     id: string;
+    scope?: 'session';
     messageId: string;
     interactionId: string;
     role: ConversationMessage['role'];
@@ -33,11 +34,17 @@ export interface ConversationCommentDraft {
 export type ConversationCommentStatus = 'open' | 'sent' | 'resolved';
 
 export interface ConversationCommentSelection {
+    scope: 'selection';
     messageId: string;
     interactionId: string;
     quote: string;
     prefix: string;
     suffix: string;
+    comment: string;
+}
+
+export interface ConversationCommentSessionNote {
+    scope: 'session';
     comment: string;
 }
 
@@ -89,6 +96,30 @@ export function createConversationComment(
         ),
         comment: requireBoundedText(
             selection.comment,
+            CONVERSATION_COMMENT_LIMITS.maxCommentGraphemes
+        ),
+        status: 'open',
+    };
+}
+
+export function createConversationSessionComment(
+    id: string,
+    comment: unknown
+): ConversationCommentDraft {
+    if (!isBoundedId(id)) {
+        throw new ConversationCommentError('invalid');
+    }
+    return {
+        id,
+        scope: 'session',
+        messageId: '',
+        interactionId: '',
+        role: 'user',
+        quote: '',
+        prefix: '',
+        suffix: '',
+        comment: requireBoundedText(
+            comment,
             CONVERSATION_COMMENT_LIMITS.maxCommentGraphemes
         ),
         status: 'open',
@@ -172,6 +203,14 @@ export function buildConversationCommentsPrompt(
     }
     const sections = comments.map((draft, index) => {
         validateDraft(draft);
+        if (draft.scope === 'session') {
+            return [
+                `[批注 ${index + 1}]`,
+                '范围：当前 Session',
+                '我的问题或要求：',
+                draft.comment,
+            ].join('\n');
+        }
         return [
             `[批注 ${index + 1}]`,
             `对话角色：${draft.role === 'user' ? '用户' : 'AI 助手'}`,
@@ -224,14 +263,31 @@ export function validateConversationComments(
 }
 
 function validateDraft(draft: ConversationCommentDraft): void {
-    if (!draft
-        || !isBoundedId(draft.id)
-        || !isBoundedId(draft.messageId)
-        || !isBoundedId(draft.interactionId)
-        || (draft.role !== 'user' && draft.role !== 'assistant')
+    if (!draft || !isBoundedId(draft.id)
+        || (draft.scope !== undefined && draft.scope !== 'session')
         || (draft.status !== 'open'
             && draft.status !== 'sent'
             && draft.status !== 'resolved')) {
+        throw new ConversationCommentError('invalid');
+    }
+    if (draft.scope === 'session') {
+        if (draft.messageId !== ''
+            || draft.interactionId !== ''
+            || draft.role !== 'user'
+            || draft.quote !== ''
+            || draft.prefix !== ''
+            || draft.suffix !== '') {
+            throw new ConversationCommentError('invalid');
+        }
+        requireBoundedText(
+            draft.comment,
+            CONVERSATION_COMMENT_LIMITS.maxCommentGraphemes
+        );
+        return;
+    }
+    if (!isBoundedId(draft.messageId)
+        || !isBoundedId(draft.interactionId)
+        || (draft.role !== 'user' && draft.role !== 'assistant')) {
         throw new ConversationCommentError('invalid');
     }
     requireBoundedText(

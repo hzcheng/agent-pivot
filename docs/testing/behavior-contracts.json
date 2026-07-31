@@ -960,6 +960,20 @@
     ]
   },
   {
+    "id": "SESSION-CLAUDE-SUBAGENT-LIFECYCLE-001",
+    "domain": "session",
+    "title": "Claude remains running while any background subagent is active instead of surfacing a false stopped attention state",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/aiSessions/providerSpecificBehavior.test.js"
+    ],
+    "evidence": [
+      "src/services/claudeSessionService.ts",
+      "src/aiSessions/lifecycle.ts"
+    ]
+  },
+  {
     "id": "SESSION-COMMAND-BUILDER-001",
     "domain": "session",
     "title": "Command Builder behavior",
@@ -3651,7 +3665,7 @@
   {
     "id": "CONVERSATION-COMMENTS-UI-001",
     "domain": "webview",
-    "title": "AI Conversation collects multiple text selections and stages one correlated comment batch in the session input",
+    "title": "AI Conversation collects selected excerpts and session-wide notes, then stages one correlated comment batch in the session input",
     "priority": "P0",
     "status": "automated",
     "owners": [
@@ -3752,6 +3766,24 @@
       "tests/browser/conversationViewer.test.js"
     ],
     "evidence": [
+      "src/aiSessions/conversation/viewer.ts",
+      "src/webview/conversationViewerScripts.js",
+      "media/conversationViewer.scss"
+    ]
+  },
+  {
+    "id": "CONVERSATION-OUTLINE-BOOKMARKS-001",
+    "domain": "webview",
+    "title": "AI Conversation persists current-Session input bookmarks, settles star changes through the Host, keeps stars and text compact, filters favorites on demand, and never reorders the outline",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/conversationBookmarkStore.test.js",
+      "tests/integration/dashboard/conversationViewer.test.js",
+      "tests/browser/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/bookmarkStore.ts",
       "src/aiSessions/conversation/viewer.ts",
       "src/webview/conversationViewerScripts.js",
       "media/conversationViewer.scss"

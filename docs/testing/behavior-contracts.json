@@ -4323,5 +4323,21 @@
     "evidence": [
       "src/aiSessions/notify/templates/webhookJson.ts"
     ]
+  },
+  {
+    "id": "ATTENTION-NOTIFY-TEMPLATE-SPECIALIZED-001",
+    "domain": "attention",
+    "title": "ntfy, telegram, bark and dingtalk requests are built correctly",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/notify/templates/specialized.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/notify/templates/ntfy.ts",
+      "src/aiSessions/notify/templates/telegram.ts",
+      "src/aiSessions/notify/templates/bark.ts",
+      "src/aiSessions/notify/templates/dingtalk.ts"
+    ]
   }
 ]

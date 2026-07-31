@@ -12,10 +12,20 @@ const {
     loadFreshWithFakeVscode,
 } = require('../../helpers/runtimeContract');
 const AttentionMonitor = require('../../../out/aiSessions/attentionMonitor').default;
+const ExecutionMonitor = require('../../../out/aiSessions/executionMonitor').default;
 const {
     AiSessionAttentionController,
     settleAiSessionRuntimeLifecycles,
 } = require('../../../out/aiSessions/attentionController');
+const {
+    AttentionEvaluationQueue,
+} = require('../../../out/aiSessions/attentionEvaluationQueue');
+const {
+    AiSessionExecutionController,
+} = require('../../../out/aiSessions/executionController');
+const {
+    AiSessionLifecycleSignalReader,
+} = require('../../../out/aiSessions/lifecycleSignalReader');
 const {
     aggregateAttentionSnapshots,
     filterAcknowledgedAttentionAggregate,
@@ -928,4 +938,220 @@ test('ATTENTION-ACTIVE-UNREGISTER-ON-DEACTIVATE-001 exposes an awaitable active 
     unregisterReleased.resolve();
     await shutdown;
     assert.equal(settled, true);
+});
+
+test('ATTENTION-EXECUTION-STATE-SYNC-001 clears attention on the same lifecycle edge that starts the running animation', async () => {
+    const workspace = {
+        navigationIdentity: 'navigation:fixture', scopeIdentity: 'scope:fixture',
+        kind: 'singleFolder', displayName: 'Fixture', navigationUri: 'file:///fixtures/project',
+        environment: 'local', roots: [{
+            id: 'root:fixture', name: 'Fixture', uri: 'file:///fixtures/project',
+            hostPath: '/fixtures/project', ordinal: 0,
+        }],
+    };
+    const workspaceSessions = {
+        sessionsByProvider: {
+            codex: [{ id: 'session', primaryRootId: 'root:fixture' }],
+            kimi: [],
+            claude: [],
+        },
+    };
+
+    let nowMs = 1000;
+    let reads = 0;
+    // A completed turn is pending until the user replies in the terminal.
+    let signal = {
+        token: 'task-complete:1000',
+        phase: 'needsAttention',
+        reason: 'completed',
+        executionState: 'stopped',
+        occurredAtMs: 1000,
+    };
+    const providers = [{
+        id: 'codex',
+        service: {
+            getLifecycleSignals: requests => {
+                reads += 1;
+                return Object.fromEntries(requests.map(request => [request.sessionId, signal]));
+            },
+        },
+    }];
+
+    const attentionController = new AiSessionAttentionController({
+        isEnabled: () => true,
+        getWorkspaceTarget: () => ({
+            cardId: 'workspace:fixture', workspace, sessions: workspaceSessions,
+        }),
+        getProviders: () => providers,
+        getRuntimeById: () => ({ state: 'active', runStartedAtMs: 0 }),
+        publish: async () => true,
+        scheduleRefresh: () => undefined,
+        nowMs: () => nowMs,
+    });
+    const executionController = new AiSessionExecutionController({
+        getActiveSessions: () => [{
+            provider: 'codex', sessionId: 'session',
+            workspaceScopeIdentity: 'scope:fixture',
+            cwd: '/fixtures/project', runStartedAtMs: 0,
+        }],
+        scheduleRefresh: () => undefined,
+        nowMs: () => nowMs,
+    });
+    const reader = new AiSessionLifecycleSignalReader({
+        getProviders: () => providers,
+        getRequests: () => [
+            executionController.getLifecycleRequests(),
+            attentionController.getLifecycleRequests(),
+        ],
+    });
+    const observed = [];
+    const attentionEvaluations = new AttentionEvaluationQueue({
+        evaluate: request => {
+            observed.push(request.scope);
+            return attentionController.evaluate([], request.signals || reader.read());
+        },
+    });
+
+    // What the session row renders: data-execution-state and the attention dot.
+    const surface = () => ({
+        animation: executionController.getSnapshot()['codex:session']?.state === 'running',
+        redDot: attentionController.getEffectiveAggregate().sessions.length > 0,
+    });
+    // The production tick: read once, then drive both passes from that observation.
+    const tick = async () => {
+        nowMs += 1000;
+        const signals = reader.read();
+        executionController.evaluate(signals);
+        await attentionEvaluations.request('signals', signals);
+    };
+
+    await tick();
+    assert.deepEqual(surface(), { animation: false, redDot: true }, 'a completed turn raises the dot');
+    assert.equal(reads, 1, 'one tick reads each provider once, not once per consumer');
+
+    // The user replies in the terminal and the provider starts a new turn.
+    signal = {
+        token: 'task-started:2000',
+        phase: 'running',
+        executionState: 'running',
+        occurredAtMs: 2000,
+    };
+    await tick();
+
+    assert.deepEqual(
+        surface(),
+        { animation: true, redDot: false },
+        'the dot must clear on the same tick the animation starts, without waiting for the fallback interval'
+    );
+    assert.equal(reads, 2, 'the attention pass reuses the execution pass observation');
+    assert.deepEqual(observed, ['signals', 'signals']);
+});
+
+test('ATTENTION-EXECUTION-STATE-SYNC-001 coalesces attention requests and never downgrades a pending runtime pass', async () => {
+    const observed = [];
+    let release;
+    const queue = new AttentionEvaluationQueue({
+        evaluate: async request => {
+            observed.push(request.scope);
+            await new Promise(resolve => { release = resolve; });
+        },
+    });
+
+    const first = queue.request('signals');
+    await flushAsync();
+    assert.deepEqual(observed, ['signals'], 'the first request starts immediately');
+    assert.equal(queue.isIdle(), false);
+
+    // A burst arriving mid-flight collapses into one trailing run at the widest scope.
+    queue.request('signals');
+    queue.request('runtimes');
+    queue.request('signals');
+    release();
+    await flushAsync();
+    assert.deepEqual(observed, ['signals', 'runtimes'],
+        'a cheap tick request must not downgrade a pending runtime reconciliation');
+
+    release();
+    await first;
+    assert.equal(queue.isIdle(), true);
+});
+
+test('ATTENTION-EXECUTION-STATE-SYNC-001 carries the freshest observation into a coalesced batch', async () => {
+    const observed = [];
+    let release;
+    const queue = new AttentionEvaluationQueue({
+        evaluate: async request => {
+            observed.push(request.signals);
+            await new Promise(resolve => { release = resolve; });
+        },
+    });
+    const stale = { codex: { s: { token: 'stale' } } };
+    const fresh = { codex: { s: { token: 'fresh' } } };
+
+    const first = queue.request('signals', stale);
+    await flushAsync();
+    queue.request('signals', stale);
+    queue.request('signals', fresh);
+    release();
+    await flushAsync();
+    release();
+    await first;
+
+    assert.deepEqual(observed, [stale, fresh],
+        'a coalesced batch replays the newest observation rather than the one it queued behind');
+});
+
+test('ATTENTION-EXECUTION-STATE-SYNC-001 keeps draining after an evaluation throws', async () => {
+    const observed = [];
+    const failures = [];
+    const queue = new AttentionEvaluationQueue({
+        evaluate: async request => {
+            observed.push(request.scope);
+            throw new Error(`boom:${request.scope}`);
+        },
+        onFailure: error => failures.push(error instanceof Error ? error.message : String(error)),
+    });
+
+    await queue.request('signals');
+    assert.deepEqual(observed, ['signals']);
+    assert.deepEqual(failures, ['boom:signals']);
+    assert.equal(queue.isIdle(), true, 'a failed evaluation must not wedge the queue');
+
+    await queue.request('runtimes');
+    assert.deepEqual(observed, ['signals', 'runtimes']);
+});
+
+test('ATTENTION-EXECUTION-STATE-SYNC-001 rejects an out-of-order signal in both monitors alike', () => {
+    const key = 'codex:session';
+    const running = {
+        token: 'codex:task-started:2000',
+        phase: 'running',
+        executionState: 'running',
+        occurredAtMs: 2000,
+    };
+    // A replay of an older completion, e.g. after a cursor was rebuilt from the
+    // start of the transcript. The execution monitor already ignores it.
+    const staleCompletion = {
+        token: 'codex:task-complete:1000',
+        phase: 'needsAttention',
+        reason: 'completed',
+        executionState: 'stopped',
+        occurredAtMs: 1000,
+    };
+
+    const execution = new ExecutionMonitor({ now: () => 3000 });
+    execution.evaluate([{ key, signal: running }]);
+    execution.evaluate([{ key, signal: staleCompletion }]);
+    assert.equal(execution.getSnapshot()[key].state, 'running');
+
+    const attention = new AttentionMonitor({ now: () => 3000 });
+    attention.evaluate([{ key, signal: running, observedAt: running.occurredAtMs }]);
+    const replayed = attention.evaluate([
+        { key, signal: staleCompletion, observedAt: staleCompletion.occurredAtMs },
+    ]);
+
+    assert.deepEqual(replayed, [],
+        'a signal older than the last accepted one must not raise attention');
+    assert.equal(attention.getSnapshot()[key].state, 'running',
+        'both monitors must reach the same conclusion from the same signal order');
 });

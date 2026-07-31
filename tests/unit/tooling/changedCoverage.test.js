@@ -9,6 +9,7 @@ const {
     addUntrackedChangedLines,
     changedCoveragePercentage,
     collectChangedLineCoverage,
+    isUninstrumentedByDesign,
     listUntrackedFiles,
     main,
     parseChangedLines,
@@ -79,6 +80,42 @@ test('COVERAGE-CHANGED-CODE-001 reports uncovered executable changed lines and m
         missingFiles: ['src/missing.ts'],
     });
     assert.equal(changedCoveragePercentage(result), 50);
+});
+
+test('COVERAGE-CHANGED-CODE-001 exempts only the paths the suite structurally cannot instrument', () => {
+    assert.equal(isUninstrumentedByDesign('src/dashboard.ts'), true);
+    assert.equal(isUninstrumentedByDesign('scripts/run-ai-session-safety-checks.js'), true);
+    assert.equal(isUninstrumentedByDesign('src/aiSessions/dashboardController.ts'), false);
+    assert.equal(isUninstrumentedByDesign('scripts/lib/behaviorCatalog.js'), false);
+    assert.equal(isUninstrumentedByDesign('scripts/run-nested/helper.js'), false);
+
+    const root = path.resolve('/repo');
+    const diff = [
+        'diff --git a/src/dashboard.ts b/src/dashboard.ts',
+        '--- a/src/dashboard.ts',
+        '+++ b/src/dashboard.ts',
+        '@@ -1,0 +1,1 @@',
+        '+wireController();',
+        'diff --git a/src/missing.ts b/src/missing.ts',
+        '--- a/src/missing.ts',
+        '+++ b/src/missing.ts',
+        '@@ -1,0 +1,1 @@',
+        '+untested();',
+    ].join('\n');
+    const exempt = collectChangedLineCoverage(root, {}, parseChangedLines(diff));
+    assert.deepEqual(exempt.missingFiles, ['src/missing.ts'],
+        'an exempt path is skipped while a genuinely uninstrumented one still fails');
+
+    const output = [];
+    const logger = { error: message => output.push(message), log: () => undefined };
+    assert.equal(main({
+        root,
+        coverage: {},
+        threshold: 80,
+        base: 'base',
+        diff: diff.split('\n').slice(0, 5).join('\n'),
+        logger,
+    }), 0, 'a wiring-only dashboard change must not fail the gate');
 });
 
 test('COVERAGE-CHANGED-CODE-001 treats type-only diffs as fully covered and validates thresholds', () => {

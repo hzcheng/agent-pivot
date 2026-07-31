@@ -1042,6 +1042,20 @@
     ]
   },
   {
+    "id": "ATTENTION-EXECUTION-STATE-SYNC-001",
+    "domain": "attention",
+    "title": "Attention settles on the same lifecycle edge that starts the running animation",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/aiSessions/attention.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/attentionEvaluationQueue.ts",
+      "src/aiSessions/executionController.ts"
+    ]
+  },
+  {
     "id": "SESSION-AI-SESSION-EXECUTION-MONITOR-001",
     "domain": "session",
     "title": "AI Session Execution Monitor behavior",

@@ -111,6 +111,7 @@ const AiSessionCreationController = require('../out/aiSessions/creationControlle
 const AiSessionResumeController = require('../out/aiSessions/resumeController').AiSessionResumeController;
 const AiSessionAttentionController = require('../out/aiSessions/attentionController').AiSessionAttentionController;
 const AiSessionExecutionController = require('../out/aiSessions/executionController').AiSessionExecutionController;
+const AiSessionLifecycleSignalReader = require('../out/aiSessions/lifecycleSignalReader').AiSessionLifecycleSignalReader;
 const TmuxFocusedRuntimeMonitor = require('../out/aiSessions/tmuxFocusedRuntimeMonitor')
     .TmuxFocusedRuntimeMonitor;
 const settleAiSessionRuntimeLifecycles = require('../out/aiSessions/attentionController').settleAiSessionRuntimeLifecycles;
@@ -3264,22 +3265,28 @@ async function runAiSessionExecutionControllerChecks() {
     const scheduled = [];
     const options = {
         getActiveSessions: () => activeSessions,
-        getProviders: () => providersForTest,
         getSessionKey: (providerId, sessionId) => `${providerId}:${sessionId}`,
         scheduleRefresh: reason => scheduled.push(reason),
         nowMs: () => 1000,
     };
     assert.strictEqual(Object.prototype.hasOwnProperty.call(options, 'isEnabled'), false);
     const controller = new AiSessionExecutionController(options);
+    // Signals arrive from the shared reader so one consumer cannot evict another's
+    // cursor, and both passes observe the same read.
+    const reader = new AiSessionLifecycleSignalReader({
+        getProviders: () => providersForTest,
+        getRequests: () => [controller.getLifecycleRequests()],
+    });
+    const evaluate = () => controller.evaluate(reader.read());
 
-    await controller.evaluate();
+    evaluate();
     assert.deepStrictEqual(scheduled, ['execution']);
     assert.deepStrictEqual(providerCalls.codex, [[{ sessionId: 'session-a', runStartedAtMs: 900 }]]);
     assert.deepStrictEqual(providerCalls.kimi, []);
     assert.deepStrictEqual(providerCalls.claude, []);
     assert.strictEqual(controller.getSnapshot()['codex:session-a'].state, 'running');
 
-    await controller.evaluate();
+    evaluate();
     assert.deepStrictEqual(scheduled, ['execution'], 'repeating a signal does not schedule a refresh');
 
     signal = {
@@ -3289,12 +3296,12 @@ async function runAiSessionExecutionControllerChecks() {
         executionState: 'stopped',
         occurredAtMs: 1200,
     };
-    await controller.evaluate();
+    evaluate();
     assert.deepStrictEqual(scheduled, ['execution', 'execution']);
     assert.strictEqual(controller.getSnapshot()['codex:session-a'].state, 'stopped');
 
     activeSessions = [];
-    await controller.evaluate();
+    evaluate();
     assert.deepStrictEqual(controller.getSnapshot(), {});
     assert.deepStrictEqual(scheduled, ['execution', 'execution', 'execution'],
         'removing a tracked session must publish the stopped cross-window state');
@@ -3305,6 +3312,8 @@ async function runAiSessionExecutionControllerChecks() {
     const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'aiSessions', 'executionController.ts'), 'utf8');
     assert.ok(!source.includes('isEnabled'), 'execution controller has no attention enablement option');
     assert.ok(!source.toLowerCase().includes('attention'), 'execution controller never reads attention configuration');
+    assert.ok(!source.includes('getLifecycleSignals('),
+        'execution controller consumes the shared read instead of querying providers itself');
 }
 
 async function runAgentPivotViewProviderOrderingChecks() {
@@ -5175,11 +5184,18 @@ function runWebviewContentChecks() {
     assert.ok(dashboard.includes('new WorkspaceSessionHydrationController<vscode.Terminal>({'));
     assert.ok(dashboard.includes('getExecutionSnapshot: () => aiSessionExecutionController.getSnapshot()'));
     assert.ok(dashboard.includes('getActiveSessions: () => aiSessionRuntimeCoordinator.getActive()'));
+    // The tick reads provider signals once and drives both the execution and the
+    // attention pass from that single observation, so the running animation and
+    // the attention dot can never be derived from two different reads.
     assert.match(dashboard,
-        /ownTimer\(\s*\(\) => setInterval\(\(\) => \{\s*aiSessionExecutionController\.evaluate\(\);\s*\}, 1_000\),\s*handle => clearInterval\(handle\),\s*\)/);
+        /const evaluateAiSessionLifecycleTick = \(\): void => \{\s*const signals = aiSessionLifecycleSignals\.read\(\);\s*aiSessionExecutionController\.evaluate\(signals\);\s*void aiSessionAttentionEvaluations\.request\('signals', signals\);\s*\}/);
     assert.match(dashboard,
-        /ownTimer\(\s*\(\) => setTimeout\(\(\) => \{\s*aiSessionExecutionController\.evaluate\(\);\s*\}, 0\),\s*handle => clearTimeout\(handle\),\s*\)/);
-    assert.match(dashboard, /onDidCloseTerminal\(terminal => \{[\s\S]*?handleClosedTerminal\(terminal\);[\s\S]*?aiSessionExecutionController\.evaluate\(\);/);
+        /ownTimer\(\s*\(\) => setInterval\(evaluateAiSessionLifecycleTick, 1_000\),\s*handle => clearInterval\(handle\),\s*\)/);
+    assert.match(dashboard,
+        /ownTimer\(\s*\(\) => setTimeout\(evaluateAiSessionLifecycleTick, 0\),\s*handle => clearTimeout\(handle\),\s*\)/);
+    assert.match(dashboard, /onDidCloseTerminal\(terminal => \{[\s\S]*?handleClosedTerminal\(terminal\);[\s\S]*?evaluateAiSessionLifecycleTick\(\);/);
+    assert.match(dashboard,
+        /getRequests: \(\) => \[\s*aiSessionExecutionController\.getLifecycleRequests\(\),\s*aiSessionAttentionController\.getLifecycleRequests\(\),\s*\]/);
     assert.ok(!evaluateExecutionFunction.includes('isEnabled'));
     assert.ok(!evaluateExecutionFunction.includes('attention'));
     assert.ok(evaluateAttentionFunction.includes('if (!this.options.isEnabled())'));
@@ -7799,15 +7815,25 @@ function runAiSessionDashboardWatcherCoalescingChecks() {
     assert.strictEqual(scheduled[1].delayMs, 800);
     nowMs = 1300;
     controller.scheduleRefresh('watcher');
-    assert.deepStrictEqual(cleared, [scheduled[1]]);
-    assert.strictEqual(scheduled[2].delayMs, 700);
-    scheduled[2].callback();
+    assert.deepStrictEqual(cleared, [], 'a repeat watcher event keeps the pending deadline instead of re-arming');
+    assert.strictEqual(scheduled.length, 2, 'coalesced watcher events must not stack extra timers');
+    scheduled[1].callback();
     assert.deepStrictEqual(refreshReasons, ['watcher', 'watcher']);
     assert.strictEqual(messages.length, 1, 'unchanged coalesced watcher refreshes may be skipped after build');
 
     nowMs = 1350;
     controller.scheduleRefresh('attention');
-    assert.strictEqual(scheduled[3].delayMs, 100, 'non-watcher refreshes should not be throttled by watcher coalescing');
+    assert.strictEqual(scheduled[2].delayMs, 100, 'non-watcher refreshes should not be throttled by watcher coalescing');
+
+    // An urgent repaint already pending must never be pushed out to the watcher
+    // interval by the JSONL poller, or the attention dot lags the running animation.
+    nowMs = 1400;
+    controller.scheduleRefresh('watcher');
+    assert.deepStrictEqual(cleared, [], 'a watcher event must not postpone a pending status refresh');
+    assert.strictEqual(scheduled.length, 3);
+    scheduled[2].callback();
+    assert.deepStrictEqual(refreshReasons, ['watcher', 'watcher', 'attention'],
+        'a coalesced status refresh keeps its urgent reason');
 }
 
 async function runAiSessionDashboardUnchangedMessageSkipChecks() {

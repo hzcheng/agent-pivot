@@ -44,6 +44,7 @@ export class AiSessionDashboardController {
     private newSessionRefreshTimeouts: NodeJS.Timeout[] = [];
     private watcherDisposables: DisposableLike[] = [];
     private pendingRefreshReason = 'refresh';
+    private pendingRefreshDueAtMs = 0;
     private lastWatcherRefreshAtMs: number | null = null;
     private lastPostedIncrementalMessageSignature: string | null = null;
 
@@ -55,7 +56,17 @@ export class AiSessionDashboardController {
             return;
         }
 
+        const dueAtMs = this.nowMs() + this.getRefreshDelayMs(reason);
+        // A later request never postpones an already pending refresh. Watcher events
+        // arrive continuously while a session streams, and re-arming on the newest
+        // reason used to push an urgent status repaint out to the watcher interval
+        // and relabel it, so the attention dot lagged the running animation.
+        if (this.refreshTimeout !== null && dueAtMs >= this.pendingRefreshDueAtMs) {
+            return;
+        }
+
         this.pendingRefreshReason = reason;
+        this.pendingRefreshDueAtMs = dueAtMs;
         if (this.refreshTimeout) {
             this.options.clearTimeout(this.refreshTimeout);
         }

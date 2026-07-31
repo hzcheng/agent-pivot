@@ -1,6 +1,10 @@
 'use strict';
 
 import type { AiSessionExecutionState, AiSessionLifecycleSignal } from './lifecycle';
+import {
+    acceptsLifecycleSignal,
+    recordAcceptedLifecycleSignal,
+} from './lifecycleSignalAcceptance';
 
 export interface AiSessionExecutionInput {
     key: string;
@@ -40,12 +44,10 @@ export default class AiSessionExecutionMonitor {
             }
 
             const signal = input.signal;
-            if (!signal?.token || signal.token === entry.lastSignalToken
-                || (entry.lastOccurredAtMs !== undefined && signal.occurredAtMs < entry.lastOccurredAtMs)) {
+            if (!acceptsLifecycleSignal(entry, signal)) {
                 continue;
             }
-            entry.lastSignalToken = signal.token;
-            entry.lastOccurredAtMs = signal.occurredAtMs;
+            recordAcceptedLifecycleSignal(entry, signal);
             if (entry.state === signal.executionState) {
                 continue;
             }

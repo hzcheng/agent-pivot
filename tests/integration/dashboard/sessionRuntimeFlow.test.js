@@ -245,6 +245,71 @@ test('WEBVIEW-AI-SESSION-DASHBOARD-WATCHER-COALESCING-001 coalesces watcher refr
     assert.deepEqual(reasons, ['watcher', 'watcher', 'attention']);
 });
 
+test('WEBVIEW-AI-SESSION-DASHBOARD-WATCHER-COALESCING-001 never postpones a pending status refresh behind later watcher events', async () => {
+    const clock = createFakeClock(1000);
+    const reasons = [];
+    const { AiSessionDashboardController } = loadFreshWithFakeVscode(
+        '../../../out/aiSessions/dashboardController', {}, __dirname
+    );
+    let cardRevision = 0;
+    const controller = new AiSessionDashboardController({
+        providerIds: ['codex'],
+        isVisible: () => true,
+        invalidateCache: () => undefined,
+        watchSessionChanges: () => ({ dispose() {} }),
+        getGroups: () => [], getTodoSearchItems: () => [],
+        // A live session keeps mutating, so no refresh is ever skipped as unchanged.
+        getCards: () => { cardRevision += 1; return []; },
+        getRunningCardAnimation: () => `revision-${cardRevision}`,
+        getRunningIconAnimation: () => undefined,
+        nextSequence: () => reasons.length + 1,
+        postMessage: () => Promise.resolve(true),
+        refresh: () => undefined,
+        logError: (_message, error) => { throw error; },
+        beforeRefresh: reason => reasons.push({ reason, atMs: clock.nowMs }),
+        afterRefresh: () => undefined,
+        nowMs: () => clock.nowMs,
+        debounceMs: 100,
+        watcherRefreshMinIntervalMs: 1000,
+        newSessionRefreshDelaysMs: [],
+        setTimeout: (callback, delay) => clock.setTimeout(callback, delay),
+        clearTimeout: handle => clock.clearTimeout(handle),
+    });
+
+    // Establish lastWatcherRefreshAtMs, exactly as a live session does.
+    controller.scheduleRefresh('watcher');
+    clock.advanceBy(100);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(reasons.length, 1);
+
+    // The execution monitor observes a state change and asks for a prompt repaint.
+    const requestedAtMs = clock.nowMs;
+    controller.scheduleRefresh('execution');
+
+    // The provider JSONL poller keeps firing while the session streams output.
+    // Each watcher event must not push the pending execution refresh further out.
+    for (let index = 0; index < 4; index += 1) {
+        clock.advanceBy(90);
+        controller.scheduleRefresh('watcher');
+        await new Promise(resolve => setImmediate(resolve));
+    }
+    clock.advanceBy(1000);
+    await new Promise(resolve => setImmediate(resolve));
+
+    const settled = reasons.find(entry => entry.atMs > requestedAtMs);
+    assert.ok(settled, 'the pending status refresh must eventually run');
+    assert.equal(
+        settled.atMs - requestedAtMs,
+        100,
+        'a status refresh must land on its own debounce deadline, not the watcher interval'
+    );
+    assert.equal(
+        settled.reason,
+        'execution',
+        'a coalesced status refresh must keep the urgent reason instead of being downgraded'
+    );
+});
+
 test('WEBVIEW-AI-SESSION-DASHBOARD-CONTROLLER-001 invalidates and refreshes for every new-session delay', async () => {
     const invalidated = [];
     const messages = [];

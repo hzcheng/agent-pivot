@@ -8,6 +8,10 @@ import type { AttentionPayloadItem } from './attentionPayload';
 import AiSessionAttentionMonitor from './attentionMonitor';
 import type { AiSessionAttentionSnapshot } from './attentionMonitor';
 import type { AiSessionLifecycleRequest, AiSessionLifecycleSignal } from './lifecycle';
+import type {
+    AiSessionLifecycleRequestsByProvider,
+    AiSessionLifecycleSignals,
+} from './lifecycleSignalReader';
 import { getAttentionProjectKeys, getLogicalAttentionSessionKey } from './attentionProject';
 import { getAiSessionKey } from './sessionHelpers';
 import type { WorkspaceAiSessionActionTarget, WorkspaceAiSessionViewModel } from './types';
@@ -62,7 +66,8 @@ export class AiSessionAttentionController<TRuntime extends AiSessionAttentionRun
     }
 
     async evaluate(
-        runtimeOverrides: readonly AiSessionAttentionRuntimeOverride<TRuntime>[] = []
+        runtimeOverrides: readonly AiSessionAttentionRuntimeOverride<TRuntime>[] = [],
+        signals?: AiSessionLifecycleSignals
     ): Promise<AiSessionAttentionEvaluation> {
         if (!this.options.isEnabled()) {
             this.monitor.clear();
@@ -92,7 +97,7 @@ export class AiSessionAttentionController<TRuntime extends AiSessionAttentionRun
             }
             this.attentionKeysBySession.set(owned.baseSessionKey, keys);
         }
-        const signalsByProvider = this.getSignalsByProvider(providers, ownedSessions);
+        const signalsByProvider = signals || this.readSignals(providers, ownedSessions);
         const runningAttentionKeysBySession = new Map<string, string>();
         const inputs = Array.from(ownedSessions, ([key, owned]) => {
             const signal = signalsByProvider[owned.providerId][owned.session.id];
@@ -284,7 +289,31 @@ export class AiSessionAttentionController<TRuntime extends AiSessionAttentionRun
         return ownedSessions;
     }
 
-    private getSignalsByProvider(
+    /** The sessions this controller needs signals for, for the shared reader to merge. */
+    getLifecycleRequests(
+        runtimeOverrides: readonly AiSessionAttentionRuntimeOverride<TRuntime>[] = []
+    ): AiSessionLifecycleRequestsByProvider {
+        if (!this.options.isEnabled()) {
+            return {};
+        }
+        const requests: Partial<Record<AiSessionProviderId, AiSessionLifecycleRequest[]>> = {};
+        const ownedSessions = this.getOwnedSessions(
+            this.options.getWorkspaceTarget()?.sessions || null,
+            this.options.getProviders(),
+            runtimeOverrides
+        );
+        for (const owned of ownedSessions.values()) {
+            const owning = requests[owned.providerId] || [];
+            owning.push({
+                sessionId: owned.session.id,
+                runStartedAtMs: owned.runtime.runStartedAtMs,
+            });
+            requests[owned.providerId] = owning;
+        }
+        return requests;
+    }
+
+    private readSignals(
         providers: AiSessionAttentionProvider[],
         ownedSessions: Map<string, {
             providerId: AiSessionProviderId;

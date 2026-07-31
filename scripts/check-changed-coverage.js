@@ -6,6 +6,26 @@ const path = require('node:path');
 
 const ELIGIBLE_CODE_PATH = /^(?:src|scripts|shared|extensions\/[^/]+\/src)\/.*\.(?:js|ts)$/;
 
+// Paths the deterministic suite structurally cannot instrument. Everything else
+// that is eligible but absent from the coverage report is still a hard failure,
+// because that means a test stopped exercising it.
+const UNINSTRUMENTED_BY_DESIGN = [
+    // The activation entry point. Only tests/integration/dashboard/helpers load it,
+    // and they compile out/dashboard.js in a child process started with
+    // NODE_V8_COVERAGE disabled, so no counters ever reach the report.
+    'src/dashboard.ts',
+    // Standalone check scripts are spawned with execFile rather than required, so
+    // their statements are attributed to the child process instead of the run.
+    // Their extracted helpers under scripts/lib stay instrumented and enforced.
+    /^scripts\/run-[^/]+\.js$/,
+];
+
+function isUninstrumentedByDesign(file) {
+    return UNINSTRUMENTED_BY_DESIGN.some(pattern => typeof pattern === 'string'
+        ? pattern === file
+        : pattern.test(file));
+}
+
 function parseChangedLines(diff) {
     const changed = new Map();
     let file;
@@ -80,7 +100,8 @@ function collectChangedLineCoverage(root, coverage, changed) {
     let total = 0;
     let covered = 0;
     for (const [file, changedLines] of changed) {
-        if (!ELIGIBLE_CODE_PATH.test(file) || changedLines.size === 0) {
+        if (!ELIGIBLE_CODE_PATH.test(file) || changedLines.size === 0
+            || isUninstrumentedByDesign(file)) {
             continue;
         }
         const entry = entries.get(file);
@@ -250,6 +271,7 @@ module.exports = {
     addUntrackedChangedLines,
     changedCoveragePercentage,
     collectChangedLineCoverage,
+    isUninstrumentedByDesign,
     listUntrackedFiles,
     main,
     parseChangedLines,

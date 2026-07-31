@@ -11,13 +11,91 @@ const {
     EXTENSION_HOST_TIMEOUT_MS,
     EXTENSION_HOST_WORKER_TIMEOUT_MS,
     HOSTILE_EXTENSION_HOST_ENVIRONMENT_KEYS,
+    BRIDGE_EXTENSION_ID,
+    MAIN_EXTENSION_ID,
     VSCODE_STABLE_VERSION,
     createExtensionHostTestEnvironment,
+    createExtensionPackagePlan,
     createRunTestsOptions,
+    installPackagedExtensions,
     removeExtensionHostTestEnvironment,
     runWorkerWithWatchdog,
+    verifyInstalledExtensionBytes,
     withSanitizedExtensionHostEnvironment,
 } = require('../../../scripts/lib/extensionHostLauncher');
+
+function writeFile(filePath, value) {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, value);
+}
+
+function createPackagedFixture(root) {
+    const mainManifest = {
+        name: 'agent-pivot',
+        publisher: 'hzcheng',
+        version: '9.9.9',
+    };
+    const bridgeManifest = {
+        name: 'agent-pivot-attention-ui-bridge',
+        publisher: 'hzcheng',
+        version: '8.8.8',
+        extensionKind: ['ui'],
+    };
+    writeFile(path.join(root, 'package.json'), JSON.stringify(mainManifest));
+    writeFile(
+        path.join(root, 'extensions/attention-ui-bridge/package.json'),
+        JSON.stringify(bridgeManifest)
+    );
+    const sourceFiles = [
+        ['dist/dashboard.js', 'main-runtime'],
+        ['media/conversationViewerScripts.js', 'viewer-runtime'],
+        ['media/conversationMermaidScripts.js', 'mermaid-runtime'],
+        ['extensions/attention-ui-bridge/dist/extension.js', 'bridge-runtime'],
+    ];
+    for (const [relativePath, bytes] of sourceFiles) {
+        writeFile(path.join(root, relativePath), bytes);
+    }
+    writeFile(path.join(root, 'artifacts/agent-pivot-9.9.9.vsix'), 'main-vsix');
+    writeFile(
+        path.join(root, 'artifacts/agent-pivot-attention-ui-bridge-8.8.8.vsix'),
+        'bridge-vsix'
+    );
+    return { bridgeManifest, mainManifest, sourceFiles };
+}
+
+function createInstalledFixture(root, extensionsDirectory, fixture) {
+    const roots = {
+        [MAIN_EXTENSION_ID]: path.join(extensionsDirectory, 'main-installed'),
+        [BRIDGE_EXTENSION_ID]: path.join(extensionsDirectory, 'bridge-installed'),
+    };
+    writeFile(
+        path.join(roots[MAIN_EXTENSION_ID], 'package.json'),
+        JSON.stringify({
+            __metadata: { installed: true },
+            version: fixture.mainManifest.version,
+            publisher: fixture.mainManifest.publisher,
+            name: fixture.mainManifest.name,
+        })
+    );
+    writeFile(
+        path.join(roots[BRIDGE_EXTENSION_ID], 'package.json'),
+        JSON.stringify({ ...fixture.bridgeManifest, __metadata: { installed: true } })
+    );
+    for (const [relativePath, bytes] of fixture.sourceFiles) {
+        const isBridge = relativePath.startsWith('extensions/attention-ui-bridge/');
+        const installedRelativePath = isBridge
+            ? relativePath.slice('extensions/attention-ui-bridge/'.length)
+            : relativePath;
+        writeFile(
+            path.join(
+                roots[isBridge ? BRIDGE_EXTENSION_ID : MAIN_EXTENSION_ID],
+                installedRelativePath
+            ),
+            bytes
+        );
+    }
+    return roots;
+}
 
 // RELEASE-SCHEDULED-EXTENSION-HOST-001
 test('RELEASE-SCHEDULED-EXTENSION-HOST-001 launches both extensions with pinned stable VS Code', () => {
@@ -25,15 +103,34 @@ test('RELEASE-SCHEDULED-EXTENSION-HOST-001 launches both extensions with pinned 
     const isolatedRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-launcher-test-'));
     try {
         const environment = createExtensionHostTestEnvironment(isolatedRoot);
-        const options = createRunTestsOptions(repositoryRoot, environment);
+        const vscodeExecutablePath = path.join(isolatedRoot, 'VS Code');
+        const installedRoots = {
+            [MAIN_EXTENSION_ID]: path.join(environment.extensions, 'main'),
+            [BRIDGE_EXTENSION_ID]: path.join(environment.extensions, 'bridge'),
+        };
+        const options = createRunTestsOptions(
+            repositoryRoot,
+            environment,
+            vscodeExecutablePath,
+            installedRoots
+        );
+        const packagePlan = createExtensionPackagePlan(repositoryRoot);
 
         assert.equal(VSCODE_STABLE_VERSION, '1.130.0');
         assert.equal(EXTENSION_HOST_TIMEOUT_MS, 120000);
+        assert.equal(options.vscodeExecutablePath, vscodeExecutablePath);
         assert.deepEqual(options.extensionDevelopmentPath, [
-            repositoryRoot,
-            path.join(repositoryRoot, 'extensions', 'attention-ui-bridge'),
+            installedRoots[MAIN_EXTENSION_ID],
+            installedRoots[BRIDGE_EXTENSION_ID],
         ]);
-        assert.equal(options.version, VSCODE_STABLE_VERSION);
+        assert.deepEqual(packagePlan.map(item => item.id), [
+            BRIDGE_EXTENSION_ID,
+            MAIN_EXTENSION_ID,
+        ]);
+        assert.deepEqual(packagePlan.map(item => path.basename(item.artifactPath)), [
+            'agent-pivot-attention-ui-bridge-1.0.0.vsix',
+            'agent-pivot-1.0.1.vsix',
+        ]);
         assert.equal(options.extensionTestsPath,
             path.join(repositoryRoot, 'tests', 'extension-host', 'suite', 'index.js'));
         assert.deepEqual(options.launchArgs, [
@@ -48,6 +145,14 @@ test('RELEASE-SCHEDULED-EXTENSION-HOST-001 launches both extensions with pinned 
         assert.equal(options.extensionTestsEnv.CODEX_HOME, environment.codexHome);
         assert.equal(options.extensionTestsEnv.KIMI_SHARE_DIR, environment.kimiHome);
         assert.equal(options.extensionTestsEnv.CLAUDE_HOME, environment.claudeHome);
+        assert.equal(
+            options.extensionTestsEnv.AGENT_PIVOT_EXPECTED_MAIN_EXTENSION_PATH,
+            installedRoots[MAIN_EXTENSION_ID]
+        );
+        assert.equal(
+            options.extensionTestsEnv.AGENT_PIVOT_EXPECTED_BRIDGE_EXTENSION_PATH,
+            installedRoots[BRIDGE_EXTENSION_ID]
+        );
         assert.equal(options.extensionTestsEnv.AGENT_PIVOT_EXTENSION_HOST_TIMEOUT_MS, '120000');
         assert.equal(Object.prototype.hasOwnProperty.call(
             options.extensionTestsEnv, 'VSCODE_IPC_HOOK_CLI'), false);
@@ -57,6 +162,101 @@ test('RELEASE-SCHEDULED-EXTENSION-HOST-001 launches both extensions with pinned 
         }
     } finally {
         removeExtensionHostTestEnvironment(isolatedRoot);
+    }
+});
+
+// RELEASE-SCHEDULED-EXTENSION-HOST-001
+test('RELEASE-SCHEDULED-EXTENSION-HOST-001 verifies installed manifests and executable bytes', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-installed-bytes-'));
+    try {
+        const fixture = createPackagedFixture(root);
+        const extensionsDirectory = path.join(root, 'installed');
+        fs.mkdirSync(extensionsDirectory, { recursive: true });
+        const installedRoots = createInstalledFixture(
+            root,
+            extensionsDirectory,
+            fixture
+        );
+        const evidence = verifyInstalledExtensionBytes(
+            createExtensionPackagePlan(root),
+            installedRoots
+        );
+        assert.equal(evidence.length, 6);
+        assert.deepEqual(new Set(evidence.map(item => item.extensionId)), new Set([
+            MAIN_EXTENSION_ID,
+            BRIDGE_EXTENSION_ID,
+        ]));
+
+        writeFile(
+            path.join(installedRoots[MAIN_EXTENSION_ID], 'package.json'),
+            JSON.stringify({ ...fixture.mainManifest, displayName: 'mutated' })
+        );
+        assert.throws(
+            () => verifyInstalledExtensionBytes(
+                createExtensionPackagePlan(root),
+                installedRoots
+            ),
+            /manifest .* differs from its VSIX source/
+        );
+        writeFile(
+            path.join(installedRoots[MAIN_EXTENSION_ID], 'package.json'),
+            JSON.stringify(fixture.mainManifest)
+        );
+        fs.writeFileSync(
+            path.join(installedRoots[MAIN_EXTENSION_ID], 'dist/dashboard.js'),
+            'mutated-runtime'
+        );
+        assert.throws(
+            () => verifyInstalledExtensionBytes(
+                createExtensionPackagePlan(root),
+                installedRoots
+            ),
+            /differs from built bytes/
+        );
+    } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+    }
+});
+
+// RELEASE-SCHEDULED-EXTENSION-HOST-001
+test('RELEASE-SCHEDULED-EXTENSION-HOST-001 installs both VSIX files through one isolated CLI profile', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-install-plan-'));
+    const isolatedRoot = path.join(root, 'isolation');
+    try {
+        const fixture = createPackagedFixture(root);
+        const environment = createExtensionHostTestEnvironment(isolatedRoot);
+        createInstalledFixture(root, environment.extensions, fixture);
+        const calls = [];
+        const installation = installPackagedExtensions(
+            root,
+            environment,
+            path.join(root, 'VS Code'),
+            {
+                resolveCliArgs: () => ['/verified/code', '--profile-arg'],
+                spawnSync: (command, args, options) => {
+                    calls.push({ command, args, options });
+                    return { status: 0 };
+                },
+                stdio: 'pipe',
+            }
+        );
+
+        assert.deepEqual(calls.map(call => call.command), [
+            '/verified/code',
+            '/verified/code',
+        ]);
+        assert.match(calls[0].args.join('\n'), /agent-pivot-attention-ui-bridge-8\.8\.8\.vsix/);
+        assert.match(calls[1].args.join('\n'), /agent-pivot-9\.9\.9\.vsix/);
+        for (const call of calls) {
+            assert.ok(call.args.includes('--profile-arg'));
+            assert.ok(call.args.includes(`--extensions-dir=${environment.extensions}`));
+            assert.ok(call.args.includes(`--user-data-dir=${environment.userData}`));
+            assert.ok(call.args.includes('--force'));
+        }
+        assert.equal(installation.evidence.length, 6);
+    } finally {
+        if (fs.existsSync(isolatedRoot)) removeExtensionHostTestEnvironment(isolatedRoot);
+        fs.rmSync(root, { recursive: true, force: true });
     }
 });
 

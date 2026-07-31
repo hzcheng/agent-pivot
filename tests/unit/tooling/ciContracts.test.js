@@ -6,6 +6,7 @@ const path = require('node:path');
 const test = require('node:test');
 const {
     validateQualityGateScripts,
+    validateReleaseWorkflow,
     validateSafetyScripts,
     validateScheduledWorkflow,
     validateVerifyWorkflow,
@@ -17,6 +18,10 @@ const verifyWorkflow = fs.readFileSync(
 );
 const scheduledWorkflow = fs.readFileSync(
     path.resolve(__dirname, '../../../.github/workflows/scheduled-verification.yml'),
+    'utf8'
+);
+const releaseWorkflow = fs.readFileSync(
+    path.resolve(__dirname, '../../../.github/workflows/release-vsix.yml'),
     'utf8'
 );
 const packageScripts = JSON.parse(fs.readFileSync(
@@ -172,4 +177,36 @@ test('ARCH-CI-QUALITY-GATE-001 scheduled Extension Host gate is pinned and block
     ]) {
         assert.throws(() => validateScheduledWorkflow(source), message);
     }
+});
+
+test('RELEASE-CONVERSATION-JOURNEYS-001 release publishing needs installed VSIX activation', () => {
+    assert.doesNotThrow(() => validateReleaseWorkflow(releaseWorkflow));
+    assert.throws(
+        () => validateReleaseWorkflow(releaseWorkflow.replace(
+            '      - release-extension-host\n',
+            ''
+        )),
+        /must need verify and release-extension-host/
+    );
+    assert.throws(
+        () => validateReleaseWorkflow(releaseWorkflow.replace(
+            '        run: npm run test:extension-host',
+            '        run: npm test'
+        )),
+        /release-extension-host must run npm run test:extension-host/
+    );
+    assert.throws(
+        () => validateReleaseWorkflow(releaseWorkflow.replace(
+            '    runs-on: macos-latest',
+            '    runs-on: ubuntu-latest'
+        )),
+        /release-extension-host must use macos-latest/
+    );
+    assert.throws(
+        () => validateReleaseWorkflow(releaseWorkflow.replace(
+            '    needs: verify',
+            '    needs: release'
+        )),
+        /release-extension-host must need verify/
+    );
 });

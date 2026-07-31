@@ -17,6 +17,13 @@ Use Node.js 22.12 or newer and install dependencies with `npm ci` before running
 
 Run `npm run test:behavior-contracts` to validate the catalog and its owner and evidence references. Focused `node:test` suites own ordinary behavior; the remaining source-level checks are limited to documented architecture risks.
 
+`conversation-release-journeys.json` groups the user-visible AI Conversation
+journeys that block pull requests or releases. Every referenced pull-request
+behavior must remain P0 and automated. Release-only entries may additionally
+use scheduled evidence for a real packaged Extension Host. Run
+`npm run test:release-journeys` to validate this product gate directly; the
+standard behavior-contract command and Linux pull-request gate invoke it too.
+
 ## Test workflow
 
 Run the narrowest owner while developing. Compile first when the test imports generated `out/` modules:
@@ -46,7 +53,21 @@ npm run test:deterministic
 AGENT_PIVOT_TMUX_PATH=/usr/bin/tmux npm run test:tmux:smoke
 ```
 
-The scheduled macOS gate additionally runs `npm run test:extension-host` with the exact direct `@vscode/test-electron` dependency and pinned VS Code Stable `1.130.0`. The launcher supplies both extension development roots so `hzcheng.agent-pivot` and its `hzcheng.agent-pivot-attention-ui-bridge` dependency are discoverable and activatable in the real Extension Host. It removes inherited Electron/VS Code bootstrap variables before spawning the worker, then restores the parent environment exactly. Its temporary workspace, user data, extension directory, HOME/XDG roots, provider homes, and two-minute in-suite timeout are isolated and self-cleaning. An eight-minute outer watchdog covers download, Electron startup, and suite loading and terminates the owned macOS/Linux worker process group; the scheduled job's 15-minute timeout is the final hard stop. This real Electron scenario runs only in `.github/workflows/scheduled-verification.yml`, not in the Linux pull-request gate.
+The scheduled macOS gate and release workflow additionally run
+`npm run test:extension-host` with the exact direct `@vscode/test-electron`
+dependency and pinned VS Code Stable `1.130.0`. The runner builds both release
+VSIX files, installs them with the pinned VS Code CLI into one isolated
+extension directory, verifies normalized manifests and executable file hashes,
+then loads those installed directories to activate `hzcheng.agent-pivot` and
+its `hzcheng.agent-pivot-attention-ui-bridge` dependency. It removes inherited
+Electron/VS Code bootstrap variables before spawning the worker, then restores
+the parent environment exactly. Its temporary workspace, user data, extension
+directory, HOME/XDG roots, provider homes, and two-minute in-suite timeout are
+isolated and self-cleaning. An eight-minute outer watchdog covers download,
+installation, Electron startup, and suite loading and terminates the owned
+macOS/Linux worker process group; the scheduled and release jobs' 15-minute
+timeouts are the final hard stop. This real Electron scenario does not run in
+the ordinary Linux pull-request gate.
 
 The Linux CI-equivalent command compiles once and runs behavior-catalog validation, the lint and coverage ratchets, deterministic and compatibility suites, architecture guards, production bundling, and release-package checks:
 

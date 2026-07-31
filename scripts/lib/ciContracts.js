@@ -177,6 +177,44 @@ function validateScheduledWorkflow(scheduledWorkflow) {
         'GitHub scheduled verification workflow must not define continue-on-error');
 }
 
+function validateReleaseWorkflow(releaseWorkflow) {
+    const workflow = parseVerifyWorkflow(releaseWorkflow);
+    assert.ok(isMapping(workflow.jobs),
+        'GitHub release workflow jobs must be a mapping');
+    assert.deepEqual(workflow.permissions, { contents: 'read' },
+        'GitHub release workflow permissions must be exactly contents: read');
+    assert.deepEqual(Object.keys(workflow.jobs).sort(), [
+        'release',
+        'release-extension-host',
+        'verify',
+    ], 'GitHub release workflow must define verify, release-extension-host, and release');
+
+    const verify = workflow.jobs.verify;
+    assert.ok(isMapping(verify), 'GitHub release workflow must define verify');
+    assert.equal(verify.uses, './.github/workflows/verify.yml',
+        'release verify must reuse ./.github/workflows/verify.yml');
+
+    validateJob(
+        workflow.jobs,
+        'release-extension-host',
+        'macos-latest',
+        'npm run test:extension-host',
+        [],
+        false,
+        15
+    );
+    assert.equal(workflow.jobs['release-extension-host'].needs, 'verify',
+        'release-extension-host must need verify');
+    const release = workflow.jobs.release;
+    assert.ok(isMapping(release), 'GitHub release workflow must define release');
+    assert.deepEqual(release.needs, ['verify', 'release-extension-host'],
+        'release job must need verify and release-extension-host');
+    assert.deepEqual(release.permissions, { contents: 'write' },
+        'release job permissions must be exactly contents: write');
+    assert.equal(containsKey(workflow, 'continue-on-error'), false,
+        'GitHub release workflow must not define continue-on-error');
+}
+
 function includesShellCommand(script, command) {
     return typeof script === 'string'
         && script.split(/&&|;/).map(part => part.trim()).includes(command);
@@ -206,6 +244,7 @@ function validateQualityGateScripts(scripts) {
 
 module.exports = {
     validateQualityGateScripts,
+    validateReleaseWorkflow,
     validateSafetyScripts,
     validateScheduledWorkflow,
     validateVerifyWorkflow,

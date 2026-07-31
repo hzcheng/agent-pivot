@@ -1,19 +1,67 @@
 'use strict';
 
-const { runTests } = require('@vscode/test-electron');
-const { VSCODE_STABLE_VERSION, createRunTestsOptions } = require('./lib/extensionHostLauncher');
+const {
+    downloadAndUnzipVSCode,
+    runTests,
+} = require('@vscode/test-electron');
+const {
+    VSCODE_STABLE_VERSION,
+    createRunTestsOptions,
+    installPackagedExtensions,
+} = require('./lib/extensionHostLauncher');
 
-async function main() {
-    const repositoryRoot = process.argv[2];
-    const environment = JSON.parse(process.argv[3]);
+async function runExtensionHostWorker(repositoryRoot, environment, options = {}) {
     if (!repositoryRoot || !environment || typeof environment.workspace !== 'string') {
         throw new Error('Extension Host worker requires repository and isolation paths.');
     }
-    console.log(`Running isolated Extension Host smoke with VS Code ${VSCODE_STABLE_VERSION}.`);
-    await runTests(createRunTestsOptions(repositoryRoot, environment));
+    const version = options.version || VSCODE_STABLE_VERSION;
+    const download = options.downloadAndUnzipVSCode || downloadAndUnzipVSCode;
+    const install = options.installPackagedExtensions || installPackagedExtensions;
+    const createOptions = options.createRunTestsOptions || createRunTestsOptions;
+    const executeTests = options.runTests || runTests;
+    const logger = options.logger || console;
+    logger.log(
+        `Installing release VSIX files into isolated VS Code ${version}.`
+    );
+    const vscodeExecutablePath = await download({
+        version,
+        extensionDevelopmentPath: repositoryRoot,
+    });
+    const installation = install(
+        repositoryRoot,
+        environment,
+        vscodeExecutablePath
+    );
+    for (const item of installation.evidence) {
+        logger.log(
+            `Verified installed ${item.extensionId} ${item.file} ${item.sha256}`
+        );
+    }
+    logger.log(
+        `Running installed Extension Host smoke with VS Code ${version}.`
+    );
+    await executeTests(createOptions(
+        repositoryRoot,
+        environment,
+        vscodeExecutablePath,
+        installation.installedRoots
+    ));
 }
 
-main().catch(error => {
-    console.error(`Extension Host worker failed: ${error && error.stack ? error.stack : error}`);
-    process.exitCode = 1;
-});
+async function main(argv = process.argv.slice(2), options = {}) {
+    const [repositoryRoot, serializedEnvironment] = argv;
+    const environment = JSON.parse(serializedEnvironment || 'null');
+    await runExtensionHostWorker(repositoryRoot, environment, options);
+}
+
+if (require.main === module) {
+    main().catch(error => {
+        console.error(`Extension Host worker failed: ${error && error.stack ? error.stack : error}`);
+        process.exitCode = 1;
+    });
+}
+
+module.exports = {
+    main,
+    runExtensionHostWorker,
+};

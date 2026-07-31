@@ -6,6 +6,7 @@ const path = require('path');
 const zlib = require('zlib');
 const yaml = require('js-yaml');
 const {
+    validateReleaseWorkflow: validateReleaseWorkflowSource,
     validateScheduledWorkflow: validateScheduledWorkflowSource,
     validateVerifyWorkflow,
 } = require('./lib/ciContracts');
@@ -205,14 +206,18 @@ function validateScheduledWorkflow(workflow) {
 }
 
 function validateReleaseWorkflow(workflow) {
+    validateReleaseWorkflowSource(yaml.safeDump(workflow));
     assert.ok(isMapping(workflow.on), 'release workflow on must be a mapping');
     assert.ok(isMapping(workflow.jobs), 'release workflow jobs must be a mapping');
     assert.deepStrictEqual(workflow.permissions, { contents: 'read' },
         'release workflow top-level permissions must be exactly contents: read');
     assert.strictEqual(containsKey(workflow, 'continue-on-error'), false,
         'release workflow must not define continue-on-error');
-    assert.deepStrictEqual(Object.keys(workflow.jobs).sort(), ['release', 'verify'],
-        'release workflow must contain only verify and release jobs');
+    assert.deepStrictEqual(
+        Object.keys(workflow.jobs).sort(),
+        ['release', 'release-extension-host', 'verify'],
+        'release workflow must contain only verify, release-extension-host, and release jobs'
+    );
     const verify = workflow.jobs.verify;
     assert.strictEqual(verify.uses, './.github/workflows/verify.yml',
         'release verify job must call the reusable verification workflow');
@@ -220,8 +225,20 @@ function validateReleaseWorkflow(workflow) {
         'release verify job must not receive elevated permissions');
     assert.strictEqual(Object.prototype.hasOwnProperty.call(verify, 'secrets'), false,
         'release verify job must not receive secrets');
+    const extensionHost = workflow.jobs['release-extension-host'];
+    assertExactKeys(
+        extensionHost,
+        ['name', 'needs', 'runs-on', 'timeout-minutes', 'steps'],
+        'release-extension-host job'
+    );
+    assert.strictEqual(extensionHost.needs, 'verify',
+        'release-extension-host must need verify');
     const release = workflow.jobs.release;
-    assert.strictEqual(release.needs, 'verify', 'release job must need verify');
+    assert.deepStrictEqual(
+        release.needs,
+        ['verify', 'release-extension-host'],
+        'release job must need verify and release-extension-host'
+    );
     assert.deepStrictEqual(release.permissions, { contents: 'write' },
         'release job permissions must be exactly contents: write');
 }
@@ -706,7 +723,7 @@ function run() {
     assert.ok(mainPackage.scripts['package:release'], 'package.json must define package:release');
     assert.ok(mainPackage.scripts['test:release-packaging'], 'package.json must define test:release-packaging');
     assert.strictEqual(mainPackage.scripts['test:extension-host'],
-        'npm run vscode:prepublish && npm run attention:bridge:bundle && node scripts/run-extension-host-tests.js',
+        'npm run package:release && node scripts/run-extension-host-tests.js',
         'package.json must define the reviewed Extension Host runner');
     assert.strictEqual(
         mainPackage.scripts['vscode:prepublish'],
@@ -830,6 +847,9 @@ function run() {
     validateReleaseWorkflow(release);
     assertWorkflowMutationRejected(validateReleaseWorkflow, release,
         value => { delete value.jobs.release.needs; }, 'release dependency removal must be rejected');
+    assertWorkflowMutationRejected(validateReleaseWorkflow, release,
+        value => { value.jobs['release-extension-host'].needs = 'release'; },
+        'release Extension Host dependency mutation must be rejected');
     assertWorkflowMutationRejected(validateReleaseWorkflow, release,
         value => { value.permissions = { contents: 'write' }; },
         'top-level write permission must be rejected');

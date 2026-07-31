@@ -1,0 +1,94 @@
+{
+  "version": 1,
+  "product": "AI Conversation",
+  "blockers": [
+    {
+      "id": "CONVERSATION-RELEASE-PROVIDERS-001",
+      "title": "Codex, Kimi, and Claude open bounded visible conversations",
+      "enforcement": "pull-request",
+      "behaviors": [
+        "SESSION-AI-SESSION-CONVERSATION-ADAPTER-001",
+        "WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001"
+      ]
+    },
+    {
+      "id": "CONVERSATION-RELEASE-READING-FOCUS-001",
+      "title": "Background refresh preserves the reader's viewport and semantic focus",
+      "enforcement": "pull-request",
+      "behaviors": [
+        "CONVERSATION-READING-FOCUS-001",
+        "CONVERSATION-REFRESH-PERFORMANCE-001"
+      ]
+    },
+    {
+      "id": "CONVERSATION-RELEASE-MERMAID-001",
+      "title": "Large, multiple, and streaming Mermaid diagrams remain readable and stable",
+      "enforcement": "pull-request",
+      "behaviors": [
+        "WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001",
+        "CONVERSATION-READING-FOCUS-001"
+      ]
+    },
+    {
+      "id": "CONVERSATION-RELEASE-COMMENT-PERSISTENCE-001",
+      "title": "Selected comments and session notes survive panel and extension reloads",
+      "enforcement": "pull-request",
+      "behaviors": [
+        "CONVERSATION-COMMENTS-UI-001",
+        "CONVERSATION-COMMENTS-PERSISTENCE-001"
+      ]
+    },
+    {
+      "id": "CONVERSATION-RELEASE-COMMENT-STAGING-001",
+      "title": "Multiple comments reach the exact Session input completely without submission",
+      "enforcement": "pull-request",
+      "behaviors": [
+        "CONVERSATION-COMMENTS-SUBMIT-001",
+        "CONVERSATION-COMMENTS-REVIEW-001"
+      ]
+    },
+    {
+      "id": "CONVERSATION-RELEASE-SESSION-SWITCH-001",
+      "title": "Active Session focus retargets the already-open Conversation exactly once",
+      "enforcement": "pull-request",
+      "behaviors": [
+        "CONVERSATION-FOLLOW-ACTIVE-SESSION-001"
+      ]
+    },
+    {
+      "id": "CONVERSATION-RELEASE-OUTLINE-001",
+      "title": "Outline search, bookmarks, and navigation preserve authoritative input order",
+      "enforcement": "pull-request",
+      "behaviors": [
+        "CONVERSATION-OUTLINE-NAVIGATION-001",
+        "CONVERSATION-OUTLINE-BOOKMARKS-001"
+      ]
+    },
+    {
+      "id": "CONVERSATION-RELEASE-NARROW-LAYOUT-001",
+      "title": "Comments and Outline controls remain operable at narrow reviewed widths",
+      "enforcement": "pull-request",
+      "behaviors": [
+        "CONVERSATION-COMMENTS-LAYOUT-001",
+        "WEBVIEW-AI-SESSION-CONVERSATION-OUTLINE-001"
+      ]
+    },
+    {
+      "id": "CONVERSATION-RELEASE-LARGE-SESSION-001",
+      "title": "Large Session initial load, refresh, and switching stay within performance budgets",
+      "enforcement": "pull-request",
+      "behaviors": [
+        "CONVERSATION-LARGE-SESSION-PERFORMANCE-001"
+      ]
+    },
+    {
+      "id": "CONVERSATION-RELEASE-PACKAGED-HOST-001",
+      "title": "Release VSIX files install with matching executable bytes and activate in pinned VS Code",
+      "enforcement": "release",
+      "behaviors": [
+        "RELEASE-VSIX-PACKAGING-001",
+        "RELEASE-SCHEDULED-EXTENSION-HOST-001"
+      ]
+    }
+  ]
+}

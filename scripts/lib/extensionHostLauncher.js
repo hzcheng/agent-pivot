@@ -1,7 +1,12 @@
 'use strict';
 
 const fs = require('node:fs');
+const crypto = require('node:crypto');
+const childProcess = require('node:child_process');
 const path = require('node:path');
+const {
+    resolveCliArgsFromVSCodeExecutablePath,
+} = require('@vscode/test-electron');
 
 const VSCODE_STABLE_VERSION = '1.130.0';
 const EXTENSION_HOST_TIMEOUT_MS = 120000;
@@ -15,6 +20,206 @@ const HOSTILE_EXTENSION_HOST_ENVIRONMENT_KEYS = Object.freeze([
 ]);
 const OWNERSHIP_MARKER = '.agent-pivot-extension-host-test';
 const OWNERSHIP_VALUE = 'owned temporary extension host test directory\n';
+const MAIN_EXTENSION_ID = 'hzcheng.agent-pivot';
+const BRIDGE_EXTENSION_ID = 'hzcheng.agent-pivot-attention-ui-bridge';
+
+function readJson(filePath) {
+    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+}
+
+function extensionId(manifest) {
+    return `${manifest.publisher}.${manifest.name}`;
+}
+
+function createExtensionPackagePlan(repositoryRoot) {
+    const definitions = [
+        {
+            expectedId: BRIDGE_EXTENSION_ID,
+            packageRoot: path.join(repositoryRoot, 'extensions', 'attention-ui-bridge'),
+            runtimeFiles: ['dist/extension.js'],
+        },
+        {
+            expectedId: MAIN_EXTENSION_ID,
+            packageRoot: repositoryRoot,
+            runtimeFiles: [
+                'dist/dashboard.js',
+                'media/conversationViewerScripts.js',
+                'media/conversationMermaidScripts.js',
+            ],
+        },
+    ];
+    return definitions.map(definition => {
+        const manifestPath = path.join(definition.packageRoot, 'package.json');
+        const manifest = readJson(manifestPath);
+        const id = extensionId(manifest);
+        if (id !== definition.expectedId) {
+            throw new Error(
+                `Extension Host package identity ${id} must equal ${definition.expectedId}`
+            );
+        }
+        return {
+            artifactPath: path.join(
+                repositoryRoot,
+                'artifacts',
+                `${manifest.name}-${manifest.version}.vsix`
+            ),
+            id,
+            manifest,
+            manifestPath,
+            packageRoot: definition.packageRoot,
+            runtimeFiles: definition.runtimeFiles,
+            version: manifest.version,
+        };
+    });
+}
+
+function normalizedManifest(manifest) {
+    const normalized = JSON.parse(JSON.stringify(manifest));
+    delete normalized.__metadata;
+    return normalized;
+}
+
+function canonicalJson(value) {
+    if (Array.isArray(value)) {
+        return value.map(canonicalJson);
+    }
+    if (value && typeof value === 'object') {
+        return Object.fromEntries(
+            Object.keys(value).sort().map(key => [key, canonicalJson(value[key])])
+        );
+    }
+    return value;
+}
+
+function serializedManifest(manifest) {
+    return JSON.stringify(canonicalJson(normalizedManifest(manifest)));
+}
+
+function fileSha256(filePath) {
+    return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
+}
+
+function resolveInstalledExtensionRoots(packagePlan, extensionsDirectory) {
+    const roots = {};
+    const entries = fs.readdirSync(extensionsDirectory, { withFileTypes: true });
+    for (const extensionPackage of packagePlan) {
+        const matches = [];
+        for (const entry of entries) {
+            if (!entry.isDirectory()) continue;
+            const candidate = path.join(extensionsDirectory, entry.name);
+            const manifestPath = path.join(candidate, 'package.json');
+            if (!fs.existsSync(manifestPath)) continue;
+            let manifest;
+            try {
+                manifest = readJson(manifestPath);
+            } catch (_error) {
+                continue;
+            }
+            if (extensionId(manifest) === extensionPackage.id
+                && manifest.version === extensionPackage.version) {
+                matches.push(candidate);
+            }
+        }
+        if (matches.length !== 1) {
+            throw new Error(
+                `Installed extension ${extensionPackage.id}@${extensionPackage.version} `
+                + `must resolve exactly once, found ${matches.length}`
+            );
+        }
+        roots[extensionPackage.id] = matches[0];
+    }
+    return roots;
+}
+
+function verifyInstalledExtensionBytes(packagePlan, installedRoots) {
+    const evidence = [];
+    for (const extensionPackage of packagePlan) {
+        const installedRoot = installedRoots[extensionPackage.id];
+        if (!installedRoot) {
+            throw new Error(`Missing installed root for ${extensionPackage.id}`);
+        }
+        const installedManifestPath = path.join(installedRoot, 'package.json');
+        const installedManifest = readJson(installedManifestPath);
+        if (serializedManifest(installedManifest)
+            !== serializedManifest(extensionPackage.manifest)) {
+            throw new Error(
+                `Installed manifest for ${extensionPackage.id} differs from its VSIX source`
+            );
+        }
+        evidence.push({
+            extensionId: extensionPackage.id,
+            file: 'package.json',
+            sha256: crypto.createHash('sha256')
+                .update(serializedManifest(installedManifest))
+                .digest('hex'),
+        });
+        for (const relativePath of extensionPackage.runtimeFiles) {
+            const sourcePath = path.join(extensionPackage.packageRoot, relativePath);
+            const installedPath = path.join(installedRoot, relativePath);
+            const sourceHash = fileSha256(sourcePath);
+            const installedHash = fileSha256(installedPath);
+            if (sourceHash !== installedHash) {
+                throw new Error(
+                    `Installed ${extensionPackage.id} ${relativePath} differs from built bytes`
+                );
+            }
+            evidence.push({
+                extensionId: extensionPackage.id,
+                file: relativePath,
+                sha256: installedHash,
+            });
+        }
+    }
+    return evidence;
+}
+
+function installPackagedExtensions(
+    repositoryRoot,
+    environment,
+    vscodeExecutablePath,
+    options = {}
+) {
+    const packagePlan = createExtensionPackagePlan(repositoryRoot);
+    const spawnSync = options.spawnSync || childProcess.spawnSync;
+    const resolveCliArgs = options.resolveCliArgs
+        || resolveCliArgsFromVSCodeExecutablePath;
+    const [cli, ...cliPrefixArgs] = resolveCliArgs(vscodeExecutablePath, {
+        reuseMachineInstall: true,
+    });
+    for (const extensionPackage of packagePlan) {
+        if (!fs.statSync(extensionPackage.artifactPath).isFile()) {
+            throw new Error(`Missing packaged extension ${extensionPackage.artifactPath}`);
+        }
+        const args = [
+            ...cliPrefixArgs,
+            `--extensions-dir=${environment.extensions}`,
+            `--user-data-dir=${environment.userData}`,
+            '--install-extension',
+            extensionPackage.artifactPath,
+            '--force',
+        ];
+        const result = spawnSync(cli, args, {
+            encoding: 'utf8',
+            env: { ...process.env },
+            shell: process.platform === 'win32',
+            stdio: options.stdio || 'inherit',
+            windowsHide: true,
+        });
+        if (result.error || result.status !== 0) {
+            throw result.error || new Error(
+                `VS Code CLI failed to install ${extensionPackage.id} with status ${result.status}`
+            );
+        }
+    }
+    const installedRoots = resolveInstalledExtensionRoots(
+        packagePlan,
+        environment.extensions
+    );
+    return {
+        evidence: verifyInstalledExtensionBytes(packagePlan, installedRoots),
+        installedRoots,
+    };
+}
 
 function createExtensionHostTestEnvironment(isolatedRoot) {
     if (!path.isAbsolute(isolatedRoot)) {
@@ -40,12 +245,24 @@ function createExtensionHostTestEnvironment(isolatedRoot) {
     return environment;
 }
 
-function createRunTestsOptions(repositoryRoot, environment) {
+function createRunTestsOptions(
+    repositoryRoot,
+    environment,
+    vscodeExecutablePath,
+    installedRoots
+) {
+    const mainExtensionRoot = installedRoots && installedRoots[MAIN_EXTENSION_ID];
+    const bridgeExtensionRoot = installedRoots && installedRoots[BRIDGE_EXTENSION_ID];
+    if (!path.isAbsolute(vscodeExecutablePath || '')
+        || !path.isAbsolute(mainExtensionRoot || '')
+        || !path.isAbsolute(bridgeExtensionRoot || '')) {
+        throw new Error('Extension Host test requires absolute installed extension paths.');
+    }
     return {
-        version: VSCODE_STABLE_VERSION,
+        vscodeExecutablePath,
         extensionDevelopmentPath: [
-            repositoryRoot,
-            path.join(repositoryRoot, 'extensions', 'attention-ui-bridge'),
+            mainExtensionRoot,
+            bridgeExtensionRoot,
         ],
         extensionTestsPath: path.join(repositoryRoot, 'tests', 'extension-host', 'suite', 'index.js'),
         launchArgs: [
@@ -61,6 +278,8 @@ function createRunTestsOptions(repositoryRoot, environment) {
             CODEX_HOME: environment.codexHome,
             KIMI_SHARE_DIR: environment.kimiHome,
             CLAUDE_HOME: environment.claudeHome,
+            AGENT_PIVOT_EXPECTED_MAIN_EXTENSION_PATH: mainExtensionRoot,
+            AGENT_PIVOT_EXPECTED_BRIDGE_EXTENSION_PATH: bridgeExtensionRoot,
             AGENT_PIVOT_EXTENSION_HOST_TIMEOUT_MS: String(EXTENSION_HOST_TIMEOUT_MS),
         },
     };
@@ -165,10 +384,16 @@ module.exports = {
     EXTENSION_HOST_TIMEOUT_MS,
     EXTENSION_HOST_WORKER_TIMEOUT_MS,
     HOSTILE_EXTENSION_HOST_ENVIRONMENT_KEYS,
+    BRIDGE_EXTENSION_ID,
+    MAIN_EXTENSION_ID,
     VSCODE_STABLE_VERSION,
     createExtensionHostTestEnvironment,
+    createExtensionPackagePlan,
     createRunTestsOptions,
+    installPackagedExtensions,
     removeExtensionHostTestEnvironment,
     runWorkerWithWatchdog,
+    resolveInstalledExtensionRoots,
+    verifyInstalledExtensionBytes,
     withSanitizedExtensionHostEnvironment,
 };

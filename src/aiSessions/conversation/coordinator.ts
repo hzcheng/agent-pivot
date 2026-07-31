@@ -15,6 +15,7 @@ import {
     ConversationPage,
     ConversationPageRequest,
     ConversationProviderAdapter,
+    ConversationTelemetry,
     SanitizedConversationDiagnostic,
 } from './types';
 
@@ -225,6 +226,28 @@ export class ConversationCoordinator implements AiSessionDisposable {
             return result;
         } catch (error) {
             throw this.toSafeError(request.provider, error);
+        }
+    }
+
+    async readTelemetry(
+        provider: AiSessionProviderId,
+        sessionId: string,
+        signal?: ConversationAbortSignal
+    ): Promise<ConversationTelemetry | undefined> {
+        const adapter = this.getAdapter(provider);
+        if (!adapter.readTelemetry) {
+            return undefined;
+        }
+        try {
+            const telemetry = await adapter.readTelemetry(sessionId, signal);
+            if (!telemetry
+                || telemetry.provider !== provider
+                || telemetry.sessionId !== sessionId) {
+                return undefined;
+            }
+            return telemetry;
+        } catch (_error) {
+            return undefined;
         }
     }
 

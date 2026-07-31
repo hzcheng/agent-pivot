@@ -20,6 +20,7 @@ export const CONVERSATION_LIMITS = Object.freeze({
     codexRequestTimeoutMs: 10_000,
     invalidationDebounceMs: 250,
     invalidationMinIntervalMs: 1_000,
+    telemetryRefreshMs: 5_000,
     autoScrollThresholdPx: 8,
     minRequestId: 1,
     inactiveIndexLimitPerProvider: 8,
@@ -82,6 +83,23 @@ export interface ConversationPage {
     nextCursor?: string;
     isStart: boolean;
     isEnd: boolean;
+}
+
+export interface ConversationTelemetry {
+    provider: AiSessionProviderId;
+    sessionId: string;
+    model?: string;
+    context?: {
+        usedTokens: number;
+        maxTokens: number;
+    };
+    rateLimits: Array<{
+        id: string;
+        label: string;
+        usedPercent: number;
+        windowDurationMins?: number;
+        resetsAt?: number;
+    }>;
 }
 
 export interface ConversationPublicError {
@@ -199,5 +217,9 @@ export interface ConversationProviderAdapter extends AiSessionDisposable {
         request: ConversationPageRequest,
         signal?: ConversationAbortSignal
     ): Promise<ConversationPage>;
+    readTelemetry?(
+        sessionId: string,
+        signal?: ConversationAbortSignal
+    ): Promise<ConversationTelemetry | undefined>;
     watch(sessionId: string, onChange: () => void): AiSessionDisposable;
 }

@@ -32,6 +32,19 @@
     var messages = document.querySelector('[data-conversation-messages]');
     var position = document.querySelector('[data-conversation-position]');
     var status = document.querySelector('[data-conversation-status]');
+    var telemetryRoot = document.querySelector('[data-conversation-telemetry]');
+    var telemetryModel = document.querySelector('[data-telemetry-model]');
+    var telemetryModelValue = document.querySelector(
+        '[data-telemetry-model-value]'
+    );
+    var telemetryContext = document.querySelector('[data-telemetry-context]');
+    var telemetryContextProgress = document.querySelector(
+        '[data-telemetry-context-progress]'
+    );
+    var telemetryContextValue = document.querySelector(
+        '[data-telemetry-context-value]'
+    );
+    var telemetryLimits = document.querySelector('[data-telemetry-limits]');
     var newResponse = document.querySelector('[data-new-response]');
     var previous = document.querySelector('[data-action="previous"]');
     var next = document.querySelector('[data-action="next"]');
@@ -93,6 +106,7 @@
         atLatest: false,
         initialized: false,
         latestRequestId: 0,
+        latestTelemetryRequestId: 0,
         subscriptionGeneration: Number(document.body.getAttribute(
             'data-subscription-generation'
         )),
@@ -101,6 +115,7 @@
         firstNewMessageId: null,
         mermaidInitialized: false,
         mermaidObjectUrls: [],
+        mermaidSources: new WeakMap(),
         mermaidLoad: null,
         renderGeneration: 0,
         comments: [],
@@ -287,15 +302,28 @@
         }
     });
 
-    function releaseMermaidObjectUrls() {
-        state.mermaidObjectUrls.forEach(function (url) {
+    function releaseMermaidObjectUrls(root) {
+        var urls = root
+            ? Array.prototype.map.call(
+                root.querySelectorAll('.conversation-mermaid-image[src^="blob:"]'),
+                function (image) {
+                    return image.src;
+                }
+            )
+            : state.mermaidObjectUrls.slice();
+        var released = new Set(urls);
+        urls.forEach(function (url) {
             try {
                 URL.revokeObjectURL(url);
             } catch (_error) {
                 // Revocation is best-effort during document teardown.
             }
         });
-        state.mermaidObjectUrls = [];
+        state.mermaidObjectUrls = state.mermaidObjectUrls.filter(
+            function (url) {
+                return !released.has(url);
+            }
+        );
     }
 
     function themeValue(name, fallback) {
@@ -421,47 +449,78 @@
             .trim()
             .split(/[\s,]+/)
             .map(Number);
+        var width;
+        var height;
         if (viewBox.length === 4
             && viewBox.every(Number.isFinite)
             && viewBox[2] > 0
             && viewBox[3] > 0) {
-            root.setAttribute('width', String(Math.min(viewBox[2], 4096)));
-            root.setAttribute('height', String(Math.min(viewBox[3], 4096)));
+            var scale = Math.min(
+                1,
+                4096 / viewBox[2],
+                4096 / viewBox[3]
+            );
+            width = Math.max(1, Math.round(viewBox[2] * scale));
+            height = Math.max(1, Math.round(viewBox[3] * scale));
+            root.setAttribute('width', String(width));
+            root.setAttribute('height', String(height));
         }
-        return new XMLSerializer().serializeToString(root);
+        return {
+            svg: new XMLSerializer().serializeToString(root),
+            width: width,
+            height: height,
+        };
     }
 
-    function renderMermaidDiagram(pre, source, id, generation) {
+    function renderMermaidDiagram(pre, source, id) {
         pre.setAttribute('aria-busy', 'true');
         return Promise.resolve(window.mermaid.render(id, source))
             .then(function (result) {
-                if (generation !== state.renderGeneration
-                    || !pre.isConnected) {
+                if (!pre.isConnected) {
                     return;
                 }
-                var svg = normalizeSvg(result.svg);
-                var objectUrl = URL.createObjectURL(new Blob([svg], {
+                var normalized = normalizeSvg(result.svg);
+                var objectUrl = URL.createObjectURL(new Blob([normalized.svg], {
                     type: 'image/svg+xml',
                 }));
-                if (generation !== state.renderGeneration
-                    || !pre.isConnected) {
+                if (!pre.isConnected) {
                     URL.revokeObjectURL(objectUrl);
                     return;
                 }
-                state.mermaidObjectUrls.push(objectUrl);
                 var figure = document.createElement('figure');
                 figure.className = 'conversation-mermaid';
+                state.mermaidSources.set(figure, source);
                 var image = document.createElement('img');
                 image.className = 'conversation-mermaid-image';
+                if (normalized.width && normalized.height) {
+                    image.width = normalized.width;
+                    image.height = normalized.height;
+                }
                 image.src = objectUrl;
                 image.alt = mermaidAlt(source);
                 image.decoding = 'async';
                 figure.appendChild(image);
-                pre.replaceWith(figure);
+                var decoded = typeof image.decode === 'function'
+                    ? image.decode().catch(function () {})
+                    : Promise.resolve();
+                return decoded.then(function () {
+                    if (!pre.isConnected) {
+                        URL.revokeObjectURL(objectUrl);
+                        return;
+                    }
+                    state.mermaidObjectUrls.push(objectUrl);
+                    var readingAnchor = captureReadingAnchor(pre);
+                    var previousScrollTop = scroll.scrollTop;
+                    pre.replaceWith(figure);
+                    if (readingAnchor
+                        && readingAnchor.element === pre) {
+                        readingAnchor.element = figure;
+                    }
+                    restoreReadingPosition(readingAnchor, previousScrollTop);
+                });
             })
             .catch(function () {
-                if (generation !== state.renderGeneration
-                    || !pre.isConnected) {
+                if (!pre.isConnected) {
                     return;
                 }
                 pre.removeAttribute('aria-busy');
@@ -470,7 +529,10 @@
                 label.className = 'conversation-mermaid-error-label';
                 label.setAttribute('role', 'status');
                 label.textContent = 'Mermaid diagram could not be rendered.';
+                var readingAnchor = captureReadingAnchor();
+                var previousScrollTop = scroll.scrollTop;
                 pre.parentNode.insertBefore(label, pre);
+                restoreReadingPosition(readingAnchor, previousScrollTop);
                 var temporary = document.getElementById(id);
                 if (temporary) temporary.remove();
             });
@@ -481,18 +543,33 @@
             messages.querySelectorAll('pre > code.language-mermaid'),
             0,
             maxMermaidDiagrams
-        );
+        ).filter(function (code) {
+            return code.parentElement
+                && code.parentElement.getAttribute('aria-busy') !== 'true';
+        });
         if (!codeBlocks.length) return Promise.resolve();
+        codeBlocks.forEach(function (code) {
+            code.parentElement.setAttribute('aria-busy', 'true');
+        });
         return loadMermaid().then(function (available) {
-            if (!available || generation !== state.renderGeneration) return;
+            if (!available) {
+                codeBlocks.forEach(function (code) {
+                    if (code.parentElement) {
+                        code.parentElement.removeAttribute('aria-busy');
+                    }
+                });
+                return;
+            }
             return codeBlocks.reduce(function (promise, code, index) {
                 return promise.then(function () {
-                    if (generation !== state.renderGeneration) return undefined;
+                    if (!code.parentElement
+                        || !code.parentElement.isConnected) {
+                        return undefined;
+                    }
                     return renderMermaidDiagram(
                         code.parentElement,
                         code.textContent || '',
-                        'conversation-mermaid-' + generation + '-' + index,
-                        generation
+                        'conversation-mermaid-' + generation + '-' + index
                     );
                 });
             }, Promise.resolve());
@@ -1356,60 +1433,355 @@
             && typeof message.stale === 'boolean';
     }
 
-    function getMessageIds() {
-        return Array.prototype.map.call(
-            messages.querySelectorAll(conversationMessageSelector()),
-            function (message) {
-                return conversationMessageId(message);
-            }
-        );
+    function exactKeys(value, required, optional) {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) {
+            return false;
+        }
+        var keys = Object.keys(value);
+        var allowed = new Set(required.concat(optional || []));
+        return required.every(function (key) {
+            return Object.prototype.hasOwnProperty.call(value, key);
+        }) && keys.every(function (key) {
+            return allowed.has(key);
+        });
     }
 
-    function getMessageSignatures() {
-        var signatures = new Map();
+    function validTelemetry(value) {
+        if (!exactKeys(
+            value,
+            ['provider', 'sessionId', 'rateLimits'],
+            ['model', 'context']
+        )) return false;
+        if (!['codex', 'kimi', 'claude'].includes(value.provider)
+            || typeof value.sessionId !== 'string'
+            || !value.sessionId
+            || value.sessionId.length > 256
+            || (value.model !== undefined
+                && (typeof value.model !== 'string'
+                    || !value.model
+                    || value.model.length > 128))
+            || !Array.isArray(value.rateLimits)
+            || value.rateLimits.length > 4) {
+            return false;
+        }
+        if (value.context !== undefined
+            && (!exactKeys(value.context, ['usedTokens', 'maxTokens'])
+                || !Number.isSafeInteger(value.context.usedTokens)
+                || value.context.usedTokens < 0
+                || !Number.isSafeInteger(value.context.maxTokens)
+                || value.context.maxTokens <= 0)) {
+            return false;
+        }
+        return value.rateLimits.every(function (limit) {
+            return exactKeys(
+                limit,
+                ['id', 'label', 'usedPercent'],
+                ['windowDurationMins', 'resetsAt']
+            )
+                && typeof limit.id === 'string'
+                && limit.id.length > 0
+                && limit.id.length <= 256
+                && typeof limit.label === 'string'
+                && limit.label.length > 0
+                && limit.label.length <= 64
+                && Number.isFinite(limit.usedPercent)
+                && limit.usedPercent >= 0
+                && limit.usedPercent <= 100
+                && (limit.windowDurationMins === undefined
+                    || (Number.isSafeInteger(limit.windowDurationMins)
+                        && limit.windowDurationMins > 0))
+                && (limit.resetsAt === undefined
+                    || (Number.isSafeInteger(limit.resetsAt)
+                        && limit.resetsAt > 0));
+        });
+    }
+
+    function compactTokens(value) {
+        if (value >= 1000000) {
+            return (value / 1000000).toFixed(value >= 10000000 ? 0 : 1) + 'm';
+        }
+        if (value >= 1000) {
+            return (value / 1000).toFixed(value >= 100000 ? 0 : 1) + 'k';
+        }
+        return String(value);
+    }
+
+    function compactResetTime(resetsAt) {
+        var remainingMinutes = Math.max(
+            1,
+            Math.ceil((resetsAt * 1000 - Date.now()) / 60000)
+        );
+        if (remainingMinutes < 60) return remainingMinutes + 'm';
+        var remainingHours = Math.ceil(remainingMinutes / 60);
+        if (remainingHours < 48) return remainingHours + 'h';
+        return Math.ceil(remainingHours / 24) + 'd';
+    }
+
+    function applyTelemetry(message) {
+        if (!exactKeys(
+            message,
+            ['type', 'version', 'requestId', 'subscriptionGeneration', 'telemetry']
+        )
+            || message.type !== 'conversation-viewer-telemetry'
+            || message.version !== 1
+            || !Number.isSafeInteger(message.requestId)
+            || message.requestId < state.latestRequestId
+            || message.requestId < state.latestTelemetryRequestId
+            || message.subscriptionGeneration !== state.subscriptionGeneration
+            || (message.telemetry !== null
+                && !validTelemetry(message.telemetry))
+            || (message.telemetry !== null
+                && (!commentTarget
+                    || message.telemetry.provider !== commentTarget.provider
+                    || message.telemetry.sessionId !== commentTarget.sessionId))
+            || !telemetryRoot || !telemetryModel || !telemetryModelValue
+            || !telemetryContext || !telemetryContextProgress
+            || !telemetryContextValue || !telemetryLimits) {
+            return false;
+        }
+        state.latestTelemetryRequestId = message.requestId;
+        var readingAnchor = captureReadingAnchor();
+        var previousScrollTop = scroll.scrollTop;
+        var telemetry = message.telemetry;
+        if (!telemetry) {
+            telemetryRoot.hidden = true;
+            restoreViewportReadingPosition(
+                readingAnchor,
+                previousScrollTop
+            );
+            return true;
+        }
+        telemetryModel.hidden = !telemetry.model;
+        telemetryModelValue.textContent = telemetry.model || '';
+        telemetryContext.hidden = !telemetry.context;
+        if (telemetry.context) {
+            var percent = Math.max(0, Math.min(
+                100,
+                telemetry.context.usedTokens
+                    / telemetry.context.maxTokens * 100
+            ));
+            telemetryContextProgress.max = telemetry.context.maxTokens;
+            telemetryContextProgress.value = telemetry.context.usedTokens;
+            telemetryContextValue.textContent = Math.round(percent) + '% · '
+                + compactTokens(telemetry.context.usedTokens) + ' / '
+                + compactTokens(telemetry.context.maxTokens);
+        }
+        telemetryLimits.replaceChildren();
+        telemetry.rateLimits.forEach(function (limit) {
+            var meter = document.createElement('div');
+            meter.className = 'conversation-telemetry-meter';
+            var label = document.createElement('span');
+            label.textContent = limit.label;
+            var progress = document.createElement('progress');
+            progress.max = 100;
+            progress.value = limit.usedPercent;
+            progress.setAttribute('aria-label', limit.label + ' usage');
+            var value = document.createElement('span');
+            var text = Math.round(100 - limit.usedPercent) + '% left';
+            if (limit.resetsAt) {
+                text += ' · resets in ' + compactResetTime(limit.resetsAt);
+                value.title = new Date(
+                    limit.resetsAt * 1000
+                ).toLocaleString();
+            }
+            value.textContent = text;
+            meter.append(label, progress, value);
+            telemetryLimits.appendChild(meter);
+        });
+        telemetryRoot.hidden = !telemetry.model
+            && !telemetry.context
+            && telemetry.rateLimits.length === 0;
+        restoreViewportReadingPosition(readingAnchor, previousScrollTop);
+        return true;
+    }
+
+    function preserveMermaidContent(oldMessage, candidate) {
+        var figuresBySource = new Map();
+        var pendingBySource = new Map();
         Array.prototype.forEach.call(
-            messages.querySelectorAll(conversationMessageSelector()),
-            function (message) {
-                signatures.set(
-                    conversationMessageId(message),
-                    message.innerHTML
-                );
+            oldMessage.querySelectorAll('.conversation-mermaid'),
+            function (figure) {
+                var source = state.mermaidSources.get(figure);
+                if (typeof source !== 'string') return;
+                var figures = figuresBySource.get(source) || [];
+                figures.push(figure);
+                figuresBySource.set(source, figures);
             }
         );
-        return signatures;
+        Array.prototype.forEach.call(
+            oldMessage.querySelectorAll(
+                'pre[aria-busy="true"] > code.language-mermaid'
+            ),
+            function (code) {
+                var source = code.textContent || '';
+                var blocks = pendingBySource.get(source) || [];
+                blocks.push(code.parentElement);
+                pendingBySource.set(source, blocks);
+            }
+        );
+        Array.prototype.forEach.call(
+            candidate.querySelectorAll('pre > code.language-mermaid'),
+            function (code) {
+                var source = code.textContent || '';
+                var figures = figuresBySource.get(source);
+                var figure = figures && figures.shift();
+                if (figure && code.parentElement) {
+                    code.parentElement.replaceWith(figure);
+                    return;
+                }
+                var blocks = pendingBySource.get(source);
+                var block = blocks && blocks.shift();
+                if (block && code.parentElement) {
+                    code.parentElement.replaceWith(block);
+                }
+            }
+        );
     }
 
-    function captureReadingAnchor() {
+    function reconcileMessages(clean, preserveUnchanged, previousSignatures) {
+        var template = document.createElement('template');
+        template.innerHTML = clean;
+        var candidates = Array.prototype.slice.call(
+            template.content.querySelectorAll(conversationMessageSelector())
+        );
+        var nextIds = [];
+        var nextSignatures = new Map();
+        candidates.forEach(function (candidate) {
+            var id = conversationMessageId(candidate);
+            nextIds.push(id);
+            nextSignatures.set(id, candidate.outerHTML);
+        });
+        if (!preserveUnchanged) {
+            releaseMermaidObjectUrls();
+            messages.replaceChildren(template.content);
+            return { ids: nextIds, signatures: nextSignatures };
+        }
+        var oldMessages = Array.prototype.slice.call(
+            messages.querySelectorAll(conversationMessageSelector())
+        );
+        var oldById = new Map();
+        oldMessages.forEach(function (message) {
+            var id = conversationMessageId(message);
+            if (id && !oldById.has(id)) oldById.set(id, message);
+        });
+        var preserved = new Set();
+        candidates.forEach(function (candidate) {
+            var id = conversationMessageId(candidate);
+            var oldMessage = oldById.get(id);
+            if (!id
+                || !oldMessage
+                || preserved.has(oldMessage)) {
+                return;
+            }
+            if (previousSignatures.get(id) === candidate.outerHTML) {
+                preserved.add(oldMessage);
+                candidate.replaceWith(oldMessage);
+                return;
+            }
+            preserveMermaidContent(oldMessage, candidate);
+        });
+        oldMessages.forEach(function (oldMessage) {
+            if (!preserved.has(oldMessage)) {
+                releaseMermaidObjectUrls(oldMessage);
+            }
+        });
+        messages.replaceChildren(template.content);
+        return { ids: nextIds, signatures: nextSignatures };
+    }
+
+    function captureReadingAnchor(replacingElement) {
         var scrollBounds = scroll.getBoundingClientRect();
-        var candidates = messages.querySelectorAll(
+        var blockCandidates = messages.querySelectorAll(
+            '.conversation-markdown > *'
+        );
+        var crossingBlock = null;
+        for (var blockIndex = 0;
+            blockIndex < blockCandidates.length;
+            blockIndex += 1) {
+            var blockBounds = blockCandidates[blockIndex]
+                .getBoundingClientRect();
+            if (!crossingBlock
+                && blockBounds.bottom > scrollBounds.top
+                && blockBounds.top < scrollBounds.bottom) {
+                crossingBlock = blockCandidates[blockIndex];
+            }
+            if (blockCandidates[blockIndex] !== replacingElement
+                && blockBounds.top >= scrollBounds.top
+                && blockBounds.top < scrollBounds.bottom) {
+                var message = blockCandidates[blockIndex].closest(
+                    conversationMessageSelector()
+                );
+                return {
+                    element: blockCandidates[blockIndex],
+                    messageId: message
+                        ? conversationMessageId(message)
+                        : null,
+                    top: blockBounds.top - scrollBounds.top,
+                    viewportTop: blockBounds.top,
+                };
+            }
+        }
+        if (crossingBlock) {
+            var crossingMessage = crossingBlock.closest(
+                conversationMessageSelector()
+            );
+            var crossingBounds = crossingBlock.getBoundingClientRect();
+            return {
+                element: crossingBlock,
+                messageId: crossingMessage
+                    ? conversationMessageId(crossingMessage)
+                    : null,
+                top: crossingBounds.top - scrollBounds.top,
+                viewportTop: crossingBounds.top,
+            };
+        }
+        var messageCandidates = messages.querySelectorAll(
             conversationMessageSelector()
         );
-        for (var index = 0; index < candidates.length; index += 1) {
-            var bounds = candidates[index].getBoundingClientRect();
+        for (var index = 0; index < messageCandidates.length; index += 1) {
+            var bounds = messageCandidates[index].getBoundingClientRect();
             if (bounds.bottom > scrollBounds.top) {
                 return {
-                    messageId: conversationMessageId(candidates[index]),
+                    element: messageCandidates[index],
+                    messageId: conversationMessageId(
+                        messageCandidates[index]
+                    ),
                     top: bounds.top - scrollBounds.top,
+                    viewportTop: bounds.top,
                 };
             }
         }
         return null;
     }
 
+    function readingAnchorElement(anchor) {
+        if (!anchor) return null;
+        return anchor.element && anchor.element.isConnected
+            ? anchor.element
+            : Array.prototype.find.call(
+                messages.querySelectorAll(conversationMessageSelector()),
+                function (message) {
+                    return conversationMessageId(message) === anchor.messageId;
+                }
+            );
+    }
+
     function restoreReadingPosition(anchor, fallbackScrollTop) {
         scroll.scrollTop = fallbackScrollTop;
-        if (!anchor || !anchor.messageId) return;
-        var candidate = Array.prototype.find.call(
-            messages.querySelectorAll(conversationMessageSelector()),
-            function (message) {
-                return conversationMessageId(message) === anchor.messageId;
-            }
-        );
+        var candidate = readingAnchorElement(anchor);
         if (!candidate) return;
         var scrollBounds = scroll.getBoundingClientRect();
         var currentTop = candidate.getBoundingClientRect().top
             - scrollBounds.top;
         scroll.scrollTop += currentTop - anchor.top;
+    }
+
+    function restoreViewportReadingPosition(anchor, fallbackScrollTop) {
+        scroll.scrollTop = fallbackScrollTop;
+        var candidate = readingAnchorElement(anchor);
+        if (!candidate || typeof anchor.viewportTop !== 'number') return;
+        scroll.scrollTop += candidate.getBoundingClientRect().top
+            - anchor.viewportTop;
     }
 
     function updatePosition(message) {
@@ -1440,7 +1812,6 @@
         var oldSignatures = state.messageSignatures;
         state.renderGeneration += 1;
         var renderGeneration = state.renderGeneration;
-        releaseMermaidObjectUrls();
         var clean = window.DOMPurify.sanitize(message.html, {
             ALLOWED_TAGS: allowedTags,
             ALLOWED_ATTR: allowedAttributes,
@@ -1448,7 +1819,11 @@
             ALLOW_ARIA_ATTR: false,
         });
 
-        messages.innerHTML = clean;
+        var reconciled = reconcileMessages(
+            clean,
+            isLiveRefresh,
+            oldSignatures
+        );
         Array.prototype.forEach.call(
             messages.querySelectorAll('img'),
             function (image) {
@@ -1457,8 +1832,8 @@
                 image.referrerPolicy = 'no-referrer';
             }
         );
-        var nextIds = getMessageIds();
-        var nextSignatures = getMessageSignatures();
+        var nextIds = reconciled.ids;
+        var nextSignatures = reconciled.signatures;
         var appendedOrChanged = nextIds.filter(function (id) {
             return !oldIds.has(id)
                 || oldSignatures.get(id) !== nextSignatures.get(id);
@@ -1512,8 +1887,6 @@
             if (renderGeneration !== state.renderGeneration) return;
             if (isLiveRefresh) {
                 restoreReadingPosition(readingAnchor, previousScrollTop);
-            } else if (selectedMessages[0]) {
-                selectedMessages[0].scrollIntoView({ block: 'center' });
             }
         });
 
@@ -1885,6 +2258,7 @@
     window.addEventListener('message', function (event) {
         if (applyCommentsResult(event.data)) return;
         if (applyLocateResult(event.data)) return;
+        if (applyTelemetry(event.data)) return;
         applyPage(event.data);
     });
     window.addEventListener('unload', releaseMermaidObjectUrls);

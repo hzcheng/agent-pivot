@@ -214,6 +214,7 @@ function createAvailableConversationCapability(
         createPanel: options.createPanel,
         readOutline: coordinator.readOutline.bind(coordinator),
         readPage: coordinator.readPage.bind(coordinator),
+        readTelemetry: coordinator.readTelemetry.bind(coordinator),
         watch: coordinator.watch.bind(coordinator),
         restoreFocus: target => restoreConversationFocus(options, target),
         openExternal: options.openExternal,

@@ -3758,6 +3758,24 @@
     ]
   },
   {
+    "id": "CONVERSATION-TELEMETRY-001",
+    "domain": "webview",
+    "title": "AI Conversation shows correlated Codex model, context-window usage, and quota windows without replacing conversation content or accepting stale Session data",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/contract/aiSessions/codexAppServerClient.test.js",
+      "tests/contract/aiSessions/codexConversationAdapter.test.js",
+      "tests/browser/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/codexAdapter.ts",
+      "src/aiSessions/conversation/viewer.ts",
+      "src/webview/conversationViewerScripts.js",
+      "media/conversationTelemetry.css"
+    ]
+  },
+  {
     "id": "CONVERSATION-OPEN-LATEST-001",
     "domain": "session",
     "title": "Open Current AI Session Conversation opens the viewer at the latest interaction of the focused or selected active session",

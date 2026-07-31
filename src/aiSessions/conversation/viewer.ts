@@ -38,6 +38,7 @@ import {
     ConversationPage,
     ConversationPageRequest,
     ConversationResponseState,
+    ConversationTelemetry,
 } from './types';
 
 export interface ConversationViewerTarget {
@@ -61,6 +62,11 @@ export interface ConversationViewerOptions {
         request: ConversationPageRequest,
         signal: ConversationAbortSignal
     ) => Promise<ConversationPage>;
+    readTelemetry?: (
+        provider: AiSessionProviderId,
+        sessionId: string,
+        signal?: ConversationAbortSignal
+    ) => Promise<ConversationTelemetry | undefined>;
     watch: (
         provider: AiSessionProviderId,
         sessionId: string,
@@ -114,6 +120,14 @@ interface ConversationViewerPageMessage {
     previousCursor?: string;
     nextCursor?: string;
     stale: boolean;
+}
+
+interface ConversationViewerTelemetryMessage {
+    type: 'conversation-viewer-telemetry';
+    version: 1;
+    requestId: number;
+    subscriptionGeneration: number;
+    telemetry: ConversationTelemetry | null;
 }
 
 interface ConversationViewerOutlineEntry {
@@ -238,6 +252,7 @@ export class ConversationViewer implements ConversationViewerApi {
     private currentRequestId = 0;
     private selectedInteractionId?: string;
     private stale = false;
+    private telemetry?: ConversationTelemetry;
     private latestPublication?: ConversationViewerPageMessage;
     private panelWasVisible = false;
     private suspended = false;
@@ -376,6 +391,7 @@ export class ConversationViewer implements ConversationViewerApi {
         this.pages = [];
         this.outline = undefined;
         this.stale = false;
+        this.telemetry = undefined;
         this.latestPublication = undefined;
         this.comments = [];
         this.commentRevision = 0;
@@ -454,6 +470,7 @@ export class ConversationViewer implements ConversationViewerApi {
         this.target = undefined;
         this.selectedInteractionId = undefined;
         this.stale = false;
+        this.telemetry = undefined;
         this.latestPublication = undefined;
         this.comments = [];
         this.commentRevision = 0;
@@ -1135,6 +1152,7 @@ export class ConversationViewer implements ConversationViewerApi {
                 updateKind
             );
             await this.deliverPublication(publication, replaceDocument);
+            void this.refreshTelemetry(target, generation);
             return true;
         } catch (_error) {
             if (!this.canPublish(panel, target, generation, requestId)
@@ -1321,6 +1339,50 @@ export class ConversationViewer implements ConversationViewerApi {
             delivered = false;
         }
         if (!delivered && this.isCurrentPublication(publication)) {
+            this.rebuildLatestDocument();
+        }
+    }
+
+    private async refreshTelemetry(
+        target: ConversationViewerTarget,
+        generation: number
+    ): Promise<void> {
+        if (!this.options.readTelemetry) {
+            return;
+        }
+        let telemetry: ConversationTelemetry | undefined;
+        try {
+            telemetry = await this.options.readTelemetry(
+                target.provider,
+                target.sessionId
+            );
+        } catch (_error) {
+            telemetry = undefined;
+        }
+        const panel = this.panel;
+        if (!panel
+            || this.target !== target
+            || this.subscriptionGeneration !== generation
+            || this.suspended) {
+            return;
+        }
+        this.telemetry = telemetry;
+        const message: ConversationViewerTelemetryMessage = {
+            type: 'conversation-viewer-telemetry',
+            version: 1,
+            requestId: this.currentRequestId,
+            subscriptionGeneration: generation,
+            telemetry: telemetry || null,
+        };
+        let delivered = false;
+        try {
+            delivered = await panel.webview.postMessage(message);
+        } catch (_error) {
+            delivered = false;
+        }
+        if (!delivered
+            && this.target === target
+            && this.subscriptionGeneration === generation) {
             this.rebuildLatestDocument();
         }
     }
@@ -1610,6 +1672,9 @@ export class ConversationViewer implements ConversationViewerApi {
         const stylesheet = panel.webview.asWebviewUri(
             this.options.mediaUri('conversationViewer.css')
         );
+        const telemetryStylesheet = panel.webview.asWebviewUri(
+            this.options.mediaUri('conversationTelemetry.css')
+        );
         const purify = panel.webview.asWebviewUri(
             this.options.mediaUri('purify.min.js')
         );
@@ -1648,6 +1713,8 @@ export class ConversationViewer implements ConversationViewerApi {
         )}; script-src 'nonce-${escapeAttribute(nonce)}';">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="${escapeAttribute(stylesheet.toString())}">
+    <link rel="stylesheet"
+        href="${escapeAttribute(telemetryStylesheet.toString())}">
     <title>AI Conversation</title>
 </head>
 <body data-auto-scroll-threshold="${CONVERSATION_LIMITS.autoScrollThresholdPx}"
@@ -1672,6 +1739,7 @@ export class ConversationViewer implements ConversationViewerApi {
             <button type="button" data-action="close">Close</button>
         </nav>
     </header>
+    ${renderConversationTelemetry(this.telemetry)}
     <div class="conversation-status" data-conversation-status aria-live="polite">${escapeHtml(
         initialStatus
     )}</div>
@@ -2023,6 +2091,91 @@ function renderMessages(messages: ConversationMessage[]): string {
 
 function providerLabel(provider: AiSessionProviderId): string {
     return provider === 'codex' ? 'Codex' : provider === 'kimi' ? 'Kimi' : 'Claude';
+}
+
+function formatTokenCount(value: number): string {
+    if (value >= 1_000_000) {
+        return `${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1)}m`;
+    }
+    if (value >= 1_000) {
+        return `${(value / 1_000).toFixed(value >= 100_000 ? 0 : 1)}k`;
+    }
+    return String(value);
+}
+
+function formatResetTime(resetsAt: number): string {
+    const remainingMs = Math.max(0, resetsAt * 1000 - Date.now());
+    const remainingMins = Math.max(1, Math.ceil(remainingMs / 60_000));
+    if (remainingMins < 60) {
+        return `${remainingMins}m`;
+    }
+    const remainingHours = Math.ceil(remainingMins / 60);
+    if (remainingHours < 48) {
+        return `${remainingHours}h`;
+    }
+    return `${Math.ceil(remainingHours / 24)}d`;
+}
+
+function renderConversationTelemetry(
+    telemetry: ConversationTelemetry | undefined
+): string {
+    const hasContext = Boolean(telemetry?.context);
+    const hasModel = Boolean(telemetry?.model);
+    const limits = telemetry?.rateLimits || [];
+    const context = telemetry?.context;
+    const contextPercent = context
+        ? Math.max(0, Math.min(
+            100,
+            context.usedTokens / context.maxTokens * 100
+        ))
+        : 0;
+    const limitMarkup = limits.map(limit => {
+        const remaining = Math.max(0, 100 - limit.usedPercent);
+        const reset = limit.resetsAt
+            ? ` · resets in ${formatResetTime(limit.resetsAt)}`
+            : '';
+        const resetTitle = limit.resetsAt
+            ? ` title="${escapeAttribute(
+                new Date(limit.resetsAt * 1000).toLocaleString()
+            )}"`
+            : '';
+        return `<div class="conversation-telemetry-meter">
+            <span>${escapeHtml(limit.label)}</span>
+            <progress max="100" value="${limit.usedPercent}"
+                aria-label="${escapeAttribute(`${limit.label} usage`)}"></progress>
+            <span${resetTitle}>${escapeHtml(
+                `${Math.round(remaining)}% left${reset}`
+            )}</span>
+        </div>`;
+    }).join('');
+    return `<section class="conversation-telemetry"
+        data-conversation-telemetry aria-label="Session usage"${hasModel
+            || hasContext || limits.length ? '' : ' hidden'}>
+        <div class="conversation-telemetry-model"
+            data-telemetry-model${hasModel ? '' : ' hidden'}>
+            <span>Model</span>
+            <strong data-telemetry-model-value>${escapeHtml(
+                telemetry?.model || ''
+            )}</strong>
+        </div>
+        <div class="conversation-telemetry-meter"
+            data-telemetry-context${hasContext ? '' : ' hidden'}>
+            <span>Context</span>
+            <progress data-telemetry-context-progress
+                max="${context?.maxTokens || 1}"
+                value="${context?.usedTokens || 0}"
+                aria-label="Context window usage"></progress>
+            <span data-telemetry-context-value>${context
+                ? escapeHtml(
+                    `${Math.round(contextPercent)}% · ${formatTokenCount(
+                        context.usedTokens
+                    )} / ${formatTokenCount(context.maxTokens)}`
+                )
+                : ''}</span>
+        </div>
+        <div class="conversation-telemetry-limits"
+            data-telemetry-limits>${limitMarkup}</div>
+    </section>`;
 }
 
 function escapeHtml(value: string): string {

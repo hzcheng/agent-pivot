@@ -23,6 +23,10 @@ const viewerCss = fs.readFileSync(
     path.join(__dirname, '../../media/conversationViewer.css'),
     'utf8'
 );
+const telemetryCss = fs.readFileSync(
+    path.join(__dirname, '../../media/conversationTelemetry.css'),
+    'utf8'
+);
 const viewerThemeFixtures = Object.freeze([
     Object.freeze({
         name: 'dark',
@@ -133,7 +137,8 @@ async function openViewerPage(t, options = {}) {
     await page.setContent(`<!doctype html>
         <html>
             <body data-auto-scroll-threshold="8"
-                data-subscription-generation="1">
+                data-subscription-generation="1"
+                data-conversation-target='{"projectId":"project-1","provider":"codex","sessionId":"session-telemetry"}'>
                 <header>
                     <span data-conversation-position>Input 0 of 0</span>
                     <button type="button" data-action="previous">Previous</button>
@@ -141,6 +146,19 @@ async function openViewerPage(t, options = {}) {
                     <button type="button" data-action="latest">Latest</button>
                     <button type="button" data-action="close">Close</button>
                 </header>
+                <section data-conversation-telemetry hidden>
+                    <div data-telemetry-model hidden>
+                        <span>Model</span>
+                        <strong data-telemetry-model-value></strong>
+                    </div>
+                    <div data-telemetry-context hidden>
+                        <span>Context</span>
+                        <progress data-telemetry-context-progress
+                            max="1" value="0"></progress>
+                        <span data-telemetry-context-value></span>
+                    </div>
+                    <div data-telemetry-limits></div>
+                </section>
                 <div data-conversation-status aria-live="polite"></div>
                 <div data-conversation-scroll tabindex="0"
                     style="height: 160px; overflow-y: auto">
@@ -158,7 +176,19 @@ async function openViewerPage(t, options = {}) {
         };
     });
     await page.addScriptTag({ content: purifyScript });
-    if (options.includeMermaid) {
+    if (options.controlledMermaid) {
+        await page.evaluate(() => {
+            window.__mermaidRenders = [];
+            window.mermaid = {
+                initialize() {},
+                render(id, source) {
+                    return new Promise(resolve => {
+                        window.__mermaidRenders.push({ id, source, resolve });
+                    });
+                },
+            };
+        });
+    } else if (options.includeMermaid) {
         await page.addScriptTag({ content: mermaidScript });
     }
     await page.addScriptTag({ content: viewerScript });
@@ -176,6 +206,131 @@ async function sendPage(page, payload) {
         new MessageEvent('message', { data: message })
     ), payload);
 }
+
+test('CONVERSATION-TELEMETRY-001 renders correlated model, context, and weekly quota updates in place', async t => {
+    const page = await openViewerPage(t);
+    await sendPage(page, {
+        type: 'conversation-viewer-telemetry',
+        version: 1,
+        requestId: 1,
+        subscriptionGeneration: 1,
+        telemetry: {
+            provider: 'codex',
+            sessionId: 'session-telemetry',
+            model: 'gpt-5.6-sol',
+            context: {
+                usedTokens: 32_000,
+                maxTokens: 128_000,
+            },
+            rateLimits: [{
+                id: 'codex:secondary',
+                label: 'Week',
+                usedPercent: 40,
+                windowDurationMins: 10_080,
+                resetsAt: 2_000_000_000,
+            }],
+        },
+    });
+
+    assert.equal(
+        await page.locator('[data-conversation-telemetry]').isVisible(),
+        true
+    );
+    assert.equal(
+        await page.locator('[data-telemetry-model-value]').textContent(),
+        'gpt-5.6-sol'
+    );
+    assert.equal(
+        await page.locator('[data-telemetry-context-value]').textContent(),
+        '25% · 32.0k / 128k'
+    );
+    assert.match(
+        await page.locator('[data-telemetry-limits]').textContent(),
+        /Week.*60% left/
+    );
+    assert.equal(
+        await page.locator('[data-telemetry-context-progress]')
+            .getAttribute('max'),
+        '128000'
+    );
+
+    await sendPage(page, {
+        type: 'conversation-viewer-telemetry',
+        version: 1,
+        requestId: 0,
+        subscriptionGeneration: 1,
+        telemetry: null,
+    });
+    assert.equal(
+        await page.locator('[data-conversation-telemetry]').isVisible(),
+        true
+    );
+});
+
+test('CONVERSATION-READING-FOCUS-001 keeps the reading viewport stable when telemetry appears asynchronously', async t => {
+    const page = await openViewerPage(t);
+    await page.addStyleTag({ content: `${viewerCss}\n${telemetryCss}` });
+    await sendPage(page, {
+        ...hostileConversationPage,
+        html: messageHtml('telemetry-anchor', 12),
+        updateKind: 'initial',
+    });
+    const anchor = page.locator('[data-message-id="telemetry-anchor-6"]');
+    await anchor.evaluate(element => element.scrollIntoView({
+        block: 'center',
+    }));
+    const anchorTopBefore = await anchor.evaluate(
+        element => element.getBoundingClientRect().top
+    );
+
+    await sendPage(page, {
+        type: 'conversation-viewer-telemetry',
+        version: 1,
+        requestId: 1,
+        subscriptionGeneration: 1,
+        telemetry: {
+            provider: 'codex',
+            sessionId: 'session-telemetry',
+            model: 'gpt-5.6-sol',
+            context: {
+                usedTokens: 32_000,
+                maxTokens: 128_000,
+            },
+            rateLimits: [{
+                id: 'codex:secondary',
+                label: 'Week',
+                usedPercent: 40,
+                windowDurationMins: 10_080,
+                resetsAt: 2_000_000_000,
+            }],
+        },
+    });
+    const anchorTopAfter = await anchor.evaluate(
+        element => element.getBoundingClientRect().top
+    );
+
+    assert.ok(
+        Math.abs(anchorTopAfter - anchorTopBefore) <= 1,
+        `telemetry moved the reading anchor from ${anchorTopBefore} to `
+            + anchorTopAfter
+    );
+
+    await sendPage(page, {
+        type: 'conversation-viewer-telemetry',
+        version: 1,
+        requestId: 2,
+        subscriptionGeneration: 1,
+        telemetry: null,
+    });
+    const anchorTopAfterHide = await anchor.evaluate(
+        element => element.getBoundingClientRect().top
+    );
+    assert.ok(
+        Math.abs(anchorTopAfterHide - anchorTopBefore) <= 1,
+        `hiding telemetry moved the reading anchor from ${anchorTopBefore}`
+            + ` to ${anchorTopAfterHide}`
+    );
+});
 
 function messageHtml(prefix, count, start = 0) {
     return Array.from({ length: count }, (_item, index) => {
@@ -1724,6 +1879,386 @@ test('CONVERSATION-VIEWER-RICH-MARKDOWN-002 lazy-loads Mermaid in the nonce-only
         1
     );
     assert.match(await diagram.getAttribute('src'), /^blob:/);
+});
+
+test('CONVERSATION-READING-FOCUS-001 reserves Mermaid dimensions before Blob image decoding can shift layout', async t => {
+    const page = await openViewerPage(t, { includeMermaid: true });
+    await sendPage(page, {
+        ...hostileConversationPage,
+        html: `<article data-message-id="dimensioned"
+            data-interaction-id="input-4">
+            <section class="conversation-markdown">
+                <pre><code class="language-mermaid">flowchart TB
+                    A[One] --&gt; B[Two]
+                    B --&gt; C[Three]
+                    C --&gt; D[Four]
+                    D --&gt; E[Five]</code></pre>
+            </section>
+        </article>`,
+    });
+    const diagram = page.locator('.conversation-mermaid-image');
+    await diagram.waitFor();
+
+    assert.ok(Number(await diagram.getAttribute('width')) > 0);
+    assert.ok(Number(await diagram.getAttribute('height')) > 0);
+});
+
+test('CONVERSATION-READING-FOCUS-001 keeps the reading anchor stable after each Mermaid diagram finishes', async t => {
+    const page = await openViewerPage(t, { controlledMermaid: true });
+    await page.addStyleTag({ content: viewerCss });
+    const diagram = label => `<article data-message-id="diagram-${label}"
+        data-interaction-id="input-4">
+        <section class="conversation-markdown">
+            <pre><code class="language-mermaid">flowchart TB
+                A[${label}] --&gt; B[Rendered later]</code></pre>
+        </section>
+    </article>`;
+    await sendPage(page, {
+        ...hostileConversationPage,
+        html: diagram('first') + diagram('second')
+            + messageHtml('delayed-tail', 12),
+        selectedInput: 12,
+        totalInputs: 12,
+        updateKind: 'initial',
+    });
+    await page.waitForFunction(
+        () => window.__mermaidRenders.length === 1,
+        undefined,
+        { timeout: 3_000 }
+    );
+    const scroll = page.locator('[data-conversation-scroll]');
+    await scroll.evaluate(element => {
+        element.style.overflowAnchor = 'none';
+    });
+    const anchor = page.locator('[data-message-id="delayed-tail-6"]');
+    await anchor.scrollIntoViewIfNeeded();
+    const anchorTopBefore = await anchor.evaluate(element => {
+        const scrollElement = document.querySelector(
+            '[data-conversation-scroll]'
+        );
+        return element.getBoundingClientRect().top
+            - scrollElement.getBoundingClientRect().top;
+    });
+    const scrollTopBefore = await scroll.evaluate(element => element.scrollTop);
+    await page.evaluate(() => {
+        window.__mermaidRenders[0].resolve({
+            svg: `<svg xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 600 1600">
+                <rect width="600" height="1600" fill="#246"></rect>
+            </svg>`,
+        });
+    });
+    await page.waitForFunction(
+        () => window.__mermaidRenders.length === 2,
+        undefined,
+        { timeout: 3_000 }
+    );
+
+    const anchorTopAfterFirstDiagram = await anchor.evaluate(element => {
+        const scrollElement = document.querySelector(
+            '[data-conversation-scroll]'
+        );
+        return element.getBoundingClientRect().top
+            - scrollElement.getBoundingClientRect().top;
+    });
+    const scrollTopAfter = await scroll.evaluate(element => element.scrollTop);
+    assert.ok(
+        Math.abs(anchorTopAfterFirstDiagram - anchorTopBefore) <= 1,
+        `reading anchor moved from ${anchorTopBefore} to `
+            + anchorTopAfterFirstDiagram + ` (scrollTop ${scrollTopBefore}`
+            + ` -> ${scrollTopAfter})`
+    );
+    await page.evaluate(() => {
+        window.__mermaidRenders[1].resolve({
+            svg: `<svg xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 600 800">
+                <rect width="600" height="800" fill="#246"></rect>
+            </svg>`,
+        });
+    });
+    await page.locator('.conversation-mermaid-image').nth(1).waitFor({
+        timeout: 3_000,
+    });
+    await page.evaluate(() => new Promise(resolve => {
+        requestAnimationFrame(() => requestAnimationFrame(resolve));
+    }));
+    const anchorTopAfterAllDiagrams = await anchor.evaluate(element => {
+        const scrollElement = document.querySelector(
+            '[data-conversation-scroll]'
+        );
+        return element.getBoundingClientRect().top
+            - scrollElement.getBoundingClientRect().top;
+    });
+    assert.ok(
+        Math.abs(anchorTopAfterAllDiagrams - anchorTopBefore) <= 1,
+        `reading anchor moved after the final diagram from ${anchorTopBefore}`
+            + ` to ${anchorTopAfterAllDiagrams}`
+    );
+});
+
+test('CONVERSATION-READING-FOCUS-001 does not restart an in-flight Mermaid render on live refresh', async t => {
+    const page = await openViewerPage(t, { controlledMermaid: true });
+    const diagramMessage = text => `<article data-message-id="in-flight"
+        data-interaction-id="input-4">
+        <section class="conversation-markdown">
+            <pre><code class="language-mermaid">flowchart TB
+                A[Slow diagram] --&gt; B[One render only]</code></pre>
+            <p>${text}</p>
+        </section>
+    </article>`;
+    await sendPage(page, {
+        ...hostileConversationPage,
+        html: diagramMessage('First response chunk'),
+        updateKind: 'initial',
+    });
+    await page.waitForFunction(() => window.__mermaidRenders.length === 1);
+
+    await sendPage(page, {
+        ...hostileConversationPage,
+        requestId: 2,
+        html: diagramMessage('First response chunk plus streamed text'),
+        updateKind: 'refresh',
+    });
+    await page.waitForTimeout(50);
+    assert.equal(
+        await page.evaluate(() => window.__mermaidRenders.length),
+        1
+    );
+
+    await page.evaluate(() => {
+        window.__mermaidRenders[0].resolve({
+            svg: `<svg xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 600 800">
+                <rect width="600" height="800" fill="#246"></rect>
+            </svg>`,
+        });
+    });
+    await page.locator('.conversation-mermaid-image').waitFor();
+});
+
+test('CONVERSATION-READING-FOCUS-001 keeps an intra-message paragraph stable while earlier Mermaid diagrams finish', async t => {
+    const page = await openViewerPage(t, { controlledMermaid: true });
+    await page.addStyleTag({ content: viewerCss });
+    const diagram = label => `<pre><code class="language-mermaid">flowchart TB
+        A[${label}] --&gt; B[Rendered later]</code></pre>`;
+    await sendPage(page, {
+        ...hostileConversationPage,
+        html: `<article data-message-id="multi-diagram"
+            data-interaction-id="input-4">
+            <section class="conversation-markdown">
+                <p>Assistant introduction</p>
+                ${diagram('first')}
+                <p>Text between the diagrams</p>
+                ${diagram('second')}
+                <p>Assistant conclusion</p>
+            </section>
+        </article>` + messageHtml('intra-message-tail', 8),
+        updateKind: 'initial',
+    });
+    await page.waitForFunction(() => window.__mermaidRenders.length === 1);
+    const scroll = page.locator('[data-conversation-scroll]');
+    await scroll.evaluate(element => {
+        element.style.overflowAnchor = 'none';
+    });
+    const anchor = page.getByText('Text between the diagrams', {
+        exact: true,
+    });
+    await anchor.evaluate(element => element.scrollIntoView({
+        block: 'center',
+    }));
+    const anchorTopBefore = await anchor.evaluate(element => {
+        const scrollElement = document.querySelector(
+            '[data-conversation-scroll]'
+        );
+        return element.getBoundingClientRect().top
+            - scrollElement.getBoundingClientRect().top;
+    });
+    const intraScrollTopBefore = await scroll.evaluate(
+        element => element.scrollTop
+    );
+
+    await page.evaluate(() => {
+        window.__mermaidRenders[0].resolve({
+            svg: `<svg xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 600 1600">
+                <rect width="600" height="1600" fill="#246"></rect>
+            </svg>`,
+        });
+    });
+    await page.waitForFunction(() => window.__mermaidRenders.length === 2);
+    const anchorTopAfterFirstDiagram = await anchor.evaluate(element => {
+        const scrollElement = document.querySelector(
+            '[data-conversation-scroll]'
+        );
+        return element.getBoundingClientRect().top
+            - scrollElement.getBoundingClientRect().top;
+    });
+    const intraScrollTopAfter = await scroll.evaluate(
+        element => element.scrollTop
+    );
+
+    await page.evaluate(() => {
+        window.__mermaidRenders[1].resolve({
+            svg: `<svg xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 600 800">
+                <rect width="600" height="800" fill="#246"></rect>
+            </svg>`,
+        });
+    });
+    await page.locator('.conversation-mermaid-image').nth(1).waitFor();
+    assert.ok(
+        Math.abs(anchorTopAfterFirstDiagram - anchorTopBefore) <= 1,
+        `intra-message anchor moved from ${anchorTopBefore} to `
+            + anchorTopAfterFirstDiagram + ` (scrollTop `
+            + `${intraScrollTopBefore} -> ${intraScrollTopAfter})`
+    );
+});
+
+test('CONVERSATION-READING-FOCUS-001 preserves an unchanged rendered Mermaid diagram across live refreshes', async t => {
+    const page = await openViewerPage(t, { includeMermaid: true });
+    const diagramMessage = `<article data-message-id="diagram"
+        data-interaction-id="input-4">
+        <section class="conversation-markdown">
+            <pre><code class="language-mermaid">flowchart TB
+                A[Large diagram] --&gt; B[Stable node]
+                B --&gt; C[Reading anchor]</code></pre>
+        </section>
+    </article>`;
+    const baseHtml = diagramMessage + messageHtml('after-diagram', 12);
+    await sendPage(page, {
+        ...hostileConversationPage,
+        html: baseHtml,
+        selectedInput: 12,
+        totalInputs: 12,
+        updateKind: 'initial',
+    });
+    const diagram = page.locator('.conversation-mermaid-image');
+    await diagram.waitFor();
+    await page.waitForFunction(() => {
+        const image = document.querySelector('.conversation-mermaid-image');
+        return image && image.complete && image.naturalWidth > 0;
+    });
+    const originalSource = await diagram.getAttribute('src');
+    await diagram.evaluate(image => {
+        image.dataset.refreshIdentity = 'preserved';
+    });
+    const focusedMessage = page.locator(
+        '[data-message-id="after-diagram-6"]'
+    );
+    await focusedMessage.evaluate(element => {
+        element.tabIndex = -1;
+        element.focus();
+    });
+    const scroll = page.locator('[data-conversation-scroll]');
+    await scroll.evaluate(element => {
+        element.scrollTop = element.scrollHeight / 2;
+    });
+    const scrollBefore = await scroll.evaluate(element => element.scrollTop);
+
+    await sendPage(page, {
+        ...hostileConversationPage,
+        requestId: 2,
+        updateKind: 'refresh',
+        html: baseHtml + messageHtml('after-diagram-new', 1),
+        selectedInput: 12,
+        totalInputs: 13,
+    });
+    await page.locator('.conversation-mermaid-image').waitFor();
+
+    assert.equal(
+        await page.locator('.conversation-mermaid-image')
+            .getAttribute('data-refresh-identity'),
+        'preserved'
+    );
+    assert.equal(
+        await page.locator('.conversation-mermaid-image').getAttribute('src'),
+        originalSource
+    );
+    assert.equal(
+        await page.evaluate(() =>
+            document.activeElement?.getAttribute('data-message-id')),
+        'after-diagram-6'
+    );
+    assert.equal(
+        await scroll.evaluate(element => element.scrollTop),
+        scrollBefore
+    );
+});
+
+test('CONVERSATION-READING-FOCUS-001 preserves an unchanged Mermaid block while its Assistant message streams more text', async t => {
+    const page = await openViewerPage(t, { includeMermaid: true });
+    const streamingMessage = text => `<article data-message-id="streaming"
+        data-interaction-id="input-4">
+        <section class="conversation-markdown">
+            <pre><code class="language-mermaid">flowchart TB
+                A[Stable diagram] --&gt; B[Must not redraw]</code></pre>
+            <p>${text}</p>
+        </section>
+    </article>`;
+    const trailingMessages = messageHtml('streaming-tail', 12);
+    await sendPage(page, {
+        ...hostileConversationPage,
+        html: streamingMessage('First response chunk') + trailingMessages,
+        selectedInput: 12,
+        totalInputs: 12,
+        updateKind: 'initial',
+    });
+    const diagram = page.locator('.conversation-mermaid-image');
+    await diagram.waitFor();
+    await page.waitForFunction(() => {
+        const image = document.querySelector('.conversation-mermaid-image');
+        return image && image.complete && image.naturalWidth > 0;
+    });
+    const originalSource = await diagram.getAttribute('src');
+    await diagram.evaluate(image => {
+        image.dataset.streamingIdentity = 'preserved';
+    });
+    const focusedMessage = page.locator(
+        '[data-message-id="streaming-tail-6"]'
+    );
+    await focusedMessage.evaluate(element => {
+        element.tabIndex = -1;
+        element.focus();
+    });
+    const scroll = page.locator('[data-conversation-scroll]');
+    await scroll.evaluate(element => {
+        element.scrollTop = element.scrollHeight / 2;
+    });
+    const scrollBefore = await scroll.evaluate(element => element.scrollTop);
+
+    await sendPage(page, {
+        ...hostileConversationPage,
+        requestId: 2,
+        updateKind: 'refresh',
+        html: streamingMessage('First response chunk and more streamed text')
+            + trailingMessages,
+        selectedInput: 12,
+        totalInputs: 12,
+    });
+    await page.locator('.conversation-mermaid-image').waitFor();
+
+    assert.equal(
+        await page.locator('.conversation-mermaid-image')
+            .getAttribute('data-streaming-identity'),
+        'preserved'
+    );
+    assert.equal(
+        await page.locator('.conversation-mermaid-image').getAttribute('src'),
+        originalSource
+    );
+    assert.equal(
+        await page.evaluate(() =>
+            document.activeElement?.getAttribute('data-message-id')),
+        'streaming-tail-6'
+    );
+    assert.equal(
+        await scroll.evaluate(element => element.scrollTop),
+        scrollBefore
+    );
+    assert.match(
+        await page.locator('[data-message-id="streaming"]').textContent(),
+        /more streamed text/
+    );
 });
 
 test('CONVERSATION-VIEWER-BROWSER-NAVIGATION-001 preserves historical scroll and focuses the first appended message', async t => {

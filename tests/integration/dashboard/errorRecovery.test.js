@@ -140,6 +140,7 @@ function constructionFailureHarness(throwAt) {
                 ),
                 async readOutline() {},
                 async readPage() {},
+                async readTelemetry() {},
                 watch() {
                     return { dispose() {} };
                 },

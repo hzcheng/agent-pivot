@@ -121,6 +121,9 @@ export class CodexAppServerClient implements AiSessionDisposable {
     private restartDelay?: RestartDelay;
     private serverVersion?: string;
     private childSpawned = false;
+    private readonly notificationListeners = new Set<
+        (method: string, params: unknown) => void
+    >();
 
     private readonly onStdoutData = (chunk: Buffer): void => {
         this.acceptStdoutChunk(chunk);
@@ -193,6 +196,20 @@ export class CodexAppServerClient implements AiSessionDisposable {
         return this.sendRequest(method, params, signal) as Promise<T>;
     }
 
+    watchNotifications(
+        listener: (method: string, params: unknown) => void
+    ): AiSessionDisposable {
+        if (this.disposed) {
+            return { dispose() {} };
+        }
+        this.notificationListeners.add(listener);
+        return {
+            dispose: () => {
+                this.notificationListeners.delete(listener);
+            },
+        };
+    }
+
     dispose(): void {
         if (this.disposed) {
             return;
@@ -223,6 +240,7 @@ export class CodexAppServerClient implements AiSessionDisposable {
         this.connecting = undefined;
         this.restartAttempts = [];
         this.stdoutRemainder = Buffer.alloc(0);
+        this.notificationListeners.clear();
     }
 
     private async ensureConnection(): Promise<void> {
@@ -597,6 +615,13 @@ export class CodexAppServerClient implements AiSessionDisposable {
             return this.failProtocol();
         }
         if (typeof response.method === 'string') {
+            this.notificationListeners.forEach(listener => {
+                try {
+                    listener(response.method, response.params);
+                } catch (_error) {
+                    // Notification consumers cannot affect the transport.
+                }
+            });
             return true;
         }
         if (!Number.isSafeInteger(response.id)

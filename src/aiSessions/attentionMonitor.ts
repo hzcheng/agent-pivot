@@ -1,11 +1,11 @@
 'use strict';
 
-import * as crypto from 'crypto';
 import type { AiSessionAttentionReason, AiSessionLifecycleSignal } from './lifecycle';
 import {
     acceptsLifecycleSignal,
     recordAcceptedLifecycleSignal,
 } from './lifecycleSignalAcceptance';
+import { createAttentionEventId } from './notify/eventIdentity';
 
 export { AiSessionAttentionReason } from './lifecycle';
 export type AiSessionAttentionState = 'pending' | 'running' | 'idle' | 'needsAttention' | 'acknowledged';
@@ -84,7 +84,7 @@ export default class AiSessionAttentionMonitor {
             entry.generation += 1;
             entry.state = 'needsAttention';
             const event: AiSessionAttentionEvent = {
-                eventId: `${input.eventKey || input.key}:${signal.reason}:${crypto.createHash('sha256').update(signal.token).digest('hex')}`,
+                eventId: createAttentionEventId(input.eventKey || input.key, signal.reason, signal.token),
                 key: input.key,
                 reason: signal.reason,
                 generation: entry.generation,

@@ -4244,5 +4244,19 @@
       "src/webview/webviewContent.ts",
       "src/webview/webviewProjectScripts.js"
     ]
+  },
+  {
+    "id": "ATTENTION-NOTIFY-EVENT-IDENTITY-001",
+    "domain": "attention",
+    "title": "Attention event id generation is shared and stable",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/notify/eventIdentity.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/notify/eventIdentity.ts",
+      "src/aiSessions/attentionMonitor.ts"
+    ]
   }
 ]

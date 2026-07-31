@@ -3,6 +3,7 @@
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const test = require('node:test');
+const { main } = require('../../../scripts/check-conversation-release-journeys');
 const { loadBehaviorCatalog } = require('../../../scripts/lib/behaviorCatalog');
 const {
     loadReleaseJourneyCatalog,
@@ -22,6 +23,34 @@ const behaviors = loadBehaviorCatalog(path.join(
 function clone(value) {
     return JSON.parse(JSON.stringify(value));
 }
+
+test('RELEASE-CONVERSATION-JOURNEYS-001 command reports accepted and rejected catalogs', () => {
+    const acceptedLogs = [];
+    assert.equal(main({
+        manifest,
+        behaviors,
+        logger: {
+            error: message => acceptedLogs.push(`error:${message}`),
+            log: message => acceptedLogs.push(message),
+        },
+    }), 0);
+    assert.deepEqual(acceptedLogs, [
+        `AI Conversation release journey checks passed: ${manifest.blockers.length} blockers.`,
+    ]);
+
+    const rejected = clone(manifest);
+    rejected.blockers[0].behaviors[0] = 'MISSING-BEHAVIOR-001';
+    const rejectedLogs = [];
+    assert.equal(main({
+        manifest: rejected,
+        behaviors,
+        logger: {
+            error: message => rejectedLogs.push(message),
+            log: message => rejectedLogs.push(`log:${message}`),
+        },
+    }), 1);
+    assert.match(rejectedLogs.join('\n'), /references missing behavior/);
+});
 
 test('RELEASE-CONVERSATION-JOURNEYS-001 accepts every reviewed AI Conversation release blocker', () => {
     assert.deepEqual(validateReleaseJourneyCatalog(manifest, { behaviors }), []);

@@ -7,15 +7,16 @@ const {
     validateReleaseJourneyCatalog,
 } = require('./lib/releaseJourneyCatalog');
 
-function main() {
-    const repositoryRoot = path.resolve(__dirname, '..');
-    const manifest = loadReleaseJourneyCatalog(path.join(
+function main(options = {}) {
+    const repositoryRoot = options.repositoryRoot || path.resolve(__dirname, '..');
+    const logger = options.logger || console;
+    const manifest = options.manifest || loadReleaseJourneyCatalog(path.join(
         repositoryRoot,
         'docs',
         'testing',
         'conversation-release-journeys.json'
     ));
-    const behaviors = loadBehaviorCatalog(path.join(
+    const behaviors = options.behaviors || loadBehaviorCatalog(path.join(
         repositoryRoot,
         'docs',
         'testing',
@@ -23,10 +24,10 @@ function main() {
     ));
     const errors = validateReleaseJourneyCatalog(manifest, { behaviors });
     if (errors.length > 0) {
-        for (const error of errors) console.error(error);
+        for (const error of errors) logger.error(error);
         return 1;
     }
-    console.log(
+    logger.log(
         `AI Conversation release journey checks passed: ${manifest.blockers.length} blockers.`
     );
     return 0;

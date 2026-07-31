@@ -146,3 +146,27 @@ export function filterAcknowledgedAttentionAggregate(
         sessions,
     };
 }
+
+/**
+ * Drops sessions the owning window has already cleared.
+ *
+ * The aggregate is the only source for sessions owned by other windows, but for
+ * its own sessions this window's monitor is both authoritative and fresher. If
+ * the bridge stops broadcasting, the last aggregate would otherwise keep a dot
+ * lit forever with no recovery path. Filtering only ever removes a session, so
+ * a cross-window acknowledgement can never be undone by local state.
+ */
+export function filterLocallyClearedAttentionAggregate(
+    aggregate: AttentionAggregate,
+    isLocallyCleared: (sessionKey: string) => boolean
+): AttentionAggregate {
+    const sessions = aggregate.sessions.filter(session => !isLocallyCleared(session.sessionKey));
+    if (sessions.length === aggregate.sessions.length) {
+        return aggregate;
+    }
+    return {
+        ...aggregate,
+        aggregateRevision: createAggregateRevision(sessions),
+        sessions,
+    };
+}

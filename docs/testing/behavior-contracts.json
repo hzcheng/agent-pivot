@@ -1056,6 +1056,20 @@
     ]
   },
   {
+    "id": "ATTENTION-BRIDGE-STALENESS-001",
+    "domain": "attention",
+    "title": "A locally cleared session never stays lit on a frozen bridge aggregate",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/aiSessions/attention.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/attentionAggregate.ts",
+      "src/aiSessions/attentionController.ts"
+    ]
+  },
+  {
     "id": "SESSION-AI-SESSION-EXECUTION-MONITOR-001",
     "domain": "session",
     "title": "AI Session Execution Monitor behavior",

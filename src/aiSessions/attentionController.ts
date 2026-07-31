@@ -2,7 +2,11 @@
 
 import type { AiSessionProviderId, CodexSession } from '../models';
 import type { AttentionAggregate } from './attentionAggregate';
-import { aggregateAttentionSnapshots, filterAcknowledgedAttentionAggregate } from './attentionAggregate';
+import {
+    aggregateAttentionSnapshots,
+    filterAcknowledgedAttentionAggregate,
+    filterLocallyClearedAttentionAggregate,
+} from './attentionAggregate';
 import { MAX_ATTENTION_ITEMS } from './attentionPayload';
 import type { AttentionPayloadItem } from './attentionPayload';
 import AiSessionAttentionMonitor from './attentionMonitor';
@@ -185,7 +189,26 @@ export class AiSessionAttentionController<TRuntime extends AiSessionAttentionRun
                 heartbeat: 0,
             }], new Set<string>(), now);
         })();
-        return filterAcknowledgedAttentionAggregate(aggregate, this.locallyAcknowledgedEventIds);
+        return filterLocallyClearedAttentionAggregate(
+            filterAcknowledgedAttentionAggregate(aggregate, this.locallyAcknowledgedEventIds),
+            sessionKey => this.isLocallyCleared(sessionKey)
+        );
+    }
+
+    /**
+     * Whether this window owns the session and its monitor no longer reports
+     * attention. Sessions this window does not track are never claimed, because
+     * for those the aggregate is the only thing that knows anything.
+     */
+    private isLocallyCleared(sessionKey: string): boolean {
+        const attentionKeys = this.attentionKeysBySession.get(
+            getLogicalAttentionSessionKey(sessionKey)
+        );
+        if (!attentionKeys?.length) {
+            return false;
+        }
+        const snapshot = this.monitor.getSnapshot();
+        return !attentionKeys.some(key => snapshot[key]?.state === 'needsAttention');
     }
 
     getLocalSnapshot(): Record<string, AiSessionAttentionSnapshot> {

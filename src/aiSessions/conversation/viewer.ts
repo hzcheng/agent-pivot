@@ -11,6 +11,14 @@ import type { ConversationCommentStore } from './commentStore';
 import type { ConversationBookmarkStore } from './bookmarkStore';
 import { ConversationCommentController } from './commentController';
 import { ConversationBookmarkController } from './bookmarkController';
+import {
+    ConversationTelemetryController,
+    renderConversationTelemetry,
+} from './conversationTelemetryController';
+import {
+    ConversationOutlineController,
+    ConversationViewerOutlineEntry,
+} from './outlineController';
 import { renderConversationMarkdown } from './markdown';
 import { parseConversationViewerMessage } from './viewerProtocol';
 import type { ConversationViewerTarget } from './viewerTarget';
@@ -24,7 +32,6 @@ import {
     ConversationOutline,
     ConversationPage,
     ConversationPageRequest,
-    ConversationResponseState,
     ConversationTelemetry,
 } from './types';
 
@@ -100,20 +107,6 @@ interface ConversationViewerPageMessage {
     stale: boolean;
 }
 
-interface ConversationViewerTelemetryMessage {
-    type: 'conversation-viewer-telemetry';
-    version: 1;
-    requestId: number;
-    subscriptionGeneration: number;
-    telemetry: ConversationTelemetry | null;
-}
-
-interface ConversationViewerOutlineEntry {
-    interactionId: string;
-    userPreview: string;
-    responseState: ConversationResponseState;
-}
-
 export class ConversationViewer implements ConversationViewerApi {
     private panel?: vscode.WebviewPanel;
     private target?: ConversationViewerTarget;
@@ -122,14 +115,11 @@ export class ConversationViewer implements ConversationViewerApi {
     private panelDisposeListener?: vscode.Disposable;
     private viewStateListener?: vscode.Disposable;
     private abortController?: ConversationAbortController;
-    private outline?: ConversationOutline;
     private pages: RetainedConversationPage[] = [];
     private subscriptionGeneration = 0;
     private nextRequestId = CONVERSATION_LIMITS.minRequestId;
     private currentRequestId = 0;
-    private selectedInteractionId?: string;
     private stale = false;
-    private telemetry?: ConversationTelemetry;
     private latestPublication?: ConversationViewerPageMessage;
     private panelWasVisible = false;
     private suspended = false;
@@ -137,8 +127,19 @@ export class ConversationViewer implements ConversationViewerApi {
     private authoritativeRefreshPending = false;
     private readonly commentController: ConversationCommentController;
     private readonly bookmarkController: ConversationBookmarkController;
+    private readonly outlineController = new ConversationOutlineController();
+    private readonly telemetryController: ConversationTelemetryController;
 
     constructor(private readonly options: ConversationViewerOptions) {
+        this.telemetryController = new ConversationTelemetryController({
+            readTelemetry: options.readTelemetry,
+            getPanel: () => this.panel,
+            getTarget: () => this.target,
+            getSubscriptionGeneration: () => this.subscriptionGeneration,
+            getCurrentRequestId: () => this.currentRequestId,
+            isSuspended: () => this.suspended,
+            rebuildLatestDocument: () => this.rebuildLatestDocument(),
+        });
         this.commentController = new ConversationCommentController({
             commentStore: options.commentStore,
             submitPrompt: options.submitPrompt,
@@ -156,7 +157,7 @@ export class ConversationViewer implements ConversationViewerApi {
             getTarget: () => this.target,
             getSubscriptionGeneration: () => this.subscriptionGeneration,
             getPanel: () => this.panel,
-            getOutline: () => this.outline,
+            getOutline: () => this.outlineController.snapshot,
             rebuildLatestDocument: () => this.rebuildLatestDocument(),
         });
     }
@@ -247,7 +248,7 @@ export class ConversationViewer implements ConversationViewerApi {
             this.watch = undefined;
             this.subscriptionGeneration += 1;
             this.currentRequestId = this.allocateRequestId();
-            if (this.pages.length && this.outline) {
+            if (this.pages.length && this.outlineController.snapshot) {
                 this.stale = true;
                 await this.deliverPublication(this.createPublication(
                     this.currentRequestId,
@@ -287,14 +288,13 @@ export class ConversationViewer implements ConversationViewerApi {
         this.watch?.dispose();
         this.watch = undefined;
         this.pages = [];
-        this.outline = undefined;
+        this.outlineController.reset(target.interactionId);
         this.stale = false;
-        this.telemetry = undefined;
+        this.telemetryController.reset();
         this.latestPublication = undefined;
         this.commentController.reset();
         this.bookmarkController.reset();
         this.target = { ...target };
-        this.selectedInteractionId = target.interactionId;
         this.suspended = false;
         this.subscriptionGeneration += 1;
         this.currentRequestId = 0;
@@ -363,11 +363,10 @@ export class ConversationViewer implements ConversationViewerApi {
         this.viewStateListener?.dispose();
         this.viewStateListener = undefined;
         this.pages = [];
-        this.outline = undefined;
+        this.outlineController.reset();
         this.target = undefined;
-        this.selectedInteractionId = undefined;
         this.stale = false;
-        this.telemetry = undefined;
+        this.telemetryController.reset();
         this.latestPublication = undefined;
         this.commentController.reset();
         this.bookmarkController.reset();
@@ -433,21 +432,17 @@ export class ConversationViewer implements ConversationViewerApi {
 
     private async navigate(direction: 'before' | 'after'): Promise<boolean> {
         const target = this.target;
-        const outline = this.outline;
-        const selectedInteractionId = this.selectedInteractionId;
+        const outline = this.outlineController.snapshot;
+        const selectedInteractionId = this.outlineController.selection;
         if (!target || !outline || !selectedInteractionId || !this.pages.length) {
             return false;
         }
-        const outlineIds = outline.interactions.map(interaction => interaction.id);
-        const selectedIndex = outlineIds.indexOf(selectedInteractionId);
-        const targetIndex = direction === 'before'
-            ? selectedIndex - 1
-            : selectedIndex + 1;
-        if (selectedIndex < 0 || targetIndex < 0
-            || targetIndex >= outlineIds.length) {
+        const nextInteractionId = this.outlineController.adjacentInteractionId(
+            direction
+        );
+        if (!nextInteractionId) {
             return false;
         }
-        const nextInteractionId = outlineIds[targetIndex];
         if (this.interactionIds().includes(nextInteractionId)) {
             return this.publishSelection(nextInteractionId, 'navigation');
         }
@@ -484,10 +479,8 @@ export class ConversationViewer implements ConversationViewerApi {
 
     private async navigateLatest(): Promise<void> {
         const target = this.target;
-        const outline = this.outline;
-        const latestInteractionId = outline?.interactions[
-            outline.interactions.length - 1
-        ]?.id;
+        const outline = this.outlineController.snapshot;
+        const latestInteractionId = this.outlineController.latestInteractionId();
         if (!target || !outline || !latestInteractionId) {
             return;
         }
@@ -509,10 +502,9 @@ export class ConversationViewer implements ConversationViewerApi {
         interactionId: string
     ): Promise<boolean> {
         const target = this.target;
-        const outline = this.outline;
-        if (!target || !outline || !outline.interactions.some(
-            interaction => interaction.id === interactionId
-        )) {
+        const outline = this.outlineController.snapshot;
+        if (!target || !outline
+            || !this.outlineController.contains(interactionId)) {
             return false;
         }
         if (this.interactionIds().includes(interactionId)) {
@@ -573,7 +565,7 @@ export class ConversationViewer implements ConversationViewerApi {
         const generation = this.subscriptionGeneration;
         const requestId = this.allocateRequestId();
         this.currentRequestId = requestId;
-        const previousSelectedInteractionId = this.selectedInteractionId;
+        const previousSelectedInteractionId = this.outlineController.selection;
         try {
             let outline = await this.options.readOutline(
                 target.provider,
@@ -608,8 +600,9 @@ export class ConversationViewer implements ConversationViewerApi {
                 : previousSelectedInteractionId as string;
             if (updateKind === 'refresh'
                 && !this.stale
-                && this.outline?.sourceRevision === outline.sourceRevision) {
-                void this.refreshTelemetry(target, generation);
+                && this.outlineController.snapshot?.sourceRevision
+                    === outline.sourceRevision) {
+                void this.telemetryController.refresh(target, generation);
                 return true;
             }
             let page: ConversationPage;
@@ -668,8 +661,13 @@ export class ConversationViewer implements ConversationViewerApi {
                 await this.publishFailure(replaceDocument, updateKind);
                 return false;
             }
-            this.outline = outline;
-            this.selectedInteractionId = page.anchorInteractionId;
+            if (!this.outlineController.replace(
+                outline,
+                page.anchorInteractionId
+            )) {
+                await this.publishFailure(replaceDocument, updateKind);
+                return false;
+            }
             this.stale = false;
             if (updateKind === 'refresh') {
                 this.mergeRefreshPage(page, outline);
@@ -682,7 +680,7 @@ export class ConversationViewer implements ConversationViewerApi {
                 updateKind
             );
             await this.deliverPublication(publication, replaceDocument);
-            void this.refreshTelemetry(target, generation);
+            void this.telemetryController.refresh(target, generation);
             return true;
         } catch (_error) {
             if (!this.canPublish(panel, target, generation, requestId)
@@ -716,7 +714,7 @@ export class ConversationViewer implements ConversationViewerApi {
         const generation = this.subscriptionGeneration;
         const requestId = this.allocateRequestId();
         this.currentRequestId = requestId;
-        const previousOutline = this.outline;
+        const previousOutline = this.outlineController.snapshot;
         try {
             let outline = previousOutline;
             let page: ConversationPage;
@@ -770,11 +768,17 @@ export class ConversationViewer implements ConversationViewerApi {
                 await this.publishFailure(replaceDocument, updateKind);
                 return false;
             }
-            if (retriedStaleRevision && outline) {
-                this.outline = outline;
-            }
             this.stale = false;
-            this.selectedInteractionId = page.anchorInteractionId;
+            const selected = retriedStaleRevision && outline
+                ? this.outlineController.replace(
+                    outline,
+                    page.anchorInteractionId
+                )
+                : this.outlineController.select(page.anchorInteractionId);
+            if (!selected) {
+                await this.publishFailure(replaceDocument, updateKind);
+                return false;
+            }
             if (retriedStaleRevision && outline) {
                 this.mergeRefreshPage(page, outline);
             } else {
@@ -807,13 +811,14 @@ export class ConversationViewer implements ConversationViewerApi {
     ): Promise<boolean> {
         const panel = this.panel;
         const target = this.target;
-        if (!panel || !target || !this.outline?.interactions.some(
-            interaction => interaction.id === interactionId
-        )) {
+        if (!panel || !target
+            || !this.outlineController.contains(interactionId)) {
             return false;
         }
         this.abortController?.abort();
-        this.selectedInteractionId = interactionId;
+        if (!this.outlineController.select(interactionId)) {
+            return false;
+        }
         const requestId = this.allocateRequestId();
         this.currentRequestId = requestId;
         await this.deliverPublication(this.createPublication(
@@ -869,50 +874,6 @@ export class ConversationViewer implements ConversationViewerApi {
             delivered = false;
         }
         if (!delivered && this.isCurrentPublication(publication)) {
-            this.rebuildLatestDocument();
-        }
-    }
-
-    private async refreshTelemetry(
-        target: ConversationViewerTarget,
-        generation: number
-    ): Promise<void> {
-        if (!this.options.readTelemetry) {
-            return;
-        }
-        let telemetry: ConversationTelemetry | undefined;
-        try {
-            telemetry = await this.options.readTelemetry(
-                target.provider,
-                target.sessionId
-            );
-        } catch (_error) {
-            telemetry = undefined;
-        }
-        const panel = this.panel;
-        if (!panel
-            || this.target !== target
-            || this.subscriptionGeneration !== generation
-            || this.suspended) {
-            return;
-        }
-        this.telemetry = telemetry;
-        const message: ConversationViewerTelemetryMessage = {
-            type: 'conversation-viewer-telemetry',
-            version: 1,
-            requestId: this.currentRequestId,
-            subscriptionGeneration: generation,
-            telemetry: telemetry || null,
-        };
-        let delivered = false;
-        try {
-            delivered = await panel.webview.postMessage(message);
-        } catch (_error) {
-            delivered = false;
-        }
-        if (!delivered
-            && this.target === target
-            && this.subscriptionGeneration === generation) {
             this.rebuildLatestDocument();
         }
     }
@@ -1078,7 +1039,7 @@ export class ConversationViewer implements ConversationViewerApi {
         while (this.pages.length > 1
             && (this.snapshotSize > CONVERSATION_LIMITS.maxViewerInteractions
                 || this.snapshotBytes() > CONVERSATION_LIMITS.maxViewerBytes)) {
-            const targetId = this.selectedInteractionId;
+            const targetId = this.outlineController.selection;
             const anchorPage = this.pages.findIndex(retained =>
                 retained.page.interactionStates.some(
                     state => state.interactionId === targetId
@@ -1142,18 +1103,17 @@ export class ConversationViewer implements ConversationViewerApi {
         updateKind: ConversationViewerPageMessage['updateKind']
     ): ConversationViewerPageMessage {
         const target = this.target;
-        const outline = this.outline;
-        const selectedInteractionId = this.selectedInteractionId;
-        if (!target || !outline || !selectedInteractionId) {
+        const outline = this.outlineController.snapshot;
+        if (!target || !outline) {
             throw new Error('Conversation viewer target unavailable.');
         }
+        const projection = this.outlineController.createPublication();
         const interactionIds = outline.interactions.map(
             interaction => interaction.id
         );
-        const selectedIndex = interactionIds.indexOf(selectedInteractionId);
-        const omittedInteractions = outline.partial
-            ? Math.max(0, outline.totalInteractions - interactionIds.length)
-            : 0;
+        const selectedIndex = interactionIds.indexOf(
+            projection.selectedInteractionId
+        );
         const first = this.pages[0]?.page;
         const last = this.pages[this.pages.length - 1]?.page;
         return {
@@ -1163,21 +1123,7 @@ export class ConversationViewer implements ConversationViewerApi {
             subscriptionGeneration: generation,
             updateKind,
             html: renderMessages(this.messages()),
-            outline: outline.interactions.map(interaction => ({
-                interactionId: interaction.id,
-                userPreview: interaction.userPreview,
-                responseState: interaction.responseState,
-            })),
-            selectedInteractionId,
-            selectedInput: selectedIndex < 0
-                ? 0
-                : omittedInteractions + selectedIndex + 1,
-            totalInputs: outline.partial
-                ? Math.min(outline.totalInteractions,
-                    CONVERSATION_LIMITS.maxOutlineInteractions)
-                : outline.totalInteractions,
-            partial: outline.partial,
-            atLatest: selectedIndex === interactionIds.length - 1,
+            ...projection,
             previousCursor: selectedIndex > 0
                 ? first?.previousCursor || ''
                 : undefined,
@@ -1275,7 +1221,7 @@ export class ConversationViewer implements ConversationViewerApi {
             <button type="button" data-action="close">Close</button>
         </nav>
     </header>
-    ${renderConversationTelemetry(this.telemetry)}
+    ${renderConversationTelemetry(this.telemetryController.snapshot)}
     <div class="conversation-status" data-conversation-status aria-live="polite">${escapeHtml(
         initialStatus
     )}</div>
@@ -1436,91 +1382,6 @@ function renderMessages(messages: ConversationMessage[]): string {
 
 function providerLabel(provider: AiSessionProviderId): string {
     return provider === 'codex' ? 'Codex' : provider === 'kimi' ? 'Kimi' : 'Claude';
-}
-
-function formatTokenCount(value: number): string {
-    if (value >= 1_000_000) {
-        return `${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1)}m`;
-    }
-    if (value >= 1_000) {
-        return `${(value / 1_000).toFixed(value >= 100_000 ? 0 : 1)}k`;
-    }
-    return String(value);
-}
-
-function formatResetTime(resetsAt: number): string {
-    const remainingMs = Math.max(0, resetsAt * 1000 - Date.now());
-    const remainingMins = Math.max(1, Math.ceil(remainingMs / 60_000));
-    if (remainingMins < 60) {
-        return `${remainingMins}m`;
-    }
-    const remainingHours = Math.ceil(remainingMins / 60);
-    if (remainingHours < 48) {
-        return `${remainingHours}h`;
-    }
-    return `${Math.ceil(remainingHours / 24)}d`;
-}
-
-function renderConversationTelemetry(
-    telemetry: ConversationTelemetry | undefined
-): string {
-    const hasContext = Boolean(telemetry?.context);
-    const hasModel = Boolean(telemetry?.model);
-    const limits = telemetry?.rateLimits || [];
-    const context = telemetry?.context;
-    const contextPercent = context
-        ? Math.max(0, Math.min(
-            100,
-            context.usedTokens / context.maxTokens * 100
-        ))
-        : 0;
-    const limitMarkup = limits.map(limit => {
-        const remaining = Math.max(0, 100 - limit.usedPercent);
-        const reset = limit.resetsAt
-            ? ` · resets in ${formatResetTime(limit.resetsAt)}`
-            : '';
-        const resetTitle = limit.resetsAt
-            ? ` title="${escapeAttribute(
-                new Date(limit.resetsAt * 1000).toLocaleString()
-            )}"`
-            : '';
-        return `<div class="conversation-telemetry-meter">
-            <span>${escapeHtml(limit.label)}</span>
-            <progress max="100" value="${limit.usedPercent}"
-                aria-label="${escapeAttribute(`${limit.label} usage`)}"></progress>
-            <span${resetTitle}>${escapeHtml(
-                `${Math.round(remaining)}% left${reset}`
-            )}</span>
-        </div>`;
-    }).join('');
-    return `<section class="conversation-telemetry"
-        data-conversation-telemetry aria-label="Session usage"${hasModel
-            || hasContext || limits.length ? '' : ' hidden'}>
-        <div class="conversation-telemetry-model"
-            data-telemetry-model${hasModel ? '' : ' hidden'}>
-            <span>Model</span>
-            <strong data-telemetry-model-value>${escapeHtml(
-                telemetry?.model || ''
-            )}</strong>
-        </div>
-        <div class="conversation-telemetry-meter"
-            data-telemetry-context${hasContext ? '' : ' hidden'}>
-            <span>Context</span>
-            <progress data-telemetry-context-progress
-                max="${context?.maxTokens || 1}"
-                value="${context?.usedTokens || 0}"
-                aria-label="Context window usage"></progress>
-            <span data-telemetry-context-value>${context
-                ? escapeHtml(
-                    `${Math.round(contextPercent)}% · ${formatTokenCount(
-                        context.usedTokens
-                    )} / ${formatTokenCount(context.maxTokens)}`
-                )
-                : ''}</span>
-        </div>
-        <div class="conversation-telemetry-limits"
-            data-telemetry-limits>${limitMarkup}</div>
-    </section>`;
 }
 
 function escapeHtml(value: string): string {

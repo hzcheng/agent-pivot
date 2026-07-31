@@ -252,7 +252,7 @@ async function sendPage(page, payload) {
     ), payload);
 }
 
-test('CONVERSATION-TELEMETRY-001 renders correlated model, context, and weekly quota updates in place', async t => {
+test('CONVERSATION-TELEMETRY-001 CONVERSATION-TELEMETRY-CONTROLLER-001 renders correlated model, context, and weekly quota updates in place', async t => {
     const page = await openViewerPage(t);
     await sendPage(page, {
         type: 'conversation-viewer-telemetry',
@@ -1236,6 +1236,81 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 CONVERSATION-COMMENTS-LAYOUT-001 share
             rightVisible: true,
         }
     );
+});
+
+test('CONVERSATION-COMMENTS-DOM-STABILITY-001 keeps the Conversation DOM intact across 100 panel toggles and resizes', async t => {
+    const interactionId = 'input-panel-stability';
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+        viewport: { width: 1100, height: 600 },
+        interactionIds: [interactionId],
+        interactionId,
+        markdown: '[Stable reading link](https://example.com/stable)',
+        pageOverrides: {
+            previousCursor: undefined,
+            nextCursor: undefined,
+            isStart: true,
+            isEnd: true,
+        },
+    });
+    const baseline = await page.evaluate(() => {
+        const root = document.querySelector('[data-conversation-messages]');
+        window.__panelStableConversationRoot = root;
+        window.__panelStableConversationNodes = Array.from(
+            root.querySelectorAll('*')
+        );
+        window.__panelStableMutations = 0;
+        const observer = new MutationObserver(records => {
+            window.__panelStableMutations += records.filter(record =>
+                record.type === 'childList'
+            ).length;
+        });
+        observer.observe(root, { childList: true, subtree: true });
+        window.__panelStableObserver = observer;
+        return { nodeCount: window.__panelStableConversationNodes.length };
+    });
+
+    await page.evaluate(() => {
+        const outlineToggle = document.querySelector(
+            '[data-action="toggle-outline"]'
+        );
+        const commentsToggle = document.querySelector(
+            '[data-action="toggle-comments"]'
+        );
+        const resizer = document.querySelector('[data-comments-resizer]');
+        for (let index = 0; index < 100; index += 1) {
+            commentsToggle.click();
+            resizer.dispatchEvent(new KeyboardEvent('keydown', {
+                key: index % 2 === 0 ? 'ArrowLeft' : 'ArrowRight',
+                bubbles: true,
+            }));
+            outlineToggle.click();
+        }
+    });
+    await page.evaluate(() => new Promise(resolve => {
+        requestAnimationFrame(() => requestAnimationFrame(resolve));
+    }));
+
+    assert.deepEqual(await page.evaluate(() => {
+        const root = document.querySelector('[data-conversation-messages]');
+        const nodes = Array.from(root.querySelectorAll('*'));
+        window.__panelStableObserver.disconnect();
+        return {
+            sameRoot: root === window.__panelStableConversationRoot,
+            sameNodes: nodes.length
+                === window.__panelStableConversationNodes.length
+                && nodes.every((node, index) =>
+                    node === window.__panelStableConversationNodes[index]),
+            nodeCount: nodes.length,
+            mutations: window.__panelStableMutations,
+        };
+    }), {
+        sameRoot: true,
+        sameNodes: true,
+        nodeCount: baseline.nodeCount,
+        mutations: 0,
+    });
 });
 
 test('CONVERSATION-COMMENTS-UI-001 adds a session-wide note without selecting conversation text', async t => {

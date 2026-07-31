@@ -3604,6 +3604,33 @@
     ]
   },
   {
+    "id": "CONVERSATION-PROTOCOL-VALIDATOR-001",
+    "domain": "webview",
+    "title": "AI Conversation accepts only exact bounded version-1 viewer intents through an isolated protocol validator",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/conversationViewerProtocol.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/viewerProtocol.ts",
+      "src/aiSessions/conversation/viewer.ts"
+    ]
+  },
+  {
+    "id": "CONVERSATION-REFRESH-PERFORMANCE-001",
+    "domain": "webview",
+    "title": "One hundred identical AI Conversation refreshes preserve DOM identity, focus, Mermaid Blob URLs, and event listeners without growth",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/browser/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/webview/conversationViewerScripts.js"
+    ]
+  },
+  {
     "id": "CONVERSATION-OUTLINE-DELIVERY-001",
     "domain": "webview",
     "title": "Undelivered initial conversation outline results remain retryable after authoritative Dashboard replacement instead of stranding Loading",

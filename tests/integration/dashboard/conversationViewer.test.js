@@ -782,6 +782,19 @@ test('CONVERSATION-VIEWER-SECURITY-001 emits a nonce-only CSP and opens only HTT
         panel.webview.html,
         /href="webview:\/\/fixture\/\/extension\/media\/conversationViewer\.css"/
     );
+    const purifyIndex = panel.webview.html.indexOf('purify.min.js');
+    const readingAnchorIndex = panel.webview.html.indexOf(
+        'conversationReadingAnchorScripts.js'
+    );
+    const mermaidControllerIndex = panel.webview.html.indexOf(
+        'conversationMermaidScripts.js'
+    );
+    const viewerIndex = panel.webview.html.indexOf(
+        'conversationViewerScripts.js'
+    );
+    assert.ok(purifyIndex >= 0 && purifyIndex < readingAnchorIndex);
+    assert.ok(readingAnchorIndex < mermaidControllerIndex);
+    assert.ok(mermaidControllerIndex < viewerIndex);
 
     for (const href of [
         'javascript:alert(1)',
@@ -799,6 +812,20 @@ test('CONVERSATION-VIEWER-SECURITY-001 emits a nonce-only CSP and opens only HTT
     }
 
     assert.deepEqual(openedUris, ['https://example.test/safe']);
+});
+
+test('CONVERSATION-READING-FOCUS-001 keeps modular Webview controllers byte-identical in packaged media', () => {
+    for (const fileName of [
+        'conversationReadingAnchorScripts.js',
+        'conversationMermaidScripts.js',
+        'conversationViewerScripts.js',
+    ]) {
+        assert.equal(
+            fs.readFileSync(path.join('media', fileName), 'utf8'),
+            fs.readFileSync(path.join('src', 'webview', fileName), 'utf8'),
+            `${fileName} is stale in media`
+        );
+    }
 });
 
 test('CONVERSATION-VIEWER-REFRESH-001 retains stale content after a watched failure and clears stale after recovery', async () => {

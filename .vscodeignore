@@ -27,6 +27,8 @@ media/brand/**
 !media/webviewProjectScripts.js
 !media/webviewPromptScripts.js
 !media/webviewTodoScripts.js
+!media/conversationMermaidScripts.js
+!media/conversationReadingAnchorScripts.js
 !media/conversationViewerScripts.js
 !media/conversationViewer.css
 !media/conversationTelemetry.css

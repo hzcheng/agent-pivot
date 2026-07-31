@@ -46,6 +46,8 @@ const EXPECTED_MAIN_ENTRIES = Object.freeze([
     'extension/dist/dashboard.js',
     'extension/licenses/DOMPurify-Apache-2.0.txt',
     'extension/licenses/Mermaid-MIT.txt',
+    'extension/media/conversationMermaidScripts.js',
+    'extension/media/conversationReadingAnchorScripts.js',
     'extension/media/conversationTelemetry.css',
     'extension/media/conversationViewer.css',
     'extension/media/conversationViewerScripts.js',

@@ -4310,5 +4310,18 @@
     "evidence": [
       "src/aiSessions/notify/message.ts"
     ]
+  },
+  {
+    "id": "ATTENTION-NOTIFY-TEMPLATE-WEBHOOK-001",
+    "domain": "attention",
+    "title": "Plain webhook channels build correct JSON bodies",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/notify/templates/webhookJson.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/notify/templates/webhookJson.ts"
+    ]
   }
 ]

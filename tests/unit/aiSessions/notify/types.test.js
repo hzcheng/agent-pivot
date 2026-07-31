@@ -43,6 +43,12 @@ test('telegram sink 缺 chatId 时拒绝', () => {
     ])), /telegram sink/u);
 });
 
+test('telegram sink 混入 ntfy 字段时拒绝', () => {
+    assert.throws(() => validateNotifyConfig(baseConfig([
+        { id: 's2', channel: 'telegram', botToken: 't', chatId: '123', proxy: null, topic: 'abc' },
+    ])), /telegram sink/u);
+});
+
 test('ntfy sink 混入 telegram 字段时拒绝', () => {
     assert.throws(() => validateNotifyConfig(baseConfig([
         { id: 's1', channel: 'ntfy', baseUrl: 'https://ntfy.sh', topic: 'abc', token: null,

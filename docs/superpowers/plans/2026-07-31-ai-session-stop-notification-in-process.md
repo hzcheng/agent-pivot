@@ -186,7 +186,10 @@ node --test --test-concurrency=1 tests/contract/aiSessions/attention.test.js
 npm run test:behavior-contracts
 ```
 
-预期:PASS。
+预期:内部 40 条测试全部 PASS。命令**整体退出码会是 1**,末尾打印
+`unaudited implementation commit <sha>` —— 这是仓库要求每个实现提交归属到
+`docs/testing/main-capability-coverage.json` 中某个 capability 的门禁,本分支
+在 Task 17 统一处理。**只有这一类输出是预期的**,任何其他失败都是真问题。
 
 - [ ] **Step 9: 提交**
 
@@ -576,7 +579,7 @@ npm run test-compile && node --test tests/unit/aiSessions/notify/types.test.js
 - [ ] **Step 6: 提交**
 
 ```bash
-npm run test:behavior-contracts
+npm run test:behavior-contracts   # 忽略末尾 unaudited implementation commit,见 Task 17
 git add src/aiSessions/notify/types.ts tests/unit/aiSessions/notify/types.test.js docs/testing/behavior-contracts.json
 git commit -m "feat: add notification config types and validation"
 ```
@@ -671,7 +674,7 @@ npm run test-compile && node --test tests/unit/aiSessions/notify/correlation.tes
 ```
 
 ```bash
-npm run test:behavior-contracts
+npm run test:behavior-contracts   # 忽略末尾 unaudited implementation commit,见 Task 17
 git add src/aiSessions/notify/correlation.ts tests/unit/aiSessions/notify/correlation.test.js docs/testing/behavior-contracts.json
 git commit -m "feat: add notification correlation id"
 ```
@@ -843,7 +846,7 @@ npm run test-compile && node --test tests/unit/aiSessions/notify/policy.test.js
 ```
 
 ```bash
-npm run test:behavior-contracts
+npm run test:behavior-contracts   # 忽略末尾 unaudited implementation commit,见 Task 17
 git add src/aiSessions/notify/policy.ts tests/unit/aiSessions/notify/policy.test.js docs/testing/behavior-contracts.json
 git commit -m "feat: add notification send policy"
 ```
@@ -1036,7 +1039,7 @@ npm run test-compile && node --test tests/unit/aiSessions/notify/message.test.js
 ```
 
 ```bash
-npm run test:behavior-contracts
+npm run test:behavior-contracts   # 忽略末尾 unaudited implementation commit,见 Task 17
 git add src/aiSessions/notify/message.ts tests/unit/aiSessions/notify/message.test.js docs/testing/behavior-contracts.json
 git commit -m "feat: add notification message rendering"
 ```
@@ -1185,7 +1188,7 @@ npm run test-compile && node --test tests/unit/aiSessions/notify/templates/webho
 ```
 
 ```bash
-npm run test:behavior-contracts
+npm run test:behavior-contracts   # 忽略末尾 unaudited implementation commit,见 Task 17
 git add src/aiSessions/notify/templates tests/unit/aiSessions/notify/templates docs/testing/behavior-contracts.json
 git commit -m "feat: add plain webhook notification templates"
 ```
@@ -1436,7 +1439,7 @@ npm run test-compile && node --test tests/unit/aiSessions/notify/templates/speci
 ```
 
 ```bash
-npm run test:behavior-contracts
+npm run test:behavior-contracts   # 忽略末尾 unaudited implementation commit,见 Task 17
 git add src/aiSessions/notify/templates tests/unit/aiSessions/notify/templates docs/testing/behavior-contracts.json
 git commit -m "feat: add ntfy, telegram, bark and dingtalk templates"
 ```
@@ -1645,7 +1648,7 @@ npm run test-compile && node --test tests/unit/aiSessions/notify/templates/
 ```
 
 ```bash
-npm run test:behavior-contracts
+npm run test:behavior-contracts   # 忽略末尾 unaudited implementation commit,见 Task 17
 git add src/aiSessions/notify/templates tests/unit/aiSessions/notify/templates docs/testing/behavior-contracts.json
 git commit -m "feat: add custom template and channel dispatch"
 ```
@@ -1948,7 +1951,7 @@ npm run test-compile && node --test tests/unit/aiSessions/notify/httpClient.test
 ```
 
 ```bash
-npm run test:behavior-contracts
+npm run test:behavior-contracts   # 忽略末尾 unaudited implementation commit,见 Task 17
 git add src/aiSessions/notify/httpClient.ts tests/unit/aiSessions/notify/httpClient.test.js docs/testing/behavior-contracts.json
 git commit -m "feat: add notification http transport with proxy and retry"
 ```
@@ -2157,7 +2160,7 @@ npm run test-compile && node --test tests/unit/aiSessions/notify/store.test.js
 ```
 
 ```bash
-npm run test:behavior-contracts
+npm run test:behavior-contracts   # 忽略末尾 unaudited implementation commit,见 Task 17
 git add src/aiSessions/notify/store.ts tests/unit/aiSessions/notify/store.test.js docs/testing/behavior-contracts.json
 git commit -m "feat: add notified event store"
 ```
@@ -2525,7 +2528,7 @@ npm run test-compile && node --test tests/unit/aiSessions/notify/dispatcher.test
 ```
 
 ```bash
-npm run test:behavior-contracts
+npm run test:behavior-contracts   # 忽略末尾 unaudited implementation commit,见 Task 17
 git add src/aiSessions/notify/dispatcher.ts tests/unit/aiSessions/notify/dispatcher.test.js docs/testing/behavior-contracts.json
 git commit -m "feat: add notification dispatcher"
 ```
@@ -2627,7 +2630,7 @@ node --test tests/unit/aiSessions/notify/isolation.test.js
 ```
 
 ```bash
-npm run test:behavior-contracts
+npm run test:behavior-contracts   # 忽略末尾 unaudited implementation commit,见 Task 17
 git add tests/unit/aiSessions/notify/isolation.test.js docs/testing/behavior-contracts.json
 git commit -m "test: guard notification core against vscode dependencies"
 ```
@@ -2855,7 +2858,7 @@ npm run test:safety:run
 ```
 
 ```bash
-npm run test:behavior-contracts
+npm run test:behavior-contracts   # 忽略末尾 unaudited implementation commit,见 Task 17
 git add src/aiSessions/notifyIntegration src/aiSessions/attentionController.ts \
         tests/unit/aiSessions/notify/notifierHooks.test.js docs/testing/behavior-contracts.json
 git commit -m "feat: hook notification payload building into attention controller"
@@ -3038,7 +3041,7 @@ npm run test-compile && node --test tests/unit/aiSessions/notify/credentials.tes
 ```
 
 ```bash
-npm run test:behavior-contracts
+npm run test:behavior-contracts   # 忽略末尾 unaudited implementation commit,见 Task 17
 git add src/aiSessions/notifyIntegration/credentials.ts \
         tests/unit/aiSessions/notify/credentials.test.js docs/testing/behavior-contracts.json
 git commit -m "feat: assemble notification config from settings and secrets"
@@ -3523,7 +3526,7 @@ npm run lint:ci
 - [ ] **Step 11: 提交**
 
 ```bash
-npm run test:behavior-contracts
+npm run test:behavior-contracts   # 忽略末尾 unaudited implementation commit,见 Task 17
 git add package.json src/dashboard.ts src/aiSessions/notifyIntegration \
         tests/unit/aiSessions/notify/commandContract.test.js docs/testing/behavior-contracts.json
 git commit -m "feat: wire notifications into the extension"
@@ -3611,6 +3614,95 @@ git commit -m "docs: document notification delivery and add first-run consent"
 
 ---
 
+---
+
+### Task 17: 审计提交归属
+
+仓库要求 `base..head` 之间每个**实现提交**都归属到
+`docs/testing/main-capability-coverage.json` 的某个 capability,否则
+`scripts/check-behavior-contracts.js` 会以 `unaudited implementation commit
+<sha>` 失败。这是历次特性分支的收尾惯例(见 `git log --oneline --
+docs/testing/main-capability-coverage.json`,每次都是一个 `docs: audit <feature>`
+提交)。
+
+**Files:**
+- Modify: `docs/testing/main-capability-coverage.json`
+
+**Interfaces:**
+- Consumes: 无
+- Produces: 无
+
+- [ ] **Step 1: 确认当前未归属的提交**
+
+```bash
+npm run test:behavior-contracts 2>&1 | grep "unaudited implementation commit"
+```
+
+记下列出的全部 sha。文档类提交(只改 `docs/` 或 `README.md`)不会出现在
+这个列表里,无需处理。
+
+- [ ] **Step 2: 新增 capability 条目**
+
+在 `docs/testing/main-capability-coverage.json` 的 `capabilities` 数组末尾
+追加,`commits` 填入上一步列出的全部 sha(完整 40 位,按提交顺序):
+
+```json
+  {
+    "id": "MAIN-SESSION-STOP-NOTIFICATION",
+    "title": "Outbound notification when an AI session stops and needs the user",
+    "requirement": "When an AI session stops with reason completed, input-required or failed, Agent Pivot can send a metadata-only notification to one or more configured IM or push channels. The feature is off by default, keeps credentials out of settings.json, honours proxies, and gates delivery on reason, minimum run duration, debounce, dedup and rate limit.",
+    "commits": [
+      "<每行一个完整 sha>"
+    ],
+    "behaviors": [
+      "ATTENTION-NOTIFY-EVENT-IDENTITY-001",
+      "ATTENTION-NOTIFY-CONFIG-VALIDATION-001",
+      "ATTENTION-NOTIFY-CORRELATION-001",
+      "ATTENTION-NOTIFY-POLICY-001",
+      "ATTENTION-NOTIFY-MESSAGE-001",
+      "ATTENTION-NOTIFY-TEMPLATE-WEBHOOK-001",
+      "ATTENTION-NOTIFY-TEMPLATE-SPECIALIZED-001",
+      "ATTENTION-NOTIFY-TEMPLATE-DISPATCH-001",
+      "ATTENTION-NOTIFY-HTTP-001",
+      "ATTENTION-NOTIFY-STORE-001",
+      "ATTENTION-NOTIFY-DISPATCHER-001",
+      "ATTENTION-NOTIFY-ISOLATION-001",
+      "ATTENTION-NOTIFY-PAYLOAD-BUILD-001",
+      "ATTENTION-NOTIFY-CREDENTIALS-001",
+      "ATTENTION-NOTIFY-MANIFEST-001"
+    ]
+  }
+```
+
+**先读同文件里已有的一条 capability**(例如 `MAIN-AI-SKILL-MANAGEMENT`),
+按它实际的字段集合与嵌套缩进照抄。若已有条目没有 `behaviors` 字段或字段名
+不同,以文件现状为准 —— 上面的形状是参考,不是权威。
+
+- [ ] **Step 3: 推进 audit head**
+
+把 `audit.head` 改为当前分支 HEAD 的完整 sha:
+
+```bash
+git rev-parse HEAD
+```
+
+- [ ] **Step 4: 验证门禁转绿**
+
+```bash
+npm run test:behavior-contracts
+```
+
+预期:退出码 0,且**不再有任何** `unaudited implementation commit` 输出。
+若仍有遗漏 sha,把它补进 `commits` 数组再跑一次。
+
+- [ ] **Step 5: 提交**
+
+```bash
+git add docs/testing/main-capability-coverage.json
+git commit -m "docs: audit AI session stop notifications"
+```
+
+
 ## 自查结论
 
 对照 spec 逐节核对的结果:
@@ -3636,6 +3728,7 @@ git commit -m "docs: document notification delivery and add first-run consent"
 | 配置项 | Task 15 |
 | 失败模式 | Task 9(重试)、Task 10(损坏容错)、Task 11(队列上限) |
 | 测试策略 | 每个任务内嵌 |
+| 仓库审计门禁 | Task 17 |
 | v2 双向预埋 | Task 3(correlation id)、Task 12(vscode 隔离守卫) |
 
 **明确不在本计划内、留给计划 B 的**:`notifyd` 进程、`watchlist.json`、

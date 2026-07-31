@@ -2,6 +2,36 @@
 
 All notable changes to the "Agent Pivot" extension will be documented in this file. It follows the [Keep a Changelog](http://keepachangelog.com/) recommendations.
 
+## [1.0.1] - 2026-07-31
+
+### Added
+
+- Added an AI Skills workspace with global and project stores, folder
+  organization, scoped per-agent switches, migration, diagnostics, and a
+  configurable global store location.
+- Added a rich AI Conversation review workflow with Mermaid rendering,
+  persistent multi-comment batches, bulk actions, a resizable review panel,
+  current-session input navigation, and Active Session following.
+- Added model, context-window usage, and rate-limit telemetry to AI
+  Conversation.
+- Added pinning and stable ordering for other open workspace cards.
+
+### Changed
+
+- Kept AI Conversation reading position stable across live refreshes and large
+  Mermaid diagrams, while preserving focus, expanded content, and comment
+  drafts.
+- Improved provider discovery, session branding, tmux bootstrap diagnostics,
+  and bounded startup recovery across local and nested-container environments.
+
+### Fixed
+
+- Prevented AI Conversation loading starvation, repeated scroll jumps, hidden
+  Mermaid labels, obscured new-comment editors, and stale-session content after
+  switching Active Sessions.
+- Serialized Skills store mutations and hardened folder-name rendering,
+  filesystem containment, stale-lock recovery, and project-scope inheritance.
+
 ## [1.0.0] - 2026-07-26
 
 ### Added

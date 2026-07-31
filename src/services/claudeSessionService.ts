@@ -315,9 +315,15 @@ export default class ClaudeSessionService {
         if (stats) {
             stats.discoveredFiles = files.length;
         }
+        // Stat once per file rather than once per comparison: a comparator that
+        // reads the filesystem turns an O(n) listing into O(n log n) syscalls, and
+        // this runs on every dashboard refresh and every change poll.
         files = files
-            .sort((a, b) => this.getFileMtimeMs(b) - this.getFileMtimeMs(a) || a.localeCompare(b))
-            .slice(0, maxFiles || undefined);
+            .map(filePath => ({ filePath, mtimeMs: this.getFileMtimeMs(filePath) }))
+            .sort((left, right) => right.mtimeMs - left.mtimeMs
+                || left.filePath.localeCompare(right.filePath))
+            .slice(0, maxFiles || undefined)
+            .map(entry => entry.filePath);
 
         for (let filePath of files) {
             let sessionId = this.getSessionIdFromFileName(path.basename(filePath));
@@ -355,10 +361,11 @@ export default class ClaudeSessionService {
                 && /^agent-[A-Za-z0-9_-]{1,128}\.jsonl$/.test(entry.name)
             ).map(entry =>
                 path.join(subagentDirectory, entry.name)
-            ).sort((a, b) =>
-                this.getFileMtimeMs(b) - this.getFileMtimeMs(a)
-                    || a.localeCompare(b)
-            ).slice(0, this.maxLifecycleSubagentFiles);
+            ).map(filePath => ({ filePath, mtimeMs: this.getFileMtimeMs(filePath) }))
+                .sort((left, right) => right.mtimeMs - left.mtimeMs
+                    || left.filePath.localeCompare(right.filePath))
+                .slice(0, this.maxLifecycleSubagentFiles)
+                .map(entry => entry.filePath);
         } catch (e) {
             return [];
         }

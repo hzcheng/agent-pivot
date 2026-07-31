@@ -7799,15 +7799,25 @@ function runAiSessionDashboardWatcherCoalescingChecks() {
     assert.strictEqual(scheduled[1].delayMs, 800);
     nowMs = 1300;
     controller.scheduleRefresh('watcher');
-    assert.deepStrictEqual(cleared, [scheduled[1]]);
-    assert.strictEqual(scheduled[2].delayMs, 700);
-    scheduled[2].callback();
+    assert.deepStrictEqual(cleared, [], 'a repeat watcher event keeps the pending deadline instead of re-arming');
+    assert.strictEqual(scheduled.length, 2, 'coalesced watcher events must not stack extra timers');
+    scheduled[1].callback();
     assert.deepStrictEqual(refreshReasons, ['watcher', 'watcher']);
     assert.strictEqual(messages.length, 1, 'unchanged coalesced watcher refreshes may be skipped after build');
 
     nowMs = 1350;
     controller.scheduleRefresh('attention');
-    assert.strictEqual(scheduled[3].delayMs, 100, 'non-watcher refreshes should not be throttled by watcher coalescing');
+    assert.strictEqual(scheduled[2].delayMs, 100, 'non-watcher refreshes should not be throttled by watcher coalescing');
+
+    // An urgent repaint already pending must never be pushed out to the watcher
+    // interval by the JSONL poller, or the attention dot lags the running animation.
+    nowMs = 1400;
+    controller.scheduleRefresh('watcher');
+    assert.deepStrictEqual(cleared, [], 'a watcher event must not postpone a pending status refresh');
+    assert.strictEqual(scheduled.length, 3);
+    scheduled[2].callback();
+    assert.deepStrictEqual(refreshReasons, ['watcher', 'watcher', 'attention'],
+        'a coalesced status refresh keeps its urgent reason');
 }
 
 async function runAiSessionDashboardUnchangedMessageSkipChecks() {

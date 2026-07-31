@@ -17,6 +17,12 @@ const {
     settleAiSessionRuntimeLifecycles,
 } = require('../../../out/aiSessions/attentionController');
 const {
+    AttentionEvaluationQueue,
+} = require('../../../out/aiSessions/attentionEvaluationQueue');
+const {
+    AiSessionExecutionController,
+} = require('../../../out/aiSessions/executionController');
+const {
     aggregateAttentionSnapshots,
     filterAcknowledgedAttentionAggregate,
 } = require('../../../out/aiSessions/attentionAggregate');
@@ -928,4 +934,150 @@ test('ATTENTION-ACTIVE-UNREGISTER-ON-DEACTIVATE-001 exposes an awaitable active 
     unregisterReleased.resolve();
     await shutdown;
     assert.equal(settled, true);
+});
+
+test('ATTENTION-EXECUTION-STATE-SYNC-001 clears attention on the same lifecycle edge that starts the running animation', async () => {
+    const workspace = {
+        navigationIdentity: 'navigation:fixture', scopeIdentity: 'scope:fixture',
+        kind: 'singleFolder', displayName: 'Fixture', navigationUri: 'file:///fixtures/project',
+        environment: 'local', roots: [{
+            id: 'root:fixture', name: 'Fixture', uri: 'file:///fixtures/project',
+            hostPath: '/fixtures/project', ordinal: 0,
+        }],
+    };
+    const workspaceSessions = {
+        sessionsByProvider: {
+            codex: [{ id: 'session', primaryRootId: 'root:fixture' }],
+            kimi: [],
+            claude: [],
+        },
+    };
+
+    let nowMs = 1000;
+    // Both surfaces read the same provider signal; only the cadence differed.
+    let signal = {
+        token: 'task-complete:1000',
+        phase: 'needsAttention',
+        reason: 'completed',
+        executionState: 'stopped',
+        occurredAtMs: 1000,
+    };
+    const providers = [{
+        id: 'codex',
+        service: { getLifecycleSignals: () => ({ session: signal }) },
+    }];
+
+    const attentionController = new AiSessionAttentionController({
+        isEnabled: () => true,
+        getWorkspaceTarget: () => ({
+            cardId: 'workspace:fixture', workspace, sessions: workspaceSessions,
+        }),
+        getProviders: () => providers,
+        getRuntimeById: () => ({ state: 'active', runStartedAtMs: 0 }),
+        publish: async () => true,
+        scheduleRefresh: () => undefined,
+        nowMs: () => nowMs,
+    });
+    const evaluatedScopes = [];
+    const attentionEvaluations = new AttentionEvaluationQueue({
+        evaluate: scope => {
+            evaluatedScopes.push(scope);
+            return attentionController.evaluate();
+        },
+    });
+    const executionController = new AiSessionExecutionController({
+        getActiveSessions: () => [{
+            provider: 'codex', sessionId: 'session',
+            workspaceScopeIdentity: 'scope:fixture',
+            cwd: '/fixtures/project', runStartedAtMs: 0,
+        }],
+        getProviders: () => providers,
+        // dashboard.ts routes every execution edge back into attention evaluation.
+        scheduleRefresh: () => { void attentionEvaluations.request('signals'); },
+        nowMs: () => nowMs,
+    });
+
+    // What the session row renders: data-execution-state and the attention dot.
+    const surface = () => ({
+        animation: executionController.getSnapshot()['codex:session']?.state === 'running',
+        redDot: attentionController.getEffectiveAggregate().sessions.length > 0,
+    });
+    // One second of wall clock, matching the production execution tick.
+    const tick = async () => {
+        nowMs += 1000;
+        executionController.evaluate();
+        await flushAsync();
+    };
+
+    await tick();
+    await attentionEvaluations.request('runtimes');
+    assert.deepEqual(surface(), { animation: false, redDot: true }, 'a completed turn raises the dot');
+
+    // The user replies in the terminal and the provider starts a new turn.
+    signal = {
+        token: 'task-started:2000',
+        phase: 'running',
+        executionState: 'running',
+        occurredAtMs: 2000,
+    };
+    await tick();
+
+    assert.deepEqual(
+        surface(),
+        { animation: true, redDot: false },
+        'the dot must clear on the same tick the animation starts, without waiting for the fallback interval'
+    );
+    assert.ok(
+        evaluatedScopes.includes('signals'),
+        'a lifecycle edge must settle attention without the disk-scanning runtime pass'
+    );
+});
+
+test('ATTENTION-EXECUTION-STATE-SYNC-001 coalesces attention requests and never downgrades a pending runtime pass', async () => {
+    const scopes = [];
+    let release;
+    const queue = new AttentionEvaluationQueue({
+        evaluate: async scope => {
+            scopes.push(scope);
+            await new Promise(resolve => { release = resolve; });
+        },
+    });
+
+    const first = queue.request('signals');
+    await flushAsync();
+    assert.deepEqual(scopes, ['signals'], 'the first request starts immediately');
+    assert.equal(queue.isIdle(), false);
+
+    // A burst arriving mid-flight collapses into one trailing run at the widest scope.
+    queue.request('signals');
+    queue.request('runtimes');
+    queue.request('signals');
+    release();
+    await flushAsync();
+    assert.deepEqual(scopes, ['signals', 'runtimes'],
+        'a cheap edge request must not downgrade a pending runtime reconciliation');
+
+    release();
+    await first;
+    assert.equal(queue.isIdle(), true);
+});
+
+test('ATTENTION-EXECUTION-STATE-SYNC-001 keeps draining after an evaluation throws', async () => {
+    const scopes = [];
+    const failures = [];
+    const queue = new AttentionEvaluationQueue({
+        evaluate: async scope => {
+            scopes.push(scope);
+            throw new Error(`boom:${scope}`);
+        },
+        onFailure: error => failures.push(error instanceof Error ? error.message : String(error)),
+    });
+
+    await queue.request('signals');
+    assert.deepEqual(scopes, ['signals']);
+    assert.deepEqual(failures, ['boom:signals']);
+    assert.equal(queue.isIdle(), true, 'a failed evaluation must not wedge the queue');
+
+    await queue.request('runtimes');
+    assert.deepEqual(scopes, ['signals', 'runtimes']);
 });

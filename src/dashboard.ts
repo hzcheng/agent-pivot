@@ -124,6 +124,7 @@ import type {
     AiSessionAttentionEvaluation,
     AiSessionRuntimeLifecycleCandidate,
 } from './aiSessions/attentionController';
+import { AttentionEvaluationQueue } from './aiSessions/attentionEvaluationQueue';
 import {
     getLastPartOfPath,
     isUriString,
@@ -1210,6 +1211,18 @@ async function initializeDashboard(
         scheduleRefresh: reason => scheduleAiSessionRefresh(reason),
         nowMs: () => Date.now(),
     });
+    const aiSessionAttentionEvaluations = new AttentionEvaluationQueue({
+        // Lifecycle edges only need the signal pass. Reconciling persisted runtime
+        // ownership scans the tmux binding directory, so it stays on the interval.
+        evaluate: scope => scope === 'runtimes'
+            ? evaluateAiSessionAttention()
+            : aiSessionAttentionController.evaluate(),
+        onFailure: () => logAiSessionDiagnostic({
+            event: 'runtime-lifecycle-task-failed',
+            operation: 'evaluate-attention-lifecycle-edge',
+            category: 'unexpected',
+        }),
+    });
     const aiSessionExecutionController = new AiSessionExecutionController({
         getActiveSessions: () => aiSessionRuntimeCoordinator.getActive()
             .filter(runtime => runtimeBelongsToCurrentWorkspace(runtime)
@@ -1228,6 +1241,11 @@ async function initializeDashboard(
             if (openWorkspaceController) {
                 openWorkspaceController.publish();
             }
+            // Attention and execution read the same provider signal, so an execution
+            // edge is exactly when the attention dot has to be recomputed too.
+            // Without this the dot only moves on the fallback interval below and
+            // lingers for seconds after the running animation has started.
+            void aiSessionAttentionEvaluations.request('signals');
         },
         nowMs: () => Date.now(),
     });
@@ -1385,10 +1403,11 @@ async function initializeDashboard(
     });
     activeAiSessionAttentionBridgeClient = aiSessionAttentionBridgeClient;
     ownTimer(
+        // Fallback heartbeat. Attention normally settles on the execution edge that
+        // the 1s tick below detects; this covers signals that never change the
+        // execution state and reconciles persisted runtime ownership from disk.
         () => setInterval(() => {
-            void runSafeAiSessionRuntimeLifecycleTask(
-                'evaluate-attention-interval', evaluateAiSessionAttention
-            );
+            void aiSessionAttentionEvaluations.request('runtimes');
         }, 10_000),
         handle => clearInterval(handle),
     );

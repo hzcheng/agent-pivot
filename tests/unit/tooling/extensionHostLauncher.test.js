@@ -13,8 +13,10 @@ const {
     HOSTILE_EXTENSION_HOST_ENVIRONMENT_KEYS,
     BRIDGE_EXTENSION_ID,
     MAIN_EXTENSION_ID,
+    TEST_HARNESS_EXTENSION_ID,
     VSCODE_STABLE_VERSION,
     createExtensionHostTestEnvironment,
+    createExtensionHostTestHarness,
     createExtensionPackagePlan,
     createRunTestsOptions,
     extensionHostTemporaryRootPrefix,
@@ -120,11 +122,16 @@ test('RELEASE-SCHEDULED-EXTENSION-HOST-001 launches both extensions with pinned 
             [MAIN_EXTENSION_ID]: path.join(environment.extensions, 'main'),
             [BRIDGE_EXTENSION_ID]: path.join(environment.extensions, 'bridge'),
         };
+        const testHarness = createExtensionHostTestHarness(
+            repositoryRoot,
+            environment.testHarness
+        );
         const options = createRunTestsOptions(
             repositoryRoot,
             environment,
             vscodeExecutablePath,
-            installedRoots
+            installedRoots,
+            testHarness
         );
         const packagePlan = createExtensionPackagePlan(repositoryRoot);
 
@@ -134,6 +141,7 @@ test('RELEASE-SCHEDULED-EXTENSION-HOST-001 launches both extensions with pinned 
         assert.deepEqual(options.extensionDevelopmentPath, [
             installedRoots[MAIN_EXTENSION_ID],
             installedRoots[BRIDGE_EXTENSION_ID],
+            environment.testHarness,
         ]);
         assert.deepEqual(packagePlan.map(item => item.id), [
             BRIDGE_EXTENSION_ID,
@@ -144,7 +152,7 @@ test('RELEASE-SCHEDULED-EXTENSION-HOST-001 launches both extensions with pinned 
             'agent-pivot-1.0.1.vsix',
         ]);
         assert.equal(options.extensionTestsPath,
-            path.join(repositoryRoot, 'tests', 'extension-host', 'suite', 'index.js'));
+            path.join(environment.testHarness, 'index.js'));
         assert.deepEqual(options.launchArgs, [
             environment.workspace,
             `--user-data-dir=${environment.userData}`,
@@ -172,6 +180,58 @@ test('RELEASE-SCHEDULED-EXTENSION-HOST-001 launches both extensions with pinned 
             assert.equal(fs.statSync(directory).isDirectory(), true);
             assert.equal(path.relative(isolatedRoot, directory).startsWith('..'), false);
         }
+    } finally {
+        removeExtensionHostTestEnvironment(isolatedRoot);
+    }
+});
+
+test('RELEASE-SCHEDULED-EXTENSION-HOST-001 binds the suite to a registered development host', () => {
+    const repositoryRoot = path.resolve(__dirname, '../../..');
+    const isolatedRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-hosted-suite-'));
+    try {
+        const environment = createExtensionHostTestEnvironment(isolatedRoot);
+        const harnessRoot = path.join(isolatedRoot, 'test-harness');
+        const testHarness = createExtensionHostTestHarness(
+            repositoryRoot,
+            harnessRoot
+        );
+        const installedRoots = {
+            [MAIN_EXTENSION_ID]: path.join(environment.extensions, 'main'),
+            [BRIDGE_EXTENSION_ID]: path.join(environment.extensions, 'bridge'),
+        };
+        const options = createRunTestsOptions(
+            repositoryRoot,
+            environment,
+            path.join(isolatedRoot, 'VS Code'),
+            installedRoots,
+            testHarness
+        );
+
+        assert.deepEqual(options.extensionDevelopmentPath, [
+            installedRoots[MAIN_EXTENSION_ID],
+            installedRoots[BRIDGE_EXTENSION_ID],
+            harnessRoot,
+        ]);
+        assert.equal(
+            path.relative(harnessRoot, options.extensionTestsPath).startsWith('..'),
+            false,
+            'the test path must be owned by a registered development extension'
+        );
+        const harnessManifest = JSON.parse(fs.readFileSync(
+            path.join(harnessRoot, 'package.json'),
+            'utf8'
+        ));
+        assert.equal(
+            `${harnessManifest.publisher}.${harnessManifest.name}`,
+            TEST_HARNESS_EXTENSION_ID
+        );
+        assert.equal(
+            fs.readFileSync(options.extensionTestsPath, 'utf8'),
+            fs.readFileSync(
+                path.join(repositoryRoot, 'tests', 'extension-host', 'suite', 'index.js'),
+                'utf8'
+            )
+        );
     } finally {
         removeExtensionHostTestEnvironment(isolatedRoot);
     }

@@ -12,7 +12,10 @@ const {
 test('RELEASE-SCHEDULED-EXTENSION-HOST-001 installs verified VSIX bytes before Host activation', async () => {
     const calls = [];
     const logs = [];
-    const environment = { workspace: '/isolated/workspace' };
+    const environment = {
+        workspace: '/isolated/workspace',
+        testHarness: '/isolated/test-harness',
+    };
     const installedRoots = {
         'hzcheng.agent-pivot': '/isolated/extensions/main',
         'hzcheng.agent-pivot-attention-ui-bridge': '/isolated/extensions/bridge',
@@ -34,6 +37,13 @@ test('RELEASE-SCHEDULED-EXTENSION-HOST-001 installs verified VSIX bytes before H
                 installedRoots,
             };
         },
+        createExtensionHostTestHarness: (...args) => {
+            calls.push(['harness', ...args]);
+            return {
+                root: environment.testHarness,
+                runnerPath: `${environment.testHarness}/index.js`,
+            };
+        },
         createRunTestsOptions: (...args) => {
             calls.push(['options', ...args]);
             return { vscodeExecutablePath: '/downloaded/code' };
@@ -47,6 +57,7 @@ test('RELEASE-SCHEDULED-EXTENSION-HOST-001 installs verified VSIX bytes before H
     assert.deepEqual(calls.map(([kind]) => kind), [
         'download',
         'install',
+        'harness',
         'options',
         'run',
     ]);
@@ -61,9 +72,17 @@ test('RELEASE-SCHEDULED-EXTENSION-HOST-001 installs verified VSIX bytes before H
     ]);
     assert.deepEqual(calls[2].slice(1), [
         '/repository',
+        environment.testHarness,
+    ]);
+    assert.deepEqual(calls[3].slice(1), [
+        '/repository',
         environment,
         '/downloaded/code',
         installedRoots,
+        {
+            root: environment.testHarness,
+            runnerPath: `${environment.testHarness}/index.js`,
+        },
     ]);
     assert.match(logs.join('\n'), /Verified installed .* verified-sha/);
     assert.match(logs.join('\n'), /Running installed Extension Host smoke/);

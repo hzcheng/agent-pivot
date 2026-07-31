@@ -6,6 +6,7 @@ const {
 } = require('@vscode/test-electron');
 const {
     VSCODE_STABLE_VERSION,
+    createExtensionHostTestHarness,
     createRunTestsOptions,
     installPackagedExtensions,
 } = require('./lib/extensionHostLauncher');
@@ -18,6 +19,8 @@ async function runExtensionHostWorker(repositoryRoot, environment, options = {})
     const download = options.downloadAndUnzipVSCode || downloadAndUnzipVSCode;
     const install = options.installPackagedExtensions || installPackagedExtensions;
     const createOptions = options.createRunTestsOptions || createRunTestsOptions;
+    const createHarness = options.createExtensionHostTestHarness
+        || createExtensionHostTestHarness;
     const executeTests = options.runTests || runTests;
     const logger = options.logger || console;
     logger.log(
@@ -37,6 +40,7 @@ async function runExtensionHostWorker(repositoryRoot, environment, options = {})
             `Verified installed ${item.extensionId} ${item.file} ${item.sha256}`
         );
     }
+    const testHarness = createHarness(repositoryRoot, environment.testHarness);
     logger.log(
         `Running installed Extension Host smoke with VS Code ${version}.`
     );
@@ -44,7 +48,8 @@ async function runExtensionHostWorker(repositoryRoot, environment, options = {})
         repositoryRoot,
         environment,
         vscodeExecutablePath,
-        installation.installedRoots
+        installation.installedRoots,
+        testHarness
     ));
 }
 

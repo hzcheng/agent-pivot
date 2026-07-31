@@ -4258,5 +4258,18 @@
       "src/aiSessions/notify/eventIdentity.ts",
       "src/aiSessions/attentionMonitor.ts"
     ]
+  },
+  {
+    "id": "ATTENTION-NOTIFY-CONFIG-VALIDATION-001",
+    "domain": "attention",
+    "title": "Notification channel configuration is validated per channel",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/notify/types.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/notify/types.ts"
+    ]
   }
 ]

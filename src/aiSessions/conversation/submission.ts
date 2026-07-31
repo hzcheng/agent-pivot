@@ -22,7 +22,7 @@ export interface ConversationPromptSubmissionOptions<
         provider: AiSessionProviderId,
         sessionId: string,
         rootId: string | undefined,
-        prompt: string
+        prompt?: string
     ): Promise<AiSessionRuntimeActionResult<TTerminal> | undefined>;
 }
 
@@ -53,7 +53,7 @@ export async function submitConversationPrompt<
         throw new ConversationCommentError('conflict');
     }
     if (existing?.state === 'active' && existing.terminal) {
-        existing.terminal.sendText(prompt, true);
+        existing.terminal.sendText(prompt, false);
         return;
     }
     const result = await options.resume(
@@ -61,15 +61,13 @@ export async function submitConversationPrompt<
         target.provider,
         target.sessionId,
         session.primaryRootId,
-        prompt
+        undefined
     );
-    if (result?.status === 'started') {
-        return;
-    }
-    if (result?.status === 'focused') {
-        const focused = options.getRuntime(target.provider, target.sessionId);
-        if (focused?.terminal) {
-            focused.terminal.sendText(prompt, true);
+    if (result?.status === 'started' || result?.status === 'focused') {
+        const runtime = result.runtime
+            || options.getRuntime(target.provider, target.sessionId);
+        if (runtime?.terminal) {
+            runtime.terminal.sendText(prompt, false);
             return;
         }
         throw new ConversationCommentError('unavailable');

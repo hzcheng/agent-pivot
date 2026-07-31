@@ -35,7 +35,7 @@ function activeRuntime(terminal) {
     };
 }
 
-test('CONVERSATION-COMMENTS-SUBMIT-001 writes one batch to an idle attached runtime', async () => {
+test('CONVERSATION-COMMENTS-SUBMIT-001 stages one complete batch in an idle attached runtime without submitting it', async () => {
     const writes = [];
     let resumes = 0;
     await submitConversationPrompt({
@@ -49,27 +49,34 @@ test('CONVERSATION-COMMENTS-SUBMIT-001 writes one batch to an idle attached runt
         },
     }, target, 'Batch prompt');
 
-    assert.deepEqual(writes, [{ text: 'Batch prompt', newline: true }]);
+    assert.deepEqual(writes, [{ text: 'Batch prompt', newline: false }]);
     assert.equal(resumes, 0);
 });
 
-test('CONVERSATION-COMMENTS-SUBMIT-002 resumes a stopped runtime with the prompt in its launch', async () => {
+test('CONVERSATION-COMMENTS-SUBMIT-002 resumes a stopped runtime before staging the batch without submitting it', async () => {
     const resumes = [];
+    const writes = [];
     await submitConversationPrompt({
         getWorkspaceTarget: () => workspace(),
         getRuntime: () => null,
         resume: async (...args) => {
             resumes.push(args);
-            return { status: 'started' };
+            return {
+                status: 'started',
+                runtime: activeRuntime({
+                    sendText: (text, newline) => writes.push({ text, newline }),
+                }),
+            };
         },
     }, target, 'Resume prompt');
 
     assert.deepEqual(resumes, [[
-        'project-a', 'codex', 'session-a', 'root-a', 'Resume prompt',
+        'project-a', 'codex', 'session-a', 'root-a', undefined,
     ]]);
+    assert.deepEqual(writes, [{ text: 'Resume prompt', newline: false }]);
 });
 
-test('CONVERSATION-COMMENTS-SUBMIT-003 sends after an existing detached runtime is focused', async () => {
+test('CONVERSATION-COMMENTS-SUBMIT-003 stages after an existing detached runtime is focused', async () => {
     const writes = [];
     let runtimeRead = 0;
     await submitConversationPrompt({
@@ -85,7 +92,7 @@ test('CONVERSATION-COMMENTS-SUBMIT-003 sends after an existing detached runtime 
         resume: async () => ({ status: 'focused' }),
     }, target, 'Focused prompt');
 
-    assert.deepEqual(writes, [{ text: 'Focused prompt', newline: true }]);
+    assert.deepEqual(writes, [{ text: 'Focused prompt', newline: false }]);
 });
 
 test('CONVERSATION-COMMENTS-SUBMIT-004 rejects busy and conflicting targets before dispatch', async () => {

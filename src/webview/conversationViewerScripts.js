@@ -760,7 +760,7 @@
             || !!state.pendingLocateRequest;
         var summary = [];
         if (counts.open) summary.push(counts.open + ' open');
-        if (counts.sent) summary.push(counts.sent + ' sent');
+        if (counts.sent) summary.push(counts.sent + ' added');
         if (counts.resolved) summary.push(counts.resolved + ' resolved');
         commentSummary.textContent = summary.length
             ? summary.join(' · ')
@@ -788,11 +788,11 @@
 
     function commentErrorMessage(error) {
         if (error === 'stale') return 'Comments changed. Review the latest draft and try again.';
-        if (error === 'limit') return 'A maximum of 20 comments can be sent at once.';
+        if (error === 'limit') return 'A maximum of 20 comments can be added at once.';
         if (error === 'tooLarge') return 'The combined comments are too large to send.';
         if (error === 'busy') return 'Wait for the current AI response to finish, then send again.';
         if (error === 'conflict') return 'Multiple runtimes match this session. Resolve the conflict first.';
-        if (error === 'unavailable') return 'This session is unavailable and the comments were not sent.';
+        if (error === 'unavailable') return 'This session is unavailable and the comments were not added.';
         return 'The comment action failed. Your comments were kept.';
     }
 
@@ -820,7 +820,7 @@
         state.pendingCommentRequest = { requestId: requestId, operation: operation };
         setCommentPending(true);
         status.textContent = operation === 'sendComments'
-            ? 'Sending comments to this session…'
+            ? 'Adding comments to session input…'
             : operation === 'clearSent'
                 || operation === 'clearResolved'
                 || operation === 'clearAll'
@@ -908,7 +908,7 @@
             statusLabel.setAttribute('data-comment-status-label', '');
             statusLabel.textContent = comment.status === 'open'
                 ? 'Open'
-                : comment.status === 'sent' ? 'Sent' : 'Resolved';
+                : comment.status === 'sent' ? 'Added' : 'Resolved';
             identity.append(label, statusLabel);
             var locate = document.createElement('button');
             locate.type = 'button';
@@ -1086,9 +1086,9 @@
         setCommentPending(false);
         if (message.success) {
             status.textContent = operation === 'sendComments'
-                ? 'Comments sent to this session.'
+                ? 'Comments added to session input. Review and press Enter to send.'
                 : operation === 'clearSent'
-                    ? 'Sent comments cleared.'
+                    ? 'Added comments cleared.'
                     : operation === 'clearResolved'
                         ? 'Resolved comments cleared.'
                         : operation === 'clearAll'
@@ -1659,6 +1659,15 @@
         var oldMessages = Array.prototype.slice.call(
             messages.querySelectorAll(conversationMessageSelector())
         );
+        var unchanged = oldMessages.length === candidates.length
+            && candidates.every(function (candidate, index) {
+                var id = conversationMessageId(candidate);
+                return conversationMessageId(oldMessages[index]) === id
+                    && previousSignatures.get(id) === candidate.outerHTML;
+            });
+        if (unchanged) {
+            return { ids: nextIds, signatures: nextSignatures };
+        }
         var oldById = new Map();
         oldMessages.forEach(function (message) {
             var id = conversationMessageId(message);
@@ -1716,6 +1725,14 @@
                     messageId: message
                         ? conversationMessageId(message)
                         : null,
+                    blockIndex: message
+                        ? Array.prototype.indexOf.call(
+                            message.querySelectorAll(
+                                '.conversation-markdown > *'
+                            ),
+                            blockCandidates[blockIndex]
+                        )
+                        : -1,
                     top: blockBounds.top - scrollBounds.top,
                     viewportTop: blockBounds.top,
                 };
@@ -1731,6 +1748,14 @@
                 messageId: crossingMessage
                     ? conversationMessageId(crossingMessage)
                     : null,
+                blockIndex: crossingMessage
+                    ? Array.prototype.indexOf.call(
+                        crossingMessage.querySelectorAll(
+                            '.conversation-markdown > *'
+                        ),
+                        crossingBlock
+                    )
+                    : -1,
                 top: crossingBounds.top - scrollBounds.top,
                 viewportTop: crossingBounds.top,
             };
@@ -1756,14 +1781,23 @@
 
     function readingAnchorElement(anchor) {
         if (!anchor) return null;
-        return anchor.element && anchor.element.isConnected
-            ? anchor.element
-            : Array.prototype.find.call(
-                messages.querySelectorAll(conversationMessageSelector()),
-                function (message) {
-                    return conversationMessageId(message) === anchor.messageId;
-                }
-            );
+        if (anchor.element && anchor.element.isConnected) {
+            return anchor.element;
+        }
+        var message = Array.prototype.find.call(
+            messages.querySelectorAll(conversationMessageSelector()),
+            function (candidate) {
+                return conversationMessageId(candidate) === anchor.messageId;
+            }
+        );
+        if (!message) return null;
+        if (Number.isSafeInteger(anchor.blockIndex)
+            && anchor.blockIndex >= 0) {
+            return message.querySelectorAll(
+                '.conversation-markdown > *'
+            )[anchor.blockIndex] || message;
+        }
+        return message;
     }
 
     function restoreReadingPosition(anchor, fallbackScrollTop) {
@@ -1870,7 +1904,10 @@
                 candidate.classList.remove('conversation-selected-interaction');
             }, 1600);
         });
-        if (isLiveRefresh && focusedMessageId) {
+        if (isLiveRefresh
+            && focusedMessageId
+            && (!focusedMessage.isConnected
+                || !focusedMessage.contains(document.activeElement))) {
             var restoredFocus = Array.prototype.find.call(
                 messages.querySelectorAll(conversationMessageSelector()),
                 function (candidate) {
@@ -1883,12 +1920,7 @@
                 restoredFocus.focus({ preventScroll: true });
             }
         }
-        renderMermaidDiagrams(renderGeneration).then(function () {
-            if (renderGeneration !== state.renderGeneration) return;
-            if (isLiveRefresh) {
-                restoreReadingPosition(readingAnchor, previousScrollTop);
-            }
-        });
+        renderMermaidDiagrams(renderGeneration);
 
         if (!isLiveRefresh) {
             state.firstNewMessageId = null;

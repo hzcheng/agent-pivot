@@ -1056,6 +1056,19 @@
     ]
   },
   {
+    "id": "SESSION-CODEX-SESSION-SERVICE-001",
+    "domain": "session",
+    "title": "Codex change polling reuses discovery stats instead of stat'ing every file twice",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/contract/aiSessions/providerSpecificBehavior.test.js"
+    ],
+    "evidence": [
+      "src/services/codexSessionService.ts"
+    ]
+  },
+  {
     "id": "SESSION-CLAUDE-SESSION-SERVICE-001",
     "domain": "session",
     "title": "Claude session listing stats each file once instead of once per sort comparison",

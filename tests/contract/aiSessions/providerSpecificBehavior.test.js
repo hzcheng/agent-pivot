@@ -383,3 +383,42 @@ test('SESSION-CLAUDE-SESSION-SERVICE-001 stats each session file once instead of
         `expected at most ${sessionCount * 2} statSync calls for ${sessionCount} sessions, saw ${stats}`
     );
 });
+
+test('SESSION-CODEX-SESSION-SERVICE-001 stats each session file once per change poll', t => {
+    const root = makeTempDirectory(t, 'provider-codex-fingerprint-');
+    setEnvironment(t, 'CODEX_HOME', root);
+    const sessionsDir = path.join(root, 'sessions', '2026', '07', '14');
+    fs.mkdirSync(sessionsDir, { recursive: true });
+
+    const sessionCount = 32;
+    for (let index = 0; index < sessionCount; index += 1) {
+        const sessionId = crypto.randomUUID();
+        writeCodexSessionMetaFile(sessionsDir, sessionId, {
+            id: sessionId, session_id: sessionId, cwd: '/work/app',
+            timestamp: '2026-07-14T01:00:00.000Z', source: 'vscode',
+        });
+    }
+    fs.writeFileSync(path.join(root, 'session_index.jsonl'), '', 'utf8');
+
+    let stats = 0;
+    const realStatSync = fs.statSync;
+    fs.statSync = function countingStatSync(...args) {
+        stats += 1;
+        return realStatSync.apply(fs, args);
+    };
+    t.after(() => { fs.statSync = realStatSync; });
+
+    const service = new CodexSessionService();
+    stats = 0;
+    // watchSessionChanges runs this every 3s per provider.
+    const fingerprint = service.getSessionFingerprint();
+
+    assert.ok(fingerprint.length > 0);
+    // Listing already stats every file to order by recency; the signature must
+    // reuse that instead of stat'ing the same paths a second time. One extra
+    // call covers session_index.jsonl.
+    assert.ok(
+        stats <= sessionCount + 4,
+        `expected at most ${sessionCount + 4} statSync calls for ${sessionCount} sessions, saw ${stats}`
+    );
+});

@@ -36,6 +36,8 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Run Linux quality gate
         run: npm run test:ci:linux
+        env:
+          COVERAGE_DIFF_BASE: ${{ github.event.pull_request.base.sha }}
 
   platform-windows:
     name: platform-windows

@@ -197,6 +197,10 @@ test('COVERAGE-CHANGED-CODE-001 remains wired after JSON coverage production in 
     );
     assert.match(workflow, /fetch-depth: 0/);
     assert.match(workflow, /npm run test:ci:linux/);
+    assert.match(
+        workflow,
+        /COVERAGE_DIFF_BASE: \$\{\{ github\.event\.pull_request\.base\.sha \}\}/
+    );
     const releasePackagingGate = fs.readFileSync(
         path.join(root, 'scripts/run-release-packaging-checks.js'),
         'utf8'

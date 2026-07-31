@@ -1192,7 +1192,7 @@
     "id": "RELEASE-VSIX-PACKAGING-001",
     "domain": "release",
     "title": "Vsix Packaging behavior",
-    "priority": "P1",
+    "priority": "P0",
     "status": "automated",
     "owners": [
       "tests/unit/tooling/ciContracts.test.js",
@@ -1202,6 +1202,22 @@
       "scripts/run-release-packaging-checks.js",
       "scripts/seed-release-packaging-stale-output.js",
       ".vscodeignore"
+    ]
+  },
+  {
+    "id": "RELEASE-CONVERSATION-JOURNEYS-001",
+    "domain": "release",
+    "title": "AI Conversation pull-request and release blockers remain explicit, P0, automated where portable, and backed by scheduled packaged Extension Host evidence",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/tooling/conversationReleaseJourneys.test.js"
+    ],
+    "evidence": [
+      "docs/testing/conversation-release-journeys.json",
+      "scripts/lib/releaseJourneyCatalog.js",
+      "scripts/check-conversation-release-journeys.js",
+      ".github/workflows/release-vsix.yml"
     ]
   },
   {
@@ -2988,7 +3004,7 @@
   {
     "id": "RELEASE-SCHEDULED-EXTENSION-HOST-001",
     "domain": "release",
-    "title": "Scheduled macOS verification activates both production extensions in pinned stable VS Code",
+    "title": "Scheduled and release verification install both production VSIX files, verify executable bytes, and activate them in pinned stable VS Code",
     "priority": "P0",
     "status": "scheduled",
     "owners": [
@@ -3806,7 +3822,7 @@
     "id": "CONVERSATION-COMMENTS-LAYOUT-001",
     "domain": "webview",
     "title": "The Comments panel keeps a compact grouped action bar and fully visible cards across extreme widths while remaining collapsible, resizable, and locally restorable",
-    "priority": "P1",
+    "priority": "P0",
     "status": "automated",
     "owners": [
       "tests/browser/conversationViewer.test.js"
@@ -3820,7 +3836,7 @@
     "id": "CONVERSATION-OUTLINE-NAVIGATION-001",
     "domain": "webview",
     "title": "AI Conversation presents a searchable current-Session user-input outline and navigates pointer or keyboard selections to the exact Host-authoritative interaction",
-    "priority": "P1",
+    "priority": "P0",
     "status": "automated",
     "owners": [
       "tests/integration/dashboard/conversationViewer.test.js",
@@ -3851,7 +3867,7 @@
     "id": "CONVERSATION-OUTLINE-BOOKMARKS-001",
     "domain": "webview",
     "title": "AI Conversation persists current-Session input bookmarks, settles star changes through the Host, keeps stars and text compact, filters favorites on demand, and never reorders the outline",
-    "priority": "P1",
+    "priority": "P0",
     "status": "automated",
     "owners": [
       "tests/unit/aiSessions/conversationBookmarkStore.test.js",
@@ -3930,7 +3946,7 @@
     "id": "CONVERSATION-FOLLOW-ACTIVE-SESSION-001",
     "domain": "session",
     "title": "A successful Active Session card focus retargets an already-open AI Conversation to that Session's latest interaction without revealing or opening a viewer",
-    "priority": "P1",
+    "priority": "P0",
     "status": "automated",
     "owners": [
       "tests/contract/aiSessions/sessionControllers.test.js",

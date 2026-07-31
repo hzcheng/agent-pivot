@@ -1,6 +1,7 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const path = require('node:path');
 const vscode = require('vscode');
 
 const MAIN_EXTENSION_ID = 'hzcheng.agent-pivot';
@@ -26,6 +27,24 @@ async function verifyExtensionHostLifecycle() {
     const bridgeExtension = vscode.extensions.getExtension(BRIDGE_EXTENSION_ID);
     assert.ok(mainExtension, `${MAIN_EXTENSION_ID} must be discoverable in the Extension Host`);
     assert.ok(bridgeExtension, `${BRIDGE_EXTENSION_ID} must be discoverable in the Extension Host`);
+    assert.ok(
+        path.isAbsolute(process.env.AGENT_PIVOT_EXPECTED_MAIN_EXTENSION_PATH || ''),
+        'Expected main extension installation path must be absolute'
+    );
+    assert.ok(
+        path.isAbsolute(process.env.AGENT_PIVOT_EXPECTED_BRIDGE_EXTENSION_PATH || ''),
+        'Expected bridge extension installation path must be absolute'
+    );
+    assert.equal(
+        path.resolve(mainExtension.extensionPath),
+        path.resolve(process.env.AGENT_PIVOT_EXPECTED_MAIN_EXTENSION_PATH),
+        `${MAIN_EXTENSION_ID} must load from the isolated VSIX installation`
+    );
+    assert.equal(
+        path.resolve(bridgeExtension.extensionPath),
+        path.resolve(process.env.AGENT_PIVOT_EXPECTED_BRIDGE_EXTENSION_PATH),
+        `${BRIDGE_EXTENSION_ID} must load from the isolated VSIX installation`
+    );
     assert.deepEqual(mainExtension.packageJSON.extensionDependencies, [BRIDGE_EXTENSION_ID],
         `${MAIN_EXTENSION_ID} extensionDependencies must contain only ${BRIDGE_EXTENSION_ID}`);
     assert.deepEqual(bridgeExtension.packageJSON.extensionKind, ['ui'],

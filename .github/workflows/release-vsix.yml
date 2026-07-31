@@ -28,9 +28,29 @@ jobs:
   verify:
     uses: ./.github/workflows/verify.yml
 
+  release-extension-host:
+    name: release-extension-host
+    needs: verify
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.12.0
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Install and activate release VSIX files
+        run: npm run test:extension-host
+
   release:
     name: Build and release VSIX
-    needs: verify
+    needs:
+      - verify
+      - release-extension-host
     runs-on: ubuntu-latest
     permissions:
       contents: write

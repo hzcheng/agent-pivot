@@ -4297,5 +4297,18 @@
     "evidence": [
       "src/aiSessions/notify/policy.ts"
     ]
+  },
+  {
+    "id": "ATTENTION-NOTIFY-MESSAGE-001",
+    "domain": "attention",
+    "title": "Notification text carries metadata only",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/notify/message.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/notify/message.ts"
+    ]
   }
 ]

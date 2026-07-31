@@ -37,6 +37,7 @@ import {
     ConversationOutline,
     ConversationPage,
     ConversationPageRequest,
+    ConversationResponseState,
 } from './types';
 
 export interface ConversationViewerTarget {
@@ -102,6 +103,7 @@ interface ConversationViewerPageMessage {
     subscriptionGeneration: number;
     updateKind: 'initial' | 'navigation' | 'refresh';
     html: string;
+    outline: ConversationViewerOutlineEntry[];
     selectedInteractionId: string;
     selectedInput: number;
     totalInputs: number;
@@ -112,12 +114,24 @@ interface ConversationViewerPageMessage {
     stale: boolean;
 }
 
+interface ConversationViewerOutlineEntry {
+    interactionId: string;
+    userPreview: string;
+    responseState: ConversationResponseState;
+}
+
 interface ConversationViewerNavigationMessage {
     type: 'conversation-viewer-previous'
         | 'conversation-viewer-next'
         | 'conversation-viewer-latest'
         | 'conversation-viewer-closed';
     version: 1;
+}
+
+interface ConversationViewerSelectInteractionMessage {
+    type: 'conversation-viewer-select-interaction';
+    version: 1;
+    interactionId: string;
 }
 
 interface ConversationViewerOpenLinkMessage {
@@ -194,6 +208,7 @@ interface ConversationViewerCommentsResultMessage {
 
 type ConversationViewerMessage =
     ConversationViewerNavigationMessage
+    | ConversationViewerSelectInteractionMessage
     | ConversationViewerOpenLinkMessage
     | ConversationViewerCommentMutationMessage
     | ConversationViewerSendCommentsMessage
@@ -442,6 +457,10 @@ export class ConversationViewer implements ConversationViewerApi {
         }
         if (parsed.type === 'conversation-viewer-locate-comment') {
             await this.locateComment(parsed);
+            return;
+        }
+        if (parsed.type === 'conversation-viewer-select-interaction') {
+            await this.navigateToInteraction(parsed.interactionId);
             return;
         }
         if (parsed.type === 'conversation-viewer-previous') {
@@ -1525,6 +1544,11 @@ export class ConversationViewer implements ConversationViewerApi {
             subscriptionGeneration: generation,
             updateKind,
             html: renderMessages(this.messages()),
+            outline: outline.interactions.map(interaction => ({
+                interactionId: interaction.id,
+                userPreview: interaction.userPreview,
+                responseState: interaction.responseState,
+            })),
             selectedInteractionId,
             selectedInput: selectedIndex < 0
                 ? 0
@@ -1612,9 +1636,12 @@ export class ConversationViewer implements ConversationViewerApi {
             <button type="button" data-action="previous">Previous</button>
             <button type="button" data-action="next">Next</button>
             <button type="button" data-action="latest">Latest</button>
+            <button type="button" data-action="toggle-outline"
+                aria-controls="conversation-sidebar"
+                aria-expanded="true">Outline (0)</button>
             <button type="button" data-action="toggle-comments"
-                aria-controls="conversation-comments-panel"
-                aria-expanded="true">Comments (0)</button>
+                aria-controls="conversation-sidebar"
+                aria-expanded="false">Comments (0)</button>
             <button type="button" data-action="close">Close</button>
         </nav>
     </header>
@@ -1626,51 +1653,99 @@ export class ConversationViewer implements ConversationViewerApi {
             <div class="conversation-messages" data-conversation-messages></div>
         </main>
         <div class="conversation-comments-resizer" data-comments-resizer
-            role="separator" aria-label="Resize comments panel"
+            role="separator" aria-label="Resize side panel"
             aria-orientation="vertical" aria-valuemin="192"
             aria-valuemax="420" aria-valuenow="240" tabindex="0"></div>
-        <aside id="conversation-comments-panel"
-            class="conversation-comments" data-conversation-comments
-            aria-label="Conversation comments">
-            <div class="conversation-comments-header">
-                <div class="conversation-comments-heading">
-                    <strong>Review comments</strong>
-                    <span data-comment-summary>No comments yet</span>
+        <aside id="conversation-sidebar"
+            class="conversation-sidebar" data-conversation-sidebar
+            aria-label="Conversation side panel">
+            <div class="conversation-sidebar-tabs" role="tablist"
+                aria-label="Conversation side panel">
+                <button type="button" role="tab" data-sidebar-tab="outline"
+                    id="conversation-outline-tab"
+                    aria-controls="conversation-outline-panel"
+                    aria-selected="true">Outline</button>
+                <button type="button" role="tab" data-sidebar-tab="comments"
+                    id="conversation-comments-tab"
+                    aria-controls="conversation-comments-panel"
+                    aria-selected="false">Comments</button>
+                <button type="button" class="conversation-sidebar-close"
+                    data-sidebar-close aria-label="Close side panel"
+                    title="Close side panel">×</button>
+            </div>
+            <section id="conversation-outline-panel"
+                class="conversation-outline" data-conversation-outline
+                role="tabpanel" aria-labelledby="conversation-outline-tab">
+                <div class="conversation-outline-header">
+                    <div>
+                        <strong>Conversation outline</strong>
+                        <span data-outline-summary>No inputs yet</span>
+                    </div>
+                    <span data-outline-count aria-label="0 inputs">0</span>
                 </div>
-                <span data-comment-count aria-label="0 comments">0</span>
-            </div>
-            <div class="conversation-comment-composer" data-comment-composer hidden>
-                <blockquote data-comment-selection></blockquote>
-                <label for="conversation-comment-input">Comment</label>
-                <textarea id="conversation-comment-input" data-comment-input
-                    rows="3" maxlength="${CONVERSATION_COMMENT_LIMITS.maxCommentGraphemes}"
-                    aria-keyshortcuts="Control+Enter Meta+Enter"
-                    placeholder="What should the AI address?"></textarea>
-                <div class="conversation-comment-actions">
-                    <button type="button" data-comment-action="cancel-add">Cancel</button>
-                    <button type="button" data-comment-action="confirm-add"
-                        title="Add comment (Ctrl+Enter or Cmd+Enter)">Add comment</button>
+                <label class="conversation-outline-search-label"
+                    for="conversation-outline-search">Search inputs</label>
+                <input id="conversation-outline-search" type="search"
+                    data-outline-search placeholder="Search user inputs">
+                <p class="conversation-outline-partial"
+                    data-outline-partial hidden>
+                    Showing the newest inputs available in this Session.
+                </p>
+                <ol class="conversation-outline-list"
+                    data-outline-list></ol>
+                <p class="conversation-outline-empty"
+                    data-outline-empty hidden>No inputs match this search.</p>
+            </section>
+            <section id="conversation-comments-panel"
+                class="conversation-comments" data-conversation-comments
+                role="tabpanel" aria-labelledby="conversation-comments-tab"
+                hidden>
+                <div class="conversation-comments-header">
+                    <div class="conversation-comments-heading">
+                        <strong>Review comments</strong>
+                        <span data-comment-summary>No comments yet</span>
+                    </div>
+                    <span data-comment-count aria-label="0 comments">0</span>
                 </div>
-            </div>
-            <div class="conversation-comment-list" data-comment-list></div>
-            <p class="conversation-comment-empty" data-comment-empty>
-                Select text in the conversation to add a comment.
-            </p>
-            <div class="conversation-comments-toolbar" data-comments-toolbar
-                role="group" aria-label="Comment actions">
-                <button class="conversation-comments-clear" type="button"
-                    data-comment-action="clearSent" title="Clear sent comments"
-                    disabled>Clear sent</button>
-                <button class="conversation-comments-clear" type="button"
-                    data-comment-action="clearResolved"
-                    title="Clear resolved comments" disabled>Clear resolved</button>
-                <button class="conversation-comments-clear conversation-comments-clear-all"
-                    type="button" data-comment-action="clearAll"
-                    title="Clear all comments" disabled>Clear all</button>
-                <button class="conversation-comments-send" type="button"
-                    data-comment-action="send" disabled
-                    title="Send open comments to this session">Send open comments to this session</button>
-            </div>
+                <div class="conversation-comment-composer"
+                    data-comment-composer hidden>
+                    <blockquote data-comment-selection></blockquote>
+                    <label for="conversation-comment-input">Comment</label>
+                    <textarea id="conversation-comment-input" data-comment-input
+                        rows="3" maxlength="${CONVERSATION_COMMENT_LIMITS.maxCommentGraphemes}"
+                        aria-keyshortcuts="Control+Enter Meta+Enter"
+                        placeholder="What should the AI address?"></textarea>
+                    <div class="conversation-comment-actions">
+                        <button type="button"
+                            data-comment-action="cancel-add">Cancel</button>
+                        <button type="button"
+                            data-comment-action="confirm-add"
+                            title="Add comment (Ctrl+Enter or Cmd+Enter)">Add comment</button>
+                    </div>
+                </div>
+                <div class="conversation-comment-list"
+                    data-comment-list></div>
+                <p class="conversation-comment-empty" data-comment-empty>
+                    Select text in the conversation to add a comment.
+                </p>
+                <div class="conversation-comments-toolbar"
+                    data-comments-toolbar role="group"
+                    aria-label="Comment actions">
+                    <button class="conversation-comments-clear" type="button"
+                        data-comment-action="clearSent"
+                        title="Clear sent comments" disabled>Clear sent</button>
+                    <button class="conversation-comments-clear" type="button"
+                        data-comment-action="clearResolved"
+                        title="Clear resolved comments"
+                        disabled>Clear resolved</button>
+                    <button class="conversation-comments-clear conversation-comments-clear-all"
+                        type="button" data-comment-action="clearAll"
+                        title="Clear all comments" disabled>Clear all</button>
+                    <button class="conversation-comments-send" type="button"
+                        data-comment-action="send" disabled
+                        title="Send open comments to this session">Send open comments to this session</button>
+                </div>
+            </section>
         </aside>
     </div>
     <button class="conversation-add-comment" type="button"
@@ -1701,6 +1776,14 @@ function parseViewerMessage(message: unknown): ConversationViewerMessage | undef
             return undefined;
         }
         return value as unknown as ConversationViewerNavigationMessage;
+    }
+    if (value.type === 'conversation-viewer-select-interaction') {
+        if (!hasExactKeys(value, ['type', 'version', 'interactionId'])
+            || !isCommentTargetId(value.interactionId)) {
+            return undefined;
+        }
+        return value as unknown as
+            ConversationViewerSelectInteractionMessage;
     }
     if (value.type === 'conversation-viewer-open-link') {
         if (keys.length !== 3

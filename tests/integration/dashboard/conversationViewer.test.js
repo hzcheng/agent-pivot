@@ -118,6 +118,17 @@ function outline(sessionId, interactionIds, options = {}) {
     };
 }
 
+function decodeInitialPublication(html) {
+    const match = html.match(/data-initial-page="([^"]+)"/);
+    assert.ok(match, 'Host document must contain an initial publication');
+    return JSON.parse(match[1]
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/&gt;/g, '>')
+        .replace(/&lt;/g, '<')
+        .replace(/&amp;/g, '&'));
+}
+
 function retainedPageInteractionIds(pageIndex, pageSize, prefix) {
     const first = pageIndex === 0 ? 'selected-anchor' : `${prefix}-${pageIndex}`;
     return Array.from(
@@ -414,6 +425,68 @@ test('CONVERSATION-VIEWER-NAVIGATION-002 moves within a loaded page without read
         message.type === 'conversation-viewer-page').at(-1);
     assert.equal(publication.selectedInteractionId, 'input-12');
     assert.equal(reads, 1);
+});
+
+test('CONVERSATION-OUTLINE-NAVIGATION-001 publishes the current Session outline and loads an exact selected input', async () => {
+    const requests = [];
+    const interactionIds = ['input-1', 'input-2', 'input-3'];
+    const { viewer, panel } = createViewer({
+        readOutline: async (_provider, sessionId) => outline(
+            sessionId,
+            interactionIds
+        ),
+        readPage: request => {
+            requests.push(request);
+            return Promise.resolve(page(
+                request.sessionId,
+                request.anchorInteractionId,
+                `visible-${request.anchorInteractionId}`
+            ));
+        },
+    });
+
+    await viewer.open(target('session-a', 'input-1'));
+    const initial = decodeInitialPublication(panel.webview.html);
+    assert.deepEqual(initial.outline, interactionIds.map(interactionId => ({
+        interactionId,
+        userPreview: interactionId,
+        responseState: 'complete',
+    })));
+
+    await panel.receive({
+        type: 'conversation-viewer-select-interaction',
+        version: 1,
+        interactionId: 'input-3',
+    });
+    const publication = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page').at(-1);
+    assert.equal(publication.selectedInteractionId, 'input-3');
+    assert.equal(publication.html.includes('visible-input-3'), true);
+    assert.deepEqual(requests.map(request => ({
+        anchorInteractionId: request.anchorInteractionId,
+        direction: request.direction,
+    })), [{
+        anchorInteractionId: 'input-1',
+        direction: 'around',
+    }, {
+        anchorInteractionId: 'input-3',
+        direction: 'around',
+    }]);
+
+    const publicationsBeforeInvalid = panel.postedMessages.length;
+    await panel.receive({
+        type: 'conversation-viewer-select-interaction',
+        version: 1,
+        interactionId: 'input-2',
+        extra: 'rejected',
+    });
+    await panel.receive({
+        type: 'conversation-viewer-select-interaction',
+        version: 1,
+        interactionId: 'missing-input',
+    });
+    assert.equal(panel.postedMessages.length, publicationsBeforeInvalid);
+    assert.equal(requests.length, 2);
 });
 
 test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 evicts above 100 interactions while retaining the selected anchor and a reload cursor', async () => {

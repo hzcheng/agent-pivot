@@ -102,6 +102,11 @@ const hostileConversationPage = Object.freeze({
             <a href="https://example.test/safe">safe</a>
         </section>
     </article>`,
+    outline: [{
+        interactionId: 'input-4',
+        userPreview: 'Hostile input',
+        responseState: 'complete',
+    }],
     selectedInteractionId: 'input-4',
     selectedInput: 4,
     totalInputs: 12,
@@ -254,9 +259,9 @@ async function renderHostViewerDocument(options = {}) {
             sourceRevision: 'r1',
             interactions: interactionIds.map(id => ({
                 id,
-                userPreview: id,
+                userPreview: options.userPreviews?.[id] || id,
                 userGraphemeCount: id.length,
-                responseState: 'complete',
+                responseState: options.responseStates?.[id] || 'complete',
             })),
             totalInteractions: interactionIds.length,
             partial: false,
@@ -591,7 +596,7 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 acquires one real document API 
     await page.getByRole('button', { name: 'Next' }).click();
     await page.getByRole('button', { name: 'Latest' }).click();
     await page.locator('a[href="https://example.test/safe"]').click();
-    await page.getByRole('button', { name: 'Close' }).click();
+    await page.getByRole('button', { name: 'Close', exact: true }).click();
 
     assert.deepEqual(await postedMessages(page), [
         { type: 'conversation-viewer-previous', version: 1 },
@@ -633,7 +638,120 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 keeps disabled real document na
     assert.deepEqual(await postedMessages(page), []);
 });
 
-test('CONVERSATION-COMMENTS-LAYOUT-001 toggles, resizes, and restores the comments panel', async t => {
+test('CONVERSATION-OUTLINE-NAVIGATION-001 filters the current Session outline and posts exact pointer and keyboard navigation', async t => {
+    const interactionIds = ['input-1', 'input-2', 'input-3', 'input-4'];
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+        viewport: { width: 1050, height: 620 },
+        interactionIds,
+        interactionId: 'input-2',
+        userPreviews: {
+            'input-1': 'Plan the release',
+            'input-2': 'Fix conversation navigation',
+            'input-3': 'Deploy the extension',
+            'input-4': '<script>unsafe</script> remains text',
+        },
+        responseStates: {
+            'input-3': 'inProgress',
+            'input-4': 'interrupted',
+        },
+    });
+    const sidebar = page.locator('[data-conversation-sidebar]');
+    const outline = page.locator('[data-conversation-outline]');
+    const comments = page.locator('[data-conversation-comments]');
+    const outlineToggle = page.locator('[data-action="toggle-outline"]');
+    const commentsToggle = page.locator('[data-action="toggle-comments"]');
+
+    assert.equal(await sidebar.isVisible(), true);
+    assert.equal(await outline.isVisible(), true);
+    assert.equal(await comments.isHidden(), true);
+    assert.equal(await outlineToggle.getAttribute('aria-expanded'), 'true');
+    assert.equal(await page.locator('[data-outline-interaction-id]').count(), 4);
+    assert.equal(
+        await page.locator(
+            '[data-outline-interaction-id="input-2"]'
+        ).getAttribute('aria-current'),
+        'location'
+    );
+    assert.match(await outline.innerText(), /<script>unsafe<\/script>/);
+    assert.equal(await outline.locator('script').count(), 0);
+
+    await page.locator('[data-outline-search]').fill('deploy');
+    assert.equal(
+        await page.locator('[data-outline-interaction-id]:visible').count(),
+        1
+    );
+    assert.deepEqual(
+        await page.evaluate(() => window.__webviewState),
+        {
+            conversationSidebar: {
+                open: true,
+                width: 240,
+                view: 'outline',
+                query: 'deploy',
+            },
+        }
+    );
+    await page.locator('[data-outline-search]').fill('');
+
+    const selected = page.locator(
+        '[data-outline-interaction-id="input-2"]'
+    );
+    await selected.focus();
+    await selected.press('ArrowDown');
+    assert.equal(
+        await page.evaluate(() =>
+            document.activeElement?.getAttribute(
+                'data-outline-interaction-id'
+            )),
+        'input-3'
+    );
+    await page.keyboard.press('Enter');
+    let requests = await postedMessages(page);
+    assert.deepEqual(requests.at(-1), {
+        type: 'conversation-viewer-select-interaction',
+        version: 1,
+        interactionId: 'input-3',
+    });
+
+    await page.locator(
+        '[data-outline-interaction-id="input-4"]'
+    ).click();
+    requests = await postedMessages(page);
+    assert.deepEqual(requests.at(-1), {
+        type: 'conversation-viewer-select-interaction',
+        version: 1,
+        interactionId: 'input-4',
+    });
+
+    const outlineTab = page.locator('[data-sidebar-tab="outline"]');
+    await outlineTab.focus();
+    await outlineTab.press('ArrowRight');
+    assert.equal(await outline.isHidden(), true);
+    assert.equal(await comments.isVisible(), true);
+    assert.equal(await commentsToggle.getAttribute('aria-expanded'), 'true');
+    assert.equal(await sidebar.isVisible(), true);
+    assert.equal(
+        await page.evaluate(() =>
+            document.activeElement?.getAttribute('data-sidebar-tab')
+        ),
+        'comments'
+    );
+    await page.keyboard.press('Escape');
+    assert.equal(await sidebar.isHidden(), true);
+    assert.equal(
+        await page.evaluate(() =>
+            document.activeElement?.getAttribute('data-action')
+        ),
+        'toggle-comments'
+    );
+    await outlineToggle.click();
+    assert.equal(await outline.isVisible(), true);
+    assert.equal(await comments.isHidden(), true);
+});
+
+test('CONVERSATION-OUTLINE-NAVIGATION-001 CONVERSATION-COMMENTS-LAYOUT-001 shares one resizable and responsive Outline or Comments panel', async t => {
     const options = {
         includeStyles: true,
         themeFixture: viewerThemeFixtures[0],
@@ -648,12 +766,16 @@ test('CONVERSATION-COMMENTS-LAYOUT-001 toggles, resizes, and restores the commen
         },
     };
     const { page } = await openHostViewerDocument(t, options);
-    const toggle = page.locator('[data-action="toggle-comments"]');
-    const panel = page.locator('[data-conversation-comments]');
+    const outlineToggle = page.locator('[data-action="toggle-outline"]');
+    const commentsToggle = page.locator('[data-action="toggle-comments"]');
+    const panel = page.locator('[data-conversation-sidebar]');
+    const comments = page.locator('[data-conversation-comments]');
     const resizer = page.locator('[data-comments-resizer]');
 
-    assert.equal(await toggle.getAttribute('aria-expanded'), 'true');
+    assert.equal(await outlineToggle.getAttribute('aria-expanded'), 'true');
+    assert.equal(await commentsToggle.getAttribute('aria-expanded'), 'false');
     assert.equal(await panel.isVisible(), true);
+    assert.equal(await comments.isHidden(), true);
     assert.equal(await resizer.getAttribute('aria-valuenow'), '240');
 
     await resizer.press('ArrowLeft');
@@ -661,16 +783,30 @@ test('CONVERSATION-COMMENTS-LAYOUT-001 toggles, resizes, and restores the commen
     assert.equal(await resizer.getAttribute('aria-valuenow'), '272');
     assert.deepEqual(
         await page.evaluate(() => window.__webviewState),
-        { conversationCommentsPanel: { open: true, width: 272 } }
+        {
+            conversationSidebar: {
+                open: true,
+                width: 272,
+                view: 'outline',
+                query: '',
+            },
+        }
     );
 
-    await toggle.click();
-    assert.equal(await toggle.getAttribute('aria-expanded'), 'false');
+    await outlineToggle.click();
+    assert.equal(await outlineToggle.getAttribute('aria-expanded'), 'false');
     assert.equal(await panel.isHidden(), true);
     assert.equal(await resizer.isHidden(), true);
     assert.deepEqual(
         await page.evaluate(() => window.__webviewState),
-        { conversationCommentsPanel: { open: false, width: 272 } }
+        {
+            conversationSidebar: {
+                open: false,
+                width: 272,
+                view: 'outline',
+                query: '',
+            },
+        }
     );
 
     const restored = await openHostViewerDocument(t, {
@@ -684,10 +820,14 @@ test('CONVERSATION-COMMENTS-LAYOUT-001 toggles, resizes, and restores the commen
     );
     assert.equal(await restoredToggle.getAttribute('aria-expanded'), 'false');
     assert.equal(
-        await restored.page.locator('[data-conversation-comments]').isHidden(),
+        await restored.page.locator('[data-conversation-sidebar]').isHidden(),
         true
     );
     await restoredToggle.click();
+    assert.equal(
+        await restored.page.locator('[data-conversation-comments]').isVisible(),
+        true
+    );
     assert.equal(
         await restored.page.locator('[data-comments-resizer]')
             .getAttribute('aria-valuenow'),
@@ -698,7 +838,9 @@ test('CONVERSATION-COMMENTS-LAYOUT-001 toggles, resizes, and restores the commen
         ...options,
         viewport: { width: 700, height: 600 },
         initialWebviewState: {
-            conversationCommentsPanel: { open: true, width: 240 },
+            conversationSidebar: {
+                open: true, width: 240, view: 'comments', query: '',
+            },
         },
     });
     assert.deepEqual(
@@ -709,19 +851,22 @@ test('CONVERSATION-COMMENTS-LAYOUT-001 toggles, resizes, and restores the commen
             const conversation = document.querySelector(
                 '[data-conversation-scroll]'
             ).getBoundingClientRect();
-            const comments = document.querySelector(
-                '[data-conversation-comments]'
+            const sidebar = document.querySelector(
+                '[data-conversation-sidebar]'
             ).getBoundingClientRect();
             return {
-                commentsRightAligned:
-                    Math.abs(comments.right - workspace.right) < 1,
-                commentsBesideConversation:
-                    comments.left >= conversation.right,
+                sidebarRightAligned:
+                    Math.abs(sidebar.right - workspace.right) < 1,
+                sidebarOverConversation:
+                    sidebar.left < conversation.right,
+                conversationUsesWorkspace:
+                    Math.abs(conversation.right - workspace.right) < 1,
             };
         }),
         {
-            commentsRightAligned: true,
-            commentsBesideConversation: true,
+            sidebarRightAligned: true,
+            sidebarOverConversation: true,
+            conversationUsesWorkspace: true,
         }
     );
     assert.equal(
@@ -733,13 +878,15 @@ test('CONVERSATION-COMMENTS-LAYOUT-001 toggles, resizes, and restores the commen
         ...options,
         viewport: { width: 180, height: 600 },
         initialWebviewState: {
-            conversationCommentsPanel: { open: true, width: 240 },
+            conversationSidebar: {
+                open: true, width: 240, view: 'comments', query: '',
+            },
         },
     });
     assert.deepEqual(
         await extraNarrow.page.evaluate(() => {
             const comments = document.querySelector(
-                '[data-conversation-comments]'
+                '[data-conversation-sidebar]'
             ).getBoundingClientRect();
             return {
                 leftVisible: comments.left >= 0,
@@ -1019,6 +1166,11 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-REVIEW-001 CONVERSATION
             data-interaction-id="other">
             <section class="conversation-markdown"><p>Other input.</p></section>
         </article>`,
+        outline: [{
+            interactionId: 'other',
+            userPreview: 'Other input',
+            responseState: 'complete',
+        }],
         selectedInteractionId: 'other',
         selectedInput: 2,
         totalInputs: 2,
@@ -1058,6 +1210,11 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-REVIEW-001 CONVERSATION
                 <p>Alpha beta gamma beta delta.</p>
             </section>
         </article>`,
+        outline: [{
+            interactionId,
+            userPreview: 'Alpha beta gamma beta delta.',
+            responseState: 'complete',
+        }],
         selectedInteractionId: interactionId,
         selectedInput: 1,
         totalInputs: 2,
@@ -1586,6 +1743,11 @@ test('CONVERSATION-VIEWER-BROWSER-NAVIGATION-002 anchors and focuses the Host-se
     await sendPage(page, {
         ...hostileConversationPage,
         html,
+        outline: Array.from({ length: 6 }, (_, index) => ({
+            interactionId: `selected-${index}`,
+            userPreview: `Selected input ${index + 1}`,
+            responseState: 'complete',
+        })),
         selectedInteractionId: 'selected-3',
     });
     assert.equal(await page.locator(
@@ -1597,6 +1759,11 @@ test('CONVERSATION-VIEWER-BROWSER-NAVIGATION-002 anchors and focuses the Host-se
         requestId: 2,
         updateKind: 'navigation',
         html,
+        outline: Array.from({ length: 6 }, (_, index) => ({
+            interactionId: `selected-${index}`,
+            userPreview: `Selected input ${index + 1}`,
+            responseState: 'complete',
+        })),
         selectedInteractionId: 'selected-2',
         selectedInput: 3,
     });
@@ -1611,6 +1778,11 @@ test('CONVERSATION-VIEWER-PARTIAL-001 labels capped input positions and partial 
     await sendPage(page, {
         ...hostileConversationPage,
         html: messageHtml('partial', 2),
+        outline: Array.from({ length: 2 }, (_, index) => ({
+            interactionId: `partial-${index}`,
+            userPreview: `Partial input ${index + 1}`,
+            responseState: 'complete',
+        })),
         selectedInteractionId: 'partial-0',
         selectedInput: 2,
         totalInputs: 2_000,

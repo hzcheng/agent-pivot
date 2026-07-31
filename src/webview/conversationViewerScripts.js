@@ -37,11 +37,26 @@
     var next = document.querySelector('[data-action="next"]');
     var latest = document.querySelector('[data-action="latest"]');
     var close = document.querySelector('[data-action="close"]');
+    var outlineToggle = document.querySelector(
+        '[data-action="toggle-outline"]'
+    );
     var commentsToggle = document.querySelector(
         '[data-action="toggle-comments"]'
     );
     var commentsWorkspace = document.querySelector('.conversation-workspace');
     var commentsResizer = document.querySelector('[data-comments-resizer]');
+    var sidebarRoot = document.querySelector('[data-conversation-sidebar]');
+    var sidebarTabs = Array.prototype.slice.call(
+        document.querySelectorAll('[data-sidebar-tab]')
+    );
+    var sidebarClose = document.querySelector('[data-sidebar-close]');
+    var outlineRoot = document.querySelector('[data-conversation-outline]');
+    var outlineCount = document.querySelector('[data-outline-count]');
+    var outlineSummary = document.querySelector('[data-outline-summary]');
+    var outlineSearch = document.querySelector('[data-outline-search]');
+    var outlineList = document.querySelector('[data-outline-list]');
+    var outlineEmpty = document.querySelector('[data-outline-empty]');
+    var outlinePartial = document.querySelector('[data-outline-partial]');
     var commentsRoot = document.querySelector('[data-conversation-comments]');
     var commentCount = document.querySelector('[data-comment-count]');
     var commentSummary = document.querySelector('[data-comment-summary]');
@@ -62,12 +77,17 @@
     );
     var addComment = document.querySelector('[data-add-comment]');
     var commentTarget = readJsonAttribute('data-conversation-target');
-    var commentUiAvailable = !!commentsRoot && !!commentCount
+    var sidebarUiAvailable = !!outlineToggle && !!commentsToggle
+        && !!commentsWorkspace && !!commentsResizer && !!sidebarRoot
+        && sidebarTabs.length === 2 && !!sidebarClose && !!outlineRoot
+        && !!outlineCount && !!outlineSummary && !!outlineSearch
+        && !!outlineList && !!outlineEmpty && !!outlinePartial;
+    var commentUiAvailable = sidebarUiAvailable
+        && !!commentsRoot && !!commentCount
         && !!commentSummary
         && !!commentComposer && !!commentSelection && !!commentInput
         && !!commentList && !!commentEmpty && !!commentSend && !!addComment
         && !!commentClearSent && !!commentClearResolved && !!commentClearAll
-        && !!commentsToggle && !!commentsWorkspace && !!commentsResizer
         && validCommentTarget(commentTarget);
     var state = {
         atLatest: false,
@@ -92,6 +112,13 @@
         selectedCommentText: null,
         commentsPanelOpen: true,
         commentsPanelWidth: 240,
+        sidebarView: 'outline',
+        outline: [],
+        outlineSelectedInteractionId: '',
+        outlineSelectedInput: 0,
+        outlineTotalInputs: 0,
+        outlinePartial: false,
+        outlineQuery: '',
     };
 
     if (!scroll || !messages || !position || !status || !newResponse
@@ -107,7 +134,13 @@
         if (!vscodeApi || typeof vscodeApi.getState !== 'function') return null;
         try {
             var saved = vscodeApi.getState();
-            var panelState = saved && saved.conversationCommentsPanel;
+            var panelState = saved && saved.conversationSidebar;
+            if (!panelState && saved && saved.conversationCommentsPanel) {
+                panelState = Object.assign(
+                    { view: 'comments' },
+                    saved.conversationCommentsPanel
+                );
+            }
             return panelState && typeof panelState === 'object'
                 && !Array.isArray(panelState)
                 ? panelState
@@ -127,10 +160,13 @@
                 && !Array.isArray(saved)
                 ? Object.assign({}, saved)
                 : {};
-            next.conversationCommentsPanel = {
+            next.conversationSidebar = {
                 open: state.commentsPanelOpen,
                 width: state.commentsPanelWidth,
+                view: state.sidebarView,
+                query: state.outlineQuery,
             };
+            delete next.conversationCommentsPanel;
             vscodeApi.setState(next);
         } catch (_error) {
             // Layout persistence is best-effort local Webview state.
@@ -155,22 +191,40 @@
     }
 
     function updateCommentsToggle() {
-        if (!commentUiAvailable) return;
+        if (!sidebarUiAvailable) return;
+        outlineToggle.textContent = 'Outline (' + state.outline.length + ')';
+        outlineToggle.setAttribute(
+            'aria-expanded',
+            state.commentsPanelOpen && state.sidebarView === 'outline'
+                ? 'true'
+                : 'false'
+        );
         commentsToggle.textContent = 'Comments (' + openCommentCount()
             + ' open)';
         commentsToggle.setAttribute(
             'aria-expanded',
-            state.commentsPanelOpen ? 'true' : 'false'
+            state.commentsPanelOpen && state.sidebarView === 'comments'
+                ? 'true'
+                : 'false'
         );
-        var label = state.commentsPanelOpen
-            ? 'Hide comments panel'
-            : 'Show comments panel';
-        commentsToggle.setAttribute('aria-label', label);
-        commentsToggle.title = label;
+        outlineToggle.setAttribute('aria-label',
+            state.commentsPanelOpen && state.sidebarView === 'outline'
+                ? 'Hide conversation outline'
+                : 'Show conversation outline');
+        commentsToggle.setAttribute('aria-label',
+            state.commentsPanelOpen && state.sidebarView === 'comments'
+                ? 'Hide comments panel'
+                : 'Show comments panel');
+        sidebarTabs.forEach(function (tab) {
+            var selected = tab.getAttribute('data-sidebar-tab')
+                === state.sidebarView;
+            tab.setAttribute('aria-selected', selected ? 'true' : 'false');
+            tab.tabIndex = selected ? 0 : -1;
+        });
     }
 
     function applyCommentsPanelLayout() {
-        if (!commentUiAvailable) return;
+        if (!sidebarUiAvailable) return;
         var width = clampCommentsPanelWidth(state.commentsPanelWidth);
         commentsWorkspace.style.setProperty(
             '--conversation-comments-width',
@@ -180,8 +234,10 @@
             'data-comments-open',
             state.commentsPanelOpen ? 'true' : 'false'
         );
-        commentsRoot.hidden = !state.commentsPanelOpen;
+        sidebarRoot.hidden = !state.commentsPanelOpen;
         commentsResizer.hidden = !state.commentsPanelOpen;
+        outlineRoot.hidden = state.sidebarView !== 'outline';
+        commentsRoot.hidden = state.sidebarView !== 'comments';
         commentsResizer.setAttribute('aria-valuemax', String(
             availableCommentsPanelMaxWidth()
         ));
@@ -190,6 +246,14 @@
     }
 
     function setCommentsPanelOpen(open, persist) {
+        state.commentsPanelOpen = open;
+        applyCommentsPanelLayout();
+        if (persist) saveCommentsPanelState();
+    }
+
+    function setSidebarView(view, open, persist) {
+        if (view !== 'outline' && view !== 'comments') return;
+        state.sidebarView = view;
         state.commentsPanelOpen = open;
         applyCommentsPanelLayout();
         if (persist) saveCommentsPanelState();
@@ -1048,7 +1112,7 @@
 
     function openCommentComposer() {
         if (!state.selectedCommentText) return;
-        setCommentsPanelOpen(true, true);
+        setSidebarView('comments', true, true);
         addComment.hidden = true;
         commentSelection.textContent = state.selectedCommentText.quote;
         commentInput.value = '';
@@ -1063,13 +1127,198 @@
         addComment.hidden = true;
     }
 
+    function validOutlineEntry(entry) {
+        if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+            return false;
+        }
+        var keys = Object.keys(entry);
+        return keys.length === 3
+            && keys.includes('interactionId')
+            && keys.includes('userPreview')
+            && keys.includes('responseState')
+            && typeof entry.interactionId === 'string'
+            && entry.interactionId.length > 0
+            && entry.interactionId.length <= 512
+            && !/[\u0000-\u001f\u007f]/.test(entry.interactionId)
+            && typeof entry.userPreview === 'string'
+            && entry.userPreview.length <= 4096
+            && ['complete', 'inProgress', 'interrupted', 'unknown']
+                .includes(entry.responseState);
+    }
+
+    function validOutline(value, selectedInteractionId) {
+        if (!Array.isArray(value)
+            || value.length < 1
+            || value.length > 2000
+            || !value.every(validOutlineEntry)) {
+            return false;
+        }
+        var identities = new Set(value.map(function (entry) {
+            return entry.interactionId;
+        }));
+        return identities.size === value.length
+            && identities.has(selectedInteractionId);
+    }
+
+    function outlineChanged(entries) {
+        return entries.length !== state.outline.length
+            || entries.some(function (entry, index) {
+                var current = state.outline[index];
+                return !current
+                    || current.interactionId !== entry.interactionId
+                    || current.userPreview !== entry.userPreview
+                    || current.responseState !== entry.responseState;
+            });
+    }
+
+    function responseStateLabel(value) {
+        if (value === 'inProgress') return 'Response in progress';
+        if (value === 'interrupted') return 'Response interrupted';
+        if (value === 'unknown') return 'Response state unknown';
+        return 'Response complete';
+    }
+
+    function buildOutlineList() {
+        var fragment = document.createDocumentFragment();
+        state.outline.forEach(function (entry) {
+            var item = document.createElement('li');
+            item.className = 'conversation-outline-item';
+            var button = document.createElement('button');
+            button.type = 'button';
+            button.setAttribute('data-outline-interaction-id',
+                entry.interactionId);
+            button.setAttribute('data-outline-filter-text',
+                entry.userPreview.toLocaleLowerCase());
+            button.tabIndex = -1;
+
+            var number = document.createElement('span');
+            number.className = 'conversation-outline-number';
+            number.textContent = String(entry.inputNumber);
+            var preview = document.createElement('span');
+            preview.className = 'conversation-outline-preview';
+            preview.textContent = entry.userPreview || '(empty input)';
+            var responseState = document.createElement('span');
+            responseState.className = 'conversation-outline-state'
+                + ' conversation-outline-state-' + entry.responseState;
+            responseState.title = responseStateLabel(entry.responseState);
+            responseState.setAttribute(
+                'aria-label',
+                responseStateLabel(entry.responseState)
+            );
+
+            button.appendChild(number);
+            button.appendChild(preview);
+            button.appendChild(responseState);
+            item.appendChild(button);
+            fragment.appendChild(item);
+        });
+        outlineList.replaceChildren(fragment);
+    }
+
+    function visibleOutlineButtons() {
+        return Array.prototype.filter.call(
+            outlineList.querySelectorAll('[data-outline-interaction-id]'),
+            function (button) {
+                return !button.closest('li').hidden;
+            }
+        );
+    }
+
+    function updateOutlineSelection(scrollSelected) {
+        var selected;
+        Array.prototype.forEach.call(
+            outlineList.querySelectorAll('[data-outline-interaction-id]'),
+            function (button) {
+                var current = button.getAttribute(
+                    'data-outline-interaction-id'
+                ) === state.outlineSelectedInteractionId;
+                button.classList.toggle('is-selected', current);
+                if (current) {
+                    button.setAttribute('aria-current', 'location');
+                    selected = button;
+                } else {
+                    button.removeAttribute('aria-current');
+                }
+                button.tabIndex = current ? 0 : -1;
+            }
+        );
+        var visible = visibleOutlineButtons();
+        if (!visible.some(function (button) {
+            return button.tabIndex === 0;
+        }) && visible[0]) {
+            visible[0].tabIndex = 0;
+        }
+        if (scrollSelected
+            && selected
+            && state.commentsPanelOpen
+            && state.sidebarView === 'outline'
+            && !selected.closest('li').hidden) {
+            selected.scrollIntoView({ block: 'nearest' });
+        }
+    }
+
+    function filterOutline() {
+        var query = state.outlineQuery.trim().toLocaleLowerCase();
+        var visibleCount = 0;
+        Array.prototype.forEach.call(
+            outlineList.querySelectorAll('.conversation-outline-item'),
+            function (item) {
+                var button = item.querySelector(
+                    '[data-outline-interaction-id]'
+                );
+                var visible = !query
+                    || (button.getAttribute('data-outline-filter-text') || '')
+                        .includes(query);
+                item.hidden = !visible;
+                if (visible) visibleCount += 1;
+            }
+        );
+        outlineEmpty.hidden = visibleCount > 0;
+        updateOutlineSelection(false);
+    }
+
+    function applyOutline(message) {
+        if (!sidebarUiAvailable) return;
+        var selectedIndex = message.outline.findIndex(function (entry) {
+            return entry.interactionId === message.selectedInteractionId;
+        });
+        var offset = Math.max(
+            0,
+            message.selectedInput - selectedIndex - 1
+        );
+        var nextOutline = message.outline.map(function (entry, index) {
+            return Object.assign({}, entry, {
+                inputNumber: offset + index + 1,
+            });
+        });
+        var changed = outlineChanged(nextOutline);
+        state.outline = nextOutline;
+        state.outlineSelectedInteractionId = message.selectedInteractionId;
+        state.outlineSelectedInput = message.selectedInput;
+        state.outlineTotalInputs = message.totalInputs;
+        state.outlinePartial = message.partial;
+        if (changed) buildOutlineList();
+        outlineCount.textContent = String(message.outline.length);
+        outlineCount.setAttribute(
+            'aria-label',
+            message.outline.length + ' inputs'
+        );
+        outlineSummary.textContent = message.partial
+            ? message.outline.length.toLocaleString() + '+ latest inputs'
+            : message.outline.length.toLocaleString() + ' inputs';
+        outlinePartial.hidden = !message.partial;
+        filterOutline();
+        updateOutlineSelection(changed || message.updateKind !== 'refresh');
+        updateCommentsToggle();
+    }
+
     function validPage(message) {
         if (!message || typeof message !== 'object' || Array.isArray(message)) {
             return false;
         }
         var requiredKeys = [
             'type', 'version', 'requestId', 'subscriptionGeneration',
-            'updateKind', 'html', 'selectedInteractionId', 'selectedInput',
+            'updateKind', 'html', 'outline', 'selectedInteractionId', 'selectedInput',
             'totalInputs', 'partial', 'atLatest', 'stale',
         ];
         var allowedKeys = new Set(requiredKeys.concat([
@@ -1093,6 +1342,7 @@
                 || message.updateKind === 'refresh')
             && typeof message.html === 'string'
             && typeof message.selectedInteractionId === 'string'
+            && validOutline(message.outline, message.selectedInteractionId)
             && Number.isSafeInteger(message.selectedInput)
             && message.selectedInput >= 0
             && Number.isSafeInteger(message.totalInputs)
@@ -1217,6 +1467,7 @@
         state.messageSignatures = nextSignatures;
         state.atLatest = message.atLatest;
         state.initialized = true;
+        applyOutline(message);
         updateCommentHighlights();
         updatePosition(message);
         previous.disabled = message.previousCursor === undefined;
@@ -1307,9 +1558,100 @@
     close.addEventListener('click', function () {
         postNavigation('conversation-viewer-closed');
     });
-    if (commentUiAvailable) {
+    if (sidebarUiAvailable) {
+        function toggleSidebarView(view) {
+            var alreadyOpen = state.commentsPanelOpen
+                && state.sidebarView === view;
+            setSidebarView(view, !alreadyOpen, true);
+        }
+        outlineToggle.addEventListener('click', function () {
+            toggleSidebarView('outline');
+        });
         commentsToggle.addEventListener('click', function () {
-            setCommentsPanelOpen(!state.commentsPanelOpen, true);
+            toggleSidebarView('comments');
+        });
+        sidebarTabs.forEach(function (tab) {
+            tab.addEventListener('click', function () {
+                setSidebarView(
+                    tab.getAttribute('data-sidebar-tab'),
+                    true,
+                    true
+                );
+            });
+            tab.addEventListener('keydown', function (event) {
+                if (!['ArrowLeft', 'ArrowRight', 'Home', 'End']
+                    .includes(event.key)) return;
+                var current = sidebarTabs.indexOf(tab);
+                var nextIndex = current;
+                if (event.key === 'Home') nextIndex = 0;
+                else if (event.key === 'End') {
+                    nextIndex = sidebarTabs.length - 1;
+                } else if (event.key === 'ArrowLeft') {
+                    nextIndex = Math.max(0, current - 1);
+                } else {
+                    nextIndex = Math.min(
+                        sidebarTabs.length - 1,
+                        current + 1
+                    );
+                }
+                event.preventDefault();
+                var nextTab = sidebarTabs[nextIndex];
+                setSidebarView(
+                    nextTab.getAttribute('data-sidebar-tab'),
+                    true,
+                    true
+                );
+                nextTab.focus();
+            });
+        });
+        sidebarClose.addEventListener('click', function () {
+            setCommentsPanelOpen(false, true);
+            if (state.sidebarView === 'outline') {
+                outlineToggle.focus();
+            } else {
+                commentsToggle.focus();
+            }
+        });
+        outlineSearch.addEventListener('input', function () {
+            state.outlineQuery = outlineSearch.value;
+            filterOutline();
+            saveCommentsPanelState();
+        });
+        outlineList.addEventListener('click', function (event) {
+            var button = event.target.closest
+                ? event.target.closest('[data-outline-interaction-id]')
+                : null;
+            if (!button || !outlineList.contains(button)) return;
+            post({
+                type: 'conversation-viewer-select-interaction',
+                version: 1,
+                interactionId: button.getAttribute(
+                    'data-outline-interaction-id'
+                ),
+            });
+        });
+        outlineList.addEventListener('keydown', function (event) {
+            if (!['ArrowUp', 'ArrowDown', 'Home', 'End']
+                .includes(event.key)) return;
+            var visible = visibleOutlineButtons();
+            if (!visible.length) return;
+            var current = event.target.closest
+                ? event.target.closest('[data-outline-interaction-id]')
+                : null;
+            var index = visible.indexOf(current);
+            if (event.key === 'Home') index = 0;
+            else if (event.key === 'End') index = visible.length - 1;
+            else if (event.key === 'ArrowUp') {
+                index = Math.max(0, index - 1);
+            } else {
+                index = Math.min(visible.length - 1, index + 1);
+            }
+            event.preventDefault();
+            visible.forEach(function (button) {
+                button.tabIndex = -1;
+            });
+            visible[index].tabIndex = 0;
+            visible[index].focus();
         });
         var resizingPointerId = null;
         commentsResizer.addEventListener('pointerdown', function (event) {
@@ -1528,6 +1870,15 @@
             closeCommentComposer();
             return;
         }
+        if (sidebarUiAvailable
+            && state.commentsPanelOpen
+            && sidebarRoot.contains(document.activeElement)) {
+            event.preventDefault();
+            setCommentsPanelOpen(false, true);
+            if (state.sidebarView === 'outline') outlineToggle.focus();
+            else commentsToggle.focus();
+            return;
+        }
         event.preventDefault();
         postNavigation('conversation-viewer-closed');
     });
@@ -1547,7 +1898,7 @@
             status.textContent = 'Conversation history unavailable.';
         }
     }
-    if (commentUiAvailable) {
+    if (sidebarUiAvailable) {
         var savedCommentsPanel = readCommentsPanelState();
         if (savedCommentsPanel) {
             if (typeof savedCommentsPanel.open === 'boolean') {
@@ -1558,8 +1909,19 @@
                     savedCommentsPanel.width
                 );
             }
+            if (savedCommentsPanel.view === 'outline'
+                || savedCommentsPanel.view === 'comments') {
+                state.sidebarView = savedCommentsPanel.view;
+            }
+            if (typeof savedCommentsPanel.query === 'string') {
+                state.outlineQuery = savedCommentsPanel.query.slice(0, 4096);
+                outlineSearch.value = state.outlineQuery;
+            }
         }
         applyCommentsPanelLayout();
+        filterOutline();
+    }
+    if (commentUiAvailable) {
         var initialComments = readJsonAttribute('data-initial-comments');
         if (validInitialComments(initialComments)) {
             state.commentRevision = initialComments.revision;

@@ -3742,6 +3742,22 @@
     ]
   },
   {
+    "id": "CONVERSATION-OUTLINE-NAVIGATION-001",
+    "domain": "webview",
+    "title": "AI Conversation presents a searchable current-Session user-input outline and navigates pointer or keyboard selections to the exact Host-authoritative interaction",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/integration/dashboard/conversationViewer.test.js",
+      "tests/browser/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/viewer.ts",
+      "src/webview/conversationViewerScripts.js",
+      "media/conversationViewer.scss"
+    ]
+  },
+  {
     "id": "CONVERSATION-OPEN-LATEST-001",
     "domain": "session",
     "title": "Open Current AI Session Conversation opens the viewer at the latest interaction of the focused or selected active session",

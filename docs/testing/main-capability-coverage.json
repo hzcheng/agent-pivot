@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "59ef5de5b9c2105c28c046ad1ff173f191746b21",
+        "head": "289779463fe347fba05bd3655ceded5189612f44",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -594,7 +594,12 @@
                 "82849460b41370f3b63bd9d86b18fef39f68233a",
                 "67e214e00533e4e267b3a7da55b08fcc09627488",
                 "65af1454e3c69afe0269c8d5dfcf955012981c72",
-                "7e81fe4e46bc9eada5969bc7f473e58555d273a1"
+                "7e81fe4e46bc9eada5969bc7f473e58555d273a1",
+                "31e9379591e2e2a3d5fbb3418a87d889951e32cd",
+                "c1f661c546f87c8fefcb17d4d3929d9adc46cd35",
+                "2bb3a1c255c2bb97809889d9d879d135b371e2ce",
+                "f51aa569d4adb1dd750947181008c3764dbe6163",
+                "289779463fe347fba05bd3655ceded5189612f44"
             ],
             "behaviors": [
                 "ATTENTION-ACTIVE-UNREGISTER-ON-DEACTIVATE-001",
@@ -604,7 +609,10 @@
                 "ATTENTION-USER-TERMINAL-CLOSE-001",
                 "ATTENTION-SINGLE-RUN-COMPLETION-DEDUP-001",
                 "ATTENTION-PRODUCTION-ATTENTION-STORE-LIFECYCLE-001",
-                "ATTENTION-EXECUTION-STATE-SYNC-001"
+                "ATTENTION-EXECUTION-STATE-SYNC-001",
+                "ATTENTION-BRIDGE-STALENESS-001",
+                "SESSION-CLAUDE-SESSION-SERVICE-001",
+                "SESSION-CODEX-SESSION-SERVICE-001"
             ],
             "prGates": [
                 "test:deterministic:run"

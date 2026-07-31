@@ -3590,6 +3590,20 @@
     ]
   },
   {
+    "id": "CONVERSATION-OUTLINE-DELIVERY-001",
+    "domain": "webview",
+    "title": "Undelivered initial conversation outline results remain retryable after authoritative Dashboard replacement instead of stranding Loading",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/integration/dashboard/conversationRouting.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/conversationHostController.ts",
+      "src/webview/webviewProjectScripts.js"
+    ]
+  },
+  {
     "id": "CONVERSATION-VIEWER-USER-EMPHASIS-001",
     "domain": "webview",
     "title": "AI Conversation presents User prompts as dominant full-width blocks",
@@ -3649,9 +3663,74 @@
     ]
   },
   {
+    "id": "CONVERSATION-COMMENTS-REVIEW-001",
+    "domain": "webview",
+    "title": "AI Conversation comments support keyboard saving, retain Host-authoritative review states, locate exact sources, and focus the session after sending",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/conversationComments.test.js",
+      "tests/integration/dashboard/conversationRouting.test.js",
+      "tests/browser/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/comments.ts",
+      "src/aiSessions/conversation/viewer.ts",
+      "src/webview/conversationViewerScripts.js"
+    ]
+  },
+  {
+    "id": "CONVERSATION-COMMENTS-BULK-001",
+    "domain": "webview",
+    "title": "AI Conversation clears sent, resolved, or all comments through correlated Host-authoritative batch mutations with explicit clear-all confirmation",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/conversationComments.test.js",
+      "tests/integration/dashboard/conversationRouting.test.js",
+      "tests/browser/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/comments.ts",
+      "src/aiSessions/conversation/viewer.ts",
+      "src/webview/conversationViewerScripts.js"
+    ]
+  },
+  {
+    "id": "CONVERSATION-COMMENTS-PERSISTENCE-001",
+    "domain": "persistence",
+    "title": "AI Conversation comments persist in extension-private host storage and survive panel close, reopen, and extension reload lifecycles",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/conversationCommentStore.test.js",
+      "tests/integration/dashboard/conversationRouting.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/commentStore.ts",
+      "src/aiSessions/conversation/viewer.ts",
+      "src/dashboard.ts"
+    ]
+  },
+  {
+    "id": "CONVERSATION-READING-FOCUS-001",
+    "domain": "webview",
+    "title": "AI Conversation refreshes preserve the selected interaction, reading viewport, and semantic message focus",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/integration/dashboard/conversationViewer.test.js",
+      "tests/browser/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/viewer.ts",
+      "src/webview/conversationViewerScripts.js"
+    ]
+  },
+  {
     "id": "CONVERSATION-COMMENTS-LAYOUT-001",
     "domain": "webview",
-    "title": "The Comments panel is compact, collapsible, keyboard-resizable, and restores local layout state",
+    "title": "The Comments panel keeps a compact grouped action bar and fully visible cards across extreme widths while remaining collapsible, resizable, and locally restorable",
     "priority": "P1",
     "status": "automated",
     "owners": [
@@ -3660,6 +3739,40 @@
     "evidence": [
       "src/webview/conversationViewerScripts.js",
       "media/conversationViewer.scss"
+    ]
+  },
+  {
+    "id": "CONVERSATION-OUTLINE-NAVIGATION-001",
+    "domain": "webview",
+    "title": "AI Conversation presents a searchable current-Session user-input outline and navigates pointer or keyboard selections to the exact Host-authoritative interaction",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/integration/dashboard/conversationViewer.test.js",
+      "tests/browser/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/viewer.ts",
+      "src/webview/conversationViewerScripts.js",
+      "media/conversationViewer.scss"
+    ]
+  },
+  {
+    "id": "CONVERSATION-TELEMETRY-001",
+    "domain": "webview",
+    "title": "AI Conversation shows correlated Codex model, context-window usage, and quota windows without replacing conversation content or accepting stale Session data",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/contract/aiSessions/codexAppServerClient.test.js",
+      "tests/contract/aiSessions/codexConversationAdapter.test.js",
+      "tests/browser/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/codexAdapter.ts",
+      "src/aiSessions/conversation/viewer.ts",
+      "src/webview/conversationViewerScripts.js",
+      "media/conversationTelemetry.css"
     ]
   },
   {
@@ -3674,6 +3787,24 @@
     "evidence": [
       "src/aiSessions/conversation/composition.ts",
       "src/dashboard.ts"
+    ]
+  },
+  {
+    "id": "CONVERSATION-FOLLOW-ACTIVE-SESSION-001",
+    "domain": "session",
+    "title": "A successful Active Session card focus retargets an already-open AI Conversation to that Session's latest interaction without revealing or opening a viewer",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/contract/aiSessions/sessionControllers.test.js",
+      "tests/integration/dashboard/conversationOpenLatest.test.js",
+      "tests/integration/dashboard/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/dashboard.ts",
+      "src/aiSessions/terminalCommandController.ts",
+      "src/aiSessions/conversation/composition.ts",
+      "src/aiSessions/conversation/viewer.ts"
     ]
   },
   {

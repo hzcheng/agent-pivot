@@ -24,6 +24,7 @@ import {
     ConversationPageRequest,
     ConversationProviderAdapter,
     ConversationResponseState,
+    ConversationTelemetry,
 } from './types';
 
 type TimerHandle = unknown;
@@ -34,6 +35,9 @@ export interface CodexConversationClient extends AiSessionDisposable {
         params: unknown,
         signal?: ConversationAbortSignal
     ): Promise<T>;
+    watchNotifications?(
+        listener: (method: string, params: unknown) => void
+    ): AiSessionDisposable;
 }
 
 export interface CodexConversationAdapterOptions {
@@ -198,13 +202,97 @@ function fingerprintInteractions(
         .digest('hex');
 }
 
+function rateLimitLabel(durationMins: number | undefined): string {
+    if (durationMins === 10_080) {
+        return 'Week';
+    }
+    if (durationMins && durationMins % 60 === 0) {
+        return `${durationMins / 60}h`;
+    }
+    return durationMins ? `${durationMins}m` : 'Limit';
+}
+
+function normalizeRateLimits(value: unknown): ConversationTelemetry['rateLimits'] {
+    const result = asRecord(value);
+    const byId = asRecord(result?.rateLimitsByLimitId);
+    const snapshots = byId
+        ? Object.entries(byId).slice(0, 16)
+        : [['codex', result?.rateLimits]];
+    const limits: ConversationTelemetry['rateLimits'] = [];
+    const seen = new Set<string>();
+    for (const [fallbackId, rawSnapshot] of snapshots) {
+        const snapshot = asRecord(rawSnapshot);
+        if (!snapshot) {
+            continue;
+        }
+        const limitId = typeof snapshot.limitId === 'string'
+            && snapshot.limitId
+            ? snapshot.limitId.slice(0, 128)
+            : fallbackId.slice(0, 128);
+        for (const [kind, rawWindow] of [
+            ['primary', snapshot.primary],
+            ['secondary', snapshot.secondary],
+        ] as const) {
+            const window = asRecord(rawWindow);
+            if (!window || !Number.isFinite(window.usedPercent)) {
+                continue;
+            }
+            const duration = Number.isFinite(window.windowDurationMins)
+                && window.windowDurationMins > 0
+                ? Math.floor(window.windowDurationMins)
+                : undefined;
+            const id = `${limitId}:${kind}`;
+            const dedupeKey = `${duration || 'unknown'}:${kind}`;
+            if (seen.has(dedupeKey)) {
+                continue;
+            }
+            seen.add(dedupeKey);
+            limits.push({
+                id,
+                label: rateLimitLabel(duration),
+                usedPercent: Math.max(
+                    0,
+                    Math.min(100, Number(window.usedPercent))
+                ),
+                windowDurationMins: duration,
+                resetsAt: Number.isFinite(window.resetsAt)
+                    && window.resetsAt > 0
+                    ? Math.floor(window.resetsAt)
+                    : undefined,
+            });
+        }
+    }
+    return limits
+        .sort((left, right) =>
+            (left.windowDurationMins || Number.MAX_SAFE_INTEGER)
+            - (right.windowDurationMins || Number.MAX_SAFE_INTEGER))
+        .slice(0, 4);
+}
+
 export class CodexConversationAdapter implements ConversationProviderAdapter {
     private readonly subscriptions = new Map<string, Set<() => void>>();
     private providerWatch?: AiSessionDisposable;
     private invalidationTimer?: TimerHandle;
+    private readonly tokenUsageBySession = new Map<string, {
+        usedTokens: number;
+        maxTokens: number;
+    }>();
+    private readonly notificationWatch?: AiSessionDisposable;
+    private readonly telemetryCache = new Map<string, {
+        readAt: number;
+        value?: ConversationTelemetry;
+    }>();
+    private readonly telemetryReads = new Map<
+        string,
+        Promise<ConversationTelemetry | undefined>
+    >();
     private disposed = false;
 
-    constructor(private readonly options: CodexConversationAdapterOptions) {}
+    constructor(private readonly options: CodexConversationAdapterOptions) {
+        this.notificationWatch = options.client.watchNotifications?.(
+            (method, params) => this.acceptNotification(method, params)
+        );
+    }
 
     async readOutline(
         sessionId: string,
@@ -230,6 +318,83 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
             { ...request, provider: 'codex' },
             loaded.sourceRevision
         );
+    }
+
+    async readTelemetry(
+        sessionId: string,
+        signal?: ConversationAbortSignal
+    ): Promise<ConversationTelemetry | undefined> {
+        const cached = this.telemetryCache.get(sessionId);
+        if (cached
+            && Date.now() - cached.readAt
+            < CONVERSATION_LIMITS.telemetryRefreshMs) {
+            return cached.value;
+        }
+        const existing = this.telemetryReads.get(sessionId);
+        if (existing) {
+            return existing;
+        }
+        const read = this.loadTelemetry(sessionId, signal);
+        this.telemetryReads.set(sessionId, read);
+        try {
+            const value = await read;
+            this.makeRoomForTelemetrySession(sessionId);
+            this.telemetryCache.set(sessionId, {
+                readAt: Date.now(),
+                value,
+            });
+            return value;
+        } finally {
+            if (this.telemetryReads.get(sessionId) === read) {
+                this.telemetryReads.delete(sessionId);
+            }
+        }
+    }
+
+    private async loadTelemetry(
+        sessionId: string,
+        signal?: ConversationAbortSignal
+    ): Promise<ConversationTelemetry | undefined> {
+        const [resumeResult, limitsResult] = await Promise.all([
+            this.options.client.request(
+                'thread/resume',
+                { threadId: sessionId },
+                signal
+            ).then(
+                value => ({ fulfilled: true as const, value }),
+                () => ({ fulfilled: false as const })
+            ),
+            this.options.client.request(
+                'account/rateLimits/read',
+                undefined,
+                signal
+            ).then(
+                value => ({ fulfilled: true as const, value }),
+                () => ({ fulfilled: false as const })
+            ),
+        ]);
+        const telemetry: ConversationTelemetry = {
+            provider: 'codex',
+            sessionId,
+            rateLimits: limitsResult.fulfilled
+                ? normalizeRateLimits(limitsResult.value)
+                : [],
+        };
+        if (resumeResult.fulfilled) {
+            const response = asRecord(resumeResult.value);
+            if (typeof response?.model === 'string'
+                && response.model.trim()) {
+                telemetry.model = response.model.trim().slice(0, 128);
+            }
+        }
+        const context = this.tokenUsageBySession.get(sessionId);
+        if (context) {
+            telemetry.context = { ...context };
+        }
+        return telemetry.model || telemetry.context
+            || telemetry.rateLimits.length
+            ? telemetry
+            : undefined;
     }
 
     watch(sessionId: string, onChange: () => void): AiSessionDisposable {
@@ -279,8 +444,60 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         }
         this.providerWatch?.dispose();
         this.providerWatch = undefined;
+        this.notificationWatch?.dispose();
+        this.tokenUsageBySession.clear();
+        this.telemetryCache.clear();
+        this.telemetryReads.clear();
         this.subscriptions.clear();
         this.options.client.dispose();
+    }
+
+    private acceptNotification(method: string, value: unknown): void {
+        if (method !== 'thread/tokenUsage/updated') {
+            return;
+        }
+        const params = asRecord(value);
+        const usage = asRecord(params?.tokenUsage);
+        const last = asRecord(usage?.last);
+        if (typeof params?.threadId !== 'string'
+            || !params.threadId
+            || params.threadId.length > 256
+            || !Number.isFinite(last?.totalTokens)
+            || last.totalTokens < 0
+            || !Number.isFinite(usage?.modelContextWindow)
+            || usage.modelContextWindow <= 0) {
+            return;
+        }
+        const context = {
+            usedTokens: Math.floor(last.totalTokens),
+            maxTokens: Math.floor(usage.modelContextWindow),
+        };
+        this.makeRoomForTelemetrySession(params.threadId);
+        this.tokenUsageBySession.set(params.threadId, context);
+        const cached = this.telemetryCache.get(params.threadId);
+        if (cached?.value) {
+            cached.value.context = { ...context };
+        }
+    }
+
+    private makeRoomForTelemetrySession(sessionId: string): void {
+        if (this.telemetryCache.has(sessionId)
+            || this.tokenUsageBySession.has(sessionId)) {
+            return;
+        }
+        const sessionIds = Array.from(new Set([
+            ...this.telemetryCache.keys(),
+            ...this.tokenUsageBySession.keys(),
+        ]));
+        if (sessionIds.length
+            < CONVERSATION_LIMITS.inactiveIndexLimitPerProvider) {
+            return;
+        }
+        const oldest = sessionIds[0];
+        if (typeof oldest === 'string') {
+            this.telemetryCache.delete(oldest);
+            this.tokenUsageBySession.delete(oldest);
+        }
     }
 
     private async load(

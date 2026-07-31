@@ -123,6 +123,77 @@ test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 Codex normalizes only stable v
     assert.equal(outline.sourceRevision, page.sourceRevision);
 });
 
+test('CONVERSATION-TELEMETRY-001 reads model, context, and quota windows from structured Codex protocol data', async t => {
+    let notificationListener;
+    const harness = createAdapter(fixture, {
+        client: {
+            watchNotifications(listener) {
+                notificationListener = listener;
+                return { dispose() {} };
+            },
+            async request(method) {
+                if (method === 'thread/resume') {
+                    notificationListener('thread/tokenUsage/updated', {
+                        threadId: sessionId,
+                        turnId: 'turn-telemetry',
+                        tokenUsage: {
+                            total: { totalTokens: 88_000 },
+                            last: { totalTokens: 32_000 },
+                            modelContextWindow: 128_000,
+                        },
+                    });
+                    return {
+                        model: 'gpt-5.6-sol',
+                        modelProvider: 'openai',
+                    };
+                }
+                assert.equal(method, 'account/rateLimits/read');
+                return {
+                    rateLimits: {
+                        limitId: 'codex',
+                        primary: {
+                            usedPercent: 25,
+                            windowDurationMins: 300,
+                            resetsAt: 2_000_000_000,
+                        },
+                        secondary: {
+                            usedPercent: 40,
+                            windowDurationMins: 10_080,
+                            resetsAt: 2_000_100_000,
+                        },
+                    },
+                    rateLimitsByLimitId: null,
+                };
+            },
+            dispose() {},
+        },
+    });
+    t.after(() => harness.adapter.dispose());
+
+    assert.deepEqual(await harness.adapter.readTelemetry(sessionId), {
+        provider: 'codex',
+        sessionId,
+        model: 'gpt-5.6-sol',
+        context: {
+            usedTokens: 32_000,
+            maxTokens: 128_000,
+        },
+        rateLimits: [{
+            id: 'codex:primary',
+            label: '5h',
+            usedPercent: 25,
+            windowDurationMins: 300,
+            resetsAt: 2_000_000_000,
+        }, {
+            id: 'codex:secondary',
+            label: 'Week',
+            usedPercent: 40,
+            windowDurationMins: 10_080,
+            resetsAt: 2_000_100_000,
+        }],
+    });
+});
+
 test('SESSION-AI-SESSION-CODEX-CONVERSATION-002 starts one interaction per userMessage and attaches agents only to the latest qualifying input', async t => {
     const native = {
         thread: {

@@ -23,6 +23,10 @@ const viewerCss = fs.readFileSync(
     path.join(__dirname, '../../media/conversationViewer.css'),
     'utf8'
 );
+const telemetryCss = fs.readFileSync(
+    path.join(__dirname, '../../media/conversationTelemetry.css'),
+    'utf8'
+);
 const viewerThemeFixtures = Object.freeze([
     Object.freeze({
         name: 'dark',
@@ -102,6 +106,11 @@ const hostileConversationPage = Object.freeze({
             <a href="https://example.test/safe">safe</a>
         </section>
     </article>`,
+    outline: [{
+        interactionId: 'input-4',
+        userPreview: 'Hostile input',
+        responseState: 'complete',
+    }],
     selectedInteractionId: 'input-4',
     selectedInput: 4,
     totalInputs: 12,
@@ -128,7 +137,8 @@ async function openViewerPage(t, options = {}) {
     await page.setContent(`<!doctype html>
         <html>
             <body data-auto-scroll-threshold="8"
-                data-subscription-generation="1">
+                data-subscription-generation="1"
+                data-conversation-target='{"projectId":"project-1","provider":"codex","sessionId":"session-telemetry"}'>
                 <header>
                     <span data-conversation-position>Input 0 of 0</span>
                     <button type="button" data-action="previous">Previous</button>
@@ -136,6 +146,19 @@ async function openViewerPage(t, options = {}) {
                     <button type="button" data-action="latest">Latest</button>
                     <button type="button" data-action="close">Close</button>
                 </header>
+                <section data-conversation-telemetry hidden>
+                    <div data-telemetry-model hidden>
+                        <span>Model</span>
+                        <strong data-telemetry-model-value></strong>
+                    </div>
+                    <div data-telemetry-context hidden>
+                        <span>Context</span>
+                        <progress data-telemetry-context-progress
+                            max="1" value="0"></progress>
+                        <span data-telemetry-context-value></span>
+                    </div>
+                    <div data-telemetry-limits></div>
+                </section>
                 <div data-conversation-status aria-live="polite"></div>
                 <div data-conversation-scroll tabindex="0"
                     style="height: 160px; overflow-y: auto">
@@ -153,7 +176,19 @@ async function openViewerPage(t, options = {}) {
         };
     });
     await page.addScriptTag({ content: purifyScript });
-    if (options.includeMermaid) {
+    if (options.controlledMermaid) {
+        await page.evaluate(() => {
+            window.__mermaidRenders = [];
+            window.mermaid = {
+                initialize() {},
+                render(id, source) {
+                    return new Promise(resolve => {
+                        window.__mermaidRenders.push({ id, source, resolve });
+                    });
+                },
+            };
+        });
+    } else if (options.includeMermaid) {
         await page.addScriptTag({ content: mermaidScript });
     }
     await page.addScriptTag({ content: viewerScript });
@@ -171,6 +206,131 @@ async function sendPage(page, payload) {
         new MessageEvent('message', { data: message })
     ), payload);
 }
+
+test('CONVERSATION-TELEMETRY-001 renders correlated model, context, and weekly quota updates in place', async t => {
+    const page = await openViewerPage(t);
+    await sendPage(page, {
+        type: 'conversation-viewer-telemetry',
+        version: 1,
+        requestId: 1,
+        subscriptionGeneration: 1,
+        telemetry: {
+            provider: 'codex',
+            sessionId: 'session-telemetry',
+            model: 'gpt-5.6-sol',
+            context: {
+                usedTokens: 32_000,
+                maxTokens: 128_000,
+            },
+            rateLimits: [{
+                id: 'codex:secondary',
+                label: 'Week',
+                usedPercent: 40,
+                windowDurationMins: 10_080,
+                resetsAt: 2_000_000_000,
+            }],
+        },
+    });
+
+    assert.equal(
+        await page.locator('[data-conversation-telemetry]').isVisible(),
+        true
+    );
+    assert.equal(
+        await page.locator('[data-telemetry-model-value]').textContent(),
+        'gpt-5.6-sol'
+    );
+    assert.equal(
+        await page.locator('[data-telemetry-context-value]').textContent(),
+        '25% · 32.0k / 128k'
+    );
+    assert.match(
+        await page.locator('[data-telemetry-limits]').textContent(),
+        /Week.*60% left/
+    );
+    assert.equal(
+        await page.locator('[data-telemetry-context-progress]')
+            .getAttribute('max'),
+        '128000'
+    );
+
+    await sendPage(page, {
+        type: 'conversation-viewer-telemetry',
+        version: 1,
+        requestId: 0,
+        subscriptionGeneration: 1,
+        telemetry: null,
+    });
+    assert.equal(
+        await page.locator('[data-conversation-telemetry]').isVisible(),
+        true
+    );
+});
+
+test('CONVERSATION-READING-FOCUS-001 keeps the reading viewport stable when telemetry appears asynchronously', async t => {
+    const page = await openViewerPage(t);
+    await page.addStyleTag({ content: `${viewerCss}\n${telemetryCss}` });
+    await sendPage(page, {
+        ...hostileConversationPage,
+        html: messageHtml('telemetry-anchor', 12),
+        updateKind: 'initial',
+    });
+    const anchor = page.locator('[data-message-id="telemetry-anchor-6"]');
+    await anchor.evaluate(element => element.scrollIntoView({
+        block: 'center',
+    }));
+    const anchorTopBefore = await anchor.evaluate(
+        element => element.getBoundingClientRect().top
+    );
+
+    await sendPage(page, {
+        type: 'conversation-viewer-telemetry',
+        version: 1,
+        requestId: 1,
+        subscriptionGeneration: 1,
+        telemetry: {
+            provider: 'codex',
+            sessionId: 'session-telemetry',
+            model: 'gpt-5.6-sol',
+            context: {
+                usedTokens: 32_000,
+                maxTokens: 128_000,
+            },
+            rateLimits: [{
+                id: 'codex:secondary',
+                label: 'Week',
+                usedPercent: 40,
+                windowDurationMins: 10_080,
+                resetsAt: 2_000_000_000,
+            }],
+        },
+    });
+    const anchorTopAfter = await anchor.evaluate(
+        element => element.getBoundingClientRect().top
+    );
+
+    assert.ok(
+        Math.abs(anchorTopAfter - anchorTopBefore) <= 1,
+        `telemetry moved the reading anchor from ${anchorTopBefore} to `
+            + anchorTopAfter
+    );
+
+    await sendPage(page, {
+        type: 'conversation-viewer-telemetry',
+        version: 1,
+        requestId: 2,
+        subscriptionGeneration: 1,
+        telemetry: null,
+    });
+    const anchorTopAfterHide = await anchor.evaluate(
+        element => element.getBoundingClientRect().top
+    );
+    assert.ok(
+        Math.abs(anchorTopAfterHide - anchorTopBefore) <= 1,
+        `hiding telemetry moved the reading anchor from ${anchorTopBefore}`
+            + ` to ${anchorTopAfterHide}`
+    );
+});
 
 function messageHtml(prefix, count, start = 0) {
     return Array.from({ length: count }, (_item, index) => {
@@ -254,9 +414,9 @@ async function renderHostViewerDocument(options = {}) {
             sourceRevision: 'r1',
             interactions: interactionIds.map(id => ({
                 id,
-                userPreview: id,
+                userPreview: options.userPreviews?.[id] || id,
                 userGraphemeCount: id.length,
-                responseState: 'complete',
+                responseState: options.responseStates?.[id] || 'complete',
             })),
             totalInteractions: interactionIds.length,
             partial: false,
@@ -591,7 +751,7 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 acquires one real document API 
     await page.getByRole('button', { name: 'Next' }).click();
     await page.getByRole('button', { name: 'Latest' }).click();
     await page.locator('a[href="https://example.test/safe"]').click();
-    await page.getByRole('button', { name: 'Close' }).click();
+    await page.getByRole('button', { name: 'Close', exact: true }).click();
 
     assert.deepEqual(await postedMessages(page), [
         { type: 'conversation-viewer-previous', version: 1 },
@@ -633,7 +793,120 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 keeps disabled real document na
     assert.deepEqual(await postedMessages(page), []);
 });
 
-test('CONVERSATION-COMMENTS-LAYOUT-001 toggles, resizes, and restores the comments panel', async t => {
+test('CONVERSATION-OUTLINE-NAVIGATION-001 filters the current Session outline and posts exact pointer and keyboard navigation', async t => {
+    const interactionIds = ['input-1', 'input-2', 'input-3', 'input-4'];
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+        viewport: { width: 1050, height: 620 },
+        interactionIds,
+        interactionId: 'input-2',
+        userPreviews: {
+            'input-1': 'Plan the release',
+            'input-2': 'Fix conversation navigation',
+            'input-3': 'Deploy the extension',
+            'input-4': '<script>unsafe</script> remains text',
+        },
+        responseStates: {
+            'input-3': 'inProgress',
+            'input-4': 'interrupted',
+        },
+    });
+    const sidebar = page.locator('[data-conversation-sidebar]');
+    const outline = page.locator('[data-conversation-outline]');
+    const comments = page.locator('[data-conversation-comments]');
+    const outlineToggle = page.locator('[data-action="toggle-outline"]');
+    const commentsToggle = page.locator('[data-action="toggle-comments"]');
+
+    assert.equal(await sidebar.isVisible(), true);
+    assert.equal(await outline.isVisible(), true);
+    assert.equal(await comments.isHidden(), true);
+    assert.equal(await outlineToggle.getAttribute('aria-expanded'), 'true');
+    assert.equal(await page.locator('[data-outline-interaction-id]').count(), 4);
+    assert.equal(
+        await page.locator(
+            '[data-outline-interaction-id="input-2"]'
+        ).getAttribute('aria-current'),
+        'location'
+    );
+    assert.match(await outline.innerText(), /<script>unsafe<\/script>/);
+    assert.equal(await outline.locator('script').count(), 0);
+
+    await page.locator('[data-outline-search]').fill('deploy');
+    assert.equal(
+        await page.locator('[data-outline-interaction-id]:visible').count(),
+        1
+    );
+    assert.deepEqual(
+        await page.evaluate(() => window.__webviewState),
+        {
+            conversationSidebar: {
+                open: true,
+                width: 240,
+                view: 'outline',
+                query: 'deploy',
+            },
+        }
+    );
+    await page.locator('[data-outline-search]').fill('');
+
+    const selected = page.locator(
+        '[data-outline-interaction-id="input-2"]'
+    );
+    await selected.focus();
+    await selected.press('ArrowDown');
+    assert.equal(
+        await page.evaluate(() =>
+            document.activeElement?.getAttribute(
+                'data-outline-interaction-id'
+            )),
+        'input-3'
+    );
+    await page.keyboard.press('Enter');
+    let requests = await postedMessages(page);
+    assert.deepEqual(requests.at(-1), {
+        type: 'conversation-viewer-select-interaction',
+        version: 1,
+        interactionId: 'input-3',
+    });
+
+    await page.locator(
+        '[data-outline-interaction-id="input-4"]'
+    ).click();
+    requests = await postedMessages(page);
+    assert.deepEqual(requests.at(-1), {
+        type: 'conversation-viewer-select-interaction',
+        version: 1,
+        interactionId: 'input-4',
+    });
+
+    const outlineTab = page.locator('[data-sidebar-tab="outline"]');
+    await outlineTab.focus();
+    await outlineTab.press('ArrowRight');
+    assert.equal(await outline.isHidden(), true);
+    assert.equal(await comments.isVisible(), true);
+    assert.equal(await commentsToggle.getAttribute('aria-expanded'), 'true');
+    assert.equal(await sidebar.isVisible(), true);
+    assert.equal(
+        await page.evaluate(() =>
+            document.activeElement?.getAttribute('data-sidebar-tab')
+        ),
+        'comments'
+    );
+    await page.keyboard.press('Escape');
+    assert.equal(await sidebar.isHidden(), true);
+    assert.equal(
+        await page.evaluate(() =>
+            document.activeElement?.getAttribute('data-action')
+        ),
+        'toggle-comments'
+    );
+    await outlineToggle.click();
+    assert.equal(await outline.isVisible(), true);
+    assert.equal(await comments.isHidden(), true);
+});
+
+test('CONVERSATION-OUTLINE-NAVIGATION-001 CONVERSATION-COMMENTS-LAYOUT-001 shares one resizable and responsive Outline or Comments panel', async t => {
     const options = {
         includeStyles: true,
         themeFixture: viewerThemeFixtures[0],
@@ -648,12 +921,16 @@ test('CONVERSATION-COMMENTS-LAYOUT-001 toggles, resizes, and restores the commen
         },
     };
     const { page } = await openHostViewerDocument(t, options);
-    const toggle = page.locator('[data-action="toggle-comments"]');
-    const panel = page.locator('[data-conversation-comments]');
+    const outlineToggle = page.locator('[data-action="toggle-outline"]');
+    const commentsToggle = page.locator('[data-action="toggle-comments"]');
+    const panel = page.locator('[data-conversation-sidebar]');
+    const comments = page.locator('[data-conversation-comments]');
     const resizer = page.locator('[data-comments-resizer]');
 
-    assert.equal(await toggle.getAttribute('aria-expanded'), 'true');
+    assert.equal(await outlineToggle.getAttribute('aria-expanded'), 'true');
+    assert.equal(await commentsToggle.getAttribute('aria-expanded'), 'false');
     assert.equal(await panel.isVisible(), true);
+    assert.equal(await comments.isHidden(), true);
     assert.equal(await resizer.getAttribute('aria-valuenow'), '240');
 
     await resizer.press('ArrowLeft');
@@ -661,16 +938,30 @@ test('CONVERSATION-COMMENTS-LAYOUT-001 toggles, resizes, and restores the commen
     assert.equal(await resizer.getAttribute('aria-valuenow'), '272');
     assert.deepEqual(
         await page.evaluate(() => window.__webviewState),
-        { conversationCommentsPanel: { open: true, width: 272 } }
+        {
+            conversationSidebar: {
+                open: true,
+                width: 272,
+                view: 'outline',
+                query: '',
+            },
+        }
     );
 
-    await toggle.click();
-    assert.equal(await toggle.getAttribute('aria-expanded'), 'false');
+    await outlineToggle.click();
+    assert.equal(await outlineToggle.getAttribute('aria-expanded'), 'false');
     assert.equal(await panel.isHidden(), true);
     assert.equal(await resizer.isHidden(), true);
     assert.deepEqual(
         await page.evaluate(() => window.__webviewState),
-        { conversationCommentsPanel: { open: false, width: 272 } }
+        {
+            conversationSidebar: {
+                open: false,
+                width: 272,
+                view: 'outline',
+                query: '',
+            },
+        }
     );
 
     const restored = await openHostViewerDocument(t, {
@@ -684,20 +975,95 @@ test('CONVERSATION-COMMENTS-LAYOUT-001 toggles, resizes, and restores the commen
     );
     assert.equal(await restoredToggle.getAttribute('aria-expanded'), 'false');
     assert.equal(
-        await restored.page.locator('[data-conversation-comments]').isHidden(),
+        await restored.page.locator('[data-conversation-sidebar]').isHidden(),
         true
     );
     await restoredToggle.click();
+    assert.equal(
+        await restored.page.locator('[data-conversation-comments]').isVisible(),
+        true
+    );
     assert.equal(
         await restored.page.locator('[data-comments-resizer]')
             .getAttribute('aria-valuenow'),
         '312'
     );
+
+    const narrow = await openHostViewerDocument(t, {
+        ...options,
+        viewport: { width: 700, height: 600 },
+        initialWebviewState: {
+            conversationSidebar: {
+                open: true, width: 240, view: 'comments', query: '',
+            },
+        },
+    });
+    assert.deepEqual(
+        await narrow.page.evaluate(() => {
+            const workspace = document.querySelector(
+                '.conversation-workspace'
+            ).getBoundingClientRect();
+            const conversation = document.querySelector(
+                '[data-conversation-scroll]'
+            ).getBoundingClientRect();
+            const sidebar = document.querySelector(
+                '[data-conversation-sidebar]'
+            ).getBoundingClientRect();
+            return {
+                sidebarRightAligned:
+                    Math.abs(sidebar.right - workspace.right) < 1,
+                sidebarOverConversation:
+                    sidebar.left < conversation.right,
+                conversationUsesWorkspace:
+                    Math.abs(conversation.right - workspace.right) < 1,
+            };
+        }),
+        {
+            sidebarRightAligned: true,
+            sidebarOverConversation: true,
+            conversationUsesWorkspace: true,
+        }
+    );
+    assert.equal(
+        await narrow.page.locator('[data-comments-resizer]').isVisible(),
+        true
+    );
+
+    const extraNarrow = await openHostViewerDocument(t, {
+        ...options,
+        viewport: { width: 180, height: 600 },
+        initialWebviewState: {
+            conversationSidebar: {
+                open: true, width: 240, view: 'comments', query: '',
+            },
+        },
+    });
+    assert.deepEqual(
+        await extraNarrow.page.evaluate(() => {
+            const comments = document.querySelector(
+                '[data-conversation-sidebar]'
+            ).getBoundingClientRect();
+            return {
+                leftVisible: comments.left >= 0,
+                rightVisible: comments.right <= window.innerWidth,
+            };
+        }),
+        {
+            leftVisible: true,
+            rightVisible: true,
+        }
+    );
 });
 
-test('CONVERSATION-COMMENTS-UI-001 collects multiple selections and sends one correlated batch', async t => {
+test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-REVIEW-001 CONVERSATION-COMMENTS-BULK-001 CONVERSATION-COMMENTS-LAYOUT-001 reviews contained cards and Host-owned comment batches', async t => {
     const interactionId = 'input-comments';
     const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+        viewport: { width: 850, height: 600 },
+        initialWebviewState: {
+            conversationCommentsPanel: { open: true, width: 192 },
+        },
         interactionIds: [interactionId],
         interactionId,
         markdown: 'Alpha beta gamma beta delta.',
@@ -791,10 +1157,35 @@ test('CONVERSATION-COMMENTS-UI-001 collects multiple selections and sends one co
         }, { request, revision, comments });
     }
 
+    async function settleLocate(request, success = true) {
+        await page.evaluate(({ request, success }) => {
+            window.dispatchEvent(new MessageEvent('message', {
+                data: {
+                    type: 'conversation-viewer-locate-comment-result',
+                    version: 1,
+                    requestId: request.requestId,
+                    subscriptionGeneration: request.subscriptionGeneration,
+                    projectId: request.projectId,
+                    provider: request.provider,
+                    sessionId: request.sessionId,
+                    commentId: request.commentId,
+                    success,
+                    ...(success ? {} : { error: 'stale' }),
+                },
+            }));
+        }, { request, success });
+    }
+
     const comments = [];
     await selectText('beta', 1);
     await page.locator('[data-comment-input]').fill('Explain beta.');
-    await page.locator('[data-comment-action="confirm-add"]').click();
+    assert.equal(
+        await page.locator('[data-comment-input]').getAttribute(
+            'aria-keyshortcuts'
+        ),
+        'Control+Enter Meta+Enter'
+    );
+    await page.locator('[data-comment-input]').press('Control+Enter');
     let requests = await postedMessages(page);
     const first = requests.at(-1);
     assert.equal(first.type, 'conversation-viewer-comment-mutation');
@@ -811,6 +1202,7 @@ test('CONVERSATION-COMMENTS-UI-001 collects multiple selections and sends one co
         prefix: 'Alpha beta gamma ',
         suffix: ' delta.',
         comment: 'Explain beta.',
+        status: 'open',
     });
     await settle(first, 1, comments);
     assert.deepEqual(
@@ -830,7 +1222,7 @@ test('CONVERSATION-COMMENTS-UI-001 collects multiple selections and sends one co
 
     await selectText('gamma');
     await page.locator('[data-comment-input]').fill('Change gamma.');
-    await page.locator('[data-comment-action="confirm-add"]').click();
+    await page.locator('[data-comment-input]').press('Meta+Enter');
     requests = await postedMessages(page);
     const second = requests.at(-1);
     assert.equal(second.expectedRevision, 1);
@@ -843,11 +1235,196 @@ test('CONVERSATION-COMMENTS-UI-001 collects multiple selections and sends one co
         prefix: 'Alpha beta ',
         suffix: ' beta delta.',
         comment: 'Change gamma.',
+        status: 'open',
     });
     await settle(second, 2, comments);
 
     assert.equal(await page.locator('[data-comment-id]').count(), 2);
     assert.equal(await page.locator('[data-comment-count]').textContent(), '2');
+    assert.equal(
+        await page.locator('[data-action="toggle-comments"]').textContent(),
+        'Comments (2 open)'
+    );
+    const commentToolbar = page.locator('[data-comments-toolbar]');
+    assert.equal(await commentToolbar.count(), 1);
+    assert.equal(
+        await commentToolbar.locator('[data-comment-action]').count(),
+        4
+    );
+    const commentToolbarHeight = await commentToolbar.evaluate(element =>
+        element.getBoundingClientRect().height
+    );
+    assert.ok(
+        commentToolbarHeight <= 64,
+        `comment toolbar height ${commentToolbarHeight}px must remain compact`
+    );
+    assert.deepEqual(
+        await page.locator('[data-comment-id]').evaluateAll(cards =>
+            cards.map(card => {
+                const bounds = card.getBoundingClientRect();
+                const controls = Array.from(card.querySelectorAll('button'));
+                return {
+                    cardContained: card.scrollWidth <= card.clientWidth,
+                    controlsContained: controls.every(control => {
+                        const controlBounds = control.getBoundingClientRect();
+                        return controlBounds.left >= bounds.left
+                            && controlBounds.right <= bounds.right;
+                    }),
+                    actionsWrap: getComputedStyle(
+                        card.querySelector('.conversation-comment-actions')
+                    ).flexWrap,
+                };
+            })
+        ),
+        [{
+            cardContained: true,
+            controlsContained: true,
+            actionsWrap: 'wrap',
+        }, {
+            cardContained: true,
+            controlsContained: true,
+            actionsWrap: 'wrap',
+        }]
+    );
+
+    await selectText('delta');
+    assert.deepEqual(
+        await page.evaluate(() => {
+            const composer = document.querySelector(
+                '[data-comment-composer]'
+            );
+            const actions = composer.querySelector(
+                '.conversation-comment-actions'
+            );
+            const firstCard = document.querySelector('[data-comment-id]');
+            const composerBounds = composer.getBoundingClientRect();
+            const actionsBounds = actions.getBoundingClientRect();
+            const firstCardBounds = firstCard.getBoundingClientRect();
+            return {
+                contentUnclipped:
+                    composer.scrollHeight <= composer.clientHeight,
+                actionsContained:
+                    actionsBounds.top >= composerBounds.top
+                    && actionsBounds.bottom <= composerBounds.bottom,
+                clearOfFirstCard:
+                    composerBounds.bottom <= firstCardBounds.top,
+            };
+        }),
+        {
+            contentUnclipped: true,
+            actionsContained: true,
+            clearOfFirstCard: true,
+        }
+    );
+    await page.locator('[data-comment-action="cancel-add"]').click();
+
+    await page.setViewportSize({ width: 180, height: 600 });
+    assert.deepEqual(
+        await page.locator('[data-comment-id]').evaluateAll(cards =>
+            cards.map(card => {
+                const bounds = card.getBoundingClientRect();
+                return {
+                    leftVisible: bounds.left >= 0,
+                    rightVisible: bounds.right <= window.innerWidth,
+                    contentContained: card.scrollWidth <= card.clientWidth,
+                };
+            })
+        ),
+        [{
+            leftVisible: true,
+            rightVisible: true,
+            contentContained: true,
+        }, {
+            leftVisible: true,
+            rightVisible: true,
+            contentContained: true,
+        }]
+    );
+    await page.setViewportSize({ width: 850, height: 600 });
+
+    await sendPage(page, {
+        type: 'conversation-viewer-page',
+        version: 1,
+        requestId: 100,
+        subscriptionGeneration: 1,
+        updateKind: 'navigation',
+        html: `<article data-conversation-message-id="other%3Auser"
+            data-interaction-id="other">
+            <section class="conversation-markdown"><p>Other input.</p></section>
+        </article>`,
+        outline: [{
+            interactionId: 'other',
+            userPreview: 'Other input',
+            responseState: 'complete',
+        }],
+        selectedInteractionId: 'other',
+        selectedInput: 2,
+        totalInputs: 2,
+        partial: false,
+        atLatest: true,
+        stale: false,
+    });
+    await page.locator('[data-comment-id="comment-1"]')
+        .locator('[data-comment-action="locate"]').click();
+    requests = await postedMessages(page);
+    const locate = requests.at(-1);
+    assert.equal(locate.type, 'conversation-viewer-locate-comment');
+    assert.equal(locate.commentId, 'comment-1');
+    assert.equal(locate.projectId, 'project-a');
+    assert.equal(
+        await page.locator('[data-conversation-comments]').getAttribute(
+            'aria-busy'
+        ),
+        'true'
+    );
+    assert.equal(
+        await page.locator('[data-comment-action="send"]').isDisabled(),
+        true
+    );
+
+    await sendPage(page, {
+        type: 'conversation-viewer-page',
+        version: 1,
+        requestId: 101,
+        subscriptionGeneration: 1,
+        updateKind: 'navigation',
+        html: `<article data-conversation-message-id="${
+            encodeURIComponent(`${interactionId}:user`)
+        }"
+            data-interaction-id="${interactionId}">
+            <section class="conversation-markdown">
+                <p>Alpha beta gamma beta delta.</p>
+            </section>
+        </article>`,
+        outline: [{
+            interactionId,
+            userPreview: 'Alpha beta gamma beta delta.',
+            responseState: 'complete',
+        }],
+        selectedInteractionId: interactionId,
+        selectedInput: 1,
+        totalInputs: 2,
+        partial: false,
+        atLatest: false,
+        stale: false,
+    });
+    assert.match(
+        await page.locator('[data-conversation-messages]').innerHTML(),
+        /Alpha beta gamma beta delta\./
+    );
+    await settleLocate(locate);
+    assert.equal(
+        await page.locator(`[data-interaction-id="${interactionId}"]`)
+            .evaluate(element => document.activeElement === element),
+        true
+    );
+    assert.equal(
+        await page.locator('[data-conversation-comments]').getAttribute(
+            'aria-busy'
+        ),
+        'false'
+    );
+
     await page.locator('[data-comment-action="send"]').click();
     requests = await postedMessages(page);
     const send = requests.at(-1);
@@ -855,12 +1432,123 @@ test('CONVERSATION-COMMENTS-UI-001 collects multiple selections and sends one co
     assert.equal(send.operation, 'sendComments');
     assert.equal(send.expectedRevision, 2);
     assert.deepEqual(send.payload, {});
-    await settle(send, 3, []);
+    comments.forEach(comment => {
+        comment.status = 'sent';
+    });
+    await settle(send, 3, comments);
 
-    assert.equal(await page.locator('[data-comment-id]').count(), 0);
+    assert.equal(await page.locator('[data-comment-id]').count(), 2);
+    assert.deepEqual(
+        await page.locator('[data-comment-status-label]').allTextContents(),
+        ['Sent', 'Sent']
+    );
+    assert.equal(
+        await page.locator('[data-comment-action="send"]').isDisabled(),
+        true
+    );
     assert.equal(
         await page.locator('[data-conversation-status]').textContent(),
         'Comments sent to this session.'
+    );
+
+    await page.locator('[data-comment-id="comment-1"]')
+        .locator('[data-comment-action="resolve"]').click();
+    requests = await postedMessages(page);
+    const resolve = requests.at(-1);
+    assert.equal(resolve.operation, 'resolve');
+    comments[0].status = 'resolved';
+    await settle(resolve, 4, comments);
+    assert.equal(
+        await page.locator('[data-comment-id="comment-1"]')
+            .getAttribute('data-comment-status'),
+        'resolved'
+    );
+
+    await page.locator('[data-comment-id="comment-1"]')
+        .locator('[data-comment-action="reopen"]').click();
+    requests = await postedMessages(page);
+    const reopen = requests.at(-1);
+    assert.equal(reopen.operation, 'reopen');
+    comments[0].status = 'open';
+    await settle(reopen, 5, comments);
+    assert.equal(
+        await page.locator('[data-action="toggle-comments"]').textContent(),
+        'Comments (1 open)'
+    );
+    assert.equal(
+        await page.locator('[data-comment-action="send"]').isEnabled(),
+        true
+    );
+
+    await page.locator('[data-comment-action="clearSent"]').click();
+    requests = await postedMessages(page);
+    const clearSent = requests.at(-1);
+    assert.equal(clearSent.operation, 'clearSent');
+    assert.equal(clearSent.expectedRevision, 5);
+    assert.deepEqual(clearSent.payload, {});
+    comments.splice(1, 1);
+    await settle(clearSent, 6, comments);
+    assert.deepEqual(
+        await page.locator('[data-comment-status-label]').allTextContents(),
+        ['Open']
+    );
+
+    await page.locator('[data-comment-id="comment-1"]')
+        .locator('[data-comment-action="resolve"]').click();
+    requests = await postedMessages(page);
+    const resolveRemaining = requests.at(-1);
+    comments[0].status = 'resolved';
+    await settle(resolveRemaining, 7, comments);
+
+    await page.locator('[data-comment-action="clearResolved"]').click();
+    requests = await postedMessages(page);
+    const clearResolved = requests.at(-1);
+    assert.equal(clearResolved.operation, 'clearResolved');
+    assert.equal(clearResolved.expectedRevision, 7);
+    comments.splice(0);
+    await settle(clearResolved, 8, comments);
+    assert.equal(await page.locator('[data-comment-id]').count(), 0);
+
+    await selectText('gamma');
+    await page.locator('[data-comment-input]').fill('Check gamma again.');
+    await page.locator('[data-comment-input]').press('Control+Enter');
+    requests = await postedMessages(page);
+    const third = requests.at(-1);
+    comments.push({
+        id: 'comment-3',
+        messageId: `${interactionId}:user`,
+        interactionId,
+        role: 'user',
+        quote: 'gamma',
+        prefix: 'Alpha beta ',
+        suffix: ' beta delta.',
+        comment: 'Check gamma again.',
+        status: 'open',
+    });
+    await settle(third, 9, comments);
+
+    const messageCountBeforeConfirmation = (await postedMessages(page)).length;
+    await page.locator('[data-comment-action="clearAll"]').click();
+    assert.equal(
+        (await postedMessages(page)).length,
+        messageCountBeforeConfirmation
+    );
+    assert.equal(
+        await page.locator('[data-comment-action="clearAll"]').textContent(),
+        'Confirm clear all'
+    );
+    await page.locator('[data-comment-action="clearAll"]').click();
+    requests = await postedMessages(page);
+    const clearAll = requests.at(-1);
+    assert.equal(clearAll.operation, 'clearAll');
+    assert.equal(clearAll.expectedRevision, 9);
+    assert.deepEqual(clearAll.payload, {});
+    comments.splice(0);
+    await settle(clearAll, 10, comments);
+    assert.equal(await page.locator('[data-comment-id]').count(), 0);
+    assert.equal(
+        await page.locator('[data-comment-action="clearAll"]').isDisabled(),
+        true
     );
 });
 
@@ -1193,6 +1881,386 @@ test('CONVERSATION-VIEWER-RICH-MARKDOWN-002 lazy-loads Mermaid in the nonce-only
     assert.match(await diagram.getAttribute('src'), /^blob:/);
 });
 
+test('CONVERSATION-READING-FOCUS-001 reserves Mermaid dimensions before Blob image decoding can shift layout', async t => {
+    const page = await openViewerPage(t, { includeMermaid: true });
+    await sendPage(page, {
+        ...hostileConversationPage,
+        html: `<article data-message-id="dimensioned"
+            data-interaction-id="input-4">
+            <section class="conversation-markdown">
+                <pre><code class="language-mermaid">flowchart TB
+                    A[One] --&gt; B[Two]
+                    B --&gt; C[Three]
+                    C --&gt; D[Four]
+                    D --&gt; E[Five]</code></pre>
+            </section>
+        </article>`,
+    });
+    const diagram = page.locator('.conversation-mermaid-image');
+    await diagram.waitFor();
+
+    assert.ok(Number(await diagram.getAttribute('width')) > 0);
+    assert.ok(Number(await diagram.getAttribute('height')) > 0);
+});
+
+test('CONVERSATION-READING-FOCUS-001 keeps the reading anchor stable after each Mermaid diagram finishes', async t => {
+    const page = await openViewerPage(t, { controlledMermaid: true });
+    await page.addStyleTag({ content: viewerCss });
+    const diagram = label => `<article data-message-id="diagram-${label}"
+        data-interaction-id="input-4">
+        <section class="conversation-markdown">
+            <pre><code class="language-mermaid">flowchart TB
+                A[${label}] --&gt; B[Rendered later]</code></pre>
+        </section>
+    </article>`;
+    await sendPage(page, {
+        ...hostileConversationPage,
+        html: diagram('first') + diagram('second')
+            + messageHtml('delayed-tail', 12),
+        selectedInput: 12,
+        totalInputs: 12,
+        updateKind: 'initial',
+    });
+    await page.waitForFunction(
+        () => window.__mermaidRenders.length === 1,
+        undefined,
+        { timeout: 3_000 }
+    );
+    const scroll = page.locator('[data-conversation-scroll]');
+    await scroll.evaluate(element => {
+        element.style.overflowAnchor = 'none';
+    });
+    const anchor = page.locator('[data-message-id="delayed-tail-6"]');
+    await anchor.scrollIntoViewIfNeeded();
+    const anchorTopBefore = await anchor.evaluate(element => {
+        const scrollElement = document.querySelector(
+            '[data-conversation-scroll]'
+        );
+        return element.getBoundingClientRect().top
+            - scrollElement.getBoundingClientRect().top;
+    });
+    const scrollTopBefore = await scroll.evaluate(element => element.scrollTop);
+    await page.evaluate(() => {
+        window.__mermaidRenders[0].resolve({
+            svg: `<svg xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 600 1600">
+                <rect width="600" height="1600" fill="#246"></rect>
+            </svg>`,
+        });
+    });
+    await page.waitForFunction(
+        () => window.__mermaidRenders.length === 2,
+        undefined,
+        { timeout: 3_000 }
+    );
+
+    const anchorTopAfterFirstDiagram = await anchor.evaluate(element => {
+        const scrollElement = document.querySelector(
+            '[data-conversation-scroll]'
+        );
+        return element.getBoundingClientRect().top
+            - scrollElement.getBoundingClientRect().top;
+    });
+    const scrollTopAfter = await scroll.evaluate(element => element.scrollTop);
+    assert.ok(
+        Math.abs(anchorTopAfterFirstDiagram - anchorTopBefore) <= 1,
+        `reading anchor moved from ${anchorTopBefore} to `
+            + anchorTopAfterFirstDiagram + ` (scrollTop ${scrollTopBefore}`
+            + ` -> ${scrollTopAfter})`
+    );
+    await page.evaluate(() => {
+        window.__mermaidRenders[1].resolve({
+            svg: `<svg xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 600 800">
+                <rect width="600" height="800" fill="#246"></rect>
+            </svg>`,
+        });
+    });
+    await page.locator('.conversation-mermaid-image').nth(1).waitFor({
+        timeout: 3_000,
+    });
+    await page.evaluate(() => new Promise(resolve => {
+        requestAnimationFrame(() => requestAnimationFrame(resolve));
+    }));
+    const anchorTopAfterAllDiagrams = await anchor.evaluate(element => {
+        const scrollElement = document.querySelector(
+            '[data-conversation-scroll]'
+        );
+        return element.getBoundingClientRect().top
+            - scrollElement.getBoundingClientRect().top;
+    });
+    assert.ok(
+        Math.abs(anchorTopAfterAllDiagrams - anchorTopBefore) <= 1,
+        `reading anchor moved after the final diagram from ${anchorTopBefore}`
+            + ` to ${anchorTopAfterAllDiagrams}`
+    );
+});
+
+test('CONVERSATION-READING-FOCUS-001 does not restart an in-flight Mermaid render on live refresh', async t => {
+    const page = await openViewerPage(t, { controlledMermaid: true });
+    const diagramMessage = text => `<article data-message-id="in-flight"
+        data-interaction-id="input-4">
+        <section class="conversation-markdown">
+            <pre><code class="language-mermaid">flowchart TB
+                A[Slow diagram] --&gt; B[One render only]</code></pre>
+            <p>${text}</p>
+        </section>
+    </article>`;
+    await sendPage(page, {
+        ...hostileConversationPage,
+        html: diagramMessage('First response chunk'),
+        updateKind: 'initial',
+    });
+    await page.waitForFunction(() => window.__mermaidRenders.length === 1);
+
+    await sendPage(page, {
+        ...hostileConversationPage,
+        requestId: 2,
+        html: diagramMessage('First response chunk plus streamed text'),
+        updateKind: 'refresh',
+    });
+    await page.waitForTimeout(50);
+    assert.equal(
+        await page.evaluate(() => window.__mermaidRenders.length),
+        1
+    );
+
+    await page.evaluate(() => {
+        window.__mermaidRenders[0].resolve({
+            svg: `<svg xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 600 800">
+                <rect width="600" height="800" fill="#246"></rect>
+            </svg>`,
+        });
+    });
+    await page.locator('.conversation-mermaid-image').waitFor();
+});
+
+test('CONVERSATION-READING-FOCUS-001 keeps an intra-message paragraph stable while earlier Mermaid diagrams finish', async t => {
+    const page = await openViewerPage(t, { controlledMermaid: true });
+    await page.addStyleTag({ content: viewerCss });
+    const diagram = label => `<pre><code class="language-mermaid">flowchart TB
+        A[${label}] --&gt; B[Rendered later]</code></pre>`;
+    await sendPage(page, {
+        ...hostileConversationPage,
+        html: `<article data-message-id="multi-diagram"
+            data-interaction-id="input-4">
+            <section class="conversation-markdown">
+                <p>Assistant introduction</p>
+                ${diagram('first')}
+                <p>Text between the diagrams</p>
+                ${diagram('second')}
+                <p>Assistant conclusion</p>
+            </section>
+        </article>` + messageHtml('intra-message-tail', 8),
+        updateKind: 'initial',
+    });
+    await page.waitForFunction(() => window.__mermaidRenders.length === 1);
+    const scroll = page.locator('[data-conversation-scroll]');
+    await scroll.evaluate(element => {
+        element.style.overflowAnchor = 'none';
+    });
+    const anchor = page.getByText('Text between the diagrams', {
+        exact: true,
+    });
+    await anchor.evaluate(element => element.scrollIntoView({
+        block: 'center',
+    }));
+    const anchorTopBefore = await anchor.evaluate(element => {
+        const scrollElement = document.querySelector(
+            '[data-conversation-scroll]'
+        );
+        return element.getBoundingClientRect().top
+            - scrollElement.getBoundingClientRect().top;
+    });
+    const intraScrollTopBefore = await scroll.evaluate(
+        element => element.scrollTop
+    );
+
+    await page.evaluate(() => {
+        window.__mermaidRenders[0].resolve({
+            svg: `<svg xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 600 1600">
+                <rect width="600" height="1600" fill="#246"></rect>
+            </svg>`,
+        });
+    });
+    await page.waitForFunction(() => window.__mermaidRenders.length === 2);
+    const anchorTopAfterFirstDiagram = await anchor.evaluate(element => {
+        const scrollElement = document.querySelector(
+            '[data-conversation-scroll]'
+        );
+        return element.getBoundingClientRect().top
+            - scrollElement.getBoundingClientRect().top;
+    });
+    const intraScrollTopAfter = await scroll.evaluate(
+        element => element.scrollTop
+    );
+
+    await page.evaluate(() => {
+        window.__mermaidRenders[1].resolve({
+            svg: `<svg xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 600 800">
+                <rect width="600" height="800" fill="#246"></rect>
+            </svg>`,
+        });
+    });
+    await page.locator('.conversation-mermaid-image').nth(1).waitFor();
+    assert.ok(
+        Math.abs(anchorTopAfterFirstDiagram - anchorTopBefore) <= 1,
+        `intra-message anchor moved from ${anchorTopBefore} to `
+            + anchorTopAfterFirstDiagram + ` (scrollTop `
+            + `${intraScrollTopBefore} -> ${intraScrollTopAfter})`
+    );
+});
+
+test('CONVERSATION-READING-FOCUS-001 preserves an unchanged rendered Mermaid diagram across live refreshes', async t => {
+    const page = await openViewerPage(t, { includeMermaid: true });
+    const diagramMessage = `<article data-message-id="diagram"
+        data-interaction-id="input-4">
+        <section class="conversation-markdown">
+            <pre><code class="language-mermaid">flowchart TB
+                A[Large diagram] --&gt; B[Stable node]
+                B --&gt; C[Reading anchor]</code></pre>
+        </section>
+    </article>`;
+    const baseHtml = diagramMessage + messageHtml('after-diagram', 12);
+    await sendPage(page, {
+        ...hostileConversationPage,
+        html: baseHtml,
+        selectedInput: 12,
+        totalInputs: 12,
+        updateKind: 'initial',
+    });
+    const diagram = page.locator('.conversation-mermaid-image');
+    await diagram.waitFor();
+    await page.waitForFunction(() => {
+        const image = document.querySelector('.conversation-mermaid-image');
+        return image && image.complete && image.naturalWidth > 0;
+    });
+    const originalSource = await diagram.getAttribute('src');
+    await diagram.evaluate(image => {
+        image.dataset.refreshIdentity = 'preserved';
+    });
+    const focusedMessage = page.locator(
+        '[data-message-id="after-diagram-6"]'
+    );
+    await focusedMessage.evaluate(element => {
+        element.tabIndex = -1;
+        element.focus();
+    });
+    const scroll = page.locator('[data-conversation-scroll]');
+    await scroll.evaluate(element => {
+        element.scrollTop = element.scrollHeight / 2;
+    });
+    const scrollBefore = await scroll.evaluate(element => element.scrollTop);
+
+    await sendPage(page, {
+        ...hostileConversationPage,
+        requestId: 2,
+        updateKind: 'refresh',
+        html: baseHtml + messageHtml('after-diagram-new', 1),
+        selectedInput: 12,
+        totalInputs: 13,
+    });
+    await page.locator('.conversation-mermaid-image').waitFor();
+
+    assert.equal(
+        await page.locator('.conversation-mermaid-image')
+            .getAttribute('data-refresh-identity'),
+        'preserved'
+    );
+    assert.equal(
+        await page.locator('.conversation-mermaid-image').getAttribute('src'),
+        originalSource
+    );
+    assert.equal(
+        await page.evaluate(() =>
+            document.activeElement?.getAttribute('data-message-id')),
+        'after-diagram-6'
+    );
+    assert.equal(
+        await scroll.evaluate(element => element.scrollTop),
+        scrollBefore
+    );
+});
+
+test('CONVERSATION-READING-FOCUS-001 preserves an unchanged Mermaid block while its Assistant message streams more text', async t => {
+    const page = await openViewerPage(t, { includeMermaid: true });
+    const streamingMessage = text => `<article data-message-id="streaming"
+        data-interaction-id="input-4">
+        <section class="conversation-markdown">
+            <pre><code class="language-mermaid">flowchart TB
+                A[Stable diagram] --&gt; B[Must not redraw]</code></pre>
+            <p>${text}</p>
+        </section>
+    </article>`;
+    const trailingMessages = messageHtml('streaming-tail', 12);
+    await sendPage(page, {
+        ...hostileConversationPage,
+        html: streamingMessage('First response chunk') + trailingMessages,
+        selectedInput: 12,
+        totalInputs: 12,
+        updateKind: 'initial',
+    });
+    const diagram = page.locator('.conversation-mermaid-image');
+    await diagram.waitFor();
+    await page.waitForFunction(() => {
+        const image = document.querySelector('.conversation-mermaid-image');
+        return image && image.complete && image.naturalWidth > 0;
+    });
+    const originalSource = await diagram.getAttribute('src');
+    await diagram.evaluate(image => {
+        image.dataset.streamingIdentity = 'preserved';
+    });
+    const focusedMessage = page.locator(
+        '[data-message-id="streaming-tail-6"]'
+    );
+    await focusedMessage.evaluate(element => {
+        element.tabIndex = -1;
+        element.focus();
+    });
+    const scroll = page.locator('[data-conversation-scroll]');
+    await scroll.evaluate(element => {
+        element.scrollTop = element.scrollHeight / 2;
+    });
+    const scrollBefore = await scroll.evaluate(element => element.scrollTop);
+
+    await sendPage(page, {
+        ...hostileConversationPage,
+        requestId: 2,
+        updateKind: 'refresh',
+        html: streamingMessage('First response chunk and more streamed text')
+            + trailingMessages,
+        selectedInput: 12,
+        totalInputs: 12,
+    });
+    await page.locator('.conversation-mermaid-image').waitFor();
+
+    assert.equal(
+        await page.locator('.conversation-mermaid-image')
+            .getAttribute('data-streaming-identity'),
+        'preserved'
+    );
+    assert.equal(
+        await page.locator('.conversation-mermaid-image').getAttribute('src'),
+        originalSource
+    );
+    assert.equal(
+        await page.evaluate(() =>
+            document.activeElement?.getAttribute('data-message-id')),
+        'streaming-tail-6'
+    );
+    assert.equal(
+        await scroll.evaluate(element => element.scrollTop),
+        scrollBefore
+    );
+    assert.match(
+        await page.locator('[data-message-id="streaming"]').textContent(),
+        /more streamed text/
+    );
+});
+
 test('CONVERSATION-VIEWER-BROWSER-NAVIGATION-001 preserves historical scroll and focuses the first appended message', async t => {
     const page = await openViewerPage(t);
     const originalHtml = messageHtml('message', 12);
@@ -1241,6 +2309,11 @@ test('CONVERSATION-VIEWER-BROWSER-NAVIGATION-002 anchors and focuses the Host-se
     await sendPage(page, {
         ...hostileConversationPage,
         html,
+        outline: Array.from({ length: 6 }, (_, index) => ({
+            interactionId: `selected-${index}`,
+            userPreview: `Selected input ${index + 1}`,
+            responseState: 'complete',
+        })),
         selectedInteractionId: 'selected-3',
     });
     assert.equal(await page.locator(
@@ -1252,6 +2325,11 @@ test('CONVERSATION-VIEWER-BROWSER-NAVIGATION-002 anchors and focuses the Host-se
         requestId: 2,
         updateKind: 'navigation',
         html,
+        outline: Array.from({ length: 6 }, (_, index) => ({
+            interactionId: `selected-${index}`,
+            userPreview: `Selected input ${index + 1}`,
+            responseState: 'complete',
+        })),
         selectedInteractionId: 'selected-2',
         selectedInput: 3,
     });
@@ -1266,6 +2344,11 @@ test('CONVERSATION-VIEWER-PARTIAL-001 labels capped input positions and partial 
     await sendPage(page, {
         ...hostileConversationPage,
         html: messageHtml('partial', 2),
+        outline: Array.from({ length: 2 }, (_, index) => ({
+            interactionId: `partial-${index}`,
+            userPreview: `Partial input ${index + 1}`,
+            responseState: 'complete',
+        })),
         selectedInteractionId: 'partial-0',
         selectedInput: 2,
         totalInputs: 2_000,
@@ -1282,7 +2365,7 @@ test('CONVERSATION-VIEWER-PARTIAL-001 labels capped input positions and partial 
     );
 });
 
-test('CONVERSATION-VIEWER-BROWSER-SCROLL-001 auto-follows at exactly 8px but not at 9px', async t => {
+test('CONVERSATION-VIEWER-BROWSER-SCROLL-001 CONVERSATION-READING-FOCUS-001 preserves the reading viewport and semantic focus on refresh', async t => {
     const page = await openViewerPage(t);
     const baseHtml = messageHtml('follow', 20);
     const appendedHtml = baseHtml + messageHtml('follow-new', 1);
@@ -1299,9 +2382,15 @@ test('CONVERSATION-VIEWER-BROWSER-SCROLL-001 auto-follows at exactly 8px but not
     const scroll = page.locator('[data-conversation-scroll]');
 
     await sendPage(page, baseMessage);
-    await scroll.evaluate(element => {
-        element.scrollTop = element.scrollHeight - element.clientHeight - 8;
+    const focusedMessage = page.locator('[data-message-id="follow-10"]');
+    await focusedMessage.evaluate(element => {
+        element.tabIndex = -1;
+        element.focus();
     });
+    await scroll.evaluate(element => {
+        element.scrollTop = element.scrollHeight - element.clientHeight;
+    });
+    const bottomBefore = await scroll.evaluate(element => element.scrollTop);
     await sendPage(page, {
         ...baseMessage,
         requestId: 2,
@@ -1309,9 +2398,18 @@ test('CONVERSATION-VIEWER-BROWSER-SCROLL-001 auto-follows at exactly 8px but not
         html: appendedHtml,
         totalInputs: 21,
     });
-    assert.equal(await scroll.evaluate(element =>
-        Math.round(element.scrollHeight - element.scrollTop - element.clientHeight)
-    ), 0);
+    assert.equal(
+        await scroll.evaluate(element => element.scrollTop),
+        bottomBefore
+    );
+    assert.equal(
+        await page.evaluate(() =>
+            document.activeElement?.getAttribute('data-message-id')),
+        'follow-10'
+    );
+    assert.equal(await page.getByRole('button', {
+        name: 'New response content',
+    }).isVisible(), true);
 
     await sendPage(page, {
         ...baseMessage,
@@ -1423,7 +2521,7 @@ test('CONVERSATION-VIEWER-BROWSER-RACE-001 treats a refresh that wins initial lo
     ).count(), 1);
 });
 
-test('CONVERSATION-VIEWER-BROWSER-REFRESH-001 preserves a real Host history window at 9px and auto-follows at 8px', async t => {
+test('CONVERSATION-VIEWER-BROWSER-REFRESH-001 CONVERSATION-READING-FOCUS-001 preserves a real Host history window at every reading position', async t => {
     const publications = await realHostAppendPublications();
     for (const distance of [9, 8]) {
         const page = await openViewerPage(t);
@@ -1444,22 +2542,12 @@ test('CONVERSATION-VIEWER-BROWSER-REFRESH-001 preserves a real Host history wind
         assert.equal(await page.locator(
             '[data-interaction-id="host-input-21"]'
         ).count(), 1);
-        if (distance === 9) {
-            assert.equal(
-                await scroll.evaluate(element => element.scrollTop),
-                before
-            );
-            assert.equal(await page.getByRole('button', {
-                name: 'New response content',
-            }).isVisible(), true);
-        } else {
-            assert.equal(await scroll.evaluate(element =>
-                Math.round(element.scrollHeight - element.scrollTop
-                    - element.clientHeight)
-            ), 0);
-            assert.equal(await page.getByRole('button', {
-                name: 'New response content',
-            }).isHidden(), true);
-        }
+        assert.equal(
+            await scroll.evaluate(element => element.scrollTop),
+            before
+        );
+        assert.equal(await page.getByRole('button', {
+            name: 'New response content',
+        }).isVisible(), true);
     }
 });

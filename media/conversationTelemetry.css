@@ -1,0 +1,49 @@
+.conversation-telemetry {
+    display: flex;
+    min-width: 0;
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+    gap: .5rem 1rem;
+    align-items: center;
+    padding: .45rem 1rem;
+    border-bottom: 1px solid var(--vscode-panel-border);
+    color: var(--vscode-descriptionForeground);
+    background: var(--vscode-sideBar-background, var(--vscode-editor-background));
+    font-size: .8rem;
+}
+
+.conversation-telemetry[hidden],
+.conversation-telemetry [hidden] {
+    display: none;
+}
+
+.conversation-telemetry-model,
+.conversation-telemetry-meter {
+    display: flex;
+    min-width: 0;
+    gap: .4rem;
+    align-items: center;
+}
+
+.conversation-telemetry-model strong {
+    max-width: 18rem;
+    overflow: hidden;
+    color: var(--vscode-editor-foreground);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.conversation-telemetry-meter progress {
+    width: 5.5rem;
+    height: .45rem;
+    accent-color: var(--vscode-progressBar-background);
+}
+
+.conversation-telemetry-meter > span:last-child {
+    color: var(--vscode-editor-foreground);
+    white-space: nowrap;
+}
+
+.conversation-telemetry-limits {
+    display: contents;
+}

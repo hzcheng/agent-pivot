@@ -27,7 +27,10 @@ export interface ConversationCommentDraft {
     prefix: string;
     suffix: string;
     comment: string;
+    status: ConversationCommentStatus;
 }
+
+export type ConversationCommentStatus = 'open' | 'sent' | 'resolved';
 
 export interface ConversationCommentSelection {
     messageId: string;
@@ -39,7 +42,11 @@ export interface ConversationCommentSelection {
 }
 
 export type ConversationCommentOperation =
-    'add' | 'update' | 'delete' | 'sendComments';
+    'add' | 'update' | 'delete' | 'resolve' | 'reopen'
+    | 'clearSent' | 'clearResolved' | 'clearAll' | 'sendComments';
+
+export type ConversationCommentClearOperation =
+    'clearSent' | 'clearResolved' | 'clearAll';
 
 export class ConversationCommentError extends Error {
     constructor(
@@ -84,6 +91,7 @@ export function createConversationComment(
             selection.comment,
             CONVERSATION_COMMENT_LIMITS.maxCommentGraphemes
         ),
+        status: 'open',
     };
 }
 
@@ -91,6 +99,9 @@ export function updateConversationComment(
     draft: ConversationCommentDraft,
     comment: unknown
 ): ConversationCommentDraft {
+    if (draft.status !== 'open') {
+        throw new ConversationCommentError('invalid');
+    }
     return {
         ...draft,
         comment: requireBoundedText(
@@ -98,6 +109,57 @@ export function updateConversationComment(
             CONVERSATION_COMMENT_LIMITS.maxCommentGraphemes
         ),
     };
+}
+
+export function resolveConversationComment(
+    draft: ConversationCommentDraft
+): ConversationCommentDraft {
+    validateDraft(draft);
+    if (draft.status === 'resolved') {
+        throw new ConversationCommentError('invalid');
+    }
+    return { ...draft, status: 'resolved' };
+}
+
+export function reopenConversationComment(
+    draft: ConversationCommentDraft
+): ConversationCommentDraft {
+    validateDraft(draft);
+    if (draft.status === 'open') {
+        throw new ConversationCommentError('invalid');
+    }
+    return { ...draft, status: 'open' };
+}
+
+export function markConversationCommentsSent(
+    comments: readonly ConversationCommentDraft[]
+): ConversationCommentDraft[] {
+    return comments.map(comment => {
+        validateDraft(comment);
+        return comment.status === 'open'
+            ? { ...comment, status: 'sent' }
+            : { ...comment };
+    });
+}
+
+export function clearConversationComments(
+    comments: readonly ConversationCommentDraft[],
+    operation: ConversationCommentClearOperation
+): ConversationCommentDraft[] {
+    if (!Array.isArray(comments)
+        || (operation !== 'clearSent'
+            && operation !== 'clearResolved'
+            && operation !== 'clearAll')) {
+        throw new ConversationCommentError('invalid');
+    }
+    return comments.filter(comment => {
+        validateDraft(comment);
+        return operation === 'clearAll'
+            ? false
+            : comment.status !== (
+                operation === 'clearSent' ? 'sent' : 'resolved'
+            );
+    }).map(comment => ({ ...comment }));
 }
 
 export function buildConversationCommentsPrompt(
@@ -144,12 +206,32 @@ export function cloneConversationComments(
     return comments.map(comment => ({ ...comment }));
 }
 
+export function validateConversationComments(
+    comments: readonly ConversationCommentDraft[]
+): void {
+    if (!Array.isArray(comments)
+        || comments.length > CONVERSATION_COMMENT_LIMITS.maxComments) {
+        throw new ConversationCommentError('invalid');
+    }
+    const ids = new Set<string>();
+    comments.forEach(comment => {
+        validateDraft(comment);
+        if (ids.has(comment.id)) {
+            throw new ConversationCommentError('invalid');
+        }
+        ids.add(comment.id);
+    });
+}
+
 function validateDraft(draft: ConversationCommentDraft): void {
     if (!draft
         || !isBoundedId(draft.id)
         || !isBoundedId(draft.messageId)
         || !isBoundedId(draft.interactionId)
-        || (draft.role !== 'user' && draft.role !== 'assistant')) {
+        || (draft.role !== 'user' && draft.role !== 'assistant')
+        || (draft.status !== 'open'
+            && draft.status !== 'sent'
+            && draft.status !== 'resolved')) {
         throw new ConversationCommentError('invalid');
     }
     requireBoundedText(

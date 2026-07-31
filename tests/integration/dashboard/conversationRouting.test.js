@@ -14,6 +14,9 @@ const {
     ConversationCoordinator,
 } = require('../../../out/aiSessions/conversation/coordinator');
 const {
+    ConversationError,
+} = require('../../../out/aiSessions/conversation/types');
+const {
     withConversationDisplayMetadata,
 } = require('../../../out/aiSessions/conversation/conversationHostController');
 const ClaudeSessionService = require(
@@ -118,6 +121,7 @@ function fakePanel() {
     const panel = {
         title: '',
         visible: true,
+        postMessageResult: true,
         postedMessages: [],
         webview: {
             html: '',
@@ -128,7 +132,7 @@ function fakePanel() {
             },
             postMessage: async message => {
                 panel.postedMessages.push(message);
-                return true;
+                return panel.postMessageResult;
             },
             asWebviewUri: uri => fakeUri(
                 uri.toString().replace('file://', 'webview://fixture/')
@@ -227,6 +231,9 @@ function createFakeAdapter(provider, options, events) {
     return {
         async readOutline(sessionId) {
             events.push(`read-outline:${provider}`);
+            if (options.testReadOutline) {
+                return options.testReadOutline(provider, sessionId);
+            }
             if (provider === 'codex' && !codexConnected) {
                 codexConnected = true;
                 await options.client.request('thread/read', {
@@ -269,6 +276,7 @@ function createDashboardConversationHarness(options = {}) {
     const diagnostics = [];
     const panels = [];
     const viewerTargets = [];
+    const sessionFocusTargets = [];
     const authorityCalls = [];
     const kimiSourceCalls = [];
     const focusedSession = options.focusedSession || {
@@ -304,7 +312,10 @@ function createDashboardConversationHarness(options = {}) {
     let router;
     const createAdapter = provider => adapterOptions => {
         events.push(`adapter:${provider}`);
-        return createFakeAdapter(provider, adapterOptions, events);
+        return createFakeAdapter(provider, {
+            ...adapterOptions,
+            testReadOutline: options.readOutline,
+        }, events);
     };
     const internalFactories = {
         ...(!options.useConcreteKimi
@@ -356,6 +367,7 @@ function createDashboardConversationHarness(options = {}) {
         diagnostics,
         panels,
         viewerTargets,
+        sessionFocusTargets,
         authorityCalls,
         kimiSourceCalls,
         get capability() {
@@ -375,7 +387,9 @@ function createDashboardConversationHarness(options = {}) {
                 },
                 publish: async message => {
                     publications.push(message);
-                    return options.publishResult ?? true;
+                    return typeof options.publishResult === 'function'
+                        ? options.publishResult(message)
+                        : options.publishResult ?? true;
                 },
                 createPanel: (...args) => {
                     const panel = fakePanel();
@@ -393,7 +407,11 @@ function createDashboardConversationHarness(options = {}) {
                 onDiagnostic: event => diagnostics.push(event),
                 getWorkspaceRootHostPaths:
                     options.getWorkspaceRootHostPaths,
+                commentStore: options.commentStore,
                 submitPrompt: options.submitPrompt || (async () => undefined),
+                focusSession: target => {
+                    sessionFocusTargets.push(target);
+                },
             }, internalFactories);
             router = createDashboardMessageRouter({
                 handlers: {
@@ -727,6 +745,37 @@ test('PRODUCTION-CONVERSATION-COMPOSITION-002 keeps exact current-workspace auth
     await harness.dispose();
 });
 
+test('CONVERSATION-OUTLINE-DELIVERY-001 retries an undelivered initial error after authoritative Dashboard replacement', async () => {
+    let delivered = false;
+    let reads = 0;
+    const harness = createDashboardConversationHarness({
+        publishResult: () => delivered,
+        readOutline: (provider, sessionId) => {
+            reads += 1;
+            if (reads === 1) {
+                throw new ConversationError('staleRevision');
+            }
+            return fakeConversationOutline(provider, sessionId);
+        },
+    });
+    await harness.activate();
+    await harness.route(makeOutlineRequest());
+
+    assert.deepEqual(harness.publications.at(-1).error, {
+        code: 'staleRevision',
+        reason: undefined,
+        retryAfterMs: undefined,
+    });
+
+    delivered = true;
+    await harness.reconcile();
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.equal(reads, 2);
+    assert.equal(harness.publications.at(-1).payload.interactions.length, 2);
+    await harness.dispose();
+});
+
 test('PRODUCTION-CONVERSATION-LIFECYCLE-001 hidden sidebar keeps the exact viewer authority lifecycle live', async () => {
     let targetAvailable = true;
     const focusedSession = {
@@ -849,7 +898,7 @@ test('PRODUCTION-CONVERSATION-LIFECYCLE-003 accepts a fresh Webview generation a
     await harness.dispose();
 });
 
-test('PRODUCTION-CONVERSATION-COMMENTS-001 settles mutations once and submits one host-owned batch', async () => {
+test('PRODUCTION-CONVERSATION-COMMENTS-001 CONVERSATION-COMMENTS-REVIEW-001 CONVERSATION-COMMENTS-BULK-001 settles review mutations, cross-page location, and Host-owned batches', async () => {
     const prompts = [];
     const harness = createDashboardConversationHarness({
         useConcreteViewer: true,
@@ -889,11 +938,46 @@ test('PRODUCTION-CONVERSATION-COMMENTS-001 settles mutations once and submits on
     assert.equal(added.success, true);
     assert.equal(added.revision, 1);
     assert.equal(added.comments.length, 1);
+    assert.equal(added.comments[0].status, 'open');
+
+    await panel.receiveMessage({
+        type: 'conversation-viewer-next',
+        version: 1,
+    });
+    assert.equal(
+        panel.postedMessages.at(-1).selectedInteractionId,
+        'input-b'
+    );
+    await panel.receiveMessage({
+        ...base,
+        type: 'conversation-viewer-locate-comment',
+        requestId: 'comment:locate:2',
+        commentId: added.comments[0].id,
+    });
+    const located = panel.postedMessages.at(-1);
+    assert.equal(located.type, 'conversation-viewer-locate-comment-result');
+    assert.equal(located.success, true);
+    assert.equal(located.commentId, added.comments[0].id);
+    assert.equal(
+        panel.postedMessages.at(-2).selectedInteractionId,
+        'input-a'
+    );
+
+    const htmlBeforeUndeliveredLocate = panel.webview.html;
+    panel.postMessageResult = false;
+    await panel.receiveMessage({
+        ...base,
+        type: 'conversation-viewer-locate-comment',
+        requestId: 'comment:locate:undelivered',
+        commentId: added.comments[0].id,
+    });
+    assert.notEqual(panel.webview.html, htmlBeforeUndeliveredLocate);
+    panel.postMessageResult = true;
 
     await panel.receiveMessage({
         ...base,
         type: 'conversation-viewer-comment-mutation',
-        requestId: 'comment:update:2',
+        requestId: 'comment:update:3',
         operation: 'update',
         expectedRevision: 1,
         payload: {
@@ -911,7 +995,7 @@ test('PRODUCTION-CONVERSATION-COMMENTS-001 settles mutations once and submits on
     const send = {
         ...base,
         type: 'conversation-viewer-send-comments',
-        requestId: 'comment:send:3',
+        requestId: 'comment:send:4',
         operation: 'sendComments',
         expectedRevision: 2,
         payload: {},
@@ -920,13 +1004,24 @@ test('PRODUCTION-CONVERSATION-COMMENTS-001 settles mutations once and submits on
     const sent = panel.postedMessages.at(-1);
     assert.equal(sent.success, true);
     assert.equal(sent.revision, 3);
-    assert.deepEqual(sent.comments, []);
+    assert.equal(sent.comments.length, 1);
+    assert.equal(sent.comments[0].status, 'sent');
     assert.equal(prompts.length, 1);
+    assert.deepEqual(harness.sessionFocusTargets, [{
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    }]);
     assert.match(prompts[0], /\[批注 1\]/);
     assert.match(prompts[0], /Explain and test this behavior\./);
 
     await panel.receiveMessage(send);
     assert.equal(prompts.length, 1, 'a duplicate send request must not resubmit');
+    assert.equal(
+        harness.sessionFocusTargets.length,
+        1,
+        'a duplicate send request must not refocus the session'
+    );
     assert.deepEqual(panel.postedMessages.at(-1), sent);
     await panel.receiveMessage({
         ...base,
@@ -941,12 +1036,78 @@ test('PRODUCTION-CONVERSATION-COMMENTS-001 settles mutations once and submits on
     assert.equal(collision.success, false);
     assert.equal(collision.error, 'invalid');
     assert.equal(prompts.length, 1);
+
+    await panel.receiveMessage({
+        ...base,
+        type: 'conversation-viewer-comment-mutation',
+        requestId: 'comment:resolve:5',
+        operation: 'resolve',
+        expectedRevision: 3,
+        payload: { commentId: added.comments[0].id },
+    });
+    const resolved = panel.postedMessages.at(-1);
+    assert.equal(resolved.success, true);
+    assert.equal(resolved.revision, 4);
+    assert.equal(resolved.comments[0].status, 'resolved');
+
+    await panel.receiveMessage({
+        ...base,
+        type: 'conversation-viewer-comment-mutation',
+        requestId: 'comment:reopen:6',
+        operation: 'reopen',
+        expectedRevision: 4,
+        payload: { commentId: added.comments[0].id },
+    });
+    const reopened = panel.postedMessages.at(-1);
+    assert.equal(reopened.success, true);
+    assert.equal(reopened.revision, 5);
+    assert.equal(reopened.comments[0].status, 'open');
+
+    const clearAll = {
+        ...base,
+        type: 'conversation-viewer-comment-mutation',
+        requestId: 'comment:clear-all:7',
+        operation: 'clearAll',
+        expectedRevision: 5,
+        payload: {},
+    };
+    await panel.receiveMessage(clearAll);
+    const cleared = panel.postedMessages.at(-1);
+    assert.equal(cleared.success, true);
+    assert.equal(cleared.revision, 6);
+    assert.deepEqual(cleared.comments, []);
+
+    await panel.receiveMessage(clearAll);
+    assert.deepEqual(
+        panel.postedMessages.at(-1),
+        cleared,
+        'a duplicate bulk mutation must not execute twice'
+    );
     await harness.dispose();
 });
 
 test('PRODUCTION-CONVERSATION-COMMENTS-002 keeps authoritative drafts after submission failure', async () => {
+    let persisted = { revision: 0, comments: [] };
     const harness = createDashboardConversationHarness({
         useConcreteViewer: true,
+        commentStore: {
+            async load() {
+                return {
+                    revision: persisted.revision,
+                    comments: persisted.comments.map(comment => ({
+                        ...comment,
+                    })),
+                };
+            },
+            async save(_target, snapshot) {
+                persisted = {
+                    revision: snapshot.revision,
+                    comments: snapshot.comments.map(comment => ({
+                        ...comment,
+                    })),
+                };
+            },
+        },
         submitPrompt: async () => {
             throw new Error('private provider failure');
         },
@@ -991,10 +1152,150 @@ test('PRODUCTION-CONVERSATION-COMMENTS-002 keeps authoritative drafts after subm
     assert.equal(failure.error, 'failed');
     assert.equal(failure.revision, 1);
     assert.equal(failure.comments.length, 1);
+    assert.equal(persisted.revision, 1);
+    assert.equal(persisted.comments[0].status, 'open');
     assert.equal(
         JSON.stringify(failure).includes('private provider failure'),
         false
     );
+    await harness.dispose();
+});
+
+test('CONVERSATION-COMMENTS-PERSISTENCE-001 restores Host-owned comments after the Conversation panel is closed and reopened', async () => {
+    const snapshots = new Map();
+    const commentStore = {
+        async load(target) {
+            const snapshot = snapshots.get(JSON.stringify(target));
+            return snapshot
+                ? {
+                    revision: snapshot.revision,
+                    comments: snapshot.comments.map(comment => ({ ...comment })),
+                }
+                : { revision: 0, comments: [] };
+        },
+        async save(target, snapshot) {
+            snapshots.set(JSON.stringify(target), {
+                revision: snapshot.revision,
+                comments: snapshot.comments.map(comment => ({ ...comment })),
+            });
+        },
+    };
+    const harness = createDashboardConversationHarness({
+        useConcreteViewer: true,
+        commentStore,
+    });
+    await harness.activate();
+    await harness.route(makeOutlineRequest());
+    await harness.route(makeOpenRequest());
+    const firstPanel = harness.panels[0];
+    const target = {
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    };
+    await firstPanel.receiveMessage({
+        type: 'conversation-viewer-comment-mutation',
+        version: 1,
+        requestId: 'persist:add:1',
+        subscriptionGeneration: 1,
+        ...target,
+        operation: 'add',
+        expectedRevision: 0,
+        payload: {
+            messageId: 'input-a:user',
+            interactionId: 'input-a',
+            quote: 'input-a',
+            prefix: '',
+            suffix: '',
+            comment: 'Keep this across panel lifecycles.',
+        },
+    });
+    assert.equal(firstPanel.postedMessages.at(-1).success, true);
+    firstPanel.dispose();
+
+    await harness.route(makeOpenRequest());
+    const reopenedPanel = harness.panels[1];
+    await reopenedPanel.receiveMessage({
+        type: 'conversation-viewer-comment-mutation',
+        version: 1,
+        requestId: 'persist:update:2',
+        subscriptionGeneration: 3,
+        ...target,
+        operation: 'update',
+        expectedRevision: 1,
+        payload: {
+            commentId: firstPanel.postedMessages.at(-1).comments[0].id,
+            comment: 'The restored draft remains editable.',
+        },
+    });
+
+    const restored = reopenedPanel.postedMessages.at(-1);
+    assert.equal(restored.success, true);
+    assert.equal(restored.revision, 2);
+    assert.equal(
+        restored.comments[0].comment,
+        'The restored draft remains editable.'
+    );
+    await harness.dispose();
+});
+
+test('CONVERSATION-COMMENTS-PERSISTENCE-001 rejects a comment mutation until its durable write succeeds', async () => {
+    let failWrites = true;
+    const harness = createDashboardConversationHarness({
+        useConcreteViewer: true,
+        commentStore: {
+            async load() {
+                return { revision: 0, comments: [] };
+            },
+            async save() {
+                if (failWrites) {
+                    throw new Error('private storage unavailable');
+                }
+            },
+        },
+    });
+    await harness.activate();
+    await harness.route(makeOutlineRequest());
+    await harness.route(makeOpenRequest());
+    const panel = harness.panels[0];
+    const mutation = {
+        type: 'conversation-viewer-comment-mutation',
+        version: 1,
+        subscriptionGeneration: 1,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+        operation: 'add',
+        expectedRevision: 0,
+        payload: {
+            messageId: 'input-a:user',
+            interactionId: 'input-a',
+            quote: 'input-a',
+            prefix: '',
+            suffix: '',
+            comment: 'Persist before acknowledging this.',
+        },
+    };
+
+    await panel.receiveMessage({
+        ...mutation,
+        requestId: 'persist:failed:1',
+    });
+    const failed = panel.postedMessages.at(-1);
+    assert.equal(failed.success, false);
+    assert.equal(failed.error, 'failed');
+    assert.equal(failed.revision, 0);
+    assert.deepEqual(failed.comments, []);
+
+    failWrites = false;
+    await panel.receiveMessage({
+        ...mutation,
+        requestId: 'persist:retry:2',
+    });
+    const saved = panel.postedMessages.at(-1);
+    assert.equal(saved.success, true);
+    assert.equal(saved.revision, 1);
+    assert.equal(saved.comments.length, 1);
     await harness.dispose();
 });
 
@@ -1152,6 +1453,7 @@ test('PRODUCTION-CONVERSATION-FOCUS-001 panel close reveals the sidebar before p
 
 test('PRODUCTION-CONVERSATION-FOCUS-002 rejected reveal and hidden delivery remain isolated while publishing the fallback', async t => {
     executedCommands.length = 0;
+    let publishResult = true;
     focusCommandFailure = new Error([
         '/private/focus/path',
         'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
@@ -1161,12 +1463,13 @@ test('PRODUCTION-CONVERSATION-FOCUS-002 rejected reveal and hidden delivery rema
         focusCommandFailure = null;
     });
     const harness = createDashboardConversationHarness({
-        publishResult: false,
+        publishResult: () => publishResult,
         useConcreteViewer: true,
     });
     await harness.activate();
     await harness.route(makeOutlineRequest());
     await harness.route(makeOpenRequest());
+    publishResult = false;
     harness.setVisible(false);
     harness.panels[0].dispose();
     await new Promise(resolve => setImmediate(resolve));

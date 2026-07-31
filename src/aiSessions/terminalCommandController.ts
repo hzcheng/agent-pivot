@@ -84,9 +84,13 @@ export class AiSessionTerminalCommandController<
         this.options = options;
     }
 
-    async focusActive(projectId: string, providerId: string, sessionId: string): Promise<void> {
+    async focusActive(
+        projectId: string,
+        providerId: string,
+        sessionId: string
+    ): Promise<boolean> {
         if (!sessionId || !this.options.isProviderId(providerId)) {
-            return;
+            return false;
         }
         const candidates = this.getScopedActiveCandidates(
             projectId, providerId, sessionId, this.options
@@ -99,15 +103,21 @@ export class AiSessionTerminalCommandController<
                 projectId,
                 'The conflicting AI session target could not be verified as a managed runtime and was not focused.'
             );
-            return;
+            return false;
         }
         if (candidates.length > 1 || candidates.some(runtime => runtime.state === 'conflict')) {
-            await this.chooseAndFocusConflict(projectId, candidates, this.options);
-            return;
+            return this.chooseAndFocusConflict(
+                projectId,
+                candidates,
+                this.options
+            );
         }
         if (candidates.length === 1 && hasUnverifiedConflict) {
-            await this.focusVerifiedSelection(projectId, candidates[0], this.options);
-            return;
+            return this.focusVerifiedSelection(
+                projectId,
+                candidates[0],
+                this.options
+            );
         }
         const runtime = this.getScopedActiveRuntime(projectId, providerId, sessionId, this.options);
         if (runtime) {
@@ -115,41 +125,44 @@ export class AiSessionTerminalCommandController<
                 await this.options.runtimeCoordinator.focus({ ...runtime.identity });
                 this.options.refresh();
                 await this.options.focusTerminalView?.();
+                return true;
             } catch (error) {
                 await this.handleRuntimeActionFailure(
                     'focus-runtime', 'Could not focus the AI session terminal.',
                     runtime, error, this.options
                 );
+                return false;
             }
         }
+        return false;
     }
 
     private async chooseAndFocusConflict(
         projectId: string,
         candidates: AiSessionRuntimeSnapshot<TTerminal>[],
         options: AiSessionTerminalCommandRuntimeControllerOptions<TTerminal>
-    ): Promise<void> {
+    ): Promise<boolean> {
         if (!options.chooseRuntimeConflict || !options.runtimeCoordinator.focusSelected) {
-            return;
+            return false;
         }
         let selected: AiSessionRuntimeSnapshot<TTerminal> | undefined;
         try {
             selected = await options.chooseRuntimeConflict(candidates.map(cloneRuntime));
         } catch (error) {
             await options.showErrorMessage('Could not choose an AI session runtime.');
-            return;
+            return false;
         }
         if (!selected) {
-            return;
+            return false;
         }
-        await this.focusVerifiedSelection(projectId, selected, options);
+        return this.focusVerifiedSelection(projectId, selected, options);
     }
 
     private async focusVerifiedSelection(
         projectId: string,
         selected: AiSessionRuntimeSnapshot<TTerminal>,
         options: AiSessionTerminalCommandRuntimeControllerOptions<TTerminal>
-    ): Promise<void> {
+    ): Promise<boolean> {
         try {
             const focused = await options.runtimeCoordinator.focusSelected(cloneRuntime(selected));
             if (!focused) {
@@ -158,15 +171,17 @@ export class AiSessionTerminalCommandController<
                     projectId,
                     'The selected AI session runtime changed before it could be focused.'
                 );
-                return;
+                return false;
             }
             options.refresh();
             await options.focusTerminalView?.();
+            return true;
         } catch (error) {
             await this.handleRuntimeActionFailure(
                 'focus-selected-runtime', 'Could not focus the selected AI session runtime.',
                 selected, error, options
             );
+            return false;
         }
     }
 

@@ -255,7 +255,7 @@ test('SESSION-AI-SESSION-YOLO-LAZY-001 does not read options or build specs for 
     }
 });
 
-test('SESSION-AI-SESSION-TERMINAL-COMMAND-CONTROLLER-001 ATTENTION-EXPLICIT-SESSION-CLOSE-001 focuses and closes only project-owned terminals', async () => {
+test('SESSION-AI-SESSION-TERMINAL-COMMAND-CONTROLLER-001 ATTENTION-EXPLICIT-SESSION-CLOSE-001 CONVERSATION-FOLLOW-ACTIVE-SESSION-001 reports whether a project-owned terminal was focused', async () => {
     const effects = [];
     const terminal = { show: () => effects.push('show'), dispose: () => effects.push('dispose') };
     const identity = {
@@ -288,10 +288,10 @@ test('SESSION-AI-SESSION-TERMINAL-COMMAND-CONTROLLER-001 ATTENTION-EXPLICIT-SESS
         onRuntimeCloseEnd: (current, succeeded) =>
             effects.push(`close-end:${current.runStartedAtMs}:${succeeded}`),
     });
-    await controller.focusActive('p', 'codex', 's');
+    const focused = await controller.focusActive('p', 'codex', 's');
     await controller.closeTerminal({ projectId: 'p', providerId: 'codex', sessionId: 's' });
     const before = effects.length;
-    await controller.focusActive('other', 'codex', 's');
+    const missing = await controller.focusActive('other', 'codex', 's');
     assert.deepEqual(
         effects.slice(0, 7),
         [
@@ -300,6 +300,8 @@ test('SESSION-AI-SESSION-TERMINAL-COMMAND-CONTROLLER-001 ATTENTION-EXPLICIT-SESS
         ]
     );
     assert.equal(effects.length, before);
+    assert.equal(focused, true);
+    assert.equal(missing, false);
 });
 
 test('ATTENTION-EXPLICIT-SESSION-CLOSE-001 reports failed detach without a success acknowledgement', async () => {

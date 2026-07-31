@@ -83,7 +83,7 @@ export interface ConversationHostControllerOptions {
     ) => ConversationAuthoritativeTarget | null;
     publish: (
         message: AiSessionConversationOutlineResultMessage
-    ) => void | PromiseLike<unknown>;
+    ) => boolean | void | PromiseLike<boolean | void>;
     openViewer: (
         target: ConversationViewerOpenTarget,
         authoritativeTarget: ConversationAuthoritativeTarget
@@ -161,8 +161,13 @@ export class ConversationHostController {
 
         const target = this.resolveFocusedTarget(request);
         if (!target) {
-            await this.publishErrorIfCurrent(state, new ConversationError('unavailable'));
-            this.removeStateIfCurrent(state);
+            const delivered = await this.publishErrorIfCurrent(
+                state,
+                new ConversationError('unavailable')
+            );
+            if (delivered) {
+                this.removeStateIfCurrent(state);
+            }
             return;
         }
         this.options.coordinator.setSessionStopped(
@@ -341,9 +346,6 @@ export class ConversationHostController {
             }
             const delivered = await this.publishIfCurrent(state, outline, readSequence);
             if (!delivered) {
-                if (initial && this.isCurrent(state, readSequence)) {
-                    this.removeStateIfCurrent(state);
-                }
                 return false;
             }
             if (!this.isCurrent(state, readSequence)) {
@@ -367,7 +369,7 @@ export class ConversationHostController {
                 state,
                 toPublicConversationError(error)
             );
-            if (initial) {
+            if (initial && delivered) {
                 this.removeStateIfCurrent(state);
             }
             return delivered;
@@ -432,8 +434,7 @@ export class ConversationHostController {
         message: AiSessionConversationOutlineResultMessage
     ): Promise<boolean> {
         try {
-            await this.options.publish(message);
-            return true;
+            return await this.options.publish(message) !== false;
         } catch (_error) {
             return false;
         }

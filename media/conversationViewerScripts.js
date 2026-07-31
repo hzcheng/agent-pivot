@@ -32,35 +32,81 @@
     var messages = document.querySelector('[data-conversation-messages]');
     var position = document.querySelector('[data-conversation-position]');
     var status = document.querySelector('[data-conversation-status]');
+    var telemetryRoot = document.querySelector('[data-conversation-telemetry]');
+    var telemetryModel = document.querySelector('[data-telemetry-model]');
+    var telemetryModelValue = document.querySelector(
+        '[data-telemetry-model-value]'
+    );
+    var telemetryContext = document.querySelector('[data-telemetry-context]');
+    var telemetryContextProgress = document.querySelector(
+        '[data-telemetry-context-progress]'
+    );
+    var telemetryContextValue = document.querySelector(
+        '[data-telemetry-context-value]'
+    );
+    var telemetryLimits = document.querySelector('[data-telemetry-limits]');
     var newResponse = document.querySelector('[data-new-response]');
     var previous = document.querySelector('[data-action="previous"]');
     var next = document.querySelector('[data-action="next"]');
     var latest = document.querySelector('[data-action="latest"]');
     var close = document.querySelector('[data-action="close"]');
+    var outlineToggle = document.querySelector(
+        '[data-action="toggle-outline"]'
+    );
     var commentsToggle = document.querySelector(
         '[data-action="toggle-comments"]'
     );
     var commentsWorkspace = document.querySelector('.conversation-workspace');
     var commentsResizer = document.querySelector('[data-comments-resizer]');
+    var sidebarRoot = document.querySelector('[data-conversation-sidebar]');
+    var sidebarTabs = Array.prototype.slice.call(
+        document.querySelectorAll('[data-sidebar-tab]')
+    );
+    var sidebarClose = document.querySelector('[data-sidebar-close]');
+    var outlineRoot = document.querySelector('[data-conversation-outline]');
+    var outlineCount = document.querySelector('[data-outline-count]');
+    var outlineSummary = document.querySelector('[data-outline-summary]');
+    var outlineSearch = document.querySelector('[data-outline-search]');
+    var outlineList = document.querySelector('[data-outline-list]');
+    var outlineEmpty = document.querySelector('[data-outline-empty]');
+    var outlinePartial = document.querySelector('[data-outline-partial]');
     var commentsRoot = document.querySelector('[data-conversation-comments]');
     var commentCount = document.querySelector('[data-comment-count]');
+    var commentSummary = document.querySelector('[data-comment-summary]');
     var commentComposer = document.querySelector('[data-comment-composer]');
     var commentSelection = document.querySelector('[data-comment-selection]');
     var commentInput = document.querySelector('[data-comment-input]');
     var commentList = document.querySelector('[data-comment-list]');
     var commentEmpty = document.querySelector('[data-comment-empty]');
     var commentSend = document.querySelector('[data-comment-action="send"]');
+    var commentClearSent = document.querySelector(
+        '[data-comment-action="clearSent"]'
+    );
+    var commentClearResolved = document.querySelector(
+        '[data-comment-action="clearResolved"]'
+    );
+    var commentClearAll = document.querySelector(
+        '[data-comment-action="clearAll"]'
+    );
     var addComment = document.querySelector('[data-add-comment]');
     var commentTarget = readJsonAttribute('data-conversation-target');
-    var commentUiAvailable = !!commentsRoot && !!commentCount
+    var sidebarUiAvailable = !!outlineToggle && !!commentsToggle
+        && !!commentsWorkspace && !!commentsResizer && !!sidebarRoot
+        && sidebarTabs.length === 2 && !!sidebarClose && !!outlineRoot
+        && !!outlineCount && !!outlineSummary && !!outlineSearch
+        && !!outlineList && !!outlineEmpty && !!outlinePartial;
+    var commentUiAvailable = sidebarUiAvailable
+        && !!commentsRoot && !!commentCount
+        && !!commentSummary
         && !!commentComposer && !!commentSelection && !!commentInput
         && !!commentList && !!commentEmpty && !!commentSend && !!addComment
-        && !!commentsToggle && !!commentsWorkspace && !!commentsResizer
+        && !!commentClearSent && !!commentClearResolved && !!commentClearAll
         && validCommentTarget(commentTarget);
     var state = {
         atLatest: false,
         initialized: false,
         latestRequestId: 0,
+        latestTelemetryRequestId: 0,
         subscriptionGeneration: Number(document.body.getAttribute(
             'data-subscription-generation'
         )),
@@ -69,15 +115,25 @@
         firstNewMessageId: null,
         mermaidInitialized: false,
         mermaidObjectUrls: [],
+        mermaidSources: new WeakMap(),
         mermaidLoad: null,
         renderGeneration: 0,
         comments: [],
         commentRevision: 0,
         commentRequestSequence: 0,
         pendingCommentRequest: null,
+        pendingLocateRequest: null,
+        clearAllConfirmation: false,
         selectedCommentText: null,
         commentsPanelOpen: true,
         commentsPanelWidth: 240,
+        sidebarView: 'outline',
+        outline: [],
+        outlineSelectedInteractionId: '',
+        outlineSelectedInput: 0,
+        outlineTotalInputs: 0,
+        outlinePartial: false,
+        outlineQuery: '',
     };
 
     if (!scroll || !messages || !position || !status || !newResponse
@@ -93,7 +149,13 @@
         if (!vscodeApi || typeof vscodeApi.getState !== 'function') return null;
         try {
             var saved = vscodeApi.getState();
-            var panelState = saved && saved.conversationCommentsPanel;
+            var panelState = saved && saved.conversationSidebar;
+            if (!panelState && saved && saved.conversationCommentsPanel) {
+                panelState = Object.assign(
+                    { view: 'comments' },
+                    saved.conversationCommentsPanel
+                );
+            }
             return panelState && typeof panelState === 'object'
                 && !Array.isArray(panelState)
                 ? panelState
@@ -113,10 +175,13 @@
                 && !Array.isArray(saved)
                 ? Object.assign({}, saved)
                 : {};
-            next.conversationCommentsPanel = {
+            next.conversationSidebar = {
                 open: state.commentsPanelOpen,
                 width: state.commentsPanelWidth,
+                view: state.sidebarView,
+                query: state.outlineQuery,
             };
+            delete next.conversationCommentsPanel;
             vscodeApi.setState(next);
         } catch (_error) {
             // Layout persistence is best-effort local Webview state.
@@ -141,21 +206,40 @@
     }
 
     function updateCommentsToggle() {
-        if (!commentUiAvailable) return;
-        commentsToggle.textContent = 'Comments (' + state.comments.length + ')';
+        if (!sidebarUiAvailable) return;
+        outlineToggle.textContent = 'Outline (' + state.outline.length + ')';
+        outlineToggle.setAttribute(
+            'aria-expanded',
+            state.commentsPanelOpen && state.sidebarView === 'outline'
+                ? 'true'
+                : 'false'
+        );
+        commentsToggle.textContent = 'Comments (' + openCommentCount()
+            + ' open)';
         commentsToggle.setAttribute(
             'aria-expanded',
-            state.commentsPanelOpen ? 'true' : 'false'
+            state.commentsPanelOpen && state.sidebarView === 'comments'
+                ? 'true'
+                : 'false'
         );
-        var label = state.commentsPanelOpen
-            ? 'Hide comments panel'
-            : 'Show comments panel';
-        commentsToggle.setAttribute('aria-label', label);
-        commentsToggle.title = label;
+        outlineToggle.setAttribute('aria-label',
+            state.commentsPanelOpen && state.sidebarView === 'outline'
+                ? 'Hide conversation outline'
+                : 'Show conversation outline');
+        commentsToggle.setAttribute('aria-label',
+            state.commentsPanelOpen && state.sidebarView === 'comments'
+                ? 'Hide comments panel'
+                : 'Show comments panel');
+        sidebarTabs.forEach(function (tab) {
+            var selected = tab.getAttribute('data-sidebar-tab')
+                === state.sidebarView;
+            tab.setAttribute('aria-selected', selected ? 'true' : 'false');
+            tab.tabIndex = selected ? 0 : -1;
+        });
     }
 
     function applyCommentsPanelLayout() {
-        if (!commentUiAvailable) return;
+        if (!sidebarUiAvailable) return;
         var width = clampCommentsPanelWidth(state.commentsPanelWidth);
         commentsWorkspace.style.setProperty(
             '--conversation-comments-width',
@@ -165,8 +249,10 @@
             'data-comments-open',
             state.commentsPanelOpen ? 'true' : 'false'
         );
-        commentsRoot.hidden = !state.commentsPanelOpen;
+        sidebarRoot.hidden = !state.commentsPanelOpen;
         commentsResizer.hidden = !state.commentsPanelOpen;
+        outlineRoot.hidden = state.sidebarView !== 'outline';
+        commentsRoot.hidden = state.sidebarView !== 'comments';
         commentsResizer.setAttribute('aria-valuemax', String(
             availableCommentsPanelMaxWidth()
         ));
@@ -175,6 +261,14 @@
     }
 
     function setCommentsPanelOpen(open, persist) {
+        state.commentsPanelOpen = open;
+        applyCommentsPanelLayout();
+        if (persist) saveCommentsPanelState();
+    }
+
+    function setSidebarView(view, open, persist) {
+        if (view !== 'outline' && view !== 'comments') return;
+        state.sidebarView = view;
         state.commentsPanelOpen = open;
         applyCommentsPanelLayout();
         if (persist) saveCommentsPanelState();
@@ -208,15 +302,28 @@
         }
     });
 
-    function releaseMermaidObjectUrls() {
-        state.mermaidObjectUrls.forEach(function (url) {
+    function releaseMermaidObjectUrls(root) {
+        var urls = root
+            ? Array.prototype.map.call(
+                root.querySelectorAll('.conversation-mermaid-image[src^="blob:"]'),
+                function (image) {
+                    return image.src;
+                }
+            )
+            : state.mermaidObjectUrls.slice();
+        var released = new Set(urls);
+        urls.forEach(function (url) {
             try {
                 URL.revokeObjectURL(url);
             } catch (_error) {
                 // Revocation is best-effort during document teardown.
             }
         });
-        state.mermaidObjectUrls = [];
+        state.mermaidObjectUrls = state.mermaidObjectUrls.filter(
+            function (url) {
+                return !released.has(url);
+            }
+        );
     }
 
     function themeValue(name, fallback) {
@@ -342,47 +449,78 @@
             .trim()
             .split(/[\s,]+/)
             .map(Number);
+        var width;
+        var height;
         if (viewBox.length === 4
             && viewBox.every(Number.isFinite)
             && viewBox[2] > 0
             && viewBox[3] > 0) {
-            root.setAttribute('width', String(Math.min(viewBox[2], 4096)));
-            root.setAttribute('height', String(Math.min(viewBox[3], 4096)));
+            var scale = Math.min(
+                1,
+                4096 / viewBox[2],
+                4096 / viewBox[3]
+            );
+            width = Math.max(1, Math.round(viewBox[2] * scale));
+            height = Math.max(1, Math.round(viewBox[3] * scale));
+            root.setAttribute('width', String(width));
+            root.setAttribute('height', String(height));
         }
-        return new XMLSerializer().serializeToString(root);
+        return {
+            svg: new XMLSerializer().serializeToString(root),
+            width: width,
+            height: height,
+        };
     }
 
-    function renderMermaidDiagram(pre, source, id, generation) {
+    function renderMermaidDiagram(pre, source, id) {
         pre.setAttribute('aria-busy', 'true');
         return Promise.resolve(window.mermaid.render(id, source))
             .then(function (result) {
-                if (generation !== state.renderGeneration
-                    || !pre.isConnected) {
+                if (!pre.isConnected) {
                     return;
                 }
-                var svg = normalizeSvg(result.svg);
-                var objectUrl = URL.createObjectURL(new Blob([svg], {
+                var normalized = normalizeSvg(result.svg);
+                var objectUrl = URL.createObjectURL(new Blob([normalized.svg], {
                     type: 'image/svg+xml',
                 }));
-                if (generation !== state.renderGeneration
-                    || !pre.isConnected) {
+                if (!pre.isConnected) {
                     URL.revokeObjectURL(objectUrl);
                     return;
                 }
-                state.mermaidObjectUrls.push(objectUrl);
                 var figure = document.createElement('figure');
                 figure.className = 'conversation-mermaid';
+                state.mermaidSources.set(figure, source);
                 var image = document.createElement('img');
                 image.className = 'conversation-mermaid-image';
+                if (normalized.width && normalized.height) {
+                    image.width = normalized.width;
+                    image.height = normalized.height;
+                }
                 image.src = objectUrl;
                 image.alt = mermaidAlt(source);
                 image.decoding = 'async';
                 figure.appendChild(image);
-                pre.replaceWith(figure);
+                var decoded = typeof image.decode === 'function'
+                    ? image.decode().catch(function () {})
+                    : Promise.resolve();
+                return decoded.then(function () {
+                    if (!pre.isConnected) {
+                        URL.revokeObjectURL(objectUrl);
+                        return;
+                    }
+                    state.mermaidObjectUrls.push(objectUrl);
+                    var readingAnchor = captureReadingAnchor(pre);
+                    var previousScrollTop = scroll.scrollTop;
+                    pre.replaceWith(figure);
+                    if (readingAnchor
+                        && readingAnchor.element === pre) {
+                        readingAnchor.element = figure;
+                    }
+                    restoreReadingPosition(readingAnchor, previousScrollTop);
+                });
             })
             .catch(function () {
-                if (generation !== state.renderGeneration
-                    || !pre.isConnected) {
+                if (!pre.isConnected) {
                     return;
                 }
                 pre.removeAttribute('aria-busy');
@@ -391,7 +529,10 @@
                 label.className = 'conversation-mermaid-error-label';
                 label.setAttribute('role', 'status');
                 label.textContent = 'Mermaid diagram could not be rendered.';
+                var readingAnchor = captureReadingAnchor();
+                var previousScrollTop = scroll.scrollTop;
                 pre.parentNode.insertBefore(label, pre);
+                restoreReadingPosition(readingAnchor, previousScrollTop);
                 var temporary = document.getElementById(id);
                 if (temporary) temporary.remove();
             });
@@ -402,18 +543,33 @@
             messages.querySelectorAll('pre > code.language-mermaid'),
             0,
             maxMermaidDiagrams
-        );
+        ).filter(function (code) {
+            return code.parentElement
+                && code.parentElement.getAttribute('aria-busy') !== 'true';
+        });
         if (!codeBlocks.length) return Promise.resolve();
+        codeBlocks.forEach(function (code) {
+            code.parentElement.setAttribute('aria-busy', 'true');
+        });
         return loadMermaid().then(function (available) {
-            if (!available || generation !== state.renderGeneration) return;
+            if (!available) {
+                codeBlocks.forEach(function (code) {
+                    if (code.parentElement) {
+                        code.parentElement.removeAttribute('aria-busy');
+                    }
+                });
+                return;
+            }
             return codeBlocks.reduce(function (promise, code, index) {
                 return promise.then(function () {
-                    if (generation !== state.renderGeneration) return undefined;
+                    if (!code.parentElement
+                        || !code.parentElement.isConnected) {
+                        return undefined;
+                    }
                     return renderMermaidDiagram(
                         code.parentElement,
                         code.textContent || '',
-                        'conversation-mermaid-' + generation + '-' + index,
-                        generation
+                        'conversation-mermaid-' + generation + '-' + index
                     );
                 });
             }, Promise.resolve());
@@ -474,7 +630,7 @@
         }
         var keys = [
             'id', 'messageId', 'interactionId', 'role',
-            'quote', 'prefix', 'suffix', 'comment',
+            'quote', 'prefix', 'suffix', 'comment', 'status',
         ];
         return Object.keys(value).length === keys.length
             && keys.every(function (key) {
@@ -487,7 +643,10 @@
             && typeof value.quote === 'string'
             && typeof value.prefix === 'string'
             && typeof value.suffix === 'string'
-            && typeof value.comment === 'string';
+            && typeof value.comment === 'string'
+            && (value.status === 'open'
+                || value.status === 'sent'
+                || value.status === 'resolved');
     }
 
     function validInitialComments(value) {
@@ -527,6 +686,11 @@
             && (value.operation === 'add'
                 || value.operation === 'update'
                 || value.operation === 'delete'
+                || value.operation === 'resolve'
+                || value.operation === 'reopen'
+                || value.operation === 'clearSent'
+                || value.operation === 'clearResolved'
+                || value.operation === 'clearAll'
                 || value.operation === 'sendComments')
             && typeof value.success === 'boolean'
             && Number.isSafeInteger(value.revision)
@@ -538,6 +702,79 @@
                 'invalid', 'stale', 'limit', 'tooLarge',
                 'unavailable', 'busy', 'conflict', 'failed',
             ].includes(value.error));
+    }
+
+    function validLocateResult(value) {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) {
+            return false;
+        }
+        var required = [
+            'type', 'version', 'requestId', 'subscriptionGeneration',
+            'projectId', 'provider', 'sessionId', 'commentId', 'success',
+        ];
+        var allowed = new Set(required.concat(['error']));
+        return Object.keys(value).every(function (key) {
+            return allowed.has(key);
+        }) && required.every(function (key) {
+            return Object.prototype.hasOwnProperty.call(value, key);
+        })
+            && value.type === 'conversation-viewer-locate-comment-result'
+            && value.version === 1
+            && typeof value.requestId === 'string'
+            && Number.isSafeInteger(value.subscriptionGeneration)
+            && typeof value.projectId === 'string'
+            && (value.provider === 'codex'
+                || value.provider === 'kimi'
+                || value.provider === 'claude')
+            && typeof value.sessionId === 'string'
+            && typeof value.commentId === 'string'
+            && typeof value.success === 'boolean'
+            && (value.error === undefined || value.error === 'stale');
+    }
+
+    function openCommentCount() {
+        return state.comments.filter(function (comment) {
+            return comment.status === 'open';
+        }).length;
+    }
+
+    function commentStatusCounts() {
+        return state.comments.reduce(function (counts, comment) {
+            counts[comment.status] += 1;
+            return counts;
+        }, { open: 0, sent: 0, resolved: 0 });
+    }
+
+    function resetClearAllConfirmation() {
+        if (!commentUiAvailable) return;
+        state.clearAllConfirmation = false;
+        commentClearAll.textContent = 'Clear all';
+        commentClearAll.removeAttribute('data-confirming');
+        commentClearAll.setAttribute('aria-label', 'Clear all comments');
+    }
+
+    function updateCommentControls() {
+        if (!commentUiAvailable) return;
+        var counts = commentStatusCounts();
+        var pending = !!state.pendingCommentRequest
+            || !!state.pendingLocateRequest;
+        var summary = [];
+        if (counts.open) summary.push(counts.open + ' open');
+        if (counts.sent) summary.push(counts.sent + ' sent');
+        if (counts.resolved) summary.push(counts.resolved + ' resolved');
+        commentSummary.textContent = summary.length
+            ? summary.join(' · ')
+            : 'No comments yet';
+        commentCount.textContent = String(state.comments.length);
+        commentCount.setAttribute(
+            'aria-label',
+            state.comments.length + ' comment'
+                + (state.comments.length === 1 ? '' : 's')
+        );
+        commentSend.disabled = counts.open === 0 || pending;
+        commentClearSent.disabled = counts.sent === 0 || pending;
+        commentClearResolved.disabled = counts.resolved === 0 || pending;
+        commentClearAll.disabled = state.comments.length === 0 || pending;
     }
 
     function nextCommentRequestId() {
@@ -569,19 +806,26 @@
         );
         addComment.disabled = pending;
         if (!pending) {
-            commentSend.disabled = state.comments.length === 0;
+            updateCommentControls();
         }
         commentsRoot.setAttribute('aria-busy', pending ? 'true' : 'false');
     }
 
     function postCommentOperation(operation, payload) {
-        if (!commentUiAvailable || state.pendingCommentRequest) return;
+        if (!commentUiAvailable
+            || state.pendingCommentRequest
+            || state.pendingLocateRequest) return;
         var requestId = nextCommentRequestId();
+        resetClearAllConfirmation();
         state.pendingCommentRequest = { requestId: requestId, operation: operation };
         setCommentPending(true);
         status.textContent = operation === 'sendComments'
             ? 'Sending comments to this session…'
-            : 'Saving comment…';
+            : operation === 'clearSent'
+                || operation === 'clearResolved'
+                || operation === 'clearAll'
+                ? 'Clearing comments…'
+                : 'Saving comment…';
         post({
             type: operation === 'sendComments'
                 ? 'conversation-viewer-send-comments'
@@ -606,8 +850,7 @@
             }
         );
         if (!message) {
-            status.textContent = 'The commented message is not on this page.';
-            return;
+            return false;
         }
         message.scrollIntoView({ block: 'center' });
         message.tabIndex = -1;
@@ -616,53 +859,126 @@
         window.setTimeout(function () {
             message.classList.remove('conversation-comment-located');
         }, 1600);
+        return true;
+    }
+
+    function requestCommentLocation(comment) {
+        if (locateComment(comment)) {
+            status.textContent = 'Comment source located.';
+            return;
+        }
+        if (state.pendingLocateRequest || state.pendingCommentRequest) return;
+        var requestId = nextCommentRequestId();
+        state.pendingLocateRequest = {
+            requestId: requestId,
+            commentId: comment.id,
+        };
+        setCommentPending(true);
+        status.textContent = 'Loading the commented message…';
+        post({
+            type: 'conversation-viewer-locate-comment',
+            version: 1,
+            requestId: requestId,
+            subscriptionGeneration: state.subscriptionGeneration,
+            projectId: commentTarget.projectId,
+            provider: commentTarget.provider,
+            sessionId: commentTarget.sessionId,
+            commentId: comment.id,
+        });
     }
 
     function renderComments() {
         if (!commentUiAvailable) return;
+        resetClearAllConfirmation();
         commentList.replaceChildren();
         state.comments.forEach(function (comment, index) {
             var item = document.createElement('article');
             item.className = 'conversation-comment';
             item.setAttribute('data-comment-id', comment.id);
+            item.setAttribute('data-comment-status', comment.status);
 
             var heading = document.createElement('div');
             heading.className = 'conversation-comment-heading';
+            var identity = document.createElement('div');
+            identity.className = 'conversation-comment-identity';
             var label = document.createElement('strong');
             label.textContent = 'Comment ' + (index + 1);
+            var statusLabel = document.createElement('span');
+            statusLabel.className = 'conversation-comment-status';
+            statusLabel.setAttribute('data-comment-status-label', '');
+            statusLabel.textContent = comment.status === 'open'
+                ? 'Open'
+                : comment.status === 'sent' ? 'Sent' : 'Resolved';
+            identity.append(label, statusLabel);
             var locate = document.createElement('button');
             locate.type = 'button';
+            locate.className = 'conversation-comment-locate';
             locate.setAttribute('data-comment-action', 'locate');
             locate.textContent = 'Show text';
-            heading.append(label, locate);
+            heading.append(identity, locate);
 
+            var quoteGroup = document.createElement('div');
+            quoteGroup.className = 'conversation-comment-quote';
+            var quoteLabel = document.createElement('span');
+            quoteLabel.className = 'conversation-comment-quote-label';
+            quoteLabel.textContent = 'Selected text';
             var quote = document.createElement('blockquote');
             quote.textContent = comment.quote;
+            quoteGroup.append(quoteLabel, quote);
             var input = document.createElement('textarea');
             input.rows = 2;
             input.maxLength = 4000;
             input.value = comment.comment;
+            input.readOnly = comment.status !== 'open';
             input.setAttribute('aria-label', 'Comment ' + (index + 1));
+            input.setAttribute(
+                'aria-keyshortcuts',
+                'Control+Enter Meta+Enter'
+            );
             input.setAttribute('data-comment-edit', '');
             var actions = document.createElement('div');
             actions.className = 'conversation-comment-actions';
             var remove = document.createElement('button');
             remove.type = 'button';
+            remove.className = 'conversation-comment-delete';
             remove.setAttribute('data-comment-action', 'delete');
             remove.textContent = 'Delete';
-            var save = document.createElement('button');
-            save.type = 'button';
-            save.setAttribute('data-comment-action', 'update');
-            save.textContent = 'Save';
-            actions.append(remove, save);
-            item.append(heading, quote, input, actions);
+            actions.appendChild(remove);
+            if (comment.status === 'open') {
+                var save = document.createElement('button');
+                save.type = 'button';
+                save.setAttribute('data-comment-action', 'update');
+                save.title = 'Save comment (Ctrl+Enter or Cmd+Enter)';
+                save.textContent = 'Save';
+                actions.appendChild(save);
+            }
+            var review = document.createElement('button');
+            review.type = 'button';
+            if (comment.status === 'resolved') {
+                review.setAttribute('data-comment-action', 'reopen');
+                review.textContent = 'Reopen';
+            } else if (comment.status === 'sent') {
+                review.setAttribute('data-comment-action', 'resolve');
+                review.textContent = 'Resolve';
+                var reopen = document.createElement('button');
+                reopen.type = 'button';
+                reopen.setAttribute('data-comment-action', 'reopen');
+                reopen.textContent = 'Reopen';
+                actions.appendChild(reopen);
+            } else {
+                review.setAttribute('data-comment-action', 'resolve');
+                review.textContent = 'Resolve';
+            }
+            actions.appendChild(review);
+            item.append(heading, quoteGroup, input, actions);
             commentList.appendChild(item);
         });
-        commentCount.textContent = String(state.comments.length);
         updateCommentsToggle();
         commentEmpty.hidden = state.comments.length > 0;
-        commentSend.disabled = state.comments.length === 0
-            || !!state.pendingCommentRequest;
+        var openCount = openCommentCount();
+        commentSend.textContent = 'Send ' + openCount + ' open comment'
+            + (openCount === 1 ? '' : 's') + ' to this session';
+        updateCommentControls();
         updateCommentHighlights();
     }
 
@@ -723,6 +1039,7 @@
         );
         var ranges = [];
         state.comments.forEach(function (comment) {
+            if (comment.status === 'resolved') return;
             var message = Array.prototype.find.call(
                 messages.querySelectorAll(conversationMessageSelector()),
                 function (candidate) {
@@ -770,9 +1087,40 @@
         if (message.success) {
             status.textContent = operation === 'sendComments'
                 ? 'Comments sent to this session.'
-                : 'Comments saved.';
+                : operation === 'clearSent'
+                    ? 'Sent comments cleared.'
+                    : operation === 'clearResolved'
+                        ? 'Resolved comments cleared.'
+                        : operation === 'clearAll'
+                            ? 'All comments cleared.'
+                            : 'Comments saved.';
         } else {
             status.textContent = commentErrorMessage(message.error);
+        }
+        return true;
+    }
+
+    function applyLocateResult(message) {
+        if (!commentUiAvailable
+            || !validLocateResult(message)
+            || message.subscriptionGeneration !== state.subscriptionGeneration
+            || message.projectId !== commentTarget.projectId
+            || message.provider !== commentTarget.provider
+            || message.sessionId !== commentTarget.sessionId
+            || !state.pendingLocateRequest
+            || message.requestId !== state.pendingLocateRequest.requestId
+            || message.commentId !== state.pendingLocateRequest.commentId) {
+            return false;
+        }
+        var comment = state.comments.find(function (candidate) {
+            return candidate.id === message.commentId;
+        });
+        state.pendingLocateRequest = null;
+        setCommentPending(false);
+        if (message.success && comment && locateComment(comment)) {
+            status.textContent = 'Comment source located.';
+        } else {
+            status.textContent = 'The commented message is no longer available.';
         }
         return true;
     }
@@ -841,7 +1189,7 @@
 
     function openCommentComposer() {
         if (!state.selectedCommentText) return;
-        setCommentsPanelOpen(true, true);
+        setSidebarView('comments', true, true);
         addComment.hidden = true;
         commentSelection.textContent = state.selectedCommentText.quote;
         commentInput.value = '';
@@ -856,13 +1204,198 @@
         addComment.hidden = true;
     }
 
+    function validOutlineEntry(entry) {
+        if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+            return false;
+        }
+        var keys = Object.keys(entry);
+        return keys.length === 3
+            && keys.includes('interactionId')
+            && keys.includes('userPreview')
+            && keys.includes('responseState')
+            && typeof entry.interactionId === 'string'
+            && entry.interactionId.length > 0
+            && entry.interactionId.length <= 512
+            && !/[\u0000-\u001f\u007f]/.test(entry.interactionId)
+            && typeof entry.userPreview === 'string'
+            && entry.userPreview.length <= 4096
+            && ['complete', 'inProgress', 'interrupted', 'unknown']
+                .includes(entry.responseState);
+    }
+
+    function validOutline(value, selectedInteractionId) {
+        if (!Array.isArray(value)
+            || value.length < 1
+            || value.length > 2000
+            || !value.every(validOutlineEntry)) {
+            return false;
+        }
+        var identities = new Set(value.map(function (entry) {
+            return entry.interactionId;
+        }));
+        return identities.size === value.length
+            && identities.has(selectedInteractionId);
+    }
+
+    function outlineChanged(entries) {
+        return entries.length !== state.outline.length
+            || entries.some(function (entry, index) {
+                var current = state.outline[index];
+                return !current
+                    || current.interactionId !== entry.interactionId
+                    || current.userPreview !== entry.userPreview
+                    || current.responseState !== entry.responseState;
+            });
+    }
+
+    function responseStateLabel(value) {
+        if (value === 'inProgress') return 'Response in progress';
+        if (value === 'interrupted') return 'Response interrupted';
+        if (value === 'unknown') return 'Response state unknown';
+        return 'Response complete';
+    }
+
+    function buildOutlineList() {
+        var fragment = document.createDocumentFragment();
+        state.outline.forEach(function (entry) {
+            var item = document.createElement('li');
+            item.className = 'conversation-outline-item';
+            var button = document.createElement('button');
+            button.type = 'button';
+            button.setAttribute('data-outline-interaction-id',
+                entry.interactionId);
+            button.setAttribute('data-outline-filter-text',
+                entry.userPreview.toLocaleLowerCase());
+            button.tabIndex = -1;
+
+            var number = document.createElement('span');
+            number.className = 'conversation-outline-number';
+            number.textContent = String(entry.inputNumber);
+            var preview = document.createElement('span');
+            preview.className = 'conversation-outline-preview';
+            preview.textContent = entry.userPreview || '(empty input)';
+            var responseState = document.createElement('span');
+            responseState.className = 'conversation-outline-state'
+                + ' conversation-outline-state-' + entry.responseState;
+            responseState.title = responseStateLabel(entry.responseState);
+            responseState.setAttribute(
+                'aria-label',
+                responseStateLabel(entry.responseState)
+            );
+
+            button.appendChild(number);
+            button.appendChild(preview);
+            button.appendChild(responseState);
+            item.appendChild(button);
+            fragment.appendChild(item);
+        });
+        outlineList.replaceChildren(fragment);
+    }
+
+    function visibleOutlineButtons() {
+        return Array.prototype.filter.call(
+            outlineList.querySelectorAll('[data-outline-interaction-id]'),
+            function (button) {
+                return !button.closest('li').hidden;
+            }
+        );
+    }
+
+    function updateOutlineSelection(scrollSelected) {
+        var selected;
+        Array.prototype.forEach.call(
+            outlineList.querySelectorAll('[data-outline-interaction-id]'),
+            function (button) {
+                var current = button.getAttribute(
+                    'data-outline-interaction-id'
+                ) === state.outlineSelectedInteractionId;
+                button.classList.toggle('is-selected', current);
+                if (current) {
+                    button.setAttribute('aria-current', 'location');
+                    selected = button;
+                } else {
+                    button.removeAttribute('aria-current');
+                }
+                button.tabIndex = current ? 0 : -1;
+            }
+        );
+        var visible = visibleOutlineButtons();
+        if (!visible.some(function (button) {
+            return button.tabIndex === 0;
+        }) && visible[0]) {
+            visible[0].tabIndex = 0;
+        }
+        if (scrollSelected
+            && selected
+            && state.commentsPanelOpen
+            && state.sidebarView === 'outline'
+            && !selected.closest('li').hidden) {
+            selected.scrollIntoView({ block: 'nearest' });
+        }
+    }
+
+    function filterOutline() {
+        var query = state.outlineQuery.trim().toLocaleLowerCase();
+        var visibleCount = 0;
+        Array.prototype.forEach.call(
+            outlineList.querySelectorAll('.conversation-outline-item'),
+            function (item) {
+                var button = item.querySelector(
+                    '[data-outline-interaction-id]'
+                );
+                var visible = !query
+                    || (button.getAttribute('data-outline-filter-text') || '')
+                        .includes(query);
+                item.hidden = !visible;
+                if (visible) visibleCount += 1;
+            }
+        );
+        outlineEmpty.hidden = visibleCount > 0;
+        updateOutlineSelection(false);
+    }
+
+    function applyOutline(message) {
+        if (!sidebarUiAvailable) return;
+        var selectedIndex = message.outline.findIndex(function (entry) {
+            return entry.interactionId === message.selectedInteractionId;
+        });
+        var offset = Math.max(
+            0,
+            message.selectedInput - selectedIndex - 1
+        );
+        var nextOutline = message.outline.map(function (entry, index) {
+            return Object.assign({}, entry, {
+                inputNumber: offset + index + 1,
+            });
+        });
+        var changed = outlineChanged(nextOutline);
+        state.outline = nextOutline;
+        state.outlineSelectedInteractionId = message.selectedInteractionId;
+        state.outlineSelectedInput = message.selectedInput;
+        state.outlineTotalInputs = message.totalInputs;
+        state.outlinePartial = message.partial;
+        if (changed) buildOutlineList();
+        outlineCount.textContent = String(message.outline.length);
+        outlineCount.setAttribute(
+            'aria-label',
+            message.outline.length + ' inputs'
+        );
+        outlineSummary.textContent = message.partial
+            ? message.outline.length.toLocaleString() + '+ latest inputs'
+            : message.outline.length.toLocaleString() + ' inputs';
+        outlinePartial.hidden = !message.partial;
+        filterOutline();
+        updateOutlineSelection(changed || message.updateKind !== 'refresh');
+        updateCommentsToggle();
+    }
+
     function validPage(message) {
         if (!message || typeof message !== 'object' || Array.isArray(message)) {
             return false;
         }
         var requiredKeys = [
             'type', 'version', 'requestId', 'subscriptionGeneration',
-            'updateKind', 'html', 'selectedInteractionId', 'selectedInput',
+            'updateKind', 'html', 'outline', 'selectedInteractionId', 'selectedInput',
             'totalInputs', 'partial', 'atLatest', 'stale',
         ];
         var allowedKeys = new Set(requiredKeys.concat([
@@ -886,6 +1419,7 @@
                 || message.updateKind === 'refresh')
             && typeof message.html === 'string'
             && typeof message.selectedInteractionId === 'string'
+            && validOutline(message.outline, message.selectedInteractionId)
             && Number.isSafeInteger(message.selectedInput)
             && message.selectedInput >= 0
             && Number.isSafeInteger(message.totalInputs)
@@ -899,39 +1433,355 @@
             && typeof message.stale === 'boolean';
     }
 
-    function getMessageIds() {
-        return Array.prototype.map.call(
-            messages.querySelectorAll(conversationMessageSelector()),
-            function (message) {
-                return conversationMessageId(message);
-            }
-        );
+    function exactKeys(value, required, optional) {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) {
+            return false;
+        }
+        var keys = Object.keys(value);
+        var allowed = new Set(required.concat(optional || []));
+        return required.every(function (key) {
+            return Object.prototype.hasOwnProperty.call(value, key);
+        }) && keys.every(function (key) {
+            return allowed.has(key);
+        });
     }
 
-    function getMessageSignatures() {
-        var signatures = new Map();
+    function validTelemetry(value) {
+        if (!exactKeys(
+            value,
+            ['provider', 'sessionId', 'rateLimits'],
+            ['model', 'context']
+        )) return false;
+        if (!['codex', 'kimi', 'claude'].includes(value.provider)
+            || typeof value.sessionId !== 'string'
+            || !value.sessionId
+            || value.sessionId.length > 256
+            || (value.model !== undefined
+                && (typeof value.model !== 'string'
+                    || !value.model
+                    || value.model.length > 128))
+            || !Array.isArray(value.rateLimits)
+            || value.rateLimits.length > 4) {
+            return false;
+        }
+        if (value.context !== undefined
+            && (!exactKeys(value.context, ['usedTokens', 'maxTokens'])
+                || !Number.isSafeInteger(value.context.usedTokens)
+                || value.context.usedTokens < 0
+                || !Number.isSafeInteger(value.context.maxTokens)
+                || value.context.maxTokens <= 0)) {
+            return false;
+        }
+        return value.rateLimits.every(function (limit) {
+            return exactKeys(
+                limit,
+                ['id', 'label', 'usedPercent'],
+                ['windowDurationMins', 'resetsAt']
+            )
+                && typeof limit.id === 'string'
+                && limit.id.length > 0
+                && limit.id.length <= 256
+                && typeof limit.label === 'string'
+                && limit.label.length > 0
+                && limit.label.length <= 64
+                && Number.isFinite(limit.usedPercent)
+                && limit.usedPercent >= 0
+                && limit.usedPercent <= 100
+                && (limit.windowDurationMins === undefined
+                    || (Number.isSafeInteger(limit.windowDurationMins)
+                        && limit.windowDurationMins > 0))
+                && (limit.resetsAt === undefined
+                    || (Number.isSafeInteger(limit.resetsAt)
+                        && limit.resetsAt > 0));
+        });
+    }
+
+    function compactTokens(value) {
+        if (value >= 1000000) {
+            return (value / 1000000).toFixed(value >= 10000000 ? 0 : 1) + 'm';
+        }
+        if (value >= 1000) {
+            return (value / 1000).toFixed(value >= 100000 ? 0 : 1) + 'k';
+        }
+        return String(value);
+    }
+
+    function compactResetTime(resetsAt) {
+        var remainingMinutes = Math.max(
+            1,
+            Math.ceil((resetsAt * 1000 - Date.now()) / 60000)
+        );
+        if (remainingMinutes < 60) return remainingMinutes + 'm';
+        var remainingHours = Math.ceil(remainingMinutes / 60);
+        if (remainingHours < 48) return remainingHours + 'h';
+        return Math.ceil(remainingHours / 24) + 'd';
+    }
+
+    function applyTelemetry(message) {
+        if (!exactKeys(
+            message,
+            ['type', 'version', 'requestId', 'subscriptionGeneration', 'telemetry']
+        )
+            || message.type !== 'conversation-viewer-telemetry'
+            || message.version !== 1
+            || !Number.isSafeInteger(message.requestId)
+            || message.requestId < state.latestRequestId
+            || message.requestId < state.latestTelemetryRequestId
+            || message.subscriptionGeneration !== state.subscriptionGeneration
+            || (message.telemetry !== null
+                && !validTelemetry(message.telemetry))
+            || (message.telemetry !== null
+                && (!commentTarget
+                    || message.telemetry.provider !== commentTarget.provider
+                    || message.telemetry.sessionId !== commentTarget.sessionId))
+            || !telemetryRoot || !telemetryModel || !telemetryModelValue
+            || !telemetryContext || !telemetryContextProgress
+            || !telemetryContextValue || !telemetryLimits) {
+            return false;
+        }
+        state.latestTelemetryRequestId = message.requestId;
+        var readingAnchor = captureReadingAnchor();
+        var previousScrollTop = scroll.scrollTop;
+        var telemetry = message.telemetry;
+        if (!telemetry) {
+            telemetryRoot.hidden = true;
+            restoreViewportReadingPosition(
+                readingAnchor,
+                previousScrollTop
+            );
+            return true;
+        }
+        telemetryModel.hidden = !telemetry.model;
+        telemetryModelValue.textContent = telemetry.model || '';
+        telemetryContext.hidden = !telemetry.context;
+        if (telemetry.context) {
+            var percent = Math.max(0, Math.min(
+                100,
+                telemetry.context.usedTokens
+                    / telemetry.context.maxTokens * 100
+            ));
+            telemetryContextProgress.max = telemetry.context.maxTokens;
+            telemetryContextProgress.value = telemetry.context.usedTokens;
+            telemetryContextValue.textContent = Math.round(percent) + '% · '
+                + compactTokens(telemetry.context.usedTokens) + ' / '
+                + compactTokens(telemetry.context.maxTokens);
+        }
+        telemetryLimits.replaceChildren();
+        telemetry.rateLimits.forEach(function (limit) {
+            var meter = document.createElement('div');
+            meter.className = 'conversation-telemetry-meter';
+            var label = document.createElement('span');
+            label.textContent = limit.label;
+            var progress = document.createElement('progress');
+            progress.max = 100;
+            progress.value = limit.usedPercent;
+            progress.setAttribute('aria-label', limit.label + ' usage');
+            var value = document.createElement('span');
+            var text = Math.round(100 - limit.usedPercent) + '% left';
+            if (limit.resetsAt) {
+                text += ' · resets in ' + compactResetTime(limit.resetsAt);
+                value.title = new Date(
+                    limit.resetsAt * 1000
+                ).toLocaleString();
+            }
+            value.textContent = text;
+            meter.append(label, progress, value);
+            telemetryLimits.appendChild(meter);
+        });
+        telemetryRoot.hidden = !telemetry.model
+            && !telemetry.context
+            && telemetry.rateLimits.length === 0;
+        restoreViewportReadingPosition(readingAnchor, previousScrollTop);
+        return true;
+    }
+
+    function preserveMermaidContent(oldMessage, candidate) {
+        var figuresBySource = new Map();
+        var pendingBySource = new Map();
         Array.prototype.forEach.call(
-            messages.querySelectorAll(conversationMessageSelector()),
-            function (message) {
-                signatures.set(
-                    conversationMessageId(message),
-                    message.innerHTML
-                );
+            oldMessage.querySelectorAll('.conversation-mermaid'),
+            function (figure) {
+                var source = state.mermaidSources.get(figure);
+                if (typeof source !== 'string') return;
+                var figures = figuresBySource.get(source) || [];
+                figures.push(figure);
+                figuresBySource.set(source, figures);
             }
         );
-        return signatures;
+        Array.prototype.forEach.call(
+            oldMessage.querySelectorAll(
+                'pre[aria-busy="true"] > code.language-mermaid'
+            ),
+            function (code) {
+                var source = code.textContent || '';
+                var blocks = pendingBySource.get(source) || [];
+                blocks.push(code.parentElement);
+                pendingBySource.set(source, blocks);
+            }
+        );
+        Array.prototype.forEach.call(
+            candidate.querySelectorAll('pre > code.language-mermaid'),
+            function (code) {
+                var source = code.textContent || '';
+                var figures = figuresBySource.get(source);
+                var figure = figures && figures.shift();
+                if (figure && code.parentElement) {
+                    code.parentElement.replaceWith(figure);
+                    return;
+                }
+                var blocks = pendingBySource.get(source);
+                var block = blocks && blocks.shift();
+                if (block && code.parentElement) {
+                    code.parentElement.replaceWith(block);
+                }
+            }
+        );
     }
 
-    function threshold() {
-        var value = Number(document.body.getAttribute(
-            'data-auto-scroll-threshold'
-        ));
-        return Number.isFinite(value) && value >= 0 ? value : 0;
+    function reconcileMessages(clean, preserveUnchanged, previousSignatures) {
+        var template = document.createElement('template');
+        template.innerHTML = clean;
+        var candidates = Array.prototype.slice.call(
+            template.content.querySelectorAll(conversationMessageSelector())
+        );
+        var nextIds = [];
+        var nextSignatures = new Map();
+        candidates.forEach(function (candidate) {
+            var id = conversationMessageId(candidate);
+            nextIds.push(id);
+            nextSignatures.set(id, candidate.outerHTML);
+        });
+        if (!preserveUnchanged) {
+            releaseMermaidObjectUrls();
+            messages.replaceChildren(template.content);
+            return { ids: nextIds, signatures: nextSignatures };
+        }
+        var oldMessages = Array.prototype.slice.call(
+            messages.querySelectorAll(conversationMessageSelector())
+        );
+        var oldById = new Map();
+        oldMessages.forEach(function (message) {
+            var id = conversationMessageId(message);
+            if (id && !oldById.has(id)) oldById.set(id, message);
+        });
+        var preserved = new Set();
+        candidates.forEach(function (candidate) {
+            var id = conversationMessageId(candidate);
+            var oldMessage = oldById.get(id);
+            if (!id
+                || !oldMessage
+                || preserved.has(oldMessage)) {
+                return;
+            }
+            if (previousSignatures.get(id) === candidate.outerHTML) {
+                preserved.add(oldMessage);
+                candidate.replaceWith(oldMessage);
+                return;
+            }
+            preserveMermaidContent(oldMessage, candidate);
+        });
+        oldMessages.forEach(function (oldMessage) {
+            if (!preserved.has(oldMessage)) {
+                releaseMermaidObjectUrls(oldMessage);
+            }
+        });
+        messages.replaceChildren(template.content);
+        return { ids: nextIds, signatures: nextSignatures };
     }
 
-    function distanceFromBottom() {
-        return Math.max(0, scroll.scrollHeight - scroll.scrollTop
-            - scroll.clientHeight);
+    function captureReadingAnchor(replacingElement) {
+        var scrollBounds = scroll.getBoundingClientRect();
+        var blockCandidates = messages.querySelectorAll(
+            '.conversation-markdown > *'
+        );
+        var crossingBlock = null;
+        for (var blockIndex = 0;
+            blockIndex < blockCandidates.length;
+            blockIndex += 1) {
+            var blockBounds = blockCandidates[blockIndex]
+                .getBoundingClientRect();
+            if (!crossingBlock
+                && blockBounds.bottom > scrollBounds.top
+                && blockBounds.top < scrollBounds.bottom) {
+                crossingBlock = blockCandidates[blockIndex];
+            }
+            if (blockCandidates[blockIndex] !== replacingElement
+                && blockBounds.top >= scrollBounds.top
+                && blockBounds.top < scrollBounds.bottom) {
+                var message = blockCandidates[blockIndex].closest(
+                    conversationMessageSelector()
+                );
+                return {
+                    element: blockCandidates[blockIndex],
+                    messageId: message
+                        ? conversationMessageId(message)
+                        : null,
+                    top: blockBounds.top - scrollBounds.top,
+                    viewportTop: blockBounds.top,
+                };
+            }
+        }
+        if (crossingBlock) {
+            var crossingMessage = crossingBlock.closest(
+                conversationMessageSelector()
+            );
+            var crossingBounds = crossingBlock.getBoundingClientRect();
+            return {
+                element: crossingBlock,
+                messageId: crossingMessage
+                    ? conversationMessageId(crossingMessage)
+                    : null,
+                top: crossingBounds.top - scrollBounds.top,
+                viewportTop: crossingBounds.top,
+            };
+        }
+        var messageCandidates = messages.querySelectorAll(
+            conversationMessageSelector()
+        );
+        for (var index = 0; index < messageCandidates.length; index += 1) {
+            var bounds = messageCandidates[index].getBoundingClientRect();
+            if (bounds.bottom > scrollBounds.top) {
+                return {
+                    element: messageCandidates[index],
+                    messageId: conversationMessageId(
+                        messageCandidates[index]
+                    ),
+                    top: bounds.top - scrollBounds.top,
+                    viewportTop: bounds.top,
+                };
+            }
+        }
+        return null;
+    }
+
+    function readingAnchorElement(anchor) {
+        if (!anchor) return null;
+        return anchor.element && anchor.element.isConnected
+            ? anchor.element
+            : Array.prototype.find.call(
+                messages.querySelectorAll(conversationMessageSelector()),
+                function (message) {
+                    return conversationMessageId(message) === anchor.messageId;
+                }
+            );
+    }
+
+    function restoreReadingPosition(anchor, fallbackScrollTop) {
+        scroll.scrollTop = fallbackScrollTop;
+        var candidate = readingAnchorElement(anchor);
+        if (!candidate) return;
+        var scrollBounds = scroll.getBoundingClientRect();
+        var currentTop = candidate.getBoundingClientRect().top
+            - scrollBounds.top;
+        scroll.scrollTop += currentTop - anchor.top;
+    }
+
+    function restoreViewportReadingPosition(anchor, fallbackScrollTop) {
+        scroll.scrollTop = fallbackScrollTop;
+        var candidate = readingAnchorElement(anchor);
+        if (!candidate || typeof anchor.viewportTop !== 'number') return;
+        scroll.scrollTop += candidate.getBoundingClientRect().top
+            - anchor.viewportTop;
     }
 
     function updatePosition(message) {
@@ -950,15 +1800,18 @@
         var previousScrollTop = scroll.scrollTop;
         var isLiveRefresh = state.initialized
             && message.updateKind === 'refresh';
-        var shouldFollow = isLiveRefresh
-            && state.atLatest
-            && distanceFromBottom() <= threshold()
-            && message.atLatest;
+        var readingAnchor = isLiveRefresh ? captureReadingAnchor() : null;
+        var focusedMessage = document.activeElement
+            && document.activeElement.closest
+            ? document.activeElement.closest(conversationMessageSelector())
+            : null;
+        var focusedMessageId = focusedMessage
+            ? conversationMessageId(focusedMessage)
+            : null;
         var oldIds = new Set(state.messageIds);
         var oldSignatures = state.messageSignatures;
         state.renderGeneration += 1;
         var renderGeneration = state.renderGeneration;
-        releaseMermaidObjectUrls();
         var clean = window.DOMPurify.sanitize(message.html, {
             ALLOWED_TAGS: allowedTags,
             ALLOWED_ATTR: allowedAttributes,
@@ -966,7 +1819,11 @@
             ALLOW_ARIA_ATTR: false,
         });
 
-        messages.innerHTML = clean;
+        var reconciled = reconcileMessages(
+            clean,
+            isLiveRefresh,
+            oldSignatures
+        );
         Array.prototype.forEach.call(
             messages.querySelectorAll('img'),
             function (image) {
@@ -975,8 +1832,8 @@
                 image.referrerPolicy = 'no-referrer';
             }
         );
-        var nextIds = getMessageIds();
-        var nextSignatures = getMessageSignatures();
+        var nextIds = reconciled.ids;
+        var nextSignatures = reconciled.signatures;
         var appendedOrChanged = nextIds.filter(function (id) {
             return !oldIds.has(id)
                 || oldSignatures.get(id) !== nextSignatures.get(id);
@@ -985,6 +1842,7 @@
         state.messageSignatures = nextSignatures;
         state.atLatest = message.atLatest;
         state.initialized = true;
+        applyOutline(message);
         updateCommentHighlights();
         updatePosition(message);
         previous.disabled = message.previousCursor === undefined;
@@ -1012,14 +1870,23 @@
                 candidate.classList.remove('conversation-selected-interaction');
             }, 1600);
         });
+        if (isLiveRefresh && focusedMessageId) {
+            var restoredFocus = Array.prototype.find.call(
+                messages.querySelectorAll(conversationMessageSelector()),
+                function (candidate) {
+                    return conversationMessageId(candidate)
+                        === focusedMessageId;
+                }
+            );
+            if (restoredFocus) {
+                restoredFocus.tabIndex = -1;
+                restoredFocus.focus({ preventScroll: true });
+            }
+        }
         renderMermaidDiagrams(renderGeneration).then(function () {
             if (renderGeneration !== state.renderGeneration) return;
-            if (shouldFollow) {
-                scroll.scrollTop = scroll.scrollHeight;
-            } else if (isLiveRefresh) {
-                scroll.scrollTop = previousScrollTop;
-            } else if (selectedMessages[0]) {
-                selectedMessages[0].scrollIntoView({ block: 'center' });
+            if (isLiveRefresh) {
+                restoreReadingPosition(readingAnchor, previousScrollTop);
             }
         });
 
@@ -1037,14 +1904,7 @@
             return;
         }
 
-        if (shouldFollow) {
-            scroll.scrollTop = scroll.scrollHeight;
-            state.firstNewMessageId = null;
-            newResponse.hidden = true;
-            return;
-        }
-
-        scroll.scrollTop = previousScrollTop;
+        restoreReadingPosition(readingAnchor, previousScrollTop);
         if (state.firstNewMessageId
             && !nextIds.includes(state.firstNewMessageId)) {
             state.firstNewMessageId = null;
@@ -1071,9 +1931,100 @@
     close.addEventListener('click', function () {
         postNavigation('conversation-viewer-closed');
     });
-    if (commentUiAvailable) {
+    if (sidebarUiAvailable) {
+        function toggleSidebarView(view) {
+            var alreadyOpen = state.commentsPanelOpen
+                && state.sidebarView === view;
+            setSidebarView(view, !alreadyOpen, true);
+        }
+        outlineToggle.addEventListener('click', function () {
+            toggleSidebarView('outline');
+        });
         commentsToggle.addEventListener('click', function () {
-            setCommentsPanelOpen(!state.commentsPanelOpen, true);
+            toggleSidebarView('comments');
+        });
+        sidebarTabs.forEach(function (tab) {
+            tab.addEventListener('click', function () {
+                setSidebarView(
+                    tab.getAttribute('data-sidebar-tab'),
+                    true,
+                    true
+                );
+            });
+            tab.addEventListener('keydown', function (event) {
+                if (!['ArrowLeft', 'ArrowRight', 'Home', 'End']
+                    .includes(event.key)) return;
+                var current = sidebarTabs.indexOf(tab);
+                var nextIndex = current;
+                if (event.key === 'Home') nextIndex = 0;
+                else if (event.key === 'End') {
+                    nextIndex = sidebarTabs.length - 1;
+                } else if (event.key === 'ArrowLeft') {
+                    nextIndex = Math.max(0, current - 1);
+                } else {
+                    nextIndex = Math.min(
+                        sidebarTabs.length - 1,
+                        current + 1
+                    );
+                }
+                event.preventDefault();
+                var nextTab = sidebarTabs[nextIndex];
+                setSidebarView(
+                    nextTab.getAttribute('data-sidebar-tab'),
+                    true,
+                    true
+                );
+                nextTab.focus();
+            });
+        });
+        sidebarClose.addEventListener('click', function () {
+            setCommentsPanelOpen(false, true);
+            if (state.sidebarView === 'outline') {
+                outlineToggle.focus();
+            } else {
+                commentsToggle.focus();
+            }
+        });
+        outlineSearch.addEventListener('input', function () {
+            state.outlineQuery = outlineSearch.value;
+            filterOutline();
+            saveCommentsPanelState();
+        });
+        outlineList.addEventListener('click', function (event) {
+            var button = event.target.closest
+                ? event.target.closest('[data-outline-interaction-id]')
+                : null;
+            if (!button || !outlineList.contains(button)) return;
+            post({
+                type: 'conversation-viewer-select-interaction',
+                version: 1,
+                interactionId: button.getAttribute(
+                    'data-outline-interaction-id'
+                ),
+            });
+        });
+        outlineList.addEventListener('keydown', function (event) {
+            if (!['ArrowUp', 'ArrowDown', 'Home', 'End']
+                .includes(event.key)) return;
+            var visible = visibleOutlineButtons();
+            if (!visible.length) return;
+            var current = event.target.closest
+                ? event.target.closest('[data-outline-interaction-id]')
+                : null;
+            var index = visible.indexOf(current);
+            if (event.key === 'Home') index = 0;
+            else if (event.key === 'End') index = visible.length - 1;
+            else if (event.key === 'ArrowUp') {
+                index = Math.max(0, index - 1);
+            } else {
+                index = Math.min(visible.length - 1, index + 1);
+            }
+            event.preventDefault();
+            visible.forEach(function (button) {
+                button.tabIndex = -1;
+            });
+            visible[index].tabIndex = 0;
+            visible[index].focus();
         });
         var resizingPointerId = null;
         commentsResizer.addEventListener('pointerdown', function (event) {
@@ -1169,10 +2120,14 @@
                 ? event.target.closest('[data-comment-action]')
                 : null;
             if (!button || !commentsRoot.contains(button)
-                || state.pendingCommentRequest) {
+                || state.pendingCommentRequest
+                || state.pendingLocateRequest) {
                 return;
             }
             var action = button.getAttribute('data-comment-action');
+            if (action !== 'clearAll' && state.clearAllConfirmation) {
+                resetClearAllConfirmation();
+            }
             if (action === 'cancel-add') {
                 closeCommentComposer();
                 return;
@@ -1197,6 +2152,26 @@
                 postCommentOperation('sendComments', {});
                 return;
             }
+            if (action === 'clearSent' || action === 'clearResolved') {
+                postCommentOperation(action, {});
+                return;
+            }
+            if (action === 'clearAll') {
+                if (!state.clearAllConfirmation) {
+                    state.clearAllConfirmation = true;
+                    commentClearAll.textContent = 'Confirm clear all';
+                    commentClearAll.setAttribute('data-confirming', 'true');
+                    commentClearAll.setAttribute(
+                        'aria-label',
+                        'Confirm clearing all comments'
+                    );
+                    status.textContent =
+                        'Select Clear all again to remove every comment.';
+                    return;
+                }
+                postCommentOperation('clearAll', {});
+                return;
+            }
             var item = button.closest('[data-comment-id]');
             var commentId = item && item.getAttribute('data-comment-id');
             var comment = state.comments.find(function (candidate) {
@@ -1204,11 +2179,15 @@
             });
             if (!item || !comment) return;
             if (action === 'locate') {
-                locateComment(comment);
+                requestCommentLocation(comment);
                 return;
             }
             if (action === 'delete') {
                 postCommentOperation('delete', { commentId: comment.id });
+                return;
+            }
+            if (action === 'resolve' || action === 'reopen') {
+                postCommentOperation(action, { commentId: comment.id });
                 return;
             }
             if (action === 'update') {
@@ -1227,10 +2206,50 @@
         });
     }
     document.addEventListener('keydown', function (event) {
+        if (commentUiAvailable
+            && event.key === 'Enter'
+            && (event.ctrlKey || event.metaKey)
+            && !event.altKey) {
+            var target = event.target;
+            if (target === commentInput && !commentComposer.hidden) {
+                event.preventDefault();
+                commentComposer.querySelector(
+                    '[data-comment-action="confirm-add"]'
+                )?.click();
+                return;
+            }
+            if (target && target.matches?.('[data-comment-edit]')) {
+                var item = target.closest('[data-comment-id]');
+                var save = item?.querySelector(
+                    '[data-comment-action="update"]'
+                );
+                if (save) {
+                    event.preventDefault();
+                    save.click();
+                    return;
+                }
+            }
+        }
         if (event.key !== 'Escape') return;
+        if (commentUiAvailable && state.clearAllConfirmation) {
+            event.preventDefault();
+            resetClearAllConfirmation();
+            status.textContent = 'Clear all cancelled.';
+            commentClearAll.focus();
+            return;
+        }
         if (commentUiAvailable && !commentComposer.hidden) {
             event.preventDefault();
             closeCommentComposer();
+            return;
+        }
+        if (sidebarUiAvailable
+            && state.commentsPanelOpen
+            && sidebarRoot.contains(document.activeElement)) {
+            event.preventDefault();
+            setCommentsPanelOpen(false, true);
+            if (state.sidebarView === 'outline') outlineToggle.focus();
+            else commentsToggle.focus();
             return;
         }
         event.preventDefault();
@@ -1238,6 +2257,8 @@
     });
     window.addEventListener('message', function (event) {
         if (applyCommentsResult(event.data)) return;
+        if (applyLocateResult(event.data)) return;
+        if (applyTelemetry(event.data)) return;
         applyPage(event.data);
     });
     window.addEventListener('unload', releaseMermaidObjectUrls);
@@ -1251,7 +2272,7 @@
             status.textContent = 'Conversation history unavailable.';
         }
     }
-    if (commentUiAvailable) {
+    if (sidebarUiAvailable) {
         var savedCommentsPanel = readCommentsPanelState();
         if (savedCommentsPanel) {
             if (typeof savedCommentsPanel.open === 'boolean') {
@@ -1262,8 +2283,19 @@
                     savedCommentsPanel.width
                 );
             }
+            if (savedCommentsPanel.view === 'outline'
+                || savedCommentsPanel.view === 'comments') {
+                state.sidebarView = savedCommentsPanel.view;
+            }
+            if (typeof savedCommentsPanel.query === 'string') {
+                state.outlineQuery = savedCommentsPanel.query.slice(0, 4096);
+                outlineSearch.value = state.outlineQuery;
+            }
         }
         applyCommentsPanelLayout();
+        filterOutline();
+    }
+    if (commentUiAvailable) {
         var initialComments = readJsonAttribute('data-initial-comments');
         if (validInitialComments(initialComments)) {
             state.commentRevision = initialComments.revision;

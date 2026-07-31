@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "c8c41bcf9438cb8f9569b17bf6e24f8e2e2e7399",
+        "head": "291ca2e95a50e6417d61d610df95274b10672222",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -955,7 +955,14 @@
                 "e5e0c103006ab7f37b57b61c670e062e1e2b909f",
                 "6d6b32d617f618b70e11b4ceea462ff0017620fc",
                 "7f935db19842e697524bc84ebfd18f2bf7307ca6",
-                "c8c41bcf9438cb8f9569b17bf6e24f8e2e2e7399"
+                "c8c41bcf9438cb8f9569b17bf6e24f8e2e2e7399",
+                "34389ed3d155c9ba1359772a1ca2e20618c4cf48",
+                "677e66f73495bf4f46b6b31a0f592aa7b1da6369",
+                "92cbdcb7e84b51f6d58a3061b025bc28c465f83e",
+                "aff1912fb00297609b99b5a2c9affede9c7f707f",
+                "53443dc749dbe3fe6fa19612d6d8afc4788158b5",
+                "ce7fbe690477a7d5fad214bcabd8170c3d181f62",
+                "291ca2e95a50e6417d61d610df95274b10672222"
             ],
             "behaviors": [
                 "SESSION-AI-SESSION-CONVERSATION-ADAPTER-001",
@@ -965,13 +972,21 @@
                 "ACTIVE-SESSION-CONVERSATION-RESTORE-001",
                 "SESSION-CONVERSATION-LOADING-001",
                 "CONVERSATION-VIEWER-LOADING-001",
+                "CONVERSATION-OUTLINE-DELIVERY-001",
                 "CONVERSATION-VIEWER-USER-EMPHASIS-001",
                 "CONVERSATION-COMMENTS-001",
                 "CONVERSATION-COMMENTS-SUBMIT-001",
                 "CONVERSATION-COMMENTS-UI-001",
+                "CONVERSATION-COMMENTS-REVIEW-001",
+                "CONVERSATION-COMMENTS-BULK-001",
+                "CONVERSATION-COMMENTS-PERSISTENCE-001",
                 "CONVERSATION-COMMENTS-LAYOUT-001",
+                "CONVERSATION-OUTLINE-NAVIGATION-001",
+                "CONVERSATION-READING-FOCUS-001",
+                "CONVERSATION-TELEMETRY-001",
                 "WEBVIEW-STYLES-ARTIFACT-001",
-                "CONVERSATION-OPEN-LATEST-001"
+                "CONVERSATION-OPEN-LATEST-001",
+                "CONVERSATION-FOLLOW-ACTIVE-SESSION-001"
             ],
             "prGates": [
                 "test:ci:linux"

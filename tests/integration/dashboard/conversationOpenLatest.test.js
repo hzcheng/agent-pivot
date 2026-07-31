@@ -1,7 +1,9 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const Module = require('node:module');
+const path = require('node:path');
 const test = require('node:test');
 
 function fakeUri(value) {
@@ -11,6 +13,14 @@ function fakeUri(value) {
         fsPath: value,
         toString: () => value,
     };
+}
+
+function deferred() {
+    let resolve;
+    const promise = new Promise(next => {
+        resolve = next;
+    });
+    return { promise, resolve };
 }
 
 function loadConversationComposition() {
@@ -92,6 +102,8 @@ function makeSession(overrides = {}) {
 
 function createHarness(options = {}) {
     const viewerTargets = [];
+    const followedViewerTargets = [];
+    let outlineReads = 0;
     const session = 'session' in options ? options.session : makeSession({
         conversationDisplayName: options.conversationDisplayName,
         duplicateConversationDisplayName:
@@ -99,6 +111,10 @@ function createHarness(options = {}) {
     });
     const fakeAdapter = provider => () => ({
         async readOutline(sessionId) {
+            outlineReads += 1;
+            if (options.readOutline) {
+                return options.readOutline(provider, sessionId);
+            }
             if (options.readOutlineError) {
                 throw options.readOutlineError;
             }
@@ -122,7 +138,7 @@ function createHarness(options = {}) {
             kimi: makeService('kimi'),
             claude: makeService('claude'),
         },
-        resolveTarget: () => session,
+        resolveTarget: options.resolveTarget || (() => session),
         publish: async () => true,
         createPanel: () => {
             throw new Error('createPanel is not used by openLatestConversation');
@@ -141,15 +157,27 @@ function createHarness(options = {}) {
         createKimiAdapter: fakeAdapter('kimi'),
         createClaudeAdapter: fakeAdapter('claude'),
         createViewer: () => ({
+            isOpen: () => options.viewerOpen === true,
             open: async target => {
                 viewerTargets.push(target);
+            },
+            follow: async target => {
+                followedViewerTargets.push(target);
+                return true;
             },
             refresh: async () => undefined,
             reconcileAuthority: async () => undefined,
             dispose() {},
         }),
     });
-    return { capability, viewerTargets };
+    return {
+        capability,
+        viewerTargets,
+        followedViewerTargets,
+        get outlineReads() {
+            return outlineReads;
+        },
+    };
 }
 
 test('CONVERSATION-OPEN-LATEST-001 opens the latest interaction of the resolved session', async () => {
@@ -242,4 +270,87 @@ test('CONVERSATION-OPEN-LATEST-001 unavailable capability rejects openLatestConv
     assert.equal(result, 'unavailable');
     assert.deepEqual(viewerTargets, []);
     capability.dispose();
+});
+
+test('CONVERSATION-FOLLOW-ACTIVE-SESSION-001 follows the latest interaction only while AI Conversation is already open', async () => {
+    const openHarness = createHarness({ viewerOpen: true });
+    assert.equal(await openHarness.capability.followActiveConversation({
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    }), 'opened');
+    assert.deepEqual(openHarness.followedViewerTargets, [{
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+        interactionId: 'input-b',
+        expectedRevision: 'r1',
+        displayName: 'Focused session',
+        duplicateDisplayName: false,
+    }]);
+    assert.deepEqual(openHarness.viewerTargets, []);
+
+    const closedHarness = createHarness({
+        viewerOpen: false,
+        readOutlineError: new Error('must not read while closed'),
+    });
+    assert.equal(await closedHarness.capability.followActiveConversation({
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    }), 'closed');
+    assert.equal(closedHarness.outlineReads, 0);
+    assert.deepEqual(closedHarness.followedViewerTargets, []);
+    openHarness.capability.dispose();
+    closedHarness.capability.dispose();
+});
+
+test('CONVERSATION-FOLLOW-ACTIVE-SESSION-001 routes a successful Active Session card focus into Conversation following', () => {
+    const dashboardSource = fs.readFileSync(
+        path.join(__dirname, '../../../src/dashboard.ts'),
+        'utf8'
+    );
+    const handler = dashboardSource.match(
+        /'focus-ai-session-terminal': async e => \{[\s\S]*?\n\s*\},\n\s*'focus-pending-ai-session'/
+    );
+    assert.ok(handler, 'Active Session focus handler must remain inspectable');
+    assert.match(handler[0], /focusActive\(/);
+    assert.match(
+        handler[0],
+        /if \(focused\) \{[\s\S]*followActiveConversation\(/
+    );
+});
+
+test('CONVERSATION-FOLLOW-ACTIVE-SESSION-001 lets the newest Session follow intent win when an older outline resolves late', async () => {
+    const slowOutline = deferred();
+    const harness = createHarness({
+        viewerOpen: true,
+        resolveTarget: (_projectId, provider, sessionId) => makeSession({
+            key: `${provider}:${sessionId}`,
+            provider,
+            sessionId,
+            name: sessionId,
+        }),
+        readOutline: (provider, sessionId) => sessionId === 'session-a'
+            ? slowOutline.promise
+            : makeOutline(provider, sessionId, ['input-b']),
+    });
+    const first = harness.capability.followActiveConversation({
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(await harness.capability.followActiveConversation({
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-b',
+    }), 'opened');
+    slowOutline.resolve(makeOutline('codex', 'session-a', ['input-a']));
+    assert.equal(await first, 'superseded');
+    assert.deepEqual(
+        harness.followedViewerTargets.map(target => target.sessionId),
+        ['session-b']
+    );
+    harness.capability.dispose();
 });

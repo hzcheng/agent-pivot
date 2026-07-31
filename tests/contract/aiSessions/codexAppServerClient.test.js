@@ -242,6 +242,39 @@ test('SESSION-AI-SESSION-CODEX-APP-SERVER-001 performs one stable handshake and 
     });
 });
 
+test('CONVERSATION-TELEMETRY-001 publishes structured App Server notifications without affecting requests', async t => {
+    const harness = createHarness();
+    t.after(() => harness.client.dispose());
+    const notifications = [];
+    const subscription = harness.client.watchNotifications((method, params) => {
+        notifications.push({ method, params });
+    });
+    t.after(() => subscription.dispose());
+
+    const request = harness.client.request('thread/read', {
+        threadId: SESSION_ID,
+        includeTurns: true,
+    });
+    await finishHandshake(harness.child);
+    emitResponse(harness.child, {
+        method: 'thread/tokenUsage/updated',
+        params: {
+            threadId: SESSION_ID,
+            tokenUsage: { modelContextWindow: 128_000 },
+        },
+    });
+    emitResponse(harness.child, { id: 2, result: { ok: true } });
+
+    assert.deepEqual(await request, { ok: true });
+    assert.deepEqual(notifications, [{
+        method: 'thread/tokenUsage/updated',
+        params: {
+            threadId: SESSION_ID,
+            tokenUsage: { modelContextWindow: 128_000 },
+        },
+    }]);
+});
+
 test('SESSION-AI-SESSION-CODEX-APP-SERVER-002 frames Buffer chunks across arbitrary LF and CRLF boundaries exactly once', async t => {
     const harness = createHarness();
     t.after(() => harness.client.dispose());

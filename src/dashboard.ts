@@ -50,6 +50,9 @@ import AiSessionAliasStore from './aiSessions/aliasStore';
 import AiSessionAliasController from './aiSessions/aliasController';
 import AiSessionPinStore from './aiSessions/pinStore';
 import AiSessionPinController from './aiSessions/pinController';
+import {
+    ConversationCommentFileStore,
+} from './aiSessions/conversation/commentStore';
 import AiSessionWorkspaceStateStore from './aiSessions/workspaceStateStore';
 import ActiveAiSessionTerminalHighlighter from './aiSessions/activeTerminalHighlight';
 import AttentionBridgeClient from './aiSessions/attentionBridgeClient';
@@ -1466,6 +1469,9 @@ async function initializeDashboard(
         setTimer: setTimeout,
         clearTimer: clearTimeout,
         onDiagnostic: event => logAiSessionDiagnostic({ ...event }),
+        commentStore: new ConversationCommentFileStore(
+            context.globalStoragePath
+        ),
         submitPrompt: (viewerTarget, prompt) => submitConversationPrompt({
             getWorkspaceTarget: getCurrentWorkspaceActionTarget,
             getRuntime: getAiSessionRuntimeById,
@@ -1478,6 +1484,13 @@ async function initializeDashboard(
                     resumePrompt
                 ),
         }, viewerTarget, prompt),
+        focusSession: async viewerTarget => {
+            await aiSessionTerminalCommandController.focusActive(
+                viewerTarget.projectId,
+                viewerTarget.provider,
+                viewerTarget.sessionId
+            );
+        },
     }));
     const conversationHandlers = {
         'request-ai-session-conversation-outline': message =>
@@ -2025,11 +2038,22 @@ async function initializeDashboard(
                 );
             },
             'focus-ai-session-terminal': async e => {
-                await aiSessionTerminalCommandController.focusActive(
-                    e.projectId as string,
-                    e.provider as string,
-                    e.sessionId as string
-                );
+                const target = {
+                    projectId: e.projectId as string,
+                    provider: e.provider as AiSessionProviderId,
+                    sessionId: e.sessionId as string,
+                };
+                const focused =
+                    await aiSessionTerminalCommandController.focusActive(
+                        target.projectId,
+                        target.provider,
+                        target.sessionId
+                    );
+                if (focused) {
+                    await conversationCapability.followActiveConversation(
+                        target
+                    );
+                }
             },
             'focus-pending-ai-session': async e => {
                 await aiSessionTerminalCommandController.focusPending(

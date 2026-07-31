@@ -8,15 +8,25 @@ import type { AiSessionProviderId } from '../../models';
 import type { AiSessionDisposable } from '../types';
 import {
     buildConversationCommentsPrompt,
+    clearConversationComments,
     cloneConversationComments,
     CONVERSATION_COMMENT_LIMITS,
     ConversationCommentDraft,
     ConversationCommentError,
     ConversationCommentOperation,
     ConversationCommentSelection,
+    ConversationCommentTarget,
     createConversationComment,
+    markConversationCommentsSent,
+    reopenConversationComment,
+    resolveConversationComment,
     updateConversationComment,
+    validateConversationComments,
 } from './comments';
+import type {
+    ConversationCommentSnapshot,
+    ConversationCommentStore,
+} from './commentStore';
 import { renderConversationMarkdown } from './markdown';
 import {
     CONVERSATION_LIMITS,
@@ -27,6 +37,8 @@ import {
     ConversationOutline,
     ConversationPage,
     ConversationPageRequest,
+    ConversationResponseState,
+    ConversationTelemetry,
 } from './types';
 
 export interface ConversationViewerTarget {
@@ -50,6 +62,11 @@ export interface ConversationViewerOptions {
         request: ConversationPageRequest,
         signal: ConversationAbortSignal
     ) => Promise<ConversationPage>;
+    readTelemetry?: (
+        provider: AiSessionProviderId,
+        sessionId: string,
+        signal?: ConversationAbortSignal
+    ) => Promise<ConversationTelemetry | undefined>;
     watch: (
         provider: AiSessionProviderId,
         sessionId: string,
@@ -64,10 +81,19 @@ export interface ConversationViewerOptions {
         target: ConversationViewerTarget,
         prompt: string
     ) => PromiseLike<void> | Promise<void>;
+    focusSession?: (
+        target: Pick<
+            ConversationViewerTarget,
+            'projectId' | 'provider' | 'sessionId'
+        >
+    ) => PromiseLike<void> | Promise<void>;
+    commentStore?: ConversationCommentStore;
 }
 
 export interface ConversationViewerApi extends AiSessionDisposable {
+    isOpen(): boolean;
     open(target: ConversationViewerTarget): Promise<void>;
+    follow(target: ConversationViewerTarget): Promise<boolean>;
     refresh(): Promise<void>;
     reconcileAuthority(
         resolveAuthority: (target: ConversationViewerTarget) => boolean
@@ -85,6 +111,7 @@ interface ConversationViewerPageMessage {
     subscriptionGeneration: number;
     updateKind: 'initial' | 'navigation' | 'refresh';
     html: string;
+    outline: ConversationViewerOutlineEntry[];
     selectedInteractionId: string;
     selectedInput: number;
     totalInputs: number;
@@ -95,12 +122,32 @@ interface ConversationViewerPageMessage {
     stale: boolean;
 }
 
+interface ConversationViewerTelemetryMessage {
+    type: 'conversation-viewer-telemetry';
+    version: 1;
+    requestId: number;
+    subscriptionGeneration: number;
+    telemetry: ConversationTelemetry | null;
+}
+
+interface ConversationViewerOutlineEntry {
+    interactionId: string;
+    userPreview: string;
+    responseState: ConversationResponseState;
+}
+
 interface ConversationViewerNavigationMessage {
     type: 'conversation-viewer-previous'
         | 'conversation-viewer-next'
         | 'conversation-viewer-latest'
         | 'conversation-viewer-closed';
     version: 1;
+}
+
+interface ConversationViewerSelectInteractionMessage {
+    type: 'conversation-viewer-select-interaction';
+    version: 1;
+    interactionId: string;
 }
 
 interface ConversationViewerOpenLinkMessage {
@@ -117,9 +164,34 @@ interface ConversationViewerCommentMutationMessage {
     projectId: string;
     provider: AiSessionProviderId;
     sessionId: string;
-    operation: 'add' | 'update' | 'delete';
+    operation: 'add' | 'update' | 'delete' | 'resolve' | 'reopen'
+        | 'clearSent' | 'clearResolved' | 'clearAll';
     expectedRevision: number;
     payload: unknown;
+}
+
+interface ConversationViewerLocateCommentMessage {
+    type: 'conversation-viewer-locate-comment';
+    version: 1;
+    requestId: string;
+    subscriptionGeneration: number;
+    projectId: string;
+    provider: AiSessionProviderId;
+    sessionId: string;
+    commentId: string;
+}
+
+interface ConversationViewerLocateCommentResultMessage {
+    type: 'conversation-viewer-locate-comment-result';
+    version: 1;
+    requestId: string;
+    subscriptionGeneration: number;
+    projectId: string;
+    provider: AiSessionProviderId;
+    sessionId: string;
+    commentId: string;
+    success: boolean;
+    error?: 'stale';
 }
 
 interface ConversationViewerSendCommentsMessage {
@@ -152,9 +224,11 @@ interface ConversationViewerCommentsResultMessage {
 
 type ConversationViewerMessage =
     ConversationViewerNavigationMessage
+    | ConversationViewerSelectInteractionMessage
     | ConversationViewerOpenLinkMessage
     | ConversationViewerCommentMutationMessage
-    | ConversationViewerSendCommentsMessage;
+    | ConversationViewerSendCommentsMessage
+    | ConversationViewerLocateCommentMessage;
 
 const NAVIGATION_MESSAGE_TYPES = new Set([
     'conversation-viewer-previous',
@@ -178,6 +252,7 @@ export class ConversationViewer implements ConversationViewerApi {
     private currentRequestId = 0;
     private selectedInteractionId?: string;
     private stale = false;
+    private telemetry?: ConversationTelemetry;
     private latestPublication?: ConversationViewerPageMessage;
     private panelWasVisible = false;
     private suspended = false;
@@ -195,14 +270,48 @@ export class ConversationViewer implements ConversationViewerApi {
         return this.interactionIds().length;
     }
 
+    isOpen(): boolean {
+        return Boolean(this.panel);
+    }
+
     async open(target: ConversationViewerTarget): Promise<void> {
+        await this.loadTarget(target, true);
+    }
+
+    async follow(target: ConversationViewerTarget): Promise<boolean> {
+        if (!this.panel) {
+            return false;
+        }
+        return this.loadTarget(target, false);
+    }
+
+    private async loadTarget(
+        target: ConversationViewerTarget,
+        reveal: boolean
+    ): Promise<boolean> {
+        const followedPanel = reveal ? undefined : this.panel;
         const generation = this.replaceTarget(target);
-        const panel = this.ensurePanel();
+        const activeTarget = this.target;
+        if (!activeTarget) {
+            return false;
+        }
+        await this.restoreComments(activeTarget, generation);
+        if (this.target !== activeTarget
+            || this.subscriptionGeneration !== generation) {
+            return false;
+        }
+        const panel = reveal ? this.ensurePanel() : this.panel;
+        if (!panel || (!reveal && panel !== followedPanel)) {
+            return false;
+        }
         panel.title = 'AI Conversation';
-        panel.reveal(vscode.ViewColumn.Active);
+        if (reveal) {
+            panel.reveal(vscode.ViewColumn.Active);
+        }
         panel.webview.html = this.renderDocument(undefined, 'Loading conversation…');
         this.ensureWatch(generation);
         await this.loadAuthoritative('initial', true);
+        return true;
     }
 
     async refresh(): Promise<void> {
@@ -282,6 +391,7 @@ export class ConversationViewer implements ConversationViewerApi {
         this.pages = [];
         this.outline = undefined;
         this.stale = false;
+        this.telemetry = undefined;
         this.latestPublication = undefined;
         this.comments = [];
         this.commentRevision = 0;
@@ -360,6 +470,7 @@ export class ConversationViewer implements ConversationViewerApi {
         this.target = undefined;
         this.selectedInteractionId = undefined;
         this.stale = false;
+        this.telemetry = undefined;
         this.latestPublication = undefined;
         this.comments = [];
         this.commentRevision = 0;
@@ -386,6 +497,14 @@ export class ConversationViewer implements ConversationViewerApi {
         if (parsed.type === 'conversation-viewer-comment-mutation'
             || parsed.type === 'conversation-viewer-send-comments') {
             await this.enqueueCommentOperation(parsed);
+            return;
+        }
+        if (parsed.type === 'conversation-viewer-locate-comment') {
+            await this.locateComment(parsed);
+            return;
+        }
+        if (parsed.type === 'conversation-viewer-select-interaction') {
+            await this.navigateToInteraction(parsed.interactionId);
             return;
         }
         if (parsed.type === 'conversation-viewer-previous') {
@@ -449,11 +568,21 @@ export class ConversationViewer implements ConversationViewerApi {
         }
         try {
             if (request.operation === 'sendComments') {
-                await this.sendComments(target);
+                await this.sendComments(
+                    target,
+                    this.subscriptionGeneration
+                );
             } else {
-                this.mutateComments(request);
+                await this.mutateComments(
+                    request,
+                    target,
+                    this.subscriptionGeneration
+                );
             }
             await this.settleCommentRequest(request, true);
+            if (request.operation === 'sendComments') {
+                await this.focusSessionAfterCommentSend(target);
+            }
         } catch (error) {
             await this.settleCommentRequest(
                 request,
@@ -463,11 +592,30 @@ export class ConversationViewer implements ConversationViewerApi {
         }
     }
 
-    private mutateComments(
-        request: ConversationViewerCommentMutationMessage
-    ): void {
+    private async focusSessionAfterCommentSend(
+        target: ConversationViewerTarget
+    ): Promise<void> {
+        try {
+            await Promise.resolve(this.options.focusSession?.({
+                projectId: target.projectId,
+                provider: target.provider,
+                sessionId: target.sessionId,
+            }));
+        } catch (_error) {
+            // The prompt was already submitted and settled. A focus failure
+            // must not make the user retry and submit the same batch twice.
+        }
+    }
+
+    private async mutateComments(
+        request: ConversationViewerCommentMutationMessage,
+        target: ConversationViewerTarget,
+        generation: number
+    ): Promise<void> {
+        let comments = cloneConversationComments(this.comments);
+        let revision = this.commentRevision;
         if (request.operation === 'add') {
-            if (this.comments.length
+            if (comments.length
                 >= CONVERSATION_COMMENT_LIMITS.maxComments) {
                 throw new ConversationCommentError('limit');
             }
@@ -479,43 +627,91 @@ export class ConversationViewer implements ConversationViewerApi {
             if (!message) {
                 throw new ConversationCommentError('stale');
             }
-            this.comments.push(createConversationComment(
+            comments.push(createConversationComment(
                 randomBytes(16).toString('hex'),
                 payload,
                 message
             ));
-            this.commentRevision += 1;
-            return;
-        }
-        const payload = parseExistingCommentPayload(
-            request.operation,
-            request.payload
-        );
-        const index = this.comments.findIndex(
-            comment => comment.id === payload.commentId
-        );
-        if (index < 0) {
-            throw new ConversationCommentError('stale');
-        }
-        if (request.operation === 'delete') {
-            this.comments.splice(index, 1);
-        } else {
-            this.comments[index] = updateConversationComment(
-                this.comments[index],
-                payload.comment
+            revision += 1;
+        } else if (request.operation === 'clearSent'
+            || request.operation === 'clearResolved'
+            || request.operation === 'clearAll') {
+            if (!hasExactKeys(request.payload as object, [])) {
+                throw new ConversationCommentError('invalid');
+            }
+            const remainingComments = clearConversationComments(
+                comments,
+                request.operation
             );
+            if (remainingComments.length !== comments.length) {
+                comments = remainingComments;
+                revision += 1;
+            }
+        } else {
+            const payload = parseExistingCommentPayload(
+                request.operation,
+                request.payload
+            );
+            const index = comments.findIndex(
+                comment => comment.id === payload.commentId
+            );
+            if (index < 0) {
+                throw new ConversationCommentError('stale');
+            }
+            if (request.operation === 'delete') {
+                comments.splice(index, 1);
+            } else if (request.operation === 'update') {
+                comments[index] = updateConversationComment(
+                    comments[index],
+                    payload.comment
+                );
+            } else if (request.operation === 'resolve') {
+                comments[index] = resolveConversationComment(comments[index]);
+            } else {
+                comments[index] = reopenConversationComment(comments[index]);
+            }
+            revision += 1;
         }
-        this.commentRevision += 1;
+        const snapshot = { revision, comments };
+        await this.persistComments(target, snapshot);
+        this.commitPersistedComments(
+            target,
+            generation,
+            request.expectedRevision,
+            snapshot
+        );
     }
 
-    private async sendComments(target: ConversationViewerTarget): Promise<void> {
-        const prompt = buildConversationCommentsPrompt(this.comments);
+    private async sendComments(
+        target: ConversationViewerTarget,
+        generation: number
+    ): Promise<void> {
+        const openComments = this.comments.filter(
+            comment => comment.status === 'open'
+        );
+        const prompt = buildConversationCommentsPrompt(openComments);
+        const previousSnapshot = {
+            revision: this.commentRevision,
+            comments: cloneConversationComments(this.comments),
+        };
+        const sentSnapshot = {
+            revision: this.commentRevision + 1,
+            comments: markConversationCommentsSent(this.comments),
+        };
+        await this.persistComments(target, sentSnapshot);
+        if (this.target !== target
+            || this.subscriptionGeneration !== generation
+            || this.commentRevision !== previousSnapshot.revision) {
+            await this.persistComments(target, previousSnapshot);
+            throw new ConversationCommentError('stale');
+        }
         try {
             await Promise.resolve(this.options.submitPrompt(
                 { ...target },
                 prompt
             ));
         } catch (error) {
+            await this.persistComments(target, previousSnapshot);
             if (error instanceof ConversationCommentError) {
                 throw error;
             }
@@ -524,8 +720,98 @@ export class ConversationViewer implements ConversationViewerApi {
         if (this.target !== target) {
             throw new ConversationCommentError('stale');
         }
-        this.comments = [];
-        this.commentRevision += 1;
+        this.comments = sentSnapshot.comments;
+        this.commentRevision = sentSnapshot.revision;
+    }
+
+    private async restoreComments(
+        target: ConversationViewerTarget,
+        generation: number
+    ): Promise<void> {
+        if (!this.options.commentStore) {
+            return;
+        }
+        let snapshot: ConversationCommentSnapshot;
+        try {
+            snapshot = await this.options.commentStore.load(
+                toCommentTarget(target)
+            );
+            validateConversationComments(snapshot.comments);
+            if (!Number.isSafeInteger(snapshot.revision)
+                || snapshot.revision < 0) {
+                throw new ConversationCommentError('invalid');
+            }
+        } catch (_error) {
+            return;
+        }
+        if (this.target !== target
+            || this.subscriptionGeneration !== generation) {
+            return;
+        }
+        this.comments = cloneConversationComments(snapshot.comments);
+        this.commentRevision = snapshot.revision;
+    }
+
+    private async persistComments(
+        target: ConversationViewerTarget,
+        snapshot: ConversationCommentSnapshot
+    ): Promise<void> {
+        if (!this.options.commentStore) {
+            return;
+        }
+        try {
+            await this.options.commentStore.save(
+                toCommentTarget(target),
+                snapshot
+            );
+        } catch (_error) {
+            throw new ConversationCommentError('failed');
+        }
+    }
+
+    private commitPersistedComments(
+        target: ConversationViewerTarget,
+        generation: number,
+        expectedRevision: number,
+        snapshot: ConversationCommentSnapshot
+    ): void {
+        if (this.target !== target
+            || this.subscriptionGeneration !== generation
+            || this.commentRevision !== expectedRevision) {
+            throw new ConversationCommentError('stale');
+        }
+        this.comments = snapshot.comments;
+        this.commentRevision = snapshot.revision;
+    }
+
+    private async locateComment(
+        request: ConversationViewerLocateCommentMessage
+    ): Promise<void> {
+        const target = this.target;
+        const comment = this.comments.find(
+            candidate => candidate.id === request.commentId
+        );
+        const targetMatches = Boolean(target)
+            && request.subscriptionGeneration === this.subscriptionGeneration
+            && request.projectId === target?.projectId
+            && request.provider === target?.provider
+            && request.sessionId === target?.sessionId;
+        const success = targetMatches && comment
+            ? await this.navigateToInteraction(comment.interactionId)
+            : false;
+        const settlement: ConversationViewerLocateCommentResultMessage = {
+            type: 'conversation-viewer-locate-comment-result',
+            version: 1,
+            requestId: request.requestId,
+            subscriptionGeneration: request.subscriptionGeneration,
+            projectId: request.projectId,
+            provider: request.provider,
+            sessionId: request.sessionId,
+            commentId: request.commentId,
+            success,
+            ...(success ? {} : { error: 'stale' }),
+        };
+        await this.publishTransientSettlement(settlement);
     }
 
     private async settleCommentRequest(
@@ -584,6 +870,26 @@ export class ConversationViewer implements ConversationViewerApi {
             delivered = false;
         }
         if (!delivered && rebuildOnFailure && this.panel === panel) {
+            this.rebuildLatestDocument();
+        }
+    }
+
+    private async publishTransientSettlement(
+        settlement: ConversationViewerLocateCommentResultMessage
+    ): Promise<void> {
+        const panel = this.panel;
+        if (!panel) {
+            return;
+        }
+        let delivered = false;
+        try {
+            delivered = await panel.webview.postMessage(settlement);
+        } catch (_error) {
+            delivered = false;
+        }
+        if (!delivered && this.panel === panel) {
+            // Replacing the document clears any Webview-owned pending locate
+            // state while preserving the Host-owned comments and current page.
             this.rebuildLatestDocument();
         }
     }
@@ -675,6 +981,29 @@ export class ConversationViewer implements ConversationViewerApi {
         }, 'replace', false, 'navigation', latestInteractionId);
     }
 
+    private async navigateToInteraction(
+        interactionId: string
+    ): Promise<boolean> {
+        const target = this.target;
+        const outline = this.outline;
+        if (!target || !outline || !outline.interactions.some(
+            interaction => interaction.id === interactionId
+        )) {
+            return false;
+        }
+        if (this.interactionIds().includes(interactionId)) {
+            return this.publishSelection(interactionId, 'navigation');
+        }
+        return this.read({
+            provider: target.provider,
+            sessionId: target.sessionId,
+            anchorInteractionId: interactionId,
+            direction: 'around',
+            expectedRevision: outline.sourceRevision,
+            limit: CONVERSATION_LIMITS.maxPageInteractions,
+        }, 'replace', false, 'navigation', interactionId);
+    }
+
     private loadAuthoritative(
         updateKind: 'initial' | 'refresh',
         replaceDocument: boolean
@@ -720,15 +1049,7 @@ export class ConversationViewer implements ConversationViewerApi {
         const generation = this.subscriptionGeneration;
         const requestId = this.allocateRequestId();
         this.currentRequestId = requestId;
-        const previousOutline = this.outline;
         const previousSelectedInteractionId = this.selectedInteractionId;
-        const previousWasLatest = Boolean(
-            previousOutline
-            && previousSelectedInteractionId
-            && previousOutline.interactions[
-                previousOutline.interactions.length - 1
-            ]?.id === previousSelectedInteractionId
-        );
         try {
             let outline = await this.options.readOutline(
                 target.provider,
@@ -760,9 +1081,7 @@ export class ConversationViewer implements ConversationViewerApi {
             }
             const selectedInteractionId = updateKind === 'initial'
                 ? target.interactionId
-                : previousWasLatest
-                    ? interactionIds[interactionIds.length - 1]
-                    : previousSelectedInteractionId as string;
+                : previousSelectedInteractionId as string;
             let page: ConversationPage;
             try {
                 page = await this.options.readPage({
@@ -833,6 +1152,7 @@ export class ConversationViewer implements ConversationViewerApi {
                 updateKind
             );
             await this.deliverPublication(publication, replaceDocument);
+            void this.refreshTelemetry(target, generation);
             return true;
         } catch (_error) {
             if (!this.canPublish(panel, target, generation, requestId)
@@ -1019,6 +1339,50 @@ export class ConversationViewer implements ConversationViewerApi {
             delivered = false;
         }
         if (!delivered && this.isCurrentPublication(publication)) {
+            this.rebuildLatestDocument();
+        }
+    }
+
+    private async refreshTelemetry(
+        target: ConversationViewerTarget,
+        generation: number
+    ): Promise<void> {
+        if (!this.options.readTelemetry) {
+            return;
+        }
+        let telemetry: ConversationTelemetry | undefined;
+        try {
+            telemetry = await this.options.readTelemetry(
+                target.provider,
+                target.sessionId
+            );
+        } catch (_error) {
+            telemetry = undefined;
+        }
+        const panel = this.panel;
+        if (!panel
+            || this.target !== target
+            || this.subscriptionGeneration !== generation
+            || this.suspended) {
+            return;
+        }
+        this.telemetry = telemetry;
+        const message: ConversationViewerTelemetryMessage = {
+            type: 'conversation-viewer-telemetry',
+            version: 1,
+            requestId: this.currentRequestId,
+            subscriptionGeneration: generation,
+            telemetry: telemetry || null,
+        };
+        let delivered = false;
+        try {
+            delivered = await panel.webview.postMessage(message);
+        } catch (_error) {
+            delivered = false;
+        }
+        if (!delivered
+            && this.target === target
+            && this.subscriptionGeneration === generation) {
             this.rebuildLatestDocument();
         }
     }
@@ -1269,6 +1633,11 @@ export class ConversationViewer implements ConversationViewerApi {
             subscriptionGeneration: generation,
             updateKind,
             html: renderMessages(this.messages()),
+            outline: outline.interactions.map(interaction => ({
+                interactionId: interaction.id,
+                userPreview: interaction.userPreview,
+                responseState: interaction.responseState,
+            })),
             selectedInteractionId,
             selectedInput: selectedIndex < 0
                 ? 0
@@ -1302,6 +1671,9 @@ export class ConversationViewer implements ConversationViewerApi {
         const nonce = randomBytes(16).toString('base64');
         const stylesheet = panel.webview.asWebviewUri(
             this.options.mediaUri('conversationViewer.css')
+        );
+        const telemetryStylesheet = panel.webview.asWebviewUri(
+            this.options.mediaUri('conversationTelemetry.css')
         );
         const purify = panel.webview.asWebviewUri(
             this.options.mediaUri('purify.min.js')
@@ -1341,6 +1713,8 @@ export class ConversationViewer implements ConversationViewerApi {
         )}; script-src 'nonce-${escapeAttribute(nonce)}';">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="${escapeAttribute(stylesheet.toString())}">
+    <link rel="stylesheet"
+        href="${escapeAttribute(telemetryStylesheet.toString())}">
     <title>AI Conversation</title>
 </head>
 <body data-auto-scroll-threshold="${CONVERSATION_LIMITS.autoScrollThresholdPx}"
@@ -1356,12 +1730,16 @@ export class ConversationViewer implements ConversationViewerApi {
             <button type="button" data-action="previous">Previous</button>
             <button type="button" data-action="next">Next</button>
             <button type="button" data-action="latest">Latest</button>
+            <button type="button" data-action="toggle-outline"
+                aria-controls="conversation-sidebar"
+                aria-expanded="true">Outline (0)</button>
             <button type="button" data-action="toggle-comments"
-                aria-controls="conversation-comments-panel"
-                aria-expanded="true">Comments (0)</button>
+                aria-controls="conversation-sidebar"
+                aria-expanded="false">Comments (0)</button>
             <button type="button" data-action="close">Close</button>
         </nav>
     </header>
+    ${renderConversationTelemetry(this.telemetry)}
     <div class="conversation-status" data-conversation-status aria-live="polite">${escapeHtml(
         initialStatus
     )}</div>
@@ -1370,33 +1748,99 @@ export class ConversationViewer implements ConversationViewerApi {
             <div class="conversation-messages" data-conversation-messages></div>
         </main>
         <div class="conversation-comments-resizer" data-comments-resizer
-            role="separator" aria-label="Resize comments panel"
+            role="separator" aria-label="Resize side panel"
             aria-orientation="vertical" aria-valuemin="192"
             aria-valuemax="420" aria-valuenow="240" tabindex="0"></div>
-        <aside id="conversation-comments-panel"
-            class="conversation-comments" data-conversation-comments
-            aria-label="Conversation comments">
-            <div class="conversation-comments-header">
-                <strong>Comments</strong>
-                <span data-comment-count>0</span>
+        <aside id="conversation-sidebar"
+            class="conversation-sidebar" data-conversation-sidebar
+            aria-label="Conversation side panel">
+            <div class="conversation-sidebar-tabs" role="tablist"
+                aria-label="Conversation side panel">
+                <button type="button" role="tab" data-sidebar-tab="outline"
+                    id="conversation-outline-tab"
+                    aria-controls="conversation-outline-panel"
+                    aria-selected="true">Outline</button>
+                <button type="button" role="tab" data-sidebar-tab="comments"
+                    id="conversation-comments-tab"
+                    aria-controls="conversation-comments-panel"
+                    aria-selected="false">Comments</button>
+                <button type="button" class="conversation-sidebar-close"
+                    data-sidebar-close aria-label="Close side panel"
+                    title="Close side panel">×</button>
             </div>
-            <div class="conversation-comment-composer" data-comment-composer hidden>
-                <blockquote data-comment-selection></blockquote>
-                <label for="conversation-comment-input">Comment</label>
-                <textarea id="conversation-comment-input" data-comment-input
-                    rows="3" maxlength="${CONVERSATION_COMMENT_LIMITS.maxCommentGraphemes}"
-                    placeholder="What should the AI address?"></textarea>
-                <div class="conversation-comment-actions">
-                    <button type="button" data-comment-action="cancel-add">Cancel</button>
-                    <button type="button" data-comment-action="confirm-add">Add comment</button>
+            <section id="conversation-outline-panel"
+                class="conversation-outline" data-conversation-outline
+                role="tabpanel" aria-labelledby="conversation-outline-tab">
+                <div class="conversation-outline-header">
+                    <div>
+                        <strong>Conversation outline</strong>
+                        <span data-outline-summary>No inputs yet</span>
+                    </div>
+                    <span data-outline-count aria-label="0 inputs">0</span>
                 </div>
-            </div>
-            <div class="conversation-comment-list" data-comment-list></div>
-            <p class="conversation-comment-empty" data-comment-empty>
-                Select text in the conversation to add a comment.
-            </p>
-            <button class="conversation-comments-send" type="button"
-                data-comment-action="send" disabled>Send comments to this session</button>
+                <label class="conversation-outline-search-label"
+                    for="conversation-outline-search">Search inputs</label>
+                <input id="conversation-outline-search" type="search"
+                    data-outline-search placeholder="Search user inputs">
+                <p class="conversation-outline-partial"
+                    data-outline-partial hidden>
+                    Showing the newest inputs available in this Session.
+                </p>
+                <ol class="conversation-outline-list"
+                    data-outline-list></ol>
+                <p class="conversation-outline-empty"
+                    data-outline-empty hidden>No inputs match this search.</p>
+            </section>
+            <section id="conversation-comments-panel"
+                class="conversation-comments" data-conversation-comments
+                role="tabpanel" aria-labelledby="conversation-comments-tab"
+                hidden>
+                <div class="conversation-comments-header">
+                    <div class="conversation-comments-heading">
+                        <strong>Review comments</strong>
+                        <span data-comment-summary>No comments yet</span>
+                    </div>
+                    <span data-comment-count aria-label="0 comments">0</span>
+                </div>
+                <div class="conversation-comment-composer"
+                    data-comment-composer hidden>
+                    <blockquote data-comment-selection></blockquote>
+                    <label for="conversation-comment-input">Comment</label>
+                    <textarea id="conversation-comment-input" data-comment-input
+                        rows="3" maxlength="${CONVERSATION_COMMENT_LIMITS.maxCommentGraphemes}"
+                        aria-keyshortcuts="Control+Enter Meta+Enter"
+                        placeholder="What should the AI address?"></textarea>
+                    <div class="conversation-comment-actions">
+                        <button type="button"
+                            data-comment-action="cancel-add">Cancel</button>
+                        <button type="button"
+                            data-comment-action="confirm-add"
+                            title="Add comment (Ctrl+Enter or Cmd+Enter)">Add comment</button>
+                    </div>
+                </div>
+                <div class="conversation-comment-list"
+                    data-comment-list></div>
+                <p class="conversation-comment-empty" data-comment-empty>
+                    Select text in the conversation to add a comment.
+                </p>
+                <div class="conversation-comments-toolbar"
+                    data-comments-toolbar role="group"
+                    aria-label="Comment actions">
+                    <button class="conversation-comments-clear" type="button"
+                        data-comment-action="clearSent"
+                        title="Clear sent comments" disabled>Clear sent</button>
+                    <button class="conversation-comments-clear" type="button"
+                        data-comment-action="clearResolved"
+                        title="Clear resolved comments"
+                        disabled>Clear resolved</button>
+                    <button class="conversation-comments-clear conversation-comments-clear-all"
+                        type="button" data-comment-action="clearAll"
+                        title="Clear all comments" disabled>Clear all</button>
+                    <button class="conversation-comments-send" type="button"
+                        data-comment-action="send" disabled
+                        title="Send open comments to this session">Send open comments to this session</button>
+                </div>
+            </section>
         </aside>
     </div>
     <button class="conversation-add-comment" type="button"
@@ -1428,6 +1872,14 @@ function parseViewerMessage(message: unknown): ConversationViewerMessage | undef
         }
         return value as unknown as ConversationViewerNavigationMessage;
     }
+    if (value.type === 'conversation-viewer-select-interaction') {
+        if (!hasExactKeys(value, ['type', 'version', 'interactionId'])
+            || !isCommentTargetId(value.interactionId)) {
+            return undefined;
+        }
+        return value as unknown as
+            ConversationViewerSelectInteractionMessage;
+    }
     if (value.type === 'conversation-viewer-open-link') {
         if (keys.length !== 3
             || !hasOwn(value, 'type')
@@ -1437,6 +1889,22 @@ function parseViewerMessage(message: unknown): ConversationViewerMessage | undef
             return undefined;
         }
         return value as unknown as ConversationViewerOpenLinkMessage;
+    }
+    if (value.type === 'conversation-viewer-locate-comment') {
+        if (!hasExactKeys(value, [
+            'type', 'version', 'requestId', 'subscriptionGeneration',
+            'projectId', 'provider', 'sessionId', 'commentId',
+        ])
+            || !isCommentRequestId(value.requestId)
+            || !Number.isSafeInteger(value.subscriptionGeneration)
+            || (value.subscriptionGeneration as number) < 1
+            || !isCommentTargetId(value.projectId)
+            || !isProvider(value.provider)
+            || !isCommentTargetId(value.sessionId)
+            || !isCommentTargetId(value.commentId)) {
+            return undefined;
+        }
+        return value as unknown as ConversationViewerLocateCommentMessage;
     }
     if ((value.type !== 'conversation-viewer-comment-mutation'
             && value.type !== 'conversation-viewer-send-comments')
@@ -1462,7 +1930,12 @@ function parseViewerMessage(message: unknown): ConversationViewerMessage | undef
     if (value.type === 'conversation-viewer-comment-mutation') {
         if (value.operation !== 'add'
             && value.operation !== 'update'
-            && value.operation !== 'delete') {
+            && value.operation !== 'delete'
+            && value.operation !== 'resolve'
+            && value.operation !== 'reopen'
+            && value.operation !== 'clearSent'
+            && value.operation !== 'clearResolved'
+            && value.operation !== 'clearAll') {
             return undefined;
         }
         return value as unknown as ConversationViewerCommentMutationMessage;
@@ -1503,6 +1976,16 @@ function isCommentTargetId(value: unknown): value is string {
 
 function isProvider(value: unknown): value is AiSessionProviderId {
     return value === 'codex' || value === 'kimi' || value === 'claude';
+}
+
+function toCommentTarget(
+    target: ConversationViewerTarget
+): ConversationCommentTarget {
+    return {
+        projectId: target.projectId,
+        provider: target.provider,
+        sessionId: target.sessionId,
+    };
 }
 
 function commentRequestTargetsViewer(
@@ -1549,7 +2032,7 @@ function parseCommentSelection(payload: unknown): ConversationCommentSelection {
 }
 
 function parseExistingCommentPayload(
-    operation: 'update' | 'delete',
+    operation: 'update' | 'delete' | 'resolve' | 'reopen',
     payload: unknown
 ): { commentId: string; comment?: string } {
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
@@ -1608,6 +2091,91 @@ function renderMessages(messages: ConversationMessage[]): string {
 
 function providerLabel(provider: AiSessionProviderId): string {
     return provider === 'codex' ? 'Codex' : provider === 'kimi' ? 'Kimi' : 'Claude';
+}
+
+function formatTokenCount(value: number): string {
+    if (value >= 1_000_000) {
+        return `${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1)}m`;
+    }
+    if (value >= 1_000) {
+        return `${(value / 1_000).toFixed(value >= 100_000 ? 0 : 1)}k`;
+    }
+    return String(value);
+}
+
+function formatResetTime(resetsAt: number): string {
+    const remainingMs = Math.max(0, resetsAt * 1000 - Date.now());
+    const remainingMins = Math.max(1, Math.ceil(remainingMs / 60_000));
+    if (remainingMins < 60) {
+        return `${remainingMins}m`;
+    }
+    const remainingHours = Math.ceil(remainingMins / 60);
+    if (remainingHours < 48) {
+        return `${remainingHours}h`;
+    }
+    return `${Math.ceil(remainingHours / 24)}d`;
+}
+
+function renderConversationTelemetry(
+    telemetry: ConversationTelemetry | undefined
+): string {
+    const hasContext = Boolean(telemetry?.context);
+    const hasModel = Boolean(telemetry?.model);
+    const limits = telemetry?.rateLimits || [];
+    const context = telemetry?.context;
+    const contextPercent = context
+        ? Math.max(0, Math.min(
+            100,
+            context.usedTokens / context.maxTokens * 100
+        ))
+        : 0;
+    const limitMarkup = limits.map(limit => {
+        const remaining = Math.max(0, 100 - limit.usedPercent);
+        const reset = limit.resetsAt
+            ? ` · resets in ${formatResetTime(limit.resetsAt)}`
+            : '';
+        const resetTitle = limit.resetsAt
+            ? ` title="${escapeAttribute(
+                new Date(limit.resetsAt * 1000).toLocaleString()
+            )}"`
+            : '';
+        return `<div class="conversation-telemetry-meter">
+            <span>${escapeHtml(limit.label)}</span>
+            <progress max="100" value="${limit.usedPercent}"
+                aria-label="${escapeAttribute(`${limit.label} usage`)}"></progress>
+            <span${resetTitle}>${escapeHtml(
+                `${Math.round(remaining)}% left${reset}`
+            )}</span>
+        </div>`;
+    }).join('');
+    return `<section class="conversation-telemetry"
+        data-conversation-telemetry aria-label="Session usage"${hasModel
+            || hasContext || limits.length ? '' : ' hidden'}>
+        <div class="conversation-telemetry-model"
+            data-telemetry-model${hasModel ? '' : ' hidden'}>
+            <span>Model</span>
+            <strong data-telemetry-model-value>${escapeHtml(
+                telemetry?.model || ''
+            )}</strong>
+        </div>
+        <div class="conversation-telemetry-meter"
+            data-telemetry-context${hasContext ? '' : ' hidden'}>
+            <span>Context</span>
+            <progress data-telemetry-context-progress
+                max="${context?.maxTokens || 1}"
+                value="${context?.usedTokens || 0}"
+                aria-label="Context window usage"></progress>
+            <span data-telemetry-context-value>${context
+                ? escapeHtml(
+                    `${Math.round(contextPercent)}% · ${formatTokenCount(
+                        context.usedTokens
+                    )} / ${formatTokenCount(context.maxTokens)}`
+                )
+                : ''}</span>
+        </div>
+        <div class="conversation-telemetry-limits"
+            data-telemetry-limits>${limitMarkup}</div>
+    </section>`;
 }
 
 function escapeHtml(value: string): string {

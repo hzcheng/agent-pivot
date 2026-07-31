@@ -118,6 +118,17 @@ function outline(sessionId, interactionIds, options = {}) {
     };
 }
 
+function decodeInitialPublication(html) {
+    const match = html.match(/data-initial-page="([^"]+)"/);
+    assert.ok(match, 'Host document must contain an initial publication');
+    return JSON.parse(match[1]
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/&gt;/g, '>')
+        .replace(/&lt;/g, '<')
+        .replace(/&amp;/g, '&'));
+}
+
 function retainedPageInteractionIds(pageIndex, pageSize, prefix) {
     const first = pageIndex === 0 ? 'selected-anchor' : `${prefix}-${pageIndex}`;
     return Array.from(
@@ -239,6 +250,31 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 opens and reuses one viewer in 
         fakeVscode.ViewColumn.Active,
         fakeVscode.ViewColumn.Active,
     ]);
+});
+
+test('CONVERSATION-FOLLOW-ACTIVE-SESSION-001 follows another Session only when the viewer is open and does not reveal it again', async () => {
+    const { viewer, panel } = createViewer({
+        readOutline: async (_provider, sessionId) => outline(
+            sessionId,
+            [sessionId === 'session-a' ? 'input-a' : 'input-b']
+        ),
+        readPage: async request => page(
+            request.sessionId,
+            request.anchorInteractionId,
+            `visible-${request.sessionId}`
+        ),
+    });
+
+    assert.equal(viewer.isOpen(), false);
+    assert.equal(await viewer.follow(target('session-b', 'input-b')), false);
+    assert.equal(panel.createCount, 0);
+
+    await viewer.open(target('session-a', 'input-a'));
+    assert.equal(viewer.isOpen(), true);
+    assert.equal(await viewer.follow(target('session-b', 'input-b')), true);
+    assert.equal(panel.webview.html.includes('visible-session-b'), true);
+    assert.equal(panel.webview.html.includes('visible-session-a'), false);
+    assert.deepEqual(panel.revealColumns, [fakeVscode.ViewColumn.Active]);
 });
 
 test('CONVERSATION-VIEWER-OWNERSHIP-001 reuses one panel, rejects an old session generation, and clears sensitive state on disposal', async () => {
@@ -414,6 +450,68 @@ test('CONVERSATION-VIEWER-NAVIGATION-002 moves within a loaded page without read
         message.type === 'conversation-viewer-page').at(-1);
     assert.equal(publication.selectedInteractionId, 'input-12');
     assert.equal(reads, 1);
+});
+
+test('CONVERSATION-OUTLINE-NAVIGATION-001 publishes the current Session outline and loads an exact selected input', async () => {
+    const requests = [];
+    const interactionIds = ['input-1', 'input-2', 'input-3'];
+    const { viewer, panel } = createViewer({
+        readOutline: async (_provider, sessionId) => outline(
+            sessionId,
+            interactionIds
+        ),
+        readPage: request => {
+            requests.push(request);
+            return Promise.resolve(page(
+                request.sessionId,
+                request.anchorInteractionId,
+                `visible-${request.anchorInteractionId}`
+            ));
+        },
+    });
+
+    await viewer.open(target('session-a', 'input-1'));
+    const initial = decodeInitialPublication(panel.webview.html);
+    assert.deepEqual(initial.outline, interactionIds.map(interactionId => ({
+        interactionId,
+        userPreview: interactionId,
+        responseState: 'complete',
+    })));
+
+    await panel.receive({
+        type: 'conversation-viewer-select-interaction',
+        version: 1,
+        interactionId: 'input-3',
+    });
+    const publication = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page').at(-1);
+    assert.equal(publication.selectedInteractionId, 'input-3');
+    assert.equal(publication.html.includes('visible-input-3'), true);
+    assert.deepEqual(requests.map(request => ({
+        anchorInteractionId: request.anchorInteractionId,
+        direction: request.direction,
+    })), [{
+        anchorInteractionId: 'input-1',
+        direction: 'around',
+    }, {
+        anchorInteractionId: 'input-3',
+        direction: 'around',
+    }]);
+
+    const publicationsBeforeInvalid = panel.postedMessages.length;
+    await panel.receive({
+        type: 'conversation-viewer-select-interaction',
+        version: 1,
+        interactionId: 'input-2',
+        extra: 'rejected',
+    });
+    await panel.receive({
+        type: 'conversation-viewer-select-interaction',
+        version: 1,
+        interactionId: 'missing-input',
+    });
+    assert.equal(panel.postedMessages.length, publicationsBeforeInvalid);
+    assert.equal(requests.length, 2);
 });
 
 test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 evicts above 100 interactions while retaining the selected anchor and a reload cursor', async () => {
@@ -882,7 +980,7 @@ test('CONVERSATION-VIEWER-AUTHORITY-001 fails closed when an initial marker no l
     assert.equal(panel.webview.html.includes('wrong-interaction'), false);
 });
 
-test('CONVERSATION-VIEWER-REFRESH-002 follows a new authoritative last input only when selection was latest', async () => {
+test('CONVERSATION-VIEWER-REFRESH-002 CONVERSATION-READING-FOCUS-001 preserves the selected interaction when a refresh adds a new last input', async () => {
     let onChange;
     let outlineRead = 0;
     const { viewer, panel } = createViewer({
@@ -912,10 +1010,10 @@ test('CONVERSATION-VIEWER-REFRESH-002 follows a new authoritative last input onl
 
     const publication = panel.postedMessages.filter(message =>
         message.type === 'conversation-viewer-page').at(-1);
-    assert.equal(publication.selectedInteractionId, 'input-2');
-    assert.equal(publication.selectedInput, 2);
+    assert.equal(publication.selectedInteractionId, 'input-1');
+    assert.equal(publication.selectedInput, 1);
     assert.equal(publication.totalInputs, 2);
-    assert.equal(publication.atLatest, true);
+    assert.equal(publication.atLatest, false);
 });
 
 test('CONVERSATION-VIEWER-DELIVERY-001 rebuilds the latest hidden publication when the panel becomes visible and disposes its listener', async () => {
@@ -954,7 +1052,7 @@ test('CONVERSATION-VIEWER-DELIVERY-001 rebuilds the latest hidden publication wh
     await panel.setVisible(true);
 
     assert.equal(panel.webview.html.includes('visible-r2'), true);
-    assert.equal(panel.webview.html.includes('&quot;selectedInput&quot;:2'), true);
+    assert.equal(panel.webview.html.includes('&quot;selectedInput&quot;:1'), true);
     assert.equal(panel.webview.html.includes('&quot;subscriptionGeneration&quot;:1'), true);
 
     panel.dispose();
@@ -1181,7 +1279,7 @@ test('CONVERSATION-VIEWER-AUTHORITY-002 retains stale content when the establish
     );
 });
 
-test('CONVERSATION-VIEWER-REFRESH-003 merges a new tail page into retained history by interaction ID', async () => {
+test('CONVERSATION-VIEWER-REFRESH-003 CONVERSATION-READING-FOCUS-001 merges a new tail page without advancing the selected interaction', async () => {
     let onChange;
     let revision = 1;
     const firstIds = Array.from(
@@ -1222,7 +1320,7 @@ test('CONVERSATION-VIEWER-REFRESH-003 merges a new tail page into retained histo
 
     const publication = panel.postedMessages.filter(message =>
         message.type === 'conversation-viewer-page').at(-1);
-    assert.equal(publication.selectedInteractionId, 'input-21');
+    assert.equal(publication.selectedInteractionId, 'input-20');
     assert.equal(publication.html.includes('data-interaction-id="input-1"'), true);
     assert.equal(publication.html.includes('data-interaction-id="input-21"'), true);
     assert.equal(

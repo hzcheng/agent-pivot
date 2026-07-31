@@ -2,6 +2,10 @@
 
 import * as crypto from 'crypto';
 import type { AiSessionAttentionReason, AiSessionLifecycleSignal } from './lifecycle';
+import {
+    acceptsLifecycleSignal,
+    recordAcceptedLifecycleSignal,
+} from './lifecycleSignalAcceptance';
 
 export { AiSessionAttentionReason } from './lifecycle';
 export type AiSessionAttentionState = 'pending' | 'running' | 'idle' | 'needsAttention' | 'acknowledged';
@@ -29,6 +33,7 @@ export interface AiSessionAttentionSnapshot {
 
 interface Entry extends AiSessionAttentionSnapshot {
     lastSignalToken?: string;
+    lastOccurredAtMs?: number;
     generation: number;
 }
 
@@ -61,10 +66,10 @@ export default class AiSessionAttentionMonitor {
             }
 
             let signal = input.signal;
-            if (!signal?.token || signal.token === entry.lastSignalToken) {
+            if (!acceptsLifecycleSignal(entry, signal)) {
                 continue;
             }
-            entry.lastSignalToken = signal.token;
+            recordAcceptedLifecycleSignal(entry, signal);
             entry.stateChangedAt = observedAt;
 
             if (signal.phase === 'running' || signal.phase === 'idle') {

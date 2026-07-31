@@ -12,6 +12,7 @@ const {
     loadFreshWithFakeVscode,
 } = require('../../helpers/runtimeContract');
 const AttentionMonitor = require('../../../out/aiSessions/attentionMonitor').default;
+const ExecutionMonitor = require('../../../out/aiSessions/executionMonitor').default;
 const {
     AiSessionAttentionController,
     settleAiSessionRuntimeLifecycles,
@@ -1118,4 +1119,39 @@ test('ATTENTION-EXECUTION-STATE-SYNC-001 keeps draining after an evaluation thro
 
     await queue.request('runtimes');
     assert.deepEqual(observed, ['signals', 'runtimes']);
+});
+
+test('ATTENTION-EXECUTION-STATE-SYNC-001 rejects an out-of-order signal in both monitors alike', () => {
+    const key = 'codex:session';
+    const running = {
+        token: 'codex:task-started:2000',
+        phase: 'running',
+        executionState: 'running',
+        occurredAtMs: 2000,
+    };
+    // A replay of an older completion, e.g. after a cursor was rebuilt from the
+    // start of the transcript. The execution monitor already ignores it.
+    const staleCompletion = {
+        token: 'codex:task-complete:1000',
+        phase: 'needsAttention',
+        reason: 'completed',
+        executionState: 'stopped',
+        occurredAtMs: 1000,
+    };
+
+    const execution = new ExecutionMonitor({ now: () => 3000 });
+    execution.evaluate([{ key, signal: running }]);
+    execution.evaluate([{ key, signal: staleCompletion }]);
+    assert.equal(execution.getSnapshot()[key].state, 'running');
+
+    const attention = new AttentionMonitor({ now: () => 3000 });
+    attention.evaluate([{ key, signal: running, observedAt: running.occurredAtMs }]);
+    const replayed = attention.evaluate([
+        { key, signal: staleCompletion, observedAt: staleCompletion.occurredAtMs },
+    ]);
+
+    assert.deepEqual(replayed, [],
+        'a signal older than the last accepted one must not raise attention');
+    assert.equal(attention.getSnapshot()[key].state, 'running',
+        'both monitors must reach the same conclusion from the same signal order');
 });

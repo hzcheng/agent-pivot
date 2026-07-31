@@ -4284,5 +4284,18 @@
     "evidence": [
       "src/aiSessions/notify/correlation.ts"
     ]
+  },
+  {
+    "id": "ATTENTION-NOTIFY-POLICY-001",
+    "domain": "attention",
+    "title": "Notification policy gates reason, duration, dedup and rate limit",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/notify/policy.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/notify/policy.ts"
+    ]
   }
 ]

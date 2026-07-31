@@ -185,13 +185,54 @@ button {
     }
 
     pre {
+        max-width: 100%;
         overflow-x: auto;
         padding: 0.75rem;
+        border: 1px solid var(--vscode-panel-border);
+        border-radius: 4px;
         background: var(--vscode-textCodeBlock-background);
+        line-height: 1.5;
+        overflow-wrap: normal;
+        tab-size: 4;
+        white-space: pre;
+        word-break: normal;
     }
 
     code {
-        font-family: var(--vscode-editor-font-family);
+        font-family: var(--vscode-editor-font-family), monospace;
+    }
+
+    pre code {
+        display: block;
+        width: max-content;
+        min-width: 100%;
+        overflow-wrap: normal;
+        white-space: inherit;
+        word-break: normal;
+    }
+
+    .conversation-code-indent {
+        position: relative;
+        display: inline-block;
+        padding-inline-start: var(--conversation-code-indent-offset);
+        white-space: pre;
+
+        &::before {
+            position: absolute;
+            inset: 0;
+            background-image: linear-gradient(
+                to right,
+                transparent calc(100% - 1px),
+                var(
+                    --vscode-editorIndentGuide-background1,
+                    var(--vscode-panel-border, rgba(127, 127, 127, 0.45))
+                ) calc(100% - 1px)
+            );
+            background-repeat: repeat-x;
+            background-size: var(--conversation-code-indent-step) 100%;
+            content: "";
+            pointer-events: none;
+        }
     }
 
     a {

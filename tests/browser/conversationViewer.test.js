@@ -1858,6 +1858,113 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 CONVERSATION-VIEWER-RICH-MARKDO
     );
 });
 
+test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 preserves structured text indentation and horizontal scrolling', async t => {
+    const page = await openViewerPage(t);
+    await page.setViewportSize({ width: 360, height: 500 });
+    await page.addStyleTag({ content: viewerCss });
+    await sendPage(page, {
+        ...hostileConversationPage,
+        html: `<article data-message-id="structured-text"
+            data-interaction-id="input-4">
+            <section class="conversation-markdown">
+                <pre><code class="language-text">[Existing, extend] RedDBToHiveTransformConfig.ColumnMapping
+  sourceKind: PRIMARY_KEY | REGULAR
+  familyId: int32?          // PK 为空
+  columnId: int32
+  startupFamilyName: string?
+  startupColumnName: string
+  outputName: string
+  sourceType: RedDBDataType
+  targetType: STRING | INTEGER | BIGINT | FLOAT | DOUBLE | BOOLEAN
+  nullable: bool
+  typedDefault: TypedValue?
+  ordinal: uint32</code></pre>
+            </section>
+        </article>`,
+    });
+
+    const presentation = await page.locator('pre').evaluate(pre => {
+        const code = pre.querySelector('code');
+        const indent = code.querySelector('.conversation-code-indent');
+        const preStyle = getComputedStyle(pre);
+        const codeStyle = getComputedStyle(code);
+        return {
+            text: code.textContent,
+            indentation: indent.getBoundingClientRect().width,
+            preWhiteSpace: preStyle.whiteSpace,
+            preOverflowWrap: preStyle.overflowWrap,
+            preWordBreak: preStyle.wordBreak,
+            codeDisplay: codeStyle.display,
+            codeOverflowWrap: codeStyle.overflowWrap,
+            codeLineHeight: Number.parseFloat(codeStyle.lineHeight),
+            clientWidth: pre.clientWidth,
+            scrollWidth: pre.scrollWidth,
+        };
+    });
+
+    assert.match(presentation.text, /\n  sourceKind: PRIMARY_KEY/);
+    assert.ok(presentation.indentation > 0, 'leading spaces must remain visible');
+    assert.equal(presentation.preWhiteSpace, 'pre');
+    assert.equal(presentation.preOverflowWrap, 'normal');
+    assert.equal(presentation.preWordBreak, 'normal');
+    assert.equal(presentation.codeDisplay, 'block');
+    assert.equal(presentation.codeOverflowWrap, 'normal');
+    assert.ok(presentation.codeLineHeight >= 18);
+    assert.ok(
+        presentation.scrollWidth > presentation.clientWidth,
+        'long structured lines must scroll instead of flattening their layout'
+    );
+});
+
+test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 makes protobuf indentation visibly distinct without changing its source', async t => {
+    const page = await openViewerPage(t);
+    await page.addStyleTag({ content: viewerCss });
+    const protobuf = `syntax = "proto3";
+
+package reddb.protocol.datanode.dts;
+
+service DtsService {
+  rpc OpenFullSync(OpenFullSyncRequest) returns (OpenFullSyncResponse);
+  rpc ScanFullSync(ScanFullSyncRequest) returns (ScanFullSyncResponse);
+  rpc CloseFullSync(CloseFullSyncRequest) returns (CloseFullSyncResponse);
+}`;
+    await sendPage(page, {
+        ...hostileConversationPage,
+        html: `<article data-message-id="protobuf"
+            data-interaction-id="input-4">
+            <section class="conversation-markdown">
+                <pre><code class="language-protobuf">${protobuf}</code></pre>
+            </section>
+        </article>`,
+    });
+
+    const code = page.locator('pre > code.language-protobuf');
+    assert.equal(await code.textContent(), protobuf);
+    const guides = code.locator('.conversation-code-indent');
+    assert.equal(await guides.count(), 3);
+    const presentation = await guides.evaluateAll(elements =>
+        elements.map(element => ({
+            text: element.textContent,
+            width: element.getBoundingClientRect().width,
+            characterWidth: (() => {
+                const range = new Range();
+                range.setStart(element.nextSibling, 0);
+                range.setEnd(element.nextSibling, 1);
+                return range.getBoundingClientRect().width;
+            })(),
+            guide: getComputedStyle(element, '::before').backgroundImage,
+        }))
+    );
+    presentation.forEach(indent => {
+        assert.equal(indent.text, '  ');
+        assert.ok(
+            indent.width >= indent.characterWidth * 3.75,
+            'one source indentation level must have a clear four-column offset'
+        );
+        assert.notEqual(indent.guide, 'none');
+    });
+});
+
 test('CONVERSATION-VIEWER-RICH-MARKDOWN-002 lazy-loads Mermaid in the nonce-only Host document', async t => {
     const { page } = await openHostViewerDocument(t, {
         markdown: [

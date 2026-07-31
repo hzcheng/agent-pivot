@@ -211,6 +211,29 @@ button {
         word-break: normal;
     }
 
+    .conversation-code-indent {
+        position: relative;
+        display: inline-block;
+        white-space: pre;
+
+        &::before {
+            position: absolute;
+            inset: 0;
+            background-image: linear-gradient(
+                to right,
+                transparent calc(100% - 1px),
+                var(
+                    --vscode-editorIndentGuide-background1,
+                    var(--vscode-panel-border, rgba(127, 127, 127, 0.45))
+                ) calc(100% - 1px)
+            );
+            background-repeat: repeat-x;
+            background-size: var(--conversation-code-indent-step) 100%;
+            content: "";
+            pointer-events: none;
+        }
+    }
+
     a {
         color: var(--vscode-textLink-foreground);
     }

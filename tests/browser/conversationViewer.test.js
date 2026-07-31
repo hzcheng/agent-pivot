@@ -1885,21 +1885,12 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 preserves structured text inden
 
     const presentation = await page.locator('pre').evaluate(pre => {
         const code = pre.querySelector('code');
-        const text = code.firstChild;
-        const firstLine = new Range();
-        firstLine.setStart(text, 0);
-        firstLine.setEnd(text, 1);
-        const sourceKindOffset = text.data.indexOf('sourceKind');
-        const indentedLine = new Range();
-        indentedLine.setStart(text, sourceKindOffset);
-        indentedLine.setEnd(text, sourceKindOffset + 1);
+        const indent = code.querySelector('.conversation-code-indent');
         const preStyle = getComputedStyle(pre);
         const codeStyle = getComputedStyle(code);
         return {
             text: code.textContent,
-            indentation:
-                indentedLine.getBoundingClientRect().x
-                - firstLine.getBoundingClientRect().x,
+            indentation: indent.getBoundingClientRect().width,
             preWhiteSpace: preStyle.whiteSpace,
             preOverflowWrap: preStyle.overflowWrap,
             preWordBreak: preStyle.wordBreak,
@@ -1923,6 +1914,46 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 preserves structured text inden
         presentation.scrollWidth > presentation.clientWidth,
         'long structured lines must scroll instead of flattening their layout'
     );
+});
+
+test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 makes protobuf indentation visibly distinct without changing its source', async t => {
+    const page = await openViewerPage(t);
+    await page.addStyleTag({ content: viewerCss });
+    const protobuf = `syntax = "proto3";
+
+package reddb.protocol.datanode.dts;
+
+service DtsService {
+  rpc OpenFullSync(OpenFullSyncRequest) returns (OpenFullSyncResponse);
+  rpc ScanFullSync(ScanFullSyncRequest) returns (ScanFullSyncResponse);
+  rpc CloseFullSync(CloseFullSyncRequest) returns (CloseFullSyncResponse);
+}`;
+    await sendPage(page, {
+        ...hostileConversationPage,
+        html: `<article data-message-id="protobuf"
+            data-interaction-id="input-4">
+            <section class="conversation-markdown">
+                <pre><code class="language-protobuf">${protobuf}</code></pre>
+            </section>
+        </article>`,
+    });
+
+    const code = page.locator('pre > code.language-protobuf');
+    assert.equal(await code.textContent(), protobuf);
+    const guides = code.locator('.conversation-code-indent');
+    assert.equal(await guides.count(), 3);
+    const presentation = await guides.evaluateAll(elements =>
+        elements.map(element => ({
+            text: element.textContent,
+            width: element.getBoundingClientRect().width,
+            guide: getComputedStyle(element, '::before').backgroundImage,
+        }))
+    );
+    presentation.forEach(indent => {
+        assert.equal(indent.text, '  ');
+        assert.ok(indent.width > 0);
+        assert.notEqual(indent.guide, 'none');
+    });
 });
 
 test('CONVERSATION-VIEWER-RICH-MARKDOWN-002 lazy-loads Mermaid in the nonce-only Host document', async t => {

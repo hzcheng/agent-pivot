@@ -22,6 +22,12 @@ const {
 
 const MIB = 1024 * 1024;
 const sessionId = '11111111-1111-4111-8111-111111111111';
+const PERFORMANCE_BUDGETS = JSON.parse(fs.readFileSync(path.join(
+    __dirname,
+    '..',
+    '.ci',
+    'conversation-performance.json'
+), 'utf8'));
 const canonicalKimiFixturePath = path.join(
     __dirname,
     '..',
@@ -121,7 +127,7 @@ function createKimiAdapter(providerHome, sourcePath) {
 
 function loadConversationViewer() {
     const fakeVscode = {
-        ViewColumn: { Beside: 2 },
+        ViewColumn: { Active: 1, Beside: 2 },
         Uri: { parse: value => ({ scheme: 'https', toString: () => value }) },
     };
     const previousLoad = Module._load;
@@ -141,7 +147,23 @@ function retainedViewerSnapshot() {
     const ConversationViewer = loadConversationViewer();
     const viewer = new ConversationViewer({});
     const padding = 'v'.repeat(48_000);
-    viewer.selectedInteractionId = 'retained-100';
+    const retainedInteractionIds = Array.from(
+        { length: 101 },
+        (_item, index) => `retained-${index}`
+    );
+    assert.equal(viewer.outlineController.replace({
+        provider: 'kimi',
+        sessionId,
+        sourceRevision: 'r1',
+        interactions: retainedInteractionIds.map(id => ({
+            id,
+            userPreview: id,
+            userGraphemeCount: id.length,
+            responseState: 'complete',
+        })),
+        totalInteractions: retainedInteractionIds.length,
+        partial: false,
+    }, 'retained-100'), true);
     viewer.pages = Array.from({ length: 101 }, (_item, index) => ({
         page: {
             provider: 'kimi',
@@ -166,7 +188,171 @@ function retainedViewerSnapshot() {
     return {
         retainedInteractions: viewer.snapshotSize,
         retainedBytes: viewer.snapshotBytes(),
+        retainedAnchor: viewer.interactionIds().includes('retained-100'),
     };
+}
+
+function assertBudget(name, measuredMs, budgetMs) {
+    assert.ok(Number.isFinite(budgetMs) && budgetMs > 0,
+        `${name} budget must be a positive finite number`);
+    assert.ok(measuredMs <= budgetMs,
+        `${name} ${measuredMs.toFixed(3)}ms exceeds ${budgetMs}ms`);
+}
+
+function viewerTarget(targetSessionId) {
+    return {
+        projectId: 'performance-project',
+        provider: 'kimi',
+        sessionId: targetSessionId,
+        interactionId: `${targetSessionId}-1999`,
+        expectedRevision: 'r1',
+        displayName: 'Performance Session',
+        duplicateDisplayName: false,
+    };
+}
+
+function performanceOutline(targetSessionId, revision) {
+    return {
+        provider: 'kimi',
+        sessionId: targetSessionId,
+        sourceRevision: revision,
+        interactions: Array.from({ length: 2_000 }, (_item, index) => ({
+            id: `${targetSessionId}-${index}`,
+            userPreview: `Performance prompt ${index}`,
+            userGraphemeCount: 23,
+            responseState: index === 1_999 ? 'inProgress' : 'complete',
+        })),
+        totalInteractions: 2_000,
+        partial: false,
+    };
+}
+
+function performancePage(request, revision) {
+    const firstIndex = 1_980;
+    const interactionIds = Array.from(
+        { length: CONVERSATION_LIMITS.maxPageInteractions },
+        (_item, index) => `${request.sessionId}-${firstIndex + index}`
+    );
+    return {
+        provider: 'kimi',
+        sessionId: request.sessionId,
+        sourceRevision: revision,
+        anchorInteractionId: request.anchorInteractionId,
+        messages: interactionIds.flatMap((interactionId, index) => [{
+            id: `${interactionId}:user`,
+            interactionId,
+            role: 'user',
+            markdown: `Performance prompt ${firstIndex + index}`,
+        }, {
+            id: `${interactionId}:assistant`,
+            interactionId,
+            role: 'assistant',
+            markdown: `Performance response ${firstIndex + index} ${'x'.repeat(2_000)}`,
+        }]),
+        interactionStates: interactionIds.map(interactionId => ({
+            interactionId,
+            responseState: interactionId === request.anchorInteractionId
+                ? 'inProgress'
+                : 'complete',
+        })),
+        isStart: false,
+        isEnd: true,
+    };
+}
+
+function performancePanel() {
+    const disposeListeners = new Set();
+    return {
+        visible: true,
+        title: '',
+        webview: {
+            html: '',
+            cspSource: 'performance-csp',
+            onDidReceiveMessage() {
+                return { dispose() {} };
+            },
+            postMessage() {
+                return Promise.resolve(true);
+            },
+            asWebviewUri(uri) {
+                return uri;
+            },
+        },
+        reveal() {},
+        onDidChangeViewState() {
+            return { dispose() {} };
+        },
+        onDidDispose(listener) {
+            disposeListeners.add(listener);
+            return { dispose: () => disposeListeners.delete(listener) };
+        },
+        dispose() {
+            Array.from(disposeListeners).forEach(listener => listener());
+            disposeListeners.clear();
+        },
+    };
+}
+
+async function measureViewerPublicationBudgets() {
+    // CONVERSATION-LARGE-SESSION-PERFORMANCE-001
+    const ConversationViewer = loadConversationViewer();
+    const panel = performancePanel();
+    const revisions = new Map([
+        ['large-session-a', 'r1'],
+        ['large-session-b', 'r1'],
+    ]);
+    const viewer = new ConversationViewer({
+        createPanel: () => panel,
+        readOutline: async (_provider, targetSessionId) =>
+            performanceOutline(targetSessionId, revisions.get(targetSessionId)),
+        readPage: async request => performancePage(
+            request,
+            revisions.get(request.sessionId)
+        ),
+        watch: () => ({ dispose() {} }),
+        restoreFocus() {},
+        openExternal: async () => true,
+        mediaUri: fileName => ({
+            toString: () => `file:///performance/${fileName}`,
+        }),
+        submitPrompt: async () => {},
+    });
+    try {
+        let startedAt = process.hrtime.bigint();
+        await viewer.open(viewerTarget('large-session-a'));
+        const hostInitialPublicationMs = elapsedMs(startedAt);
+        assertBudget(
+            'host initial publication',
+            hostInitialPublicationMs,
+            PERFORMANCE_BUDGETS.hostInitialPublicationMs
+        );
+
+        revisions.set('large-session-a', 'r2');
+        startedAt = process.hrtime.bigint();
+        await viewer.refresh();
+        const hostIncrementalRefreshMs = elapsedMs(startedAt);
+        assertBudget(
+            'host incremental refresh',
+            hostIncrementalRefreshMs,
+            PERFORMANCE_BUDGETS.hostIncrementalRefreshMs
+        );
+
+        startedAt = process.hrtime.bigint();
+        assert.equal(await viewer.follow(viewerTarget('large-session-b')), true);
+        const hostSessionSwitchMs = elapsedMs(startedAt);
+        assertBudget(
+            'host Session switch',
+            hostSessionSwitchMs,
+            PERFORMANCE_BUDGETS.hostSessionSwitchMs
+        );
+        return {
+            hostInitialPublicationMs,
+            hostIncrementalRefreshMs,
+            hostSessionSwitchMs,
+        };
+    } finally {
+        viewer.dispose();
+    }
 }
 
 async function run() {
@@ -194,15 +380,15 @@ async function run() {
             let outline = await adapter.readOutline(sessionId);
             const coldMs = elapsedMs(startedAt);
             assert.equal(outline.totalInteractions, 1_000);
-            assert.ok(coldMs <= 1500,
-                `cold outline ${coldMs}ms exceeds 1500ms`);
+            assertBudget('cold outline', coldMs,
+                PERFORMANCE_BUDGETS.adapterColdOutlineMs);
 
             startedAt = process.hrtime.bigint();
             outline = await adapter.readOutline(sessionId);
             const cachedOutlineReadMs = elapsedMs(startedAt);
             assert.equal(outline.totalInteractions, 1_000);
-            assert.ok(cachedOutlineReadMs <= 100,
-                `cached adapter outline read ${cachedOutlineReadMs}ms exceeds 100ms`);
+            assertBudget('cached adapter outline read', cachedOutlineReadMs,
+                PERFORMANCE_BUDGETS.adapterCachedOutlineMs);
 
             const append = paddedFixture([
                 interactionBytes(templates, 1_000, 60_000),
@@ -213,8 +399,8 @@ async function run() {
             outline = await adapter.readOutline(sessionId);
             const appendMs = elapsedMs(startedAt);
             assert.equal(outline.totalInteractions, 1_001);
-            assert.ok(appendMs <= 250,
-                `append ${appendMs}ms exceeds 250ms`);
+            assertBudget('append', appendMs,
+                PERFORMANCE_BUDGETS.adapterAppendMs);
             assert.ok(outline.interactions.length <= 2000);
 
             const page = await adapter.readPage({
@@ -308,6 +494,8 @@ async function run() {
             const retention = retainedViewerSnapshot();
             assert.ok(retention.retainedInteractions <= 100);
             assert.ok(retention.retainedBytes <= 4 * 1024 * 1024);
+            assert.equal(retention.retainedAnchor, true);
+            const viewerBudgets = await measureViewerPublicationBudgets();
 
             console.log(JSON.stringify({
                 coldMs: Number(coldMs.toFixed(3)),
@@ -326,6 +514,15 @@ async function run() {
                     boundaryOutline.totalInteractions,
                 oversizedOutlineInteractions:
                     oversizedOutline.totalInteractions,
+                hostInitialPublicationMs: Number(
+                    viewerBudgets.hostInitialPublicationMs.toFixed(3)
+                ),
+                hostIncrementalRefreshMs: Number(
+                    viewerBudgets.hostIncrementalRefreshMs.toFixed(3)
+                ),
+                hostSessionSwitchMs: Number(
+                    viewerBudgets.hostSessionSwitchMs.toFixed(3)
+                ),
                 ...retention,
             }));
         } finally {

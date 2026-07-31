@@ -38,6 +38,10 @@ const telemetryCss = fs.readFileSync(
     path.join(__dirname, '../../media/conversationTelemetry.css'),
     'utf8'
 );
+const conversationPerformanceBudgets = JSON.parse(fs.readFileSync(
+    path.join(__dirname, '../../.ci/conversation-performance.json'),
+    'utf8'
+));
 const viewerThemeFixtures = Object.freeze([
     Object.freeze({
         name: 'dark',
@@ -2903,6 +2907,60 @@ test('CONVERSATION-REFRESH-PERFORMANCE-001 keeps DOM, Blob URLs, and listeners c
             metrics: baseline.metrics,
             focusedText: 'Stable performance anchor',
         }
+    );
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 bounds initial and incremental Webview publication work', async t => {
+    const page = await openViewerPage(t);
+    const largeMessageHtml = count => Array.from(
+        { length: count },
+        (_item, index) => `<article
+            class="conversation-message conversation-message-assistant"
+            data-message-id="large-${index}"
+            data-interaction-id="input-${index}">
+            <section class="conversation-markdown"><p>
+                Large response ${index} ${'x'.repeat(2_000)}
+            </p></section>
+        </article>`
+    ).join('');
+    const initialHtml = largeMessageHtml(100);
+    const measurePublication = payload => page.evaluate(message => {
+        const startedAt = performance.now();
+        window.dispatchEvent(new MessageEvent('message', { data: message }));
+        document.querySelector('[data-conversation-messages]').offsetHeight;
+        return performance.now() - startedAt;
+    }, payload);
+    const initialMs = await measurePublication({
+        ...hostileConversationPage,
+        html: initialHtml,
+        selectedInput: 100,
+        totalInputs: 2_000,
+        updateKind: 'initial',
+    });
+    assert.ok(
+        initialMs <= conversationPerformanceBudgets.webviewInitialPublicationMs,
+        `initial Webview publication ${initialMs}ms exceeds `
+            + `${conversationPerformanceBudgets.webviewInitialPublicationMs}ms`
+    );
+
+    const incrementalMs = await measurePublication({
+        ...hostileConversationPage,
+        requestId: 2,
+        html: initialHtml + largeMessageHtml(1).replaceAll('large-0', 'large-100')
+            .replaceAll('input-0', 'input-100'),
+        selectedInput: 100,
+        totalInputs: 2_000,
+        updateKind: 'refresh',
+    });
+    assert.ok(
+        incrementalMs
+            <= conversationPerformanceBudgets.webviewIncrementalRefreshMs,
+        `incremental Webview publication ${incrementalMs}ms exceeds `
+            + `${conversationPerformanceBudgets.webviewIncrementalRefreshMs}ms`
+    );
+    assert.equal(
+        await page.locator('[data-conversation-messages] > article').count(),
+        101
     );
 });
 

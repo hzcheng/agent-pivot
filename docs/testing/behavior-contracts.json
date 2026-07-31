@@ -3222,6 +3222,7 @@
     "evidence": [
       ".ci/changed-coverage.json",
       "scripts/check-changed-coverage.js",
+      "scripts/run-release-packaging-checks.js",
       "package.json",
       ".github/workflows/verify.yml"
     ]

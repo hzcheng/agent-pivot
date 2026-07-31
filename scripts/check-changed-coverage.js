@@ -38,6 +38,34 @@ function parseChangedLines(diff) {
     return changed;
 }
 
+function listUntrackedFiles(root, execFileSync = childProcess.execFileSync) {
+    return execFileSync(
+        'git',
+        ['ls-files', '--others', '--exclude-standard', '-z', '--'],
+        { cwd: root, encoding: 'utf8' }
+    ).split('\0').filter(Boolean);
+}
+
+function addUntrackedChangedLines(root, changed, untrackedFiles) {
+    const merged = new Map([...changed].map(([file, lines]) => [
+        file,
+        new Set(lines),
+    ]));
+    for (const candidate of untrackedFiles) {
+        const file = candidate.split(path.sep).join('/');
+        if (!ELIGIBLE_CODE_PATH.test(file)) continue;
+        const absolutePath = path.resolve(root, file);
+        const relativePath = path.relative(root, absolutePath);
+        if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) continue;
+        const source = fs.readFileSync(absolutePath, 'utf8');
+        const lineCount = source === '' ? 0 : source.split(/\r?\n/).length;
+        const lines = merged.get(file) || new Set();
+        for (let line = 1; line <= lineCount; line += 1) lines.add(line);
+        merged.set(file, lines);
+    }
+    return merged;
+}
+
 function relativeCoveragePath(root, coveragePath) {
     return path.relative(root, coveragePath).split(path.sep).join('/');
 }
@@ -173,11 +201,13 @@ function main(options = {}) {
         ['diff', '--unified=0', '--no-color', base, '--'],
         { cwd: root, encoding: 'utf8' }
     );
+    const untrackedFiles = options.untrackedFiles
+        ?? (options.diff === undefined ? listUntrackedFiles(root) : []);
     const logger = options.logger || console;
     const result = collectChangedLineCoverage(
         root,
         coverage,
-        parseChangedLines(diff)
+        addUntrackedChangedLines(root, parseChangedLines(diff), untrackedFiles)
     );
     if (result.missingFiles.length > 0) {
         for (const file of result.missingFiles) {
@@ -217,8 +247,10 @@ if (require.main === module) {
 }
 
 module.exports = {
+    addUntrackedChangedLines,
     changedCoveragePercentage,
     collectChangedLineCoverage,
+    listUntrackedFiles,
     main,
     parseChangedLines,
     readThreshold,

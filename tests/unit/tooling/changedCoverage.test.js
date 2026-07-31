@@ -2,16 +2,37 @@
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 const {
+    addUntrackedChangedLines,
     changedCoveragePercentage,
     collectChangedLineCoverage,
+    listUntrackedFiles,
     main,
     parseChangedLines,
     readThreshold,
     resolveDiffBase,
 } = require('../../../scripts/check-changed-coverage');
+
+test('COVERAGE-CHANGED-CODE-001 includes every line of eligible untracked code', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-untracked-coverage-'));
+    try {
+        fs.mkdirSync(path.join(root, 'scripts'), { recursive: true });
+        fs.mkdirSync(path.join(root, 'docs'), { recursive: true });
+        fs.writeFileSync(path.join(root, 'scripts/new-check.js'), 'first();\nsecond();\n');
+        fs.writeFileSync(path.join(root, 'docs/note.js'), 'ignored();\n');
+        const files = listUntrackedFiles(root, () => (
+            'scripts/new-check.js\0docs/note.js\0'
+        ));
+        const changed = addUntrackedChangedLines(root, new Map(), files);
+        assert.deepEqual([...changed.keys()], ['scripts/new-check.js']);
+        assert.deepEqual([...changed.get('scripts/new-check.js')], [1, 2, 3]);
+    } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+    }
+});
 
 test('COVERAGE-CHANGED-CODE-001 parses added and replaced lines without counting deletions', () => {
     const changed = parseChangedLines([

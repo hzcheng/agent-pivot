@@ -112,6 +112,7 @@
         && validCommentTarget(commentTarget);
     var state = {
         atLatest: false,
+        followingEnd: false,
         initialized: false,
         latestRequestId: 0,
         latestTelemetryRequestId: 0,
@@ -1699,6 +1700,28 @@
         position.textContent = 'Input ' + message.selectedInput + ' of ' + total;
     }
 
+    function scrollToConversationEnd() {
+        scroll.scrollTop = Math.max(
+            0,
+            scroll.scrollHeight - scroll.clientHeight
+        );
+        state.followingEnd = true;
+    }
+
+    function conversationAtEnd() {
+        var threshold = Number(
+            document.body.getAttribute('data-auto-scroll-threshold')
+        );
+        return Number.isFinite(threshold)
+            && threshold >= 0
+            && scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop
+                <= threshold;
+    }
+
+    function trackConversationEnd() {
+        state.followingEnd = conversationAtEnd();
+    }
+
     function applyPage(message) {
         if (!validPage(message)
             || message.subscriptionGeneration !== state.subscriptionGeneration
@@ -1802,13 +1825,18 @@
             state.firstNewMessageId = null;
             newResponse.hidden = true;
             var selected = selectedMessages[0];
-            if (selected) {
+            var openingAtLatest = message.atLatest
+                && message.updateKind === 'initial';
+            if (openingAtLatest) {
+                scrollToConversationEnd();
+            } else if (selected) {
                 selected.scrollIntoView({ block: 'center' });
-                if (message.updateKind === 'navigation') {
-                    selected.tabIndex = -1;
-                    selected.focus({ preventScroll: true });
-                }
             }
+            if (selected && message.updateKind === 'navigation') {
+                selected.tabIndex = -1;
+                selected.focus({ preventScroll: true });
+            }
+            if (!openingAtLatest) trackConversationEnd();
             return;
         }
 
@@ -1821,10 +1849,22 @@
             state.firstNewMessageId = appendedOrChanged[0];
         }
         newResponse.hidden = !state.firstNewMessageId;
+        trackConversationEnd();
     }
 
     function postNavigation(type) {
         post({ type: type, version: 1 });
+    }
+
+    scroll.addEventListener('scroll', trackConversationEnd, { passive: true });
+    if (typeof ResizeObserver === 'function') {
+        var viewportObserver = new ResizeObserver(function () {
+            if (state.followingEnd) scrollToConversationEnd();
+        });
+        viewportObserver.observe(scroll);
+        window.addEventListener('unload', function () {
+            viewportObserver.disconnect();
+        });
     }
 
     previous.addEventListener('click', function () {

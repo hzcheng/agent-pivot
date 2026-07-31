@@ -37,6 +37,15 @@ import {
 } from './bookmarkStore';
 import { renderConversationMarkdown } from './markdown';
 import {
+    ConversationViewerBookmarkMutationMessage,
+    ConversationViewerCommentMutationMessage,
+    ConversationViewerLocateCommentMessage,
+    ConversationViewerSendCommentsMessage,
+    hasExactKeys,
+    isConversationViewerTargetId,
+    parseConversationViewerMessage,
+} from './viewerProtocol';
+import {
     CONVERSATION_LIMITS,
     ConversationAbortController,
     ConversationAbortSignal,
@@ -145,51 +154,6 @@ interface ConversationViewerOutlineEntry {
     responseState: ConversationResponseState;
 }
 
-interface ConversationViewerNavigationMessage {
-    type: 'conversation-viewer-previous'
-        | 'conversation-viewer-next'
-        | 'conversation-viewer-latest'
-        | 'conversation-viewer-closed';
-    version: 1;
-}
-
-interface ConversationViewerSelectInteractionMessage {
-    type: 'conversation-viewer-select-interaction';
-    version: 1;
-    interactionId: string;
-}
-
-interface ConversationViewerOpenLinkMessage {
-    type: 'conversation-viewer-open-link';
-    version: 1;
-    href: string;
-}
-
-interface ConversationViewerCommentMutationMessage {
-    type: 'conversation-viewer-comment-mutation';
-    version: 1;
-    requestId: string;
-    subscriptionGeneration: number;
-    projectId: string;
-    provider: AiSessionProviderId;
-    sessionId: string;
-    operation: 'add' | 'update' | 'delete' | 'resolve' | 'reopen'
-        | 'clearSent' | 'clearResolved' | 'clearAll';
-    expectedRevision: number;
-    payload: unknown;
-}
-
-interface ConversationViewerLocateCommentMessage {
-    type: 'conversation-viewer-locate-comment';
-    version: 1;
-    requestId: string;
-    subscriptionGeneration: number;
-    projectId: string;
-    provider: AiSessionProviderId;
-    sessionId: string;
-    commentId: string;
-}
-
 interface ConversationViewerLocateCommentResultMessage {
     type: 'conversation-viewer-locate-comment-result';
     version: 1;
@@ -201,19 +165,6 @@ interface ConversationViewerLocateCommentResultMessage {
     commentId: string;
     success: boolean;
     error?: 'stale';
-}
-
-interface ConversationViewerSendCommentsMessage {
-    type: 'conversation-viewer-send-comments';
-    version: 1;
-    requestId: string;
-    subscriptionGeneration: number;
-    projectId: string;
-    provider: AiSessionProviderId;
-    sessionId: string;
-    operation: 'sendComments';
-    expectedRevision: number;
-    payload: Record<string, never>;
 }
 
 interface ConversationViewerCommentsResultMessage {
@@ -231,22 +182,6 @@ interface ConversationViewerCommentsResultMessage {
     error?: ConversationCommentError['code'];
 }
 
-interface ConversationViewerBookmarkMutationMessage {
-    type: 'conversation-viewer-bookmark-mutation';
-    version: 1;
-    requestId: string;
-    subscriptionGeneration: number;
-    projectId: string;
-    provider: AiSessionProviderId;
-    sessionId: string;
-    operation: 'set';
-    expectedRevision: number;
-    payload: {
-        interactionId: string;
-        bookmarked: boolean;
-    };
-}
-
 interface ConversationViewerBookmarksResultMessage {
     type: 'conversation-viewer-bookmarks-result';
     version: 1;
@@ -261,22 +196,6 @@ interface ConversationViewerBookmarksResultMessage {
     interactionIds: string[];
     error?: 'invalid' | 'stale' | 'failed' | 'limit';
 }
-
-type ConversationViewerMessage =
-    ConversationViewerNavigationMessage
-    | ConversationViewerSelectInteractionMessage
-    | ConversationViewerOpenLinkMessage
-    | ConversationViewerCommentMutationMessage
-    | ConversationViewerSendCommentsMessage
-    | ConversationViewerLocateCommentMessage
-    | ConversationViewerBookmarkMutationMessage;
-
-const NAVIGATION_MESSAGE_TYPES = new Set([
-    'conversation-viewer-previous',
-    'conversation-viewer-next',
-    'conversation-viewer-latest',
-    'conversation-viewer-closed',
-]);
 
 export class ConversationViewer implements ConversationViewerApi {
     private panel?: vscode.WebviewPanel;
@@ -537,7 +456,7 @@ export class ConversationViewer implements ConversationViewerApi {
     }
 
     private async handleMessage(message: unknown): Promise<void> {
-        const parsed = parseViewerMessage(message);
+        const parsed = parseConversationViewerMessage(message);
         if (!parsed || !this.target || !this.panel) {
             return;
         }
@@ -2096,158 +2015,6 @@ export class ConversationViewer implements ConversationViewerApi {
     }
 }
 
-function parseViewerMessage(message: unknown): ConversationViewerMessage | undefined {
-    if (!message || typeof message !== 'object' || Array.isArray(message)) {
-        return undefined;
-    }
-    const value = message as { [key: string]: unknown };
-    if (value.version !== 1 || typeof value.type !== 'string') {
-        return undefined;
-    }
-    const keys = Object.keys(value);
-    if (NAVIGATION_MESSAGE_TYPES.has(value.type)) {
-        if (keys.length !== 2 || !hasOwn(value, 'type') || !hasOwn(value, 'version')) {
-            return undefined;
-        }
-        return value as unknown as ConversationViewerNavigationMessage;
-    }
-    if (value.type === 'conversation-viewer-select-interaction') {
-        if (!hasExactKeys(value, ['type', 'version', 'interactionId'])
-            || !isCommentTargetId(value.interactionId)) {
-            return undefined;
-        }
-        return value as unknown as
-            ConversationViewerSelectInteractionMessage;
-    }
-    if (value.type === 'conversation-viewer-open-link') {
-        if (keys.length !== 3
-            || !hasOwn(value, 'type')
-            || !hasOwn(value, 'version')
-            || !hasOwn(value, 'href')
-            || typeof value.href !== 'string') {
-            return undefined;
-        }
-        return value as unknown as ConversationViewerOpenLinkMessage;
-    }
-    if (value.type === 'conversation-viewer-locate-comment') {
-        if (!hasExactKeys(value, [
-            'type', 'version', 'requestId', 'subscriptionGeneration',
-            'projectId', 'provider', 'sessionId', 'commentId',
-        ])
-            || !isCommentRequestId(value.requestId)
-            || !Number.isSafeInteger(value.subscriptionGeneration)
-            || (value.subscriptionGeneration as number) < 1
-            || !isCommentTargetId(value.projectId)
-            || !isProvider(value.provider)
-            || !isCommentTargetId(value.sessionId)
-            || !isCommentTargetId(value.commentId)) {
-            return undefined;
-        }
-        return value as unknown as ConversationViewerLocateCommentMessage;
-    }
-    if (value.type === 'conversation-viewer-bookmark-mutation') {
-        if (!hasExactKeys(value, [
-            'type', 'version', 'requestId', 'subscriptionGeneration',
-            'projectId', 'provider', 'sessionId', 'operation',
-            'expectedRevision', 'payload',
-        ])
-            || !isCommentRequestId(value.requestId)
-            || !Number.isSafeInteger(value.subscriptionGeneration)
-            || (value.subscriptionGeneration as number) < 1
-            || !isCommentTargetId(value.projectId)
-            || !isProvider(value.provider)
-            || !isCommentTargetId(value.sessionId)
-            || value.operation !== 'set'
-            || !Number.isSafeInteger(value.expectedRevision)
-            || (value.expectedRevision as number) < 0
-            || !isRecord(value.payload)
-            || !hasExactKeys(value.payload, [
-                'interactionId', 'bookmarked',
-            ])
-            || !isCommentTargetId(value.payload.interactionId)
-            || typeof value.payload.bookmarked !== 'boolean') {
-            return undefined;
-        }
-        return value as unknown as ConversationViewerBookmarkMutationMessage;
-    }
-    if ((value.type !== 'conversation-viewer-comment-mutation'
-            && value.type !== 'conversation-viewer-send-comments')
-        || keys.length !== 10
-        || !hasExactKeys(value, [
-            'type', 'version', 'requestId', 'subscriptionGeneration',
-            'projectId', 'provider', 'sessionId', 'operation',
-            'expectedRevision', 'payload',
-        ])
-        || !isCommentRequestId(value.requestId)
-        || !Number.isSafeInteger(value.subscriptionGeneration)
-        || (value.subscriptionGeneration as number) < 1
-        || !isCommentTargetId(value.projectId)
-        || !isProvider(value.provider)
-        || !isCommentTargetId(value.sessionId)
-        || !Number.isSafeInteger(value.expectedRevision)
-        || (value.expectedRevision as number) < 0
-        || !value.payload
-        || typeof value.payload !== 'object'
-        || Array.isArray(value.payload)) {
-        return undefined;
-    }
-    if (value.type === 'conversation-viewer-comment-mutation') {
-        if (value.operation !== 'add'
-            && value.operation !== 'update'
-            && value.operation !== 'delete'
-            && value.operation !== 'resolve'
-            && value.operation !== 'reopen'
-            && value.operation !== 'clearSent'
-            && value.operation !== 'clearResolved'
-            && value.operation !== 'clearAll') {
-            return undefined;
-        }
-        return value as unknown as ConversationViewerCommentMutationMessage;
-    }
-    if (value.operation !== 'sendComments'
-        || Object.keys(value.payload as object).length !== 0) {
-        return undefined;
-    }
-    return value as unknown as ConversationViewerSendCommentsMessage;
-}
-
-function hasOwn(value: object, key: string): boolean {
-    return Object.prototype.hasOwnProperty.call(value, key);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return Boolean(value)
-        && typeof value === 'object'
-        && !Array.isArray(value);
-}
-
-function hasExactKeys(
-    value: object,
-    expected: readonly string[]
-): boolean {
-    const keys = Object.keys(value);
-    return keys.length === expected.length
-        && expected.every(key => hasOwn(value, key));
-}
-
-function isCommentRequestId(value: unknown): value is string {
-    return typeof value === 'string'
-        && value.length > 0
-        && value.length <= 128
-        && /^[A-Za-z0-9._:-]+$/.test(value);
-}
-
-function isCommentTargetId(value: unknown): value is string {
-    return typeof value === 'string'
-        && value.length > 0
-        && value.length <= CONVERSATION_COMMENT_LIMITS.maxIdLength
-        && !/[\u0000-\u001f\u007f]/.test(value);
-}
-
-function isProvider(value: unknown): value is AiSessionProviderId {
-    return value === 'codex' || value === 'kimi' || value === 'claude';
-}
-
 function toCommentTarget(
     target: ConversationViewerTarget
 ): ConversationCommentTarget {
@@ -2367,7 +2134,7 @@ function parseExistingCommentPayload(
         ? ['commentId', 'comment']
         : ['commentId'];
     if (!hasExactKeys(value, expected)
-        || !isCommentTargetId(value.commentId)
+        || !isConversationViewerTargetId(value.commentId)
         || (operation === 'update' && typeof value.comment !== 'string')) {
         throw new ConversationCommentError('invalid');
     }

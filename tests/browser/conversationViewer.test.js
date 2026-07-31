@@ -175,6 +175,38 @@ async function openViewerPage(t, options = {}) {
             },
         };
     });
+    if (options.trackResources) {
+        await page.evaluate(() => {
+            const metrics = {
+                addEventListenerCalls: 0,
+                removeEventListenerCalls: 0,
+                createdObjectUrls: 0,
+                revokedObjectUrls: 0,
+            };
+            const addEventListener = EventTarget.prototype.addEventListener;
+            const removeEventListener =
+                EventTarget.prototype.removeEventListener;
+            const createObjectURL = URL.createObjectURL.bind(URL);
+            const revokeObjectURL = URL.revokeObjectURL.bind(URL);
+            EventTarget.prototype.addEventListener = function (...args) {
+                metrics.addEventListenerCalls += 1;
+                return addEventListener.apply(this, args);
+            };
+            EventTarget.prototype.removeEventListener = function (...args) {
+                metrics.removeEventListenerCalls += 1;
+                return removeEventListener.apply(this, args);
+            };
+            URL.createObjectURL = function (blob) {
+                metrics.createdObjectUrls += 1;
+                return createObjectURL(blob);
+            };
+            URL.revokeObjectURL = function (url) {
+                metrics.revokedObjectUrls += 1;
+                return revokeObjectURL(url);
+            };
+            window.__conversationResourceMetrics = metrics;
+        });
+    }
     await page.addScriptTag({ content: purifyScript });
     if (options.controlledMermaid) {
         await page.evaluate(() => {
@@ -2673,6 +2705,102 @@ test('CONVERSATION-READING-FOCUS-001 leaves an identical refresh DOM and descend
     assert.equal(
         await page.evaluate(() => document.activeElement?.textContent),
         'Stable reading link'
+    );
+});
+
+test('CONVERSATION-REFRESH-PERFORMANCE-001 keeps DOM, Blob URLs, and listeners constant across 100 identical refreshes', async t => {
+    const page = await openViewerPage(t, {
+        controlledMermaid: true,
+        trackResources: true,
+    });
+    const html = `<article data-message-id="stable-performance"
+        data-interaction-id="input-4">
+        <section class="conversation-markdown">
+            <p><a href="https://example.com/stable-performance">
+                Stable performance anchor
+            </a></p>
+            <pre><code class="language-mermaid">flowchart LR
+                A[Stable] --&gt; B[No redraw]</code></pre>
+        </section>
+    </article>` + messageHtml('stable-performance-tail', 25);
+    await sendPage(page, {
+        ...hostileConversationPage,
+        html,
+        selectedInput: 25,
+        totalInputs: 25,
+        updateKind: 'initial',
+    });
+    await page.waitForFunction(() => window.__mermaidRenders.length === 1);
+    await page.evaluate(() => {
+        window.__mermaidRenders[0].resolve({
+            svg: `<svg xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 600 400">
+                <rect width="600" height="400" fill="#246"></rect>
+            </svg>`,
+        });
+    });
+    await page.locator('.conversation-mermaid-image').waitFor();
+    const link = page.getByRole('link', {
+        name: 'Stable performance anchor',
+    });
+    await link.focus();
+    const baseline = await page.evaluate(() => {
+        const root = document.querySelector('[data-conversation-messages]');
+        window.__stableConversationRoot = root;
+        window.__stableConversationNodes = Array.from(
+            root.querySelectorAll('*')
+        );
+        return {
+            nodeCount: root.querySelectorAll('*').length,
+            metrics: { ...window.__conversationResourceMetrics },
+        };
+    });
+
+    await page.evaluate(({ payload, refreshHtml }) => {
+        for (let index = 0; index < 100; index += 1) {
+            window.dispatchEvent(new MessageEvent('message', {
+                data: {
+                    ...payload,
+                    requestId: index + 2,
+                    html: refreshHtml,
+                    selectedInput: 25,
+                    totalInputs: 25,
+                    updateKind: 'refresh',
+                },
+            }));
+        }
+    }, {
+        payload: hostileConversationPage,
+        refreshHtml: html,
+    });
+    await page.evaluate(() => new Promise(resolve => {
+        requestAnimationFrame(() => requestAnimationFrame(resolve));
+    }));
+
+    assert.deepEqual(
+        await page.evaluate(() => {
+            const root = document.querySelector(
+                '[data-conversation-messages]'
+            );
+            const nodes = Array.from(root.querySelectorAll('*'));
+            return {
+                sameRoot: root === window.__stableConversationRoot,
+                sameNodes: nodes.length
+                    === window.__stableConversationNodes.length
+                    && nodes.every((node, index) =>
+                        node === window.__stableConversationNodes[index]),
+                nodeCount: nodes.length,
+                metrics: { ...window.__conversationResourceMetrics },
+                focusedText: document.activeElement?.textContent.trim(),
+            };
+        }),
+        {
+            sameRoot: true,
+            sameNodes: true,
+            nodeCount: baseline.nodeCount,
+            metrics: baseline.metrics,
+            focusedText: 'Stable performance anchor',
+        }
     );
 });
 

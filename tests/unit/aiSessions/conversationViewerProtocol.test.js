@@ -1,0 +1,109 @@
+'use strict';
+
+const assert = require('node:assert/strict');
+const test = require('node:test');
+const {
+    parseConversationViewerMessage,
+} = require('../../../out/aiSessions/conversation/viewerProtocol');
+
+const target = Object.freeze({
+    requestId: 'request-1',
+    subscriptionGeneration: 1,
+    projectId: 'project-a',
+    provider: 'codex',
+    sessionId: 'session-a',
+});
+
+test('CONVERSATION-PROTOCOL-VALIDATOR-001 accepts every exact version-1 viewer intent', () => {
+    const messages = [{
+        type: 'conversation-viewer-previous',
+        version: 1,
+    }, {
+        type: 'conversation-viewer-select-interaction',
+        version: 1,
+        interactionId: 'input-1',
+    }, {
+        type: 'conversation-viewer-open-link',
+        version: 1,
+        href: 'https://example.test',
+    }, {
+        type: 'conversation-viewer-locate-comment',
+        version: 1,
+        ...target,
+        commentId: 'comment-1',
+    }, {
+        type: 'conversation-viewer-bookmark-mutation',
+        version: 1,
+        ...target,
+        operation: 'set',
+        expectedRevision: 2,
+        payload: {
+            interactionId: 'input-1',
+            bookmarked: true,
+        },
+    }, {
+        type: 'conversation-viewer-comment-mutation',
+        version: 1,
+        ...target,
+        operation: 'resolve',
+        expectedRevision: 2,
+        payload: { commentId: 'comment-1' },
+    }, {
+        type: 'conversation-viewer-send-comments',
+        version: 1,
+        ...target,
+        operation: 'sendComments',
+        expectedRevision: 2,
+        payload: {},
+    }];
+
+    assert.deepEqual(
+        messages.map(message => parseConversationViewerMessage(message)),
+        messages
+    );
+});
+
+test('CONVERSATION-PROTOCOL-VALIDATOR-001 rejects malformed, inherited, and over-posted viewer intents', () => {
+    const inheritedNavigation = Object.create({
+        type: 'conversation-viewer-next',
+        version: 1,
+    });
+    const malformed = [
+        null,
+        [],
+        inheritedNavigation,
+        {
+            type: 'conversation-viewer-latest',
+            version: 1,
+            extra: true,
+        },
+        {
+            type: 'conversation-viewer-select-interaction',
+            version: 1,
+            interactionId: 'input\u0000private',
+        },
+        {
+            type: 'conversation-viewer-bookmark-mutation',
+            version: 1,
+            ...target,
+            operation: 'set',
+            expectedRevision: 2,
+            payload: {
+                interactionId: 'input-1',
+                bookmarked: 'yes',
+            },
+        },
+        {
+            type: 'conversation-viewer-send-comments',
+            version: 1,
+            ...target,
+            operation: 'sendComments',
+            expectedRevision: 2,
+            payload: { submit: true },
+        },
+    ];
+
+    malformed.forEach(message => {
+        assert.equal(parseConversationViewerMessage(message), undefined);
+    });
+});

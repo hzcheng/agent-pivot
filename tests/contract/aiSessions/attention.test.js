@@ -1173,7 +1173,8 @@ function makeStalenessFixture() {
         },
     };
     let nowMs = 1000;
-    let signal;
+    const signals = {};
+    let publishSucceeds = true;
     const published = [];
     const controller = new AiSessionAttentionController({
         isEnabled: () => true,
@@ -1182,11 +1183,14 @@ function makeStalenessFixture() {
         }),
         getProviders: () => [{ id: 'codex', service: { getLifecycleSignals: () => ({}) } }],
         getRuntimeById: () => ({ state: 'active', runStartedAtMs: 0 }),
-        publish: async items => { published.push(items.map(item => ({ ...item }))); return true; },
+        publish: async items => {
+            published.push(items.map(item => ({ ...item })));
+            return publishSucceeds;
+        },
         scheduleRefresh: () => undefined,
         nowMs: () => nowMs,
     });
-    const evaluate = () => controller.evaluate([], { codex: { session: signal } });
+    const evaluate = () => controller.evaluate([], { codex: { ...signals } });
     // The bridge echoes what this window published back as the aggregate.
     const echoBridge = () => controller.setRemoteAggregate(aggregateAttentionSnapshots([{
         version: 1,
@@ -1199,11 +1203,16 @@ function makeStalenessFixture() {
     return {
         controller,
         dotSessions: () => controller.getEffectiveAggregate().sessions.map(s => s.sessionKey),
-        setSignal: value => { signal = value; },
+        setSignal: (value, sessionId = 'session') => { signals[sessionId] = value; },
         advance: ms => { nowMs += ms; },
         evaluate,
         echoBridge,
         nowMs: () => nowMs,
+        breakBridge: () => { publishSucceeds = false; },
+        healBridge: () => { publishSucceeds = true; },
+        addSession: id => workspaceSessions.sessionsByProvider.codex.push({
+            id, primaryRootId: 'root:fixture',
+        }),
     };
 }
 
@@ -1291,4 +1300,74 @@ test('ATTENTION-BRIDGE-STALENESS-001 leaves sessions owned by other windows unto
 
     assert.deepEqual(f.dotSessions(), ['codex:peer-window-session'],
         'clearing our own session must not clear a peer window we cannot observe');
+});
+
+test('ATTENTION-BRIDGE-STALENESS-001 falls back to local state once publishing keeps failing', async () => {
+    const f = makeStalenessFixture();
+    f.setSignal({
+        token: 'task-complete:1000', phase: 'needsAttention', reason: 'completed',
+        executionState: 'stopped', occurredAtMs: 1000,
+    });
+    await f.evaluate();
+    f.echoBridge();
+    assert.deepEqual(f.dotSessions(), ['codex:session']);
+
+    // The bridge dies. Its last aggregate stays frozen and every publish fails.
+    f.breakBridge();
+    f.addSession('later');
+    f.advance(1000);
+    f.setSignal({
+        token: 'later-complete:2000', phase: 'needsAttention', reason: 'completed',
+        executionState: 'stopped', occurredAtMs: 2000,
+    }, 'later');
+
+    // A transient failure must not immediately discard the aggregate: the bridge
+    // client retries at 100ms, 500ms and 2s before the outage is real.
+    await f.evaluate();
+    assert.deepEqual(f.dotSessions(), ['codex:session'],
+        'one failed publish is a blip, not an outage');
+
+    // Sustained failure is an outage; local state becomes authoritative and the
+    // dot raised while the bridge was down finally shows.
+    for (let i = 0; i < 12; i += 1) {
+        f.advance(1000);
+        await f.evaluate();
+    }
+    assert.deepEqual(f.dotSessions().sort(), ['codex:later', 'codex:session'],
+        'a dot raised during the outage must not be invisible behind a frozen aggregate');
+});
+
+test('ATTENTION-BRIDGE-STALENESS-001 trusts the aggregate again once publishing recovers', async () => {
+    const f = makeStalenessFixture();
+    f.setSignal({
+        token: 'task-complete:1000', phase: 'needsAttention', reason: 'completed',
+        executionState: 'stopped', occurredAtMs: 1000,
+    });
+    await f.evaluate();
+    f.echoBridge();
+
+    f.breakBridge();
+    for (let i = 0; i < 12; i += 1) {
+        f.advance(1000);
+        await f.evaluate();
+    }
+    assert.deepEqual(f.dotSessions(), ['codex:session'], 'local state still shows our own dot');
+
+    // The bridge comes back and republishes a peer window we could not see while
+    // it was down. The aggregate must become authoritative again.
+    f.healBridge();
+    f.advance(1000);
+    await f.evaluate();
+    const projectId = attentionProject.getAttentionProjectKey('/fixtures/project');
+    f.controller.setRemoteAggregate(aggregateAttentionSnapshots([{
+        version: 1, generatedAtMs: f.nowMs(),
+        items: [{
+            projectId, sessionKey: 'codex:peer', state: 'needsAttention',
+            eventId: 'peer-event', reason: 'completed', observedAtMs: f.nowMs(),
+        }],
+        instanceId: 'c'.repeat(32), sequence: 9, heartbeat: 9,
+    }], new Set(), f.nowMs()));
+
+    assert.deepEqual(f.dotSessions(), ['codex:peer'],
+        'a recovered bridge is authoritative again, including peers we could not observe');
 });

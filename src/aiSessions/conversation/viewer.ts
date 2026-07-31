@@ -6,45 +6,15 @@ import * as vscode from 'vscode';
 import { AGENT_PIVOT_CONVERSATION_VIEW_TYPE } from '../../constants';
 import type { AiSessionProviderId } from '../../models';
 import type { AiSessionDisposable } from '../types';
-import {
-    buildConversationCommentsPrompt,
-    clearConversationComments,
-    cloneConversationComments,
-    CONVERSATION_COMMENT_LIMITS,
-    ConversationCommentDraft,
-    ConversationCommentError,
-    ConversationCommentOperation,
-    ConversationCommentSelection,
-    ConversationCommentSessionNote,
-    ConversationCommentTarget,
-    createConversationComment,
-    createConversationSessionComment,
-    markConversationCommentsSent,
-    reopenConversationComment,
-    resolveConversationComment,
-    updateConversationComment,
-    validateConversationComments,
-} from './comments';
-import type {
-    ConversationCommentSnapshot,
-    ConversationCommentStore,
-} from './commentStore';
-import {
-    ConversationBookmarkSnapshot,
-    ConversationBookmarkStore,
-    isConversationBookmarkSnapshot,
-    MAX_CONVERSATION_BOOKMARKS,
-} from './bookmarkStore';
+import { CONVERSATION_COMMENT_LIMITS } from './comments';
+import type { ConversationCommentStore } from './commentStore';
+import type { ConversationBookmarkStore } from './bookmarkStore';
+import { ConversationCommentController } from './commentController';
+import { ConversationBookmarkController } from './bookmarkController';
 import { renderConversationMarkdown } from './markdown';
-import {
-    ConversationViewerBookmarkMutationMessage,
-    ConversationViewerCommentMutationMessage,
-    ConversationViewerLocateCommentMessage,
-    ConversationViewerSendCommentsMessage,
-    hasExactKeys,
-    isConversationViewerTargetId,
-    parseConversationViewerMessage,
-} from './viewerProtocol';
+import { parseConversationViewerMessage } from './viewerProtocol';
+import type { ConversationViewerTarget } from './viewerTarget';
+export type { ConversationViewerTarget } from './viewerTarget';
 import {
     CONVERSATION_LIMITS,
     ConversationAbortController,
@@ -57,16 +27,6 @@ import {
     ConversationResponseState,
     ConversationTelemetry,
 } from './types';
-
-export interface ConversationViewerTarget {
-    projectId: string;
-    provider: AiSessionProviderId;
-    sessionId: string;
-    interactionId: string;
-    expectedRevision: string;
-    displayName: string;
-    duplicateDisplayName: boolean;
-}
 
 export interface ConversationViewerOptions {
     createPanel: typeof vscode.window.createWebviewPanel;
@@ -154,49 +114,6 @@ interface ConversationViewerOutlineEntry {
     responseState: ConversationResponseState;
 }
 
-interface ConversationViewerLocateCommentResultMessage {
-    type: 'conversation-viewer-locate-comment-result';
-    version: 1;
-    requestId: string;
-    subscriptionGeneration: number;
-    projectId: string;
-    provider: AiSessionProviderId;
-    sessionId: string;
-    commentId: string;
-    success: boolean;
-    error?: 'stale';
-}
-
-interface ConversationViewerCommentsResultMessage {
-    type: 'conversation-viewer-comments-result';
-    version: 1;
-    requestId: string;
-    subscriptionGeneration: number;
-    projectId: string;
-    provider: AiSessionProviderId;
-    sessionId: string;
-    operation: ConversationCommentOperation;
-    success: boolean;
-    revision: number;
-    comments: ConversationCommentDraft[];
-    error?: ConversationCommentError['code'];
-}
-
-interface ConversationViewerBookmarksResultMessage {
-    type: 'conversation-viewer-bookmarks-result';
-    version: 1;
-    requestId: string;
-    subscriptionGeneration: number;
-    projectId: string;
-    provider: AiSessionProviderId;
-    sessionId: string;
-    operation: 'set';
-    success: boolean;
-    revision: number;
-    interactionIds: string[];
-    error?: 'invalid' | 'stale' | 'failed' | 'limit';
-}
-
 export class ConversationViewer implements ConversationViewerApi {
     private panel?: vscode.WebviewPanel;
     private target?: ConversationViewerTarget;
@@ -218,18 +135,31 @@ export class ConversationViewer implements ConversationViewerApi {
     private suspended = false;
     private authoritativeLoadInFlight?: Promise<boolean>;
     private authoritativeRefreshPending = false;
-    private comments: ConversationCommentDraft[] = [];
-    private commentRevision = 0;
-    private commentOperationQueue: Promise<void> = Promise.resolve();
-    private readonly commentSettlements =
-        new Map<string, ConversationViewerCommentsResultMessage>();
-    private bookmarkIds = new Set<string>();
-    private bookmarkRevision = 0;
-    private bookmarkOperationQueue: Promise<void> = Promise.resolve();
-    private readonly bookmarkSettlements =
-        new Map<string, ConversationViewerBookmarksResultMessage>();
+    private readonly commentController: ConversationCommentController;
+    private readonly bookmarkController: ConversationBookmarkController;
 
-    constructor(private readonly options: ConversationViewerOptions) {}
+    constructor(private readonly options: ConversationViewerOptions) {
+        this.commentController = new ConversationCommentController({
+            commentStore: options.commentStore,
+            submitPrompt: options.submitPrompt,
+            focusSession: options.focusSession,
+            getTarget: () => this.target,
+            getSubscriptionGeneration: () => this.subscriptionGeneration,
+            getPanel: () => this.panel,
+            getMessages: () => this.messages(),
+            navigateToInteraction: interactionId =>
+                this.navigateToInteraction(interactionId),
+            rebuildLatestDocument: () => this.rebuildLatestDocument(),
+        });
+        this.bookmarkController = new ConversationBookmarkController({
+            bookmarkStore: options.bookmarkStore,
+            getTarget: () => this.target,
+            getSubscriptionGeneration: () => this.subscriptionGeneration,
+            getPanel: () => this.panel,
+            getOutline: () => this.outline,
+            rebuildLatestDocument: () => this.rebuildLatestDocument(),
+        });
+    }
 
     get snapshotSize(): number {
         return this.interactionIds().length;
@@ -261,8 +191,8 @@ export class ConversationViewer implements ConversationViewerApi {
             return false;
         }
         await Promise.all([
-            this.restoreComments(activeTarget, generation),
-            this.restoreBookmarks(activeTarget, generation),
+            this.commentController.restore(activeTarget, generation),
+            this.bookmarkController.restore(activeTarget, generation),
         ]);
         if (this.target !== activeTarget
             || this.subscriptionGeneration !== generation) {
@@ -361,12 +291,8 @@ export class ConversationViewer implements ConversationViewerApi {
         this.stale = false;
         this.telemetry = undefined;
         this.latestPublication = undefined;
-        this.comments = [];
-        this.commentRevision = 0;
-        this.commentSettlements.clear();
-        this.bookmarkIds.clear();
-        this.bookmarkRevision = 0;
-        this.bookmarkSettlements.clear();
+        this.commentController.reset();
+        this.bookmarkController.reset();
         this.target = { ...target };
         this.selectedInteractionId = target.interactionId;
         this.suspended = false;
@@ -443,12 +369,8 @@ export class ConversationViewer implements ConversationViewerApi {
         this.stale = false;
         this.telemetry = undefined;
         this.latestPublication = undefined;
-        this.comments = [];
-        this.commentRevision = 0;
-        this.commentSettlements.clear();
-        this.bookmarkIds.clear();
-        this.bookmarkRevision = 0;
-        this.bookmarkSettlements.clear();
+        this.commentController.reset();
+        this.bookmarkController.reset();
         this.panelWasVisible = false;
         this.suspended = false;
         this.subscriptionGeneration += 1;
@@ -470,15 +392,15 @@ export class ConversationViewer implements ConversationViewerApi {
         }
         if (parsed.type === 'conversation-viewer-comment-mutation'
             || parsed.type === 'conversation-viewer-send-comments') {
-            await this.enqueueCommentOperation(parsed);
+            await this.commentController.enqueue(parsed);
             return;
         }
         if (parsed.type === 'conversation-viewer-bookmark-mutation') {
-            await this.enqueueBookmarkOperation(parsed);
+            await this.bookmarkController.enqueue(parsed);
             return;
         }
         if (parsed.type === 'conversation-viewer-locate-comment') {
-            await this.locateComment(parsed);
+            await this.commentController.locate(parsed);
             return;
         }
         if (parsed.type === 'conversation-viewer-select-interaction') {
@@ -494,541 +416,6 @@ export class ConversationViewer implements ConversationViewerApi {
             return;
         }
         await this.navigateLatest();
-    }
-
-    private enqueueCommentOperation(
-        request: ConversationViewerCommentMutationMessage
-            | ConversationViewerSendCommentsMessage
-    ): Promise<void> {
-        const operation = () => this.handleCommentOperation(request);
-        const queued = this.commentOperationQueue.then(operation, operation);
-        this.commentOperationQueue = queued.catch(() => undefined);
-        return queued;
-    }
-
-    private enqueueBookmarkOperation(
-        request: ConversationViewerBookmarkMutationMessage
-    ): Promise<void> {
-        const operation = () => this.handleBookmarkOperation(request);
-        const queued = this.bookmarkOperationQueue.then(operation, operation);
-        this.bookmarkOperationQueue = queued.catch(() => undefined);
-        return queued;
-    }
-
-    private async handleBookmarkOperation(
-        request: ConversationViewerBookmarkMutationMessage
-    ): Promise<void> {
-        const target = this.target;
-        const panel = this.panel;
-        if (!target || !panel) {
-            return;
-        }
-        const settlementKey = getBookmarkSettlementKey(request);
-        const settled = this.bookmarkSettlements.get(settlementKey);
-        if (settled) {
-            await this.publishTransientSettlement(settled);
-            return;
-        }
-        if (!bookmarkRequestTargetsViewer(
-            request,
-            target,
-            this.subscriptionGeneration
-        ) || request.expectedRevision !== this.bookmarkRevision) {
-            await this.settleBookmarkRequest(request, false, 'stale');
-            return;
-        }
-        const interactionExists = this.outline?.interactions.some(
-            interaction =>
-                interaction.id === request.payload.interactionId
-        ) === true;
-        if (!interactionExists) {
-            await this.settleBookmarkRequest(request, false, 'stale');
-            return;
-        }
-        const next = new Set(this.bookmarkIds);
-        if (request.payload.bookmarked) {
-            next.add(request.payload.interactionId);
-        } else {
-            next.delete(request.payload.interactionId);
-        }
-        if (next.size > MAX_CONVERSATION_BOOKMARKS) {
-            await this.settleBookmarkRequest(request, false, 'limit');
-            return;
-        }
-        const changed = next.size !== this.bookmarkIds.size
-            || [...next].some(id => !this.bookmarkIds.has(id));
-        const snapshot = {
-            revision: this.bookmarkRevision + (changed ? 1 : 0),
-            interactionIds: [...next],
-        };
-        const previousSnapshot = {
-            revision: this.bookmarkRevision,
-            interactionIds: [...this.bookmarkIds],
-        };
-        try {
-            await this.persistBookmarks(target, snapshot);
-            if (this.target !== target
-                || this.subscriptionGeneration
-                    !== request.subscriptionGeneration
-                || this.bookmarkRevision !== request.expectedRevision) {
-                await this.persistBookmarks(target, previousSnapshot);
-                throw new Error('stale');
-            }
-            this.bookmarkIds = next;
-            this.bookmarkRevision = snapshot.revision;
-            await this.settleBookmarkRequest(request, true);
-        } catch (error) {
-            await this.settleBookmarkRequest(
-                request,
-                false,
-                error instanceof Error && error.message === 'stale'
-                    ? 'stale'
-                    : 'failed'
-            );
-        }
-    }
-
-    private async settleBookmarkRequest(
-        request: ConversationViewerBookmarkMutationMessage,
-        success: boolean,
-        error?: ConversationViewerBookmarksResultMessage['error']
-    ): Promise<void> {
-        const settlement: ConversationViewerBookmarksResultMessage = {
-            type: 'conversation-viewer-bookmarks-result',
-            version: 1,
-            requestId: request.requestId,
-            subscriptionGeneration: request.subscriptionGeneration,
-            projectId: request.projectId,
-            provider: request.provider,
-            sessionId: request.sessionId,
-            operation: 'set',
-            success,
-            revision: this.bookmarkRevision,
-            interactionIds: [...this.bookmarkIds],
-            ...(error ? { error } : {}),
-        };
-        this.bookmarkSettlements.set(
-            getBookmarkSettlementKey(request),
-            settlement
-        );
-        while (this.bookmarkSettlements.size > 100) {
-            const oldest = this.bookmarkSettlements.keys().next().value;
-            if (typeof oldest !== 'string') {
-                break;
-            }
-            this.bookmarkSettlements.delete(oldest);
-        }
-        await this.publishTransientSettlement(settlement);
-    }
-
-    private async handleCommentOperation(
-        request: ConversationViewerCommentMutationMessage
-            | ConversationViewerSendCommentsMessage
-    ): Promise<void> {
-        const target = this.target;
-        if (!target || !this.panel) {
-            return;
-        }
-        const settlementKey = getCommentSettlementKey(request);
-        const settled = this.commentSettlements.get(settlementKey);
-        if (settled) {
-            await this.publishCommentSettlement(
-                settled.operation === request.operation
-                    ? settled
-                    : {
-                        ...settled,
-                        operation: request.operation,
-                        success: false,
-                        revision: this.commentRevision,
-                        comments: cloneConversationComments(this.comments),
-                        error: 'invalid',
-                    },
-                false
-            );
-            return;
-        }
-        if (!commentRequestTargetsViewer(
-            request,
-            target,
-            this.subscriptionGeneration
-        )) {
-            await this.settleCommentRequest(request, false, 'stale');
-            return;
-        }
-        if (request.expectedRevision !== this.commentRevision) {
-            await this.settleCommentRequest(request, false, 'stale');
-            return;
-        }
-        try {
-            if (request.operation === 'sendComments') {
-                await this.sendComments(
-                    target,
-                    this.subscriptionGeneration
-                );
-            } else {
-                await this.mutateComments(
-                    request,
-                    target,
-                    this.subscriptionGeneration
-                );
-            }
-            await this.settleCommentRequest(request, true);
-            if (request.operation === 'sendComments') {
-                await this.focusSessionAfterCommentSend(target);
-            }
-        } catch (error) {
-            await this.settleCommentRequest(
-                request,
-                false,
-                toConversationCommentErrorCode(error)
-            );
-        }
-    }
-
-    private async focusSessionAfterCommentSend(
-        target: ConversationViewerTarget
-    ): Promise<void> {
-        try {
-            await Promise.resolve(this.options.focusSession?.({
-                projectId: target.projectId,
-                provider: target.provider,
-                sessionId: target.sessionId,
-            }));
-        } catch (_error) {
-            // The prompt was already submitted and settled. A focus failure
-            // must not make the user retry and submit the same batch twice.
-        }
-    }
-
-    private async mutateComments(
-        request: ConversationViewerCommentMutationMessage,
-        target: ConversationViewerTarget,
-        generation: number
-    ): Promise<void> {
-        let comments = cloneConversationComments(this.comments);
-        let revision = this.commentRevision;
-        if (request.operation === 'add') {
-            if (comments.length
-                >= CONVERSATION_COMMENT_LIMITS.maxComments) {
-                throw new ConversationCommentError('limit');
-            }
-            const payload = parseCommentInput(request.payload);
-            if (payload.scope === 'session') {
-                comments.push(createConversationSessionComment(
-                    randomBytes(16).toString('hex'),
-                    payload.comment
-                ));
-            } else {
-                const message = this.messages().find(candidate =>
-                    candidate.id === payload.messageId
-                    && candidate.interactionId === payload.interactionId
-                );
-                if (!message) {
-                    throw new ConversationCommentError('stale');
-                }
-                comments.push(createConversationComment(
-                    randomBytes(16).toString('hex'),
-                    payload,
-                    message
-                ));
-            }
-            revision += 1;
-        } else if (request.operation === 'clearSent'
-            || request.operation === 'clearResolved'
-            || request.operation === 'clearAll') {
-            if (!hasExactKeys(request.payload as object, [])) {
-                throw new ConversationCommentError('invalid');
-            }
-            const remainingComments = clearConversationComments(
-                comments,
-                request.operation
-            );
-            if (remainingComments.length !== comments.length) {
-                comments = remainingComments;
-                revision += 1;
-            }
-        } else {
-            const payload = parseExistingCommentPayload(
-                request.operation,
-                request.payload
-            );
-            const index = comments.findIndex(
-                comment => comment.id === payload.commentId
-            );
-            if (index < 0) {
-                throw new ConversationCommentError('stale');
-            }
-            if (request.operation === 'delete') {
-                comments.splice(index, 1);
-            } else if (request.operation === 'update') {
-                comments[index] = updateConversationComment(
-                    comments[index],
-                    payload.comment
-                );
-            } else if (request.operation === 'resolve') {
-                comments[index] = resolveConversationComment(comments[index]);
-            } else {
-                comments[index] = reopenConversationComment(comments[index]);
-            }
-            revision += 1;
-        }
-        const snapshot = { revision, comments };
-        await this.persistComments(target, snapshot);
-        this.commitPersistedComments(
-            target,
-            generation,
-            request.expectedRevision,
-            snapshot
-        );
-    }
-
-    private async sendComments(
-        target: ConversationViewerTarget,
-        generation: number
-    ): Promise<void> {
-        const openComments = this.comments.filter(
-            comment => comment.status === 'open'
-        );
-        const prompt = buildConversationCommentsPrompt(openComments);
-        const previousSnapshot = {
-            revision: this.commentRevision,
-            comments: cloneConversationComments(this.comments),
-        };
-        const sentSnapshot = {
-            revision: this.commentRevision + 1,
-            comments: markConversationCommentsSent(this.comments),
-        };
-        await this.persistComments(target, sentSnapshot);
-        if (this.target !== target
-            || this.subscriptionGeneration !== generation
-            || this.commentRevision !== previousSnapshot.revision) {
-            await this.persistComments(target, previousSnapshot);
-            throw new ConversationCommentError('stale');
-        }
-        try {
-            await Promise.resolve(this.options.submitPrompt(
-                { ...target },
-                prompt
-            ));
-        } catch (error) {
-            await this.persistComments(target, previousSnapshot);
-            if (error instanceof ConversationCommentError) {
-                throw error;
-            }
-            throw new ConversationCommentError('failed');
-        }
-        if (this.target !== target) {
-            throw new ConversationCommentError('stale');
-        }
-        this.comments = sentSnapshot.comments;
-        this.commentRevision = sentSnapshot.revision;
-    }
-
-    private async restoreComments(
-        target: ConversationViewerTarget,
-        generation: number
-    ): Promise<void> {
-        if (!this.options.commentStore) {
-            return;
-        }
-        let snapshot: ConversationCommentSnapshot;
-        try {
-            snapshot = await this.options.commentStore.load(
-                toCommentTarget(target)
-            );
-            validateConversationComments(snapshot.comments);
-            if (!Number.isSafeInteger(snapshot.revision)
-                || snapshot.revision < 0) {
-                throw new ConversationCommentError('invalid');
-            }
-        } catch (_error) {
-            return;
-        }
-        if (this.target !== target
-            || this.subscriptionGeneration !== generation) {
-            return;
-        }
-        this.comments = cloneConversationComments(snapshot.comments);
-        this.commentRevision = snapshot.revision;
-    }
-
-    private async restoreBookmarks(
-        target: ConversationViewerTarget,
-        generation: number
-    ): Promise<void> {
-        if (!this.options.bookmarkStore) {
-            return;
-        }
-        let snapshot: ConversationBookmarkSnapshot;
-        try {
-            snapshot = await this.options.bookmarkStore.load(
-                toBookmarkTarget(target)
-            );
-            if (!isConversationBookmarkSnapshot(snapshot)) {
-                return;
-            }
-        } catch (_error) {
-            return;
-        }
-        if (this.target !== target
-            || this.subscriptionGeneration !== generation) {
-            return;
-        }
-        this.bookmarkIds = new Set(snapshot.interactionIds);
-        this.bookmarkRevision = snapshot.revision;
-    }
-
-    private async persistBookmarks(
-        target: ConversationViewerTarget,
-        snapshot: ConversationBookmarkSnapshot
-    ): Promise<void> {
-        if (!this.options.bookmarkStore) {
-            return;
-        }
-        await this.options.bookmarkStore.save(toBookmarkTarget(target), snapshot);
-    }
-
-    private async persistComments(
-        target: ConversationViewerTarget,
-        snapshot: ConversationCommentSnapshot
-    ): Promise<void> {
-        if (!this.options.commentStore) {
-            return;
-        }
-        try {
-            await this.options.commentStore.save(
-                toCommentTarget(target),
-                snapshot
-            );
-        } catch (_error) {
-            throw new ConversationCommentError('failed');
-        }
-    }
-
-    private commitPersistedComments(
-        target: ConversationViewerTarget,
-        generation: number,
-        expectedRevision: number,
-        snapshot: ConversationCommentSnapshot
-    ): void {
-        if (this.target !== target
-            || this.subscriptionGeneration !== generation
-            || this.commentRevision !== expectedRevision) {
-            throw new ConversationCommentError('stale');
-        }
-        this.comments = snapshot.comments;
-        this.commentRevision = snapshot.revision;
-    }
-
-    private async locateComment(
-        request: ConversationViewerLocateCommentMessage
-    ): Promise<void> {
-        const target = this.target;
-        const comment = this.comments.find(
-            candidate => candidate.id === request.commentId
-        );
-        const targetMatches = Boolean(target)
-            && request.subscriptionGeneration === this.subscriptionGeneration
-            && request.projectId === target?.projectId
-            && request.provider === target?.provider
-            && request.sessionId === target?.sessionId;
-        const success = targetMatches && comment
-            ? await this.navigateToInteraction(comment.interactionId)
-            : false;
-        const settlement: ConversationViewerLocateCommentResultMessage = {
-            type: 'conversation-viewer-locate-comment-result',
-            version: 1,
-            requestId: request.requestId,
-            subscriptionGeneration: request.subscriptionGeneration,
-            projectId: request.projectId,
-            provider: request.provider,
-            sessionId: request.sessionId,
-            commentId: request.commentId,
-            success,
-            ...(success ? {} : { error: 'stale' }),
-        };
-        await this.publishTransientSettlement(settlement);
-    }
-
-    private async settleCommentRequest(
-        request: ConversationViewerCommentMutationMessage
-            | ConversationViewerSendCommentsMessage,
-        success: boolean,
-        error?: ConversationCommentError['code']
-    ): Promise<void> {
-        const settlement: ConversationViewerCommentsResultMessage = {
-            type: 'conversation-viewer-comments-result',
-            version: 1,
-            requestId: request.requestId,
-            subscriptionGeneration: request.subscriptionGeneration,
-            projectId: request.projectId,
-            provider: request.provider,
-            sessionId: request.sessionId,
-            operation: request.operation,
-            success,
-            revision: this.commentRevision,
-            comments: cloneConversationComments(this.comments),
-            ...(error ? { error } : {}),
-        };
-        this.rememberCommentSettlement(
-            getCommentSettlementKey(request),
-            settlement
-        );
-        await this.publishCommentSettlement(settlement, true);
-    }
-
-    private rememberCommentSettlement(
-        key: string,
-        settlement: ConversationViewerCommentsResultMessage
-    ): void {
-        this.commentSettlements.set(key, settlement);
-        while (this.commentSettlements.size > 100) {
-            const oldest = this.commentSettlements.keys().next().value;
-            if (typeof oldest !== 'string') {
-                break;
-            }
-            this.commentSettlements.delete(oldest);
-        }
-    }
-
-    private async publishCommentSettlement(
-        settlement: ConversationViewerCommentsResultMessage,
-        rebuildOnFailure: boolean
-    ): Promise<void> {
-        const panel = this.panel;
-        if (!panel) {
-            return;
-        }
-        let delivered = false;
-        try {
-            delivered = await panel.webview.postMessage(settlement);
-        } catch (_error) {
-            delivered = false;
-        }
-        if (!delivered && rebuildOnFailure && this.panel === panel) {
-            this.rebuildLatestDocument();
-        }
-    }
-
-    private async publishTransientSettlement(
-        settlement: ConversationViewerLocateCommentResultMessage
-            | ConversationViewerBookmarksResultMessage
-    ): Promise<void> {
-        const panel = this.panel;
-        if (!panel) {
-            return;
-        }
-        let delivered = false;
-        try {
-            delivered = await panel.webview.postMessage(settlement);
-        } catch (_error) {
-            delivered = false;
-        }
-        if (!delivered && this.panel === panel) {
-            // Replacing the document clears Webview-owned pending state while
-            // preserving Host-owned comments, bookmarks, and the current page.
-            this.rebuildLatestDocument();
-        }
     }
 
     private async openLink(href: string): Promise<void> {
@@ -1824,6 +1211,12 @@ export class ConversationViewer implements ConversationViewerApi {
         const mermaid = panel.webview.asWebviewUri(
             this.options.mediaUri('mermaid.min.js')
         );
+        const readingAnchorScript = panel.webview.asWebviewUri(
+            this.options.mediaUri('conversationReadingAnchorScripts.js')
+        );
+        const mermaidScript = panel.webview.asWebviewUri(
+            this.options.mediaUri('conversationMermaidScripts.js')
+        );
         const script = panel.webview.asWebviewUri(
             this.options.mediaUri('conversationViewerScripts.js')
         );
@@ -1834,16 +1227,10 @@ export class ConversationViewer implements ConversationViewerApi {
             ? ` data-initial-page="${escapeAttribute(JSON.stringify(initialPage))}"`
             : '';
         const commentStateAttribute = ` data-initial-comments="${escapeAttribute(
-            JSON.stringify({
-                revision: this.commentRevision,
-                comments: cloneConversationComments(this.comments),
-            })
+            JSON.stringify(this.commentController.snapshot)
         )}"`;
         const bookmarkStateAttribute = ` data-initial-bookmarks="${escapeAttribute(
-            JSON.stringify({
-                revision: this.bookmarkRevision,
-                interactionIds: [...this.bookmarkIds],
-            })
+            JSON.stringify(this.bookmarkController.snapshot)
         )}"`;
         const targetAttribute = ` data-conversation-target="${escapeAttribute(
             JSON.stringify({
@@ -2008,150 +1395,17 @@ export class ConversationViewer implements ConversationViewerApi {
         purify.toString()
     )}"></script>
     <script nonce="${escapeAttribute(nonce)}" src="${escapeAttribute(
+        readingAnchorScript.toString()
+    )}"></script>
+    <script nonce="${escapeAttribute(nonce)}" src="${escapeAttribute(
+        mermaidScript.toString()
+    )}"></script>
+    <script nonce="${escapeAttribute(nonce)}" src="${escapeAttribute(
         script.toString()
     )}"></script>
 </body>
 </html>`;
     }
-}
-
-function toCommentTarget(
-    target: ConversationViewerTarget
-): ConversationCommentTarget {
-    return {
-        projectId: target.projectId,
-        provider: target.provider,
-        sessionId: target.sessionId,
-    };
-}
-
-function toBookmarkTarget(
-    target: ConversationViewerTarget
-): Pick<
-    ConversationViewerTarget,
-    'projectId' | 'provider' | 'sessionId'
-> {
-    return {
-        projectId: target.projectId,
-        provider: target.provider,
-        sessionId: target.sessionId,
-    };
-}
-
-function bookmarkRequestTargetsViewer(
-    request: ConversationViewerBookmarkMutationMessage,
-    target: ConversationViewerTarget,
-    subscriptionGeneration: number
-): boolean {
-    return request.subscriptionGeneration === subscriptionGeneration
-        && request.projectId === target.projectId
-        && request.provider === target.provider
-        && request.sessionId === target.sessionId;
-}
-
-function getBookmarkSettlementKey(
-    request: ConversationViewerBookmarkMutationMessage
-): string {
-    return [
-        request.subscriptionGeneration,
-        request.projectId,
-        request.provider,
-        request.sessionId,
-        request.requestId,
-    ].join('\u0000');
-}
-
-function commentRequestTargetsViewer(
-    request: ConversationViewerCommentMutationMessage
-        | ConversationViewerSendCommentsMessage,
-    target: ConversationViewerTarget,
-    subscriptionGeneration: number
-): boolean {
-    return request.subscriptionGeneration === subscriptionGeneration
-        && request.projectId === target.projectId
-        && request.provider === target.provider
-        && request.sessionId === target.sessionId;
-}
-
-function getCommentSettlementKey(
-    request: ConversationViewerCommentMutationMessage
-        | ConversationViewerSendCommentsMessage
-): string {
-    return JSON.stringify([
-        request.projectId,
-        request.provider,
-        request.sessionId,
-        request.requestId,
-    ]);
-}
-
-function parseCommentInput(
-    payload: unknown
-): ConversationCommentSelection | ConversationCommentSessionNote {
-    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-        throw new ConversationCommentError('invalid');
-    }
-    const value = payload as Record<string, unknown>;
-    if (hasExactKeys(value, ['scope', 'comment'])) {
-        if (value.scope !== 'session' || typeof value.comment !== 'string') {
-            throw new ConversationCommentError('invalid');
-        }
-        return value as unknown as ConversationCommentSessionNote;
-    }
-    if (!hasExactKeys(value, [
-        'messageId', 'interactionId', 'quote', 'prefix', 'suffix', 'comment',
-    ])) {
-        throw new ConversationCommentError('invalid');
-    }
-    if (typeof value.messageId !== 'string'
-        || typeof value.interactionId !== 'string'
-        || typeof value.quote !== 'string'
-        || typeof value.prefix !== 'string'
-        || typeof value.suffix !== 'string'
-        || typeof value.comment !== 'string') {
-        throw new ConversationCommentError('invalid');
-    }
-    return {
-        scope: 'selection',
-        messageId: value.messageId,
-        interactionId: value.interactionId,
-        quote: value.quote,
-        prefix: value.prefix,
-        suffix: value.suffix,
-        comment: value.comment,
-    } as ConversationCommentSelection;
-}
-
-function parseExistingCommentPayload(
-    operation: 'update' | 'delete' | 'resolve' | 'reopen',
-    payload: unknown
-): { commentId: string; comment?: string } {
-    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-        throw new ConversationCommentError('invalid');
-    }
-    const value = payload as Record<string, unknown>;
-    const expected = operation === 'update'
-        ? ['commentId', 'comment']
-        : ['commentId'];
-    if (!hasExactKeys(value, expected)
-        || !isConversationViewerTargetId(value.commentId)
-        || (operation === 'update' && typeof value.comment !== 'string')) {
-        throw new ConversationCommentError('invalid');
-    }
-    return {
-        commentId: value.commentId,
-        ...(operation === 'update'
-            ? { comment: value.comment as string }
-            : {}),
-    };
-}
-
-function toConversationCommentErrorCode(
-    error: unknown
-): ConversationCommentError['code'] {
-    return error instanceof ConversationCommentError
-        ? error.code
-        : 'failed';
 }
 
 function isStaleRevision(error: unknown): error is ConversationError {

@@ -121,10 +121,6 @@
         messageIds: [],
         messageSignatures: new Map(),
         firstNewMessageId: null,
-        mermaidInitialized: false,
-        mermaidObjectUrls: [],
-        mermaidSources: new WeakMap(),
-        mermaidLoad: null,
         renderGeneration: 0,
         comments: [],
         commentRevision: 0,
@@ -148,6 +144,29 @@
         pendingBookmarkRequest: null,
         bookmarksOnly: false,
     };
+    var readingAnchorController =
+        window.__agentPivotConversationReadingAnchor.create({
+            scroll: scroll,
+            messages: messages,
+            messageSelector: conversationMessageSelector,
+            messageId: conversationMessageId,
+        });
+    var captureReadingAnchor = readingAnchorController.capture;
+    var restoreReadingPosition = readingAnchorController.restore;
+    var restoreViewportReadingPosition =
+        readingAnchorController.restoreViewport;
+    var mermaidRenderer = window.__agentPivotConversationMermaid.create({
+        source: mermaidSource,
+        nonce: scriptNonce,
+        messages: messages,
+        scroll: scroll,
+        maxDiagrams: maxMermaidDiagrams,
+        captureAnchor: captureReadingAnchor,
+        restoreAnchor: restoreReadingPosition,
+    });
+    var releaseMermaidObjectUrls = mermaidRenderer.release;
+    var renderMermaidDiagrams = mermaidRenderer.render;
+    var preserveMermaidContent = mermaidRenderer.preserve;
 
     if (!scroll || !messages || !position || !status || !newResponse
         || !previous || !next || !latest || !close || !window.DOMPurify) {
@@ -314,280 +333,6 @@
             node.removeAttribute('src');
         }
     });
-
-    function releaseMermaidObjectUrls(root) {
-        var urls = root
-            ? Array.prototype.map.call(
-                root.querySelectorAll('.conversation-mermaid-image[src^="blob:"]'),
-                function (image) {
-                    return image.src;
-                }
-            )
-            : state.mermaidObjectUrls.slice();
-        var released = new Set(urls);
-        urls.forEach(function (url) {
-            try {
-                URL.revokeObjectURL(url);
-            } catch (_error) {
-                // Revocation is best-effort during document teardown.
-            }
-        });
-        state.mermaidObjectUrls = state.mermaidObjectUrls.filter(
-            function (url) {
-                return !released.has(url);
-            }
-        );
-    }
-
-    function themeValue(name, fallback) {
-        var value = window.getComputedStyle(document.body)
-            .getPropertyValue(name)
-            .trim();
-        return value || fallback;
-    }
-
-    function initializeMermaid() {
-        if (state.mermaidInitialized) return true;
-        if (!window.mermaid
-            || typeof window.mermaid.initialize !== 'function') {
-            return false;
-        }
-        try {
-            window.mermaid.initialize({
-                startOnLoad: false,
-                securityLevel: 'strict',
-                suppressErrorRendering: true,
-                maxTextSize: 50000,
-                htmlLabels: false,
-                theme: 'base',
-                fontFamily: themeValue(
-                    '--vscode-font-family',
-                    'system-ui, sans-serif'
-                ),
-                flowchart: {
-                    htmlLabels: false,
-                },
-                themeVariables: {
-                    darkMode: document.body.classList.contains('vscode-dark')
-                        || document.body.classList.contains(
-                            'vscode-high-contrast'
-                        ),
-                    background: themeValue(
-                        '--vscode-editor-background',
-                        '#1e1e1e'
-                    ),
-                    primaryColor: themeValue(
-                        '--vscode-textCodeBlock-background',
-                        '#252526'
-                    ),
-                    primaryTextColor: themeValue(
-                        '--vscode-editor-foreground',
-                        '#d4d4d4'
-                    ),
-                    primaryBorderColor: themeValue(
-                        '--vscode-panel-border',
-                        '#454545'
-                    ),
-                    lineColor: themeValue(
-                        '--vscode-descriptionForeground',
-                        '#a0a0a0'
-                    ),
-                    secondaryColor: themeValue(
-                        '--vscode-input-background',
-                        '#252526'
-                    ),
-                    tertiaryColor: themeValue(
-                        '--vscode-editor-background',
-                        '#1e1e1e'
-                    ),
-                },
-            });
-            state.mermaidInitialized = true;
-            return true;
-        } catch (_error) {
-            return false;
-        }
-    }
-
-    function loadMermaid() {
-        if (window.mermaid) {
-            return Promise.resolve(initializeMermaid());
-        }
-        if (state.mermaidLoad) return state.mermaidLoad;
-        if (!mermaidSource) return Promise.resolve(false);
-        state.mermaidLoad = new Promise(function (resolve) {
-            var script = document.createElement('script');
-            script.src = mermaidSource;
-            if (scriptNonce) script.nonce = scriptNonce;
-            script.addEventListener('load', function () {
-                resolve(initializeMermaid());
-            }, { once: true });
-            script.addEventListener('error', function () {
-                resolve(false);
-            }, { once: true });
-            document.head.appendChild(script);
-        });
-        return state.mermaidLoad;
-    }
-
-    function mermaidAlt(source) {
-        var summary = source.split(/\r?\n/).map(function (line) {
-            return line.trim();
-        }).find(function (line) {
-            return line.length > 0;
-        }) || 'diagram';
-        return 'Mermaid diagram: ' + summary.slice(0, 120);
-    }
-
-    function normalizeSvg(svg) {
-        var clean = window.DOMPurify.sanitize(svg, {
-            USE_PROFILES: {
-                svg: true,
-                svgFilters: true,
-            },
-            FORBID_TAGS: ['foreignObject', 'script'],
-            ALLOW_DATA_ATTR: false,
-        });
-        var documentValue = new DOMParser().parseFromString(
-            clean,
-            'image/svg+xml'
-        );
-        var root = documentValue.documentElement;
-        if (!root
-            || root.localName !== 'svg'
-            || documentValue.querySelector('parsererror')) {
-            throw new Error('Mermaid returned invalid SVG.');
-        }
-        var viewBox = (root.getAttribute('viewBox') || '')
-            .trim()
-            .split(/[\s,]+/)
-            .map(Number);
-        var width;
-        var height;
-        if (viewBox.length === 4
-            && viewBox.every(Number.isFinite)
-            && viewBox[2] > 0
-            && viewBox[3] > 0) {
-            var scale = Math.min(
-                1,
-                4096 / viewBox[2],
-                4096 / viewBox[3]
-            );
-            width = Math.max(1, Math.round(viewBox[2] * scale));
-            height = Math.max(1, Math.round(viewBox[3] * scale));
-            root.setAttribute('width', String(width));
-            root.setAttribute('height', String(height));
-        }
-        return {
-            svg: new XMLSerializer().serializeToString(root),
-            width: width,
-            height: height,
-        };
-    }
-
-    function renderMermaidDiagram(pre, source, id) {
-        pre.setAttribute('aria-busy', 'true');
-        return Promise.resolve(window.mermaid.render(id, source))
-            .then(function (result) {
-                if (!pre.isConnected) {
-                    return;
-                }
-                var normalized = normalizeSvg(result.svg);
-                var objectUrl = URL.createObjectURL(new Blob([normalized.svg], {
-                    type: 'image/svg+xml',
-                }));
-                if (!pre.isConnected) {
-                    URL.revokeObjectURL(objectUrl);
-                    return;
-                }
-                var figure = document.createElement('figure');
-                figure.className = 'conversation-mermaid';
-                state.mermaidSources.set(figure, source);
-                var image = document.createElement('img');
-                image.className = 'conversation-mermaid-image';
-                if (normalized.width && normalized.height) {
-                    image.width = normalized.width;
-                    image.height = normalized.height;
-                }
-                image.src = objectUrl;
-                image.alt = mermaidAlt(source);
-                image.decoding = 'async';
-                figure.appendChild(image);
-                var decoded = typeof image.decode === 'function'
-                    ? image.decode().catch(function () {})
-                    : Promise.resolve();
-                return decoded.then(function () {
-                    if (!pre.isConnected) {
-                        URL.revokeObjectURL(objectUrl);
-                        return;
-                    }
-                    state.mermaidObjectUrls.push(objectUrl);
-                    var readingAnchor = captureReadingAnchor(pre);
-                    var previousScrollTop = scroll.scrollTop;
-                    pre.replaceWith(figure);
-                    if (readingAnchor
-                        && readingAnchor.element === pre) {
-                        readingAnchor.element = figure;
-                    }
-                    restoreReadingPosition(readingAnchor, previousScrollTop);
-                });
-            })
-            .catch(function () {
-                if (!pre.isConnected) {
-                    return;
-                }
-                pre.removeAttribute('aria-busy');
-                pre.classList.add('conversation-mermaid-error');
-                var label = document.createElement('span');
-                label.className = 'conversation-mermaid-error-label';
-                label.setAttribute('role', 'status');
-                label.textContent = 'Mermaid diagram could not be rendered.';
-                var readingAnchor = captureReadingAnchor();
-                var previousScrollTop = scroll.scrollTop;
-                pre.parentNode.insertBefore(label, pre);
-                restoreReadingPosition(readingAnchor, previousScrollTop);
-                var temporary = document.getElementById(id);
-                if (temporary) temporary.remove();
-            });
-    }
-
-    function renderMermaidDiagrams(generation) {
-        var codeBlocks = Array.prototype.slice.call(
-            messages.querySelectorAll('pre > code.language-mermaid'),
-            0,
-            maxMermaidDiagrams
-        ).filter(function (code) {
-            return code.parentElement
-                && code.parentElement.getAttribute('aria-busy') !== 'true';
-        });
-        if (!codeBlocks.length) return Promise.resolve();
-        codeBlocks.forEach(function (code) {
-            code.parentElement.setAttribute('aria-busy', 'true');
-        });
-        return loadMermaid().then(function (available) {
-            if (!available) {
-                codeBlocks.forEach(function (code) {
-                    if (code.parentElement) {
-                        code.parentElement.removeAttribute('aria-busy');
-                    }
-                });
-                return;
-            }
-            return codeBlocks.reduce(function (promise, code, index) {
-                return promise.then(function () {
-                    if (!code.parentElement
-                        || !code.parentElement.isConnected) {
-                        return undefined;
-                    }
-                    return renderMermaidDiagram(
-                        code.parentElement,
-                        code.textContent || '',
-                        'conversation-mermaid-' + generation + '-' + index
-                    );
-                });
-            }, Promise.resolve());
-        });
-    }
 
     function codeIndentColumns(whitespace) {
         var columns = 0;
@@ -1888,49 +1633,6 @@
         return true;
     }
 
-    function preserveMermaidContent(oldMessage, candidate) {
-        var figuresBySource = new Map();
-        var pendingBySource = new Map();
-        Array.prototype.forEach.call(
-            oldMessage.querySelectorAll('.conversation-mermaid'),
-            function (figure) {
-                var source = state.mermaidSources.get(figure);
-                if (typeof source !== 'string') return;
-                var figures = figuresBySource.get(source) || [];
-                figures.push(figure);
-                figuresBySource.set(source, figures);
-            }
-        );
-        Array.prototype.forEach.call(
-            oldMessage.querySelectorAll(
-                'pre[aria-busy="true"] > code.language-mermaid'
-            ),
-            function (code) {
-                var source = code.textContent || '';
-                var blocks = pendingBySource.get(source) || [];
-                blocks.push(code.parentElement);
-                pendingBySource.set(source, blocks);
-            }
-        );
-        Array.prototype.forEach.call(
-            candidate.querySelectorAll('pre > code.language-mermaid'),
-            function (code) {
-                var source = code.textContent || '';
-                var figures = figuresBySource.get(source);
-                var figure = figures && figures.shift();
-                if (figure && code.parentElement) {
-                    code.parentElement.replaceWith(figure);
-                    return;
-                }
-                var blocks = pendingBySource.get(source);
-                var block = blocks && blocks.shift();
-                if (block && code.parentElement) {
-                    code.parentElement.replaceWith(block);
-                }
-            }
-        );
-    }
-
     function reconcileMessages(clean, preserveUnchanged, previousSignatures) {
         var template = document.createElement('template');
         template.innerHTML = clean;
@@ -1989,126 +1691,6 @@
         });
         messages.replaceChildren(template.content);
         return { ids: nextIds, signatures: nextSignatures };
-    }
-
-    function captureReadingAnchor(replacingElement) {
-        var scrollBounds = scroll.getBoundingClientRect();
-        var blockCandidates = messages.querySelectorAll(
-            '.conversation-markdown > *'
-        );
-        var crossingBlock = null;
-        for (var blockIndex = 0;
-            blockIndex < blockCandidates.length;
-            blockIndex += 1) {
-            var blockBounds = blockCandidates[blockIndex]
-                .getBoundingClientRect();
-            if (!crossingBlock
-                && blockBounds.bottom > scrollBounds.top
-                && blockBounds.top < scrollBounds.bottom) {
-                crossingBlock = blockCandidates[blockIndex];
-            }
-            if (blockCandidates[blockIndex] !== replacingElement
-                && blockBounds.top >= scrollBounds.top
-                && blockBounds.top < scrollBounds.bottom) {
-                var message = blockCandidates[blockIndex].closest(
-                    conversationMessageSelector()
-                );
-                return {
-                    element: blockCandidates[blockIndex],
-                    messageId: message
-                        ? conversationMessageId(message)
-                        : null,
-                    blockIndex: message
-                        ? Array.prototype.indexOf.call(
-                            message.querySelectorAll(
-                                '.conversation-markdown > *'
-                            ),
-                            blockCandidates[blockIndex]
-                        )
-                        : -1,
-                    top: blockBounds.top - scrollBounds.top,
-                    viewportTop: blockBounds.top,
-                };
-            }
-        }
-        if (crossingBlock) {
-            var crossingMessage = crossingBlock.closest(
-                conversationMessageSelector()
-            );
-            var crossingBounds = crossingBlock.getBoundingClientRect();
-            return {
-                element: crossingBlock,
-                messageId: crossingMessage
-                    ? conversationMessageId(crossingMessage)
-                    : null,
-                blockIndex: crossingMessage
-                    ? Array.prototype.indexOf.call(
-                        crossingMessage.querySelectorAll(
-                            '.conversation-markdown > *'
-                        ),
-                        crossingBlock
-                    )
-                    : -1,
-                top: crossingBounds.top - scrollBounds.top,
-                viewportTop: crossingBounds.top,
-            };
-        }
-        var messageCandidates = messages.querySelectorAll(
-            conversationMessageSelector()
-        );
-        for (var index = 0; index < messageCandidates.length; index += 1) {
-            var bounds = messageCandidates[index].getBoundingClientRect();
-            if (bounds.bottom > scrollBounds.top) {
-                return {
-                    element: messageCandidates[index],
-                    messageId: conversationMessageId(
-                        messageCandidates[index]
-                    ),
-                    top: bounds.top - scrollBounds.top,
-                    viewportTop: bounds.top,
-                };
-            }
-        }
-        return null;
-    }
-
-    function readingAnchorElement(anchor) {
-        if (!anchor) return null;
-        if (anchor.element && anchor.element.isConnected) {
-            return anchor.element;
-        }
-        var message = Array.prototype.find.call(
-            messages.querySelectorAll(conversationMessageSelector()),
-            function (candidate) {
-                return conversationMessageId(candidate) === anchor.messageId;
-            }
-        );
-        if (!message) return null;
-        if (Number.isSafeInteger(anchor.blockIndex)
-            && anchor.blockIndex >= 0) {
-            return message.querySelectorAll(
-                '.conversation-markdown > *'
-            )[anchor.blockIndex] || message;
-        }
-        return message;
-    }
-
-    function restoreReadingPosition(anchor, fallbackScrollTop) {
-        scroll.scrollTop = fallbackScrollTop;
-        var candidate = readingAnchorElement(anchor);
-        if (!candidate) return;
-        var scrollBounds = scroll.getBoundingClientRect();
-        var currentTop = candidate.getBoundingClientRect().top
-            - scrollBounds.top;
-        scroll.scrollTop += currentTop - anchor.top;
-    }
-
-    function restoreViewportReadingPosition(anchor, fallbackScrollTop) {
-        scroll.scrollTop = fallbackScrollTop;
-        var candidate = readingAnchorElement(anchor);
-        if (!candidate || typeof anchor.viewportTop !== 'number') return;
-        scroll.scrollTop += candidate.getBoundingClientRect().top
-            - anchor.viewportTop;
     }
 
     function updatePosition(message) {

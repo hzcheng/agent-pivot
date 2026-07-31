@@ -19,6 +19,17 @@ const viewerScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/conversationViewerScripts.js'),
     'utf8'
 );
+const readingAnchorScript = fs.readFileSync(
+    path.join(
+        __dirname,
+        '../../src/webview/conversationReadingAnchorScripts.js'
+    ),
+    'utf8'
+);
+const conversationMermaidScript = fs.readFileSync(
+    path.join(__dirname, '../../src/webview/conversationMermaidScripts.js'),
+    'utf8'
+);
 const viewerCss = fs.readFileSync(
     path.join(__dirname, '../../media/conversationViewer.css'),
     'utf8'
@@ -223,6 +234,8 @@ async function openViewerPage(t, options = {}) {
     } else if (options.includeMermaid) {
         await page.addScriptTag({ content: mermaidScript });
     }
+    await page.addScriptTag({ content: readingAnchorScript });
+    await page.addScriptTag({ content: conversationMermaidScript });
     await page.addScriptTag({ content: viewerScript });
     await page.locator('script').evaluateAll(elements =>
         elements.forEach(element => element.remove()));
@@ -514,6 +527,20 @@ async function openHostViewerDocument(t, options = {}) {
             await route.fulfill({
                 contentType: 'text/javascript',
                 body: viewerScript,
+            });
+            return;
+        }
+        if (pathname === '/conversationReadingAnchorScripts.js') {
+            await route.fulfill({
+                contentType: 'text/javascript',
+                body: readingAnchorScript,
+            });
+            return;
+        }
+        if (pathname === '/conversationMermaidScripts.js') {
+            await route.fulfill({
+                contentType: 'text/javascript',
+                body: conversationMermaidScript,
             });
             return;
         }

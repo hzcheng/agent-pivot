@@ -23,6 +23,7 @@ const OWNERSHIP_MARKER = '.agent-pivot-extension-host-test';
 const OWNERSHIP_VALUE = 'owned temporary extension host test directory\n';
 const MAIN_EXTENSION_ID = 'hzcheng.agent-pivot';
 const BRIDGE_EXTENSION_ID = 'hzcheng.agent-pivot-attention-ui-bridge';
+const TEST_HARNESS_EXTENSION_ID = 'hzcheng.agent-pivot-extension-host-tests';
 
 function extensionHostTemporaryRootPrefix(
     platform = process.platform,
@@ -240,6 +241,7 @@ function createExtensionHostTestEnvironment(isolatedRoot) {
         workspace: path.join(isolatedRoot, 'workspace'),
         userData: path.join(isolatedRoot, 'user-data'),
         extensions: path.join(isolatedRoot, 'extensions'),
+        testHarness: path.join(isolatedRoot, 'test-harness'),
         home: path.join(isolatedRoot, 'home'),
         xdgConfigHome: path.join(isolatedRoot, 'xdg', 'config'),
         xdgDataHome: path.join(isolatedRoot, 'xdg', 'data'),
@@ -254,17 +256,60 @@ function createExtensionHostTestEnvironment(isolatedRoot) {
     return environment;
 }
 
+function createExtensionHostTestHarness(repositoryRoot, harnessRoot) {
+    if (!path.isAbsolute(repositoryRoot || '') || !path.isAbsolute(harnessRoot || '')) {
+        throw new Error('Extension Host test harness paths must be absolute.');
+    }
+    const runnerSource = path.join(
+        repositoryRoot,
+        'tests',
+        'extension-host',
+        'suite',
+        'index.js'
+    );
+    const runnerPath = path.join(harnessRoot, 'index.js');
+    fs.mkdirSync(harnessRoot, { recursive: true });
+    fs.copyFileSync(runnerSource, runnerPath);
+    fs.writeFileSync(path.join(harnessRoot, 'extension.js'), [
+        "'use strict';",
+        'exports.activate = function activate() {};',
+        '',
+    ].join('\n'));
+    fs.writeFileSync(path.join(harnessRoot, 'package.json'), JSON.stringify({
+        name: TEST_HARNESS_EXTENSION_ID.slice(
+            TEST_HARNESS_EXTENSION_ID.indexOf('.') + 1
+        ),
+        publisher: TEST_HARNESS_EXTENSION_ID.slice(
+            0,
+            TEST_HARNESS_EXTENSION_ID.indexOf('.')
+        ),
+        version: '1.0.0',
+        engines: { vscode: `^${VSCODE_STABLE_VERSION}` },
+        main: './extension.js',
+        extensionKind: ['ui'],
+    }, null, 2));
+    return { root: harnessRoot, runnerPath };
+}
+
 function createRunTestsOptions(
     repositoryRoot,
     environment,
     vscodeExecutablePath,
-    installedRoots
+    installedRoots,
+    testHarness
 ) {
     const mainExtensionRoot = installedRoots && installedRoots[MAIN_EXTENSION_ID];
     const bridgeExtensionRoot = installedRoots && installedRoots[BRIDGE_EXTENSION_ID];
+    const harnessRoot = testHarness && testHarness.root;
+    const runnerPath = testHarness && testHarness.runnerPath;
+    const runnerRelativePath = path.relative(harnessRoot || '', runnerPath || '');
     if (!path.isAbsolute(vscodeExecutablePath || '')
         || !path.isAbsolute(mainExtensionRoot || '')
-        || !path.isAbsolute(bridgeExtensionRoot || '')) {
+        || !path.isAbsolute(bridgeExtensionRoot || '')
+        || !path.isAbsolute(harnessRoot || '')
+        || !path.isAbsolute(runnerPath || '')
+        || runnerRelativePath.startsWith('..')
+        || path.isAbsolute(runnerRelativePath)) {
         throw new Error('Extension Host test requires absolute installed extension paths.');
     }
     return {
@@ -272,8 +317,9 @@ function createRunTestsOptions(
         extensionDevelopmentPath: [
             mainExtensionRoot,
             bridgeExtensionRoot,
+            harnessRoot,
         ],
-        extensionTestsPath: path.join(repositoryRoot, 'tests', 'extension-host', 'suite', 'index.js'),
+        extensionTestsPath: runnerPath,
         launchArgs: [
             environment.workspace,
             `--user-data-dir=${environment.userData}`,
@@ -395,7 +441,9 @@ module.exports = {
     HOSTILE_EXTENSION_HOST_ENVIRONMENT_KEYS,
     BRIDGE_EXTENSION_ID,
     MAIN_EXTENSION_ID,
+    TEST_HARNESS_EXTENSION_ID,
     VSCODE_STABLE_VERSION,
+    createExtensionHostTestHarness,
     createExtensionHostTestEnvironment,
     createExtensionPackagePlan,
     createRunTestsOptions,

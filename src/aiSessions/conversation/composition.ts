@@ -55,7 +55,9 @@ export interface ConversationSessionOpenTarget {
 }
 
 export type OpenLatestConversationResult =
-    'opened' | 'unavailable' | 'empty' | 'unknownSession';
+    'opened' | 'unavailable' | 'empty' | 'unknownSession' | 'superseded';
+export type FollowActiveConversationResult =
+    OpenLatestConversationResult | 'closed';
 
 export interface ConversationCapability {
     controller: ConversationHostController;
@@ -64,6 +66,9 @@ export interface ConversationCapability {
     openLatestConversation(
         target: ConversationSessionOpenTarget
     ): Promise<OpenLatestConversationResult>;
+    followActiveConversation(
+        target: ConversationSessionOpenTarget
+    ): Promise<FollowActiveConversationResult>;
     reconcile(): Promise<void>;
     dispose(): void;
 }
@@ -217,11 +222,13 @@ function createAvailableConversationCapability(
         focusSession: options.focusSession,
         commentStore: options.commentStore,
     }));
+    let viewerIntentGeneration = 0;
     const controller = ownership.own(factories.createController({
         coordinator,
         resolveTarget: options.resolveTarget,
         publish: message => options.publish(message),
         openViewer: async (target, authoritativeTarget) => {
+            viewerIntentGeneration += 1;
             await viewer.open({
                 ...target,
                 displayName: authoritativeTarget.conversationDisplayName
@@ -240,8 +247,41 @@ function createAvailableConversationCapability(
         controller,
         viewer,
         availability: 'available',
-        openLatestConversation: target =>
-            openLatestConversation(options, coordinator, viewer, target),
+        openLatestConversation: target => {
+            const intentGeneration = ++viewerIntentGeneration;
+            return openLatestConversation(
+                options,
+                coordinator,
+                viewer,
+                target,
+                () => intentGeneration === viewerIntentGeneration
+            );
+        },
+        async followActiveConversation(
+            target: ConversationSessionOpenTarget
+        ): Promise<FollowActiveConversationResult> {
+            if (!viewer.isOpen()) {
+                return 'closed';
+            }
+            const intentGeneration = ++viewerIntentGeneration;
+            const resolution = await resolveLatestConversationTarget(
+                options,
+                coordinator,
+                target
+            );
+            if (intentGeneration !== viewerIntentGeneration) {
+                return 'superseded';
+            }
+            if (!resolution.viewerTarget) {
+                return resolution.result;
+            }
+            if (!viewer.isOpen()) {
+                return 'closed';
+            }
+            return await viewer.follow(resolution.viewerTarget)
+                ? 'opened'
+                : 'closed';
+        },
         async reconcile(): Promise<void> {
             if (disposed) {
                 return;
@@ -272,6 +312,7 @@ function createAvailableConversationCapability(
                 return;
             }
             disposed = true;
+            viewerIntentGeneration += 1;
             ownership.dispose();
         },
     };
@@ -291,7 +332,11 @@ function createUnavailableConversationCapability(
         releaseSubscription() {},
     } as unknown as ConversationCoordinator;
     const viewer: ConversationViewerApi = {
+        isOpen: () => false,
         async open() {},
+        async follow() {
+            return false;
+        },
         async refresh() {},
         async reconcileAuthority() {},
         dispose() {},
@@ -308,6 +353,9 @@ function createUnavailableConversationCapability(
         viewer,
         availability: 'unavailable',
         async openLatestConversation(): Promise<OpenLatestConversationResult> {
+            return 'unavailable';
+        },
+        async followActiveConversation(): Promise<FollowActiveConversationResult> {
             return 'unavailable';
         },
         async reconcile(): Promise<void> {
@@ -330,11 +378,37 @@ async function openLatestConversation(
     options: ConversationCapabilityOptions,
     coordinator: ConversationCoordinator,
     viewer: ConversationViewerApi,
-    target: ConversationSessionOpenTarget
+    target: ConversationSessionOpenTarget,
+    isCurrent: () => boolean
 ): Promise<OpenLatestConversationResult> {
+    const resolution = await resolveLatestConversationTarget(
+        options,
+        coordinator,
+        target
+    );
+    if (!isCurrent()) {
+        return 'superseded';
+    }
+    if (!resolution.viewerTarget) {
+        return resolution.result;
+    }
+    await viewer.open(resolution.viewerTarget);
+    return 'opened';
+}
+
+interface LatestConversationTargetResolution {
+    result: OpenLatestConversationResult;
+    viewerTarget?: ConversationViewerTarget;
+}
+
+async function resolveLatestConversationTarget(
+    options: ConversationCapabilityOptions,
+    coordinator: ConversationCoordinator,
+    target: ConversationSessionOpenTarget
+): Promise<LatestConversationTargetResolution> {
     const authoritativeTarget = resolveExactTarget(options, target);
     if (!authoritativeTarget) {
-        return 'unknownSession';
+        return { result: 'unknownSession' };
     }
     coordinator.setSessionStopped(
         target.provider,
@@ -348,29 +422,31 @@ async function openLatestConversation(
             target.sessionId
         );
     } catch (_error) {
-        return 'unavailable';
+        return { result: 'unavailable' };
     }
     const latest = outline.interactions[outline.interactions.length - 1];
     if (!latest) {
-        return 'empty';
+        return { result: 'empty' };
     }
     const displayMetadata = authoritativeTarget as ActiveAiSessionViewModel & {
         conversationDisplayName?: string;
         duplicateConversationDisplayName?: boolean;
     };
     const trimmedName = String(authoritativeTarget.name || '').trim();
-    await viewer.open({
-        projectId: target.projectId,
-        provider: target.provider,
-        sessionId: target.sessionId,
-        interactionId: latest.id,
-        expectedRevision: outline.sourceRevision,
-        displayName: displayMetadata.conversationDisplayName
-            || (trimmedName || `${target.provider} conversation`),
-        duplicateDisplayName:
-            displayMetadata.duplicateConversationDisplayName === true,
-    });
-    return 'opened';
+    return {
+        result: 'opened',
+        viewerTarget: {
+            projectId: target.projectId,
+            provider: target.provider,
+            sessionId: target.sessionId,
+            interactionId: latest.id,
+            expectedRevision: outline.sourceRevision,
+            displayName: displayMetadata.conversationDisplayName
+                || (trimmedName || `${target.provider} conversation`),
+            duplicateDisplayName:
+                displayMetadata.duplicateConversationDisplayName === true,
+        },
+    };
 }
 
 function resolveExactTarget(

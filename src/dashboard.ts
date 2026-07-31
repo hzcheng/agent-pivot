@@ -1484,12 +1484,13 @@ async function initializeDashboard(
                     resumePrompt
                 ),
         }, viewerTarget, prompt),
-        focusSession: viewerTarget =>
-            aiSessionTerminalCommandController.focusActive(
+        focusSession: async viewerTarget => {
+            await aiSessionTerminalCommandController.focusActive(
                 viewerTarget.projectId,
                 viewerTarget.provider,
                 viewerTarget.sessionId
-            ),
+            );
+        },
     }));
     const conversationHandlers = {
         'request-ai-session-conversation-outline': message =>
@@ -2037,11 +2038,22 @@ async function initializeDashboard(
                 );
             },
             'focus-ai-session-terminal': async e => {
-                await aiSessionTerminalCommandController.focusActive(
-                    e.projectId as string,
-                    e.provider as string,
-                    e.sessionId as string
-                );
+                const target = {
+                    projectId: e.projectId as string,
+                    provider: e.provider as AiSessionProviderId,
+                    sessionId: e.sessionId as string,
+                };
+                const focused =
+                    await aiSessionTerminalCommandController.focusActive(
+                        target.projectId,
+                        target.provider,
+                        target.sessionId
+                    );
+                if (focused) {
+                    await conversationCapability.followActiveConversation(
+                        target
+                    );
+                }
             },
             'focus-pending-ai-session': async e => {
                 await aiSessionTerminalCommandController.focusPending(

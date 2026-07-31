@@ -85,7 +85,9 @@ export interface ConversationViewerOptions {
 }
 
 export interface ConversationViewerApi extends AiSessionDisposable {
+    isOpen(): boolean;
     open(target: ConversationViewerTarget): Promise<void>;
+    follow(target: ConversationViewerTarget): Promise<boolean>;
     refresh(): Promise<void>;
     reconcileAuthority(
         resolveAuthority: (target: ConversationViewerTarget) => boolean
@@ -253,23 +255,48 @@ export class ConversationViewer implements ConversationViewerApi {
         return this.interactionIds().length;
     }
 
+    isOpen(): boolean {
+        return Boolean(this.panel);
+    }
+
     async open(target: ConversationViewerTarget): Promise<void> {
+        await this.loadTarget(target, true);
+    }
+
+    async follow(target: ConversationViewerTarget): Promise<boolean> {
+        if (!this.panel) {
+            return false;
+        }
+        return this.loadTarget(target, false);
+    }
+
+    private async loadTarget(
+        target: ConversationViewerTarget,
+        reveal: boolean
+    ): Promise<boolean> {
+        const followedPanel = reveal ? undefined : this.panel;
         const generation = this.replaceTarget(target);
         const activeTarget = this.target;
         if (!activeTarget) {
-            return;
+            return false;
         }
         await this.restoreComments(activeTarget, generation);
         if (this.target !== activeTarget
             || this.subscriptionGeneration !== generation) {
-            return;
+            return false;
         }
-        const panel = this.ensurePanel();
+        const panel = reveal ? this.ensurePanel() : this.panel;
+        if (!panel || (!reveal && panel !== followedPanel)) {
+            return false;
+        }
         panel.title = 'AI Conversation';
-        panel.reveal(vscode.ViewColumn.Active);
+        if (reveal) {
+            panel.reveal(vscode.ViewColumn.Active);
+        }
         panel.webview.html = this.renderDocument(undefined, 'Loading conversation…');
         this.ensureWatch(generation);
         await this.loadAuthoritative('initial', true);
+        return true;
     }
 
     async refresh(): Promise<void> {

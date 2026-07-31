@@ -252,6 +252,31 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 opens and reuses one viewer in 
     ]);
 });
 
+test('CONVERSATION-FOLLOW-ACTIVE-SESSION-001 follows another Session only when the viewer is open and does not reveal it again', async () => {
+    const { viewer, panel } = createViewer({
+        readOutline: async (_provider, sessionId) => outline(
+            sessionId,
+            [sessionId === 'session-a' ? 'input-a' : 'input-b']
+        ),
+        readPage: async request => page(
+            request.sessionId,
+            request.anchorInteractionId,
+            `visible-${request.sessionId}`
+        ),
+    });
+
+    assert.equal(viewer.isOpen(), false);
+    assert.equal(await viewer.follow(target('session-b', 'input-b')), false);
+    assert.equal(panel.createCount, 0);
+
+    await viewer.open(target('session-a', 'input-a'));
+    assert.equal(viewer.isOpen(), true);
+    assert.equal(await viewer.follow(target('session-b', 'input-b')), true);
+    assert.equal(panel.webview.html.includes('visible-session-b'), true);
+    assert.equal(panel.webview.html.includes('visible-session-a'), false);
+    assert.deepEqual(panel.revealColumns, [fakeVscode.ViewColumn.Active]);
+});
+
 test('CONVERSATION-VIEWER-OWNERSHIP-001 reuses one panel, rejects an old session generation, and clears sensitive state on disposal', async () => {
     const panel = fakePanel();
     const pages = new Map([

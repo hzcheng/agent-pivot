@@ -3772,6 +3772,24 @@
     ]
   },
   {
+    "id": "CONVERSATION-FOLLOW-ACTIVE-SESSION-001",
+    "domain": "session",
+    "title": "A successful Active Session card focus retargets an already-open AI Conversation to that Session's latest interaction without revealing or opening a viewer",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/contract/aiSessions/sessionControllers.test.js",
+      "tests/integration/dashboard/conversationOpenLatest.test.js",
+      "tests/integration/dashboard/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/dashboard.ts",
+      "src/aiSessions/terminalCommandController.ts",
+      "src/aiSessions/conversation/composition.ts",
+      "src/aiSessions/conversation/viewer.ts"
+    ]
+  },
+  {
     "id": "SECURITY-AI-SESSION-CONVERSATION-SOURCE-001",
     "domain": "session",
     "title": "Conversation history enforces canonical sources, opaque protocol tokens, and bounded private content",

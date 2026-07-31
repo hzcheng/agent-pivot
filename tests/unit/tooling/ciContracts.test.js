@@ -179,6 +179,14 @@ test('ARCH-CI-QUALITY-GATE-001 scheduled Extension Host gate is pinned and block
     }
 });
 
+test('RELEASE-SCHEDULED-EXTENSION-HOST-001 pins real Host gates to reviewed macOS 15', () => {
+    assert.match(scheduledWorkflow, /\n    runs-on: macos-15\n/);
+    assert.match(
+        releaseWorkflow,
+        /\n  release-extension-host:\n[\s\S]*?\n    runs-on: macos-15\n/
+    );
+});
+
 test('RELEASE-CONVERSATION-JOURNEYS-001 release publishing needs installed VSIX activation', () => {
     assert.doesNotThrow(() => validateReleaseWorkflow(releaseWorkflow));
     assert.throws(
@@ -197,10 +205,10 @@ test('RELEASE-CONVERSATION-JOURNEYS-001 release publishing needs installed VSIX 
     );
     assert.throws(
         () => validateReleaseWorkflow(releaseWorkflow.replace(
-            '    runs-on: macos-latest',
+            '    runs-on: macos-15',
             '    runs-on: ubuntu-latest'
         )),
-        /release-extension-host must use macos-latest/
+        /release-extension-host must use macos-15/
     );
     assert.throws(
         () => validateReleaseWorkflow(releaseWorkflow.replace(

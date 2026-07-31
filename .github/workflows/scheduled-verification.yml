@@ -15,7 +15,7 @@ jobs:
   scheduled-macos:
     name: scheduled-macos
     needs: verify
-    runs-on: macos-latest
+    runs-on: macos-15
     timeout-minutes: 15
     steps:
       - name: Checkout

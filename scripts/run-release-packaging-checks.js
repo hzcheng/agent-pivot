@@ -173,7 +173,7 @@ function validateScheduledWorkflow(workflow) {
         'scheduled-macos job');
     assert.strictEqual(job.name, 'scheduled-macos',
         'scheduled-macos must keep its stable job name');
-    assert.strictEqual(job['runs-on'], 'macos-latest', 'scheduled-macos must use macos-latest');
+    assert.strictEqual(job['runs-on'], 'macos-15', 'scheduled-macos must use macos-15');
     assert.strictEqual(job['timeout-minutes'], 15, 'scheduled-macos timeout must be 15 minutes');
     assert.strictEqual(containsKey(workflow, 'continue-on-error'), false,
         'scheduled verification must not define continue-on-error');

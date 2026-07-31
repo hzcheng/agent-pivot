@@ -155,7 +155,7 @@ function validateScheduledWorkflow(scheduledWorkflow) {
     assert.equal(macos.name, 'scheduled-macos',
         'scheduled-macos must expose the stable check name scheduled-macos');
     assert.equal(macos.needs, 'verify', 'scheduled-macos must need verify');
-    assert.equal(macos['runs-on'], 'macos-latest', 'scheduled-macos must use macos-latest');
+    assert.equal(macos['runs-on'], 'macos-15', 'scheduled-macos must use macos-15');
     assert.equal(macos['timeout-minutes'], 15, 'scheduled-macos timeout-minutes must be 15');
     assert.ok(findStep(macos, step => isMapping(step) && step.uses === 'actions/checkout@v4'),
         'scheduled-macos must use actions/checkout@v4');
@@ -197,7 +197,7 @@ function validateReleaseWorkflow(releaseWorkflow) {
     validateJob(
         workflow.jobs,
         'release-extension-host',
-        'macos-latest',
+        'macos-15',
         'npm run test:extension-host',
         [],
         false,

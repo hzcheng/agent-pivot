@@ -2912,16 +2912,19 @@ test('CONVERSATION-REFRESH-PERFORMANCE-001 keeps DOM, Blob URLs, and listeners c
 
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 bounds initial and incremental Webview publication work', async t => {
     const page = await openViewerPage(t);
-    const largeMessageHtml = count => Array.from(
+    const largeMessageHtml = (count, startIndex = 0) => Array.from(
         { length: count },
-        (_item, index) => `<article
+        (_item, offset) => {
+            const index = startIndex + offset;
+            return `<article
             class="conversation-message conversation-message-assistant"
             data-message-id="large-${index}"
             data-interaction-id="input-${index}">
             <section class="conversation-markdown"><p>
                 Large response ${index} ${'x'.repeat(2_000)}
             </p></section>
-        </article>`
+        </article>`;
+        }
     ).join('');
     const initialHtml = largeMessageHtml(100);
     const measurePublication = payload => page.evaluate(message => {
@@ -2946,8 +2949,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 bounds initial and incremental 
     const incrementalMs = await measurePublication({
         ...hostileConversationPage,
         requestId: 2,
-        html: initialHtml + largeMessageHtml(1).replaceAll('large-0', 'large-100')
-            .replaceAll('input-0', 'input-100'),
+        html: initialHtml + largeMessageHtml(1, 100),
         selectedInput: 100,
         totalInputs: 2_000,
         updateKind: 'refresh',

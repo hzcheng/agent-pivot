@@ -5184,18 +5184,21 @@ function runWebviewContentChecks() {
     assert.ok(dashboard.includes('new WorkspaceSessionHydrationController<vscode.Terminal>({'));
     assert.ok(dashboard.includes('getExecutionSnapshot: () => aiSessionExecutionController.getSnapshot()'));
     assert.ok(dashboard.includes('getActiveSessions: () => aiSessionRuntimeCoordinator.getActive()'));
-    // The tick reads provider signals once and drives both the execution and the
-    // attention pass from that single observation, so the running animation and
-    // the attention dot can never be derived from two different reads.
+    // The cadence itself lives in createAiSessionStatusCapability and is covered
+    // behaviourally by ATTENTION-EXECUTION-STATE-SYNC-001; assert only that the
+    // dashboard hands it both consumers and routes the tick through it.
+    assert.ok(dashboard.includes(
+        "import { createAiSessionStatusCapability } from './aiSessions/statusCapability';"
+    ));
     assert.match(dashboard,
-        /const evaluateAiSessionLifecycleTick = \(\): void => \{\s*const signals = aiSessionLifecycleSignals\.read\(\);\s*aiSessionExecutionController\.evaluate\(signals\);\s*void aiSessionAttentionEvaluations\.request\('signals', signals\);\s*\}/);
+        /getLifecycleRequests: \(\) => \[\s*aiSessionExecutionController\.getLifecycleRequests\(\),\s*aiSessionAttentionController\.getLifecycleRequests\(\),\s*\]/);
     assert.match(dashboard,
-        /ownTimer\(\s*\(\) => setInterval\(evaluateAiSessionLifecycleTick, 1_000\),\s*handle => clearInterval\(handle\),\s*\)/);
+        /evaluateExecution: signals => aiSessionExecutionController\.evaluate\(signals\)/);
     assert.match(dashboard,
-        /ownTimer\(\s*\(\) => setTimeout\(evaluateAiSessionLifecycleTick, 0\),\s*handle => clearTimeout\(handle\),\s*\)/);
+        /evaluateAttentionSignals: signals => aiSessionAttentionController\.evaluate\(\[\], signals\)/);
+    assert.match(dashboard,
+        /const evaluateAiSessionLifecycleTick = \(\): void => aiSessionStatus\.tick\(\);/);
     assert.match(dashboard, /onDidCloseTerminal\(terminal => \{[\s\S]*?handleClosedTerminal\(terminal\);[\s\S]*?evaluateAiSessionLifecycleTick\(\);/);
-    assert.match(dashboard,
-        /getRequests: \(\) => \[\s*aiSessionExecutionController\.getLifecycleRequests\(\),\s*aiSessionAttentionController\.getLifecycleRequests\(\),\s*\]/);
     assert.ok(!evaluateExecutionFunction.includes('isEnabled'));
     assert.ok(!evaluateExecutionFunction.includes('attention'));
     assert.ok(evaluateAttentionFunction.includes('if (!this.options.isEnabled())'));

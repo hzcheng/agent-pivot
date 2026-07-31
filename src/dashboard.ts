@@ -124,8 +124,7 @@ import type {
     AiSessionAttentionEvaluation,
     AiSessionRuntimeLifecycleCandidate,
 } from './aiSessions/attentionController';
-import { AttentionEvaluationQueue } from './aiSessions/attentionEvaluationQueue';
-import { AiSessionLifecycleSignalReader } from './aiSessions/lifecycleSignalReader';
+import { createAiSessionStatusCapability } from './aiSessions/statusCapability';
 import {
     getLastPartOfPath,
     isUriString,
@@ -1212,22 +1211,6 @@ async function initializeDashboard(
         scheduleRefresh: reason => scheduleAiSessionRefresh(reason),
         nowMs: () => Date.now(),
     });
-    const aiSessionAttentionEvaluations = new AttentionEvaluationQueue({
-        // The tick pass reuses the observation the execution pass already made.
-        // Reconciling persisted runtime ownership scans the tmux binding directory,
-        // so it stays on the slow interval and reads for itself.
-        evaluate: request => request.scope === 'runtimes'
-            ? evaluateAiSessionAttention()
-            : aiSessionAttentionController.evaluate(
-                [],
-                request.signals || aiSessionLifecycleSignals.read()
-            ),
-        onFailure: () => logAiSessionDiagnostic({
-            event: 'runtime-lifecycle-task-failed',
-            operation: 'evaluate-attention-lifecycle-edge',
-            category: 'unexpected',
-        }),
-    });
     const aiSessionExecutionController = new AiSessionExecutionController({
         getActiveSessions: () => aiSessionRuntimeCoordinator.getActive()
             .filter(runtime => runtimeBelongsToCurrentWorkspace(runtime)
@@ -1248,22 +1231,26 @@ async function initializeDashboard(
         },
         nowMs: () => Date.now(),
     });
-    // One read per tick, shared by both passes. Reading per consumer let whichever
-    // ran last evict the other's incremental cursors, and left the animation and
-    // the attention dot derived from two observations taken moments apart.
-    const aiSessionLifecycleSignals = new AiSessionLifecycleSignalReader({
+    const aiSessionStatus = ownResource(() => createAiSessionStatusCapability({
         getProviders: getRegisteredAiSessionProviders,
-        getRequests: () => [
+        getLifecycleRequests: () => [
             aiSessionExecutionController.getLifecycleRequests(),
             aiSessionAttentionController.getLifecycleRequests(),
         ],
-    });
-    const evaluateAiSessionLifecycleTick = (): void => {
-        const signals = aiSessionLifecycleSignals.read();
-        aiSessionExecutionController.evaluate(signals);
-        void aiSessionAttentionEvaluations.request('signals', signals);
-    };
-    const getAiSessionAttentionEventIds = (identity: ActiveAiSessionTerminalIdentity): string[] => {        const sessionKey = getAiSessionKey(identity.provider, identity.sessionId);
+        evaluateExecution: signals => aiSessionExecutionController.evaluate(signals),
+        evaluateAttentionSignals: signals => aiSessionAttentionController.evaluate([], signals),
+        evaluateAttentionRuntimes: () => evaluateAiSessionAttention(),
+        onFailure: () => logAiSessionDiagnostic({
+            event: 'runtime-lifecycle-task-failed',
+            operation: 'evaluate-attention-lifecycle-edge',
+            category: 'unexpected',
+        }),
+        setInterval: (callback, intervalMs) => setInterval(callback, intervalMs),
+        clearInterval: handle => clearInterval(handle as NodeJS.Timeout),
+    }));
+    const evaluateAiSessionLifecycleTick = (): void => aiSessionStatus.tick();
+    const getAiSessionAttentionEventIds = (identity: ActiveAiSessionTerminalIdentity): string[] => {
+        const sessionKey = getAiSessionKey(identity.provider, identity.sessionId);
         return aiSessionAttentionController.getRecoverySessionEvents()
             .find(session => session.sessionKey === sessionKey)?.eventIds || [];
     };
@@ -1416,25 +1403,12 @@ async function initializeDashboard(
     });
     activeAiSessionAttentionBridgeClient = aiSessionAttentionBridgeClient;
     ownTimer(
-        // Fallback heartbeat. Attention normally settles on the execution edge that
-        // the 1s tick below detects; this covers signals that never change the
-        // execution state and reconciles persisted runtime ownership from disk.
-        () => setInterval(() => {
-            void aiSessionAttentionEvaluations.request('runtimes');
-        }, 10_000),
-        handle => clearInterval(handle),
-    );
-    ownTimer(
         () => setTimeout(() => {
             void runSafeAiSessionRuntimeLifecycleTask(
                 'evaluate-attention-startup', evaluateAiSessionAttention
             );
         }, 0),
         handle => clearTimeout(handle),
-    );
-    ownTimer(
-        () => setInterval(evaluateAiSessionLifecycleTick, 1_000),
-        handle => clearInterval(handle),
     );
     ownTimer(
         () => setTimeout(evaluateAiSessionLifecycleTick, 0),

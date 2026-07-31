@@ -1371,3 +1371,61 @@ test('ATTENTION-BRIDGE-STALENESS-001 trusts the aggregate again once publishing 
     assert.deepEqual(f.dotSessions(), ['codex:peer'],
         'a recovered bridge is authoritative again, including peers we could not observe');
 });
+
+test('ATTENTION-EXECUTION-STATE-SYNC-001 drives both status passes from one read per tick', async () => {
+    const { createAiSessionStatusCapability } =
+        require('../../../out/aiSessions/statusCapability');
+    const reads = [];
+    const executionSignals = [];
+    const attentionSignals = [];
+    const runtimePasses = [];
+    const timers = [];
+    const signals = { codex: { session: { token: 'a', occurredAtMs: 1 } } };
+
+    const capability = createAiSessionStatusCapability({
+        getProviders: () => [{
+            id: 'codex',
+            service: {
+                getLifecycleSignals: requests => {
+                    reads.push(requests.map(request => request.sessionId));
+                    return signals.codex;
+                },
+            },
+        }],
+        getLifecycleRequests: () => [
+            { codex: [{ sessionId: 'session', runStartedAtMs: 0 }] },
+            { codex: [{ sessionId: 'settling', runStartedAtMs: 0 }] },
+        ],
+        evaluateExecution: observed => executionSignals.push(observed),
+        evaluateAttentionSignals: async observed => { attentionSignals.push(observed); },
+        evaluateAttentionRuntimes: async () => { runtimePasses.push(true); },
+        onFailure: () => { throw new Error('unexpected failure'); },
+        setInterval: (callback, intervalMs) => {
+            const handle = { callback, intervalMs };
+            timers.push(handle);
+            return handle;
+        },
+        clearInterval: handle => { handle.cleared = true; },
+    });
+
+    assert.deepEqual(timers.map(timer => timer.intervalMs), [1000, 10000],
+        'a fast signal tick and a slow runtime reconciliation');
+
+    capability.tick();
+    await flushAsync();
+    assert.deepEqual(reads, [['session', 'settling']],
+        'one merged read per tick, covering both consumers');
+    assert.equal(executionSignals.length, 1);
+    assert.equal(attentionSignals.length, 1);
+    assert.equal(attentionSignals[0], executionSignals[0],
+        'both passes must observe the very same read, not two reads moments apart');
+    assert.deepEqual(runtimePasses, [], 'the fast tick never pays for the disk scan');
+
+    timers[1].callback();
+    await flushAsync();
+    assert.deepEqual(runtimePasses, [true], 'the slow interval carries runtime reconciliation');
+    assert.equal(reads.length, 1, 'the runtime pass reads for itself, not through the tick reader');
+
+    capability.dispose();
+    assert.deepEqual(timers.map(timer => timer.cleared), [true, true]);
+});

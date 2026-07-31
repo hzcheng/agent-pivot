@@ -3772,6 +3772,24 @@
     ]
   },
   {
+    "id": "CONVERSATION-OUTLINE-BOOKMARKS-001",
+    "domain": "webview",
+    "title": "AI Conversation persists current-Session input bookmarks, settles star changes through the Host, filters favorites on demand, and never reorders the outline",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/conversationBookmarkStore.test.js",
+      "tests/integration/dashboard/conversationViewer.test.js",
+      "tests/browser/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/bookmarkStore.ts",
+      "src/aiSessions/conversation/viewer.ts",
+      "src/webview/conversationViewerScripts.js",
+      "media/conversationViewer.scss"
+    ]
+  },
+  {
     "id": "CONVERSATION-TELEMETRY-001",
     "domain": "webview",
     "title": "AI Conversation shows correlated Codex model, context-window usage, and quota windows without replacing conversation content or accepting stale Session data",

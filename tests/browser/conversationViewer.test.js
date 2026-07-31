@@ -449,6 +449,7 @@ async function renderHostViewerDocument(options = {}) {
         mediaUri: fileName =>
             fakeHostUri(`file:///extension/media/${fileName}`),
         submitPrompt: options.submitPrompt || (async () => {}),
+        bookmarkStore: options.bookmarkStore,
     });
     await viewer.open({
         projectId: 'project-a',
@@ -904,6 +905,103 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 filters the current Session outline an
     await outlineToggle.click();
     assert.equal(await outline.isVisible(), true);
     assert.equal(await comments.isHidden(), true);
+});
+
+test('CONVERSATION-OUTLINE-BOOKMARKS-001 settles stars authoritatively, filters favorites, and preserves input order', async t => {
+    const interactionIds = ['input-1', 'input-2', 'input-3'];
+    const { page } = await openHostViewerDocument(t, {
+        interactionIds,
+        interactionId: 'input-2',
+        bookmarkStore: {
+            async load() {
+                return { revision: 3, interactionIds: ['input-3'] };
+            },
+            async save() {},
+        },
+    });
+    const orderedIds = () => page.locator(
+        '[data-outline-interaction-id]'
+    ).evaluateAll(elements => elements.map(element =>
+        element.getAttribute('data-outline-interaction-id')
+    ));
+    const inputOneStar = page.locator(
+        '[data-outline-bookmark-id="input-1"]'
+    );
+
+    assert.deepEqual(await orderedIds(), interactionIds);
+    assert.equal(await inputOneStar.getAttribute('aria-pressed'), 'false');
+    assert.equal(
+        await page.locator(
+            '[data-outline-bookmark-id="input-3"]'
+        ).getAttribute('aria-pressed'),
+        'true'
+    );
+
+    await inputOneStar.click();
+    assert.equal(
+        await inputOneStar.getAttribute('aria-pressed'),
+        'false',
+        'the star must not update optimistically'
+    );
+    let requests = await postedMessages(page);
+    const requestId = requests.at(-1).requestId;
+    assert.match(requestId, /^conversation-bookmark:[a-z0-9]+:1$/);
+    assert.deepEqual(requests.at(-1), {
+        type: 'conversation-viewer-bookmark-mutation',
+        version: 1,
+        requestId,
+        subscriptionGeneration: 1,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-host-document',
+        operation: 'set',
+        expectedRevision: 3,
+        payload: {
+            interactionId: 'input-1',
+            bookmarked: true,
+        },
+    });
+    assert.equal(
+        requests.some(message =>
+            message.type === 'conversation-viewer-select-interaction'),
+        false,
+        'clicking a star must not navigate'
+    );
+
+    await page.evaluate(settlementRequestId => window.postMessage({
+        type: 'conversation-viewer-bookmarks-result',
+        version: 1,
+        requestId: settlementRequestId,
+        subscriptionGeneration: 1,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-host-document',
+        operation: 'set',
+        success: true,
+        revision: 4,
+        interactionIds: ['input-3', 'input-1'],
+    }, '*'), requestId);
+    await page.waitForFunction(() =>
+        document.querySelector(
+            '[data-outline-bookmark-id="input-1"]'
+        )?.getAttribute('aria-pressed') === 'true'
+    );
+    assert.equal(await inputOneStar.getAttribute('aria-pressed'), 'true');
+    assert.deepEqual(await orderedIds(), interactionIds);
+
+    await page.locator('[data-outline-bookmarks-only]').click();
+    assert.equal(
+        await page.locator('[data-outline-interaction-id]:visible').count(),
+        2
+    );
+    assert.deepEqual(
+        await page.locator(
+            '[data-outline-interaction-id]:visible'
+        ).evaluateAll(elements => elements.map(element =>
+            element.getAttribute('data-outline-interaction-id')
+        )),
+        ['input-1', 'input-3']
+    );
 });
 
 test('CONVERSATION-OUTLINE-NAVIGATION-001 CONVERSATION-COMMENTS-LAYOUT-001 shares one resizable and responsive Outline or Comments panel', async t => {

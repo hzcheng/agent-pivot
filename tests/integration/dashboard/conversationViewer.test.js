@@ -129,6 +129,17 @@ function decodeInitialPublication(html) {
         .replace(/&amp;/g, '&'));
 }
 
+function decodeInitialBookmarks(html) {
+    const match = html.match(/data-initial-bookmarks="([^"]+)"/);
+    assert.ok(match, 'Host document must contain bookmark state');
+    return JSON.parse(match[1]
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/&gt;/g, '>')
+        .replace(/&lt;/g, '<')
+        .replace(/&amp;/g, '&'));
+}
+
 function retainedPageInteractionIds(pageIndex, pageSize, prefix) {
     const first = pageIndex === 0 ? 'selected-anchor' : `${prefix}-${pageIndex}`;
     return Array.from(
@@ -234,6 +245,7 @@ function createViewer(options = {}) {
             return true;
         },
         mediaUri: fileName => fakeUri(`file:///extension/media/${fileName}`),
+        bookmarkStore: options.bookmarkStore,
     });
     return { viewer, panel, watchDisposals, restoredTargets, openedUris };
 }
@@ -512,6 +524,132 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 publishes the current Session outline 
     });
     assert.equal(panel.postedMessages.length, publicationsBeforeInvalid);
     assert.equal(requests.length, 2);
+});
+
+test('CONVERSATION-OUTLINE-BOOKMARKS-001 restores and Host-settles bookmarks without changing outline order', async () => {
+    const saved = [];
+    const bookmarkStore = {
+        async load() {
+            return { revision: 4, interactionIds: ['input-3'] };
+        },
+        async save(storeTarget, snapshot) {
+            saved.push({
+                target: { ...storeTarget },
+                snapshot: {
+                    revision: snapshot.revision,
+                    interactionIds: [...snapshot.interactionIds],
+                },
+            });
+        },
+    };
+    const interactionIds = ['input-1', 'input-2', 'input-3'];
+    const { viewer, panel } = createViewer({
+        bookmarkStore,
+        readOutline: async (_provider, sessionId) =>
+            outline(sessionId, interactionIds),
+    });
+
+    await viewer.open(target('session-a', 'input-2'));
+    assert.deepEqual(decodeInitialBookmarks(panel.webview.html), {
+        revision: 4,
+        interactionIds: ['input-3'],
+    });
+    const before = decodeInitialPublication(panel.webview.html)
+        .outline.map(entry => entry.interactionId);
+
+    await panel.receive({
+        type: 'conversation-viewer-bookmark-mutation',
+        version: 1,
+        requestId: 'bookmark-1',
+        subscriptionGeneration: 1,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+        operation: 'set',
+        expectedRevision: 4,
+        payload: {
+            interactionId: 'input-1',
+            bookmarked: true,
+        },
+    });
+
+    assert.deepEqual(saved, [{
+        target: {
+            projectId: 'project-a',
+            provider: 'codex',
+            sessionId: 'session-a',
+        },
+        snapshot: {
+            revision: 5,
+            interactionIds: ['input-3', 'input-1'],
+        },
+    }]);
+    assert.deepEqual(panel.postedMessages.at(-1), {
+        type: 'conversation-viewer-bookmarks-result',
+        version: 1,
+        requestId: 'bookmark-1',
+        subscriptionGeneration: 1,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+        operation: 'set',
+        success: true,
+        revision: 5,
+        interactionIds: ['input-3', 'input-1'],
+    });
+    assert.deepEqual(
+        decodeInitialPublication(panel.webview.html)
+            .outline.map(entry => entry.interactionId),
+        before
+    );
+});
+
+test('CONVERSATION-OUTLINE-BOOKMARKS-001 rejects stale or unknown input bookmark intents without persisting', async () => {
+    let saves = 0;
+    const { viewer, panel } = createViewer({
+        bookmarkStore: {
+            async load() {
+                return { revision: 2, interactionIds: [] };
+            },
+            async save() {
+                saves += 1;
+            },
+        },
+        readOutline: async (_provider, sessionId) =>
+            outline(sessionId, ['input-1', 'input-2']),
+    });
+    await viewer.open(target('session-a'));
+
+    await panel.receive({
+        type: 'conversation-viewer-bookmark-mutation',
+        version: 1,
+        requestId: 'bookmark-stale',
+        subscriptionGeneration: 1,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+        operation: 'set',
+        expectedRevision: 1,
+        payload: { interactionId: 'input-1', bookmarked: true },
+    });
+    await panel.receive({
+        type: 'conversation-viewer-bookmark-mutation',
+        version: 1,
+        requestId: 'bookmark-unknown',
+        subscriptionGeneration: 1,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+        operation: 'set',
+        expectedRevision: 2,
+        payload: { interactionId: 'missing', bookmarked: true },
+    });
+
+    assert.equal(saves, 0);
+    assert.deepEqual(
+        panel.postedMessages.slice(-2).map(message => message.error),
+        ['stale', 'stale']
+    );
 });
 
 test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 evicts above 100 interactions while retaining the selected anchor and a reload cursor', async () => {

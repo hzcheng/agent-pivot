@@ -70,6 +70,9 @@
     var outlineList = document.querySelector('[data-outline-list]');
     var outlineEmpty = document.querySelector('[data-outline-empty]');
     var outlinePartial = document.querySelector('[data-outline-partial]');
+    var outlineBookmarksOnly = document.querySelector(
+        '[data-outline-bookmarks-only]'
+    );
     var commentsRoot = document.querySelector('[data-conversation-comments]');
     var commentCount = document.querySelector('[data-comment-count]');
     var commentSummary = document.querySelector('[data-comment-summary]');
@@ -95,7 +98,10 @@
         && !!commentsWorkspace && !!commentsResizer && !!sidebarRoot
         && sidebarTabs.length === 2 && !!sidebarClose && !!outlineRoot
         && !!outlineCount && !!outlineSummary && !!outlineSearch
-        && !!outlineList && !!outlineEmpty && !!outlinePartial;
+        && !!outlineList && !!outlineEmpty && !!outlinePartial
+        && !!outlineBookmarksOnly;
+    var bookmarkUiAvailable = sidebarUiAvailable
+        && validCommentTarget(commentTarget);
     var commentUiAvailable = sidebarUiAvailable
         && !!commentsRoot && !!commentCount
         && !!commentSummary
@@ -136,6 +142,11 @@
         outlineTotalInputs: 0,
         outlinePartial: false,
         outlineQuery: '',
+        bookmarkIds: new Set(),
+        bookmarkRevision: 0,
+        bookmarkRequestSequence: 0,
+        pendingBookmarkRequest: null,
+        bookmarksOnly: false,
     };
 
     if (!scroll || !messages || !position || !status || !newResponse
@@ -1341,6 +1352,152 @@
                 .includes(entry.responseState);
     }
 
+    function validBookmarkSnapshot(value) {
+        return value && typeof value === 'object' && !Array.isArray(value)
+            && Object.keys(value).length === 2
+            && Number.isSafeInteger(value.revision)
+            && value.revision >= 0
+            && Array.isArray(value.interactionIds)
+            && value.interactionIds.length <= 2000
+            && value.interactionIds.every(function (id) {
+                return typeof id === 'string'
+                    && id.length > 0
+                    && id.length <= 512
+                    && !/[\u0000-\u001f\u007f]/.test(id);
+            })
+            && new Set(value.interactionIds).size
+                === value.interactionIds.length;
+    }
+
+    function validBookmarksResult(value) {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) {
+            return false;
+        }
+        var required = [
+            'type', 'version', 'requestId', 'subscriptionGeneration',
+            'projectId', 'provider', 'sessionId', 'operation', 'success',
+            'revision', 'interactionIds',
+        ];
+        var allowed = new Set(required.concat(['error']));
+        return Object.keys(value).every(function (key) {
+            return allowed.has(key);
+        }) && required.every(function (key) {
+            return Object.prototype.hasOwnProperty.call(value, key);
+        })
+            && value.type === 'conversation-viewer-bookmarks-result'
+            && value.version === 1
+            && typeof value.requestId === 'string'
+            && Number.isSafeInteger(value.subscriptionGeneration)
+            && typeof value.projectId === 'string'
+            && ['codex', 'kimi', 'claude'].includes(value.provider)
+            && typeof value.sessionId === 'string'
+            && value.operation === 'set'
+            && typeof value.success === 'boolean'
+            && validBookmarkSnapshot({
+                revision: value.revision,
+                interactionIds: value.interactionIds,
+            })
+            && (value.error === undefined
+                || ['invalid', 'stale', 'failed', 'limit']
+                    .includes(value.error));
+    }
+
+    function nextBookmarkRequestId() {
+        state.bookmarkRequestSequence += 1;
+        return [
+            'conversation-bookmark',
+            Date.now().toString(36),
+            state.bookmarkRequestSequence.toString(36),
+        ].join(':');
+    }
+
+    function postBookmarkMutation(interactionId, bookmarked) {
+        if (!bookmarkUiAvailable
+            || state.pendingBookmarkRequest) return;
+        var requestId = nextBookmarkRequestId();
+        state.pendingBookmarkRequest = { requestId: requestId, interactionId: interactionId };
+        renderBookmarkState();
+        post({
+            type: 'conversation-viewer-bookmark-mutation',
+            version: 1,
+            requestId: requestId,
+            subscriptionGeneration: state.subscriptionGeneration,
+            projectId: commentTarget.projectId,
+            provider: commentTarget.provider,
+            sessionId: commentTarget.sessionId,
+            operation: 'set',
+            expectedRevision: state.bookmarkRevision,
+            payload: {
+                interactionId: interactionId,
+                bookmarked: bookmarked,
+            },
+        });
+    }
+
+    function applyBookmarksResult(message) {
+        if (!bookmarkUiAvailable
+            || !validBookmarksResult(message)
+            || !state.pendingBookmarkRequest
+            || message.requestId !== state.pendingBookmarkRequest.requestId
+            || message.subscriptionGeneration !== state.subscriptionGeneration
+            || message.projectId !== commentTarget.projectId
+            || message.provider !== commentTarget.provider
+            || message.sessionId !== commentTarget.sessionId) {
+            return false;
+        }
+        var focusedId = state.pendingBookmarkRequest.interactionId;
+        state.pendingBookmarkRequest = null;
+        state.bookmarkRevision = message.revision;
+        state.bookmarkIds = new Set(message.interactionIds);
+        renderBookmarkState();
+        filterOutline();
+        status.textContent = message.success
+            ? (state.bookmarkIds.has(focusedId)
+                ? 'Input bookmarked.'
+                : 'Bookmark removed.')
+            : 'Bookmark could not be updated.';
+        var focused = outlineList.querySelector(
+            '[data-outline-bookmark-id="' + CSS.escape(focusedId) + '"]'
+        );
+        if (focused) focused.focus();
+        return true;
+    }
+
+    function renderBookmarkState() {
+        if (!sidebarUiAvailable) return;
+        Array.prototype.forEach.call(
+            outlineList.querySelectorAll('[data-outline-bookmark-id]'),
+            function (button) {
+                var interactionId = button.getAttribute(
+                    'data-outline-bookmark-id'
+                );
+                var bookmarked = state.bookmarkIds.has(interactionId);
+                var entry = state.outline.find(function (candidate) {
+                    return candidate.interactionId === interactionId;
+                });
+                var inputNumber = entry ? entry.inputNumber : '';
+                button.textContent = bookmarked ? '★' : '☆';
+                button.classList.toggle('is-bookmarked', bookmarked);
+                button.setAttribute('aria-pressed',
+                    bookmarked ? 'true' : 'false');
+                button.setAttribute(
+                    'aria-label',
+                    (bookmarked ? 'Remove bookmark from input ' : 'Bookmark input ')
+                        + inputNumber
+                );
+                button.title = button.getAttribute('aria-label');
+                button.disabled = !!state.pendingBookmarkRequest;
+            }
+        );
+        var count = state.bookmarkIds.size;
+        outlineBookmarksOnly.textContent = (state.bookmarksOnly ? '★' : '☆')
+            + ' Bookmarks (' + count + ')';
+        outlineBookmarksOnly.setAttribute(
+            'aria-pressed',
+            state.bookmarksOnly ? 'true' : 'false'
+        );
+    }
+
     function validOutline(value, selectedInteractionId) {
         if (!Array.isArray(value)
             || value.length < 1
@@ -1378,6 +1535,13 @@
         state.outline.forEach(function (entry) {
             var item = document.createElement('li');
             item.className = 'conversation-outline-item';
+            var bookmark = document.createElement('button');
+            bookmark.type = 'button';
+            bookmark.className = 'conversation-outline-bookmark';
+            bookmark.setAttribute(
+                'data-outline-bookmark-id',
+                entry.interactionId
+            );
             var button = document.createElement('button');
             button.type = 'button';
             button.setAttribute('data-outline-interaction-id',
@@ -1404,10 +1568,12 @@
             button.appendChild(number);
             button.appendChild(preview);
             button.appendChild(responseState);
+            item.appendChild(bookmark);
             item.appendChild(button);
             fragment.appendChild(item);
         });
         outlineList.replaceChildren(fragment);
+        renderBookmarkState();
     }
 
     function visibleOutlineButtons() {
@@ -1464,11 +1630,19 @@
                 var visible = !query
                     || (button.getAttribute('data-outline-filter-text') || '')
                         .includes(query);
+                if (visible && state.bookmarksOnly) {
+                    visible = state.bookmarkIds.has(button.getAttribute(
+                        'data-outline-interaction-id'
+                    ));
+                }
                 item.hidden = !visible;
                 if (visible) visibleCount += 1;
             }
         );
         outlineEmpty.hidden = visibleCount > 0;
+        outlineEmpty.textContent = state.bookmarksOnly
+            ? 'No bookmarked inputs match this view.'
+            : 'No inputs match this search.';
         updateOutlineSelection(false);
     }
 
@@ -1503,6 +1677,7 @@
             : message.outline.length.toLocaleString() + ' inputs';
         outlinePartial.hidden = !message.partial;
         filterOutline();
+        renderBookmarkState();
         updateOutlineSelection(changed || message.updateKind !== 'refresh');
         updateCommentsToggle();
     }
@@ -2141,7 +2316,25 @@
             filterOutline();
             saveCommentsPanelState();
         });
+        outlineBookmarksOnly.addEventListener('click', function () {
+            state.bookmarksOnly = !state.bookmarksOnly;
+            renderBookmarkState();
+            filterOutline();
+        });
         outlineList.addEventListener('click', function (event) {
+            var bookmark = event.target.closest
+                ? event.target.closest('[data-outline-bookmark-id]')
+                : null;
+            if (bookmark && outlineList.contains(bookmark)) {
+                var bookmarkId = bookmark.getAttribute(
+                    'data-outline-bookmark-id'
+                );
+                postBookmarkMutation(
+                    bookmarkId,
+                    !state.bookmarkIds.has(bookmarkId)
+                );
+                return;
+            }
             var button = event.target.closest
                 ? event.target.closest('[data-outline-interaction-id]')
                 : null;
@@ -2411,6 +2604,7 @@
         postNavigation('conversation-viewer-closed');
     });
     window.addEventListener('message', function (event) {
+        if (applyBookmarksResult(event.data)) return;
         if (applyCommentsResult(event.data)) return;
         if (applyLocateResult(event.data)) return;
         if (applyTelemetry(event.data)) return;
@@ -2428,6 +2622,14 @@
         }
     }
     if (sidebarUiAvailable) {
+        var initialBookmarks = readJsonAttribute('data-initial-bookmarks');
+        if (validBookmarkSnapshot(initialBookmarks)) {
+            state.bookmarkRevision = initialBookmarks.revision;
+            state.bookmarkIds = new Set(initialBookmarks.interactionIds);
+            renderBookmarkState();
+        } else {
+            status.textContent = 'Conversation bookmarks are unavailable.';
+        }
         var savedCommentsPanel = readCommentsPanelState();
         if (savedCommentsPanel) {
             if (typeof savedCommentsPanel.open === 'boolean') {

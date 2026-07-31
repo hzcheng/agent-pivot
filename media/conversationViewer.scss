@@ -424,6 +424,26 @@ button {
     }
 }
 
+.conversation-outline-bookmarks-only {
+    justify-self: start;
+    min-height: 1.65rem;
+    padding: 0.2rem 0.45rem;
+    border-color: var(--vscode-panel-border);
+    border-radius: 999px;
+    color: var(--vscode-descriptionForeground);
+    background: transparent;
+    font-size: 0.75rem;
+
+    &[aria-pressed="true"] {
+        color: var(
+            --vscode-charts-yellow,
+            var(--vscode-editorWarning-foreground)
+        );
+        border-color: currentColor;
+        background: var(--vscode-list-hoverBackground);
+    }
+}
+
 .conversation-outline-partial {
     margin: 0;
     padding: 0 0.25rem;
@@ -441,13 +461,16 @@ button {
 }
 
 .conversation-outline-item {
+    display: grid;
+    grid-template-columns: 1.7rem minmax(0, 1fr);
+    align-items: stretch;
     margin: 0.1rem 0;
 
     &[hidden] {
         display: none;
     }
 
-    button {
+    [data-outline-interaction-id] {
         display: grid;
         width: 100%;
         min-width: 0;
@@ -474,6 +497,29 @@ button {
             background: var(--vscode-list-activeSelectionBackground);
             box-shadow: inset 2px 0 0 var(--vscode-focusBorder);
         }
+    }
+}
+
+.conversation-outline-bookmark {
+    align-self: stretch;
+    min-width: 0;
+    padding: 0.35rem 0.1rem;
+    border-color: transparent;
+    border-radius: 4px;
+    color: var(--vscode-descriptionForeground);
+    background: transparent;
+    font-size: 1rem;
+    line-height: 1;
+    text-align: center;
+
+    &:hover,
+    &:focus-visible,
+    &.is-bookmarked {
+        color: var(
+            --vscode-charts-yellow,
+            var(--vscode-editorWarning-foreground)
+        );
+        background: var(--vscode-list-hoverBackground);
     }
 }
 

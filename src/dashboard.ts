@@ -53,6 +53,9 @@ import AiSessionPinController from './aiSessions/pinController';
 import {
     ConversationCommentFileStore,
 } from './aiSessions/conversation/commentStore';
+import {
+    ConversationBookmarkFileStore,
+} from './aiSessions/conversation/bookmarkStore';
 import AiSessionWorkspaceStateStore from './aiSessions/workspaceStateStore';
 import ActiveAiSessionTerminalHighlighter from './aiSessions/activeTerminalHighlight';
 import AttentionBridgeClient from './aiSessions/attentionBridgeClient';
@@ -1470,6 +1473,9 @@ async function initializeDashboard(
         clearTimer: clearTimeout,
         onDiagnostic: event => logAiSessionDiagnostic({ ...event }),
         commentStore: new ConversationCommentFileStore(
+            context.globalStoragePath
+        ),
+        bookmarkStore: new ConversationBookmarkFileStore(
             context.globalStoragePath
         ),
         submitPrompt: (viewerTarget, prompt) => submitConversationPrompt({

@@ -1858,6 +1858,73 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 CONVERSATION-VIEWER-RICH-MARKDO
     );
 });
 
+test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 preserves structured text indentation and horizontal scrolling', async t => {
+    const page = await openViewerPage(t);
+    await page.setViewportSize({ width: 360, height: 500 });
+    await page.addStyleTag({ content: viewerCss });
+    await sendPage(page, {
+        ...hostileConversationPage,
+        html: `<article data-message-id="structured-text"
+            data-interaction-id="input-4">
+            <section class="conversation-markdown">
+                <pre><code class="language-text">[Existing, extend] RedDBToHiveTransformConfig.ColumnMapping
+  sourceKind: PRIMARY_KEY | REGULAR
+  familyId: int32?          // PK 为空
+  columnId: int32
+  startupFamilyName: string?
+  startupColumnName: string
+  outputName: string
+  sourceType: RedDBDataType
+  targetType: STRING | INTEGER | BIGINT | FLOAT | DOUBLE | BOOLEAN
+  nullable: bool
+  typedDefault: TypedValue?
+  ordinal: uint32</code></pre>
+            </section>
+        </article>`,
+    });
+
+    const presentation = await page.locator('pre').evaluate(pre => {
+        const code = pre.querySelector('code');
+        const text = code.firstChild;
+        const firstLine = new Range();
+        firstLine.setStart(text, 0);
+        firstLine.setEnd(text, 1);
+        const sourceKindOffset = text.data.indexOf('sourceKind');
+        const indentedLine = new Range();
+        indentedLine.setStart(text, sourceKindOffset);
+        indentedLine.setEnd(text, sourceKindOffset + 1);
+        const preStyle = getComputedStyle(pre);
+        const codeStyle = getComputedStyle(code);
+        return {
+            text: code.textContent,
+            indentation:
+                indentedLine.getBoundingClientRect().x
+                - firstLine.getBoundingClientRect().x,
+            preWhiteSpace: preStyle.whiteSpace,
+            preOverflowWrap: preStyle.overflowWrap,
+            preWordBreak: preStyle.wordBreak,
+            codeDisplay: codeStyle.display,
+            codeOverflowWrap: codeStyle.overflowWrap,
+            codeLineHeight: Number.parseFloat(codeStyle.lineHeight),
+            clientWidth: pre.clientWidth,
+            scrollWidth: pre.scrollWidth,
+        };
+    });
+
+    assert.match(presentation.text, /\n  sourceKind: PRIMARY_KEY/);
+    assert.ok(presentation.indentation > 0, 'leading spaces must remain visible');
+    assert.equal(presentation.preWhiteSpace, 'pre');
+    assert.equal(presentation.preOverflowWrap, 'normal');
+    assert.equal(presentation.preWordBreak, 'normal');
+    assert.equal(presentation.codeDisplay, 'block');
+    assert.equal(presentation.codeOverflowWrap, 'normal');
+    assert.ok(presentation.codeLineHeight >= 18);
+    assert.ok(
+        presentation.scrollWidth > presentation.clientWidth,
+        'long structured lines must scroll instead of flattening their layout'
+    );
+});
+
 test('CONVERSATION-VIEWER-RICH-MARKDOWN-002 lazy-loads Mermaid in the nonce-only Host document', async t => {
     const { page } = await openHostViewerDocument(t, {
         markdown: [

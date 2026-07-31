@@ -1504,6 +1504,14 @@ test('custom 模板替换占位符', () => {
     assert.deepEqual(JSON.parse(request.body), { p: 'proj', r: 'input-required', c: 'K7M2QX' });
 });
 
+test('buildNotifyRequestFromText 用给定文案而非 payload 渲染', () => {
+    const { buildNotifyRequestFromText } = require('../../../../../out/aiSessions/notify/templates');
+    const request = buildNotifyRequestFromText(
+        { id: 'a', channel: 'slack', proxy: null, url: 'https://hooks.slack.com/x' },
+        payload, '合并标题', '合并正文', 4, 0);
+    assert.equal(JSON.parse(request.body).text, '合并标题\n合并正文');
+});
+
 test('custom 模板中未知占位符保持原样', () => {
     const request = buildNotifyRequest({
         id: 'a', channel: 'custom', proxy: null,
@@ -1568,14 +1576,17 @@ import { buildWebhookJsonRequest } from './webhookJson';
 
 export type { NotifyRequest } from './types';
 
-export function buildNotifyRequest(
-    sink: NotifySink, payload: NotifyPayload, nowMs: number
+export function buildNotifyRequestFromText(
+    sink: NotifySink,
+    payload: NotifyPayload,
+    title: string,
+    body: string,
+    priority: number,
+    nowMs: number
 ): NotifyRequest {
-    const title = renderNotifyTitle(payload);
-    const body = renderNotifyBody(payload);
     switch (sink.channel) {
         case 'ntfy':
-            return buildNtfyRequest(sink, title, body, notifyPriority(payload.reason));
+            return buildNtfyRequest(sink, title, body, priority);
         case 'telegram':
             return buildTelegramRequest(sink, title, body);
         case 'bark':
@@ -1588,7 +1599,23 @@ export function buildNotifyRequest(
             return buildWebhookJsonRequest(sink, title, body);
     }
 }
+
+export function buildNotifyRequest(
+    sink: NotifySink, payload: NotifyPayload, nowMs: number
+): NotifyRequest {
+    return buildNotifyRequestFromText(
+        sink,
+        payload,
+        renderNotifyTitle(payload),
+        renderNotifyBody(payload),
+        notifyPriority(payload.reason),
+        nowMs
+    );
+}
 ```
+
+`buildNotifyRequestFromText` 存在的理由:合并消息的标题与正文由 dispatcher
+算出,不来自单个 payload。让它走同一条通道分发,而不是伪造一个 payload。
 
 - [ ] **Step 4: 运行测试确认通过**
 
@@ -2320,7 +2347,7 @@ import type { HttpTransport } from './httpClient';
 import { renderMergedBody, renderMergedTitle } from './message';
 import { evaluateNotifyPolicy } from './policy';
 import type { NotifiedEventStore } from './store';
-import { buildNotifyRequest } from './templates';
+import { buildNotifyRequest, buildNotifyRequestFromText } from './templates';
 import type { NotifyRequest } from './templates';
 import { resolveProxy } from './httpClient';
 import type { NotifyConfig, NotifyPayload, NotifySink } from './types';
@@ -2436,12 +2463,15 @@ export class NotifyDispatcher {
 
     private buildMergedRequest(sink: NotifySink, payload: NotifyPayload, now: number): NotifyRequest {
         const queued = Array.from(this.pending.values(), entry => entry.payload);
-        const merged: NotifyPayload = {
-            ...payload,
-            projectLabel: renderMergedTitle(queued.length + 1),
-            sessionLabel: renderMergedBody([payload, ...queued]),
-        };
-        return buildNotifyRequest(sink, merged, now);
+        const all = [payload, ...queued];
+        return buildNotifyRequestFromText(
+            sink,
+            payload,
+            renderMergedTitle(all.length),
+            renderMergedBody(all),
+            4,
+            now
+        );
     }
 
     private async send(sink: NotifySink, request: NotifyRequest, correlationId: string): Promise<void> {
@@ -2465,10 +2495,16 @@ export class NotifyDispatcher {
 npm run test-compile && node --test tests/unit/aiSessions/notify/dispatcher.test.js
 ```
 
-预期:7 个测试全部 PASS。合并那条测试期望第 3 条消息的正文含
-"2 个 AI 会话在等你"——`buildMergedRequest` 把合并标题塞进 `projectLabel`、
-把明细塞进 `sessionLabel`,再由 `renderNotifyBody` 渲染进正文。若断言不符,
-调整 `buildMergedRequest`,**不要改测试的期望**。
+预期:7 个测试全部 PASS。
+
+合并那条测试的推演:`rateLimitPerMin` 为 2,四条事件在同一个防抖窗口到期。
+前两条正常发送并各自记入 `sendTimestamps`;第三条到期时
+`recentSendCount` 已达 2,策略返回 `merge`,此时 `pending` 中仅剩 `e4`,
+因此 `all.length === 2`,标题为"2 个 AI 会话在等你"。第四条到期时它已被
+第三条的合并覆盖但仍会走一次 deliver——若断言的 `sent.length` 与实际不符,
+说明合并后应把被并入的 pending 项清掉:在 `buildMergedRequest` 里对
+`queued` 中的每一项调用 `this.deps.store.record(...)` 并从 `pending` 移除。
+**修实现,不要改测试的期望。**
 
 - [ ] **Step 5: 登记行为契约并提交**
 

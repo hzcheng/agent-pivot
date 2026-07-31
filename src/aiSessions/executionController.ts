@@ -1,22 +1,18 @@
 'use strict';
 
 import type { AiSessionProviderId } from '../models';
-import type { AiSessionLifecycleRequest, AiSessionLifecycleSignal } from './lifecycle';
+import type { AiSessionLifecycleRequest } from './lifecycle';
 import AiSessionExecutionMonitor from './executionMonitor';
 import type { AiSessionExecutionSnapshot } from './executionMonitor';
+import type {
+    AiSessionLifecycleRequestsByProvider,
+    AiSessionLifecycleSignals,
+} from './lifecycleSignalReader';
 import { getAiSessionKey } from './sessionHelpers';
 import type { AiSessionActiveTerminalRuntime } from './types';
 
-export interface AiSessionExecutionProvider {
-    id: AiSessionProviderId;
-    service: {
-        getLifecycleSignals(requests: readonly AiSessionLifecycleRequest[]): Record<string, AiSessionLifecycleSignal>;
-    };
-}
-
 export interface AiSessionExecutionControllerOptions {
     getActiveSessions: () => AiSessionActiveTerminalRuntime[];
-    getProviders: () => AiSessionExecutionProvider[];
     getSessionKey?: (providerId: AiSessionProviderId, sessionId: string) => string;
     scheduleRefresh: (reason: string) => void;
     nowMs: () => number;
@@ -29,31 +25,21 @@ export class AiSessionExecutionController {
         this.monitor = new AiSessionExecutionMonitor({ now: options.nowMs });
     }
 
-    evaluate(): void {
-        const activeSessions = this.options.getActiveSessions();
-        const providers = this.options.getProviders();
-        const requestsByProvider = new Map<AiSessionProviderId, AiSessionLifecycleRequest[]>(
-            providers.map(provider => [provider.id, []])
-        );
-        for (const session of activeSessions) {
-            requestsByProvider.get(session.provider)?.push({
-                sessionId: session.sessionId,
-                runStartedAtMs: session.runStartedAtMs,
-            });
+    /** The sessions this controller needs signals for, for the shared reader to merge. */
+    getLifecycleRequests(): AiSessionLifecycleRequestsByProvider {
+        const requests: Partial<Record<AiSessionProviderId, AiSessionLifecycleRequest[]>> = {};
+        for (const session of this.options.getActiveSessions()) {
+            const owned = requests[session.provider] || [];
+            owned.push({ sessionId: session.sessionId, runStartedAtMs: session.runStartedAtMs });
+            requests[session.provider] = owned;
         }
+        return requests;
+    }
 
-        const signalsByProvider = new Map<AiSessionProviderId, Record<string, AiSessionLifecycleSignal>>();
-        for (const provider of providers) {
-            const requests = requestsByProvider.get(provider.id) || [];
-            signalsByProvider.set(
-                provider.id,
-                requests.length ? provider.service.getLifecycleSignals(requests) : {}
-            );
-        }
-
-        const changedKeys = this.monitor.evaluate(activeSessions.map(session => ({
+    evaluate(signals: AiSessionLifecycleSignals): void {
+        const changedKeys = this.monitor.evaluate(this.options.getActiveSessions().map(session => ({
             key: this.getSessionKey(session.provider, session.sessionId),
-            signal: signalsByProvider.get(session.provider)?.[session.sessionId],
+            signal: signals?.[session.provider]?.[session.sessionId],
         })));
         if (changedKeys.length) {
             this.options.scheduleRefresh('execution');

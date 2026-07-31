@@ -23,6 +23,9 @@ const {
     AiSessionExecutionController,
 } = require('../../../out/aiSessions/executionController');
 const {
+    AiSessionLifecycleSignalReader,
+} = require('../../../out/aiSessions/lifecycleSignalReader');
+const {
     aggregateAttentionSnapshots,
     filterAcknowledgedAttentionAggregate,
 } = require('../../../out/aiSessions/attentionAggregate');
@@ -954,7 +957,8 @@ test('ATTENTION-EXECUTION-STATE-SYNC-001 clears attention on the same lifecycle 
     };
 
     let nowMs = 1000;
-    // Both surfaces read the same provider signal; only the cadence differed.
+    let reads = 0;
+    // A completed turn is pending until the user replies in the terminal.
     let signal = {
         token: 'task-complete:1000',
         phase: 'needsAttention',
@@ -964,7 +968,12 @@ test('ATTENTION-EXECUTION-STATE-SYNC-001 clears attention on the same lifecycle 
     };
     const providers = [{
         id: 'codex',
-        service: { getLifecycleSignals: () => ({ session: signal }) },
+        service: {
+            getLifecycleSignals: requests => {
+                reads += 1;
+                return Object.fromEntries(requests.map(request => [request.sessionId, signal]));
+            },
+        },
     }];
 
     const attentionController = new AiSessionAttentionController({
@@ -978,23 +987,28 @@ test('ATTENTION-EXECUTION-STATE-SYNC-001 clears attention on the same lifecycle 
         scheduleRefresh: () => undefined,
         nowMs: () => nowMs,
     });
-    const evaluatedScopes = [];
-    const attentionEvaluations = new AttentionEvaluationQueue({
-        evaluate: scope => {
-            evaluatedScopes.push(scope);
-            return attentionController.evaluate();
-        },
-    });
     const executionController = new AiSessionExecutionController({
         getActiveSessions: () => [{
             provider: 'codex', sessionId: 'session',
             workspaceScopeIdentity: 'scope:fixture',
             cwd: '/fixtures/project', runStartedAtMs: 0,
         }],
-        getProviders: () => providers,
-        // dashboard.ts routes every execution edge back into attention evaluation.
-        scheduleRefresh: () => { void attentionEvaluations.request('signals'); },
+        scheduleRefresh: () => undefined,
         nowMs: () => nowMs,
+    });
+    const reader = new AiSessionLifecycleSignalReader({
+        getProviders: () => providers,
+        getRequests: () => [
+            executionController.getLifecycleRequests(),
+            attentionController.getLifecycleRequests(),
+        ],
+    });
+    const observed = [];
+    const attentionEvaluations = new AttentionEvaluationQueue({
+        evaluate: request => {
+            observed.push(request.scope);
+            return attentionController.evaluate([], request.signals || reader.read());
+        },
     });
 
     // What the session row renders: data-execution-state and the attention dot.
@@ -1002,16 +1016,17 @@ test('ATTENTION-EXECUTION-STATE-SYNC-001 clears attention on the same lifecycle 
         animation: executionController.getSnapshot()['codex:session']?.state === 'running',
         redDot: attentionController.getEffectiveAggregate().sessions.length > 0,
     });
-    // One second of wall clock, matching the production execution tick.
+    // The production tick: read once, then drive both passes from that observation.
     const tick = async () => {
         nowMs += 1000;
-        executionController.evaluate();
-        await flushAsync();
+        const signals = reader.read();
+        executionController.evaluate(signals);
+        await attentionEvaluations.request('signals', signals);
     };
 
     await tick();
-    await attentionEvaluations.request('runtimes');
     assert.deepEqual(surface(), { animation: false, redDot: true }, 'a completed turn raises the dot');
+    assert.equal(reads, 1, 'one tick reads each provider once, not once per consumer');
 
     // The user replies in the terminal and the provider starts a new turn.
     signal = {
@@ -1027,25 +1042,23 @@ test('ATTENTION-EXECUTION-STATE-SYNC-001 clears attention on the same lifecycle 
         { animation: true, redDot: false },
         'the dot must clear on the same tick the animation starts, without waiting for the fallback interval'
     );
-    assert.ok(
-        evaluatedScopes.includes('signals'),
-        'a lifecycle edge must settle attention without the disk-scanning runtime pass'
-    );
+    assert.equal(reads, 2, 'the attention pass reuses the execution pass observation');
+    assert.deepEqual(observed, ['signals', 'signals']);
 });
 
 test('ATTENTION-EXECUTION-STATE-SYNC-001 coalesces attention requests and never downgrades a pending runtime pass', async () => {
-    const scopes = [];
+    const observed = [];
     let release;
     const queue = new AttentionEvaluationQueue({
-        evaluate: async scope => {
-            scopes.push(scope);
+        evaluate: async request => {
+            observed.push(request.scope);
             await new Promise(resolve => { release = resolve; });
         },
     });
 
     const first = queue.request('signals');
     await flushAsync();
-    assert.deepEqual(scopes, ['signals'], 'the first request starts immediately');
+    assert.deepEqual(observed, ['signals'], 'the first request starts immediately');
     assert.equal(queue.isIdle(), false);
 
     // A burst arriving mid-flight collapses into one trailing run at the widest scope.
@@ -1054,30 +1067,55 @@ test('ATTENTION-EXECUTION-STATE-SYNC-001 coalesces attention requests and never 
     queue.request('signals');
     release();
     await flushAsync();
-    assert.deepEqual(scopes, ['signals', 'runtimes'],
-        'a cheap edge request must not downgrade a pending runtime reconciliation');
+    assert.deepEqual(observed, ['signals', 'runtimes'],
+        'a cheap tick request must not downgrade a pending runtime reconciliation');
 
     release();
     await first;
     assert.equal(queue.isIdle(), true);
 });
 
+test('ATTENTION-EXECUTION-STATE-SYNC-001 carries the freshest observation into a coalesced batch', async () => {
+    const observed = [];
+    let release;
+    const queue = new AttentionEvaluationQueue({
+        evaluate: async request => {
+            observed.push(request.signals);
+            await new Promise(resolve => { release = resolve; });
+        },
+    });
+    const stale = { codex: { s: { token: 'stale' } } };
+    const fresh = { codex: { s: { token: 'fresh' } } };
+
+    const first = queue.request('signals', stale);
+    await flushAsync();
+    queue.request('signals', stale);
+    queue.request('signals', fresh);
+    release();
+    await flushAsync();
+    release();
+    await first;
+
+    assert.deepEqual(observed, [stale, fresh],
+        'a coalesced batch replays the newest observation rather than the one it queued behind');
+});
+
 test('ATTENTION-EXECUTION-STATE-SYNC-001 keeps draining after an evaluation throws', async () => {
-    const scopes = [];
+    const observed = [];
     const failures = [];
     const queue = new AttentionEvaluationQueue({
-        evaluate: async scope => {
-            scopes.push(scope);
-            throw new Error(`boom:${scope}`);
+        evaluate: async request => {
+            observed.push(request.scope);
+            throw new Error(`boom:${request.scope}`);
         },
         onFailure: error => failures.push(error instanceof Error ? error.message : String(error)),
     });
 
     await queue.request('signals');
-    assert.deepEqual(scopes, ['signals']);
+    assert.deepEqual(observed, ['signals']);
     assert.deepEqual(failures, ['boom:signals']);
     assert.equal(queue.isIdle(), true, 'a failed evaluation must not wedge the queue');
 
     await queue.request('runtimes');
-    assert.deepEqual(scopes, ['signals', 'runtimes']);
+    assert.deepEqual(observed, ['signals', 'runtimes']);
 });

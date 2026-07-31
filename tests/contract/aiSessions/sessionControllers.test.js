@@ -6,6 +6,9 @@ const { AiSessionCreationController } = require('../../../out/aiSessions/creatio
 const { AiSessionResumeController } = require('../../../out/aiSessions/resumeController');
 const { AiSessionTerminalCommandController } = require('../../../out/aiSessions/terminalCommandController');
 const { AiSessionExecutionController } = require('../../../out/aiSessions/executionController');
+const {
+    AiSessionLifecycleSignalReader,
+} = require('../../../out/aiSessions/lifecycleSignalReader');
 
 const workspace = {
     navigationIdentity: 'navigation:fixture',
@@ -424,15 +427,88 @@ test('SESSION-AI-SESSION-EXECUTION-CONTROLLER-001 schedules one refresh only whe
     let token = 'one';
     const controller = new AiSessionExecutionController({
         getActiveSessions: () => [{ provider: 'codex', sessionId: 's', runStartedAtMs: 1 }],
-        getProviders: () => [{ id: 'codex', service: { getLifecycleSignals: () => ({ s: {
-            token, occurredAtMs: token === 'one' ? 2 : 3, executionState: token === 'one' ? 'running' : 'stopped',
-        } }) } }],
         scheduleRefresh: reason => refreshes.push(reason), nowMs: () => 1,
     });
-    controller.evaluate();
-    controller.evaluate();
+    const signals = () => ({ codex: { s: {
+        token, occurredAtMs: token === 'one' ? 2 : 3, executionState: token === 'one' ? 'running' : 'stopped',
+    } } });
+    controller.evaluate(signals());
+    controller.evaluate(signals());
     token = 'two';
-    controller.evaluate();
+    controller.evaluate(signals());
     assert.deepEqual(refreshes, ['execution', 'execution']);
     assert.equal(controller.getSnapshot()['codex:s'].state, 'stopped');
+
+    assert.deepEqual(controller.getLifecycleRequests(), {
+        codex: [{ sessionId: 's', runStartedAtMs: 1 }],
+    }, 'the controller publishes its request set for the shared reader to merge');
+});
+
+test('SESSION-AI-SESSION-EXECUTION-MONITOR-001 reads lifecycle signals once for the union of every consumer', () => {
+    const calls = [];
+    const service = providerId => ({
+        getLifecycleSignals: requests => {
+            calls.push({
+                provider: providerId,
+                requests: requests.map(request => request.sessionId).sort(),
+            });
+            return Object.fromEntries(requests.map(request => [request.sessionId, {
+                token: `${providerId}:${request.sessionId}`,
+                phase: 'running',
+                executionState: 'running',
+                occurredAtMs: 10,
+            }]));
+        },
+    });
+    const providers = [
+        { id: 'codex', service: service('codex') },
+        { id: 'claude', service: service('claude') },
+    ];
+
+    // Execution tracks the live runtimes; attention additionally keeps a session
+    // whose runtime is settling. Each provider must see one merged request set
+    // covering only its own sessions.
+    const reader = new AiSessionLifecycleSignalReader({
+        getProviders: () => providers,
+        getRequests: () => [
+            { codex: [{ sessionId: 'shared', runStartedAtMs: 0 }] },
+            {
+                codex: [
+                    { sessionId: 'shared', runStartedAtMs: 0 },
+                    { sessionId: 'settling', runStartedAtMs: 0 },
+                ],
+            },
+        ],
+    });
+    const signals = reader.read();
+
+    assert.deepEqual(calls, [{ provider: 'codex', requests: ['settling', 'shared'] }],
+        'the owning provider is asked once for the union and foreign providers are not asked');
+    assert.equal(signals.codex.shared.token, 'codex:shared');
+    assert.equal(signals.codex.settling.token, 'codex:settling');
+    assert.deepEqual(signals.claude, {}, 'a provider with no requested session still reports an empty map');
+});
+
+test('SESSION-AI-SESSION-EXECUTION-MONITOR-001 keeps the first run start when consumers disagree', () => {
+    const calls = [];
+    const providers = [{
+        id: 'codex',
+        service: {
+            getLifecycleSignals: requests => {
+                calls.push(requests.map(request => `${request.sessionId}@${request.runStartedAtMs}`));
+                return {};
+            },
+        },
+    }];
+    const reader = new AiSessionLifecycleSignalReader({
+        getProviders: () => providers,
+        getRequests: () => [
+            { codex: [{ sessionId: 'a', runStartedAtMs: 100 }] },
+            // A stale duplicate must not add a second request for the same session,
+            // which would make the provider rebuild its cursor every read.
+            { codex: [{ sessionId: 'a', runStartedAtMs: 200 }] },
+        ],
+    });
+    reader.read();
+    assert.deepEqual(calls, [['a@100']]);
 });

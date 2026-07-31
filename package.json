@@ -2,7 +2,7 @@
     "name": "agent-pivot",
     "displayName": "Agent Pivot",
     "description": "Switch, monitor, and resume Codex, Claude, and Kimi sessions across VS Code workspaces.",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "publisher": "hzcheng",
     "license": "MIT",
     "icon": "media/extension_icon.png",

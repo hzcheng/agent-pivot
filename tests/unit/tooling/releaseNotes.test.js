@@ -14,15 +14,16 @@ test('release content validation cannot satisfy current facts from historical no
     const changelog = [
         '# Changelog',
         '',
+        '## [1.0.1] - 2026-07-31',
+        '',
+        '- Added a rich AI Conversation review workflow.',
+        '- Added context-window usage telemetry.',
+        '- Added pinning for other open workspace cards.',
+        '- Kept the AI Conversation reading position stable.',
+        '',
         '## [1.0.0] - 2026-07-26',
         '',
-        '- Established the Agent Pivot identity.',
-        '- Added a cross-workspace command center for Codex, Claude, and Kimi.',
-        '- Added conversation navigation.',
-        '',
-        '## Unpublished Project Steward development history',
-        '',
-        '- Established the Pure Axis icon system.',
+        '- Added an AI Skills workspace.',
         '',
     ].join('\n');
 
@@ -32,10 +33,10 @@ test('release content validation cannot satisfy current facts from historical no
             changelog,
             packageMetadata: {
                 displayName: 'Agent Pivot',
-                version: '1.0.0',
+                version: '1.0.1',
                 description: 'Workspace command center.',
             },
         }),
-        /1\.0\.0 CHANGELOG release must document Pure Axis icon system/,
+        /1\.0\.1 CHANGELOG release must document AI Skills management/,
     );
 });

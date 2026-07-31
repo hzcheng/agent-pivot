@@ -7,19 +7,33 @@ const childProcess = require('node:child_process');
 const {
     EXTENSION_HOST_WORKER_TIMEOUT_MS,
     createExtensionHostTestEnvironment,
+    extensionHostTemporaryRootPrefix,
     removeExtensionHostTestEnvironment,
     runWorkerWithWatchdog,
     withSanitizedExtensionHostEnvironment,
 } = require('./lib/extensionHostLauncher');
 
-async function main() {
-    const repositoryRoot = path.resolve(__dirname, '..');
-    const isolatedRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-extension-host-'));
+async function main(options = {}) {
+    const repositoryRoot = options.repositoryRoot || path.resolve(__dirname, '..');
+    const isolatedRoot = (options.mkdtempSync || fs.mkdtempSync)(
+        extensionHostTemporaryRootPrefix(
+            options.platform || process.platform,
+            options.tempDirectory || os.tmpdir()
+        )
+    );
+    const createEnvironment = options.createExtensionHostTestEnvironment
+        || createExtensionHostTestEnvironment;
+    const sanitize = options.withSanitizedExtensionHostEnvironment
+        || withSanitizedExtensionHostEnvironment;
+    const runWorker = options.runWorkerWithWatchdog || runWorkerWithWatchdog;
+    const spawn = options.spawn || childProcess.spawn;
+    const removeEnvironment = options.removeExtensionHostTestEnvironment
+        || removeExtensionHostTestEnvironment;
     try {
-        const environment = createExtensionHostTestEnvironment(isolatedRoot);
+        const environment = createEnvironment(isolatedRoot);
         const workerPath = path.join(__dirname, 'run-extension-host-worker.js');
-        await withSanitizedExtensionHostEnvironment(() => runWorkerWithWatchdog(
-            () => childProcess.spawn(process.execPath, [
+        await sanitize(() => runWorker(
+            () => spawn(process.execPath, [
                 workerPath,
                 repositoryRoot,
                 JSON.stringify(environment),
@@ -31,11 +45,15 @@ async function main() {
             { timeoutMs: EXTENSION_HOST_WORKER_TIMEOUT_MS }
         ));
     } finally {
-        removeExtensionHostTestEnvironment(isolatedRoot);
+        removeEnvironment(isolatedRoot);
     }
 }
 
-main().catch(error => {
-    console.error(`Extension Host smoke failed: ${error && error.stack ? error.stack : error}`);
-    process.exitCode = 1;
-});
+if (require.main === module) {
+    main().catch(error => {
+        console.error(`Extension Host smoke failed: ${error && error.stack ? error.stack : error}`);
+        process.exitCode = 1;
+    });
+}
+
+module.exports = { main };

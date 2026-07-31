@@ -17,12 +17,24 @@ const {
     createExtensionHostTestEnvironment,
     createExtensionPackagePlan,
     createRunTestsOptions,
+    extensionHostTemporaryRootPrefix,
     installPackagedExtensions,
     removeExtensionHostTestEnvironment,
     runWorkerWithWatchdog,
     verifyInstalledExtensionBytes,
     withSanitizedExtensionHostEnvironment,
 } = require('../../../scripts/lib/extensionHostLauncher');
+
+test('RELEASE-SCHEDULED-EXTENSION-HOST-001 keeps macOS IPC paths below the Unix socket limit', () => {
+    assert.equal(
+        extensionHostTemporaryRootPrefix('darwin', '/var/folders/long/random/T'),
+        '/tmp/ap-eh-'
+    );
+    assert.equal(
+        extensionHostTemporaryRootPrefix('linux', '/custom/tmp'),
+        '/custom/tmp/ap-eh-'
+    );
+});
 
 function writeFile(filePath, value) {
     fs.mkdirSync(path.dirname(filePath), { recursive: true });

@@ -4339,5 +4339,19 @@
       "src/aiSessions/notify/templates/bark.ts",
       "src/aiSessions/notify/templates/dingtalk.ts"
     ]
+  },
+  {
+    "id": "ATTENTION-NOTIFY-TEMPLATE-DISPATCH-001",
+    "domain": "attention",
+    "title": "Notification requests dispatch by channel and support custom templates",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/notify/templates/dispatch.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/notify/templates/index.ts",
+      "src/aiSessions/notify/templates/custom.ts"
+    ]
   }
 ]

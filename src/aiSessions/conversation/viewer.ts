@@ -1082,6 +1082,12 @@ export class ConversationViewer implements ConversationViewerApi {
             const selectedInteractionId = updateKind === 'initial'
                 ? target.interactionId
                 : previousSelectedInteractionId as string;
+            if (updateKind === 'refresh'
+                && !this.stale
+                && this.outline?.sourceRevision === outline.sourceRevision) {
+                void this.refreshTelemetry(target, generation);
+                return true;
+            }
             let page: ConversationPage;
             try {
                 page = await this.options.readPage({
@@ -1828,7 +1834,8 @@ export class ConversationViewer implements ConversationViewerApi {
                     aria-label="Comment actions">
                     <button class="conversation-comments-clear" type="button"
                         data-comment-action="clearSent"
-                        title="Clear sent comments" disabled>Clear sent</button>
+                        title="Clear comments added to the session input"
+                        disabled>Clear added</button>
                     <button class="conversation-comments-clear" type="button"
                         data-comment-action="clearResolved"
                         title="Clear resolved comments"
@@ -1838,7 +1845,7 @@ export class ConversationViewer implements ConversationViewerApi {
                         title="Clear all comments" disabled>Clear all</button>
                     <button class="conversation-comments-send" type="button"
                         data-comment-action="send" disabled
-                        title="Send open comments to this session">Send open comments to this session</button>
+                        title="Add open comments to the session input">Add open comments to session input</button>
                 </div>
             </section>
         </aside>

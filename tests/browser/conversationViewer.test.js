@@ -1440,7 +1440,7 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-REVIEW-001 CONVERSATION
     assert.equal(await page.locator('[data-comment-id]').count(), 2);
     assert.deepEqual(
         await page.locator('[data-comment-status-label]').allTextContents(),
-        ['Sent', 'Sent']
+        ['Added', 'Added']
     );
     assert.equal(
         await page.locator('[data-comment-action="send"]').isDisabled(),
@@ -1448,7 +1448,7 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-REVIEW-001 CONVERSATION
     );
     assert.equal(
         await page.locator('[data-conversation-status]').textContent(),
-        'Comments sent to this session.'
+        'Comments added to session input. Review and press Enter to send.'
     );
 
     await page.locator('[data-comment-id="comment-1"]')
@@ -2258,6 +2258,196 @@ test('CONVERSATION-READING-FOCUS-001 preserves an unchanged Mermaid block while 
     assert.match(
         await page.locator('[data-message-id="streaming"]').textContent(),
         /more streamed text/
+    );
+});
+
+test('CONVERSATION-READING-FOCUS-001 leaves an identical refresh DOM and descendant focus untouched', async t => {
+    const page = await openViewerPage(t);
+    const html = `<article data-message-id="stable-refresh"
+        data-interaction-id="input-4">
+        <section class="conversation-markdown">
+            <p><a href="https://example.com/stable">Stable reading link</a></p>
+        </section>
+    </article>` + messageHtml('stable-refresh-tail', 50);
+    await sendPage(page, {
+        ...hostileConversationPage,
+        html,
+        selectedInput: 25,
+        totalInputs: 25,
+        updateKind: 'initial',
+    });
+    const link = page.getByRole('link', { name: 'Stable reading link' });
+    await link.focus();
+    await page.evaluate(() => {
+        window.__conversationMessageMutations = 0;
+        window.__conversationMessageObserver = new MutationObserver(records => {
+            window.__conversationMessageMutations += records.filter(record =>
+                record.type === 'childList'
+            ).length;
+        });
+        window.__conversationMessageObserver.observe(
+            document.querySelector('[data-conversation-messages]'),
+            { childList: true, subtree: true }
+        );
+    });
+
+    await sendPage(page, {
+        ...hostileConversationPage,
+        requestId: 2,
+        html,
+        selectedInput: 25,
+        totalInputs: 25,
+        updateKind: 'refresh',
+    });
+    await page.evaluate(() => new Promise(resolve => {
+        requestAnimationFrame(() => requestAnimationFrame(resolve));
+    }));
+
+    assert.equal(await page.evaluate(
+        () => window.__conversationMessageMutations
+    ), 0);
+    assert.equal(
+        await page.evaluate(() => document.activeElement?.textContent),
+        'Stable reading link'
+    );
+});
+
+test('CONVERSATION-READING-FOCUS-001 never restores a stale refresh anchor after the reader scrolls during Mermaid rendering', async t => {
+    const page = await openViewerPage(t, { controlledMermaid: true });
+    await page.addStyleTag({ content: viewerCss });
+    const initialHead = `<article data-message-id="changing-head"
+        data-interaction-id="input-4">
+        <section class="conversation-markdown">
+            <p>Response before the diagram arrives.</p>
+        </section>
+    </article>`;
+    const refreshedHead = `<article data-message-id="changing-head"
+        data-interaction-id="input-4">
+        <section class="conversation-markdown">
+            <p>Response before the diagram arrives.</p>
+            <pre><code class="language-mermaid">flowchart TB
+                A[Delayed diagram] --&gt; B[Must respect later reading]</code></pre>
+        </section>
+    </article>`;
+    const tail = messageHtml('reader-tail', 24);
+    await sendPage(page, {
+        ...hostileConversationPage,
+        html: initialHead + tail,
+        selectedInput: 12,
+        totalInputs: 12,
+        updateKind: 'initial',
+    });
+    const scroll = page.locator('[data-conversation-scroll]');
+    await scroll.evaluate(element => {
+        element.style.overflowAnchor = 'none';
+    });
+    const refreshAnchor = page.locator('[data-message-id="reader-tail-4"]');
+    await refreshAnchor.evaluate(element => element.scrollIntoView({
+        block: 'center',
+    }));
+
+    await sendPage(page, {
+        ...hostileConversationPage,
+        requestId: 2,
+        html: refreshedHead + tail,
+        selectedInput: 12,
+        totalInputs: 12,
+        updateKind: 'refresh',
+    });
+    await page.waitForFunction(() => window.__mermaidRenders.length === 1);
+    const readerAnchor = page.locator('[data-message-id="reader-tail-18"]');
+    await readerAnchor.evaluate(element => element.scrollIntoView({
+        block: 'center',
+    }));
+    const readerTopBefore = await readerAnchor.evaluate(element => {
+        const scrollElement = document.querySelector(
+            '[data-conversation-scroll]'
+        );
+        return element.getBoundingClientRect().top
+            - scrollElement.getBoundingClientRect().top;
+    });
+
+    await page.evaluate(() => {
+        window.__mermaidRenders[0].resolve({
+            svg: `<svg xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 600 1800">
+                <rect width="600" height="1800" fill="#246"></rect>
+            </svg>`,
+        });
+    });
+    await page.locator('.conversation-mermaid-image').waitFor();
+    await page.evaluate(() => new Promise(resolve => {
+        requestAnimationFrame(() => requestAnimationFrame(resolve));
+    }));
+    const readerTopAfter = await readerAnchor.evaluate(element => {
+        const scrollElement = document.querySelector(
+            '[data-conversation-scroll]'
+        );
+        return element.getBoundingClientRect().top
+            - scrollElement.getBoundingClientRect().top;
+    });
+
+    assert.ok(
+        Math.abs(readerTopAfter - readerTopBefore) <= 1,
+        `reader-selected anchor moved from ${readerTopBefore} to `
+            + readerTopAfter
+    );
+});
+
+test('CONVERSATION-READING-FOCUS-001 preserves the visible block inside a changed Assistant message', async t => {
+    const page = await openViewerPage(t);
+    await page.addStyleTag({ content: viewerCss });
+    const response = suffix => `<article data-message-id="changing-response"
+        data-interaction-id="input-4">
+        <section class="conversation-markdown">
+            ${Array.from({ length: 18 }, (_, index) =>
+                `<p>Response block ${index + 1}`
+                    + `${index === 0 ? suffix : ''}</p>`
+            ).join('')}
+        </section>
+    </article>`;
+    await sendPage(page, {
+        ...hostileConversationPage,
+        html: response(''),
+        updateKind: 'initial',
+    });
+    const scroll = page.locator('[data-conversation-scroll]');
+    await scroll.evaluate(element => {
+        element.style.overflowAnchor = 'none';
+    });
+    const anchor = page.getByText('Response block 12', { exact: true });
+    await anchor.evaluate(element => element.scrollIntoView({
+        block: 'center',
+    }));
+    const anchorTopBefore = await anchor.evaluate(element => {
+        const scrollElement = document.querySelector(
+            '[data-conversation-scroll]'
+        );
+        return element.getBoundingClientRect().top
+            - scrollElement.getBoundingClientRect().top;
+    });
+
+    await sendPage(page, {
+        ...hostileConversationPage,
+        requestId: 2,
+        html: response(' with newly streamed text'),
+        updateKind: 'refresh',
+    });
+    const anchorTopAfter = await page.getByText(
+        'Response block 12',
+        { exact: true }
+    ).evaluate(element => {
+        const scrollElement = document.querySelector(
+            '[data-conversation-scroll]'
+        );
+        return element.getBoundingClientRect().top
+            - scrollElement.getBoundingClientRect().top;
+    });
+
+    assert.ok(
+        Math.abs(anchorTopAfter - anchorTopBefore) <= 1,
+        `intra-message reading block moved from ${anchorTopBefore} to `
+            + anchorTopAfter
     );
 });
 

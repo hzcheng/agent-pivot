@@ -677,9 +677,12 @@ test('CONVERSATION-VIEWER-REFRESH-001 retains stale content after a watched fail
             return outline(
                 sessionId,
                 outlineCount < 3 ? ['input-1'] : ['input-1', 'input-2'],
-                outlineCount < 3
-                    ? {}
-                    : { totalInteractions: 2_001, partial: true }
+                {
+                    sourceRevision: outlineCount === 1 ? 'r1' : 'r2',
+                    ...(outlineCount < 3
+                        ? {}
+                        : { totalInteractions: 2_001, partial: true }),
+                }
             );
         },
         readPage: request => {
@@ -690,7 +693,8 @@ test('CONVERSATION-VIEWER-REFRESH-001 retains stale content after a watched fail
             return Promise.resolve(page(
                 request.sessionId,
                 request.anchorInteractionId,
-                readCount === 1 ? 'visible-initial' : 'visible-recovered'
+                readCount === 1 ? 'visible-initial' : 'visible-recovered',
+                { sourceRevision: request.expectedRevision }
             ));
         },
     });
@@ -713,6 +717,43 @@ test('CONVERSATION-VIEWER-REFRESH-001 retains stale content after a watched fail
     assert.equal(publication.html.includes('visible-recovered'), true);
     assert.equal(publication.totalInputs, 2_000);
     assert.equal(publication.partial, true);
+});
+
+test('CONVERSATION-READING-FOCUS-001 ignores watched refreshes when the authoritative source revision is unchanged', async () => {
+    let onChange;
+    let outlineReads = 0;
+    let pageReads = 0;
+    const { viewer, panel } = createViewer({
+        watch: (_provider, _sessionId, callback) => {
+            onChange = callback;
+            return { dispose() {} };
+        },
+        readOutline: async (_provider, sessionId) => {
+            outlineReads += 1;
+            return outline(sessionId, ['input-1'], { sourceRevision: 'stable-r1' });
+        },
+        readPage: async request => {
+            pageReads += 1;
+            return page(
+                request.sessionId,
+                request.anchorInteractionId,
+                `visible-${pageReads}`,
+                { sourceRevision: request.expectedRevision }
+            );
+        },
+    });
+
+    await viewer.open(target('session-a', 'input-1', {
+        expectedRevision: 'stable-r1',
+    }));
+    onChange();
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.equal(outlineReads, 2);
+    assert.equal(pageReads, 1);
+    assert.equal(panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page').length, 0);
+    assert.equal(panel.webview.html.includes('visible-1'), true);
 });
 
 test('CONVERSATION-VIEWER-LOADING-001 coalesces watched invalidations without starving the initial publication', async t => {
@@ -929,9 +970,9 @@ test('CONVERSATION-VIEWER-AUTHORITY-005 keeps a failed watch rebuild suspended a
     publication = panel.postedMessages.filter(message =>
         message.type === 'conversation-viewer-page').at(-1);
     assert.equal(outlineReads, readsBeforeFailedResume.outline + 2);
-    assert.equal(pageReads, readsBeforeFailedResume.page + 2);
+    assert.equal(pageReads, readsBeforeFailedResume.page + 1);
     assert.equal(publication.stale, false);
-    assert.equal(publication.html.includes('visible-3'), true);
+    assert.equal(publication.html.includes('visible-2'), true);
 });
 
 test('CONVERSATION-VIEWER-AUTHORITY-004 reconciliation after panel close is an idempotent no-op', async () => {

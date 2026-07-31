@@ -808,8 +808,11 @@ test('PRODUCTION-CONVERSATION-LIFECYCLE-001 hidden sidebar keeps the exact viewe
     await harness.reconcile();
     const readsAfterStopped = harness.events.filter(event =>
         event === 'read-outline:codex' || event === 'read-page:codex'
-    ).length;
-    assert.equal(readsAfterStopped, readsBeforeLifecycle + 2);
+    );
+    assert.deepEqual(
+        readsAfterStopped.slice(readsBeforeLifecycle),
+        ['read-outline:codex']
+    );
     assert.equal(harness.panels.length, 1);
 
     targetAvailable = false;

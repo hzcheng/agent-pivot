@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "fed784c668dc7cf1dade22270d23565e485751a4",
+        "head": "33b7f5ae707f757762878bf4c5f24342c2fdb321",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -979,7 +979,8 @@
         "2083ec487f4e3bd894614cb2bac3053e9c020636",
         "e2c8e97cc289445e9506364a6e44f012c9dbf0bc",
         "b9a911e41f924864633f0e7b9c4552e1405b534c",
-                "cc399e86dc85f92bad836769bd93c420e08695e3"
+                "cc399e86dc85f92bad836769bd93c420e08695e3",
+                "33b7f5ae707f757762878bf4c5f24342c2fdb321"
             ],
             "behaviors": [
                 "SESSION-AI-SESSION-CONVERSATION-ADAPTER-001",
@@ -992,6 +993,7 @@
                 "CONVERSATION-VIEWER-LOADING-001",
                 "CONVERSATION-PROTOCOL-VALIDATOR-001",
                 "CONVERSATION-REFRESH-PERFORMANCE-001",
+                "CONVERSATION-LARGE-SESSION-PERFORMANCE-001",
                 "CONVERSATION-COMMENTS-DOM-STABILITY-001",
                 "CONVERSATION-OUTLINE-DELIVERY-001",
                 "CONVERSATION-VIEWER-USER-EMPHASIS-001",

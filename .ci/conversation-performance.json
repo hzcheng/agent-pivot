@@ -1,0 +1,10 @@
+{
+  "adapterColdOutlineMs": 1500,
+  "adapterCachedOutlineMs": 100,
+  "adapterAppendMs": 250,
+  "hostInitialPublicationMs": 250,
+  "hostIncrementalRefreshMs": 150,
+  "hostSessionSwitchMs": 250,
+  "webviewInitialPublicationMs": 500,
+  "webviewIncrementalRefreshMs": 250
+}

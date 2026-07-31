@@ -43,8 +43,37 @@ test('正文含项目、会话、时长、主机与短码', () => {
     assert.match(body, /#K7M2QX/u);
 });
 
-test('正文不含任何路径分隔符开头的绝对路径', () => {
-    assert.doesNotMatch(renderNotifyBody(payload), /\s\/[A-Za-z]/u);
+test('正文包含的元数据精确匹配预期格式', () => {
+    const sentinelPayload = {
+        eventId: 'claude:018f:completed:EVENTID_SENTINEL',
+        correlationId: 'CORRSN',
+        providerId: 'claude',
+        reason: 'completed',
+        projectLabel: 'PROJ_SENTINEL',
+        sessionLabel: 'SESS_SENTINEL',
+        hostLabel: 'HOST_SENTINEL',
+        runStartedAtMs: 0,
+        occurredAtMs: 300000,
+    };
+    const body = renderNotifyBody(sentinelPayload);
+    const expected = '项目  PROJ_SENTINEL\n会话  SESS_SENTINEL\n原因  已完成 · 已运行 5 分钟\n主机  HOST_SENTINEL\nID    #CORRSN';
+    assert.equal(body, expected);
+});
+
+test('正文不包含原始 eventId', () => {
+    const sentinelPayload = {
+        eventId: 'claude:018f:completed:EVENTID_SENTINEL',
+        correlationId: 'CORRSN',
+        providerId: 'claude',
+        reason: 'completed',
+        projectLabel: 'PROJ_SENTINEL',
+        sessionLabel: 'SESS_SENTINEL',
+        hostLabel: 'HOST_SENTINEL',
+        runStartedAtMs: 0,
+        occurredAtMs: 300000,
+    };
+    const body = renderNotifyBody(sentinelPayload);
+    assert.doesNotMatch(body, /EVENTID_SENTINEL/u);
 });
 
 test('合并标题含数量', () => {

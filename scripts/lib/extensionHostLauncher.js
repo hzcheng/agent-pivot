@@ -3,6 +3,7 @@
 const fs = require('node:fs');
 const crypto = require('node:crypto');
 const childProcess = require('node:child_process');
+const os = require('node:os');
 const path = require('node:path');
 const {
     resolveCliArgsFromVSCodeExecutablePath,
@@ -22,6 +23,14 @@ const OWNERSHIP_MARKER = '.agent-pivot-extension-host-test';
 const OWNERSHIP_VALUE = 'owned temporary extension host test directory\n';
 const MAIN_EXTENSION_ID = 'hzcheng.agent-pivot';
 const BRIDGE_EXTENSION_ID = 'hzcheng.agent-pivot-attention-ui-bridge';
+
+function extensionHostTemporaryRootPrefix(
+    platform = process.platform,
+    tempDirectory = os.tmpdir()
+) {
+    const parent = platform === 'darwin' ? '/tmp' : tempDirectory;
+    return path.join(parent, 'ap-eh-');
+}
 
 function readJson(filePath) {
     return JSON.parse(fs.readFileSync(filePath, 'utf8'));
@@ -390,6 +399,7 @@ module.exports = {
     createExtensionHostTestEnvironment,
     createExtensionPackagePlan,
     createRunTestsOptions,
+    extensionHostTemporaryRootPrefix,
     installPackagedExtensions,
     removeExtensionHostTestEnvironment,
     runWorkerWithWatchdog,

@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "c8a7eed9ea72dac0c99c8aadfa4c32ac153adb06",
+        "head": "1bbfa2dfe4f33250279937843dd1a46bacdcba4d",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -55,7 +55,10 @@
             "a9618126564283fbf57d408541796ed41d6bdc68",
             "024c6be9e460ac9ef3e80f40faef9488eb542fcb",
             "35a3e2e3a2bddc828277b30e94d5ecc5ce63a7aa",
-            "acbd2a3166504fc42fc20c8b0e1874f3ec09c092"
+            "acbd2a3166504fc42fc20c8b0e1874f3ec09c092",
+            "87304b6b77e3d90d21019a80c43a60f2e3785fda",
+            "ee9a44d87a6ea423739c2781f913d276c369c48d",
+            "239f99c25af02e2176f9a5b6bd8ef7f5c8933495"
         ]
     },
     "capabilities": [
@@ -604,7 +607,8 @@
                 "c1f661c546f87c8fefcb17d4d3929d9adc46cd35",
                 "2bb3a1c255c2bb97809889d9d879d135b371e2ce",
                 "f51aa569d4adb1dd750947181008c3764dbe6163",
-                "289779463fe347fba05bd3655ceded5189612f44"
+                "289779463fe347fba05bd3655ceded5189612f44",
+                "eb60d0cc5b8aaa9e3f04d797f4d790f40999e378"
             ],
             "behaviors": [
                 "ATTENTION-ACTIVE-UNREGISTER-ON-DEACTIVATE-001",
@@ -617,7 +621,8 @@
                 "ATTENTION-EXECUTION-STATE-SYNC-001",
                 "ATTENTION-BRIDGE-STALENESS-001",
                 "SESSION-CLAUDE-SESSION-SERVICE-001",
-                "SESSION-CODEX-SESSION-SERVICE-001"
+                "SESSION-CODEX-SESSION-SERVICE-001",
+                "SESSION-FINGERPRINT-HASH-001"
             ],
             "prGates": [
                 "test:deterministic:run"
@@ -847,7 +852,8 @@
                 "012f7c36e32b9f70d42c1679f9c2432b1ca50372",
                 "8ce06a6948bb7c7f8ed7359501d3e75dfccbe953",
                 "b24c9daacd6c4b37d9ccb696cbded22d60f5cc0c",
-                "b582d61f6bbe66a84bc9c4ad6b01c2e16eb95bf2"
+                "b582d61f6bbe66a84bc9c4ad6b01c2e16eb95bf2",
+                "1bbfa2dfe4f33250279937843dd1a46bacdcba4d"
             ],
             "behaviors": [
                 "ARCH-CI-QUALITY-GATE-001",

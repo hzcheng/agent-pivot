@@ -3596,45 +3596,22 @@
     ]
   },
   {
-    "id": "ACTIVE-SESSION-CONVERSATION-OUTLINE-001",
+    "id": "ACTIVE-SESSION-CONVERSATION-OPEN-001",
     "domain": "webview",
-    "title": "Focused conversation outlines apply only correlated results and expose safe marker navigation",
+    "title": "Clicking a focused Active Session opens its AI Conversation at the latest user input",
     "priority": "P0",
     "status": "automated",
     "owners": [
+      "tests/integration/dashboard/sessionCardInteraction.test.js",
       "tests/integration/dashboard/webviewState.test.js",
-      "tests/browser/activeSessionConversationOutline.test.js"
+      "tests/integration/dashboard/conversationRouting.test.js",
+      "tests/browser/activeSessionCardInteraction.test.js"
     ],
     "evidence": [
+      "src/webview/webviewContent.ts",
       "src/webview/webviewProjectScripts.js",
-      "media/styles.scss"
-    ]
-  },
-  {
-    "id": "ACTIVE-SESSION-CONVERSATION-LAYOUT-001",
-    "domain": "webview",
-    "title": "Focused conversation expansion measures visible content and bounds only its rail",
-    "priority": "P0",
-    "status": "automated",
-    "owners": [
-      "tests/browser/activeSessionConversationOutline.test.js"
-    ],
-    "evidence": [
-      "src/webview/webviewProjectScripts.js",
-      "media/styles.scss"
-    ]
-  },
-  {
-    "id": "ACTIVE-SESSION-CONVERSATION-RESTORE-001",
-    "domain": "webview",
-    "title": "Authoritative current-workspace replacement restores or cancels ephemeral conversation expansion",
-    "priority": "P0",
-    "status": "automated",
-    "owners": [
-      "tests/browser/activeSessionConversationOutline.test.js"
-    ],
-    "evidence": [
-      "src/webview/webviewProjectScripts.js"
+      "src/dashboard.ts",
+      "src/aiSessions/conversation/composition.ts"
     ]
   },
   {
@@ -3644,7 +3621,7 @@
     "priority": "P0",
     "status": "automated",
     "owners": [
-      "tests/browser/activeSessionConversationOutline.test.js"
+      "tests/browser/activeSessionCardInteraction.test.js"
     ],
     "evidence": [
       "src/webview/webviewProjectScripts.js"
@@ -3689,21 +3666,7 @@
       "tests/contract/aiSessions/conversationCoordinator.test.js"
     ],
     "evidence": [
-      "src/aiSessions/conversation/coordinator.ts",
-      "src/aiSessions/conversation/conversationHostController.ts"
-    ]
-  },
-  {
-    "id": "SESSION-CONVERSATION-LOADING-001",
-    "domain": "session",
-    "title": "Repeated dashboard reconciliation cannot starve an in-flight conversation outline",
-    "priority": "P0",
-    "status": "automated",
-    "owners": [
-      "tests/contract/aiSessions/conversationCoordinator.test.js"
-    ],
-    "evidence": [
-      "src/aiSessions/conversation/conversationHostController.ts"
+      "src/aiSessions/conversation/coordinator.ts"
     ]
   },
   {
@@ -3721,22 +3684,6 @@
       "src/aiSessions/conversation/codexAdapter.ts",
       "src/aiSessions/conversation/kimiAdapter.ts",
       "src/aiSessions/conversation/claudeAdapter.ts"
-    ]
-  },
-  {
-    "id": "WEBVIEW-AI-SESSION-CONVERSATION-OUTLINE-001",
-    "domain": "webview",
-    "title": "One focused Active Session expands into a correlated user-input outline",
-    "priority": "P0",
-    "status": "automated",
-    "owners": [
-      "tests/integration/dashboard/sessionCardInteraction.test.js",
-      "tests/browser/activeSessionConversationOutline.test.js"
-    ],
-    "evidence": [
-      "src/webview/webviewContent.ts",
-      "src/webview/webviewProjectScripts.js",
-      "media/styles.scss"
     ]
   },
   {
@@ -3811,20 +3758,6 @@
       ".ci/conversation-performance.json",
       "src/aiSessions/conversation/viewer.ts",
       "src/webview/conversationViewerScripts.js"
-    ]
-  },
-  {
-    "id": "CONVERSATION-OUTLINE-DELIVERY-001",
-    "domain": "webview",
-    "title": "Undelivered initial conversation outline results remain retryable after authoritative Dashboard replacement instead of stranding Loading",
-    "priority": "P0",
-    "status": "automated",
-    "owners": [
-      "tests/integration/dashboard/conversationRouting.test.js"
-    ],
-    "evidence": [
-      "src/aiSessions/conversation/conversationHostController.ts",
-      "src/webview/webviewProjectScripts.js"
     ]
   },
   {

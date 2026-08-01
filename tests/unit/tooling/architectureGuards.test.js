@@ -417,24 +417,6 @@ for (const mutation of [
     },
     {
         id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',
-        file: 'src/webview/webviewProjectScripts.js',
-        expectedDetail: 'conversation markers must not render prompt-bearing HTML',
-        mutate: source => source.replace(
-            'previewNode.textContent = preview;',
-            'previewNode.innerHTML = preview;'
-        ),
-    },
-    {
-        id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',
-        file: 'src/webview/webviewProjectScripts.js',
-        expectedDetail: 'conversation markers must not render prompt-bearing HTML',
-        mutate: source => source.replace(
-            'previewNode.textContent = preview;',
-            'previewNode.innerHTML = String(preview);'
-        ),
-    },
-    {
-        id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',
         file: 'src/aiSessions/conversation/codexAppServerClient.ts',
         expectedDetail: 'app-server stderr and responses must never be logged',
         mutate: source => source.replace(

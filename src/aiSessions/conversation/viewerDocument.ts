@@ -116,12 +116,9 @@ export function renderConversationViewerDocument(
             <button type="button" data-action="previous">Previous</button>
             <button type="button" data-action="next">Next</button>
             <button type="button" data-action="latest">Latest</button>
-            <button type="button" data-action="toggle-outline"
+            <button type="button" data-action="toggle-sidebar"
                 aria-controls="conversation-sidebar"
-                aria-expanded="true">Outline (0)</button>
-            <button type="button" data-action="toggle-comments"
-                aria-controls="conversation-sidebar"
-                aria-expanded="false">Comments (0)</button>
+                aria-expanded="false" aria-label="Show side panel">Sidebar</button>
             <button type="button" data-action="close">Close</button>
         </nav>
     </header>
@@ -129,17 +126,17 @@ export function renderConversationViewerDocument(
     <div class="conversation-status" data-conversation-status aria-live="polite">${escapeHtml(
         initialStatus
     )}</div>
-    <div class="conversation-workspace">
+    <div class="conversation-workspace" data-comments-open="false">
         <main class="conversation-scroll" data-conversation-scroll tabindex="0">
             <div class="conversation-messages" data-conversation-messages></div>
         </main>
         <div class="conversation-comments-resizer" data-comments-resizer
             role="separator" aria-label="Resize side panel"
             aria-orientation="vertical" aria-valuemin="192"
-            aria-valuemax="420" aria-valuenow="240" tabindex="0"></div>
+            aria-valuemax="420" aria-valuenow="240" tabindex="0" hidden></div>
         <aside id="conversation-sidebar"
             class="conversation-sidebar" data-conversation-sidebar
-            aria-label="Conversation side panel">
+            aria-label="Conversation side panel" hidden>
             <div class="conversation-sidebar-tabs" role="tablist"
                 aria-label="Conversation side panel">
                 <button type="button" role="tab" data-sidebar-tab="outline"

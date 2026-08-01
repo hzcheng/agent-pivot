@@ -50,11 +50,8 @@
     var next = document.querySelector('[data-action="next"]');
     var latest = document.querySelector('[data-action="latest"]');
     var close = document.querySelector('[data-action="close"]');
-    var outlineToggle = document.querySelector(
-        '[data-action="toggle-outline"]'
-    );
-    var commentsToggle = document.querySelector(
-        '[data-action="toggle-comments"]'
+    var sidebarToggle = document.querySelector(
+        '[data-action="toggle-sidebar"]'
     );
     var commentsWorkspace = document.querySelector('.conversation-workspace');
     var commentsResizer = document.querySelector('[data-comments-resizer]');
@@ -94,7 +91,7 @@
     );
     var addComment = document.querySelector('[data-add-comment]');
     var commentTarget = readJsonAttribute('data-conversation-target');
-    var sidebarUiAvailable = !!outlineToggle && !!commentsToggle
+    var sidebarUiAvailable = !!sidebarToggle
         && !!commentsWorkspace && !!commentsResizer && !!sidebarRoot
         && sidebarTabs.length === 2 && !!sidebarClose && !!outlineRoot
         && !!outlineCount && !!outlineSummary && !!outlineSearch
@@ -158,8 +155,7 @@
     var sidebarController = window.__agentPivotConversationSidebar.create({
         available: sidebarUiAvailable,
         vscodeApi: vscodeApi,
-        outlineToggle: outlineToggle,
-        commentsToggle: commentsToggle,
+        sidebarToggle: sidebarToggle,
         commentsWorkspace: commentsWorkspace,
         commentsResizer: commentsResizer,
         sidebarRoot: sidebarRoot,
@@ -169,12 +165,6 @@
         commentsRoot: commentsRoot,
         outlineQuery: function () {
             return outlineController.query();
-        },
-        outlineSize: function () {
-            return outlineController.size();
-        },
-        openComments: function () {
-            return commentsController.openCount();
         },
     });
     var outlineController = window.__agentPivotConversationOutline.create({

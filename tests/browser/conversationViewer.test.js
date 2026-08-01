@@ -984,13 +984,15 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 filters the current Session outline an
     const sidebar = page.locator('[data-conversation-sidebar]');
     const outline = page.locator('[data-conversation-outline]');
     const comments = page.locator('[data-conversation-comments]');
-    const outlineToggle = page.locator('[data-action="toggle-outline"]');
-    const commentsToggle = page.locator('[data-action="toggle-comments"]');
+    const sidebarToggle = page.locator('[data-action="toggle-sidebar"]');
 
+    assert.equal(await sidebar.isHidden(), true);
+    assert.equal(await sidebarToggle.getAttribute('aria-expanded'), 'false');
+    await sidebarToggle.click();
     assert.equal(await sidebar.isVisible(), true);
     assert.equal(await outline.isVisible(), true);
     assert.equal(await comments.isHidden(), true);
-    assert.equal(await outlineToggle.getAttribute('aria-expanded'), 'true');
+    assert.equal(await sidebarToggle.getAttribute('aria-expanded'), 'true');
     assert.equal(await page.locator('[data-outline-interaction-id]').count(), 4);
     assert.equal(
         await page.locator(
@@ -1054,7 +1056,7 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 filters the current Session outline an
     await outlineTab.press('ArrowRight');
     assert.equal(await outline.isHidden(), true);
     assert.equal(await comments.isVisible(), true);
-    assert.equal(await commentsToggle.getAttribute('aria-expanded'), 'true');
+    assert.equal(await sidebarToggle.getAttribute('aria-expanded'), 'true');
     assert.equal(await sidebar.isVisible(), true);
     assert.equal(
         await page.evaluate(() =>
@@ -1068,9 +1070,12 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 filters the current Session outline an
         await page.evaluate(() =>
             document.activeElement?.getAttribute('data-action')
         ),
-        'toggle-comments'
+        'toggle-sidebar'
     );
-    await outlineToggle.click();
+    await sidebarToggle.click();
+    assert.equal(await comments.isVisible(), true);
+    assert.equal(await outline.isHidden(), true);
+    await page.locator('[data-sidebar-tab="outline"]').click();
     assert.equal(await outline.isVisible(), true);
     assert.equal(await comments.isHidden(), true);
 });
@@ -1099,6 +1104,7 @@ test('CONVERSATION-OUTLINE-BOOKMARKS-001 settles stars authoritatively, filters 
         '[data-outline-bookmark-id="input-1"]'
     );
 
+    await page.locator('[data-action="toggle-sidebar"]').click();
     assert.deepEqual(await orderedIds(), interactionIds);
     const leftGeometry = await page.evaluate(() => {
         const outline = document.querySelector('[data-conversation-outline]');
@@ -1213,14 +1219,15 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 CONVERSATION-COMMENTS-LAYOUT-001 share
         },
     };
     const { page } = await openHostViewerDocument(t, options);
-    const outlineToggle = page.locator('[data-action="toggle-outline"]');
-    const commentsToggle = page.locator('[data-action="toggle-comments"]');
+    const sidebarToggle = page.locator('[data-action="toggle-sidebar"]');
     const panel = page.locator('[data-conversation-sidebar]');
     const comments = page.locator('[data-conversation-comments]');
     const resizer = page.locator('[data-comments-resizer]');
 
-    assert.equal(await outlineToggle.getAttribute('aria-expanded'), 'true');
-    assert.equal(await commentsToggle.getAttribute('aria-expanded'), 'false');
+    assert.equal(await sidebarToggle.getAttribute('aria-expanded'), 'false');
+    assert.equal(await panel.isHidden(), true);
+    await sidebarToggle.click();
+    assert.equal(await sidebarToggle.getAttribute('aria-expanded'), 'true');
     assert.equal(await panel.isVisible(), true);
     assert.equal(await comments.isHidden(), true);
     assert.equal(await resizer.getAttribute('aria-valuenow'), '240');
@@ -1240,8 +1247,8 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 CONVERSATION-COMMENTS-LAYOUT-001 share
         }
     );
 
-    await outlineToggle.click();
-    assert.equal(await outlineToggle.getAttribute('aria-expanded'), 'false');
+    await sidebarToggle.click();
+    assert.equal(await sidebarToggle.getAttribute('aria-expanded'), 'false');
     assert.equal(await panel.isHidden(), true);
     assert.equal(await resizer.isHidden(), true);
     assert.deepEqual(
@@ -1263,7 +1270,7 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 CONVERSATION-COMMENTS-LAYOUT-001 share
         },
     });
     const restoredToggle = restored.page.locator(
-        '[data-action="toggle-comments"]'
+        '[data-action="toggle-sidebar"]'
     );
     assert.equal(await restoredToggle.getAttribute('aria-expanded'), 'false');
     assert.equal(
@@ -1381,20 +1388,17 @@ test('CONVERSATION-COMMENTS-DOM-STABILITY-001 keeps the Conversation DOM intact 
     });
 
     await page.evaluate(() => {
-        const outlineToggle = document.querySelector(
-            '[data-action="toggle-outline"]'
-        );
-        const commentsToggle = document.querySelector(
-            '[data-action="toggle-comments"]'
+        const sidebarToggle = document.querySelector(
+            '[data-action="toggle-sidebar"]'
         );
         const resizer = document.querySelector('[data-comments-resizer]');
         for (let index = 0; index < 100; index += 1) {
-            commentsToggle.click();
+            sidebarToggle.click();
             resizer.dispatchEvent(new KeyboardEvent('keydown', {
                 key: index % 2 === 0 ? 'ArrowLeft' : 'ArrowRight',
                 bubbles: true,
             }));
-            outlineToggle.click();
+            sidebarToggle.click();
         }
     });
     await page.evaluate(() => new Promise(resolve => {
@@ -1694,8 +1698,8 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-REVIEW-001 CONVERSATION
     assert.equal(await page.locator('[data-comment-id]').count(), 2);
     assert.equal(await page.locator('[data-comment-count]').textContent(), '2');
     assert.equal(
-        await page.locator('[data-action="toggle-comments"]').textContent(),
-        'Comments (2 open)'
+        await page.locator('[data-comment-summary]').textContent(),
+        '2 open'
     );
     const commentToolbar = page.locator('[data-comments-toolbar]');
     assert.equal(await commentToolbar.count(), 1);
@@ -1923,9 +1927,9 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-REVIEW-001 CONVERSATION
     assert.equal(reopen.operation, 'reopen');
     comments[0].status = 'open';
     await settle(reopen, 5, comments);
-    assert.equal(
-        await page.locator('[data-action="toggle-comments"]').textContent(),
-        'Comments (1 open)'
+    assert.ok(
+        (await page.locator('[data-comment-summary]').textContent())
+            .includes('1 open')
     );
     assert.equal(
         await page.locator('[data-comment-action="send"]').isEnabled(),

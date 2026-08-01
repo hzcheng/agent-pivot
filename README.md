@@ -31,7 +31,9 @@ window picker when a direct workspace target cannot be established safely.
 ## Agent sessions
 
 Open the current workspace card to see `ACTIVE` and `SESSIONS`. Active rows
-focus an existing terminal or attach to an existing managed tmux runtime.
+focus an existing terminal or attach to an existing managed tmux runtime;
+selecting the already-focused Active row opens its AI Conversation at the
+latest input.
 Inactive history rows resume the selected provider session. For multi-root
 workspaces, Agent Pivot uses the provider's native additional-directory option
 so the session can work with all workspace folders.

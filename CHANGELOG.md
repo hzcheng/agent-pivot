@@ -2,6 +2,18 @@
 
 All notable changes to the "Agent Pivot" extension will be documented in this file. It follows the [Keep a Changelog](http://keepachangelog.com/) recommendations.
 
+## [Unreleased]
+
+### Changed
+
+- Clicking an already-focused Active Session now opens its AI Conversation at
+  the latest input instead of expanding an inline outline; the inline
+  conversation outline rail was removed in favor of the richer outline built
+  into the AI Conversation viewer.
+- The AI Conversation side panel now starts closed, and the former Outline and
+  Comments header buttons were merged into a single Sidebar toggle that reopens
+  the panel on the last active tab.
+
 ## [1.0.1] - 2026-07-31
 
 ### Added

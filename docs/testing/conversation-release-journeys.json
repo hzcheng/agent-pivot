@@ -69,8 +69,7 @@
       "title": "Comments and Outline controls remain operable at narrow reviewed widths",
       "enforcement": "pull-request",
       "behaviors": [
-        "CONVERSATION-COMMENTS-LAYOUT-001",
-        "WEBVIEW-AI-SESSION-CONVERSATION-OUTLINE-001"
+        "CONVERSATION-COMMENTS-LAYOUT-001"
       ]
     },
     {

@@ -33,7 +33,6 @@ import type {
     AiSessionViewModel,
 } from '../aiSessions/types';
 import { projectAiSessionHistory } from '../aiSessions/historyProjection';
-import { CONVERSATION_LIMITS } from '../aiSessions/conversation/types';
 import type { OpenWorkspaceBridgeStatus } from '../openWorkspaces/bridgeClient';
 import { removeWorkspaceWindowDecorations } from '../workspaces/contextResolver';
 
@@ -1181,17 +1180,23 @@ function getActiveAiSessionRow(
         ? ` data-ai-session-attention data-session-event-id="${escapeAttribute(model.attentionEventId)}"`
         : '';
     var runtimeAttributes = ` data-session-backend="${model.backend}" data-session-attached="${model.attached ? 'true' : 'false'}"${model.tmuxLayout ? ` data-tmux-layout="${model.tmuxLayout}"` : ''}${model.conflict ? ' data-session-conflict' : ''}${model.stale ? ' data-session-stale' : ''}`;
+    var hasOpenConversationHint = model.focused && !model.pending;
     var rowAction = model.backend === 'tmux'
         ? (model.attached ? 'Focus' : 'Attach or focus')
         : 'Focus';
-    var primaryAction = conflict ? 'Choose runtime' : model.pending ? 'Focus pending' : rowAction;
+    var primaryAction = conflict ? 'Choose runtime' : model.pending ? 'Focus pending' : hasOpenConversationHint ? 'Open conversation' : rowAction;
     var runtimeDescription = conflict ? 'runtime conflict'
         : model.backend === 'tmux'
             ? `tmux ${model.tmuxLayout || 'unknown'} layout, ${model.attached ? 'attached' : 'detached'}`
             : `Direct VS Code terminal, ${model.attached ? 'attached' : 'detached'}`;
     var primaryAriaLabel = conflict
         ? `Choose runtime for ${providerLabel} session ${sessionName}, runtime conflict`
-        : `${primaryAction} ${providerLabel} session ${sessionName} using ${runtimeDescription}`;
+        : hasOpenConversationHint
+            ? `Open AI conversation for ${providerLabel} session ${sessionName}`
+            : `${primaryAction} ${providerLabel} session ${sessionName} using ${runtimeDescription}`;
+    var primaryTitle = hasOpenConversationHint
+        ? `Open AI conversation for ${providerLabel} Session`
+        : `${primaryAction} ${providerLabel} Session`;
     if (model.stale) {
         primaryAriaLabel += ', runtime status is stale';
     }
@@ -1201,33 +1206,20 @@ function getActiveAiSessionRow(
     var rootChip = showRootChip && model.primaryRootLabel
         ? `<span class="ai-session-root-chip">${escapeAttribute(sanitizeProjectName(model.primaryRootLabel))}</span>`
         : '';
-    var hasConversationShell = model.focused && !model.pending;
-    var conversationPanelId = `ai-session-conversation-${escapeAttribute(projectId)}-${model.provider}-${sessionId}`;
-    var conversationButtonAttributes = hasConversationShell
-        ? ` aria-expanded="false" aria-controls="${conversationPanelId}"`
-        : '';
-    var conversationChevron = hasConversationShell
-        ? '<span class="ai-session-conversation-chevron" aria-hidden="true">›</span>'
-        : '';
-    var conversationPanel = hasConversationShell
-        ? `<section id="${conversationPanelId}" class="ai-session-conversation-panel" data-ai-session-conversation-panel aria-label="Conversation" hidden>
-            <header><span>Conversation</span><span data-ai-session-conversation-count>0</span></header>
-            <div class="ai-session-conversation-loading" role="status">Loading conversation…</div>
-            <div class="ai-session-conversation-rail" data-ai-session-conversation-rail data-auto-scroll-threshold="${CONVERSATION_LIMITS.autoScrollThresholdPx}" role="listbox" aria-label="User inputs" hidden></div>
-        </section>`
+    var openConversationHint = hasOpenConversationHint
+        ? '<span class="ai-session-open-conversation-hint" aria-hidden="true">›</span>'
         : '';
     return `<div class="codex-session-row active-ai-session-row" role="group" aria-label="${providerLabel} session ${sessionName}" data-session-provider="${model.provider}" data-execution-state="${model.executionState}"${iconFx ? ` data-session-icon-fx="${iconFx}"` : ''}${runtimeAttributes}${rootAttributes}${pendingAttributes}${model.pinned ? ' data-session-pinned' : ''}${model.focused ? ' data-session-focused' : ''}${model.needsAttention ? ' data-session-needs-attention' : ''}${attentionAttributes}>
-        <button type="button" class="ai-session-primary-action" data-action="activate-ai-session" aria-label="${primaryAriaLabel}" title="${primaryAction} ${providerLabel} Session"${conversationButtonAttributes}>
+        <button type="button" class="ai-session-primary-action" data-action="activate-ai-session" aria-label="${primaryAriaLabel}" title="${primaryTitle}">
             ${attentionIndicator}
             <span class="codex-session-icon">${getAiProviderIcon(model.provider)}</span>
             <span class="codex-session-text">
                 <span class="codex-session-title-line">${runtimeBadge}<span class="codex-session-name">${sessionName}</span>${rootChip}</span>
                 <span class="codex-session-meta">${metadata}</span>
             </span>
-            ${conversationChevron}
+            ${openConversationHint}
         </button>
         <span class="codex-session-actions">${pinAction}${terminalAction}</span>
-        ${conversationPanel}
     </div>`;
 }
 

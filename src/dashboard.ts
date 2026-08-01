@@ -92,7 +92,7 @@ import {
 } from './aiSessions/conversation/composition';
 import {
     withConversationDisplayMetadata,
-} from './aiSessions/conversation/conversationHostController';
+} from './aiSessions/conversation/displayMetadata';
 import {
     submitConversationPrompt,
 } from './aiSessions/conversation/submission';
@@ -1455,12 +1455,19 @@ async function initializeDashboard(
         },
     }));
     const conversationHandlers = {
-        'request-ai-session-conversation-outline': message =>
-            conversationCapability.controller.handleOutline(message),
-        'open-ai-session-conversation': message =>
-            conversationCapability.controller.handleOpen(message),
-        'cancel-ai-session-conversation': message =>
-            conversationCapability.controller.cancel(message),
+        'open-active-ai-session-conversation': async (e: Record<string, unknown>) => {
+            if (e.version !== 1
+                || (e.provider !== 'codex' && e.provider !== 'kimi' && e.provider !== 'claude')
+                || typeof e.projectId !== 'string' || !e.projectId.trim()
+                || typeof e.sessionId !== 'string' || !e.sessionId.trim()) {
+                return;
+            }
+            await openAiSessionConversationWithFeedback({
+                projectId: e.projectId,
+                provider: e.provider,
+                sessionId: e.sessionId,
+            });
+        },
     };
     const projectHandlers = createProjectMessageHandlers({
         projectService,
@@ -1675,7 +1682,6 @@ async function initializeDashboard(
         renderError: getErrorContent,
         onMessage: dashboardMessageRouter,
         onVisibleChanged: async visible => {
-            conversationCapability.controller.setVisible(visible);
             projectsPanelController?.invalidatePendingUpdates();
             openWorkspaceDashboardController?.invalidatePendingUpdates();
             setAiSessionWatchersActive(visible);
@@ -1693,7 +1699,6 @@ async function initializeDashboard(
             }),
         onDisposed: () => {
             deferredTmuxRestoreRefreshReady = false;
-            conversationCapability.controller.resetView();
         },
         logError,
     };
@@ -2302,11 +2307,19 @@ async function initializeDashboard(
         if (!selected?.sessionId) {
             return;
         }
-        const result = await conversationCapability.openLatestConversation({
+        await openAiSessionConversationWithFeedback({
             projectId: target.cardId,
             provider: selected.provider,
             sessionId: selected.sessionId,
         });
+    }
+
+    async function openAiSessionConversationWithFeedback(target: {
+        projectId: string;
+        provider: AiSessionProviderId;
+        sessionId: string;
+    }): Promise<void> {
+        const result = await conversationCapability.openLatestConversation(target);
         if (result === 'empty') {
             void vscode.window.showInformationMessage(
                 'Agent Pivot: this AI session has no conversation yet.'

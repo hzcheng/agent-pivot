@@ -155,9 +155,6 @@ function constructionFailureHarness(throwAt) {
                 async open() {},
                 async refresh() {},
             },
-        createController: () => throwAt === 'controller'
-            ? maybeThrow('controller')
-            : createResource('controller'),
     });
     return { capability, creations, diagnostics, disposals };
 }
@@ -680,6 +677,7 @@ test('PRODUCTION-CONVERSATION-UNAVAILABLE-001 isolates constructor failures from
     const publications = [];
     const panels = [];
     const spawns = [];
+    const openResults = [];
     let unrelatedRoutes = 0;
     const service = unavailableService();
     const capability = createConversationCapability({
@@ -709,12 +707,13 @@ test('PRODUCTION-CONVERSATION-UNAVAILABLE-001 isolates constructor failures from
     });
     const router = createDashboardMessageRouter({
         handlers: {
-            'request-ai-session-conversation-outline': message =>
-                capability.controller.handleOutline(message),
-            'open-ai-session-conversation': message =>
-                capability.controller.handleOpen(message),
-            'cancel-ai-session-conversation': message =>
-                capability.controller.cancel(message),
+            'open-active-ai-session-conversation': async e => {
+                openResults.push(await capability.openLatestConversation({
+                    projectId: e.projectId,
+                    provider: e.provider,
+                    sessionId: e.sessionId,
+                }));
+            },
             'request-projects-panel': () => {
                 unrelatedRoutes += 1;
             },
@@ -724,10 +723,8 @@ test('PRODUCTION-CONVERSATION-UNAVAILABLE-001 isolates constructor failures from
     assert.equal(capability.availability, 'unavailable');
     await router({ type: 'request-projects-panel' });
     await router({
-        type: 'request-ai-session-conversation-outline',
+        type: 'open-active-ai-session-conversation',
         version: 1,
-        requestId: 1,
-        subscriptionGeneration: 0,
         projectId: 'project-a',
         provider: 'codex',
         sessionId: 'session-a',
@@ -741,8 +738,8 @@ test('PRODUCTION-CONVERSATION-UNAVAILABLE-001 isolates constructor failures from
         JSON.stringify(diagnostics).includes(privateFailure),
         false
     );
-    assert.equal(publications.length, 1);
-    assert.equal(publications[0].error.code, 'unavailable');
+    assert.deepEqual(openResults, ['unavailable']);
+    assert.deepEqual(publications, []);
     assert.deepEqual(panels, []);
     assert.deepEqual(spawns, []);
     capability.dispose();
@@ -788,26 +785,6 @@ for (const scenario of [
         ],
         disposed: ['client', 'codex', 'kimi', 'claude', 'coordinator'],
     },
-    {
-        throwAt: 'controller',
-        created: [
-            'client',
-            'codex',
-            'kimi',
-            'claude',
-            'coordinator',
-            'viewer',
-            'controller:throw',
-        ],
-        disposed: [
-            'client',
-            'codex',
-            'kimi',
-            'claude',
-            'coordinator',
-            'viewer',
-        ],
-    },
 ]) {
     test(`PRODUCTION-CONVERSATION-OWNERSHIP-001 releases each completed owner exactly once when ${scenario.throwAt} construction throws`, () => {
         const harness = constructionFailureHarness(scenario.throwAt);
@@ -847,7 +824,6 @@ test('PRODUCTION-CONVERSATION-OWNERSHIP-002 disposes each steady-state capabilit
         'claude',
         'coordinator',
         'viewer',
-        'controller',
     ];
 
     assert.equal(harness.capability.availability, 'available');

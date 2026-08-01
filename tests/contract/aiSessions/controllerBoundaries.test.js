@@ -325,6 +325,41 @@ test('SESSION-AI-SESSION-EXECUTION-MONITOR-001 ignores duplicate and older event
     assert.deepEqual(monitor.getSnapshot(), {});
 });
 
+test('SESSION-AI-SESSION-EXECUTION-MONITOR-001 degrades running sessions whose transcript stays silent past the stale timeout', () => {
+    let now = 0;
+    const monitor = new AiSessionExecutionMonitor({ now: () => now, staleRunningTimeoutMs: 1000 });
+    const running = { token: 'run-1', occurredAtMs: 0, executionState: 'running' };
+    assert.deepEqual(monitor.evaluate([{ key: 'claude:a', signal: running }]), ['claude:a']);
+    assert.equal(monitor.getSnapshot()['claude:a'].state, 'running');
+
+    now = 500;
+    assert.deepEqual(monitor.evaluate([{ key: 'claude:a', signal: running }]), []);
+    assert.equal(monitor.getSnapshot()['claude:a'].state, 'running');
+
+    now = 1001;
+    assert.deepEqual(monitor.evaluate([{ key: 'claude:a', signal: running }]), ['claude:a']);
+    assert.deepEqual(monitor.getSnapshot()['claude:a'], { state: 'stopped', stateChangedAt: 1001 });
+    assert.deepEqual(monitor.evaluate([{ key: 'claude:a', signal: running }]), []);
+
+    now = 1500;
+    const resumed = { token: 'run-2', occurredAtMs: 1500, executionState: 'running' };
+    assert.deepEqual(monitor.evaluate([{ key: 'claude:a', signal: resumed }]), ['claude:a']);
+    now = 2000;
+    assert.deepEqual(monitor.evaluate([{ key: 'claude:a', signal: resumed }]), []);
+    assert.equal(monitor.getSnapshot()['claude:a'].state, 'running');
+
+    now = 2600;
+    assert.deepEqual(monitor.evaluate([{ key: 'claude:a' }]), ['claude:a']);
+    assert.equal(monitor.getSnapshot()['claude:a'].state, 'stopped');
+
+    now = 3000;
+    const settled = { token: 'done-1', occurredAtMs: 3000, executionState: 'stopped' };
+    assert.deepEqual(monitor.evaluate([{ key: 'claude:a' }, { key: 'codex:b', signal: settled }]), []);
+    now = 6000;
+    assert.deepEqual(monitor.evaluate([{ key: 'claude:a' }, { key: 'codex:b' }]), []);
+    assert.equal(monitor.getSnapshot()['codex:b'].state, 'stopped');
+});
+
 test('ARCH-AI-SESSION-READ-COORDINATOR-001 reads registered providers with bounded diagnostics and deepest assignments', () => {
     let now = 100;
     const diagnostics = [];

@@ -128,8 +128,10 @@ function isUserInterrupt(value: unknown): boolean {
             return typeof block?.text === 'string' ? block.text : '';
         })
         : [typeof value === 'string' ? value : ''];
+    // Claude Code emits sentinel variants such as '[Request interrupted by
+    // user for tool use]' when a tool call is interrupted, so match the prefix.
     return textParts.some(
-        text => text.trim() === '[Request interrupted by user]'
+        text => text.trim().startsWith('[Request interrupted by user')
     );
 }
 

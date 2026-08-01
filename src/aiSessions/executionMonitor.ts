@@ -16,17 +16,22 @@ export interface AiSessionExecutionSnapshot {
     stateChangedAt: number;
 }
 
+const DEFAULT_STALE_RUNNING_TIMEOUT_MS = 30 * 60 * 1000;
+
 interface Entry extends AiSessionExecutionSnapshot {
     lastSignalToken?: string;
     lastOccurredAtMs?: number;
+    lastSignalAtMs: number;
 }
 
 export default class AiSessionExecutionMonitor {
     private readonly entries = new Map<string, Entry>();
     private readonly now: () => number;
+    private readonly staleRunningTimeoutMs: number;
 
-    constructor(options: { now?: () => number } = {}) {
+    constructor(options: { now?: () => number; staleRunningTimeoutMs?: number } = {}) {
         this.now = options.now ?? (() => Date.now());
+        this.staleRunningTimeoutMs = options.staleRunningTimeoutMs ?? DEFAULT_STALE_RUNNING_TIMEOUT_MS;
     }
 
     evaluate(inputs: AiSessionExecutionInput[]): string[] {
@@ -39,21 +44,31 @@ export default class AiSessionExecutionMonitor {
             seen.add(input.key);
             let entry = this.entries.get(input.key);
             if (!entry) {
-                entry = { state: 'stopped', stateChangedAt: this.now() };
+                entry = { state: 'stopped', stateChangedAt: this.now(), lastSignalAtMs: this.now() };
                 this.entries.set(input.key, entry);
             }
 
             const signal = input.signal;
-            if (!acceptsLifecycleSignal(entry, signal)) {
-                continue;
+            if (acceptsLifecycleSignal(entry, signal)) {
+                recordAcceptedLifecycleSignal(entry, signal);
+                entry.lastSignalAtMs = this.now();
+                if (entry.state !== signal.executionState) {
+                    entry.state = signal.executionState;
+                    entry.stateChangedAt = signal.occurredAtMs;
+                    changed.add(input.key);
+                }
             }
-            recordAcceptedLifecycleSignal(entry, signal);
-            if (entry.state === signal.executionState) {
-                continue;
+
+            // Backstop: without a fresh transcript signal for the whole stale
+            // window there is no evidence the session is still running. A
+            // missed terminal event (for example an unrecognised interrupt
+            // marker) would otherwise wedge the running state forever.
+            if (entry.state === 'running'
+                && this.now() - entry.lastSignalAtMs >= this.staleRunningTimeoutMs) {
+                entry.state = 'stopped';
+                entry.stateChangedAt = this.now();
+                changed.add(input.key);
             }
-            entry.state = signal.executionState;
-            entry.stateChangedAt = signal.occurredAtMs;
-            changed.add(input.key);
         }
 
         for (const key of this.entries.keys()) {

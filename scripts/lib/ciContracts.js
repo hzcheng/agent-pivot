@@ -3,8 +3,6 @@
 const assert = require('node:assert/strict');
 const yaml = require('js-yaml');
 
-const MACOS_INTEL_ARCHITECTURE_CHECK = "node -e \"if (process.platform !== 'darwin' || process.arch !== 'x64') throw new Error(process.platform + '/' + process.arch); console.log(process.platform + '/' + process.arch)\"";
-
 function isMapping(value) {
     return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
@@ -157,8 +155,8 @@ function validateScheduledWorkflow(scheduledWorkflow) {
     assert.equal(macos.name, 'scheduled-macos',
         'scheduled-macos must expose the stable check name scheduled-macos');
     assert.equal(macos.needs, 'verify', 'scheduled-macos must need verify');
-    assert.equal(macos['runs-on'], 'macos-15-intel',
-        'scheduled-macos must use macos-15-intel');
+    assert.equal(macos['runs-on'], 'macos-15',
+        'scheduled-macos must use macos-15');
     assert.equal(macos['timeout-minutes'], 15, 'scheduled-macos timeout-minutes must be 15');
     assert.ok(findStep(macos, step => isMapping(step) && step.uses === 'actions/checkout@v4'),
         'scheduled-macos must use actions/checkout@v4');
@@ -172,10 +170,6 @@ function validateScheduledWorkflow(scheduledWorkflow) {
         'scheduled-macos setup-node step must cache npm');
     assert.ok(findStep(macos, step => isMapping(step) && step.run === 'npm ci'),
         'scheduled-macos must run npm ci');
-    assert.ok(findStep(
-        macos,
-        step => isMapping(step) && step.run === MACOS_INTEL_ARCHITECTURE_CHECK
-    ), 'scheduled-macos must verify macOS Intel architecture');
     assert.ok(findStep(
         macos,
         step => isMapping(step) && step.run === 'npm run test:extension-host'
@@ -204,7 +198,7 @@ function validateReleaseWorkflow(releaseWorkflow) {
     validateJob(
         workflow.jobs,
         'release-extension-host',
-        'macos-15-intel',
+        'macos-15',
         'npm run test:extension-host',
         [],
         false,
@@ -212,10 +206,6 @@ function validateReleaseWorkflow(releaseWorkflow) {
     );
     assert.equal(workflow.jobs['release-extension-host'].needs, 'verify',
         'release-extension-host must need verify');
-    assert.ok(findStep(
-        workflow.jobs['release-extension-host'],
-        step => isMapping(step) && step.run === MACOS_INTEL_ARCHITECTURE_CHECK
-    ), 'release-extension-host must verify macOS Intel architecture');
     const release = workflow.jobs.release;
     assert.ok(isMapping(release), 'GitHub release workflow must define release');
     assert.deepEqual(release.needs, ['verify', 'release-extension-host'],

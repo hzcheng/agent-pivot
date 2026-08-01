@@ -171,13 +171,6 @@ test('ARCH-CI-QUALITY-GATE-001 scheduled Extension Host gate is pinned and block
             /scheduled-macos must run npm ci/,
         ],
         [
-            scheduledWorkflow.replace(
-                "if (process.platform !== 'darwin' || process.arch !== 'x64')",
-                "if (process.platform !== 'darwin')"
-            ),
-            /scheduled-macos must verify macOS Intel architecture/,
-        ],
-        [
             `${scheduledWorkflow}\n    continue-on-error: true\n`,
             /must not define continue-on-error/,
         ],
@@ -186,15 +179,12 @@ test('ARCH-CI-QUALITY-GATE-001 scheduled Extension Host gate is pinned and block
     }
 });
 
-test('RELEASE-SCHEDULED-EXTENSION-HOST-001 pins real Host gates to reviewed macOS 15 Intel', () => {
-    const architectureCheck = "node -e \"if (process.platform !== 'darwin' || process.arch !== 'x64') throw new Error(process.platform + '/' + process.arch); console.log(process.platform + '/' + process.arch)\"";
-    assert.match(scheduledWorkflow, /\n    runs-on: macos-15-intel\n/);
-    assert.ok(scheduledWorkflow.includes(`        run: ${architectureCheck}`));
+test('RELEASE-SCHEDULED-EXTENSION-HOST-001 pins real Host gates to reviewed macOS 15', () => {
+    assert.match(scheduledWorkflow, /\n    runs-on: macos-15\n/);
     assert.match(
         releaseWorkflow,
-        /\n  release-extension-host:\n[\s\S]*?\n    runs-on: macos-15-intel\n/
+        /\n  release-extension-host:\n[\s\S]*?\n    runs-on: macos-15\n/
     );
-    assert.ok(releaseWorkflow.includes(`        run: ${architectureCheck}`));
 });
 
 test('RELEASE-CONVERSATION-JOURNEYS-001 release publishing needs installed VSIX activation', () => {
@@ -215,10 +205,10 @@ test('RELEASE-CONVERSATION-JOURNEYS-001 release publishing needs installed VSIX 
     );
     assert.throws(
         () => validateReleaseWorkflow(releaseWorkflow.replace(
-            '    runs-on: macos-15-intel',
+            '    runs-on: macos-15',
             '    runs-on: ubuntu-latest'
         )),
-        /release-extension-host must use macos-15-intel/
+        /release-extension-host must use macos-15/
     );
     assert.throws(
         () => validateReleaseWorkflow(releaseWorkflow.replace(
@@ -226,12 +216,5 @@ test('RELEASE-CONVERSATION-JOURNEYS-001 release publishing needs installed VSIX 
             '    needs: release'
         )),
         /release-extension-host must need verify/
-    );
-    assert.throws(
-        () => validateReleaseWorkflow(releaseWorkflow.replace(
-            "if (process.platform !== 'darwin' || process.arch !== 'x64')",
-            "if (process.platform !== 'darwin')"
-        )),
-        /release-extension-host must verify macOS Intel architecture/
     );
 });

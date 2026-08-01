@@ -12,7 +12,6 @@ const {
 } = require('./lib/ciContracts');
 
 const repositoryRoot = path.resolve(__dirname, '..');
-const MACOS_INTEL_ARCHITECTURE_CHECK = "node -e \"if (process.platform !== 'darwin' || process.arch !== 'x64') throw new Error(process.platform + '/' + process.arch); console.log(process.platform + '/' + process.arch)\"";
 
 function readText(relativePath) {
     return fs.readFileSync(path.join(repositoryRoot, relativePath), 'utf8');
@@ -174,13 +173,13 @@ function validateScheduledWorkflow(workflow) {
         'scheduled-macos job');
     assert.strictEqual(job.name, 'scheduled-macos',
         'scheduled-macos must keep its stable job name');
-    assert.strictEqual(job['runs-on'], 'macos-15-intel',
-        'scheduled-macos must use macos-15-intel');
+    assert.strictEqual(job['runs-on'], 'macos-15',
+        'scheduled-macos must use macos-15');
     assert.strictEqual(job['timeout-minutes'], 15, 'scheduled-macos timeout must be 15 minutes');
     assert.strictEqual(containsKey(workflow, 'continue-on-error'), false,
         'scheduled verification must not define continue-on-error');
     assert.ok(Array.isArray(job.steps), 'scheduled-macos steps must be an array');
-    assert.strictEqual(job.steps.length, 6, 'scheduled-macos must define exactly six allowed steps');
+    assert.strictEqual(job.steps.length, 5, 'scheduled-macos must define exactly five allowed steps');
     const checkout = job.steps[0];
     assertExactKeys(checkout, ['name', 'uses'], 'scheduled-macos checkout step');
     assert.strictEqual(checkout.uses, 'actions/checkout@v4',
@@ -194,7 +193,6 @@ function validateScheduledWorkflow(workflow) {
         'scheduled-macos must use Node 22.12.0');
     assert.strictEqual(setupNode.with.cache, 'npm', 'scheduled-macos must cache npm');
     const commands = [
-        MACOS_INTEL_ARCHITECTURE_CHECK,
         'npm ci',
         'npm run test-compile && node --test tests/platform/macos/conversationSources.test.js',
         'npm run test:extension-host',

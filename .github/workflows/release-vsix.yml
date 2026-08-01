@@ -31,7 +31,7 @@ jobs:
   release-extension-host:
     name: release-extension-host
     needs: verify
-    runs-on: macos-15-intel
+    runs-on: macos-15
     timeout-minutes: 15
     steps:
       - name: Checkout
@@ -41,8 +41,6 @@ jobs:
         with:
           node-version: 22.12.0
           cache: npm
-      - name: Verify Intel Extension Host runner
-        run: node -e "if (process.platform !== 'darwin' || process.arch !== 'x64') throw new Error(process.platform + '/' + process.arch); console.log(process.platform + '/' + process.arch)"
       - name: Install dependencies
         run: npm ci
       - name: Install and activate release VSIX files

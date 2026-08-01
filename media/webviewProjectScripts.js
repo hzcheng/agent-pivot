@@ -181,7 +181,6 @@ function initProjects() {
         requestId: null,
     };
     var activeAiSessionTerminalState = { provider: null, sessionId: null };
-    var pendingWorkspaceSessionReveal = null;
     var nextAiSessionBatchArchiveRequestId = 0;
     var nextAiSessionProviderSelectionRequestId = 0;
     var pendingAiSessionProviderSelectionProjectId = null;
@@ -862,7 +861,7 @@ function initProjects() {
     function reconcilePendingAiSessionProviderSelectionDom() {
         if (!pendingAiSessionProviderSelectionProjectId)
             return;
-        var projectDiv = findCurrentWorkspaceDiv(
+        var projectDiv = aiSessionsUpdate.findCurrentWorkspaceDiv(
             pendingAiSessionProviderSelectionProjectId
         );
         if (!projectDiv)
@@ -892,7 +891,7 @@ function initProjects() {
             return true;
         }
 
-        var projectDiv = findCurrentWorkspaceDiv(message.projectId);
+        var projectDiv = aiSessionsUpdate.findCurrentWorkspaceDiv(message.projectId);
         clearPendingAiSessionProviderSelection();
         syncAiSessionProviderMenuDisabledDom(projectDiv, false);
         var liveRegion = projectDiv?.querySelector('[data-ai-session-live-region]');
@@ -905,10 +904,9 @@ function initProjects() {
     function exitAiSessionBatchManagement() {
         var projectId = batchAiSessionState.projectId;
         batchAiSessionManager.exit();
-        syncAiSessionBatchManagementDom(findCurrentWorkspaceDiv(projectId));
+        syncAiSessionBatchManagementDom(aiSessionsUpdate.findCurrentWorkspaceDiv(projectId));
     }
 
-    var latestAiSessionUpdateSequence = 0;
 
     var groupCollapse = initProjectGroupCollapse();
     var todoControls = initProjectTodoControls({
@@ -920,6 +918,20 @@ function initProjects() {
         getResumeAiSessionMessageType: getResumeAiSessionMessageType,
         getArchiveAiSessionMessageType: getArchiveAiSessionMessageType,
         isAiSessionProvider: isAiSessionProvider,
+    });
+    var aiSessionsUpdate = initProjectAiSessionsUpdate({
+        batchAiSessionState: batchAiSessionState,
+        batchAiSessionManager: batchAiSessionManager,
+        getPendingAiSessionProviderSelectionProjectId: () => pendingAiSessionProviderSelectionProjectId,
+        getSelectedAiSessionProviders: getSelectedAiSessionProviders,
+        syncAiSessionBatchManagementDom: syncAiSessionBatchManagementDom,
+        syncActiveAiSessionTerminalDom: syncActiveAiSessionTerminalDom,
+        reconcilePendingAiSessionProviderSelectionDom: reconcilePendingAiSessionProviderSelectionDom,
+        submitAiSessionProviderSelection: submitAiSessionProviderSelection,
+        toggleCodexSessions: toggleCodexSessions,
+        exitAiSessionBatchManagement: exitAiSessionBatchManagement,
+        isAiSessionProvider: isAiSessionProvider,
+        updateStickyGroupHeaderOffset: updateStickyGroupHeaderOffset,
     });
 
     function onMouseEvent(e) {
@@ -1063,11 +1075,11 @@ function initProjects() {
                     !pendingAiSessionProviderSelectionProjectId
                     && !batchAiSessionState.pending,
             })) {
-                requestFullRefresh('invalid-workspace-update');
+                aiSessionsUpdate.requestFullRefresh('invalid-workspace-update');
                 return;
             }
             if (batchAiSessionState.projectId) {
-                var managedProjectDiv = findCurrentWorkspaceDiv(batchAiSessionState.projectId);
+                var managedProjectDiv = aiSessionsUpdate.findCurrentWorkspaceDiv(batchAiSessionState.projectId);
                 if (managedProjectDiv) {
                     batchAiSessionManager.reconcileVisible(managedProjectDiv);
                     syncAiSessionBatchManagementDom(managedProjectDiv);
@@ -1088,7 +1100,7 @@ function initProjects() {
         }
         if (message && message.type === 'open-workspaces-updated') {
             if (!applyOpenWorkspacesUpdate(message)) {
-                requestFullRefresh('invalid-open-workspaces-update');
+                aiSessionsUpdate.requestFullRefresh('invalid-open-workspaces-update');
                 return;
             }
             syncActiveAiSessionTerminalDom();
@@ -1110,7 +1122,7 @@ function initProjects() {
             return;
         }
         if (message && message.type === 'ai-session-tab-selection-requested') {
-            var requestedProject = findCurrentWorkspaceDiv(message.projectId);
+            var requestedProject = aiSessionsUpdate.findCurrentWorkspaceDiv(message.projectId);
             if (requestedProject && (message.tab === 'active' || message.tab === 'sessions')) {
                 selectAiSessionTabDom(requestedProject, message.tab);
                 writeAiSessionTabState(window.vscode, message.projectId, message.tab);
@@ -1119,7 +1131,7 @@ function initProjects() {
         }
 
         if (message && message.type === 'ai-session-status-announcement') {
-            var announcementProject = findCurrentWorkspaceDiv(message.projectId);
+            var announcementProject = aiSessionsUpdate.findCurrentWorkspaceDiv(message.projectId);
             var announcement = typeof message.message === 'string' ? message.message.trim().slice(0, 256) : '';
             var announcementRegion = announcementProject && announcementProject.querySelector('[data-ai-session-live-region]');
             if (announcementRegion && announcement) announcementRegion.textContent = announcement;
@@ -1153,7 +1165,7 @@ function initProjects() {
 
         if (message && message.type === 'ai-session-batch-archive-completed') {
             if (batchAiSessionManager.complete(message)) {
-                var completedProject = findCurrentWorkspaceDiv(message.projectId);
+                var completedProject = aiSessionsUpdate.findCurrentWorkspaceDiv(message.projectId);
                 syncAiSessionBatchManagementDom(completedProject);
                 var archiveLiveRegion = completedProject
                     && completedProject.querySelector('[data-ai-session-live-region]');
@@ -1169,155 +1181,7 @@ function initProjects() {
             return;
         }
 
-        applyAiSessionsUpdate(message);
-    }
-
-    function applyAiSessionsUpdate(message) {
-        if (message.version !== 2
-            || typeof message.sequence !== 'number'
-            || (message.currentWorkspaceCount !== 0 && message.currentWorkspaceCount !== 1)
-            || typeof message.html !== 'string'
-            || typeof normalizeDashboardSearchCatalog !== 'function'
-            || normalizeDashboardSearchCatalog(message.searchCatalog) !== message.searchCatalog
-            || message.searchCatalog.version !== 2) {
-            requestFullRefresh('unsupported-ai-session-message');
-            return;
-        }
-
-        if (message.sequence <= latestAiSessionUpdateSequence) {
-            return;
-        }
-
-        if (!applyWorkspaceUpdate({
-            type: 'workspace-updated',
-            version: 2,
-            currentWorkspaceCount: message.currentWorkspaceCount,
-            html: message.html,
-        }, {
-            canRestoreAiSessionProviderMenu: () =>
-                !pendingAiSessionProviderSelectionProjectId
-                && !batchAiSessionState.pending,
-        })) {
-            requestFullRefresh('invalid-ai-session-workspace-update');
-            return;
-        }
-
-        latestAiSessionUpdateSequence = message.sequence;
-        if (batchAiSessionState.projectId) {
-            var projectDiv = findCurrentWorkspaceDiv(batchAiSessionState.projectId);
-            if (projectDiv) {
-                batchAiSessionManager.reconcileVisible(projectDiv);
-                syncAiSessionBatchManagementDom(projectDiv);
-            } else {
-                exitAiSessionBatchManagement();
-            }
-        }
-        reconcilePendingAiSessionProviderSelectionDom();
-        syncActiveAiSessionTerminalDom();
-        updateStickyGroupHeaderOffset();
-        if (window.__agentPivotDashboard) {
-            window.__agentPivotDashboard.replaceSearchCatalog(message.searchCatalog);
-        }
-    }
-
-    function findCurrentWorkspaceDiv(projectId) {
-        if (!projectId) {
-            return null;
-        }
-
-        var projects = document.querySelectorAll('.workspace-card[data-current-workspace][data-id]');
-        for (var projectDiv of projects) {
-            if (projectDiv.getAttribute("data-id") === projectId) {
-                return projectDiv;
-            }
-        }
-
-        return null;
-    }
-
-    function findWorkspaceDiv(navigationIdentity) {
-        if (!navigationIdentity) {
-            return null;
-        }
-        var workspaces = document.querySelectorAll('.workspace-card[data-workspace-navigation-identity]');
-        for (var workspaceDiv of workspaces) {
-            if (workspaceDiv.getAttribute('data-workspace-navigation-identity') === navigationIdentity) {
-                return workspaceDiv;
-            }
-        }
-        return null;
-    }
-
-    function focusSearchRevealTarget(target) {
-        target.setAttribute('tabindex', '-1');
-        target.focus();
-        target.scrollIntoView({ block: 'nearest' });
-        target.addEventListener('blur', () => target.removeAttribute('tabindex'), { once: true });
-    }
-
-    window.__agentPivotRevealWorkspace = navigationIdentity => {
-        var workspaceDiv = findWorkspaceDiv(navigationIdentity);
-        if (!workspaceDiv) {
-            return false;
-        }
-        focusSearchRevealTarget(workspaceDiv);
-        return true;
-    };
-
-    function revealWorkspaceSession(navigationIdentity, provider, sessionId) {
-        if (!isAiSessionProvider(provider) || !sessionId) {
-            return false;
-        }
-        var workspaceDiv = findWorkspaceDiv(navigationIdentity);
-        if (!workspaceDiv) {
-            return false;
-        }
-        var workspaceId = workspaceDiv.getAttribute('data-id');
-        if (!workspaceDiv.hasAttribute('data-codex-expanded')) {
-            toggleCodexSessions(workspaceDiv, workspaceId);
-        }
-        selectAiSessionTabDom(workspaceDiv, 'sessions');
-        writeAiSessionTabState(window.vscode, workspaceId, 'sessions');
-        var sessionRow = Array.from(workspaceDiv.querySelectorAll('.codex-session-row[data-session-id][data-session-provider]'))
-            .find(row => row.getAttribute('data-session-provider') === provider
-                && row.getAttribute('data-session-id') === sessionId);
-        if (sessionRow) {
-            pendingWorkspaceSessionReveal = null;
-            focusSearchRevealTarget(sessionRow);
-            return true;
-        }
-        var selectedProviders = getSelectedAiSessionProviders(workspaceDiv);
-        if (!selectedProviders.includes(provider)) {
-            pendingWorkspaceSessionReveal = { navigationIdentity, provider, sessionId };
-            submitAiSessionProviderSelection(
-                workspaceDiv,
-                selectedProviders.concat(provider)
-            );
-            return true;
-        }
-        pendingWorkspaceSessionReveal = null;
-        focusSearchRevealTarget(workspaceDiv);
-        return false;
-    }
-
-    window.__agentPivotRevealWorkspaceSession = revealWorkspaceSession;
-    window.__agentPivotRevealPendingWorkspaceSession = () => {
-        if (!pendingWorkspaceSessionReveal) {
-            return false;
-        }
-        var pending = pendingWorkspaceSessionReveal;
-        return revealWorkspaceSession(
-            pending.navigationIdentity,
-            pending.provider,
-            pending.sessionId
-        );
-    };
-
-    function requestFullRefresh(reason) {
-        window.vscode.postMessage({
-            type: 'request-full-refresh',
-            reason,
-        });
+        aiSessionsUpdate.applyAiSessionsUpdate(message);
     }
 
     function observeStickyGroupHeaderOffset() {

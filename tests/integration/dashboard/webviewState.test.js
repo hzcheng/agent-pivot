@@ -29,7 +29,9 @@ const todoControlSource = fs.readFileSync(path.join(root, 'src', 'webview', 'web
 const generatedTodoControlSource = fs.readFileSync(path.join(root, 'media', 'webviewTodoControlScripts.js'), 'utf8');
 const projectContextMenuSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewProjectContextMenuScripts.js'), 'utf8');
 const generatedProjectContextMenuSource = fs.readFileSync(path.join(root, 'media', 'webviewProjectContextMenuScripts.js'), 'utf8');
-const projectVmSource = `${viewStateSource}\n${workspaceUpdateSource}\n${todoGroupSource}\n${projectCollapseSource}\n${todoControlSource}\n${projectContextMenuSource}\n${projectSource}`;
+const projectAiUpdateSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewProjectAiUpdateScripts.js'), 'utf8');
+const generatedProjectAiUpdateSource = fs.readFileSync(path.join(root, 'media', 'webviewProjectAiUpdateScripts.js'), 'utf8');
+const projectVmSource = `${viewStateSource}\n${workspaceUpdateSource}\n${todoGroupSource}\n${projectCollapseSource}\n${todoControlSource}\n${projectContextMenuSource}\n${projectAiUpdateSource}\n${projectSource}`;
 const scrollStateSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewScrollStateScripts.js'), 'utf8');
 const promptSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewPromptScripts.js'), 'utf8');
 const generatedPromptPath = path.join(root, 'media', 'webviewPromptScripts.js');
@@ -900,6 +902,7 @@ test('WEBVIEW-RESOURCE-RECOVERY-001 gives every rendered document fresh versione
         'webviewProjectCollapseScripts.js',
         'webviewTodoControlScripts.js',
         'webviewProjectContextMenuScripts.js',
+        'webviewProjectAiUpdateScripts.js',
         'webviewProjectScripts.js',
         'webviewDashboardScripts.js',
         'webviewPromptScripts.js',

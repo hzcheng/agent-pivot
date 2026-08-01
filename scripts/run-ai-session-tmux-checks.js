@@ -9761,6 +9761,7 @@ function runTmuxWebviewExperienceChecks() {
         'webviewProjectCollapseScripts.js',
         'webviewTodoControlScripts.js',
         'webviewProjectContextMenuScripts.js',
+        'webviewProjectAiUpdateScripts.js',
         'webviewProjectScripts.js',
     ].map(fileName => fs.readFileSync(
         path.join(__dirname, '..', 'src', 'webview', fileName), 'utf8'

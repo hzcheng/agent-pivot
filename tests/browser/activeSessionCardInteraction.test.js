@@ -50,6 +50,10 @@ const projectContextMenuScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/webviewProjectContextMenuScripts.js'),
     'utf8'
 );
+const projectAiUpdateScript = fs.readFileSync(
+    path.join(__dirname, '../../src/webview/webviewProjectAiUpdateScripts.js'),
+    'utf8'
+);
 const projectScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/webviewProjectScripts.js'),
     'utf8'
@@ -237,6 +241,7 @@ async function openCardPage(t, activeAiSessions, viewport = { width: 360, height
     await page.addScriptTag({ content: projectCollapseScript });
     await page.addScriptTag({ content: todoControlScript });
     await page.addScriptTag({ content: projectContextMenuScript });
+    await page.addScriptTag({ content: projectAiUpdateScript });
     await page.addScriptTag({ content: projectScript });
     await page.evaluate(() => {
         initProjects();
@@ -264,6 +269,7 @@ async function openListPage(t, activeAiSessions, historySessions) {
     await page.addScriptTag({ content: projectCollapseScript });
     await page.addScriptTag({ content: todoControlScript });
     await page.addScriptTag({ content: projectContextMenuScript });
+    await page.addScriptTag({ content: projectAiUpdateScript });
     await page.addScriptTag({ content: projectScript });
     await page.evaluate(() => initProjects());
     return page;

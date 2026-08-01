@@ -170,6 +170,12 @@ export function getStewardContent(
         'webviewProjectContextMenuScripts.js',
         assetRevision,
     );
+    var projectAiUpdateScriptsPath = getMediaResource(
+        context,
+        webview,
+        'webviewProjectAiUpdateScripts.js',
+        assetRevision,
+    );
     var projectScriptsPath = getMediaResource(
         context,
         webview,
@@ -310,6 +316,7 @@ export function getStewardContent(
     <script src="${projectCollapseScriptsPath}"></script>
     <script src="${todoControlScriptsPath}"></script>
     <script src="${projectContextMenuScriptsPath}"></script>
+    <script src="${projectAiUpdateScriptsPath}"></script>
     <script src="${projectScriptsPath}"></script>
     <script src="${dashboardScriptsPath}"></script>
     <script src="${promptScriptsPath}"></script>

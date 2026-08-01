@@ -446,6 +446,7 @@ function runSkillWebviewScriptChecks() {
         'webviewProjectCollapseScripts.js',
         'webviewTodoControlScripts.js',
         'webviewProjectContextMenuScripts.js',
+        'webviewProjectAiUpdateScripts.js',
         'webviewProjectScripts.js',
     ].map(fileName => fs.readFileSync(
         path.join(__dirname, '..', 'media', fileName), 'utf8'

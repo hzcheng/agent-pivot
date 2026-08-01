@@ -39,6 +39,48 @@ export function resolveNotifySecretStorage(
     return (context as unknown as { secrets?: NotifySecretStorage }).secrets || null;
 }
 
+const NOTIFY_CONFIG_SECTION = 'agentPivot';
+
+// 无密骨架由命令代写入设置:凭据进 SecretStorage、骨架进 settings.json,
+// 用户全程不需要手编 JSON。已存在的同名骨架不被覆写(防误清用户调优)。
+async function ensureSinkSkeleton(channel: string, id: string): Promise<boolean> {
+    const configuration = vscode.workspace.getConfiguration(NOTIFY_CONFIG_SECTION);
+    const sinks = configuration.get<Array<Record<string, unknown>>>('notify.sinks', []);
+    const existing = (sinks || []).find(sink => sink && sink.id === id);
+    if (existing) {
+        if (existing.channel !== channel) {
+            vscode.window.showWarningMessage(
+                `Agent Pivot: sink "${id}" already uses channel "${existing.channel}" in settings. `
+                + 'Pick a different id, or fix agentPivot.notify.sinks first.');
+            return false;
+        }
+        return true;
+    }
+    if (channel === 'custom') {
+        // method/headers/bodyTemplate 是自由 JSON,无法引导;只存凭据并指路。
+        vscode.window.showInformationMessage(
+            'Agent Pivot: the credential was stored. Custom sinks additionally need "method", '
+            + '"headers" and "bodyTemplate" in agentPivot.notify.sinks — see README → Notifications.');
+        return true;
+    }
+    const skeleton: Record<string, unknown> = { id, channel, proxy: null };
+    if (channel === 'ntfy') {
+        const baseUrl = await vscode.window.showInputBox({
+            prompt: 'ntfy base URL (self-hosted instance, or the public one)',
+            value: 'https://ntfy.sh',
+            ignoreFocusOut: true,
+        });
+        if (baseUrl === undefined) {
+            return false;
+        }
+        skeleton.baseUrl = baseUrl.trim() || 'https://ntfy.sh';
+        skeleton.priority = 4;
+    }
+    await configuration.update(
+        'notify.sinks', [...(sinks || []), skeleton], vscode.ConfigurationTarget.Global);
+    return true;
+}
+
 async function promptForSinkSecret(
     context: vscode.ExtensionContext
 ): Promise<void> {
@@ -54,11 +96,15 @@ async function promptForSinkSecret(
     if (!channel) {
         return;
     }
-    const id = await vscode.window.showInputBox({
-        prompt: 'Sink id — must match the id used in agentPivot.notify.sinks',
+    const idInput = await vscode.window.showInputBox({
+        prompt: 'Sink id — a short name for this target, e.g. "phone"',
         ignoreFocusOut: true,
     });
+    const id = (idInput || '').trim();
     if (!id) {
+        return;
+    }
+    if (!await ensureSinkSkeleton(channel, id)) {
         return;
     }
     const secret: Record<string, string | null> = {};
@@ -74,8 +120,19 @@ async function promptForSinkSecret(
         secret[field] = value || null;
     }
     await secretStorage.store(`${NOTIFY_SECRET_KEY_PREFIX}${id}`, JSON.stringify(secret));
+    const configuration = vscode.workspace.getConfiguration(NOTIFY_CONFIG_SECTION);
+    if (!configuration.get<boolean>('notify.enabled', false)) {
+        const enable = await vscode.window.showInformationMessage(
+            `Agent Pivot: sink "${id}" is ready. Notifications are currently disabled — enable them now?`,
+            'Enable notifications');
+        if (enable === 'Enable notifications') {
+            // 知情确认弹窗由 refreshNotifyConfig 在配置生效时接住,不重复询问。
+            await configuration.update('notify.enabled', true, vscode.ConfigurationTarget.Global);
+        }
+        return;
+    }
     vscode.window.showInformationMessage(
-        `Agent Pivot: credentials stored for sink "${id}". They are kept in VS Code SecretStorage, not in settings.json.`
+        `Agent Pivot: sink "${id}" is ready. Credentials live in SecretStorage, the rest in settings.`
     );
 }
 

@@ -11,12 +11,11 @@ Record policy: copy this document for an execution, fill every environment field
 - Prerequisites: install the candidate main and UI Bridge VSIX files in one VS Code installation; a phone with the ntfy app; outbound HTTPS access to `https://ntfy.sh` from the extension host (directly or through a proxy).
 - Steps:
   1. Generate a random topic with `openssl rand -hex 16` (a 32-character string).
-  2. Run `Agent Pivot: Set Notification Webhook`, pick channel `ntfy`, enter sink id `s1`, paste the generated topic into `topic`, and leave `token` empty.
-  3. Add to settings.json: `"agentPivot.notify.enabled": true` and `"agentPivot.notify.sinks": [{"id":"s1","channel":"ntfy","baseUrl":"https://ntfy.sh","priority":4,"proxy":null}]`.
-  4. On the first enable, the informed-consent modal appears. Decline it once and confirm `agentPivot.notify.enabled` is automatically set back to `false` in settings. Enable it again and choose `Enable notifications`; confirm the modal does not reappear on later configuration refreshes or window reloads.
-  5. Install the ntfy app on the phone and subscribe to the generated topic.
-  6. Run `Agent Pivot: Send Test Notification` and watch the Output Channel opened by `Agent Pivot: Show Notification Log`.
-  7. Start a real Claude session from Agent Pivot, let it run for more than one minute, then let it stop (completed or waiting for input).
+  2. Run `Agent Pivot: Set Notification Webhook`, pick channel `ntfy`, enter sink id `s1`, accept the default base URL `https://ntfy.sh`, paste the generated topic into `topic`, and leave `token` empty. When the command offers to enable notifications, accept; confirm the command wrote the sink skeleton into `agentPivot.notify.sinks` and set `agentPivot.notify.enabled` to `true` without any hand-edited JSON.
+  3. On the first enable, the informed-consent modal appears. Decline it once and confirm `agentPivot.notify.enabled` is automatically set back to `false` in settings. Enable it again and choose `Enable notifications`; confirm the modal does not reappear on later configuration refreshes or window reloads.
+  4. Install the ntfy app on the phone and subscribe to the generated topic.
+  5. Run `Agent Pivot: Send Test Notification` and watch the Output Channel opened by `Agent Pivot: Show Notification Log`.
+  6. Start a real Claude session from Agent Pivot, let it run for more than one minute, then let it stop (completed or waiting for input).
 - Expected results: the consent modal is shown exactly once before the first activation and declining reverts the setting without looping the dialog; the test notification logs `status=200` and arrives on the phone; the real-session notification arrives on the phone and contains the project folder name, the session name, the provider, the stop reason with run duration, the hostname, and a `#` short code; it does not contain code, conversation content, or a full path.
 - Environment: OS/version = `UNRECORDED`; VS Code/version = `UNRECORDED`; extension versions = `UNRECORDED`; phone OS/ntfy app version = `UNRECORDED`; proxy in use = `UNRECORDED`.
 - Execution date/result: `NOT RUN` (replace with ISO date and `PASS` or `FAIL`).

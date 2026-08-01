@@ -117,11 +117,24 @@ A notification contains only:
 It never contains code, conversation content, or full paths (in the default
 `basename` mode).
 
-**Channels.** Nine channels are supported. Each sink is configured in two
+**Channels.** Nine channels are supported. Run
+`Agent Pivot: Set Notification Webhook` and pick one: the command asks for a
+sink id and the channel fields, stores the credentials in VS Code
+SecretStorage, writes the non-secret skeleton into `agentPivot.notify.sinks`
+for you, and offers to enable notifications if they are off. Re-running it
+with an existing id rotates that sink's credentials without touching its
+skeleton; picking a different channel for an existing id is refused so the
+two halves cannot drift apart. You never have to hand-edit JSON — except for
+the `custom` channel, whose `method`, `headers` and `bodyTemplate` are
+free-form and therefore completed manually.
+
+Each sink is configured in two
 halves: the non-secret skeleton in `agentPivot.notify.sinks` (machine-scoped)
 and the credentials entered through `Agent Pivot: Set Notification Webhook`,
 which stores them in VS Code SecretStorage keyed by the sink `id`. A sink
-only becomes active when both halves exist with the same `id`.
+only becomes active when both halves exist with the same `id`. The per-channel
+reference below shows what the command writes (or what to write by hand for
+`custom`).
 
 - `ntfy` — skeleton:
   ```json

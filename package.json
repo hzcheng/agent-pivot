@@ -329,7 +329,7 @@
                     "type": "array",
                     "default": [],
                     "scope": "machine",
-                    "markdownDescription": "Notification targets without credentials. Credentials are stored separately by `Agent Pivot: Set Notification Webhook`. Channels that can also receive replies in a future release: `ntfy`, `telegram`, `slack`, `discord`, `dingtalk`, `feishu`. Only `ntfy` broadcasts to every machine; the others deliver a reply to one machine at random."
+                    "markdownDescription": "Notification targets without credentials. Both halves of a sink are normally written for you by `Agent Pivot: Set Notification Webhook`; edit this array only to tune or remove targets. Channels that can also receive replies in a future release: `ntfy`, `telegram`, `slack`, `discord`, `dingtalk`, `feishu`. Only `ntfy` broadcasts to every machine; the others deliver a reply to one machine at random."
                 },
                 "agentPivot.notify.reasons": {
                     "type": "array",

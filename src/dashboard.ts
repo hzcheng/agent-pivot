@@ -33,6 +33,7 @@ import CodexSessionService from './services/codexSessionService';
 import { ProcCodexRootThreadObserver } from './aiSessions/codexRootThreadObserver';
 import KimiSessionService from './services/kimiSessionService';
 import ClaudeSessionService from './services/claudeSessionService';
+import { showWorktreeInSourceControl } from './services/sourceControl';
 import ProjectWindowColorService from './services/projectWindowColorService';
 import AiSessionAliasStore from './aiSessions/aliasStore';
 import AiSessionAliasController from './aiSessions/aliasController';
@@ -1423,6 +1424,8 @@ async function initializeDashboard(
         publish: message => provider.postMessage(message),
         createPanel: vscode.window.createWebviewPanel,
         openExternal: vscode.env.openExternal,
+        showWorktreeInSourceControl: (worktreeRoot: string) =>
+            showWorktreeInSourceControl(worktreeRoot),
         spawnCodex: childProcess.spawn,
         now: () => Date.now(),
         setTimer: setTimeout,

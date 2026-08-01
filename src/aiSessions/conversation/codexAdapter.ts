@@ -26,6 +26,10 @@ import {
     ConversationResponseState,
     ConversationTelemetry,
 } from './types';
+import type {
+    ConversationWorktreeInfo,
+    ResolveWorktree,
+} from './worktreeResolver';
 
 type TimerHandle = unknown;
 
@@ -45,6 +49,8 @@ export interface CodexConversationAdapterOptions {
     watchSessionChanges(onDidChange: () => void): AiSessionDisposable;
     setTimeout(callback: () => void, delayMs: number): TimerHandle;
     clearTimeout(handle: TimerHandle): void;
+    resolveWorktree?: ResolveWorktree;
+    readCurrentWorkdir?(sessionId: string): string | undefined;
 }
 
 interface LoadedConversation {
@@ -387,14 +393,44 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
                 telemetry.model = response.model.trim().slice(0, 128);
             }
         }
+        const worktree = await this.readWorktree(sessionId, resumeResult);
+        if (worktree) {
+            telemetry.worktree = worktree;
+        }
         const context = this.tokenUsageBySession.get(sessionId);
         if (context) {
             telemetry.context = { ...context };
         }
-        return telemetry.model || telemetry.context
+        return telemetry.model || telemetry.context || telemetry.worktree
             || telemetry.rateLimits.length
             ? telemetry
             : undefined;
+    }
+
+    private async readWorktree(
+        sessionId: string,
+        resumeResult: { fulfilled: true; value: unknown } | { fulfilled: false }
+    ): Promise<ConversationWorktreeInfo | undefined> {
+        if (!this.options.resolveWorktree) {
+            return undefined;
+        }
+        // The current operating directory wins over the launch directory:
+        // app-server exposes no exec items, so composition injects a
+        // telemetry-only probe for the latest exec workdir.
+        const currentWorkdir = this.options.readCurrentWorkdir?.(sessionId);
+        if (currentWorkdir) {
+            const resolved = await this.options.resolveWorktree(currentWorkdir);
+            if (resolved) {
+                return resolved;
+            }
+        }
+        const response = resumeResult.fulfilled
+            ? asRecord(resumeResult.value)
+            : undefined;
+        const cwd = typeof response?.cwd === 'string' && response.cwd
+            ? response.cwd
+            : undefined;
+        return cwd ? this.options.resolveWorktree(cwd) : undefined;
     }
 
     watch(sessionId: string, onChange: () => void): AiSessionDisposable {

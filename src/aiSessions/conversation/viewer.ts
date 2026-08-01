@@ -72,6 +72,9 @@ export interface ConversationViewerOptions {
     ) => PromiseLike<void> | Promise<void>;
     commentStore?: ConversationCommentStore;
     bookmarkStore?: ConversationBookmarkStore;
+    showWorktreeInSourceControl?: (
+        worktreeRoot: string
+    ) => PromiseLike<void> | Promise<void> | void;
 }
 
 export interface ConversationViewerApi extends AiSessionDisposable {
@@ -386,6 +389,12 @@ export class ConversationViewer implements ConversationViewerApi {
         }
         if (parsed.type === 'conversation-viewer-open-link') {
             await this.openLink(parsed.href);
+            return;
+        }
+        if (parsed.type === 'conversation-viewer-open-worktree') {
+            await this.options.showWorktreeInSourceControl?.(
+                parsed.worktreeRoot
+            );
             return;
         }
         if (parsed.type === 'conversation-viewer-comment-mutation'

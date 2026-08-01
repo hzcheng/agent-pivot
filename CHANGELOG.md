@@ -10,6 +10,11 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
   reports context-window usage from its wire-protocol status updates, and
   Claude reports the current model and context-window usage from assistant
   usage records.
+- The AI Conversation usage bar now shows a worktree chip for the Session's
+  current operating worktree (resolved from Claude event directories, Codex
+  exec workdirs, and Kimi shell paths, falling back to the launch directory).
+  Clicking the chip mounts the worktree in Source Control and focuses the
+  view; deleted worktrees degrade to a struck-through label.
 
 ### Changed
 

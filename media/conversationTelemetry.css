@@ -47,3 +47,42 @@
 .conversation-telemetry-limits {
     display: contents;
 }
+
+.conversation-telemetry-worktree {
+    display: flex;
+    gap: .3rem;
+    align-items: center;
+    max-width: 16rem;
+    padding: .05rem .45rem;
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: .55rem;
+    color: var(--vscode-editor-foreground);
+    background: transparent;
+    font: inherit;
+    cursor: pointer;
+}
+
+.conversation-telemetry-worktree:hover {
+    border-color: var(--vscode-focusBorder);
+    background: var(--vscode-toolbar-hoverBackground);
+}
+
+.conversation-telemetry-worktree svg {
+    flex: 0 0 auto;
+    color: var(--vscode-descriptionForeground);
+}
+
+.conversation-telemetry-worktree [data-telemetry-worktree-branch] {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.conversation-telemetry-worktree-missing {
+    opacity: .6;
+}
+
+.conversation-telemetry-worktree-missing
+    [data-telemetry-worktree-branch] {
+    text-decoration: line-through;
+}

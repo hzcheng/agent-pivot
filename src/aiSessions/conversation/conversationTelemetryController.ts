@@ -127,11 +127,19 @@ function formatResetTime(resetsAt: number): string {
     return `${Math.ceil(remainingHours / 24)}d`;
 }
 
+const WORKTREE_ICON_SVG = '<svg viewBox="0 0 16 16" width="11" height="11"'
+    + ' aria-hidden="true" fill="none" stroke="currentColor"'
+    + ' stroke-width="1.4"><circle cx="4.5" cy="3.5" r="1.8"/>'
+    + '<circle cx="4.5" cy="12.5" r="1.8"/><circle cx="11.5" cy="5.5" r="1.8"/>'
+    + '<path d="M4.5 5.3v5.4M11.5 7.3c0 2.4-2.6 2.8-4.7 3"/></svg>';
+
 export function renderConversationTelemetry(
     telemetry: ConversationTelemetry | undefined
 ): string {
     const hasContext = Boolean(telemetry?.context);
     const hasModel = Boolean(telemetry?.model);
+    const worktree = telemetry?.worktree;
+    const hasWorktree = Boolean(worktree);
     const limits = telemetry?.rateLimits || [];
     const context = telemetry?.context;
     const contextPercent = context
@@ -159,9 +167,29 @@ export function renderConversationTelemetry(
             )}</span>
         </div>`;
     }).join('');
+    const worktreeTitle = worktree
+        ? worktree.missing
+            ? `Worktree path no longer exists: ${worktree.worktreeRoot} (branch ${worktree.branch})`
+            : `Working in worktree: ${worktree.worktreeRoot} (branch ${worktree.branch}) · Click to show changes in Source Control`
+        : '';
     return `<section class="conversation-telemetry"
         data-conversation-telemetry aria-label="Session usage"${hasModel
-            || hasContext || limits.length ? '' : ' hidden'}>
+            || hasContext || hasWorktree || limits.length ? '' : ' hidden'}>
+        <button type="button"
+            class="conversation-telemetry-worktree${worktree?.missing
+                ? ' conversation-telemetry-worktree-missing'
+                : ''}"
+            data-telemetry-worktree
+            data-worktree-root="${escapeAttribute(
+                worktree?.worktreeRoot || ''
+            )}"
+            title="${escapeAttribute(worktreeTitle)}"${hasWorktree
+                ? ''
+                : ' hidden'}>
+            ${WORKTREE_ICON_SVG}<span data-telemetry-worktree-branch>${escapeHtml(
+                worktree?.branch || ''
+            )}</span>
+        </button>
         <div class="conversation-telemetry-model"
             data-telemetry-model${hasModel ? '' : ' hidden'}>
             <span>Model</span>

@@ -12,6 +12,8 @@
         var telemetryContextProgress = options.telemetryContextProgress;
         var telemetryContextValue = options.telemetryContextValue;
         var telemetryLimits = options.telemetryLimits;
+        var telemetryWorktree = options.telemetryWorktree;
+        var telemetryWorktreeBranch = options.telemetryWorktreeBranch;
         var scroll = options.scroll;
         var captureAnchor = options.captureAnchor;
         var restoreViewport = options.restoreViewport;
@@ -36,7 +38,7 @@
             if (!exactKeys(
                 value,
                 ['provider', 'sessionId', 'rateLimits'],
-                ['model', 'context']
+                ['model', 'context', 'worktree']
             )) return false;
             if (!['codex', 'kimi', 'claude'].includes(value.provider)
                 || typeof value.sessionId !== 'string'
@@ -56,6 +58,25 @@
                     || value.context.usedTokens < 0
                     || !Number.isSafeInteger(value.context.maxTokens)
                     || value.context.maxTokens <= 0)) {
+                return false;
+            }
+            if (value.worktree !== undefined
+                && (!exactKeys(
+                    value.worktree,
+                    ['branch', 'worktreeRoot', 'repoRoot'],
+                    ['missing']
+                )
+                    || typeof value.worktree.branch !== 'string'
+                    || !value.worktree.branch
+                    || value.worktree.branch.length > 128
+                    || typeof value.worktree.worktreeRoot !== 'string'
+                    || !value.worktree.worktreeRoot
+                    || value.worktree.worktreeRoot.length > 1024
+                    || typeof value.worktree.repoRoot !== 'string'
+                    || !value.worktree.repoRoot
+                    || value.worktree.repoRoot.length > 1024
+                    || (value.worktree.missing !== undefined
+                        && typeof value.worktree.missing !== 'boolean'))) {
                 return false;
             }
             return value.rateLimits.every(function (limit) {
@@ -122,7 +143,8 @@
                         || message.telemetry.sessionId !== commentTarget.sessionId))
                 || !telemetryRoot || !telemetryModel || !telemetryModelValue
                 || !telemetryContext || !telemetryContextProgress
-                || !telemetryContextValue || !telemetryLimits) {
+                || !telemetryContextValue || !telemetryLimits
+                || !telemetryWorktree || !telemetryWorktreeBranch) {
                 return false;
             }
             state.latestTelemetryRequestId = message.requestId;
@@ -139,6 +161,24 @@
             }
             telemetryModel.hidden = !telemetry.model;
             telemetryModelValue.textContent = telemetry.model || '';
+            var worktree = telemetry.worktree;
+            telemetryWorktree.hidden = !worktree;
+            if (worktree) {
+                telemetryWorktreeBranch.textContent = worktree.branch;
+                telemetryWorktree.setAttribute(
+                    'data-worktree-root',
+                    worktree.worktreeRoot
+                );
+                telemetryWorktree.classList.toggle(
+                    'conversation-telemetry-worktree-missing',
+                    !!worktree.missing
+                );
+                telemetryWorktree.title = worktree.missing
+                    ? 'Worktree path no longer exists: '
+                        + worktree.worktreeRoot
+                    : 'Working in worktree: ' + worktree.worktreeRoot
+                        + ' · Click to show changes in Source Control';
+            }
             telemetryContext.hidden = !telemetry.context;
             if (telemetry.context) {
                 var percent = Math.max(0, Math.min(
@@ -176,6 +216,7 @@
             });
             telemetryRoot.hidden = !telemetry.model
                 && !telemetry.context
+                && !worktree
                 && telemetry.rateLimits.length === 0;
             restoreViewport(readingAnchor, previousScrollTop);
             return true;

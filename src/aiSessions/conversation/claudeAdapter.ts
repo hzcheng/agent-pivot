@@ -31,6 +31,7 @@ import {
     ConversationPage,
     ConversationPageRequest,
     ConversationProviderAdapter,
+    ConversationTelemetry,
 } from './types';
 import {
     openValidatedConversationSource,
@@ -49,11 +50,19 @@ export interface ClaudeConversationAdapterOptions {
     clearTimeout(handle: TimerHandle): void;
 }
 
+type ConversationContextUsage = NonNullable<ConversationTelemetry['context']>;
+
+// Claude Code JSONL does not record the context-window size; all current
+// Claude models default to a 200k window.
+const CLAUDE_DEFAULT_MAX_CONTEXT_TOKENS = 200_000;
+
 interface ClaudeConversationIndex extends AiSessionDisposable {
     source: OpenConversationSource;
     nextOffset: number;
     interactions: ConversationInteraction[];
     appendInteractionIndex?: number;
+    telemetryModel?: string;
+    telemetryContext?: ConversationContextUsage;
     revision: number;
     partial: boolean;
 }
@@ -62,6 +71,8 @@ interface LoadedConversation {
     interactions: ConversationInteraction[];
     sourceRevision: string;
     partial: boolean;
+    telemetryModel?: string;
+    telemetryContext?: ConversationContextUsage;
 }
 
 function asRecord(value: unknown): Record<string, any> | undefined {
@@ -116,6 +127,25 @@ function visibleAssistantParts(value: unknown): string[] {
             block.type === 'text' && typeof block.text === 'string'
         )
         .map(block => block.text);
+}
+
+function contextUsageTokens(value: unknown): number | undefined {
+    const usage = asRecord(value);
+    if (!usage) {
+        return undefined;
+    }
+    const total = [
+        usage.input_tokens,
+        usage.cache_creation_input_tokens,
+        usage.cache_read_input_tokens,
+        usage.output_tokens,
+    ].reduce<number>(
+        (sum, part) => sum + (Number.isFinite(part) && part > 0
+            ? Math.floor(part as number)
+            : 0),
+        0
+    );
+    return total > 0 ? total : undefined;
 }
 
 function isUserInterrupt(value: unknown): boolean {
@@ -203,6 +233,25 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
         );
     }
 
+    async readTelemetry(
+        sessionId: string,
+        signal?: ConversationAbortSignal
+    ): Promise<ConversationTelemetry | undefined> {
+        const loaded = await this.load(sessionId, signal);
+        if (!loaded.telemetryModel && !loaded.telemetryContext) {
+            return undefined;
+        }
+        return {
+            provider: 'claude',
+            sessionId,
+            model: loaded.telemetryModel,
+            context: loaded.telemetryContext
+                ? { ...loaded.telemetryContext }
+                : undefined,
+            rateLimits: [],
+        };
+    }
+
     watch(sessionId: string, onChange: () => void): AiSessionDisposable {
         if (this.disposed) {
             return { dispose() {} };
@@ -277,6 +326,8 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
         let interactions: ConversationInteraction[] = [];
         let openInteractionIndex: number | undefined;
         let timeoutOpenInteractionIndex: number | undefined;
+        let telemetryModel: string | undefined;
+        let telemetryContext: ConversationContextUsage | undefined;
         try {
             const startOffset = await getConversationReadStart(
                 source,
@@ -290,6 +341,8 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
             if (continuing) {
                 interactions = cloneInteractions(previous.interactions);
                 openInteractionIndex = previous.appendInteractionIndex;
+                telemetryModel = previous.telemetryModel;
+                telemetryContext = previous.telemetryContext;
             }
             const finishInteraction = (
                 state: 'complete' | 'interrupted' = 'complete'
@@ -306,6 +359,20 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
                     return;
                 }
                 const message = asRecord(event.message);
+                if (event.type === 'assistant'
+                    && message?.role === 'assistant') {
+                    if (typeof message.model === 'string'
+                        && message.model.trim()) {
+                        telemetryModel = message.model.trim().slice(0, 128);
+                    }
+                    const usedTokens = contextUsageTokens(message.usage);
+                    if (usedTokens) {
+                        telemetryContext = {
+                            usedTokens,
+                            maxTokens: CLAUDE_DEFAULT_MAX_CONTEXT_TOKENS,
+                        };
+                    }
+                }
                 if (event.type === 'user'
                     && message?.role === 'user'
                     && isUserInterrupt(message.content)) {
@@ -384,6 +451,8 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
                     interactions: closed,
                     sourceRevision: `r${revision}`,
                     partial: true,
+                    telemetryModel,
+                    telemetryContext,
                 };
             }
             const appendInteractionIndex = openInteractionIndex;
@@ -406,6 +475,8 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
                 previous.nextOffset = result.nextOffset;
                 previous.interactions = interactions;
                 previous.appendInteractionIndex = appendInteractionIndex;
+                previous.telemetryModel = telemetryModel;
+                previous.telemetryContext = telemetryContext;
                 previous.revision = revision;
                 previous.partial = partial;
             } else {
@@ -414,6 +485,8 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
                     nextOffset: result.nextOffset,
                     interactions,
                     appendInteractionIndex,
+                    telemetryModel,
+                    telemetryContext,
                     revision,
                     partial,
                     dispose() {},
@@ -428,6 +501,8 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
                 interactions,
                 sourceRevision: `r${revision}`,
                 partial,
+                telemetryModel,
+                telemetryContext,
             };
         } finally {
             await source.handle.close().catch(() => undefined);

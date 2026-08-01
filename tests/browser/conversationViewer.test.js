@@ -935,7 +935,7 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 acquires one real document API 
     ]);
 });
 
-test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 keeps disabled real document navigation controls inert', async t => {
+test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 keeps boundary navigation inert while Latest stays available', async t => {
     const { page } = await openHostViewerDocument(t, {
         interactionIds: ['input-only'],
         interactionId: 'input-only',
@@ -946,20 +946,24 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 keeps disabled real document na
             isEnd: true,
         },
     });
-    const navigation = ['Previous', 'Next', 'Latest'].map(name =>
-        page.getByRole('button', { name })
-    );
+    const previous = page.getByRole('button', { name: 'Previous' });
+    const next = page.getByRole('button', { name: 'Next' });
+    const latest = page.getByRole('button', { name: 'Latest' });
 
     assert.equal(await page.evaluate(() => window.__acquireCount), 1);
-    for (const button of navigation) {
-        assert.equal(await button.isDisabled(), true);
-    }
+    assert.equal(await previous.isDisabled(), true);
+    assert.equal(await next.isDisabled(), true);
+    assert.equal(await latest.isDisabled(), false);
     assert.deepEqual(await postedMessages(page), []);
 
-    for (const button of navigation) {
-        await button.evaluate(element => element.click());
-    }
+    await previous.evaluate(element => element.click());
+    await next.evaluate(element => element.click());
     assert.deepEqual(await postedMessages(page), []);
+
+    await latest.click();
+    assert.deepEqual(await postedMessages(page), [
+        { type: 'conversation-viewer-latest', version: 1 },
+    ]);
 });
 
 test('CONVERSATION-OUTLINE-NAVIGATION-001 filters the current Session outline and posts exact pointer and keyboard navigation', async t => {

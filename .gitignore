@@ -7,3 +7,8 @@ coverage/
 .DS_Store
 .vscode/
 .superpowers/
+
+# Agent CLI local mirrors; canonical agent skills live in .skills/
+.codex/
+.claude/
+.kimi/

@@ -4,6 +4,13 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
 
 ## [Unreleased]
 
+### Added
+
+- The AI Conversation usage bar now covers Kimi and Claude sessions: Kimi
+  reports context-window usage from its wire-protocol status updates, and
+  Claude reports the current model and context-window usage from assistant
+  usage records.
+
 ### Changed
 
 - Clicking an already-focused Active Session now opens its AI Conversation at
@@ -13,6 +20,12 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
 - The AI Conversation side panel now starts closed, and the former Outline and
   Comments header buttons were merged into a single Sidebar toggle that reopens
   the panel on the last active tab.
+
+### Fixed
+
+- The AI Conversation Latest button now stays available whenever the
+  conversation has inputs, re-locating the latest input even when it is
+  already selected instead of being disabled.
 
 ## [1.0.1] - 2026-07-31
 

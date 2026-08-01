@@ -27,7 +27,7 @@ export interface SkillPanelView {
 }
 import { sanitizeProjectName } from '../models';
 import { escapeAttribute } from './webviewContent';
-import { collapse as collapseIcon, folder as folderIcon, terminalLine } from './webviewIcons';
+import { collapse as collapseIcon, folder as folderIcon, puzzle } from './webviewIcons';
 import type { SkillCollectionSuggestion } from '../skills/knownCollections';
 
 const AGENTS: SkillAgentId[] = ['kimi', 'claude', 'codex'];
@@ -166,7 +166,7 @@ function getSkillDiv(record: SkillRecord, view: SkillPanelView): string {
         <div class="project-aura"></div>
         <div class="project-border steward-item-accent"></div>
         <div class="fitty-container project-title-row">
-            <span class="project-kind-icon">${terminalLine}</span>
+            <span class="project-kind-icon">${puzzle}</span>
             <h2 class="project-header">${name}</h2>
         </div>
         <p class="project-description" title="${description}">${description}</p>

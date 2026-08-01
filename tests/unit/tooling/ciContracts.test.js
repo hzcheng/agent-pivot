@@ -152,6 +152,14 @@ test('ARCH-CI-QUALITY-GATE-001 scheduled verification reuses the complete Verify
     );
 });
 
+test('RELEASE-SCHEDULED-EXTENSION-HOST-001 permits a manual Host-only diagnostic without weakening schedules', () => {
+    assert.match(scheduledWorkflow, /\n  workflow_dispatch:\n    inputs:\n      extension_host_only:\n/);
+    assert.match(scheduledWorkflow,
+        /\n  verify:\n    if: \$\{\{ github\.event_name != 'workflow_dispatch' \|\| inputs\.extension_host_only != true \}\}\n/);
+    assert.match(scheduledWorkflow,
+        /\n  scheduled-macos:\n    if: \$\{\{ always\(\) && \(inputs\.extension_host_only == true \|\| needs\.verify\.result == 'success'\) \}\}\n/);
+});
+
 test('ARCH-CI-QUALITY-GATE-001 scheduled Extension Host gate is pinned and blocking', () => {
     for (const [source, message] of [
         [

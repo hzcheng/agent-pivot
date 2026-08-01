@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "2fe961a8e66edce42470be25aab5ebc1222ac2b1",
+        "head": "404ab50e89380a9e8475d3e919efc650d6c6be60",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -1171,7 +1171,8 @@
                 "b5601650c966c06b275f73c52f5732d856a348f3",
                 "f60bd39d97326e34ca7a228ec491c34ecb5d8b5a",
                 "c172724a4c5d9d0a696382abf03f5ea25fd2841c",
-                "1953cbdb600b933f0e13db18b7c8f507c174a9e1"
+                "1953cbdb600b933f0e13db18b7c8f507c174a9e1",
+                "404ab50e89380a9e8475d3e919efc650d6c6be60"
             ],
             "behaviors": [
                 "ATTENTION-NOTIFY-EVENT-IDENTITY-001",
@@ -1189,7 +1190,8 @@
                 "ATTENTION-NOTIFY-PAYLOAD-BUILD-001",
                 "ATTENTION-NOTIFY-CREDENTIALS-001",
                 "ATTENTION-NOTIFY-MANIFEST-001",
-                "ATTENTION-NOTIFY-CANCEL-001"
+                "ATTENTION-NOTIFY-CANCEL-001",
+                "ATTENTION-NOTIFY-GUIDED-SETUP-001"
             ],
             "prGates": [
                 "test:deterministic:run"

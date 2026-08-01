@@ -23,10 +23,6 @@ import {
     CodexAppServerClient,
     CodexAppServerClientOptions,
 } from './codexAppServerClient';
-import {
-    ConversationHostController,
-    ConversationHostControllerOptions,
-} from './conversationHostController';
 import type { ConversationCommentStore } from './commentStore';
 import type { ConversationBookmarkStore } from './bookmarkStore';
 import {
@@ -61,7 +57,6 @@ export type FollowActiveConversationResult =
     OpenLatestConversationResult | 'closed';
 
 export interface ConversationCapability {
-    controller: ConversationHostController;
     viewer: ConversationViewerApi;
     availability: 'available' | 'unavailable';
     openLatestConversation(
@@ -118,9 +113,6 @@ interface ConversationCapabilityInternalFactories {
         options: ConversationCoordinatorOptions
     ): ConversationCoordinator;
     createViewer(options: ConversationViewerOptions): ConversationViewerApi;
-    createController(
-        options: ConversationHostControllerOptions
-    ): ConversationHostController;
 }
 
 const DEFAULT_FACTORIES: ConversationCapabilityInternalFactories = {
@@ -130,7 +122,6 @@ const DEFAULT_FACTORIES: ConversationCapabilityInternalFactories = {
     createClaudeAdapter: options => new ClaudeConversationAdapter(options),
     createCoordinator: options => new ConversationCoordinator(options),
     createViewer: options => new ConversationViewer(options),
-    createController: options => new ConversationHostController(options),
 };
 
 export function createConversationCapability(
@@ -150,7 +141,7 @@ export function createConversationCapability(
     } catch (_error) {
         ownership.dispose();
         reportUnavailable(options.onDiagnostic);
-        return createUnavailableConversationCapability(options);
+        return createUnavailableConversationCapability();
     }
 }
 
@@ -227,28 +218,8 @@ function createAvailableConversationCapability(
         bookmarkStore: options.bookmarkStore,
     }));
     let viewerIntentGeneration = 0;
-    const controller = ownership.own(factories.createController({
-        coordinator,
-        resolveTarget: options.resolveTarget,
-        publish: message => options.publish(message),
-        openViewer: async (target, authoritativeTarget) => {
-            viewerIntentGeneration += 1;
-            await viewer.open({
-                ...target,
-                displayName: authoritativeTarget.conversationDisplayName
-                    || (typeof authoritativeTarget.name === 'string'
-                        && authoritativeTarget.name.trim()
-                        ? authoritativeTarget.name.trim()
-                        : `${target.provider} conversation`),
-                duplicateDisplayName:
-                    authoritativeTarget.duplicateConversationDisplayName
-                    === true,
-            });
-        },
-    }));
     let disposed = false;
     return {
-        controller,
         viewer,
         availability: 'available',
         openLatestConversation: target => {
@@ -291,7 +262,6 @@ function createAvailableConversationCapability(
                 return;
             }
             try {
-                controller.reconcile();
                 await viewer.reconcileAuthority(target => {
                     const authoritativeTarget = resolveExactTarget(
                         options,
@@ -322,19 +292,7 @@ function createAvailableConversationCapability(
     };
 }
 
-function createUnavailableConversationCapability(
-    options: ConversationCapabilityOptions
-): ConversationCapability {
-    const coordinator = {
-        setSessionStopped() {},
-        async readOutline() {
-            throw new ConversationError('unavailable');
-        },
-        watch() {
-            throw new ConversationError('unavailable');
-        },
-        releaseSubscription() {},
-    } as unknown as ConversationCoordinator;
+function createUnavailableConversationCapability(): ConversationCapability {
     const viewer: ConversationViewerApi = {
         isOpen: () => false,
         async open() {},
@@ -345,15 +303,8 @@ function createUnavailableConversationCapability(
         async reconcileAuthority() {},
         dispose() {},
     };
-    const controller = new ConversationHostController({
-        coordinator,
-        resolveTarget: () => null,
-        publish: message => options.publish(message),
-        openViewer: async () => undefined,
-    });
     let disposed = false;
     return {
-        controller,
         viewer,
         availability: 'unavailable',
         async openLatestConversation(): Promise<OpenLatestConversationResult> {
@@ -362,17 +313,12 @@ function createUnavailableConversationCapability(
         async followActiveConversation(): Promise<FollowActiveConversationResult> {
             return 'unavailable';
         },
-        async reconcile(): Promise<void> {
-            if (!disposed) {
-                controller.reconcile();
-            }
-        },
+        async reconcile(): Promise<void> {},
         dispose(): void {
             if (disposed) {
                 return;
             }
             disposed = true;
-            controller.dispose();
             viewer.dispose();
         },
     };

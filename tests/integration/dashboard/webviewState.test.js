@@ -642,38 +642,25 @@ test('WEBVIEW-MULTI-PROVIDER-SESSION-MENU-001 keeps the generated provider-menu 
     assert.doesNotMatch(projectSource, /type: 'select-ai-session-provider'/);
 });
 
-test('ACTIVE-SESSION-CONVERSATION-OUTLINE-001 keeps correlated outline rendering and safe marker construction in the generated controller', () => {
+test('ACTIVE-SESSION-CONVERSATION-OPEN-001 posts an open request for a focused active session in the generated controller', () => {
     assert.equal(generatedProjectSource, projectSource);
+    assert.match(projectSource, /type: 'open-active-ai-session-conversation'/);
     assert.match(
         projectSource,
-        /function applyAiSessionConversationOutlineResult\(message\)/
+        /hasAttribute\('data-session-focused'\)[\s\S]{0,400}open-active-ai-session-conversation/
     );
-    assert.match(
-        projectSource,
-        /function renderActiveAiSessionConversationOutline\(row, state, outline/
-    );
-    assert.match(projectSource, /message\.type !== 'ai-session-conversation-outline-result'/);
-    assert.match(projectSource, /message\.requestId !== state\.outlineRequestId/);
-    assert.match(
-        projectSource,
-        /message\.subscriptionGeneration !== state\.subscriptionGeneration/
-    );
-    assert.match(projectSource, /document\.createElement\('button'\)/);
-    assert.match(
-        projectSource,
-        /previewNode\.className = 'ai-session-conversation-marker-preview'/
-    );
-    assert.match(projectSource, /previewNode\.textContent = preview/);
-    assert.match(
-        projectSource,
-        /stroke\.setAttribute\('aria-hidden', 'true'\)/
-    );
-    assert.doesNotMatch(projectSource, /--ai-input-ratio|var longest/);
-    assert.match(projectSource, /type: 'open-ai-session-conversation'/);
-    assert.match(projectSource, /expectedRevision: state\.sourceRevision/);
     assert.doesNotMatch(
         projectSource,
-        /open-ai-session-conversation'[\s\S]{0,500}(userPreview|prompt)/
+        /toggleConversation|toggleActiveAiSessionConversation/
+    );
+    assert.doesNotMatch(
+        projectSource,
+        /request-ai-session-conversation-outline|cancel-ai-session-conversation/
+    );
+    assert.doesNotMatch(projectSource, /ai-session-conversation-outline-result/);
+    assert.doesNotMatch(
+        projectSource,
+        /data-conversation-expanded|ai-session-conversation-marker/
     );
 });
 

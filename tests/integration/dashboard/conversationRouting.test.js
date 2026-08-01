@@ -14,11 +14,8 @@ const {
     ConversationCoordinator,
 } = require('../../../out/aiSessions/conversation/coordinator');
 const {
-    ConversationError,
-} = require('../../../out/aiSessions/conversation/types');
-const {
     withConversationDisplayMetadata,
-} = require('../../../out/aiSessions/conversation/conversationHostController');
+} = require('../../../out/aiSessions/conversation/displayMetadata');
 const ClaudeSessionService = require(
     '../../../out/services/claudeSessionService'
 ).default;
@@ -67,30 +64,13 @@ const {
     createConversationCapability,
 } = loadConversationComposition();
 
-function makeOutlineRequest(overrides = {}) {
+function makeOpenActiveRequest(overrides = {}) {
     return {
-        type: 'request-ai-session-conversation-outline',
+        type: 'open-active-ai-session-conversation',
         version: 1,
-        requestId: 1,
-        subscriptionGeneration: 0,
         projectId: 'project-a',
         provider: 'codex',
         sessionId: 'session-a',
-        ...overrides,
-    };
-}
-
-function makeOpenRequest(overrides = {}) {
-    return {
-        type: 'open-ai-session-conversation',
-        version: 1,
-        requestId: 2,
-        subscriptionGeneration: 0,
-        projectId: 'project-a',
-        provider: 'codex',
-        sessionId: 'session-a',
-        interactionId: 'input-a',
-        expectedRevision: 'r1',
         ...overrides,
     };
 }
@@ -279,6 +259,8 @@ function createDashboardConversationHarness(options = {}) {
     const sessionFocusTargets = [];
     const authorityCalls = [];
     const kimiSourceCalls = [];
+    const openResults = [];
+    const coordinators = [];
     const focusedSession = options.focusedSession || {
         key: 'codex:session-a',
         provider: 'codex',
@@ -328,6 +310,7 @@ function createDashboardConversationHarness(options = {}) {
         createCoordinator: coordinatorOptions => {
             events.push('coordinator');
             const coordinator = new ConversationCoordinator(coordinatorOptions);
+            coordinators.push(coordinator);
             const dispose = coordinator.dispose.bind(coordinator);
             let disposed = false;
             coordinator.dispose = () => {
@@ -370,6 +353,7 @@ function createDashboardConversationHarness(options = {}) {
         sessionFocusTargets,
         authorityCalls,
         kimiSourceCalls,
+        openResults,
         get capability() {
             return capability;
         },
@@ -415,39 +399,41 @@ function createDashboardConversationHarness(options = {}) {
             }, internalFactories);
             router = createDashboardMessageRouter({
                 handlers: {
-                    'request-ai-session-conversation-outline': message =>
-                        capability.controller.handleOutline(message),
-                    'open-ai-session-conversation': message =>
-                        capability.controller.handleOpen(message),
-                    'cancel-ai-session-conversation': message =>
-                        capability.controller.cancel(message),
+                    'open-active-ai-session-conversation': async e => {
+                        if (e.version !== 1
+                            || (e.provider !== 'codex'
+                                && e.provider !== 'kimi'
+                                && e.provider !== 'claude')
+                            || typeof e.projectId !== 'string'
+                            || !e.projectId.trim()
+                            || typeof e.sessionId !== 'string'
+                            || !e.sessionId.trim()) {
+                            return;
+                        }
+                        openResults.push(
+                            await capability.openLatestConversation({
+                                projectId: e.projectId,
+                                provider: e.provider,
+                                sessionId: e.sessionId,
+                            })
+                        );
+                    },
                 },
             });
         },
         route(message) {
             return router(message);
         },
-        async requestOutline(session = focusedSession, overrides = {}) {
-            await router(makeOutlineRequest({
+        async openActiveConversation(session = focusedSession, overrides = {}) {
+            await router(makeOpenActiveRequest({
                 provider: session.provider,
                 sessionId: session.sessionId,
                 ...overrides,
             }));
-            return publications.at(-1);
+            return openResults.at(-1);
         },
-        async openInteraction(session, interactionId, expectedRevision) {
-            await router(makeOpenRequest({
-                provider: session.provider,
-                sessionId: session.sessionId,
-                interactionId,
-                expectedRevision,
-            }));
-        },
-        setVisible(visible) {
-            capability.controller.setVisible(visible);
-        },
-        resetView() {
-            capability.controller.resetView();
+        readOutline(provider, sessionId) {
+            return coordinators[0].readOutline(provider, sessionId);
         },
         reconcile() {
             return capability.reconcile();
@@ -572,55 +558,34 @@ async function createScopedClaudeDuplicateFixture(t) {
     };
 }
 
-test('WEBVIEW-CONVERSATION-ROUTING-001 routes the three conversation messages through exact ordinary handler keys', async () => {
+test('WEBVIEW-CONVERSATION-ROUTING-001 routes the conversation open message through its exact ordinary handler key', async () => {
     const calls = [];
-    const controller = {
-        handleOutline: message => calls.push(['outline', message.requestId]),
-        handleOpen: message => calls.push(['open', message.requestId]),
-        cancel: message => calls.push(['cancel', message.requestId]),
-    };
     const router = createDashboardMessageRouter({
         handlers: {
-            'request-ai-session-conversation-outline': message =>
-                controller.handleOutline(message),
-            'open-ai-session-conversation': message =>
-                controller.handleOpen(message),
-            'cancel-ai-session-conversation': message =>
-                controller.cancel(message),
+            'open-active-ai-session-conversation': message =>
+                calls.push(['open', message.sessionId]),
         },
         getAiSessionProviderIds: () => ['codex', 'kimi', 'claude'],
     });
 
     await router({
+        type: 'open-active-ai-session-conversation',
+        sessionId: 'session-a',
+    });
+    await router({
         type: 'request-ai-session-conversation-outline',
-        requestId: 1,
+        sessionId: 'session-b',
     });
     await router({
         type: 'open-ai-session-conversation',
-        requestId: 2,
+        sessionId: 'session-c',
     });
     await router({
         type: 'cancel-ai-session-conversation',
-        requestId: 3,
-    });
-    await router({
-        type: 'request-codex-session-conversation-outline',
-        requestId: 4,
-    });
-    await router({
-        type: 'open-kimi-session-conversation',
-        requestId: 5,
-    });
-    await router({
-        type: 'cancel-claude-session-conversation',
-        requestId: 6,
+        sessionId: 'session-d',
     });
 
-    assert.deepEqual(calls, [
-        ['outline', 1],
-        ['open', 2],
-        ['cancel', 3],
-    ]);
+    assert.deepEqual(calls, [['open', 'session-a']]);
 });
 
 test('WEBVIEW-CONVERSATION-ROUTING-002 rejects non-string message types without coercing attacker-controlled values', async () => {
@@ -628,7 +593,7 @@ test('WEBVIEW-CONVERSATION-ROUTING-002 rejects non-string message types without 
     let routed = false;
     const router = createDashboardMessageRouter({
         handlers: {
-            'request-ai-session-conversation-outline': () => {
+            'open-active-ai-session-conversation': () => {
                 routed = true;
             },
         },
@@ -638,7 +603,7 @@ test('WEBVIEW-CONVERSATION-ROUTING-002 rejects non-string message types without 
         type: {
             toString() {
                 coerced = true;
-                return 'request-ai-session-conversation-outline';
+                return 'open-active-ai-session-conversation';
             },
         },
     });
@@ -650,15 +615,15 @@ test('WEBVIEW-CONVERSATION-ROUTING-002 rejects non-string message types without 
 test('WEBVIEW-CONVERSATION-ROUTING-003 does not route inherited handler properties', async () => {
     let routed = false;
     const handlers = Object.create({
-        'request-ai-session-conversation-outline': () => {
+        'open-active-ai-session-conversation': () => {
             routed = true;
         },
     });
     const router = createDashboardMessageRouter({ handlers });
 
     await router({
-        type: 'request-ai-session-conversation-outline',
-        requestId: 1,
+        type: 'open-active-ai-session-conversation',
+        sessionId: 'session-a',
     });
 
     assert.equal(routed, false);
@@ -667,15 +632,8 @@ test('WEBVIEW-CONVERSATION-ROUTING-003 does not route inherited handler properti
 test('PRODUCTION-CONVERSATION-COMPOSITION-001 creates one provider graph and disposes it once', async () => {
     const harness = createDashboardConversationHarness();
     await harness.activate();
-    await harness.route(makeOutlineRequest());
-    await harness.route(makeOpenRequest({
-        interactionId: 'input-a',
-        requestId: 2,
-    }));
-    await harness.route(makeOpenRequest({
-        interactionId: 'input-b',
-        requestId: 3,
-    }));
+    assert.equal(await harness.openActiveConversation(), 'opened');
+    assert.equal(await harness.openActiveConversation(), 'opened');
 
     assert.deepEqual(
         harness.events.filter(event => event.startsWith('adapter:')),
@@ -690,7 +648,7 @@ test('PRODUCTION-CONVERSATION-COMPOSITION-001 creates one provider graph and dis
         1
     );
     assert.deepEqual(harness.viewerTargets.map(target => target.interactionId), [
-        'input-a',
+        'input-b',
         'input-b',
     ]);
     assert.deepEqual(harness.authorityCalls[0], {
@@ -698,14 +656,7 @@ test('PRODUCTION-CONVERSATION-COMPOSITION-001 creates one provider graph and dis
         provider: 'codex',
         sessionId: 'session-a',
     });
-    assert.equal(
-        harness.publications[0].payload.interactions[0].responseState,
-        'interrupted'
-    );
 
-    harness.setVisible(false);
-    assert.ok(harness.events.includes('watch-dispose:codex'));
-    assert.equal(harness.events.includes('dispose:viewer'), false);
     await harness.dispose();
     await harness.dispose();
     assert.deepEqual(
@@ -724,59 +675,65 @@ test('PRODUCTION-CONVERSATION-COMPOSITION-001 creates one provider graph and dis
     );
 });
 
-test('PRODUCTION-CONVERSATION-COMPOSITION-002 keeps exact current-workspace authority for focused outlines', async () => {
+test('PRODUCTION-CONVERSATION-COMPOSITION-002 surfaces unknown and empty conversations without opening the viewer', async () => {
     const harness = createDashboardConversationHarness();
     await harness.activate();
-    await harness.route(makeOutlineRequest({
-        requestId: 9,
+    await harness.route(makeOpenActiveRequest({
         projectId: 'navigation-project',
     }));
 
+    assert.equal(harness.openResults.at(-1), 'unknownSession');
     assert.deepEqual(harness.authorityCalls.at(-1), {
         projectId: 'navigation-project',
         provider: 'codex',
         sessionId: 'session-a',
     });
-    assert.deepEqual(harness.publications.at(-1).error, {
-        code: 'unavailable',
-        reason: undefined,
-        retryAfterMs: undefined,
-    });
+    assert.equal(harness.viewerTargets.length, 0);
     await harness.dispose();
+
+    const emptyHarness = createDashboardConversationHarness({
+        readOutline: (provider, sessionId) => ({
+            ...fakeConversationOutline(provider, sessionId),
+            interactions: [],
+            totalInteractions: 0,
+        }),
+    });
+    await emptyHarness.activate();
+    assert.equal(await emptyHarness.openActiveConversation(), 'empty');
+    assert.equal(emptyHarness.viewerTargets.length, 0);
+    await emptyHarness.dispose();
 });
 
-test('CONVERSATION-OUTLINE-DELIVERY-001 retries an undelivered initial error after authoritative Dashboard replacement', async () => {
-    let delivered = false;
-    let reads = 0;
-    const harness = createDashboardConversationHarness({
-        publishResult: () => delivered,
-        readOutline: (provider, sessionId) => {
-            reads += 1;
-            if (reads === 1) {
-                throw new ConversationError('staleRevision');
-            }
-            return fakeConversationOutline(provider, sessionId);
-        },
-    });
+test('ACTIVE-SESSION-CONVERSATION-OPEN-001 routes validated open requests and ignores malformed envelopes', async () => {
+    const harness = createDashboardConversationHarness();
     await harness.activate();
-    await harness.route(makeOutlineRequest());
 
-    assert.deepEqual(harness.publications.at(-1).error, {
-        code: 'staleRevision',
-        reason: undefined,
-        retryAfterMs: undefined,
+    for (const invalid of [
+        makeOpenActiveRequest({ version: 2 }),
+        makeOpenActiveRequest({ provider: 'bogus' }),
+        makeOpenActiveRequest({ projectId: '' }),
+        makeOpenActiveRequest({ sessionId: '   ' }),
+        makeOpenActiveRequest({ projectId: 7 }),
+    ]) {
+        await harness.route(invalid);
+    }
+    assert.equal(harness.authorityCalls.length, 0);
+    assert.equal(harness.viewerTargets.length, 0);
+    assert.equal(harness.openResults.length, 0);
+
+    assert.equal(await harness.openActiveConversation(), 'opened');
+    assert.deepEqual(harness.authorityCalls[0], {
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
     });
-
-    delivered = true;
-    await harness.reconcile();
-    await new Promise(resolve => setImmediate(resolve));
-
-    assert.equal(reads, 2);
-    assert.equal(harness.publications.at(-1).payload.interactions.length, 2);
+    assert.equal(harness.viewerTargets.length, 1);
+    assert.equal(harness.viewerTargets[0].interactionId, 'input-b');
+    assert.equal(harness.viewerTargets[0].expectedRevision, 'r1');
     await harness.dispose();
 });
 
-test('PRODUCTION-CONVERSATION-LIFECYCLE-001 hidden sidebar keeps the exact viewer authority lifecycle live', async () => {
+test('PRODUCTION-CONVERSATION-LIFECYCLE-001 keeps the exact viewer authority lifecycle live', async () => {
     let targetAvailable = true;
     const focusedSession = {
         key: 'codex:session-a',
@@ -797,13 +754,11 @@ test('PRODUCTION-CONVERSATION-LIFECYCLE-001 hidden sidebar keeps the exact viewe
         useConcreteViewer: true,
     });
     await harness.activate();
-    await harness.route(makeOutlineRequest());
-    await harness.route(makeOpenRequest());
+    assert.equal(await harness.openActiveConversation(), 'opened');
     const readsBeforeLifecycle = harness.events.filter(event =>
         event === 'read-outline:codex' || event === 'read-page:codex'
     ).length;
 
-    harness.setVisible(false);
     focusedSession.executionState = 'stopped';
     await harness.reconcile();
     const readsAfterStopped = harness.events.filter(event =>
@@ -867,40 +822,6 @@ test('PRODUCTION-CONVERSATION-LIFECYCLE-002 fire-and-forget reconcile isolates v
     await harness.dispose();
 });
 
-test('PRODUCTION-CONVERSATION-LIFECYCLE-003 accepts a fresh Webview generation after replacement teardown', async () => {
-    const harness = createDashboardConversationHarness();
-    await harness.activate();
-    await harness.route(makeOutlineRequest({
-        requestId: 9,
-        subscriptionGeneration: 7,
-    }));
-    const publicationsBeforeReplacement = harness.publications.length;
-
-    harness.resetView();
-    harness.setVisible(true);
-    await harness.route(makeOutlineRequest({
-        requestId: 1,
-        subscriptionGeneration: 1,
-    }));
-
-    assert.equal(
-        harness.publications.length,
-        publicationsBeforeReplacement + 1
-    );
-    assert.deepEqual(
-        {
-            requestId: harness.publications.at(-1).requestId,
-            subscriptionGeneration:
-                harness.publications.at(-1).subscriptionGeneration,
-        },
-        {
-            requestId: 1,
-            subscriptionGeneration: 1,
-        }
-    );
-    await harness.dispose();
-});
-
 test('PRODUCTION-CONVERSATION-COMMENTS-001 CONVERSATION-COMMENTS-REVIEW-001 CONVERSATION-COMMENTS-BULK-001 settles review mutations, cross-page location, and Host-owned batches', async () => {
     const prompts = [];
     const harness = createDashboardConversationHarness({
@@ -910,9 +831,12 @@ test('PRODUCTION-CONVERSATION-COMMENTS-001 CONVERSATION-COMMENTS-REVIEW-001 CONV
         },
     });
     await harness.activate();
-    await harness.route(makeOutlineRequest());
-    await harness.route(makeOpenRequest());
+    assert.equal(await harness.openActiveConversation(), 'opened');
     const panel = harness.panels[0];
+    await panel.receiveMessage({
+        type: 'conversation-viewer-previous',
+        version: 1,
+    });
     const base = {
         version: 1,
         subscriptionGeneration: 1,
@@ -1116,9 +1040,12 @@ test('PRODUCTION-CONVERSATION-COMMENTS-002 keeps authoritative drafts after subm
         },
     });
     await harness.activate();
-    await harness.route(makeOutlineRequest());
-    await harness.route(makeOpenRequest());
+    assert.equal(await harness.openActiveConversation(), 'opened');
     const panel = harness.panels[0];
+    await panel.receiveMessage({
+        type: 'conversation-viewer-previous',
+        version: 1,
+    });
     const base = {
         version: 1,
         subscriptionGeneration: 1,
@@ -1173,8 +1100,7 @@ test('CONVERSATION-COMMENTS-001 accepts and stages a Host-authoritative session-
         },
     });
     await harness.activate();
-    await harness.route(makeOutlineRequest());
-    await harness.route(makeOpenRequest());
+    assert.equal(await harness.openActiveConversation(), 'opened');
     const panel = harness.panels[0];
     const base = {
         version: 1,
@@ -1247,9 +1173,12 @@ test('CONVERSATION-COMMENTS-PERSISTENCE-001 restores Host-owned comments after t
         commentStore,
     });
     await harness.activate();
-    await harness.route(makeOutlineRequest());
-    await harness.route(makeOpenRequest());
+    assert.equal(await harness.openActiveConversation(), 'opened');
     const firstPanel = harness.panels[0];
+    await firstPanel.receiveMessage({
+        type: 'conversation-viewer-previous',
+        version: 1,
+    });
     const target = {
         projectId: 'project-a',
         provider: 'codex',
@@ -1275,7 +1204,7 @@ test('CONVERSATION-COMMENTS-PERSISTENCE-001 restores Host-owned comments after t
     assert.equal(firstPanel.postedMessages.at(-1).success, true);
     firstPanel.dispose();
 
-    await harness.route(makeOpenRequest());
+    assert.equal(await harness.openActiveConversation(), 'opened');
     const reopenedPanel = harness.panels[1];
     await reopenedPanel.receiveMessage({
         type: 'conversation-viewer-comment-mutation',
@@ -1317,9 +1246,12 @@ test('CONVERSATION-COMMENTS-PERSISTENCE-001 rejects a comment mutation until its
         },
     });
     await harness.activate();
-    await harness.route(makeOutlineRequest());
-    await harness.route(makeOpenRequest());
+    assert.equal(await harness.openActiveConversation(), 'opened');
     const panel = harness.panels[0];
+    await panel.receiveMessage({
+        type: 'conversation-viewer-previous',
+        version: 1,
+    });
     const mutation = {
         type: 'conversation-viewer-comment-mutation',
         version: 1,
@@ -1433,13 +1365,12 @@ test('PRODUCTION-CONVERSATION-DISPLAY-001 derives duplicate metadata only from n
         focusedSession: authoritative,
     });
     await harness.activate();
-    await harness.route(makeOutlineRequest());
-    await harness.route(makeOpenRequest());
+    assert.equal(await harness.openActiveConversation(), 'opened');
     assert.deepEqual(harness.viewerTargets, [{
         projectId: 'project-a',
         provider: 'codex',
         sessionId: 'session-a',
-        interactionId: 'input-a',
+        interactionId: 'input-b',
         expectedRevision: 'r1',
         displayName: 'Shared Name',
         duplicateDisplayName: true,
@@ -1459,25 +1390,21 @@ test('PRODUCTION-CONVERSATION-CLAUDE-SCOPE-001 dynamically resolves duplicate UU
     await harness.activate();
     t.after(() => harness.dispose());
 
-    const outlineA = await harness.requestOutline(fixture.session);
-    assert.equal(outlineA.error, undefined);
-    assert.equal(outlineA.payload.interactions[0].userPreview, 'Visible A prompt');
+    const outlineA = await harness.readOutline('claude', fixture.session.sessionId);
+    assert.equal(outlineA.interactions[0].userPreview, 'Visible A prompt');
 
     currentRoots = [fixture.roots.b];
-    const outlineB = await harness.requestOutline(fixture.session, {
-        requestId: 2,
-        subscriptionGeneration: 1,
-    });
-    assert.equal(outlineB.error, undefined);
-    assert.equal(outlineB.payload.interactions[0].userPreview, 'Visible B prompt');
+    const outlineB = await harness.readOutline('claude', fixture.session.sessionId);
+    assert.equal(outlineB.interactions[0].userPreview, 'Visible B prompt');
 
     currentRoots = [fixture.roots.wrong];
-    const unavailable = await harness.requestOutline(fixture.session, {
-        requestId: 3,
-        subscriptionGeneration: 2,
-    });
-    assert.equal(unavailable.error.code, 'unavailable');
-    assert.equal(unavailable.payload, undefined);
+    let unavailableError = null;
+    try {
+        await harness.readOutline('claude', fixture.session.sessionId);
+    } catch (error) {
+        unavailableError = error;
+    }
+    assert.equal(unavailableError?.code, 'unavailable');
 });
 
 test('PRODUCTION-CONVERSATION-FOCUS-001 panel close reveals the sidebar before publishing one exact focus origin', async () => {
@@ -1487,8 +1414,7 @@ test('PRODUCTION-CONVERSATION-FOCUS-001 panel close reveals the sidebar before p
         useConcreteViewer: true,
     });
     await harness.activate();
-    await harness.route(makeOutlineRequest());
-    await harness.route(makeOpenRequest());
+    assert.equal(await harness.openActiveConversation(), 'opened');
     harness.panels[0].dispose();
     await new Promise(resolve => setImmediate(resolve));
 
@@ -1500,7 +1426,7 @@ test('PRODUCTION-CONVERSATION-FOCUS-001 panel close reveals the sidebar before p
         projectId: 'project-a',
         provider: 'codex',
         sessionId: 'session-a',
-        interactionId: 'input-a',
+        interactionId: 'input-b',
     });
     assert.deepEqual(Object.keys(focusMessage).sort(), [
         'interactionId',
@@ -1529,10 +1455,8 @@ test('PRODUCTION-CONVERSATION-FOCUS-002 rejected reveal and hidden delivery rema
         useConcreteViewer: true,
     });
     await harness.activate();
-    await harness.route(makeOutlineRequest());
-    await harness.route(makeOpenRequest());
+    assert.equal(await harness.openActiveConversation(), 'opened');
     publishResult = false;
-    harness.setVisible(false);
     harness.panels[0].dispose();
     await new Promise(resolve => setImmediate(resolve));
 
@@ -1543,7 +1467,7 @@ test('PRODUCTION-CONVERSATION-FOCUS-002 rejected reveal and hidden delivery rema
         projectId: 'project-a',
         provider: 'codex',
         sessionId: 'session-a',
-        interactionId: 'input-a',
+        interactionId: 'input-b',
     });
     assert.equal(
         JSON.stringify(harness.diagnostics)
@@ -1564,22 +1488,26 @@ test('opens one comment-enabled AI Conversation panel through the composed Kimi 
     await harness.activate();
     t.after(() => harness.dispose());
 
-    const outline = await harness.requestOutline(fixture.session);
-    assert.equal(outline.payload.interactions.length, 3);
-    await harness.openInteraction(
-        fixture.session,
-        outline.payload.interactions[0].id,
-        outline.payload.sourceRevision
-    );
+    const outline = await harness.readOutline('kimi', fixture.session.sessionId);
+    assert.equal(outline.interactions.length, 3);
+    assert.equal(await harness.openActiveConversation(fixture.session), 'opened');
     assert.equal(
         harness.panels.filter(panel => panel.title === 'AI Conversation').length,
         1
     );
+    await harness.panels[0].receiveMessage({
+        type: 'conversation-viewer-previous',
+        version: 1,
+    });
+    await harness.panels[0].receiveMessage({
+        type: 'conversation-viewer-previous',
+        version: 1,
+    });
     const panelHtml = harness.panels[0].webview.html;
     assert.equal(panelHtml.includes('The parser reads visible tokens.'), true);
     assert.equal(panelHtml.includes('Explain the parser'), true);
     assert.equal(
-        panelHtml.includes(outline.payload.interactions[0].id),
+        panelHtml.includes(outline.interactions[0].id),
         true
     );
     assert.equal(panelHtml.includes('contenteditable'), false);

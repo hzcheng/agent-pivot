@@ -4,8 +4,7 @@
     function create(options) {
         var sidebarUiAvailable = options.available;
         var vscodeApi = options.vscodeApi;
-        var outlineToggle = options.outlineToggle;
-        var commentsToggle = options.commentsToggle;
+        var sidebarToggle = options.sidebarToggle;
         var commentsWorkspace = options.commentsWorkspace;
         var commentsResizer = options.commentsResizer;
         var sidebarRoot = options.sidebarRoot;
@@ -14,13 +13,11 @@
         var outlineRoot = options.outlineRoot;
         var commentsRoot = options.commentsRoot;
         var outlineQuery = options.outlineQuery;
-        var outlineSize = options.outlineSize;
-        var openComments = options.openComments;
         var commentsPanelMinWidth = 192;
         var commentsPanelMaxWidth = 420;
         var conversationMinWidth = 320;
         var state = {
-            commentsPanelOpen: true,
+            commentsPanelOpen: false,
             commentsPanelWidth: 240,
             sidebarView: 'outline',
         };
@@ -87,31 +84,12 @@
 
         function updateCommentsToggle() {
             if (!sidebarUiAvailable) return;
-            outlineToggle.textContent = 'Outline ('
-                + outlineSize() + ')';
-            outlineToggle.setAttribute(
+            sidebarToggle.setAttribute(
                 'aria-expanded',
-                state.commentsPanelOpen && state.sidebarView === 'outline'
-                    ? 'true'
-                    : 'false'
+                state.commentsPanelOpen ? 'true' : 'false'
             );
-            commentsToggle.textContent = 'Comments ('
-                + openComments()
-                + ' open)';
-            commentsToggle.setAttribute(
-                'aria-expanded',
-                state.commentsPanelOpen && state.sidebarView === 'comments'
-                    ? 'true'
-                    : 'false'
-            );
-            outlineToggle.setAttribute('aria-label',
-                state.commentsPanelOpen && state.sidebarView === 'outline'
-                    ? 'Hide conversation outline'
-                    : 'Show conversation outline');
-            commentsToggle.setAttribute('aria-label',
-                state.commentsPanelOpen && state.sidebarView === 'comments'
-                    ? 'Hide comments panel'
-                    : 'Show comments panel');
+            sidebarToggle.setAttribute('aria-label',
+                state.commentsPanelOpen ? 'Hide side panel' : 'Show side panel');
             sidebarTabs.forEach(function (tab) {
                 var selected = tab.getAttribute('data-sidebar-tab')
                     === state.sidebarView;
@@ -164,16 +142,12 @@
 
         function attach() {
             if (!sidebarUiAvailable) return;
-            function toggleSidebarView(view) {
-                var alreadyOpen = state.commentsPanelOpen
-                    && state.sidebarView === view;
-                setSidebarView(view, !alreadyOpen, true);
-            }
-            outlineToggle.addEventListener('click', function () {
-                toggleSidebarView('outline');
-            });
-            commentsToggle.addEventListener('click', function () {
-                toggleSidebarView('comments');
+            sidebarToggle.addEventListener('click', function () {
+                setSidebarView(
+                    state.sidebarView,
+                    !state.commentsPanelOpen,
+                    true
+                );
             });
             sidebarTabs.forEach(function (tab) {
                 tab.addEventListener('click', function () {
@@ -211,11 +185,7 @@
             });
             sidebarClose.addEventListener('click', function () {
                 setCommentsPanelOpen(false, true);
-                if (state.sidebarView === 'outline') {
-                    outlineToggle.focus();
-                } else {
-                    commentsToggle.focus();
-                }
+                sidebarToggle.focus();
             });
             var resizingPointerId = null;
             commentsResizer.addEventListener('pointerdown', function (event) {
@@ -266,8 +236,7 @@
             }
             event.preventDefault();
             setCommentsPanelOpen(false, true);
-            if (state.sidebarView === 'outline') outlineToggle.focus();
-            else commentsToggle.focus();
+            sidebarToggle.focus();
             return true;
         }
 

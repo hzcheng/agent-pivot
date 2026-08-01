@@ -5708,16 +5708,11 @@ function runWebviewContentChecks() {
     assert.ok(!/\bheight\s*:/.test(compiledExpandedProjectAccentBlock));
     assert.ok(webviewContent.includes('--steward-ai-session-list-max-height: ${getAiSessionListMaxHeight(config)}px;'));
     assert.ok(webviewContent.includes('Number.isFinite(visibleRows)'));
-    assert.ok(aiSessionListStyleBlock.includes('height: calc('));
     assert.ok(aiSessionListStyleBlock.includes(
-        'var(--steward-ai-session-list-max-height, calc(3 * 42px + 2 * 2px))'
-    ));
-    assert.ok(aiSessionListStyleBlock.includes(
-        '+ var(--steward-ai-session-expanded-extra-height, 0px)'
+        'height: var(--steward-ai-session-list-max-height, calc(3 * 42px + 2 * 2px));'
     ));
     assert.ok(compiledAiSessionListStyleBlock.includes(
-        'height:calc(var(--steward-ai-session-list-max-height,130px) + '
-        + 'var(--steward-ai-session-expanded-extra-height,0px))'
+        'height:var(--steward-ai-session-list-max-height,130px)'
     ));
 }
 
@@ -7348,30 +7343,15 @@ function runConversationProductionSafetyChecks() {
     const handlerProperties = conversationHandlerDeclarations[0]
         .initializer.properties;
     assert.deepStrictEqual(handlerProperties.map(propertyName), [
-        'request-ai-session-conversation-outline',
-        'open-ai-session-conversation',
-        'cancel-ai-session-conversation',
+        'open-active-ai-session-conversation',
     ]);
     assert.deepStrictEqual(
         handlerProperties.map(property => {
             assert.ok(ts.isPropertyAssignment(property));
             assert.ok(ts.isArrowFunction(property.initializer));
-            assert.ok(ts.isCallExpression(property.initializer.body));
-            assert.strictEqual(property.initializer.body.arguments.length, 1);
-            assert.ok(ts.isIdentifier(property.initializer.body.arguments[0]));
-            assert.strictEqual(
-                property.initializer.body.arguments[0].text,
-                property.initializer.parameters[0].name.text
-            );
-            return propertyAccessPath(
-                property.initializer.body.expression
-            );
-        }),
-        [
-            'conversationCapability.controller.handleOutline',
-            'conversationCapability.controller.handleOpen',
-            'conversationCapability.controller.cancel',
-        ]
+            return property.initializer.body.getText(dashboardAst);
+        }).map(body => body.includes('openAiSessionConversationWithFeedback({')),
+        [true]
     );
 
     const capabilityCalls = collectNodes(
@@ -7482,7 +7462,6 @@ function runConversationProductionSafetyChecks() {
         'ClaudeConversationAdapter',
         'ConversationCoordinator',
         'ConversationViewer',
-        'ConversationHostController',
     ]) {
         assert.ok(
             composition.includes(constructorName),
@@ -7509,9 +7488,7 @@ function runConversationProductionSafetyChecks() {
     );
 
     for (const messageType of [
-        'request-ai-session-conversation-outline',
-        'open-ai-session-conversation',
-        'cancel-ai-session-conversation',
+        'open-active-ai-session-conversation',
     ]) {
         assert.ok(
             dashboard.includes(`'${messageType}':`),
@@ -7538,13 +7515,12 @@ function runConversationProductionSafetyChecks() {
         2,
         'Dashboard lifecycle hooks must use the unified conversation reconcile'
     );
-    assert.ok(dashboard.includes(
-        'conversationCapability.controller.setVisible(visible)'
-    ));
+    assert.strictEqual(
+        dashboard.includes('conversationCapability.controller.'),
+        false,
+        'Dashboard must not retain the removed conversation rail controller'
+    );
     assert.ok(dashboard.includes('onDisposed: () =>'));
-    assert.ok(dashboard.includes(
-        'conversationCapability.controller.resetView()'
-    ));
 
     assert.ok(conversationTypes.includes('count?: number;'));
     assert.ok(conversationTypes.includes('durationMs?: number;'));

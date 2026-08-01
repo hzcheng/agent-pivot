@@ -636,31 +636,6 @@ const guards = {
                 'conversation resource and protocol limits must remain exact');
         }
 
-        const projectWebview = parseJavascript(
-            root,
-            'src/webview/webviewProjectScripts.js',
-            this.id,
-            risk
-        );
-        const markerRenderer = uniqueAstNode(
-            projectWebview,
-            node => ts.isFunctionDeclaration(node)
-                && node.name?.text === 'renderActiveAiSessionConversationOutline',
-            this.id,
-            risk,
-            'function renderActiveAiSessionConversationOutline'
-        );
-        const unsafeMarkerWrites = nodesMatching(markerRenderer, node =>
-            (ts.isBinaryExpression(node)
-                && node.operatorToken.kind === ts.SyntaxKind.EqualsToken
-                && memberPath(node.left)?.endsWith('.innerHTML'))
-            || (ts.isCallExpression(node)
-                && memberPath(node.expression)?.endsWith('.insertAdjacentHTML')));
-        if (unsafeMarkerWrites.length) {
-            fail(this.id, risk,
-                'conversation markers must not render prompt-bearing HTML');
-        }
-
         const appServer = parseTypescript(
             root,
             'src/aiSessions/conversation/codexAppServerClient.ts',

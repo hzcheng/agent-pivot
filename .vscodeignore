@@ -1,5 +1,8 @@
 .vscode/**
 .codex/**
+.claude/**
+.kimi/**
+.skills/**
 .vscode-test/**
 .github/**
 .ci/**

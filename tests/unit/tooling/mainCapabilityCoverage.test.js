@@ -63,6 +63,15 @@ test('ARCH-MAIN-CAPABILITY-COVERAGE-001 accepts complete reachable main lineage'
     assert.deepEqual(validateMainCapabilityCoverage(fixture.manifest, fixture), []);
 });
 
+test('ARCH-MAIN-CAPABILITY-COVERAGE-001 accepts deeply nested owners reachable from PR gates', t => {
+    const fixture = validFixture(t);
+    const nested = 'tests/unit/aiSessions/notify/owner.test.js';
+    fs.mkdirSync(path.join(fixture.repositoryRoot, 'tests/unit/aiSessions/notify'), { recursive: true });
+    fs.writeFileSync(path.join(fixture.repositoryRoot, nested), "test('nested owner', () => {});\n");
+    fixture.behaviors[0].owners = [nested];
+    assert.deepEqual(validateMainCapabilityCoverage(fixture.manifest, fixture), []);
+});
+
 function assertMutationRejected(t, expectedSubstring, mutate) {
     const fixture = validFixture(t);
     mutate(fixture.manifest, fixture);

@@ -487,3 +487,69 @@ test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 real Kimi cap keeps newest 2,0
         ['Cap input 2001']
     );
 });
+
+test('CONVERSATION-TELEMETRY-001 Kimi surfaces the latest StatusUpdate context window usage', async t => {
+    const source = await createFixture(t);
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+
+    assert.equal(await adapter.readTelemetry(sessionId), undefined);
+
+    await fs.promises.appendFile(source.sourcePath, [
+        JSON.stringify({
+            timestamp: 5000,
+            message: {
+                type: 'StatusUpdate',
+                payload: {
+                    context_tokens: 107253.9,
+                    max_context_tokens: 262144,
+                },
+            },
+        }),
+        JSON.stringify({
+            timestamp: 6000,
+            message: {
+                type: 'StatusUpdate',
+                payload: { context_usage: 0.5 },
+            },
+        }),
+        JSON.stringify({
+            timestamp: 7000,
+            message: {
+                type: 'StatusUpdate',
+                payload: {
+                    context_tokens: 120000,
+                    max_context_tokens: 262144,
+                },
+            },
+        }),
+        '',
+    ].join('\n'));
+
+    assert.deepEqual(await adapter.readTelemetry(sessionId), {
+        provider: 'kimi',
+        sessionId,
+        context: { usedTokens: 120000, maxTokens: 262144 },
+        rateLimits: [],
+    });
+
+    await fs.promises.appendFile(
+        source.sourcePath,
+        `${JSON.stringify({
+            timestamp: 8000,
+            message: {
+                type: 'StatusUpdate',
+                payload: {
+                    context_tokens: 131072,
+                    max_context_tokens: 262144,
+                },
+            },
+        })}\n`
+    );
+    assert.deepEqual(await adapter.readTelemetry(sessionId), {
+        provider: 'kimi',
+        sessionId,
+        context: { usedTokens: 131072, maxTokens: 262144 },
+        rateLimits: [],
+    });
+});

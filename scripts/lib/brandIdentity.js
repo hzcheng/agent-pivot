@@ -31,7 +31,7 @@ const IDENTITY_SCAN_TARGETS = Object.freeze([
     'scripts',
     'spikes',
     '.github/workflows',
-    '.codex/skills',
+    '.skills',
     'README.md',
     'CHANGELOG.md',
     'LICENSE',

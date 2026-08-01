@@ -4,6 +4,13 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
 
 ## [Unreleased]
 
+### Added
+
+- The AI Conversation usage bar now covers Kimi and Claude sessions: Kimi
+  reports context-window usage from its wire-protocol status updates, and
+  Claude reports the current model and context-window usage from assistant
+  usage records.
+
 ### Changed
 
 - Clicking an already-focused Active Session now opens its AI Conversation at

@@ -613,3 +613,88 @@ test('SESSION-AI-SESSION-CLAUDE-CONVERSATION-007 changes revision after a same-s
     assert.equal(rebuilt.interactions[0].userPreview, 'Bravo');
     assert.notEqual(rebuilt.sourceRevision, first.sourceRevision);
 });
+
+test('CONVERSATION-TELEMETRY-001 Claude surfaces the latest assistant model and context window usage', async t => {
+    const source = await createFixture(t);
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+
+    assert.equal(await adapter.readTelemetry(sessionId), undefined);
+
+    await fs.promises.appendFile(source.sourcePath, [
+        JSON.stringify({
+            type: 'assistant',
+            uuid: 'telemetry-assistant-1',
+            message: {
+                role: 'assistant',
+                model: 'claude-sonnet-4-6',
+                content: [{ type: 'text', text: 'Working on it.' }],
+                usage: {
+                    input_tokens: 3,
+                    cache_creation_input_tokens: 1513,
+                    cache_read_input_tokens: 98000,
+                    output_tokens: 119,
+                },
+            },
+        }),
+        JSON.stringify({
+            type: 'assistant',
+            uuid: 'telemetry-sidechain-assistant',
+            isSidechain: true,
+            message: {
+                role: 'assistant',
+                model: 'claude-haiku-4-5',
+                content: [{ type: 'text', text: 'subagent' }],
+                usage: { input_tokens: 10, output_tokens: 5 },
+            },
+        }),
+        JSON.stringify({
+            type: 'assistant',
+            uuid: 'telemetry-assistant-2',
+            message: {
+                role: 'assistant',
+                model: 'claude-sonnet-4-6',
+                content: [{ type: 'text', text: 'Done.' }],
+                usage: {
+                    input_tokens: 5,
+                    cache_read_input_tokens: 120000,
+                    output_tokens: 42,
+                },
+            },
+        }),
+        '',
+    ].join('\n'));
+
+    assert.deepEqual(await adapter.readTelemetry(sessionId), {
+        provider: 'claude',
+        sessionId,
+        model: 'claude-sonnet-4-6',
+        context: { usedTokens: 120047, maxTokens: 200000 },
+        rateLimits: [],
+    });
+
+    await fs.promises.appendFile(
+        source.sourcePath,
+        `${JSON.stringify({
+            type: 'assistant',
+            uuid: 'telemetry-assistant-3',
+            message: {
+                role: 'assistant',
+                model: 'claude-opus-4-6',
+                content: [{ type: 'text', text: 'Switched models.' }],
+                usage: {
+                    input_tokens: 7,
+                    cache_read_input_tokens: 131000,
+                    output_tokens: 65,
+                },
+            },
+        })}\n`
+    );
+    assert.deepEqual(await adapter.readTelemetry(sessionId), {
+        provider: 'claude',
+        sessionId,
+        model: 'claude-opus-4-6',
+        context: { usedTokens: 131072, maxTokens: 200000 },
+        rateLimits: [],
+    });
+});

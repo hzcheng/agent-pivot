@@ -11,6 +11,10 @@ Convert evidence from the current task into concise, reusable Agent guidance
 before the branch is finalized. Update skills only when the evidence exposes a
 missing or ambiguous workflow rule; do not force skill churn into every PR.
 
+All repository Agent skills live under `.skills/`; that directory is the only
+canonical, editable location. `.codex/`, `.claude/`, and `.kimi/` are untracked
+local mirrors.
+
 ## Workflow
 
 Run this once after implementation and fresh verification, but before the final
@@ -39,7 +43,7 @@ push and merge.
 5. Use `skill-creator` for every skill creation or substantial update. Add or
    tighten repository contract tests for critical guidance, run
    `quick_validate.py` for each changed skill, and run the focused owner tests.
-6. Treat `.codex/skills/` and skill-owner tests as implementation paths. Commit
+6. Treat `.skills/` and skill-owner tests as implementation paths. Commit
    all skill iterations first, then assign the resulting full commit SHA to the
    matching main capability, advance `audit.head`, and create a separate
    documentation-only audit commit.
@@ -63,6 +67,9 @@ GitHub commands, and verified recovery from uncertain remote writes.
 
 ## Guardrails
 
+- Edit skills only under `.skills/`. Never modify, create, or delete skill
+  files inside `.codex/`, `.claude/`, or `.kimi/`, and never treat mirror
+  content as evidence of the canonical skill text.
 - Do not capture secrets, tokens, private payloads, or user data in skills.
 - Generalize transient paths, process IDs, run IDs, PR numbers, and commit
   hashes into stable checks and placeholders.

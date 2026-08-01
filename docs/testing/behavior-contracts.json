@@ -3525,12 +3525,12 @@
       "tests/unit/tooling/repositorySkills.test.js"
     ],
     "evidence": [
-      ".codex/skills/resilient-webview-mutation-protocols/SKILL.md",
-      ".codex/skills/fixing-regressions-with-ci/SKILL.md",
-      ".codex/skills/harvesting-workflow-lessons/SKILL.md",
-      ".codex/skills/installing-vscode-extensions-locally/SKILL.md",
-      ".codex/skills/publishing-and-merging-github-prs/SKILL.md",
-      ".codex/skills/review-fix-commit-loop/SKILL.md"
+      ".skills/resilient-webview-mutation-protocols/SKILL.md",
+      ".skills/fixing-regressions-with-ci/SKILL.md",
+      ".skills/harvesting-workflow-lessons/SKILL.md",
+      ".skills/installing-vscode-extensions-locally/SKILL.md",
+      ".skills/publishing-and-merging-github-prs/SKILL.md",
+      ".skills/review-fix-commit-loop/SKILL.md"
     ]
   },
   {
@@ -3952,16 +3952,20 @@
   {
     "id": "CONVERSATION-TELEMETRY-001",
     "domain": "webview",
-    "title": "AI Conversation shows correlated Codex model, context-window usage, and quota windows without replacing conversation content or accepting stale Session data",
+    "title": "AI Conversation shows correlated provider model, context-window usage, and quota windows without replacing conversation content or accepting stale Session data",
     "priority": "P1",
     "status": "automated",
     "owners": [
       "tests/contract/aiSessions/codexAppServerClient.test.js",
       "tests/contract/aiSessions/codexConversationAdapter.test.js",
+      "tests/contract/aiSessions/kimiConversationAdapter.test.js",
+      "tests/contract/aiSessions/claudeConversationAdapter.test.js",
       "tests/browser/conversationViewer.test.js"
     ],
     "evidence": [
       "src/aiSessions/conversation/codexAdapter.ts",
+      "src/aiSessions/conversation/kimiAdapter.ts",
+      "src/aiSessions/conversation/claudeAdapter.ts",
       "src/aiSessions/conversation/viewer.ts",
       "src/webview/conversationViewerScripts.js",
       "media/conversationTelemetry.css"

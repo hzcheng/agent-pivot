@@ -33,6 +33,7 @@ import {
     ConversationPageRequest,
     ConversationProviderAdapter,
     ConversationResponseState,
+    ConversationTelemetry,
 } from './types';
 import {
     openValidatedConversationSource,
@@ -51,11 +52,14 @@ export interface KimiConversationAdapterOptions {
     clearTimeout(handle: TimerHandle): void;
 }
 
+type ConversationContextUsage = NonNullable<ConversationTelemetry['context']>;
+
 interface KimiConversationIndex extends AiSessionDisposable {
     source: OpenConversationSource;
     nextOffset: number;
     interactions: ConversationInteraction[];
     openInteractionIndex?: number;
+    telemetryContext?: ConversationContextUsage;
     revision: number;
     partial: boolean;
 }
@@ -64,6 +68,7 @@ interface LoadedConversation {
     interactions: ConversationInteraction[];
     sourceRevision: string;
     partial: boolean;
+    telemetryContext?: ConversationContextUsage;
 }
 
 function asRecord(value: unknown): Record<string, any> | undefined {
@@ -151,6 +156,22 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
         );
     }
 
+    async readTelemetry(
+        sessionId: string,
+        signal?: ConversationAbortSignal
+    ): Promise<ConversationTelemetry | undefined> {
+        const loaded = await this.load(sessionId, signal);
+        if (!loaded.telemetryContext) {
+            return undefined;
+        }
+        return {
+            provider: 'kimi',
+            sessionId,
+            context: { ...loaded.telemetryContext },
+            rateLimits: [],
+        };
+    }
+
     watch(sessionId: string, onChange: () => void): AiSessionDisposable {
         if (this.disposed) {
             return { dispose() {} };
@@ -224,6 +245,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
         const previous = this.cache.get(sessionId);
         let interactions: ConversationInteraction[] = [];
         let openInteractionIndex: number | undefined;
+        let telemetryContext: ConversationContextUsage | undefined;
         try {
             const startOffset = await getConversationReadStart(
                 source,
@@ -237,6 +259,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
             if (continuing) {
                 interactions = cloneInteractions(previous.interactions);
                 openInteractionIndex = previous.openInteractionIndex;
+                telemetryContext = previous.telemetryContext;
             }
             const normalizeRecord = (record: ConversationJsonlRecord): void => {
                 const envelope = asRecord(record.value);
@@ -305,6 +328,17 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                                 .assistantMarkdown.push(text);
                         }
                     }
+                } else if (event.type === 'StatusUpdate') {
+                    const payload = asRecord(event.payload);
+                    const usedTokens = Number(payload?.context_tokens);
+                    const maxTokens = Number(payload?.max_context_tokens);
+                    if (Number.isFinite(usedTokens) && usedTokens >= 0
+                        && Number.isFinite(maxTokens) && maxTokens > 0) {
+                        telemetryContext = {
+                            usedTokens: Math.floor(usedTokens),
+                            maxTokens: Math.floor(maxTokens),
+                        };
+                    }
                 } else if (event.type === 'TurnEnd') {
                     finishInteraction('complete');
                 } else if (event.type === 'Interrupt'
@@ -349,6 +383,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                     interactions: closed,
                     sourceRevision: `r${revision}`,
                     partial: true,
+                    telemetryContext,
                 };
             }
             const partial = continuing ? previous.partial : result.partial;
@@ -369,6 +404,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                 previous.nextOffset = result.nextOffset;
                 previous.interactions = interactions;
                 previous.openInteractionIndex = openInteractionIndex;
+                previous.telemetryContext = telemetryContext;
                 previous.revision = revision;
                 previous.partial = partial;
             } else {
@@ -377,6 +413,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                     nextOffset: result.nextOffset,
                     interactions,
                     openInteractionIndex,
+                    telemetryContext,
                     revision,
                     partial,
                     dispose() {},
@@ -391,6 +428,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                 interactions,
                 sourceRevision: `r${revision}`,
                 partial,
+                telemetryContext,
             };
         } finally {
             await source.handle.close().catch(() => undefined);

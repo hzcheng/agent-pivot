@@ -169,7 +169,9 @@ function isClaudeUserInterrupt(event: JsonRecord): boolean {
             return typeof (part as JsonRecord)?.text === 'string' ? (part as JsonRecord).text : '';
         })
         : [typeof content === 'string' ? content : ''];
-    return textParts.some(text => text.trim() === '[Request interrupted by user]');
+    // Claude Code emits marker variants such as '[Request interrupted by user
+    // for tool use]' when a tool call is interrupted, so match the prefix.
+    return textParts.some(text => text.trim().startsWith('[Request interrupted by user'));
 }
 
 export function createClaudeLifecycleAccumulator(runStartedAtMs: number): AiSessionLifecycleAccumulator {

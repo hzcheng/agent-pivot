@@ -101,3 +101,46 @@ test('PERSIST-LIFECYCLE-PARSER-001 [claude] treats the explicit user interrupt m
     assert.equal(signal.executionState, 'stopped');
     assert.match(signal.token, /^claude:user_interrupt:/);
 });
+
+test('PERSIST-LIFECYCLE-PARSER-001 [claude] treats the tool-use interrupt marker variant as stopped', () => {
+    const signal = lifecycle.parseClaudeLifecycleLines([
+        JSON.stringify({
+            type: 'assistant',
+            timestamp: '2026-08-01T02:35:56.958Z',
+            uuid: 'assistant-tool-use',
+            message: {
+                role: 'assistant',
+                stop_reason: 'tool_use',
+                content: [{ type: 'tool_use', id: 'toolu_1', name: 'Bash', input: { command: 'npm test' } }],
+            },
+        }),
+        JSON.stringify({
+            type: 'user',
+            timestamp: '2026-08-01T02:36:41.919Z',
+            uuid: 'user-tool-result-rejected',
+            message: {
+                role: 'user',
+                content: [{
+                    type: 'tool_result',
+                    tool_use_id: 'toolu_1',
+                    content: "The user doesn't want to proceed with this tool use.",
+                }],
+            },
+        }),
+        JSON.stringify({
+            type: 'user',
+            timestamp: '2026-08-01T02:36:41.920Z',
+            uuid: 'user-interrupt-tool-use',
+            message: {
+                role: 'user',
+                content: [{ type: 'text', text: '[Request interrupted by user for tool use]' }],
+            },
+        }),
+    ], runStartedAtMs);
+
+    assert.ok(signal);
+    assert.equal(signal.phase, 'idle');
+    assert.equal(signal.reason, undefined);
+    assert.equal(signal.executionState, 'stopped');
+    assert.match(signal.token, /^claude:user_interrupt:/);
+});

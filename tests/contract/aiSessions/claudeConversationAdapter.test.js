@@ -319,6 +319,64 @@ test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 Claude treats string and array
     );
 });
 
+test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 Claude treats the tool-use interrupt sentinel variant as interaction state only', async t => {
+    const source = await createFixture(t);
+    const records = [
+        {
+            type: 'user',
+            uuid: 'real-request',
+            timestamp: '2026-08-01T02:00:00.000Z',
+            message: { role: 'user', content: 'Run the lint checks' },
+        },
+        {
+            type: 'assistant',
+            uuid: 'real-response',
+            message: { role: 'assistant', content: 'Running them now.' },
+        },
+        {
+            type: 'user',
+            uuid: 'interrupt-tool-use',
+            message: {
+                role: 'user',
+                content: [{ type: 'text', text: '[Request interrupted by user for tool use]' }],
+            },
+        },
+    ];
+    await fs.promises.writeFile(
+        source.sourcePath,
+        `${records.map(record => JSON.stringify(record)).join('\n')}\n`
+    );
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+
+    const { outline, page } = await readWholeConversation(adapter);
+    assert.deepEqual(
+        outline.interactions.map(interaction => [
+            interaction.id,
+            interaction.userPreview,
+            interaction.responseState,
+        ]),
+        [
+            [
+                'real-request',
+                'Run the lint checks',
+                'interrupted',
+            ],
+        ]
+    );
+    assert.deepEqual(
+        page.messages.map(message => [message.role, message.markdown]),
+        [
+            ['user', 'Run the lint checks'],
+            ['assistant', 'Running them now.'],
+        ]
+    );
+    assert.equal(
+        JSON.stringify({ outline, page }).includes('Request interrupted by user'),
+        false
+    );
+});
+
 test('SESSION-AI-SESSION-CLAUDE-CONVERSATION-002 excludes assistant tool blocks and synthetic user-role tool results', async t => {
     const source = await createFixture(t);
     const adapter = createAdapter(source);

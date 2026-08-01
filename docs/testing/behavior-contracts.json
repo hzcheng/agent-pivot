@@ -4379,5 +4379,18 @@
     "evidence": [
       "src/aiSessions/notify/store.ts"
     ]
+  },
+  {
+    "id": "ATTENTION-NOTIFY-DISPATCHER-001",
+    "domain": "attention",
+    "title": "Notification dispatcher debounces, deduplicates, rate limits and merges",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/notify/dispatcher.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/notify/dispatcher.ts"
+    ]
   }
 ]

@@ -4136,12 +4136,16 @@
     "status": "automated",
     "owners": [
       "scripts/run-skill-management-checks.js"
+    ,
+      "tests/contract/skills/skillPanelCapability.test.js"
     ],
     "evidence": [
       "src/skills/centralService.ts",
       "src/skills/dashboardController.ts",
       "src/skills/migrateService.ts",
       "src/skills/syncService.ts"
+    ,
+      "src/skills/skillPanelCapability.ts"
     ]
   },
   {
@@ -4182,6 +4186,8 @@
     "owners": [
       "scripts/run-skill-management-checks.js",
       "tests/browser/skillsFolderTree.test.js"
+    ,
+      "tests/contract/skills/skillPanelCapability.test.js"
     ],
     "evidence": [
       "src/skills/scopeService.ts",
@@ -4189,6 +4195,8 @@
       "src/skills/dashboardController.ts",
       "src/webview/webviewSkillContent.ts",
       "src/webview/webviewDashboardScripts.js"
+    ,
+      "src/skills/skillPanelCapability.ts"
     ]
   },
   {
@@ -4200,6 +4208,8 @@
     "owners": [
       "scripts/run-skill-management-checks.js",
       "tests/contract/skills/globalStoreLocationController.test.js"
+    ,
+      "tests/contract/skills/skillPanelCapability.test.js"
     ],
     "evidence": [
       "package.json",
@@ -4209,6 +4219,8 @@
       "src/skills/dashboardController.ts",
       "src/dashboard.ts",
       "src/webview/webviewDashboardScripts.js"
+    ,
+      "src/skills/skillPanelCapability.ts"
     ]
   },
   {

@@ -26,9 +26,7 @@ import { PromptDashboardController } from './prompts/dashboardController';
 import { initializePromptMementoStore, PromptService } from './prompts/service';
 import { PromptTerminalCommandController } from './prompts/terminalCommandController';
 import { getAiPanelContent, getPromptSurfaceContent } from './prompts/webviewContent';
-import { SkillDashboardController } from './skills/dashboardController';
-import { GlobalStoreLocationController } from './skills/globalStoreLocationController';
-import { skillDirectoriesEqual } from './skills/scopeService';
+import { createSkillPanelCapability } from './skills/skillPanelCapability';
 import { SkillGroupStore } from './skills/skillGroupStore';
 import FileService from './services/fileService';
 import CodexSessionService from './services/codexSessionService';
@@ -446,28 +444,6 @@ async function initializeDashboard(
     });
     const getWorkspaceRootPaths = (): string[] =>
         (vscode.workspace.workspaceFolders || []).map(folder => folder.uri.fsPath);
-    const globalStoreLocationController = new GlobalStoreLocationController({
-        homeDir: os.homedir(),
-        getWorkspaceRoots: getWorkspaceRootPaths,
-        readSetting: () => getAgentPivotConfiguration().get<string>(
-            'skills.globalStorePath',
-            '~/.skills',
-        ),
-        writeSetting: value => getAgentPivotConfiguration().update(
-            'skills.globalStorePath',
-            value,
-            vscode.ConfigurationTarget.Global,
-        ),
-        showInputBox: options => vscode.window.showInputBox(options),
-        showWarningMessage: (message, options, ...items) => options
-            ? vscode.window.showWarningMessage(message, options, ...items)
-            : vscode.window.showWarningMessage(message),
-        showErrorMessage: message => vscode.window.showErrorMessage(message),
-        refresh: () => skillDashboardController.refresh(
-            'global-skills-location-changed',
-        ),
-        logError,
-    });
     const promptDashboardController = new PromptDashboardController({
         service: promptService,
         confirmDelete: async prompt => {
@@ -482,108 +458,46 @@ async function initializeDashboard(
         renderAiPanel: snapshot => getAiPanelContent(
             snapshot,
             getSkillsPanelContent(
-                skillDashboardController.getRecords(),
-                skillDashboardController.getPanelView(),
+                skillPanel.getRecords(),
+                skillPanel.getPanelView(),
             ),
         ),
     });
-    const skillDashboardController = ownResource(() => new SkillDashboardController({
+    const skillPanel = ownResource(() => createSkillPanelCapability({
         getHomeDir: () => os.homedir(),
         getWorkspaceRoot: () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
-        getGlobalSkillsRoot: () => globalStoreLocationController.getActiveRoot(),
-        postMessage: message => provider.postMessage(message),
-        isVisible: () => provider.visible,
-        logError,
+        getWorkspaceRoots: getWorkspaceRootPaths,
+        hasWorkspace: () => Boolean(vscode.workspace.workspaceFolders?.length),
         groupStore: new SkillGroupStore(context.globalState),
+        readGlobalStorePath: () => getAgentPivotConfiguration().get<string>(
+            'skills.globalStorePath',
+            '~/.skills',
+        ),
+        writeGlobalStorePath: value => getAgentPivotConfiguration().update(
+            'skills.globalStorePath',
+            value,
+            vscode.ConfigurationTarget.Global,
+        ),
+        postMessage: message => provider.postMessage(message),
+        refreshDashboard: () => provider.refresh(),
+        isVisible: () => provider.visible,
+        showInputBox: options => vscode.window.showInputBox(options),
+        showQuickPickMany: <T extends vscode.QuickPickItem>(
+            items: readonly T[],
+            quickPickOptions: vscode.QuickPickOptions
+        ) => vscode.window.showQuickPick(
+            [...items],
+            { ...quickPickOptions, canPickMany: true } as vscode.QuickPickOptions & { canPickMany: true }
+        ),
+        showWarningMessage: (message, messageOptions, ...items) => messageOptions
+            ? vscode.window.showWarningMessage(message, messageOptions, ...items)
+            : vscode.window.showWarningMessage(message),
+        showInformationMessage: message => vscode.window.showInformationMessage(message),
+        showErrorMessage: message => vscode.window.showErrorMessage(message),
+        openTextFile: fsPath => vscode.window.showTextDocument(vscode.Uri.file(fsPath)),
+        logError,
     }));
-    const completedSkillScopeActionRequests = new Set<string>();
-    const publishSkillScopeActionSettlement = async (settlement: {
-        version: 1;
-        requestId: string;
-        dirPath: string;
-        operation: 'apply-to-project' | 'move-to-global';
-        ok: boolean;
-        code?: string;
-        resultDirPath?: string;
-    }): Promise<void> => {
-        let delivered = false;
-        try {
-            delivered = await skillDashboardController.refresh('skill-scope-action', settlement);
-        } catch (error) {
-            logError('Failed to publish the authoritative Skill scope update.', error);
-        }
-        if (delivered) {
-            return;
-        }
-        try {
-            provider.refresh();
-        } catch (error) {
-            logError('Failed to refresh the dashboard after a Skill scope action.', error);
-        }
-        try {
-            await provider.postMessage({
-                type: 'skill-scope-action-result',
-                ...settlement,
-                ok: false,
-                code: 'refresh-failed',
-            });
-        } catch (error) {
-            logError('Failed to settle the Skill scope action.', error);
-        }
-    };
-    timeBootstrapPhase('skill-scan', () => skillDashboardController.start());
-    const runSkillMigrationToCentral = async (scope?: 'user' | 'project'): Promise<void> => {
-        const hasWorkspace = Boolean(vscode.workspace.workspaceFolders?.length);
-        const migratable = skillDashboardController.getRecords()
-            .filter(record => !record.central
-                && (!scope || record.scope === scope)
-                && (record.source === 'kimi' || record.source === 'claude' || record.source === 'codex'));
-        if (!migratable.length) {
-            void vscode.window.showInformationMessage(scope
-                ? `Every ${scope === 'user' ? 'user' : 'project'} skill is already centralized.`
-                : 'Every skill is already centralized.');
-            return;
-        }
-        const userNames = new Set(migratable.filter(record => record.scope === 'user').map(record => record.name));
-        const projectNames = new Set(migratable.filter(record => record.scope === 'project').map(record => record.name));
-        const segments: string[] = [];
-        if (userNames.size) {
-            segments.push(
-                `${userNames.size} user skill(s) into `
-                + skillDashboardController.getStoreRoots().user,
-            );
-        }
-        if (hasWorkspace && projectNames.size) {
-            segments.push(`${projectNames.size} project skill(s) into this project's .skills`);
-        }
-        const choice = await vscode.window.showWarningMessage(
-            `Migrate ${segments.join(' and ')}? `
-            + 'The kimi > claude > codex copy wins, other copies are deleted, '
-            + 'and no agent links are created — enable agents per card afterwards.',
-            { modal: true },
-            'Migrate',
-        );
-        if (choice !== 'Migrate') {
-            return;
-        }
-        const report = skillDashboardController.handleMigrateToCentral(scope);
-        const parts = [`Migrated ${report.migrated.length} skill(s) into the central stores`];
-        if (report.drifted.length) {
-            parts.push(`${report.drifted.length} had drift (brand-priority winner)`);
-        }
-        if (report.deleted.length) {
-            parts.push(`${report.deleted.length} duplicate(s) deleted`);
-        }
-        if (report.skipped.length) {
-            parts.push(`${report.skipped.length} skipped`);
-        }
-        const summary = `${parts.join('; ')}.`;
-        if (report.errors.length) {
-            void vscode.window.showWarningMessage(`${summary} ${report.errors.length} failed: ${report.errors[0].error}`);
-        } else {
-            void vscode.window.showInformationMessage(summary);
-        }
-    };
+    timeBootstrapPhase('skill-scan', () => skillPanel.start());
     const todoPanel = ownResource(() => createTodoPanelCapability({
         provider,
         todoService,
@@ -591,7 +505,7 @@ async function initializeDashboard(
             projectService.getGroups(),
             getOpenWorkspaceCards(),
             todoService.getSearchItems(),
-            skillDashboardController.getRecords(),
+            skillPanel.getRecords(),
         ),
         getConfiguration: () => getAgentPivotConfiguration(),
         showInputBox: options => vscode.window.showInputBox(options),
@@ -1462,7 +1376,7 @@ async function initializeDashboard(
         watchSessionChanges: (providerId, onDidChange) => getRegisteredAiSessionProvider(providerId).service.watchSessionChanges(onDidChange),
         getGroups: () => projectService.getGroups(),
         getTodoSearchItems: () => todoService.getSearchItems(),
-        getSkillRecords: () => skillDashboardController.getRecords(),
+        getSkillRecords: () => skillPanel.getRecords(),
         getCards: getOpenWorkspaceCards,
         getRunningCardAnimation: () => getAgentPivotConfiguration()
             .get<string>('aiSessionRunningCardAnimation', 'current'),
@@ -1572,6 +1486,7 @@ async function initializeDashboard(
             ...conversationHandlers,
             ...todoPanel.handlers,
             ...projectHandlers,
+            ...skillPanel.handlers,
             'request-projects-panel': async e => {
                 if (e.version !== 1 || !Number.isSafeInteger(e.requestId) || e.requestId < 1) {
                     return;
@@ -1595,275 +1510,6 @@ async function initializeDashboard(
                 await provider.postMessage(
                     promptDashboardController.getPanelContent(e.requestId)
                 );
-            },
-            'delete-skill': async e => {
-                const dirPath = String(e.dirPath || '');
-                const record = skillDashboardController.getRecords().find(candidate => candidate.dirPath === dirPath);
-                const label = record ? record.name : dirPath;
-                const choice = await vscode.window.showWarningMessage(
-                    `Delete skill "${label}" permanently? This cannot be undone.`,
-                    { modal: true },
-                    'Delete',
-                );
-                if (choice !== 'Delete') {
-                    return;
-                }
-                const result = skillDashboardController.handleDeleteSkill(dirPath);
-                if (!result.ok) {
-                    void vscode.window.showWarningMessage(`Could not delete the skill: ${result.error}`);
-                }
-            },
-            'apply-skill-collection': e => {
-                const result = skillDashboardController.handleApplyCollectionSuggestion(String(e.name || ''));
-                if (!result.ok) {
-                    void vscode.window.showWarningMessage(`Could not create the skill folder: ${result.error}`);
-                }
-            },
-            'dismiss-skill-collection': async e => {
-                await skillDashboardController.handleDismissCollectionSuggestion(String(e.name || ''));
-            },
-            'sync-skill': e => {
-                const result = skillDashboardController.handleSyncSkill(String(e.sourceDir || ''), String(e.targetDir || ''));
-                if (!result.ok) {
-                    void vscode.window.showWarningMessage(`Could not sync the skill: ${result.error}`);
-                }
-            },
-            'copy-skill': e => {
-                const result = skillDashboardController.handleCopySkill(String(e.sourceDir || ''), String(e.targetRoot || ''));
-                if (!result.ok) {
-                    void vscode.window.showWarningMessage(`Could not copy the skill: ${result.error}`);
-                }
-            },
-            'skill-scope-action': async e => {
-                const keys = Object.keys(e).sort().join(',');
-                if (keys !== 'dirPath,operation,requestId,type,version'
-                    || e.version !== 1
-                    || typeof e.requestId !== 'string'
-                    || e.requestId.length < 1
-                    || e.requestId.length > 128
-                    || typeof e.dirPath !== 'string'
-                    || e.dirPath.length < 1
-                    || e.dirPath.length > 4096
-                    || (e.operation !== 'apply-to-project' && e.operation !== 'move-to-global')
-                    || completedSkillScopeActionRequests.has(e.requestId)) {
-                    return;
-                }
-                completedSkillScopeActionRequests.add(e.requestId);
-                if (completedSkillScopeActionRequests.size > 256) {
-                    completedSkillScopeActionRequests.delete(completedSkillScopeActionRequests.values().next().value as string);
-                }
-                const settlement = {
-                    version: 1 as const,
-                    requestId: e.requestId,
-                    dirPath: e.dirPath,
-                    operation: e.operation as 'apply-to-project' | 'move-to-global',
-                    ok: false,
-                    code: 'cancelled',
-                    resultDirPath: undefined as string | undefined,
-                };
-                try {
-                    const record = skillDashboardController.getRecords().find(candidate =>
-                        candidate.central && candidate.dirPath === e.dirPath);
-                if (!record || (e.operation === 'apply-to-project' && record.scope !== 'user')
-                    || (e.operation === 'move-to-global' && record.scope !== 'project')) {
-                    settlement.code = 'invalid';
-                    await publishSkillScopeActionSettlement(settlement);
-                    return;
-                }
-                if (e.operation === 'apply-to-project') {
-                    const agents = ['kimi', 'claude', 'codex'] as const;
-                    const current = new Set(agents.filter(agent => Boolean(record.central?.links.project?.[agent])));
-                    const defaults = current.size
-                        ? current
-                        : new Set(agents.filter(agent => Boolean(record.central?.links.user?.[agent])));
-                    const items: Array<vscode.QuickPickItem & { agent: typeof agents[number] }> = agents.map(agent => ({
-                        label: agent === 'kimi' ? 'Kimi' : agent === 'claude' ? 'Claude' : 'Codex',
-                        description: current.has(agent) ? 'Currently available in this project' : undefined,
-                        picked: defaults.has(agent),
-                        agent,
-                    }));
-                    const selected = await vscode.window.showQuickPick(items, {
-                        canPickMany: true,
-                        placeHolder: current.size
-                            ? `Use "${record.name}": choose project agents; clear all to remove project access`
-                            : `Use "${record.name}": choose the agents that should use this global skill`,
-                    });
-                    if (selected === undefined) {
-                        await publishSkillScopeActionSettlement(settlement);
-                        return;
-                    }
-                    if (!current.size && !selected.length) {
-                        settlement.code = 'invalid';
-                        void vscode.window.showInformationMessage('Choose at least one project agent.');
-                        await publishSkillScopeActionSettlement(settlement);
-                        return;
-                    }
-                    const result = skillDashboardController.handleSetGlobalSkillProjectAgents(
-                        e.dirPath, selected.map(item => item.agent));
-                    settlement.ok = result.ok;
-                    settlement.code = result.ok ? 'applied' : (result.code || 'failed');
-                    settlement.resultDirPath = result.dirPath;
-                    if (!result.ok) {
-                        void vscode.window.showWarningMessage(`Could not apply the skill to this project: ${result.error}`);
-                    }
-                    await publishSkillScopeActionSettlement(settlement);
-                    return;
-                }
-
-                const existingGlobal = skillDashboardController.getRecords().find(candidate =>
-                    candidate.central && candidate.scope === 'user' && candidate.name === record.name);
-                if (existingGlobal && !skillDirectoriesEqual(record.dirPath, existingGlobal.dirPath)) {
-                    settlement.code = 'conflict';
-                    void vscode.window.showWarningMessage(
-                        `A different global skill named "${record.name}" already exists. Rename or reconcile it first.`);
-                    await publishSkillScopeActionSettlement(settlement);
-                    return;
-                }
-                const choice = await vscode.window.showWarningMessage(
-                    existingGlobal
-                        ? `Consolidate project skill "${record.name}" into the identical Global skill? `
-                            + 'The project source directory will be removed and its existing project links will be preserved.'
-                        : `Move project skill "${record.name}" to Global management? `
-                            + 'Its source directory will leave this project (and may appear deleted in Git), '
-                            + 'while its existing project links keep working. It will not be enabled globally.',
-                    { modal: true },
-                    existingGlobal ? 'Consolidate into Global' : 'Move to Global',
-                );
-                if (choice !== (existingGlobal ? 'Consolidate into Global' : 'Move to Global')) {
-                    await publishSkillScopeActionSettlement(settlement);
-                    return;
-                }
-                const result = skillDashboardController.handleMoveProjectSkillToGlobal(e.dirPath);
-                settlement.ok = result.ok;
-                settlement.code = result.ok ? 'moved' : (result.code || 'failed');
-                settlement.resultDirPath = result.dirPath;
-                if (!result.ok) {
-                    void vscode.window.showWarningMessage(`Could not move the skill to Global: ${result.error}`);
-                }
-                await publishSkillScopeActionSettlement(settlement);
-                } catch (error) {
-                    settlement.ok = false;
-                    settlement.code = 'failed';
-                    logError('Skill scope action failed unexpectedly.', error);
-                    await publishSkillScopeActionSettlement(settlement);
-                }
-            },
-            'central-toggle-skill': e => {
-                const result = skillDashboardController.handleCentralToggle(
-                    String(e.dirPath || ''),
-                    (e.scope === 'project' ? 'project' : 'user') as never,
-                    String(e.source || '') as never,
-                    e.enabled === true,
-                );
-                if (!result.ok) {
-                    void vscode.window.showWarningMessage(`Could not toggle the skill link: ${result.error}`);
-                }
-            },
-            'folder-toggle-skill-links': e => {
-                const result = skillDashboardController.handleFolderToggle(
-                    String(e.storeRoot || ''), String(e.folder || ''),
-                    (e.scope === 'project' ? 'project' : 'user') as never,
-                    String(e.agent || '') as never,
-                    e.enabled === true,
-                );
-                if (!result.ok) {
-                    void vscode.window.showWarningMessage(
-                        `Some folder links failed: ${result.errors.map(item => item.name).join(', ')}`);
-                }
-            },
-            'move-skill-to-folder': e => {
-                const result = skillDashboardController.handleMoveToFolder(String(e.dirPath || ''), String(e.folder || ''));
-                if (!result.ok) {
-                    void vscode.window.showWarningMessage(`Could not move the skill: ${result.error}`);
-                }
-            },
-            'create-skill-folder': async e => {
-                const parentFolder = String(e.parentFolder || '').replace(/^\/+|\/+$/g, '');
-                const folder = await vscode.window.showInputBox({
-                    prompt: parentFolder
-                        ? `New subfolder inside ${parentFolder} (use / for deeper nesting)`
-                        : 'New skill folder (use / for nesting, e.g. xiaohongshu/yunxiao)',
-                    placeHolder: 'folder or folder/subfolder',
-                });
-                if (!folder || !folder.trim()) {
-                    return;
-                }
-                const target = parentFolder ? `${parentFolder}/${folder.trim()}` : folder.trim();
-                const result = skillDashboardController.handleCreateFolder(
-                    e.scope === 'project' ? 'project' : 'user',
-                    target,
-                );
-                if (!result.ok) {
-                    void vscode.window.showWarningMessage(`Could not create the folder: ${result.error}`);
-                }
-            },
-            'remove-skill-folder': async e => {
-                const folderName = String(e.folder || '');
-                const choice = await vscode.window.showWarningMessage(
-                    `Delete the folder "${folderName}"? Only empty folders can be deleted.`,
-                    { modal: true },
-                    'Delete',
-                );
-                if (choice !== 'Delete') {
-                    return;
-                }
-                const result = skillDashboardController.handleRemoveFolder(String(e.storeRoot || ''), folderName);
-                if (!result.ok) {
-                    void vscode.window.showWarningMessage(`Could not delete the folder: ${result.error}`);
-                }
-            },
-            'centralize-skill': async e => {
-                const dirPath = String(e.dirPath || '');
-                const record = skillDashboardController.getRecords()
-                    .find(candidate => candidate.dirPath === dirPath && !candidate.central);
-                if (record) {
-                    // Centralize permanently deletes the losing duplicate copies;
-                    // confirm first, naming them and flagging content drift.
-                    const duplicates = skillDashboardController.getRecords().filter(candidate =>
-                        candidate.scope === record.scope && candidate.name === record.name
-                        && candidate.dirPath !== record.dirPath && !candidate.central
-                        && (candidate.source === 'kimi' || candidate.source === 'claude' || candidate.source === 'codex'));
-                    if (duplicates.length) {
-                        const drifted = new Set([record.contentHash || '', ...duplicates.map(copy => copy.contentHash || '')]).size > 1;
-                        const choice = await vscode.window.showWarningMessage(
-                            `Centralize "${record.name}" into the ${record.scope} store? `
-                            + `The other ${duplicates.length} ${record.scope} ${duplicates.length === 1 ? 'copy' : 'copies'} will be deleted permanently:\n`
-                            + duplicates.map(copy => copy.dirPath).join('\n')
-                            + (drifted ? '\nWarning: the copies have different content; only the clicked copy is kept.' : ''),
-                            { modal: true },
-                            'Centralize',
-                        );
-                        if (choice !== 'Centralize') {
-                            return;
-                        }
-                    }
-                }
-                const result = skillDashboardController.handleCentralize(dirPath);
-                if (!result.ok) {
-                    void vscode.window.showWarningMessage(`Could not centralize the skill: ${result.error}`);
-                }
-            },
-            'migrate-skills-to-central': e => {
-                void runSkillMigrationToCentral(e.scope === 'project' ? 'project' : e.scope === 'user' ? 'user' : undefined);
-            },
-            'change-global-skills-location': () => {
-                void globalStoreLocationController.changeInteractively();
-            },
-            'fix-skill-diagnostic': e => {
-                const result = skillDashboardController.handleFixSkillDiagnostic(
-                    String(e.dirPath || ''),
-                    String(e.code || '') as never,
-                );
-                if (!result.ok) {
-                    void vscode.window.showWarningMessage(`Could not fix the skill: ${result.error}`);
-                }
-            },
-            'open-skill-file': async e => {
-                const skillFilePath = String(e.skillFilePath || '');
-                if (!skillDashboardController.getRecords().some(record => record.skillFilePath === skillFilePath)) {
-                    return;
-                }
-                await vscode.window.showTextDocument(vscode.Uri.file(skillFilePath));
             },
             'prompt-command': async e => {
                 const result = await promptDashboardController.handle(e);
@@ -2094,7 +1740,7 @@ async function initializeDashboard(
         getCurrentWorkspaceAiSessions: workspace => workspaceSessionHydrationController.hydrate(workspace),
         getGroups: () => projectService.getGroups(),
         getTodoSearchItems: () => todoService.getSearchItems(),
-        getSkillRecords: () => skillDashboardController.getRecords(),
+        getSkillRecords: () => skillPanel.getRecords(),
         getCollapsed: () => Boolean(groupCollapseController.getOpenWorkspacesCollapsed()),
         getRunningCardAnimation: () => getAgentPivotConfiguration()
             .get<string>('aiSessionRunningCardAnimation', 'current'),
@@ -2251,7 +1897,7 @@ async function initializeDashboard(
         get favoritesGroupCollapsed() { return groupCollapseController.getFavoritesCollapsed() },
         get openWorkspacesGroupCollapsed() { return groupCollapseController.getOpenWorkspacesCollapsed() },
         get todoSearchItems() { return todoService.getSearchItems() },
-        get skills() { return skillDashboardController.getRecords() },
+        get skills() { return skillPanel.getRecords() },
     };
     projectsPanelController = new ProjectsPanelController({
         getGroups: () => projectService.getGroups(),
@@ -2259,7 +1905,7 @@ async function initializeDashboard(
             projectService.getGroups(),
             getOpenWorkspaceCards(),
             todoService.getSearchItems(),
-            skillDashboardController.getRecords(),
+            skillPanel.getRecords(),
         ),
         renderHtml: groups => getProjectsPanelContent(groups, stewardInfos),
         postMessage: message => provider.postMessage(message),
@@ -2304,7 +1950,7 @@ async function initializeDashboard(
             if (event.affectsConfiguration(
                 `${AGENT_PIVOT_CONFIG_SECTION}.skills.globalStorePath`,
             )) {
-                await globalStoreLocationController.handleConfigurationChange();
+                await skillPanel.handleGlobalStoreConfigurationChange();
             }
             if (event.affectsConfiguration(`${AGENT_PIVOT_CONFIG_SECTION}.aiSessionTerminalMode`)
                 || event.affectsConfiguration(`${AGENT_PIVOT_CONFIG_SECTION}.aiSessionTmuxLayout`)
@@ -2374,9 +2020,9 @@ async function initializeDashboard(
         addProjectsFromFolder: () => addProjectsFromFolderController.addProjectsFromFolder(),
         addFileToActiveTerminal: () => activeTerminalFileReferenceController.addFileToActiveTerminal(),
         insertPromptToActiveTerminal: () => promptTerminalCommandController.insertPromptToActiveTerminal(),
-        migrateSkillsToCentral: () => runSkillMigrationToCentral(),
+        migrateSkillsToCentral: () => skillPanel.migrateToCentral(),
         changeGlobalSkillsLocation: () =>
-            globalStoreLocationController.changeInteractively(),
+            skillPanel.changeGlobalStoreLocation(),
         openCurrentAiSessionConversation: () => openCurrentAiSessionConversation(),
     };
 

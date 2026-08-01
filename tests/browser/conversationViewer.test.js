@@ -30,6 +30,18 @@ const conversationMermaidScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/conversationMermaidScripts.js'),
     'utf8'
 );
+const conversationOutlineScript = fs.readFileSync(
+    path.join(__dirname, '../../src/webview/conversationOutlineScripts.js'),
+    'utf8'
+);
+const conversationTelemetryScript = fs.readFileSync(
+    path.join(__dirname, '../../src/webview/conversationTelemetryScripts.js'),
+    'utf8'
+);
+const conversationCommentsScript = fs.readFileSync(
+    path.join(__dirname, '../../src/webview/conversationCommentsScripts.js'),
+    'utf8'
+);
 const viewerCss = fs.readFileSync(
     path.join(__dirname, '../../media/conversationViewer.css'),
     'utf8'
@@ -240,6 +252,9 @@ async function openViewerPage(t, options = {}) {
     }
     await page.addScriptTag({ content: readingAnchorScript });
     await page.addScriptTag({ content: conversationMermaidScript });
+    await page.addScriptTag({ content: conversationOutlineScript });
+    await page.addScriptTag({ content: conversationTelemetryScript });
+    await page.addScriptTag({ content: conversationCommentsScript });
     await page.addScriptTag({ content: viewerScript });
     await page.locator('script').evaluateAll(elements =>
         elements.forEach(element => element.remove()));
@@ -590,6 +605,27 @@ async function openHostViewerDocument(t, options = {}) {
             await route.fulfill({
                 contentType: 'text/javascript',
                 body: conversationMermaidScript,
+            });
+            return;
+        }
+        if (pathname === '/conversationOutlineScripts.js') {
+            await route.fulfill({
+                contentType: 'text/javascript',
+                body: conversationOutlineScript,
+            });
+            return;
+        }
+        if (pathname === '/conversationTelemetryScripts.js') {
+            await route.fulfill({
+                contentType: 'text/javascript',
+                body: conversationTelemetryScript,
+            });
+            return;
+        }
+        if (pathname === '/conversationCommentsScripts.js') {
+            await route.fulfill({
+                contentType: 'text/javascript',
+                body: conversationCommentsScript,
             });
             return;
         }

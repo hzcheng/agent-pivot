@@ -18,6 +18,12 @@ const UNINSTRUMENTED_BY_DESIGN = [
     // their statements are attributed to the child process instead of the run.
     // Their extracted helpers under scripts/lib stay instrumented and enforced.
     /^scripts\/run-[^/]+\.js$/,
+    // CLI orchestrators that npm scripts execute with `node scripts/check-*.js` and
+    // no test requires (their main() runs on load). The decision logic lives in
+    // scripts/lib, which stays instrumented and enforced; require-able check
+    // scripts with their own unit tests (coverage, changed-coverage, tslint) are
+    // deliberately NOT listed here.
+    'scripts/check-behavior-contracts.js',
     // Webview browser scripts are loaded by the Webview document itself, so the
     // deterministic Node suites never require them. tests/browser exercises them
     // in Chromium through Playwright, outside this c8 run. Their TypeScript

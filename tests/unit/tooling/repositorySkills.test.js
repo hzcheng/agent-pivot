@@ -42,9 +42,11 @@ test('ARCH-REPOSITORY-SKILL-GUIDANCE-001 keeps regression audits path-based and 
         ['audit-head currency', /audit.head/i],
         ['skill and owner-test implementation paths', /\.codex\/skills\/[\s\S]*skill-owner tests[\s\S]*implementation paths/i],
         ['post-commit SHA audit sequence', /final implementation commit[\s\S]*full SHA[\s\S]*assign it exactly once[\s\S]*audit\.head/i],
+        ['audit regeneration CLI', /regenerate-capability-audit\.js[\s\S]*--assign[\s\S]*--commit[\s\S]*advances `audit\.head`/i],
         ['explicit GitHub repository selection', /origin[\s\S]*upstream[\s\S]*--repo <owner\/name>/i],
         ['tracked or CI-produced test inputs', /git-tracked or produced by an earlier step of the CI job/i],
         ['build outputs absent rerun', /build outputs absent/i],
+        ['machine state hermeticity', /git identity, environment variables, tools on PATH/i],
     ]);
 });
 

@@ -1,50 +1,15 @@
 'use strict';
 
-const childProcess = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 const { loadBehaviorCatalog, validateBehaviorCatalog } = require('./lib/behaviorCatalog');
 const {
+    collectAuditedCommits,
+    collectUnauditedCommits,
     loadMainCapabilityCoverage,
+    loadWorkflowSources,
     validateMainCapabilityCoverage,
 } = require('./lib/mainCapabilityCoverage');
-
-function collectAuditedCommits(repositoryRoot, audit) {
-    const hashes = childProcess.execFileSync(
-        'git',
-        ['rev-list', '--reverse', `${audit.base}..${audit.head}`],
-        { cwd: repositoryRoot, encoding: 'utf8' }
-    ).trim().split(/\r?\n/u).filter(Boolean);
-    return hashes.map(hash => ({
-        hash,
-        subject: childProcess.execFileSync(
-            'git',
-            ['show', '-s', '--format=%s', hash],
-            { cwd: repositoryRoot, encoding: 'utf8' }
-        ).trim(),
-        files: childProcess.execFileSync(
-            'git',
-            ['diff-tree', '--root', '--no-commit-id', '--name-only', '-r', hash],
-            { cwd: repositoryRoot, encoding: 'utf8' }
-        ).trim().split(/\r?\n/u).filter(Boolean),
-    }));
-}
-
-function collectUnauditedCommits(repositoryRoot, audit) {
-    return collectAuditedCommits(repositoryRoot, {
-        base: audit.head,
-        head: 'HEAD',
-    });
-}
-
-function loadWorkflowSources(repositoryRoot) {
-    const workflowDirectory = path.join(repositoryRoot, '.github', 'workflows');
-    return Object.fromEntries(
-        fs.readdirSync(workflowDirectory)
-            .filter(name => /\.ya?ml$/u.test(name))
-            .map(name => [name, fs.readFileSync(path.join(workflowDirectory, name), 'utf8')])
-    );
-}
 
 function main() {
     const repositoryRoot = path.resolve(__dirname, '..');

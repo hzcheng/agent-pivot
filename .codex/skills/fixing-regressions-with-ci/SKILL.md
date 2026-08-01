@@ -29,6 +29,7 @@ Turn every confirmed regression into a CI-owned behavior before changing product
    - Run the focused test against the unfixed implementation.
    - Confirm it fails because of the reported regression, not setup, compilation, or an unrelated assertion.
    - If the test reads repository working-tree files, confirm every path is git-tracked or produced by an earlier step of the CI job that runs it, and rerun the test with build outputs absent. A locally built artifact is not CI evidence.
+   - The same hermeticity rule covers machine state the test relies on: git identity, environment variables, tools on PATH. A fixture that shells out must provide its own configuration (e.g. repo-local `git config user.name`), and proves it by rerunning with an empty HOME.
    - If it passes, repair the test; do not touch production code.
 5. **Fix minimally**
    - Change only enough production code to satisfy the behavior.
@@ -40,6 +41,7 @@ Turn every confirmed regression into a CI-owned behavior before changing product
    - In every automated owner file, use literal behavior IDs for the behaviors it owns. After any implementation, owner, catalog, or audit change, run `npm run test:behavior-contracts`.
    - Classify commits by changed paths and protected behavior, never by a subject prefix. Treat `.codex/skills/` and skill-owner tests as implementation paths: tests and owner-marker commits remain implementation evidence even with a `docs:` subject.
    - Form the final implementation commit before completing the audit. Record its full SHA, assign it exactly once to the matching capability, advance `audit.head` to that SHA, and commit the manifest update separately as a genuine documentation-only audit commit.
+   - Regenerate audit assignments with `node scripts/regenerate-capability-audit.js --assign <sha>=<CAPABILITY-ID> [--behavior <CAPABILITY-ID>=<BEHAVIOR-ID>] --commit "docs: audit ..."`, especially after a rebase: the script classifies every commit beyond the audit head, registers documentation-only commits, advances `audit.head`, validates the manifest, and restores it on failure instead of hand-editing.
    - If another implementation path changes after that audit, including `.codex/skills/`, repeat the sequence with the new implementation SHA. A pre-commit local pass cannot prove commit-level audit currency because the final SHA does not exist yet.
    - Advance `audit.head` only after every implementation commit has a complete main-capability assignment with CI-reachable behavior ownership. Only genuine documentation-only commits may remain after the audit head.
    - Treat audit-currency failures as immediate failures. A later audit commit cannot create missing RED evidence or retroactively make an implementation commit documentation-only.

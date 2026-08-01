@@ -21,6 +21,12 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
   Comments header buttons were merged into a single Sidebar toggle that reopens
   the panel on the last active tab.
 
+### Fixed
+
+- The AI Conversation Latest button now stays available whenever the
+  conversation has inputs, re-locating the latest input even when it is
+  already selected instead of being disabled.
+
 ## [1.0.1] - 2026-07-31
 
 ### Added

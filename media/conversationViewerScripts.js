@@ -515,7 +515,7 @@
         updatePosition(message);
         previous.disabled = message.previousCursor === undefined;
         next.disabled = message.nextCursor === undefined;
-        latest.disabled = message.atLatest;
+        latest.disabled = !message.selectedInteractionId;
         var statusMessages = [];
         if (message.stale) {
             statusMessages.push('Conversation history may be out of date.');

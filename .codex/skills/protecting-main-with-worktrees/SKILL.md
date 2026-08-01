@@ -27,6 +27,7 @@ doing feature work in an isolated git worktree under the project.
    - `git fetch <remote> <base>`
    - `git worktree add -b <branch> .worktree/<topic> <remote>/<base>`
    - Use `origin/main` only after confirming that `origin` and `main` are the intended target.
+   - Install dependencies inside the new worktree (`npm ci`) before running verification. npm resolves binaries from a parent checkout's node_modules when the worktree has none, which masks the missing install until a check constructs `<worktree>/node_modules/...` paths directly.
 
 4. Work only in the feature worktree.
    - Use `git -C .worktree/<topic> ...` or set `workdir` there.

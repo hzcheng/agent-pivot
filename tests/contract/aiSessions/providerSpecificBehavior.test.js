@@ -422,3 +422,117 @@ test('SESSION-CODEX-SESSION-SERVICE-001 stats each session file once per change 
         `expected at most ${sessionCount + 4} statSync calls for ${sessionCount} sessions, saw ${stats}`
     );
 });
+
+function countingStats(t) {
+    const counter = { count: 0 };
+    const realStatSync = fs.statSync;
+    fs.statSync = function countingStatSync(...args) {
+        counter.count += 1;
+        return realStatSync.apply(fs, args);
+    };
+    t.after(() => { fs.statSync = realStatSync; });
+    return counter;
+}
+
+function makeClaudeStore(root, sessionCount) {
+    const sessionDir = path.join(root, 'projects', '-work-app');
+    fs.mkdirSync(sessionDir, { recursive: true });
+    for (let index = 0; index < sessionCount; index += 1) {
+        fs.writeFileSync(path.join(sessionDir, `${crypto.randomUUID()}.jsonl`), '{}\n', 'utf8');
+    }
+}
+
+function makeCodexStore(root, sessionCount) {
+    const sessionsDir = path.join(root, 'sessions', '2026', '07', '14');
+    fs.mkdirSync(sessionsDir, { recursive: true });
+    const files = [];
+    for (let index = 0; index < sessionCount; index += 1) {
+        const sessionId = crypto.randomUUID();
+        files.push(writeCodexSessionMetaFile(sessionsDir, sessionId, {
+            id: sessionId, session_id: sessionId, cwd: '/work/app',
+            timestamp: '2026-07-14T01:00:00.000Z', source: 'vscode',
+        }));
+    }
+    fs.writeFileSync(path.join(root, 'session_index.jsonl'), '', 'utf8');
+    return files;
+}
+
+function makeKimiStore(root, sessionCount) {
+    const workDir = '/work/app';
+    fs.writeFileSync(
+        path.join(root, 'kimi.json'),
+        JSON.stringify({ work_dirs: [{ path: workDir }] }),
+        'utf8'
+    );
+    const sessionsDir = path.join(
+        root, 'sessions', crypto.createHash('md5').update(workDir, 'utf8').digest('hex')
+    );
+    for (let index = 0; index < sessionCount; index += 1) {
+        const sessionDir = path.join(sessionsDir, crypto.randomUUID());
+        fs.mkdirSync(sessionDir, { recursive: true });
+        fs.writeFileSync(path.join(sessionDir, 'state.json'), '{}', 'utf8');
+        fs.writeFileSync(path.join(sessionDir, 'wire.jsonl'), '{}\n', 'utf8');
+    }
+}
+
+test('SESSION-FINGERPRINT-HASH-001 stats each Claude session file once per change poll', t => {
+    const root = makeTempDirectory(t, 'provider-claude-fingerprint-');
+    setEnvironment(t, 'CLAUDE_HOME', root);
+    const sessionCount = 32;
+    makeClaudeStore(root, sessionCount);
+
+    const counter = countingStats(t);
+    const service = new ClaudeSessionService();
+    counter.count = 0;
+    const fingerprint = service.getSessionFingerprint();
+
+    assert.ok(fingerprint.length > 0);
+    // The listing pass already stats every file to order by recency; the
+    // fingerprint must reuse that instead of stat'ing every path a second time.
+    assert.ok(
+        counter.count <= sessionCount + 2,
+        `expected at most ${sessionCount + 2} statSync calls for ${sessionCount} sessions, saw ${counter.count}`
+    );
+});
+
+test('SESSION-FINGERPRINT-HASH-001 fingerprints stay bounded as stores grow', t => {
+    const claudeRoot = makeTempDirectory(t, 'provider-claude-bounded-');
+    setEnvironment(t, 'CLAUDE_HOME', claudeRoot);
+    makeClaudeStore(claudeRoot, 32);
+
+    const codexRoot = makeTempDirectory(t, 'provider-codex-bounded-');
+    setEnvironment(t, 'CODEX_HOME', codexRoot);
+    makeCodexStore(codexRoot, 32);
+
+    const kimiRoot = makeTempDirectory(t, 'provider-kimi-bounded-');
+    setEnvironment(t, 'KIMI_SHARE_DIR', kimiRoot);
+    makeKimiStore(kimiRoot, 32);
+
+    // watchSessionChanges recomputes these every 3s per provider; the answer to
+    // "did anything change" must not be a store-sized string.
+    const limit = 128;
+    const claude = new ClaudeSessionService().getSessionFingerprint();
+    const codex = new CodexSessionService().getSessionFingerprint();
+    const kimi = new KimiSessionService().getSessionFingerprint();
+    assert.ok(claude.length > 0 && claude.length <= limit,
+        `claude fingerprint is ${claude.length} chars, limit ${limit}`);
+    assert.ok(codex.length > 0 && codex.length <= limit,
+        `codex fingerprint is ${codex.length} chars, limit ${limit}`);
+    assert.ok(kimi.length > 0 && kimi.length <= limit,
+        `kimi fingerprint is ${kimi.length} chars, limit ${limit}`);
+});
+
+test('SESSION-FINGERPRINT-HASH-001 fingerprints are stable without changes and move with content', t => {
+    const root = makeTempDirectory(t, 'provider-codex-stability-');
+    setEnvironment(t, 'CODEX_HOME', root);
+    const [sessionFile] = makeCodexStore(root, 4);
+
+    const service = new CodexSessionService();
+    const first = service.getSessionFingerprint();
+    assert.equal(service.getSessionFingerprint(), first,
+        'an unchanged store must keep its fingerprint between polls');
+
+    fs.appendFileSync(sessionFile, '{}\n', 'utf8');
+    assert.notEqual(service.getSessionFingerprint(), first,
+        'appending to a session file must change the fingerprint');
+});

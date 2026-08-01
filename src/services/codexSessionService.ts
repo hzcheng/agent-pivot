@@ -9,6 +9,7 @@ import IncrementalJsonlLifecycleReader from '../aiSessions/incrementalJsonlLifec
 import { filterAiSessionsByCandidatePaths, normalizeAiSessionCandidatePaths } from '../aiSessions/sessionHelpers';
 import type { AiSessionQueryOptions } from '../aiSessions/types';
 import { createCodexLifecycleAccumulator, AiSessionLifecycleRequest, AiSessionLifecycleSignal } from '../aiSessions/lifecycle';
+import SessionFingerprint from '../aiSessions/sessionFingerprint';
 
 interface CodexSessionIndexEntry {
     id?: string;
@@ -268,12 +269,15 @@ export default class CodexSessionService {
             return 'missing';
         }
 
-        let indexPath = path.join(codexHome, 'session_index.jsonl');
-        return [
-            codexHome,
-            this.getFileSignature(indexPath),
-            this.getSessionFilesSignature(codexHome),
-        ].join('|');
+        let fingerprint = new SessionFingerprint();
+        fingerprint.addEntry(codexHome);
+        fingerprint.addEntry(this.getFileSignature(path.join(codexHome, 'session_index.jsonl')));
+        // Discovery already stats every file to order by recency, so the change
+        // fingerprint reuses that instead of stat'ing every path a second time.
+        for (let entry of this.discoverSessionFiles(codexHome)) {
+            fingerprint.addEntry(`${entry.id}:${entry.filePath}:${entry.sizeBytes}:${entry.mtimeMs}`);
+        }
+        return fingerprint.digest();
     }
 
     private getFileSignature(filePath: string): string {
@@ -283,16 +287,6 @@ export default class CodexSessionService {
         } catch (e) {
             return `${filePath}:missing`;
         }
-    }
-
-    private getSessionFilesSignature(codexHome: string): string {
-        // Discovery already stats every file to order by recency, so the change
-        // signature reuses that instead of stat'ing every path a second time.
-        return this.discoverSessionFiles(codexHome)
-            .map(entry =>
-                `${entry.id}:${entry.filePath}:${entry.filePath}:${entry.sizeBytes}:${entry.mtimeMs}`)
-            .sort()
-            .join(',');
     }
 
     private readSessionIndex(indexPath: string): CodexSessionIndexEntry[] {

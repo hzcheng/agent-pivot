@@ -9,6 +9,7 @@ import { aiSessionPathContains, filterAiSessionsByCandidatePaths, normalizeAiSes
 import IncrementalJsonlLifecycleReader from '../aiSessions/incrementalJsonlLifecycleReader';
 import type { AiSessionConversationSourceCandidate, AiSessionQueryOptions } from '../aiSessions/types';
 import { createClaudeLifecycleAccumulator, AiSessionLifecycleRequest, AiSessionLifecycleSignal } from '../aiSessions/lifecycle';
+import SessionFingerprint from '../aiSessions/sessionFingerprint';
 import { Disposable } from './codexSessionService';
 
 interface ClaudeSessionEvent {
@@ -290,6 +291,10 @@ export default class ClaudeSessionService {
     }
 
     private getSessionFiles(projectRoot: string, maxFiles = 0, stats?: { discoveredFiles: number }): string[] {
+        return this.getSessionFileEntries(projectRoot, maxFiles, stats).map(entry => entry.filePath);
+    }
+
+    private getSessionFileEntries(projectRoot: string, maxFiles = 0, stats?: { discoveredFiles: number }): { filePath: string; mtimeMs: number; sizeBytes: number }[] {
         if (!fs.existsSync(projectRoot)) {
             return [];
         }
@@ -317,22 +322,32 @@ export default class ClaudeSessionService {
         }
         // Stat once per file rather than once per comparison: a comparator that
         // reads the filesystem turns an O(n) listing into O(n log n) syscalls, and
-        // this runs on every dashboard refresh and every change poll.
-        files = files
-            .map(filePath => ({ filePath, mtimeMs: this.getFileMtimeMs(filePath) }))
+        // this runs on every dashboard refresh and every change poll. The change
+        // fingerprint reuses the same stats instead of stat'ing every path again.
+        let entries = files
+            .map(filePath => ({ filePath, ...this.getFileStat(filePath) }))
             .sort((left, right) => right.mtimeMs - left.mtimeMs
                 || left.filePath.localeCompare(right.filePath))
-            .slice(0, maxFiles || undefined)
-            .map(entry => entry.filePath);
+            .slice(0, maxFiles || undefined);
 
-        for (let filePath of files) {
-            let sessionId = this.getSessionIdFromFileName(path.basename(filePath));
+        for (let entry of entries) {
+            let sessionId = this.getSessionIdFromFileName(path.basename(entry.filePath));
             if (sessionId) {
-                this.sessionFilesById.set(sessionId, filePath);
+                this.sessionFilesById.set(sessionId, entry.filePath);
             }
         }
 
-        return files;
+        return entries;
+    }
+
+    /** One stat carries both the ordering key and the change signature. */
+    private getFileStat(filePath: string): { mtimeMs: number; sizeBytes: number } {
+        try {
+            let stat = fs.statSync(filePath);
+            return { mtimeMs: stat.mtimeMs, sizeBytes: stat.size };
+        } catch (e) {
+            return { mtimeMs: 0, sizeBytes: 0 };
+        }
     }
 
     private getFileMtimeMs(filePath: string): number {
@@ -599,20 +614,12 @@ export default class ClaudeSessionService {
             return 'missing';
         }
 
-        let projectRoot = path.join(claudeHome, 'projects');
-        return [
-            claudeHome,
-            ...this.getSessionFiles(projectRoot).map(filePath => this.getFileSignature(filePath)).sort(),
-        ].join('|');
-    }
-
-    private getFileSignature(filePath: string): string {
-        try {
-            let stat = fs.statSync(filePath);
-            return `${filePath}:${this.getStatSignature(stat)}`;
-        } catch (e) {
-            return `${filePath}:missing`;
+        let fingerprint = new SessionFingerprint();
+        fingerprint.addEntry(claudeHome);
+        for (let entry of this.getSessionFileEntries(path.join(claudeHome, 'projects'))) {
+            fingerprint.addEntry(`${entry.filePath}:${entry.sizeBytes}:${entry.mtimeMs}`);
         }
+        return fingerprint.digest();
     }
 
     private getStatSignature(stat: fs.Stats): string {

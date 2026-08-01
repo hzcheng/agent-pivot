@@ -1097,6 +1097,22 @@
     ]
   },
   {
+    "id": "SESSION-FINGERPRINT-HASH-001",
+    "domain": "session",
+    "title": "Session change fingerprints are bounded incremental digests that stat each file once per poll",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/contract/aiSessions/providerSpecificBehavior.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/sessionFingerprint.ts",
+      "src/services/claudeSessionService.ts",
+      "src/services/codexSessionService.ts",
+      "src/services/kimiSessionService.ts"
+    ]
+  },
+  {
     "id": "ATTENTION-BRIDGE-STALENESS-001",
     "domain": "attention",
     "title": "A locally cleared session never stays lit on a frozen bridge aggregate",

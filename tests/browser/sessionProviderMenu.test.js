@@ -39,6 +39,10 @@ const todoGroupScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/webviewTodoGroupScripts.js'),
     'utf8'
 );
+const projectCollapseScript = fs.readFileSync(
+    path.join(__dirname, '../../src/webview/webviewProjectCollapseScripts.js'),
+    'utf8'
+);
 const projectScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/webviewProjectScripts.js'),
     'utf8'
@@ -106,6 +110,7 @@ async function openMenuPage(t, selectedProviders = ['codex']) {
     await page.addScriptTag({ content: viewStateScript });
     await page.addScriptTag({ content: workspaceUpdateScript });
     await page.addScriptTag({ content: todoGroupScript });
+    await page.addScriptTag({ content: projectCollapseScript });
     await page.addScriptTag({ content: projectScript });
     await page.evaluate(() => {
         initProjects();

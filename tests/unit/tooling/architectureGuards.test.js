@@ -52,6 +52,7 @@ function copyGuardFixture(t, mutationPath, mutate = source => source) {
         'src/webview/webviewAiSessionViewStateScripts.js',
         'src/webview/webviewWorkspaceUpdateScripts.js',
         'src/webview/webviewTodoGroupScripts.js',
+        'src/webview/webviewProjectCollapseScripts.js',
         'src/webview/webviewProjectScripts.js',
         'src/webview/conversationViewerScripts.js',
         'src/aiSessions/attentionController.ts',

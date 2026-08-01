@@ -3,6 +3,7 @@
 .claude/**
 .kimi/**
 .skills/**
+AGENTS.md
 .vscode-test/**
 .github/**
 .ci/**

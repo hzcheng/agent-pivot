@@ -283,7 +283,7 @@ export function getStewardContent(
                     <span class="dashboard-tab-label">TODO</span>
                 </button>
                 <button type="button" id="dashboard-tab-ai-button" class="dashboard-tab-button" role="tab" aria-selected="false" aria-controls="dashboard-panel-ai" tabindex="-1" data-dashboard-tab="ai" aria-label="AI" title="AI">
-                    <span class="dashboard-tab-icon" aria-hidden="true">${Icons.terminalLine}</span>
+                    <span class="dashboard-tab-icon" aria-hidden="true">${Icons.sparkles}</span>
                     <span class="dashboard-tab-label">AI</span>
                 </button>
             </div>

@@ -42,6 +42,14 @@ const conversationCommentsScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/conversationCommentsScripts.js'),
     'utf8'
 );
+const conversationSidebarScript = fs.readFileSync(
+    path.join(__dirname, '../../src/webview/conversationSidebarScripts.js'),
+    'utf8'
+);
+const conversationReconcileScript = fs.readFileSync(
+    path.join(__dirname, '../../src/webview/conversationReconcileScripts.js'),
+    'utf8'
+);
 const viewerCss = fs.readFileSync(
     path.join(__dirname, '../../media/conversationViewer.css'),
     'utf8'
@@ -255,6 +263,8 @@ async function openViewerPage(t, options = {}) {
     await page.addScriptTag({ content: conversationOutlineScript });
     await page.addScriptTag({ content: conversationTelemetryScript });
     await page.addScriptTag({ content: conversationCommentsScript });
+    await page.addScriptTag({ content: conversationSidebarScript });
+    await page.addScriptTag({ content: conversationReconcileScript });
     await page.addScriptTag({ content: viewerScript });
     await page.locator('script').evaluateAll(elements =>
         elements.forEach(element => element.remove()));
@@ -626,6 +636,20 @@ async function openHostViewerDocument(t, options = {}) {
             await route.fulfill({
                 contentType: 'text/javascript',
                 body: conversationCommentsScript,
+            });
+            return;
+        }
+        if (pathname === '/conversationSidebarScripts.js') {
+            await route.fulfill({
+                contentType: 'text/javascript',
+                body: conversationSidebarScript,
+            });
+            return;
+        }
+        if (pathname === '/conversationReconcileScripts.js') {
+            await route.fulfill({
+                contentType: 'text/javascript',
+                body: conversationReconcileScript,
             });
             return;
         }

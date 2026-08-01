@@ -798,6 +798,12 @@ test('CONVERSATION-VIEWER-SECURITY-001 emits a nonce-only CSP and opens only HTT
     const commentsControllerIndex = panel.webview.html.indexOf(
         'conversationCommentsScripts.js'
     );
+    const sidebarControllerIndex = panel.webview.html.indexOf(
+        'conversationSidebarScripts.js'
+    );
+    const reconcileControllerIndex = panel.webview.html.indexOf(
+        'conversationReconcileScripts.js'
+    );
     const viewerIndex = panel.webview.html.indexOf(
         'conversationViewerScripts.js'
     );
@@ -806,7 +812,9 @@ test('CONVERSATION-VIEWER-SECURITY-001 emits a nonce-only CSP and opens only HTT
     assert.ok(mermaidControllerIndex < outlineControllerIndex);
     assert.ok(outlineControllerIndex < telemetryControllerIndex);
     assert.ok(telemetryControllerIndex < commentsControllerIndex);
-    assert.ok(commentsControllerIndex < viewerIndex);
+    assert.ok(commentsControllerIndex < sidebarControllerIndex);
+    assert.ok(sidebarControllerIndex < reconcileControllerIndex);
+    assert.ok(reconcileControllerIndex < viewerIndex);
 
     for (const href of [
         'javascript:alert(1)',
@@ -833,6 +841,8 @@ test('CONVERSATION-READING-FOCUS-001 keeps modular Webview controllers byte-iden
         'conversationOutlineScripts.js',
         'conversationTelemetryScripts.js',
         'conversationCommentsScripts.js',
+        'conversationSidebarScripts.js',
+        'conversationReconcileScripts.js',
         'conversationViewerScripts.js',
     ]) {
         assert.equal(

@@ -1172,6 +1172,12 @@ export class ConversationViewer implements ConversationViewerApi {
         const commentsScript = panel.webview.asWebviewUri(
             this.options.mediaUri('conversationCommentsScripts.js')
         );
+        const sidebarScript = panel.webview.asWebviewUri(
+            this.options.mediaUri('conversationSidebarScripts.js')
+        );
+        const reconcileScript = panel.webview.asWebviewUri(
+            this.options.mediaUri('conversationReconcileScripts.js')
+        );
         const script = panel.webview.asWebviewUri(
             this.options.mediaUri('conversationViewerScripts.js')
         );
@@ -1363,6 +1369,12 @@ export class ConversationViewer implements ConversationViewerApi {
     )}"></script>
     <script nonce="${escapeAttribute(nonce)}" src="${escapeAttribute(
         commentsScript.toString()
+    )}"></script>
+    <script nonce="${escapeAttribute(nonce)}" src="${escapeAttribute(
+        sidebarScript.toString()
+    )}"></script>
+    <script nonce="${escapeAttribute(nonce)}" src="${escapeAttribute(
+        reconcileScript.toString()
     )}"></script>
     <script nonce="${escapeAttribute(nonce)}" src="${escapeAttribute(
         script.toString()

@@ -4353,5 +4353,18 @@
       "src/aiSessions/notify/templates/index.ts",
       "src/aiSessions/notify/templates/custom.ts"
     ]
+  },
+  {
+    "id": "ATTENTION-NOTIFY-HTTP-001",
+    "domain": "attention",
+    "title": "Notification transport resolves proxies and retries transient failures",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/notify/httpClient.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/notify/httpClient.ts"
+    ]
   }
 ]

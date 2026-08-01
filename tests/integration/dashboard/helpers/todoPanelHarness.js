@@ -8,6 +8,7 @@ const path = require('node:path');
 
 const root = path.resolve(__dirname, '../../../..');
 const dashboardPath = path.join(root, 'out/dashboard.js');
+const todoPanelCapabilityPath = path.join(root, 'out/todos/todoPanelCapability.js');
 
 function disposable(dispose = () => undefined) {
     return { dispose };
@@ -62,13 +63,17 @@ function createVscode(listeners, commands) {
     };
 }
 
-function loadDashboard(transform) {
-    const source = transform(fs.readFileSync(dashboardPath, 'utf8'));
-    const loaded = new Module(dashboardPath, module);
-    loaded.filename = dashboardPath;
-    loaded.paths = Module._nodeModulePaths(path.dirname(dashboardPath));
-    loaded._compile(source, dashboardPath);
+function loadTransformedModule(modulePath, transform) {
+    const source = transform(fs.readFileSync(modulePath, 'utf8'));
+    const loaded = new Module(modulePath, module);
+    loaded.filename = modulePath;
+    loaded.paths = Module._nodeModulePaths(path.dirname(modulePath));
+    loaded._compile(source, modulePath);
     return loaded.exports;
+}
+
+function loadDashboard(transform) {
+    return loadTransformedModule(dashboardPath, transform);
 }
 
 async function runTodoPanelContract(transform) {
@@ -85,6 +90,9 @@ async function runTodoPanelContract(transform) {
     };
     Module._load = function (request, parent, isMain) {
         if (request === 'vscode') return vscode;
+        if (request === './todos/todoPanelCapability') {
+            return loadTransformedModule(todoPanelCapabilityPath, transform);
+        }
         return previousLoad.call(this, request, parent, isMain);
     };
     const state = (synchronized = false) => ({

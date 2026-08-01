@@ -20,8 +20,8 @@ import {
 
 import ColorService from './services/colorService';
 import ProjectService from './services/projectService';
-import { TodoCommandController } from './todos/commandController';
 import { TodoService } from './todos/service';
+import { createTodoPanelCapability } from './todos/todoPanelCapability';
 import { PromptDashboardController } from './prompts/dashboardController';
 import { initializePromptMementoStore, PromptService } from './prompts/service';
 import { PromptTerminalCommandController } from './prompts/terminalCommandController';
@@ -30,16 +30,6 @@ import { SkillDashboardController } from './skills/dashboardController';
 import { GlobalStoreLocationController } from './skills/globalStoreLocationController';
 import { skillDirectoriesEqual } from './skills/scopeService';
 import { SkillGroupStore } from './skills/skillGroupStore';
-import {
-    deleteTodoWithConfirmation,
-    renameTodoGroupWithPrompt,
-    runTodoMutation,
-    runTodoPromptMutation,
-    runTodoRequestMutation,
-} from './todos/hostMutation';
-import { UnsupportedTodoDataVersionError } from './todos/types';
-import { buildTodoPanelSnapshot, buildTodoViewModel } from './todos/viewModel';
-import { getTodoPanelContent, getUnsupportedTodoVersionPanelContent } from './todos/webviewContent';
 import FileService from './services/fileService';
 import CodexSessionService from './services/codexSessionService';
 import { ProcCodexRootThreadObserver } from './aiSessions/codexRootThreadObserver';
@@ -596,20 +586,22 @@ async function initializeDashboard(
             void vscode.window.showInformationMessage(summary);
         }
     };
-    const todoViewState = todoService.getViewState();
-    let revealedTodoId: string | undefined;
-    const todoCommandController = new TodoCommandController({
-        service: todoService,
-        getViewState: () => todoViewState,
-        setShowCompleted: async showCompleted => {
-            const persistedViewState = await todoService.setShowCompleted(showCompleted);
-            todoViewState.showCompleted = persistedViewState.showCompleted;
-            return persistedViewState;
-        },
-        getRevealedTodoId: () => revealedTodoId,
-        clearRevealedTodoId: () => { revealedTodoId = undefined; },
-    });
-    const todoStorageMigration = { ready: Promise.resolve<unknown>(undefined) };
+    const todoPanel = ownResource(() => createTodoPanelCapability({
+        provider,
+        todoService,
+        getSearchCatalog: () => buildWorkspaceDashboardSearchCatalog(
+            projectService.getGroups(),
+            getOpenWorkspaceCards(),
+            todoService.getSearchItems(),
+            skillDashboardController.getRecords(),
+        ),
+        getConfiguration: () => getAgentPivotConfiguration(),
+        showInputBox: options => vscode.window.showInputBox(options),
+        showWarningMessage: (message, messageOptions, ...items) =>
+            vscode.window.showWarningMessage(message, messageOptions, ...items),
+        showErrorMessage: message => vscode.window.showErrorMessage(message),
+        logError,
+    }));
     const groupCollapseController = new GroupCollapseController({
         state: context.globalState,
         projectService,
@@ -1662,6 +1654,7 @@ async function initializeDashboard(
         saveCurrentWorkspace: () => savedWorkspaceProjectAdapter.saveCurrentWorkspace(),
         handlers: {
             ...conversationHandlers,
+            ...todoPanel.handlers,
             'request-projects-panel': async e => {
                 if (e.version !== 1 || !Number.isSafeInteger(e.requestId) || e.requestId < 1) {
                     return;
@@ -1672,12 +1665,6 @@ async function initializeDashboard(
                     requestId: e.requestId,
                     html: getProjectsPanelContent(projectService.getGroups(), stewardInfos),
                 });
-            },
-            'request-todo-panel': async e => {
-                if (e.version !== 1 || !Number.isSafeInteger(e.requestId) || e.requestId < 1) {
-                    return;
-                }
-                await postTodoPanelContent(e.requestId as number);
             },
             'request-ai-panel': async e => {
                 if (Object.keys(e).length !== 4
@@ -1972,167 +1959,6 @@ async function initializeDashboard(
                 if (result !== undefined) {
                     await provider.postMessage(result);
                 }
-            },
-            'todo-command': async e => {
-                await todoStorageMigration.ready;
-                const result = await todoCommandController.handle(e);
-                if (result) {
-                    await provider.postMessage({
-                        ...result,
-                        searchCatalog: buildWorkspaceDashboardSearchCatalog(
-                            projectService.getGroups(),
-                            getOpenWorkspaceCards(),
-                            todoService.getSearchItems(),
-                            skillDashboardController.getRecords(),
-                        ),
-                    });
-                }
-            },
-            'todo-add': async e => {
-                const valid = typeof e.title === 'string' && Boolean(e.title.trim());
-                await runTodoRequestMutation({
-                    requestId: e.requestId,
-                    valid,
-                    mutate: () => todoService.addTodo({
-                        title: e.title as string,
-                        notes: typeof e.notes === 'string' ? e.notes : '',
-                        priority: e.priority === 'high' || e.priority === 'medium' || e.priority === 'low' ? e.priority : 'medium',
-                        groupId: typeof e.groupId === 'string' ? e.groupId : undefined,
-                    }),
-                    onSuccess: () => postTodoPanelContent(),
-                    postResult: message => provider.postMessage(message),
-                    showErrorMessage: message => vscode.window.showErrorMessage(message),
-                    logError,
-                });
-            },
-            'todo-add-group': async () => {
-                await runTodoPromptMutation({
-                    prompt: value => vscode.window.showInputBox({
-                        prompt: 'Todo group title',
-                        placeHolder: 'Group name',
-                        value,
-                        ignoreFocusOut: true,
-                    }),
-                    mutate: title => todoService.addGroup(title),
-                    refreshPanel: () => postTodoPanelContent(),
-                    showErrorMessage: message => vscode.window.showErrorMessage(message),
-                    logError,
-                });
-            },
-            'todo-toggle': async e => {
-                if (typeof e.todoId !== 'string') {
-                    return;
-                }
-                await runTodoPanelMutation(() => todoService.completeTodo(e.todoId as string, e.completed === true));
-            },
-            'todo-delete': async e => {
-                if (typeof e.todoId !== 'string') {
-                    return;
-                }
-                await deleteTodoWithConfirmation({
-                    todoId: e.todoId,
-                    getData: () => todoService.getData(),
-                    confirm: title => vscode.window.showWarningMessage(
-                        `Delete TODO "${title}"?`,
-                        { modal: true },
-                        'Delete'
-                    ),
-                    deleteTodo: todoId => todoService.deleteTodo(todoId),
-                    refreshPanel: () => postTodoPanelContent(),
-                    showErrorMessage: message => vscode.window.showErrorMessage(message),
-                    logError,
-                });
-            },
-            'todo-delete-group': async e => {
-                if (typeof e.groupId !== 'string') {
-                    return;
-                }
-                const todoGroup = todoService.getData().groups.find(group => group.id === e.groupId);
-                if (!todoGroup) {
-                    return;
-                }
-                const confirmed = await vscode.window.showWarningMessage(
-                    `Delete TODO group "${todoGroup.title}" and all of its todos?`,
-                    { modal: true },
-                    'Delete'
-                );
-                if (confirmed !== 'Delete') {
-                    return;
-                }
-                await runTodoPanelMutation(() => todoService.deleteGroup(e.groupId as string));
-            },
-            'todo-rename-group': async e => {
-                if (typeof e.groupId !== 'string') {
-                    return;
-                }
-                await renameTodoGroupWithPrompt({
-                    groupId: e.groupId,
-                    getData: () => todoService.getData(),
-                    prompt: value => vscode.window.showInputBox({
-                        prompt: 'Todo group title',
-                        value,
-                        ignoreFocusOut: true,
-                    }),
-                    renameGroup: (groupId, title) => todoService.renameGroup(groupId, title),
-                    refreshPanel: () => postTodoPanelContent(),
-                    showErrorMessage: message => vscode.window.showErrorMessage(message),
-                    logError,
-                });
-            },
-            'todo-reorder-groups': async e => {
-                if (!Array.isArray(e.groupIds)) {
-                    return;
-                }
-                await runTodoPanelMutation(() => todoService.reorderGroups(e.groupIds as string[]));
-            },
-            'todo-reorder-items': async e => {
-                if (typeof e.groupId !== 'string' || !Array.isArray(e.todoIds)) {
-                    return;
-                }
-                await runTodoPanelMutation(() => todoService.reorderTodos(e.groupId as string, e.todoIds as string[]));
-            },
-            'todo-collapse-group': async e => {
-                if (typeof e.groupId !== 'string') {
-                    return;
-                }
-                await runTodoPanelMutation(() => todoService.setGroupCollapsed(e.groupId as string, e.collapsed === true));
-            },
-            'todo-collapse-groups': async e => {
-                await runTodoPanelMutation(() => todoService.setGroupsCollapsed(e.collapsed === true));
-            },
-            'todo-sort-priority': async e => {
-                if (typeof e.groupId !== 'string') {
-                    return;
-                }
-                await runTodoPanelMutation(() => todoService.sortGroupByPriority(e.groupId as string));
-            },
-            'todo-toggle-show-completed': async e => {
-                await runTodoPanelMutation(async () => {
-                    const persistedViewState = await todoService.setShowCompleted(e.showCompleted === true);
-                    todoViewState.showCompleted = persistedViewState.showCompleted;
-                    revealedTodoId = undefined;
-                });
-            },
-            'todo-reveal': async e => {
-                if (typeof e.todoId !== 'string' || typeof e.groupId !== 'string') {
-                    return;
-                }
-                await runTodoPanelMutation(async () => {
-                    const result = await todoService.revealTodo(e.todoId as string, e.groupId as string);
-                    if (result.revealed) {
-                        revealedTodoId = e.todoId as string;
-                    }
-                });
-            },
-            'todo-update': async e => {
-                if (typeof e.todoId !== 'string' || typeof e.title !== 'string') {
-                    return;
-                }
-                await runTodoPanelMutation(() => todoService.updateTodo(e.todoId as string, {
-                    title: e.title as string,
-                    notes: typeof e.notes === 'string' ? e.notes : '',
-                    priority: e.priority === 'high' || e.priority === 'medium' || e.priority === 'low' ? e.priority : 'medium',
-                }));
             },
             'selected-project': async e => {
                 let projectId = e.projectId as string;
@@ -2612,7 +2438,7 @@ async function initializeDashboard(
         migrateDataIfNeeded: async () => {
             const projectMigration = settleMigration(() => projectService.migrateDataIfNeeded());
             const todoMigration = settleMigration(() => todoService.migrateDataIfNeeded());
-            todoStorageMigration.ready = todoMigration.then(() => undefined, () => undefined);
+            todoPanel.setStorageMigrationReady(todoMigration.then(() => undefined, () => undefined));
             const [projects, todos] = await Promise.all([projectMigration, todoMigration]);
             return { projects, todos };
         },
@@ -3127,74 +2953,6 @@ async function initializeDashboard(
     function postActiveAiSessionTerminalChanged(identity: ActiveAiSessionTerminalIdentity | null) {
         void conversationCapability.reconcile();
         dashboardRuntimeController.postActiveAiSessionTerminalChanged(identity);
-    }
-
-    async function postTodoPanelContent(requestId?: number) {
-        let html: string;
-        let snapshot: ReturnType<typeof buildTodoPanelSnapshot> | undefined;
-        try {
-            await todoStorageMigration.ready;
-            const unsupportedVersionError = todoService.getUnsupportedVersionError();
-            if (unsupportedVersionError) {
-                throw unsupportedVersionError;
-            }
-            const todoData = todoService.getData();
-            const config = getAgentPivotConfiguration();
-            const todoRenderOptions = {
-                maxVisibleTodosPerGroup: getMaxVisibleTodosPerGroup(config),
-            };
-            snapshot = buildTodoPanelSnapshot(todoData, todoViewState, revealedTodoId);
-            html = getTodoPanelContent(
-                buildTodoViewModel(todoData, todoViewState, revealedTodoId),
-                todoRenderOptions,
-            );
-        } catch (error) {
-            if (!(error instanceof UnsupportedTodoDataVersionError)) {
-                throw error;
-            }
-            html = getUnsupportedTodoVersionPanelContent(error.version);
-        }
-        await provider.postMessage(requestId
-            ? {
-                type: 'todo-panel-content',
-                version: 1,
-                requestId,
-                html,
-                ...(snapshot ? { snapshot } : {}),
-                searchCatalog: buildWorkspaceDashboardSearchCatalog(
-                    projectService.getGroups(),
-                    getOpenWorkspaceCards(),
-                    todoService.getSearchItems(),
-                    skillDashboardController.getRecords(),
-                ),
-            }
-            : {
-                type: 'todo-panel-updated',
-                version: 1,
-                html,
-                ...(snapshot ? { snapshot } : {}),
-                searchCatalog: buildWorkspaceDashboardSearchCatalog(
-                    projectService.getGroups(),
-                    getOpenWorkspaceCards(),
-                    todoService.getSearchItems(),
-                    skillDashboardController.getRecords(),
-                ),
-            });
-    }
-
-    function getMaxVisibleTodosPerGroup(config: vscode.WorkspaceConfiguration): number {
-        const configuredItems = config.get('maxVisibleTodosPerGroup', 5);
-        const visibleItems = Math.floor(Number(configuredItems));
-        return Number.isFinite(visibleItems) && visibleItems > 0 ? visibleItems : 5;
-    }
-
-    async function runTodoPanelMutation(mutate: () => Promise<unknown>): Promise<boolean> {
-        return runTodoMutation({
-            mutate,
-            onSuccess: () => postTodoPanelContent(),
-            showErrorMessage: message => vscode.window.showErrorMessage(message),
-            logError,
-        });
     }
 
     function invalidateAiSessionCache(providerId: AiSessionProviderId) {

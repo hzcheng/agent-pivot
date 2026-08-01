@@ -23,6 +23,10 @@ const dashboardSource = fs.readFileSync(
     path.join(__dirname, '../../../src/dashboard.ts'),
     'utf8'
 );
+const todoPanelCapabilitySource = fs.readFileSync(
+    path.join(__dirname, '../../../src/todos/todoPanelCapability.ts'),
+    'utf8'
+);
 const packageJson = fs.readFileSync(
     path.join(__dirname, '../../../package.json'),
     'utf8'
@@ -103,11 +107,12 @@ test('TODO-MAX-VISIBLE-PER-GROUP-001 applies the configured per-group viewport a
         styles,
         /\.todo-item\.expanded\s*\{[\s\S]*height:\s*var\(--todo-expanded-item-height,\s*auto\) !important/
     );
-    assert.match(dashboardSource, /function getMaxVisibleTodosPerGroup\(/);
+    assert.match(todoPanelCapabilitySource, /function getMaxVisibleTodosPerGroup\(/);
     assert.match(
-        dashboardSource,
+        todoPanelCapabilitySource,
         /maxVisibleTodosPerGroup:\s*getMaxVisibleTodosPerGroup\(config\)/
     );
+    assert.match(dashboardSource, /createTodoPanelCapability\(\{/);
     assert.match(
         packageJson,
         /Maximum number of TODO cards visible in each group before the group list scrolls\./

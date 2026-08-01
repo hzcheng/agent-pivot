@@ -4902,6 +4902,7 @@ function runWebviewContentChecks() {
         'webviewWorkspaceUpdateScripts.js',
         'webviewTodoGroupScripts.js',
         'webviewProjectCollapseScripts.js',
+        'webviewTodoControlScripts.js',
         'webviewProjectScripts.js',
     ].map(fileName => fs.readFileSync(
         path.join(__dirname, '..', 'src', 'webview', fileName), 'utf8'
@@ -6243,9 +6244,17 @@ function runBatchAiSessionWebviewChecks() {
     );
     const projectCollapseSource = fs.readFileSync(projectCollapseSourcePath, 'utf8');
     assert.strictEqual(fs.readFileSync(generatedProjectCollapsePath, 'utf8'), projectCollapseSource);
+    const todoControlSourcePath = path.join(
+        __dirname, '..', 'src', 'webview', 'webviewTodoControlScripts.js'
+    );
+    const generatedTodoControlPath = path.join(
+        __dirname, '..', 'media', 'webviewTodoControlScripts.js'
+    );
+    const todoControlSource = fs.readFileSync(todoControlSourcePath, 'utf8');
+    assert.strictEqual(fs.readFileSync(generatedTodoControlPath, 'utf8'), todoControlSource);
     const projectSource = fs.readFileSync(sourcePath, 'utf8');
     assert.strictEqual(fs.readFileSync(generatedPath, 'utf8'), projectSource);
-    const source = `${viewStateSource}\n${workspaceUpdateSource}\n${todoGroupSource}\n${projectCollapseSource}\n${projectSource}`;
+    const source = `${viewStateSource}\n${workspaceUpdateSource}\n${todoGroupSource}\n${projectCollapseSource}\n${todoControlSource}\n${projectSource}`;
     const messages = [];
     const eventListeners = {};
     const windowEventListeners = {};

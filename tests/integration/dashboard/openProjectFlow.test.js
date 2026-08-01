@@ -46,6 +46,10 @@ const projectCollapseWebviewSource = fs.readFileSync(path.join(
     repositoryRoot,
     'src', 'webview', 'webviewProjectCollapseScripts.js'
 ), 'utf8');
+const todoControlWebviewSource = fs.readFileSync(path.join(
+    repositoryRoot,
+    'src', 'webview', 'webviewTodoControlScripts.js'
+), 'utf8');
 const filterWebviewSource = fs.readFileSync(path.join(
     repositoryRoot,
     'src', 'webview', 'webviewFilterScripts.js'
@@ -137,6 +141,9 @@ function createOpenWorkspaceUpdateVm(wrapper, catalogs) {
     });
     vm.runInNewContext(projectCollapseWebviewSource, context, {
         filename: 'webviewProjectCollapseScripts.js',
+    });
+    vm.runInNewContext(todoControlWebviewSource, context, {
+        filename: 'webviewTodoControlScripts.js',
     });
     vm.runInNewContext(projectWebviewSource, context, {
         filename: 'webviewProjectScripts.js',

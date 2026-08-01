@@ -4897,7 +4897,12 @@ function runWebviewContentChecks() {
     const runtimeSettlement = fs.readFileSync(
         path.join(__dirname, '..', 'src', 'aiSessions', 'runtimeSettlementCapability.ts'), 'utf8'
     );
-    const webviewProjectScripts = fs.readFileSync(path.join(__dirname, '..', 'src', 'webview', 'webviewProjectScripts.js'), 'utf8');
+    const webviewProjectScripts = [
+        'webviewAiSessionViewStateScripts.js',
+        'webviewProjectScripts.js',
+    ].map(fileName => fs.readFileSync(
+        path.join(__dirname, '..', 'src', 'webview', fileName), 'utf8'
+    )).join('\n');
     const webviewIcons = fs.readFileSync(path.join(__dirname, '..', 'src', 'webview', 'webviewIcons.ts'), 'utf8');
     const styles = fs.readFileSync(path.join(__dirname, '..', 'media', 'styles.scss'), 'utf8');
     const compiledStyles = fs.readFileSync(path.join(__dirname, '..', 'media', 'styles.css'), 'utf8');
@@ -6203,8 +6208,17 @@ function runFavoriteDndChecks() {
 function runBatchAiSessionWebviewChecks() {
     const sourcePath = path.join(__dirname, '..', 'src', 'webview', 'webviewProjectScripts.js');
     const generatedPath = path.join(__dirname, '..', 'media', 'webviewProjectScripts.js');
-    const source = fs.readFileSync(sourcePath, 'utf8');
-    assert.strictEqual(fs.readFileSync(generatedPath, 'utf8'), source);
+    const viewStateSourcePath = path.join(
+        __dirname, '..', 'src', 'webview', 'webviewAiSessionViewStateScripts.js'
+    );
+    const generatedViewStatePath = path.join(
+        __dirname, '..', 'media', 'webviewAiSessionViewStateScripts.js'
+    );
+    const viewStateSource = fs.readFileSync(viewStateSourcePath, 'utf8');
+    assert.strictEqual(fs.readFileSync(generatedViewStatePath, 'utf8'), viewStateSource);
+    const projectSource = fs.readFileSync(sourcePath, 'utf8');
+    assert.strictEqual(fs.readFileSync(generatedPath, 'utf8'), projectSource);
+    const source = `${viewStateSource}\n${projectSource}`;
     const messages = [];
     const eventListeners = {};
     const windowEventListeners = {};

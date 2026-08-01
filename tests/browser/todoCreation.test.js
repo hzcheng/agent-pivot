@@ -8,6 +8,10 @@ const { chromium } = require('playwright-chromium');
 const { getTodoPanelContent } = require('../../out/todos/webviewContent');
 const { buildTodoViewModel } = require('../../out/todos/viewModel');
 
+const viewStateScript = fs.readFileSync(
+    path.join(__dirname, '../../src/webview/webviewAiSessionViewStateScripts.js'),
+    'utf8'
+);
 const projectScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/webviewProjectScripts.js'),
     'utf8'
@@ -53,6 +57,7 @@ test('TODO-SINGLE-CREATE-DISPATCH-001 submits one group composer through only th
             postMessage: message => window.__postedMessages.push(message),
         };
     });
+    await page.addScriptTag({ content: viewStateScript });
     await page.addScriptTag({ content: projectScript });
     await page.addScriptTag({ content: todoScript });
     await page.evaluate(value => {

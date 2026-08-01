@@ -17,6 +17,9 @@ const dashboardSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webvi
 const generatedDashboardSource = fs.readFileSync(path.join(root, 'media', 'webviewDashboardScripts.js'), 'utf8');
 const projectSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewProjectScripts.js'), 'utf8');
 const generatedProjectSource = fs.readFileSync(path.join(root, 'media', 'webviewProjectScripts.js'), 'utf8');
+const viewStateSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewAiSessionViewStateScripts.js'), 'utf8');
+const generatedViewStateSource = fs.readFileSync(path.join(root, 'media', 'webviewAiSessionViewStateScripts.js'), 'utf8');
+const projectVmSource = `${viewStateSource}\n${projectSource}`;
 const scrollStateSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewScrollStateScripts.js'), 'utf8');
 const promptSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewPromptScripts.js'), 'utf8');
 const generatedPromptPath = path.join(root, 'media', 'webviewPromptScripts.js');
@@ -881,6 +884,7 @@ test('WEBVIEW-RESOURCE-RECOVERY-001 gives every rendered document fresh versione
         'fitty.min.js',
         'dragula.min.js',
         'dom-autoscroller.min.js',
+        'webviewAiSessionViewStateScripts.js',
         'webviewProjectScripts.js',
         'webviewDashboardScripts.js',
         'webviewPromptScripts.js',
@@ -1714,7 +1718,7 @@ function createProjectVm({
     querySelectorAll,
     activeElement,
     activeTab = 'open',
-    source = projectSource,
+    source = projectVmSource,
 } = {}) {
     const documentListeners = {};
     const windowListeners = {};
@@ -1826,7 +1830,7 @@ function createCrossProviderBatchProject() {
     };
 }
 
-function assertCrossProviderBatchScope(source = projectSource) {
+function assertCrossProviderBatchScope(source = projectVmSource) {
     const project = createCrossProviderBatchProject();
     const harness = createProjectVm({
         source,
@@ -1934,13 +1938,13 @@ function assertCrossProviderBatchScope(source = projectSource) {
 test('PERSIST-MULTI-PROVIDER-BATCH-ARCHIVE-001 WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-002 archives visible unpinned inactive rows across selected providers', () => {
     assertCrossProviderBatchScope();
     assert.throws(() => assertCrossProviderBatchScope(
-        projectSource.replace(
+        projectVmSource.replace(
             'return JSON.stringify([provider, sessionId]);',
             'return sessionId;'
         )
     ));
     assert.throws(() => assertCrossProviderBatchScope(
-        projectSource.replace(
+        projectVmSource.replace(
             "message.type !== 'ai-session-batch-archive-completed'\n            || message.version !== 1",
             "message.type !== 'ai-session-batch-archive-completed'"
         )
@@ -2034,7 +2038,7 @@ test('PERSIST-MULTI-PROVIDER-BATCH-ARCHIVE-001 announces bounded aggregate outco
     assert.equal(manager.snapshot().selectedItems.length, 1);
 });
 
-function assertBatchSelectionReconcilesAuthoritativeRows(source = projectSource) {
+function assertBatchSelectionReconcilesAuthoritativeRows(source = projectVmSource) {
     const project = createCrossProviderBatchProject();
     const harness = createProjectVm({
         source,
@@ -2090,13 +2094,13 @@ function assertBatchSelectionReconcilesAuthoritativeRows(source = projectSource)
 test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-002 reconciles batch selection after authoritative replacements', () => {
     assertBatchSelectionReconcilesAuthoritativeRows();
     assert.throws(() => assertBatchSelectionReconcilesAuthoritativeRows(
-        projectSource.replace(
+        projectVmSource.replace(
             "&& !row.hasAttribute('data-session-active')",
             ''
         )
     ));
     assert.throws(() => assertBatchSelectionReconcilesAuthoritativeRows(
-        projectSource.replace(
+        projectVmSource.replace(
             'batchAiSessionManager.reconcileVisible(projectDiv);',
             ''
         )

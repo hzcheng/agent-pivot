@@ -50,6 +50,16 @@ const AsyncFunction = Object.getPrototypeOf(async function () { return undefined
 const root = path.join(__dirname, '..');
 const dashboardScriptPath = path.join(root, 'src', 'webview', 'webviewDashboardScripts.js');
 const projectScriptPath = path.join(root, 'src', 'webview', 'webviewProjectScripts.js');
+const aiSessionViewStateScriptPath = path.join(
+    root, 'src', 'webview', 'webviewAiSessionViewStateScripts.js'
+);
+
+function readProjectWebviewSource() {
+    return [
+        aiSessionViewStateScriptPath,
+        projectScriptPath,
+    ].map(scriptPath => fs.readFileSync(scriptPath, 'utf8')).join('\n');
+}
 const promptScriptPath = path.join(root, 'src', 'webview', 'webviewPromptScripts.js');
 const scrollStateScriptPath = path.join(root, 'src', 'webview', 'webviewScrollStateScripts.js');
 const extensionHostPath = path.join(root, 'src', 'dashboard.ts');
@@ -607,7 +617,7 @@ function runWorkspaceCardRenderingChecks() {
         'target',
         'projectId',
         'window',
-        extractFunctionBody(fs.readFileSync(projectScriptPath, 'utf8'), 'onTriggerProjectAction'),
+        extractFunctionBody(readProjectWebviewSource(), 'onTriggerProjectAction'),
     );
     assert.strictEqual(triggerProjectAction({
         closest: selector => selector === '[data-action]'
@@ -765,7 +775,7 @@ function runWorkspaceCardRenderingChecks() {
         'the local current workspace NEW action must remain enabled during bridge degradation');
     assert.strictEqual(updateRequiredOtherHtml.includes('data-action="new-session-in"'), false);
 
-    const projectSource = fs.readFileSync(projectScriptPath, 'utf8');
+    const projectSource = readProjectWebviewSource();
     const consistencyBody = extractFunctionBody(projectSource, 'isWorkspaceUpdateDomConsistent');
     assert.ok(consistencyBody.includes('currentWorkspaceCount'));
     assert.strictEqual(/rootCount|sessionCount|aiSessionCount/.test(consistencyBody), false,
@@ -2882,7 +2892,7 @@ function runTodoViewModelChecks() {
 }
 
 function runTodoOrderingInteractionChecks() {
-    const projectSource = fs.readFileSync(projectScriptPath, 'utf8');
+    const projectSource = readProjectWebviewSource();
     const projectContext = {};
     vm.runInNewContext(projectSource, projectContext);
     const groups = ['Release', 'Backlog'].map((title, index) => {
@@ -4124,7 +4134,7 @@ function runControllerChecks(source) {
 }
 
 function runTodoEditResetInteractionChecks() {
-    const projectSource = fs.readFileSync(projectScriptPath, 'utf8');
+    const projectSource = readProjectWebviewSource();
     const setTodoEditingBody = extractFunctionBody(projectSource, 'setTodoEditing');
     const title = { value: 'Initial title', defaultValue: 'Initial title' };
     const notes = { value: 'Initial notes', defaultValue: 'Initial notes' };
@@ -4261,7 +4271,7 @@ function createTodoComposeFormState() {
 }
 
 function runTodoComposePendingInteractionChecks() {
-    const projectSource = fs.readFileSync(projectScriptPath, 'utf8');
+    const projectSource = readProjectWebviewSource();
     const context = {};
     vm.runInNewContext(projectSource, context);
     const onTodoFormSubmit = new Function(
@@ -4363,7 +4373,7 @@ function runTodoComposePendingInteractionChecks() {
 }
 
 function runSourceContractChecks(source) {
-    const projectSource = fs.readFileSync(projectScriptPath, 'utf8');
+    const projectSource = readProjectWebviewSource();
     assert.deepStrictEqual(
         fs.readFileSync(path.join(root, 'media', 'webviewScrollStateScripts.js')),
         fs.readFileSync(scrollStateScriptPath),

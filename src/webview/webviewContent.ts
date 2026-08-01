@@ -134,6 +134,12 @@ export function getStewardContent(
         'webviewScrollStateScripts.js',
         assetRevision,
     );
+    var aiSessionViewStateScriptsPath = getMediaResource(
+        context,
+        webview,
+        'webviewAiSessionViewStateScripts.js',
+        assetRevision,
+    );
     var projectScriptsPath = getMediaResource(
         context,
         webview,
@@ -268,6 +274,7 @@ export function getStewardContent(
     <script src="${dragulaPath}"></script>
     <script src="${autoScrollerPath}"></script>
     <script src="${scrollStateScriptsPath}"></script>
+    <script src="${aiSessionViewStateScriptsPath}"></script>
     <script src="${projectScriptsPath}"></script>
     <script src="${dashboardScriptsPath}"></script>
     <script src="${promptScriptsPath}"></script>

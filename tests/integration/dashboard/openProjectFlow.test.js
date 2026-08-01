@@ -30,6 +30,10 @@ const projectWebviewSource = fs.readFileSync(path.join(
     repositoryRoot,
     'src', 'webview', 'webviewProjectScripts.js'
 ), 'utf8');
+const viewStateWebviewSource = fs.readFileSync(path.join(
+    repositoryRoot,
+    'src', 'webview', 'webviewAiSessionViewStateScripts.js'
+), 'utf8');
 const filterWebviewSource = fs.readFileSync(path.join(
     repositoryRoot,
     'src', 'webview', 'webviewFilterScripts.js'
@@ -110,6 +114,9 @@ function createOpenWorkspaceUpdateVm(wrapper, catalogs) {
             },
         },
     };
+    vm.runInNewContext(viewStateWebviewSource, context, {
+        filename: 'webviewAiSessionViewStateScripts.js',
+    });
     vm.runInNewContext(projectWebviewSource, context, {
         filename: 'webviewProjectScripts.js',
     });

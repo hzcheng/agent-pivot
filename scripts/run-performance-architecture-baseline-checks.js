@@ -26,6 +26,7 @@ const productionSources = [
     'extensions/attention-ui-bridge/tsconfig.json',
     'media/webviewDashboardScripts.js',
     'media/webviewScrollStateScripts.js',
+    'media/webviewAiSessionViewStateScripts.js',
     'media/webviewProjectScripts.js',
     'media/webviewPromptScripts.js',
     'media/styles.scss',

@@ -390,6 +390,51 @@ function messageHtml(prefix, count, start = 0) {
     }).join('');
 }
 
+function interactionHtml(prefix, count, responseLines, start = 0) {
+    return Array.from({ length: count }, (_item, index) => {
+        const interactionId = `${prefix}-${start + index}`;
+        const response = Array.from(
+            { length: responseLines },
+            (_line, line) => `<p>${interactionId} response line ${line}</p>`
+        ).join('');
+        return `<article data-message-id="${interactionId}-user"
+            data-interaction-id="${interactionId}">
+            <section><p>${interactionId} prompt</p></section>
+        </article>
+        <article data-message-id="${interactionId}-assistant"
+            data-interaction-id="${interactionId}">
+            <section>${response}</section>
+        </article>`;
+    }).join('');
+}
+
+async function measureConversationEnd(page, lastMessageId) {
+    return page.evaluate(messageId => {
+        const scroll = document.querySelector('[data-conversation-scroll]');
+        const last = document.querySelector(
+            `[data-message-id="${messageId}"]`
+        );
+        const selected = document.querySelector(
+            '.conversation-selected-interaction'
+        );
+        const bounds = scroll.getBoundingClientRect();
+        const selectedBounds = selected
+            ? selected.getBoundingClientRect()
+            : null;
+        return {
+            hiddenBelow: Math.round(
+                last.getBoundingClientRect().bottom - bounds.bottom
+            ),
+            distanceFromEnd: Math.round(
+                scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop
+            ),
+            selectedVisible: !!selectedBounds
+                && selectedBounds.bottom > bounds.top
+                && selectedBounds.top < bounds.bottom,
+        };
+    }, lastMessageId);
+}
+
 function fakeHostUri(value) {
     return {
         scheme: value.split(':', 1)[0],
@@ -3181,6 +3226,154 @@ test('CONVERSATION-VIEWER-BROWSER-NAVIGATION-002 anchors and focuses the Host-se
         document.activeElement
             && document.activeElement.getAttribute('data-interaction-id')
     ), 'selected-2');
+});
+
+test('CONVERSATION-OPEN-LATEST-001 reveals the newest line when the viewer opens at the latest interaction inside a short viewport', async t => {
+    const page = await openViewerPage(t);
+    const outline = Array.from({ length: 5 }, (_item, index) => ({
+        interactionId: `latest-${index}`,
+        userPreview: `Latest input ${index + 1}`,
+        responseState: 'complete',
+    }));
+    await sendPage(page, {
+        ...hostileConversationPage,
+        html: interactionHtml('latest', 4, 3)
+            + interactionHtml('latest', 4, 40, 4),
+        outline,
+        selectedInteractionId: 'latest-4',
+        selectedInput: 5,
+        totalInputs: 5,
+        atLatest: true,
+        nextCursor: undefined,
+    });
+
+    const opened = await measureConversationEnd(page, 'latest-4-assistant');
+    assert.ok(
+        opened.hiddenBelow <= 0,
+        `newest line stayed ${opened.hiddenBelow}px below the viewport`
+    );
+    assert.equal(opened.distanceFromEnd, 0);
+
+    await sendPage(page, {
+        ...hostileConversationPage,
+        requestId: 2,
+        updateKind: 'navigation',
+        html: interactionHtml('latest', 4, 3)
+            + interactionHtml('latest', 4, 40, 4),
+        outline,
+        selectedInteractionId: 'latest-1',
+        selectedInput: 2,
+        totalInputs: 5,
+        atLatest: false,
+    });
+
+    const navigated = await measureConversationEnd(page, 'latest-4-assistant');
+    assert.ok(
+        navigated.distanceFromEnd > 0,
+        'navigating away from the latest input must not jump to the end'
+    );
+    assert.ok(
+        navigated.selectedVisible,
+        'navigation must keep the selected interaction inside the viewport'
+    );
+});
+
+test('CONVERSATION-OPEN-LATEST-001 keeps the newest line visible when the editor area shrinks and leaves a scrolled-up reader in place', async t => {
+    const page = await openViewerPage(t);
+    const outline = Array.from({ length: 5 }, (_item, index) => ({
+        interactionId: `shrink-${index}`,
+        userPreview: `Shrink input ${index + 1}`,
+        responseState: 'complete',
+    }));
+    await sendPage(page, {
+        ...hostileConversationPage,
+        html: interactionHtml('shrink', 4, 3)
+            + interactionHtml('shrink', 4, 40, 4),
+        outline,
+        selectedInteractionId: 'shrink-4',
+        selectedInput: 5,
+        totalInputs: 5,
+        atLatest: true,
+        nextCursor: undefined,
+    });
+    const scroll = page.locator('[data-conversation-scroll]');
+    const shrink = async height => {
+        await scroll.evaluate((element, value) => {
+            element.style.height = `${value}px`;
+        }, height);
+        await page.waitForTimeout(50);
+    };
+
+    await shrink(80);
+    const shrunk = await measureConversationEnd(page, 'shrink-4-assistant');
+    assert.ok(
+        shrunk.hiddenBelow <= 0,
+        `newest line stayed ${shrunk.hiddenBelow}px below the shrunk viewport`
+    );
+
+    await scroll.evaluate(element => { element.scrollTop = 40; });
+    await shrink(60);
+    assert.equal(await scroll.evaluate(element => element.scrollTop), 40);
+});
+
+test('CONVERSATION-OUTLINE-NAVIGATION-001 CONVERSATION-OPEN-LATEST-001 anchors outline navigation on the selected input even when it is the newest one', async t => {
+    const page = await openViewerPage(t);
+    const outline = Array.from({ length: 5 }, (_item, index) => ({
+        interactionId: `nav-${index}`,
+        userPreview: `Nav input ${index + 1}`,
+        responseState: 'complete',
+    }));
+    const html = interactionHtml('nav', 4, 40)
+        + interactionHtml('nav', 1, 40, 4);
+    const navigateTo = async (interactionId, requestId, atLatest) => {
+        await sendPage(page, {
+            ...hostileConversationPage,
+            requestId,
+            updateKind: 'navigation',
+            html,
+            outline,
+            selectedInteractionId: interactionId,
+            selectedInput: Number(interactionId.split('-')[1]) + 1,
+            totalInputs: 5,
+            atLatest,
+        });
+        return page.evaluate(id => {
+            const scroll = document.querySelector(
+                '[data-conversation-scroll]'
+            );
+            const prompt = document.querySelector(
+                `[data-message-id="${id}-user"]`
+            );
+            return Math.round(
+                prompt.getBoundingClientRect().top
+                - scroll.getBoundingClientRect().top
+            );
+        }, interactionId);
+    };
+
+    await sendPage(page, {
+        ...hostileConversationPage,
+        html,
+        outline,
+        selectedInteractionId: 'nav-4',
+        selectedInput: 5,
+        totalInputs: 5,
+        atLatest: true,
+        nextCursor: undefined,
+    });
+
+    const middleTop = await navigateTo('nav-2', 2, false);
+    const newestTop = await navigateTo('nav-4', 3, true);
+
+    assert.ok(
+        middleTop >= 0,
+        `middle input anchored ${middleTop}px above the viewport`
+    );
+    assert.ok(
+        newestTop >= 0,
+        `newest input anchored ${newestTop}px above the viewport`
+    );
+    assert.equal(newestTop, middleTop);
 });
 
 test('CONVERSATION-VIEWER-PARTIAL-001 labels capped input positions and partial history', async t => {

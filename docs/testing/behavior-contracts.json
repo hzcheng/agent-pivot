@@ -3989,11 +3989,13 @@
     "priority": "P1",
     "status": "automated",
     "owners": [
-      "tests/integration/dashboard/conversationOpenLatest.test.js"
+      "tests/integration/dashboard/conversationOpenLatest.test.js",
+      "tests/browser/conversationViewer.test.js"
     ],
     "evidence": [
       "src/aiSessions/conversation/composition.ts",
-      "src/dashboard.ts"
+      "src/dashboard.ts",
+      "src/webview/conversationViewerScripts.js"
     ]
   },
   {

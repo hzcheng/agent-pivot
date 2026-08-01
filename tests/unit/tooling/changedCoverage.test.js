@@ -85,6 +85,8 @@ test('COVERAGE-CHANGED-CODE-001 reports uncovered executable changed lines and m
 test('COVERAGE-CHANGED-CODE-001 exempts only the paths the suite structurally cannot instrument', () => {
     assert.equal(isUninstrumentedByDesign('src/dashboard.ts'), true);
     assert.equal(isUninstrumentedByDesign('scripts/run-ai-session-safety-checks.js'), true);
+    assert.equal(isUninstrumentedByDesign('src/webview/conversationViewerScripts.js'), true);
+    assert.equal(isUninstrumentedByDesign('src/webview/webviewContent.ts'), false);
     assert.equal(isUninstrumentedByDesign('src/aiSessions/dashboardController.ts'), false);
     assert.equal(isUninstrumentedByDesign('scripts/lib/behaviorCatalog.js'), false);
     assert.equal(isUninstrumentedByDesign('scripts/run-nested/helper.js'), false);

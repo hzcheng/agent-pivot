@@ -18,6 +18,11 @@ const UNINSTRUMENTED_BY_DESIGN = [
     // their statements are attributed to the child process instead of the run.
     // Their extracted helpers under scripts/lib stay instrumented and enforced.
     /^scripts\/run-[^/]+\.js$/,
+    // Webview browser scripts are loaded by the Webview document itself, so the
+    // deterministic Node suites never require them. tests/browser exercises them
+    // in Chromium through Playwright, outside this c8 run. Their TypeScript
+    // siblings under src/webview stay instrumented and enforced.
+    /^src\/webview\/[^/]+\.js$/,
 ];
 
 function isUninstrumentedByDesign(file) {

@@ -146,6 +146,12 @@ export function getStewardContent(
         'webviewWorkspaceUpdateScripts.js',
         assetRevision,
     );
+    var todoGroupScriptsPath = getMediaResource(
+        context,
+        webview,
+        'webviewTodoGroupScripts.js',
+        assetRevision,
+    );
     var projectScriptsPath = getMediaResource(
         context,
         webview,
@@ -282,6 +288,7 @@ export function getStewardContent(
     <script src="${scrollStateScriptsPath}"></script>
     <script src="${aiSessionViewStateScriptsPath}"></script>
     <script src="${workspaceUpdateScriptsPath}"></script>
+    <script src="${todoGroupScriptsPath}"></script>
     <script src="${projectScriptsPath}"></script>
     <script src="${dashboardScriptsPath}"></script>
     <script src="${promptScriptsPath}"></script>

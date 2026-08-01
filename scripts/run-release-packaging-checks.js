@@ -76,6 +76,7 @@ const EXPECTED_MAIN_ENTRIES = Object.freeze([
     'extension/media/webviewFilterScripts.js',
     'extension/media/webviewAiSessionViewStateScripts.js',
     'extension/media/webviewWorkspaceUpdateScripts.js',
+    'extension/media/webviewTodoGroupScripts.js',
     'extension/media/webviewProjectScripts.js',
     'extension/media/webviewPromptScripts.js',
     'extension/media/webviewScrollStateScripts.js',
@@ -589,6 +590,7 @@ function runRealVsixArchiveChecks(mainPackage, bridgePackage) {
         ['extension/media/styles.css', 'media/styles.css'],
         ['extension/media/webviewAiSessionViewStateScripts.js', 'media/webviewAiSessionViewStateScripts.js'],
         ['extension/media/webviewWorkspaceUpdateScripts.js', 'media/webviewWorkspaceUpdateScripts.js'],
+        ['extension/media/webviewTodoGroupScripts.js', 'media/webviewTodoGroupScripts.js'],
         ['extension/media/webviewProjectScripts.js', 'media/webviewProjectScripts.js'],
         ['extension/media/webviewPromptScripts.js', 'media/webviewPromptScripts.js'],
         ['extension/media/webviewScrollStateScripts.js', 'media/webviewScrollStateScripts.js'],
@@ -913,6 +915,7 @@ function run() {
     assertIncludes(mainIgnore, 'out/**/*.map', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewAiSessionViewStateScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewWorkspaceUpdateScripts.js', 'main VSIX ignore rules');
+    assertIncludes(mainIgnore, '!media/webviewTodoGroupScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewProjectScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewPromptScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewScrollStateScripts.js', 'main VSIX ignore rules');
@@ -935,6 +938,7 @@ function run() {
         'dist/dashboard.js',
         'media/webviewAiSessionViewStateScripts.js',
         'media/webviewWorkspaceUpdateScripts.js',
+        'media/webviewTodoGroupScripts.js',
         'media/webviewProjectScripts.js',
         'media/webviewPromptScripts.js',
         'media/webviewScrollStateScripts.js',

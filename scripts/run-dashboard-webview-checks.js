@@ -56,11 +56,15 @@ const aiSessionViewStateScriptPath = path.join(
 const workspaceUpdateScriptPath = path.join(
     root, 'src', 'webview', 'webviewWorkspaceUpdateScripts.js'
 );
+const todoGroupScriptPath = path.join(
+    root, 'src', 'webview', 'webviewTodoGroupScripts.js'
+);
 
 function readProjectWebviewSource() {
     return [
         aiSessionViewStateScriptPath,
         workspaceUpdateScriptPath,
+        todoGroupScriptPath,
         projectScriptPath,
     ].map(scriptPath => fs.readFileSync(scriptPath, 'utf8')).join('\n');
 }

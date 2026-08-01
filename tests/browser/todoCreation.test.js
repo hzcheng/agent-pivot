@@ -16,6 +16,10 @@ const workspaceUpdateScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/webviewWorkspaceUpdateScripts.js'),
     'utf8'
 );
+const todoGroupScript = fs.readFileSync(
+    path.join(__dirname, '../../src/webview/webviewTodoGroupScripts.js'),
+    'utf8'
+);
 const projectScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/webviewProjectScripts.js'),
     'utf8'
@@ -63,6 +67,7 @@ test('TODO-SINGLE-CREATE-DISPATCH-001 submits one group composer through only th
     });
     await page.addScriptTag({ content: viewStateScript });
     await page.addScriptTag({ content: workspaceUpdateScript });
+    await page.addScriptTag({ content: todoGroupScript });
     await page.addScriptTag({ content: projectScript });
     await page.addScriptTag({ content: todoScript });
     await page.evaluate(value => {

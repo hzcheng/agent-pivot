@@ -351,8 +351,8 @@ for (const mutation of [
         file: 'src/aiSessions/conversation/viewer.ts',
         expectedDetail: 'extension-host TypeScript must not import DOMPurify',
         mutate: source => source.replace(
-            "import { randomBytes } from 'crypto';",
-            "import { randomBytes } from 'crypto';\nimport DOMPurify from 'dompurify';"
+            "import { URL } from 'url';",
+            "import { URL } from 'url';\nimport DOMPurify from 'dompurify';"
         ),
     },
     {
@@ -360,8 +360,8 @@ for (const mutation of [
         file: 'src/aiSessions/conversation/viewer.ts',
         expectedDetail: 'extension-host TypeScript must not import DOMPurify',
         mutate: source => source.replace(
-            "import { randomBytes } from 'crypto';",
-            "import { randomBytes } from 'crypto';\n"
+            "import { URL } from 'url';",
+            "import { URL } from 'url';\n"
                 + "void import('dompurify');"
         ),
     },
@@ -370,8 +370,8 @@ for (const mutation of [
         file: 'src/aiSessions/conversation/viewer.ts',
         expectedDetail: 'extension-host TypeScript must not import DOMPurify',
         mutate: source => source.replace(
-            "import { randomBytes } from 'crypto';",
-            "import { randomBytes } from 'crypto';\n"
+            "import { URL } from 'url';",
+            "import { URL } from 'url';\n"
                 + "import purifier = require('dompurify/dist/purify.cjs.js');"
         ),
     },
@@ -380,8 +380,8 @@ for (const mutation of [
         file: 'src/aiSessions/conversation/viewer.ts',
         expectedDetail: 'extension-host TypeScript must not import DOMPurify',
         mutate: source => source.replace(
-            "import { randomBytes } from 'crypto';",
-            "import { randomBytes } from 'crypto';\n"
+            "import { URL } from 'url';",
+            "import { URL } from 'url';\n"
                 + "import sanitize from 'dompurify/dist/purify.es.mjs';"
         ),
     },
@@ -390,8 +390,8 @@ for (const mutation of [
         file: 'src/aiSessions/conversation/viewer.ts',
         expectedDetail: 'extension-host TypeScript must not import DOMPurify',
         mutate: source => source.replace(
-            "import { randomBytes } from 'crypto';",
-            "import { randomBytes } from 'crypto';\n"
+            "import { URL } from 'url';",
+            "import { URL } from 'url';\n"
                 + "const purifier = require('../../media/purify.min.js');"
         ),
     },

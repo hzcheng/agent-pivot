@@ -55,6 +55,10 @@ const projectAiUpdateScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/webviewProjectAiUpdateScripts.js'),
     'utf8'
 );
+const aiSessionControlsScript = fs.readFileSync(
+    path.join(__dirname, '../../src/webview/webviewProjectAiSessionControlsScripts.js'),
+    'utf8'
+);
 const projectScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/webviewProjectScripts.js'),
     'utf8'
@@ -126,6 +130,7 @@ async function openMenuPage(t, selectedProviders = ['codex']) {
     await page.addScriptTag({ content: todoControlScript });
     await page.addScriptTag({ content: projectContextMenuScript });
     await page.addScriptTag({ content: projectAiUpdateScript });
+    await page.addScriptTag({ content: aiSessionControlsScript });
     await page.addScriptTag({ content: projectScript });
     await page.evaluate(() => {
         initProjects();

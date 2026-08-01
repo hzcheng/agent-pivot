@@ -71,6 +71,9 @@ const projectContextMenuScriptPath = path.join(
 const projectAiUpdateScriptPath = path.join(
     root, 'src', 'webview', 'webviewProjectAiUpdateScripts.js'
 );
+const aiSessionControlsScriptPath = path.join(
+    root, 'src', 'webview', 'webviewProjectAiSessionControlsScripts.js'
+);
 
 function readProjectWebviewSource() {
     return [
@@ -81,6 +84,7 @@ function readProjectWebviewSource() {
         todoControlScriptPath,
         projectContextMenuScriptPath,
         projectAiUpdateScriptPath,
+        aiSessionControlsScriptPath,
         projectScriptPath,
     ].map(scriptPath => fs.readFileSync(scriptPath, 'utf8')).join('\n');
 }

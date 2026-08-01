@@ -4905,6 +4905,7 @@ function runWebviewContentChecks() {
         'webviewTodoControlScripts.js',
         'webviewProjectContextMenuScripts.js',
         'webviewProjectAiUpdateScripts.js',
+        'webviewProjectAiSessionControlsScripts.js',
         'webviewProjectScripts.js',
     ].map(fileName => fs.readFileSync(
         path.join(__dirname, '..', 'src', 'webview', fileName), 'utf8'
@@ -6270,9 +6271,17 @@ function runBatchAiSessionWebviewChecks() {
     );
     const projectAiUpdateSource = fs.readFileSync(projectAiUpdateSourcePath, 'utf8');
     assert.strictEqual(fs.readFileSync(generatedProjectAiUpdatePath, 'utf8'), projectAiUpdateSource);
+    const aiSessionControlsSourcePath = path.join(
+        __dirname, '..', 'src', 'webview', 'webviewProjectAiSessionControlsScripts.js'
+    );
+    const generatedAiSessionControlsPath = path.join(
+        __dirname, '..', 'media', 'webviewProjectAiSessionControlsScripts.js'
+    );
+    const aiSessionControlsSource = fs.readFileSync(aiSessionControlsSourcePath, 'utf8');
+    assert.strictEqual(fs.readFileSync(generatedAiSessionControlsPath, 'utf8'), aiSessionControlsSource);
     const projectSource = fs.readFileSync(sourcePath, 'utf8');
     assert.strictEqual(fs.readFileSync(generatedPath, 'utf8'), projectSource);
-    const source = `${viewStateSource}\n${workspaceUpdateSource}\n${todoGroupSource}\n${projectCollapseSource}\n${todoControlSource}\n${projectContextMenuSource}\n${projectAiUpdateSource}\n${projectSource}`;
+    const source = `${viewStateSource}\n${workspaceUpdateSource}\n${todoGroupSource}\n${projectCollapseSource}\n${todoControlSource}\n${projectContextMenuSource}\n${projectAiUpdateSource}\n${aiSessionControlsSource}\n${projectSource}`;
     const messages = [];
     const eventListeners = {};
     const windowEventListeners = {};
@@ -7222,6 +7231,7 @@ function runAiSessionIncrementalRefreshSourceChecks() {
         'webviewTodoControlScripts.js',
         'webviewProjectContextMenuScripts.js',
         'webviewProjectAiUpdateScripts.js',
+        'webviewProjectAiSessionControlsScripts.js',
         'webviewProjectScripts.js',
     ].map(fileName => fs.readFileSync(
         path.join(root, 'src', 'webview', fileName), 'utf8'

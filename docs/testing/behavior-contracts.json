@@ -4405,5 +4405,19 @@
     "evidence": [
       "src/aiSessions/notify/types.ts"
     ]
+  },
+  {
+    "id": "ATTENTION-NOTIFY-PAYLOAD-BUILD-001",
+    "domain": "attention",
+    "title": "Notification payloads redact project paths and session labels",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/notify/notifierHooks.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/notifyIntegration/notifier.ts",
+      "src/aiSessions/attentionController.ts"
+    ]
   }
 ]

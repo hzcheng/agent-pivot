@@ -4366,5 +4366,18 @@
     "evidence": [
       "src/aiSessions/notify/httpClient.ts"
     ]
+  },
+  {
+    "id": "ATTENTION-NOTIFY-STORE-001",
+    "domain": "persistence",
+    "title": "Notified event store is bounded, atomic and corruption tolerant",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/notify/store.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/notify/store.ts"
+    ]
   }
 ]

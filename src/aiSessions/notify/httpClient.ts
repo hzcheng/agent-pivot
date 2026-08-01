@@ -2,6 +2,8 @@
 
 import * as http from 'http';
 import * as https from 'https';
+import type { Socket } from 'net';
+import * as tls from 'tls';
 import { URL } from 'url';
 import type { NotifyRequest } from './templates/types';
 
@@ -79,7 +81,7 @@ export async function sendWithRetry(
     throw lastError || new Error('notification transport exhausted retries');
 }
 
-function openProxyTunnel(proxy: string, target: URL): Promise<NodeJS.Socket> {
+function openProxyTunnel(proxy: string, target: URL): Promise<Socket> {
     return new Promise((resolve, reject) => {
         const proxyUrl = new URL(proxy);
         const connectRequest = http.request({
@@ -122,8 +124,14 @@ export function createHttpsTransport(): HttpTransport {
                         'Content-Length': Buffer.byteLength(request.body).toString(),
                     },
                     timeout: TOTAL_TIMEOUT_MS,
-                    ...(socket ? { socket, agent: false } : {}),
+                    // 隧道 socket 经 createConnection 显式交给 tls.connect(文档化 API)。
+                    // 注意:此时绝不能传 agent(包括 agent:false)——Node 只在未提供
+                    // agent 时才使用请求级 createConnection,传了 agent 隧道会被旁路。
+                    ...(socket ? {
+                        createConnection: () => tls.connect({ socket, servername: target.hostname }),
+                    } : {}),
                 }, response => {
+                    response.on('error', reject);
                     response.resume();
                     response.on('end', () => resolve({
                         statusCode: response.statusCode || 0,

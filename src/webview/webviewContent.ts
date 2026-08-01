@@ -152,6 +152,36 @@ export function getStewardContent(
         'webviewTodoGroupScripts.js',
         assetRevision,
     );
+    var projectCollapseScriptsPath = getMediaResource(
+        context,
+        webview,
+        'webviewProjectCollapseScripts.js',
+        assetRevision,
+    );
+    var todoControlScriptsPath = getMediaResource(
+        context,
+        webview,
+        'webviewTodoControlScripts.js',
+        assetRevision,
+    );
+    var projectContextMenuScriptsPath = getMediaResource(
+        context,
+        webview,
+        'webviewProjectContextMenuScripts.js',
+        assetRevision,
+    );
+    var projectAiUpdateScriptsPath = getMediaResource(
+        context,
+        webview,
+        'webviewProjectAiUpdateScripts.js',
+        assetRevision,
+    );
+    var aiSessionControlsScriptsPath = getMediaResource(
+        context,
+        webview,
+        'webviewProjectAiSessionControlsScripts.js',
+        assetRevision,
+    );
     var projectScriptsPath = getMediaResource(
         context,
         webview,
@@ -289,6 +319,11 @@ export function getStewardContent(
     <script src="${aiSessionViewStateScriptsPath}"></script>
     <script src="${workspaceUpdateScriptsPath}"></script>
     <script src="${todoGroupScriptsPath}"></script>
+    <script src="${projectCollapseScriptsPath}"></script>
+    <script src="${todoControlScriptsPath}"></script>
+    <script src="${projectContextMenuScriptsPath}"></script>
+    <script src="${projectAiUpdateScriptsPath}"></script>
+    <script src="${aiSessionControlsScriptsPath}"></script>
     <script src="${projectScriptsPath}"></script>
     <script src="${dashboardScriptsPath}"></script>
     <script src="${promptScriptsPath}"></script>

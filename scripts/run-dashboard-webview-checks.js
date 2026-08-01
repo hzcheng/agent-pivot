@@ -59,12 +59,32 @@ const workspaceUpdateScriptPath = path.join(
 const todoGroupScriptPath = path.join(
     root, 'src', 'webview', 'webviewTodoGroupScripts.js'
 );
+const projectCollapseScriptPath = path.join(
+    root, 'src', 'webview', 'webviewProjectCollapseScripts.js'
+);
+const todoControlScriptPath = path.join(
+    root, 'src', 'webview', 'webviewTodoControlScripts.js'
+);
+const projectContextMenuScriptPath = path.join(
+    root, 'src', 'webview', 'webviewProjectContextMenuScripts.js'
+);
+const projectAiUpdateScriptPath = path.join(
+    root, 'src', 'webview', 'webviewProjectAiUpdateScripts.js'
+);
+const aiSessionControlsScriptPath = path.join(
+    root, 'src', 'webview', 'webviewProjectAiSessionControlsScripts.js'
+);
 
 function readProjectWebviewSource() {
     return [
         aiSessionViewStateScriptPath,
         workspaceUpdateScriptPath,
         todoGroupScriptPath,
+        projectCollapseScriptPath,
+        todoControlScriptPath,
+        projectContextMenuScriptPath,
+        projectAiUpdateScriptPath,
+        aiSessionControlsScriptPath,
         projectScriptPath,
     ].map(scriptPath => fs.readFileSync(scriptPath, 'utf8')).join('\n');
 }

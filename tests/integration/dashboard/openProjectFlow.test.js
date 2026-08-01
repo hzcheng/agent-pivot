@@ -42,6 +42,26 @@ const todoGroupWebviewSource = fs.readFileSync(path.join(
     repositoryRoot,
     'src', 'webview', 'webviewTodoGroupScripts.js'
 ), 'utf8');
+const projectCollapseWebviewSource = fs.readFileSync(path.join(
+    repositoryRoot,
+    'src', 'webview', 'webviewProjectCollapseScripts.js'
+), 'utf8');
+const todoControlWebviewSource = fs.readFileSync(path.join(
+    repositoryRoot,
+    'src', 'webview', 'webviewTodoControlScripts.js'
+), 'utf8');
+const projectContextMenuWebviewSource = fs.readFileSync(path.join(
+    repositoryRoot,
+    'src', 'webview', 'webviewProjectContextMenuScripts.js'
+), 'utf8');
+const projectAiUpdateWebviewSource = fs.readFileSync(path.join(
+    repositoryRoot,
+    'src', 'webview', 'webviewProjectAiUpdateScripts.js'
+), 'utf8');
+const aiSessionControlsWebviewSource = fs.readFileSync(path.join(
+    repositoryRoot,
+    'src', 'webview', 'webviewProjectAiSessionControlsScripts.js'
+), 'utf8');
 const filterWebviewSource = fs.readFileSync(path.join(
     repositoryRoot,
     'src', 'webview', 'webviewFilterScripts.js'
@@ -130,6 +150,21 @@ function createOpenWorkspaceUpdateVm(wrapper, catalogs) {
     });
     vm.runInNewContext(todoGroupWebviewSource, context, {
         filename: 'webviewTodoGroupScripts.js',
+    });
+    vm.runInNewContext(projectCollapseWebviewSource, context, {
+        filename: 'webviewProjectCollapseScripts.js',
+    });
+    vm.runInNewContext(todoControlWebviewSource, context, {
+        filename: 'webviewTodoControlScripts.js',
+    });
+    vm.runInNewContext(projectContextMenuWebviewSource, context, {
+        filename: 'webviewProjectContextMenuScripts.js',
+    });
+    vm.runInNewContext(projectAiUpdateWebviewSource, context, {
+        filename: 'webviewProjectAiUpdateScripts.js',
+    });
+    vm.runInNewContext(aiSessionControlsWebviewSource, context, {
+        filename: 'webviewProjectAiSessionControlsScripts.js',
     });
     vm.runInNewContext(projectWebviewSource, context, {
         filename: 'webviewProjectScripts.js',

@@ -23,7 +23,17 @@ const workspaceUpdateSource = fs.readFileSync(path.join(root, 'src', 'webview', 
 const generatedWorkspaceUpdateSource = fs.readFileSync(path.join(root, 'media', 'webviewWorkspaceUpdateScripts.js'), 'utf8');
 const todoGroupSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewTodoGroupScripts.js'), 'utf8');
 const generatedTodoGroupSource = fs.readFileSync(path.join(root, 'media', 'webviewTodoGroupScripts.js'), 'utf8');
-const projectVmSource = `${viewStateSource}\n${workspaceUpdateSource}\n${todoGroupSource}\n${projectSource}`;
+const projectCollapseSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewProjectCollapseScripts.js'), 'utf8');
+const generatedProjectCollapseSource = fs.readFileSync(path.join(root, 'media', 'webviewProjectCollapseScripts.js'), 'utf8');
+const todoControlSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewTodoControlScripts.js'), 'utf8');
+const generatedTodoControlSource = fs.readFileSync(path.join(root, 'media', 'webviewTodoControlScripts.js'), 'utf8');
+const projectContextMenuSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewProjectContextMenuScripts.js'), 'utf8');
+const generatedProjectContextMenuSource = fs.readFileSync(path.join(root, 'media', 'webviewProjectContextMenuScripts.js'), 'utf8');
+const projectAiUpdateSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewProjectAiUpdateScripts.js'), 'utf8');
+const generatedProjectAiUpdateSource = fs.readFileSync(path.join(root, 'media', 'webviewProjectAiUpdateScripts.js'), 'utf8');
+const aiSessionControlsSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewProjectAiSessionControlsScripts.js'), 'utf8');
+const generatedAiSessionControlsSource = fs.readFileSync(path.join(root, 'media', 'webviewProjectAiSessionControlsScripts.js'), 'utf8');
+const projectVmSource = `${viewStateSource}\n${workspaceUpdateSource}\n${todoGroupSource}\n${projectCollapseSource}\n${todoControlSource}\n${projectContextMenuSource}\n${projectAiUpdateSource}\n${aiSessionControlsSource}\n${projectSource}`;
 const scrollStateSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewScrollStateScripts.js'), 'utf8');
 const promptSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewPromptScripts.js'), 'utf8');
 const generatedPromptPath = path.join(root, 'media', 'webviewPromptScripts.js');
@@ -632,21 +642,22 @@ test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-001 renders one availability summar
 });
 
 test('WEBVIEW-MULTI-PROVIDER-SESSION-MENU-001 keeps the generated provider-menu controller boundary exact', () => {
-    assert.equal(generatedProjectSource, projectSource);
-    assert.match(projectSource, /function getSelectedAiSessionProviders\(projectDiv\)/);
-    assert.match(projectSource, /function submitAiSessionProviderSelection\(projectDiv, providers\)/);
-    assert.match(projectSource, /type: 'select-ai-session-providers'/);
-    assert.match(projectSource, /function applyAiSessionProviderSelectionResult\(message\)/);
-    assert.match(projectSource, /message\.type !== 'ai-session-provider-selection-result'/);
-    assert.match(projectSource, /requestId: requestId/);
-    assert.match(projectSource, /selectedProviders: providers/);
-    assert.match(projectSource, /pendingAiSessionProviderSelectionProjectId/);
-    assert.match(projectSource, /pendingAiSessionProviderSelectionRequestId/);
+    assert.equal(generatedAiSessionControlsSource, aiSessionControlsSource);
+    assert.match(aiSessionControlsSource, /function getSelectedAiSessionProviders\(projectDiv\)/);
+    assert.match(aiSessionControlsSource, /function submitAiSessionProviderSelection\(projectDiv, providers\)/);
+    assert.match(aiSessionControlsSource, /type: 'select-ai-session-providers'/);
+    assert.match(aiSessionControlsSource, /function applyAiSessionProviderSelectionResult\(message\)/);
+    assert.match(aiSessionControlsSource, /message\.type !== 'ai-session-provider-selection-result'/);
+    assert.match(aiSessionControlsSource, /requestId: requestId/);
+    assert.match(aiSessionControlsSource, /selectedProviders: providers/);
+    assert.match(aiSessionControlsSource, /pendingAiSessionProviderSelectionProjectId/);
+    assert.match(aiSessionControlsSource, /pendingAiSessionProviderSelectionRequestId/);
     assert.match(
         fs.readFileSync(path.join(root, 'src', 'dashboard.ts'), 'utf8'),
         /e\.selectedProviders,\s*e\.requestId,\s*e\.version/
     );
     assert.doesNotMatch(projectSource, /type: 'select-ai-session-provider'/);
+    assert.doesNotMatch(aiSessionControlsSource, /type: 'select-ai-session-provider'/);
 });
 
 test('ACTIVE-SESSION-CONVERSATION-OPEN-001 posts an open request for a focused active session in the generated controller', () => {
@@ -891,6 +902,11 @@ test('WEBVIEW-RESOURCE-RECOVERY-001 gives every rendered document fresh versione
         'webviewAiSessionViewStateScripts.js',
         'webviewWorkspaceUpdateScripts.js',
         'webviewTodoGroupScripts.js',
+        'webviewProjectCollapseScripts.js',
+        'webviewTodoControlScripts.js',
+        'webviewProjectContextMenuScripts.js',
+        'webviewProjectAiUpdateScripts.js',
+        'webviewProjectAiSessionControlsScripts.js',
         'webviewProjectScripts.js',
         'webviewDashboardScripts.js',
         'webviewPromptScripts.js',

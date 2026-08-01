@@ -14,6 +14,10 @@ const projectSource = fs.readFileSync(
     path.join(__dirname, '../../../src/webview/webviewProjectScripts.js'),
     'utf8'
 );
+const todoControlSource = fs.readFileSync(
+    path.join(__dirname, '../../../src/webview/webviewTodoControlScripts.js'),
+    'utf8'
+);
 const dashboardSource = fs.readFileSync(
     path.join(__dirname, '../../../src/webview/webviewDashboardScripts.js'),
     'utf8'
@@ -1085,7 +1089,8 @@ test('TODO-FOCUSED-DETAIL-001 keeps inline editing open when form whitespace is 
 });
 
 test('TODO-INCREMENTAL-ROOT-001 isolates mounted TODO events from the legacy project controller', () => {
-    assert.match(projectSource, /isDedicatedTodoTarget/);
-    assert.match(projectSource, /window\.__agentPivotTodo/);
+    assert.match(projectSource, /todoControls\.isDedicatedTodoTarget/);
+    assert.match(todoControlSource, /isDedicatedTodoTarget/);
+    assert.match(todoControlSource, /window\.__agentPivotTodo/);
     assert.match(dashboardSource, /options\.onTodoMounted\(panels\.todo,\s*message\)/);
 });

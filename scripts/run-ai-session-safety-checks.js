@@ -4901,6 +4901,11 @@ function runWebviewContentChecks() {
         'webviewAiSessionViewStateScripts.js',
         'webviewWorkspaceUpdateScripts.js',
         'webviewTodoGroupScripts.js',
+        'webviewProjectCollapseScripts.js',
+        'webviewTodoControlScripts.js',
+        'webviewProjectContextMenuScripts.js',
+        'webviewProjectAiUpdateScripts.js',
+        'webviewProjectAiSessionControlsScripts.js',
         'webviewProjectScripts.js',
     ].map(fileName => fs.readFileSync(
         path.join(__dirname, '..', 'src', 'webview', fileName), 'utf8'
@@ -6234,9 +6239,49 @@ function runBatchAiSessionWebviewChecks() {
     );
     const todoGroupSource = fs.readFileSync(todoGroupSourcePath, 'utf8');
     assert.strictEqual(fs.readFileSync(generatedTodoGroupPath, 'utf8'), todoGroupSource);
+    const projectCollapseSourcePath = path.join(
+        __dirname, '..', 'src', 'webview', 'webviewProjectCollapseScripts.js'
+    );
+    const generatedProjectCollapsePath = path.join(
+        __dirname, '..', 'media', 'webviewProjectCollapseScripts.js'
+    );
+    const projectCollapseSource = fs.readFileSync(projectCollapseSourcePath, 'utf8');
+    assert.strictEqual(fs.readFileSync(generatedProjectCollapsePath, 'utf8'), projectCollapseSource);
+    const todoControlSourcePath = path.join(
+        __dirname, '..', 'src', 'webview', 'webviewTodoControlScripts.js'
+    );
+    const generatedTodoControlPath = path.join(
+        __dirname, '..', 'media', 'webviewTodoControlScripts.js'
+    );
+    const todoControlSource = fs.readFileSync(todoControlSourcePath, 'utf8');
+    assert.strictEqual(fs.readFileSync(generatedTodoControlPath, 'utf8'), todoControlSource);
+    const projectContextMenuSourcePath = path.join(
+        __dirname, '..', 'src', 'webview', 'webviewProjectContextMenuScripts.js'
+    );
+    const generatedProjectContextMenuPath = path.join(
+        __dirname, '..', 'media', 'webviewProjectContextMenuScripts.js'
+    );
+    const projectContextMenuSource = fs.readFileSync(projectContextMenuSourcePath, 'utf8');
+    assert.strictEqual(fs.readFileSync(generatedProjectContextMenuPath, 'utf8'), projectContextMenuSource);
+    const projectAiUpdateSourcePath = path.join(
+        __dirname, '..', 'src', 'webview', 'webviewProjectAiUpdateScripts.js'
+    );
+    const generatedProjectAiUpdatePath = path.join(
+        __dirname, '..', 'media', 'webviewProjectAiUpdateScripts.js'
+    );
+    const projectAiUpdateSource = fs.readFileSync(projectAiUpdateSourcePath, 'utf8');
+    assert.strictEqual(fs.readFileSync(generatedProjectAiUpdatePath, 'utf8'), projectAiUpdateSource);
+    const aiSessionControlsSourcePath = path.join(
+        __dirname, '..', 'src', 'webview', 'webviewProjectAiSessionControlsScripts.js'
+    );
+    const generatedAiSessionControlsPath = path.join(
+        __dirname, '..', 'media', 'webviewProjectAiSessionControlsScripts.js'
+    );
+    const aiSessionControlsSource = fs.readFileSync(aiSessionControlsSourcePath, 'utf8');
+    assert.strictEqual(fs.readFileSync(generatedAiSessionControlsPath, 'utf8'), aiSessionControlsSource);
     const projectSource = fs.readFileSync(sourcePath, 'utf8');
     assert.strictEqual(fs.readFileSync(generatedPath, 'utf8'), projectSource);
-    const source = `${viewStateSource}\n${workspaceUpdateSource}\n${todoGroupSource}\n${projectSource}`;
+    const source = `${viewStateSource}\n${workspaceUpdateSource}\n${todoGroupSource}\n${projectCollapseSource}\n${todoControlSource}\n${projectContextMenuSource}\n${projectAiUpdateSource}\n${aiSessionControlsSource}\n${projectSource}`;
     const messages = [];
     const eventListeners = {};
     const windowEventListeners = {};
@@ -7178,9 +7223,19 @@ function runAiSessionIncrementalRefreshSourceChecks() {
     const sessionPathsSource = fs.readFileSync(
         path.join(root, 'src', 'aiSessions', 'sessionPaths.ts'), 'utf8'
     );
-    const projectWebviewSource = fs.readFileSync(
-        path.join(root, 'src', 'webview', 'webviewProjectScripts.js'), 'utf8'
-    );
+    const projectWebviewSource = [
+        'webviewAiSessionViewStateScripts.js',
+        'webviewWorkspaceUpdateScripts.js',
+        'webviewTodoGroupScripts.js',
+        'webviewProjectCollapseScripts.js',
+        'webviewTodoControlScripts.js',
+        'webviewProjectContextMenuScripts.js',
+        'webviewProjectAiUpdateScripts.js',
+        'webviewProjectAiSessionControlsScripts.js',
+        'webviewProjectScripts.js',
+    ].map(fileName => fs.readFileSync(
+        path.join(root, 'src', 'webview', fileName), 'utf8'
+    )).join('\n');
 
     for (const removed of [
         'src/aiSessions/viewModels.ts',

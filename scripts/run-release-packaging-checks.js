@@ -155,25 +155,40 @@ function validateScheduledWorkflow(workflow) {
     }
     assert.ok(Object.prototype.hasOwnProperty.call(workflow.on, 'workflow_dispatch'),
         'scheduled verification must define workflow_dispatch');
-    assert.ok(workflow.on.workflow_dispatch === null || isMapping(workflow.on.workflow_dispatch),
-        'scheduled verification workflow_dispatch must be empty or a mapping');
-    if (isMapping(workflow.on.workflow_dispatch)) {
-        assertExactKeys(workflow.on.workflow_dispatch, [],
-            'scheduled verification workflow_dispatch');
-    }
+    assert.deepStrictEqual(workflow.on.workflow_dispatch, {
+        inputs: {
+            extension_host_only: {
+                description: 'Run only the macOS Extension Host diagnostic',
+                required: false,
+                type: 'boolean',
+                default: false,
+            },
+        },
+    }, 'scheduled workflow_dispatch must expose only the bounded Host diagnostic input');
     assert.deepStrictEqual(workflow.permissions, { contents: 'read' },
         'scheduled verification permissions must be exactly contents: read');
     assert.ok(isMapping(workflow.jobs), 'scheduled verification jobs must be a mapping');
     assert.deepStrictEqual(Object.keys(workflow.jobs), ['verify', 'scheduled-macos'],
         'scheduled verification must contain only verify and scheduled-macos jobs');
-    assertExactKeys(workflow.jobs.verify, ['uses'], 'scheduled verify job');
+    assertExactKeys(workflow.jobs.verify, ['if', 'uses'], 'scheduled verify job');
+    assert.strictEqual(
+        workflow.jobs.verify.if,
+        "${{ github.event_name != 'workflow_dispatch' || inputs.extension_host_only != true }}",
+        'scheduled verify may skip only for the explicit manual Host diagnostic'
+    );
     const job = workflow.jobs['scheduled-macos'];
     assert.ok(isMapping(job), 'scheduled verification must define scheduled-macos');
-    assertExactKeys(job, ['name', 'needs', 'runs-on', 'timeout-minutes', 'steps'],
+    assertExactKeys(job, ['if', 'name', 'needs', 'runs-on', 'timeout-minutes', 'steps'],
         'scheduled-macos job');
+    assert.strictEqual(
+        job.if,
+        "${{ always() && (inputs.extension_host_only == true || needs.verify.result == 'success') }}",
+        'scheduled-macos must require Verify success except for the explicit manual diagnostic'
+    );
     assert.strictEqual(job.name, 'scheduled-macos',
         'scheduled-macos must keep its stable job name');
-    assert.strictEqual(job['runs-on'], 'macos-latest', 'scheduled-macos must use macos-latest');
+    assert.strictEqual(job['runs-on'], 'macos-15',
+        'scheduled-macos must use macos-15');
     assert.strictEqual(job['timeout-minutes'], 15, 'scheduled-macos timeout must be 15 minutes');
     assert.strictEqual(containsKey(workflow, 'continue-on-error'), false,
         'scheduled verification must not define continue-on-error');

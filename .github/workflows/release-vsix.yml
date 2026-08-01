@@ -31,7 +31,7 @@ jobs:
   release-extension-host:
     name: release-extension-host
     needs: verify
-    runs-on: macos-latest
+    runs-on: macos-15
     timeout-minutes: 15
     steps:
       - name: Checkout

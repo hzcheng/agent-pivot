@@ -324,6 +324,7 @@ function createRunTestsOptions(
             environment.workspace,
             `--user-data-dir=${environment.userData}`,
             `--extensions-dir=${environment.extensions}`,
+            '--use-inmemory-secretstorage',
         ],
         extensionTestsEnv: {
             HOME: environment.home,

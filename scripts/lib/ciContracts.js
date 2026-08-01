@@ -137,6 +137,16 @@ function validateScheduledWorkflow(scheduledWorkflow) {
         'GitHub scheduled verification workflow must define a schedule');
     assert.ok(hasOwn(workflow.on, 'workflow_dispatch'),
         'GitHub scheduled verification workflow must define workflow_dispatch');
+    assert.deepEqual(workflow.on.workflow_dispatch, {
+        inputs: {
+            extension_host_only: {
+                description: 'Run only the macOS Extension Host diagnostic',
+                required: false,
+                type: 'boolean',
+                default: false,
+            },
+        },
+    }, 'scheduled workflow_dispatch must expose only the bounded Host diagnostic input');
     assert.deepEqual(workflow.permissions, { contents: 'read' },
         'GitHub scheduled verification workflow permissions must be exactly contents: read');
     assert.ok(isMapping(workflow.jobs),
@@ -146,16 +156,27 @@ function validateScheduledWorkflow(scheduledWorkflow) {
     assert.ok(isMapping(verify), 'GitHub scheduled verification workflow must define verify');
     assert.equal(verify.uses, './.github/workflows/verify.yml',
         'scheduled verify must reuse ./.github/workflows/verify.yml');
-    assert.deepEqual(Object.keys(verify), ['uses'],
-        'scheduled verify must contain only the reusable workflow reference');
+    assert.equal(
+        verify.if,
+        "${{ github.event_name != 'workflow_dispatch' || inputs.extension_host_only != true }}",
+        'scheduled verify may skip only for the explicit manual Host diagnostic'
+    );
+    assert.deepEqual(Object.keys(verify), ['if', 'uses'],
+        'scheduled verify must contain only its bounded condition and reusable workflow reference');
 
     const macos = workflow.jobs['scheduled-macos'];
     assert.ok(isMapping(macos),
         'GitHub scheduled verification workflow must define scheduled-macos');
+    assert.equal(
+        macos.if,
+        "${{ always() && (inputs.extension_host_only == true || needs.verify.result == 'success') }}",
+        'scheduled-macos must require Verify success except for the explicit manual diagnostic'
+    );
     assert.equal(macos.name, 'scheduled-macos',
         'scheduled-macos must expose the stable check name scheduled-macos');
     assert.equal(macos.needs, 'verify', 'scheduled-macos must need verify');
-    assert.equal(macos['runs-on'], 'macos-latest', 'scheduled-macos must use macos-latest');
+    assert.equal(macos['runs-on'], 'macos-15',
+        'scheduled-macos must use macos-15');
     assert.equal(macos['timeout-minutes'], 15, 'scheduled-macos timeout-minutes must be 15');
     assert.ok(findStep(macos, step => isMapping(step) && step.uses === 'actions/checkout@v4'),
         'scheduled-macos must use actions/checkout@v4');
@@ -197,7 +218,7 @@ function validateReleaseWorkflow(releaseWorkflow) {
     validateJob(
         workflow.jobs,
         'release-extension-host',
-        'macos-latest',
+        'macos-15',
         'npm run test:extension-host',
         [],
         false,

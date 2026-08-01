@@ -152,6 +152,14 @@ test('ARCH-CI-QUALITY-GATE-001 scheduled verification reuses the complete Verify
     );
 });
 
+test('RELEASE-SCHEDULED-EXTENSION-HOST-001 permits a manual Host-only diagnostic without weakening schedules', () => {
+    assert.match(scheduledWorkflow, /\n  workflow_dispatch:\n    inputs:\n      extension_host_only:\n/);
+    assert.match(scheduledWorkflow,
+        /\n  verify:\n    if: \$\{\{ github\.event_name != 'workflow_dispatch' \|\| inputs\.extension_host_only != true \}\}\n/);
+    assert.match(scheduledWorkflow,
+        /\n  scheduled-macos:\n    if: \$\{\{ always\(\) && \(inputs\.extension_host_only == true \|\| needs\.verify\.result == 'success'\) \}\}\n/);
+});
+
 test('ARCH-CI-QUALITY-GATE-001 scheduled Extension Host gate is pinned and blocking', () => {
     for (const [source, message] of [
         [
@@ -179,6 +187,14 @@ test('ARCH-CI-QUALITY-GATE-001 scheduled Extension Host gate is pinned and block
     }
 });
 
+test('RELEASE-SCHEDULED-EXTENSION-HOST-001 pins real Host gates to reviewed macOS 15', () => {
+    assert.match(scheduledWorkflow, /\n    runs-on: macos-15\n/);
+    assert.match(
+        releaseWorkflow,
+        /\n  release-extension-host:\n[\s\S]*?\n    runs-on: macos-15\n/
+    );
+});
+
 test('RELEASE-CONVERSATION-JOURNEYS-001 release publishing needs installed VSIX activation', () => {
     assert.doesNotThrow(() => validateReleaseWorkflow(releaseWorkflow));
     assert.throws(
@@ -197,10 +213,10 @@ test('RELEASE-CONVERSATION-JOURNEYS-001 release publishing needs installed VSIX 
     );
     assert.throws(
         () => validateReleaseWorkflow(releaseWorkflow.replace(
-            '    runs-on: macos-latest',
+            '    runs-on: macos-15',
             '    runs-on: ubuntu-latest'
         )),
-        /release-extension-host must use macos-latest/
+        /release-extension-host must use macos-15/
     );
     assert.throws(
         () => validateReleaseWorkflow(releaseWorkflow.replace(

@@ -157,6 +157,7 @@ test('RELEASE-SCHEDULED-EXTENSION-HOST-001 launches both extensions with pinned 
             environment.workspace,
             `--user-data-dir=${environment.userData}`,
             `--extensions-dir=${environment.extensions}`,
+            '--use-inmemory-secretstorage',
         ]);
         assert.equal(options.extensionTestsEnv.HOME, environment.home);
         assert.equal(options.extensionTestsEnv.XDG_CONFIG_HOME, path.join(isolatedRoot, 'xdg', 'config'));

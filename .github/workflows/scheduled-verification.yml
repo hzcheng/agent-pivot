@@ -4,18 +4,26 @@ on:
   schedule:
     - cron: "17 3 * * 1"
   workflow_dispatch:
+    inputs:
+      extension_host_only:
+        description: Run only the macOS Extension Host diagnostic
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 jobs:
   verify:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.extension_host_only != true }}
     uses: ./.github/workflows/verify.yml
 
   scheduled-macos:
+    if: ${{ always() && (inputs.extension_host_only == true || needs.verify.result == 'success') }}
     name: scheduled-macos
     needs: verify
-    runs-on: macos-latest
+    runs-on: macos-15
     timeout-minutes: 15
     steps:
       - name: Checkout

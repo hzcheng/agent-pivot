@@ -43,6 +43,8 @@ test('ARCH-REPOSITORY-SKILL-GUIDANCE-001 keeps regression audits path-based and 
         ['skill and owner-test implementation paths', /\.codex\/skills\/[\s\S]*skill-owner tests[\s\S]*implementation paths/i],
         ['post-commit SHA audit sequence', /final implementation commit[\s\S]*full SHA[\s\S]*assign it exactly once[\s\S]*audit\.head/i],
         ['explicit GitHub repository selection', /origin[\s\S]*upstream[\s\S]*--repo <owner\/name>/i],
+        ['tracked or CI-produced test inputs', /git-tracked or produced by an earlier step of the CI job/i],
+        ['build outputs absent rerun', /build outputs absent/i],
     ]);
 });
 
@@ -96,5 +98,15 @@ test('ARCH-REPOSITORY-SKILL-GUIDANCE-001 harvests evidence-backed workflow lesso
         ['implementation-path audit sequence', /\.codex\/skills\/[\s\S]*implementation paths[\s\S]*full commit SHA[\s\S]*audit\.head/i],
         ['valid no-change decision', /no skill change/i],
         ['bounded non-recursive pass', /only one harvest pass[\s\S]*do[\s\S]*not recursively trigger/i],
+    ]);
+});
+
+test('ARCH-REPOSITORY-SKILL-GUIDANCE-001 installs dependencies inside fresh worktrees before verification', () => {
+    const skill = readSkill('.codex/skills/protecting-main-with-worktrees/SKILL.md');
+
+    assertSkillMentions(skill, [
+        ['worktree-local dependency install', /npm ci/i],
+        ['parent node_modules masking', /parent checkout's node_modules/i],
+        ['path-constructed lookup failure', /constructs[\s\S]*node_modules\/\.\.\.[\s\S]*paths directly/i],
     ]);
 });

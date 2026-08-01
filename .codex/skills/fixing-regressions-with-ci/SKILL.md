@@ -28,6 +28,7 @@ Turn every confirmed regression into a CI-owned behavior before changing product
 4. **Verify RED**
    - Run the focused test against the unfixed implementation.
    - Confirm it fails because of the reported regression, not setup, compilation, or an unrelated assertion.
+   - If the test reads repository working-tree files, confirm every path is git-tracked or produced by an earlier step of the CI job that runs it, and rerun the test with build outputs absent. A locally built artifact is not CI evidence.
    - If it passes, repair the test; do not touch production code.
 5. **Fix minimally**
    - Change only enough production code to satisfy the behavior.

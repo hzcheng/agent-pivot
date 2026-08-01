@@ -46,6 +46,7 @@ test('ARCH-REPOSITORY-SKILL-GUIDANCE-001 keeps regression audits path-based and 
         ['explicit GitHub repository selection', /origin[\s\S]*upstream[\s\S]*--repo <owner\/name>/i],
         ['tracked or CI-produced test inputs', /git-tracked or produced by an earlier step of the CI job/i],
         ['build outputs absent rerun', /build outputs absent/i],
+        ['machine state hermeticity', /git identity, environment variables, tools on PATH/i],
     ]);
 });
 

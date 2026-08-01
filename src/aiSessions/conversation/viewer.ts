@@ -1163,6 +1163,9 @@ export class ConversationViewer implements ConversationViewerApi {
         const mermaidScript = panel.webview.asWebviewUri(
             this.options.mediaUri('conversationMermaidScripts.js')
         );
+        const outlineScript = panel.webview.asWebviewUri(
+            this.options.mediaUri('conversationOutlineScripts.js')
+        );
         const script = panel.webview.asWebviewUri(
             this.options.mediaUri('conversationViewerScripts.js')
         );
@@ -1345,6 +1348,9 @@ export class ConversationViewer implements ConversationViewerApi {
     )}"></script>
     <script nonce="${escapeAttribute(nonce)}" src="${escapeAttribute(
         mermaidScript.toString()
+    )}"></script>
+    <script nonce="${escapeAttribute(nonce)}" src="${escapeAttribute(
+        outlineScript.toString()
     )}"></script>
     <script nonce="${escapeAttribute(nonce)}" src="${escapeAttribute(
         script.toString()

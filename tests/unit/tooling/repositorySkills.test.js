@@ -72,6 +72,7 @@ test('ARCH-REPOSITORY-SKILL-GUIDANCE-001 requires whole-branch review and blocks
         ['blocking failure classification', /blocking[\s\S]*classif|classif[\s\S]*blocking/i],
         ['build-cleaner dependency ordering', /cleans or rebuilds `out\/`[\s\S]*consume `out\/`/i],
         ['post-implementation capability audit', /final implementation or skill-owner commit[\s\S]*audit\.head/i],
+        ['exit-code-gated verification', /own exit code[\s\S]*pipefail[\s\S]*never `;`/i],
     ]);
 });
 

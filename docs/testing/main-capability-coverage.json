@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "2b82dcf05ce93ddd73217a5309e4ed12464841f6",
+        "head": "404ab50e89380a9e8475d3e919efc650d6c6be60",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -854,7 +854,8 @@
                 "8ce06a6948bb7c7f8ed7359501d3e75dfccbe953",
                 "b24c9daacd6c4b37d9ccb696cbded22d60f5cc0c",
                 "b582d61f6bbe66a84bc9c4ad6b01c2e16eb95bf2",
-                "1bbfa2dfe4f33250279937843dd1a46bacdcba4d"
+                "1bbfa2dfe4f33250279937843dd1a46bacdcba4d",
+                "2fe961a8e66edce42470be25aab5ebc1222ac2b1"
             ],
             "behaviors": [
                 "ARCH-CI-QUALITY-GATE-001",
@@ -1137,6 +1138,63 @@
                 "test:contract",
                 "test:browser:run",
                 "test:safety:run"
+            ],
+            "scheduledJobs": [],
+            "realEnvironmentRequired": false
+        },
+        {
+            "id": "MAIN-SESSION-STOP-NOTIFICATION",
+            "title": "Outbound notification when an AI session stops and needs the user",
+            "requirement": "When an AI session stops with reason completed, input-required or failed, Agent Pivot can send a metadata-only notification to one or more configured IM or push channels. The feature is off by default, keeps credentials out of settings.json, honours proxies, and gates delivery on reason, minimum run duration, debounce, dedup and rate limit.",
+            "commits": [
+                "834973d07710439e4d4fd3ae458e87e576cf51d6",
+                "1302e251c0e91b828f608209f6433fadd080dd79",
+                "a5499649935e33dea3fb90326403889b49526289",
+                "44e73b54fb242a6bcca7bf691615dc916ff9216f",
+                "287299c6c037b3b5113e497f33b3a6aa933a99f6",
+                "85aef8f18c0a1fad7479a911f29436dabbf09d35",
+                "328fa0908f03f9d89e932c18eb43a3752edd89da",
+                "98a7abff4c19d19d57bae1628a0677888415d11e",
+                "32287ff067a7655639f6d53b9c7b4948cac589b6",
+                "96a18595b616f684f2e84f6a91506b077805d838",
+                "631616b5f30746ccd79e18bc576e9a9c00adb286",
+                "cd3f040a613115eb763b240492ea95ba57d25363",
+                "27cb1b2bf0250b5045eb960ac0af69f2ff60e130",
+                "95ecced21701a750195159ed066197baf73d1678",
+                "723a3ef2841a756bfa48e97a7588b65fe6cfdaa0",
+                "73b41f91e2ca7e9bab94094ad145dce1d8fd503f",
+                "afa5dee34eb5e15ad9209d7da79ae1c018c7e668",
+                "17e5694c13e50df06d11ca9aed55f3b01ce25a5c",
+                "17c6ecb32167eb38bb2ee9f1b564f9506f700136",
+                "929e41b93107f1b61c469ceebceed8dd6d4d0f12",
+                "3847ccf3db0089b8a398ab5d83bffe4bc1681ee5",
+                "b5601650c966c06b275f73c52f5732d856a348f3",
+                "f60bd39d97326e34ca7a228ec491c34ecb5d8b5a",
+                "c172724a4c5d9d0a696382abf03f5ea25fd2841c",
+                "1953cbdb600b933f0e13db18b7c8f507c174a9e1",
+                "404ab50e89380a9e8475d3e919efc650d6c6be60"
+            ],
+            "behaviors": [
+                "ATTENTION-NOTIFY-EVENT-IDENTITY-001",
+                "ATTENTION-NOTIFY-CONFIG-VALIDATION-001",
+                "ATTENTION-NOTIFY-CORRELATION-001",
+                "ATTENTION-NOTIFY-POLICY-001",
+                "ATTENTION-NOTIFY-MESSAGE-001",
+                "ATTENTION-NOTIFY-TEMPLATE-WEBHOOK-001",
+                "ATTENTION-NOTIFY-TEMPLATE-SPECIALIZED-001",
+                "ATTENTION-NOTIFY-TEMPLATE-DISPATCH-001",
+                "ATTENTION-NOTIFY-HTTP-001",
+                "ATTENTION-NOTIFY-STORE-001",
+                "ATTENTION-NOTIFY-DISPATCHER-001",
+                "ATTENTION-NOTIFY-ISOLATION-001",
+                "ATTENTION-NOTIFY-PAYLOAD-BUILD-001",
+                "ATTENTION-NOTIFY-CREDENTIALS-001",
+                "ATTENTION-NOTIFY-MANIFEST-001",
+                "ATTENTION-NOTIFY-CANCEL-001",
+                "ATTENTION-NOTIFY-GUIDED-SETUP-001"
+            ],
+            "prGates": [
+                "test:deterministic:run"
             ],
             "scheduledJobs": [],
             "realEnvironmentRequired": false

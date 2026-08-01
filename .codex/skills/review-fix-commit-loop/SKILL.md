@@ -90,3 +90,6 @@ Summarize:
 - Do not bury review fixes inside unrelated feature commits unless the user requested squashing.
 - Do not trust subagent output blindly; inspect the actual diff and rerun evidence-producing commands.
 - Do not treat a pre-commit behavior-contract pass as proof of commit-level audit currency.
+- Judge gate and verification scripts by their own exit code: piping to
+  `grep`/`head` masks it (check `$?` directly or use `set -o pipefail`), and
+  chain commits after verification steps with `&&`, never `;`.

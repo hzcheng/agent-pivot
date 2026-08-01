@@ -117,9 +117,12 @@ function escapeRegularExpression(value) {
 function globMatches(pattern, filePath) {
     let source = escapeRegularExpression(pattern.replaceAll('\\', '/'));
     source = source
-        .replaceAll('**/', '(?:.*/)?')
-        .replaceAll('**', '.*')
-        .replaceAll('*', '[^/]*');
+        // 先用占位符保护 ** 展开,否则后续 * 替换会把生成的 .* 一并改写。
+        .replaceAll('**/', '\u0000')
+        .replaceAll('**', '\u0001')
+        .replaceAll('*', '[^/]*')
+        .replaceAll('\u0000', '(?:.*/)?')
+        .replaceAll('\u0001', '.*');
     return new RegExp(`^${source}$`, 'u').test(filePath.replaceAll('\\', '/'));
 }
 

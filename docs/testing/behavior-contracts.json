@@ -4244,5 +4244,235 @@
       "src/webview/webviewContent.ts",
       "src/webview/webviewProjectScripts.js"
     ]
+  },
+  {
+    "id": "ATTENTION-NOTIFY-EVENT-IDENTITY-001",
+    "domain": "attention",
+    "title": "Attention event id generation is shared and stable",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/notify/eventIdentity.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/notify/eventIdentity.ts",
+      "src/aiSessions/attentionMonitor.ts"
+    ]
+  },
+  {
+    "id": "ATTENTION-NOTIFY-CONFIG-VALIDATION-001",
+    "domain": "attention",
+    "title": "Notification channel configuration is validated per channel",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/notify/types.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/notify/types.ts"
+    ]
+  },
+  {
+    "id": "ATTENTION-NOTIFY-CORRELATION-001",
+    "domain": "attention",
+    "title": "Notifications carry a stable short correlation id",
+    "priority": "P2",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/notify/correlation.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/notify/correlation.ts"
+    ]
+  },
+  {
+    "id": "ATTENTION-NOTIFY-POLICY-001",
+    "domain": "attention",
+    "title": "Notification policy gates reason, duration, dedup and rate limit",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/notify/policy.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/notify/policy.ts"
+    ]
+  },
+  {
+    "id": "ATTENTION-NOTIFY-MESSAGE-001",
+    "domain": "attention",
+    "title": "Notification text carries metadata only",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/notify/message.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/notify/message.ts"
+    ]
+  },
+  {
+    "id": "ATTENTION-NOTIFY-TEMPLATE-WEBHOOK-001",
+    "domain": "attention",
+    "title": "Plain webhook channels build correct JSON bodies",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/notify/templates/webhookJson.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/notify/templates/webhookJson.ts"
+    ]
+  },
+  {
+    "id": "ATTENTION-NOTIFY-TEMPLATE-SPECIALIZED-001",
+    "domain": "attention",
+    "title": "ntfy, telegram, bark and dingtalk requests are built correctly",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/notify/templates/specialized.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/notify/templates/ntfy.ts",
+      "src/aiSessions/notify/templates/telegram.ts",
+      "src/aiSessions/notify/templates/bark.ts",
+      "src/aiSessions/notify/templates/dingtalk.ts"
+    ]
+  },
+  {
+    "id": "ATTENTION-NOTIFY-TEMPLATE-DISPATCH-001",
+    "domain": "attention",
+    "title": "Notification requests dispatch by channel and support custom templates",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/notify/templates/dispatch.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/notify/templates/index.ts",
+      "src/aiSessions/notify/templates/custom.ts"
+    ]
+  },
+  {
+    "id": "ATTENTION-NOTIFY-HTTP-001",
+    "domain": "attention",
+    "title": "Notification transport resolves proxies and retries transient failures",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/notify/httpClient.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/notify/httpClient.ts"
+    ]
+  },
+  {
+    "id": "ATTENTION-NOTIFY-STORE-001",
+    "domain": "persistence",
+    "title": "Notified event store is bounded, atomic and corruption tolerant",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/notify/store.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/notify/store.ts"
+    ]
+  },
+  {
+    "id": "ATTENTION-NOTIFY-DISPATCHER-001",
+    "domain": "attention",
+    "title": "Notification dispatcher debounces, deduplicates, rate limits and merges",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/notify/dispatcher.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/notify/dispatcher.ts"
+    ]
+  },
+  {
+    "id": "ATTENTION-NOTIFY-ISOLATION-001",
+    "domain": "architecture",
+    "title": "Notification core stays free of vscode dependencies",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/notify/isolation.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/notify/types.ts"
+    ]
+  },
+  {
+    "id": "ATTENTION-NOTIFY-PAYLOAD-BUILD-001",
+    "domain": "attention",
+    "title": "Notification payloads redact project paths and session labels",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/notify/notifierHooks.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/notifyIntegration/notifier.ts",
+      "src/aiSessions/attentionController.ts"
+    ]
+  },
+  {
+    "id": "ATTENTION-NOTIFY-CREDENTIALS-001",
+    "domain": "attention",
+    "title": "Notification credentials stay out of settings and merge from secrets",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/notify/credentials.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/notifyIntegration/credentials.ts"
+    ]
+  },
+  {
+    "id": "ATTENTION-NOTIFY-MANIFEST-001",
+    "domain": "attention",
+    "title": "Notification settings default to off and never hold credentials",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/notify/commandContract.test.js"
+    ],
+    "evidence": [
+      "package.json",
+      "src/aiSessions/notifyIntegration/commands.ts"
+    ]
+  },
+  {
+    "id": "ATTENTION-NOTIFY-CANCEL-001",
+    "domain": "attention",
+    "title": "Pending notifications are cancelled when the session resumes or attention is discarded",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/attentionMonitorCancellation.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/attentionMonitor.ts",
+      "src/aiSessions/attentionController.ts"
+    ]
+  },
+  {
+    "id": "ATTENTION-NOTIFY-GUIDED-SETUP-001",
+    "domain": "attention",
+    "title": "Guided sink setup writes skeletons, rotates credentials and refuses channel mismatches",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/notify/guidedSetup.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/notifyIntegration/commands.ts",
+      "src/aiSessions/notifyIntegration/output.ts"
+    ]
   }
 ]

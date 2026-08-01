@@ -23,6 +23,9 @@ const UNINSTRUMENTED_BY_DESIGN = [
     // in Chromium through Playwright, outside this c8 run. Their TypeScript
     // siblings under src/webview stay instrumented and enforced.
     /^src\/webview\/[^/]+\.js$/,
+    // Type-only module: it declares the NotifyRequest interface and compiles to
+    // an empty, statement-less file, so there is nothing to instrument.
+    'src/aiSessions/notify/templates/types.ts',
 ];
 
 function isUninstrumentedByDesign(file) {

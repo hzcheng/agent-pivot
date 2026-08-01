@@ -1,11 +1,11 @@
 'use strict';
 
-import * as crypto from 'crypto';
 import type { AiSessionAttentionReason, AiSessionLifecycleSignal } from './lifecycle';
 import {
     acceptsLifecycleSignal,
     recordAcceptedLifecycleSignal,
 } from './lifecycleSignalAcceptance';
+import { createAttentionEventId } from './notify/eventIdentity';
 
 export { AiSessionAttentionReason } from './lifecycle';
 export type AiSessionAttentionState = 'pending' | 'running' | 'idle' | 'needsAttention' | 'acknowledged';
@@ -44,6 +44,7 @@ export interface AiSessionAttentionMonitorOptions {
 export default class AiSessionAttentionMonitor {
     private readonly entries = new Map<string, Entry>();
     private readonly now: () => number;
+    private cancelledEventIds: string[] = [];
 
     constructor(options: AiSessionAttentionMonitorOptions = {}) {
         this.now = options.now ?? (() => Date.now());
@@ -74,7 +75,10 @@ export default class AiSessionAttentionMonitor {
 
             if (signal.phase === 'running' || signal.phase === 'idle') {
                 entry.state = signal.phase;
-                entry.event = undefined;
+                if (entry.event) {
+                    this.cancelledEventIds.push(entry.event.eventId);
+                    entry.event = undefined;
+                }
                 continue;
             }
             if (signal.phase !== 'needsAttention' || !signal.reason) {
@@ -84,7 +88,7 @@ export default class AiSessionAttentionMonitor {
             entry.generation += 1;
             entry.state = 'needsAttention';
             const event: AiSessionAttentionEvent = {
-                eventId: `${input.eventKey || input.key}:${signal.reason}:${crypto.createHash('sha256').update(signal.token).digest('hex')}`,
+                eventId: createAttentionEventId(input.eventKey || input.key, signal.reason, signal.token),
                 key: input.key,
                 reason: signal.reason,
                 generation: entry.generation,
@@ -114,8 +118,18 @@ export default class AiSessionAttentionMonitor {
 
     discard(keys: string[]): void {
         for (const key of new Set(keys || [])) {
+            const entry = this.entries.get(key);
+            if (entry?.event) {
+                this.cancelledEventIds.push(entry.event.eventId);
+            }
             this.entries.delete(key);
         }
+    }
+
+    consumeCancelledEventIds(): string[] {
+        const cancelled = this.cancelledEventIds;
+        this.cancelledEventIds = [];
+        return cancelled;
     }
 
     clear(): void {

@@ -10,7 +10,7 @@ import {
 import { MAX_ATTENTION_ITEMS } from './attentionPayload';
 import type { AttentionPayloadItem } from './attentionPayload';
 import AiSessionAttentionMonitor from './attentionMonitor';
-import type { AiSessionAttentionSnapshot } from './attentionMonitor';
+import type { AiSessionAttentionEvent, AiSessionAttentionSnapshot } from './attentionMonitor';
 import type { AiSessionLifecycleRequest, AiSessionLifecycleSignal } from './lifecycle';
 import type {
     AiSessionLifecycleRequestsByProvider,
@@ -45,6 +45,9 @@ export interface AiSessionAttentionControllerOptions<TRuntime extends AiSessionA
     nowMs: () => number;
     /** How long publishing must keep failing before the bridge counts as out. */
     bridgeOutageMs?: number;
+    onAttentionEvents?: (events: AiSessionAttentionEvent[]) => void;
+    onAttentionAcknowledged?: (eventIds: string[]) => void;
+    onAttentionCancelled?: (eventIds: string[]) => void;
 }
 
 export interface AiSessionAttentionEvaluation {
@@ -123,6 +126,13 @@ export class AiSessionAttentionController<TRuntime extends AiSessionAttentionRun
         });
 
         const events = this.monitor.evaluate(inputs);
+        if (events.length) {
+            try {
+                this.options.onAttentionEvents?.(events);
+            } catch (_error) {
+                // 外发通知不得影响 attention 主流程。
+            }
+        }
         const acknowledgedReplayEventIds = events
             .map(event => event.eventId)
             .filter(eventId => this.locallyAcknowledgedEventIds.has(eventId));
@@ -137,6 +147,14 @@ export class AiSessionAttentionController<TRuntime extends AiSessionAttentionRun
             this.monitor.discard(staleAttentionKeys);
         }
         this.pruneAttentionKeysBySession();
+        const cancelledEventIds = this.monitor.consumeCancelledEventIds();
+        if (cancelledEventIds.length) {
+            try {
+                this.options.onAttentionCancelled?.(cancelledEventIds);
+            } catch (_error) {
+                // 外发通知不得影响 attention 主流程。
+            }
+        }
         if (events.length || discardedStaleAttention) {
             this.options.scheduleRefresh('attention');
         }
@@ -167,6 +185,11 @@ export class AiSessionAttentionController<TRuntime extends AiSessionAttentionRun
             }
         }
         this.monitor.acknowledge(uniqueEventIds);
+        try {
+            this.options.onAttentionAcknowledged?.(uniqueEventIds);
+        } catch (_error) {
+            // 同上。
+        }
         const result = this.buildLocalItems(this.options.getWorkspaceTarget(), this.options.getProviders());
         this.localItems = result.items;
     }

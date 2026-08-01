@@ -72,6 +72,103 @@ for (const provider of providers) {
     });
 }
 
+test('PERSIST-LIFECYCLE-PARSER-001 [kimi] treats subagent progress events as running', () => {
+    const signal = lifecycle.parseKimiLifecycleLines([
+        JSON.stringify({
+            timestamp: Date.parse('2026-07-24T08:42:00.000Z') / 1000,
+            message: { type: 'ToolCall', payload: { id: 'Agent_25', name: 'Agent' } },
+        }),
+        JSON.stringify({
+            timestamp: Date.parse('2026-07-24T08:52:00.000Z') / 1000,
+            message: {
+                type: 'SubagentEvent',
+                payload: {
+                    parent_tool_call_id: 'Agent_25',
+                    agent_id: 'ab654f447',
+                    subagent_type: 'coder',
+                    event: { type: 'ToolResult', payload: { tool_call_id: 'call-1' } },
+                },
+            },
+        }),
+    ], runStartedAtMs);
+
+    assert.ok(signal);
+    assert.equal(signal.phase, 'running');
+    assert.equal(signal.executionState, 'running');
+    assert.match(signal.token, /^kimi:SubagentEvent:/);
+});
+
+test('PERSIST-LIFECYCLE-PARSER-001 [kimi] treats a TurnEnd trailing a StepInterrupted as interruption, not completion', () => {
+    const signal = lifecycle.parseKimiLifecycleLines([
+        JSON.stringify({
+            timestamp: Date.parse('2026-07-24T08:42:00.000Z') / 1000,
+            message: { type: 'StepInterrupted', payload: {} },
+        }),
+        JSON.stringify({
+            timestamp: Date.parse('2026-07-24T08:42:01.000Z') / 1000,
+            message: { type: 'TurnEnd', payload: {} },
+        }),
+    ], runStartedAtMs);
+
+    assert.ok(signal);
+    assert.equal(signal.phase, 'idle');
+    assert.equal(signal.reason, undefined);
+    assert.equal(signal.executionState, 'stopped');
+    assert.match(signal.token, /^kimi:TurnEndAfterInterrupt:/);
+});
+
+test('PERSIST-LIFECYCLE-PARSER-001 [kimi] a new turn clears the trailing interrupt marker', () => {
+    const signal = lifecycle.parseKimiLifecycleLines([
+        JSON.stringify({
+            timestamp: Date.parse('2026-07-24T08:42:00.000Z') / 1000,
+            message: { type: 'StepInterrupted', payload: {} },
+        }),
+        JSON.stringify({
+            timestamp: Date.parse('2026-07-24T08:43:00.000Z') / 1000,
+            message: { type: 'TurnBegin', payload: {} },
+        }),
+        JSON.stringify({
+            timestamp: Date.parse('2026-07-24T08:43:30.000Z') / 1000,
+            message: { type: 'TurnEnd', payload: {} },
+        }),
+    ], runStartedAtMs);
+
+    assert.ok(signal);
+    assert.equal(signal.phase, 'needsAttention');
+    assert.equal(signal.reason, 'completed');
+    assert.equal(signal.executionState, 'stopped');
+});
+
+test('PERSIST-LIFECYCLE-PARSER-001 [kimi] treats streaming tool call parts as running', () => {
+    const signal = lifecycle.parseKimiLifecycleLines([
+        JSON.stringify({
+            timestamp: Date.parse('2026-07-24T08:42:00.000Z') / 1000,
+            message: { type: 'ToolCallPart', payload: { arguments_part: '{}' } },
+        }),
+    ], runStartedAtMs);
+    assert.ok(signal, 'ToolCallPart must produce a signal');
+    assert.equal(signal.phase, 'running');
+    assert.equal(signal.executionState, 'running');
+    assert.match(signal.token, /^kimi:ToolCallPart:/);
+});
+
+test('PERSIST-LIFECYCLE-PARSER-001 [kimi] status updates stay invisible to execution state', () => {
+    const signal = lifecycle.parseKimiLifecycleLines([
+        JSON.stringify({
+            timestamp: Date.parse('2026-07-24T08:42:00.000Z') / 1000,
+            message: { type: 'QuestionRequest', payload: { id: 'question-1' } },
+        }),
+        JSON.stringify({
+            timestamp: Date.parse('2026-07-24T08:42:01.000Z') / 1000,
+            message: { type: 'StatusUpdate', payload: { message_id: 'status-1', context_usage: 0.5 } },
+        }),
+    ], runStartedAtMs);
+    assert.ok(signal);
+    assert.equal(signal.phase, 'needsAttention');
+    assert.equal(signal.reason, 'input-required');
+    assert.equal(signal.executionState, 'stopped');
+});
+
 test('PERSIST-LIFECYCLE-PARSER-001 [claude] treats the explicit user interrupt marker as stopped', () => {
     const signal = lifecycle.parseClaudeLifecycleLines([
         JSON.stringify({

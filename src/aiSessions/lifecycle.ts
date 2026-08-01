@@ -134,16 +134,44 @@ const KIMI_RUNNING_EVENTS = new Set([
 ]);
 
 export function createKimiLifecycleAccumulator(runStartedAtMs: number): AiSessionLifecycleAccumulator {
+    // Kimi emits a trailing TurnEnd when a turn exits via a fatal step error
+    // (StepInterrupted then TurnEnd) so the wire log stays balanced, not only
+    // on clean completion. A TurnEnd immediately following a StepInterrupted
+    // therefore means "interrupted", not "completed".
+    let interruptedTurnPending = false;
     return createAccumulator(runStartedAtMs, (event, occurredAtMs) => {
         let message = event?.message || {};
         let payload = message.payload || {};
         if (KIMI_RUNNING_EVENTS.has(message.type)) {
+            interruptedTurnPending = false;
             return running('kimi', message.type, occurredAtMs, payload.id || payload.tool_call_id || payload.message_id);
         }
+        // SubagentEvent relays a live subagent's progress and ToolCallPart is
+        // only emitted while a turn is actively streaming. Neither appears
+        // while a session is idle, so each one is proof of life that must
+        // keep the execution state alive; otherwise a long subagent run (the
+        // main loop only sees SubagentEvent entries until the Agent
+        // ToolResult lands) trips the stale-running backstop and the
+        // dashboard shows a working session as stopped. StatusUpdate is NOT
+        // proof of life: it keeps flowing while a question is pending and
+        // must not answer it.
+        if (message.type === 'SubagentEvent') {
+            let inner = payload.event || {};
+            return running('kimi', message.type, occurredAtMs,
+                [payload.parent_tool_call_id, payload.agent_id, inner.type].filter(Boolean).join(':'));
+        }
+        if (message.type === 'ToolCallPart') {
+            return running('kimi', message.type, occurredAtMs, payload.tool_call_id);
+        }
         if (message.type === 'TurnEnd') {
+            if (interruptedTurnPending) {
+                interruptedTurnPending = false;
+                return idle('kimi', 'TurnEndAfterInterrupt', occurredAtMs);
+            }
             return attention('kimi', message.type, occurredAtMs, 'completed');
         }
         if (message.type === 'StepInterrupted') {
+            interruptedTurnPending = true;
             return idle('kimi', message.type, occurredAtMs);
         }
         if (message.type === 'ApprovalRequest' || message.type === 'QuestionRequest') {

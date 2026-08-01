@@ -8920,6 +8920,24 @@ function runLifecycleParserChecks() {
         JSON.stringify({ timestamp: 1784073606, message: { type: 'QuestionRequest', payload: { id: 'question-2' } } }),
         JSON.stringify({ timestamp: 1784073607, message: { type: 'StatusUpdate', payload: { message_id: 'status-2' } } }),
     ], runStartedAtMs).reason, 'input-required', 'Kimi status updates do not answer a pending question');
+    assert.strictEqual(lifecycle.parseKimiLifecycleLines([
+        JSON.stringify({ timestamp: 1784073608, message: { type: 'ToolCall', payload: { id: 'Agent_1', name: 'Agent' } } }),
+        JSON.stringify({ timestamp: 1784073708, message: { type: 'SubagentEvent', payload: { parent_tool_call_id: 'Agent_1', agent_id: 'sub-1', event: { type: 'ToolResult', payload: {} } } } }),
+    ], runStartedAtMs).executionState, 'running', 'Kimi subagent progress keeps a long Agent tool call alive');
+    assert.strictEqual(lifecycle.parseKimiLifecycleLines([
+        JSON.stringify({ timestamp: 1784073800, message: { type: 'ToolCallPart', payload: { arguments_part: '{}' } } }),
+    ], runStartedAtMs).executionState, 'running', 'Kimi streaming tool call parts prove an active turn');
+    const kimiInterruptedTurnEnd = lifecycle.parseKimiLifecycleLines([
+        JSON.stringify({ timestamp: 1784073900, message: { type: 'StepInterrupted', payload: {} } }),
+        JSON.stringify({ timestamp: 1784073901, message: { type: 'TurnEnd', payload: {} } }),
+    ], runStartedAtMs);
+    assert.strictEqual(kimiInterruptedTurnEnd.phase, 'idle', 'Kimi TurnEnd trailing a StepInterrupted is an interruption, not a completion');
+    assert.strictEqual(kimiInterruptedTurnEnd.reason, undefined);
+    assert.strictEqual(lifecycle.parseKimiLifecycleLines([
+        JSON.stringify({ timestamp: 1784073902, message: { type: 'StepInterrupted', payload: {} } }),
+        JSON.stringify({ timestamp: 1784073903, message: { type: 'TurnBegin', payload: {} } }),
+        JSON.stringify({ timestamp: 1784073904, message: { type: 'TurnEnd', payload: {} } }),
+    ], runStartedAtMs).reason, 'completed', 'A new turn clears the trailing interrupt marker');
 
     const kimiAccumulator = lifecycle.createKimiLifecycleAccumulator(runStartedAtMs);
     kimiAccumulator.addLines([

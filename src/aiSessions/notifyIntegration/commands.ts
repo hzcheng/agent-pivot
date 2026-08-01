@@ -29,6 +29,7 @@ export interface NotifyCommandDeps {
 export interface NotifySecretStorage {
     get(key: string): Thenable<string | undefined>;
     store(key: string, value: string): Thenable<void>;
+    onDidChange?: (listener: (event: { key: string }) => unknown) => vscode.Disposable;
 }
 
 // SecretStorage landed in VS Code 1.53 while the extension still targets 1.51,
@@ -109,12 +110,16 @@ async function promptForSinkSecret(
     }
     const secret: Record<string, string | null> = {};
     for (const field of CHANNEL_FIELDS[channel]) {
+        // ntfy 公共实例免鉴权,token 是少数允许为空的字段;Esc 仍是放弃整个流程。
+        const optional = channel === 'ntfy' && field === 'token';
         const value = await vscode.window.showInputBox({
-            prompt: `${channel} · ${field}`,
+            prompt: `${channel} · ${field}${optional ? ' (optional — press Enter to leave empty)' : ''}`,
             password: true,
             ignoreFocusOut: true,
         });
         if (value === undefined) {
+            vscode.window.showInformationMessage(
+                `Agent Pivot: setup for sink "${id}" cancelled — no credential was stored.`);
             return;
         }
         secret[field] = value || null;

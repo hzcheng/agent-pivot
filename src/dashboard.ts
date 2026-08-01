@@ -1283,6 +1283,16 @@ async function initializeDashboard(
         notifyDispatcher.setConfig(assembled);
     };
     await refreshNotifyConfig();
+    // 凭据写入不触发配置变化事件,必须单独监听,否则存完凭据后 dispatcher
+    // 仍拿着存凭据之前装配的空 sinks 配置,直到下次配置变更或重载。
+    const notifySecretChanges = resolveNotifySecretStorage(context);
+    if (notifySecretChanges?.onDidChange) {
+        context.subscriptions.push(notifySecretChanges.onDidChange(event => {
+            if (event.key.startsWith(NOTIFY_SECRET_KEY_PREFIX)) {
+                void refreshNotifyConfig();
+            }
+        }));
+    }
     context.subscriptions.push(...registerNotifyCommands(context, {
         output: notifyOutput,
         getConfig: () => currentNotifyConfig || assembleNotifyConfig({

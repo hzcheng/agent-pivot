@@ -51,6 +51,7 @@ const EXPECTED_MAIN_ENTRIES = Object.freeze([
     'extension/media/conversationReadingAnchorScripts.js',
     'extension/media/conversationOutlineScripts.js',
     'extension/media/conversationTelemetryScripts.js',
+    'extension/media/conversationCommentsScripts.js',
     'extension/media/conversationTelemetry.css',
     'extension/media/conversationViewer.css',
     'extension/media/conversationViewerScripts.js',

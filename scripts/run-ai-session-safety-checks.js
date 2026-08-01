@@ -4894,6 +4894,9 @@ function runWebviewContentChecks() {
     const projectMessageHandlers = fs.readFileSync(
         path.join(__dirname, '..', 'src', 'projects', 'projectMessageHandlers.ts'), 'utf8'
     );
+    const runtimeSettlement = fs.readFileSync(
+        path.join(__dirname, '..', 'src', 'aiSessions', 'runtimeSettlementCapability.ts'), 'utf8'
+    );
     const webviewProjectScripts = fs.readFileSync(path.join(__dirname, '..', 'src', 'webview', 'webviewProjectScripts.js'), 'utf8');
     const webviewIcons = fs.readFileSync(path.join(__dirname, '..', 'src', 'webview', 'webviewIcons.ts'), 'utf8');
     const styles = fs.readFileSync(path.join(__dirname, '..', 'media', 'styles.scss'), 'utf8');
@@ -5177,10 +5180,16 @@ function runWebviewContentChecks() {
     assert.ok(!dashboardRuntimeControllerSource.includes("type: 'ai-session-attention-projects-updated'"));
     assert.ok(dashboard.includes('sessionEvents: aiSessionAttentionController.getRecoverySessionEvents()'));
     assert.ok(webviewProjectScripts.includes('message.sessionEvents'));
-    assert.ok(dashboard.includes('settleAiSessionRuntimeLifecycles'));
-    assert.match(dashboard,
+    assert.ok(runtimeSettlement.includes('settleAiSessionRuntimeLifecycles'));
+    assert.ok(dashboard.includes('createAiSessionRuntimeSettlementCapability({'),
+        'the dashboard constructs the extracted runtime settlement capability');
+    assert.ok(dashboard.includes('const runSafeAiSessionRuntimeLifecycleTask = aiSessionRuntimeSettlement.runSafeLifecycleTask;'),
+        'the dashboard keeps one lifecycle task runner from the capability');
+    assert.ok(dashboard.includes('const queueAiSessionRuntimeSettlements = aiSessionRuntimeSettlement.queueSettlements;'),
+        'the dashboard keeps one settlement queue from the capability');
+    assert.match(runtimeSettlement,
         /for \(const runtime of runtimes\) \{\s*if \(!runtimeBelongsToCurrentWorkspace\(runtime\)\) \{\s*continue;\s*\}/,
-        'dashboard lifecycle attention collection must reject other scopes before session-key processing');
+        'runtime settlement collection must reject other scopes before session-key processing');
     assert.ok(dashboard.includes('const aiSessionAttentionController = new AiSessionAttentionController<AiSessionRuntimeSnapshot<vscode.Terminal>>({'));
     assert.ok(dashboard.includes("import { AiSessionExecutionController } from './aiSessions/executionController';"));
     assert.ok(dashboard.includes('const aiSessionExecutionController = new AiSessionExecutionController({'));
@@ -5313,7 +5322,7 @@ function runWebviewContentChecks() {
     );
     assert.ok(dashboard.includes('acknowledgeAiSessionAttentionEventIds,'),
         'the dashboard hands the extracted project handlers its attention acknowledgement');
-    const settlementCall = dashboard.match(/settleAiSessionRuntimeLifecycles\(\{[\s\S]*?\n\s*\}\);/)?.[0] || '';
+    const settlementCall = runtimeSettlement.match(/settleAiSessionRuntimeLifecycles\(\{[\s\S]*?\n\s*\}\);/)?.[0] || '';
     assert.ok(settlementCall.includes('attentionKey: candidate.key'));
     assert.ok(settlementCall.includes('release: async candidate =>'));
     assert.ok(!settlementCall.includes('acknowledgePublished'));
@@ -5324,9 +5333,9 @@ function runWebviewContentChecks() {
         'a later aggregate must not auto-acknowledge a delivered completion'
     );
     assert.match(dashboard, /onComplete: resolution => \{[\s\S]*?queueAiSessionRuntimeSettlements\(\[\{/);
-    const runtimeSettlementQueue = dashboard.slice(
-        dashboard.indexOf('const queueAiSessionRuntimeSettlements = ('),
-        dashboard.indexOf('const drainAiSessionRuntimeSettlements = async')
+    const runtimeSettlementQueue = runtimeSettlement.slice(
+        runtimeSettlement.indexOf('const queueAiSessionRuntimeSettlements = ('),
+        runtimeSettlement.indexOf('const drainAiSessionRuntimeSettlements = async')
     );
     assert.ok(
         runtimeSettlementQueue.includes('runtime.identity.workspaceScopeIdentity'),
@@ -5336,9 +5345,12 @@ function runWebviewContentChecks() {
         'lifecycle settlement scheduling must not create unhandled fire-and-forget rejections');
     assert.ok(dashboard.includes('getRuntimeById: getAiSessionRuntimeById'));
     assert.ok(!dashboard.includes('getTerminalById: (providerId, sessionId) => aiSessionTerminalService.getActiveById(providerId, sessionId)'));
-    assert.match(dashboard,
-        /ownTimer\(\s*\(\) => setInterval\(\(\) => \{[\s\S]*?getCompletedSessions\(\)[\s\S]*?tmuxRuntimeDiscovery\.getInactive\(\)[\s\S]*?\}, 1_000\),\s*handle => clearInterval\(handle\),\s*\)/);
-    assert.match(dashboard, /queueAiSessionRuntimeSettlements\(\[\.\.\.completedRuntimes, \.\.\.inactiveTmuxRuntimes\]\)/,
+    assert.match(runtimeSettlement,
+        /setInterval\(\(\) => \{[\s\S]*?getCompletedSessions\(\)[\s\S]*?tmuxRuntimeDiscovery\.getInactive\(\)[\s\S]*?\}, 1_000\)/,
+        'the capability keeps the 1s completed-runtime settlement scan');
+    assert.ok(dashboard.includes('aiSessionRuntimeSettlement.startSettlementScan();'),
+        'the dashboard starts the capability settlement scan in place of its old timer');
+    assert.match(runtimeSettlement, /queueAiSessionRuntimeSettlements\(\[\.\.\.completedRuntimes, \.\.\.inactiveTmuxRuntimes\]\)/,
         'one completion polling round must queue one structured batch');
     const closeTerminalHandlerStart = dashboard.indexOf('vscode.window.onDidCloseTerminal(terminal => {');
     const closeTerminalHandlerEnd = dashboard.indexOf(
@@ -5360,7 +5372,7 @@ function runWebviewContentChecks() {
     assert.match(dashboard, /onDidChangeActiveTerminal\(\(\) => \{[\s\S]*?activeAiSessionTerminalHighlighter\.sync\(\);[\s\S]*?runSafeAiSessionRuntimeLifecycleTask\([\s\S]*?'evaluate-attention-active-terminal'[\s\S]*?\}\)/);
     assert.ok(!dashboard.includes('void evaluateAiSessionAttention()'));
     assert.ok(!dashboard.includes('void acknowledgeAiSessionAttention('));
-    assert.ok(dashboard.includes('runAiSessionRuntimeLifecycleTask('));
+    assert.ok(runtimeSettlement.includes('runAiSessionRuntimeLifecycleTask('));
     assert.match(dashboard, /onDidChangeWindowState\(windowState => \{[\s\S]*?dashboardLifecycleController\.handleWindowStateChanged\(windowState\);[\s\S]*?\}\)/);
     assert.ok(dashboardLifecycleControllerSource.includes('this.options.evaluateAiSessionAttention();'));
     assert.ok(dashboardLifecycleControllerSource.includes('this.options.publishOpenWorkspace(true);'));

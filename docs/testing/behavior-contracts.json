@@ -472,9 +472,13 @@
     "status": "automated",
     "owners": [
       "tests/contract/aiSessions/attention.test.js"
+    ,
+      "tests/contract/aiSessions/runtimeSettlement.test.js"
     ],
     "evidence": [
       "src/aiSessions/attentionController.ts"
+    ,
+      "src/aiSessions/runtimeSettlementCapability.ts"
     ]
   },
   {
@@ -1049,10 +1053,14 @@
     "status": "automated",
     "owners": [
       "tests/contract/aiSessions/attention.test.js"
+    ,
+      "tests/contract/aiSessions/runtimeSettlement.test.js"
     ],
     "evidence": [
       "src/aiSessions/attentionEvaluationQueue.ts",
       "src/aiSessions/executionController.ts"
+    ,
+      "src/aiSessions/runtimeSettlementCapability.ts"
     ]
   },
   {
@@ -2984,6 +2992,8 @@
       "src/aiSessions/attentionController.ts",
       "src/aiSessions/terminalCommandController.ts",
       "src/dashboard.ts"
+    ,
+      "src/aiSessions/runtimeSettlementCapability.ts"
     ]
   },
   {
@@ -2997,6 +3007,8 @@
     ],
     "evidence": [
       "src/dashboard.ts"
+    ,
+      "src/aiSessions/runtimeSettlementCapability.ts"
     ]
   },
   {

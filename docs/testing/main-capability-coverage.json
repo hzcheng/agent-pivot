@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "98a5ec277ff6805aa6e7f3bd858c6349dc7f7fe4",
+        "head": "ec78b66e2e85c2d3f213579c4c42edb8bc7637b7",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -65,7 +65,8 @@
             "ff8f78bb9978eac3afb180696b6e68345b30cef5",
             "c33f017d1845d1c7a6b497ae62f3f744ac633697",
             "0964ff5b78863996c3cf5c85ffdb6b8af4982f0a",
-            "2e8ec5d37a90f70f61ac46a3e423416e3b8f7620"
+            "2e8ec5d37a90f70f61ac46a3e423416e3b8f7620",
+            "256480b81ec57eef6f12f470715a26fc9a564065"
         ]
     },
     "capabilities": [
@@ -876,7 +877,8 @@
                 "2fe961a8e66edce42470be25aab5ebc1222ac2b1",
                 "5b37ad949f740bf90cb743acf3891817e4eb3e7b",
                 "11961748a8a85bcf96b1ff8d888fff17cd08e88f",
-                "98a5ec277ff6805aa6e7f3bd858c6349dc7f7fe4"
+                "98a5ec277ff6805aa6e7f3bd858c6349dc7f7fe4",
+                "ec78b66e2e85c2d3f213579c4c42edb8bc7637b7"
             ],
             "behaviors": [
                 "ARCH-CI-QUALITY-GATE-001",
@@ -943,7 +945,8 @@
                 "cc0394ade3ebf398a9a03f12b46b994505eb37e3",
                 "35d66c637ae4a615d086532a807485eac200204e",
                 "cf89c6b1ffaf8f2b1383f58cd80dd6eb151a9875",
-                "c504d556cda783a5ef2e686d5474d323d5871898"
+                "c504d556cda783a5ef2e686d5474d323d5871898",
+                "42f36435479b6e2fd1083508f01afb7e2263b5c1"
             ],
             "behaviors": [
                 "PERSIST-AI-PROMPT-STORE-001",

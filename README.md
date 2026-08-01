@@ -92,6 +92,116 @@ ordering, and undo. Projects and todos can be kept in VS Code extension state
 or in user settings for Settings Sync. Prompts use synchronized VS Code
 extension state.
 
+## Notifications
+
+Agent Pivot can push a message to your IM app or phone when an AI session
+stops and waits for you: completed, needs input, or failed. **This is the
+only outbound network request the extension ever makes, and it is off by
+default.** Nothing leaves the machine until you set
+`agentPivot.notify.enabled` to `true` and configure at least one sink.
+
+The first time notifications are enabled, a modal dialog explains what will
+be sent and asks for confirmation. Declining it turns
+`agentPivot.notify.enabled` back off; accepting is remembered in extension
+state and never asked again.
+
+A notification contains only:
+
+- the project name (just the folder name by default;
+  `agentPivot.notify.projectPathMode` can switch to the full path),
+- the session name (can be hidden with
+  `agentPivot.notify.includeSessionLabel`),
+- the provider, the stop reason, and how long the session ran,
+- the machine hostname and a short `#` correlation code.
+
+It never contains code, conversation content, or full paths (in the default
+`basename` mode).
+
+**Channels.** Nine channels are supported. Each sink is configured in two
+halves: the non-secret skeleton in `agentPivot.notify.sinks` (machine-scoped)
+and the credentials entered through `Agent Pivot: Set Notification Webhook`,
+which stores them in VS Code SecretStorage keyed by the sink `id`. A sink
+only becomes active when both halves exist with the same `id`.
+
+- `ntfy` — skeleton:
+  ```json
+  { "id": "s1", "channel": "ntfy", "baseUrl": "https://ntfy.sh", "priority": 4, "proxy": null }
+  ```
+  Webhook fields: `topic`, `token` (leave `token` empty for an
+  unauthenticated public topic). `priority` is required by the schema; the
+  sent priority is derived from the stop reason. On a public ntfy instance
+  the topic name is the only secret — anyone who guesses it can subscribe —
+  so generate one with `openssl rand -hex 16`.
+- `telegram` — skeleton:
+  ```json
+  { "id": "s2", "channel": "telegram", "proxy": null }
+  ```
+  Webhook fields: `botToken`, `chatId`.
+- `bark` — skeleton:
+  ```json
+  { "id": "s3", "channel": "bark", "proxy": null }
+  ```
+  Webhook fields: `serverUrl`, `deviceKey`.
+- `feishu`, `wecom`, `slack`, `discord` — skeleton (shown for `feishu`):
+  ```json
+  { "id": "s4", "channel": "feishu", "proxy": null }
+  ```
+  Webhook field: `url` (the bot or app webhook URL).
+- `dingtalk` — skeleton:
+  ```json
+  { "id": "s8", "channel": "dingtalk", "proxy": null }
+  ```
+  Webhook fields: `url`, `secret` (the signing secret of the robot).
+- `custom` — skeleton:
+  ```json
+  { "id": "s9", "channel": "custom", "method": "POST", "headers": { "Content-Type": "application/json" }, "bodyTemplate": "{\"text\": \"${title}\\n${body}\"}", "proxy": null }
+  ```
+  Webhook field: `url`. `bodyTemplate` supports the placeholders `${title}`,
+  `${body}`, `${project}`, `${session}`, `${provider}`, `${reason}`,
+  `${host}`, and `${correlationId}`.
+
+Some channels could also deliver your reply back to the session in a future
+release; with several machines running Agent Pivot, replies do not always
+reach the machine that sent the notification:
+
+| Channel | Replies in v2 | Multi-machine replies |
+| --- | --- | --- |
+| ntfy | ✅ SSE / long-poll | ✅ pub/sub broadcast |
+| telegram | ✅ getUpdates long-poll | ❌ competing consumers |
+| slack | ✅ Socket Mode | ❌ load-balanced |
+| discord | ✅ Gateway WebSocket | ❌ load-balanced |
+| dingtalk | ✅ Stream mode | ⚠️ unclear |
+| feishu | ✅ long connection | ❌ documented random delivery |
+| wecom | ❌ public callback only | — |
+| bark | ❌ strictly one-way | — |
+| custom | user-defined | user-defined |
+
+**Credentials.** Webhook secrets live in VS Code SecretStorage, never in
+settings.json, because settings can be synchronized by Settings Sync or
+committed to a dotfiles repository. Manage them only through `Agent Pivot:
+Set Notification Webhook`.
+
+**Proxy.** Set `agentPivot.notify.proxy` (machine-scoped), for example
+`http://127.0.0.1:7890`. When it is empty, the `HTTPS_PROXY` / `ALL_PROXY`
+environment variables are used (`NO_PROXY` is honored). A sink's own `proxy`
+field takes precedence over both.
+
+**Troubleshooting.** Run `Agent Pivot: Send Test Notification` first — it
+logs a `status=...` line per sink — then inspect the delivery log with
+`Agent Pivot: Show Notification Log`.
+
+**When a notification is sent.** Four gates decide:
+
+- the stop reason must be listed in `agentPivot.notify.reasons` (`failed` is
+  only produced by Claude sessions),
+- sessions shorter than `agentPivot.notify.minRunDurationMs` (default one
+  minute) never notify,
+- `agentPivot.notify.debounceMs` batches rapid stops, and once more than
+  `agentPivot.notify.rateLimitPerMin` notifications would go out in a minute,
+  the overflow merges into one summary message,
+- dismissing the attention red dot in the Dashboard cancels the pending
+  notification for that event, and an already-sent event never repeats.
+
 ## Requirements
 
 - A current VS Code release in a trusted workspace is required to start or

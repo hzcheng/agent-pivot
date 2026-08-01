@@ -1229,6 +1229,21 @@ async function initializeDashboard(
     });
     const refreshNotifyConfig = async (): Promise<void> => {
         const configuration = getAgentPivotConfiguration();
+        const enabled = configuration.get<boolean>('notify.enabled', false);
+        if (enabled && !context.globalState.get<boolean>('agentPivot.notify.consented')) {
+            const choice = await vscode.window.showWarningMessage(
+                'Agent Pivot will send project names, session names and status to the '
+                + 'notification endpoints you configure. No code or file contents are sent. Continue?',
+                { modal: true },
+                'Enable notifications'
+            );
+            if (choice !== 'Enable notifications') {
+                await configuration.update(
+                    'notify.enabled', false, vscode.ConfigurationTarget.Global);
+                return;
+            }
+            await context.globalState.update('agentPivot.notify.consented', true);
+        }
         const skeletons = configuration.get<Array<Record<string, unknown>>>('notify.sinks', []);
         const secretStorage = resolveNotifySecretStorage(context);
         const secrets: Record<string, string> = {};
@@ -1245,7 +1260,7 @@ async function initializeDashboard(
             }
         }
         const assembled = assembleNotifyConfig({
-            enabled: configuration.get<boolean>('notify.enabled', false),
+            enabled,
             sinks: skeletons,
             reasons: configuration.get<string[]>('notify.reasons',
                 ['completed', 'input-required', 'failed']),

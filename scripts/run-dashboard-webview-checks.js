@@ -53,6 +53,7 @@ const projectScriptPath = path.join(root, 'src', 'webview', 'webviewProjectScrip
 const promptScriptPath = path.join(root, 'src', 'webview', 'webviewPromptScripts.js');
 const scrollStateScriptPath = path.join(root, 'src', 'webview', 'webviewScrollStateScripts.js');
 const extensionHostPath = path.join(root, 'src', 'dashboard.ts');
+const todoPanelCapabilityPath = path.join(root, 'src', 'todos', 'todoPanelCapability.ts');
 
 function compileDashboardStyles(source) {
     return sass.compileString(source, {
@@ -2177,16 +2178,19 @@ async function runTodoRevealSingleWriteChecks() {
 
 async function runDashboardTodoMigrationSequencingChecks() {
     const extensionHostSource = fs.readFileSync(extensionHostPath, 'utf8');
+    const todoPanelCapabilitySource = fs.readFileSync(todoPanelCapabilityPath, 'utf8');
     const migrationBody = extractAsyncArrowPropertyBody(extensionHostSource, 'migrateDataIfNeeded');
     const runMigrationBody = new AsyncFunction(
         'projectService',
         'todoService',
-        'todoStorageMigration',
+        'todoPanel',
         'settleMigration',
         migrationBody
     );
     const runMigration = (projectService, todoService, todoStorageMigration) =>
-        runMigrationBody(projectService, todoService, todoStorageMigration, settleMigration);
+        runMigrationBody(projectService, todoService, {
+            setStorageMigrationReady: ready => { todoStorageMigration.ready = ready; },
+        }, settleMigration);
     const events = [];
     let resolveProjectMigration;
     const projectMigration = new Promise(resolve => { resolveProjectMigration = resolve; });
@@ -2224,7 +2228,7 @@ async function runDashboardTodoMigrationSequencingChecks() {
         await migration;
     }
 
-    const todoPanelBody = extractFunctionBody(extensionHostSource, 'postTodoPanelContent');
+    const todoPanelBody = extractFunctionBody(todoPanelCapabilitySource, 'postTodoPanelContent');
     assert.ok(todoPanelBody.includes('await todoStorageMigration.ready;'),
         'TODO panel rendering must wait for the active TODO storage migration');
 
@@ -4373,11 +4377,12 @@ function runSourceContractChecks(source) {
     const dndSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewDnDScripts.js'), 'utf8');
     const filterSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewFilterScripts.js'), 'utf8');
     const extensionHostSource = fs.readFileSync(extensionHostPath, 'utf8');
+    const todoPanelCapabilitySource = fs.readFileSync(todoPanelCapabilityPath, 'utf8');
     assert.strictEqual(extensionHostSource.includes('buildTodoSearchItems(todoService.getData())'), false,
         'initial and incremental Dashboard catalogs must not parse unsupported TODO data directly');
     assert.ok(extensionHostSource.includes('todoService.getSearchItems()'),
         'Dashboard catalog call sites must use the future-version-safe TODO catalog');
-    const todoPanelBody = extractFunctionBody(extensionHostSource, 'postTodoPanelContent');
+    const todoPanelBody = extractFunctionBody(todoPanelCapabilitySource, 'postTodoPanelContent');
     assert.ok(todoPanelBody.includes('UnsupportedTodoDataVersionError'));
     assert.ok(todoPanelBody.includes('getUnsupportedTodoVersionPanelContent'));
     assert.ok(todoPanelBody.includes('todoService.getUnsupportedVersionError()'),
@@ -4462,19 +4467,27 @@ function runSourceContractChecks(source) {
     assert.ok(source.includes('acceptedProjectsRequestId'));
     assert.ok(source.includes('pendingScrollRestoreTab'));
     assert.ok(extensionHostSource.includes("'request-projects-panel': async e =>"));
-    assert.ok(extensionHostSource.includes("'request-todo-panel': async e =>"));
+    assert.ok(todoPanelCapabilitySource.includes("'request-todo-panel': async e =>"));
     assert.ok(packageJson.includes('"agentPivot.maxVisibleTodosPerGroup"'));
     assert.ok(packageJson.includes('Maximum number of TODO cards visible in each group before the group list scrolls.'));
     assert.ok(packageJson.includes('"agentPivot.maxVisibleProjectsPerGroup"'));
     assert.strictEqual(extensionHostSource.includes('function handleStewardMessage('), false);
     assert.ok(extensionHostSource.includes('getAiSessionProviderIds: () => getRegisteredAiSessionProviders().map(provider => provider.id)'));
     assert.ok(extensionHostSource.includes("type: 'projects-panel-content'"));
-    assert.ok(extensionHostSource.includes("type: 'todo-panel-content'"));
+    assert.ok(todoPanelCapabilitySource.includes("type: 'todo-panel-content'"));
     assert.ok(extensionHostSource.includes('getProjectsPanelContent(projectService.getGroups(), stewardInfos)'));
-    assert.ok(extensionHostSource.includes('getTodoPanelContent('));
-    assert.ok(extensionHostSource.includes('buildTodoViewModel(todoData, todoViewState, revealedTodoId)'));
-    assert.ok(extensionHostSource.includes('todoRenderOptions'));
-    assert.ok(extensionHostSource.includes('getMaxVisibleTodosPerGroup('));
+    assert.ok(todoPanelCapabilitySource.includes('getTodoPanelContent('));
+    assert.ok(todoPanelCapabilitySource.includes('buildTodoViewModel(todoData, todoViewState, revealedTodoId)'));
+    assert.ok(todoPanelCapabilitySource.includes('todoRenderOptions'));
+    assert.ok(todoPanelCapabilitySource.includes('getMaxVisibleTodosPerGroup('));
+    assert.ok(extensionHostSource.includes("from './todos/todoPanelCapability'"),
+        'dashboard must import the extracted TODO panel capability');
+    assert.ok(extensionHostSource.includes('createTodoPanelCapability({'),
+        'dashboard must construct the extracted TODO panel capability');
+    assert.ok(extensionHostSource.includes('...todoPanel.handlers,'),
+        'dashboard must spread the TODO panel handlers into the message router');
+    assert.ok(extensionHostSource.includes('todoPanel.setStorageMigrationReady('),
+        'dashboard must hand the TODO storage migration gate to the capability');
     assert.ok(webviewContentSource.includes("'maxVisibleProjectsPerGroup',"));
     assert.ok(webviewContentSource.includes('DEFAULT_MAX_VISIBLE_PROJECTS_PER_GROUP = 5'));
     assert.ok(webviewContentSource.includes('--steward-max-visible-projects-per-group: ${maxVisibleProjectsPerGroup};'));
@@ -4515,25 +4528,25 @@ function runSourceContractChecks(source) {
         'TODO add submissions must retain form values until the host refresh succeeds');
     assert.strictEqual(projectSource.includes(".querySelectorAll('[data-action=\"add-project\"]')"), false);
     assert.strictEqual(projectSource.includes(".querySelectorAll('[data-action=\"import-from-other-storage\"]')"), false);
-    assert.ok(extensionHostSource.includes("'todo-add': async e =>"));
-    assert.ok(extensionHostSource.includes("'todo-toggle': async e =>"));
-    assert.ok(extensionHostSource.includes("'todo-delete': async e =>"));
-    assert.ok(extensionHostSource.includes("'todo-delete-group': async e =>"));
-    assert.ok(extensionHostSource.includes("'todo-collapse-group': async e =>"));
-    assert.ok(extensionHostSource.includes("'todo-rename-group': async e =>"));
-    assert.ok(extensionHostSource.includes("'todo-reorder-groups': async e =>"));
-    assert.ok(extensionHostSource.includes("'todo-reorder-items': async e =>"));
-    assert.ok(extensionHostSource.includes("'todo-collapse-groups': async e =>"));
-    assert.ok(extensionHostSource.includes("'todo-sort-priority': async e =>"));
-    assert.ok(extensionHostSource.includes("'todo-toggle-show-completed': async e =>"));
-    assert.ok(extensionHostSource.includes("'todo-reveal': async e =>"));
-    const todoShowCompletedHandler = extensionHostSource.slice(
-        extensionHostSource.indexOf("'todo-toggle-show-completed': async e =>"),
-        extensionHostSource.indexOf("'todo-reveal': async e =>")
+    assert.ok(todoPanelCapabilitySource.includes("'todo-add': async e =>"));
+    assert.ok(todoPanelCapabilitySource.includes("'todo-toggle': async e =>"));
+    assert.ok(todoPanelCapabilitySource.includes("'todo-delete': async e =>"));
+    assert.ok(todoPanelCapabilitySource.includes("'todo-delete-group': async e =>"));
+    assert.ok(todoPanelCapabilitySource.includes("'todo-collapse-group': async e =>"));
+    assert.ok(todoPanelCapabilitySource.includes("'todo-rename-group': async e =>"));
+    assert.ok(todoPanelCapabilitySource.includes("'todo-reorder-groups': async e =>"));
+    assert.ok(todoPanelCapabilitySource.includes("'todo-reorder-items': async e =>"));
+    assert.ok(todoPanelCapabilitySource.includes("'todo-collapse-groups': async e =>"));
+    assert.ok(todoPanelCapabilitySource.includes("'todo-sort-priority': async e =>"));
+    assert.ok(todoPanelCapabilitySource.includes("'todo-toggle-show-completed': async e =>"));
+    assert.ok(todoPanelCapabilitySource.includes("'todo-reveal': async e =>"));
+    const todoShowCompletedHandler = todoPanelCapabilitySource.slice(
+        todoPanelCapabilitySource.indexOf("'todo-toggle-show-completed': async e =>"),
+        todoPanelCapabilitySource.indexOf("'todo-reveal': async e =>")
     );
-    const todoRevealHandler = extensionHostSource.slice(
-        extensionHostSource.indexOf("'todo-reveal': async e =>"),
-        extensionHostSource.indexOf("'todo-update': async e =>")
+    const todoRevealHandler = todoPanelCapabilitySource.slice(
+        todoPanelCapabilitySource.indexOf("'todo-reveal': async e =>"),
+        todoPanelCapabilitySource.indexOf("'todo-update': async e =>")
     );
     assert.ok(todoRevealHandler.includes('await todoService.revealTodo('),
         'host reveal must delegate parsing and the optional group write to one TodoService queue operation');
@@ -4547,28 +4560,28 @@ function runSourceContractChecks(source) {
     assert.ok(todoShowCompletedHandler.indexOf('await todoService.setShowCompleted(')
         < todoShowCompletedHandler.indexOf('revealedTodoId = undefined;'),
     'an explicit completed toggle must clear the temporary target only after persistence succeeds');
-    assert.strictEqual((extensionHostSource.match(/revealedTodoId = undefined;/g) || []).length, 2,
+    assert.strictEqual((todoPanelCapabilitySource.match(/revealedTodoId = undefined;/g) || []).length, 2,
         'only legacy and versioned completed-visibility controls may clear the temporary target');
-    assert.ok(extensionHostSource.includes('buildTodoViewModel(todoData, todoViewState, revealedTodoId)'),
+    assert.ok(todoPanelCapabilitySource.includes('buildTodoViewModel(todoData, todoViewState, revealedTodoId)'),
         'all TODO panel refreshes must project the temporary reveal target');
-    assert.ok(extensionHostSource.includes("'todo-update': async e =>"));
-    assert.ok(extensionHostSource.includes('async function postTodoPanelContent('));
-    assert.ok(extensionHostSource.includes("from './todos/hostMutation'"));
-    assert.ok(extensionHostSource.includes('const todoViewState = todoService.getViewState();'));
+    assert.ok(todoPanelCapabilitySource.includes("'todo-update': async e =>"));
+    assert.ok(todoPanelCapabilitySource.includes('async function postTodoPanelContent('));
+    assert.ok(todoPanelCapabilitySource.includes("from './hostMutation'"));
+    assert.ok(todoPanelCapabilitySource.includes('const todoViewState = todoService.getViewState();'));
     assert.ok(extensionHostSource.includes(
         'const projectMigration = settleMigration(() => projectService.migrateDataIfNeeded())'));
     assert.ok(extensionHostSource.includes(
         'const todoMigration = settleMigration(() => todoService.migrateDataIfNeeded())'));
     assert.strictEqual(
-        (extensionHostSource.match(/await runTodoPanelMutation\(/g) || []).length,
+        (todoPanelCapabilitySource.match(/await runTodoPanelMutation\(/g) || []).length,
         10,
         'every non-prompt direct TODO mutation handler must use the write-error boundary'
     );
-    assert.ok(extensionHostSource.includes('await runTodoRequestMutation({'),
+    assert.ok(todoPanelCapabilitySource.includes('await runTodoRequestMutation({'),
         'compose mutations must use the request-correlated write-error boundary');
-    assert.ok(extensionHostSource.includes('await runTodoPromptMutation({'),
+    assert.ok(todoPanelCapabilitySource.includes('await runTodoPromptMutation({'),
         'add-group mutations must use the retrying prompt error boundary');
-    assert.ok(extensionHostSource.includes('await renameTodoGroupWithPrompt({'),
+    assert.ok(todoPanelCapabilitySource.includes('await renameTodoGroupWithPrompt({'),
         'rename-group mutations must check group existence before entering the retrying prompt boundary');
     assert.ok(dndSource.includes('function initDnD(root)'));
     assert.ok(dndSource.includes('function disposeDnD(root)'));

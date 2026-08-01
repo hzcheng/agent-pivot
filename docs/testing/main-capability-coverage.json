@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "404ab50e89380a9e8475d3e919efc650d6c6be60",
+        "head": "8335f4b0cd7dedd0b4ef2ee6f131cbe590a39ad5",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -58,7 +58,10 @@
             "acbd2a3166504fc42fc20c8b0e1874f3ec09c092",
             "87304b6b77e3d90d21019a80c43a60f2e3785fda",
             "ee9a44d87a6ea423739c2781f913d276c369c48d",
-            "239f99c25af02e2176f9a5b6bd8ef7f5c8933495"
+            "239f99c25af02e2176f9a5b6bd8ef7f5c8933495",
+            "7f90f99570d56494b7c53153820e143d4ce6ebb8",
+            "05d9c57a32821b4df6bc044bfaf6122eedda4c6f",
+            "3f110f9cfd3ffb9aabc3ed41336fdfdc68647399"
         ]
     },
     "capabilities": [
@@ -520,7 +523,8 @@
                 "fcb373a70078361ff5e40e627881489dffb3771d",
                 "b93fc82c2900eb2c693a2e1228784d26dda069b3",
                 "9e643c840db5ab634c1ef4815428617118b96ee7",
-                "6ef7ba4a0d078b6558ff16d99ed4ce13fd8a0cf4"
+                "6ef7ba4a0d078b6558ff16d99ed4ce13fd8a0cf4",
+                "905cdcd5c94a781e63764fb8d2eb766578601ddc"
             ],
             "behaviors": [
                 "TODO-COMPLETION-INCREMENTAL-001",
@@ -560,7 +564,8 @@
                 "3a3e07bc7fad01957dc6db1f505bb961efaf831f",
                 "ef5fc3170c0fe1a753b1c6313daa5d4a7cc40e2f",
                 "4ad7604bb9a4d4ff10f790486512c3313c351200",
-                "1f2baaa6b2a5c18bd80954be773c00968619d245"
+                "1f2baaa6b2a5c18bd80954be773c00968619d245",
+                "dd561101bb195c5da5a3bed0acfcb3696dfbfcf4"
             ],
             "behaviors": [
                 "PROJECT-CATALOG-SYNC-CONFLICT-001",
@@ -608,7 +613,8 @@
                 "2bb3a1c255c2bb97809889d9d879d135b371e2ce",
                 "f51aa569d4adb1dd750947181008c3764dbe6163",
                 "289779463fe347fba05bd3655ceded5189612f44",
-                "eb60d0cc5b8aaa9e3f04d797f4d790f40999e378"
+                "eb60d0cc5b8aaa9e3f04d797f4d790f40999e378",
+                "9ceb5a4ca604119a69486449699c263f96218c21"
             ],
             "behaviors": [
                 "ATTENTION-ACTIVE-UNREGISTER-ON-DEACTIVATE-001",
@@ -1124,7 +1130,8 @@
                 "9f88b5972cbfd8e712186652a99d162a669575f8",
                 "75f261ee54b28569284b15e6260576831f7b2e81",
                 "6056ad799f05619a93fabe4af56e5955246e2231",
-                "7ebe4973e9fed30042171f08f8048e142f2a2f49"
+                "7ebe4973e9fed30042171f08f8048e142f2a2f49",
+                "8335f4b0cd7dedd0b4ef2ee6f131cbe590a39ad5"
             ],
             "behaviors": [
                 "PERSIST-AI-SKILL-CENTRAL-STORE-001",

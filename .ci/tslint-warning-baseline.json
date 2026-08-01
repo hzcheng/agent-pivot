@@ -12,7 +12,9 @@
     "semicolon": 1
   },
   "src/dashboard.ts": {
-    "semicolon": 6,
+    "semicolon": 6
+  },
+  "src/projects/projectMessageHandlers.ts": {
     "triple-equals": 1
   },
   "src/services/colorService.ts": {

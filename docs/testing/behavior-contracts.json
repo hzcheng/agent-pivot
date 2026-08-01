@@ -472,9 +472,13 @@
     "status": "automated",
     "owners": [
       "tests/contract/aiSessions/attention.test.js"
+    ,
+      "tests/contract/aiSessions/runtimeSettlement.test.js"
     ],
     "evidence": [
       "src/aiSessions/attentionController.ts"
+    ,
+      "src/aiSessions/runtimeSettlementCapability.ts"
     ]
   },
   {
@@ -1049,10 +1053,14 @@
     "status": "automated",
     "owners": [
       "tests/contract/aiSessions/attention.test.js"
+    ,
+      "tests/contract/aiSessions/runtimeSettlement.test.js"
     ],
     "evidence": [
       "src/aiSessions/attentionEvaluationQueue.ts",
       "src/aiSessions/executionController.ts"
+    ,
+      "src/aiSessions/runtimeSettlementCapability.ts"
     ]
   },
   {
@@ -2187,10 +2195,12 @@
     "priority": "P1",
     "status": "automated",
     "owners": [
-      "tests/contract/todos/commandController.test.js"
+      "tests/contract/todos/commandController.test.js",
+      "tests/contract/todos/todoPanelCapability.test.js"
     ],
     "evidence": [
       "src/todos/commandController.ts",
+      "src/todos/todoPanelCapability.ts",
       "src/dashboard.ts"
     ]
   },
@@ -2208,6 +2218,7 @@
     "evidence": [
       "src/todos/service.ts",
       "src/dashboard/lifecycleController.ts",
+      "src/todos/todoPanelCapability.ts",
       "src/dashboard.ts",
       "src/webview/webviewTodoScripts.js",
       "src/webview/webviewDnDScripts.js"
@@ -2250,10 +2261,12 @@
     "status": "automated",
     "owners": [
       "tests/integration/dashboard/todoContent.test.js",
-      "tests/integration/dashboard/todoInteraction.test.js"
+      "tests/integration/dashboard/todoInteraction.test.js",
+      "tests/contract/todos/todoPanelCapability.test.js"
     ],
     "evidence": [
       "src/todos/webviewContent.ts",
+      "src/todos/todoPanelCapability.ts",
       "src/dashboard.ts",
       "src/webview/webviewTodoScripts.js",
       "media/styles.scss",
@@ -2495,10 +2508,13 @@
     "priority": "P1",
     "status": "automated",
     "owners": [
-      "tests/contract/persistence/migrations.test.js"
+      "tests/contract/persistence/migrations.test.js",
+      "tests/contract/todos/todoPanelCapability.test.js"
     ],
     "evidence": [
-      "scripts/run-dashboard-webview-checks.js"
+      "scripts/run-dashboard-webview-checks.js",
+      "src/todos/todoPanelCapability.ts",
+      "src/dashboard.ts"
     ]
   },
   {
@@ -2508,10 +2524,12 @@
     "priority": "P1",
     "status": "automated",
     "owners": [
-      "tests/contract/todos/service.test.js"
+      "tests/contract/todos/service.test.js",
+      "tests/contract/todos/todoPanelCapability.test.js"
     ],
     "evidence": [
-      "scripts/run-dashboard-webview-checks.js"
+      "scripts/run-dashboard-webview-checks.js",
+      "src/todos/todoPanelCapability.ts"
     ]
   },
   {
@@ -2561,9 +2579,13 @@
     "status": "automated",
     "owners": [
       "tests/contract/projects/controllers.test.js"
+    ,
+      "tests/contract/projects/projectMessageHandlers.test.js"
     ],
     "evidence": [
       "scripts/run-dashboard-webview-checks.js"
+    ,
+      "src/projects/projectMessageHandlers.ts"
     ]
   },
   {
@@ -2574,9 +2596,13 @@
     "status": "automated",
     "owners": [
       "tests/contract/projects/controllers.test.js"
+    ,
+      "tests/contract/projects/projectMessageHandlers.test.js"
     ],
     "evidence": [
       "scripts/run-dashboard-webview-checks.js"
+    ,
+      "src/projects/projectMessageHandlers.ts"
     ]
   },
   {
@@ -2587,9 +2613,13 @@
     "status": "automated",
     "owners": [
       "tests/contract/projects/controllers.test.js"
+    ,
+      "tests/contract/projects/projectMessageHandlers.test.js"
     ],
     "evidence": [
       "scripts/run-dashboard-webview-checks.js"
+    ,
+      "src/projects/projectMessageHandlers.ts"
     ]
   },
   {
@@ -2912,9 +2942,11 @@
     "priority": "P0",
     "status": "automated",
     "owners": [
-      "tests/integration/dashboard/todoPanelFutureVersion.test.js"
+      "tests/integration/dashboard/todoPanelFutureVersion.test.js",
+      "tests/contract/todos/todoPanelCapability.test.js"
     ],
     "evidence": [
+      "src/todos/todoPanelCapability.ts",
       "src/dashboard.ts"
     ]
   },
@@ -2960,6 +2992,8 @@
       "src/aiSessions/attentionController.ts",
       "src/aiSessions/terminalCommandController.ts",
       "src/dashboard.ts"
+    ,
+      "src/aiSessions/runtimeSettlementCapability.ts"
     ]
   },
   {
@@ -2973,6 +3007,8 @@
     ],
     "evidence": [
       "src/dashboard.ts"
+    ,
+      "src/aiSessions/runtimeSettlementCapability.ts"
     ]
   },
   {
@@ -2983,9 +3019,13 @@
     "status": "automated",
     "owners": [
       "tests/integration/dashboard/messageRouter.test.js"
+    ,
+      "tests/contract/projects/projectMessageHandlers.test.js"
     ],
     "evidence": [
       "src/dashboard/messageRouter.ts"
+    ,
+      "src/projects/projectMessageHandlers.ts"
     ]
   },
   {
@@ -3211,6 +3251,8 @@
       "tests/contract/openProjects/dashboardController.test.js",
       "tests/integration/dashboard/errorRecovery.test.js",
       "tests/integration/dashboard/webviewState.test.js"
+    ,
+      "tests/contract/projects/projectMessageHandlers.test.js"
     ],
     "evidence": [
       "src/services/projectCatalogSyncService.ts",
@@ -3219,6 +3261,8 @@
       "src/openWorkspaces/dashboardController.ts",
       "src/webview/webviewDashboardScripts.js",
       "src/dashboard.ts"
+    ,
+      "src/projects/projectMessageHandlers.ts"
     ]
   },
   {
@@ -3244,11 +3288,15 @@
       "tests/contract/projects/controllers.test.js",
       "tests/contract/openProjects/workspaceController.test.js",
       "tests/integration/dashboard/productionAttentionBridge.test.js"
+    ,
+      "tests/contract/projects/projectMessageHandlers.test.js"
     ],
     "evidence": [
       "src/projects/projectOpenController.ts",
       "src/projects/projectNavigationProtocol.ts",
       "extensions/attention-ui-bridge/src/extension.ts"
+    ,
+      "src/projects/projectMessageHandlers.ts"
     ]
   },
   {
@@ -4088,12 +4136,16 @@
     "status": "automated",
     "owners": [
       "scripts/run-skill-management-checks.js"
+    ,
+      "tests/contract/skills/skillPanelCapability.test.js"
     ],
     "evidence": [
       "src/skills/centralService.ts",
       "src/skills/dashboardController.ts",
       "src/skills/migrateService.ts",
       "src/skills/syncService.ts"
+    ,
+      "src/skills/skillPanelCapability.ts"
     ]
   },
   {
@@ -4134,6 +4186,8 @@
     "owners": [
       "scripts/run-skill-management-checks.js",
       "tests/browser/skillsFolderTree.test.js"
+    ,
+      "tests/contract/skills/skillPanelCapability.test.js"
     ],
     "evidence": [
       "src/skills/scopeService.ts",
@@ -4141,6 +4195,8 @@
       "src/skills/dashboardController.ts",
       "src/webview/webviewSkillContent.ts",
       "src/webview/webviewDashboardScripts.js"
+    ,
+      "src/skills/skillPanelCapability.ts"
     ]
   },
   {
@@ -4152,6 +4208,8 @@
     "owners": [
       "scripts/run-skill-management-checks.js",
       "tests/contract/skills/globalStoreLocationController.test.js"
+    ,
+      "tests/contract/skills/skillPanelCapability.test.js"
     ],
     "evidence": [
       "package.json",
@@ -4161,6 +4219,8 @@
       "src/skills/dashboardController.ts",
       "src/dashboard.ts",
       "src/webview/webviewDashboardScripts.js"
+    ,
+      "src/skills/skillPanelCapability.ts"
     ]
   },
   {

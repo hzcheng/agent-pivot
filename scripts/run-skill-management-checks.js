@@ -517,17 +517,26 @@ function runSkillControllerChecks() {
 
 function runSkillWiringChecks() {
     const dashboard = fs.readFileSync(path.join(__dirname, '..', 'src', 'dashboard.ts'), 'utf8');
-    assert.ok(dashboard.includes('new SkillDashboardController('));
-    assert.ok(dashboard.includes("'delete-skill'"));
-    assert.ok(!dashboard.includes("'toggle-skill'"), 'toggle message retired');
-    assert.ok(dashboard.includes('permanently? This cannot be undone.'), 'delete confirmation modal wired');
-    assert.ok(dashboard.includes("'open-skill-file'"));
-    assert.ok(!dashboard.includes("'set-skill-group'"), 'virtual group messages removed');
-    assert.ok(!dashboard.includes("'toggle-skill-group'"));
-    assert.ok(dashboard.includes("'fix-skill-diagnostic'"));
-    assert.ok(dashboard.includes("'apply-skill-collection'"));
-    assert.ok(dashboard.includes("'dismiss-skill-collection'"));
-    assert.ok(dashboard.includes('skillDashboardController.getRecords()'));
+    const skillPanel = fs.readFileSync(
+        path.join(__dirname, '..', 'src', 'skills', 'skillPanelCapability.ts'), 'utf8'
+    );
+    assert.ok(skillPanel.includes('new SkillDashboardController('));
+    assert.ok(dashboard.includes('createSkillPanelCapability({'),
+        'the dashboard constructs the extracted skill panel capability');
+    assert.ok(dashboard.includes('...skillPanel.handlers,'),
+        'the dashboard spreads the extracted skill handlers into the message router');
+    assert.ok(skillPanel.includes("'delete-skill'"));
+    assert.ok(!skillPanel.includes("'toggle-skill'"), 'toggle message retired');
+    assert.ok(skillPanel.includes('permanently? This cannot be undone.'), 'delete confirmation modal wired');
+    assert.ok(skillPanel.includes("'open-skill-file'"));
+    assert.ok(!skillPanel.includes("'set-skill-group'"), 'virtual group messages removed');
+    assert.ok(!skillPanel.includes("'toggle-skill-group'"));
+    assert.ok(skillPanel.includes("'fix-skill-diagnostic'"));
+    assert.ok(skillPanel.includes("'apply-skill-collection'"));
+    assert.ok(skillPanel.includes("'dismiss-skill-collection'"));
+    assert.ok(skillPanel.includes('skillDashboardController.getRecords()'));
+    assert.ok(dashboard.includes('skillPanel.getRecords()'),
+        'cross-domain search catalogs keep reading skill records through the facade');
     const packageJson = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
     assert.ok(packageJson.scripts['test:skills'].includes('run-skill-management-checks.js'));
     // test:safety delegates to test:safety:run, which owns the check-script chain.
@@ -999,8 +1008,11 @@ function runGlobalStoreLocationChecks() {
         'the location action is only added to the Global section');
     assert.ok(sourceScript.includes("type: 'change-global-skills-location'"));
     const dashboard = fs.readFileSync(path.join(__dirname, '..', 'src', 'dashboard.ts'), 'utf8');
-    assert.ok(dashboard.includes("'change-global-skills-location'"));
-    assert.ok(dashboard.includes(
+    const skillPanel = fs.readFileSync(
+        path.join(__dirname, '..', 'src', 'skills', 'skillPanelCapability.ts'), 'utf8'
+    );
+    assert.ok(skillPanel.includes("'change-global-skills-location'"));
+    assert.ok(skillPanel.includes(
         'globalStoreLocationController.changeInteractively()',
     ));
     const packageJson = JSON.parse(
@@ -2031,9 +2043,12 @@ function runSkillCentralChecks() {
     assert.ok(script.includes('data-central-toggle'));
     assert.ok(script.includes('data-central-source'));
     const dashboard = fs.readFileSync(path.join(__dirname, '..', 'src', 'dashboard.ts'), 'utf8');
-    assert.ok(dashboard.includes("'central-toggle-skill'"));
-    assert.ok(dashboard.includes("'centralize-skill'"));
-    assert.ok(dashboard.includes("'skill-scope-action'"));
+    const skillPanel = fs.readFileSync(
+        path.join(__dirname, '..', 'src', 'skills', 'skillPanelCapability.ts'), 'utf8'
+    );
+    assert.ok(skillPanel.includes("'central-toggle-skill'"));
+    assert.ok(skillPanel.includes("'centralize-skill'"));
+    assert.ok(skillPanel.includes("'skill-scope-action'"));
     const styles = fs.readFileSync(path.join(__dirname, '..', 'media', 'styles.scss'), 'utf8');
     const compiledCss = fs.readFileSync(path.join(__dirname, '..', 'media', 'styles.css'), 'utf8');
     assert.ok(styles.includes('.skill-chip.central'));
@@ -2410,8 +2425,11 @@ function runSkillMigrationChecks() {
     assert.ok(script.includes("'migrate-skills-to-central'"), 'webview posts migrate command');
     assert.ok(script.includes('data-skill-menu-migrate'), 'section ⋯ menu carries migrate');
     const dashboard = fs.readFileSync(path.join(__dirname, '..', 'src', 'dashboard.ts'), 'utf8');
-    assert.ok(dashboard.includes("'migrate-skills-to-central'"), 'dashboard handles migrate message');
-    assert.ok(dashboard.includes('migrateSkillsToCentral: () => runSkillMigrationToCentral(),'), 'palette command handler wired');
+    const skillPanel = fs.readFileSync(
+        path.join(__dirname, '..', 'src', 'skills', 'skillPanelCapability.ts'), 'utf8'
+    );
+    assert.ok(skillPanel.includes("'migrate-skills-to-central'"), 'dashboard handles migrate message');
+    assert.ok(dashboard.includes('migrateSkillsToCentral: () => skillPanel.migrateToCentral(),'), 'palette command handler wired');
     const reg = fs.readFileSync(path.join(__dirname, '..', 'src', 'dashboard', 'commandRegistration.ts'), 'utf8');
     assert.ok(reg.includes("'agentPivot.migrateSkillsToCentral'"), 'command id registered');
     assert.ok(reg.includes('migrateSkillsToCentral: DashboardCommandHandler'), 'handler type declared');
@@ -2585,9 +2603,12 @@ function runSkillFolderMutationChecks() {
     assert.ok(script.includes('data-section-menu'), 'section ⋯ menu wiring present');
     assert.ok(script.includes('data-skill-remove-folder'));
     const dashboard = fs.readFileSync(path.join(__dirname, '..', 'src', 'dashboard.ts'), 'utf8');
-    assert.ok(dashboard.includes("'create-skill-folder'"));
-    assert.ok(dashboard.includes("'remove-skill-folder'"));
-    assert.ok(dashboard.includes('showInputBox'), 'folder name prompted host-side');
+    const skillPanel = fs.readFileSync(
+        path.join(__dirname, '..', 'src', 'skills', 'skillPanelCapability.ts'), 'utf8'
+    );
+    assert.ok(skillPanel.includes("'create-skill-folder'"));
+    assert.ok(skillPanel.includes("'remove-skill-folder'"));
+    assert.ok(skillPanel.includes('showInputBox'), 'folder name prompted host-side');
     const styles = fs.readFileSync(path.join(__dirname, '..', 'media', 'styles.scss'), 'utf8');
     const compiledCss = fs.readFileSync(path.join(__dirname, '..', 'media', 'styles.css'), 'utf8');
     assert.ok(styles.includes('.skill-folder-add'));

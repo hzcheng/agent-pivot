@@ -105,6 +105,17 @@ export const terminal = `
 </svg>
 `;
 
+export const sparkles = `
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+    stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/>
+    <path d="M5 3v4"/>
+    <path d="M19 17v4"/>
+    <path d="M3 5h4"/>
+    <path d="M17 19h4"/>
+</svg>
+`;
+
 export const terminalLine = `
 <svg viewBox="0 0 24 24">
     <path d="M4 5.75C4 4.78 4.78 4 5.75 4h12.5c.97 0 1.75.78 1.75 1.75v12.5c0 .97-.78 1.75-1.75 1.75H5.75C4.78 20 4 19.22 4 18.25V5.75zm1.5 0v12.5c0 .14.11.25.25.25h12.5c.14 0 .25-.11.25-.25V5.75a.25.25 0 0 0-.25-.25H5.75a.25.25 0 0 0-.25.25zm2.2 3.78 1.77-1.76L13 11.3l-3.53 3.53-1.77-1.77 1.76-1.76L7.7 9.53zm5.3 5.22h4v1.5h-4v-1.5z"></path>

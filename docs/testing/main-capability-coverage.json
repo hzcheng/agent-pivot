@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "b582d61f6bbe66a84bc9c4ad6b01c2e16eb95bf2",
+        "head": "af19b2c9fbab071d6e8004846bff1cdd810836bc",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -54,7 +54,8 @@
             "f7a8438e0b189907048c7f652e0688d21e850fbb",
             "a9618126564283fbf57d408541796ed41d6bdc68",
             "024c6be9e460ac9ef3e80f40faef9488eb542fcb",
-            "35a3e2e3a2bddc828277b30e94d5ecc5ce63a7aa"
+            "35a3e2e3a2bddc828277b30e94d5ecc5ce63a7aa",
+            "acbd2a3166504fc42fc20c8b0e1874f3ec09c092"
         ]
     },
     "capabilities": [
@@ -442,12 +443,16 @@
                 "6e0c1fcd1201d469f55f57deb9bce134e556c683",
                 "07fefc21bb63bd8bde6192e30b3db4d9d13c642d",
                 "114e769d21182b614f213c35cdb9113f0305711b",
-                "0b1a72a4df82c1bfc595d63b52e85d2aacd753de"
+                "0b1a72a4df82c1bfc595d63b52e85d2aacd753de",
+                "6a514e5499745fed0383e103cd302616d54ed67e",
+                "aa4652ce76238eefdbf73381da93f410e2db096d",
+                "af19b2c9fbab071d6e8004846bff1cdd810836bc"
             ],
             "behaviors": [
                 "RELEASE-VSIX-PACKAGING-001",
                 "ARCH-RELEASE-IDENTITY-001",
-                "RELEASE-ATTENTION-SPIKE-ARTIFACT-VERSION-001"
+                "RELEASE-ATTENTION-SPIKE-ARTIFACT-VERSION-001",
+                "LOCAL-INSTALL-CLI-TARGET-001"
             ],
             "prGates": [
                 "test:ci:linux"

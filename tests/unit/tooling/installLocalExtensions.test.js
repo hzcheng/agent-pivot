@@ -5,7 +5,6 @@ const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 const { makeTempDirectory } = require('../../helpers/tempDirectory');
-const { createExtensionPackagePlan } = require('../../../scripts/lib/extensionHostLauncher');
 const {
     buildInstallArgs,
     main,
@@ -100,29 +99,73 @@ test('LOCAL-INSTALL-CLI-TARGET-001 installs without verifying when the host dire
         'skipping verification must be stated, not implied by silence');
 });
 
-test('LOCAL-INSTALL-CLI-TARGET-001 verifies installed bytes against the built extension', t => {
-    const extensionsDir = makeTempDirectory(t, 'local-install-verify-');
-    const packagePlan = createExtensionPackagePlan(repositoryRoot);
-    for (const extensionPackage of packagePlan) {
-        const installedRoot = path.join(
-            extensionsDir, `${extensionPackage.id}-${extensionPackage.version}`
+// Verification runs against a synthetic repository: the real runtime files are
+// untracked build outputs, and CI never builds the bridge dist, so copying the
+// working-tree bytes made this test pass only on machines with a local build.
+function makeSyntheticRepository(t) {
+    const syntheticRoot = makeTempDirectory(t, 'local-install-repo-');
+    const extensions = [
+        {
+            manifest: { publisher: 'hzcheng', name: 'agent-pivot-attention-ui-bridge', version: '1.0.0' },
+            packageRoot: path.join(syntheticRoot, 'extensions', 'attention-ui-bridge'),
+            runtimeFiles: { 'dist/extension.js': 'bridge-bytes' },
+        },
+        {
+            manifest: { publisher: 'hzcheng', name: 'agent-pivot', version: '1.0.0' },
+            packageRoot: syntheticRoot,
+            runtimeFiles: {
+                'dist/dashboard.js': 'main-bytes',
+                'media/conversationViewerScripts.js': 'viewer-bytes',
+                'media/conversationMermaidScripts.js': 'mermaid-bytes',
+            },
+        },
+    ];
+    for (const extension of extensions) {
+        fs.mkdirSync(extension.packageRoot, { recursive: true });
+        fs.writeFileSync(
+            path.join(extension.packageRoot, 'package.json'),
+            JSON.stringify(extension.manifest), 'utf8'
         );
+        for (const [relativePath, content] of Object.entries(extension.runtimeFiles)) {
+            const target = path.join(extension.packageRoot, relativePath);
+            fs.mkdirSync(path.dirname(target), { recursive: true });
+            fs.writeFileSync(target, content, 'utf8');
+        }
+    }
+    return { repositoryRoot: syntheticRoot, extensions };
+}
+
+function installSyntheticExtensions(t, extensions, { tamper = false } = {}) {
+    const extensionsDir = makeTempDirectory(t, 'local-install-verify-');
+    for (const extension of extensions) {
+        const id = `${extension.manifest.publisher}.${extension.manifest.name}`;
+        const installedRoot = path.join(extensionsDir, `${id}-${extension.manifest.version}`);
         fs.mkdirSync(installedRoot, { recursive: true });
         // VS Code injects __metadata on install; verification must tolerate it.
         fs.writeFileSync(path.join(installedRoot, 'package.json'), JSON.stringify({
-            ...extensionPackage.manifest,
+            ...extension.manifest,
             __metadata: { installedTimestamp: 1 },
         }), 'utf8');
-        for (const relativePath of extensionPackage.runtimeFiles) {
+        for (const relativePath of Object.keys(extension.runtimeFiles)) {
             const target = path.join(installedRoot, relativePath);
             fs.mkdirSync(path.dirname(target), { recursive: true });
-            fs.copyFileSync(path.join(extensionPackage.packageRoot, relativePath), target);
+            if (tamper) {
+                fs.writeFileSync(target, 'tampered', 'utf8');
+            } else {
+                fs.copyFileSync(path.join(extension.packageRoot, relativePath), target);
+            }
         }
     }
+    return extensionsDir;
+}
+
+test('LOCAL-INSTALL-CLI-TARGET-001 verifies installed bytes against the built extension', t => {
+    const { repositoryRoot: syntheticRoot, extensions } = makeSyntheticRepository(t);
+    const extensionsDir = installSyntheticExtensions(t, extensions);
 
     const logger = collectLogger();
     const status = main({
-        repositoryRoot,
+        repositoryRoot: syntheticRoot,
         logger,
         spawnSync: () => ({ status: 0 }),
         target: { command: '/srv/bin/code-server', source: 'server', extensionsDir },
@@ -130,37 +173,25 @@ test('LOCAL-INSTALL-CLI-TARGET-001 verifies installed bytes against the built ex
 
     assert.equal(status, 0);
     const output = logger.out.join('\n');
-    assert.match(output, /verified their bytes/);
-    for (const extensionPackage of packagePlan) {
-        assert.ok(output.includes(extensionPackage.id), `${extensionPackage.id} reported`);
-    }
+    assert.match(output, /Installed 2 extensions and verified their bytes/);
+    assert.ok(output.includes('hzcheng.agent-pivot-attention-ui-bridge dist/extension.js'),
+        'bridge runtime file reported');
+    assert.ok(output.includes('hzcheng.agent-pivot dist/dashboard.js'),
+        'main runtime file reported');
 });
 
 test('LOCAL-INSTALL-CLI-TARGET-001 fails when installed bytes do not match the build', t => {
-    const extensionsDir = makeTempDirectory(t, 'local-install-mismatch-');
-    const [extensionPackage] = createExtensionPackagePlan(repositoryRoot);
-    const installedRoot = path.join(
-        extensionsDir, `${extensionPackage.id}-${extensionPackage.version}`
-    );
-    fs.mkdirSync(installedRoot, { recursive: true });
-    fs.writeFileSync(
-        path.join(installedRoot, 'package.json'),
-        JSON.stringify(extensionPackage.manifest), 'utf8'
-    );
-    for (const relativePath of extensionPackage.runtimeFiles) {
-        const target = path.join(installedRoot, relativePath);
-        fs.mkdirSync(path.dirname(target), { recursive: true });
-        fs.writeFileSync(target, 'tampered', 'utf8');
-    }
+    const { repositoryRoot: syntheticRoot, extensions } = makeSyntheticRepository(t);
+    const extensionsDir = installSyntheticExtensions(t, extensions, { tamper: true });
 
     const logger = collectLogger();
     const status = main({
-        repositoryRoot,
+        repositoryRoot: syntheticRoot,
         logger,
         spawnSync: () => ({ status: 0 }),
         target: { command: '/srv/bin/code-server', source: 'server', extensionsDir },
     });
 
     assert.equal(status, 1, 'a zero exit status from the CLI is not proof of installed bytes');
-    assert.match(logger.out.join('\n'), /ERR /);
+    assert.match(logger.out.join('\n'), /ERR .*differs from built bytes/);
 });

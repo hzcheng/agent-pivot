@@ -19,7 +19,7 @@ export interface DispatcherDeps {
     setTimeout: (handler: () => void | Promise<void>, ms: number) => unknown;
     clearTimeout: (handle: unknown) => void;
     sleep: (ms: number) => Promise<void>;
-    globalProxy: string;
+    globalProxy: () => string;
     env: Record<string, string | undefined>;
     onLog: (line: string) => void;
 }
@@ -114,8 +114,13 @@ export class NotifyDispatcher {
             ? config.sinks.map(sink => this.buildMergedRequest(sink, payload, mergedPayloads, now))
             : config.sinks.map(sink => buildNotifyRequest(sink, payload, now));
         this.sendTimestamps.push(now);
-        this.deps.store.record(payload.eventId, now);
-        this.deps.store.save();
+        try {
+            this.deps.store.record(payload.eventId, now);
+            this.deps.store.save();
+        } catch (error) {
+            // 记不上账也比不发强:HOME 只读/磁盘满时照常投递,但必须留痕。
+            this.deps.onLog(`notify: failed to persist notified store: ${(error as Error).message}`);
+        }
         for (let index = 0; index < requests.length; index += 1) {
             await this.send(config.sinks[index], requests[index], payload.correlationId);
         }
@@ -140,7 +145,7 @@ export class NotifyDispatcher {
         return buildNotifyRequestFromText(
             sink,
             payload,
-            renderMergedTitle(all.length),
+            renderMergedTitle(all),
             renderMergedBody(all),
             4,
             now
@@ -148,7 +153,7 @@ export class NotifyDispatcher {
     }
 
     private async send(sink: NotifySink, request: NotifyRequest, correlationId: string): Promise<void> {
-        const proxy = resolveProxy(sink.proxy, this.deps.globalProxy, this.deps.env, request.url);
+        const proxy = resolveProxy(sink.proxy, this.deps.globalProxy(), this.deps.env, request.url);
         try {
             const result = await sendWithRetry(this.deps.transport, request, proxy, this.deps.sleep);
             this.deps.onLog(

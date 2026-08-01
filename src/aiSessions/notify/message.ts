@@ -44,8 +44,12 @@ export function renderNotifyBody(payload: NotifyPayload): string {
     return lines.join('\n');
 }
 
-export function renderMergedTitle(count: number): string {
-    return `⏸ ${count} 个 AI 会话在等你`;
+export function renderMergedTitle(payloads: NotifyPayload[]): string {
+    // 纯 completed 的合并不是“在等你”,措辞按原因区分。
+    const needsYou = payloads.some(payload => payload.reason !== 'completed');
+    return needsYou
+        ? `⏸ ${payloads.length} 个 AI 会话在等你`
+        : `✅ ${payloads.length} 个 AI 会话已完成`;
 }
 
 export function renderMergedBody(payloads: NotifyPayload[]): string {

@@ -41,25 +41,29 @@ function createPayload(eventId) {
 
 function createHarness(t, configOverrides) {
     const sent = [];
+    const logs = [];
     const timers = [];
     let now = 0;
+    const store = new NotifiedEventStore(path.join(makeTempDirectory(t, 'notify-dispatch-'), 'notified.json'));
     const dispatcher = new NotifyDispatcher({
         transport: {
             send: async request => { sent.push(request); return { statusCode: 200, durationMs: 1, viaProxy: false }; },
         },
-        store: new NotifiedEventStore(path.join(makeTempDirectory(t, 'notify-dispatch-'), 'notified.json')),
+        store,
         nowMs: () => now,
         setTimeout: (fn, ms) => { timers.push({ fn, at: now + ms }); return timers.length - 1; },
         clearTimeout: handle => { if (timers[handle]) { timers[handle].cancelled = true; } },
         sleep: async () => {},
-        globalProxy: '',
+        globalProxy: () => '',
         env: {},
-        onLog: () => {},
+        onLog: line => { logs.push(line); },
     });
     dispatcher.setConfig(createConfig(configOverrides));
     return {
         dispatcher,
         sent,
+        logs,
+        store,
         async advance(ms) {
             now += ms;
             for (const timer of timers) {
@@ -124,7 +128,17 @@ test('超过限流上限时合并为一条', async t => {
     await harness.advance(5000);
     assert.equal(harness.sent.length, 3);
     const merged = JSON.parse(harness.sent[2].body).text;
-    assert.match(merged, /2 个 AI 会话在等你/u);
+    // 合并项全是 completed,标题用“已完成”而非“在等你”。
+    assert.match(merged, /2 个 AI 会话已完成/u);
+});
+
+test('store 持久化失败时仍投递并记录日志', async t => {
+    const harness = createHarness(t);
+    harness.store.save = () => { throw new Error('disk full'); };
+    harness.dispatcher.enqueue(createPayload('e1'));
+    await harness.advance(5000);
+    assert.equal(harness.sent.length, 1);
+    assert.ok(harness.logs.some(line => /failed to persist notified store/u.test(line)));
 });
 
 test('多个 sink 各发一次', async t => {

@@ -1210,8 +1210,7 @@ async function initializeDashboard(
     let aiSessionUpdateSequence = 0;
     let currentAiSessionRefreshReason = 'refresh';
     let aiSessionAttentionBridgeClient: AttentionBridgeClient;
-    const notifyOutput = createNotifyOutputChannel();
-    context.subscriptions.push({ dispose: () => notifyOutput.dispose() });
+    const notifyOutput = ownResource(() => createNotifyOutputChannel());
     const notifiedStore = new NotifiedEventStore(
         path.join(os.homedir(), '.agent-pivot', 'notified.json'));
     notifiedStore.load();
@@ -1223,7 +1222,7 @@ async function initializeDashboard(
         setTimeout: (handler, ms) => setTimeout(handler, ms),
         clearTimeout: handle => clearTimeout(handle as NodeJS.Timeout),
         sleep: ms => new Promise(resolve => setTimeout(resolve, ms)),
-        globalProxy: getAgentPivotConfiguration().get<string>('notify.proxy', ''),
+        globalProxy: () => getAgentPivotConfiguration().get<string>('notify.proxy', ''),
         env: process.env,
         onLog: line => notifyOutput.log(line),
     });
@@ -1286,22 +1285,26 @@ async function initializeDashboard(
     // 凭据写入不触发配置变化事件,必须单独监听,否则存完凭据后 dispatcher
     // 仍拿着存凭据之前装配的空 sinks 配置,直到下次配置变更或重载。
     const notifySecretChanges = resolveNotifySecretStorage(context);
-    if (notifySecretChanges?.onDidChange) {
-        context.subscriptions.push(notifySecretChanges.onDidChange(event => {
+    const onNotifySecretChange = notifySecretChanges?.onDidChange;
+    if (onNotifySecretChange) {
+        ownResource(() => onNotifySecretChange(event => {
             if (event.key.startsWith(NOTIFY_SECRET_KEY_PREFIX)) {
                 void refreshNotifyConfig();
             }
         }));
     }
-    context.subscriptions.push(...registerNotifyCommands(context, {
-        output: notifyOutput,
-        getConfig: () => currentNotifyConfig || assembleNotifyConfig({
-            enabled: false, sinks: [], reasons: [], minRunDurationMs: 0,
-            debounceMs: 0, rateLimitPerMin: 1, escalateAfterMs: 0,
-            projectPathMode: 'basename', includeSessionLabel: true,
-        }, {}),
-        globalProxy: () => getAgentPivotConfiguration().get<string>('notify.proxy', ''),
-    }));
+    ownResource(() => {
+        const disposables = registerNotifyCommands(context, {
+            output: notifyOutput,
+            getConfig: () => currentNotifyConfig || assembleNotifyConfig({
+                enabled: false, sinks: [], reasons: [], minRunDurationMs: 0,
+                debounceMs: 0, rateLimitPerMin: 1, escalateAfterMs: 0,
+                projectPathMode: 'basename', includeSessionLabel: true,
+            }, {}),
+            globalProxy: () => getAgentPivotConfiguration().get<string>('notify.proxy', ''),
+        });
+        return { dispose: () => disposables.forEach(disposable => disposable.dispose()) };
+    });
     const locateAttentionSession = (key: string) => {
         const target = getCurrentWorkspaceActionTargetWithoutCardId();
         if (!target) {

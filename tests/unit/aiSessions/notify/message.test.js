@@ -76,8 +76,16 @@ test('正文不包含原始 eventId', () => {
     assert.doesNotMatch(body, /EVENTID_SENTINEL/u);
 });
 
-test('合并标题含数量', () => {
-    assert.equal(renderMergedTitle(3), '⏸ 3 个 AI 会话在等你');
+test('合并标题含数量且按原因区分措辞', () => {
+    assert.equal(renderMergedTitle([payload]), '⏸ 1 个 AI 会话在等你');
+    assert.equal(renderMergedTitle([
+        Object.assign({}, payload, { reason: 'completed' }),
+        Object.assign({}, payload, { eventId: 'e2', reason: 'completed' }),
+    ]), '✅ 2 个 AI 会话已完成');
+    assert.equal(renderMergedTitle([
+        Object.assign({}, payload, { reason: 'completed' }),
+        payload,
+    ]), '⏸ 2 个 AI 会话在等你');
 });
 
 test('合并正文每行一个会话', () => {

@@ -47,6 +47,7 @@ export interface AiSessionAttentionControllerOptions<TRuntime extends AiSessionA
     bridgeOutageMs?: number;
     onAttentionEvents?: (events: AiSessionAttentionEvent[]) => void;
     onAttentionAcknowledged?: (eventIds: string[]) => void;
+    onAttentionCancelled?: (eventIds: string[]) => void;
 }
 
 export interface AiSessionAttentionEvaluation {
@@ -146,6 +147,14 @@ export class AiSessionAttentionController<TRuntime extends AiSessionAttentionRun
             this.monitor.discard(staleAttentionKeys);
         }
         this.pruneAttentionKeysBySession();
+        const cancelledEventIds = this.monitor.consumeCancelledEventIds();
+        if (cancelledEventIds.length) {
+            try {
+                this.options.onAttentionCancelled?.(cancelledEventIds);
+            } catch (_error) {
+                // 外发通知不得影响 attention 主流程。
+            }
+        }
         if (events.length || discardedStaleAttention) {
             this.options.scheduleRefresh('attention');
         }

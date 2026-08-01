@@ -59,7 +59,7 @@ import {
 import AiSessionWorkspaceStateStore from './aiSessions/workspaceStateStore';
 import ActiveAiSessionTerminalHighlighter from './aiSessions/activeTerminalHighlight';
 import AttentionBridgeClient from './aiSessions/attentionBridgeClient';
-import { getAttentionRuntimeSessionKey, withAttentionProject } from './aiSessions/attentionProject';
+import { getAttentionRuntimeSessionKey, getLogicalAttentionSessionKey, withAttentionProject } from './aiSessions/attentionProject';
 import type { ActiveAiSessionTerminalIdentity } from './aiSessions/activeTerminalHighlight';
 import { getAiSessionKey } from './aiSessions/sessionHelpers';
 import {
@@ -1228,6 +1228,14 @@ async function initializeDashboard(
         onLog: line => notifyOutput.log(line),
     });
     const refreshNotifyConfig = async (): Promise<void> => {
+        try {
+            await refreshNotifyConfigUnsafe();
+        } catch (error) {
+            // 通知配置刷新绝不能让 Dashboard 激活/运行崩溃;保留上一份配置。
+            notifyOutput.log(`notify: config refresh failed: ${(error as Error).message}`);
+        }
+    };
+    const refreshNotifyConfigUnsafe = async (): Promise<void> => {
         const configuration = getAgentPivotConfiguration();
         const enabled = configuration.get<boolean>('notify.enabled', false);
         if (enabled && !context.globalState.get<boolean>('agentPivot.notify.consented')) {
@@ -1270,7 +1278,7 @@ async function initializeDashboard(
             escalateAfterMs: configuration.get<number>('notify.escalateAfterMs', 0),
             projectPathMode: configuration.get<string>('notify.projectPathMode', 'basename'),
             includeSessionLabel: configuration.get<boolean>('notify.includeSessionLabel', true),
-        }, secrets);
+        }, secrets, line => notifyOutput.log(line));
         currentNotifyConfig = assembled;
         notifyDispatcher.setConfig(assembled);
     };
@@ -1289,9 +1297,11 @@ async function initializeDashboard(
         if (!target) {
             return null;
         }
+        // settlement 路径的事件 key 是复合 attentionKey,先归一化为逻辑会话键再查。
+        const logicalKey = getLogicalAttentionSessionKey(key);
         for (const provider of getRegisteredAiSessionProviders()) {
             for (const session of target.sessions.sessionsByProvider[provider.id] || []) {
-                if (getAiSessionKey(provider.id, session.id) !== key) {
+                if (getAiSessionKey(provider.id, session.id) !== logicalKey) {
                     continue;
                 }
                 const runtime = getAiSessionRuntimeById(provider.id, session.id);
@@ -1316,6 +1326,7 @@ async function initializeDashboard(
             for (const event of events) {
                 const located = locateAttentionSession(event.key);
                 if (!located) {
+                    notifyOutput.log(`notify: dropped ${event.eventId} (session not found for key ${event.key})`);
                     continue;
                 }
                 notifyDispatcher.enqueue(buildNotifyPayload(event, {
@@ -1332,6 +1343,7 @@ async function initializeDashboard(
             }
         },
         onAttentionAcknowledged: eventIds => notifyDispatcher.cancel(eventIds),
+        onAttentionCancelled: eventIds => notifyDispatcher.cancel(eventIds),
         nowMs: () => Date.now(),
     });
     const aiSessionExecutionController = new AiSessionExecutionController({

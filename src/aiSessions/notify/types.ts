@@ -127,7 +127,7 @@ function requireBoolean(value: unknown, label: string): boolean {
     return value;
 }
 
-function validateSink(value: unknown): NotifySink {
+export function validateSink(value: unknown): NotifySink {
     const sink = requireObject(value, 'notify sink');
     const id = requireString(sink.id, 'notify sink id');
     const proxy = requireNullableString(sink.proxy === undefined ? null : sink.proxy, 'notify sink proxy');

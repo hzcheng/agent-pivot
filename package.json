@@ -353,12 +353,6 @@
                     "default": 6,
                     "minimum": 1
                 },
-                "agentPivot.notify.escalateAfterMs": {
-                    "type": "number",
-                    "default": 0,
-                    "minimum": 0,
-                    "markdownDescription": "Re-notify after this long if the attention indicator is still unread. `0` disables it."
-                },
                 "agentPivot.notify.projectPathMode": {
                     "type": "string",
                     "default": "basename",

@@ -44,6 +44,7 @@ export interface AiSessionAttentionMonitorOptions {
 export default class AiSessionAttentionMonitor {
     private readonly entries = new Map<string, Entry>();
     private readonly now: () => number;
+    private cancelledEventIds: string[] = [];
 
     constructor(options: AiSessionAttentionMonitorOptions = {}) {
         this.now = options.now ?? (() => Date.now());
@@ -74,7 +75,10 @@ export default class AiSessionAttentionMonitor {
 
             if (signal.phase === 'running' || signal.phase === 'idle') {
                 entry.state = signal.phase;
-                entry.event = undefined;
+                if (entry.event) {
+                    this.cancelledEventIds.push(entry.event.eventId);
+                    entry.event = undefined;
+                }
                 continue;
             }
             if (signal.phase !== 'needsAttention' || !signal.reason) {
@@ -114,8 +118,18 @@ export default class AiSessionAttentionMonitor {
 
     discard(keys: string[]): void {
         for (const key of new Set(keys || [])) {
+            const entry = this.entries.get(key);
+            if (entry?.event) {
+                this.cancelledEventIds.push(entry.event.eventId);
+            }
             this.entries.delete(key);
         }
+    }
+
+    consumeCancelledEventIds(): string[] {
+        const cancelled = this.cancelledEventIds;
+        this.cancelledEventIds = [];
+        return cancelled;
     }
 
     clear(): void {

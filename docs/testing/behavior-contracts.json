@@ -4460,5 +4460,19 @@
       "src/aiSessions/attentionMonitor.ts",
       "src/aiSessions/attentionController.ts"
     ]
+  },
+  {
+    "id": "ATTENTION-NOTIFY-GUIDED-SETUP-001",
+    "domain": "attention",
+    "title": "Guided sink setup writes skeletons, rotates credentials and refuses channel mismatches",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/notify/guidedSetup.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/notifyIntegration/commands.ts",
+      "src/aiSessions/notifyIntegration/output.ts"
+    ]
   }
 ]

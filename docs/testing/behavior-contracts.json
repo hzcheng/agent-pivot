@@ -1056,6 +1056,21 @@
     ]
   },
   {
+    "id": "LOCAL-INSTALL-CLI-TARGET-001",
+    "domain": "release",
+    "title": "Local install routes to the running host with absolute artifacts and verified bytes",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/unit/tooling/vscodeCliTarget.test.js",
+      "tests/unit/tooling/installLocalExtensions.test.js"
+    ],
+    "evidence": [
+      "scripts/lib/vscodeCliTarget.js",
+      "scripts/install-local-extensions.js"
+    ]
+  },
+  {
     "id": "SESSION-CODEX-SESSION-SERVICE-001",
     "domain": "session",
     "title": "Codex change polling reuses discovery stats instead of stat'ing every file twice",

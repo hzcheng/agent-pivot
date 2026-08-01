@@ -4419,5 +4419,18 @@
       "src/aiSessions/notifyIntegration/notifier.ts",
       "src/aiSessions/attentionController.ts"
     ]
+  },
+  {
+    "id": "ATTENTION-NOTIFY-CREDENTIALS-001",
+    "domain": "attention",
+    "title": "Notification credentials stay out of settings and merge from secrets",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/notify/credentials.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/notifyIntegration/credentials.ts"
+    ]
   }
 ]

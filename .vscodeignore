@@ -30,6 +30,7 @@ media/brand/**
 !media/conversationMermaidScripts.js
 !media/conversationReadingAnchorScripts.js
 !media/conversationOutlineScripts.js
+!media/conversationTelemetryScripts.js
 !media/conversationViewerScripts.js
 !media/conversationViewer.css
 !media/conversationTelemetry.css

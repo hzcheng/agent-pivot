@@ -1166,6 +1166,9 @@ export class ConversationViewer implements ConversationViewerApi {
         const outlineScript = panel.webview.asWebviewUri(
             this.options.mediaUri('conversationOutlineScripts.js')
         );
+        const telemetryScript = panel.webview.asWebviewUri(
+            this.options.mediaUri('conversationTelemetryScripts.js')
+        );
         const script = panel.webview.asWebviewUri(
             this.options.mediaUri('conversationViewerScripts.js')
         );
@@ -1351,6 +1354,9 @@ export class ConversationViewer implements ConversationViewerApi {
     )}"></script>
     <script nonce="${escapeAttribute(nonce)}" src="${escapeAttribute(
         outlineScript.toString()
+    )}"></script>
+    <script nonce="${escapeAttribute(nonce)}" src="${escapeAttribute(
+        telemetryScript.toString()
     )}"></script>
     <script nonce="${escapeAttribute(nonce)}" src="${escapeAttribute(
         script.toString()

@@ -792,13 +792,17 @@ test('CONVERSATION-VIEWER-SECURITY-001 emits a nonce-only CSP and opens only HTT
     const outlineControllerIndex = panel.webview.html.indexOf(
         'conversationOutlineScripts.js'
     );
+    const telemetryControllerIndex = panel.webview.html.indexOf(
+        'conversationTelemetryScripts.js'
+    );
     const viewerIndex = panel.webview.html.indexOf(
         'conversationViewerScripts.js'
     );
     assert.ok(purifyIndex >= 0 && purifyIndex < readingAnchorIndex);
     assert.ok(readingAnchorIndex < mermaidControllerIndex);
     assert.ok(mermaidControllerIndex < outlineControllerIndex);
-    assert.ok(outlineControllerIndex < viewerIndex);
+    assert.ok(outlineControllerIndex < telemetryControllerIndex);
+    assert.ok(telemetryControllerIndex < viewerIndex);
 
     for (const href of [
         'javascript:alert(1)',
@@ -823,6 +827,7 @@ test('CONVERSATION-READING-FOCUS-001 keeps modular Webview controllers byte-iden
         'conversationReadingAnchorScripts.js',
         'conversationMermaidScripts.js',
         'conversationOutlineScripts.js',
+        'conversationTelemetryScripts.js',
         'conversationViewerScripts.js',
     ]) {
         assert.equal(

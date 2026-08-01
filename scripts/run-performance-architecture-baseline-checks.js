@@ -27,6 +27,7 @@ const productionSources = [
     'media/webviewDashboardScripts.js',
     'media/webviewScrollStateScripts.js',
     'media/webviewAiSessionViewStateScripts.js',
+    'media/webviewWorkspaceUpdateScripts.js',
     'media/webviewProjectScripts.js',
     'media/webviewPromptScripts.js',
     'media/styles.scss',

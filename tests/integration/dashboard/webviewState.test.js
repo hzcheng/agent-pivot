@@ -19,7 +19,9 @@ const projectSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webview
 const generatedProjectSource = fs.readFileSync(path.join(root, 'media', 'webviewProjectScripts.js'), 'utf8');
 const viewStateSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewAiSessionViewStateScripts.js'), 'utf8');
 const generatedViewStateSource = fs.readFileSync(path.join(root, 'media', 'webviewAiSessionViewStateScripts.js'), 'utf8');
-const projectVmSource = `${viewStateSource}\n${projectSource}`;
+const workspaceUpdateSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewWorkspaceUpdateScripts.js'), 'utf8');
+const generatedWorkspaceUpdateSource = fs.readFileSync(path.join(root, 'media', 'webviewWorkspaceUpdateScripts.js'), 'utf8');
+const projectVmSource = `${viewStateSource}\n${workspaceUpdateSource}\n${projectSource}`;
 const scrollStateSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewScrollStateScripts.js'), 'utf8');
 const promptSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewPromptScripts.js'), 'utf8');
 const generatedPromptPath = path.join(root, 'media', 'webviewPromptScripts.js');
@@ -885,6 +887,7 @@ test('WEBVIEW-RESOURCE-RECOVERY-001 gives every rendered document fresh versione
         'dragula.min.js',
         'dom-autoscroller.min.js',
         'webviewAiSessionViewStateScripts.js',
+        'webviewWorkspaceUpdateScripts.js',
         'webviewProjectScripts.js',
         'webviewDashboardScripts.js',
         'webviewPromptScripts.js',

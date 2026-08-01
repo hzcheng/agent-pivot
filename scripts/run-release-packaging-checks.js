@@ -75,6 +75,7 @@ const EXPECTED_MAIN_ENTRIES = Object.freeze([
     'extension/media/webviewDnDScripts.js',
     'extension/media/webviewFilterScripts.js',
     'extension/media/webviewAiSessionViewStateScripts.js',
+    'extension/media/webviewWorkspaceUpdateScripts.js',
     'extension/media/webviewProjectScripts.js',
     'extension/media/webviewPromptScripts.js',
     'extension/media/webviewScrollStateScripts.js',
@@ -587,6 +588,7 @@ function runRealVsixArchiveChecks(mainPackage, bridgePackage) {
     for (const [archiveEntry, localPath] of [
         ['extension/media/styles.css', 'media/styles.css'],
         ['extension/media/webviewAiSessionViewStateScripts.js', 'media/webviewAiSessionViewStateScripts.js'],
+        ['extension/media/webviewWorkspaceUpdateScripts.js', 'media/webviewWorkspaceUpdateScripts.js'],
         ['extension/media/webviewProjectScripts.js', 'media/webviewProjectScripts.js'],
         ['extension/media/webviewPromptScripts.js', 'media/webviewPromptScripts.js'],
         ['extension/media/webviewScrollStateScripts.js', 'media/webviewScrollStateScripts.js'],
@@ -910,6 +912,7 @@ function run() {
     assertNotIncludes(mainIgnore, '!out/openWorkspaces/**', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, 'out/**/*.map', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewAiSessionViewStateScripts.js', 'main VSIX ignore rules');
+    assertIncludes(mainIgnore, '!media/webviewWorkspaceUpdateScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewProjectScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewPromptScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewScrollStateScripts.js', 'main VSIX ignore rules');
@@ -931,6 +934,7 @@ function run() {
         'out/openWorkspaces/pinProtocol.js',
         'dist/dashboard.js',
         'media/webviewAiSessionViewStateScripts.js',
+        'media/webviewWorkspaceUpdateScripts.js',
         'media/webviewProjectScripts.js',
         'media/webviewPromptScripts.js',
         'media/webviewScrollStateScripts.js',

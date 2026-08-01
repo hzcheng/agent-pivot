@@ -112,7 +112,6 @@
         && validCommentTarget(commentTarget);
     var state = {
         atLatest: false,
-        followingEnd: false,
         initialized: false,
         latestRequestId: 0,
         subscriptionGeneration: Number(document.body.getAttribute(
@@ -122,9 +121,6 @@
         messageSignatures: new Map(),
         firstNewMessageId: null,
         renderGeneration: 0,
-        commentsPanelOpen: true,
-        commentsPanelWidth: 240,
-        sidebarView: 'outline',
     };
     var readingAnchorController =
         window.__agentPivotConversationReadingAnchor.create({
@@ -149,6 +145,38 @@
     var releaseMermaidObjectUrls = mermaidRenderer.release;
     var renderMermaidDiagrams = mermaidRenderer.render;
     var preserveMermaidContent = mermaidRenderer.preserve;
+    var reconcileController = window.__agentPivotConversationReconcile.create({
+        scroll: scroll,
+        messages: messages,
+        messageSelector: conversationMessageSelector,
+        messageId: conversationMessageId,
+        releaseMermaid: releaseMermaidObjectUrls,
+        preserveMermaid: preserveMermaidContent,
+    });
+    var outlineController;
+    var commentsController;
+    var sidebarController = window.__agentPivotConversationSidebar.create({
+        available: sidebarUiAvailable,
+        vscodeApi: vscodeApi,
+        outlineToggle: outlineToggle,
+        commentsToggle: commentsToggle,
+        commentsWorkspace: commentsWorkspace,
+        commentsResizer: commentsResizer,
+        sidebarRoot: sidebarRoot,
+        sidebarTabs: sidebarTabs,
+        sidebarClose: sidebarClose,
+        outlineRoot: outlineRoot,
+        commentsRoot: commentsRoot,
+        outlineQuery: function () {
+            return outlineController.query();
+        },
+        outlineSize: function () {
+            return outlineController.size();
+        },
+        openComments: function () {
+            return commentsController.openCount();
+        },
+    });
     var outlineController = window.__agentPivotConversationOutline.create({
         available: sidebarUiAvailable,
         bookmarkAvailable: bookmarkUiAvailable,
@@ -163,11 +191,9 @@
         outlinePartial: outlinePartial,
         outlineBookmarksOnly: outlineBookmarksOnly,
         post: post,
-        outlinePanelActive: function () {
-            return state.commentsPanelOpen && state.sidebarView === 'outline';
-        },
-        persistPanelState: saveCommentsPanelState,
-        updateToggle: updateCommentsToggle,
+        outlinePanelActive: sidebarController.isOutlineActive,
+        persistPanelState: sidebarController.save,
+        updateToggle: sidebarController.updateToggle,
     });
     var telemetryController = window.__agentPivotConversationTelemetry.create({
         target: commentTarget,
@@ -210,154 +236,13 @@
         post: post,
         messageSelector: conversationMessageSelector,
         messageId: conversationMessageId,
-        setSidebarView: setSidebarView,
-        updateToggle: updateCommentsToggle,
+        setSidebarView: sidebarController.setView,
+        updateToggle: sidebarController.updateToggle,
     });
 
     if (!scroll || !messages || !position || !status || !newResponse
         || !previous || !next || !latest || !close || !window.DOMPurify) {
         return;
-    }
-
-    var commentsPanelMinWidth = 192;
-    var commentsPanelMaxWidth = 420;
-    var conversationMinWidth = 320;
-
-    function readCommentsPanelState() {
-        if (!vscodeApi || typeof vscodeApi.getState !== 'function') return null;
-        try {
-            var saved = vscodeApi.getState();
-            var panelState = saved && saved.conversationSidebar;
-            if (!panelState && saved && saved.conversationCommentsPanel) {
-                panelState = Object.assign(
-                    { view: 'comments' },
-                    saved.conversationCommentsPanel
-                );
-            }
-            return panelState && typeof panelState === 'object'
-                && !Array.isArray(panelState)
-                ? panelState
-                : null;
-        } catch (_error) {
-            return null;
-        }
-    }
-
-    function saveCommentsPanelState() {
-        if (!vscodeApi || typeof vscodeApi.setState !== 'function') return;
-        try {
-            var saved = typeof vscodeApi.getState === 'function'
-                ? vscodeApi.getState()
-                : null;
-            var next = saved && typeof saved === 'object'
-                && !Array.isArray(saved)
-                ? Object.assign({}, saved)
-                : {};
-            next.conversationSidebar = {
-                open: state.commentsPanelOpen,
-                width: state.commentsPanelWidth,
-                view: state.sidebarView,
-                query: outlineController.query(),
-            };
-            delete next.conversationCommentsPanel;
-            vscodeApi.setState(next);
-        } catch (_error) {
-            // Layout persistence is best-effort local Webview state.
-        }
-    }
-
-    function availableCommentsPanelMaxWidth() {
-        return Math.max(
-            commentsPanelMinWidth,
-            Math.min(
-                commentsPanelMaxWidth,
-                commentsWorkspace.clientWidth - conversationMinWidth
-            )
-        );
-    }
-
-    function clampCommentsPanelWidth(value) {
-        return Math.max(
-            commentsPanelMinWidth,
-            Math.min(availableCommentsPanelMaxWidth(), value)
-        );
-    }
-
-    function updateCommentsToggle() {
-        if (!sidebarUiAvailable) return;
-        outlineToggle.textContent = 'Outline ('
-            + outlineController.size() + ')';
-        outlineToggle.setAttribute(
-            'aria-expanded',
-            state.commentsPanelOpen && state.sidebarView === 'outline'
-                ? 'true'
-                : 'false'
-        );
-        commentsToggle.textContent = 'Comments ('
-            + commentsController.openCount()
-            + ' open)';
-        commentsToggle.setAttribute(
-            'aria-expanded',
-            state.commentsPanelOpen && state.sidebarView === 'comments'
-                ? 'true'
-                : 'false'
-        );
-        outlineToggle.setAttribute('aria-label',
-            state.commentsPanelOpen && state.sidebarView === 'outline'
-                ? 'Hide conversation outline'
-                : 'Show conversation outline');
-        commentsToggle.setAttribute('aria-label',
-            state.commentsPanelOpen && state.sidebarView === 'comments'
-                ? 'Hide comments panel'
-                : 'Show comments panel');
-        sidebarTabs.forEach(function (tab) {
-            var selected = tab.getAttribute('data-sidebar-tab')
-                === state.sidebarView;
-            tab.setAttribute('aria-selected', selected ? 'true' : 'false');
-            tab.tabIndex = selected ? 0 : -1;
-        });
-    }
-
-    function applyCommentsPanelLayout() {
-        if (!sidebarUiAvailable) return;
-        var width = clampCommentsPanelWidth(state.commentsPanelWidth);
-        commentsWorkspace.style.setProperty(
-            '--conversation-comments-width',
-            width + 'px'
-        );
-        commentsWorkspace.setAttribute(
-            'data-comments-open',
-            state.commentsPanelOpen ? 'true' : 'false'
-        );
-        sidebarRoot.hidden = !state.commentsPanelOpen;
-        commentsResizer.hidden = !state.commentsPanelOpen;
-        outlineRoot.hidden = state.sidebarView !== 'outline';
-        commentsRoot.hidden = state.sidebarView !== 'comments';
-        commentsResizer.setAttribute('aria-valuemax', String(
-            availableCommentsPanelMaxWidth()
-        ));
-        commentsResizer.setAttribute('aria-valuenow', String(width));
-        updateCommentsToggle();
-    }
-
-    function setCommentsPanelOpen(open, persist) {
-        state.commentsPanelOpen = open;
-        applyCommentsPanelLayout();
-        if (persist) saveCommentsPanelState();
-    }
-
-    function setSidebarView(view, open, persist) {
-        if (view !== 'outline' && view !== 'comments') return;
-        state.sidebarView = view;
-        state.commentsPanelOpen = open;
-        applyCommentsPanelLayout();
-        if (persist) saveCommentsPanelState();
-    }
-
-    function setCommentsPanelWidth(width, persist) {
-        state.commentsPanelWidth = clampCommentsPanelWidth(width);
-        applyCommentsPanelLayout();
-        if (persist) saveCommentsPanelState();
     }
 
     function isHttps(value) {
@@ -575,92 +460,11 @@
             && typeof message.stale === 'boolean';
     }
 
-    function reconcileMessages(clean, preserveUnchanged, previousSignatures) {
-        var template = document.createElement('template');
-        template.innerHTML = clean;
-        var candidates = Array.prototype.slice.call(
-            template.content.querySelectorAll(conversationMessageSelector())
-        );
-        var nextIds = [];
-        var nextSignatures = new Map();
-        candidates.forEach(function (candidate) {
-            var id = conversationMessageId(candidate);
-            nextIds.push(id);
-            nextSignatures.set(id, candidate.outerHTML);
-        });
-        if (!preserveUnchanged) {
-            releaseMermaidObjectUrls();
-            messages.replaceChildren(template.content);
-            return { ids: nextIds, signatures: nextSignatures };
-        }
-        var oldMessages = Array.prototype.slice.call(
-            messages.querySelectorAll(conversationMessageSelector())
-        );
-        var unchanged = oldMessages.length === candidates.length
-            && candidates.every(function (candidate, index) {
-                var id = conversationMessageId(candidate);
-                return conversationMessageId(oldMessages[index]) === id
-                    && previousSignatures.get(id) === candidate.outerHTML;
-            });
-        if (unchanged) {
-            return { ids: nextIds, signatures: nextSignatures };
-        }
-        var oldById = new Map();
-        oldMessages.forEach(function (message) {
-            var id = conversationMessageId(message);
-            if (id && !oldById.has(id)) oldById.set(id, message);
-        });
-        var preserved = new Set();
-        candidates.forEach(function (candidate) {
-            var id = conversationMessageId(candidate);
-            var oldMessage = oldById.get(id);
-            if (!id
-                || !oldMessage
-                || preserved.has(oldMessage)) {
-                return;
-            }
-            if (previousSignatures.get(id) === candidate.outerHTML) {
-                preserved.add(oldMessage);
-                candidate.replaceWith(oldMessage);
-                return;
-            }
-            preserveMermaidContent(oldMessage, candidate);
-        });
-        oldMessages.forEach(function (oldMessage) {
-            if (!preserved.has(oldMessage)) {
-                releaseMermaidObjectUrls(oldMessage);
-            }
-        });
-        messages.replaceChildren(template.content);
-        return { ids: nextIds, signatures: nextSignatures };
-    }
 
     function updatePosition(message) {
         var total = message.totalInputs.toLocaleString();
         if (message.partial) total += '+';
         position.textContent = 'Input ' + message.selectedInput + ' of ' + total;
-    }
-
-    function scrollToConversationEnd() {
-        scroll.scrollTop = Math.max(
-            0,
-            scroll.scrollHeight - scroll.clientHeight
-        );
-        state.followingEnd = true;
-    }
-
-    function conversationAtEnd() {
-        var threshold = Number(
-            document.body.getAttribute('data-auto-scroll-threshold')
-        );
-        return Number.isFinite(threshold)
-            && threshold >= 0
-            && scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop
-                <= threshold;
-    }
-
-    function trackConversationEnd() {
-        state.followingEnd = conversationAtEnd();
     }
 
     function applyPage(message) {
@@ -692,7 +496,7 @@
             ALLOW_ARIA_ATTR: false,
         });
 
-        var reconciled = reconcileMessages(
+        var reconciled = reconcileController.reconcile(
             clean,
             isLiveRefresh,
             oldSignatures
@@ -769,7 +573,7 @@
             var openingAtLatest = message.atLatest
                 && message.updateKind === 'initial';
             if (openingAtLatest) {
-                scrollToConversationEnd();
+                reconcileController.scrollToEnd();
             } else if (selected) {
                 selected.scrollIntoView({ block: 'center' });
             }
@@ -777,7 +581,7 @@
                 selected.tabIndex = -1;
                 selected.focus({ preventScroll: true });
             }
-            if (!openingAtLatest) trackConversationEnd();
+            if (!openingAtLatest) reconcileController.trackEnd();
             return;
         }
 
@@ -790,23 +594,14 @@
             state.firstNewMessageId = appendedOrChanged[0];
         }
         newResponse.hidden = !state.firstNewMessageId;
-        trackConversationEnd();
+        reconcileController.trackEnd();
     }
 
     function postNavigation(type) {
         post({ type: type, version: 1 });
     }
 
-    scroll.addEventListener('scroll', trackConversationEnd, { passive: true });
-    if (typeof ResizeObserver === 'function') {
-        var viewportObserver = new ResizeObserver(function () {
-            if (state.followingEnd) scrollToConversationEnd();
-        });
-        viewportObserver.observe(scroll);
-        window.addEventListener('unload', function () {
-            viewportObserver.disconnect();
-        });
-    }
+    reconcileController.attach();
 
     previous.addEventListener('click', function () {
         postNavigation('conversation-viewer-previous');
@@ -821,99 +616,8 @@
         postNavigation('conversation-viewer-closed');
     });
     if (sidebarUiAvailable) {
-        function toggleSidebarView(view) {
-            var alreadyOpen = state.commentsPanelOpen
-                && state.sidebarView === view;
-            setSidebarView(view, !alreadyOpen, true);
-        }
-        outlineToggle.addEventListener('click', function () {
-            toggleSidebarView('outline');
-        });
-        commentsToggle.addEventListener('click', function () {
-            toggleSidebarView('comments');
-        });
-        sidebarTabs.forEach(function (tab) {
-            tab.addEventListener('click', function () {
-                setSidebarView(
-                    tab.getAttribute('data-sidebar-tab'),
-                    true,
-                    true
-                );
-            });
-            tab.addEventListener('keydown', function (event) {
-                if (!['ArrowLeft', 'ArrowRight', 'Home', 'End']
-                    .includes(event.key)) return;
-                var current = sidebarTabs.indexOf(tab);
-                var nextIndex = current;
-                if (event.key === 'Home') nextIndex = 0;
-                else if (event.key === 'End') {
-                    nextIndex = sidebarTabs.length - 1;
-                } else if (event.key === 'ArrowLeft') {
-                    nextIndex = Math.max(0, current - 1);
-                } else {
-                    nextIndex = Math.min(
-                        sidebarTabs.length - 1,
-                        current + 1
-                    );
-                }
-                event.preventDefault();
-                var nextTab = sidebarTabs[nextIndex];
-                setSidebarView(
-                    nextTab.getAttribute('data-sidebar-tab'),
-                    true,
-                    true
-                );
-                nextTab.focus();
-            });
-        });
-        sidebarClose.addEventListener('click', function () {
-            setCommentsPanelOpen(false, true);
-            if (state.sidebarView === 'outline') {
-                outlineToggle.focus();
-            } else {
-                commentsToggle.focus();
-            }
-        });
+        sidebarController.attach();
         outlineController.attach();
-        var resizingPointerId = null;
-        commentsResizer.addEventListener('pointerdown', function (event) {
-            if (event.button !== 0) return;
-            resizingPointerId = event.pointerId;
-            commentsResizer.setPointerCapture(event.pointerId);
-            event.preventDefault();
-        });
-        commentsResizer.addEventListener('pointermove', function (event) {
-            if (event.pointerId !== resizingPointerId) return;
-            var bounds = commentsWorkspace.getBoundingClientRect();
-            setCommentsPanelWidth(bounds.right - event.clientX, false);
-        });
-        function finishCommentsResize(event) {
-            if (event.pointerId !== resizingPointerId) return;
-            resizingPointerId = null;
-            saveCommentsPanelState();
-        }
-        commentsResizer.addEventListener('pointerup', finishCommentsResize);
-        commentsResizer.addEventListener(
-            'pointercancel',
-            finishCommentsResize
-        );
-        commentsResizer.addEventListener('keydown', function (event) {
-            var nextWidth;
-            if (event.key === 'ArrowLeft') {
-                nextWidth = state.commentsPanelWidth + 16;
-            } else if (event.key === 'ArrowRight') {
-                nextWidth = state.commentsPanelWidth - 16;
-            } else if (event.key === 'Home') {
-                nextWidth = commentsPanelMinWidth;
-            } else if (event.key === 'End') {
-                nextWidth = availableCommentsPanelMaxWidth();
-            } else {
-                return;
-            }
-            event.preventDefault();
-            setCommentsPanelWidth(nextWidth, true);
-        });
-        window.addEventListener('resize', applyCommentsPanelLayout);
     }
     newResponse.addEventListener('click', function () {
         var target = Array.prototype.find.call(
@@ -955,15 +659,7 @@
         if (commentsController.handleEnterShortcut(event)) return;
         if (event.key !== 'Escape') return;
         if (commentsController.handleEscape(event)) return;
-        if (sidebarUiAvailable
-            && state.commentsPanelOpen
-            && sidebarRoot.contains(document.activeElement)) {
-            event.preventDefault();
-            setCommentsPanelOpen(false, true);
-            if (state.sidebarView === 'outline') outlineToggle.focus();
-            else commentsToggle.focus();
-            return;
-        }
+        if (sidebarController.handleEscape(event)) return;
         event.preventDefault();
         postNavigation('conversation-viewer-closed');
     });
@@ -987,23 +683,12 @@
     }
     if (sidebarUiAvailable) {
         outlineController.initializeBookmarks();
-        var savedCommentsPanel = readCommentsPanelState();
+        var savedCommentsPanel = sidebarController.readSavedState();
         if (savedCommentsPanel) {
-            if (typeof savedCommentsPanel.open === 'boolean') {
-                state.commentsPanelOpen = savedCommentsPanel.open;
-            }
-            if (Number.isFinite(savedCommentsPanel.width)) {
-                state.commentsPanelWidth = Math.round(
-                    savedCommentsPanel.width
-                );
-            }
-            if (savedCommentsPanel.view === 'outline'
-                || savedCommentsPanel.view === 'comments') {
-                state.sidebarView = savedCommentsPanel.view;
-            }
+            sidebarController.restore(savedCommentsPanel);
             outlineController.restoreQuery(savedCommentsPanel.query);
         }
-        applyCommentsPanelLayout();
+        sidebarController.applyLayout();
         outlineController.filter();
     }
     if (commentUiAvailable) {

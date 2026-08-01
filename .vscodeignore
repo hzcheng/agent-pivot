@@ -32,6 +32,8 @@ media/brand/**
 !media/conversationOutlineScripts.js
 !media/conversationTelemetryScripts.js
 !media/conversationCommentsScripts.js
+!media/conversationSidebarScripts.js
+!media/conversationReconcileScripts.js
 !media/conversationViewerScripts.js
 !media/conversationViewer.css
 !media/conversationTelemetry.css

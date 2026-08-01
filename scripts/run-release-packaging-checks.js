@@ -778,10 +778,21 @@ function run() {
 
     const installScript = readText('scripts/build-test-package-install.sh');
     assertIncludes(installScript, 'npm run package:release', 'local install script');
-    assertIncludes(installScript, 'BRIDGE_VERSION', 'local install script');
-    assertIncludes(installScript, '--install-extension "$BRIDGE_VSIX" --force', 'local install script');
-    assertIncludes(installScript, '--install-extension "$MAIN_VSIX" --force', 'local install script');
+    assertIncludes(installScript, 'node scripts/install-local-extensions.js', 'local install script');
     assertNotIncludes(installScript, 'agent-pivot-attention-ui-bridge-0.1.3.vsix', 'local install script');
+
+    // Routing, artifact paths and byte verification moved into Node so they could
+    // be tested; the packaging invariants follow them there. Versions come from
+    // the extension manifests via the package plan, so none can be hardcoded.
+    const localInstaller = readText('scripts/install-local-extensions.js');
+    assertIncludes(localInstaller, 'createExtensionPackagePlan', 'local installer');
+    assertIncludes(localInstaller, 'verifyInstalledExtensionBytes', 'local installer');
+    assertIncludes(localInstaller, '--install-extension', 'local installer');
+    assertIncludes(localInstaller, 'path.resolve(artifactPath)', 'local installer');
+    assertNotIncludes(localInstaller, 'agent-pivot-attention-ui-bridge-0.1.3.vsix', 'local installer');
+    const packagePlanSource = readText('scripts/lib/extensionHostLauncher.js');
+    assertIncludes(packagePlanSource, 'attention-ui-bridge', 'local installer package plan');
+    assertIncludes(packagePlanSource, 'manifest.version', 'local installer package plan');
 
     const publishScript = readText('scripts/publish-marketplace.sh');
     assertIncludes(publishScript, 'BRIDGE_NAME', 'Marketplace publish script');

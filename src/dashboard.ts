@@ -125,6 +125,14 @@ import type {
     AiSessionRuntimeLifecycleCandidate,
 } from './aiSessions/attentionController';
 import { createAiSessionStatusCapability } from './aiSessions/statusCapability';
+import { NotifyDispatcher } from './aiSessions/notify/dispatcher';
+import { createHttpsTransport } from './aiSessions/notify/httpClient';
+import { NotifiedEventStore } from './aiSessions/notify/store';
+import type { NotifyConfig } from './aiSessions/notify/types';
+import { registerNotifyCommands, resolveNotifySecretStorage } from './aiSessions/notifyIntegration/commands';
+import { assembleNotifyConfig, NOTIFY_SECRET_KEY_PREFIX } from './aiSessions/notifyIntegration/credentials';
+import { buildNotifyPayload } from './aiSessions/notifyIntegration/notifier';
+import { createNotifyOutputChannel } from './aiSessions/notifyIntegration/output';
 import {
     getLastPartOfPath,
     isUriString,
@@ -1202,6 +1210,86 @@ async function initializeDashboard(
     let aiSessionUpdateSequence = 0;
     let currentAiSessionRefreshReason = 'refresh';
     let aiSessionAttentionBridgeClient: AttentionBridgeClient;
+    const notifyOutput = createNotifyOutputChannel();
+    context.subscriptions.push({ dispose: () => notifyOutput.dispose() });
+    const notifiedStore = new NotifiedEventStore(
+        path.join(os.homedir(), '.agent-pivot', 'notified.json'));
+    notifiedStore.load();
+    let currentNotifyConfig: NotifyConfig | null = null;
+    const notifyDispatcher = new NotifyDispatcher({
+        transport: createHttpsTransport(),
+        store: notifiedStore,
+        nowMs: () => Date.now(),
+        setTimeout: (handler, ms) => setTimeout(handler, ms),
+        clearTimeout: handle => clearTimeout(handle as NodeJS.Timeout),
+        sleep: ms => new Promise(resolve => setTimeout(resolve, ms)),
+        globalProxy: getAgentPivotConfiguration().get<string>('notify.proxy', ''),
+        env: process.env,
+        onLog: line => notifyOutput.log(line),
+    });
+    const refreshNotifyConfig = async (): Promise<void> => {
+        const configuration = getAgentPivotConfiguration();
+        const skeletons = configuration.get<Array<Record<string, unknown>>>('notify.sinks', []);
+        const secretStorage = resolveNotifySecretStorage(context);
+        const secrets: Record<string, string> = {};
+        for (const skeleton of skeletons) {
+            const id = typeof skeleton.id === 'string' ? skeleton.id : '';
+            if (!id) {
+                continue;
+            }
+            const stored = secretStorage
+                ? await secretStorage.get(`${NOTIFY_SECRET_KEY_PREFIX}${id}`)
+                : undefined;
+            if (stored) {
+                secrets[id] = stored;
+            }
+        }
+        const assembled = assembleNotifyConfig({
+            enabled: configuration.get<boolean>('notify.enabled', false),
+            sinks: skeletons,
+            reasons: configuration.get<string[]>('notify.reasons',
+                ['completed', 'input-required', 'failed']),
+            minRunDurationMs: configuration.get<number>('notify.minRunDurationMs', 60000),
+            debounceMs: configuration.get<number>('notify.debounceMs', 5000),
+            rateLimitPerMin: configuration.get<number>('notify.rateLimitPerMin', 6),
+            escalateAfterMs: configuration.get<number>('notify.escalateAfterMs', 0),
+            projectPathMode: configuration.get<string>('notify.projectPathMode', 'basename'),
+            includeSessionLabel: configuration.get<boolean>('notify.includeSessionLabel', true),
+        }, secrets);
+        currentNotifyConfig = assembled;
+        notifyDispatcher.setConfig(assembled);
+    };
+    await refreshNotifyConfig();
+    context.subscriptions.push(...registerNotifyCommands(context, {
+        output: notifyOutput,
+        getConfig: () => currentNotifyConfig || assembleNotifyConfig({
+            enabled: false, sinks: [], reasons: [], minRunDurationMs: 0,
+            debounceMs: 0, rateLimitPerMin: 1, escalateAfterMs: 0,
+            projectPathMode: 'basename', includeSessionLabel: true,
+        }, {}),
+        globalProxy: () => getAgentPivotConfiguration().get<string>('notify.proxy', ''),
+    }));
+    const locateAttentionSession = (key: string) => {
+        const target = getCurrentWorkspaceActionTargetWithoutCardId();
+        if (!target) {
+            return null;
+        }
+        for (const provider of getRegisteredAiSessionProviders()) {
+            for (const session of target.sessions.sessionsByProvider[provider.id] || []) {
+                if (getAiSessionKey(provider.id, session.id) !== key) {
+                    continue;
+                }
+                const runtime = getAiSessionRuntimeById(provider.id, session.id);
+                if (!runtime) {
+                    return null;
+                }
+                const root = target.workspace.roots.find(r => r.id === session.primaryRootId)
+                    || target.workspace.roots[0];
+                return { providerId: provider.id, session, runtime, rootPath: root?.hostPath || '' };
+            }
+        }
+        return null;
+    };
     const aiSessionAttentionController = new AiSessionAttentionController<AiSessionRuntimeSnapshot<vscode.Terminal>>({
         isEnabled: () => getAgentPivotConfiguration().get<boolean>('aiSessionAttention.enabled', true) !== false,
         getWorkspaceTarget: getCurrentWorkspaceActionTargetWithoutCardId,
@@ -1209,6 +1297,26 @@ async function initializeDashboard(
         getRuntimeById: getAiSessionRuntimeById,
         publish: (items, forceHeartbeat) => aiSessionAttentionBridgeClient.publish(items, forceHeartbeat),
         scheduleRefresh: reason => scheduleAiSessionRefresh(reason),
+        onAttentionEvents: events => {
+            for (const event of events) {
+                const located = locateAttentionSession(event.key);
+                if (!located) {
+                    continue;
+                }
+                notifyDispatcher.enqueue(buildNotifyPayload(event, {
+                    providerId: located.providerId,
+                    projectLabel: located.rootPath,
+                    sessionLabel: located.session.name || located.session.id,
+                    hostLabel: os.hostname(),
+                    runStartedAtMs: located.runtime.runStartedAtMs,
+                    projectPathMode: getAgentPivotConfiguration()
+                        .get<'basename' | 'full'>('notify.projectPathMode', 'basename'),
+                    includeSessionLabel: getAgentPivotConfiguration()
+                        .get<boolean>('notify.includeSessionLabel', true),
+                }));
+            }
+        },
+        onAttentionAcknowledged: eventIds => notifyDispatcher.cancel(eventIds),
         nowMs: () => Date.now(),
     });
     const aiSessionExecutionController = new AiSessionExecutionController({
@@ -2572,6 +2680,12 @@ async function initializeDashboard(
     ownResource(() => vscode.workspace.onDidChangeConfiguration(
         event => dashboardLifecycleController.handleConfigurationChange(event)
     ));
+
+    ownResource(() => vscode.workspace.onDidChangeConfiguration(event => {
+        if (event.affectsConfiguration(`${AGENT_PIVOT_CONFIG_SECTION}.notify`)) {
+            void refreshNotifyConfig();
+        }
+    }));
 
     ownResource(() => vscode.workspace.onDidChangeWorkspaceFolders(() => {
         dashboardLifecycleController.handleWorkspaceFoldersChanged();

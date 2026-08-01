@@ -4432,5 +4432,19 @@
     "evidence": [
       "src/aiSessions/notifyIntegration/credentials.ts"
     ]
+  },
+  {
+    "id": "ATTENTION-NOTIFY-MANIFEST-001",
+    "domain": "attention",
+    "title": "Notification settings default to off and never hold credentials",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/notify/commandContract.test.js"
+    ],
+    "evidence": [
+      "package.json",
+      "src/aiSessions/notifyIntegration/commands.ts"
+    ]
   }
 ]

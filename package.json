@@ -97,6 +97,18 @@
             {
                 "command": "agentPivot.openCurrentAiSessionConversation",
                 "title": "Agent Pivot: Open Current AI Session Conversation"
+            },
+            {
+                "command": "agentPivot.notify.setWebhook",
+                "title": "Agent Pivot: Set Notification Webhook"
+            },
+            {
+                "command": "agentPivot.notify.sendTest",
+                "title": "Agent Pivot: Send Test Notification"
+            },
+            {
+                "command": "agentPivot.notify.showOutput",
+                "title": "Agent Pivot: Show Notification Log"
             }
         ],
         "keybindings": [
@@ -307,6 +319,62 @@
                     "type": "boolean",
                     "default": true,
                     "description": "Show attention indicators when Agent Pivot AI sessions finish or may need input."
+                },
+                "agentPivot.notify.enabled": {
+                    "type": "boolean",
+                    "default": false,
+                    "markdownDescription": "Send a notification to an IM or push service when an AI session stops and needs you. Sends project name, session name and status to the endpoints you configure."
+                },
+                "agentPivot.notify.sinks": {
+                    "type": "array",
+                    "default": [],
+                    "scope": "machine",
+                    "markdownDescription": "Notification targets without credentials. Credentials are stored separately by `Agent Pivot: Set Notification Webhook`. Channels that can also receive replies in a future release: `ntfy`, `telegram`, `slack`, `discord`, `dingtalk`, `feishu`. Only `ntfy` broadcasts to every machine; the others deliver a reply to one machine at random."
+                },
+                "agentPivot.notify.reasons": {
+                    "type": "array",
+                    "default": ["completed", "input-required", "failed"],
+                    "items": { "enum": ["completed", "input-required", "failed"] },
+                    "markdownDescription": "Which stop reasons trigger a notification. `failed` is only produced by Claude sessions."
+                },
+                "agentPivot.notify.minRunDurationMs": {
+                    "type": "number",
+                    "default": 60000,
+                    "minimum": 0,
+                    "markdownDescription": "Skip notifications for sessions that ran shorter than this. Raise it if short turns are too chatty."
+                },
+                "agentPivot.notify.debounceMs": {
+                    "type": "number",
+                    "default": 5000,
+                    "minimum": 0
+                },
+                "agentPivot.notify.rateLimitPerMin": {
+                    "type": "number",
+                    "default": 6,
+                    "minimum": 1
+                },
+                "agentPivot.notify.escalateAfterMs": {
+                    "type": "number",
+                    "default": 0,
+                    "minimum": 0,
+                    "markdownDescription": "Re-notify after this long if the attention indicator is still unread. `0` disables it."
+                },
+                "agentPivot.notify.projectPathMode": {
+                    "type": "string",
+                    "default": "basename",
+                    "enum": ["basename", "full"],
+                    "markdownDescription": "Whether notifications carry the project folder name only, or its full path."
+                },
+                "agentPivot.notify.includeSessionLabel": {
+                    "type": "boolean",
+                    "default": true,
+                    "markdownDescription": "Include the session title. Turn off to send only the short correlation code."
+                },
+                "agentPivot.notify.proxy": {
+                    "type": "string",
+                    "default": "",
+                    "scope": "machine",
+                    "markdownDescription": "Proxy for notification requests, for example `http://127.0.0.1:7890`. Empty falls back to `HTTPS_PROXY` / `ALL_PROXY`."
                 },
                 "agentPivot.skills.globalStorePath": {
                     "type": "string",

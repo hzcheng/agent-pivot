@@ -331,6 +331,12 @@ const DASHBOARD_COMMANDS = [
     'agentPivot.openCurrentAiSessionConversation',
 ];
 
+// Registered directly from initializeDashboard, outside the dashboard command facade.
+const NOTIFY_COMMANDS = [
+    'agentPivot.notify.setWebhook', 'agentPivot.notify.showOutput',
+    'agentPivot.notify.sendTest',
+];
+
 test('WEBVIEW-DASHBOARD-COMMAND-REGISTRATION-001 WEBVIEW-DASHBOARD-COMMAND-AVAILABILITY-001 registers once and switches generation handlers safely', async () => {
     const registered = new Map();
     const subscriptions = [];
@@ -416,7 +422,7 @@ test('WEBVIEW-DASHBOARD-COMMAND-REGISTRATION-001 production activation installs 
     assert.deepEqual(activation.synchronizedGlobalStateKeySets, [['promptData.v1']]);
     assert.deepEqual(
         activation.registeredCommands.filter(command => command.startsWith('agentPivot.')),
-        DASHBOARD_COMMANDS
+        [...DASHBOARD_COMMANDS, ...NOTIFY_COMMANDS]
     );
 });
 

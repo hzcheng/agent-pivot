@@ -2571,9 +2571,13 @@
     "status": "automated",
     "owners": [
       "tests/contract/projects/controllers.test.js"
+    ,
+      "tests/contract/projects/projectMessageHandlers.test.js"
     ],
     "evidence": [
       "scripts/run-dashboard-webview-checks.js"
+    ,
+      "src/projects/projectMessageHandlers.ts"
     ]
   },
   {
@@ -2584,9 +2588,13 @@
     "status": "automated",
     "owners": [
       "tests/contract/projects/controllers.test.js"
+    ,
+      "tests/contract/projects/projectMessageHandlers.test.js"
     ],
     "evidence": [
       "scripts/run-dashboard-webview-checks.js"
+    ,
+      "src/projects/projectMessageHandlers.ts"
     ]
   },
   {
@@ -2597,9 +2605,13 @@
     "status": "automated",
     "owners": [
       "tests/contract/projects/controllers.test.js"
+    ,
+      "tests/contract/projects/projectMessageHandlers.test.js"
     ],
     "evidence": [
       "scripts/run-dashboard-webview-checks.js"
+    ,
+      "src/projects/projectMessageHandlers.ts"
     ]
   },
   {
@@ -2995,9 +3007,13 @@
     "status": "automated",
     "owners": [
       "tests/integration/dashboard/messageRouter.test.js"
+    ,
+      "tests/contract/projects/projectMessageHandlers.test.js"
     ],
     "evidence": [
       "src/dashboard/messageRouter.ts"
+    ,
+      "src/projects/projectMessageHandlers.ts"
     ]
   },
   {
@@ -3223,6 +3239,8 @@
       "tests/contract/openProjects/dashboardController.test.js",
       "tests/integration/dashboard/errorRecovery.test.js",
       "tests/integration/dashboard/webviewState.test.js"
+    ,
+      "tests/contract/projects/projectMessageHandlers.test.js"
     ],
     "evidence": [
       "src/services/projectCatalogSyncService.ts",
@@ -3231,6 +3249,8 @@
       "src/openWorkspaces/dashboardController.ts",
       "src/webview/webviewDashboardScripts.js",
       "src/dashboard.ts"
+    ,
+      "src/projects/projectMessageHandlers.ts"
     ]
   },
   {
@@ -3256,11 +3276,15 @@
       "tests/contract/projects/controllers.test.js",
       "tests/contract/openProjects/workspaceController.test.js",
       "tests/integration/dashboard/productionAttentionBridge.test.js"
+    ,
+      "tests/contract/projects/projectMessageHandlers.test.js"
     ],
     "evidence": [
       "src/projects/projectOpenController.ts",
       "src/projects/projectNavigationProtocol.ts",
       "extensions/attention-ui-bridge/src/extension.ts"
+    ,
+      "src/projects/projectMessageHandlers.ts"
     ]
   },
   {

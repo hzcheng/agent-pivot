@@ -6,7 +6,7 @@ import { existsSync, statSync } from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { performance } from 'perf_hooks';
-import { Project, GroupOrder, ProjectRemoteType, StewardInfos, ProjectOpenType, ReopenStewardReason, AiSessionProviderId, isAiSessionProviderId } from './models';
+import { Project, ProjectRemoteType, StewardInfos, ReopenStewardReason, AiSessionProviderId, isAiSessionProviderId } from './models';
 import { getProjectsPanelContent, getStewardContent } from './webview/webviewContent';
 import { getSkillsPanelContent } from './webview/webviewSkillContent';
 import {
@@ -49,7 +49,7 @@ import {
 import AiSessionWorkspaceStateStore from './aiSessions/workspaceStateStore';
 import ActiveAiSessionTerminalHighlighter from './aiSessions/activeTerminalHighlight';
 import AttentionBridgeClient from './aiSessions/attentionBridgeClient';
-import { getAttentionRuntimeSessionKey, getLogicalAttentionSessionKey, withAttentionProject } from './aiSessions/attentionProject';
+import { getAttentionRuntimeSessionKey, getLogicalAttentionSessionKey } from './aiSessions/attentionProject';
 import type { ActiveAiSessionTerminalIdentity } from './aiSessions/activeTerminalHighlight';
 import { getAiSessionKey } from './aiSessions/sessionHelpers';
 import {
@@ -143,6 +143,7 @@ import { ProjectOpenController } from './projects/projectOpenController';
 import { ProjectOrderController } from './projects/projectOrderController';
 import { ProjectPromptController } from './projects/projectPromptController';
 import { ProjectRemovalController } from './projects/projectRemovalController';
+import { createProjectMessageHandlers, createProjectSurfaceRefresh } from './projects/projectMessageHandlers';
 import { AgentPivotViewProvider } from './dashboard/viewProvider';
 import type { AgentPivotViewProviderOptions } from './dashboard/viewProvider';
 import { DashboardBootstrapController } from './dashboard/bootstrapController';
@@ -161,7 +162,6 @@ import {
     DashboardRuntimeController,
     revealAgentPivotDashboard,
 } from './dashboard/runtimeController';
-import type { ProjectsPanelUpdateMode } from './dashboard/webviewUpdateMessages';
 import { DashboardStartupController, settleMigration } from './dashboard/startupController';
 import { getDashboardWebviewOptions } from './dashboard/webviewOptions';
 import OpenWorkspaceBridgeClient from './openWorkspaces/bridgeClient';
@@ -602,6 +602,13 @@ async function initializeDashboard(
         showErrorMessage: message => vscode.window.showErrorMessage(message),
         logError,
     }));
+    const projectSurface = createProjectSurfaceRefresh({
+        getProjectsPanelController: () => projectsPanelController,
+        getOpenWorkspaceDashboardController: () => openWorkspaceDashboardController,
+        publishOpenWorkspace: () => openWorkspaceController.publish(),
+        syncProjectColorToCurrentWindow: project =>
+            dashboardRuntimeController.applyProjectColorToCurrentWindow(project),
+    });
     const groupCollapseController = new GroupCollapseController({
         state: context.globalState,
         projectService,
@@ -612,7 +619,7 @@ async function initializeDashboard(
         promptGroupToRemove: () => projectPromptController.queryGroup(),
         confirmRemoveGroup: groupName => vscode.window.showWarningMessage(`Remove ${groupName}?`, { modal: true }, 'Remove'),
         showErrorMessage: message => vscode.window.showErrorMessage(message),
-        refreshAfterMutation,
+        refreshAfterMutation: projectSurface.refreshAfterMutation,
         userCanceledToken: USER_CANCELED,
     });
     const projectWindowColorService = new ProjectWindowColorService(context);
@@ -663,18 +670,18 @@ async function initializeDashboard(
         showWarningMessage: message => vscode.window.showWarningMessage(message),
         showInformationMessage: message => vscode.window.showInformationMessage(message),
         showErrorMessage: message => vscode.window.showErrorMessage(message),
-        refreshAfterMutation,
+        refreshAfterMutation: projectSurface.refreshAfterMutation,
     });
     const favoriteProjectController = new FavoriteProjectController({
         getGroups: () => projectService.getGroups(),
         saveGroups: groups => projectService.saveGroups(groups),
-        refreshAfterMutation,
+        refreshAfterMutation: projectSurface.refreshAfterMutation,
     });
     const projectOrderController = new ProjectOrderController({
         getGroups: () => projectService.getGroups(),
         saveGroups: groups => projectService.saveGroups(groups),
         showInformationMessage: message => vscode.window.showInformationMessage(message),
-        refreshAfterMutation,
+        refreshAfterMutation: projectSurface.refreshAfterMutation,
     });
     const projectRemovalController = new ProjectRemovalController({
         getProject: projectId => projectService.getProject(projectId),
@@ -682,7 +689,7 @@ async function initializeDashboard(
         showProjectPicker: projectPicks => vscode.window.showQuickPick(projectPicks),
         confirmRemoveProject: projectName => vscode.window.showWarningMessage(`Remove ${projectName}?`, { modal: true }, 'Remove'),
         removeProject: projectId => projectService.removeProject(projectId),
-        refreshAfterMutation,
+        refreshAfterMutation: projectSurface.refreshAfterMutation,
         postCommandRemoval: () => { void dashboardRuntimeController.revealAgentPivotDashboard(); },
     });
     const projectManualEditController = new ProjectManualEditController({
@@ -698,7 +705,7 @@ async function initializeDashboard(
         executeCommand: command => vscode.commands.executeCommand(command),
         showErrorMessage: message => vscode.window.showErrorMessage(message),
         postSave: () => {
-            refreshAfterMutation();
+            projectSurface.refreshAfterMutation();
             void dashboardRuntimeController.revealAgentPivotDashboard();
         },
     });
@@ -712,7 +719,7 @@ async function initializeDashboard(
         getRandomColor: () => colorService.getRandomColor(),
         isFolderGitRepo,
         showErrorMessage: message => vscode.window.showErrorMessage(message),
-        refreshAfterMutation,
+        refreshAfterMutation: projectSurface.refreshAfterMutation,
         userCanceledToken: USER_CANCELED,
     });
     const codexSessionService = new CodexSessionService();
@@ -1648,6 +1655,22 @@ async function initializeDashboard(
         'cancel-ai-session-conversation': message =>
             conversationCapability.controller.cancel(message),
     };
+    const projectHandlers = createProjectMessageHandlers({
+        projectService,
+        projectOpenController,
+        projectMutationController,
+        projectOrderController,
+        favoriteProjectController,
+        projectRemovalController,
+        groupCommandController,
+        groupCollapseController,
+        getWorkspaceNavigationController: () => workspaceNavigationController,
+        getOpenWorkspacePinController: () => openWorkspacePinController,
+        getAttentionAggregate: () => aiSessionAttentionController.getEffectiveAggregate(),
+        acknowledgeAiSessionAttentionEventIds,
+        refreshAfterMutation: projectSurface.refreshAfterMutation,
+        showWarningMessage: message => vscode.window.showWarningMessage(message),
+    });
 
     const dashboardMessageRouter = createDashboardMessageRouter({
         getAiSessionProviderIds: () => getRegisteredAiSessionProviders().map(provider => provider.id),
@@ -1655,6 +1678,7 @@ async function initializeDashboard(
         handlers: {
             ...conversationHandlers,
             ...todoPanel.handlers,
+            ...projectHandlers,
             'request-projects-panel': async e => {
                 if (e.version !== 1 || !Number.isSafeInteger(e.requestId) || e.requestId < 1) {
                     return;
@@ -1960,54 +1984,6 @@ async function initializeDashboard(
                     await provider.postMessage(result);
                 }
             },
-            'selected-project': async e => {
-                let projectId = e.projectId as string;
-                let projectOpenType = e.projectOpenType as ProjectOpenType;
-
-                if (projectId.startsWith('__openWorkspaceNavigation-')) {
-                    await workspaceNavigationController.open(projectId);
-                    return;
-                }
-
-                const project = projectService.getProject(projectId);
-                if (project == null) {
-                    vscode.window.showWarningMessage("Selected Project not found.");
-                    return;
-                }
-
-                const attentionProject = withAttentionProject(
-                    project,
-                    aiSessionAttentionController.getEffectiveAggregate()
-                );
-                await acknowledgeAiSessionAttentionEventIds(attentionProject.aiSessionAttentionEventIds);
-                await projectOpenController.openProject(project, projectOpenType);
-            },
-            'set-open-workspace-pin': e => openWorkspacePinController.handle(e),
-            'add-project': async e => {
-                await projectMutationController.addProject(e.groupId as string);
-            },
-            'import-from-other-storage': async () => {
-                await projectService.copyProjectsFromFilledStorageOptionToEmptyStorageOption();
-                refreshAfterMutation();
-            },
-            'reordered-projects': async e => {
-                await projectOrderController.reorderGroups(e.groupOrders as GroupOrder[]);
-            },
-            'reordered-favorites': async e => {
-                await favoriteProjectController.reorderFavoriteProjects(Array.isArray(e.projectIds) ? e.projectIds as string[] : []);
-            },
-            'remove-project': async e => {
-                await projectRemovalController.removeProject(e.projectId as string);
-            },
-            'edit-project': async e => {
-                await projectMutationController.editProject(e.projectId as string);
-            },
-            'color-project': async e => {
-                await projectMutationController.editProjectColor(e.projectId as string);
-            },
-            'favorite-project': async e => {
-                await favoriteProjectController.toggleProjectFavorite(e.projectId as string);
-            },
             'toggle-codex-sessions': async e => {
                 await aiSessionCommandController.toggleSessionsExpanded(e.projectId as string, Boolean(e.expanded));
             },
@@ -2126,20 +2102,6 @@ async function initializeDashboard(
                     e.version
                 );
             },
-            'edit-group': async e => {
-                await groupCommandController.editGroup(e.groupId as string);
-            },
-            'remove-group': async e => {
-                await groupCommandController.removeGroup(e.groupId as string);
-            },
-            'add-group': async () => {
-                await groupCommandController.addGroup();
-            },
-            'collapse-group': async e => {
-                await groupCollapseController.collapseGroup(e.groupId as string, e.collapsed as boolean);
-            },
-            // Collapse-all is a per-webview convenience action.
-            'toggle-all-groups': () => undefined,
         },
         createAiSession: async e => {
             await aiSessionCreationController.createSession(e.projectId as string);
@@ -2448,7 +2410,7 @@ async function initializeDashboard(
         showErrorMessage: message => vscode.window.showErrorMessage(message),
         logError,
         showAgentPivot,
-        applyProjectColorToCurrentWindow,
+        applyProjectColorToCurrentWindow: projectSurface.applyProjectColorToCurrentWindow,
         getReopenReason: () => context.globalState.get(REOPEN_KEY),
         updateReopenReason: reason => context.globalState.update(REOPEN_KEY, reason),
         reopenNoneValue: ReopenStewardReason.None,
@@ -2484,9 +2446,9 @@ async function initializeDashboard(
             projectService.consumeProjectCatalogWriteEcho(change),
         consumePromptDataWriteEcho: () =>
             promptService.consumeCurrentSettingsDataLocalWriteEcho(),
-        applyProjectColorToCurrentWindow,
+        applyProjectColorToCurrentWindow: projectSurface.applyProjectColorToCurrentWindow,
         refresh: refreshStewardViews,
-        refreshProjects: () => postProjectSurfacesUpdated('replace'),
+        refreshProjects: () => projectSurface.postProjectSurfacesUpdated('replace'),
         refreshPrompts: () => {
             void provider.postMessage(promptDashboardController.getRefreshContent());
         },
@@ -2957,21 +2919,6 @@ async function initializeDashboard(
 
     function invalidateAiSessionCache(providerId: AiSessionProviderId) {
         getRegisteredAiSessionProvider(providerId)?.service.invalidateCache();
-    }
-
-    function postProjectSurfacesUpdated(mode: ProjectsPanelUpdateMode): void {
-        projectsPanelController?.postUpdated(mode);
-        openWorkspaceDashboardController.postUpdated();
-    }
-
-    function refreshAfterMutation(mode: ProjectsPanelUpdateMode = 'replace') {
-        postProjectSurfacesUpdated(mode);
-        applyProjectColorToCurrentWindow();
-        openWorkspaceController.publish();
-    }
-
-    function applyProjectColorToCurrentWindow(project: Project = null) {
-        dashboardRuntimeController.applyProjectColorToCurrentWindow(project);
     }
 
     async function showAgentPivotSettings() {

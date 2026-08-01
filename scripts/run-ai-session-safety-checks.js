@@ -4891,6 +4891,9 @@ async function runBatchAiSessionArchiveHostChecks() {
 
 function runWebviewContentChecks() {
     const webviewContent = fs.readFileSync(path.join(__dirname, '..', 'src', 'webview', 'webviewContent.ts'), 'utf8');
+    const projectMessageHandlers = fs.readFileSync(
+        path.join(__dirname, '..', 'src', 'projects', 'projectMessageHandlers.ts'), 'utf8'
+    );
     const webviewProjectScripts = fs.readFileSync(path.join(__dirname, '..', 'src', 'webview', 'webviewProjectScripts.js'), 'utf8');
     const webviewIcons = fs.readFileSync(path.join(__dirname, '..', 'src', 'webview', 'webviewIcons.ts'), 'utf8');
     const styles = fs.readFileSync(path.join(__dirname, '..', 'media', 'styles.scss'), 'utf8');
@@ -5299,15 +5302,17 @@ function runWebviewContentChecks() {
     assert.match(dashboard, /const acknowledgeAiSessionAttentionEventIds = async[\s\S]*?aiSessionAttentionController\.acknowledge\(uniqueEventIds\);\s*refreshAiSessionViewsIncrementally\(\);\s*await aiSessionAttentionBridgeClient\.acknowledge\(uniqueEventIds\)/,
         'attention acknowledgement must refresh the local view before waiting for the cross-window bridge');
     assert.match(dashboard, /const acknowledgeAiSessionAttention = async[\s\S]*?await acknowledgeAiSessionAttentionEventIds\(getAiSessionAttentionEventIds\(identity\)\)/);
-    const selectedProjectHandler = dashboard.slice(
-        dashboard.indexOf("'selected-project': async e =>"),
-        dashboard.indexOf("'add-project': async e =>")
+    const selectedProjectHandler = projectMessageHandlers.slice(
+        projectMessageHandlers.indexOf("'selected-project': async e =>"),
+        projectMessageHandlers.indexOf("'add-project': async e =>")
     );
     assert.match(
         selectedProjectHandler,
         /withAttentionProject\([\s\S]*?await acknowledgeAiSessionAttentionEventIds\(attentionProject\.aiSessionAttentionEventIds\)/,
         'clicking a project card must acknowledge all attention events represented by that card'
     );
+    assert.ok(dashboard.includes('acknowledgeAiSessionAttentionEventIds,'),
+        'the dashboard hands the extracted project handlers its attention acknowledgement');
     const settlementCall = dashboard.match(/settleAiSessionRuntimeLifecycles\(\{[\s\S]*?\n\s*\}\);/)?.[0] || '';
     assert.ok(settlementCall.includes('attentionKey: candidate.key'));
     assert.ok(settlementCall.includes('release: async candidate =>'));
@@ -5627,13 +5632,15 @@ function runWebviewContentChecks() {
     assert.ok(!webviewContent.includes('withCurrentWorkspaceState('));
     assert.ok(!webviewContent.includes('infos.currentWorkspaceProjectIds || []'));
     assert.ok(webviewContent.includes('getFavoriteProjectsInOrder('));
-    assert.ok(dashboard.includes("'reordered-favorites': async e =>"));
+    assert.ok(projectMessageHandlers.includes("'reordered-favorites': async e =>"));
+    assert.ok(dashboard.includes('...projectHandlers,'),
+        'the dashboard spreads the extracted project handlers into the message router');
     const favoriteProjectControllerSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'projects', 'favoriteProjectController.ts'), 'utf8');
     assert.ok(!dashboard.includes('withFavoriteProjectOrder(groups, projectIds)'));
     assert.ok(!dashboard.includes('withToggledProjectFavorite(groups, projectId)'));
     assert.ok(favoriteProjectControllerSource.includes('withFavoriteProjectOrder(groups, projectIds)'));
     assert.ok(favoriteProjectControllerSource.includes('withToggledProjectFavorite(groups, projectId)'));
-    assert.ok(dashboard.includes("function applyProjectColorToCurrentWindow(project: Project = null)"));
+    assert.ok(projectMessageHandlers.includes("function applyProjectColorToCurrentWindow(project: Project = null)"));
     assert.ok(dashboardRuntimeControllerSource.includes('this.options.getCurrentSavedProject()'));
     assert.ok(dashboard.includes('dashboardRuntimeController.applyProjectColorToCurrentWindow(project)'));
     assert.ok(projectWindowColorService.includes("PROJECT_COLOR_TO_WINDOW_KEY = 'applyProjectColorToWindow'"));

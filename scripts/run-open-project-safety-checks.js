@@ -3167,12 +3167,15 @@ async function runProjectServiceWorkspaceSaveMigrationIntegrationChecks() {
 
 function runDashboardBridgeLifecycleChecks() {
     const dashboard = fs.readFileSync(path.join(__dirname, '..', 'src', 'dashboard.ts'), 'utf8');
-    const refreshAfterMutation = extractFunctionBody(dashboard, 'refreshAfterMutation');
+    const projectMessageHandlers = fs.readFileSync(
+        path.join(__dirname, '..', 'src', 'projects', 'projectMessageHandlers.ts'), 'utf8'
+    );
+    const refreshAfterMutation = extractFunctionBody(projectMessageHandlers, 'refreshAfterMutation');
     const showAgentPivot = extractFunctionBody(dashboard, 'showAgentPivot');
     const projectedOpenWorkspaces = extractFunctionBody(dashboard, 'getOpenWorkspaceCards');
-    const selectedProjectHandler = dashboard.slice(
-        dashboard.indexOf("'selected-project': async e =>"),
-        dashboard.indexOf("'add-project': async e =>")
+    const selectedProjectHandler = projectMessageHandlers.slice(
+        projectMessageHandlers.indexOf("'selected-project': async e =>"),
+        projectMessageHandlers.indexOf("'add-project': async e =>")
     );
     const openWorkspaceControllerWiring = dashboard.slice(
         dashboard.indexOf('openWorkspaceController = new OpenWorkspaceController({'),
@@ -3284,13 +3287,13 @@ function runDashboardBridgeLifecycleChecks() {
     assert.ok(!dashboard.includes('get openProjects()'));
     assert.ok(projectedOpenWorkspaces.includes('openWorkspaceDashboardController.getCards()'));
     assert.ok(selectedProjectHandler.includes("projectId.startsWith('__openWorkspaceNavigation-')"));
-    assert.ok(selectedProjectHandler.includes('await workspaceNavigationController.open(projectId);'));
+    assert.ok(selectedProjectHandler.includes('await getWorkspaceNavigationController().open(projectId);'));
     assert.strictEqual(selectedProjectHandler.includes('getNavigationWorkspace(projectId)'), false);
     assert.strictEqual(selectedProjectHandler.includes('openProjectDashboardController'), false);
     assert.ok(selectedProjectHandler.includes('projectService.getProject(projectId)'));
     assert.ok(!selectedProjectHandler.includes('getOpenProjects()'));
     assert.ok(selectedProjectHandler.includes('await projectOpenController.openProject(project, projectOpenType);'));
-    assert.ok(dashboard.includes('await projectMutationController.addProject('));
+    assert.ok(projectMessageHandlers.includes('await projectMutationController.addProject('));
     assert.ok(dashboard.includes('saveCurrentWorkspace: () => savedWorkspaceProjectAdapter.saveCurrentWorkspace()'));
     assert.strictEqual(dashboard.includes('saveUntitledWorkspace:'), false,
         'workspace card saves must reuse the complete SavedWorkspaceProjectAdapter flow');
@@ -3319,8 +3322,8 @@ function runDashboardBridgeLifecycleChecks() {
     );
     assert.ok(saveAdapterWiring.includes('getCurrentWorkspace: resolveCurrentOpenWorkspace'),
         'Save Workspace As must read a fresh resolved snapshot instead of a cached transient card/controller state');
-    assert.ok(dashboard.includes('await projectMutationController.editProject('));
-    assert.ok(dashboard.includes('await projectMutationController.editProjectColor('));
+    assert.ok(projectMessageHandlers.includes('await projectMutationController.editProject('));
+    assert.ok(projectMessageHandlers.includes('await projectMutationController.editProjectColor('));
     assert.ok(dashboard.includes('editProjects: () => projectManualEditController.editProjectsManually()'));
     assert.ok(dashboard.includes('removeProject: () => projectRemovalController.removeProjectPerCommand()'));
     assert.ok(dashboard.includes('removeGroup: () => groupCommandController.removeGroupPerCommand()'));
@@ -3352,8 +3355,14 @@ function runDashboardBridgeLifecycleChecks() {
     assert.ok(dashboardLifecycleControllerSource.includes('this.options.publishOpenWorkspace(true);'));
     assert.ok(refreshAfterMutation.includes('postProjectSurfacesUpdated(mode);'),
         'saved project metadata mutations must update Projects and OPEN surfaces directly');
-    assert.ok(refreshAfterMutation.includes('openWorkspaceController.publish();'),
+    assert.ok(refreshAfterMutation.includes('options.publishOpenWorkspace();'),
         'saved project metadata mutations must republish even when configuration storage is disabled');
+    assert.ok(dashboard.includes('publishOpenWorkspace: () => openWorkspaceController.publish()'),
+        'the dashboard wires the workspace publication into the extracted project surface refresh');
+    assert.ok(dashboard.includes('createProjectSurfaceRefresh({'),
+        'the dashboard constructs the extracted project surface refresh');
+    assert.ok(dashboard.includes('createProjectMessageHandlers({'),
+        'the dashboard constructs the extracted project message handlers');
     assert.strictEqual(
         refreshAfterMutation.includes('dashboardRuntimeController.refreshAfterMutation();'),
         false,

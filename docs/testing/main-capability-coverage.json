@@ -1140,6 +1140,55 @@
             ],
             "scheduledJobs": [],
             "realEnvironmentRequired": false
+        },
+        {
+            "id": "MAIN-SESSION-STOP-NOTIFICATION",
+            "title": "Outbound notification when an AI session stops and needs the user",
+            "requirement": "When an AI session stops with reason completed, input-required or failed, Agent Pivot can send a metadata-only notification to one or more configured IM or push channels. The feature is off by default, keeps credentials out of settings.json, honours proxies, and gates delivery on reason, minimum run duration, debounce, dedup and rate limit.",
+            "commits": [
+                "49cfa4f68d957d2d460bad42f3305830e3b9061f",
+                "f3a5d22d660f556fb783b85169e37e9a99e610e4",
+                "0cd92ebf90c454a09b6645968464cb90546682ff",
+                "f7cf6e3df65abca140166f7cd518288c6d877ccb",
+                "5572f4513c926daea8284e2f7d22f33f3f3d6d9e",
+                "be83f0006c40554cf04f1f3f42dc9dd348f7376f",
+                "1f9601ce22814e37f224080517a26b9e33973d9b",
+                "959e42a03a2b0b4f61bb1cfea8a5488e3a17cb6b",
+                "aaccad47845cb479ddb26e943101e7046a927379",
+                "eb75c7725222f7d01743e00e9afc4fd9df9e89c3",
+                "9735c8913ee2e87a0e09638f07fea224f1e82530",
+                "07abf0d9b8bf63edc06355a79381bce81e77c9b2",
+                "2c3ad60b7b9c04cd6b53ccefe6b20f40dcd94484",
+                "2890321fc8548134dfa158d8cde7352abf8bfb84",
+                "8291116e52168098275d38e62f4511018442d459",
+                "255fc5c32885fded556b6e2444e5c23905aaca53",
+                "8d4f6930b48c723681390f6367c9d58ca0f8efcb",
+                "da0db2e9fe2c3d602bebb0cc828b2b219dd2c606",
+                "0115c234716b4d77bbcfdb176918a37cc6b8e5bb",
+                "c6122b6600af1c997918f42604072293d5da96b0"
+            ],
+            "behaviors": [
+                "ATTENTION-NOTIFY-EVENT-IDENTITY-001",
+                "ATTENTION-NOTIFY-CONFIG-VALIDATION-001",
+                "ATTENTION-NOTIFY-CORRELATION-001",
+                "ATTENTION-NOTIFY-POLICY-001",
+                "ATTENTION-NOTIFY-MESSAGE-001",
+                "ATTENTION-NOTIFY-TEMPLATE-WEBHOOK-001",
+                "ATTENTION-NOTIFY-TEMPLATE-SPECIALIZED-001",
+                "ATTENTION-NOTIFY-TEMPLATE-DISPATCH-001",
+                "ATTENTION-NOTIFY-HTTP-001",
+                "ATTENTION-NOTIFY-STORE-001",
+                "ATTENTION-NOTIFY-DISPATCHER-001",
+                "ATTENTION-NOTIFY-ISOLATION-001",
+                "ATTENTION-NOTIFY-PAYLOAD-BUILD-001",
+                "ATTENTION-NOTIFY-CREDENTIALS-001",
+                "ATTENTION-NOTIFY-MANIFEST-001"
+            ],
+            "prGates": [
+                "test:deterministic:run"
+            ],
+            "scheduledJobs": [],
+            "realEnvironmentRequired": false
         }
     ]
 }

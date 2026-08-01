@@ -31,6 +31,7 @@ const productionSources = [
     'media/webviewTodoGroupScripts.js',
     'media/webviewProjectCollapseScripts.js',
     'media/webviewTodoControlScripts.js',
+    'media/webviewProjectContextMenuScripts.js',
     'media/webviewProjectScripts.js',
     'media/webviewPromptScripts.js',
     'media/styles.scss',

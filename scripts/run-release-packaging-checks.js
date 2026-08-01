@@ -79,6 +79,7 @@ const EXPECTED_MAIN_ENTRIES = Object.freeze([
     'extension/media/webviewTodoGroupScripts.js',
     'extension/media/webviewProjectCollapseScripts.js',
     'extension/media/webviewTodoControlScripts.js',
+    'extension/media/webviewProjectContextMenuScripts.js',
     'extension/media/webviewProjectScripts.js',
     'extension/media/webviewPromptScripts.js',
     'extension/media/webviewScrollStateScripts.js',
@@ -595,6 +596,7 @@ function runRealVsixArchiveChecks(mainPackage, bridgePackage) {
         ['extension/media/webviewTodoGroupScripts.js', 'media/webviewTodoGroupScripts.js'],
         ['extension/media/webviewProjectCollapseScripts.js', 'media/webviewProjectCollapseScripts.js'],
         ['extension/media/webviewTodoControlScripts.js', 'media/webviewTodoControlScripts.js'],
+        ['extension/media/webviewProjectContextMenuScripts.js', 'media/webviewProjectContextMenuScripts.js'],
         ['extension/media/webviewProjectScripts.js', 'media/webviewProjectScripts.js'],
         ['extension/media/webviewPromptScripts.js', 'media/webviewPromptScripts.js'],
         ['extension/media/webviewScrollStateScripts.js', 'media/webviewScrollStateScripts.js'],
@@ -922,6 +924,7 @@ function run() {
     assertIncludes(mainIgnore, '!media/webviewTodoGroupScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewProjectCollapseScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewTodoControlScripts.js', 'main VSIX ignore rules');
+    assertIncludes(mainIgnore, '!media/webviewProjectContextMenuScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewProjectScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewPromptScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewScrollStateScripts.js', 'main VSIX ignore rules');
@@ -947,6 +950,7 @@ function run() {
         'media/webviewTodoGroupScripts.js',
         'media/webviewProjectCollapseScripts.js',
         'media/webviewTodoControlScripts.js',
+        'media/webviewProjectContextMenuScripts.js',
         'media/webviewProjectScripts.js',
         'media/webviewPromptScripts.js',
         'media/webviewScrollStateScripts.js',

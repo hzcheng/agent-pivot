@@ -65,6 +65,9 @@ const projectCollapseScriptPath = path.join(
 const todoControlScriptPath = path.join(
     root, 'src', 'webview', 'webviewTodoControlScripts.js'
 );
+const projectContextMenuScriptPath = path.join(
+    root, 'src', 'webview', 'webviewProjectContextMenuScripts.js'
+);
 
 function readProjectWebviewSource() {
     return [
@@ -73,6 +76,7 @@ function readProjectWebviewSource() {
         todoGroupScriptPath,
         projectCollapseScriptPath,
         todoControlScriptPath,
+        projectContextMenuScriptPath,
         projectScriptPath,
     ].map(scriptPath => fs.readFileSync(scriptPath, 'utf8')).join('\n');
 }

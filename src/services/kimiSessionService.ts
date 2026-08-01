@@ -10,6 +10,7 @@ import { aiSessionPathContains, filterAiSessionsByCandidatePaths, normalizeAiSes
 import IncrementalJsonlLifecycleReader from '../aiSessions/incrementalJsonlLifecycleReader';
 import type { AiSessionConversationSourceCandidate, AiSessionQueryOptions } from '../aiSessions/types';
 import { createKimiLifecycleAccumulator, AiSessionLifecycleRequest, AiSessionLifecycleSignal } from '../aiSessions/lifecycle';
+import SessionFingerprint from '../aiSessions/sessionFingerprint';
 import { Disposable } from './codexSessionService';
 
 interface KimiWorkDirEntry {
@@ -356,35 +357,36 @@ export default class KimiSessionService {
             return 'missing';
         }
 
-        let workDirs = this.getWorkDirs(kimiHome);
-        return [
-            kimiHome,
-            this.getFileSignature(path.join(kimiHome, 'kimi.json')),
-            ...workDirs.map(workDir => this.getWorkDirSignature(kimiHome, workDir)),
-        ].join('|');
+        let fingerprint = new SessionFingerprint();
+        fingerprint.addEntry(kimiHome);
+        fingerprint.addEntry(this.getFileSignature(path.join(kimiHome, 'kimi.json')));
+        for (let workDir of this.getWorkDirs(kimiHome)) {
+            this.addWorkDirFingerprint(fingerprint, kimiHome, workDir);
+        }
+        return fingerprint.digest();
     }
 
-    private getWorkDirSignature(kimiHome: string, workDir: string): string {
+    private addWorkDirFingerprint(fingerprint: SessionFingerprint, kimiHome: string, workDir: string): void {
         let sessionsDir = path.join(kimiHome, 'sessions', this.getWorkDirHash(workDir));
         if (!fs.existsSync(sessionsDir)) {
-            return `${workDir}:missing`;
+            fingerprint.addEntry(`${workDir}:missing`);
+            return;
         }
 
         try {
-            return `${workDir}:` + fs.readdirSync(sessionsDir, { withFileTypes: true })
+            let sessionIds = fs.readdirSync(sessionsDir, { withFileTypes: true })
                 .filter(entry => entry.isDirectory() && this.isSessionId(entry.name))
-                .map(entry => {
-                    let sessionDir = path.join(sessionsDir, entry.name);
-                    return [
-                        entry.name,
-                        this.getFileSignature(path.join(sessionDir, 'state.json')),
-                        this.getFileSignature(path.join(sessionDir, 'wire.jsonl')),
-                    ].join(':');
-                })
-                .sort()
-                .join(',');
+                .map(entry => entry.name)
+                .sort();
+            fingerprint.addEntry(workDir);
+            for (let sessionId of sessionIds) {
+                let sessionDir = path.join(sessionsDir, sessionId);
+                fingerprint.addEntry(sessionId);
+                fingerprint.addEntry(this.getFileSignature(path.join(sessionDir, 'state.json')));
+                fingerprint.addEntry(this.getFileSignature(path.join(sessionDir, 'wire.jsonl')));
+            }
         } catch (e) {
-            return `${workDir}:unreadable`;
+            fingerprint.addEntry(`${workDir}:unreadable`);
         }
     }
 

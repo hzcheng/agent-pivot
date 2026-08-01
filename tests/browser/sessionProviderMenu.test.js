@@ -27,6 +27,18 @@ function loadWebviewContent() {
 
 const { getAiSessionsDiv } = loadWebviewContent();
 
+const viewStateScript = fs.readFileSync(
+    path.join(__dirname, '../../src/webview/webviewAiSessionViewStateScripts.js'),
+    'utf8'
+);
+const workspaceUpdateScript = fs.readFileSync(
+    path.join(__dirname, '../../src/webview/webviewWorkspaceUpdateScripts.js'),
+    'utf8'
+);
+const todoGroupScript = fs.readFileSync(
+    path.join(__dirname, '../../src/webview/webviewTodoGroupScripts.js'),
+    'utf8'
+);
 const projectScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/webviewProjectScripts.js'),
     'utf8'
@@ -91,6 +103,9 @@ async function openMenuPage(t, selectedProviders = ['codex']) {
         };
     });
     await page.addScriptTag({ content: scrollStateScript });
+    await page.addScriptTag({ content: viewStateScript });
+    await page.addScriptTag({ content: workspaceUpdateScript });
+    await page.addScriptTag({ content: todoGroupScript });
     await page.addScriptTag({ content: projectScript });
     await page.evaluate(() => {
         initProjects();

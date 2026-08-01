@@ -24,6 +24,9 @@ DemoProjects.json
 media/*.scss
 media/brand/**
 !media/webviewScrollStateScripts.js
+!media/webviewAiSessionViewStateScripts.js
+!media/webviewWorkspaceUpdateScripts.js
+!media/webviewTodoGroupScripts.js
 !media/webviewProjectScripts.js
 !media/webviewPromptScripts.js
 !media/webviewTodoScripts.js

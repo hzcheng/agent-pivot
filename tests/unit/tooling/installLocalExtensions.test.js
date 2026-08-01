@@ -1,8 +1,11 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
+const { makeTempDirectory } = require('../../helpers/tempDirectory');
+const { createExtensionPackagePlan } = require('../../../scripts/lib/extensionHostLauncher');
 const {
     buildInstallArgs,
     main,
@@ -77,4 +80,87 @@ test('LOCAL-INSTALL-CLI-TARGET-001 stops at the first failing install', () => {
     assert.equal(calls[0].command, '/srv/bin/code-server');
     assert.ok(calls[0].args.includes('--extensions-dir=/srv/ext'));
     assert.ok(path.isAbsolute(calls[0].args.at(-2)));
+});
+
+test('LOCAL-INSTALL-CLI-TARGET-001 installs without verifying when the host directory is unknown', () => {
+    const logger = collectLogger();
+    const calls = [];
+
+    const status = main({
+        repositoryRoot,
+        logger,
+        spawnSync: (command, args) => { calls.push(args); return { status: 0 }; },
+        target: { command: 'code', source: 'path', extensionsDir: null },
+    });
+
+    assert.equal(status, 0);
+    assert.equal(calls.length, 2, 'both extensions are installed');
+    assert.ok(calls.every(args => !args.some(arg => arg.startsWith('--extensions-dir'))));
+    assert.match(logger.out.join('\n'), /not verified/,
+        'skipping verification must be stated, not implied by silence');
+});
+
+test('LOCAL-INSTALL-CLI-TARGET-001 verifies installed bytes against the built extension', t => {
+    const extensionsDir = makeTempDirectory(t, 'local-install-verify-');
+    const packagePlan = createExtensionPackagePlan(repositoryRoot);
+    for (const extensionPackage of packagePlan) {
+        const installedRoot = path.join(
+            extensionsDir, `${extensionPackage.id}-${extensionPackage.version}`
+        );
+        fs.mkdirSync(installedRoot, { recursive: true });
+        // VS Code injects __metadata on install; verification must tolerate it.
+        fs.writeFileSync(path.join(installedRoot, 'package.json'), JSON.stringify({
+            ...extensionPackage.manifest,
+            __metadata: { installedTimestamp: 1 },
+        }), 'utf8');
+        for (const relativePath of extensionPackage.runtimeFiles) {
+            const target = path.join(installedRoot, relativePath);
+            fs.mkdirSync(path.dirname(target), { recursive: true });
+            fs.copyFileSync(path.join(extensionPackage.packageRoot, relativePath), target);
+        }
+    }
+
+    const logger = collectLogger();
+    const status = main({
+        repositoryRoot,
+        logger,
+        spawnSync: () => ({ status: 0 }),
+        target: { command: '/srv/bin/code-server', source: 'server', extensionsDir },
+    });
+
+    assert.equal(status, 0);
+    const output = logger.out.join('\n');
+    assert.match(output, /verified their bytes/);
+    for (const extensionPackage of packagePlan) {
+        assert.ok(output.includes(extensionPackage.id), `${extensionPackage.id} reported`);
+    }
+});
+
+test('LOCAL-INSTALL-CLI-TARGET-001 fails when installed bytes do not match the build', t => {
+    const extensionsDir = makeTempDirectory(t, 'local-install-mismatch-');
+    const [extensionPackage] = createExtensionPackagePlan(repositoryRoot);
+    const installedRoot = path.join(
+        extensionsDir, `${extensionPackage.id}-${extensionPackage.version}`
+    );
+    fs.mkdirSync(installedRoot, { recursive: true });
+    fs.writeFileSync(
+        path.join(installedRoot, 'package.json'),
+        JSON.stringify(extensionPackage.manifest), 'utf8'
+    );
+    for (const relativePath of extensionPackage.runtimeFiles) {
+        const target = path.join(installedRoot, relativePath);
+        fs.mkdirSync(path.dirname(target), { recursive: true });
+        fs.writeFileSync(target, 'tampered', 'utf8');
+    }
+
+    const logger = collectLogger();
+    const status = main({
+        repositoryRoot,
+        logger,
+        spawnSync: () => ({ status: 0 }),
+        target: { command: '/srv/bin/code-server', source: 'server', extensionsDir },
+    });
+
+    assert.equal(status, 1, 'a zero exit status from the CLI is not proof of installed bytes');
+    assert.match(logger.out.join('\n'), /ERR /);
 });

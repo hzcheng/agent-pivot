@@ -1,9 +1,13 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const net = require('node:net');
 const path = require('node:path');
 const test = require('node:test');
+const { makeTempDirectory } = require('../../helpers/tempDirectory');
 const {
+    defaultListServerRoots,
     isLiveIpcSocket,
     resolveVSCodeCliTarget,
     serverEntryPoint,
@@ -92,4 +96,40 @@ test('LOCAL-INSTALL-CLI-TARGET-001 treats an unreachable socket path as dead', (
     assert.equal(isLiveIpcSocket('', () => true), false, 'an unset hook is not live');
     assert.equal(isLiveIpcSocket('/tmp/whatever.sock', () => false), false);
     assert.equal(isLiveIpcSocket('/tmp/whatever.sock', () => true), true);
+});
+
+test('LOCAL-INSTALL-CLI-TARGET-001 lists Server installations newest first', t => {
+    const root = makeTempDirectory(t, 'vscode-cli-target-');
+    const binRoot = path.join(root, '.vscode-server', 'bin');
+    const older = path.join(binRoot, 'older');
+    const newer = path.join(binRoot, 'newer');
+    fs.mkdirSync(older, { recursive: true });
+    fs.mkdirSync(newer, { recursive: true });
+    fs.writeFileSync(path.join(binRoot, 'stray-file'), '', 'utf8');
+    fs.utimesSync(older, new Date(1_000_000), new Date(1_000_000));
+    fs.utimesSync(newer, new Date(2_000_000), new Date(2_000_000));
+
+    assert.deepEqual(defaultListServerRoots({ HOME: root }), [newer, older],
+        'the most recently used Server installation is the live one');
+    assert.deepEqual(defaultListServerRoots({ HOME: path.join(root, 'missing') }), [],
+        'a machine with no Server installation lists nothing');
+    assert.deepEqual(defaultListServerRoots({}), [], 'no home means no discovery');
+});
+
+test('LOCAL-INSTALL-CLI-TARGET-001 probes a real socket rather than trusting the path', async t => {
+    const root = makeTempDirectory(t, 'vscode-cli-socket-');
+    const livePath = path.join(root, 'live.sock');
+    const server = net.createServer(socket => socket.end());
+    await new Promise(resolve => server.listen(livePath, resolve));
+    t.after(() => new Promise(resolve => server.close(resolve)));
+
+    assert.equal(isLiveIpcSocket(livePath), true, 'a listening socket is live');
+    assert.equal(isLiveIpcSocket(path.join(root, 'absent.sock')), false,
+        'a path with no socket is dead');
+
+    // A leftover socket file with nothing listening is the stale case that made
+    // the previous script target the wrong host.
+    server.close();
+    await new Promise(resolve => setTimeout(resolve, 20));
+    assert.equal(isLiveIpcSocket(livePath), false, 'a leftover socket file is not live');
 });

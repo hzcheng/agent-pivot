@@ -73,7 +73,6 @@ import { TmuxClient, TmuxClientError } from './aiSessions/tmuxClient';
 import { TmuxRuntimeBindingStore } from './aiSessions/tmuxRuntimeBindingStore';
 import { TmuxAttachBindingStore } from './aiSessions/tmuxAttachBindingStore';
 import {
-    findTmuxCollisionRuntime,
     isCurrentRuntimeMarker,
     TmuxRuntimeDiscovery,
 } from './aiSessions/tmuxRuntimeDiscovery';
@@ -96,11 +95,9 @@ import { AiSessionExecutionController } from './aiSessions/executionController';
 import {
     AiSessionAttentionController,
 } from './aiSessions/attentionController';
-import type {
-    AiSessionAttentionEvaluation,
-} from './aiSessions/attentionController';
 import { createAiSessionStatusCapability } from './aiSessions/statusCapability';
 import { createAiSessionRuntimeSettlementCapability } from './aiSessions/runtimeSettlementCapability';
+import { createAiSessionAttentionEventCapability } from './aiSessions/attentionEventCapability';
 import { createNotifyConfiguration } from './aiSessions/notifyConfiguration';
 import { buildNotifyPayload } from './aiSessions/notifyIntegration/notifier';
 import {
@@ -173,9 +170,6 @@ const DASHBOARD_BOOTSTRAP_PHASE_ORDER = [
     'tmux-restore-wait',
     'startup-sequence',
 ];
-// Mirrors vscode.TerminalExitReason.User. The extension's minimum VS Code typings
-// predate TerminalExitStatus.reason, while supported hosts expose it at runtime.
-const USER_TERMINAL_EXIT_REASON = 3;
 let activeAiSessionAttentionBridgeClient: AttentionBridgeClient | null = null;
 let activeOpenWorkspaceBridgeClient: OpenWorkspaceBridgeClient | null = null;
 
@@ -709,15 +703,47 @@ async function initializeDashboard(
         getAttachTerminalName: getAiSessionTmuxAttachTerminalName,
     });
     let publishRestoredTmuxAttachTerminal = (): void => undefined;
-    ownResource(() => vscode.window.onDidOpenTerminal(terminal => {
-        if (!tmuxRuntimeBackend.isAttachTerminalCandidate(terminal)) {
-            return;
-        }
-        void tmuxRuntimeBackend.restoreAttachTerminals([terminal]).then(
-            () => publishRestoredTmuxAttachTerminal(),
-            error => logAiSessionRuntimeFailure('restore-opened-tmux-attach-terminal', error)
-        );
+    const aiSessionAttentionEvent = ownResource(() => createAiSessionAttentionEventCapability({
+        tmuxRuntimeDiscovery,
+        tmuxRuntimeBackend,
+        tmuxRuntimeStore,
+        aiSessionTerminalService,
+        getRuntimeConfiguration: () => aiSessionRuntimeConfiguration,
+        getCurrentOpenWorkspace: () => getCurrentOpenWorkspace(),
+        getActiveTerminal: () => vscode.window.activeTerminal || null,
+        postMessage: message => { void provider.postMessage(message); },
+        isVisible: () => provider.visible,
+        assertActive: () => resources.assertActive(),
+        createBridgeClient: (onAggregate, onError) => new AttentionBridgeClient(onAggregate, onError),
+        onDidOpenTerminal: callback => vscode.window.onDidOpenTerminal(callback),
+        onDidChangeActiveTerminal: callback => vscode.window.onDidChangeActiveTerminal(callback),
+        onDidCloseTerminal: callback => vscode.window.onDidCloseTerminal(callback),
+        logError,
+        logAiSessionRuntimeFailure,
+        getRuntimeCoordinator: () => aiSessionRuntimeCoordinator,
+        getAttentionController: () => aiSessionAttentionController,
+        runSafeLifecycleTask: (operation, task) =>
+            aiSessionRuntimeSettlement.runSafeLifecycleTask(operation, task),
+        evaluateLifecycleTick: () => evaluateAiSessionLifecycleTick(),
+        refreshViewsNow: reason => { void aiSessionDashboardController.refreshNow(reason); },
+        scheduleRefresh: reason => aiSessionDashboardController.scheduleRefresh(reason),
+        postOpenWorkspacesUpdated: () => openWorkspaceDashboardController?.postUpdated(),
+        getActiveTerminalHighlighter: () => activeAiSessionTerminalHighlighter,
+        getTmuxFocusedRuntimeMonitor: () => tmuxFocusedRuntimeMonitor,
+        publishRestoredAttachTerminal: () => publishRestoredTmuxAttachTerminal(),
     }));
+    const evaluateAiSessionAttention = aiSessionAttentionEvent.evaluateAttention;
+    const hasLiveTmuxOwnership = aiSessionAttentionEvent.hasLiveTmuxOwnership;
+    const getAiSessionRuntimeById = aiSessionAttentionEvent.getRuntimeById;
+    const getAiSessionRuntimeCollision = aiSessionAttentionEvent.getRuntimeCollision;
+    const getFocusedAiSessionRuntimeIdentity = aiSessionAttentionEvent.getFocusedRuntimeIdentity;
+    const runtimeBelongsToCurrentWorkspace = aiSessionAttentionEvent.belongsToCurrentWorkspace;
+    const refreshAiSessionViewsIncrementally = aiSessionAttentionEvent.refreshViewsIncrementally;
+    const postAiSessionAttentionState = aiSessionAttentionEvent.postAttentionState;
+    const acknowledgeAiSessionAttentionEventIds = aiSessionAttentionEvent.acknowledgeEventIds;
+    const acknowledgeAiSessionAttention = aiSessionAttentionEvent.acknowledgeAttention;
+    const publishDeferredTmuxRestoreIfReady = aiSessionAttentionEvent.publishDeferredRestoreIfReady;
+    ownResource(() => aiSessionAttentionEvent.registerTerminalRestoreHandler());
     const aiSessionRuntimeCoordinator = new AiSessionRuntimeCoordinator<vscode.Terminal>({
         direct: directTerminalRuntimeBackend,
         tmux: tmuxRuntimeBackend,
@@ -755,9 +781,6 @@ async function initializeDashboard(
     const tmuxRestoreCompleted = await timeBootstrapPhase('tmux-restore-wait', () =>
         settlesWithinBudget(tmuxRestoreTask, AI_SESSION_TMUX_RESTORE_BUDGET_MS));
     resources.assertActive();
-    let deferredTmuxRestoreSettled = false;
-    let deferredTmuxRestoreRefreshReady = false;
-    let deferredTmuxRestoreRefreshPublished = false;
     if (!tmuxRestoreCompleted) {
         logDashboardDiagnostic({
             event: 'agent-pivot-bootstrap-tmux-restore-deferred',
@@ -770,7 +793,7 @@ async function initializeDashboard(
             } catch (_error) {
                 return;
             }
-            deferredTmuxRestoreSettled = true;
+            aiSessionAttentionEvent.setDeferredRestoreSettled();
             logDashboardDiagnostic({
                 event: 'agent-pivot-bootstrap-tmux-restore-settled',
                 generation: bootstrapGeneration,
@@ -915,7 +938,6 @@ async function initializeDashboard(
     });
     let aiSessionUpdateSequence = 0;
     let currentAiSessionRefreshReason = 'refresh';
-    let aiSessionAttentionBridgeClient: AttentionBridgeClient;
     const notifyConfiguration = ownResource(() => createNotifyConfiguration({
         context,
         getConfiguration: () => getAgentPivotConfiguration(),
@@ -960,7 +982,7 @@ async function initializeDashboard(
         getWorkspaceTarget: getCurrentWorkspaceActionTargetWithoutCardId,
         getProviders: getRegisteredAiSessionProviders,
         getRuntimeById: getAiSessionRuntimeById,
-        publish: (items, forceHeartbeat) => aiSessionAttentionBridgeClient.publish(items, forceHeartbeat),
+        publish: (items, forceHeartbeat) => aiSessionAttentionEvent.publish(items, forceHeartbeat),
         scheduleRefresh: reason => scheduleAiSessionRefresh(reason),
         onAttentionEvents: events => {
             for (const event of events) {
@@ -1024,25 +1046,6 @@ async function initializeDashboard(
         clearInterval: handle => clearInterval(handle as NodeJS.Timeout),
     }));
     const evaluateAiSessionLifecycleTick = (): void => aiSessionStatus.tick();
-    const getAiSessionAttentionEventIds = (identity: ActiveAiSessionTerminalIdentity): string[] => {
-        const sessionKey = getAiSessionKey(identity.provider, identity.sessionId);
-        return aiSessionAttentionController.getRecoverySessionEvents()
-            .find(session => session.sessionKey === sessionKey)?.eventIds || [];
-    };
-    const acknowledgeAiSessionAttentionEventIds = async (eventIds: string[]): Promise<void> => {
-        const uniqueEventIds = Array.from(new Set(eventIds.filter(eventId => Boolean(eventId))));
-        if (!uniqueEventIds.length) {
-            return;
-        }
-        aiSessionAttentionController.acknowledge(uniqueEventIds);
-        refreshAiSessionViewsIncrementally();
-        await aiSessionAttentionBridgeClient.acknowledge(uniqueEventIds);
-    };
-    const acknowledgeAiSessionAttention = async (
-        identity: ActiveAiSessionTerminalIdentity
-    ): Promise<void> => {
-        await acknowledgeAiSessionAttentionEventIds(getAiSessionAttentionEventIds(identity));
-    };
     const aiSessionRuntimeSettlement = ownResource(() => createAiSessionRuntimeSettlementCapability({
         runtimeBelongsToCurrentWorkspace,
         evaluateAttention: evaluateAiSessionAttention,
@@ -1056,22 +1059,15 @@ async function initializeDashboard(
     }));
     const runSafeAiSessionRuntimeLifecycleTask = aiSessionRuntimeSettlement.runSafeLifecycleTask;
     const queueAiSessionRuntimeSettlements = aiSessionRuntimeSettlement.queueSettlements;
-    aiSessionAttentionBridgeClient = ownResource(() => new AttentionBridgeClient(
-        aggregate => {
-            if (aiSessionAttentionController.setRemoteAggregate(aggregate)) {
-                scheduleAttentionViewsRefresh();
-            }
-        },
-        error => logError('AI session attention bridge unavailable; using local-window monitoring.', error)
-    ));
+    aiSessionAttentionEvent.startBridgeClient();
     resources.own({
         dispose: () => {
-            if (activeAiSessionAttentionBridgeClient === aiSessionAttentionBridgeClient) {
+            if (activeAiSessionAttentionBridgeClient === aiSessionAttentionEvent.bridgeClient) {
                 activeAiSessionAttentionBridgeClient = null;
             }
         },
     });
-    activeAiSessionAttentionBridgeClient = aiSessionAttentionBridgeClient;
+    activeAiSessionAttentionBridgeClient = aiSessionAttentionEvent.bridgeClient;
     ownTimer(
         () => setTimeout(() => {
             void runSafeAiSessionRuntimeLifecycleTask(
@@ -1277,7 +1273,7 @@ async function initializeDashboard(
                 void tmuxFocusedRuntimeMonitor.request();
             }
             await dashboardRuntimeController.handleAiSessionViewVisibilityChanged(visible);
-            deferredTmuxRestoreRefreshReady = true;
+            aiSessionAttentionEvent.setDeferredRestoreRefreshReady(true);
             publishDeferredTmuxRestoreIfReady();
         },
         onVisiblePrepared: () =>
@@ -1285,7 +1281,7 @@ async function initializeDashboard(
                 fallbackToFullRefresh: false,
             }),
         onDisposed: () => {
-            deferredTmuxRestoreRefreshReady = false;
+            aiSessionAttentionEvent.setDeferredRestoreRefreshReady(false);
         },
         logError,
     };
@@ -1442,50 +1438,7 @@ async function initializeDashboard(
     publishRestoredTmuxAttachTerminal = refreshAiSessionViewsIncrementally;
     aiSessionRuntimeSettlement.startSettlementScan();
 
-    ownResource(() =>
-        vscode.window.onDidChangeActiveTerminal(() => {
-            activeAiSessionTerminalHighlighter.sync();
-            void tmuxFocusedRuntimeMonitor.request();
-            refreshAiSessionViewsIncrementally();
-            void runSafeAiSessionRuntimeLifecycleTask(
-                'evaluate-attention-active-terminal', evaluateAiSessionAttention
-            );
-        }));
-    ownResource(() =>
-        vscode.window.onDidCloseTerminal(terminal => {
-            const closedRuntimes = aiSessionRuntimeCoordinator.getActive()
-                .filter(runtime => runtime.backend === 'vscode' && runtime.terminal === terminal
-                    && Boolean(runtime.identity.sessionId));
-            const exitStatus = terminal.exitStatus as
-                (vscode.TerminalExitStatus & { reason?: number }) | undefined;
-            const userClosedTerminal = exitStatus?.reason === USER_TERMINAL_EXIT_REASON;
-            const closedSessions: ActiveAiSessionTerminalIdentity[] = closedRuntimes.map(runtime => ({
-                provider: runtime.identity.provider,
-                sessionId: runtime.identity.sessionId as string,
-                workspaceScopeIdentity: runtime.identity.workspaceScopeIdentity,
-            }));
-            const hadRuntimeClient = [...aiSessionRuntimeCoordinator.getActive(), ...aiSessionRuntimeCoordinator.getPending()]
-                .some(runtime => runtime.terminal === terminal);
-            aiSessionRuntimeCoordinator.handleClosedTerminal(terminal);
-            evaluateAiSessionLifecycleTick();
-            activeAiSessionTerminalHighlighter.handleTerminalClosed(terminal);
-            if (closedSessions.length || hadRuntimeClient) {
-                refreshAiSessionViewsIncrementally();
-                if (userClosedTerminal) {
-                    void runSafeAiSessionRuntimeLifecycleTask(
-                        'acknowledge-user-terminal-close',
-                        async () => {
-                            for (const identity of closedSessions) {
-                                await acknowledgeAiSessionAttention(identity);
-                            }
-                        }
-                    );
-                }
-                void runSafeAiSessionRuntimeLifecycleTask(
-                    'evaluate-attention-closed-terminal', evaluateAiSessionAttention
-                );
-            }
-        }));
+    ownResource(() => aiSessionAttentionEvent.registerTerminalEventHandlers());
 
     const stewardInfos: StewardInfos = {
         relevantExtensionsInstalls: {
@@ -1738,136 +1691,6 @@ async function initializeDashboard(
         }
     }
 
-    async function evaluateAiSessionAttention(
-        runtimeOverrides: ReadonlyArray<{
-            providerId: AiSessionProviderId;
-            sessionId: string;
-            attentionKey: string;
-            runtime: AiSessionRuntimeSnapshot<vscode.Terminal>;
-        }> = []
-    ): Promise<AiSessionAttentionEvaluation> {
-        try {
-            await tmuxRuntimeDiscovery.loadPersistedInactive();
-        } catch (error) {
-            logAiSessionRuntimeFailure('attention-inactive-restore', error);
-        }
-        const hasRelevantTmux = await hasRelevantTmuxRuntime();
-        if (hasRelevantTmux && await hasLiveTmuxOwnership()) {
-            try {
-                await aiSessionRuntimeCoordinator.refreshForHost(false);
-            } catch (error) {
-                logAiSessionRuntimeFailure('attention-refresh', error);
-            }
-        }
-        return aiSessionAttentionController.evaluate(runtimeOverrides);
-    }
-
-    async function hasLiveTmuxOwnership(): Promise<boolean> {
-        if (aiSessionRuntimeConfiguration.mode === 'tmux'
-            || tmuxRuntimeDiscovery.getActive().length
-            || tmuxRuntimeDiscovery.getPending().length
-            || tmuxRuntimeBackend.getConflicts().length) {
-            return true;
-        }
-        try {
-            const [known, pending] = await Promise.all([
-                tmuxRuntimeStore.listKnown(),
-                tmuxRuntimeStore.listPending(),
-            ]);
-            return known.length > 0 || pending.length > 0;
-        } catch (error) {
-            logAiSessionRuntimeFailure('attention-relevance', error);
-            return true;
-        }
-    }
-
-    async function hasRelevantTmuxRuntime(): Promise<boolean> {
-        if (tmuxRuntimeDiscovery.getInactive().length) {
-            return true;
-        }
-        try {
-            const inactive = await tmuxRuntimeStore.listInactive();
-            return inactive.length > 0 || await hasLiveTmuxOwnership();
-        } catch (error) {
-            logAiSessionRuntimeFailure('attention-relevance', error);
-            return true;
-        }
-    }
-
-    function getAiSessionRuntimeById(
-        providerId: AiSessionProviderId,
-        sessionId: string
-    ): AiSessionRuntimeSnapshot<vscode.Terminal> | null {
-        const workspaceScopeIdentity = getCurrentOpenWorkspace()?.scopeIdentity;
-        if (!workspaceScopeIdentity) {
-            return null;
-        }
-        const collision = getAiSessionRuntimeCollision(
-            providerId, sessionId, workspaceScopeIdentity
-        );
-        if (collision) {
-            return collision;
-        }
-        const live = aiSessionRuntimeCoordinator.getById(
-            providerId, sessionId, workspaceScopeIdentity
-        );
-        if (live) {
-            return live;
-        }
-        const liveConflicts = aiSessionRuntimeCoordinator.getActive().filter(runtime =>
-            runtime.identity.provider === providerId && runtime.identity.sessionId === sessionId
-            && runtime.identity.workspaceScopeIdentity === workspaceScopeIdentity);
-        if (liveConflicts.length > 1) {
-            return { ...liveConflicts[0], state: 'conflict' };
-        }
-        const inactiveTmux: AiSessionRuntimeSnapshot<vscode.Terminal>[] = tmuxRuntimeDiscovery.getInactive()
-            .filter(runtime => runtime.identity.provider === providerId
-                && runtime.identity.sessionId === sessionId
-                && runtime.identity.workspaceScopeIdentity === workspaceScopeIdentity)
-            .map(runtime => {
-                const { terminal: _terminal, ...detached } = runtime;
-                return {
-                    ...detached,
-                    identity: cloneAiSessionRuntimeIdentity(runtime.identity),
-                    ...(runtime.tmux ? { tmux: { ...runtime.tmux } } : {}),
-                };
-            });
-        const completedDirect = aiSessionTerminalService.getTrackedTerminalEntries()
-            .filter(entry => entry.provider === providerId && entry.sessionId === sessionId
-                && aiSessionTerminalService.isComplete(entry) && !!entry.runtimeIdentity
-                && entry.runtimeIdentity.workspaceScopeIdentity === workspaceScopeIdentity)
-            .map(entry => ({
-                identity: cloneAiSessionRuntimeIdentity(entry.runtimeIdentity),
-                backend: 'vscode' as const,
-                state: 'completed' as const,
-                markerPath: entry.markerPath,
-                runStartedAtMs: entry.runStartedAtMs,
-                attached: true,
-                terminal: entry.terminal,
-            }));
-        const inactive = [...inactiveTmux, ...completedDirect];
-        return inactive.length === 1 ? inactive[0] : null;
-    }
-
-    function getAiSessionRuntimeCollision(
-        providerId: AiSessionProviderId,
-        sessionId: string,
-        workspaceScopeIdentity: string
-    ): AiSessionRuntimeSnapshot<vscode.Terminal> | null {
-        return findTmuxCollisionRuntime(
-            tmuxRuntimeDiscovery.getDiagnostics(), providerId, sessionId,
-            workspaceScopeIdentity
-        ) as AiSessionRuntimeSnapshot<vscode.Terminal> | null;
-    }
-
-    function getFocusedAiSessionRuntimeIdentity() {
-        const activeTerminal = vscode.window.activeTerminal || null;
-        const tmuxRuntime = tmuxRuntimeBackend.getFocusedRuntime(activeTerminal);
-        return tmuxRuntime && runtimeBelongsToCurrentWorkspace(tmuxRuntime)
-            ? tmuxRuntime.identity
-            : activeAiSessionTerminalHighlighter.getIdentity();
-    }
-
     async function openCurrentAiSessionConversation(): Promise<void> {
         const target = getCurrentWorkspaceActionTargetWithoutCardId();
         if (!target) {
@@ -1930,14 +1753,6 @@ async function initializeDashboard(
         }
     }
 
-    function runtimeBelongsToCurrentWorkspace(
-        runtime: AiSessionRuntimeSnapshot<vscode.Terminal>
-    ): boolean {
-        const workspaceScopeIdentity = getCurrentOpenWorkspace()?.scopeIdentity;
-        return !!workspaceScopeIdentity
-            && runtime.identity.workspaceScopeIdentity === workspaceScopeIdentity;
-    }
-
     function getAiSessionTmuxAttachTerminalName(
         runtime: AiSessionRuntimeSnapshot
     ): string | undefined {
@@ -1996,45 +1811,12 @@ async function initializeDashboard(
         aiSessionDashboardController.scheduleRefresh(reason);
     }
 
-    function scheduleAttentionViewsRefresh() {
-        scheduleAiSessionRefresh('attention');
-        openWorkspaceDashboardController?.postUpdated();
-    }
-
     function setAiSessionWatchersActive(active: boolean) {
         aiSessionDashboardController.setWatchersActive(active);
     }
 
     function scheduleNewAiSessionRefresh(providerId: AiSessionProviderId) {
         aiSessionDashboardController.scheduleNewSessionRefresh(providerId);
-    }
-
-    function refreshAiSessionViewsIncrementally() {
-        void aiSessionDashboardController.refreshNow();
-    }
-
-    function publishDeferredTmuxRestoreIfReady(): void {
-        if (!deferredTmuxRestoreSettled
-            || !deferredTmuxRestoreRefreshReady
-            || deferredTmuxRestoreRefreshPublished
-            || !provider.visible) {
-            return;
-        }
-        try {
-            resources.assertActive();
-        } catch (_error) {
-            return;
-        }
-        deferredTmuxRestoreRefreshPublished = true;
-        void aiSessionDashboardController.refreshNow('tmux-bootstrap-restore');
-    }
-
-    function postAiSessionAttentionState() {
-        void provider.postMessage({
-            type: 'ai-session-attention-state',
-            sessionEvents: aiSessionAttentionController.getRecoverySessionEvents(),
-            eventIds: aiSessionAttentionController.getAttentionEventIds(),
-        });
     }
 
     function postBatchArchiveCompletion(message: AiSessionBatchArchiveCompletedMessage) {

@@ -3672,7 +3672,7 @@ async function runWorkspaceCardActionControllerIntegrationChecks() {
         getProjectSessions: () => { throw new Error('must not select root sessions'); },
         getProjectCwd: () => { throw new Error('must not select a root cwd'); }, normalizePath: value => value,
         runtimeCoordinator: { getById: () => runtime, getPending: () => [],
-            focus: async identity => focused.push(identity), detach: async () => undefined },
+            focus: async identity => focused.push(identity), detach: async () => undefined, terminate: async () => undefined },
         getWorkspaceScopeIdentity: () => workspace.scopeIdentity,
         confirmRuntimeClose: async () => undefined, announceStatus: async () => undefined,
         showErrorMessage: async () => undefined, getProviderLabel: () => 'Codex', refresh: () => undefined,
@@ -6527,7 +6527,8 @@ function runBatchAiSessionWebviewChecks() {
     const resumeMenuItem = createMenuItem('resume');
     const archiveMenuItem = createMenuItem('archive');
     const closeMenuItem = createMenuItem('close-terminal');
-    const aiSessionMenuItems = [resumeMenuItem, closeMenuItem, archiveMenuItem];
+    const stopMenuItem = createMenuItem('stop-session');
+    const aiSessionMenuItems = [resumeMenuItem, closeMenuItem, stopMenuItem, archiveMenuItem];
     const menuClasses = new Set();
     const aiSessionMenu = {
         style: {},
@@ -6540,8 +6541,9 @@ function runBatchAiSessionWebviewChecks() {
             ? aiSessionMenuItems : [],
         querySelector: selector => selector === '[data-action="archive"]' ? archiveMenuItem
             : selector === '[data-action="close-terminal"]' ? closeMenuItem
-                : selector === '.custom-context-menu-item[data-action]:not(.disabled)'
-                    ? aiSessionMenuItems.find(item => !item.classList.contains('disabled')) : null,
+                : selector === '[data-action="stop-session"]' ? stopMenuItem
+                    : selector === '.custom-context-menu-item[data-action]:not(.disabled)'
+                        ? aiSessionMenuItems.find(item => !item.classList.contains('disabled')) : null,
     };
     const context = {
         normalizeDashboardSearchCatalog: value => value
@@ -6800,7 +6802,7 @@ function runBatchAiSessionWebviewChecks() {
         getAttribute: attribute => attribute === 'data-action' ? 'close-ai-session-terminal' : null,
         closest: selector => {
             if (selector === '.project' || selector === '.project[data-id]') return projectA;
-            if (selector === '[data-action="close-ai-session-terminal"], [data-action="detach-ai-session-terminal"]') return closeActiveTarget;
+            if (selector === '[data-action="close-ai-session-terminal"], [data-action="detach-ai-session-terminal"], [data-action="stop-ai-session-runtime"]') return closeActiveTarget;
             if (selector === '.codex-session-row[data-session-provider][data-session-backend]') return activeRow;
             return null;
         },
@@ -6809,7 +6811,7 @@ function runBatchAiSessionWebviewChecks() {
         getAttribute: attribute => attribute === 'data-action' ? 'close-ai-session-terminal' : null,
         closest: selector => {
             if (selector === '.project' || selector === '.project[data-id]') return projectA;
-            if (selector === '[data-action="close-ai-session-terminal"], [data-action="detach-ai-session-terminal"]') return closePendingTarget;
+            if (selector === '[data-action="close-ai-session-terminal"], [data-action="detach-ai-session-terminal"], [data-action="stop-ai-session-runtime"]') return closePendingTarget;
             if (selector === '.codex-session-row[data-session-provider][data-session-backend]') return pendingRow;
             return null;
         },
@@ -6825,22 +6827,22 @@ function runBatchAiSessionWebviewChecks() {
         'codex:active-session': ['attention-active-old', 'attention-active-new'],
         'kimi:tmux-session': ['attention-tmux-old', 'attention-tmux-new'],
     };
-    const detachTmuxTarget = {
-        getAttribute: attribute => attribute === 'data-action' ? 'detach-ai-session-terminal' : null,
+    const stopTmuxTarget = {
+        getAttribute: attribute => attribute === 'data-action' ? 'stop-ai-session-runtime' : null,
         closest: selector => {
             if (selector === '.project' || selector === '.project[data-id]') return projectA;
-            if (selector === '[data-action="close-ai-session-terminal"], [data-action="detach-ai-session-terminal"]') return detachTmuxTarget;
+            if (selector === '[data-action="close-ai-session-terminal"], [data-action="detach-ai-session-terminal"], [data-action="stop-ai-session-runtime"]') return stopTmuxTarget;
             if (selector === '.codex-session-row[data-session-provider][data-session-backend]') return tmuxRow;
             return null;
         },
     };
     eventListeners.click({ button: 0, target: closeActiveTarget });
     eventListeners.click({ button: 0, target: closePendingTarget });
-    eventListeners.click({ button: 0, target: detachTmuxTarget });
+    eventListeners.click({ button: 0, target: stopTmuxTarget });
     assert.strictEqual(activeRow.hasAttribute('data-ai-session-attention'), true,
         'ATTENTION-EXPLICIT-SESSION-CLOSE-001 must wait for confirmed host close before acknowledging');
     assert.strictEqual(tmuxRow.hasAttribute('data-ai-session-attention'), true,
-        'ATTENTION-EXPLICIT-SESSION-CLOSE-001 must wait for confirmed host detach before acknowledging');
+        'ATTENTION-EXPLICIT-SESSION-CLOSE-001 must wait for confirmed host stop before acknowledging');
     assert.deepStrictEqual(JSON.parse(JSON.stringify(messages)), [{
         type: 'focus-ai-session-terminal', projectId: 'project-a', provider: 'codex', sessionId: 'active-session',
     }, {
@@ -6856,7 +6858,7 @@ function runBatchAiSessionWebviewChecks() {
         type: 'close-ai-session-terminal', projectId: 'project-a', provider: 'claude',
         pendingCreatedAt: '2026-07-18T08:00:00Z',
     }, {
-        type: 'detach-ai-session-terminal', projectId: 'project-a', provider: 'kimi',
+        type: 'stop-ai-session-runtime', projectId: 'project-a', provider: 'kimi',
         sessionId: 'tmux-session',
     }]);
     messages.length = 0;
@@ -6882,6 +6884,8 @@ function runBatchAiSessionWebviewChecks() {
     });
     assert.strictEqual(closeMenuItem.hasAttribute('hidden'), true,
         'a conflict row must hide Close/Detach from its context menu');
+    assert.strictEqual(stopMenuItem.hasAttribute('hidden'), true,
+        'a conflict row must hide Stop Session from its context menu');
     tmuxRow.removeAttribute('data-session-conflict');
 
     eventListeners.contextmenu({
@@ -6894,6 +6898,30 @@ function runBatchAiSessionWebviewChecks() {
     assert.strictEqual(closeMenuItem.hasAttribute('hidden'), false);
     assert.strictEqual(closeMenuItem.textContent, 'Detach Terminal…');
     assert.strictEqual(closeMenuItem.getAttribute('aria-label'), 'Detach Terminal…');
+    assert.strictEqual(closeMenuItem.classList.contains('disabled'), true,
+        'a detached tmux session must not offer a no-op detach');
+    assert.strictEqual(stopMenuItem.hasAttribute('hidden'), false);
+    assert.strictEqual(stopMenuItem.classList.contains('disabled'), false);
+    eventListeners.keydown({
+        target: stopMenuItem,
+        key: 'Enter',
+        preventDefault: () => {},
+    });
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(messages.pop())), {
+        type: 'stop-ai-session-runtime', projectId: 'project-a', provider: 'kimi',
+        sessionId: 'tmux-session',
+    }, 'keyboard context-menu activation must preserve the tmux stop route');
+
+    tmuxRow.setAttribute('data-session-attached', 'true');
+    eventListeners.contextmenu({
+        target: tmuxRow.primaryAction,
+        preventDefault: () => {},
+        clientX: 20,
+        clientY: 20,
+        keyboardTrigger: true,
+    });
+    assert.strictEqual(closeMenuItem.classList.contains('disabled'), false,
+        'an attached tmux session must offer detach');
     eventListeners.keydown({
         target: closeMenuItem,
         key: 'Enter',
@@ -6903,6 +6931,7 @@ function runBatchAiSessionWebviewChecks() {
         type: 'detach-ai-session-terminal', projectId: 'project-a', provider: 'kimi',
         sessionId: 'tmux-session',
     }, 'keyboard context-menu activation must preserve the tmux detach route');
+    tmuxRow.setAttribute('data-session-attached', 'false');
 
     eventListeners.contextmenu({
         target: activeRow.primaryAction,
@@ -6913,6 +6942,8 @@ function runBatchAiSessionWebviewChecks() {
     });
     assert.strictEqual(closeMenuItem.textContent, 'Close Terminal…');
     assert.strictEqual(closeMenuItem.getAttribute('aria-label'), 'Close Terminal…');
+    assert.strictEqual(stopMenuItem.hasAttribute('hidden'), true,
+        'a Direct session must not offer Stop Session from its context menu');
     eventListeners.click({ button: 0, target: closeMenuItem });
     assert.deepStrictEqual(JSON.parse(JSON.stringify(messages.pop())), {
         type: 'close-ai-session-terminal', projectId: 'project-a', provider: 'codex',

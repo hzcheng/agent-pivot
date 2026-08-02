@@ -45,6 +45,7 @@ function initProjectContextMenus(options) {
     var contextMenuAiSessionProjectId = null;
     var contextMenuAiSessionActive = false;
     var contextMenuAiSessionBackend = null;
+    var contextMenuAiSessionAttached = false;
     var contextMenuAiSessionConflict = false;
     var contextMenuAiSessionOrigin = null;
 
@@ -84,6 +85,7 @@ function initProjectContextMenus(options) {
             contextMenuAiSessionProjectId = sessionProjectDiv ? sessionProjectDiv.getAttribute("data-id") : null;
             contextMenuAiSessionActive = sessionRow.hasAttribute('data-session-active');
             contextMenuAiSessionBackend = sessionRow.getAttribute('data-session-backend') || 'vscode';
+            contextMenuAiSessionAttached = sessionRow.getAttribute('data-session-attached') === 'true';
             contextMenuAiSessionConflict = sessionRow.hasAttribute('data-session-conflict');
             if (!contextMenuAiSessionId || !isAiSessionProvider(contextMenuAiSessionProvider))
                 return;
@@ -103,6 +105,16 @@ function initProjectContextMenus(options) {
                 closeMenuItem.setAttribute('aria-label', terminalActionLabel);
                 closeMenuItem.toggleAttribute('hidden', contextMenuAiSessionConflict);
                 closeMenuItem.classList.toggle(
+                    'disabled', !contextMenuAiSessionActive || contextMenuAiSessionConflict
+                        || (contextMenuAiSessionBackend === 'tmux' && !contextMenuAiSessionAttached)
+                );
+            }
+            var stopMenuItem = sessionContextMenuElement.querySelector('[data-action="stop-session"]');
+            if (stopMenuItem) {
+                stopMenuItem.toggleAttribute(
+                    'hidden', contextMenuAiSessionBackend !== 'tmux' || contextMenuAiSessionConflict
+                );
+                stopMenuItem.classList.toggle(
                     'disabled', !contextMenuAiSessionActive || contextMenuAiSessionConflict
                 );
             }
@@ -257,10 +269,21 @@ function initProjectContextMenus(options) {
                 });
                 break;
             case 'close-terminal':
-                if (!contextMenuAiSessionActive || contextMenuAiSessionConflict) break;
+                if (!contextMenuAiSessionActive || contextMenuAiSessionConflict
+                    || (contextMenuAiSessionBackend === 'tmux' && !contextMenuAiSessionAttached)) break;
                 window.vscode.postMessage({
                     type: contextMenuAiSessionBackend === 'tmux'
                         ? 'detach-ai-session-terminal' : 'close-ai-session-terminal',
+                    projectId: contextMenuAiSessionProjectId,
+                    provider: contextMenuAiSessionProvider,
+                    sessionId: contextMenuAiSessionId,
+                });
+                break;
+            case 'stop-session':
+                if (!contextMenuAiSessionActive || contextMenuAiSessionConflict
+                    || contextMenuAiSessionBackend !== 'tmux') break;
+                window.vscode.postMessage({
+                    type: 'stop-ai-session-runtime',
                     projectId: contextMenuAiSessionProjectId,
                     provider: contextMenuAiSessionProvider,
                     sessionId: contextMenuAiSessionId,
@@ -280,6 +303,7 @@ function initProjectContextMenus(options) {
         contextMenuAiSessionProjectId = null;
         contextMenuAiSessionActive = false;
         contextMenuAiSessionBackend = null;
+        contextMenuAiSessionAttached = false;
         contextMenuAiSessionConflict = false;
         contextMenuAiSessionOrigin = null;
         // Only close menus this script owns; the dashboard script owns the

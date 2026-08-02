@@ -337,6 +337,25 @@ export class AiSessionRuntimeCoordinator<TTerminal = vscode.Terminal> {
         await this.backendFor(matches[0]).detach(cloneRuntime(matches[0]));
     }
 
+    async terminate(identity: AiSessionRuntimeIdentity): Promise<void> {
+        const cached = this.matchesForIdentity(identity);
+        if (cached.length === 1 && cached[0].backend === 'vscode'
+            && cached[0].state !== 'conflict') {
+            await this.dependencies.direct.refresh(true);
+            const directMatches = this.matchesInBackend(this.dependencies.direct, identity);
+            if (directMatches.length === 1 && directMatches[0].state !== 'conflict') {
+                await this.dependencies.direct.terminate(cloneRuntime(directMatches[0]));
+            }
+            return;
+        }
+        await this.refreshForHost(true);
+        const matches = this.matchesForIdentity(identity);
+        if (matches.length !== 1 || matches[0].state === 'conflict') {
+            return;
+        }
+        await this.backendFor(matches[0]).terminate(cloneRuntime(matches[0]));
+    }
+
     handleClosedTerminal(terminal: TTerminal): void {
         this.dependencies.direct.handleClosedTerminal?.(terminal);
         this.dependencies.tmux.handleClosedTerminal?.(terminal);

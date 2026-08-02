@@ -18,7 +18,7 @@ const { AddProjectsFromFolderController } = require('../../../out/projects/addPr
 const REQUIRED_TMUX_COMMANDS = [
     'new-session', 'new-window', 'list-windows', 'list-panes', 'set-option', 'show-options',
     'select-window', 'attach-session', 'has-session', 'rename-session', 'rename-window',
-    'display-message',
+    'display-message', 'kill-session', 'kill-window',
 ];
 
 function makeAvailableRunner(runCommand) {

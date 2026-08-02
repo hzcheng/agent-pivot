@@ -770,6 +770,50 @@ implements AiSessionExecutableRuntimeBackend<TTerminal> {
         terminal.dispose();
     }
 
+    async terminate(runtime: AiSessionRuntimeSnapshot<TTerminal>): Promise<void> {
+        if (!runtime || runtime.backend !== 'tmux' || !runtime.tmux) {
+            return;
+        }
+        await this.attachRestoreQueue;
+        if (!await this.verifyTerminateTarget(runtime)) {
+            return;
+        }
+        if (runtime.tmux.layout === 'project') {
+            if (!runtime.tmux.windowName) {
+                throw new AiSessionRuntimeTargetChangedError();
+            }
+            await this.dependencies.client.killWindow(runtime.tmux);
+        } else {
+            await this.dependencies.client.killSession(runtime.tmux.sessionName);
+        }
+        await this.dependencies.discovery.refresh(true);
+    }
+
+    private async verifyTerminateTarget(runtime: AiSessionRuntimeSnapshot<TTerminal>): Promise<boolean> {
+        if (!runtime.tmux) {
+            throw new AiSessionRuntimeTargetChangedError();
+        }
+        const target = await this.dependencies.client.getTargetWindow(runtime.tmux);
+        if (!target) {
+            return false;
+        }
+        const metadata = parseManagedTmuxMetadata(target.metadata);
+        const actualLocator: AiSessionTmuxLocator | null = metadata ? {
+            layout: metadata.layout,
+            sessionName: target.sessionName,
+            ...(metadata.layout === 'project' || runtime.tmux.windowName
+                ? { windowName: target.windowName } : {}),
+        } : null;
+        if (!metadata || !actualLocator || !locatorsEqual(actualLocator, runtime.tmux)) {
+            throw new AiSessionRuntimeTargetChangedError();
+        }
+        if (!aiSessionRuntimeIdentitiesEqual(metadata, runtime.identity)
+            && !await this.matchesCommittedCodexThreadRebind(runtime, metadata)) {
+            throw new AiSessionRuntimeTargetChangedError();
+        }
+        return true;
+    }
+
     isAttachTerminalCandidate(terminal: TTerminal): boolean {
         const attach = attachTerminal(terminal);
         return getTmuxAttachRecoveryToken(attach.creationOptions) !== null

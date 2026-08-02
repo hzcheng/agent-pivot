@@ -107,7 +107,7 @@ function fakeCreateRequest(pendingId, overrides = {}) {
 function createFakeRuntimeBackend(backend, options = {}) {
     const fake = {
         active: [], pending: [], conflicts: [], lifecycleBlockers: [],
-        refreshCalls: [], focusCalls: [], detachCalls: [], promoted: [], closed: [],
+        refreshCalls: [], focusCalls: [], detachCalls: [], terminateCalls: [], promoted: [], closed: [],
         launches: [], ensureResumeCalls: 0, ensurePendingCalls: 0,
     };
     fake.refresh = async force => {
@@ -124,6 +124,7 @@ function createFakeRuntimeBackend(backend, options = {}) {
         && runtime.identity.sessionId === identity.sessionId);
     fake.focus = async runtime => { fake.focusCalls.push(cloneRuntime(runtime)); };
     fake.detach = async runtime => { fake.detachCalls.push(cloneRuntime(runtime)); };
+    fake.terminate = async runtime => { fake.terminateCalls.push(cloneRuntime(runtime)); };
     fake.ensureResume = async (request, layout) => {
         fake.ensureResumeCalls += 1;
         if (options.resumeGate) await options.resumeGate.promise;
@@ -235,6 +236,7 @@ function createDirectRuntimeHarness() {
         viewerCount: () => operations.filter(item => item.type === 'create-terminal').length,
         focusCount: () => operations.filter(item => item.type === 'focus').length,
         detachCount: () => operations.filter(item => item.type === 'close').length,
+        terminateCount: () => operations.filter(item => item.type === 'close').length,
         notifyClosed: runtime => backend.handleClosedTerminal(runtime.terminal),
         async markCompleted(runtime) {
             completed.add(runtime.terminal);
@@ -452,6 +454,14 @@ function createTmuxRuntimeHarness(layout, options = {}) {
                     && (!locator.windowName || row.windowName === locator.windowName);
             });
         },
+        killSession: async sessionName => {
+            operations.push({ type: 'kill-session', sessionName });
+            removeLocatorRows(windows, { sessionName, layout: 'session' });
+        },
+        killWindow: async locator => {
+            operations.push({ type: 'kill-window', locator: { ...locator } });
+            removeLocatorRows(windows, locator);
+        },
         setSessionOptions: async (sessionName, values) => {
             operations.push({ type: 'session-options', sessionName, values: { ...values } });
             windows.filter(row => row.sessionName === sessionName).forEach(row => {
@@ -577,6 +587,8 @@ function createTmuxRuntimeHarness(layout, options = {}) {
         viewerCount: () => terminals.length,
         focusCount: () => operations.filter(item => item.type === 'select-window').length,
         detachCount: () => operations.filter(item => item.type === 'dispose-terminal').length,
+        terminateCount: () => operations.filter(item =>
+            item.type === 'kill-session' || item.type === 'kill-window').length,
         notifyClosed: runtime => backend.handleClosedTerminal(runtime.terminal),
         async markCompleted(runtime) {
             markerCurrent = true;
@@ -678,6 +690,30 @@ function defineRuntimeContract({ backendId, layout, createHarness }) {
             assert.equal(harness.providerCreateCount(), creationCount);
         } else {
             harness.notifyClosed(first);
+            assert.equal(harness.backend.find(request.identity).length, 0);
+        }
+    });
+
+    test(`${behaviorId} [${label}] terminates only the selected runtime target`, async () => {
+        const harness = createHarness();
+        const request = fakeResumeRequest(`terminate-${layout}`);
+        const runtime = await invoke(harness.backend, 'ensureResume', request);
+        const neighbor = await invoke(harness.backend, 'ensureResume',
+            fakeResumeRequest(`terminate-neighbor-${layout}`));
+        assert.equal(harness.backend.find(request.identity).length, 1);
+
+        await harness.backend.terminate(runtime);
+        assert.equal(harness.terminateCount(), 1);
+        if (backendId === 'tmux') {
+            assert.equal(harness.backend.find(request.identity).length, 0,
+                'terminated runtime must disappear from the active list');
+            assert.equal(harness.backend.find(neighbor.identity).length, 1,
+                'terminate must not affect sibling sessions');
+            await harness.backend.terminate(runtime);
+            assert.equal(harness.terminateCount(), 1,
+                'a vanished terminate target is treated as already terminated');
+        } else {
+            harness.notifyClosed(runtime);
             assert.equal(harness.backend.find(request.identity).length, 0);
         }
     });

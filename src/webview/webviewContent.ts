@@ -1241,7 +1241,7 @@ function getActiveAiSessionRow(
         : `<button type="button" class="codex-session-pin ${model.pinned ? 'active' : ''}" data-action="toggle-ai-session-pin" title="${pinTitle}" aria-label="${pinTitle}">${Icons.pin}</button>`;
     var conflict = model.status === 'conflict' || model.conflict === true;
     var terminalAction = conflict ? '' : model.backend === 'tmux'
-        ? `<button type="button" class="ai-session-close-terminal ai-session-detach-terminal" data-action="detach-ai-session-terminal" title="Detach Terminal… The AI task keeps running in tmux." aria-label="Detach Terminal">${Icons.remove}</button>`
+        ? `<button type="button" class="ai-session-close-terminal ai-session-stop-session" data-action="stop-ai-session-runtime" title="Stop Session… Terminates the AI task running in tmux." aria-label="Stop Session">${Icons.remove}</button>`
         : `<button type="button" class="ai-session-close-terminal" data-action="close-ai-session-terminal" title="Close Terminal…" aria-label="Close Terminal">${Icons.remove}</button>`;
     var pendingAttributes = model.pending
         ? ` data-session-pending data-pending-created-at="${escapeAttribute(model.createdAt || '')}"`
@@ -1429,6 +1429,9 @@ function getAiSessionContextMenu() {
     </div>
     <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="close-terminal">
         Close Terminal…
+    </div>
+    <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="stop-session" hidden>
+        Stop Session…
     </div>
     <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="archive">
         Archive Chat

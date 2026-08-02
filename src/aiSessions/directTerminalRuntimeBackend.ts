@@ -308,6 +308,10 @@ implements AiSessionExecutableRuntimeBackend<TTerminal> {
         }
     }
 
+    async terminate(runtime: AiSessionRuntimeSnapshot<TTerminal>): Promise<void> {
+        await this.detach(runtime);
+    }
+
     handleClosedTerminal(terminal: TTerminal): void {
         this.activeMetadata.delete(terminal);
         this.pendingMetadata.delete(terminal);

@@ -157,6 +157,15 @@ export function createDashboardMessageHandlers(
                 expectedBackend: 'tmux',
             });
         },
+        'stop-ai-session-runtime': async e => {
+            await aiSessionTerminalCommandController.stopSession({
+                projectId: e.projectId as string,
+                providerId: e.provider as string,
+                sessionId: e.sessionId as string,
+                pendingCreatedAt: e.pendingCreatedAt as string,
+                expectedBackend: 'tmux',
+            });
+        },
         'toggle-ai-session-pin': async e => {
             await aiSessionCommandController.togglePin(e.provider as string, e.sessionId as string);
         },

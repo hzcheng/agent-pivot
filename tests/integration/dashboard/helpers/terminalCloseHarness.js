@@ -346,6 +346,14 @@ async function runTerminalCloseContract(transform = source => source, scenario =
                 this.options.onRuntimeCloseEnd?.(runtime, true);
             });
         }
+        if (scenario === 'explicit-terminate') {
+            patchMethod(AiSessionTerminalCommandController.prototype, 'stopSession', async function () {
+                const runtime = activeFixtures[0];
+                this.options.onRuntimeCloseStart?.(runtime);
+                calls.push(['runtime-terminate', runtime.identity]);
+                this.options.onRuntimeCloseEnd?.(runtime, true);
+            });
+        }
 
         const dashboard = loadDashboard(transform);
         await dashboard.activate(context);
@@ -533,8 +541,8 @@ async function runTerminalCloseContract(transform = source => source, scenario =
             assert.equal(calls[highlightCloseIndex][1], terminal,
                 'WEBVIEW-ACTIVE-AI-SESSION-TERMINAL-HIGHLIGHT-001 the highlighter must observe the exact closed terminal');
         }
-        if (scenario === 'explicit-close' || scenario === 'explicit-detach') {
-            if (scenario === 'explicit-detach') {
+        if (scenario === 'explicit-close' || scenario === 'explicit-detach' || scenario === 'explicit-terminate') {
+            if (scenario === 'explicit-detach' || scenario === 'explicit-terminate') {
                 activeFixtures[0] = {
                     ...activeFixtures[0],
                     backend: 'tmux',
@@ -553,23 +561,26 @@ async function runTerminalCloseContract(transform = source => source, scenario =
             await onMessage({
                 type: scenario === 'explicit-detach'
                     ? 'detach-ai-session-terminal'
-                    : 'close-ai-session-terminal',
+                    : scenario === 'explicit-terminate'
+                        ? 'stop-ai-session-runtime'
+                        : 'close-ai-session-terminal',
                 projectId: '__currentWorkspace',
                 provider: 'codex',
                 sessionId: 'session',
             });
+            const actionCall = scenario === 'explicit-terminate' ? 'runtime-terminate' : 'runtime-detach';
             await waitFor(
-                () => calls.some(call => call[0] === 'runtime-detach')
+                () => calls.some(call => call[0] === actionCall)
                     && calls.some(call => call[0] === 'local-acknowledge'),
                 'explicit runtime close attention acknowledgement',
             );
             const suppressionIndex = calls.findIndex(call => call[0] === 'suppress-runtime-completion');
-            const detachIndex = calls.findIndex(call => call[0] === 'runtime-detach');
+            const actionIndex = calls.findIndex(call => call[0] === actionCall);
             const localAcknowledgeIndex = calls.findIndex(call => call[0] === 'local-acknowledge');
             assert.equal(suppressionIndex, -1,
                 'ATTENTION-RUNTIME-EXIT-NEUTRAL-001 explicit runtime actions must not suppress completion attention');
-            assert.ok(localAcknowledgeIndex > detachIndex,
-                'ATTENTION-EXPLICIT-SESSION-CLOSE-001 must acknowledge only after confirmed detach succeeds');
+            assert.ok(localAcknowledgeIndex > actionIndex,
+                'ATTENTION-EXPLICIT-SESSION-CLOSE-001 must acknowledge only after the confirmed runtime action succeeds');
             assert.equal(calls.some(call => call[0] === 'restore-runtime-completion'), false);
         }
         return calls;

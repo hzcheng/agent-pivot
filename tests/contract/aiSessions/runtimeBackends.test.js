@@ -181,6 +181,38 @@ for (const layout of ['project', 'session']) {
             'metadata mismatch is accepted only while the exact durable rebind exists'
         );
     });
+
+    test(`RUNTIME-TMUX-TERMINATE-SESSION-001 [tmux ${layout}] terminates a pending runtime before promotion`, async () => {
+        const harness = createTmuxRuntimeHarness(layout);
+        const request = fakeCreateRequest(`terminate-pending-${layout}`);
+        const pending = await harness.backend.ensurePending(request, layout);
+        assert.equal(harness.backend.getPending().length, 1);
+
+        await harness.backend.terminate(pending);
+
+        assert.equal(harness.terminateCount(), 1);
+        assert.equal(harness.backend.getPending().length, 0,
+            'a terminated pending runtime must disappear from the pending list');
+        await harness.backend.terminate(pending);
+        assert.equal(harness.terminateCount(), 1,
+            'a vanished pending terminate target is treated as already terminated');
+    });
+
+    test(`RUNTIME-TMUX-TERMINATE-SESSION-001 [tmux ${layout}] refuses to terminate a window whose metadata names another workspace`, async () => {
+        const harness = createTmuxRuntimeHarness(layout);
+        const request = fakeResumeRequest(`terminate-guard-${layout}`);
+        const runtime = await harness.backend.ensureResume(request, layout);
+        harness.windows.forEach(window => {
+            window.metadata = { ...window.metadata, workspaceScopeIdentity: 'foreign-scope' };
+        });
+
+        await assert.rejects(
+            harness.backend.terminate(runtime),
+            error => error?.name === 'AiSessionRuntimeTargetChangedError'
+        );
+        assert.equal(harness.terminateCount(), 0, 'a metadata mismatch must not kill the window');
+        assert.equal(harness.backend.find(request.identity).length, 1);
+    });
 }
 
 test('RUNTIME-TMUX-PROJECT-FIRST-WINDOW-001 creates the first project runtime in the initial tmux window', async () => {

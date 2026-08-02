@@ -283,6 +283,7 @@ test('SESSION-AI-SESSION-TERMINAL-COMMAND-CONTROLLER-001 ATTENTION-EXPLICIT-SESS
             getPending: () => [],
             focus: async () => effects.push('show'),
             detach: async () => effects.push('dispose'),
+            terminate: async () => effects.push('terminate'),
         },
         confirmRuntimeClose: async () => 'Close Terminal',
         announceStatus: async () => undefined,
@@ -333,6 +334,7 @@ test('ATTENTION-EXPLICIT-SESSION-CLOSE-001 reports failed detach without a succe
             getPending: () => [],
             focus: async () => undefined,
             detach: async () => { effects.push('dispose'); throw new Error('close failed'); },
+            terminate: async () => undefined,
         },
         confirmRuntimeClose: async () => 'Close Terminal',
         announceStatus: async () => undefined,
@@ -348,6 +350,167 @@ test('ATTENTION-EXPLICIT-SESSION-CLOSE-001 reports failed detach without a succe
         'dispose',
         'close-end:2:false',
         'error:Could not close the AI session terminal.',
+        'refresh',
+    ]);
+});
+
+function makeTmuxStopFixture() {
+    const effects = [];
+    const confirmations = [];
+    const identity = {
+        provider: 'codex',
+        sessionId: 's',
+        workspaceScopeIdentity: 'scope:fixture',
+        workspaceNavigationIdentity: 'navigation:fixture',
+        workspaceRootHostPaths: ['/work'],
+        cwd: '/work',
+    };
+    const runtime = {
+        backend: 'tmux', state: 'active', identity,
+        attached: true, stale: false, runStartedAtMs: 3,
+        tmux: { layout: 'session', sessionName: 'ap-project-session-a1b2c3d4' },
+    };
+    return { effects, confirmations, identity, runtime };
+}
+
+test('RUNTIME-TMUX-TERMINATE-SESSION-001 stops a tmux session only after confirmation and acknowledges the close', async () => {
+    const { effects, confirmations, runtime } = makeTmuxStopFixture();
+    const controller = new AiSessionTerminalCommandController({
+        isProviderId: value => value === 'codex',
+        getWorkspaceTarget: id => id === 'p' ? makeWorkspaceTarget([{ id: 's' }]) : null,
+        showErrorMessage: async message => effects.push(`error:${message}`),
+        getProviderLabel: () => 'Codex',
+        refresh: () => effects.push('refresh'),
+        runtimeCoordinator: {
+            getById: () => runtime,
+            getPending: () => [],
+            focus: async () => undefined,
+            detach: async () => undefined,
+            terminate: async () => effects.push('terminate'),
+        },
+        confirmRuntimeClose: async (message, action) => {
+            confirmations.push([message, action]);
+            return action;
+        },
+        announceStatus: async () => undefined,
+        onRuntimeCloseStart: current => effects.push(`close-start:${current.runStartedAtMs}`),
+        onRuntimeCloseEnd: (current, succeeded) =>
+            effects.push(`close-end:${current.runStartedAtMs}:${succeeded}`),
+    });
+
+    await controller.stopSession({
+        projectId: 'p', providerId: 'codex', sessionId: 's', expectedBackend: 'tmux',
+    });
+
+    assert.deepEqual(confirmations, [[
+        'Stopping this Codex session will terminate the AI task running in tmux.', 'Stop Session',
+    ]]);
+    assert.deepEqual(effects, [
+        'close-start:3', 'terminate', 'close-end:3:true', 'refresh',
+    ]);
+});
+
+test('RUNTIME-TMUX-TERMINATE-SESSION-001 rejects forged backends, cancelled confirmations, and changed runtimes without terminating', async () => {
+    const { effects, confirmations, runtime } = makeTmuxStopFixture();
+    let currentRuntime = runtime;
+    let confirmResult;
+    const announcements = [];
+    const controller = new AiSessionTerminalCommandController({
+        isProviderId: value => value === 'codex',
+        getWorkspaceTarget: id => id === 'p' ? makeWorkspaceTarget([{ id: 's' }]) : null,
+        showErrorMessage: async message => effects.push(`error:${message}`),
+        getProviderLabel: () => 'Codex',
+        refresh: () => effects.push('refresh'),
+        runtimeCoordinator: {
+            getById: () => currentRuntime,
+            getPending: () => [],
+            focus: async () => undefined,
+            detach: async () => undefined,
+            terminate: async () => effects.push('terminate'),
+        },
+        confirmRuntimeClose: async (message, action) => {
+            confirmations.push([message, action]);
+            return confirmResult;
+        },
+        announceStatus: async (projectId, message) => { announcements.push(message); },
+    });
+
+    confirmResult = 'Stop Session';
+    await controller.stopSession({
+        projectId: 'p', providerId: 'codex', sessionId: 's', expectedBackend: 'vscode',
+    });
+    assert.equal(confirmations.length, 0,
+        'a forged backend-specific route must be rejected before confirmation');
+
+    confirmResult = undefined;
+    await controller.stopSession({
+        projectId: 'p', providerId: 'codex', sessionId: 's', expectedBackend: 'tmux',
+    });
+    assert.equal(confirmations.length, 1);
+    assert.equal(effects.filter(effect => effect === 'terminate').length, 0,
+        'a cancelled confirmation must not terminate the runtime');
+
+    confirmResult = 'Stop Session';
+    let confirmCalls = 0;
+    const hijacked = {
+        ...runtime,
+        tmux: { layout: 'session', sessionName: 'ap-project-session-deadbeef' },
+    };
+    const swappingController = new AiSessionTerminalCommandController({
+        isProviderId: value => value === 'codex',
+        getWorkspaceTarget: id => id === 'p' ? makeWorkspaceTarget([{ id: 's' }]) : null,
+        showErrorMessage: async () => undefined,
+        getProviderLabel: () => 'Codex',
+        refresh: () => effects.push('refresh'),
+        runtimeCoordinator: {
+            getById: () => confirmCalls++ === 0 ? runtime : hijacked,
+            getPending: () => [],
+            focus: async () => undefined,
+            detach: async () => undefined,
+            terminate: async () => effects.push('terminate'),
+        },
+        confirmRuntimeClose: async () => 'Stop Session',
+        announceStatus: async (projectId, message) => { announcements.push(message); },
+    });
+    await swappingController.stopSession({
+        projectId: 'p', providerId: 'codex', sessionId: 's', expectedBackend: 'tmux',
+    });
+    assert.equal(effects.filter(effect => effect === 'terminate').length, 0,
+        'a runtime that changed before confirmation must not be terminated');
+    assert.ok(announcements.includes('The AI session runtime changed before terminal confirmation.'));
+});
+
+test('RUNTIME-TMUX-TERMINATE-SESSION-001 reports a failed terminate without a success acknowledgement', async () => {
+    const { effects, runtime } = makeTmuxStopFixture();
+    const controller = new AiSessionTerminalCommandController({
+        isProviderId: value => value === 'codex',
+        getWorkspaceTarget: id => id === 'p' ? makeWorkspaceTarget([{ id: 's' }]) : null,
+        showErrorMessage: async message => effects.push(`error:${message}`),
+        getProviderLabel: () => 'Codex',
+        refresh: () => effects.push('refresh'),
+        runtimeCoordinator: {
+            getById: () => runtime,
+            getPending: () => [],
+            focus: async () => undefined,
+            detach: async () => undefined,
+            terminate: async () => { effects.push('terminate'); throw new Error('kill failed'); },
+        },
+        confirmRuntimeClose: async () => 'Stop Session',
+        announceStatus: async () => undefined,
+        onRuntimeCloseStart: current => effects.push(`close-start:${current.runStartedAtMs}`),
+        onRuntimeCloseEnd: (current, succeeded) =>
+            effects.push(`close-end:${current.runStartedAtMs}:${succeeded}`),
+    });
+
+    await controller.stopSession({
+        projectId: 'p', providerId: 'codex', sessionId: 's', expectedBackend: 'tmux',
+    });
+
+    assert.deepEqual(effects, [
+        'close-start:3',
+        'terminate',
+        'close-end:3:false',
+        'error:Could not stop the AI session.',
         'refresh',
     ]);
 });
@@ -398,6 +561,7 @@ test('SESSION-AI-SESSION-TERMINAL-COMMAND-CONTROLLER-001 focuses the workbench o
                 return true;
             },
             detach: async () => undefined,
+            terminate: async () => undefined,
         },
         chooseRuntimeConflict: async () => conflict,
         confirmRuntimeClose: async () => undefined,

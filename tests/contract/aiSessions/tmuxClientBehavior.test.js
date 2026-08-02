@@ -9,7 +9,7 @@ const { TMUX_METADATA_OPTIONS } = require('../../../out/aiSessions/tmuxLayout');
 const REQUIRED_COMMANDS = [
     'new-session', 'new-window', 'list-windows', 'list-panes', 'set-option', 'show-options',
     'select-window', 'attach-session', 'has-session', 'rename-session', 'rename-window',
-    'display-message',
+    'display-message', 'kill-session', 'kill-window',
 ];
 
 function availabilityResult(args) {
@@ -112,6 +112,54 @@ test('RUNTIME-TMUX-CLIENT-001 caches availability and sends exact argv without s
             message: 'The configured tmux returned an unrecognized version.',
         });
     }
+});
+
+test('RUNTIME-TMUX-CLIENT-001 RUNTIME-TMUX-TERMINATE-SESSION-001 kills sessions and windows with exact argv and idempotent missing targets', async () => {
+    const calls = [];
+    let nextResult = null;
+    const runner = {
+        run: async (file, args) => {
+            calls.push({ file, args });
+            const injected = nextResult;
+            nextResult = null;
+            return availabilityResult(args) || injected || { exitCode: 0, stdout: '', stderr: '' };
+        },
+    };
+    const client = new TmuxClient('tmux', runner);
+
+    await client.killSession('session-a');
+    await client.killWindow({ layout: 'project', sessionName: 'session-a', windowName: 'window-b' });
+    assert.deepEqual(calls.slice(-2), [
+        { file: 'tmux', args: ['kill-session', '-t', 'session-a'] },
+        { file: 'tmux', args: ['kill-window', '-t', 'session-a:window-b'] },
+    ]);
+    assert.ok(calls.every(call => Array.isArray(call.args)), 'kill argv must never interpolate a shell');
+
+    nextResult = { exitCode: 1, stdout: '', stderr: "can't find session: session-a\n" };
+    await client.killSession('session-a');
+    nextResult = { exitCode: 1, stdout: '', stderr: "can't find window: session-a:window-b\n" };
+    await client.killWindow({ layout: 'project', sessionName: 'session-a', windowName: 'window-b' });
+    nextResult = { exitCode: 1, stdout: '', stderr: 'no server running on /tmp/tmux\n' };
+    await client.killSession('session-a');
+
+    nextResult = { exitCode: 1, stdout: '', stderr: 'permission denied\n' };
+    await assert.rejects(
+        client.killSession('session-a'),
+        error => error && error.name === 'TmuxClientError'
+            && error.operation === 'kill-session' && error.category === 'nonzero-exit'
+    );
+    nextResult = { exitCode: 1, stdout: '', stderr: 'permission denied\n' };
+    await assert.rejects(
+        client.killWindow({ layout: 'project', sessionName: 'session-a', windowName: 'window-b' }),
+        error => error && error.name === 'TmuxClientError'
+            && error.operation === 'kill-window' && error.category === 'nonzero-exit'
+    );
+
+    await assert.rejects(client.killSession(''), /session name is invalid/);
+    await assert.rejects(
+        client.killWindow({ layout: 'project', sessionName: 'session-a' }),
+        /locator is invalid/
+    );
 });
 
 test('RUNTIME-TMUX-CLIENT-001 parses one active window and rejects malformed, foreign, or secret output', async () => {

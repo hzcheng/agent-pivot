@@ -47,7 +47,6 @@ The feature must let users run long-lived Codex, Kimi, and Claude sessions in tm
 - Configuring a custom tmux socket, server name, configuration file, or additional tmux arguments.
 - Migrating a running AI process between Direct Terminal, project tmux layout, and session tmux layout.
 - Providing a tmux session browser or general tmux management UI.
-- Providing a Project Steward action to kill a tmux session or window.
 - Using panes for separate AI sessions; each managed AI process owns a full tmux window.
 - Giving multiple clients attached to one project tmux session independent current-window selection.
 - Taking ownership of user-created tmux sessions, windows, or panes.
@@ -65,9 +64,17 @@ The preference controls only creation of a new runtime. If a selected AI session
 
 Project Steward never silently falls back from tmux to Direct Terminal. If tmux cannot be used, the user may explicitly choose Direct Terminal for that operation or open settings.
 
-### Detach does not terminate
+### Detach does not terminate; Stop Session does
 
-Closing a VS Code terminal attached to tmux only detaches the client. It does not kill the managed tmux window or provider process. V1 does not add a force-terminate action; users reattach and exit the provider normally.
+Closing a VS Code terminal attached to tmux only detaches the client. It does not kill the managed tmux window or provider process. To actually end a run, the active row's terminal action is `Stop Session...`, which terminates the AI task:
+
+- in project layout it kills only that session's managed tmux window, never the shared project session or sibling windows;
+- in session layout it kills the whole managed tmux session;
+- before killing, Project Steward re-reads the target's managed metadata and refuses to kill a window whose identity no longer matches;
+- an already-vanished target is treated as successfully terminated;
+- a stopped session stays in the provider history and can be resumed later.
+
+The confirmation text explicitly states that the AI task will be terminated.
 
 ### Project layout is the default
 
@@ -174,13 +181,13 @@ Tmux-backed rows remain in `ACTIVE` while their managed tmux runtime exists, eve
 
 Clicking an active tmux row attaches or focuses its viewer and selects the corresponding window. The focused-row projection follows the selected managed tmux window when Project Steward refreshes runtime state.
 
-For tmux-backed rows, `Close Terminal...` becomes `Detach Terminal...`:
+For tmux-backed rows, the card terminal action is `Stop Session...` (see above). `Detach Terminal...` remains available from the row's context menu while the session has an attach terminal:
 
 - in project layout it closes the shared project attach terminal;
 - in session layout it closes the selected session's attach terminal;
-- neither action changes the runtime's active state.
+- detach does not change the runtime's active state.
 
-The confirmation text explicitly states that the AI task will keep running in tmux.
+The detach confirmation text explicitly states that the AI task will keep running in tmux.
 
 ### Tmux unavailable
 

@@ -400,3 +400,44 @@ test('RUNTIME-TMUX-FOCUS-FAST-PATH-001 reconciles and retries one changed target
     assert.deepEqual(tmux.refreshCalls, [true]);
     assert.deepEqual(direct.refreshCalls, [true]);
 });
+
+test('RUNTIME-TMUX-TERMINATE-SESSION-001 routes terminate to the owning backend and skips conflicts', async () => {
+    const direct = createFakeRuntimeBackend('vscode');
+    const tmux = createFakeRuntimeBackend('tmux');
+    const directRuntime = fakeRuntime('vscode', 'terminate-direct');
+    const tmuxRuntime = fakeRuntime('tmux', 'terminate-tmux', {
+        attached: false,
+        tmux: {
+            layout: 'project',
+            sessionName: 'managed',
+            windowName: 'codex-terminate-tmux',
+        },
+    });
+    direct.active.push(directRuntime);
+    tmux.active.push(tmuxRuntime);
+    const coordinator = createCoordinator(direct, tmux);
+
+    await coordinator.terminate(directRuntime.identity);
+    assert.equal(direct.terminateCalls.length, 1);
+    assert.equal(direct.terminateCalls[0].identity.sessionId, 'terminate-direct');
+    assert.equal(tmux.terminateCalls.length, 0);
+
+    await coordinator.terminate(tmuxRuntime.identity);
+    assert.equal(tmux.terminateCalls.length, 1);
+    assert.equal(tmux.terminateCalls[0].identity.sessionId, 'terminate-tmux');
+    assert.equal(direct.terminateCalls.length, 1);
+
+    const conflictDirect = createFakeRuntimeBackend('vscode');
+    const conflictTmux = createFakeRuntimeBackend('tmux');
+    conflictDirect.active.push(fakeRuntime('vscode', 'terminate-conflict'));
+    conflictTmux.active.push(fakeRuntime('tmux', 'terminate-conflict', {
+        attached: false,
+        tmux: { layout: 'project', sessionName: 'managed', windowName: 'codex-terminate-conflict' },
+    }));
+    await createCoordinator(conflictDirect, conflictTmux)
+        .terminate(conflictDirect.active[0].identity);
+    assert.equal(conflictDirect.terminateCalls.length, 0,
+        'a conflicting identity must not be terminated');
+    assert.equal(conflictTmux.terminateCalls.length, 0,
+        'a conflicting identity must not be terminated');
+});

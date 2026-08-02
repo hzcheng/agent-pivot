@@ -758,7 +758,8 @@ test('RUNTIME-TMUX-WEBVIEW-EXPERIENCE-001 renders semantic tmux, direct, stale, 
     assert.match(tmuxRow, /data-session-backend="tmux"/);
     assert.match(tmuxRow, /data-tmux-layout="project"/);
     assert.match(tmuxRow, /data-session-attached="false"/);
-    assert.match(tmuxRow, /data-action="detach-ai-session-terminal"/);
+    assert.match(tmuxRow, /data-action="stop-ai-session-runtime"/);
+    assert.doesNotMatch(tmuxRow, /data-action="detach-ai-session-terminal"/);
     assert.match(tmuxRow, /Runtime status is stale/);
 
     const directRow = webviewModules.content.getAiSessionsDiv({ ...base, activeAiSessions: [{
@@ -772,6 +773,7 @@ test('RUNTIME-TMUX-WEBVIEW-EXPERIENCE-001 renders semantic tmux, direct, stale, 
     }] });
     assert.match(conflictRow, /Runtime conflict/);
     assert.doesNotMatch(conflictRow, /data-action="(?:close|detach)-ai-session-terminal"/);
+    assert.doesNotMatch(conflictRow, /data-action="stop-ai-session-runtime"/);
 });
 
 test('WEBVIEW-FAVORITE-RENDERING-001 renders favorites in explicit order before saved groups', () => {

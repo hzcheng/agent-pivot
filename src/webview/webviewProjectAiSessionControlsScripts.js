@@ -244,17 +244,22 @@ function initProjectAiSessionControls(options) {
             return true;
         }
 
-        var terminalAction = target.closest('[data-action="close-ai-session-terminal"], [data-action="detach-ai-session-terminal"]');
+        var terminalAction = target.closest('[data-action="close-ai-session-terminal"], [data-action="detach-ai-session-terminal"], [data-action="stop-ai-session-runtime"]');
         if (terminalAction) {
             var terminalRow = terminalAction.closest('.codex-session-row[data-session-provider][data-session-backend]');
             var terminalProvider = terminalRow && terminalRow.getAttribute('data-session-provider');
             var terminalBackend = terminalRow && terminalRow.getAttribute('data-session-backend');
-            var requestedDetach = terminalAction.getAttribute('data-action') === 'detach-ai-session-terminal';
+            var requestedTerminalAction = terminalAction.getAttribute('data-action');
+            var requestedDetach = requestedTerminalAction === 'detach-ai-session-terminal';
+            var requestedStop = requestedTerminalAction === 'stop-ai-session-runtime';
             if (terminalRow && isAiSessionProvider(terminalProvider)
                 && ((requestedDetach && terminalBackend === 'tmux')
-                    || (!requestedDetach && terminalBackend === 'vscode'))) {
+                    || (requestedStop && terminalBackend === 'tmux')
+                    || (!requestedDetach && !requestedStop && terminalBackend === 'vscode'))) {
                 var terminalMessage = {
-                    type: requestedDetach ? 'detach-ai-session-terminal' : 'close-ai-session-terminal',
+                    type: requestedDetach ? 'detach-ai-session-terminal'
+                        : requestedStop ? 'stop-ai-session-runtime'
+                            : 'close-ai-session-terminal',
                     projectId,
                     provider: terminalProvider,
                 };

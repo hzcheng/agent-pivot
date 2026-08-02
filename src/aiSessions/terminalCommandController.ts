@@ -29,6 +29,7 @@ export interface AiSessionTerminalCommandRuntimeCoordinator<TTerminal> {
     focus(identity: AiSessionRuntimeIdentity): Promise<void>;
     focusSelected?(runtime: AiSessionRuntimeSnapshot<TTerminal>): Promise<boolean>;
     detach(identity: AiSessionRuntimeIdentity): Promise<void>;
+    terminate(identity: AiSessionRuntimeIdentity): Promise<void>;
 }
 
 export interface AiSessionTerminalCommandControllerCommonOptions {
@@ -53,7 +54,7 @@ export interface AiSessionTerminalCommandRuntimeControllerOptions<
     runtimeCoordinator: AiSessionTerminalCommandRuntimeCoordinator<TTerminal>;
     confirmRuntimeClose(
         message: string,
-        action: 'Close Terminal' | 'Detach Terminal'
+        action: 'Close Terminal' | 'Detach Terminal' | 'Stop Session'
     ): Thenable<string | undefined> | Promise<string | undefined>;
     announceStatus(projectId: string, message: string): Thenable<unknown> | Promise<unknown>;
     chooseRuntimeConflict?(
@@ -225,6 +226,27 @@ export class AiSessionTerminalCommandController<
         }
     }
 
+    async stopSession(request: CloseAiSessionTerminalRequest): Promise<void> {
+        if (!request || !this.options.isProviderId(request.providerId)) {
+            return;
+        }
+        const hasSessionId = Boolean(request.sessionId);
+        const hasPendingCreatedAt = Boolean(request.pendingCreatedAt);
+        if (hasSessionId === hasPendingCreatedAt) {
+            return;
+        }
+        const runtime = hasSessionId
+            ? this.getScopedActiveRuntime(
+                request.projectId, request.providerId, request.sessionId as string, this.options
+            )
+            : this.getScopedPendingRuntime(
+                request.projectId, request.providerId, request.pendingCreatedAt as string, this.options
+            );
+        if (runtime && (!request.expectedBackend || runtime.backend === request.expectedBackend)) {
+            await this.terminateRuntime(request, request.providerId, runtime, this.options);
+        }
+    }
+
     private async detachRuntime(
         request: CloseAiSessionTerminalRequest,
         providerId: AiSessionProviderId,
@@ -273,6 +295,58 @@ export class AiSessionTerminalCommandController<
             await options.showErrorMessage(runtime.backend === 'tmux'
                 ? 'Could not detach the AI session terminal.'
                 : 'Could not close the AI session terminal.');
+            options.refresh();
+            return;
+        }
+        this.options.onRuntimeCloseEnd?.(cloneRuntime(currentRuntime), true);
+        options.refresh();
+    }
+
+    private async terminateRuntime(
+        request: CloseAiSessionTerminalRequest,
+        providerId: AiSessionProviderId,
+        runtime: AiSessionRuntimeSnapshot<TTerminal>,
+        options: AiSessionTerminalCommandRuntimeControllerOptions<TTerminal>
+    ): Promise<void> {
+        const selectionToken = createSelectionToken(runtime);
+        if (!selectionToken) {
+            await this.handleChangedRuntime(request.projectId, options);
+            return;
+        }
+        const action = 'Stop Session';
+        const providerLabel = options.getProviderLabel(providerId);
+        const message = runtime.backend === 'tmux'
+            ? `Stopping this ${providerLabel} session will terminate the AI task running in tmux.`
+            : `Stopping this ${providerLabel} session may interrupt a running AI task.`;
+        let confirmation: string | undefined;
+        try {
+            confirmation = await options.confirmRuntimeClose(message, action);
+        } catch (error) {
+            await options.showErrorMessage('Could not confirm the AI session stop action.');
+            return;
+        }
+        if (confirmation !== action) {
+            return;
+        }
+        const currentRuntime = request.sessionId
+            ? this.getScopedActiveRuntime(
+                request.projectId, providerId, request.sessionId, options
+            )
+            : this.getScopedPendingRuntime(
+                request.projectId, providerId, request.pendingCreatedAt as string, options
+            );
+        const currentToken = currentRuntime ? createSelectionToken(currentRuntime) : null;
+        if (!currentRuntime || !currentToken || !selectionTokensEqual(selectionToken, currentToken)) {
+            await this.handleChangedRuntime(request.projectId, options);
+            return;
+        }
+        this.options.onRuntimeCloseStart?.(cloneRuntime(currentRuntime));
+        try {
+            await options.runtimeCoordinator.terminate({ ...currentRuntime.identity });
+        } catch (error) {
+            this.options.onRuntimeCloseEnd?.(cloneRuntime(currentRuntime), false);
+            options.logRuntimeFailure?.('terminate-runtime', error, runtime.backend);
+            await options.showErrorMessage('Could not stop the AI session.');
             options.refresh();
             return;
         }
@@ -492,6 +566,7 @@ function validateControllerOptions<TTerminal extends { show(): void; dispose(): 
         || typeof coordinator.getPending !== 'function'
         || typeof coordinator.focus !== 'function'
         || typeof coordinator.detach !== 'function'
+        || typeof coordinator.terminate !== 'function'
         || typeof options.getWorkspaceTarget !== 'function'
         || typeof options.confirmRuntimeClose !== 'function'
         || typeof options.announceStatus !== 'function') {

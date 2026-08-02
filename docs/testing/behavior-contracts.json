@@ -3440,6 +3440,21 @@
     ]
   },
   {
+    "id": "ARCH-PR-SKILL-HARVEST-GATE-001",
+    "domain": "architecture",
+    "title": "Pull request bodies record the skill harvest decision through a required template section",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/unit/tooling/prBody.test.js"
+    ],
+    "evidence": [
+      "scripts/check-pr-body.js",
+      ".github/pull_request_template.md",
+      ".github/workflows/verify.yml"
+    ]
+  },
+  {
     "id": "ARCH-MAIN-CAPABILITY-CURRENCY-001",
     "domain": "architecture",
     "title": "Implementation commits cannot remain beyond the recorded capability audit head",

@@ -7,7 +7,7 @@ import * as path from 'path';
 import { CodexSession } from '../models';
 import IncrementalJsonlLifecycleReader from '../aiSessions/incrementalJsonlLifecycleReader';
 import { compareAiSessionUpdatedAt, filterAiSessionsByCandidatePaths, getAiSessionFileSignature, getAvailableAiSessionArchivePath, normalizeAiSessionCandidatePaths, resolveAiSessionQueryOptions } from '../aiSessions/sessionHelpers';
-import type { AiSessionQueryOptions } from '../aiSessions/types';
+import type { AiSessionCodexSubagentThread, AiSessionQueryOptions } from '../aiSessions/types';
 import { createCodexLifecycleAccumulator, AiSessionLifecycleRequest, AiSessionLifecycleSignal } from '../aiSessions/lifecycle';
 import SessionFingerprint from '../aiSessions/sessionFingerprint';
 
@@ -17,12 +17,21 @@ interface CodexSessionIndexEntry {
     updated_at?: string;
 }
 
+interface CodexSessionSubagentSpawn {
+    parentThreadId?: string;
+    depth?: number;
+    agentNickname?: string;
+    agentPath?: string;
+    agentRole?: string | null;
+}
+
 interface CodexSessionMeta {
     id?: string;
     session_id?: string;
     cwd?: string;
     timestamp?: string;
     isExcluded?: boolean;
+    subagent?: CodexSessionSubagentSpawn;
 }
 
 interface CodexDiscoveredSessionFile {
@@ -428,6 +437,80 @@ export default class CodexSessionService {
         );
     }
 
+    private readSubagentSpawn(source: unknown): CodexSessionSubagentSpawn | undefined {
+        if (!source || typeof source !== 'object') {
+            return undefined;
+        }
+        let spawn = (source as { subagent?: { thread_spawn?: Record<string, unknown> } })
+            .subagent?.thread_spawn;
+        if (!spawn || typeof spawn !== 'object') {
+            return undefined;
+        }
+        return {
+            parentThreadId: typeof spawn.parent_thread_id === 'string'
+                ? spawn.parent_thread_id
+                : undefined,
+            depth: typeof spawn.depth === 'number' ? spawn.depth : undefined,
+            agentNickname: typeof spawn.agent_nickname === 'string'
+                ? spawn.agent_nickname
+                : undefined,
+            agentPath: typeof spawn.agent_path === 'string'
+                ? spawn.agent_path
+                : undefined,
+            agentRole: typeof spawn.agent_role === 'string'
+                ? spawn.agent_role
+                : null,
+        };
+    }
+
+    /**
+     * Lists depth-1 subagent threads spawned by the given session, oldest
+     * first. Deeper nested agents stay visible inside their parent's
+     * transcript as spawn tool calls.
+     */
+    listSubagentThreads(sessionId: string): AiSessionCodexSubagentThread[] {
+        if (!sessionId) {
+            return [];
+        }
+        let codexHome = this.getCodexHome();
+        if (!codexHome) {
+            return [];
+        }
+        let sessionFiles = this.getSessionFiles(codexHome);
+        let threads: AiSessionCodexSubagentThread[] = [];
+        for (let [id, filePath] of sessionFiles) {
+            if (id === sessionId) {
+                continue;
+            }
+            let meta = this.readSessionMeta(id, sessionFiles);
+            let spawn = meta?.subagent;
+            if (!spawn
+                || spawn.parentThreadId !== sessionId
+                || spawn.depth !== 1) {
+                continue;
+            }
+            let createdAt = Date.parse(meta?.timestamp || '');
+            let fileStat = this.getFileStat(filePath);
+            threads.push({
+                id,
+                filePath,
+                agentNickname: spawn.agentNickname,
+                agentPath: spawn.agentPath,
+                agentRole: spawn.agentRole,
+                createdAt: Number.isNaN(createdAt) ? undefined : createdAt,
+                fileMtimeMs: fileStat.mtimeMs,
+                completed: this.readRolloutCompleted(
+                    filePath,
+                    fileStat.sizeBytes
+                ),
+            });
+        }
+        threads.sort((left, right) =>
+            (left.createdAt ?? left.fileMtimeMs)
+            - (right.createdAt ?? right.fileMtimeMs));
+        return threads;
+    }
+
     private readSessionMeta(sessionId: string, sessionFiles: Map<string, string>): CodexSessionMeta {
         let sessionFile = sessionFiles.get(sessionId);
         if (!sessionFile) {
@@ -460,6 +543,7 @@ export default class CodexSessionService {
                 cwd: payload.cwd,
                 timestamp: payload.timestamp || event.timestamp,
                 isExcluded: this.isExcludedSessionSource(payload.source),
+                subagent: this.readSubagentSpawn(payload.source),
             };
             this.sessionMetaCache.set(sessionFile, { signature, meta });
             return meta;
@@ -476,7 +560,6 @@ export default class CodexSessionService {
             let chunks: Buffer[] = [];
             let buffer = Buffer.alloc(4096);
             let bytesRead = 0;
-
             do {
                 bytesRead = fs.readSync(fd, buffer, 0, buffer.length, null);
                 if (bytesRead <= 0) {
@@ -496,6 +579,60 @@ export default class CodexSessionService {
             return Buffer.concat(chunks).toString('utf8').trim();
         } catch (e) {
             return null;
+        } finally {
+            if (fd !== null) {
+                try {
+                    fs.closeSync(fd);
+                } catch (e) {
+                    // Ignore close failures for best-effort metadata reads.
+                }
+            }
+        }
+    }
+
+    /**
+     * A subagent thread completed its turn when the rollout's last
+     * lifecycle event is task_complete; anything else means the turn was
+     * still in flight when the rollout was last written. Reads a bounded
+     * tail window because a single record can exceed 200KB.
+     */
+    private readRolloutCompleted(filePath: string, sizeBytes: number): boolean {
+        const windowBytes = 512 * 1024;
+        const length = Math.min(sizeBytes, windowBytes);
+        if (!length) {
+            return false;
+        }
+        let fd: number = null;
+        try {
+            fd = fs.openSync(filePath, 'r');
+            const buffer = Buffer.alloc(length);
+            const bytesRead = fs.readSync(
+                fd,
+                buffer,
+                0,
+                length,
+                sizeBytes - length
+            );
+            const tail = buffer.toString('utf8', 0, bytesRead);
+            const lines = tail.split('\n');
+            if (sizeBytes > length) {
+                // The first line may be cut by the window edge; drop it.
+                lines.shift();
+            }
+            for (let index = lines.length - 1; index >= 0; index--) {
+                const line = lines[index].trim();
+                if (!line) {
+                    continue;
+                }
+                const record = JSON.parse(line);
+                if (record?.type !== 'event_msg') {
+                    continue;
+                }
+                return record?.payload?.type === 'task_complete';
+            }
+            return false;
+        } catch (e) {
+            return false;
         } finally {
             if (fd !== null) {
                 try {

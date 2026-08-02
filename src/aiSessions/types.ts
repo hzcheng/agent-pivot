@@ -91,6 +91,22 @@ export interface AiSessionConversationSourceCandidate {
     sourcePath: string;
 }
 
+/**
+ * A Codex subagent thread discovered on disk: an independent rollout file
+ * whose session_meta marks it as spawned by a parent thread.
+ */
+export interface AiSessionCodexSubagentThread {
+    id: string;
+    filePath: string;
+    agentNickname?: string;
+    agentPath?: string;
+    agentRole?: string | null;
+    createdAt?: number;
+    fileMtimeMs: number;
+    /** True when the rollout's last lifecycle event is task_complete. */
+    completed: boolean;
+}
+
 export interface AiSessionService {
     getSessions(options?: boolean | AiSessionQueryOptions): AiSessionReadResult;
     getLifecycleSignals(requests: readonly AiSessionLifecycleRequest[]): Record<string, AiSessionLifecycleSignal>;
@@ -103,6 +119,7 @@ export interface AiSessionService {
 
         candidatePaths?: readonly string[]
     ): AiSessionConversationSourceCandidate | null;
+    listSubagentThreads?(sessionId: string): AiSessionCodexSubagentThread[];
 }
 
 export interface AiSessionProviderDefinition {

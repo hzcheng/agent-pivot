@@ -46,6 +46,7 @@ function createAdapter(result = fixture, overrides = {}) {
         clearTimeout: overrides.clearTimeout || (() => undefined),
         resolveWorktree: overrides.resolveWorktree,
         readCurrentWorkdir: overrides.readCurrentWorkdir,
+        listSubagentThreads: overrides.listSubagentThreads,
     });
     return {
         adapter,
@@ -588,4 +589,195 @@ test('CONVERSATION-TELEMETRY-001 Codex prefers the latest exec workdir and falls
         worktreeRoot: '/launch/repo',
         repoRoot: '/launch/repo',
     });
+});
+
+const childThreadId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const otherChildThreadId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+const thirdChildThreadId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+
+function createThreadReadResult(threadId, parentThreadId, overrides = {}) {
+    return {
+        thread: {
+            id: threadId,
+            parentThreadId,
+            agentNickname: 'Zeno',
+            createdAt: 1_700_000_000,
+            source: {
+                subAgent: {
+                    thread_spawn: {
+                        parent_thread_id: parentThreadId,
+                        depth: 1,
+                        agent_path: '/root/implement_webview_mutation_skill',
+                        agent_nickname: 'Zeno',
+                        agent_role: null,
+                    },
+                },
+            },
+            turns: [
+                {
+                    id: 'turn-1',
+                    status: 'completed',
+                    items: [
+                        { id: 'agent-item-1', type: 'agentMessage', text: 'First progress note' },
+                        { id: 'file-item-1', type: 'fileChange', path: '/repo/x.ts' },
+                        { id: 'agent-item-2', type: 'agentMessage', text: 'status: complete' },
+                    ],
+                },
+            ],
+            ...overrides,
+        },
+    };
+}
+
+test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 Codex lists depth-1 subagent threads with inferred statuses and labels', async t => {
+    const now = Date.now();
+    const { adapter } = createAdapter(fixture, {
+        listSubagentThreads: () => [
+            {
+                id: childThreadId,
+                filePath: '/codex/sessions/2026/08/02/rollout-child.jsonl',
+                agentNickname: 'Zeno',
+                agentPath: '/root/implement_webview_mutation_skill',
+                createdAt: 1_700_000_000_000,
+                fileMtimeMs: now,
+                completed: true,
+            },
+            {
+                id: otherChildThreadId,
+                filePath: '/codex/sessions/2026/08/02/rollout-running.jsonl',
+                agentPath: '/root/review_fix_loop',
+                createdAt: 1_699_000_000_000,
+                fileMtimeMs: now,
+                completed: false,
+            },
+            {
+                id: thirdChildThreadId,
+                filePath: '/codex/sessions/2026/08/02/rollout-stale.jsonl',
+                createdAt: 1_698_000_000_000,
+                fileMtimeMs: now - 10 * 60 * 1000,
+                completed: false,
+            },
+        ],
+    });
+    t.after(() => adapter.dispose());
+
+    const entries = await adapter.readSubagents(sessionId);
+    assert.deepEqual(
+        entries.map(entry => [entry.id, entry.status, entry.agentType]),
+        [
+            [thirdChildThreadId, 'failed', undefined],
+            [otherChildThreadId, 'running', 'review_fix_loop'],
+            [childThreadId, 'idle', 'implement_webview_mutation_skill'],
+        ]
+    );
+    assert.equal(entries[2].label, 'Zeno · implement_webview_mutation_skill');
+    assert.equal(entries[1].label, 'review_fix_loop');
+    assert.equal(entries[0].label, thirdChildThreadId);
+    assert.equal(entries[2].createdAt, 1_700_000_000_000);
+
+    // Encoded subagent ids never list nested subagents.
+    assert.deepEqual(
+        await adapter.readSubagents(`${sessionId}#agent:${childThreadId}`),
+        []
+    );
+});
+
+test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 Codex reads a subagent thread as its own conversation', async t => {
+    const childResult = createThreadReadResult(childThreadId, sessionId);
+    const requests = [];
+    const client = {
+        async request(method, params) {
+            requests.push({ method, params });
+            if (params && params.threadId === childThreadId) {
+                return childResult;
+            }
+            return fixture;
+        },
+        dispose() {},
+    };
+    const { adapter } = createAdapter(fixture, {
+        client,
+        listSubagentThreads: () => [],
+    });
+    t.after(() => adapter.dispose());
+
+    const encodedId = `${sessionId}#agent:${childThreadId}`;
+    const outline = await adapter.readOutline(encodedId);
+    assert.equal(outline.sessionId, encodedId);
+    assert.equal(outline.totalInteractions, 1);
+    assert.equal(
+        outline.interactions[0].userPreview,
+        'Zeno · implement_webview_mutation_skill'
+    );
+    assert.deepEqual(
+        requests.map(entry => [entry.method, entry.params.threadId]),
+        [['thread/read', childThreadId]]
+    );
+    const page = await adapter.readPage({
+        provider: 'codex',
+        sessionId: encodedId,
+        anchorInteractionId: outline.interactions[0].id,
+        direction: 'around',
+        expectedRevision: outline.sourceRevision,
+    });
+    assert.deepEqual(
+        page.messages.map(message => [message.role, message.markdown]),
+        [
+            ['user', 'Zeno · implement_webview_mutation_skill'],
+            ['assistant', 'First progress note'],
+            ['assistant', 'status: complete'],
+        ]
+    );
+
+    // The parent session conversation is unaffected.
+    const parent = await adapter.readOutline(sessionId);
+    assert.equal(parent.totalInteractions, 3);
+    assert.equal(parent.interactions[0].userPreview, 'Visible request [Attachment]');
+});
+
+test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 Codex rejects malformed and mismatched subagent targets', async t => {
+    const requests = [];
+    const client = {
+        async request(method, params) {
+            requests.push({ method, params });
+            if (params && params.threadId === childThreadId) {
+                // Thread exists but belongs to a different parent.
+                return createThreadReadResult(
+                    childThreadId,
+                    otherChildThreadId
+                );
+            }
+            throw new Error('thread not found');
+        },
+        dispose() {},
+    };
+    const { adapter } = createAdapter(fixture, {
+        client,
+        listSubagentThreads: () => [],
+    });
+    t.after(() => adapter.dispose());
+
+    await assert.rejects(
+        () => adapter.readOutline(`${sessionId}#agent:..`),
+        error => error?.code === 'unavailable'
+    );
+    await assert.rejects(
+        () => adapter.readOutline(`${sessionId}#agent:${childThreadId}`),
+        error => error?.code === 'unavailable'
+    );
+    await assert.rejects(
+        () => adapter.readOutline(`${sessionId}#agent:${otherChildThreadId}`),
+        error => error?.code === 'unavailable'
+    );
+    await assert.rejects(
+        () => adapter.readOutline(
+            `${sessionId}#agent:${childThreadId}#agent:${otherChildThreadId}`
+        ),
+        error => error?.code === 'unavailable'
+    );
+    // A main-session protocol failure still reports the protocol reason.
+    await assert.rejects(
+        () => adapter.readOutline(sessionId),
+        error => error?.code === 'unsupportedVersion'
+    );
 });

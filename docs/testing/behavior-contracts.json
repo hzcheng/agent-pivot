@@ -3846,6 +3846,8 @@
     "owners": [
       "tests/contract/aiSessions/kimiConversationAdapter.test.js",
       "tests/contract/aiSessions/claudeConversationAdapter.test.js",
+      "tests/contract/aiSessions/codexConversationAdapter.test.js",
+      "tests/unit/aiSessions/codexSessionFilePath.test.js",
       "tests/integration/dashboard/conversationViewer.test.js",
       "tests/browser/conversationViewer.test.js"
     ],
@@ -3853,6 +3855,8 @@
       "src/aiSessions/conversation/subagentSessions.ts",
       "src/aiSessions/conversation/kimiAdapter.ts",
       "src/aiSessions/conversation/claudeAdapter.ts",
+      "src/aiSessions/conversation/codexAdapter.ts",
+      "src/services/codexSessionService.ts",
       "src/aiSessions/conversation/viewer.ts",
       "src/aiSessions/conversation/viewerProtocol.ts",
       "src/aiSessions/conversation/viewerDocument.ts",

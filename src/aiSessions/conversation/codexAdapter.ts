@@ -1,7 +1,10 @@
 'use strict';
 
 import { createHash } from 'crypto';
-import type { AiSessionDisposable } from '../types';
+import type {
+    AiSessionCodexSubagentThread,
+    AiSessionDisposable,
+} from '../types';
 import {
     buildConversationOutline,
     buildConversationPage,
@@ -24,8 +27,13 @@ import {
     ConversationPageRequest,
     ConversationProviderAdapter,
     ConversationResponseState,
+    ConversationSubagentEntry,
     ConversationTelemetry,
 } from './types';
+import {
+    isSubagentId,
+    splitSubagentSessionId,
+} from './subagentSessions';
 import type {
     ConversationWorktreeInfo,
     ResolveWorktree,
@@ -51,7 +59,13 @@ export interface CodexConversationAdapterOptions {
     clearTimeout(handle: TimerHandle): void;
     resolveWorktree?: ResolveWorktree;
     readCurrentWorkdir?(sessionId: string): string | undefined;
+    listSubagentThreads?(
+        sessionId: string
+    ): AiSessionCodexSubagentThread[] | Promise<AiSessionCodexSubagentThread[]>;
 }
+
+const MAX_LISTED_SUBAGENTS = 64;
+const SUBAGENT_RUNNING_FRESHNESS_MS = 5 * 60 * 1000;
 
 interface LoadedConversation {
     interactions: ConversationInteraction[];
@@ -96,7 +110,8 @@ function turnResponseState(value: string): ConversationResponseState {
 
 function normalizeThreadRead(
     value: unknown,
-    sessionId: string
+    sessionId: string,
+    dispatch?: { label: string; timestamp?: number }
 ): ConversationInteraction[] {
     const result = asRecord(value);
     const thread = asRecord(result?.thread);
@@ -109,6 +124,24 @@ function normalizeThreadRead(
     const turnIds = new Set<string>();
     const itemIds = new Set<string>();
     const interactions: ConversationInteraction[] = [];
+    // A subagent thread exposes no userMessage for its dispatch prompt
+    // (the app-server strips it), so seed one from the thread metadata to
+    // give the subagent's agentMessages an interaction to attach to.
+    let seededDispatchIndex: number | undefined;
+    if (dispatch) {
+        interactions.push({
+            id: `${sessionId}-dispatch`,
+            ...(dispatch.timestamp !== undefined
+                ? { timestamp: dispatch.timestamp }
+                : {}),
+            userMarkdown: dispatch.label,
+            userPreview: buildUserPreview(dispatch.label),
+            userGraphemeCount: countGraphemes(dispatch.label),
+            assistantMarkdown: [],
+            responseState: 'unknown',
+        });
+        seededDispatchIndex = 0;
+    }
     for (const rawTurn of thread.turns) {
         const turn = asRecord(rawTurn);
         if (!turn
@@ -121,7 +154,10 @@ function normalizeThreadRead(
         }
         turnIds.add(turn.id);
         const responseState = turnResponseState(turn.status);
-        let currentInteractionIndex: number | undefined;
+        if (seededDispatchIndex !== undefined) {
+            interactions[seededDispatchIndex].responseState = responseState;
+        }
+        let currentInteractionIndex: number | undefined = seededDispatchIndex;
         for (const rawItem of turn.items) {
             const item = asRecord(rawItem);
             if (!item
@@ -324,6 +360,53 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
             { ...request, provider: 'codex' },
             loaded.sourceRevision
         );
+    }
+
+    async readSubagents(
+        sessionId: string,
+        _signal?: ConversationAbortSignal
+    ): Promise<ConversationSubagentEntry[]> {
+        if (this.disposed) {
+            return [];
+        }
+        const split = splitSubagentSessionId(sessionId);
+        if (split.subagentId
+            || typeof this.options.listSubagentThreads !== 'function') {
+            return [];
+        }
+        let threads: AiSessionCodexSubagentThread[];
+        try {
+            threads = await this.options.listSubagentThreads(split.sessionId);
+        } catch (_error) {
+            return [];
+        }
+        const now = Date.now();
+        const entries: ConversationSubagentEntry[] = [];
+        for (const thread of threads) {
+            if (entries.length >= MAX_LISTED_SUBAGENTS
+                || !isSubagentId(thread.id)) {
+                continue;
+            }
+            const base = subagentPathBase(thread.agentPath);
+            entries.push({
+                id: thread.id,
+                label: subagentLabel(thread),
+                ...(base ? { agentType: base } : {}),
+                status: subagentStatus(
+                    thread.completed,
+                    thread.fileMtimeMs,
+                    now
+                ),
+                ...(thread.createdAt !== undefined
+                    ? { createdAt: Math.floor(thread.createdAt) }
+                    : {}),
+                updatedAt: Math.floor(thread.fileMtimeMs),
+            });
+        }
+        entries.sort((left, right) =>
+            (left.createdAt ?? left.updatedAt ?? 0)
+            - (right.createdAt ?? right.updatedAt ?? 0));
+        return entries;
     }
 
     async readTelemetry(
@@ -546,10 +629,15 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
                 'reconnectingCodex'
             );
         }
+        const split = splitSubagentSessionId(sessionId);
+        if (split.subagentId && !isSubagentId(split.subagentId)) {
+            throw new ConversationError('unavailable', 'missingSource');
+        }
+        const threadId = split.subagentId || split.sessionId;
         let result: unknown;
         try {
             result = await this.options.client.request('thread/read', {
-                threadId: sessionId,
+                threadId,
                 includeTurns: true,
             }, signal);
         } catch (error) {
@@ -557,12 +645,31 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
                 || error?.name === 'AbortError') {
                 throw error;
             }
-            throw protocolError();
+            // A missing or unreadable subagent thread is a missing source,
+            // not a protocol failure of the parent conversation.
+            throw split.subagentId
+                ? new ConversationError('unavailable', 'missingSource')
+                : protocolError();
         }
         let interactions: ConversationInteraction[];
         try {
-            interactions = normalizeThreadRead(result, sessionId);
-        } catch (_error) {
+            if (split.subagentId) {
+                const thread = asRecord(asRecord(result)?.thread);
+                if (thread?.parentThreadId !== split.sessionId) {
+                    throw new ConversationError('unavailable', 'missingSource');
+                }
+            }
+            const dispatch = split.subagentId
+                ? subagentDispatch(
+                    asRecord(asRecord(result)?.thread),
+                    threadId
+                )
+                : undefined;
+            interactions = normalizeThreadRead(result, threadId, dispatch);
+        } catch (error) {
+            if (error instanceof ConversationError) {
+                throw error;
+            }
             throw protocolError();
         }
         return {
@@ -608,4 +715,75 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
             this.invalidationTimer = undefined;
         }
     }
+}
+
+function subagentAgentPath(
+    thread: Record<string, any> | undefined
+): string | undefined {
+    const spawn = asRecord(asRecord(asRecord(thread?.source)?.subAgent)
+        ?.thread_spawn);
+    return typeof spawn?.agent_path === 'string' && spawn.agent_path
+        ? spawn.agent_path
+        : undefined;
+}
+
+function subagentPathBase(agentPath: string | undefined): string {
+    if (!agentPath) {
+        return '';
+    }
+    const segments = agentPath.split('/').filter(Boolean);
+    return segments[segments.length - 1] || '';
+}
+
+function subagentLabel(
+    thread: Pick<AiSessionCodexSubagentThread, 'id' | 'agentNickname' | 'agentPath'>
+): string {
+    const base = subagentPathBase(thread.agentPath);
+    const label = thread.agentNickname
+        ? `${thread.agentNickname} · ${base}`
+        : base;
+    const normalized = normalizeVisibleText(label);
+    if (normalized) {
+        return countGraphemes(normalized) <= 120
+            ? normalized
+            : truncateGraphemes(normalized, 119);
+    }
+    return thread.id;
+}
+
+function subagentDispatch(
+    thread: Record<string, any> | undefined,
+    threadId: string
+): { label: string; timestamp?: number } {
+    const createdAtSeconds = typeof thread?.createdAt === 'number'
+        && Number.isFinite(thread.createdAt)
+        ? thread.createdAt
+        : undefined;
+    return {
+        label: subagentLabel({
+            id: threadId,
+            agentNickname: typeof thread?.agentNickname === 'string'
+                ? thread.agentNickname
+                : undefined,
+            agentPath: subagentAgentPath(thread),
+        }),
+        ...(createdAtSeconds !== undefined
+            ? { timestamp: Math.floor(createdAtSeconds * 1000) }
+            : {}),
+    };
+}
+
+function subagentStatus(
+    completed: boolean,
+    transcriptMtimeMs: number,
+    now: number
+): ConversationSubagentEntry['status'] {
+    if (completed) {
+        return 'idle';
+    }
+    // A crashed CLI leaves a stale transcript without task_complete
+    // behind; only a freshly written rollout proves the subagent is alive.
+    return now - transcriptMtimeMs <= SUBAGENT_RUNNING_FRESHNESS_MS
+        ? 'running'
+        : 'failed';
 }

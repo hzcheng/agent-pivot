@@ -306,11 +306,11 @@ test('CONVERSATION-FOLLOW-ACTIVE-SESSION-001 follows the latest interaction only
 });
 
 test('CONVERSATION-FOLLOW-ACTIVE-SESSION-001 routes a successful Active Session card focus into Conversation following', () => {
-    const dashboardSource = fs.readFileSync(
-        path.join(__dirname, '../../../src/dashboard.ts'),
+    const handlersSource = fs.readFileSync(
+        path.join(__dirname, '../../../src/dashboard/messageHandlers.ts'),
         'utf8'
     );
-    const handler = dashboardSource.match(
+    const handler = handlersSource.match(
         /'focus-ai-session-terminal': async e => \{[\s\S]*?\n\s*\},\n\s*'focus-pending-ai-session'/
     );
     assert.ok(handler, 'Active Session focus handler must remain inspectable');

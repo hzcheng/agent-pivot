@@ -432,9 +432,13 @@
     "status": "automated",
     "owners": [
       "tests/contract/aiSessions/sessionControllers.test.js"
+    ,
+      "tests/contract/dashboard/messageHandlers.test.js"
     ],
     "evidence": [
       "scripts/run-ai-session-safety-checks.js"
+    ,
+      "src/dashboard/messageHandlers.ts"
     ]
   },
   {
@@ -3021,11 +3025,15 @@
       "tests/integration/dashboard/messageRouter.test.js"
     ,
       "tests/contract/projects/projectMessageHandlers.test.js"
+    ,
+      "tests/contract/dashboard/messageHandlers.test.js"
     ],
     "evidence": [
       "src/dashboard/messageRouter.ts"
     ,
       "src/projects/projectMessageHandlers.ts"
+    ,
+      "src/dashboard/messageHandlers.ts"
     ]
   },
   {
@@ -3508,11 +3516,15 @@
     "owners": [
       "tests/contract/aiSessions/archiveAndHydration.test.js",
       "tests/integration/dashboard/webviewState.test.js"
+    ,
+      "tests/contract/dashboard/messageHandlers.test.js"
     ],
     "evidence": [
       "src/aiSessions/archiveBatchAcrossProviders.ts",
       "src/aiSessions/archiveController.ts",
       "scripts/run-ai-session-safety-checks.js"
+    ,
+      "src/dashboard/messageHandlers.ts"
     ]
   },
   {

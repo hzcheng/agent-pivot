@@ -9655,7 +9655,10 @@ function runHostRuntimeCompositionChecks() {
     assert.ok(!dashboardSource.includes(
         'getActiveTerminal: (providerId, sessionId) => aiSessionTerminalService.getActiveById'
     ));
-    assert.match(dashboardSource,
+    const messageHandlersSource = fs.readFileSync(
+        path.join(__dirname, '..', 'src', 'dashboard', 'messageHandlers.ts'), 'utf8'
+    );
+    assert.match(messageHandlersSource,
         /'close-ai-session-terminal':[\s\S]*?expectedBackend: 'vscode'[\s\S]*?'detach-ai-session-terminal':[\s\S]*?expectedBackend: 'tmux'/,
         'host routes must constrain close/detach to the requested runtime backend');
     assert.ok(dashboardSource.includes('chooseRuntimeConflict:'));

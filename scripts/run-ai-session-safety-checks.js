@@ -4897,6 +4897,10 @@ function runWebviewContentChecks() {
     const runtimeSettlement = fs.readFileSync(
         path.join(__dirname, '..', 'src', 'aiSessions', 'runtimeSettlementCapability.ts'), 'utf8'
     );
+    const messageHandlersSource = fs.readFileSync(
+        path.join(__dirname, '..', 'src', 'dashboard', 'messageHandlers.ts'), 'utf8'
+    );
+
     const webviewProjectScripts = [
         'webviewAiSessionViewStateScripts.js',
         'webviewWorkspaceUpdateScripts.js',
@@ -5230,7 +5234,7 @@ function runWebviewContentChecks() {
     assert.ok(!dashboard.includes('function getEffectiveAiSessionAttentionAggregate('));
     assert.ok(!dashboard.includes('function getAiSessionAttentionRecoverySessionEvents('));
     assert.ok(dashboard.includes('async function evaluateAiSessionAttention('));
-    assert.ok(dashboard.includes("'open-settings': async () =>"));
+    assert.ok(messageHandlersSource.includes("'open-settings': async () =>"));
     assert.ok(settingsFunction.includes('dashboardRuntimeController.openSettings()'));
     assert.ok(dashboardRuntimeControllerSource.includes("executeCommand('workbench.action.openSettings', query)"));
     assert.ok(!settingsFunction.includes('showQuickPick'));
@@ -5388,7 +5392,9 @@ function runWebviewContentChecks() {
     assert.match(dashboard, /onDidChangeWindowState\(windowState => \{[\s\S]*?dashboardLifecycleController\.handleWindowStateChanged\(windowState\);[\s\S]*?\}\)/);
     assert.ok(dashboardLifecycleControllerSource.includes('this.options.evaluateAiSessionAttention();'));
     assert.ok(dashboardLifecycleControllerSource.includes('this.options.publishOpenWorkspace(true);'));
-    assert.ok(dashboard.includes("'request-active-ai-session-terminal': () =>"));
+    assert.ok(messageHandlersSource.includes("'request-active-ai-session-terminal': () =>"));
+    assert.ok(dashboard.includes('requestActiveAiSessionTerminalHighlight: () => activeAiSessionTerminalHighlighter.request()'),
+        'the dashboard wires the highlighter request into the extracted handlers');
     assert.ok(dashboardRuntimeControllerSource.includes("type: 'active-ai-session-terminal-changed'"));
     assert.ok(webviewProjectScripts.includes("type: 'request-active-ai-session-terminal'"));
     assert.ok(webviewProjectScripts.includes("message.type === 'active-ai-session-terminal-changed'"));
@@ -5406,7 +5412,7 @@ function runWebviewContentChecks() {
     assert.ok(!terminalCandidatesSource.includes('getOpenProjects('));
     assert.ok(!terminalCandidatesSource.includes('activeAiSessionProvider'));
     assert.ok(!dashboard.includes('prunePinnedAiSessionKeys'));
-    assert.ok(dashboard.includes("'archive-ai-sessions': async e =>"));
+    assert.ok(messageHandlersSource.includes("'archive-ai-sessions': async e =>"));
     assert.ok(dashboard.includes('AiSessionBatchArchiveCompletedMessage'));
     assert.ok(dashboard.includes("import { AiSessionArchiveController } from './aiSessions/archiveController';"));
     assert.ok(dashboard.includes('const aiSessionArchiveController = new AiSessionArchiveController<AiSessionRuntimeSnapshot<vscode.Terminal>>({'));
@@ -5414,9 +5420,9 @@ function runWebviewContentChecks() {
         dashboard.includes('refreshRuntimeGuard: () => aiSessionRuntimeCoordinator.refreshForHost(true),'),
         'archive confirmation must rescan every runtime backend so a newly external tmux runtime cannot be missed'
     );
-    assert.ok(dashboard.includes('await aiSessionArchiveController.archiveSessions('));
+    assert.ok(messageHandlersSource.includes('await aiSessionArchiveController.archiveSessions('));
     assert.match(
-        dashboard,
+        messageHandlersSource,
         /archiveSessions\(\s*e\.projectId,\s*e\.items,\s*e\.requestId,\s*e\.version\s*\)/
     );
     assert.ok(dashboard.includes('await aiSessionArchiveController.archiveSession('));
@@ -5631,11 +5637,11 @@ function runWebviewContentChecks() {
     assert.ok(!dashboard.includes('async function createAiSession('));
     assert.ok(!dashboard.includes('async function queryNewAiSessionFields('));
     assert.ok(!dashboard.includes('async function createProviderAiSession('));
-    assert.ok(dashboard.includes('await aiSessionCommandController.toggleSessionsExpanded('));
-    assert.ok(dashboard.includes('await aiSessionCommandController.selectProviders('));
-    assert.ok(dashboard.includes('await aiSessionCommandController.togglePin('));
-    assert.ok(dashboard.includes('await aiSessionCommandController.renameSession('));
-    assert.ok(dashboard.includes('await aiSessionCommandController.copySessionId('));
+    assert.ok(messageHandlersSource.includes('await aiSessionCommandController.toggleSessionsExpanded('));
+    assert.ok(messageHandlersSource.includes('await aiSessionCommandController.selectProviders('));
+    assert.ok(messageHandlersSource.includes('await aiSessionCommandController.togglePin('));
+    assert.ok(messageHandlersSource.includes('await aiSessionCommandController.renameSession('));
+    assert.ok(messageHandlersSource.includes('await aiSessionCommandController.copySessionId('));
     assert.ok(dashboard.includes('await aiSessionCreationController.createSession('));
     assert.ok(dashboard.includes('await aiSessionResumeController.resumeProjectSession('));
     assert.ok(!dashboard.includes('async function resumeProjectAiSession('));

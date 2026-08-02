@@ -154,6 +154,7 @@ import { getErrorContent } from './dashboard/errorContent';
 import { GroupCollapseController } from './dashboard/groupCollapseController';
 import { DashboardLifecycleController } from './dashboard/lifecycleController';
 import { createDashboardMessageRouter } from './dashboard/messageRouter';
+import { createDashboardMessageHandlers } from './dashboard/messageHandlers';
 import { ProjectsPanelController } from './dashboard/projectsPanelController';
 import {
     DashboardRuntimeController,
@@ -1489,6 +1490,28 @@ async function initializeDashboard(
         showWarningMessage: message => vscode.window.showWarningMessage(message),
     });
 
+    const dashboardMessageHandlers = createDashboardMessageHandlers({
+        postMessage: message => provider.postMessage(message),
+        getStewardInfos: () => stewardInfos,
+        projectService,
+        promptDashboardController,
+        getPromptTerminalCommandController: () => promptTerminalCommandController,
+        aiSessionCommandController,
+        aiSessionTerminalCommandController,
+        conversationCapability,
+        aiSessionArchiveController,
+        acknowledgeAiSessionAttentionEventIds,
+        logOpenWorkspaceDiagnostic,
+        refreshStewardViews,
+        requestActiveAiSessionTerminalHighlight: () => activeAiSessionTerminalHighlighter.request(),
+        postAiSessionAttentionState,
+        showAgentPivotSettings,
+        showBridgeExtension: () => vscode.commands.executeCommand(
+            'workbench.extensions.action.showExtensionsWithIds',
+            ['hzcheng.agent-pivot-attention-ui-bridge'],
+        ),
+    });
+
     const dashboardMessageRouter = createDashboardMessageRouter({
         getAiSessionProviderIds: () => getRegisteredAiSessionProviders().map(provider => provider.id),
         saveCurrentWorkspace: () => savedWorkspaceProjectAdapter.saveCurrentWorkspace(),
@@ -1497,160 +1520,7 @@ async function initializeDashboard(
             ...todoPanel.handlers,
             ...projectHandlers,
             ...skillPanel.handlers,
-            'request-projects-panel': async e => {
-                if (e.version !== 1 || !Number.isSafeInteger(e.requestId) || e.requestId < 1) {
-                    return;
-                }
-                await provider.postMessage({
-                    type: 'projects-panel-content',
-                    version: 1,
-                    requestId: e.requestId,
-                    html: getProjectsPanelContent(projectService.getGroups(), stewardInfos),
-                });
-            },
-            'request-ai-panel': async e => {
-                if (Object.keys(e).length !== 4
-                    || e.version !== 1
-                    || typeof e.requestId !== 'string'
-                    || e.requestId.length < 1
-                    || e.requestId.length > 128
-                    || e.target !== 'global-prompt-library') {
-                    return;
-                }
-                await provider.postMessage(
-                    promptDashboardController.getPanelContent(e.requestId)
-                );
-            },
-            'prompt-command': async e => {
-                const result = await promptDashboardController.handle(e);
-                if (result !== undefined) {
-                    await provider.postMessage(result);
-                }
-            },
-            'prompt-insert-terminal': async e => {
-                const result = await promptTerminalCommandController.handleInsertRequest(e);
-                if (result !== undefined) {
-                    await provider.postMessage(result);
-                }
-            },
-            'toggle-codex-sessions': async e => {
-                await aiSessionCommandController.toggleSessionsExpanded(e.projectId as string, Boolean(e.expanded));
-            },
-            'select-ai-session-providers': async e => {
-                await aiSessionCommandController.selectProviders(
-                    e.projectId as string,
-                    e.selectedProviders,
-                    e.requestId,
-                    e.version
-                );
-            },
-            'focus-ai-session-terminal': async e => {
-                const target = {
-                    projectId: e.projectId as string,
-                    provider: e.provider as AiSessionProviderId,
-                    sessionId: e.sessionId as string,
-                };
-                const focused =
-                    await aiSessionTerminalCommandController.focusActive(
-                        target.projectId,
-                        target.provider,
-                        target.sessionId
-                    );
-                if (focused) {
-                    await conversationCapability.followActiveConversation(
-                        target
-                    );
-                }
-            },
-            'focus-pending-ai-session': async e => {
-                await aiSessionTerminalCommandController.focusPending(
-                    e.projectId as string,
-                    e.provider as string,
-                    e.createdAt as string
-                );
-            },
-            'close-ai-session-terminal': async e => {
-                await aiSessionTerminalCommandController.closeTerminal({
-                    projectId: e.projectId as string,
-                    providerId: e.provider as string,
-                    sessionId: e.sessionId as string,
-                    pendingCreatedAt: e.pendingCreatedAt as string,
-                    expectedBackend: 'vscode',
-                });
-            },
-            'detach-ai-session-terminal': async e => {
-                await aiSessionTerminalCommandController.closeTerminal({
-                    projectId: e.projectId as string,
-                    providerId: e.provider as string,
-                    sessionId: e.sessionId as string,
-                    pendingCreatedAt: e.pendingCreatedAt as string,
-                    expectedBackend: 'tmux',
-                });
-            },
-            'toggle-ai-session-pin': async e => {
-                await aiSessionCommandController.togglePin(e.provider as string, e.sessionId as string);
-            },
-            'acknowledge-ai-session-attention': async e => {
-                const attentionEventIds = Array.isArray(e.eventIds) ? e.eventIds.filter((id: unknown): id is string => typeof id === 'string') : [];
-                await acknowledgeAiSessionAttentionEventIds(attentionEventIds);
-            },
-            'rename-ai-session': async e => {
-                await aiSessionCommandController.renameSession(e.provider as string, e.sessionId as string);
-            },
-            'copy-ai-session-id': async e => {
-                await aiSessionCommandController.copySessionId(e.sessionId as string);
-            },
-            'request-full-refresh': e => {
-                logOpenWorkspaceDiagnostic('Renderer', {
-                    event: 'full-refresh-requested',
-                    reason: typeof e.reason === 'string' ? e.reason.slice(0, 256) : 'unknown',
-                });
-                refreshStewardViews(typeof e.reason === 'string' ? e.reason.slice(0, 256) : 'webview-requested');
-            },
-            'open-workspaces-rendered': e => {
-                logOpenWorkspaceDiagnostic('Renderer', {
-                    event: 'open-workspaces-rendered',
-                    semanticRevision: typeof e.semanticRevision === 'string'
-                        ? e.semanticRevision.slice(0, 128)
-                        : 'invalid',
-                    currentWorkspaceCount: (e.currentWorkspaceCount === 0 || e.currentWorkspaceCount === 1)
-                        ? e.currentWorkspaceCount as number
-                        : -1,
-                    navigationWorkspaceCount: Number.isSafeInteger(e.navigationWorkspaceCount)
-                        && e.navigationWorkspaceCount >= 0
-                        ? e.navigationWorkspaceCount as number
-                        : -1,
-                    hasOtherWindowsGroup: e.hasOtherWindowsGroup === true,
-                    otherWindowsStatus: e.otherWindowsStatus === 'ready'
-                        || e.otherWindowsStatus === 'unavailable'
-                        || e.otherWindowsStatus === 'update-required'
-                        ? e.otherWindowsStatus as string
-                        : 'invalid',
-                });
-            },
-            'request-active-ai-session-terminal': () => {
-                activeAiSessionTerminalHighlighter.request();
-            },
-            'request-ai-session-attention-state': () => {
-                postAiSessionAttentionState();
-            },
-            'open-settings': async () => {
-                await showAgentPivotSettings();
-            },
-            'open-bridge-extension': async () => {
-                await vscode.commands.executeCommand(
-                    'workbench.extensions.action.showExtensionsWithIds',
-                    ['hzcheng.agent-pivot-attention-ui-bridge'],
-                );
-            },
-            'archive-ai-sessions': async e => {
-                await aiSessionArchiveController.archiveSessions(
-                    e.projectId,
-                    e.items,
-                    e.requestId,
-                    e.version
-                );
-            },
+            ...dashboardMessageHandlers,
         },
         createAiSession: async e => {
             await aiSessionCreationController.createSession(e.projectId as string);

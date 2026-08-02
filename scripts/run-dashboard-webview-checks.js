@@ -4540,16 +4540,23 @@ function runSourceContractChecks(source) {
     assert.ok(source.includes('scrollPositions'));
     assert.ok(source.includes('acceptedProjectsRequestId'));
     assert.ok(source.includes('pendingScrollRestoreTab'));
-    assert.ok(extensionHostSource.includes("'request-projects-panel': async e =>"));
+    const messageHandlersSource = fs.readFileSync(
+        path.join(__dirname, '..', 'src', 'dashboard', 'messageHandlers.ts'), 'utf8'
+    );
+    assert.ok(messageHandlersSource.includes("'request-projects-panel': async e =>"));
+    assert.ok(extensionHostSource.includes('...dashboardMessageHandlers,'),
+        'the dashboard spreads the extracted message handlers into the router');
     assert.ok(todoPanelCapabilitySource.includes("'request-todo-panel': async e =>"));
     assert.ok(packageJson.includes('"agentPivot.maxVisibleTodosPerGroup"'));
     assert.ok(packageJson.includes('Maximum number of TODO cards visible in each group before the group list scrolls.'));
     assert.ok(packageJson.includes('"agentPivot.maxVisibleProjectsPerGroup"'));
     assert.strictEqual(extensionHostSource.includes('function handleStewardMessage('), false);
     assert.ok(extensionHostSource.includes('getAiSessionProviderIds: () => getRegisteredAiSessionProviders().map(provider => provider.id)'));
-    assert.ok(extensionHostSource.includes("type: 'projects-panel-content'"));
+    assert.ok(messageHandlersSource.includes("type: 'projects-panel-content'"));
     assert.ok(todoPanelCapabilitySource.includes("type: 'todo-panel-content'"));
-    assert.ok(extensionHostSource.includes('getProjectsPanelContent(projectService.getGroups(), stewardInfos)'));
+    assert.ok(messageHandlersSource.includes('getProjectsPanelContent(projectService.getGroups(), getStewardInfos())'));
+    assert.ok(extensionHostSource.includes('getStewardInfos: () => stewardInfos'),
+        'the dashboard wires steward infos into the extracted panel handler');
     assert.ok(todoPanelCapabilitySource.includes('getTodoPanelContent('));
     assert.ok(todoPanelCapabilitySource.includes('buildTodoViewModel(todoData, todoViewState, revealedTodoId)'));
     assert.ok(todoPanelCapabilitySource.includes('todoRenderOptions'));

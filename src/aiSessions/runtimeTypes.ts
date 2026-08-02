@@ -289,6 +289,7 @@ export interface AiSessionRuntimeBackend<TTerminal = unknown> {
     find(identity: AiSessionRuntimeIdentity): AiSessionRuntimeSnapshot<TTerminal>[];
     focus(runtime: AiSessionRuntimeSnapshot<TTerminal>): Promise<void>;
     detach(runtime: AiSessionRuntimeSnapshot<TTerminal>): Promise<void>;
+    terminate(runtime: AiSessionRuntimeSnapshot<TTerminal>): Promise<void>;
 }
 
 interface AiSessionResumeRuntimeRequestBase {

@@ -1265,7 +1265,7 @@ async function runTmuxClientChecks() {
     const requiredCommands = [
         'new-session', 'new-window', 'list-windows', 'list-panes', 'set-option', 'show-options',
         'select-window', 'attach-session', 'has-session', 'rename-session', 'rename-window',
-        'display-message',
+        'display-message', 'kill-session', 'kill-window',
     ];
     const calls = [];
     const runner = {
@@ -8836,7 +8836,7 @@ async function runRuntimeControllerChecks() {
     };
     const runtimes = [direct, tmux, otherScope];
     const coordinator = {
-        focused: [], detached: [],
+        focused: [], detached: [], terminated: [],
         getById(provider, sessionId) {
             return runtimes.find(runtime => runtime.identity.provider === provider
                 && runtime.identity.sessionId === sessionId) || null;
@@ -8844,6 +8844,7 @@ async function runRuntimeControllerChecks() {
         getPending: () => [],
         focus: async identity => coordinator.focused.push({ ...identity }),
         detach: async identity => coordinator.detached.push({ ...identity }),
+        terminate: async identity => coordinator.terminated.push({ ...identity }),
     };
     const confirmations = [];
     const controller = new TerminalCommandController({
@@ -8910,6 +8911,26 @@ async function runRuntimeControllerChecks() {
         'a forged backend-specific route must not detach the resolved runtime');
     assert.deepStrictEqual(runtimes, [direct, tmux, otherScope], 'controller calls must not mutate runtime snapshots');
 
+    await controller.stopSession({
+        projectId: 'project', providerId: 'codex', sessionId: 'tmux-session',
+        expectedBackend: 'tmux',
+    });
+    assert.deepStrictEqual(confirmations[2], [
+        'Stopping this CODEX session will terminate the AI task running in tmux.', 'Stop Session',
+    ]);
+    assert.strictEqual(coordinator.terminated.length, 1);
+    assert.strictEqual(coordinator.detached.length, 2,
+        'a stop route must not detach the resolved runtime');
+    await controller.stopSession({
+        projectId: 'project', providerId: 'codex', sessionId: 'tmux-session',
+        expectedBackend: 'vscode',
+    });
+    assert.strictEqual(confirmations.length, 3,
+        'a forged stop route must be rejected before confirmation');
+    assert.strictEqual(coordinator.terminated.length, 1,
+        'a forged stop route must not terminate the resolved runtime');
+    assert.deepStrictEqual(runtimes, [direct, tmux, otherScope], 'stop calls must not mutate runtime snapshots');
+
     const conflictDirect = {
         ...direct,
         identity: { ...direct.identity, sessionId: 'conflict-session' },
@@ -8940,6 +8961,7 @@ async function runRuntimeControllerChecks() {
             return selectedFocusResult;
         },
         detach: async () => undefined,
+        terminate: async () => undefined,
     };
     const conflictAnnouncements = [];
     const conflictErrors = [];
@@ -8998,6 +9020,7 @@ async function runRuntimeControllerChecks() {
             focus: async () => { collisionFocusCalls++; },
             focusSelected: async () => { collisionFocusCalls++; return true; },
             detach: async () => undefined,
+            terminate: async () => undefined,
         },
         chooseRuntimeConflict: async () => { collisionChooserCalls++; return controllerCollisionDiagnostic; },
         confirmRuntimeClose: async () => undefined,
@@ -9038,6 +9061,7 @@ async function runRuntimeControllerChecks() {
             focus: async () => { crossProjectFocusCalls++; },
             focusSelected: async () => { throw new Error('cross-project collision must not change routing'); },
             detach: async () => undefined,
+            terminate: async () => undefined,
         },
         chooseRuntimeConflict: async () => { throw new Error('cross-project collision must not open chooser'); },
         confirmRuntimeClose: async () => undefined,
@@ -9071,6 +9095,7 @@ async function runRuntimeControllerChecks() {
             focus: async () => { throw new Error('identity focus must remain ambiguity-safe'); },
             focusSelected: async runtime => { verifiedCollisionFocuses.push(runtime); return true; },
             detach: async () => undefined,
+            terminate: async () => undefined,
         },
         chooseRuntimeConflict: async () => { verifiedCollisionChooserCalls++; return undefined; },
         confirmRuntimeClose: async () => undefined,
@@ -9136,6 +9161,7 @@ async function runRuntimeControllerChecks() {
         getPending: () => [],
         focus: async identity => fallbackFocused.push({ ...identity }),
         detach: async identity => fallbackDetached.push({ ...identity }),
+        terminate: async () => undefined,
     };
     const fallbackController = new TerminalCommandController({
         isProviderId: value => value === 'codex',
@@ -9221,6 +9247,10 @@ async function runRuntimeControllerChecks() {
             getPending: () => state.pending.slice(),
             focus: async () => undefined,
             detach: async identity => {
+                detachObservedRuntimes.push(state.active || state.pending[0] || null);
+                detached.push({ ...identity });
+            },
+            terminate: async identity => {
                 detachObservedRuntimes.push(state.active || state.pending[0] || null);
                 detached.push({ ...identity });
             },
@@ -9446,6 +9476,7 @@ async function runRuntimeControllerChecks() {
             getPending: () => [],
             focus: async () => { throw new Error('raw focus timeout'); },
             detach: async () => { throw new Error('raw detach timeout'); },
+            terminate: async () => { throw new Error('raw terminate timeout'); },
         },
         confirmRuntimeClose: async (_message, action) => action,
         announceStatus: async () => undefined,
@@ -9633,7 +9664,7 @@ function runHostRuntimeCompositionChecks() {
         path.join(__dirname, '..', 'src', 'dashboard', 'messageHandlers.ts'), 'utf8'
     );
     assert.match(messageHandlersSource,
-        /'close-ai-session-terminal':[\s\S]*?expectedBackend: 'vscode'[\s\S]*?'detach-ai-session-terminal':[\s\S]*?expectedBackend: 'tmux'/,
+        /'close-ai-session-terminal':[\s\S]*?expectedBackend: 'vscode'[\s\S]*?'detach-ai-session-terminal':[\s\S]*?expectedBackend: 'tmux'[\s\S]*?'stop-ai-session-runtime':[\s\S]*?expectedBackend: 'tmux'/,
         'host routes must constrain close/detach to the requested runtime backend');
     assert.ok(compositionSource.includes('chooseRuntimeConflict:'));
     assert.ok(dashboardSource.includes('vscode.window.showQuickPick'));
@@ -9685,9 +9716,11 @@ function runTmuxWebviewExperienceChecks() {
     assert.ok(tmuxRow.includes('ai-session-stale-status'));
     assert.ok(tmuxRow.includes('Runtime status is stale'));
     assert.ok(tmuxRow.includes('tmux'));
-    assert.ok(tmuxRow.includes('Detach Terminal…'));
-    assert.ok(tmuxRow.includes('data-action="detach-ai-session-terminal"'));
-    assert.ok(tmuxRow.includes('aria-label="Detach Terminal"'));
+    assert.ok(tmuxRow.includes('Stop Session…'));
+    assert.ok(tmuxRow.includes('data-action="stop-ai-session-runtime"'));
+    assert.ok(tmuxRow.includes('aria-label="Stop Session"'));
+    assert.ok(!tmuxRow.includes('data-action="detach-ai-session-terminal"'),
+        'the tmux card action must be the honest stop route, not detach');
     assert.strictEqual((tmuxRow.match(/data-session-backend="tmux"/g) || []).length, 2,
         'matching active history rows must preserve the tmux backend for context actions');
 
@@ -9706,6 +9739,7 @@ function runTmuxWebviewExperienceChecks() {
     assert.ok(conflictRow.includes('aria-label="Choose runtime for Codex session One, runtime conflict"'));
     assert.ok(!conflictRow.includes('data-action="close-ai-session-terminal"'));
     assert.ok(!conflictRow.includes('data-action="detach-ai-session-terminal"'));
+    assert.ok(!conflictRow.includes('data-action="stop-ai-session-runtime"'));
 
     const projectScript = [
         'webviewAiSessionViewStateScripts.js',
@@ -9721,6 +9755,7 @@ function runTmuxWebviewExperienceChecks() {
         path.join(__dirname, '..', 'src', 'webview', fileName), 'utf8'
     )).join('\n');
     assert.ok(projectScript.includes("'detach-ai-session-terminal'"));
+    assert.ok(projectScript.includes("'stop-ai-session-runtime'"));
     assert.ok(projectScript.includes("data-session-backend"));
     assert.ok(projectScript.includes("contextMenuAiSessionBackend"));
     assert.ok(projectScript.includes(".ai-session-primary-action"));

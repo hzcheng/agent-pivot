@@ -1497,6 +1497,43 @@
     ]
   },
   {
+    "id": "RUNTIME-TMUX-TERMINATE-SESSION-001",
+    "domain": "runtime",
+    "title": "Stop Session terminates only the selected tmux target after confirmation",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/contract/aiSessions/sessionControllers.test.js"
+    ,
+      "tests/contract/aiSessions/runtimeCoordinator.test.js"
+    ,
+      "tests/contract/aiSessions/runtimeBackends.test.js"
+    ,
+      "tests/contract/aiSessions/tmuxClientBehavior.test.js"
+    ,
+      "tests/contract/dashboard/messageHandlers.test.js"
+    ,
+      "tests/integration/dashboard/terminalCloseWiring.test.js"
+    ],
+    "evidence": [
+      "scripts/run-ai-session-tmux-checks.js"
+    ,
+      "scripts/run-ai-session-safety-checks.js"
+    ,
+      "src/aiSessions/tmuxClient.ts"
+    ,
+      "src/aiSessions/tmuxRuntimeBackend.ts"
+    ,
+      "src/aiSessions/runtimeCoordinator.ts"
+    ,
+      "src/aiSessions/terminalCommandController.ts"
+    ,
+      "src/dashboard/messageHandlers.ts"
+    ,
+      "src/webview/webviewContent.ts"
+    ]
+  },
+  {
     "id": "RUNTIME-TMUX-PROJECT-FIRST-WINDOW-001",
     "domain": "runtime",
     "title": "First project runtime uses the tmux session initial window",

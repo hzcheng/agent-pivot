@@ -29,6 +29,10 @@ test('ATTENTION-EXPLICIT-SESSION-CLOSE-001 tmux detach acknowledges current atte
     await execFile(process.execPath, [harnessPath, 'explicit-detach'], { env: harnessEnvironment() });
 });
 
+test('ATTENTION-EXPLICIT-SESSION-CLOSE-001 RUNTIME-TMUX-TERMINATE-SESSION-001 tmux stop acknowledges current attention without suppressing future completion', async () => {
+    await execFile(process.execPath, [harnessPath, 'explicit-terminate'], { env: harnessEnvironment() });
+});
+
 test('ATTENTION-USER-TERMINAL-CLOSE-001 controlled bridge-first acknowledgement mutation is rejected', async () => {
     await assert.rejects(
         execFile(process.execPath, [harnessPath, 'mutation:acknowledge-order'], { env: harnessEnvironment() }),

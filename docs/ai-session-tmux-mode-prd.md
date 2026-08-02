@@ -512,7 +512,7 @@ Agent Pivot 应该把 tmux 生命周期事件写入 output channel：
 2. tmux 缺失时，Agent Pivot 是否应该提供“一次性使用 VS Code terminal”的 fallback？
 3. 创建新 session 后，Agent Pivot 是否应该在发现 provider session ID 后 rename tmux session？
 4. session card 上是否需要小的 UI 标识，表明该 session 运行在 tmux 中？
-5. 是否需要提供 `Agent Pivot: Kill AI Session Tmux Session` 这样的命令？
+5. 是否需要提供 `Agent Pivot: Kill AI Session Tmux Session` 这样的命令?**已解决(2026-08):采用 active session 卡片的 “Stop Session…” 终止入口(project 布局只 kill 对应 window,session 布局 kill 整个 managed session),不提供独立命令。**
 6. 本地 laptop 用户第一次启用 tmux mode 时，是否需要额外提示“睡眠期间不会继续运行”？
 7. 原生 Windows 上应该隐藏 tmux mode，还是展示但 disabled 并解释原因？
 
@@ -536,7 +536,7 @@ V1 不包含：
 - 电源管理集成。
 - 除 terminal name 和 tooltip 外的 UI badge。
 - 自动安装 tmux。
-- tmux session browser 或 kill command。
+- tmux session browser。(终止入口已由 active session 卡片的 “Stop Session…” 提供,见 `docs/superpowers/specs/2026-07-18-ai-session-tmux-runtime-design.md` 的 “Detach does not terminate; Stop Session does”。)
 - Codex app-server 或 cloud integration。
 
 ## 讨论方向

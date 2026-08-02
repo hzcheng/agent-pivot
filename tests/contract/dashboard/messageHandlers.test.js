@@ -56,6 +56,7 @@ function createFixture(overrides = {}) {
             },
             focusPending: record('focusPending'),
             closeTerminal: record('closeTerminal'),
+            stopSession: record('stopSession'),
         },
         conversationCapability: { followActiveConversation: record('followActiveConversation') },
         aiSessionArchiveController: { archiveSessions: record('archiveSessions') },
@@ -84,6 +85,7 @@ test('WEBVIEW-DASHBOARD-MESSAGE-ROUTER-001 exposes every extracted handler key',
         'focus-pending-ai-session',
         'close-ai-session-terminal',
         'detach-ai-session-terminal',
+        'stop-ai-session-runtime',
         'toggle-ai-session-pin',
         'acknowledge-ai-session-attention',
         'rename-ai-session',
@@ -229,6 +231,19 @@ test('SESSION-AI-SESSION-TERMINAL-COMMAND-CONTROLLER-001 delegates focus and clo
         projectId: 'p1', providerId: 'codex', sessionId: 's2',
         pendingCreatedAt: undefined, expectedBackend: 'tmux',
     }], 'detach keeps the tmux backend marker');
+});
+
+test('RUNTIME-TMUX-TERMINATE-SESSION-001 routes the stop message with the tmux backend marker', async () => {
+    const { handlers, calls } = createFixture();
+
+    await handlers['stop-ai-session-runtime']({
+        projectId: 'p1', provider: 'kimi', sessionId: 's9', pendingCreatedAt: 'pc9',
+    });
+
+    assert.deepEqual(calls[0], ['stopSession', {
+        projectId: 'p1', providerId: 'kimi', sessionId: 's9',
+        pendingCreatedAt: 'pc9', expectedBackend: 'tmux',
+    }]);
 });
 
 test('PERSIST-MULTI-PROVIDER-BATCH-ARCHIVE-001 delegates archive, provider, and pin mutations', async () => {

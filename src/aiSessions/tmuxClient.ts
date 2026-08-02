@@ -43,6 +43,8 @@ const REQUIRED_COMMANDS = [
     'rename-session',
     'rename-window',
     'display-message',
+    'kill-session',
+    'kill-window',
 ] as const;
 
 export type TmuxUnavailableCategory =
@@ -131,7 +133,9 @@ type TmuxOperation =
     | 'set-session-options'
     | 'set-window-options'
     | 'configure-managed-window'
-    | 'clear-pending-metadata';
+    | 'clear-pending-metadata'
+    | 'kill-session'
+    | 'kill-window';
 
 type MetadataOptionKey = keyof typeof TMUX_METADATA_OPTIONS;
 
@@ -384,6 +388,26 @@ export class TmuxClient {
             ? windowTarget(locator.sessionName, locator.windowName)
             : locator.sessionName;
         await this.runChecked('select-window', ['select-window', '-t', target]);
+    }
+
+    async killSession(sessionName: string): Promise<void> {
+        if (typeof sessionName !== 'string' || !isTargetField(sessionName)) {
+            throw new TypeError('The tmux session name is invalid.');
+        }
+        await this.requireAvailable();
+        const result = await this.invoke('kill-session', ['kill-session', '-t', sessionName]);
+        if (result.exitCode !== 0 && !isMissingSessionResult(result)) {
+            throw resultError('kill-session', result);
+        }
+    }
+
+    async killWindow(locator: AiSessionTmuxLocator): Promise<void> {
+        const target = validatedLocatorTarget(locator);
+        await this.requireAvailable();
+        const result = await this.invoke('kill-window', ['kill-window', '-t', target]);
+        if (result.exitCode !== 0 && !isMissingTargetResult(result)) {
+            throw resultError('kill-window', result);
+        }
     }
 
     async getSessionOptions(sessionName: string): Promise<Record<string, string>> {

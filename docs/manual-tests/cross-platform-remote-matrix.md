@@ -18,8 +18,8 @@ Record policy: copy this document for an execution, fill every environment field
 ## OPEN-SAME-WORKSPACE-WINDOWS-001 — duplicate windows for one workspace remain distinct
 
 - Prerequisites: install the candidate VSIX files locally; prepare one local folder or workspace that VS Code permits opening in two windows.
-- Steps: open the same workspace in two separate windows; open Agent Pivot in both; verify both publications; focus each window from the dashboard; close one window and wait for publication expiry/cleanup.
-- Expected results: both live window instances are represented without unstable flicker or accidental collapse; selecting an instance focuses the intended window; cleanup removes only the closed instance.
+- Steps: open the same workspace in two separate windows; open Agent Pivot in both; verify both publications; focus each window from the dashboard; close one window and confirm its card disappears promptly without waiting for publication expiry.
+- Expected results: both live window instances are represented without unstable flicker or accidental collapse; selecting an instance focuses the intended window; the closed instance's card disappears promptly after the window closes and cleanup removes only the closed instance.
 - Environment: OS/version = `UNRECORDED`; VS Code/version = `UNRECORDED`; extension versions = `UNRECORDED`; workspace URI = `UNRECORDED`; window identifiers (redacted) = `UNRECORDED`.
 - Execution date/result: `NOT RUN` (replace with ISO date and `PASS` or `FAIL`).
 - Evidence location: `UNRECORDED` (link redacted before/after screenshots and extension-host logs).

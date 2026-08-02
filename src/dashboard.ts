@@ -177,6 +177,7 @@ const DASHBOARD_BOOTSTRAP_PHASE_ORDER = [
 // predate TerminalExitStatus.reason, while supported hosts expose it at runtime.
 const USER_TERMINAL_EXIT_REASON = 3;
 let activeAiSessionAttentionBridgeClient: AttentionBridgeClient | null = null;
+let activeOpenWorkspaceBridgeClient: OpenWorkspaceBridgeClient | null = null;
 
 function resolveAiProviderExecutable(commandName: string): string | null {
     if (!commandName) {
@@ -1376,6 +1377,14 @@ async function initializeDashboard(
             },
         }
     ));
+    resources.own({
+        dispose: () => {
+            if (activeOpenWorkspaceBridgeClient === openWorkspaceBridgeClient) {
+                activeOpenWorkspaceBridgeClient = null;
+            }
+        },
+    });
+    activeOpenWorkspaceBridgeClient = openWorkspaceBridgeClient;
     openWorkspacePinController = new OpenWorkspacePinController({
         getNavigationIdentity: cardId =>
             openWorkspaceDashboardController.getPinNavigationIdentity(cardId),
@@ -2113,4 +2122,7 @@ export async function deactivate(): Promise<void> {
     const client = activeAiSessionAttentionBridgeClient;
     activeAiSessionAttentionBridgeClient = null;
     await client?.shutdown();
+    const openWorkspaceClient = activeOpenWorkspaceBridgeClient;
+    activeOpenWorkspaceBridgeClient = null;
+    await openWorkspaceClient?.shutdown();
 }

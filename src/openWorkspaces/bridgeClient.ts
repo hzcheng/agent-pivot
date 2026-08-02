@@ -149,6 +149,7 @@ export default class OpenWorkspaceBridgeClient implements vscode.Disposable {
     private handshakeFlight: Promise<boolean> | null = null;
     private publishCommandFlight: Promise<void> | null = null;
     private publicationQueue: Promise<void> = Promise.resolve();
+    private shutdownFlight: Promise<void> | null = null;
     private status: OpenWorkspaceBridgeStatus | null = null;
     private readonly now: () => number;
     private readonly executeCommand: (command: string, argument: unknown) => PromiseLike<unknown>;
@@ -334,7 +335,11 @@ export default class OpenWorkspaceBridgeClient implements vscode.Disposable {
     }
 
     dispose(): void {
-        if (this.disposed) { return; }
+        void this.shutdown();
+    }
+
+    shutdown(): Promise<void> {
+        if (this.shutdownFlight) { return this.shutdownFlight; }
         this.disposed = true;
         this.recoveryAcknowledgementRequired = false;
         this.aggregateRegistration.dispose();
@@ -348,11 +353,11 @@ export default class OpenWorkspaceBridgeClient implements vscode.Disposable {
             OPEN_WORKSPACE_UNREGISTER_COMMAND,
             { protocolVersion: OPEN_WORKSPACE_PROTOCOL_VERSION, instanceId: this.instanceId },
         )).then(() => undefined, error => { this.onError(error); });
-        if (this.publishCommandFlight) {
-            void this.publishCommandFlight.then(unregister, unregister);
-        } else {
-            void unregister();
-        }
+        const flight = this.publishCommandFlight
+            ? this.publishCommandFlight.then(unregister, unregister)
+            : unregister();
+        this.shutdownFlight = flight.then(() => undefined, () => undefined);
+        return this.shutdownFlight;
     }
 
     private enqueuePublication(

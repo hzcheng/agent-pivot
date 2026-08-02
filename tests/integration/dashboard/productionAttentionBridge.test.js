@@ -240,3 +240,91 @@ test('ATTENTION-PRODUCTION-ATTENTION-BRIDGE-INTEGRATION-001 OPEN-WORKSPACE-UI-HO
     }
     assert.equal(registered.size, 0, 'disposing production activation unregisters every command');
 });
+
+test('OPEN-UNREGISTER-ON-DEACTIVATE-001 production bridge deactivation removes the window registration', async t => {
+    const root = makeTempDirectory(t, 'open-workspace-bridge-shutdown-');
+    const registered = new Map();
+    const vscode = {
+        Uri: {
+            parse: value => ({ value }),
+            file: value => ({ value: `file://${value}` }),
+        },
+        window: {
+            createOutputChannel: () => ({ appendLine() {}, dispose() {} }),
+        },
+        workspace: { workspaceFolders: [{
+            name: 'sensitive',
+            uri: {
+                scheme: 'vscode-remote',
+                authority: 'ssh-remote+sensitive-host',
+                path: '/home/sensitive-user/private-project',
+                toString: () => 'vscode-remote://ssh-remote%2Bsensitive-host/home/sensitive-user/private-project',
+            },
+        }] },
+        commands: {
+            registerCommand: (command, callback) => {
+                registered.set(command, callback);
+                return { dispose: () => registered.delete(command) };
+            },
+            executeCommand: async (command, ...args) => {
+                const callback = registered.get(command);
+                return callback ? callback(args[0]) : undefined;
+            },
+        },
+    };
+    const previousLoad = Module._load;
+    Module._load = function (request, parent, isMain) {
+        if (request === 'vscode') return vscode;
+        return previousLoad.call(this, request, parent, isMain);
+    };
+    const bridgeRoot = path.resolve(__dirname, '../../../extensions/attention-ui-bridge');
+    const extensionPath = require.resolve(
+        '../../../extensions/attention-ui-bridge/out/extensions/attention-ui-bridge/src/extension'
+    );
+    delete require.cache[extensionPath];
+    const context = {
+        extensionPath: bridgeRoot,
+        globalStoragePath: root,
+        globalStorageUri: { scheme: 'file' },
+        subscriptions: [],
+    };
+    const instanceId = 'c'.repeat(32);
+    const instanceFile = path.join(
+        root, 'agent-pivot', 'bridge', 'v1', 'open-workspaces', 'v4', 'instances',
+        `${instanceId}.json`
+    );
+    try {
+        const extension = require(extensionPath);
+        await extension.activate(context);
+        await registered.get('_agentPivotOpenWorkspaces.bridge.publish')({
+            protocolVersion: 4,
+            instanceId,
+            sequence: 1,
+            followsFocusEvent: true,
+            workspace: {
+                navigationIdentity: '1'.repeat(64),
+                scopeIdentity: '2'.repeat(64),
+                kind: 'singleFolder',
+                displayName: 'reddb',
+                navigationUri: 'file:///home/sensitive-user/private-project',
+                environment: 'ssh',
+                runningAiSessionCount: 0,
+                roots: [{
+                    id: '3'.repeat(64),
+                    name: 'reddb',
+                    uri: 'file:///home/sensitive-user/private-project',
+                    ordinal: 0,
+                }],
+            },
+        });
+        assert.equal(fs.existsSync(instanceFile), true,
+            'publishing must persist the window registration');
+        await extension.deactivate();
+        assert.equal(fs.existsSync(instanceFile), false,
+            'deactivation must remove the window registration');
+    } finally {
+        for (const disposable of context.subscriptions.slice().reverse()) disposable.dispose?.();
+        Module._load = previousLoad;
+        delete require.cache[extensionPath];
+    }
+});

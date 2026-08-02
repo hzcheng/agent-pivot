@@ -1863,6 +1863,25 @@
     ]
   },
   {
+    "id": "OPEN-UNREGISTER-ON-DEACTIVATE-001",
+    "domain": "open-project",
+    "title": "Orderly deactivation awaits the open workspace unregister and the bridge removes its bound registration",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/contract/openProjects/bridgeClient.test.js",
+      "tests/contract/openProjects/coordinator.test.js",
+      "tests/contract/dashboardBoundaries.test.js",
+      "tests/integration/dashboard/productionAttentionBridge.test.js"
+    ],
+    "evidence": [
+      "src/dashboard.ts",
+      "src/openWorkspaces/bridgeClient.ts",
+      "extensions/attention-ui-bridge/src/extension.ts",
+      "extensions/attention-ui-bridge/src/openWorkspaceCoordinator.ts"
+    ]
+  },
+  {
     "id": "OPEN-OPEN-PROJECT-WORKSPACE-CONTROLLER-001",
     "domain": "open-project",
     "title": "Open Project Workspace Controller behavior",

@@ -71,6 +71,8 @@ function snapshotAuthoritativeUri(uri: vscode.Uri): AuthoritativeOpenWorkspaceUr
     };
 }
 
+let activeOpenWorkspaceCoordinator: OpenWorkspaceCoordinator | null = null;
+
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
     const outputChannel = vscode.window.createOutputChannel('Agent Pivot UI Bridge');
     context.subscriptions.push(outputChannel);
@@ -109,6 +111,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             );
         },
     });
+    activeOpenWorkspaceCoordinator = openWorkspaceCoordinator;
     const openWorkspacePinCoordinator = new OpenWorkspacePinCoordinator(bridgeRoot, {
         now: () => Date.now(),
         setInterval: (callback, intervalMs) => setInterval(callback, intervalMs),
@@ -442,6 +445,8 @@ function readBridgeExtensionVersion(context: vscode.ExtensionContext): string {
     return 'unknown';
 }
 
-export function deactivate(): void {
-    // Nothing to dispose beyond context subscriptions.
+export function deactivate(): Promise<void> {
+    const coordinator = activeOpenWorkspaceCoordinator;
+    activeOpenWorkspaceCoordinator = null;
+    return coordinator ? coordinator.shutdown() : Promise.resolve();
 }

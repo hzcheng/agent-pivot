@@ -487,3 +487,17 @@ test('SESSION-ACTIVE-TERMINAL-FILE-REFERENCE-001 warns without effects for missi
     assert.deepEqual(untitled.warnings, ['Open a saved file before adding it to the active terminal.']);
     assert.deepEqual(untitled.sent, []);
 });
+
+test('OPEN-UNREGISTER-ON-DEACTIVATE-001 production deactivation awaits the open workspace unregister', () => {
+    const dashboardSource = fs.readFileSync(
+        path.resolve(__dirname, '../../src/dashboard.ts'),
+        'utf8'
+    );
+    const deactivateStart = dashboardSource.indexOf(
+        'export async function deactivate(): Promise<void>'
+    );
+    assert.ok(deactivateStart > 0);
+    const deactivateSource = dashboardSource.slice(deactivateStart);
+    assert.match(deactivateSource, /activeOpenWorkspaceBridgeClient/);
+    assert.match(deactivateSource, /await\s+openWorkspaceClient\?\.shutdown\(\)/);
+});

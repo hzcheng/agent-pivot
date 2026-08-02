@@ -179,7 +179,6 @@ async function openViewerPage(t, options = {}) {
                     <button type="button" data-action="previous">Previous</button>
                     <button type="button" data-action="next">Next</button>
                     <button type="button" data-action="latest">Latest</button>
-                    <button type="button" data-action="close">Close</button>
                 </header>
                 <section data-conversation-telemetry hidden>
                     <button type="button" class="conversation-telemetry-worktree"
@@ -925,7 +924,6 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 acquires one real document API 
     await page.getByRole('button', { name: 'Next' }).click();
     await page.getByRole('button', { name: 'Latest' }).click();
     await page.locator('a[href="https://example.test/safe"]').click();
-    await page.getByRole('button', { name: 'Close', exact: true }).click();
 
     assert.deepEqual(await postedMessages(page), [
         { type: 'conversation-viewer-previous', version: 1 },
@@ -936,7 +934,6 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 acquires one real document API 
             version: 1,
             href: 'https://example.test/safe',
         },
-        { type: 'conversation-viewer-closed', version: 1 },
     ]);
 });
 
@@ -1324,12 +1321,14 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 CONVERSATION-COMMENTS-LAYOUT-001 share
                     sidebar.left < conversation.right,
                 conversationUsesWorkspace:
                     Math.abs(conversation.right - workspace.right) < 1,
+                conversationKeepsReadingWidth: conversation.width > 0,
             };
         }),
         {
             sidebarRightAligned: true,
-            sidebarOverConversation: true,
-            conversationUsesWorkspace: true,
+            sidebarOverConversation: false,
+            conversationUsesWorkspace: false,
+            conversationKeepsReadingWidth: true,
         }
     );
     assert.equal(
@@ -2241,11 +2240,6 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 sanitizes hostile HTML and post
     });
 
     await page.keyboard.press('Escape');
-    assert.deepEqual((await postedMessages(page)).at(-1), {
-        type: 'conversation-viewer-closed',
-        version: 1,
-    });
-    await page.getByRole('button', { name: 'Close' }).click();
     assert.deepEqual((await postedMessages(page)).at(-1), {
         type: 'conversation-viewer-closed',
         version: 1,

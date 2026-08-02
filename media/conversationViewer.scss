@@ -954,32 +954,6 @@ button {
     box-shadow: 0 2px 8px var(--vscode-widget-shadow);
 }
 
-@media (max-width: 720px) {
-    .conversation-workspace {
-        position: relative;
-        grid-template-columns: minmax(0, 1fr);
-    }
-
-    .conversation-sidebar {
-        position: absolute;
-        z-index: 3;
-        top: 0;
-        right: 0;
-        bottom: 0;
-        width: min(var(--conversation-comments-width), 100%);
-        box-shadow: -3px 0 10px var(--vscode-widget-shadow);
-    }
-
-    .conversation-comments-resizer {
-        position: absolute;
-        z-index: 4;
-        top: 0;
-        right: min(var(--conversation-comments-width), 100%);
-        bottom: 0;
-        width: 0.375rem;
-    }
-}
-
 @media (forced-colors: active) {
     .conversation-message-user {
         border-color: CanvasText;

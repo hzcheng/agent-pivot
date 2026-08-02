@@ -53,7 +53,6 @@
     var previous = document.querySelector('[data-action="previous"]');
     var next = document.querySelector('[data-action="next"]');
     var latest = document.querySelector('[data-action="latest"]');
-    var close = document.querySelector('[data-action="close"]');
     var sidebarToggle = document.querySelector(
         '[data-action="toggle-sidebar"]'
     );
@@ -237,7 +236,7 @@
     });
 
     if (!scroll || !messages || !position || !status || !newResponse
-        || !previous || !next || !latest || !close || !window.DOMPurify) {
+        || !previous || !next || !latest || !window.DOMPurify) {
         return;
     }
 
@@ -622,9 +621,6 @@
             }
         });
     }
-    close.addEventListener('click', function () {
-        postNavigation('conversation-viewer-closed');
-    });
     if (sidebarUiAvailable) {
         sidebarController.attach();
         outlineController.attach();

@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "37de455ba64a9e1c29d27892b2a2ad5a4b2ad0a0",
+        "head": "b3af83ee68f9eac78dcf7c0f49d6401494b1884c",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -81,7 +81,8 @@
             "87a2dd62f5218f294e81568fc100d6e50b91f72f",
             "6e45a30bbf7c1bd91a4bc0c67c32b359922cbd76",
             "f596e75c38c30f2d86feb0957b94e7937292a40f",
-            "674cb34c5c5b6dd1c3513dff1ef37ba3f41e1705"
+            "674cb34c5c5b6dd1c3513dff1ef37ba3f41e1705",
+            "81f78f0214e71c4dae081407445434a92049f865"
         ]
     },
     "capabilities": [
@@ -647,7 +648,9 @@
                 "289779463fe347fba05bd3655ceded5189612f44",
                 "eb60d0cc5b8aaa9e3f04d797f4d790f40999e378",
                 "9ceb5a4ca604119a69486449699c263f96218c21",
-                "546f4b2cb06f295d72576299dd4bcef358b73eff"
+                "546f4b2cb06f295d72576299dd4bcef358b73eff",
+                "1f210dccb8ef768656ebcf513bb7e04b75f83c8d",
+                "b3af83ee68f9eac78dcf7c0f49d6401494b1884c"
             ],
             "behaviors": [
                 "ATTENTION-ACTIVE-UNREGISTER-ON-DEACTIVATE-001",
@@ -760,7 +763,8 @@
                 "892ae70669ed4b08f452f70f3539eed665f3c555",
                 "69c490edf6d6d483e0694bc28d78862edba43334",
                 "4b2790d284a5b45fd4b69308acb83f696b2267cb",
-                "aad818ca16f8e299769f65bc2955859d3428bc25"
+                "aad818ca16f8e299769f65bc2955859d3428bc25",
+                "cf9022357308f9a5a45f8cf5523ce6a9cb94bd6d"
             ],
             "behaviors": [
                 "RUNTIME-TMUX-BACKEND-001",
@@ -909,7 +913,8 @@
                 "a7d19fab7170c68e550e3395e104b178de6b35d6",
                 "c982f07c1ab89e22ef859e30399766bcd6ee5029",
                 "e11079d10e1dc321532205b445705799875dc5a6",
-                "37de455ba64a9e1c29d27892b2a2ad5a4b2ad0a0"
+                "37de455ba64a9e1c29d27892b2a2ad5a4b2ad0a0",
+                "4b09fd45d1e3461493b9a4f279d31401da44f853"
             ],
             "behaviors": [
                 "ARCH-CI-QUALITY-GATE-001",

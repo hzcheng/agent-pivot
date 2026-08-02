@@ -2,7 +2,7 @@
 import * as vscode from 'vscode';
 import * as childProcess from 'child_process';
 import { randomBytes } from 'crypto';
-import { existsSync, statSync } from 'fs';
+import { existsSync } from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { performance } from 'perf_hooks';
@@ -51,19 +51,13 @@ import AttentionBridgeClient from './aiSessions/attentionBridgeClient';
 import { getLogicalAttentionSessionKey } from './aiSessions/attentionProject';
 import type { ActiveAiSessionTerminalIdentity } from './aiSessions/activeTerminalHighlight';
 import { getAiSessionKey } from './aiSessions/sessionHelpers';
-import {
-    AI_SESSION_PROVIDER_DEFINITIONS,
-    buildAiSessionProviderPicks,
-    createAiSessionProviderRegistry,
-    getAiSessionProviderLabel,
-} from './aiSessions/providers';
+import { createAiSessionProviderRegistry } from './aiSessions/providers';
 import { ProviderDirectoryCapabilityProbe } from './aiSessions/providerDirectoryCapability';
 import type {
     BoundedChildProcessOptions,
     BoundedChildProcessResult,
 } from './aiSessions/providerDirectoryCapability';
 import { getAiSessionComparableCwd as getProviderAiSessionComparableCwd, getAiSessionTerminalName as getProviderAiSessionTerminalName } from './aiSessions/sessionPaths';
-import { getAiSessionIdsForCwd } from './aiSessions/pendingTerminals';
 import { getAiSessionTerminalCandidates } from './aiSessions/terminalCandidates';
 import { AiSessionReadCoordinator } from './aiSessions/readCoordinator';
 import AiSessionTerminalService from './aiSessions/terminalService';
@@ -98,11 +92,6 @@ import {
     submitConversationPrompt,
 } from './aiSessions/conversation/submission';
 import { AiSessionDashboardController } from './aiSessions/dashboardController';
-import { AiSessionCommandController } from './aiSessions/commandController';
-import { AiSessionCreationController } from './aiSessions/creationController';
-import { AiSessionArchiveController } from './aiSessions/archiveController';
-import { AiSessionResumeController } from './aiSessions/resumeController';
-import { AiSessionTerminalCommandController } from './aiSessions/terminalCommandController';
 import { AiSessionExecutionController } from './aiSessions/executionController';
 import {
     AiSessionAttentionController,
@@ -112,14 +101,8 @@ import type {
 } from './aiSessions/attentionController';
 import { createAiSessionStatusCapability } from './aiSessions/statusCapability';
 import { createAiSessionRuntimeSettlementCapability } from './aiSessions/runtimeSettlementCapability';
-import { NotifyDispatcher } from './aiSessions/notify/dispatcher';
-import { createHttpsTransport } from './aiSessions/notify/httpClient';
-import { NotifiedEventStore } from './aiSessions/notify/store';
-import type { NotifyConfig } from './aiSessions/notify/types';
-import { registerNotifyCommands, resolveNotifySecretStorage } from './aiSessions/notifyIntegration/commands';
-import { assembleNotifyConfig, NOTIFY_SECRET_KEY_PREFIX } from './aiSessions/notifyIntegration/credentials';
+import { createNotifyConfiguration } from './aiSessions/notifyConfiguration';
 import { buildNotifyPayload } from './aiSessions/notifyIntegration/notifier';
-import { createNotifyOutputChannel } from './aiSessions/notifyIntegration/output';
 import {
     getLastPartOfPath,
     isUriString,
@@ -154,6 +137,8 @@ import { getErrorContent } from './dashboard/errorContent';
 import { GroupCollapseController } from './dashboard/groupCollapseController';
 import { DashboardLifecycleController } from './dashboard/lifecycleController';
 import { createDashboardMessageRouter } from './dashboard/messageRouter';
+import { createDashboardMessageHandlers } from './dashboard/messageHandlers';
+import { createSessionControllerComposition } from './aiSessions/sessionControllerComposition';
 import { ProjectsPanelController } from './dashboard/projectsPanelController';
 import {
     DashboardRuntimeController,
@@ -877,346 +862,75 @@ async function initializeDashboard(
         resolveExecutable: commandName => resolveAiProviderExecutable(commandName),
         run: (executable, args, options) => runBoundedAiProviderHelp(executable, args, options),
     }, message => outputChannel.appendLine(message));
-    const pickAiSessionWorkspaceRoot = async (
-        workspace: OpenWorkspace,
-        action: 'create' | 'resume'
-    ): Promise<string | undefined> => {
-        const selected = await vscode.window.showQuickPick(
-            workspace.roots.map(root => ({
-                label: root.name,
-                description: root.hostPath,
-                rootId: root.id,
-            })),
-            {
-                placeHolder: 'Select a workspace root',
-                ignoreFocusOut: true,
-                title: action === 'resume'
-                    ? 'Resume AI Session in Workspace Root'
-                    : 'New AI Session Working Directory',
-            } as vscode.QuickPickOptions & { title: string }
-        );
-        return selected?.rootId;
-    };
-    const aiSessionCommandController = new AiSessionCommandController({
-        getWorkspaceTarget: getCurrentWorkspaceActionTarget,
-        getOpenWorkspace: getCurrentOpenWorkspace,
+    const {
+        aiSessionCommandController,
+        aiSessionCreationController,
+        aiSessionArchiveController,
+        aiSessionTerminalCommandController,
+        aiSessionResumeController,
+    } = createSessionControllerComposition({
+        getCurrentWorkspaceActionTarget,
+        getCurrentOpenWorkspace,
+        getRegisteredAiSessionProvider,
+        getRegisteredAiSessionProviders,
+        getAiSessionRuntimeById,
+        getAiSessionRuntimeCollision,
+        getLaunchOptions: () => readAiSessionLaunchOptions(vscode.workspace),
+        refreshAiSessionViewsIncrementally,
+        scheduleNewAiSessionRefresh,
+        logAiSessionRuntimeFailure,
+        logError,
+        getAiSessionPinKey,
+        postBatchArchiveCompletion,
+        aiSessionWorkspaceStateStore,
+        workspacePrimaryRootStore,
+        aiSessionPinController,
+        aiSessionAliasController,
+        aiSessionRuntimeCoordinator,
+        aiSessionTerminalService,
+        aiSessionReadCoordinator,
+        aiSessionProviders,
+        providerDirectoryCapability,
+        syncActiveRuntime: () => activeAiSessionTerminalHighlighter.sync(),
+        runSafeLifecycleTask: (operation, task) =>
+            aiSessionRuntimeSettlement.runSafeLifecycleTask(operation, task),
+        acknowledgeAttention: identity => acknowledgeAiSessionAttention(identity),
+        postMessage: message => provider.postMessage(message),
+        appendOutput: message => outputChannel.appendLine(message),
         getActiveEditorUri: () => vscode.window.activeTextEditor?.document.uri,
         isWorkspaceTrusted: () => (
             vscode.workspace as typeof vscode.workspace & { isTrusted?: boolean }
         ).isTrusted !== false,
-        getProvider: getRegisteredAiSessionProvider,
-        getProviderDirectoryCapability: providerDefinition =>
-            providerDirectoryCapability.probe(providerDefinition),
-        getPrimaryRootId: workspace => workspacePrimaryRootStore.getPrimaryRootId(
-            workspace.scopeIdentity,
-            workspace.roots
-        ),
-        setPrimaryRootId: (scopeIdentity, rootId) =>
-            workspacePrimaryRootStore.setPrimaryRootId(scopeIdentity, rootId),
-        pickWorkspaceRoot: pickAiSessionWorkspaceRoot,
-        isDirectory: hostPath => {
-            try {
-                return statSync(hostPath).isDirectory();
-            } catch (error) {
-                return false;
-            }
-        },
-        showWarningMessage: message => vscode.window.showWarningMessage(message),
-        isProviderId: isAiSessionProviderId,
-        setExpanded: (workspaceScopeIdentity, expanded) => aiSessionWorkspaceStateStore.setExpanded(workspaceScopeIdentity, expanded),
-        setProviderSelection: (workspaceScopeIdentity, selection) =>
-            aiSessionWorkspaceStateStore.setProviderSelection(workspaceScopeIdentity, selection),
-        postProviderSelectionResult: result => provider.postMessage(result),
-        showErrorMessage: message => vscode.window.showErrorMessage(message),
-        logError,
-        togglePin: (providerId, sessionId) => aiSessionPinController.toggle(providerId, sessionId),
-        getAliases: () => aiSessionAliasController.getAll(),
-        saveAliases: aliases => aiSessionAliasController.saveAll(aliases),
-        getOriginalName: (providerId, sessionId) => aiSessionAliasController.getOriginalName(providerId, sessionId),
-        getSessionKey: getAiSessionPinKey,
         showInputBox: options => vscode.window.showInputBox(options),
+        showQuickPick: (items, quickPickOptions) => vscode.window.showQuickPick(items, quickPickOptions),
+        showWarningMessage: message => vscode.window.showWarningMessage(message),
+        showWarningWithItems: (message, ...items) => vscode.window.showWarningMessage(message, ...items),
+        showModalWarning: (message, action) => vscode.window.showWarningMessage(message, { modal: true }, action),
+        showErrorMessage: message => vscode.window.showErrorMessage(message),
+        showInformationMessage: message => vscode.window.showInformationMessage(message),
         writeClipboard: value => vscode.env.clipboard.writeText(value),
-        showInformationMessage: message => vscode.window.showInformationMessage(message),
-        refresh: refreshAiSessionViewsIncrementally,
-    });
-    const pickAiSessionProvider = async (): Promise<AiSessionProviderId | undefined> => {
-        const quickPickOptions: vscode.QuickPickOptions = {
-            placeHolder: 'Select an AI provider',
-            ignoreFocusOut: true,
-        };
-        (quickPickOptions as vscode.QuickPickOptions & { title?: string }).title = 'Select an AI provider';
-        const selected = await vscode.window.showQuickPick(
-            buildAiSessionProviderPicks(getRegisteredAiSessionProviders()),
-            quickPickOptions
-        );
-        return selected?.providerId;
-    };
-    const aiSessionCreationController = new AiSessionCreationController({
-        isProviderId: isAiSessionProviderId,
-        getWorkspaceTarget: getCurrentWorkspaceActionTarget,
-        pickWorkspaceRoot: workspace => pickAiSessionWorkspaceRoot(workspace, 'create'),
-        pickProvider: pickAiSessionProvider,
-        getProviderLabel: getAiSessionProviderLabel,
-        getLaunchOptions: () =>
-            readAiSessionLaunchOptions(vscode.workspace),
-        getProvider: getRegisteredAiSessionProvider,
-        resolveWorkspaceDirectoryScope: (target, providerId, explicitRootId) =>
-            aiSessionCommandController.resolveWorkspaceDirectoryScope(
-                target.workspace, providerId, undefined, explicitRootId
-            ),
-        rememberDirectoryScope: async directoryScope => {
-            try {
-                await aiSessionCommandController.rememberDirectoryScope(directoryScope);
-            } catch (error) {
-                logError('Could not save the AI session workspace root.', error);
-            }
-        },
-        runtimeCoordinator: aiSessionRuntimeCoordinator,
-        createPendingId: () => randomBytes(16).toString('hex'),
-        showInputBox: options => vscode.window.showInputBox(options),
-        showActiveTab: projectId => provider.postMessage({
-            type: 'ai-session-tab-selection-requested',
-            projectId,
-            tab: 'active',
-        }),
-        showWarningMessage: (message, ...items) => vscode.window.showWarningMessage(message, ...items),
-        showErrorMessage: message => vscode.window.showErrorMessage(message),
-        logRuntimeFailure: logAiSessionRuntimeFailure,
-        refresh: refreshAiSessionViewsIncrementally,
-        getExistingSessionIdsForCwd: (providerId, cwd) => getAiSessionIdsForCwd(providerId, aiSessionReadCoordinator.getProviderResult(providerId, {
-            forceRefresh: true,
-            candidatePaths: [cwd],
-            reason: 'new-session',
-        }), cwd, aiSessionProviders),
-        getPendingMarkerPath: providerId => aiSessionTerminalService.getPendingMarkerPath(providerId),
-        scheduleNewSessionRefresh: scheduleNewAiSessionRefresh,
-        announceStatus: (projectId, message) => provider.postMessage({
-            type: 'ai-session-status-announcement',
-            projectId,
-            message,
-        }),
+        focusTerminalView: () => vscode.commands.executeCommand('workbench.action.terminal.focus'),
         nowMs: () => Date.now(),
-    });
-    const aiSessionArchiveController = new AiSessionArchiveController<AiSessionRuntimeSnapshot<vscode.Terminal>>({
-        isProviderId: isAiSessionProviderId,
-        getProvider: getRegisteredAiSessionProvider,
-        getProviderLabel: getAiSessionProviderLabel,
-        getWorkspaceTarget: getCurrentWorkspaceActionTarget,
-        getRuntimeById: getAiSessionRuntimeById,
-        refreshRuntimeGuard: () => aiSessionRuntimeCoordinator.refreshForHost(true),
-        isRuntimeComplete: runtime => runtime.state === 'completed',
-        focusRuntime: runtime => aiSessionRuntimeCoordinator.focus({ ...runtime.identity }),
-        deleteRuntimeMarker: runtime => aiSessionTerminalService.deleteMarker(runtime.markerPath),
-        untrackRuntime: (providerId, sessionId, workspaceScopeIdentity) =>
-            aiSessionTerminalService.untrack(providerId, sessionId, workspaceScopeIdentity),
-        deletePin: (providerId, sessionId) => aiSessionPinController.remove(providerId, sessionId),
-        deleteAlias: (providerId, sessionId) => aiSessionAliasController.remove(providerId, sessionId),
-        confirmSingleArchive: providerLabel => vscode.window.showWarningMessage(`Archive this ${providerLabel} session?`, { modal: true }, "Archive"),
-        confirmBatchArchive: message => vscode.window.showWarningMessage(message, { modal: true }, 'Archive'),
-        showWarningMessage: message => vscode.window.showWarningMessage(message),
-        showErrorMessage: message => vscode.window.showErrorMessage(message),
-        showInformationMessage: message => vscode.window.showInformationMessage(message),
-        appendLine: message => outputChannel.appendLine(message),
-        postCompletion: completion => postBatchArchiveCompletion(completion as AiSessionBatchArchiveCompletedMessage),
-        refresh: refreshAiSessionViewsIncrementally,
-        syncActiveRuntime: () => activeAiSessionTerminalHighlighter.sync(),
-        logUnexpectedError: (operation, error, failedSessionId) => {
-            if (operation === 'focus-runtime') {
-                logAiSessionRuntimeFailure(operation, error, 'tmux');
-                return;
-            }
-            logError(`Batch AI session archive failed during ${operation}${failedSessionId ? ` (${failedSessionId})` : ''}.`, error);
-        },
-    });
-    const aiSessionTerminalCommandController = new AiSessionTerminalCommandController<vscode.Terminal>({
-        isProviderId: isAiSessionProviderId,
-        getWorkspaceTarget: getCurrentWorkspaceActionTarget,
-        runtimeCoordinator: aiSessionRuntimeCoordinator,
-        confirmRuntimeClose: (message, action) => vscode.window.showWarningMessage(
-            message, { modal: true }, action
-        ),
-        chooseRuntimeConflict: async runtimes => {
-            const picks = runtimes.map(runtime => {
-                const backendLabel = runtime.backend === 'tmux'
-                    ? `tmux · ${runtime.tmux?.layout || 'unknown'} layout`
-                    : 'Direct · VS Code Terminal';
-                const attachment = runtime.attached ? 'attached' : 'detached';
-                const target = runtime.backend === 'tmux'
-                    ? `${runtime.tmux?.sessionName || 'unknown session'}${runtime.tmux?.windowName
-                        ? `:${runtime.tmux.windowName}` : ''}`
-                    : runtime.terminal?.name || 'unnamed VS Code terminal';
-                return {
-                    label: `$(terminal) ${backendLabel}`,
-                    description: attachment,
-                    detail: `Target: ${target}`,
-                    runtime,
-                };
-            });
-            const selected = await vscode.window.showQuickPick(picks, {
-                placeHolder: 'Select the exact AI session runtime to focus',
-                ignoreFocusOut: true,
-            });
-            return selected?.runtime;
-        },
-        announceStatus: (projectId, message) => provider.postMessage({
-            type: 'ai-session-status-announcement',
-            projectId,
-            message,
-        }),
-        showErrorMessage: message => vscode.window.showErrorMessage(message),
-        logRuntimeFailure: logAiSessionRuntimeFailure,
-        getProviderLabel: getAiSessionProviderLabel,
-        refresh: refreshAiSessionViewsIncrementally,
-        onRuntimeCloseEnd: (runtime, succeeded) => {
-            const sessionId = runtime.identity.sessionId;
-            if (!sessionId || !succeeded) {
-                return;
-            }
-            void runSafeAiSessionRuntimeLifecycleTask(
-                'acknowledge-explicit-session-close',
-                () => acknowledgeAiSessionAttention({
-                    provider: runtime.identity.provider,
-                    sessionId,
-                    workspaceScopeIdentity: runtime.identity.workspaceScopeIdentity,
-                })
-            );
-        },
-        focusTerminalView: () =>
-            vscode.commands.executeCommand('workbench.action.terminal.focus'),
-    });
-    const aiSessionResumeController = new AiSessionResumeController<vscode.Terminal>({
-        getWorkspaceTarget: getCurrentWorkspaceActionTarget,
-        getLaunchOptions: () =>
-            readAiSessionLaunchOptions(vscode.workspace),
-        getProvider: getRegisteredAiSessionProvider,
-        resolveWorkspaceDirectoryScope: (target, session, providerId, explicitRootId) =>
-            aiSessionCommandController.resolveWorkspaceDirectoryScope(
-                target.workspace, providerId, session, explicitRootId
-            ),
-        rememberDirectoryScope: async directoryScope => {
-            try {
-                await aiSessionCommandController.rememberDirectoryScope(directoryScope);
-            } catch (error) {
-                logError('Could not save the AI session workspace root.', error);
-            }
-        },
-        getTerminalName: (providerId, session) => getProviderAiSessionTerminalName(providerId, session, aiSessionProviders),
-        runtimeCoordinator: aiSessionRuntimeCoordinator,
-        getRuntimeConflict: getAiSessionRuntimeCollision,
-        getMarkerPath: (providerId, sessionId) => aiSessionTerminalService.getMarkerPath(providerId, sessionId),
-        showWarningMessage: message => vscode.window.showWarningMessage(message),
-        showErrorMessage: message => vscode.window.showErrorMessage(message),
-        logRuntimeFailure: logAiSessionRuntimeFailure,
-        refresh: refreshAiSessionViewsIncrementally,
-        showActiveTab: projectId => provider.postMessage({
-            type: 'ai-session-tab-selection-requested',
-            projectId,
-            tab: 'active',
-        }),
-        announceStatus: (projectId, message) => provider.postMessage({
-            type: 'ai-session-status-announcement',
-            projectId,
-            message,
-        }),
     });
     let aiSessionUpdateSequence = 0;
     let currentAiSessionRefreshReason = 'refresh';
     let aiSessionAttentionBridgeClient: AttentionBridgeClient;
-    const notifyOutput = ownResource(() => createNotifyOutputChannel());
-    const notifiedStore = new NotifiedEventStore(
-        path.join(os.homedir(), '.agent-pivot', 'notified.json'));
-    notifiedStore.load();
-    let currentNotifyConfig: NotifyConfig | null = null;
-    const notifyDispatcher = new NotifyDispatcher({
-        transport: createHttpsTransport(),
-        store: notifiedStore,
+    const notifyConfiguration = ownResource(() => createNotifyConfiguration({
+        context,
+        getConfiguration: () => getAgentPivotConfiguration(),
+        configurationTargetGlobal: vscode.ConfigurationTarget.Global,
+        homedir: () => os.homedir(),
+        env: process.env,
         nowMs: () => Date.now(),
         setTimeout: (handler, ms) => setTimeout(handler, ms),
         clearTimeout: handle => clearTimeout(handle as NodeJS.Timeout),
         sleep: ms => new Promise(resolve => setTimeout(resolve, ms)),
-        globalProxy: () => getAgentPivotConfiguration().get<string>('notify.proxy', ''),
-        env: process.env,
-        onLog: line => notifyOutput.log(line),
-    });
-    const refreshNotifyConfig = async (): Promise<void> => {
-        try {
-            await refreshNotifyConfigUnsafe();
-        } catch (error) {
-            // 通知配置刷新绝不能让 Dashboard 激活/运行崩溃;保留上一份配置。
-            notifyOutput.log(`notify: config refresh failed: ${(error as Error).message}`);
-        }
-    };
-    const refreshNotifyConfigUnsafe = async (): Promise<void> => {
-        const configuration = getAgentPivotConfiguration();
-        const enabled = configuration.get<boolean>('notify.enabled', false);
-        if (enabled && !context.globalState.get<boolean>('agentPivot.notify.consented')) {
-            const choice = await vscode.window.showWarningMessage(
-                'Agent Pivot will send project names, session names and status to the '
-                + 'notification endpoints you configure. No code or file contents are sent. Continue?',
-                { modal: true },
-                'Enable notifications'
-            );
-            if (choice !== 'Enable notifications') {
-                await configuration.update(
-                    'notify.enabled', false, vscode.ConfigurationTarget.Global);
-                return;
-            }
-            await context.globalState.update('agentPivot.notify.consented', true);
-        }
-        const skeletons = configuration.get<Array<Record<string, unknown>>>('notify.sinks', []);
-        const secretStorage = resolveNotifySecretStorage(context);
-        const secrets: Record<string, string> = {};
-        for (const skeleton of skeletons) {
-            const id = typeof skeleton.id === 'string' ? skeleton.id : '';
-            if (!id) {
-                continue;
-            }
-            const stored = secretStorage
-                ? await secretStorage.get(`${NOTIFY_SECRET_KEY_PREFIX}${id}`)
-                : undefined;
-            if (stored) {
-                secrets[id] = stored;
-            }
-        }
-        const assembled = assembleNotifyConfig({
-            enabled,
-            sinks: skeletons,
-            reasons: configuration.get<string[]>('notify.reasons',
-                ['completed', 'input-required', 'failed']),
-            minRunDurationMs: configuration.get<number>('notify.minRunDurationMs', 60000),
-            debounceMs: configuration.get<number>('notify.debounceMs', 5000),
-            rateLimitPerMin: configuration.get<number>('notify.rateLimitPerMin', 6),
-            escalateAfterMs: configuration.get<number>('notify.escalateAfterMs', 0),
-            projectPathMode: configuration.get<string>('notify.projectPathMode', 'basename'),
-            includeSessionLabel: configuration.get<boolean>('notify.includeSessionLabel', true),
-        }, secrets, line => notifyOutput.log(line));
-        currentNotifyConfig = assembled;
-        notifyDispatcher.setConfig(assembled);
-    };
-    await refreshNotifyConfig();
-    // 凭据写入不触发配置变化事件,必须单独监听,否则存完凭据后 dispatcher
-    // 仍拿着存凭据之前装配的空 sinks 配置,直到下次配置变更或重载。
-    const notifySecretChanges = resolveNotifySecretStorage(context);
-    const onNotifySecretChange = notifySecretChanges?.onDidChange;
-    if (onNotifySecretChange) {
-        ownResource(() => onNotifySecretChange(event => {
-            if (event.key.startsWith(NOTIFY_SECRET_KEY_PREFIX)) {
-                void refreshNotifyConfig();
-            }
-        }));
-    }
-    ownResource(() => {
-        const disposables = registerNotifyCommands(context, {
-            output: notifyOutput,
-            getConfig: () => currentNotifyConfig || assembleNotifyConfig({
-                enabled: false, sinks: [], reasons: [], minRunDurationMs: 0,
-                debounceMs: 0, rateLimitPerMin: 1, escalateAfterMs: 0,
-                projectPathMode: 'basename', includeSessionLabel: true,
-            }, {}),
-            globalProxy: () => getAgentPivotConfiguration().get<string>('notify.proxy', ''),
-        });
-        return { dispose: () => disposables.forEach(disposable => disposable.dispose()) };
-    });
+        showWarningMessage: (message, messageOptions, ...items) =>
+            vscode.window.showWarningMessage(message, messageOptions, ...items),
+    }));
+    const notifyOutput = notifyConfiguration.output;
+    const notifyDispatcher = notifyConfiguration.dispatcher;
+    await notifyConfiguration.refresh();
     const locateAttentionSession = (key: string) => {
         const target = getCurrentWorkspaceActionTargetWithoutCardId();
         if (!target) {
@@ -1489,6 +1203,28 @@ async function initializeDashboard(
         showWarningMessage: message => vscode.window.showWarningMessage(message),
     });
 
+    const dashboardMessageHandlers = createDashboardMessageHandlers({
+        postMessage: message => provider.postMessage(message),
+        getStewardInfos: () => stewardInfos,
+        projectService,
+        promptDashboardController,
+        getPromptTerminalCommandController: () => promptTerminalCommandController,
+        aiSessionCommandController,
+        aiSessionTerminalCommandController,
+        conversationCapability,
+        aiSessionArchiveController,
+        acknowledgeAiSessionAttentionEventIds,
+        logOpenWorkspaceDiagnostic,
+        refreshStewardViews,
+        requestActiveAiSessionTerminalHighlight: () => activeAiSessionTerminalHighlighter.request(),
+        postAiSessionAttentionState,
+        showAgentPivotSettings,
+        showBridgeExtension: () => vscode.commands.executeCommand(
+            'workbench.extensions.action.showExtensionsWithIds',
+            ['hzcheng.agent-pivot-attention-ui-bridge'],
+        ),
+    });
+
     const dashboardMessageRouter = createDashboardMessageRouter({
         getAiSessionProviderIds: () => getRegisteredAiSessionProviders().map(provider => provider.id),
         saveCurrentWorkspace: () => savedWorkspaceProjectAdapter.saveCurrentWorkspace(),
@@ -1497,160 +1233,7 @@ async function initializeDashboard(
             ...todoPanel.handlers,
             ...projectHandlers,
             ...skillPanel.handlers,
-            'request-projects-panel': async e => {
-                if (e.version !== 1 || !Number.isSafeInteger(e.requestId) || e.requestId < 1) {
-                    return;
-                }
-                await provider.postMessage({
-                    type: 'projects-panel-content',
-                    version: 1,
-                    requestId: e.requestId,
-                    html: getProjectsPanelContent(projectService.getGroups(), stewardInfos),
-                });
-            },
-            'request-ai-panel': async e => {
-                if (Object.keys(e).length !== 4
-                    || e.version !== 1
-                    || typeof e.requestId !== 'string'
-                    || e.requestId.length < 1
-                    || e.requestId.length > 128
-                    || e.target !== 'global-prompt-library') {
-                    return;
-                }
-                await provider.postMessage(
-                    promptDashboardController.getPanelContent(e.requestId)
-                );
-            },
-            'prompt-command': async e => {
-                const result = await promptDashboardController.handle(e);
-                if (result !== undefined) {
-                    await provider.postMessage(result);
-                }
-            },
-            'prompt-insert-terminal': async e => {
-                const result = await promptTerminalCommandController.handleInsertRequest(e);
-                if (result !== undefined) {
-                    await provider.postMessage(result);
-                }
-            },
-            'toggle-codex-sessions': async e => {
-                await aiSessionCommandController.toggleSessionsExpanded(e.projectId as string, Boolean(e.expanded));
-            },
-            'select-ai-session-providers': async e => {
-                await aiSessionCommandController.selectProviders(
-                    e.projectId as string,
-                    e.selectedProviders,
-                    e.requestId,
-                    e.version
-                );
-            },
-            'focus-ai-session-terminal': async e => {
-                const target = {
-                    projectId: e.projectId as string,
-                    provider: e.provider as AiSessionProviderId,
-                    sessionId: e.sessionId as string,
-                };
-                const focused =
-                    await aiSessionTerminalCommandController.focusActive(
-                        target.projectId,
-                        target.provider,
-                        target.sessionId
-                    );
-                if (focused) {
-                    await conversationCapability.followActiveConversation(
-                        target
-                    );
-                }
-            },
-            'focus-pending-ai-session': async e => {
-                await aiSessionTerminalCommandController.focusPending(
-                    e.projectId as string,
-                    e.provider as string,
-                    e.createdAt as string
-                );
-            },
-            'close-ai-session-terminal': async e => {
-                await aiSessionTerminalCommandController.closeTerminal({
-                    projectId: e.projectId as string,
-                    providerId: e.provider as string,
-                    sessionId: e.sessionId as string,
-                    pendingCreatedAt: e.pendingCreatedAt as string,
-                    expectedBackend: 'vscode',
-                });
-            },
-            'detach-ai-session-terminal': async e => {
-                await aiSessionTerminalCommandController.closeTerminal({
-                    projectId: e.projectId as string,
-                    providerId: e.provider as string,
-                    sessionId: e.sessionId as string,
-                    pendingCreatedAt: e.pendingCreatedAt as string,
-                    expectedBackend: 'tmux',
-                });
-            },
-            'toggle-ai-session-pin': async e => {
-                await aiSessionCommandController.togglePin(e.provider as string, e.sessionId as string);
-            },
-            'acknowledge-ai-session-attention': async e => {
-                const attentionEventIds = Array.isArray(e.eventIds) ? e.eventIds.filter((id: unknown): id is string => typeof id === 'string') : [];
-                await acknowledgeAiSessionAttentionEventIds(attentionEventIds);
-            },
-            'rename-ai-session': async e => {
-                await aiSessionCommandController.renameSession(e.provider as string, e.sessionId as string);
-            },
-            'copy-ai-session-id': async e => {
-                await aiSessionCommandController.copySessionId(e.sessionId as string);
-            },
-            'request-full-refresh': e => {
-                logOpenWorkspaceDiagnostic('Renderer', {
-                    event: 'full-refresh-requested',
-                    reason: typeof e.reason === 'string' ? e.reason.slice(0, 256) : 'unknown',
-                });
-                refreshStewardViews(typeof e.reason === 'string' ? e.reason.slice(0, 256) : 'webview-requested');
-            },
-            'open-workspaces-rendered': e => {
-                logOpenWorkspaceDiagnostic('Renderer', {
-                    event: 'open-workspaces-rendered',
-                    semanticRevision: typeof e.semanticRevision === 'string'
-                        ? e.semanticRevision.slice(0, 128)
-                        : 'invalid',
-                    currentWorkspaceCount: (e.currentWorkspaceCount === 0 || e.currentWorkspaceCount === 1)
-                        ? e.currentWorkspaceCount as number
-                        : -1,
-                    navigationWorkspaceCount: Number.isSafeInteger(e.navigationWorkspaceCount)
-                        && e.navigationWorkspaceCount >= 0
-                        ? e.navigationWorkspaceCount as number
-                        : -1,
-                    hasOtherWindowsGroup: e.hasOtherWindowsGroup === true,
-                    otherWindowsStatus: e.otherWindowsStatus === 'ready'
-                        || e.otherWindowsStatus === 'unavailable'
-                        || e.otherWindowsStatus === 'update-required'
-                        ? e.otherWindowsStatus as string
-                        : 'invalid',
-                });
-            },
-            'request-active-ai-session-terminal': () => {
-                activeAiSessionTerminalHighlighter.request();
-            },
-            'request-ai-session-attention-state': () => {
-                postAiSessionAttentionState();
-            },
-            'open-settings': async () => {
-                await showAgentPivotSettings();
-            },
-            'open-bridge-extension': async () => {
-                await vscode.commands.executeCommand(
-                    'workbench.extensions.action.showExtensionsWithIds',
-                    ['hzcheng.agent-pivot-attention-ui-bridge'],
-                );
-            },
-            'archive-ai-sessions': async e => {
-                await aiSessionArchiveController.archiveSessions(
-                    e.projectId,
-                    e.items,
-                    e.requestId,
-                    e.version
-                );
-            },
+            ...dashboardMessageHandlers,
         },
         createAiSession: async e => {
             await aiSessionCreationController.createSession(e.projectId as string);
@@ -2040,7 +1623,7 @@ async function initializeDashboard(
 
     ownResource(() => vscode.workspace.onDidChangeConfiguration(event => {
         if (event.affectsConfiguration(`${AGENT_PIVOT_CONFIG_SECTION}.notify`)) {
-            void refreshNotifyConfig();
+            void notifyConfiguration.refresh();
         }
     }));
 

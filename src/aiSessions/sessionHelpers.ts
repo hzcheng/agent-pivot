@@ -1,7 +1,9 @@
 'use strict';
 
+import * as fs from 'fs';
+import * as path from 'path';
 import type { AiSessionProviderId, CodexSession } from '../models';
-import type { AiSessionAssignmentCandidate, AiSessionReadResult } from './types';
+import type { AiSessionAssignmentCandidate, AiSessionQueryOptions, AiSessionReadResult } from './types';
 
 export function getAiSessionKey(providerId: AiSessionProviderId, sessionId: string): string {
     return `${providerId}:${sessionId}`;
@@ -158,4 +160,46 @@ export function compareAiSessionUpdatedAt(a: string, b: string): number {
     }
 
     return aTime - bTime;
+}
+
+/** Bounds a scan's file budget; non-positive or non-finite values mean unbounded. */
+export function normalizeAiSessionMaxFiles(maxFiles: number): number {
+    return Number.isFinite(maxFiles) && maxFiles > 0 ? Math.floor(maxFiles) : 0;
+}
+
+/** Normalizes the boolean-or-object session query form every provider shares. */
+export function resolveAiSessionQueryOptions(options: boolean | AiSessionQueryOptions): { forceRefresh: boolean; candidatePaths: string[]; maxFiles: number } {
+    if (typeof options === 'boolean') {
+        return { forceRefresh: options, candidatePaths: [], maxFiles: 0 };
+    }
+
+    return {
+        forceRefresh: Boolean(options?.forceRefresh),
+        candidatePaths: normalizeAiSessionCandidatePaths(options?.candidatePaths || []),
+        maxFiles: normalizeAiSessionMaxFiles(options?.maxFiles),
+    };
+}
+
+/** One-stat content signature used by the provider change fingerprints. */
+export function getAiSessionFileSignature(filePath: string): string {
+    try {
+        let stat = fs.statSync(filePath);
+        return `${filePath}:${stat.size}:${stat.mtimeMs}`;
+    } catch (e) {
+        return `${filePath}:missing`;
+    }
+}
+
+/** Picks a collision-free archive destination by suffixing `-1`, `-2`, ... */
+export function getAvailableAiSessionArchivePath(archivePath: string, fileName: string): string {
+    let parsed = path.parse(fileName);
+    let destination = path.join(archivePath, fileName);
+    let index = 1;
+
+    while (fs.existsSync(destination)) {
+        destination = path.join(archivePath, `${parsed.name}-${index}${parsed.ext}`);
+        index++;
+    }
+
+    return destination;
 }

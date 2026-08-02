@@ -164,3 +164,58 @@ test('SESSION-KEY-001 round-trips supported provider keys and rejects malformed 
     assert.equal(helpers.getAiSessionProviderIdFromKey('unknown:session', isProviderId), null);
     assert.equal(helpers.getAiSessionProviderIdFromKey('missing-separator', isProviderId), null);
 });
+
+test('SESSION-SCAN-OPTION-001 normalizes shared query options for every provider', () => {
+    assert.deepEqual(helpers.resolveAiSessionQueryOptions(true), {
+        forceRefresh: true, candidatePaths: [], maxFiles: 0,
+    });
+    assert.deepEqual(helpers.resolveAiSessionQueryOptions(false), {
+        forceRefresh: false, candidatePaths: [], maxFiles: 0,
+    });
+    assert.deepEqual(helpers.resolveAiSessionQueryOptions({
+        forceRefresh: 1, candidatePaths: ['/work/api/'], maxFiles: 42.9,
+    }), {
+        forceRefresh: true, candidatePaths: ['/work/api'], maxFiles: 42,
+    });
+    assert.equal(helpers.normalizeAiSessionMaxFiles(0), 0);
+    assert.equal(helpers.normalizeAiSessionMaxFiles(Number.NaN), 0);
+    assert.equal(helpers.normalizeAiSessionMaxFiles(2000.7), 2000);
+});
+
+test('SESSION-SCAN-OPTION-001 shares one updatedAt ordering across providers', () => {
+    assert.equal(helpers.compareAiSessionUpdatedAt('2026-01-02T00:00:00Z', '2026-01-01T00:00:00Z') > 0, true);
+    assert.equal(helpers.compareAiSessionUpdatedAt('not-a-date', 'not-a-date'), 0);
+    assert.equal(helpers.compareAiSessionUpdatedAt('not-a-date', '2026-01-01T00:00:00Z'), -1);
+    assert.equal(helpers.compareAiSessionUpdatedAt('2026-01-01T00:00:00Z', 'not-a-date'), 1);
+});
+
+test('SESSION-FINGERPRINT-HASH-001 signs present files once and marks missing files', t => {
+    const { makeTempDirectory } = require('../../helpers/tempDirectory');
+    const fs = require('node:fs');
+    const path = require('node:path');
+    const root = makeTempDirectory(t, 'session-signature-');
+    const filePath = path.join(root, 'session.jsonl');
+    fs.writeFileSync(filePath, 'x');
+
+    const signature = helpers.getAiSessionFileSignature(filePath);
+    assert.ok(signature.startsWith(`${filePath}:`), 'the signature carries the path');
+    assert.notEqual(signature, `${filePath}:missing`);
+    assert.equal(helpers.getAiSessionFileSignature(path.join(root, 'gone.jsonl')),
+        `${path.join(root, 'gone.jsonl')}:missing`);
+});
+
+test('SESSION-CODEX-SESSION-SERVICE-001 SESSION-CLAUDE-SESSION-SERVICE-001 share the collision-free archive path helper', t => {
+    const { makeTempDirectory } = require('../../helpers/tempDirectory');
+    const fs = require('node:fs');
+    const path = require('node:path');
+    const root = makeTempDirectory(t, 'session-archive-');
+
+    assert.equal(helpers.getAvailableAiSessionArchivePath(root, 'session.jsonl'),
+        path.join(root, 'session.jsonl'), 'a free name passes through');
+    fs.writeFileSync(path.join(root, 'session.jsonl'), 'a');
+    assert.equal(helpers.getAvailableAiSessionArchivePath(root, 'session.jsonl'),
+        path.join(root, 'session-1.jsonl'), 'the first collision suffixes -1');
+    fs.writeFileSync(path.join(root, 'session-1.jsonl'), 'b');
+    assert.equal(helpers.getAvailableAiSessionArchivePath(root, 'session.jsonl'),
+        path.join(root, 'session-2.jsonl'), 'the next collision keeps counting');
+});

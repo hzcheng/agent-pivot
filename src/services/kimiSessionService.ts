@@ -6,7 +6,7 @@ import * as os from 'os';
 import * as path from 'path';
 
 import { CodexSession } from '../models';
-import { aiSessionPathContains, filterAiSessionsByCandidatePaths, normalizeAiSessionCandidatePaths } from '../aiSessions/sessionHelpers';
+import { aiSessionPathContains, compareAiSessionUpdatedAt, filterAiSessionsByCandidatePaths, getAiSessionFileSignature, normalizeAiSessionCandidatePaths, resolveAiSessionQueryOptions } from '../aiSessions/sessionHelpers';
 import IncrementalJsonlLifecycleReader from '../aiSessions/incrementalJsonlLifecycleReader';
 import type { AiSessionConversationSourceCandidate, AiSessionQueryOptions } from '../aiSessions/types';
 import { createKimiLifecycleAccumulator, AiSessionLifecycleRequest, AiSessionLifecycleSignal } from '../aiSessions/lifecycle';
@@ -62,7 +62,7 @@ export default class KimiSessionService {
     }
 
     getSessions(options: boolean | AiSessionQueryOptions = false): KimiSessionReadResult {
-        let { forceRefresh, candidatePaths, maxFiles } = this.getQueryOptions(options);
+        let { forceRefresh, candidatePaths, maxFiles } = resolveAiSessionQueryOptions(options);
         let now = Date.now();
         if (!forceRefresh && this.cachedResult && now - this.cachedAt < this.cacheTtlMs) {
             return this.filterResult(this.cachedResult, candidatePaths);
@@ -103,7 +103,7 @@ export default class KimiSessionService {
             }
         }
 
-        sessions.sort((a, b) => this.compareUpdatedAt(b.updatedAt, a.updatedAt));
+        sessions.sort((a, b) => compareAiSessionUpdatedAt(b.updatedAt, a.updatedAt));
         let result = { available: true, sessions, scannedFiles: candidates.length, parsedFiles };
         return candidatePaths.length ? this.filterResult(result, candidatePaths) : this.cacheResult(result);
     }
@@ -207,18 +207,6 @@ export default class KimiSessionService {
         return result;
     }
 
-    private getQueryOptions(options: boolean | AiSessionQueryOptions): { forceRefresh: boolean; candidatePaths: string[]; maxFiles: number } {
-        if (typeof options === 'boolean') {
-            return { forceRefresh: options, candidatePaths: [], maxFiles: 0 };
-        }
-
-        return {
-            forceRefresh: Boolean(options?.forceRefresh),
-            candidatePaths: normalizeAiSessionCandidatePaths(options?.candidatePaths || []),
-            maxFiles: this.normalizeMaxFiles(options?.maxFiles),
-        };
-    }
-
     private filterResult(result: KimiSessionReadResult, candidatePaths: string[]): KimiSessionReadResult {
         return filterAiSessionsByCandidatePaths(result, candidatePaths, session => session.workDir || session.cwd);
     }
@@ -253,10 +241,6 @@ export default class KimiSessionService {
         }
 
         return workDirs;
-    }
-
-    private normalizeMaxFiles(maxFiles: number): number {
-        return Number.isFinite(maxFiles) && maxFiles > 0 ? Math.floor(maxFiles) : 0;
     }
 
     private getSessionCandidatesForWorkDir(kimiHome: string, workDir: string): KimiSessionCandidate[] {
@@ -359,7 +343,7 @@ export default class KimiSessionService {
 
         let fingerprint = new SessionFingerprint();
         fingerprint.addEntry(kimiHome);
-        fingerprint.addEntry(this.getFileSignature(path.join(kimiHome, 'kimi.json')));
+        fingerprint.addEntry(getAiSessionFileSignature(path.join(kimiHome, 'kimi.json')));
         for (let workDir of this.getWorkDirs(kimiHome)) {
             this.addWorkDirFingerprint(fingerprint, kimiHome, workDir);
         }
@@ -382,20 +366,11 @@ export default class KimiSessionService {
             for (let sessionId of sessionIds) {
                 let sessionDir = path.join(sessionsDir, sessionId);
                 fingerprint.addEntry(sessionId);
-                fingerprint.addEntry(this.getFileSignature(path.join(sessionDir, 'state.json')));
-                fingerprint.addEntry(this.getFileSignature(path.join(sessionDir, 'wire.jsonl')));
+                fingerprint.addEntry(getAiSessionFileSignature(path.join(sessionDir, 'state.json')));
+                fingerprint.addEntry(getAiSessionFileSignature(path.join(sessionDir, 'wire.jsonl')));
             }
         } catch (e) {
             fingerprint.addEntry(`${workDir}:unreadable`);
-        }
-    }
-
-    private getFileSignature(filePath: string): string {
-        try {
-            let stat = fs.statSync(filePath);
-            return `${filePath}:${stat.size}:${stat.mtimeMs}`;
-        } catch (e) {
-            return `${filePath}:missing`;
         }
     }
 
@@ -431,22 +406,4 @@ export default class KimiSessionService {
         return value.replace(/\\/g, '/').replace(/\/+$/g, '');
     }
 
-    private compareUpdatedAt(a: string, b: string): number {
-        let aTime = a ? Date.parse(a) : 0;
-        let bTime = b ? Date.parse(b) : 0;
-
-        if (isNaN(aTime) && isNaN(bTime)) {
-            return 0;
-        }
-
-        if (isNaN(aTime)) {
-            return -1;
-        }
-
-        if (isNaN(bTime)) {
-            return 1;
-        }
-
-        return aTime - bTime;
-    }
 }

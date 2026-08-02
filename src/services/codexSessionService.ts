@@ -6,7 +6,7 @@ import * as path from 'path';
 
 import { CodexSession } from '../models';
 import IncrementalJsonlLifecycleReader from '../aiSessions/incrementalJsonlLifecycleReader';
-import { filterAiSessionsByCandidatePaths, normalizeAiSessionCandidatePaths } from '../aiSessions/sessionHelpers';
+import { compareAiSessionUpdatedAt, filterAiSessionsByCandidatePaths, getAiSessionFileSignature, getAvailableAiSessionArchivePath, normalizeAiSessionCandidatePaths, resolveAiSessionQueryOptions } from '../aiSessions/sessionHelpers';
 import type { AiSessionQueryOptions } from '../aiSessions/types';
 import { createCodexLifecycleAccumulator, AiSessionLifecycleRequest, AiSessionLifecycleSignal } from '../aiSessions/lifecycle';
 import SessionFingerprint from '../aiSessions/sessionFingerprint';
@@ -54,7 +54,7 @@ export default class CodexSessionService {
     private readonly changePollIntervalMs = 3000;
 
     getSessions(options: boolean | AiSessionQueryOptions = false): CodexSessionReadResult {
-        let { forceRefresh, candidatePaths, maxFiles } = this.getQueryOptions(options);
+        let { forceRefresh, candidatePaths, maxFiles } = resolveAiSessionQueryOptions(options);
         let now = Date.now();
         if (!forceRefresh && this.cachedResult && now - this.cachedAt < this.cacheTtlMs) {
             return this.filterResult(this.cachedResult, candidatePaths);
@@ -103,7 +103,7 @@ export default class CodexSessionService {
                 cwd: meta?.cwd,
             };
 
-            if (!previous || this.compareUpdatedAt(session.updatedAt, previous.updatedAt) > 0) {
+            if (!previous || compareAiSessionUpdatedAt(session.updatedAt, previous.updatedAt) > 0) {
                 sessionsById.set(session.id, session);
             }
         }
@@ -111,7 +111,7 @@ export default class CodexSessionService {
         this.addSessionsFromFiles(sessionsById, sessionFiles);
 
         let sessions = Array.from(sessionsById.values())
-            .sort((a, b) => this.compareUpdatedAt(b.updatedAt, a.updatedAt));
+            .sort((a, b) => compareAiSessionUpdatedAt(b.updatedAt, a.updatedAt));
 
         return this.filterResult(this.cacheResult({
             available: true,
@@ -195,7 +195,7 @@ export default class CodexSessionService {
         try {
             let archivePath = path.join(codexHome, 'archived_sessions');
             fs.mkdirSync(archivePath, { recursive: true });
-            fs.renameSync(sessionFile, this.getAvailableArchivePath(archivePath, path.basename(sessionFile)));
+            fs.renameSync(sessionFile, getAvailableAiSessionArchivePath(archivePath, path.basename(sessionFile)));
             this.lifecycleSessionFiles.delete(sessionId);
             this.lifecycleReader.delete(sessionId);
             this.invalidateCache();
@@ -235,33 +235,8 @@ export default class CodexSessionService {
         return result;
     }
 
-    private getQueryOptions(options: boolean | AiSessionQueryOptions): { forceRefresh: boolean; candidatePaths: string[]; maxFiles: number } {
-        if (typeof options === 'boolean') {
-            return { forceRefresh: options, candidatePaths: [], maxFiles: 0 };
-        }
-
-        return {
-            forceRefresh: Boolean(options?.forceRefresh),
-            candidatePaths: normalizeAiSessionCandidatePaths(options?.candidatePaths || []),
-            maxFiles: this.normalizeMaxFiles(options?.maxFiles),
-        };
-    }
-
     private filterResult(result: CodexSessionReadResult, candidatePaths: string[]): CodexSessionReadResult {
         return filterAiSessionsByCandidatePaths(result, candidatePaths, session => session.cwd);
-    }
-
-    private getAvailableArchivePath(archivePath: string, fileName: string): string {
-        let parsed = path.parse(fileName);
-        let destination = path.join(archivePath, fileName);
-        let index = 1;
-
-        while (fs.existsSync(destination)) {
-            destination = path.join(archivePath, `${parsed.name}-${index}${parsed.ext}`);
-            index++;
-        }
-
-        return destination;
     }
 
     private getCodexHome(): string {
@@ -282,7 +257,7 @@ export default class CodexSessionService {
 
         let fingerprint = new SessionFingerprint();
         fingerprint.addEntry(codexHome);
-        fingerprint.addEntry(this.getFileSignature(path.join(codexHome, 'session_index.jsonl')));
+        fingerprint.addEntry(getAiSessionFileSignature(path.join(codexHome, 'session_index.jsonl')));
         // Discovery already stats every file to order by recency, so the change
         // fingerprint reuses that instead of stat'ing every path a second time.
         for (let entry of this.discoverSessionFiles(codexHome)) {
@@ -291,17 +266,8 @@ export default class CodexSessionService {
         return fingerprint.digest();
     }
 
-    private getFileSignature(filePath: string): string {
-        try {
-            let stat = fs.statSync(filePath);
-            return `${filePath}:${stat.size}:${stat.mtimeMs}`;
-        } catch (e) {
-            return `${filePath}:missing`;
-        }
-    }
-
     private readSessionIndex(indexPath: string): CodexSessionIndexEntry[] {
-        let signature = this.getFileSignature(indexPath);
+        let signature = getAiSessionFileSignature(indexPath);
         let cached = this.sessionIndexCache.get(indexPath);
         if (cached?.signature === signature) {
             return cached.entries;
@@ -331,10 +297,6 @@ export default class CodexSessionService {
             this.sessionIndexCache.delete(indexPath);
             return [];
         }
-    }
-
-    private normalizeMaxFiles(maxFiles: number): number {
-        return Number.isFinite(maxFiles) && maxFiles > 0 ? Math.floor(maxFiles) : 0;
     }
 
     private discoverSessionFiles(
@@ -472,7 +434,7 @@ export default class CodexSessionService {
             return null;
         }
 
-        let signature = this.getFileSignature(sessionFile);
+        let signature = getAiSessionFileSignature(sessionFile);
         let cached = this.sessionMetaCache.get(sessionFile);
         if (cached?.signature === signature) {
             return cached.meta;
@@ -545,22 +507,4 @@ export default class CodexSessionService {
         }
     }
 
-    private compareUpdatedAt(a: string, b: string): number {
-        let aTime = a ? Date.parse(a) : 0;
-        let bTime = b ? Date.parse(b) : 0;
-
-        if (isNaN(aTime) && isNaN(bTime)) {
-            return 0;
-        }
-
-        if (isNaN(aTime)) {
-            return -1;
-        }
-
-        if (isNaN(bTime)) {
-            return 1;
-        }
-
-        return aTime - bTime;
-    }
 }

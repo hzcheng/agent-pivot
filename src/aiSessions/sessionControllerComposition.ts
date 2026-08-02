@@ -1,0 +1,419 @@
+'use strict';
+
+import { randomBytes } from 'crypto';
+import { statSync } from 'fs';
+import type * as vscode from 'vscode';
+import { isAiSessionProviderId } from '../models';
+import type { AiSessionProviderId } from '../models';
+import type { OpenWorkspace } from '../workspaces/types';
+import type { WorkspacePrimaryRootStore } from '../workspaces/primaryRootStore';
+import type { ActiveAiSessionTerminalIdentity } from './activeTerminalHighlight';
+import type AiSessionAliasController from './aliasController';
+import { AiSessionArchiveController } from './archiveController';
+import type { AiSessionArchiveControllerOptions } from './archiveController';
+import { AiSessionCommandController } from './commandController';
+import type { AiSessionCommandControllerOptions } from './commandController';
+import { AiSessionCreationController } from './creationController';
+import type { AiSessionCreationControllerOptions } from './creationController';
+import { readAiSessionLaunchOptions } from './launchOptions';
+import { getAiSessionIdsForCwd } from './pendingTerminals';
+import type AiSessionPinController from './pinController';
+import type { ProviderDirectoryCapabilityProbe } from './providerDirectoryCapability';
+import { buildAiSessionProviderPicks, getAiSessionProviderLabel } from './providers';
+import type { AiSessionReadCoordinator } from './readCoordinator';
+import { AiSessionResumeController } from './resumeController';
+import type { AiSessionResumeControllerOptions } from './resumeController';
+import type { AiSessionRuntimeCoordinator } from './runtimeCoordinator';
+import type { AiSessionRuntimeSnapshot } from './runtimeTypes';
+import { getAiSessionTerminalName as getProviderAiSessionTerminalName } from './sessionPaths';
+import { AiSessionTerminalCommandController } from './terminalCommandController';
+import type { AiSessionTerminalCommandControllerOptions } from './terminalCommandController';
+import type AiSessionTerminalService from './terminalService';
+import type {
+    AiSessionBatchArchiveCompletedMessage,
+    AiSessionProvider,
+    WorkspaceAiSessionActionTarget,
+} from './types';
+import type AiSessionWorkspaceStateStore from './workspaceStateStore';
+
+export interface SessionControllerCompositionOptions {
+    getCurrentWorkspaceActionTarget: (cardId: string) => WorkspaceAiSessionActionTarget | null;
+    getCurrentOpenWorkspace: () => OpenWorkspace | null;
+    getActiveEditorUri: () => vscode.Uri | undefined;
+    isWorkspaceTrusted: () => boolean;
+    getRegisteredAiSessionProvider: (providerId: AiSessionProviderId) => AiSessionProvider;
+    getRegisteredAiSessionProviders: () => AiSessionProvider[];
+    providerDirectoryCapability: ProviderDirectoryCapabilityProbe;
+    workspacePrimaryRootStore: WorkspacePrimaryRootStore;
+    aiSessionWorkspaceStateStore: AiSessionWorkspaceStateStore;
+    aiSessionPinController: AiSessionPinController;
+    aiSessionAliasController: AiSessionAliasController;
+    aiSessionReadCoordinator: AiSessionReadCoordinator;
+    aiSessionRuntimeCoordinator: AiSessionRuntimeCoordinator<vscode.Terminal>;
+    aiSessionTerminalService: AiSessionTerminalService;
+    aiSessionProviders: AiSessionProvider[];
+    getAiSessionRuntimeById: (
+        providerId: AiSessionProviderId,
+        sessionId: string
+    ) => AiSessionRuntimeSnapshot<vscode.Terminal> | null;
+    getAiSessionRuntimeCollision: (
+        providerId: AiSessionProviderId,
+        sessionId: string,
+        workspaceScopeIdentity: string
+    ) => AiSessionRuntimeSnapshot<vscode.Terminal> | null;
+    getAiSessionPinKey: (providerId: AiSessionProviderId, sessionId: string) => string;
+    /** Late-bound: the settlement capability is constructed after the controllers. */
+    runSafeLifecycleTask: (
+        operation: string,
+        task: () => unknown | Promise<unknown>
+    ) => Promise<void>;
+    /** Late-bound: the attention acknowledgement is constructed after the controllers. */
+    acknowledgeAttention: (identity: ActiveAiSessionTerminalIdentity) => Promise<void>;
+    /** Late-bound: the highlighter is constructed after the controllers. */
+    syncActiveRuntime: () => void;
+    getLaunchOptions: () => ReturnType<typeof readAiSessionLaunchOptions>;
+    postMessage: (message: unknown) => Thenable<unknown>;
+    appendOutput: (message: string) => void;
+    postBatchArchiveCompletion: (message: AiSessionBatchArchiveCompletedMessage) => void;
+    logError: (message: string, error: unknown) => void;
+    logAiSessionRuntimeFailure: (operation: string, error: unknown, backend?: 'vscode' | 'tmux') => void;
+    refreshAiSessionViewsIncrementally: () => void;
+    scheduleNewAiSessionRefresh: (providerId: AiSessionProviderId) => void;
+    nowMs: () => number;
+    showInputBox: (options: vscode.InputBoxOptions) => Thenable<string | undefined>;
+    showQuickPick: <T extends vscode.QuickPickItem>(
+        items: T[],
+        options: vscode.QuickPickOptions
+    ) => Thenable<T | undefined>;
+    showWarningMessage: (message: string) => Thenable<string | undefined>;
+    showWarningWithItems: (message: string, ...items: string[]) => Thenable<string | undefined>;
+    showModalWarning: (message: string, action: string) => Thenable<string | undefined>;
+    showInformationMessage: (message: string) => Thenable<string | undefined>;
+    showErrorMessage: (message: string) => Thenable<string | undefined>;
+    writeClipboard: (value: string) => Thenable<void>;
+    focusTerminalView: () => Thenable<unknown>;
+}
+
+export interface SessionControllerComposition {
+    aiSessionCommandController: AiSessionCommandController;
+    aiSessionCreationController: AiSessionCreationController;
+    aiSessionArchiveController: AiSessionArchiveController<AiSessionRuntimeSnapshot<vscode.Terminal>>;
+    aiSessionTerminalCommandController: AiSessionTerminalCommandController<vscode.Terminal>;
+    aiSessionResumeController: AiSessionResumeController<vscode.Terminal>;
+}
+
+/**
+ * Owns the construction wiring of the five session action controllers:
+ * command, creation, archive, terminal command, and resume, including the
+ * workspace-root and provider quick picks shared by their options.
+ *
+ * Extracted from `initializeDashboard` in src/dashboard.ts. Behaviour is
+ * unchanged: the option literals are the same; only their ownership moved.
+ */
+interface SessionControllerCompositionFactories {
+    createCommandController(options: AiSessionCommandControllerOptions): AiSessionCommandController;
+    createCreationController(options: AiSessionCreationControllerOptions): AiSessionCreationController;
+    createArchiveController(
+        options: AiSessionArchiveControllerOptions<AiSessionRuntimeSnapshot<vscode.Terminal>>
+    ): AiSessionArchiveController<AiSessionRuntimeSnapshot<vscode.Terminal>>;
+    createTerminalCommandController(
+        options: AiSessionTerminalCommandControllerOptions<vscode.Terminal>
+    ): AiSessionTerminalCommandController<vscode.Terminal>;
+    createResumeController(
+        options: AiSessionResumeControllerOptions<vscode.Terminal>
+    ): AiSessionResumeController<vscode.Terminal>;
+}
+
+const DEFAULT_FACTORIES: SessionControllerCompositionFactories = {
+    createCommandController: options => new AiSessionCommandController(options),
+    createCreationController: options => new AiSessionCreationController(options),
+    createArchiveController: options => new AiSessionArchiveController(options),
+    createTerminalCommandController: options => new AiSessionTerminalCommandController(options),
+    createResumeController: options => new AiSessionResumeController(options),
+};
+
+export function createSessionControllerComposition(
+    options: SessionControllerCompositionOptions,
+    internalFactories: Partial<SessionControllerCompositionFactories> = {}
+): SessionControllerComposition {
+    const factories = { ...DEFAULT_FACTORIES, ...internalFactories };
+    const getCurrentWorkspaceActionTarget = options.getCurrentWorkspaceActionTarget;
+    const getCurrentOpenWorkspace = options.getCurrentOpenWorkspace;
+    const getRegisteredAiSessionProvider = options.getRegisteredAiSessionProvider;
+    const getRegisteredAiSessionProviders = options.getRegisteredAiSessionProviders;
+    const providerDirectoryCapability = options.providerDirectoryCapability;
+    const workspacePrimaryRootStore = options.workspacePrimaryRootStore;
+    const aiSessionWorkspaceStateStore = options.aiSessionWorkspaceStateStore;
+    const aiSessionPinController = options.aiSessionPinController;
+    const aiSessionAliasController = options.aiSessionAliasController;
+    const aiSessionReadCoordinator = options.aiSessionReadCoordinator;
+    const aiSessionRuntimeCoordinator = options.aiSessionRuntimeCoordinator;
+    const aiSessionTerminalService = options.aiSessionTerminalService;
+    const aiSessionProviders = options.aiSessionProviders;
+    const getAiSessionRuntimeById = options.getAiSessionRuntimeById;
+    const getAiSessionRuntimeCollision = options.getAiSessionRuntimeCollision;
+    const getAiSessionPinKey = options.getAiSessionPinKey;
+    const runSafeAiSessionRuntimeLifecycleTask = options.runSafeLifecycleTask;
+    const acknowledgeAiSessionAttention = options.acknowledgeAttention;
+    const getLaunchOptions = options.getLaunchOptions;
+    const postMessage = options.postMessage;
+    const appendOutput = options.appendOutput;
+    const postBatchArchiveCompletion = options.postBatchArchiveCompletion;
+    const logError = options.logError;
+    const logAiSessionRuntimeFailure = options.logAiSessionRuntimeFailure;
+    const refreshAiSessionViewsIncrementally = options.refreshAiSessionViewsIncrementally;
+    const scheduleNewAiSessionRefresh = options.scheduleNewAiSessionRefresh;
+    const nowMs = options.nowMs;
+    const showInputBox = options.showInputBox;
+    const showQuickPick = options.showQuickPick;
+    const showWarningMessage = options.showWarningMessage;
+    const showWarningWithItems = options.showWarningWithItems;
+    const showModalWarning = options.showModalWarning;
+    const showInformationMessage = options.showInformationMessage;
+    const showErrorMessage = options.showErrorMessage;
+    const writeClipboard = options.writeClipboard;
+    const focusTerminalView = options.focusTerminalView;
+
+    const pickAiSessionWorkspaceRoot = async (
+        workspace: OpenWorkspace,
+        action: 'create' | 'resume'
+    ): Promise<string | undefined> => {
+        const selected = await showQuickPick(
+            workspace.roots.map(root => ({
+                label: root.name,
+                description: root.hostPath,
+                rootId: root.id,
+            })),
+            {
+                placeHolder: 'Select a workspace root',
+                ignoreFocusOut: true,
+                title: action === 'resume'
+                    ? 'Resume AI Session in Workspace Root'
+                    : 'New AI Session Working Directory',
+            } as vscode.QuickPickOptions & { title: string }
+        );
+        return selected?.rootId;
+    };
+    const pickAiSessionProvider = async (): Promise<AiSessionProviderId | undefined> => {
+        const quickPickOptions: vscode.QuickPickOptions = {
+            placeHolder: 'Select an AI provider',
+            ignoreFocusOut: true,
+        };
+        (quickPickOptions as vscode.QuickPickOptions & { title?: string }).title = 'Select an AI provider';
+        const selected = await showQuickPick(
+            buildAiSessionProviderPicks(getRegisteredAiSessionProviders()),
+            quickPickOptions
+        );
+        return selected?.providerId;
+    };
+    const aiSessionCommandController = factories.createCommandController({
+        getWorkspaceTarget: getCurrentWorkspaceActionTarget,
+        getOpenWorkspace: getCurrentOpenWorkspace,
+        getActiveEditorUri: options.getActiveEditorUri,
+        isWorkspaceTrusted: options.isWorkspaceTrusted,
+        getProvider: getRegisteredAiSessionProvider,
+        getProviderDirectoryCapability: providerDefinition =>
+            providerDirectoryCapability.probe(providerDefinition),
+        getPrimaryRootId: workspace => workspacePrimaryRootStore.getPrimaryRootId(
+            workspace.scopeIdentity,
+            workspace.roots
+        ),
+        setPrimaryRootId: (scopeIdentity, rootId) =>
+            workspacePrimaryRootStore.setPrimaryRootId(scopeIdentity, rootId),
+        pickWorkspaceRoot: pickAiSessionWorkspaceRoot,
+        isDirectory: hostPath => {
+            try {
+                return statSync(hostPath).isDirectory();
+            } catch (error) {
+                return false;
+            }
+        },
+        showWarningMessage: message => showWarningMessage(message),
+        isProviderId: isAiSessionProviderId,
+        setExpanded: (workspaceScopeIdentity, expanded) => aiSessionWorkspaceStateStore.setExpanded(workspaceScopeIdentity, expanded),
+        setProviderSelection: (workspaceScopeIdentity, selection) =>
+            aiSessionWorkspaceStateStore.setProviderSelection(workspaceScopeIdentity, selection),
+        postProviderSelectionResult: result => postMessage(result),
+        showErrorMessage: message => showErrorMessage(message),
+        logError,
+        togglePin: (providerId, sessionId) => aiSessionPinController.toggle(providerId, sessionId),
+        getAliases: () => aiSessionAliasController.getAll(),
+        saveAliases: aliases => aiSessionAliasController.saveAll(aliases),
+        getOriginalName: (providerId, sessionId) => aiSessionAliasController.getOriginalName(providerId, sessionId),
+        getSessionKey: getAiSessionPinKey,
+        showInputBox: options => showInputBox(options),
+        writeClipboard: value => writeClipboard(value),
+        showInformationMessage: message => showInformationMessage(message),
+        refresh: refreshAiSessionViewsIncrementally,
+    });
+    const aiSessionCreationController = factories.createCreationController({
+        isProviderId: isAiSessionProviderId,
+        getWorkspaceTarget: getCurrentWorkspaceActionTarget,
+        pickWorkspaceRoot: workspace => pickAiSessionWorkspaceRoot(workspace, 'create'),
+        pickProvider: pickAiSessionProvider,
+        getProviderLabel: getAiSessionProviderLabel,
+        getLaunchOptions,
+        getProvider: getRegisteredAiSessionProvider,
+        resolveWorkspaceDirectoryScope: (target, providerId, explicitRootId) =>
+            aiSessionCommandController.resolveWorkspaceDirectoryScope(
+                target.workspace, providerId, undefined, explicitRootId
+            ),
+        rememberDirectoryScope: async directoryScope => {
+            try {
+                await aiSessionCommandController.rememberDirectoryScope(directoryScope);
+            } catch (error) {
+                logError('Could not save the AI session workspace root.', error);
+            }
+        },
+        runtimeCoordinator: aiSessionRuntimeCoordinator,
+        createPendingId: () => randomBytes(16).toString('hex'),
+        showInputBox: options => showInputBox(options),
+        showActiveTab: projectId => postMessage({
+            type: 'ai-session-tab-selection-requested',
+            projectId,
+            tab: 'active',
+        }),
+        showWarningMessage: (message, ...items) => showWarningWithItems(message, ...items),
+        showErrorMessage: message => showErrorMessage(message),
+        logRuntimeFailure: logAiSessionRuntimeFailure,
+        refresh: refreshAiSessionViewsIncrementally,
+        getExistingSessionIdsForCwd: (providerId, cwd) => getAiSessionIdsForCwd(providerId, aiSessionReadCoordinator.getProviderResult(providerId, {
+            forceRefresh: true,
+            candidatePaths: [cwd],
+            reason: 'new-session',
+        }), cwd, aiSessionProviders),
+        getPendingMarkerPath: providerId => aiSessionTerminalService.getPendingMarkerPath(providerId),
+        scheduleNewSessionRefresh: scheduleNewAiSessionRefresh,
+        announceStatus: (projectId, message) => postMessage({
+            type: 'ai-session-status-announcement',
+            projectId,
+            message,
+        }),
+        nowMs,
+    });
+    const aiSessionArchiveController = factories.createArchiveController({
+        isProviderId: isAiSessionProviderId,
+        getProvider: getRegisteredAiSessionProvider,
+        getProviderLabel: getAiSessionProviderLabel,
+        getWorkspaceTarget: getCurrentWorkspaceActionTarget,
+        getRuntimeById: getAiSessionRuntimeById,
+        refreshRuntimeGuard: () => aiSessionRuntimeCoordinator.refreshForHost(true),
+        isRuntimeComplete: runtime => runtime.state === 'completed',
+        focusRuntime: runtime => aiSessionRuntimeCoordinator.focus({ ...runtime.identity }),
+        deleteRuntimeMarker: runtime => aiSessionTerminalService.deleteMarker(runtime.markerPath),
+        untrackRuntime: (providerId, sessionId, workspaceScopeIdentity) =>
+            aiSessionTerminalService.untrack(providerId, sessionId, workspaceScopeIdentity),
+        deletePin: (providerId, sessionId) => aiSessionPinController.remove(providerId, sessionId),
+        deleteAlias: (providerId, sessionId) => aiSessionAliasController.remove(providerId, sessionId),
+        confirmSingleArchive: providerLabel => showModalWarning(`Archive this ${providerLabel} session?`, "Archive"),
+        confirmBatchArchive: message => showModalWarning(message, 'Archive'),
+        showWarningMessage: message => showWarningMessage(message),
+        showErrorMessage: message => showErrorMessage(message),
+        showInformationMessage: message => showInformationMessage(message),
+        appendLine: message => appendOutput(message),
+        postCompletion: completion => postBatchArchiveCompletion(completion as AiSessionBatchArchiveCompletedMessage),
+        refresh: refreshAiSessionViewsIncrementally,
+        syncActiveRuntime: options.syncActiveRuntime,
+        logUnexpectedError: (operation, error, failedSessionId) => {
+            if (operation === 'focus-runtime') {
+                logAiSessionRuntimeFailure(operation, error, 'tmux');
+                return;
+            }
+            logError(`Batch AI session archive failed during ${operation}${failedSessionId ? ` (${failedSessionId})` : ''}.`, error);
+        },
+    });
+    const aiSessionTerminalCommandController = factories.createTerminalCommandController({
+        isProviderId: isAiSessionProviderId,
+        getWorkspaceTarget: getCurrentWorkspaceActionTarget,
+        runtimeCoordinator: aiSessionRuntimeCoordinator,
+        confirmRuntimeClose: (message, action) => showModalWarning(message, action),
+        chooseRuntimeConflict: async runtimes => {
+            const picks = runtimes.map(runtime => {
+                const backendLabel = runtime.backend === 'tmux'
+                    ? `tmux · ${runtime.tmux?.layout || 'unknown'} layout`
+                    : 'Direct · VS Code Terminal';
+                const attachment = runtime.attached ? 'attached' : 'detached';
+                const target = runtime.backend === 'tmux'
+                    ? `${runtime.tmux?.sessionName || 'unknown session'}${runtime.tmux?.windowName
+                        ? `:${runtime.tmux.windowName}` : ''}`
+                    : runtime.terminal?.name || 'unnamed VS Code terminal';
+                return {
+                    label: `$(terminal) ${backendLabel}`,
+                    description: attachment,
+                    detail: `Target: ${target}`,
+                    runtime,
+                };
+            });
+            const selected = await showQuickPick(picks, {
+                placeHolder: 'Select the exact AI session runtime to focus',
+                ignoreFocusOut: true,
+            });
+            return selected?.runtime;
+        },
+        announceStatus: (projectId, message) => postMessage({
+            type: 'ai-session-status-announcement',
+            projectId,
+            message,
+        }),
+        showErrorMessage: message => showErrorMessage(message),
+        logRuntimeFailure: logAiSessionRuntimeFailure,
+        getProviderLabel: getAiSessionProviderLabel,
+        refresh: refreshAiSessionViewsIncrementally,
+        onRuntimeCloseEnd: (runtime, succeeded) => {
+            const sessionId = runtime.identity.sessionId;
+            if (!sessionId || !succeeded) {
+                return;
+            }
+            void runSafeAiSessionRuntimeLifecycleTask(
+                'acknowledge-explicit-session-close',
+                () => acknowledgeAiSessionAttention({
+                    provider: runtime.identity.provider,
+                    sessionId,
+                    workspaceScopeIdentity: runtime.identity.workspaceScopeIdentity,
+                })
+            );
+        },
+        focusTerminalView: () => focusTerminalView(),
+    });
+    const aiSessionResumeController = factories.createResumeController({
+        getWorkspaceTarget: getCurrentWorkspaceActionTarget,
+        getLaunchOptions,
+        getProvider: getRegisteredAiSessionProvider,
+        resolveWorkspaceDirectoryScope: (target, session, providerId, explicitRootId) =>
+            aiSessionCommandController.resolveWorkspaceDirectoryScope(
+                target.workspace, providerId, session, explicitRootId
+            ),
+        rememberDirectoryScope: async directoryScope => {
+            try {
+                await aiSessionCommandController.rememberDirectoryScope(directoryScope);
+            } catch (error) {
+                logError('Could not save the AI session workspace root.', error);
+            }
+        },
+        getTerminalName: (providerId, session) => getProviderAiSessionTerminalName(providerId, session, aiSessionProviders),
+        runtimeCoordinator: aiSessionRuntimeCoordinator,
+        getRuntimeConflict: getAiSessionRuntimeCollision,
+        getMarkerPath: (providerId, sessionId) => aiSessionTerminalService.getMarkerPath(providerId, sessionId),
+        showWarningMessage: message => showWarningMessage(message),
+        showErrorMessage: message => showErrorMessage(message),
+        logRuntimeFailure: logAiSessionRuntimeFailure,
+        refresh: refreshAiSessionViewsIncrementally,
+        showActiveTab: projectId => postMessage({
+            type: 'ai-session-tab-selection-requested',
+            projectId,
+            tab: 'active',
+        }),
+        announceStatus: (projectId, message) => postMessage({
+            type: 'ai-session-status-announcement',
+            projectId,
+            message,
+        }),
+    });
+    return {
+        aiSessionCommandController,
+        aiSessionCreationController,
+        aiSessionArchiveController,
+        aiSessionTerminalCommandController,
+        aiSessionResumeController,
+    };
+}

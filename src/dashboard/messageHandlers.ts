@@ -1,0 +1,222 @@
+'use strict';
+
+import type * as vscode from 'vscode';
+import type { AiSessionArchiveController } from '../aiSessions/archiveController';
+import type { AiSessionCommandController } from '../aiSessions/commandController';
+import type { ConversationCapability } from '../aiSessions/conversation/composition';
+import type { AiSessionRuntimeSnapshot } from '../aiSessions/runtimeTypes';
+import type { AiSessionTerminalCommandController } from '../aiSessions/terminalCommandController';
+import type { AiSessionProviderId, StewardInfos } from '../models';
+import type { PromptDashboardController } from '../prompts/dashboardController';
+import type { PromptTerminalCommandController } from '../prompts/terminalCommandController';
+import type ProjectService from '../services/projectService';
+import { getProjectsPanelContent } from '../webview/webviewContent';
+import type { DashboardMessageHandler } from './messageRouter';
+
+export interface DashboardMessageHandlersOptions {
+    postMessage: (message: unknown) => Thenable<unknown>;
+    /** Late-bound: stewardInfos is assembled after the message router. */
+    getStewardInfos: () => StewardInfos;
+    projectService: ProjectService;
+    promptDashboardController: PromptDashboardController;
+    /** Late-bound: the prompt terminal controller is constructed after the router. */
+    getPromptTerminalCommandController: () => PromptTerminalCommandController;
+    aiSessionCommandController: AiSessionCommandController;
+    aiSessionTerminalCommandController: AiSessionTerminalCommandController<vscode.Terminal>;
+    conversationCapability: ConversationCapability;
+    aiSessionArchiveController: AiSessionArchiveController<AiSessionRuntimeSnapshot<vscode.Terminal>>;
+    acknowledgeAiSessionAttentionEventIds: (eventIds: string[]) => Promise<void>;
+    logOpenWorkspaceDiagnostic: (component: string, event: unknown) => void;
+    refreshStewardViews: (reason?: string) => void;
+    /** Late-bound: the highlighter is constructed after the message router. */
+    requestActiveAiSessionTerminalHighlight: () => void;
+    postAiSessionAttentionState: () => void;
+    showAgentPivotSettings: () => Promise<void>;
+    showBridgeExtension: () => Thenable<unknown>;
+}
+
+/**
+ * Owns the remaining plain-delegate dashboard message handlers: panel content
+ * requests, prompt commands, AI session terminal/pin/rename/archive delegates,
+ * renderer diagnostics, and settings/bridge openers.
+ *
+ * Extracted from `initializeDashboard` in src/dashboard.ts (see the project
+ * message handlers for the same slice pattern). Behaviour is unchanged: the
+ * handler bodies delegate to the same controllers with the same arguments;
+ * only their ownership moved. The router-level special hooks (create/resume/
+ * archive session, save workspace) stay in dashboard.ts.
+ */
+export function createDashboardMessageHandlers(
+    options: DashboardMessageHandlersOptions
+): Record<string, DashboardMessageHandler> {
+    const postMessage = options.postMessage;
+    const getStewardInfos = options.getStewardInfos;
+    const projectService = options.projectService;
+    const promptDashboardController = options.promptDashboardController;
+    const getPromptTerminalCommandController = options.getPromptTerminalCommandController;
+    const aiSessionCommandController = options.aiSessionCommandController;
+    const aiSessionTerminalCommandController = options.aiSessionTerminalCommandController;
+    const conversationCapability = options.conversationCapability;
+    const aiSessionArchiveController = options.aiSessionArchiveController;
+    const acknowledgeAiSessionAttentionEventIds = options.acknowledgeAiSessionAttentionEventIds;
+    const logOpenWorkspaceDiagnostic = options.logOpenWorkspaceDiagnostic;
+    const refreshStewardViews = options.refreshStewardViews;
+    const requestActiveAiSessionTerminalHighlight = options.requestActiveAiSessionTerminalHighlight;
+    const postAiSessionAttentionState = options.postAiSessionAttentionState;
+    const showAgentPivotSettings = options.showAgentPivotSettings;
+    const showBridgeExtension = options.showBridgeExtension;
+
+    return {
+        'request-projects-panel': async e => {
+            if (e.version !== 1 || !Number.isSafeInteger(e.requestId) || e.requestId < 1) {
+                return;
+            }
+            await postMessage({
+                type: 'projects-panel-content',
+                version: 1,
+                requestId: e.requestId,
+                html: getProjectsPanelContent(projectService.getGroups(), getStewardInfos()),
+            });
+        },
+        'request-ai-panel': async e => {
+            if (Object.keys(e).length !== 4
+                || e.version !== 1
+                || typeof e.requestId !== 'string'
+                || e.requestId.length < 1
+                || e.requestId.length > 128
+                || e.target !== 'global-prompt-library') {
+                return;
+            }
+            await postMessage(
+                promptDashboardController.getPanelContent(e.requestId)
+            );
+        },
+        'prompt-command': async e => {
+            const result = await promptDashboardController.handle(e);
+            if (result !== undefined) {
+                await postMessage(result);
+            }
+        },
+        'prompt-insert-terminal': async e => {
+            const result = await getPromptTerminalCommandController().handleInsertRequest(e);
+            if (result !== undefined) {
+                await postMessage(result);
+            }
+        },
+        'toggle-codex-sessions': async e => {
+            await aiSessionCommandController.toggleSessionsExpanded(e.projectId as string, Boolean(e.expanded));
+        },
+        'select-ai-session-providers': async e => {
+            await aiSessionCommandController.selectProviders(
+                e.projectId as string,
+                e.selectedProviders,
+                e.requestId,
+                e.version
+            );
+        },
+        'focus-ai-session-terminal': async e => {
+            const target = {
+                projectId: e.projectId as string,
+                provider: e.provider as AiSessionProviderId,
+                sessionId: e.sessionId as string,
+            };
+            const focused =
+                await aiSessionTerminalCommandController.focusActive(
+                    target.projectId,
+                    target.provider,
+                    target.sessionId
+                );
+            if (focused) {
+                await conversationCapability.followActiveConversation(
+                    target
+                );
+            }
+        },
+        'focus-pending-ai-session': async e => {
+            await aiSessionTerminalCommandController.focusPending(
+                e.projectId as string,
+                e.provider as string,
+                e.createdAt as string
+            );
+        },
+        'close-ai-session-terminal': async e => {
+            await aiSessionTerminalCommandController.closeTerminal({
+                projectId: e.projectId as string,
+                providerId: e.provider as string,
+                sessionId: e.sessionId as string,
+                pendingCreatedAt: e.pendingCreatedAt as string,
+                expectedBackend: 'vscode',
+            });
+        },
+        'detach-ai-session-terminal': async e => {
+            await aiSessionTerminalCommandController.closeTerminal({
+                projectId: e.projectId as string,
+                providerId: e.provider as string,
+                sessionId: e.sessionId as string,
+                pendingCreatedAt: e.pendingCreatedAt as string,
+                expectedBackend: 'tmux',
+            });
+        },
+        'toggle-ai-session-pin': async e => {
+            await aiSessionCommandController.togglePin(e.provider as string, e.sessionId as string);
+        },
+        'acknowledge-ai-session-attention': async e => {
+            const attentionEventIds = Array.isArray(e.eventIds) ? e.eventIds.filter((id: unknown): id is string => typeof id === 'string') : [];
+            await acknowledgeAiSessionAttentionEventIds(attentionEventIds);
+        },
+        'rename-ai-session': async e => {
+            await aiSessionCommandController.renameSession(e.provider as string, e.sessionId as string);
+        },
+        'copy-ai-session-id': async e => {
+            await aiSessionCommandController.copySessionId(e.sessionId as string);
+        },
+        'request-full-refresh': e => {
+            logOpenWorkspaceDiagnostic('Renderer', {
+                event: 'full-refresh-requested',
+                reason: typeof e.reason === 'string' ? e.reason.slice(0, 256) : 'unknown',
+            });
+            refreshStewardViews(typeof e.reason === 'string' ? e.reason.slice(0, 256) : 'webview-requested');
+        },
+        'open-workspaces-rendered': e => {
+            logOpenWorkspaceDiagnostic('Renderer', {
+                event: 'open-workspaces-rendered',
+                semanticRevision: typeof e.semanticRevision === 'string'
+                    ? e.semanticRevision.slice(0, 128)
+                    : 'invalid',
+                currentWorkspaceCount: (e.currentWorkspaceCount === 0 || e.currentWorkspaceCount === 1)
+                    ? e.currentWorkspaceCount as number
+                    : -1,
+                navigationWorkspaceCount: Number.isSafeInteger(e.navigationWorkspaceCount)
+                    && e.navigationWorkspaceCount >= 0
+                    ? e.navigationWorkspaceCount as number
+                    : -1,
+                hasOtherWindowsGroup: e.hasOtherWindowsGroup === true,
+                otherWindowsStatus: e.otherWindowsStatus === 'ready'
+                    || e.otherWindowsStatus === 'unavailable'
+                    || e.otherWindowsStatus === 'update-required'
+                    ? e.otherWindowsStatus as string
+                    : 'invalid',
+            });
+        },
+        'request-active-ai-session-terminal': () => {
+            requestActiveAiSessionTerminalHighlight();
+        },
+        'request-ai-session-attention-state': () => {
+            postAiSessionAttentionState();
+        },
+        'open-settings': async () => {
+            await showAgentPivotSettings();
+        },
+        'open-bridge-extension': async () => {
+            await showBridgeExtension();
+        },
+        'archive-ai-sessions': async e => {
+            await aiSessionArchiveController.archiveSessions(
+                e.projectId,
+                e.items,
+                e.requestId,
+                e.version
+            );
+        },
+    };
+}

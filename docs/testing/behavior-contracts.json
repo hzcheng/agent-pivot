@@ -1490,6 +1490,7 @@
     "status": "automated",
     "owners": [
       "tests/contract/aiSessions/runtimeBackends.test.js",
+      "tests/contract/aiSessions/tmuxPromotion.test.js",
       "tests/unit/aiSessions/tmuxRuntimeRequest.test.js"
     ],
     "evidence": [

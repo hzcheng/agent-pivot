@@ -377,6 +377,16 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                                 .assistantMarkdown.push(text);
                         }
                     }
+                } else if (event.type === 'PlanDisplay') {
+                    const payload = asRecord(event.payload);
+                    if (openInteractionIndex !== undefined
+                        && typeof payload?.content === 'string') {
+                        const content = visibleMessage(payload.content);
+                        if (content) {
+                            interactions[openInteractionIndex]
+                                .assistantMarkdown.push(content);
+                        }
+                    }
                 } else if (event.type === 'StatusUpdate') {
                     const payload = asRecord(event.payload);
                     const usedTokens = Number(payload?.context_tokens);

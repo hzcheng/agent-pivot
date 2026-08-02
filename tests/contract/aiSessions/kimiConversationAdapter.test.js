@@ -125,6 +125,94 @@ test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 Kimi normalizes only visible t
     assert.equal(new Set(appended.interactions.map(item => item.id)).size, 4);
 });
 
+test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 Kimi surfaces PlanDisplay markdown as assistant content', async t => {
+    const source = await createFixture(t);
+    await fs.promises.writeFile(source.sourcePath, [
+        {
+            timestamp: 1000,
+            message: {
+                type: 'TurnBegin',
+                payload: { user_input: 'Draft a rollout plan' },
+            },
+        },
+        {
+            timestamp: 1001,
+            message: {
+                type: 'PlanDisplay',
+                payload: { content: '# Rollout Plan\n\n## v1 steps' },
+            },
+        },
+        {
+            timestamp: 1002,
+            message: {
+                type: 'ContentPart',
+                payload: { type: 'text', text: 'I revised the plan.' },
+            },
+        },
+        {
+            timestamp: 1003,
+            message: {
+                type: 'PlanDisplay',
+                payload: { content: '# Rollout Plan\n\n## v2 steps' },
+            },
+        },
+        {
+            timestamp: 1004,
+            message: { type: 'TurnEnd', payload: {} },
+        },
+        {
+            timestamp: 1005,
+            message: {
+                type: 'PlanDisplay',
+                payload: { content: '# Orphan plan without an open turn' },
+            },
+        },
+        {
+            timestamp: 1006,
+            message: {
+                type: 'TurnBegin',
+                payload: { user_input: 'Ignore malformed plan payloads' },
+            },
+        },
+        {
+            timestamp: 1007,
+            message: {
+                type: 'PlanDisplay',
+                payload: { content: 42 },
+            },
+        },
+        {
+            timestamp: 1008,
+            message: { type: 'TurnEnd', payload: {} },
+        },
+    ].map(record => JSON.stringify(record)).join('\n') + '\n');
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+
+    const outline = await adapter.readOutline(sessionId);
+    assert.deepEqual(
+        outline.interactions.map(interaction => interaction.userPreview),
+        ['Draft a rollout plan', 'Ignore malformed plan payloads']
+    );
+    const page = await adapter.readPage({
+        provider: 'kimi',
+        sessionId,
+        anchorInteractionId: outline.interactions[0].id,
+        direction: 'around',
+        expectedRevision: outline.sourceRevision,
+    });
+    assert.deepEqual(
+        page.messages.map(message => [message.role, message.markdown]),
+        [
+            ['user', 'Draft a rollout plan'],
+            ['assistant', '# Rollout Plan\n\n## v1 steps'],
+            ['assistant', 'I revised the plan.'],
+            ['assistant', '# Rollout Plan\n\n## v2 steps'],
+            ['user', 'Ignore malformed plan payloads'],
+        ]
+    );
+});
+
 test('SESSION-AI-SESSION-KIMI-CONVERSATION-002 deduplicates a reread and changes offset identity after source reset', async t => {
     const source = await createFixture(t);
     const adapter = createAdapter(source);

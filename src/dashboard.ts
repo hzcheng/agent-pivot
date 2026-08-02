@@ -101,14 +101,8 @@ import type {
 } from './aiSessions/attentionController';
 import { createAiSessionStatusCapability } from './aiSessions/statusCapability';
 import { createAiSessionRuntimeSettlementCapability } from './aiSessions/runtimeSettlementCapability';
-import { NotifyDispatcher } from './aiSessions/notify/dispatcher';
-import { createHttpsTransport } from './aiSessions/notify/httpClient';
-import { NotifiedEventStore } from './aiSessions/notify/store';
-import type { NotifyConfig } from './aiSessions/notify/types';
-import { registerNotifyCommands, resolveNotifySecretStorage } from './aiSessions/notifyIntegration/commands';
-import { assembleNotifyConfig, NOTIFY_SECRET_KEY_PREFIX } from './aiSessions/notifyIntegration/credentials';
+import { createNotifyConfiguration } from './aiSessions/notifyConfiguration';
 import { buildNotifyPayload } from './aiSessions/notifyIntegration/notifier';
-import { createNotifyOutputChannel } from './aiSessions/notifyIntegration/output';
 import {
     getLastPartOfPath,
     isUriString,
@@ -921,101 +915,22 @@ async function initializeDashboard(
     let aiSessionUpdateSequence = 0;
     let currentAiSessionRefreshReason = 'refresh';
     let aiSessionAttentionBridgeClient: AttentionBridgeClient;
-    const notifyOutput = ownResource(() => createNotifyOutputChannel());
-    const notifiedStore = new NotifiedEventStore(
-        path.join(os.homedir(), '.agent-pivot', 'notified.json'));
-    notifiedStore.load();
-    let currentNotifyConfig: NotifyConfig | null = null;
-    const notifyDispatcher = new NotifyDispatcher({
-        transport: createHttpsTransport(),
-        store: notifiedStore,
+    const notifyConfiguration = ownResource(() => createNotifyConfiguration({
+        context,
+        getConfiguration: () => getAgentPivotConfiguration(),
+        configurationTargetGlobal: vscode.ConfigurationTarget.Global,
+        homedir: () => os.homedir(),
+        env: process.env,
         nowMs: () => Date.now(),
         setTimeout: (handler, ms) => setTimeout(handler, ms),
         clearTimeout: handle => clearTimeout(handle as NodeJS.Timeout),
         sleep: ms => new Promise(resolve => setTimeout(resolve, ms)),
-        globalProxy: () => getAgentPivotConfiguration().get<string>('notify.proxy', ''),
-        env: process.env,
-        onLog: line => notifyOutput.log(line),
-    });
-    const refreshNotifyConfig = async (): Promise<void> => {
-        try {
-            await refreshNotifyConfigUnsafe();
-        } catch (error) {
-            // 通知配置刷新绝不能让 Dashboard 激活/运行崩溃;保留上一份配置。
-            notifyOutput.log(`notify: config refresh failed: ${(error as Error).message}`);
-        }
-    };
-    const refreshNotifyConfigUnsafe = async (): Promise<void> => {
-        const configuration = getAgentPivotConfiguration();
-        const enabled = configuration.get<boolean>('notify.enabled', false);
-        if (enabled && !context.globalState.get<boolean>('agentPivot.notify.consented')) {
-            const choice = await vscode.window.showWarningMessage(
-                'Agent Pivot will send project names, session names and status to the '
-                + 'notification endpoints you configure. No code or file contents are sent. Continue?',
-                { modal: true },
-                'Enable notifications'
-            );
-            if (choice !== 'Enable notifications') {
-                await configuration.update(
-                    'notify.enabled', false, vscode.ConfigurationTarget.Global);
-                return;
-            }
-            await context.globalState.update('agentPivot.notify.consented', true);
-        }
-        const skeletons = configuration.get<Array<Record<string, unknown>>>('notify.sinks', []);
-        const secretStorage = resolveNotifySecretStorage(context);
-        const secrets: Record<string, string> = {};
-        for (const skeleton of skeletons) {
-            const id = typeof skeleton.id === 'string' ? skeleton.id : '';
-            if (!id) {
-                continue;
-            }
-            const stored = secretStorage
-                ? await secretStorage.get(`${NOTIFY_SECRET_KEY_PREFIX}${id}`)
-                : undefined;
-            if (stored) {
-                secrets[id] = stored;
-            }
-        }
-        const assembled = assembleNotifyConfig({
-            enabled,
-            sinks: skeletons,
-            reasons: configuration.get<string[]>('notify.reasons',
-                ['completed', 'input-required', 'failed']),
-            minRunDurationMs: configuration.get<number>('notify.minRunDurationMs', 60000),
-            debounceMs: configuration.get<number>('notify.debounceMs', 5000),
-            rateLimitPerMin: configuration.get<number>('notify.rateLimitPerMin', 6),
-            escalateAfterMs: configuration.get<number>('notify.escalateAfterMs', 0),
-            projectPathMode: configuration.get<string>('notify.projectPathMode', 'basename'),
-            includeSessionLabel: configuration.get<boolean>('notify.includeSessionLabel', true),
-        }, secrets, line => notifyOutput.log(line));
-        currentNotifyConfig = assembled;
-        notifyDispatcher.setConfig(assembled);
-    };
-    await refreshNotifyConfig();
-    // 凭据写入不触发配置变化事件,必须单独监听,否则存完凭据后 dispatcher
-    // 仍拿着存凭据之前装配的空 sinks 配置,直到下次配置变更或重载。
-    const notifySecretChanges = resolveNotifySecretStorage(context);
-    const onNotifySecretChange = notifySecretChanges?.onDidChange;
-    if (onNotifySecretChange) {
-        ownResource(() => onNotifySecretChange(event => {
-            if (event.key.startsWith(NOTIFY_SECRET_KEY_PREFIX)) {
-                void refreshNotifyConfig();
-            }
-        }));
-    }
-    ownResource(() => {
-        const disposables = registerNotifyCommands(context, {
-            output: notifyOutput,
-            getConfig: () => currentNotifyConfig || assembleNotifyConfig({
-                enabled: false, sinks: [], reasons: [], minRunDurationMs: 0,
-                debounceMs: 0, rateLimitPerMin: 1, escalateAfterMs: 0,
-                projectPathMode: 'basename', includeSessionLabel: true,
-            }, {}),
-            globalProxy: () => getAgentPivotConfiguration().get<string>('notify.proxy', ''),
-        });
-        return { dispose: () => disposables.forEach(disposable => disposable.dispose()) };
-    });
+        showWarningMessage: (message, messageOptions, ...items) =>
+            vscode.window.showWarningMessage(message, messageOptions, ...items),
+    }));
+    const notifyOutput = notifyConfiguration.output;
+    const notifyDispatcher = notifyConfiguration.dispatcher;
+    await notifyConfiguration.refresh();
     const locateAttentionSession = (key: string) => {
         const target = getCurrentWorkspaceActionTargetWithoutCardId();
         if (!target) {
@@ -1708,7 +1623,7 @@ async function initializeDashboard(
 
     ownResource(() => vscode.workspace.onDidChangeConfiguration(event => {
         if (event.affectsConfiguration(`${AGENT_PIVOT_CONFIG_SECTION}.notify`)) {
-            void refreshNotifyConfig();
+            void notifyConfiguration.refresh();
         }
     }));
 

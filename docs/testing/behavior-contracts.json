@@ -4428,6 +4428,8 @@
     ],
     "evidence": [
       "src/aiSessions/notify/dispatcher.ts"
+    ,
+      "src/aiSessions/notifyConfiguration.ts"
     ]
   },
   {
@@ -4465,9 +4467,13 @@
     "status": "automated",
     "owners": [
       "tests/unit/aiSessions/notify/credentials.test.js"
+    ,
+      "tests/contract/aiSessions/notifyConfiguration.test.js"
     ],
     "evidence": [
       "src/aiSessions/notifyIntegration/credentials.ts"
+    ,
+      "src/aiSessions/notifyConfiguration.ts"
     ]
   },
   {
@@ -4506,10 +4512,14 @@
     "status": "automated",
     "owners": [
       "tests/unit/aiSessions/notify/guidedSetup.test.js"
+    ,
+      "tests/contract/aiSessions/notifyConfiguration.test.js"
     ],
     "evidence": [
       "src/aiSessions/notifyIntegration/commands.ts",
       "src/aiSessions/notifyIntegration/output.ts"
+    ,
+      "src/aiSessions/notifyConfiguration.ts"
     ]
   },
   {

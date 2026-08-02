@@ -73,6 +73,7 @@ const EXPECTED_MAIN_ENTRIES = Object.freeze([
     'extension/media/styles.css',
     'extension/media/webviewDashboardScripts.js',
     'extension/media/webviewSkillPanelScripts.js',
+    'extension/media/webviewProjectsPanelScripts.js',
     'extension/media/webviewDnDScripts.js',
     'extension/media/webviewFilterScripts.js',
     'extension/media/webviewAiSessionViewStateScripts.js',
@@ -604,6 +605,7 @@ function runRealVsixArchiveChecks(mainPackage, bridgePackage) {
         ['extension/media/webviewProjectAiSessionControlsScripts.js', 'media/webviewProjectAiSessionControlsScripts.js'],
         ['extension/media/webviewProjectScripts.js', 'media/webviewProjectScripts.js'],
         ['extension/media/webviewSkillPanelScripts.js', 'media/webviewSkillPanelScripts.js'],
+        ['extension/media/webviewProjectsPanelScripts.js', 'media/webviewProjectsPanelScripts.js'],
         ['extension/media/webviewPromptScripts.js', 'media/webviewPromptScripts.js'],
         ['extension/media/webviewScrollStateScripts.js', 'media/webviewScrollStateScripts.js'],
         ['extension/media/webviewTodoScripts.js', 'media/webviewTodoScripts.js'],
@@ -935,6 +937,7 @@ function run() {
     assertIncludes(mainIgnore, '!media/webviewProjectAiSessionControlsScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewProjectScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewSkillPanelScripts.js', 'main VSIX ignore rules');
+    assertIncludes(mainIgnore, '!media/webviewProjectsPanelScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewPromptScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewScrollStateScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewTodoScripts.js', 'main VSIX ignore rules');
@@ -964,6 +967,7 @@ function run() {
         'media/webviewProjectAiSessionControlsScripts.js',
         'media/webviewProjectScripts.js',
         'media/webviewSkillPanelScripts.js',
+        'media/webviewProjectsPanelScripts.js',
         'media/webviewPromptScripts.js',
         'media/webviewScrollStateScripts.js',
         'media/webviewTodoScripts.js',

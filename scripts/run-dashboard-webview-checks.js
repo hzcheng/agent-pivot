@@ -52,6 +52,9 @@ const dashboardScriptPath = path.join(root, 'src', 'webview', 'webviewDashboardS
 const skillPanelScriptPath = path.join(
     root, 'src', 'webview', 'webviewSkillPanelScripts.js'
 );
+const projectsPanelScriptPath = path.join(
+    root, 'src', 'webview', 'webviewProjectsPanelScripts.js'
+);
 const projectScriptPath = path.join(root, 'src', 'webview', 'webviewProjectScripts.js');
 const aiSessionViewStateScriptPath = path.join(
     root, 'src', 'webview', 'webviewAiSessionViewStateScripts.js'
@@ -95,6 +98,7 @@ function readProjectWebviewSource() {
 function readDashboardWebviewSource() {
     return [
         skillPanelScriptPath,
+        projectsPanelScriptPath,
         dashboardScriptPath,
     ].map(scriptPath => fs.readFileSync(scriptPath, 'utf8')).join('\n');
 }
@@ -4427,6 +4431,11 @@ function runSourceContractChecks(source) {
         fs.readFileSync(skillPanelScriptPath),
         'generated media/webviewSkillPanelScripts.js must match its source byte-for-byte'
     );
+    assert.deepStrictEqual(
+        fs.readFileSync(path.join(root, 'media', 'webviewProjectsPanelScripts.js')),
+        fs.readFileSync(projectsPanelScriptPath),
+        'generated media/webviewProjectsPanelScripts.js must match its source byte-for-byte'
+    );
     const dndSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewDnDScripts.js'), 'utf8');
     const filterSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewFilterScripts.js'), 'utf8');
     const extensionHostSource = fs.readFileSync(extensionHostPath, 'utf8');
@@ -4501,6 +4510,12 @@ function runSourceContractChecks(source) {
     assert.ok(webviewContentSource.includes('todos.mount(panel, message.snapshot)'));
     assert.ok(webviewContentSource.includes("'webviewScrollStateScripts.js'"));
     assert.ok(webviewContentSource.includes("'webviewSkillPanelScripts.js'"));
+    assert.ok(webviewContentSource.includes("'webviewProjectsPanelScripts.js'"));
+    assert.ok(
+        webviewContentSource.indexOf('webviewProjectsPanelScripts.js')
+            < webviewContentSource.indexOf('webviewDashboardScripts.js'),
+        'the projects panel capture/restore helpers must load before the Dashboard controller that calls them'
+    );
     assert.ok(
         webviewContentSource.indexOf('webviewSkillPanelScripts.js')
             < webviewContentSource.indexOf('webviewDashboardScripts.js'),

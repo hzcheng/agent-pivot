@@ -1489,7 +1489,8 @@
     "priority": "P1",
     "status": "automated",
     "owners": [
-      "tests/contract/aiSessions/runtimeBackends.test.js"
+      "tests/contract/aiSessions/runtimeBackends.test.js",
+      "tests/unit/aiSessions/tmuxRuntimeRequest.test.js"
     ],
     "evidence": [
       "scripts/run-ai-session-tmux-checks.js"

@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "0a26be7106e6ff264bc4a200820b302b52e88b0e",
+        "head": "546f4b2cb06f295d72576299dd4bcef358b73eff",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -73,7 +73,8 @@
             "2442db899536f40b04d19d8679fc0d427d6367eb",
             "b6d312cf7537442c982aa84b4d0fef4e2c715e14",
             "b842d24f0a64555709e1b6a07f9894ee7a018845",
-            "af9cc7328dc642243b8c9e00cf86869353ced1ac"
+            "af9cc7328dc642243b8c9e00cf86869353ced1ac",
+            "95a9a7bc69b494fcd4f0d902d76370687baf4472"
         ]
     },
     "capabilities": [
@@ -634,7 +635,8 @@
                 "f51aa569d4adb1dd750947181008c3764dbe6163",
                 "289779463fe347fba05bd3655ceded5189612f44",
                 "eb60d0cc5b8aaa9e3f04d797f4d790f40999e378",
-                "9ceb5a4ca604119a69486449699c263f96218c21"
+                "9ceb5a4ca604119a69486449699c263f96218c21",
+                "546f4b2cb06f295d72576299dd4bcef358b73eff"
             ],
             "behaviors": [
                 "ATTENTION-ACTIVE-UNREGISTER-ON-DEACTIVATE-001",
@@ -743,7 +745,9 @@
                 "c97615cee3b2629102643cf3f4560f98201e49d4",
                 "f2a66bf31f9e478e1c66f7db4643d09bc3406aea",
                 "2b82dcf05ce93ddd73217a5309e4ed12464841f6",
-                "059af49ce010a4097ac1e4a847b7c7be430b7171"
+                "059af49ce010a4097ac1e4a847b7c7be430b7171",
+                "892ae70669ed4b08f452f70f3539eed665f3c555",
+                "69c490edf6d6d483e0694bc28d78862edba43334"
             ],
             "behaviors": [
                 "RUNTIME-TMUX-BACKEND-001",
@@ -1213,7 +1217,8 @@
                 "f60bd39d97326e34ca7a228ec491c34ecb5d8b5a",
                 "c172724a4c5d9d0a696382abf03f5ea25fd2841c",
                 "1953cbdb600b933f0e13db18b7c8f507c174a9e1",
-                "404ab50e89380a9e8475d3e919efc650d6c6be60"
+                "404ab50e89380a9e8475d3e919efc650d6c6be60",
+                "e1a18cdb03603bacd4209c6cb56cd69382328751"
             ],
             "behaviors": [
                 "ATTENTION-NOTIFY-EVENT-IDENTITY-001",

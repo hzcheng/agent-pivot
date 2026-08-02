@@ -2,7 +2,7 @@
 import * as vscode from 'vscode';
 import * as childProcess from 'child_process';
 import { randomBytes } from 'crypto';
-import { existsSync, statSync } from 'fs';
+import { existsSync } from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { performance } from 'perf_hooks';
@@ -51,19 +51,13 @@ import AttentionBridgeClient from './aiSessions/attentionBridgeClient';
 import { getLogicalAttentionSessionKey } from './aiSessions/attentionProject';
 import type { ActiveAiSessionTerminalIdentity } from './aiSessions/activeTerminalHighlight';
 import { getAiSessionKey } from './aiSessions/sessionHelpers';
-import {
-    AI_SESSION_PROVIDER_DEFINITIONS,
-    buildAiSessionProviderPicks,
-    createAiSessionProviderRegistry,
-    getAiSessionProviderLabel,
-} from './aiSessions/providers';
+import { createAiSessionProviderRegistry } from './aiSessions/providers';
 import { ProviderDirectoryCapabilityProbe } from './aiSessions/providerDirectoryCapability';
 import type {
     BoundedChildProcessOptions,
     BoundedChildProcessResult,
 } from './aiSessions/providerDirectoryCapability';
 import { getAiSessionComparableCwd as getProviderAiSessionComparableCwd, getAiSessionTerminalName as getProviderAiSessionTerminalName } from './aiSessions/sessionPaths';
-import { getAiSessionIdsForCwd } from './aiSessions/pendingTerminals';
 import { getAiSessionTerminalCandidates } from './aiSessions/terminalCandidates';
 import { AiSessionReadCoordinator } from './aiSessions/readCoordinator';
 import AiSessionTerminalService from './aiSessions/terminalService';
@@ -98,11 +92,6 @@ import {
     submitConversationPrompt,
 } from './aiSessions/conversation/submission';
 import { AiSessionDashboardController } from './aiSessions/dashboardController';
-import { AiSessionCommandController } from './aiSessions/commandController';
-import { AiSessionCreationController } from './aiSessions/creationController';
-import { AiSessionArchiveController } from './aiSessions/archiveController';
-import { AiSessionResumeController } from './aiSessions/resumeController';
-import { AiSessionTerminalCommandController } from './aiSessions/terminalCommandController';
 import { AiSessionExecutionController } from './aiSessions/executionController';
 import {
     AiSessionAttentionController,
@@ -155,6 +144,7 @@ import { GroupCollapseController } from './dashboard/groupCollapseController';
 import { DashboardLifecycleController } from './dashboard/lifecycleController';
 import { createDashboardMessageRouter } from './dashboard/messageRouter';
 import { createDashboardMessageHandlers } from './dashboard/messageHandlers';
+import { createSessionControllerComposition } from './aiSessions/sessionControllerComposition';
 import { ProjectsPanelController } from './dashboard/projectsPanelController';
 import {
     DashboardRuntimeController,
@@ -878,247 +868,55 @@ async function initializeDashboard(
         resolveExecutable: commandName => resolveAiProviderExecutable(commandName),
         run: (executable, args, options) => runBoundedAiProviderHelp(executable, args, options),
     }, message => outputChannel.appendLine(message));
-    const pickAiSessionWorkspaceRoot = async (
-        workspace: OpenWorkspace,
-        action: 'create' | 'resume'
-    ): Promise<string | undefined> => {
-        const selected = await vscode.window.showQuickPick(
-            workspace.roots.map(root => ({
-                label: root.name,
-                description: root.hostPath,
-                rootId: root.id,
-            })),
-            {
-                placeHolder: 'Select a workspace root',
-                ignoreFocusOut: true,
-                title: action === 'resume'
-                    ? 'Resume AI Session in Workspace Root'
-                    : 'New AI Session Working Directory',
-            } as vscode.QuickPickOptions & { title: string }
-        );
-        return selected?.rootId;
-    };
-    const aiSessionCommandController = new AiSessionCommandController({
-        getWorkspaceTarget: getCurrentWorkspaceActionTarget,
-        getOpenWorkspace: getCurrentOpenWorkspace,
+    const {
+        aiSessionCommandController,
+        aiSessionCreationController,
+        aiSessionArchiveController,
+        aiSessionTerminalCommandController,
+        aiSessionResumeController,
+    } = createSessionControllerComposition({
+        getCurrentWorkspaceActionTarget,
+        getCurrentOpenWorkspace,
+        getRegisteredAiSessionProvider,
+        getRegisteredAiSessionProviders,
+        getAiSessionRuntimeById,
+        getAiSessionRuntimeCollision,
+        getLaunchOptions: () => readAiSessionLaunchOptions(vscode.workspace),
+        refreshAiSessionViewsIncrementally,
+        scheduleNewAiSessionRefresh,
+        logAiSessionRuntimeFailure,
+        logError,
+        getAiSessionPinKey,
+        postBatchArchiveCompletion,
+        aiSessionWorkspaceStateStore,
+        workspacePrimaryRootStore,
+        aiSessionPinController,
+        aiSessionAliasController,
+        aiSessionRuntimeCoordinator,
+        aiSessionTerminalService,
+        aiSessionReadCoordinator,
+        aiSessionProviders,
+        providerDirectoryCapability,
+        syncActiveRuntime: () => activeAiSessionTerminalHighlighter.sync(),
+        runSafeLifecycleTask: (operation, task) =>
+            aiSessionRuntimeSettlement.runSafeLifecycleTask(operation, task),
+        acknowledgeAttention: identity => acknowledgeAiSessionAttention(identity),
+        postMessage: message => provider.postMessage(message),
+        appendOutput: message => outputChannel.appendLine(message),
         getActiveEditorUri: () => vscode.window.activeTextEditor?.document.uri,
         isWorkspaceTrusted: () => (
             vscode.workspace as typeof vscode.workspace & { isTrusted?: boolean }
         ).isTrusted !== false,
-        getProvider: getRegisteredAiSessionProvider,
-        getProviderDirectoryCapability: providerDefinition =>
-            providerDirectoryCapability.probe(providerDefinition),
-        getPrimaryRootId: workspace => workspacePrimaryRootStore.getPrimaryRootId(
-            workspace.scopeIdentity,
-            workspace.roots
-        ),
-        setPrimaryRootId: (scopeIdentity, rootId) =>
-            workspacePrimaryRootStore.setPrimaryRootId(scopeIdentity, rootId),
-        pickWorkspaceRoot: pickAiSessionWorkspaceRoot,
-        isDirectory: hostPath => {
-            try {
-                return statSync(hostPath).isDirectory();
-            } catch (error) {
-                return false;
-            }
-        },
-        showWarningMessage: message => vscode.window.showWarningMessage(message),
-        isProviderId: isAiSessionProviderId,
-        setExpanded: (workspaceScopeIdentity, expanded) => aiSessionWorkspaceStateStore.setExpanded(workspaceScopeIdentity, expanded),
-        setProviderSelection: (workspaceScopeIdentity, selection) =>
-            aiSessionWorkspaceStateStore.setProviderSelection(workspaceScopeIdentity, selection),
-        postProviderSelectionResult: result => provider.postMessage(result),
-        showErrorMessage: message => vscode.window.showErrorMessage(message),
-        logError,
-        togglePin: (providerId, sessionId) => aiSessionPinController.toggle(providerId, sessionId),
-        getAliases: () => aiSessionAliasController.getAll(),
-        saveAliases: aliases => aiSessionAliasController.saveAll(aliases),
-        getOriginalName: (providerId, sessionId) => aiSessionAliasController.getOriginalName(providerId, sessionId),
-        getSessionKey: getAiSessionPinKey,
         showInputBox: options => vscode.window.showInputBox(options),
+        showQuickPick: (items, quickPickOptions) => vscode.window.showQuickPick(items, quickPickOptions),
+        showWarningMessage: message => vscode.window.showWarningMessage(message),
+        showWarningWithItems: (message, ...items) => vscode.window.showWarningMessage(message, ...items),
+        showModalWarning: (message, action) => vscode.window.showWarningMessage(message, { modal: true }, action),
+        showErrorMessage: message => vscode.window.showErrorMessage(message),
+        showInformationMessage: message => vscode.window.showInformationMessage(message),
         writeClipboard: value => vscode.env.clipboard.writeText(value),
-        showInformationMessage: message => vscode.window.showInformationMessage(message),
-        refresh: refreshAiSessionViewsIncrementally,
-    });
-    const pickAiSessionProvider = async (): Promise<AiSessionProviderId | undefined> => {
-        const quickPickOptions: vscode.QuickPickOptions = {
-            placeHolder: 'Select an AI provider',
-            ignoreFocusOut: true,
-        };
-        (quickPickOptions as vscode.QuickPickOptions & { title?: string }).title = 'Select an AI provider';
-        const selected = await vscode.window.showQuickPick(
-            buildAiSessionProviderPicks(getRegisteredAiSessionProviders()),
-            quickPickOptions
-        );
-        return selected?.providerId;
-    };
-    const aiSessionCreationController = new AiSessionCreationController({
-        isProviderId: isAiSessionProviderId,
-        getWorkspaceTarget: getCurrentWorkspaceActionTarget,
-        pickWorkspaceRoot: workspace => pickAiSessionWorkspaceRoot(workspace, 'create'),
-        pickProvider: pickAiSessionProvider,
-        getProviderLabel: getAiSessionProviderLabel,
-        getLaunchOptions: () =>
-            readAiSessionLaunchOptions(vscode.workspace),
-        getProvider: getRegisteredAiSessionProvider,
-        resolveWorkspaceDirectoryScope: (target, providerId, explicitRootId) =>
-            aiSessionCommandController.resolveWorkspaceDirectoryScope(
-                target.workspace, providerId, undefined, explicitRootId
-            ),
-        rememberDirectoryScope: async directoryScope => {
-            try {
-                await aiSessionCommandController.rememberDirectoryScope(directoryScope);
-            } catch (error) {
-                logError('Could not save the AI session workspace root.', error);
-            }
-        },
-        runtimeCoordinator: aiSessionRuntimeCoordinator,
-        createPendingId: () => randomBytes(16).toString('hex'),
-        showInputBox: options => vscode.window.showInputBox(options),
-        showActiveTab: projectId => provider.postMessage({
-            type: 'ai-session-tab-selection-requested',
-            projectId,
-            tab: 'active',
-        }),
-        showWarningMessage: (message, ...items) => vscode.window.showWarningMessage(message, ...items),
-        showErrorMessage: message => vscode.window.showErrorMessage(message),
-        logRuntimeFailure: logAiSessionRuntimeFailure,
-        refresh: refreshAiSessionViewsIncrementally,
-        getExistingSessionIdsForCwd: (providerId, cwd) => getAiSessionIdsForCwd(providerId, aiSessionReadCoordinator.getProviderResult(providerId, {
-            forceRefresh: true,
-            candidatePaths: [cwd],
-            reason: 'new-session',
-        }), cwd, aiSessionProviders),
-        getPendingMarkerPath: providerId => aiSessionTerminalService.getPendingMarkerPath(providerId),
-        scheduleNewSessionRefresh: scheduleNewAiSessionRefresh,
-        announceStatus: (projectId, message) => provider.postMessage({
-            type: 'ai-session-status-announcement',
-            projectId,
-            message,
-        }),
+        focusTerminalView: () => vscode.commands.executeCommand('workbench.action.terminal.focus'),
         nowMs: () => Date.now(),
-    });
-    const aiSessionArchiveController = new AiSessionArchiveController<AiSessionRuntimeSnapshot<vscode.Terminal>>({
-        isProviderId: isAiSessionProviderId,
-        getProvider: getRegisteredAiSessionProvider,
-        getProviderLabel: getAiSessionProviderLabel,
-        getWorkspaceTarget: getCurrentWorkspaceActionTarget,
-        getRuntimeById: getAiSessionRuntimeById,
-        refreshRuntimeGuard: () => aiSessionRuntimeCoordinator.refreshForHost(true),
-        isRuntimeComplete: runtime => runtime.state === 'completed',
-        focusRuntime: runtime => aiSessionRuntimeCoordinator.focus({ ...runtime.identity }),
-        deleteRuntimeMarker: runtime => aiSessionTerminalService.deleteMarker(runtime.markerPath),
-        untrackRuntime: (providerId, sessionId, workspaceScopeIdentity) =>
-            aiSessionTerminalService.untrack(providerId, sessionId, workspaceScopeIdentity),
-        deletePin: (providerId, sessionId) => aiSessionPinController.remove(providerId, sessionId),
-        deleteAlias: (providerId, sessionId) => aiSessionAliasController.remove(providerId, sessionId),
-        confirmSingleArchive: providerLabel => vscode.window.showWarningMessage(`Archive this ${providerLabel} session?`, { modal: true }, "Archive"),
-        confirmBatchArchive: message => vscode.window.showWarningMessage(message, { modal: true }, 'Archive'),
-        showWarningMessage: message => vscode.window.showWarningMessage(message),
-        showErrorMessage: message => vscode.window.showErrorMessage(message),
-        showInformationMessage: message => vscode.window.showInformationMessage(message),
-        appendLine: message => outputChannel.appendLine(message),
-        postCompletion: completion => postBatchArchiveCompletion(completion as AiSessionBatchArchiveCompletedMessage),
-        refresh: refreshAiSessionViewsIncrementally,
-        syncActiveRuntime: () => activeAiSessionTerminalHighlighter.sync(),
-        logUnexpectedError: (operation, error, failedSessionId) => {
-            if (operation === 'focus-runtime') {
-                logAiSessionRuntimeFailure(operation, error, 'tmux');
-                return;
-            }
-            logError(`Batch AI session archive failed during ${operation}${failedSessionId ? ` (${failedSessionId})` : ''}.`, error);
-        },
-    });
-    const aiSessionTerminalCommandController = new AiSessionTerminalCommandController<vscode.Terminal>({
-        isProviderId: isAiSessionProviderId,
-        getWorkspaceTarget: getCurrentWorkspaceActionTarget,
-        runtimeCoordinator: aiSessionRuntimeCoordinator,
-        confirmRuntimeClose: (message, action) => vscode.window.showWarningMessage(
-            message, { modal: true }, action
-        ),
-        chooseRuntimeConflict: async runtimes => {
-            const picks = runtimes.map(runtime => {
-                const backendLabel = runtime.backend === 'tmux'
-                    ? `tmux · ${runtime.tmux?.layout || 'unknown'} layout`
-                    : 'Direct · VS Code Terminal';
-                const attachment = runtime.attached ? 'attached' : 'detached';
-                const target = runtime.backend === 'tmux'
-                    ? `${runtime.tmux?.sessionName || 'unknown session'}${runtime.tmux?.windowName
-                        ? `:${runtime.tmux.windowName}` : ''}`
-                    : runtime.terminal?.name || 'unnamed VS Code terminal';
-                return {
-                    label: `$(terminal) ${backendLabel}`,
-                    description: attachment,
-                    detail: `Target: ${target}`,
-                    runtime,
-                };
-            });
-            const selected = await vscode.window.showQuickPick(picks, {
-                placeHolder: 'Select the exact AI session runtime to focus',
-                ignoreFocusOut: true,
-            });
-            return selected?.runtime;
-        },
-        announceStatus: (projectId, message) => provider.postMessage({
-            type: 'ai-session-status-announcement',
-            projectId,
-            message,
-        }),
-        showErrorMessage: message => vscode.window.showErrorMessage(message),
-        logRuntimeFailure: logAiSessionRuntimeFailure,
-        getProviderLabel: getAiSessionProviderLabel,
-        refresh: refreshAiSessionViewsIncrementally,
-        onRuntimeCloseEnd: (runtime, succeeded) => {
-            const sessionId = runtime.identity.sessionId;
-            if (!sessionId || !succeeded) {
-                return;
-            }
-            void runSafeAiSessionRuntimeLifecycleTask(
-                'acknowledge-explicit-session-close',
-                () => acknowledgeAiSessionAttention({
-                    provider: runtime.identity.provider,
-                    sessionId,
-                    workspaceScopeIdentity: runtime.identity.workspaceScopeIdentity,
-                })
-            );
-        },
-        focusTerminalView: () =>
-            vscode.commands.executeCommand('workbench.action.terminal.focus'),
-    });
-    const aiSessionResumeController = new AiSessionResumeController<vscode.Terminal>({
-        getWorkspaceTarget: getCurrentWorkspaceActionTarget,
-        getLaunchOptions: () =>
-            readAiSessionLaunchOptions(vscode.workspace),
-        getProvider: getRegisteredAiSessionProvider,
-        resolveWorkspaceDirectoryScope: (target, session, providerId, explicitRootId) =>
-            aiSessionCommandController.resolveWorkspaceDirectoryScope(
-                target.workspace, providerId, session, explicitRootId
-            ),
-        rememberDirectoryScope: async directoryScope => {
-            try {
-                await aiSessionCommandController.rememberDirectoryScope(directoryScope);
-            } catch (error) {
-                logError('Could not save the AI session workspace root.', error);
-            }
-        },
-        getTerminalName: (providerId, session) => getProviderAiSessionTerminalName(providerId, session, aiSessionProviders),
-        runtimeCoordinator: aiSessionRuntimeCoordinator,
-        getRuntimeConflict: getAiSessionRuntimeCollision,
-        getMarkerPath: (providerId, sessionId) => aiSessionTerminalService.getMarkerPath(providerId, sessionId),
-        showWarningMessage: message => vscode.window.showWarningMessage(message),
-        showErrorMessage: message => vscode.window.showErrorMessage(message),
-        logRuntimeFailure: logAiSessionRuntimeFailure,
-        refresh: refreshAiSessionViewsIncrementally,
-        showActiveTab: projectId => provider.postMessage({
-            type: 'ai-session-tab-selection-requested',
-            projectId,
-            tab: 'active',
-        }),
-        announceStatus: (projectId, message) => provider.postMessage({
-            type: 'ai-session-status-announcement',
-            projectId,
-            message,
-        }),
     });
     let aiSessionUpdateSequence = 0;
     let currentAiSessionRefreshReason = 'refresh';

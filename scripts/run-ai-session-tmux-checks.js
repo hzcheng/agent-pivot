@@ -9605,7 +9605,10 @@ async function runRuntimeControllerChecks() {
 
 function runHostRuntimeCompositionChecks() {
     const dashboardSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'dashboard.ts'), 'utf8');
-    assert.ok(dashboardSource.includes(
+    const compositionSource = fs.readFileSync(
+        path.join(__dirname, '..', 'src', 'aiSessions', 'sessionControllerComposition.ts'), 'utf8'
+    );
+    assert.ok(compositionSource.includes(
         'buildAiSessionProviderPicks(getRegisteredAiSessionProviders())'
     ));
     assert.ok(!dashboardSource.includes('isCommandAvailableOnPath'));
@@ -9628,7 +9631,7 @@ function runHostRuntimeCompositionChecks() {
     assert.ok(dashboardSource.includes('getActiveRuntimes: () => aiSessionRuntimeCoordinator.getActive()'));
     assert.ok(dashboardSource.includes('getPendingRuntimes: () => aiSessionRuntimeCoordinator.getPending()'));
     assert.ok(dashboardSource.includes('findTmuxCollisionRuntime('));
-    assert.ok(dashboardSource.includes('getRuntimeConflict: getAiSessionRuntimeCollision'));
+    assert.ok(compositionSource.includes('getRuntimeConflict: getAiSessionRuntimeCollision'));
     assert.ok(dashboardSource.includes('getFocusedAiSessionRuntimeIdentity()'));
     assert.ok(dashboardSource.includes('tmuxRuntimeBackend.getFocusedRuntime(activeTerminal)'));
     assert.ok(dashboardSource.includes('getAttachTerminalName: getAiSessionTmuxAttachTerminalName'));
@@ -9661,10 +9664,10 @@ function runHostRuntimeCompositionChecks() {
     assert.match(messageHandlersSource,
         /'close-ai-session-terminal':[\s\S]*?expectedBackend: 'vscode'[\s\S]*?'detach-ai-session-terminal':[\s\S]*?expectedBackend: 'tmux'/,
         'host routes must constrain close/detach to the requested runtime backend');
-    assert.ok(dashboardSource.includes('chooseRuntimeConflict:'));
+    assert.ok(compositionSource.includes('chooseRuntimeConflict:'));
     assert.ok(dashboardSource.includes('vscode.window.showQuickPick'));
-    assert.ok(dashboardSource.includes("runtime.backend === 'tmux'"));
-    assert.ok(dashboardSource.includes("runtime.attached ? 'attached' : 'detached'"));
+    assert.ok(compositionSource.includes("runtime.backend === 'tmux'"));
+    assert.ok(compositionSource.includes("runtime.attached ? 'attached' : 'detached'"));
     const directRestore = dashboardSource.indexOf(
         'aiSessionTerminalService.restorePersistedTerminals(vscode.window.terminals)'
     );

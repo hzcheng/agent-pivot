@@ -392,9 +392,13 @@
     "status": "automated",
     "owners": [
       "tests/contract/aiSessions/sessionControllers.test.js"
+    ,
+      "tests/contract/aiSessions/sessionControllerComposition.test.js"
     ],
     "evidence": [
       "scripts/run-ai-session-safety-checks.js"
+    ,
+      "src/aiSessions/sessionControllerComposition.ts"
     ]
   },
   {
@@ -405,10 +409,14 @@
     "status": "automated",
     "owners": [
       "tests/unit/aiSessions/sessionBoundaries.test.js"
+    ,
+      "tests/contract/aiSessions/sessionControllerComposition.test.js"
     ],
     "evidence": [
       "src/aiSessions/providers.ts",
       "src/dashboard.ts"
+    ,
+      "src/aiSessions/sessionControllerComposition.ts"
     ]
   },
   {
@@ -419,9 +427,13 @@
     "status": "automated",
     "owners": [
       "tests/contract/aiSessions/sessionControllers.test.js"
+    ,
+      "tests/contract/aiSessions/sessionControllerComposition.test.js"
     ],
     "evidence": [
       "scripts/run-ai-session-safety-checks.js"
+    ,
+      "src/aiSessions/sessionControllerComposition.ts"
     ]
   },
   {
@@ -434,11 +446,15 @@
       "tests/contract/aiSessions/sessionControllers.test.js"
     ,
       "tests/contract/dashboard/messageHandlers.test.js"
+    ,
+      "tests/contract/aiSessions/sessionControllerComposition.test.js"
     ],
     "evidence": [
       "scripts/run-ai-session-safety-checks.js"
     ,
       "src/dashboard/messageHandlers.ts"
+    ,
+      "src/aiSessions/sessionControllerComposition.ts"
     ]
   },
   {
@@ -3518,6 +3534,8 @@
       "tests/integration/dashboard/webviewState.test.js"
     ,
       "tests/contract/dashboard/messageHandlers.test.js"
+    ,
+      "tests/contract/aiSessions/sessionControllerComposition.test.js"
     ],
     "evidence": [
       "src/aiSessions/archiveBatchAcrossProviders.ts",
@@ -3525,6 +3543,8 @@
       "scripts/run-ai-session-safety-checks.js"
     ,
       "src/dashboard/messageHandlers.ts"
+    ,
+      "src/aiSessions/sessionControllerComposition.ts"
     ]
   },
   {

@@ -4900,6 +4900,9 @@ function runWebviewContentChecks() {
     const messageHandlersSource = fs.readFileSync(
         path.join(__dirname, '..', 'src', 'dashboard', 'messageHandlers.ts'), 'utf8'
     );
+    const compositionSource = fs.readFileSync(
+        path.join(__dirname, '..', 'src', 'aiSessions', 'sessionControllerComposition.ts'), 'utf8'
+    );
 
     const webviewProjectScripts = [
         'webviewAiSessionViewStateScripts.js',
@@ -5240,18 +5243,24 @@ function runWebviewContentChecks() {
     assert.ok(!settingsFunction.includes('showQuickPick'));
     assert.ok(!settingsFunction.includes('ai-session-terminal-mode-planned'));
     assert.ok(dashboard.includes('new AiSessionPinStore(context.globalStoragePath)'));
-    assert.ok(dashboard.includes("import { AiSessionCommandController } from './aiSessions/commandController';"));
-    assert.ok(dashboard.includes("import { AiSessionCreationController } from './aiSessions/creationController';"));
-    assert.ok(dashboard.includes("import { AiSessionResumeController } from './aiSessions/resumeController';"));
-    assert.ok(dashboard.includes('const aiSessionCommandController = new AiSessionCommandController({'));
-    assert.ok(dashboard.includes('const aiSessionCreationController = new AiSessionCreationController({'));
-    assert.ok(dashboard.includes('const aiSessionResumeController = new AiSessionResumeController<vscode.Terminal>({'));
+    assert.ok(compositionSource.includes("import { AiSessionCommandController } from './commandController';"));
+    assert.ok(compositionSource.includes("import { AiSessionCreationController } from './creationController';"));
+    assert.ok(compositionSource.includes("import { AiSessionResumeController } from './resumeController';"));
+    assert.ok(compositionSource.includes('factories.createCommandController({'));
+    assert.ok(compositionSource.includes('createCommandController: options => new AiSessionCommandController(options)'));
+    assert.ok(compositionSource.includes('factories.createCreationController({'));
+    assert.ok(compositionSource.includes('createCreationController: options => new AiSessionCreationController(options)'));
+    assert.ok(compositionSource.includes('factories.createResumeController({'));
+    assert.ok(compositionSource.includes('createResumeController: options => new AiSessionResumeController(options)'));
+    assert.ok(dashboard.includes('createSessionControllerComposition({'),
+        'the dashboard constructs the extracted session controller composition');
     assert.ok(dashboard.includes(
         "import { readAiSessionLaunchOptions } from './aiSessions/launchOptions';"
     ));
     assert.strictEqual(
-        (dashboard.match(/getLaunchOptions: \(\) =>/g) || []).length,
-        2
+        (compositionSource.match(/getLaunchOptions,/g) || []).length,
+        2,
+        'both creation and resume read launch options through the injected live read'
     );
     assert.ok(dashboard.includes(
         'readAiSessionLaunchOptions(vscode.workspace)'
@@ -5261,8 +5270,8 @@ function runWebviewContentChecks() {
     ), 'YOLO configuration must not pass through the legacy dashboard fallback');
     assert.ok(dashboard.includes('new AiSessionPinController({'));
     assert.ok(dashboard.includes('aiSessionPinController.getAll()'));
-    assert.ok(dashboard.includes('aiSessionPinController.toggle('));
-    assert.ok(dashboard.includes('aiSessionPinController.remove('));
+    assert.ok(compositionSource.includes('aiSessionPinController.toggle('));
+    assert.ok(compositionSource.includes('aiSessionPinController.remove('));
     assert.ok(!dashboard.includes('aiSessionPinController.migrateLegacy('));
     assert.ok(!dashboard.includes('function getPinnedAiSessionKeys('));
     assert.ok(!dashboard.includes('function migrateLegacyPinnedAiSessions('));
@@ -5414,10 +5423,10 @@ function runWebviewContentChecks() {
     assert.ok(!dashboard.includes('prunePinnedAiSessionKeys'));
     assert.ok(messageHandlersSource.includes("'archive-ai-sessions': async e =>"));
     assert.ok(dashboard.includes('AiSessionBatchArchiveCompletedMessage'));
-    assert.ok(dashboard.includes("import { AiSessionArchiveController } from './aiSessions/archiveController';"));
-    assert.ok(dashboard.includes('const aiSessionArchiveController = new AiSessionArchiveController<AiSessionRuntimeSnapshot<vscode.Terminal>>({'));
+    assert.ok(compositionSource.includes("import { AiSessionArchiveController } from './archiveController';"));
+    assert.ok(compositionSource.includes('factories.createArchiveController({'));
     assert.ok(
-        dashboard.includes('refreshRuntimeGuard: () => aiSessionRuntimeCoordinator.refreshForHost(true),'),
+        compositionSource.includes('refreshRuntimeGuard: () => aiSessionRuntimeCoordinator.refreshForHost(true),'),
         'archive confirmation must rescan every runtime backend so a newly external tmux runtime cannot be missed'
     );
     assert.ok(messageHandlersSource.includes('await aiSessionArchiveController.archiveSessions('));
@@ -5615,20 +5624,20 @@ function runWebviewContentChecks() {
     assert.ok(!dashboard.includes('function getAiSessionAliasesPath('));
     assert.ok(dashboard.includes('new AiSessionAliasController({'));
     assert.ok(dashboard.includes('aiSessionAliasController.getAll()'));
-    assert.ok(dashboard.includes('aiSessionAliasController.saveAll(aliases)'));
+    assert.ok(compositionSource.includes('aiSessionAliasController.saveAll(aliases)'));
     assert.strictEqual((dashboard.match(/aiSessionAliasController\.set\(/g) || []).length, 1,
         'workspace pending promotion must persist the resolved Session alias once');
-    assert.ok(dashboard.includes('aiSessionAliasController.remove('));
-    assert.ok(dashboard.includes('aiSessionAliasController.getOriginalName('));
+    assert.ok(compositionSource.includes('aiSessionAliasController.remove('));
+    assert.ok(compositionSource.includes('aiSessionAliasController.getOriginalName('));
     assert.ok(!dashboard.includes('function getAiSessionAliases('));
     assert.ok(!dashboard.includes('function saveAiSessionAliases('));
     assert.ok(!dashboard.includes('function deleteAiSessionAlias('));
     assert.ok(!dashboard.includes('function setAiSessionAlias('));
     assert.ok(!dashboard.includes('function getAiSessionOriginalName('));
     assert.ok(dashboard.includes('aiSessionWorkspaceStateStore.getExpandedWorkspaces()'));
-    assert.ok(dashboard.includes('aiSessionWorkspaceStateStore.setExpanded('));
+    assert.ok(compositionSource.includes('aiSessionWorkspaceStateStore.setExpanded('));
     assert.ok(dashboard.includes('aiSessionWorkspaceStateStore.getActiveProviders()'));
-    assert.ok(dashboard.includes('aiSessionWorkspaceStateStore.setProviderSelection('));
+    assert.ok(compositionSource.includes('aiSessionWorkspaceStateStore.setProviderSelection('));
     assert.ok(!dashboard.includes('async function toggleCodexSessions('));
     assert.ok(!dashboard.includes('async function selectAiSessionProvider('));
     assert.ok(!dashboard.includes('async function toggleAiSessionPin('));
@@ -7281,10 +7290,18 @@ function runAiSessionIncrementalRefreshSourceChecks() {
     assert.ok(refreshFunction.includes('aiSessionDashboardController.refreshNow()'));
     assert.ok(dashboard.includes('new WorkspaceSessionHydrationController<vscode.Terminal>({'));
     assert.ok(dashboard.includes('getCurrentWorkspaceAiSessions: workspace => workspaceSessionHydrationController.hydrate(workspace)'));
+    const sessionControllerCompositionSource = fs.readFileSync(
+        path.join(root, 'src', 'aiSessions', 'sessionControllerComposition.ts'), 'utf8'
+    );
+    assert.strictEqual(
+        (sessionControllerCompositionSource.match(/getWorkspaceTarget: getCurrentWorkspaceActionTarget/g) || []).length,
+        5,
+        'the extracted session action controllers must resolve the v2 current workspace',
+    );
     assert.strictEqual(
         (dashboard.match(/getWorkspaceTarget: getCurrentWorkspaceActionTarget/g) || []).length,
-        7,
-        'all live AI action and attention controllers must resolve the v2 current workspace',
+        2,
+        'the remaining attention and conversation consumers must resolve the v2 current workspace',
     );
     assert.ok(dashboard.includes(
         'submitPrompt: (viewerTarget, prompt) => submitConversationPrompt({'

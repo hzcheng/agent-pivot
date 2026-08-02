@@ -223,11 +223,11 @@ test('ATTENTION-PRODUCTION-ATTENTION-BRIDGE-INTEGRATION-001 OPEN-WORKSPACE-UI-HO
             && entry.args[0]?.instanceId === validSnapshot.instanceId).length;
         assert.equal(fs.existsSync(path.join(productionRoot, `${validSnapshot.instanceId}.json`)), true);
         client.dispose();
-        for (let attempt = 0; attempt < 50
-            && (unregisterCount() === 0
-                || fs.existsSync(path.join(productionRoot, `${validSnapshot.instanceId}.json`))); attempt += 1) {
-            await new Promise(resolve => setImmediate(resolve));
-        }
+        // Awaiting shutdown is deterministic: shutdownFlight chains the unregister
+        // executeCommand onto publicationQueue, so its resolution guarantees the bridge
+        // handler (and the production store remove) completed. Event-loop-turn polling
+        // here flaked under c8-instrumented full-suite load.
+        await client.shutdown();
         assert.equal(unregisterCount(), 1, 'disposing the real client unregisters its production snapshot');
         assert.equal(fs.existsSync(path.join(productionRoot, `${validSnapshot.instanceId}.json`)), false);
     } finally {

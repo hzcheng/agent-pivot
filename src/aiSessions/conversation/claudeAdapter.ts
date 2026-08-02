@@ -17,13 +17,16 @@ import {
     buildConversationPage,
 } from './model';
 import {
+    buildToolCallSummary,
     buildUserPreview,
     buildVisibleUserInput,
+    capToolCallDetail,
     countGraphemes,
     normalizeVisibleText,
     truncateGraphemes,
     VisibleUserInputPart,
 } from './text';
+import { ToolCallTracker } from './toolCalls';
 import {
     CONVERSATION_LIMITS,
     ConversationAbortSignal,
@@ -84,6 +87,7 @@ interface ClaudeConversationIndex extends AiSessionDisposable {
     telemetryContext?: ConversationContextUsage;
     telemetryCwd?: string;
     telemetryGitBranch?: string;
+    toolTracker?: ToolCallTracker;
     revision: number;
     partial: boolean;
 }
@@ -148,17 +152,6 @@ function visibleInputParts(value: unknown): VisibleUserInputPart[] {
     );
 }
 
-function visibleAssistantParts(value: unknown): string[] {
-    if (typeof value === 'string') {
-        return [value];
-    }
-    return contentBlocks(value)
-        .filter(block =>
-            block.type === 'text' && typeof block.text === 'string'
-        )
-        .map(block => block.text);
-}
-
 function contextUsageTokens(value: unknown): number | undefined {
     const usage = asRecord(value);
     if (!usage) {
@@ -212,6 +205,9 @@ function cloneInteractions(
     return interactions.map(interaction => ({
         ...interaction,
         assistantMarkdown: interaction.assistantMarkdown.slice(),
+        ...(interaction.toolCalls
+            ? { toolCalls: interaction.toolCalls.slice() }
+            : {}),
     }));
 }
 
@@ -472,6 +468,10 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
                 telemetryCwd = previous.telemetryCwd;
                 telemetryGitBranch = previous.telemetryGitBranch;
             }
+            // Kept on the cache entry so a tool_result arriving in a later
+            // incremental load still pairs with its tool_use.
+            const toolTracker = (continuing && previous?.toolTracker)
+                || new ToolCallTracker();
             const finishInteraction = (
                 state: 'complete' | 'interrupted' = 'complete'
             ): void => {
@@ -516,6 +516,23 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
                     timeoutOpenInteractionIndex = undefined;
                 } else if (event.type === 'user'
                     && message?.role === 'user'
+                    && openInteractionIndex !== undefined
+                    && containsBlock(message.content, 'tool_result')) {
+                    contentBlocks(message.content).forEach(block => {
+                        if (block.type !== 'tool_result') {
+                            return;
+                        }
+                        const text = typeof block.content === 'string'
+                            ? block.content
+                            : contentBlocks(block.content)
+                                .filter(part => part.type === 'text'
+                                    && typeof part.text === 'string')
+                                .map(part => part.text)
+                                .join('\n');
+                        toolTracker.finish(block.tool_use_id, text);
+                    });
+                } else if (event.type === 'user'
+                    && message?.role === 'user'
                     && (isVisibleUserEvent(event)
                         || (isSubagentTranscript
                             && isCoordinatorDispatch(event)))
@@ -552,13 +569,43 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
                 } else if (event.type === 'assistant'
                     && message?.role === 'assistant'
                     && openInteractionIndex !== undefined) {
-                    visibleAssistantParts(message.content).forEach(part => {
+                    // Text and tool_use blocks share one ordered stream so
+                    // tool entries interleave with text in arrival order.
+                    const pushTextPart = (part: string): void => {
                         const text = visibleMessage(part);
                         if (text) {
                             interactions[openInteractionIndex]
                                 .assistantMarkdown.push(text);
                         }
-                    });
+                    };
+                    if (typeof message.content === 'string') {
+                        pushTextPart(message.content);
+                    } else {
+                        contentBlocks(message.content).forEach(block => {
+                            if (block.type === 'text'
+                                && typeof block.text === 'string') {
+                                pushTextPart(block.text);
+                                return;
+                            }
+                            if (block.type !== 'tool_use'
+                                || typeof block.name !== 'string'
+                                || !block.name) {
+                                return;
+                            }
+                            const input = asRecord(block.input);
+                            toolTracker.begin(
+                                interactions[openInteractionIndex],
+                                typeof block.id === 'string'
+                                    ? block.id
+                                    : undefined,
+                                block.name,
+                                buildToolCallSummary(block.name, input),
+                                capToolCallDetail(
+                                    JSON.stringify(input ?? {}, null, 2)
+                                )
+                            );
+                        });
+                    }
                 }
             };
 
@@ -619,6 +666,7 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
                 previous.telemetryContext = telemetryContext;
                 previous.telemetryCwd = telemetryCwd;
                 previous.telemetryGitBranch = telemetryGitBranch;
+                previous.toolTracker = toolTracker;
                 previous.revision = revision;
                 previous.partial = partial;
             } else {
@@ -631,6 +679,7 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
                     telemetryContext,
                     telemetryCwd,
                     telemetryGitBranch,
+                    toolTracker,
                     revision,
                     partial,
                     dispose() {},

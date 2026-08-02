@@ -1129,7 +1129,10 @@ test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 lists subagents, opens a transcript
         subagents: [],
         activeSubagent: null,
     });
-    assert.equal(await counter.isVisible(), false);
+    // The pill doubles as the Subagents quick entry and stays visible at
+    // zero instead of disappearing.
+    assert.equal(await counter.isVisible(), true);
+    assert.equal(await counter.innerText(), 'Agents 0/0');
 });
 
 test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 keeps boundary navigation inert while Latest stays available', async t => {
@@ -1657,7 +1660,8 @@ test('CONVERSATION-COMMENTS-UI-001 header send pill and telemetry comments pill 
     const pill = page.locator('[data-telemetry-comments]');
     assert.equal(await headerSend.innerText(), 'Send');
     assert.equal(await headerSend.isDisabled(), true);
-    assert.equal(await pill.isVisible(), false);
+    assert.equal(await pill.isVisible(), true);
+    assert.equal(await pill.innerText(), 'Comments 0');
 
     await page.locator('[data-sidebar-tab="comments"]').click();
     await page.locator('[data-comment-action="new"]').click();
@@ -4035,4 +4039,82 @@ test('CONVERSATION-TELEMETRY-001 renders the worktree chip, degrades missing pat
         'gpt-5.6-sol',
         'malformed worktree telemetry must be rejected as a whole'
     );
+});
+
+test('CONVERSATION-TOOL-CALL-VISIBILITY-001 renders collapsible tool calls and strips hostile attributes', async t => {
+    const page = await openViewerPage(t, {});
+    await sendPage(page, {
+        ...hostileConversationPage,
+        requestId: 50,
+        updateKind: 'initial',
+        html: `<article class="conversation-message conversation-message-tool"
+            data-message-id="input-4:tool:0"
+            data-conversation-message-id="input-4%3Atool%3A0"
+            data-interaction-id="input-4">
+        <details class="conversation-tool-call" ontoggle="window.__pwned = true">
+            <summary><span class="conversation-tool-name">Shell</span> Shell npm test</summary>
+            <pre class="conversation-tool-detail"><code>9 passing</code></pre>
+        </details>
+    </article>`,
+        subagents: [],
+        activeSubagent: null,
+    });
+
+    const details = page.locator('.conversation-tool-call');
+    assert.equal(await details.count(), 1);
+    assert.match(await details.locator('summary').innerText(), /Shell npm test/);
+    assert.equal(
+        await details.evaluate(element => element.hasAttribute('ontoggle')),
+        false,
+        'event handler attributes must be stripped'
+    );
+    assert.equal(await details.evaluate(element => element.open), false);
+    await details.locator('summary').click();
+    assert.equal(await details.evaluate(element => element.open), true);
+    assert.match(
+        await details.locator('.conversation-tool-detail').innerText(),
+        /9 passing/
+    );
+});
+
+test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 pins running subagents above finished ones', async t => {
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+    });
+    await sendPage(page, {
+        ...hostileConversationPage,
+        requestId: 50,
+        updateKind: 'initial',
+        html: messageHtml('main-session-message', 1),
+        subagents: [
+            {
+                id: 'a11111111',
+                label: 'Finished first',
+                status: 'idle',
+                updatedAt: 1,
+            },
+            {
+                id: 'a22222222',
+                label: 'Finished second',
+                status: 'idle',
+                updatedAt: 2,
+            },
+            {
+                id: 'a33333333',
+                label: 'Still running',
+                status: 'running',
+                updatedAt: 3,
+            },
+        ],
+        activeSubagent: null,
+    });
+
+    await page.locator('[data-action="toggle-sidebar"]').click();
+    await page.locator('[data-sidebar-tab="subagents"]').click();
+    const ids = await page.locator('[data-subagent-id]').evaluateAll(
+        elements => elements.map(element =>
+            element.getAttribute('data-subagent-id'))
+    );
+    assert.deepEqual(ids, ['a33333333', 'a11111111', 'a22222222']);
 });

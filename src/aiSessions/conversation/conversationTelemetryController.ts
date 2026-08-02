@@ -174,8 +174,7 @@ export function renderConversationTelemetry(
             : `Working in worktree: ${worktree.worktreeRoot} (branch ${worktree.branch}) · Click to show changes in Source Control`
         : '';
     return `<section class="conversation-telemetry"
-        data-conversation-telemetry aria-label="Session usage"${hasModel
-            || hasContext || hasWorktree || limits.length ? '' : ' hidden'}>
+        data-conversation-telemetry aria-label="Session usage">
         <button type="button"
             class="conversation-telemetry-worktree${worktree?.missing
                 ? ' conversation-telemetry-worktree-missing'
@@ -218,10 +217,10 @@ export function renderConversationTelemetry(
         <button type="button"
             class="conversation-telemetry-comments"
             data-telemetry-comments
-            title="Comments" hidden></button>
+            title="0 comments — click to review">Comments 0</button>
         <button type="button"
             class="conversation-telemetry-subagents"
             data-telemetry-subagents
-            title="Subagents" hidden></button>
+            title="0 running of 0 subagents — click to view">Agents 0/0</button>
     </section>`;
 }

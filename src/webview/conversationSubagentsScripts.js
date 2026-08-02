@@ -46,9 +46,15 @@
         var lastActiveSubagent = null;
 
         function visibleEntries() {
-            if (!runningOnly.checked) return lastSubagents;
-            return lastSubagents.filter(function (entry) {
-                return entry.status === 'running';
+            var entries = runningOnly.checked
+                ? lastSubagents.filter(function (entry) {
+                    return entry.status === 'running';
+                })
+                : lastSubagents.slice();
+            // Running entries pin to the top; the rest keep dispatch order.
+            return entries.slice().sort(function (left, right) {
+                return (left.status === 'running' ? 0 : 1)
+                    - (right.status === 'running' ? 0 : 1);
             });
         }
 
@@ -112,10 +118,10 @@
             var runningCount = lastSubagents.filter(function (entry) {
                 return entry.status === 'running';
             }).length;
-            telemetrySubagents.hidden = lastSubagents.length === 0;
-            if (lastSubagents.length > 0) {
-                telemetrySection.hidden = false;
-            }
+            // The pill doubles as the Subagents quick entry; keep it
+            // visible even at zero.
+            telemetrySubagents.hidden = false;
+            telemetrySection.hidden = false;
             telemetrySubagents.textContent = 'Agents ' + runningCount + '/'
                 + lastSubagents.length;
             telemetrySubagents.title = runningCount + ' running of '

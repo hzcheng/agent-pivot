@@ -1355,11 +1355,42 @@ function copyMessage(message: ConversationMessage): ConversationMessage {
         role: message.role,
         timestamp: message.timestamp,
         markdown: message.markdown,
+        ...(message.tool
+            ? {
+                tool: {
+                    name: message.tool.name,
+                    summary: message.tool.summary,
+                    ...(message.tool.detail !== undefined
+                        ? { detail: message.tool.detail }
+                        : {}),
+                },
+            }
+            : {}),
     };
 }
 
+function renderToolMessage(message: ConversationMessage): string {
+    const tool = message.tool;
+    const summary = tool ? escapeAttribute(tool.summary) : '';
+    const name = tool ? escapeAttribute(tool.name) : '';
+    const body = tool?.detail
+        ? `<details class="conversation-tool-call"><summary><span class="conversation-tool-name">${name}</span> ${summary}</summary>
+<pre class="conversation-tool-detail"><code>${escapeAttribute(tool.detail)}</code></pre></details>`
+        : `<div class="conversation-tool-call conversation-tool-call-static"><span class="conversation-tool-name">${name}</span> ${summary}</div>`;
+    return `<article class="conversation-message conversation-message-tool"
+    data-message-id="${escapeAttribute(message.id)}"
+    data-conversation-message-id="${escapeAttribute(encodeURIComponent(message.id))}"
+    data-interaction-id="${escapeAttribute(message.interactionId)}">
+    ${body}
+</article>`;
+}
+
 function renderMessages(messages: ConversationMessage[]): string {
-    return messages.map(message => `<article class="conversation-message conversation-message-${message.role}"
+    return messages.map(message => {
+        if (message.role === 'tool') {
+            return renderToolMessage(message);
+        }
+        return `<article class="conversation-message conversation-message-${message.role}"
     data-message-id="${escapeAttribute(message.id)}"
     data-conversation-message-id="${escapeAttribute(encodeURIComponent(message.id))}"
     data-interaction-id="${escapeAttribute(message.interactionId)}">
@@ -1367,6 +1398,7 @@ function renderMessages(messages: ConversationMessage[]): string {
     <section class="conversation-markdown">${renderConversationMarkdown(
         message.markdown
     )}</section>
-</article>`).join('');
+</article>`;
+    }).join('');
 }
 

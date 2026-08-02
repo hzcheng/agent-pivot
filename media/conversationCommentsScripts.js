@@ -216,13 +216,15 @@
                     : 'Send';
             }
             if (telemetryComments) {
-                telemetryComments.hidden = state.comments.length === 0;
+                // The pill doubles as the Comments quick entry; keep it
+                // visible even at zero.
+                telemetryComments.hidden = false;
                 telemetryComments.textContent = 'Comments '
                     + state.comments.length;
                 telemetryComments.title = state.comments.length
                     + (state.comments.length === 1 ? ' comment' : ' comments')
                     + ' — click to review';
-                if (state.comments.length > 0 && telemetrySection) {
+                if (telemetrySection) {
                     telemetrySection.hidden = false;
                 }
             }

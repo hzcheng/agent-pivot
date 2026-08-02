@@ -5,7 +5,7 @@
         'p', 'br', 'pre', 'code', 'blockquote', 'ul', 'ol', 'li',
         'strong', 'em', 'del', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
         'a', 'img', 'hr', 'table', 'thead', 'tbody', 'tr', 'th', 'td',
-        'span', 'section', 'article',
+        'span', 'section', 'article', 'details', 'summary',
     ];
     var allowedAttributes = [
         'href', 'src', 'alt', 'title', 'class', 'start',

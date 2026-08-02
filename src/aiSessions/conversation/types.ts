@@ -14,6 +14,8 @@ export const CONVERSATION_LIMITS = Object.freeze({
     maxLineBytes: 1024 * 1024,
     jsonlScanTimeoutMs: 5_000,
     maxMessageGraphemes: 64_000,
+    toolCallSummaryGraphemes: 160,
+    toolCallDetailGraphemes: 4_000,
     maxViewerInteractions: 100,
     maxViewerBytes: 4 * 1024 * 1024,
     maxCodexResponseBytes: 16 * 1024 * 1024,
@@ -30,6 +32,14 @@ export const CONVERSATION_LIMITS = Object.freeze({
 export type ConversationResponseState =
     'complete' | 'inProgress' | 'interrupted' | 'unknown';
 
+export interface ConversationToolCall {
+    /** Assistant text chunks already emitted when the call arrived. */
+    position: number;
+    name: string;
+    summary: string;
+    detail?: string;
+}
+
 export interface ConversationInteraction {
     id: string;
     providerTurnId?: string;
@@ -38,6 +48,7 @@ export interface ConversationInteraction {
     userPreview: string;
     userGraphemeCount: number;
     assistantMarkdown: string[];
+    toolCalls?: ConversationToolCall[];
     responseState: ConversationResponseState;
 }
 
@@ -64,9 +75,10 @@ export interface ConversationPageRequest {
 export interface ConversationMessage {
     id: string;
     interactionId: string;
-    role: 'user' | 'assistant';
+    role: 'user' | 'assistant' | 'tool';
     timestamp?: number;
     markdown: string;
+    tool?: Omit<ConversationToolCall, 'position'>;
 }
 
 export interface ConversationPage {

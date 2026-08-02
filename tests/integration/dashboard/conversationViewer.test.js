@@ -1801,3 +1801,47 @@ test('CONVERSATION-VIEWER-PARTIAL-001 derives first and latest capped positions 
         true
     );
 });
+
+test('CONVERSATION-TOOL-CALL-VISIBILITY-001 publishes collapsible tool-call markup', async () => {
+    const { viewer, panel } = createViewer({
+        readOutline: async (_provider, sessionId) => outline(
+            sessionId,
+            ['input-1']
+        ),
+        readPage: async request => ({
+            ...page(request.sessionId, 'input-1', 'visible'),
+            messages: [
+                {
+                    id: 'input-1:user',
+                    interactionId: 'input-1',
+                    role: 'user',
+                    markdown: 'Run the tests',
+                },
+                {
+                    id: 'input-1:tool:0',
+                    interactionId: 'input-1',
+                    role: 'tool',
+                    markdown: '',
+                    tool: {
+                        name: 'Shell',
+                        summary: 'Shell npm test',
+                        detail: '9 passing',
+                    },
+                },
+                {
+                    id: 'input-1:assistant:0',
+                    interactionId: 'input-1',
+                    role: 'assistant',
+                    markdown: 'All pass.',
+                },
+            ],
+        }),
+    });
+
+    await viewer.open(target('session-a', 'input-1'));
+    const html = panel.webview.html;
+    assert.equal(html.includes('conversation-tool-call'), true);
+    assert.equal(html.includes('Shell npm test'), true);
+    assert.equal(html.includes('9 passing'), true);
+    assert.equal(html.includes('conversation-message-tool'), true);
+});

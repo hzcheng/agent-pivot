@@ -174,6 +174,53 @@ button {
     text-transform: uppercase;
 }
 
+.conversation-message-tool {
+    margin: 0.375rem 0 0.375rem 1.25rem;
+    font-size: 0.85em;
+    color: var(--vscode-descriptionForeground);
+}
+
+.conversation-tool-call {
+    summary {
+        cursor: pointer;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+
+        &:hover {
+            color: var(--vscode-foreground);
+        }
+    }
+
+    &[open] summary {
+        white-space: normal;
+    }
+}
+
+.conversation-tool-call-static {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.conversation-tool-name {
+    font-weight: 600;
+    color: var(--vscode-foreground);
+    opacity: 0.85;
+}
+
+.conversation-tool-detail {
+    max-height: 16rem;
+    overflow: auto;
+    margin: 0.375rem 0 0.25rem;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 4px;
+    background: var(--vscode-textCodeBlock-background);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
 .conversation-markdown {
     overflow-wrap: anywhere;
 
@@ -966,6 +1013,19 @@ button {
 
     .conversation-markdown th,
     .conversation-markdown td {
+        border-color: CanvasText;
+    }
+
+    .conversation-tool-call summary:hover {
+        color: ButtonText;
+    }
+
+    .conversation-tool-name {
+        color: CanvasText;
+        opacity: 1;
+    }
+
+    .conversation-tool-detail {
         border-color: CanvasText;
     }
 

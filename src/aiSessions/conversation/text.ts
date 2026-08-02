@@ -56,6 +56,40 @@ export function attachmentLabel(count: number): string {
     return safeCount === 1 ? '[Attachment]' : `[${safeCount} Attachments]`;
 }
 
+export function buildToolCallSummary(
+    name: string,
+    args: Record<string, any> | undefined
+): string {
+    const candidate = args
+        ? args.command ?? args.path ?? args.file_path ?? args.pattern
+            ?? args.description ?? args.url ?? args.prompt
+        : undefined;
+    const argument = normalizeVisibleText(
+        typeof candidate === 'string' ? candidate : ''
+    ).replace(/\n+/g, ' ');
+    const base = normalizeVisibleText(name);
+    const combined = argument ? `${base} ${argument}` : base;
+    return countGraphemes(combined) <= CONVERSATION_LIMITS.toolCallSummaryGraphemes
+        ? combined
+        : truncateGraphemes(
+            combined,
+            CONVERSATION_LIMITS.toolCallSummaryGraphemes - 1
+        );
+}
+
+export function capToolCallDetail(value: string): string | undefined {
+    const normalized = normalizeVisibleText(value);
+    if (!normalized) {
+        return undefined;
+    }
+    return countGraphemes(normalized) <= CONVERSATION_LIMITS.toolCallDetailGraphemes
+        ? normalized
+        : truncateGraphemes(
+            normalized,
+            CONVERSATION_LIMITS.toolCallDetailGraphemes - 1
+        );
+}
+
 export type VisibleUserInputPart =
     { kind: 'text'; text: string } | { kind: 'attachment' };
 

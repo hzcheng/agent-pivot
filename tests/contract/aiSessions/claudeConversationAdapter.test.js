@@ -1014,3 +1014,77 @@ test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 Claude rejects malformed and missin
         error => error?.code === 'unavailable'
     );
 });
+
+test('CONVERSATION-TOOL-CALL-VISIBILITY-001 Claude pairs tool_use and tool_result blocks into tool messages', async t => {
+    const source = await createFixture(t);
+    await fs.promises.writeFile(source.sourcePath, [
+        {
+            type: 'user',
+            uuid: 'tool-user-1',
+            timestamp: '2025-01-02T03:04:05.000Z',
+            message: { role: 'user', content: 'Run the tests' },
+        },
+        {
+            type: 'assistant',
+            uuid: 'tool-assistant-1',
+            timestamp: '2025-01-02T03:04:06.000Z',
+            message: {
+                role: 'assistant',
+                content: [
+                    { type: 'text', text: 'Let me run them.' },
+                    {
+                        type: 'tool_use',
+                        id: 'toolu_1',
+                        name: 'Bash',
+                        input: { command: 'npm test' },
+                    },
+                ],
+            },
+        },
+        {
+            type: 'user',
+            uuid: 'tool-user-2',
+            timestamp: '2025-01-02T03:04:07.000Z',
+            message: {
+                role: 'user',
+                content: [
+                    {
+                        type: 'tool_result',
+                        tool_use_id: 'toolu_1',
+                        content: '9 passing',
+                    },
+                ],
+            },
+        },
+        {
+            type: 'assistant',
+            uuid: 'tool-assistant-2',
+            timestamp: '2025-01-02T03:04:08.000Z',
+            message: {
+                role: 'assistant',
+                content: [{ type: 'text', text: 'All tests pass.' }],
+            },
+        },
+    ].map(record => `${JSON.stringify(record)}\n`).join(''));
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+
+    const { outline, page } = await readWholeConversation(adapter);
+    assert.equal(outline.totalInteractions, 1);
+    assert.deepEqual(
+        page.messages.map(message => [
+            message.role,
+            message.role === 'tool' ? message.tool.summary : message.markdown,
+        ]),
+        [
+            ['user', 'Run the tests'],
+            ['assistant', 'Let me run them.'],
+            ['tool', 'Bash npm test'],
+            ['assistant', 'All tests pass.'],
+        ]
+    );
+    const tool = page.messages[2].tool;
+    assert.equal(tool.name, 'Bash');
+    assert.match(tool.detail, /"command": "npm test"/);
+    assert.match(tool.detail, /9 passing/);
+});

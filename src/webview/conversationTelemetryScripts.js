@@ -152,7 +152,9 @@
             var previousScrollTop = scroll.scrollTop;
             var telemetry = message.telemetry;
             if (!telemetry) {
-                telemetryRoot.hidden = true;
+                // The quick-entry pills keep the bar visible even without
+                // usage data; only the usage widgets stay hidden.
+                telemetryRoot.hidden = false;
                 restoreViewport(
                     readingAnchor,
                     previousScrollTop
@@ -214,10 +216,7 @@
                 meter.append(label, progress, value);
                 telemetryLimits.appendChild(meter);
             });
-            telemetryRoot.hidden = !telemetry.model
-                && !telemetry.context
-                && !worktree
-                && telemetry.rateLimits.length === 0;
+            telemetryRoot.hidden = false;
             restoreViewport(readingAnchor, previousScrollTop);
             return true;
         }

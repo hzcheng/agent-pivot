@@ -97,8 +97,10 @@ export interface AiSessionService {
     watchSessionChanges(onDidChange: () => void): AiSessionDisposable;
     archiveSession(sessionId: string): boolean;
     invalidateCache(): void;
+    resolveSessionFilePath?(sessionId: string): string | null;
     resolveConversationSource?(
         sessionId: string,
+
         candidatePaths?: readonly string[]
     ): AiSessionConversationSourceCandidate | null;
 }

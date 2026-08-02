@@ -85,10 +85,19 @@ export interface ConversationPage {
     isEnd: boolean;
 }
 
+export interface ConversationTelemetryWorktree {
+    branch: string;
+    worktreeRoot: string;
+    repoRoot: string;
+    /** The worktree path no longer exists; branch comes from session logs. */
+    missing?: boolean;
+}
+
 export interface ConversationTelemetry {
     provider: AiSessionProviderId;
     sessionId: string;
     model?: string;
+    worktree?: ConversationTelemetryWorktree;
     context?: {
         usedTokens: number;
         maxTokens: number;

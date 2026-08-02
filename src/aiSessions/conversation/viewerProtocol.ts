@@ -77,10 +77,17 @@ export interface ConversationViewerBookmarkMutationMessage {
     };
 }
 
+export interface ConversationViewerOpenWorktreeMessage {
+    type: 'conversation-viewer-open-worktree';
+    version: 1;
+    worktreeRoot: string;
+}
+
 export type ConversationViewerMessage =
     ConversationViewerNavigationMessage
     | ConversationViewerSelectInteractionMessage
     | ConversationViewerOpenLinkMessage
+    | ConversationViewerOpenWorktreeMessage
     | ConversationViewerCommentMutationMessage
     | ConversationViewerSendCommentsMessage
     | ConversationViewerLocateCommentMessage
@@ -129,6 +136,19 @@ export function parseConversationViewerMessage(
             return undefined;
         }
         return value as unknown as ConversationViewerOpenLinkMessage;
+    }
+    if (value.type === 'conversation-viewer-open-worktree') {
+        if (keys.length !== 3
+            || !hasOwn(value, 'type')
+            || !hasOwn(value, 'version')
+            || !hasOwn(value, 'worktreeRoot')
+            || typeof value.worktreeRoot !== 'string'
+            || !value.worktreeRoot
+            || value.worktreeRoot.length > 1024
+            || /[\u0000-\u001f\u007f]/.test(value.worktreeRoot)) {
+            return undefined;
+        }
+        return value as unknown as ConversationViewerOpenWorktreeMessage;
     }
     if (value.type === 'conversation-viewer-locate-comment') {
         if (!hasExactKeys(value, [

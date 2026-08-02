@@ -553,3 +553,81 @@ test('CONVERSATION-TELEMETRY-001 Kimi surfaces the latest StatusUpdate context w
         rateLimits: [],
     });
 });
+
+test('CONVERSATION-TELEMETRY-001 Kimi resolves the worktree from the newest Shell tool paths', async t => {
+    const source = await createFixture(t);
+    const calls = [];
+    const adapter = createAdapter(source, {
+        resolveWorktree: async candidate => {
+            calls.push(candidate);
+            return candidate === '/repo/.worktree/feat'
+                ? {
+                    branch: 'feat',
+                    worktreeRoot: candidate,
+                    repoRoot: '/repo',
+                }
+                : undefined;
+        },
+    });
+    t.after(() => adapter.dispose());
+
+    assert.equal(await adapter.readTelemetry(sessionId), undefined);
+
+    await fs.promises.appendFile(source.sourcePath, [
+        JSON.stringify({
+            timestamp: 5000,
+            message: {
+                type: 'ToolCall',
+                payload: {
+                    type: 'function',
+                    id: 'Shell_1',
+                    function: {
+                        name: 'Shell',
+                        arguments: JSON.stringify({
+                            command: 'cd /repo && git status',
+                        }),
+                    },
+                },
+            },
+        }),
+        JSON.stringify({
+            timestamp: 6000,
+            message: {
+                type: 'ToolCall',
+                payload: {
+                    type: 'function',
+                    id: 'Shell_2',
+                    function: {
+                        name: 'Shell',
+                        arguments: JSON.stringify({
+                            command: 'cd /repo/.worktree/feat && ls /tmp',
+                        }),
+                    },
+                },
+            },
+        }),
+        JSON.stringify({
+            timestamp: 7000,
+            message: {
+                type: 'ToolCall',
+                payload: {
+                    type: 'function',
+                    id: 'Shell_3',
+                    function: {
+                        name: 'Shell',
+                        arguments: '{malformed',
+                    },
+                },
+            },
+        }),
+        '',
+    ].join('\n'));
+
+    const telemetry = await adapter.readTelemetry(sessionId);
+    assert.deepEqual(telemetry.worktree, {
+        branch: 'feat',
+        worktreeRoot: '/repo/.worktree/feat',
+        repoRoot: '/repo',
+    });
+    assert.deepEqual(calls.slice(0, 2), ['/tmp', '/repo/.worktree/feat']);
+});

@@ -39,6 +39,27 @@ import {
     openValidatedConversationSource,
     OpenConversationSource,
 } from './source';
+import type {
+    ConversationWorktreeInfo,
+    ResolveWorktree,
+} from './worktreeResolver';
+
+const MAX_TELEMETRY_PATHS = 16;
+const ABSOLUTE_PATH_PATTERN = /(?<![\w.~=-])\/(?:[\w.@+~-]+\/)*[\w.@+~-]+/g;
+
+function extractAbsolutePaths(value: string): string[] {
+    const paths = new Set<string>();
+    const pattern = new RegExp(ABSOLUTE_PATH_PATTERN.source, 'g');
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(value)) !== null) {
+        const candidate = match[0];
+        if (candidate.length > 1 && candidate.length <= 1024
+            && !candidate.startsWith('/dev/')) {
+            paths.add(candidate);
+        }
+    }
+    return Array.from(paths);
+}
 
 type TimerHandle = unknown;
 
@@ -50,6 +71,7 @@ export interface KimiConversationAdapterOptions {
     now(): number;
     setTimeout(callback: () => void, delayMs: number): TimerHandle;
     clearTimeout(handle: TimerHandle): void;
+    resolveWorktree?: ResolveWorktree;
 }
 
 type ConversationContextUsage = NonNullable<ConversationTelemetry['context']>;
@@ -60,6 +82,7 @@ interface KimiConversationIndex extends AiSessionDisposable {
     interactions: ConversationInteraction[];
     openInteractionIndex?: number;
     telemetryContext?: ConversationContextUsage;
+    telemetryPaths: string[];
     revision: number;
     partial: boolean;
 }
@@ -69,6 +92,7 @@ interface LoadedConversation {
     sourceRevision: string;
     partial: boolean;
     telemetryContext?: ConversationContextUsage;
+    telemetryPaths: string[];
 }
 
 function asRecord(value: unknown): Record<string, any> | undefined {
@@ -161,15 +185,38 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
         signal?: ConversationAbortSignal
     ): Promise<ConversationTelemetry | undefined> {
         const loaded = await this.load(sessionId, signal);
-        if (!loaded.telemetryContext) {
+        const worktree = await this.readWorktree(loaded);
+        if (!loaded.telemetryContext && !worktree) {
             return undefined;
         }
         return {
             provider: 'kimi',
             sessionId,
-            context: { ...loaded.telemetryContext },
+            ...(worktree ? { worktree } : {}),
+            context: loaded.telemetryContext
+                ? { ...loaded.telemetryContext }
+                : undefined,
             rateLimits: [],
         };
+    }
+
+    private async readWorktree(
+        loaded: LoadedConversation
+    ): Promise<ConversationWorktreeInfo | undefined> {
+        if (!this.options.resolveWorktree) {
+            return undefined;
+        }
+        for (let index = loaded.telemetryPaths.length - 1;
+            index >= 0;
+            index--) {
+            const resolved = await this.options.resolveWorktree(
+                loaded.telemetryPaths[index]
+            );
+            if (resolved) {
+                return resolved;
+            }
+        }
+        return undefined;
     }
 
     watch(sessionId: string, onChange: () => void): AiSessionDisposable {
@@ -246,6 +293,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
         let interactions: ConversationInteraction[] = [];
         let openInteractionIndex: number | undefined;
         let telemetryContext: ConversationContextUsage | undefined;
+        let telemetryPaths: string[] = [];
         try {
             const startOffset = await getConversationReadStart(
                 source,
@@ -260,6 +308,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                 interactions = cloneInteractions(previous.interactions);
                 openInteractionIndex = previous.openInteractionIndex;
                 telemetryContext = previous.telemetryContext;
+                telemetryPaths = previous.telemetryPaths.slice();
             }
             const normalizeRecord = (record: ConversationJsonlRecord): void => {
                 const envelope = asRecord(record.value);
@@ -339,6 +388,33 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                             maxTokens: Math.floor(maxTokens),
                         };
                     }
+                } else if (event.type === 'ToolCall') {
+                    const payload = asRecord(event.payload);
+                    const toolFunction = asRecord(payload?.function);
+                    const toolName = typeof toolFunction?.name === 'string'
+                        ? toolFunction.name.toLowerCase()
+                        : '';
+                    if ((toolName === 'shell' || toolName === 'bash')
+                        && typeof toolFunction?.arguments === 'string') {
+                        try {
+                            const args = asRecord(
+                                JSON.parse(toolFunction.arguments)
+                            );
+                            if (typeof args?.command === 'string') {
+                                telemetryPaths.push(
+                                    ...extractAbsolutePaths(args.command)
+                                );
+                                if (telemetryPaths.length
+                                    > MAX_TELEMETRY_PATHS) {
+                                    telemetryPaths = telemetryPaths.slice(
+                                        -MAX_TELEMETRY_PATHS
+                                    );
+                                }
+                            }
+                        } catch (_error) {
+                            // Malformed tool arguments carry no path signal.
+                        }
+                    }
                 } else if (event.type === 'TurnEnd') {
                     finishInteraction('complete');
                 } else if (event.type === 'Interrupt'
@@ -384,6 +460,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                     sourceRevision: `r${revision}`,
                     partial: true,
                     telemetryContext,
+                    telemetryPaths,
                 };
             }
             const partial = continuing ? previous.partial : result.partial;
@@ -405,6 +482,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                 previous.interactions = interactions;
                 previous.openInteractionIndex = openInteractionIndex;
                 previous.telemetryContext = telemetryContext;
+                previous.telemetryPaths = telemetryPaths;
                 previous.revision = revision;
                 previous.partial = partial;
             } else {
@@ -414,6 +492,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                     interactions,
                     openInteractionIndex,
                     telemetryContext,
+                    telemetryPaths,
                     revision,
                     partial,
                     dispose() {},
@@ -429,6 +508,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                 sourceRevision: `r${revision}`,
                 partial,
                 telemetryContext,
+                telemetryPaths,
             };
         } finally {
             await source.handle.close().catch(() => undefined);

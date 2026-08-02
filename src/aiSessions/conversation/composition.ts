@@ -44,6 +44,8 @@ import {
     ConversationViewerOptions,
     ConversationViewerTarget,
 } from './viewer';
+import { ConversationWorktreeResolver } from './worktreeResolver';
+import { readCodexRolloutWorkdir } from '../codexRolloutWorkdir';
 
 export interface ConversationSessionOpenTarget {
     projectId: string;
@@ -85,6 +87,9 @@ export interface ConversationCapabilityOptions {
     clearTimer: typeof clearTimeout;
     onDiagnostic: (event: SanitizedConversationDiagnostic) => void;
     getWorkspaceRootHostPaths?: () => readonly string[];
+    showWorktreeInSourceControl?: (
+        worktreeRoot: string
+    ) => PromiseLike<void> | Promise<void> | void;
     submitPrompt: (
         target: ConversationViewerTarget,
         prompt: string
@@ -158,12 +163,24 @@ function createAvailableConversationCapability(
         clearTimeout: options.clearTimer,
         onDiagnostic: options.onDiagnostic,
     }));
+    const worktreeResolver = new ConversationWorktreeResolver({
+        now: options.now,
+    });
     const codexAdapter = ownership.own(factories.createCodexAdapter({
         client: codexClient,
         watchSessionChanges: onDidChange =>
             options.services.codex.watchSessionChanges(onDidChange),
         setTimeout: options.setTimer,
         clearTimeout: options.clearTimer,
+        resolveWorktree: candidatePath =>
+            worktreeResolver.resolve(candidatePath),
+        readCurrentWorkdir: sessionId => {
+            const rolloutPath = options.services.codex
+                .resolveSessionFilePath?.(sessionId);
+            return rolloutPath
+                ? readCodexRolloutWorkdir(rolloutPath)
+                : undefined;
+        },
     }));
     ownership.transfer(codexClient);
     const kimiAdapter = ownership.own(factories.createKimiAdapter({
@@ -175,6 +192,8 @@ function createAvailableConversationCapability(
         now: options.now,
         setTimeout: options.setTimer,
         clearTimeout: options.clearTimer,
+        resolveWorktree: candidatePath =>
+            worktreeResolver.resolve(candidatePath),
     }));
     const claudeAdapter = ownership.own(factories.createClaudeAdapter({
         resolveSource: sessionId =>
@@ -187,6 +206,8 @@ function createAvailableConversationCapability(
         now: options.now,
         setTimeout: options.setTimer,
         clearTimeout: options.clearTimer,
+        resolveWorktree: candidatePath =>
+            worktreeResolver.resolve(candidatePath),
     }));
     const adapters: Record<AiSessionProviderId, ConversationProviderAdapter> = {
         codex: codexAdapter,
@@ -216,6 +237,7 @@ function createAvailableConversationCapability(
         focusSession: options.focusSession,
         commentStore: options.commentStore,
         bookmarkStore: options.bookmarkStore,
+        showWorktreeInSourceControl: options.showWorktreeInSourceControl,
     }));
     let viewerIntentGeneration = 0;
     let disposed = false;

@@ -27,6 +27,10 @@ test('CONVERSATION-PROTOCOL-VALIDATOR-001 accepts every exact version-1 viewer i
         version: 1,
         href: 'https://example.test',
     }, {
+        type: 'conversation-viewer-open-worktree',
+        version: 1,
+        worktreeRoot: '/repo/.worktree/feature-x',
+    }, {
         type: 'conversation-viewer-locate-comment',
         version: 1,
         ...target,
@@ -81,6 +85,21 @@ test('CONVERSATION-PROTOCOL-VALIDATOR-001 rejects malformed, inherited, and over
             type: 'conversation-viewer-select-interaction',
             version: 1,
             interactionId: 'input\u0000private',
+        },
+        {
+            type: 'conversation-viewer-open-worktree',
+            version: 1,
+        },
+        {
+            type: 'conversation-viewer-open-worktree',
+            version: 1,
+            worktreeRoot: '/repo\u0000private',
+        },
+        {
+            type: 'conversation-viewer-open-worktree',
+            version: 1,
+            worktreeRoot: '/repo',
+            extra: true,
         },
         {
             type: 'conversation-viewer-bookmark-mutation',

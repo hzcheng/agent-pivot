@@ -3952,7 +3952,7 @@
   {
     "id": "CONVERSATION-TELEMETRY-001",
     "domain": "webview",
-    "title": "AI Conversation shows correlated provider model, context-window usage, and quota windows without replacing conversation content or accepting stale Session data",
+    "title": "AI Conversation shows correlated provider model, current worktree, context-window usage, and quota windows without replacing conversation content or accepting stale Session data",
     "priority": "P1",
     "status": "automated",
     "owners": [
@@ -3960,13 +3960,19 @@
       "tests/contract/aiSessions/codexConversationAdapter.test.js",
       "tests/contract/aiSessions/kimiConversationAdapter.test.js",
       "tests/contract/aiSessions/claudeConversationAdapter.test.js",
+      "tests/unit/aiSessions/codexRolloutWorkdir.test.js",
       "tests/browser/conversationViewer.test.js"
     ],
     "evidence": [
       "src/aiSessions/conversation/codexAdapter.ts",
       "src/aiSessions/conversation/kimiAdapter.ts",
       "src/aiSessions/conversation/claudeAdapter.ts",
+      "src/aiSessions/conversation/composition.ts",
       "src/aiSessions/conversation/viewer.ts",
+      "src/aiSessions/conversation/viewerProtocol.ts",
+      "src/aiSessions/conversation/worktreeResolver.ts",
+      "src/aiSessions/codexRolloutWorkdir.ts",
+      "src/services/sourceControl.ts",
       "src/webview/conversationViewerScripts.js",
       "media/conversationTelemetry.css"
     ]
@@ -4472,6 +4478,19 @@
     "evidence": [
       "src/aiSessions/notifyIntegration/commands.ts",
       "src/aiSessions/notifyIntegration/output.ts"
+    ]
+  },
+  {
+    "id": "ARCH-SESSION-WORKTREE-001",
+    "domain": "session",
+    "title": "Session worktree resolution maps operating paths to git worktrees across main checkouts, linked worktrees, and detached HEAD",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/conversationWorktreeResolver.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/worktreeResolver.ts"
     ]
   }
 ]

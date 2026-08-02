@@ -698,3 +698,65 @@ test('CONVERSATION-TELEMETRY-001 Claude surfaces the latest assistant model and 
         rateLimits: [],
     });
 });
+
+test('CONVERSATION-TELEMETRY-001 Claude resolves the current worktree from the latest event cwd and degrades to the logged branch', async t => {
+    const source = await createFixture(t);
+    const adapter = createAdapter(source, {
+        resolveWorktree: async candidate =>
+            candidate === '/repo/.worktree/feat'
+                ? {
+                    branch: 'feat',
+                    worktreeRoot: candidate,
+                    repoRoot: '/repo',
+                }
+                : undefined,
+    });
+    t.after(() => adapter.dispose());
+
+    assert.equal(await adapter.readTelemetry(sessionId), undefined);
+
+    await fs.promises.appendFile(source.sourcePath, [
+        JSON.stringify({
+            type: 'user',
+            uuid: 'worktree-user-1',
+            cwd: '/repo',
+            gitBranch: 'main',
+            message: {
+                role: 'user',
+                content: [{ type: 'text', text: 'Start in the main checkout' }],
+            },
+        }),
+        JSON.stringify({
+            type: 'assistant',
+            uuid: 'worktree-assistant-1',
+            cwd: '/repo/.worktree/feat',
+            gitBranch: 'feat',
+            message: {
+                role: 'assistant',
+                model: 'claude-sonnet-4-6',
+                content: [{ type: 'text', text: 'Now working in the worktree.' }],
+                usage: { input_tokens: 5, output_tokens: 7 },
+            },
+        }),
+        '',
+    ].join('\n'));
+
+    const telemetry = await adapter.readTelemetry(sessionId);
+    assert.deepEqual(telemetry.worktree, {
+        branch: 'feat',
+        worktreeRoot: '/repo/.worktree/feat',
+        repoRoot: '/repo',
+    });
+
+    const missingAdapter = createAdapter(source, {
+        resolveWorktree: async () => undefined,
+    });
+    t.after(() => missingAdapter.dispose());
+    const missing = await missingAdapter.readTelemetry(sessionId);
+    assert.deepEqual(missing.worktree, {
+        branch: 'feat',
+        worktreeRoot: '/repo/.worktree/feat',
+        repoRoot: '/repo/.worktree/feat',
+        missing: true,
+    });
+});

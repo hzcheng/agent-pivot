@@ -45,6 +45,10 @@
         '[data-telemetry-context-value]'
     );
     var telemetryLimits = document.querySelector('[data-telemetry-limits]');
+    var telemetryWorktree = document.querySelector('[data-telemetry-worktree]');
+    var telemetryWorktreeBranch = document.querySelector(
+        '[data-telemetry-worktree-branch]'
+    );
     var newResponse = document.querySelector('[data-new-response]');
     var previous = document.querySelector('[data-action="previous"]');
     var next = document.querySelector('[data-action="next"]');
@@ -198,6 +202,8 @@
         telemetryContextProgress: telemetryContextProgress,
         telemetryContextValue: telemetryContextValue,
         telemetryLimits: telemetryLimits,
+        telemetryWorktree: telemetryWorktree,
+        telemetryWorktreeBranch: telemetryWorktreeBranch,
         scroll: scroll,
         captureAnchor: captureReadingAnchor,
         restoreViewport: restoreViewportReadingPosition,
@@ -602,6 +608,20 @@
     latest.addEventListener('click', function () {
         postNavigation('conversation-viewer-latest');
     });
+    if (telemetryWorktree) {
+        telemetryWorktree.addEventListener('click', function () {
+            var worktreeRoot = telemetryWorktree.getAttribute(
+                'data-worktree-root'
+            );
+            if (worktreeRoot) {
+                post({
+                    type: 'conversation-viewer-open-worktree',
+                    version: 1,
+                    worktreeRoot: worktreeRoot,
+                });
+            }
+        });
+    }
     close.addEventListener('click', function () {
         postNavigation('conversation-viewer-closed');
     });

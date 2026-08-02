@@ -44,6 +44,8 @@ function createAdapter(result = fixture, overrides = {}) {
             return 1;
         }),
         clearTimeout: overrides.clearTimeout || (() => undefined),
+        resolveWorktree: overrides.resolveWorktree,
+        readCurrentWorkdir: overrides.readCurrentWorkdir,
     });
     return {
         adapter,
@@ -523,4 +525,67 @@ test('SESSION-AI-SESSION-CODEX-CONVERSATION-007 keeps revisions stable until nor
     current.thread.turns[0].items[2].text = 'Changed visible response';
     const changed = await harness.adapter.readOutline(sessionId);
     assert.notEqual(changed.sourceRevision, first.sourceRevision);
+});
+
+test('CONVERSATION-TELEMETRY-001 Codex prefers the latest exec workdir and falls back to the launch cwd', async t => {
+    const telemetryClient = {
+        async request(method) {
+            if (method === 'thread/resume') {
+                return { model: 'gpt-5.6-sol', cwd: '/launch/repo' };
+            }
+            return {};
+        },
+        dispose() {},
+    };
+    const rolloutAdapter = createAdapter(fixture, {
+        client: telemetryClient,
+        readCurrentWorkdir: id =>
+            id === sessionId ? '/launch/repo/.worktree/feature-x' : undefined,
+        resolveWorktree: async candidate => {
+            if (candidate === '/launch/repo/.worktree/feature-x') {
+                return {
+                    branch: 'feature-x',
+                    worktreeRoot: candidate,
+                    repoRoot: '/launch/repo',
+                };
+            }
+            if (candidate === '/launch/repo') {
+                return {
+                    branch: 'main',
+                    worktreeRoot: candidate,
+                    repoRoot: candidate,
+                };
+            }
+            return undefined;
+        },
+    });
+    t.after(() => rolloutAdapter.adapter.dispose());
+
+    const telemetry = await rolloutAdapter.adapter.readTelemetry(sessionId);
+    assert.deepEqual(telemetry.worktree, {
+        branch: 'feature-x',
+        worktreeRoot: '/launch/repo/.worktree/feature-x',
+        repoRoot: '/launch/repo',
+    });
+
+    const fallbackAdapter = createAdapter(fixture, {
+        client: telemetryClient,
+        readCurrentWorkdir: () => undefined,
+        resolveWorktree: async candidate =>
+            candidate === '/launch/repo'
+                ? {
+                    branch: 'main',
+                    worktreeRoot: candidate,
+                    repoRoot: candidate,
+                }
+                : undefined,
+    });
+    t.after(() => fallbackAdapter.adapter.dispose());
+
+    const fallback = await fallbackAdapter.adapter.readTelemetry(sessionId);
+    assert.deepEqual(fallback.worktree, {
+        branch: 'main',
+        worktreeRoot: '/launch/repo',
+        repoRoot: '/launch/repo',
+    });
 });

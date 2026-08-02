@@ -166,6 +166,17 @@ export default class CodexSessionService {
         return signals;
     }
 
+    resolveSessionFilePath(sessionId: string): string | null {
+        if (!sessionId) {
+            return null;
+        }
+        const codexHome = this.getCodexHome();
+        if (!codexHome) {
+            return null;
+        }
+        return this.getSessionFiles(codexHome).get(sessionId) || null;
+    }
+
     archiveSession(sessionId: string): boolean {
         if (!sessionId) {
             return false;

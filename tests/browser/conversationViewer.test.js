@@ -182,6 +182,11 @@ async function openViewerPage(t, options = {}) {
                     <button type="button" data-action="close">Close</button>
                 </header>
                 <section data-conversation-telemetry hidden>
+                    <button type="button" class="conversation-telemetry-worktree"
+                        data-telemetry-worktree data-worktree-root="" title=""
+                        hidden>
+                        <span data-telemetry-worktree-branch></span>
+                    </button>
                     <div data-telemetry-model hidden>
                         <span>Model</span>
                         <strong data-telemetry-model-value></strong>
@@ -3655,4 +3660,101 @@ test('CONVERSATION-VIEWER-BROWSER-REFRESH-001 CONVERSATION-READING-FOCUS-001 pre
             name: 'New response content',
         }).isVisible(), true);
     }
+});
+
+test('CONVERSATION-TELEMETRY-001 renders the worktree chip, degrades missing paths, and posts open-worktree on click', async t => {
+    const page = await openViewerPage(t);
+    await sendPage(page, {
+        type: 'conversation-viewer-telemetry',
+        version: 1,
+        requestId: 1,
+        subscriptionGeneration: 1,
+        telemetry: {
+            provider: 'codex',
+            sessionId: 'session-telemetry',
+            worktree: {
+                branch: 'feat/worktree',
+                worktreeRoot: '/repo/.worktree/feat-worktree',
+                repoRoot: '/repo',
+            },
+            rateLimits: [],
+        },
+    });
+
+    const chip = page.locator('[data-telemetry-worktree]');
+    assert.equal(await chip.isVisible(), true);
+    assert.equal(
+        await page.locator('[data-telemetry-worktree-branch]').textContent(),
+        'feat/worktree'
+    );
+    assert.match(
+        await chip.getAttribute('title'),
+        /Click to show changes in Source Control/
+    );
+    assert.equal(
+        await page.locator('[data-conversation-telemetry]').isVisible(),
+        true
+    );
+
+    await chip.click();
+    assert.deepEqual(await postedMessages(page), [{
+        type: 'conversation-viewer-open-worktree',
+        version: 1,
+        worktreeRoot: '/repo/.worktree/feat-worktree',
+    }]);
+
+    await sendPage(page, {
+        type: 'conversation-viewer-telemetry',
+        version: 1,
+        requestId: 2,
+        subscriptionGeneration: 1,
+        telemetry: {
+            provider: 'codex',
+            sessionId: 'session-telemetry',
+            worktree: {
+                branch: 'feat/gone',
+                worktreeRoot: '/repo/.worktree/feat-gone',
+                repoRoot: '/repo',
+                missing: true,
+            },
+            rateLimits: [],
+        },
+    });
+    assert.equal(
+        await chip.getAttribute('class'),
+        'conversation-telemetry-worktree conversation-telemetry-worktree-missing'
+    );
+    assert.match(await chip.getAttribute('title'), /no longer exists/);
+
+    await sendPage(page, {
+        type: 'conversation-viewer-telemetry',
+        version: 1,
+        requestId: 3,
+        subscriptionGeneration: 1,
+        telemetry: {
+            provider: 'codex',
+            sessionId: 'session-telemetry',
+            model: 'gpt-5.6-sol',
+            rateLimits: [],
+        },
+    });
+    assert.equal(await chip.isHidden(), true);
+
+    await sendPage(page, {
+        type: 'conversation-viewer-telemetry',
+        version: 1,
+        requestId: 4,
+        subscriptionGeneration: 1,
+        telemetry: {
+            provider: 'codex',
+            sessionId: 'session-telemetry',
+            worktree: { branch: 42 },
+            rateLimits: [],
+        },
+    });
+    assert.equal(
+        await page.locator('[data-telemetry-model-value]').textContent(),
+        'gpt-5.6-sol',
+        'malformed worktree telemetry must be rejected as a whole'
+    );
 });

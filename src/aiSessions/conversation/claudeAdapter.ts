@@ -37,6 +37,10 @@ import {
     openValidatedConversationSource,
     OpenConversationSource,
 } from './source';
+import type {
+    ConversationWorktreeInfo,
+    ResolveWorktree,
+} from './worktreeResolver';
 
 type TimerHandle = unknown;
 
@@ -48,6 +52,7 @@ export interface ClaudeConversationAdapterOptions {
     now(): number;
     setTimeout(callback: () => void, delayMs: number): TimerHandle;
     clearTimeout(handle: TimerHandle): void;
+    resolveWorktree?: ResolveWorktree;
 }
 
 type ConversationContextUsage = NonNullable<ConversationTelemetry['context']>;
@@ -63,6 +68,8 @@ interface ClaudeConversationIndex extends AiSessionDisposable {
     appendInteractionIndex?: number;
     telemetryModel?: string;
     telemetryContext?: ConversationContextUsage;
+    telemetryCwd?: string;
+    telemetryGitBranch?: string;
     revision: number;
     partial: boolean;
 }
@@ -73,6 +80,8 @@ interface LoadedConversation {
     partial: boolean;
     telemetryModel?: string;
     telemetryContext?: ConversationContextUsage;
+    telemetryCwd?: string;
+    telemetryGitBranch?: string;
 }
 
 function asRecord(value: unknown): Record<string, any> | undefined {
@@ -238,18 +247,45 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
         signal?: ConversationAbortSignal
     ): Promise<ConversationTelemetry | undefined> {
         const loaded = await this.load(sessionId, signal);
-        if (!loaded.telemetryModel && !loaded.telemetryContext) {
+        const worktree = await this.readWorktree(loaded);
+        if (!loaded.telemetryModel && !loaded.telemetryContext && !worktree) {
             return undefined;
         }
         return {
             provider: 'claude',
             sessionId,
             model: loaded.telemetryModel,
+            ...(worktree ? { worktree } : {}),
             context: loaded.telemetryContext
                 ? { ...loaded.telemetryContext }
                 : undefined,
             rateLimits: [],
         };
+    }
+
+    private async readWorktree(
+        loaded: LoadedConversation
+    ): Promise<ConversationWorktreeInfo | undefined> {
+        const cwd = loaded.telemetryCwd;
+        if (!cwd) {
+            return undefined;
+        }
+        if (this.options.resolveWorktree) {
+            const resolved = await this.options.resolveWorktree(cwd);
+            if (resolved) {
+                return resolved;
+            }
+        }
+        // The path is gone (worktree deleted) but Claude logs the branch.
+        if (loaded.telemetryGitBranch) {
+            return {
+                branch: loaded.telemetryGitBranch,
+                worktreeRoot: cwd,
+                repoRoot: cwd,
+                missing: true,
+            };
+        }
+        return undefined;
     }
 
     watch(sessionId: string, onChange: () => void): AiSessionDisposable {
@@ -328,6 +364,8 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
         let timeoutOpenInteractionIndex: number | undefined;
         let telemetryModel: string | undefined;
         let telemetryContext: ConversationContextUsage | undefined;
+        let telemetryCwd: string | undefined;
+        let telemetryGitBranch: string | undefined;
         try {
             const startOffset = await getConversationReadStart(
                 source,
@@ -343,6 +381,8 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
                 openInteractionIndex = previous.appendInteractionIndex;
                 telemetryModel = previous.telemetryModel;
                 telemetryContext = previous.telemetryContext;
+                telemetryCwd = previous.telemetryCwd;
+                telemetryGitBranch = previous.telemetryGitBranch;
             }
             const finishInteraction = (
                 state: 'complete' | 'interrupted' = 'complete'
@@ -359,6 +399,12 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
                     return;
                 }
                 const message = asRecord(event.message);
+                if (typeof event.cwd === 'string' && event.cwd) {
+                    telemetryCwd = event.cwd;
+                }
+                if (typeof event.gitBranch === 'string' && event.gitBranch) {
+                    telemetryGitBranch = event.gitBranch;
+                }
                 if (event.type === 'assistant'
                     && message?.role === 'assistant') {
                     if (typeof message.model === 'string'
@@ -453,6 +499,8 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
                     partial: true,
                     telemetryModel,
                     telemetryContext,
+                    telemetryCwd,
+                    telemetryGitBranch,
                 };
             }
             const appendInteractionIndex = openInteractionIndex;
@@ -477,6 +525,8 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
                 previous.appendInteractionIndex = appendInteractionIndex;
                 previous.telemetryModel = telemetryModel;
                 previous.telemetryContext = telemetryContext;
+                previous.telemetryCwd = telemetryCwd;
+                previous.telemetryGitBranch = telemetryGitBranch;
                 previous.revision = revision;
                 previous.partial = partial;
             } else {
@@ -487,6 +537,8 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
                     appendInteractionIndex,
                     telemetryModel,
                     telemetryContext,
+                    telemetryCwd,
+                    telemetryGitBranch,
                     revision,
                     partial,
                     dispose() {},
@@ -503,6 +555,8 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
                 partial,
                 telemetryModel,
                 telemetryContext,
+                telemetryCwd,
+                telemetryGitBranch,
             };
         } finally {
             await source.handle.close().catch(() => undefined);

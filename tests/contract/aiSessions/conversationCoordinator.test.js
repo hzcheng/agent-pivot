@@ -720,3 +720,63 @@ test('SESSION-CONVERSATION-COORDINATOR-001 rejects deep outline and page bound v
         });
     });
 });
+
+test('CONVERSATION-TOOL-CALL-VISIBILITY-001 coordinator preserves tool messages through validation and publication', async t => {
+    const calls = { codex: 0, kimi: 0, claude: 0 };
+    const codex = adapterReturning(calls, 'codex', {
+        readOutline: async sessionId => makeOutline('codex', sessionId),
+        readPage: async request => makePage(
+            'codex',
+            request.sessionId,
+            'native-a',
+            {
+                messages: [
+                    {
+                        id: 'input-a:user',
+                        interactionId: 'input-a',
+                        role: 'user',
+                        markdown: 'Run the tests',
+                    },
+                    {
+                        id: 'input-a:tool:0',
+                        interactionId: 'input-a',
+                        role: 'tool',
+                        markdown: '',
+                        tool: {
+                            name: 'Shell',
+                            summary: 'Shell npm test',
+                            detail: '9 passing',
+                        },
+                    },
+                    {
+                        id: 'input-a:assistant:0',
+                        interactionId: 'input-a',
+                        role: 'assistant',
+                        markdown: 'All pass.',
+                    },
+                ],
+            }
+        ),
+    });
+    const { coordinator } = createCoordinatorHarness({ codex });
+    t.after(() => coordinator.dispose());
+
+    const outlineResult = await coordinator.readOutline('codex', 'session-a');
+    const page = await coordinator.readPage({
+        provider: 'codex',
+        sessionId: 'session-a',
+        anchorInteractionId: 'input-a',
+        direction: 'around',
+        expectedRevision: outlineResult.sourceRevision,
+    });
+    const toolMessage = page.messages.find(message => message.role === 'tool');
+    assert.ok(
+        toolMessage,
+        'coordinator must not reject a page containing tool messages'
+    );
+    assert.deepEqual(toolMessage.tool, {
+        name: 'Shell',
+        summary: 'Shell npm test',
+        detail: '9 passing',
+    });
+});

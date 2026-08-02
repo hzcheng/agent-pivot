@@ -3845,6 +3845,7 @@
     "status": "automated",
     "owners": [
       "tests/unit/aiSessions/conversationModel.test.js",
+      "tests/contract/aiSessions/conversationCoordinator.test.js",
       "tests/contract/aiSessions/kimiConversationAdapter.test.js",
       "tests/contract/aiSessions/claudeConversationAdapter.test.js",
       "tests/contract/aiSessions/codexConversationAdapter.test.js",
@@ -3856,6 +3857,7 @@
       "src/aiSessions/conversation/model.ts",
       "src/aiSessions/conversation/toolCalls.ts",
       "src/aiSessions/conversation/text.ts",
+      "src/aiSessions/conversation/coordinator.ts",
       "src/aiSessions/conversation/kimiAdapter.ts",
       "src/aiSessions/conversation/claudeAdapter.ts",
       "src/aiSessions/conversation/codexAdapter.ts",

@@ -210,6 +210,17 @@ export class ConversationCoordinator implements AiSessionDisposable {
                     role: message.role,
                     timestamp: message.timestamp,
                     markdown: message.markdown,
+                    ...(message.tool
+                        ? {
+                            tool: {
+                                name: message.tool.name,
+                                summary: message.tool.summary,
+                                ...(message.tool.detail !== undefined
+                                    ? { detail: message.tool.detail }
+                                    : {}),
+                            },
+                        }
+                        : {}),
                 })),
                 interactionStates: page.interactionStates.map(state => ({
                     interactionId: state.interactionId,
@@ -575,7 +586,20 @@ export class ConversationCoordinator implements AiSessionDisposable {
                 && Boolean(message.id)
                 && typeof message.interactionId === 'string'
                 && Boolean(message.interactionId)
-                && (message.role === 'user' || message.role === 'assistant')
+                && (message.role === 'user' || message.role === 'assistant'
+                    || (message.role === 'tool'
+                        && Boolean(message.tool)
+                        && typeof message.tool.name === 'string'
+                        && Boolean(message.tool.name)
+                        && countGraphemes(message.tool.name)
+                            <= CONVERSATION_LIMITS.toolCallSummaryGraphemes
+                        && typeof message.tool.summary === 'string'
+                        && countGraphemes(message.tool.summary)
+                            <= CONVERSATION_LIMITS.toolCallSummaryGraphemes
+                        && (message.tool.detail === undefined
+                            || (typeof message.tool.detail === 'string'
+                                && countGraphemes(message.tool.detail)
+                                    <= CONVERSATION_LIMITS.toolCallDetailGraphemes))))
                 && (message.timestamp === undefined
                     || (typeof message.timestamp === 'number'
                         && Number.isFinite(message.timestamp)))

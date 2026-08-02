@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "c982f07c1ab89e22ef859e30399766bcd6ee5029",
+        "head": "4b2790d284a5b45fd4b69308acb83f696b2267cb",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -76,7 +76,8 @@
             "af9cc7328dc642243b8c9e00cf86869353ced1ac",
             "95a9a7bc69b494fcd4f0d902d76370687baf4472",
             "05edca8119b9a471cbcd32f287144cebe7ebae08",
-            "0e0016d9449d61753fe3f30711656cad881b12a6"
+            "0e0016d9449d61753fe3f30711656cad881b12a6",
+            "5efaa7ae0901f8da52b8211cccbf37386ee51498"
         ]
     },
     "capabilities": [
@@ -751,7 +752,8 @@
                 "2b82dcf05ce93ddd73217a5309e4ed12464841f6",
                 "059af49ce010a4097ac1e4a847b7c7be430b7171",
                 "892ae70669ed4b08f452f70f3539eed665f3c555",
-                "69c490edf6d6d483e0694bc28d78862edba43334"
+                "69c490edf6d6d483e0694bc28d78862edba43334",
+                "4b2790d284a5b45fd4b69308acb83f696b2267cb"
             ],
             "behaviors": [
                 "RUNTIME-TMUX-BACKEND-001",

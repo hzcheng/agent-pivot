@@ -4,8 +4,22 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-08-03
+
 ### Added
 
+- AI Conversation viewers now list a session's subagents in a dedicated
+  Subagents tab for Kimi, Claude, and Codex sessions, with status badges,
+  running entries pinned to the top, a persisted Running only filter, and an
+  Agents quick-entry pill in the usage bar. Selecting a subagent reads its
+  transcript in place and a banner returns to the main conversation; nested
+  subagents stay visible inside their parent's transcript.
+- AI Conversation renders provider tool calls as collapsible entries
+  interleaved with the assistant output, in main sessions and subagent
+  transcripts alike: shell commands, file reads and edits, and searches pair
+  input with output under a one-line summary, so agent work stays auditable.
+- Kimi plan-mode updates now render inline in the AI Conversation assistant
+  stream.
 - The AI Conversation usage bar now covers Kimi and Claude sessions: Kimi
   reports context-window usage from its wire-protocol status updates, and
   Claude reports the current model and context-window usage from assistant
@@ -18,6 +32,11 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
 
 ### Changed
 
+- The focused window's workspace card and the focused session row now pick
+  up a subtle accent veil with a solid Current pill, so the active context
+  reads at a glance; attention state still wins with a red veil.
+- The Comments and Agents usage-bar pills now stay visible at zero count, so
+  the quick entries into the side panel are always available.
 - Clicking an already-focused Active Session now opens its AI Conversation at
   the latest input instead of expanding an inline outline; the inline
   conversation outline rail was removed in favor of the richer outline built

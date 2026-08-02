@@ -14,19 +14,19 @@ const workflowPath = path.join(repositoryRoot, '.github', 'workflows', 'release-
 function validateReleaseContent({ readme, changelog, packageMetadata }) {
     assert.strictEqual(packageMetadata.displayName, 'Agent Pivot',
         'release metadata must use the Agent Pivot display name');
-    assert.strictEqual(packageMetadata.version, '1.0.1',
-        'the current Agent Pivot release must be version 1.0.1');
+    assert.strictEqual(packageMetadata.version, '1.0.2',
+        'the current Agent Pivot release must be version 1.0.2');
     const currentRelease = extractReleaseNotes(changelog, packageMetadata.version);
     const requiredReleaseFacts = [
-        ['AI Skills management', /AI Skills workspace/i],
-        ['rich AI Conversation review', /rich AI Conversation review workflow/i],
+        ['subagent viewing', /list a session's subagents/i],
+        ['collapsible tool calls', /tool calls as collapsible entries/i],
+        ['always-on quick entries', /stay visible at zero/i],
         ['conversation telemetry', /context-window usage/i],
-        ['other workspace pinning', /pinning.*other open workspace cards/i],
-        ['conversation reading stability', /reading position stable/i],
+        ['worktree chip', /worktree chip/i],
     ];
 
     for (const [label, pattern] of requiredReleaseFacts) {
-        assert.match(currentRelease, pattern, `1.0.1 CHANGELOG release must document ${label}`);
+        assert.match(currentRelease, pattern, `1.0.2 CHANGELOG release must document ${label}`);
     }
     assert.match(readme, /Agent Pivot/i, 'README must document the current product name');
     assert.match(packageMetadata.description, /workspace/i,

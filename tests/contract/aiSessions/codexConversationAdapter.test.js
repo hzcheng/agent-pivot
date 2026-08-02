@@ -96,7 +96,23 @@ test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 Codex normalizes only stable v
         ]
     );
     assert.equal(JSON.stringify(page).includes('reasoning-secret'), false);
-    assert.equal(JSON.stringify(page).includes('command-output'), false);
+    assert.deepEqual(
+        page.messages.filter(message => message.role === 'tool')
+            .map(message => [
+                message.interactionId,
+                message.tool.name,
+                message.tool.summary,
+                message.tool.detail,
+            ]),
+        [
+            ['user-item-1', 'commandExecution', 'commandExecution print-secret', 'command-output'],
+            ['user-item-1', 'fileChange', 'fileChange update /private/changed-file.txt', undefined],
+        ]
+    );
+    assert.equal(JSON.stringify(page).includes('mcp-secret'), false);
+    assert.equal(JSON.stringify(page).includes('dynamic-secret'), false);
+    assert.equal(JSON.stringify(page).includes('collab-secret'), false);
+    assert.equal(JSON.stringify(page).includes('subagent-secret'), false);
     assert.equal(
         JSON.stringify(page).includes('/private/local-image.png'),
         false
@@ -619,7 +635,11 @@ function createThreadReadResult(threadId, parentThreadId, overrides = {}) {
                     status: 'completed',
                     items: [
                         { id: 'agent-item-1', type: 'agentMessage', text: 'First progress note' },
-                        { id: 'file-item-1', type: 'fileChange', path: '/repo/x.ts' },
+                        {
+                            id: 'file-item-1',
+                            type: 'fileChange',
+                            changes: [{ path: '/repo/x.ts', kind: 'update' }],
+                        },
                         { id: 'agent-item-2', type: 'agentMessage', text: 'status: complete' },
                     ],
                 },
@@ -721,10 +741,11 @@ test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 Codex reads a subagent thread as it
         expectedRevision: outline.sourceRevision,
     });
     assert.deepEqual(
-        page.messages.map(message => [message.role, message.markdown]),
+        page.messages.map(message => [message.role, message.role === 'tool' ? message.tool.summary : message.markdown]),
         [
             ['user', 'Zeno · implement_webview_mutation_skill'],
             ['assistant', 'First progress note'],
+            ['tool', 'fileChange update /repo/x.ts'],
             ['assistant', 'status: complete'],
         ]
     );
@@ -779,5 +800,31 @@ test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 Codex rejects malformed and mismatc
     await assert.rejects(
         () => adapter.readOutline(sessionId),
         error => error?.code === 'unsupportedVersion'
+    );
+});
+
+test('CONVERSATION-TOOL-CALL-VISIBILITY-001 Codex renders command executions and file changes as tool messages', async t => {
+    const harness = createAdapter();
+    t.after(() => harness.adapter.dispose());
+
+    const outline = await harness.adapter.readOutline(sessionId);
+    const page = await harness.adapter.readPage({
+        provider: 'codex',
+        sessionId,
+        anchorInteractionId: outline.interactions[0].id,
+        direction: 'around',
+    });
+    assert.deepEqual(
+        page.messages.filter(message => message.role === 'tool')
+            .map(message => [
+                message.interactionId,
+                message.tool.name,
+                message.tool.summary,
+                message.tool.detail,
+            ]),
+        [
+            ['user-item-1', 'commandExecution', 'commandExecution print-secret', 'command-output'],
+            ['user-item-1', 'fileChange', 'fileChange update /private/changed-file.txt', undefined],
+        ]
     );
 });

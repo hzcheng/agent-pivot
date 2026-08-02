@@ -46,9 +46,15 @@
         var lastActiveSubagent = null;
 
         function visibleEntries() {
-            if (!runningOnly.checked) return lastSubagents;
-            return lastSubagents.filter(function (entry) {
-                return entry.status === 'running';
+            var entries = runningOnly.checked
+                ? lastSubagents.filter(function (entry) {
+                    return entry.status === 'running';
+                })
+                : lastSubagents.slice();
+            // Running entries pin to the top; the rest keep dispatch order.
+            return entries.slice().sort(function (left, right) {
+                return (left.status === 'running' ? 0 : 1)
+                    - (right.status === 'running' ? 0 : 1);
             });
         }
 

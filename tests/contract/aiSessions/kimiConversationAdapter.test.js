@@ -896,3 +896,71 @@ test('CONVERSATION-TELEMETRY-001 Kimi resolves the worktree from the newest Shel
     });
     assert.deepEqual(calls.slice(0, 2), ['/tmp', '/repo/.worktree/feat']);
 });
+
+test('CONVERSATION-TOOL-CALL-VISIBILITY-001 Kimi pairs tool calls and results into tool messages', async t => {
+    const source = await createFixture(t);
+    await fs.promises.writeFile(source.sourcePath, [
+        {
+            timestamp: 1000,
+            message: {
+                type: 'TurnBegin',
+                payload: { user_input: 'Run the tests' },
+            },
+        },
+        {
+            timestamp: 1001,
+            message: {
+                type: 'ToolCall',
+                payload: {
+                    type: 'function',
+                    id: 'Shell_0',
+                    function: {
+                        name: 'Shell',
+                        arguments: JSON.stringify({ command: 'npm test' }),
+                    },
+                },
+            },
+        },
+        {
+            timestamp: 1002,
+            message: {
+                type: 'ToolResult',
+                payload: {
+                    tool_call_id: 'Shell_0',
+                    return_value: { is_error: false, output: '9 passing' },
+                },
+            },
+        },
+        {
+            timestamp: 1003,
+            message: {
+                type: 'ContentPart',
+                payload: { type: 'text', text: 'All tests pass.' },
+            },
+        },
+        {
+            timestamp: 1004,
+            message: { type: 'TurnEnd', payload: {} },
+        },
+    ].map(record => `${JSON.stringify(record)}\n`).join(''));
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+
+    const { outline, page } = await readWholeConversation(adapter);
+    assert.equal(outline.totalInteractions, 1);
+    assert.deepEqual(
+        page.messages.map(message => [
+            message.role,
+            message.role === 'tool' ? message.tool.summary : message.markdown,
+        ]),
+        [
+            ['user', 'Run the tests'],
+            ['tool', 'Shell npm test'],
+            ['assistant', 'All tests pass.'],
+        ]
+    );
+    const tool = page.messages[1].tool;
+    assert.equal(tool.name, 'Shell');
+    assert.match(tool.detail, /"command":"npm test"/);
+    assert.match(tool.detail, /9 passing/);
+});

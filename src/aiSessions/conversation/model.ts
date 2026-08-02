@@ -97,7 +97,30 @@ export function buildConversationPage(
                 timestamp: interaction.timestamp,
                 markdown: interaction.userMarkdown,
             });
+            const toolCalls = interaction.toolCalls || [];
+            const pushToolCallsAt = (position: number): void => {
+                toolCalls.forEach((toolCall, toolIndex) => {
+                    if (toolCall.position !== position) {
+                        return;
+                    }
+                    messages.push({
+                        id: `${interaction.id}:tool:${toolIndex}`,
+                        interactionId: interaction.id,
+                        role: 'tool',
+                        timestamp: interaction.timestamp,
+                        markdown: '',
+                        tool: {
+                            name: toolCall.name,
+                            summary: toolCall.summary,
+                            ...(toolCall.detail !== undefined
+                                ? { detail: toolCall.detail }
+                                : {}),
+                        },
+                    });
+                });
+            };
             interaction.assistantMarkdown.forEach((markdown, index) => {
+                pushToolCallsAt(index);
                 messages.push({
                     id: `${interaction.id}:assistant:${index}`,
                     interactionId: interaction.id,
@@ -106,6 +129,7 @@ export function buildConversationPage(
                     markdown,
                 });
             });
+            pushToolCallsAt(interaction.assistantMarkdown.length);
             return messages;
         },
         []

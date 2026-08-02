@@ -10,8 +10,10 @@ import {
     buildConversationPage,
 } from './model';
 import {
+    buildToolCallSummary,
     buildUserPreview,
     buildVisibleUserInput,
+    capToolCallDetail,
     countGraphemes,
     normalizeVisibleText,
     truncateGraphemes,
@@ -218,6 +220,20 @@ function normalizeThreadRead(
                     responseState,
                 });
                 currentInteractionIndex = interactions.length - 1;
+            } else if (item.type === 'commandExecution'
+                || item.type === 'fileChange') {
+                if (currentInteractionIndex === undefined) {
+                    continue;
+                }
+                const tool = normalizeToolItem(item);
+                if (!tool) {
+                    continue;
+                }
+                const interaction = interactions[currentInteractionIndex];
+                (interaction.toolCalls ||= []).push({
+                    position: interaction.assistantMarkdown.length,
+                    ...tool,
+                });
             } else if (item.type === 'agentMessage') {
                 if (typeof item.text !== 'string') {
                     throw protocolError();
@@ -242,6 +258,47 @@ function fingerprintInteractions(
     return createHash('sha256')
         .update(JSON.stringify(interactions), 'utf8')
         .digest('hex');
+}
+
+function normalizeToolItem(
+    item: Record<string, any>
+): { name: string; summary: string; detail?: string } | undefined {
+    if (item.type === 'commandExecution') {
+        const command = typeof item.command === 'string' ? item.command : '';
+        const detail = capToolCallDetail(
+            typeof item.aggregatedOutput === 'string'
+                ? item.aggregatedOutput
+                : ''
+        );
+        return {
+            name: 'commandExecution',
+            summary: buildToolCallSummary('commandExecution', { command }),
+            ...(detail ? { detail } : {}),
+        };
+    }
+    if (item.type === 'fileChange') {
+        const changes = Array.isArray(item.changes)
+            ? item.changes.map(asRecord).filter(Boolean)
+            : [];
+        const first = changes[0];
+        const changePath = typeof first?.path === 'string' ? first.path : '';
+        const kindRecord = asRecord(first?.kind);
+        const kind = typeof first?.kind === 'string'
+            ? first.kind
+            : typeof kindRecord?.type === 'string'
+                ? kindRecord.type
+                : '';
+        const label = `${kind ? `${kind} ` : ''}${changePath}`.trim();
+        const detail = capToolCallDetail(
+            typeof first?.diff === 'string' ? first.diff : ''
+        );
+        return {
+            name: 'fileChange',
+            summary: buildToolCallSummary('fileChange', { path: label }),
+            ...(detail ? { detail } : {}),
+        };
+    }
+    return undefined;
 }
 
 function rateLimitLabel(durationMins: number | undefined): string {

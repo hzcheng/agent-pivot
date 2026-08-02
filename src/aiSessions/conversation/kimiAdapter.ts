@@ -18,13 +18,16 @@ import {
     buildConversationPage,
 } from './model';
 import {
+    buildToolCallSummary,
     buildUserPreview,
     buildVisibleUserInput,
+    capToolCallDetail,
     countGraphemes,
     normalizeVisibleText,
     truncateGraphemes,
     VisibleUserInputPart,
 } from './text';
+import { ToolCallTracker } from './toolCalls';
 import {
     CONVERSATION_LIMITS,
     ConversationAbortSignal,
@@ -93,6 +96,7 @@ interface KimiConversationIndex extends AiSessionDisposable {
     openInteractionIndex?: number;
     telemetryContext?: ConversationContextUsage;
     telemetryPaths: string[];
+    toolTracker?: ToolCallTracker;
     revision: number;
     partial: boolean;
 }
@@ -128,6 +132,9 @@ function cloneInteractions(
     return interactions.map(interaction => ({
         ...interaction,
         assistantMarkdown: interaction.assistantMarkdown.slice(),
+        ...(interaction.toolCalls
+            ? { toolCalls: interaction.toolCalls.slice() }
+            : {}),
     }));
 }
 
@@ -389,6 +396,10 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                 telemetryContext = previous.telemetryContext;
                 telemetryPaths = previous.telemetryPaths.slice();
             }
+            // Kept on the cache entry so a ToolResult arriving in a later
+            // incremental load still pairs with its ToolCall.
+            const toolTracker = (continuing && previous?.toolTracker)
+                || new ToolCallTracker();
             const normalizeRecord = (record: ConversationJsonlRecord): void => {
                 const envelope = asRecord(record.value);
                 const event = asRecord(envelope?.message);
@@ -504,6 +515,40 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                             // Malformed tool arguments carry no path signal.
                         }
                     }
+                    if (openInteractionIndex !== undefined
+                        && typeof toolFunction?.name === 'string'
+                        && toolFunction.name) {
+                        let args: Record<string, any> | undefined;
+                        try {
+                            args = typeof toolFunction.arguments === 'string'
+                                ? asRecord(JSON.parse(toolFunction.arguments))
+                                : undefined;
+                        } catch (_error) {
+                            args = undefined;
+                        }
+                        toolTracker.begin(
+                            interactions[openInteractionIndex],
+                            typeof payload?.id === 'string'
+                                ? payload.id
+                                : undefined,
+                            toolFunction.name,
+                            buildToolCallSummary(toolFunction.name, args),
+                            capToolCallDetail(
+                                typeof toolFunction.arguments === 'string'
+                                    ? toolFunction.arguments
+                                    : ''
+                            )
+                        );
+                    }
+                } else if (event.type === 'ToolResult') {
+                    const payload = asRecord(event.payload);
+                    const returnValue = asRecord(payload?.return_value);
+                    toolTracker.finish(
+                        payload?.tool_call_id,
+                        typeof returnValue?.output === 'string'
+                            ? returnValue.output
+                            : undefined
+                    );
                 } else if (event.type === 'TurnEnd') {
                     finishInteraction('complete');
                 } else if (event.type === 'Interrupt'
@@ -572,6 +617,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                 previous.openInteractionIndex = openInteractionIndex;
                 previous.telemetryContext = telemetryContext;
                 previous.telemetryPaths = telemetryPaths;
+                previous.toolTracker = toolTracker;
                 previous.revision = revision;
                 previous.partial = partial;
             } else {
@@ -582,6 +628,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                     openInteractionIndex,
                     telemetryContext,
                     telemetryPaths,
+                    toolTracker,
                     revision,
                     partial,
                     dispose() {},

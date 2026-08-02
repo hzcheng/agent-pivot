@@ -3423,7 +3423,18 @@ body.steward-sidebar {
 
         .codex-session-row[data-session-focused] {
             border-color: var(--vscode-focusBorder);
+            background: transparent;
             box-shadow: inset 0 0 0 1px var(--vscode-focusBorder);
+
+            &::after {
+                content: '';
+                position: absolute;
+                inset: 0;
+                background: var(--vscode-focusBorder);
+                opacity: .13;
+                pointer-events: none;
+                transition: opacity $defaultTransition;
+            }
 
             &::before {
                 top: 5px;
@@ -3434,9 +3445,27 @@ body.steward-sidebar {
             }
         }
 
+        .codex-session-row[data-session-focused]:hover::after {
+            opacity: .2;
+        }
+
+        .codex-session-row[data-session-focused] .codex-session-name {
+            font-weight: 600;
+        }
+
         .codex-session-row[data-session-needs-attention] {
             border-color: var(--vscode-inputValidation-errorBorder, var(--vscode-errorForeground));
             color: var(--vscode-errorForeground);
+            box-shadow: inset 0 0 0 1px var(--vscode-inputValidation-errorBorder, var(--vscode-errorForeground));
+
+            &::after {
+                content: '';
+                position: absolute;
+                inset: 0;
+                background: var(--vscode-errorForeground);
+                opacity: .1;
+                pointer-events: none;
+            }
 
             &::before {
                 width: 3px;
@@ -5008,6 +5037,32 @@ body.steward-sidebar .project .ai-session-attention-indicator {
         0 5px 14px var(--vscode-widget-shadow);
 }
 
+.open-other-windows-group .workspace-card[data-open-workspace-current]::before {
+    content: '';
+    position: absolute;
+    left: 4px;
+    top: 12px;
+    bottom: 12px;
+    width: 3px;
+    border-radius: 999px;
+    background: var(--vscode-focusBorder);
+}
+
+.open-other-windows-group .workspace-card[data-open-workspace-current]::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: var(--vscode-focusBorder);
+    opacity: .15;
+    pointer-events: none;
+    transition: opacity $defaultTransition;
+}
+
+.open-other-windows-group .workspace-card[data-open-workspace-current]:hover::after,
+.open-other-windows-group .workspace-card[data-open-workspace-current]:focus-within::after {
+    opacity: .24;
+}
+
 .open-other-windows-group .workspace-card[data-open-workspace-current]:hover,
 .open-other-windows-group .workspace-card[data-open-workspace-current]:focus-within {
     border-color: var(--vscode-focusBorder);
@@ -5032,8 +5087,8 @@ body.steward-sidebar .project .ai-session-attention-indicator {
     padding: 1px 5px;
     border: 1px solid var(--vscode-focusBorder);
     border-radius: 999px;
-    color: var(--vscode-focusBorder);
-    background: var(--vscode-list-inactiveSelectionBackground, transparent);
+    color: var(--vscode-badge-foreground, #ffffff);
+    background: var(--vscode-focusBorder);
     font-size: 8px;
     font-weight: 700;
     line-height: 1.3;

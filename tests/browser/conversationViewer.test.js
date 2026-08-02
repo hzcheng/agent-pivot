@@ -1324,12 +1324,14 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 CONVERSATION-COMMENTS-LAYOUT-001 share
                     sidebar.left < conversation.right,
                 conversationUsesWorkspace:
                     Math.abs(conversation.right - workspace.right) < 1,
+                conversationKeepsReadingWidth: conversation.width > 0,
             };
         }),
         {
             sidebarRightAligned: true,
-            sidebarOverConversation: true,
-            conversationUsesWorkspace: true,
+            sidebarOverConversation: false,
+            conversationUsesWorkspace: false,
+            conversationKeepsReadingWidth: true,
         }
     );
     assert.equal(

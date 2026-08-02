@@ -126,3 +126,4 @@ Always tell the user:
   representative hash comparison against the active Server installation.
 - Do not claim install success from packaging success alone.
 - Do not skip the repo's packaging script in favor of a generic VSIX command unless the repo lacks one.
+- Do not run bare `npx gulp` to rebuild webview assets (SCSS or `src/webview` copies): the default development mode starts watchers and never exits. Use `npx gulp --production` for one-shot builds, matching `vscode:prepublish`.

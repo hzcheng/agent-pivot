@@ -19,7 +19,8 @@ making any change.
 2. **Never push directly to `main`.** Publish through a PR against
    `origin/main` in `hzcheng/agent-pivot`. This repo has two remotes
    (`origin` = fork, `upstream` = original project) — pass
-   `--repo hzcheng/agent-pivot` to every `gh` command. Details: skill
+   `--repo hzcheng/agent-pivot` to every `gh` command. Write PR titles, PR
+   bodies, and commit messages in English. Details: skill
    `publishing-and-merging-github-prs`.
 
 3. **Load the matching skill before acting.** Project skills live in

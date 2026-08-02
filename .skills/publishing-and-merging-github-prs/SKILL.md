@@ -29,12 +29,18 @@ after every GitHub write.
 3. Use `harvesting-workflow-lessons` once to review task-local failures,
    corrections, retries, and ambiguity. Include justified skill changes before
    the final capability audit; a valid “no skill change” decision is allowed.
+   Record the decision twice: as the mandatory `--harvest` value of
+   `regenerate-capability-audit.js` (a `Skill-Harvest` trailer in the audit
+   commit) and in the PR body's required `## Skill harvest` section (CI
+   rejects pull requests without it).
 4. Complete commit-level main-capability audit currency after the final
    implementation or skill-owner commit.
-5. Push with tracking: `git push -u origin <branch>`.
-6. Prefer connector PR creation if available and authorized.
-7. If connector fails with permission or repository ambiguity, use `gh pr create`.
-8. Default to draft for "open a PR" requests unless the user explicitly asks for ready-for-review or the same request includes merging after validation.
+5. Write PR titles, PR bodies, and commit messages in English, regardless of
+   the conversation language.
+6. Push with tracking: `git push -u origin <branch>`.
+7. Prefer connector PR creation if available and authorized.
+8. If connector fails with permission or repository ambiguity, use `gh pr create`.
+9. Default to draft for "open a PR" requests unless the user explicitly asks for ready-for-review or the same request includes merging after validation.
 
 If push reports HTTP 408, `unexpected EOF`, or an RPC disconnect:
 

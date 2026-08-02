@@ -10,8 +10,8 @@ const test = require('node:test');
 const { chromium } = require('playwright-chromium');
 
 const styles = fs.readFileSync(path.join(__dirname, '../../media/styles.css'), 'utf8');
-const dashboardScript = fs.readFileSync(
-    path.join(__dirname, '../../media/webviewDashboardScripts.js'),
+const skillPanelScript = fs.readFileSync(
+    path.join(__dirname, '../../media/webviewSkillPanelScripts.js'),
     'utf8'
 );
 
@@ -83,15 +83,8 @@ function makeRecords() {
     return records;
 }
 
-// The filter/collapse/click implementation lives inside the dashboard script's
-// IIFE alongside unrelated panel wiring; exercise it by extracting its exact span.
-function extractFilterCode() {
-    const start = dashboardScript.indexOf('var skillAgentFilter');
-    const end = dashboardScript.indexOf('function revealPendingTodoSearchTarget');
-    assert.notEqual(start, -1, 'skillAgentFilter marker missing — update this test');
-    assert.notEqual(end, -1, 'revealPendingTodoSearchTarget marker missing — update this test');
-    return dashboardScript.slice(start, end);
-}
+// The filter/collapse/click implementation lives in webviewSkillPanelScripts.js;
+// exercise it through the same initSkillPanel factory the Dashboard controller wires.
 
 async function openSkillsPage(browser, records, groups = {}) {
     const { getSkillsPanelContent } = loadSkillContent();
@@ -103,7 +96,7 @@ async function openSkillsPage(browser, records, groups = {}) {
                 <section role="tabpanel" id="ai-panel-skills">${getSkillsPanelContent(records || makeRecords(), { groups })}</section>
             </body>
         </html>`);
-    await page.evaluate(filterSource => {
+    await page.evaluate(skillPanelSource => {
         (function () {
             var options = {
                 postMessage(message) {
@@ -111,23 +104,15 @@ async function openSkillsPage(browser, records, groups = {}) {
                     return Promise.resolve(true);
                 },
             };
-            eval(filterSource);
-            document.addEventListener('click', onSkillCardClick);
-            document.addEventListener('dragstart', onSkillDragStart);
-            document.addEventListener('dragover', onSkillDragOver);
-            document.addEventListener('dragleave', onSkillDragLeave);
-            document.addEventListener('drop', onSkillDrop);
-            document.addEventListener('dragend', onSkillDragEnd);
-            window.__setSkillFilter = function (value) {
-                skillAgentFilter = value;
-                applySkillAgentFilter();
-            };
-            window.__captureSkillCollapsedGroups = captureSkillCollapsedGroups;
-            window.__restoreSkillCollapsedGroups = restoreSkillCollapsedGroups;
-            window.__captureSkillExpandedCards = captureSkillExpandedCards;
-            window.__restoreSkillExpandedCards = restoreSkillExpandedCards;
+            eval(skillPanelSource);
+            var skillPanel = initSkillPanel(options);
+            window.__setSkillFilter = skillPanel.setSkillAgentFilter;
+            window.__captureSkillCollapsedGroups = skillPanel.captureSkillCollapsedGroups;
+            window.__restoreSkillCollapsedGroups = skillPanel.restoreSkillCollapsedGroups;
+            window.__captureSkillExpandedCards = skillPanel.captureSkillExpandedCards;
+            window.__restoreSkillExpandedCards = skillPanel.restoreSkillExpandedCards;
         })();
-    }, extractFilterCode());
+    }, skillPanelScript);
     return page;
 }
 

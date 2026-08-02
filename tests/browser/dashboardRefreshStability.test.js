@@ -28,6 +28,12 @@ const styles = fs.readFileSync(path.join(__dirname, '../../media/styles.css'), '
 const dashboardScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/webviewDashboardScripts.js'), 'utf8'
 );
+const skillPanelScript = fs.readFileSync(
+    path.join(__dirname, '../../src/webview/webviewSkillPanelScripts.js'), 'utf8'
+);
+const projectsPanelScript = fs.readFileSync(
+    path.join(__dirname, '../../src/webview/webviewProjectsPanelScripts.js'), 'utf8'
+);
 const todoScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/webviewTodoScripts.js'), 'utf8'
 );
@@ -209,6 +215,8 @@ async function openDashboardPage(t) {
         window.vscode = { postMessage: message => window.__messages.push(message) };
     });
     if (scrollStateScript) await page.addScriptTag({ content: scrollStateScript });
+    await page.addScriptTag({ content: skillPanelScript });
+    await page.addScriptTag({ content: projectsPanelScript });
     await page.addScriptTag({ content: dashboardScript });
     await page.addScriptTag({ content: todoScript });
     await page.evaluate(() => {

@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "312bd9b7d13b4f7c3aa414a4830acb0e8cdb72d8",
+        "head": "0a26be7106e6ff264bc4a200820b302b52e88b0e",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -72,7 +72,8 @@
             "25d3f08a274f3ac0fe59015202f3b0d34b5b39d1",
             "2442db899536f40b04d19d8679fc0d427d6367eb",
             "b6d312cf7537442c982aa84b4d0fef4e2c715e14",
-            "b842d24f0a64555709e1b6a07f9894ee7a018845"
+            "b842d24f0a64555709e1b6a07f9894ee7a018845",
+            "af9cc7328dc642243b8c9e00cf86869353ced1ac"
         ]
     },
     "capabilities": [
@@ -583,7 +584,8 @@
                 "ef5fc3170c0fe1a753b1c6313daa5d4a7cc40e2f",
                 "4ad7604bb9a4d4ff10f790486512c3313c351200",
                 "1f2baaa6b2a5c18bd80954be773c00968619d245",
-                "dd561101bb195c5da5a3bed0acfcb3696dfbfcf4"
+                "dd561101bb195c5da5a3bed0acfcb3696dfbfcf4",
+                "0a26be7106e6ff264bc4a200820b302b52e88b0e"
             ],
             "behaviors": [
                 "PROJECT-CATALOG-SYNC-CONFLICT-001",
@@ -1162,7 +1164,8 @@
                 "6056ad799f05619a93fabe4af56e5955246e2231",
                 "7ebe4973e9fed30042171f08f8048e142f2a2f49",
                 "8335f4b0cd7dedd0b4ef2ee6f131cbe590a39ad5",
-                "42139dc54d09861d33d19c91e5734c8d7d14fef0"
+                "42139dc54d09861d33d19c91e5734c8d7d14fef0",
+                "70a4e0178b2b916655ff4d855f24bbf3d38ff3c0"
             ],
             "behaviors": [
                 "PERSIST-AI-SKILL-CENTRAL-STORE-001",

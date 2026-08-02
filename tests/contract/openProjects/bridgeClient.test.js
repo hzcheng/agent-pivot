@@ -318,3 +318,66 @@ test('OPEN-DASHBOARD-BRIDGE-LIFECYCLE-001 publishes a focus marker only when the
     assert.deepEqual(publications, [true, false]);
     assert.equal(attentionEvaluations, 2);
 });
+
+test('OPEN-UNREGISTER-ON-DEACTIVATE-001 shutdown awaits the in-flight publication before unregistering and stays idempotent', async t => {
+    const clock = createFakeClock(1000);
+    const commands = createCommandRegistry();
+    const events = [];
+    let releasePublish;
+    let releaseUnregister;
+    commands.register('_agentPivotOpenWorkspaces.bridge.publish', () => {
+        events.push('publish');
+        return new Promise(resolve => {
+            releasePublish = () => { events.push('publish-settled'); resolve(); };
+        });
+    });
+    commands.register('_agentPivotOpenWorkspaces.bridge.unregister', () => {
+        events.push('unregister');
+        return new Promise(resolve => {
+            releaseUnregister = () => { events.push('unregister-settled'); resolve(); };
+        });
+    });
+    commands.register('_agentPivotOpenWorkspaces.bridge.handshake', handshakeResponse);
+    const client = new OpenWorkspaceBridgeClient(
+        makeRecord(),
+        () => undefined,
+        error => { throw error; },
+        {
+            instanceId: SELF,
+            now: () => clock.nowMs,
+            registerCommand: commands.register,
+            executeCommand: commands.execute,
+            setInterval: clock.setInterval,
+            clearInterval: clock.clearInterval,
+        }
+    );
+    t.after(async () => {
+        client.dispose();
+        await flushAsync();
+    });
+    await flushAsync();
+
+    const publication = client.publish(makeRecord());
+    await flushAsync(2);
+    assert.deepEqual(events, ['publish']);
+
+    const firstShutdown = client.shutdown();
+    assert.equal(client.shutdown(), firstShutdown);
+    let shutdownSettled = false;
+    void firstShutdown.then(() => { shutdownSettled = true; });
+    await flushAsync();
+    assert.deepEqual(events, ['publish'],
+        'unregister must wait for the in-flight publication');
+    assert.equal(shutdownSettled, false);
+
+    releasePublish();
+    await flushAsync();
+    assert.deepEqual(events, ['publish', 'publish-settled', 'unregister']);
+    assert.equal(shutdownSettled, false);
+
+    releaseUnregister();
+    await firstShutdown;
+    await publication;
+    assert.deepEqual(events, ['publish', 'publish-settled', 'unregister', 'unregister-settled']);
+    assert.equal(shutdownSettled, true);
+});

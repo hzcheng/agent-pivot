@@ -110,6 +110,7 @@ export class OpenWorkspaceCoordinator {
     private lastScanDiagnostic = '';
     private lastScanDiagnosticAtMs = Number.NEGATIVE_INFINITY;
     private disposed = false;
+    private shutdownFlight: Promise<void> | undefined;
 
     public constructor(
         private readonly rootDirectory: string,
@@ -250,10 +251,28 @@ export class OpenWorkspaceCoordinator {
     }
 
     public dispose(): void {
-        if (this.disposed) return;
+        void this.shutdown();
+    }
+
+    public shutdown(): Promise<void> {
+        if (this.shutdownFlight) return this.shutdownFlight;
         this.disposed = true;
         this.dependencies.clearInterval(this.intervalHandle);
         this.watcher.close();
+        this.shutdownFlight = this.mutationQueue.then(() => this.removeBoundRegistration());
+        return this.shutdownFlight;
+    }
+
+    private async removeBoundRegistration(): Promise<void> {
+        if (this.store === undefined || this.boundInstanceId === undefined) return;
+        if (this.currentRegistration === undefined) return;
+        try {
+            await this.store.remove(this.boundInstanceId);
+            this.currentRegistration = undefined;
+            this.reportDiagnostic({ event: 'unregister', instanceId: this.boundInstanceId });
+        } catch (error) {
+            this.reportError('unregister', error);
+        }
     }
 
     private createStore(instanceId: string): OpenWorkspaceStoreLike {

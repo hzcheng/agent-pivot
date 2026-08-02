@@ -108,7 +108,9 @@ test('OPEN-ALL-WINDOWS-LIST-001 preserves first-opened time across coordinator r
     const store = createSyntheticOpenWorkspaceStore();
     const first = createCoordinator('/synthetic-first-opened', { store });
     await first.coordinator.publish(makePublication());
-    first.coordinator.dispose();
+    // An ungraceful loss (crash or kill) leaves the registration behind so the
+    // recreated coordinator can reclaim the original first-opened time; an
+    // orderly shutdown removes it instead (OPEN-UNREGISTER-ON-DEACTIVATE-001).
 
     const recreated = createCoordinator('/synthetic-first-opened', { store });
     t.after(() => recreated.coordinator.dispose());
@@ -292,4 +294,53 @@ test('ARCH-COORDINATOR-001 suppresses aggregate delivery when only sequence and 
 
     assert.equal(harness.deliveries.length, 1);
     assert.equal(harness.deliveries[0].registrations[0].leaseUpdatedAtMs, 1000);
+});
+
+test('OPEN-UNREGISTER-ON-DEACTIVATE-001 shutdown removes the bound registration after in-flight mutations', async t => {
+    const root = makeTempDirectory(t, 'open-workspace-coordinator-shutdown-');
+    const fixture = createCoordinator(root);
+    t.after(() => fixture.coordinator.dispose());
+
+    await fixture.coordinator.publish(makePublication({ sequence: 1 }));
+    assert.deepEqual(
+        (await fixture.store.scan(1000)).registrations.map(value => value.instanceId),
+        [SELF]
+    );
+
+    let releaseWrite;
+    const pendingWrite = new Promise(resolve => { releaseWrite = resolve; });
+    const originalWrite = fixture.store.write;
+    const writes = [];
+    fixture.store.write = registration => {
+        writes.push(registration);
+        return pendingWrite.then(() => originalWrite(registration));
+    };
+    const publication = fixture.coordinator.publish(makePublication({ sequence: 2 }));
+    await flushAsync();
+    assert.equal(writes.length, 1);
+
+    const shutdown = fixture.coordinator.shutdown();
+    assert.equal(fixture.coordinator.shutdown(), shutdown);
+    let shutdownSettled = false;
+    void shutdown.then(() => { shutdownSettled = true; });
+    await flushAsync();
+    assert.equal(shutdownSettled, false,
+        'shutdown must wait for the in-flight publication');
+
+    releaseWrite();
+    await shutdown;
+    await publication;
+    assert.equal(shutdownSettled, true);
+    assert.deepEqual((await fixture.store.scan(1000)).registrations, []);
+    assert.ok(fixture.diagnostics.some(event => event.event === 'unregister'));
+});
+
+test('OPEN-UNREGISTER-ON-DEACTIVATE-001 shutdown without a publication leaves the registry untouched', async t => {
+    const root = makeTempDirectory(t, 'open-workspace-coordinator-shutdown-idle-');
+    const fixture = createCoordinator(root);
+    t.after(() => fixture.coordinator.dispose());
+
+    await fixture.coordinator.shutdown();
+    assert.deepEqual((await fixture.store.scan(1000)).registrations, []);
+    assert.ok(!fixture.diagnostics.some(event => event.event === 'unregister'));
 });

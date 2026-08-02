@@ -221,7 +221,7 @@ const PROTOCOL_EXPECTATIONS = [
         scope: { kind: 'class-method', className: 'OpenWorkspaceBridgeClient', methodName: 'receiveAggregate' },
         nodes: [{ kind: ts.SyntaxKind.CallExpression, text: 'validateOpenWorkspaceAggregate(raw)' }] },
     { file: 'src/openWorkspaces/bridgeClient.ts', site: 'open-workspace client unregister writer',
-        scope: { kind: 'class-method-call-callback', className: 'OpenWorkspaceBridgeClient', methodName: 'dispose', callee: 'Promise.resolve().then', argumentIndex: 0 },
+        scope: { kind: 'class-method-call-callback', className: 'OpenWorkspaceBridgeClient', methodName: 'shutdown', callee: 'Promise.resolve().then', argumentIndex: 0 },
         nodes: [{ kind: ts.SyntaxKind.PropertyAssignment, text: 'protocolVersion: OPEN_WORKSPACE_PROTOCOL_VERSION' }] },
     { file: 'src/openWorkspaces/bridgeClient.ts', site: 'open-workspace client publication writer',
         scope: { kind: 'class-method', className: 'OpenWorkspaceBridgeClient', methodName: 'publishNow' },

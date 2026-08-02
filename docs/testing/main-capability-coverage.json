@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "546f4b2cb06f295d72576299dd4bcef358b73eff",
+        "head": "e5b492de8e4bf551e3ef8015cfab9d6612b89d97",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -74,7 +74,8 @@
             "b6d312cf7537442c982aa84b4d0fef4e2c715e14",
             "b842d24f0a64555709e1b6a07f9894ee7a018845",
             "af9cc7328dc642243b8c9e00cf86869353ced1ac",
-            "95a9a7bc69b494fcd4f0d902d76370687baf4472"
+            "95a9a7bc69b494fcd4f0d902d76370687baf4472",
+            "05edca8119b9a471cbcd32f287144cebe7ebae08"
         ]
     },
     "capabilities": [
@@ -177,12 +178,14 @@
                 "e9c29252c0ec9edeef3ecfcaf721bb5b6dacd6cf",
                 "36e5ca3c37eb92abd68286025ad8b1efbe7b09ee",
                 "f392bca7ef4a8097b9d4acb9873722bcd3f2b6b0",
-                "a6029db70b0b7a4a0b997c4432ced7d179aed2a2"
+                "a6029db70b0b7a4a0b997c4432ced7d179aed2a2",
+                "e5b492de8e4bf551e3ef8015cfab9d6612b89d97"
             ],
             "behaviors": [
                 "OPEN-PROTOCOL-001",
                 "ARCH-COORDINATOR-001",
-                "OPEN-WORKSPACE-INSTANCE-ROLLOVER-001"
+                "OPEN-WORKSPACE-INSTANCE-ROLLOVER-001",
+                "OPEN-UNREGISTER-ON-DEACTIVATE-001"
             ],
             "prGates": [
                 "test:deterministic:run"

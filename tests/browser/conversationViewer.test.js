@@ -50,6 +50,10 @@ const conversationReconcileScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/conversationReconcileScripts.js'),
     'utf8'
 );
+const conversationSubagentsScript = fs.readFileSync(
+    path.join(__dirname, '../../src/webview/conversationSubagentsScripts.js'),
+    'utf8'
+);
 const viewerCss = fs.readFileSync(
     path.join(__dirname, '../../media/conversationViewer.css'),
     'utf8'
@@ -154,6 +158,8 @@ const hostileConversationPage = Object.freeze({
     previousCursor: 'previous',
     nextCursor: 'next',
     stale: false,
+    subagents: [],
+    activeSubagent: null,
 });
 
 let browser;
@@ -657,6 +663,13 @@ async function openHostViewerDocument(t, options = {}) {
             });
             return;
         }
+        if (pathname === '/conversationSubagentsScripts.js') {
+            await route.fulfill({
+                contentType: 'text/javascript',
+                body: conversationSubagentsScript,
+            });
+            return;
+        }
         if (pathname === '/mermaid.min.js') {
             await route.fulfill({
                 contentType: 'text/javascript',
@@ -937,6 +950,188 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 acquires one real document API 
     ]);
 });
 
+test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 lists subagents, opens a transcript, and restores the conversation', async t => {
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+    });
+    const subagents = [{
+        id: 'a11111111',
+        label: 'Explore the parser',
+        agentType: 'explore',
+        status: 'running',
+        updatedAt: 1_780_000_000_000,
+    }, {
+        id: 'a22222222',
+        label: 'Implement the feature',
+        agentType: 'coder',
+        status: 'idle',
+        updatedAt: 1_780_000_100_000,
+    }];
+    await sendPage(page, {
+        ...hostileConversationPage,
+        requestId: 50,
+        updateKind: 'initial',
+        html: messageHtml('main-session-message', 2),
+        subagents,
+        activeSubagent: null,
+    });
+
+    await page.locator('[data-action="toggle-sidebar"]').click();
+    await page.locator('[data-sidebar-tab="subagents"]').click();
+    const entry = page.locator('[data-subagent-id="a11111111"]');
+    const finishedEntry = page.locator('[data-subagent-id="a22222222"]');
+    assert.match(await entry.innerText(), /Explore the parser/);
+    assert.match(await entry.innerText(), /Running/);
+    assert.equal(
+        await page.locator('[data-subagent-banner]').evaluate(
+            element => getComputedStyle(element).display
+        ),
+        'none',
+        'a hidden banner must stay display:none with production styles'
+    );
+    assert.match(
+        await page.locator('[data-subagents-summary]').innerText(),
+        /2 \/ 2 subagents/
+    );
+
+    // The running-only filter hides finished subagents and persists into the
+    // Webview state so a document rebuild (subagent switch) keeps it.
+    await page.locator('[data-subagents-running-only]').check();
+    assert.equal(await finishedEntry.count(), 0);
+    assert.equal(await entry.count(), 1);
+    assert.match(
+        await page.locator('[data-subagents-summary]').innerText(),
+        /1 \/ 2 subagents/
+    );
+    const savedState = await page.evaluate(() => window.__webviewState);
+    assert.equal(savedState.conversationSidebar.subagentsRunningOnly, true);
+    await page.close();
+
+    const rebuilt = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+        initialWebviewState: savedState,
+    });
+    await sendPage(rebuilt.page, {
+        ...hostileConversationPage,
+        requestId: 50,
+        updateKind: 'initial',
+        html: messageHtml('main-session-message', 2),
+        subagents,
+        activeSubagent: { id: 'a11111111', label: 'Explore the parser' },
+    });
+    assert.equal(
+        await rebuilt.page.locator('[data-subagents-running-only]').isChecked(),
+        true,
+        'the filter must survive a document rebuild'
+    );
+    await rebuilt.page.locator('[data-sidebar-tab="subagents"]').click();
+    assert.equal(
+        await rebuilt.page.locator('[data-subagent-id="a22222222"]').count(),
+        0
+    );
+    assert.equal(
+        await rebuilt.page.locator('[data-subagent-id="a11111111"]').count(),
+        1
+    );
+    await rebuilt.page.locator('[data-subagents-running-only]').uncheck();
+    const rebuiltEntry = rebuilt.page.locator('[data-subagent-id="a11111111"]');
+    assert.equal(
+        await rebuilt.page.locator('[data-subagent-id="a22222222"]').count(),
+        1
+    );
+
+    // The telemetry counter shows running/total and opens the Subagents tab.
+    const counter = rebuilt.page.locator('[data-telemetry-subagents]');
+    assert.equal(await counter.isVisible(), true);
+    assert.equal(await counter.innerText(), 'Agents 1/2');
+    assert.match(await counter.getAttribute('title'), /1 running of 2/);
+    assert.equal(
+        await rebuilt.page.locator('[data-conversation-telemetry]').isVisible(),
+        true,
+        'the counter must reveal the telemetry bar even without usage data'
+    );
+    await rebuilt.page.locator('[data-action="toggle-sidebar"]').click();
+    await counter.click();
+    assert.equal(
+        await rebuilt.page.locator('[data-sidebar-tab="subagents"]')
+            .getAttribute('aria-selected'),
+        'true'
+    );
+    assert.equal(
+        await rebuilt.page.locator('[data-conversation-subagents]').isVisible(),
+        true
+    );
+
+    await rebuiltEntry.click();
+    assert.deepEqual((await postedMessages(rebuilt.page)).at(-1), {
+        type: 'conversation-viewer-open-subagent',
+        version: 1,
+        subagentId: 'a11111111',
+    });
+
+    await sendPage(rebuilt.page, {
+        ...hostileConversationPage,
+        requestId: 51,
+        updateKind: 'navigation',
+        html: messageHtml('subagent-message', 2),
+        subagents,
+        activeSubagent: { id: 'a11111111', label: 'Explore the parser' },
+    });
+    assert.equal(
+        await rebuilt.page.locator('[data-subagent-banner]').isVisible(),
+        true
+    );
+    assert.match(
+        await rebuilt.page.locator('[data-subagent-banner-label]').innerText(),
+        /Explore the parser/
+    );
+    assert.equal(
+        await rebuilt.page.evaluate(() =>
+            document.body.getAttribute('data-viewing-subagent')),
+        'true'
+    );
+    assert.equal(await rebuiltEntry.getAttribute('aria-current'), 'true');
+
+    await rebuilt.page.locator('[data-action="close-subagent"]').click();
+    assert.deepEqual((await postedMessages(rebuilt.page)).at(-1), {
+        type: 'conversation-viewer-close-subagent',
+        version: 1,
+    });
+
+    // Returning to the main conversation hides the banner again, even with
+    // production styles where display:flex would beat the hidden attribute.
+    await sendPage(rebuilt.page, {
+        ...hostileConversationPage,
+        requestId: 52,
+        updateKind: 'initial',
+        html: messageHtml('main-session-message', 2),
+        subagents,
+        activeSubagent: null,
+    });
+    assert.equal(
+        await rebuilt.page.locator('[data-subagent-banner]').evaluate(
+            element => getComputedStyle(element).display
+        ),
+        'none'
+    );
+    assert.equal(
+        await rebuilt.page.evaluate(() =>
+            document.body.getAttribute('data-viewing-subagent')),
+        'false'
+    );
+
+    await sendPage(rebuilt.page, {
+        ...hostileConversationPage,
+        requestId: 53,
+        updateKind: 'refresh',
+        subagents: [],
+        activeSubagent: null,
+    });
+    assert.equal(await counter.isVisible(), false);
+});
+
 test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 keeps boundary navigation inert while Latest stays available', async t => {
     const { page } = await openHostViewerDocument(t, {
         interactionIds: ['input-only'],
@@ -1022,6 +1217,7 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 filters the current Session outline an
                 width: 240,
                 view: 'outline',
                 query: 'deploy',
+                subagentsRunningOnly: false,
             },
         }
     );
@@ -1249,6 +1445,7 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 CONVERSATION-COMMENTS-LAYOUT-001 share
                 width: 272,
                 view: 'outline',
                 query: '',
+                subagentsRunningOnly: false,
             },
         }
     );
@@ -1265,6 +1462,7 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 CONVERSATION-COMMENTS-LAYOUT-001 share
                 width: 272,
                 view: 'outline',
                 query: '',
+                subagentsRunningOnly: false,
             },
         }
     );
@@ -1432,6 +1630,88 @@ test('CONVERSATION-COMMENTS-DOM-STABILITY-001 keeps the Conversation DOM intact 
         nodeCount: baseline.nodeCount,
         mutations: 0,
     });
+});
+
+test('CONVERSATION-COMMENTS-UI-001 header send pill and telemetry comments pill drive the comments flow', async t => {
+    const interactionId = 'input-header-send';
+    const { page } = await openHostViewerDocument(t, {
+        interactionIds: [interactionId],
+        interactionId,
+        initialWebviewState: {
+            conversationSidebar: {
+                open: true,
+                width: 240,
+                view: 'outline',
+                query: '',
+            },
+        },
+        pageOverrides: {
+            previousCursor: undefined,
+            nextCursor: undefined,
+            isStart: true,
+            isEnd: true,
+        },
+    });
+
+    const headerSend = page.locator('[data-action="send-comments"]');
+    const pill = page.locator('[data-telemetry-comments]');
+    assert.equal(await headerSend.innerText(), 'Send');
+    assert.equal(await headerSend.isDisabled(), true);
+    assert.equal(await pill.isVisible(), false);
+
+    await page.locator('[data-sidebar-tab="comments"]').click();
+    await page.locator('[data-comment-action="new"]').click();
+    await page.locator('[data-comment-input]').fill(
+        'Check the rollout constraint.'
+    );
+    await page.locator('[data-comment-input]').press('Control+Enter');
+    const addRequest = (await postedMessages(page)).at(-1);
+    const comment = {
+        id: 'note-1',
+        scope: 'session',
+        messageId: '',
+        interactionId: '',
+        role: 'user',
+        quote: '',
+        prefix: '',
+        suffix: '',
+        comment: 'Check the rollout constraint.',
+        status: 'open',
+    };
+    await page.evaluate(({ request, comment }) => {
+        window.dispatchEvent(new MessageEvent('message', {
+            data: {
+                type: 'conversation-viewer-comments-result',
+                version: 1,
+                requestId: request.requestId,
+                subscriptionGeneration: request.subscriptionGeneration,
+                projectId: request.projectId,
+                provider: request.provider,
+                sessionId: request.sessionId,
+                operation: request.operation,
+                success: true,
+                revision: 1,
+                comments: [comment],
+            },
+        }));
+    }, { request: addRequest, comment });
+
+    assert.equal(await headerSend.innerText(), 'Send 1');
+    assert.equal(await headerSend.isDisabled(), false);
+    assert.equal(await pill.isVisible(), true);
+    assert.equal(await pill.innerText(), 'Comments 1');
+
+    await page.locator('[data-sidebar-tab="outline"]').click();
+    await pill.click();
+    assert.equal(
+        await page.locator('[data-sidebar-tab="comments"]')
+            .getAttribute('aria-selected'),
+        'true'
+    );
+    await headerSend.click();
+    const sendRequest = (await postedMessages(page)).at(-1);
+    assert.equal(sendRequest.type, 'conversation-viewer-send-comments');
+    assert.equal(sendRequest.operation, 'sendComments');
 });
 
 test('CONVERSATION-COMMENTS-UI-001 adds a session-wide note without selecting conversation text', async t => {
@@ -1827,6 +2107,8 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-REVIEW-001 CONVERSATION
         partial: false,
         atLatest: true,
         stale: false,
+        subagents: [],
+        activeSubagent: null,
     });
     await page.locator('[data-comment-id="comment-1"]')
         .locator('[data-comment-action="locate"]').click();
@@ -1871,6 +2153,8 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-REVIEW-001 CONVERSATION
         partial: false,
         atLatest: false,
         stale: false,
+        subagents: [],
+        activeSubagent: null,
     });
     assert.match(
         await page.locator('[data-conversation-messages]').innerHTML(),

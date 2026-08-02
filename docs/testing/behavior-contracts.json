@@ -3837,6 +3837,26 @@
     ]
   },
   {
+    "id": "WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001",
+    "domain": "webview",
+    "title": "Conversation viewers list session subagents and render their transcripts in place",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/contract/aiSessions/kimiConversationAdapter.test.js",
+      "tests/integration/dashboard/conversationViewer.test.js",
+      "tests/browser/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/subagentSessions.ts",
+      "src/aiSessions/conversation/kimiAdapter.ts",
+      "src/aiSessions/conversation/viewer.ts",
+      "src/aiSessions/conversation/viewerProtocol.ts",
+      "src/aiSessions/conversation/viewerDocument.ts",
+      "src/webview/conversationSubagentsScripts.js"
+    ]
+  },
+  {
     "id": "CONVERSATION-VIEWER-LOADING-001",
     "domain": "webview",
     "title": "Watched invalidations cannot starve an in-flight conversation viewer publication",

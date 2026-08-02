@@ -55,6 +55,9 @@ export function renderConversationViewerDocument(
     const outlineScript = panel.webview.asWebviewUri(
         options.mediaUri('conversationOutlineScripts.js')
     );
+    const subagentsScript = panel.webview.asWebviewUri(
+        options.mediaUri('conversationSubagentsScripts.js')
+    );
     const telemetryScript = panel.webview.asWebviewUri(
         options.mediaUri('conversationTelemetryScripts.js')
     );
@@ -116,6 +119,8 @@ export function renderConversationViewerDocument(
             <button type="button" data-action="previous">Previous</button>
             <button type="button" data-action="next">Next</button>
             <button type="button" data-action="latest">Latest</button>
+            <button type="button" data-action="send-comments" disabled
+                title="Add open comments to the session input">Send</button>
             <button type="button" data-action="toggle-sidebar"
                 aria-controls="conversation-sidebar"
                 aria-expanded="false" aria-label="Show side panel">Sidebar</button>
@@ -125,6 +130,10 @@ export function renderConversationViewerDocument(
     <div class="conversation-status" data-conversation-status aria-live="polite">${escapeHtml(
         initialStatus
     )}</div>
+    <div class="conversation-subagent-banner" data-subagent-banner hidden>
+        Viewing subagent <strong data-subagent-banner-label></strong>
+        <button type="button" data-action="close-subagent">Back to conversation</button>
+    </div>
     <div class="conversation-workspace" data-comments-open="false">
         <main class="conversation-scroll" data-conversation-scroll tabindex="0">
             <div class="conversation-messages" data-conversation-messages></div>
@@ -146,9 +155,10 @@ export function renderConversationViewerDocument(
                     id="conversation-comments-tab"
                     aria-controls="conversation-comments-panel"
                     aria-selected="false">Comments</button>
-                <button type="button" class="conversation-sidebar-close"
-                    data-sidebar-close aria-label="Close side panel"
-                    title="Close side panel">×</button>
+                <button type="button" role="tab" data-sidebar-tab="subagents"
+                    id="conversation-subagents-tab"
+                    aria-controls="conversation-subagents-panel"
+                    aria-selected="false">Subagents</button>
             </div>
             <section id="conversation-outline-panel"
                 class="conversation-outline" data-conversation-outline
@@ -232,6 +242,25 @@ export function renderConversationViewerDocument(
                         title="Add open comments to the session input">Add open comments to session input</button>
                 </div>
             </section>
+            <section id="conversation-subagents-panel"
+                class="conversation-subagents" data-conversation-subagents
+                role="tabpanel" aria-labelledby="conversation-subagents-tab"
+                hidden>
+                <div class="conversation-subagents-header">
+                    <strong>Subagents</strong>
+                    <label class="conversation-subagents-filter"
+                        for="conversation-subagents-running-only">
+                        <input id="conversation-subagents-running-only"
+                            type="checkbox" data-subagents-running-only>
+                        Running only
+                    </label>
+                    <span data-subagents-summary>No subagents yet</span>
+                </div>
+                <ol class="conversation-subagents-list"
+                    data-subagents-list></ol>
+                <p class="conversation-subagents-empty" data-subagents-empty
+                    hidden>No subagents recorded for this Session.</p>
+            </section>
         </aside>
     </div>
     <button class="conversation-add-comment" type="button"
@@ -248,6 +277,9 @@ export function renderConversationViewerDocument(
     )}"></script>
     <script nonce="${escapeAttribute(nonce)}" src="${escapeAttribute(
         outlineScript.toString()
+    )}"></script>
+    <script nonce="${escapeAttribute(nonce)}" src="${escapeAttribute(
+        subagentsScript.toString()
     )}"></script>
     <script nonce="${escapeAttribute(nonce)}" src="${escapeAttribute(
         telemetryScript.toString()

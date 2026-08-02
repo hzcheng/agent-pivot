@@ -62,7 +62,6 @@
     var sidebarTabs = Array.prototype.slice.call(
         document.querySelectorAll('[data-sidebar-tab]')
     );
-    var sidebarClose = document.querySelector('[data-sidebar-close]');
     var outlineRoot = document.querySelector('[data-conversation-outline]');
     var outlineCount = document.querySelector('[data-outline-count]');
     var outlineSummary = document.querySelector('[data-outline-summary]');
@@ -74,6 +73,26 @@
         '[data-outline-bookmarks-only]'
     );
     var commentsRoot = document.querySelector('[data-conversation-comments]');
+    var subagentsRoot = document.querySelector('[data-conversation-subagents]');
+    var subagentsList = document.querySelector('[data-subagents-list]');
+    var subagentsEmpty = document.querySelector('[data-subagents-empty]');
+    var subagentsSummary = document.querySelector('[data-subagents-summary]');
+    var subagentBanner = document.querySelector('[data-subagent-banner]');
+    var subagentBannerLabel = document.querySelector(
+        '[data-subagent-banner-label]'
+    );
+    var subagentsRunningOnly = document.querySelector(
+        '[data-subagents-running-only]'
+    );
+    var telemetrySubagents = document.querySelector(
+        '[data-telemetry-subagents]'
+    );
+    var telemetrySection = document.querySelector(
+        '[data-conversation-telemetry]'
+    );
+    var closeSubagent = document.querySelector(
+        '[data-action="close-subagent"]'
+    );
     var commentCount = document.querySelector('[data-comment-count]');
     var commentSummary = document.querySelector('[data-comment-summary]');
     var commentComposer = document.querySelector('[data-comment-composer]');
@@ -93,10 +112,14 @@
         '[data-comment-action="clearAll"]'
     );
     var addComment = document.querySelector('[data-add-comment]');
+    var headerSend = document.querySelector('[data-action="send-comments"]');
+    var telemetryComments = document.querySelector(
+        '[data-telemetry-comments]'
+    );
     var commentTarget = readJsonAttribute('data-conversation-target');
     var sidebarUiAvailable = !!sidebarToggle
         && !!commentsWorkspace && !!commentsResizer && !!sidebarRoot
-        && sidebarTabs.length === 2 && !!sidebarClose && !!outlineRoot
+        && sidebarTabs.length === 3 && !!outlineRoot
         && !!outlineCount && !!outlineSummary && !!outlineSearch
         && !!outlineList && !!outlineEmpty && !!outlinePartial
         && !!outlineBookmarksOnly;
@@ -109,7 +132,14 @@
         && !!commentList && !!commentEmpty && !!commentNew
         && !!commentSend && !!addComment
         && !!commentClearSent && !!commentClearResolved && !!commentClearAll
+        && !!headerSend && !!telemetryComments && !!telemetrySection
         && validCommentTarget(commentTarget);
+    var subagentUiAvailable = sidebarUiAvailable
+        && !!subagentsRoot && !!subagentsList && !!subagentsEmpty
+        && !!subagentsSummary && !!subagentBanner && !!subagentBannerLabel
+        && !!subagentsRunningOnly && !!closeSubagent
+        && !!telemetrySubagents && !!telemetrySection
+        && !!window.__agentPivotConversationSubagents;
     var state = {
         atLatest: false,
         initialized: false,
@@ -163,11 +193,14 @@
         commentsResizer: commentsResizer,
         sidebarRoot: sidebarRoot,
         sidebarTabs: sidebarTabs,
-        sidebarClose: sidebarClose,
         outlineRoot: outlineRoot,
         commentsRoot: commentsRoot,
+        subagentsRoot: subagentsRoot,
         outlineQuery: function () {
             return outlineController.query();
+        },
+        subagentsRunningOnlyQuery: function () {
+            return !!subagentsRunningOnly && subagentsRunningOnly.checked;
         },
     });
     var outlineController = window.__agentPivotConversationOutline.create({
@@ -188,6 +221,47 @@
         persistPanelState: sidebarController.save,
         updateToggle: sidebarController.updateToggle,
     });
+    var subagentsController = subagentUiAvailable
+        ? window.__agentPivotConversationSubagents.create({
+            listRoot: subagentsList,
+            emptyRoot: subagentsEmpty,
+            summaryRoot: subagentsSummary,
+            banner: subagentBanner,
+            bannerLabel: subagentBannerLabel,
+            runningOnly: subagentsRunningOnly,
+            telemetrySubagents: telemetrySubagents,
+            telemetrySection: telemetrySection,
+            onRunningOnlyChange: function () {
+                sidebarController.save();
+            },
+            onOpen: function (subagentId) {
+                post({
+                    type: 'conversation-viewer-open-subagent',
+                    version: 1,
+                    subagentId: subagentId,
+                });
+            },
+        })
+        : null;
+    if (subagentUiAvailable) {
+        closeSubagent.addEventListener('click', function () {
+            post({
+                type: 'conversation-viewer-close-subagent',
+                version: 1,
+            });
+        });
+        telemetrySubagents.addEventListener('click', function () {
+            sidebarController.setView('subagents', true, true);
+        });
+    }
+    if (commentUiAvailable) {
+        headerSend.addEventListener('click', function () {
+            commentsController.sendOpenComments();
+        });
+        telemetryComments.addEventListener('click', function () {
+            sidebarController.setView('comments', true, true);
+        });
+    }
     var telemetryController = window.__agentPivotConversationTelemetry.create({
         target: commentTarget,
         subscriptionGeneration: state.subscriptionGeneration,
@@ -228,6 +302,9 @@
         commentClearSent: commentClearSent,
         commentClearResolved: commentClearResolved,
         commentClearAll: commentClearAll,
+        headerSend: headerSend,
+        telemetryComments: telemetryComments,
+        telemetrySection: telemetrySection,
         post: post,
         messageSelector: conversationMessageSelector,
         messageId: conversationMessageId,
@@ -411,6 +488,52 @@
             && identities.has(selectedInteractionId);
     }
 
+    function validSubagentEntry(value) {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) {
+            return false;
+        }
+        var allowed = new Set([
+            'id', 'label', 'agentType', 'status', 'createdAt', 'updatedAt',
+        ]);
+        return Object.keys(value).every(function (key) {
+            return allowed.has(key);
+        }) && typeof value.id === 'string' && !!value.id
+            && value.id.length <= 128
+            && typeof value.label === 'string'
+            && (value.agentType === undefined
+                || typeof value.agentType === 'string')
+            && (value.status === 'running' || value.status === 'idle'
+                || value.status === 'failed' || value.status === 'killed')
+            && (value.createdAt === undefined
+                || (Number.isSafeInteger(value.createdAt)
+                    && value.createdAt >= 0))
+            && (value.updatedAt === undefined
+                || (Number.isSafeInteger(value.updatedAt)
+                    && value.updatedAt >= 0));
+    }
+
+    function validSubagents(value) {
+        if (!Array.isArray(value) || value.length > 256
+            || !value.every(validSubagentEntry)) {
+            return false;
+        }
+        return new Set(value.map(function (entry) {
+            return entry.id;
+        })).size === value.length;
+    }
+
+    function validActiveSubagent(value) {
+        if (value === null) return true;
+        if (!value || typeof value !== 'object' || Array.isArray(value)) {
+            return false;
+        }
+        var keys = Object.keys(value);
+        return keys.length === 2
+            && typeof value.id === 'string' && !!value.id
+            && value.id.length <= 128
+            && typeof value.label === 'string';
+    }
+
     function validPage(message) {
         if (!message || typeof message !== 'object' || Array.isArray(message)) {
             return false;
@@ -421,7 +544,7 @@
             'totalInputs', 'partial', 'atLatest', 'stale',
         ];
         var allowedKeys = new Set(requiredKeys.concat([
-            'previousCursor', 'nextCursor',
+            'previousCursor', 'nextCursor', 'subagents', 'activeSubagent',
         ]));
         if (Object.keys(message).some(function (key) {
             return !allowedKeys.has(key);
@@ -452,6 +575,8 @@
                 || typeof message.previousCursor === 'string')
             && (message.nextCursor === undefined
                 || typeof message.nextCursor === 'string')
+            && validSubagents(message.subagents)
+            && validActiveSubagent(message.activeSubagent)
             && typeof message.stale === 'boolean';
     }
 
@@ -516,6 +641,12 @@
         state.atLatest = message.atLatest;
         state.initialized = true;
         outlineController.applyOutline(message);
+        if (subagentsController) {
+            subagentsController.apply(
+                message.subagents,
+                message.activeSubagent
+            );
+        }
         commentsController.updateHighlights();
         updatePosition(message);
         previous.disabled = message.previousCursor === undefined;
@@ -693,9 +824,16 @@
         if (savedCommentsPanel) {
             sidebarController.restore(savedCommentsPanel);
             outlineController.restoreQuery(savedCommentsPanel.query);
+            if (subagentsRunningOnly) {
+                subagentsRunningOnly.checked =
+                    savedCommentsPanel.subagentsRunningOnly === true;
+            }
         }
         sidebarController.applyLayout();
         outlineController.filter();
+        if (subagentsController) {
+            subagentsController.refresh();
+        }
     }
     if (commentUiAvailable) {
         commentsController.initializeComments();

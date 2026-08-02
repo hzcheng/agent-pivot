@@ -1,6 +1,8 @@
 'use strict';
 
 import { createHash } from 'crypto';
+import * as fs from 'fs';
+import * as path from 'path';
 import type {
     AiSessionConversationSourceCandidate,
     AiSessionDisposable,
@@ -33,8 +35,13 @@ import {
     ConversationPageRequest,
     ConversationProviderAdapter,
     ConversationResponseState,
+    ConversationSubagentEntry,
     ConversationTelemetry,
 } from './types';
+import {
+    isSubagentId,
+    splitSubagentSessionId,
+} from './subagentSessions';
 import {
     openValidatedConversationSource,
     OpenConversationSource,
@@ -46,6 +53,9 @@ import type {
 
 const MAX_TELEMETRY_PATHS = 16;
 const ABSOLUTE_PATH_PATTERN = /(?<![\w.~=-])\/(?:[\w.@+~-]+\/)*[\w.@+~-]+/g;
+const MAX_LISTED_SUBAGENTS = 64;
+const SUBAGENT_DIRECTORY_PATTERN = /^[0-9a-z][0-9a-z-]{0,63}$/i;
+const SUBAGENT_RUNNING_FRESHNESS_MS = 5 * 60 * 1000;
 
 function extractAbsolutePaths(value: string): string[] {
     const paths = new Set<string>();
@@ -219,6 +229,58 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
         return undefined;
     }
 
+    async readSubagents(
+        sessionId: string,
+        _signal?: ConversationAbortSignal
+    ): Promise<ConversationSubagentEntry[]> {
+        if (this.disposed) {
+            return [];
+        }
+        const split = splitSubagentSessionId(sessionId);
+        if (split.subagentId) {
+            return [];
+        }
+        const candidate = this.options.resolveSource(split.sessionId);
+        if (!candidate) {
+            return [];
+        }
+        const subagentsRoot = path.join(
+            path.dirname(candidate.sourcePath),
+            'subagents'
+        );
+        let dirents: fs.Dirent[];
+        try {
+            dirents = await fs.promises.readdir(subagentsRoot, {
+                withFileTypes: true,
+            });
+        } catch (_error) {
+            return [];
+        }
+        const now = Date.now();
+        const entries: ConversationSubagentEntry[] = [];
+        for (const dirent of dirents) {
+            if (entries.length >= MAX_LISTED_SUBAGENTS) {
+                break;
+            }
+            if (!dirent.isDirectory()
+                || !SUBAGENT_DIRECTORY_PATTERN.test(dirent.name)) {
+                continue;
+            }
+            const entry = await readSubagentEntry(
+                path.join(subagentsRoot, dirent.name),
+                dirent.name,
+                now
+            );
+            if (entry) {
+                entries.push(entry);
+            }
+        }
+        entries.sort((left, right) =>
+            (left.createdAt ?? left.updatedAt ?? 0)
+            - (right.createdAt ?? right.updatedAt ?? 0));
+        return entries;
+    }
+
     watch(sessionId: string, onChange: () => void): AiSessionDisposable {
         if (this.disposed) {
             return { dispose() {} };
@@ -281,11 +343,28 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
         if (this.disposed) {
             throw new ConversationError('unavailable', 'missingSource');
         }
-        const candidate = this.options.resolveSource(sessionId);
+        const split = splitSubagentSessionId(sessionId);
+        if (split.subagentId && !isSubagentId(split.subagentId)) {
+            throw new ConversationError('unavailable', 'missingSource');
+        }
+        const candidate = this.options.resolveSource(split.sessionId);
         if (!candidate) {
             throw new ConversationError('unavailable', 'missingSource');
         }
-        const source = await openValidatedConversationSource(candidate);
+        const effectiveCandidate = split.subagentId
+            ? {
+                providerHome: candidate.providerHome,
+                sourcePath: path.join(
+                    path.dirname(candidate.sourcePath),
+                    'subagents',
+                    split.subagentId,
+                    'wire.jsonl'
+                ),
+            }
+            : candidate;
+        const source = await openValidatedConversationSource(
+            effectiveCandidate
+        );
         if (!source) {
             throw new ConversationError('unavailable', 'missingSource');
         }
@@ -562,4 +641,85 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
             this.invalidationTimer = undefined;
         }
     }
+}
+
+interface SubagentMeta {
+    description?: string;
+    subagent_type?: string;
+    status?: string;
+    created_at?: number;
+}
+
+async function readSubagentEntry(
+    directory: string,
+    id: string,
+    now: number
+): Promise<ConversationSubagentEntry | undefined> {
+    let wireStat: fs.Stats;
+    try {
+        wireStat = await fs.promises.stat(path.join(directory, 'wire.jsonl'));
+    } catch (_error) {
+        return undefined;
+    }
+    const meta = await readSubagentMeta(path.join(directory, 'meta.json'));
+    return {
+        id,
+        label: subagentLabel(meta, id),
+        ...(meta?.subagent_type ? { agentType: meta.subagent_type } : {}),
+        status: subagentStatus(meta?.status, wireStat.mtimeMs, now),
+        ...(Number.isFinite(meta?.created_at)
+            ? { createdAt: Math.floor((meta?.created_at as number) * 1000) }
+            : {}),
+        updatedAt: Math.floor(wireStat.mtimeMs),
+    };
+}
+
+async function readSubagentMeta(
+    metaPath: string
+): Promise<SubagentMeta | undefined> {
+    try {
+        const parsed: unknown = JSON.parse(
+            await fs.promises.readFile(metaPath, 'utf8')
+        );
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+            return undefined;
+        }
+        return parsed as SubagentMeta;
+    } catch (_error) {
+        return undefined;
+    }
+}
+
+function subagentLabel(meta: SubagentMeta | undefined, id: string): string {
+    const description = typeof meta?.description === 'string'
+        ? normalizeVisibleText(meta?.description ?? '')
+        : '';
+    if (description) {
+        return countGraphemes(description) <= 120
+            ? description
+            : truncateGraphemes(description, 119);
+    }
+    const agentType = typeof meta?.subagent_type === 'string'
+        ? meta.subagent_type
+        : '';
+    return agentType ? `${agentType} · ${id}` : id;
+}
+
+function subagentStatus(
+    rawStatus: string | undefined,
+    wireMtimeMs: number,
+    now: number
+): ConversationSubagentEntry['status'] {
+    if (rawStatus === 'failed' || rawStatus === 'killed') {
+        return rawStatus;
+    }
+    if (rawStatus === 'running_foreground'
+        || rawStatus === 'running_background') {
+        // A crashed CLI never resets meta.json: only a freshly written wire
+        // proves the subagent is actually alive.
+        return now - wireMtimeMs <= SUBAGENT_RUNNING_FRESHNESS_MS
+            ? 'running'
+            : 'failed';
+    }
+    return 'idle';
 }

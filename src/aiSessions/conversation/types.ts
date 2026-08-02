@@ -217,6 +217,15 @@ export class ConversationAbortController {
     }
 }
 
+export interface ConversationSubagentEntry {
+    id: string;
+    label: string;
+    agentType?: string;
+    status: 'running' | 'idle' | 'failed' | 'killed';
+    createdAt?: number;
+    updatedAt?: number;
+}
+
 export interface ConversationProviderAdapter extends AiSessionDisposable {
     readOutline(
         sessionId: string,
@@ -226,6 +235,10 @@ export interface ConversationProviderAdapter extends AiSessionDisposable {
         request: ConversationPageRequest,
         signal?: ConversationAbortSignal
     ): Promise<ConversationPage>;
+    readSubagents?(
+        sessionId: string,
+        signal?: ConversationAbortSignal
+    ): Promise<ConversationSubagentEntry[]>;
     readTelemetry?(
         sessionId: string,
         signal?: ConversationAbortSignal

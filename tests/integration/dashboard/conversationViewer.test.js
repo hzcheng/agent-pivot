@@ -232,6 +232,7 @@ function createViewer(options = {}) {
             outline(sessionId, ['input-1'])),
         readPage: options.readPage || (async request =>
             page(request.sessionId, request.anchorInteractionId)),
+        readSubagents: options.readSubagents,
         watch: options.watch || ((_provider, sessionId) => ({
             dispose() {
                 watchDisposals.push(sessionId);
@@ -287,6 +288,106 @@ test('CONVERSATION-FOLLOW-ACTIVE-SESSION-001 follows another Session only when t
     assert.equal(panel.webview.html.includes('visible-session-b'), true);
     assert.equal(panel.webview.html.includes('visible-session-a'), false);
     assert.deepEqual(panel.revealColumns, [fakeVscode.ViewColumn.Active]);
+});
+
+test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 opens a subagent transcript in place and returns to the conversation', async () => {
+    const subagentEntries = [
+        {
+            id: 'a11111111',
+            label: 'Explore the parser',
+            agentType: 'explore',
+            status: 'running',
+            createdAt: 1,
+            updatedAt: 2,
+        },
+    ];
+    const { viewer, panel } = createViewer({
+        readOutline: async (_provider, sessionId) => sessionId.includes('#agent:')
+            ? outline(sessionId, ['sub-input-1'])
+            : outline(sessionId, ['input-a', 'input-b']),
+        readPage: async request => page(
+            request.sessionId,
+            request.anchorInteractionId,
+            request.sessionId.includes('#agent:')
+                ? 'subagent-visible'
+                : 'main-visible'
+        ),
+        readSubagents: async () => subagentEntries,
+    });
+
+    await viewer.open(target('session-a', 'input-a'));
+    const initial = decodeInitialPublication(panel.webview.html);
+    assert.deepEqual(
+        initial.subagents.map(entry => [entry.id, entry.status]),
+        [['a11111111', 'running']]
+    );
+    assert.equal(initial.activeSubagent, null);
+
+    await panel.receive({
+        type: 'conversation-viewer-open-subagent',
+        version: 1,
+        subagentId: 'a11111111',
+    });
+    // The switch applies in place: no document rebuild, and the publication
+    // keeps the subscription generation baked into the current document.
+    const initialGeneration = Number(panel.webview.html.match(
+        /data-subscription-generation="(\d+)"/
+    )[1]);
+    assert.equal(panel.webview.html.includes('subagent-visible'), false);
+    let publication = panel.postedMessages.at(-1);
+    assert.equal(publication.activeSubagent.id, 'a11111111');
+    assert.equal(publication.activeSubagent.label, 'Explore the parser');
+    assert.ok(publication.html.includes('subagent-visible'));
+    assert.equal(
+        publication.subscriptionGeneration,
+        initialGeneration,
+        'an in-place switch must keep the document-baked generation'
+    );
+    assert.deepEqual(
+        publication.outline.map(entry => entry.interactionId),
+        ['sub-input-1']
+    );
+    assert.deepEqual(
+        publication.subagents.map(entry => entry.id),
+        ['a11111111']
+    );
+
+    // Unknown or malformed subagent targets are ignored without a new page.
+    const settledCount = panel.postedMessages.length;
+    await panel.receive({
+        type: 'conversation-viewer-open-subagent',
+        version: 1,
+        subagentId: 'a99999999',
+    });
+    await panel.receive({
+        type: 'conversation-viewer-open-subagent',
+        version: 1,
+        subagentId: '..',
+    });
+    await panel.receive({
+        type: 'conversation-viewer-open-subagent',
+        version: 1,
+    });
+    assert.equal(panel.postedMessages.length, settledCount);
+
+    // A dashboard follow for the same session preserves the subagent view.
+    const beforeFollow = panel.postedMessages.length;
+    assert.equal(await viewer.follow(target('session-a', 'input-b')), true);
+    assert.equal(panel.postedMessages.length, beforeFollow);
+    assert.equal(panel.postedMessages.at(-1).activeSubagent.id, 'a11111111');
+
+    await panel.receive({
+        type: 'conversation-viewer-close-subagent',
+        version: 1,
+    });
+    publication = panel.postedMessages.at(-1);
+    assert.equal(publication.activeSubagent, null);
+    assert.ok(publication.html.includes('main-visible'));
+    assert.equal(publication.subscriptionGeneration, initialGeneration);
+    assert.deepEqual(
+        publication.outline.map(entry => entry.interactionId),
+        ['input-a', 'input-b']
+    );
 });
 
 test('CONVERSATION-VIEWER-OWNERSHIP-001 reuses one panel, rejects an old session generation, and clears sensitive state on disposal', async () => {

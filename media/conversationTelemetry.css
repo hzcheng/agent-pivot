@@ -86,3 +86,22 @@
     [data-telemetry-worktree-branch] {
     text-decoration: line-through;
 }
+
+.conversation-telemetry-subagents,
+.conversation-telemetry-comments {
+    display: inline-flex;
+    align-items: center;
+    padding: 0 .5rem;
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 999px;
+    color: var(--vscode-editor-foreground);
+    background: transparent;
+    font: inherit;
+    cursor: pointer;
+}
+
+.conversation-telemetry-subagents:hover,
+.conversation-telemetry-comments:hover {
+    border-color: var(--vscode-focusBorder);
+    background: var(--vscode-list-hoverBackground);
+}

@@ -119,7 +119,6 @@ export function renderConversationViewerDocument(
             <button type="button" data-action="toggle-sidebar"
                 aria-controls="conversation-sidebar"
                 aria-expanded="false" aria-label="Show side panel">Sidebar</button>
-            <button type="button" data-action="close">Close</button>
         </nav>
     </header>
     ${renderConversationTelemetry(options.telemetrySnapshot)}

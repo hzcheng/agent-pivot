@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "4b2790d284a5b45fd4b69308acb83f696b2267cb",
+        "head": "aad818ca16f8e299769f65bc2955859d3428bc25",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -77,7 +77,8 @@
             "95a9a7bc69b494fcd4f0d902d76370687baf4472",
             "05edca8119b9a471cbcd32f287144cebe7ebae08",
             "0e0016d9449d61753fe3f30711656cad881b12a6",
-            "5efaa7ae0901f8da52b8211cccbf37386ee51498"
+            "5efaa7ae0901f8da52b8211cccbf37386ee51498",
+            "87a2dd62f5218f294e81568fc100d6e50b91f72f"
         ]
     },
     "capabilities": [
@@ -753,7 +754,8 @@
                 "059af49ce010a4097ac1e4a847b7c7be430b7171",
                 "892ae70669ed4b08f452f70f3539eed665f3c555",
                 "69c490edf6d6d483e0694bc28d78862edba43334",
-                "4b2790d284a5b45fd4b69308acb83f696b2267cb"
+                "4b2790d284a5b45fd4b69308acb83f696b2267cb",
+                "aad818ca16f8e299769f65bc2955859d3428bc25"
             ],
             "behaviors": [
                 "RUNTIME-TMUX-BACKEND-001",
@@ -771,7 +773,8 @@
                 "ACTIVE-SESSION-ICON-ANIMATION-001",
                 "WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-001",
                 "PERSIST-MULTI-PROVIDER-BATCH-ARCHIVE-001",
-                "AI-SESSION-PROVIDER-ICON-001"
+                "AI-SESSION-PROVIDER-ICON-001",
+                "RUNTIME-TMUX-TERMINATE-SESSION-001"
             ],
             "prGates": [
                 "test:ci:linux",

@@ -19,7 +19,8 @@ making any change.
 2. **Never push directly to `main`.** Publish through a PR against
    `origin/main` in `hzcheng/agent-pivot`. This repo has two remotes
    (`origin` = fork, `upstream` = original project) — pass
-   `--repo hzcheng/agent-pivot` to every `gh` command. Details: skill
+   `--repo hzcheng/agent-pivot` to every `gh` command. Write PR titles, PR
+   bodies, and commit messages in English. Details: skill
    `publishing-and-merging-github-prs`.
 
 3. **Load the matching skill before acting.** Project skills live in
@@ -42,8 +43,14 @@ documentation-only audit commit:
 ```sh
 node scripts/regenerate-capability-audit.js \
   --assign <sha>=<CAPABILITY-ID> [--assign ...] \
+  --harvest none|updated:<comma-separated .skills/paths> \
   --commit "docs: record <topic> capability audit"
 ```
+
+`--harvest` records the mandatory skill harvest review (skill
+`harvesting-workflow-lessons`) as a `Skill-Harvest` trailer in the audit
+commit: `none` when no skill change was justified, or `updated:<paths>` for
+the iterated `.skills/` directories.
 
 Commits touching only `README.md`, `docs/`, or `.superpowers/` count as
 documentation and need no assignment; everything else (including this file)

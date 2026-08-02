@@ -38,6 +38,11 @@ jobs:
         run: npm run test:ci:linux
         env:
           COVERAGE_DIFF_BASE: ${{ github.event.pull_request.base.sha }}
+      - name: Check PR skill harvest section
+        if: github.event_name == 'pull_request'
+        run: node scripts/check-pr-body.js
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
 
   platform-windows:
     name: platform-windows

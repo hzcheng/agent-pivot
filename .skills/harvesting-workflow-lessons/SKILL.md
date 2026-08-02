@@ -47,8 +47,13 @@ push and merge.
    all skill iterations first, then assign the resulting full commit SHA to the
    matching main capability, advance `audit.head`, and create a separate
    documentation-only audit commit.
-7. Add a short PR summary of the evidence, decision, changed skills, and
-   validation. If no update is justified, say so without modifying files.
+7. Record the decision as a checkable artifact in two places: pass it as the
+   mandatory `--harvest none|updated:<.skills/paths>` value of
+   `regenerate-capability-audit.js` (stored as a `Skill-Harvest` trailer in
+   the audit commit message), and write the same one-line decision into the
+   PR body's required `## Skill harvest` section, including the evidence and
+   validation. If no update is justified, say so in both places without
+   modifying files.
 
 ## Decision Standard
 

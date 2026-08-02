@@ -96,8 +96,15 @@ regenerate the manifest mechanically instead of hand-editing it:
 ```bash
 node scripts/regenerate-capability-audit.js \
   --assign <sha-or-ref>=<CAPABILITY-ID> [--assign ...] \
-  [--behavior <CAPABILITY-ID>=<BEHAVIOR-ID>] [--dry-run] [--commit "docs: audit ..."]
+  [--behavior <CAPABILITY-ID>=<BEHAVIOR-ID>] \
+  --harvest none|updated:<comma-separated .skills/paths> \
+  [--dry-run] [--commit "docs: audit ..."]
 ```
+
+`--harvest` records the mandatory skill harvest review
+(`.skills/harvesting-workflow-lessons`): `none` when no skill change was
+justified, or `updated:<paths>` listing the iterated `.skills/` directories.
+The decision becomes a `Skill-Harvest` trailer in the audit commit message.
 
 The script classifies every commit beyond the recorded `audit.head`: commits you
 assign are appended to their capability, documentation-only commits are

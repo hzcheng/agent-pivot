@@ -181,6 +181,8 @@ function createAvailableConversationCapability(
                 ? readCodexRolloutWorkdir(rolloutPath)
                 : undefined;
         },
+        listSubagentThreads: sessionId =>
+            options.services.codex.listSubagentThreads?.(sessionId) || [],
     }));
     ownership.transfer(codexClient);
     const kimiAdapter = ownership.own(factories.createKimiAdapter({

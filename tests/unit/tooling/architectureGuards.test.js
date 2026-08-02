@@ -27,6 +27,7 @@ function copyGuardFixture(t, mutationPath, mutate = source => source) {
         'src/aiSessions/dashboardController.ts',
         'src/aiSessions/providers.ts',
         'src/aiSessions/conversation/types.ts',
+        'src/aiSessions/conversation/subagentSessions.ts',
         'src/aiSessions/conversation/codexAdapter.ts',
         'src/aiSessions/conversation/codexAppServerClient.ts',
         'src/aiSessions/conversation/model.ts',

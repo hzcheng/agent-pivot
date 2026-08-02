@@ -30,7 +30,13 @@ function createVscode(lifecycle) {
     let providerRegistrations = 0;
     let registeredProvider;
     let providerResolution = Promise.resolve();
-    const configuration = { get: (_key, fallback) => fallback, inspect: () => undefined, update: async () => undefined };
+    const configuration = {
+        get: (key, fallback) => key === 'aiSessionTerminalMode' && lifecycle.forceTmuxMode
+            ? 'tmux'
+            : fallback,
+        inspect: () => undefined,
+        update: async () => undefined,
+    };
     const uri = value => ({ scheme: 'file', fsPath: value, path: value, toString: () => value });
     const webview = {
         cspSource: 'fixture-webview',
@@ -60,6 +66,8 @@ function createVscode(lifecycle) {
         onDidChangeVisibility: () => disposable(),
         onDidDispose: () => disposable(),
     };
+    const openTerminalCallbacks = [];
+    const configurationChangeCallbacks = [];
     const trackedResource = (kind, onDispose = () => undefined) => {
         if (lifecycle.activationDisposed) {
             lifecycle.lateResourceAcquisitions.push(kind);
@@ -77,6 +85,8 @@ function createVscode(lifecycle) {
     return {
         registeredCommands,
         webviewHtmlHistory,
+        openTerminalCallbacks,
+        configurationChangeCallbacks,
         get bootWebviewMessageCallback() { return bootWebviewMessageCallback; },
         get providerRegistrations() { return providerRegistrations; },
         get providerResolution() { return providerResolution; },
@@ -101,7 +111,8 @@ function createVscode(lifecycle) {
                 return trackedResource('provider-registration');
             },
             onDidChangeActiveTerminal: () => trackedListener('active-terminal-listener'),
-            onDidOpenTerminal: () => {
+            onDidOpenTerminal: callback => {
+                openTerminalCallbacks.push(callback);
                 lifecycle.activeOpenTerminalListeners += 1;
                 return trackedResource('open-terminal-listener', () => {
                     lifecycle.activeOpenTerminalListeners -= 1;
@@ -112,14 +123,27 @@ function createVscode(lifecycle) {
             onDidChangeWindowState: () => trackedListener('window-state-listener'),
             onDidChangeVisibleTextEditors: () => trackedListener('visible-editors-listener'),
             onDidChangeActiveTextEditor: () => trackedListener('active-editor-listener'),
-            showErrorMessage: async () => undefined, showWarningMessage: async () => undefined,
+            showErrorMessage: async () => undefined,
+            showWarningMessage: async (message, ...rest) => {
+                const [first, ...items] = rest;
+                const options = first && typeof first === 'object' ? first : undefined;
+                lifecycle.warningMessages.push({
+                    message,
+                    modal: options?.modal === true,
+                    items: (options ? items : rest).map(item => String(item)),
+                });
+                return undefined;
+            },
             showInformationMessage: async () => undefined, showInputBox: async () => undefined,
             showQuickPick: async () => undefined, showOpenDialog: async () => undefined,
         },
         workspace: {
             workspaceFile: undefined, workspaceFolders: undefined,
             getConfiguration: () => configuration, updateWorkspaceFolders: () => true,
-            onDidChangeConfiguration: () => trackedListener('configuration-listener'),
+            onDidChangeConfiguration: callback => {
+                configurationChangeCallbacks.push(callback);
+                return trackedListener('configuration-listener');
+            },
             onDidChangeWorkspaceFolders: () => trackedListener('workspace-folders-listener'),
             onWillSaveTextDocument: () => trackedListener('save-document-listener'),
             openTextDocument: async () => ({}),
@@ -164,12 +188,14 @@ async function main() {
     const lifecycle = {
         activationDisposed: false,
         activeOpenTerminalListeners: 0,
+        forceTmuxMode: mode === 'fallback-choice',
         lateResourceAcquisitions: [],
         openTerminalListenerDisposals: 0,
         outputLines: [],
         postDisposePublications: [],
         postDisposeWebviewMessages: [],
         postedWebviewMessages: [],
+        warningMessages: [],
     };
     const vscode = createVscode(lifecycle);
     const previousLoad = Module._load;
@@ -189,6 +215,16 @@ async function main() {
     let tmuxRestoreSettled = false;
     let releasePendingTmuxRestore;
     const synchronizedGlobalStateKeySets = [];
+    const runtimeStoreRoots = [];
+    const capturedRuntimeStores = [];
+    const tmuxCreationLockInvocations = [];
+    const runtimeConfigurationSequence = [];
+    const restoreAttachTerminalsInvocations = [];
+    const affectsConfigurationQueries = [];
+    const fallbackResumeStatuses = [];
+    let coordinatorInstance;
+    let refreshMessageBuildsBeforeOpenedTerminal = 0;
+    let refreshMessageBuildsAfterOpenedTerminal = 0;
     const patch = (prototype, name, replacement) => {
         const original = prototype[name];
         prototype[name] = replacement;
@@ -206,6 +242,28 @@ async function main() {
                         events.push('hydration-constructed');
                         super(...args);
                     }
+                },
+            };
+        }
+        if (parent?.filename === dashboardPath && request === './aiSessions/tmuxRuntimeBindingStore') {
+            const Original = loaded.TmuxRuntimeBindingStore;
+            return {
+                ...loaded,
+                TmuxRuntimeBindingStore: class extends Original {
+                    constructor(...args) {
+                        runtimeStoreRoots.push(args[0]);
+                        super(...args);
+                        capturedRuntimeStores.push(this);
+                    }
+                },
+            };
+        }
+        if (parent?.filename === dashboardPath && request === './aiSessions/tmuxCreationLock') {
+            return {
+                ...loaded,
+                withTmuxCreationLock: (root, key, operation) => {
+                    tmuxCreationLockInvocations.push({ root, key });
+                    return loaded.withTmuxCreationLock(root, key, operation);
                 },
             };
         }
@@ -243,6 +301,8 @@ async function main() {
         const { TmuxRuntimeBackend } = require('../../../out/aiSessions/tmuxRuntimeBackend');
         const { TmuxRuntimeBindingStore } = require('../../../out/aiSessions/tmuxRuntimeBindingStore');
         const { TmuxRuntimeDiscovery } = require('../../../out/aiSessions/tmuxRuntimeDiscovery');
+        const { TmuxRuntimeUnavailableError } = require('../../../out/aiSessions/runtimeTypes');
+        const { fakeResumeRequest } = require('../../helpers/runtimeContract');
         const { AiSessionAttentionController } = require('../../../out/aiSessions/attentionController');
         const AttentionBridgeClient = require('../../../out/aiSessions/attentionBridgeClient').default;
         const AiSessionAliasController = require('../../../out/aiSessions/aliasController').default;
@@ -292,12 +352,50 @@ async function main() {
             events.push('direct-restored');
             directRestoreSettled = true;
         });
-        patch(TmuxRuntimeBackend.prototype, 'restoreAttachTerminals', async function () {
+        const originalTmuxRefresh = TmuxRuntimeBackend.prototype.refresh;
+        patch(TmuxRuntimeBackend.prototype, 'refresh', async function (...args) {
+            if (mode === 'fallback-choice') {
+                throw new TmuxRuntimeUnavailableError('not-found', 'tmux is unavailable (fixture)');
+            }
+            return originalTmuxRefresh.apply(this, args);
+        });
+        const originalGetKnown = TmuxRuntimeBindingStore.prototype.getKnown;
+        patch(TmuxRuntimeBindingStore.prototype, 'getKnown', async function (...args) {
+            if (mode === 'fallback-choice' && args[1] === 'fallback-known') {
+                return { state: 'known', provider: args[0], sessionId: args[1] };
+            }
+            return originalGetKnown.apply(this, args);
+        });
+        const originalSetExecutablePath = TmuxClient.prototype.setExecutablePath;
+        patch(TmuxClient.prototype, 'setExecutablePath', function (...args) {
+            runtimeConfigurationSequence.push(`set-executable-path:${args[0]}`);
+            return originalSetExecutablePath.apply(this, args);
+        });
+        const originalInvalidate = TmuxRuntimeDiscovery.prototype.invalidate;
+        patch(TmuxRuntimeDiscovery.prototype, 'invalidate', function (...args) {
+            runtimeConfigurationSequence.push('discovery-invalidated');
+            return originalInvalidate.apply(this, args);
+        });
+        const originalRefreshForHost = AiSessionRuntimeCoordinator.prototype.refreshForHost;
+        patch(AiSessionRuntimeCoordinator.prototype, 'refreshForHost', async function (...args) {
+            if (mode === 'configuration-change') {
+                runtimeConfigurationSequence.push(`refresh-for-host:${args[0]}`);
+                return;
+            }
+            return originalRefreshForHost.apply(this, args);
+        });
+        patch(TmuxRuntimeBackend.prototype, 'restoreAttachTerminals', async function (terminals) {
             assert.ok(this instanceof TmuxRuntimeBackend);
             assert.ok(this.dependencies.discovery instanceof TmuxRuntimeDiscovery);
             assert.ok(this.dependencies.runtimeStore instanceof TmuxRuntimeBindingStore);
             assert.ok(this.dependencies.attachStore instanceof TmuxAttachBindingStore);
             verified.add('tmux-backend');
+            restoreAttachTerminalsInvocations.push((terminals || []).map(terminal => terminal?.name));
+            if (mode === 'tmux-restore-failure') {
+                events.push('tmux-restore-failed');
+                tmuxRestoreSettled = true;
+                throw new Error(privacyCanaries.join(' '));
+            }
             if (mode === 'slow-tmux-restore' || mode === 'slow-tmux-restore-dispose') {
                 pendingTmuxRestoreEntered = true;
                 await new Promise(resolve => {
@@ -310,6 +408,7 @@ async function main() {
         patch(AiSessionRuntimeCoordinator.prototype, 'getActive', function () {
             assert.ok(this.dependencies.direct instanceof DirectTerminalRuntimeBackend);
             assert.ok(this.dependencies.tmux instanceof TmuxRuntimeBackend);
+            coordinatorInstance = this;
             verified.add('direct-tmux-coordinator');
             return [];
         });
@@ -438,6 +537,70 @@ async function main() {
                     'ready dashboard visibility preparation'
                 );
             }
+            if (mode === 'success' && capturedRuntimeStores.length > 0) {
+                await capturedRuntimeStores[0].listFinalSnapshot();
+            }
+            if (mode === 'configuration-change') {
+                const event = {
+                    affectsConfiguration: key => {
+                        affectsConfigurationQueries.push(key);
+                        return key === 'agentPivot.aiSessionTerminalMode';
+                    },
+                };
+                runtimeConfigurationSequence.length = 0;
+                for (const callback of vscode.configurationChangeCallbacks) {
+                    callback(event);
+                }
+                await waitFor(
+                    () => runtimeConfigurationSequence.length >= 3,
+                    'runtime configuration change handling'
+                );
+            }
+            if (mode === 'fallback-choice') {
+                await waitFor(() => Boolean(coordinatorInstance), 'runtime coordinator capture');
+                const hinted = await coordinatorInstance.resume(fakeResumeRequest('fallback-known'));
+                fallbackResumeStatuses.push(hinted.status);
+                const unhinted = await coordinatorInstance.resume(fakeResumeRequest('fallback-unknown'));
+                fallbackResumeStatuses.push(unhinted.status);
+            }
+            if (mode === 'opened-terminal-restore') {
+                refreshMessageBuildsBeforeOpenedTerminal = lifecycle.outputLines.filter(line =>
+                    line.startsWith('[AiSessions] ')
+                        && line.includes('"event":"ai-session-message-build"')
+                        && line.includes('"reason":"refresh"')).length;
+                const plainTerminal = {
+                    name: 'plain-terminal',
+                    creationOptions: { shellPath: '/bin/bash', shellArgs: [] },
+                };
+                for (const callback of vscode.openTerminalCallbacks) {
+                    callback(plainTerminal);
+                }
+                await new Promise(resolve => setImmediate(resolve));
+                const attachTerminal = {
+                    name: 'tmux-attach-terminal',
+                    creationOptions: { shellPath: 'tmux', shellArgs: ['attach-session', '-t', 'restored-session'] },
+                };
+                for (const callback of vscode.openTerminalCallbacks) {
+                    callback(attachTerminal);
+                }
+                await waitFor(
+                    () => restoreAttachTerminalsInvocations.some(invocation =>
+                        invocation.includes('tmux-attach-terminal')),
+                    'opened terminal tmux attach restoration'
+                );
+                await waitFor(
+                    () => lifecycle.outputLines.filter(line =>
+                        line.startsWith('[AiSessions] ')
+                            && line.includes('"event":"ai-session-message-build"')
+                            && line.includes('"reason":"refresh"')).length
+                        > refreshMessageBuildsBeforeOpenedTerminal,
+                    'opened terminal restoration refresh publication'
+                );
+                refreshMessageBuildsAfterOpenedTerminal = lifecycle.outputLines.filter(line =>
+                    line.startsWith('[AiSessions] ')
+                        && line.includes('"event":"ai-session-message-build"')
+                        && line.includes('"reason":"refresh"')).length;
+            }
         }
         let inFlightListenerDisposedBeforeGateRelease = false;
         let lateAttentionClientObserved = false;
@@ -489,6 +652,12 @@ async function main() {
         const aiSessionDiagnostics = lifecycle.outputLines
             .filter(line => line.startsWith('[AiSessions] '))
             .map(line => JSON.parse(line.slice('[AiSessions] '.length)));
+        const tmuxRuntimeFailureDiagnostics = aiSessionDiagnostics
+            .filter(diagnostic => diagnostic.event === 'tmux-runtime-failure')
+            .map(({ loggedAt: _loggedAt, ...diagnostic }) => diagnostic);
+        const observableText = `${lifecycle.outputLines.join('\n')}\n${vscode.webviewHtmlHistory.join('\n')}`
+            + `\n${JSON.stringify(lifecycle.postedWebviewMessages)}`;
+        const leakedPrivacyCanaries = privacyCanaries.filter(canary => observableText.includes(canary));
         process.stdout.write(JSON.stringify({
             activationReturnedBeforeDirectRestoreSettled,
             providerRegistrations: vscode.providerRegistrations,
@@ -512,6 +681,18 @@ async function main() {
                 diagnostic => diagnostic.event === 'ai-session-message-build'
                     && diagnostic.reason === 'tmux-bootstrap-restore'
             ).length,
+            tmuxRuntimeFailureDiagnostics,
+            warningMessages: lifecycle.warningMessages,
+            fallbackResumeStatuses,
+            runtimeConfigurationSequence,
+            affectsConfigurationQueries,
+            restoreAttachTerminalsInvocations,
+            runtimeStoreRoots,
+            storageRoot,
+            tmuxCreationLockInvocations,
+            refreshMessageBuildsBeforeOpenedTerminal,
+            refreshMessageBuildsAfterOpenedTerminal,
+            leakedPrivacyCanaries,
             tmuxRestoreDiagnostics: startupDiagnostics.filter(diagnostic =>
                 diagnostic.event === 'agent-pivot-bootstrap-tmux-restore-deferred'
                     || diagnostic.event === 'agent-pivot-bootstrap-tmux-restore-settled'),

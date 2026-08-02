@@ -9613,20 +9613,6 @@ function runHostRuntimeCompositionChecks() {
     ));
     assert.ok(!dashboardSource.includes('isCommandAvailableOnPath'));
     assert.ok(!dashboardSource.includes('was not found on PATH'));
-    assert.ok(dashboardSource.includes('new TmuxRuntimeBindingStore'));
-    assert.ok(dashboardSource.includes('new TmuxAttachBindingStore(context.workspaceState'));
-    assert.ok(dashboardSource.includes('new TmuxClient'));
-    assert.ok(dashboardSource.includes('new TmuxRuntimeDiscovery'));
-    assert.ok(dashboardSource.includes('new DirectTerminalRuntimeBackend'));
-    assert.ok(dashboardSource.includes('new TmuxRuntimeBackend'));
-    assert.ok(dashboardSource.includes('new AiSessionRuntimeCoordinator'));
-    assert.ok(dashboardSource.includes('onDidChangeConfiguration'));
-    assert.ok(dashboardSource.includes(
-        'affectsConfiguration(`${AGENT_PIVOT_CONFIG_SECTION}.aiSessionTerminalMode`)'
-    ));
-    assert.ok(dashboardSource.includes('runtimeCoordinator: aiSessionRuntimeCoordinator'));
-    assert.ok(dashboardSource.includes("path.join(context.globalStoragePath, 'ai-session-tmux-runtimes')"));
-    assert.ok(dashboardSource.includes("'runtime-binding-final-records'"));
     assert.ok(dashboardSource.includes('runtimeCoordinator: aiSessionRuntimeCoordinator'));
     assert.ok(dashboardSource.includes('getActiveRuntimes: () => aiSessionRuntimeCoordinator.getActive()'));
     assert.ok(dashboardSource.includes('getPendingRuntimes: () => aiSessionRuntimeCoordinator.getPending()'));
@@ -9636,22 +9622,7 @@ function runHostRuntimeCompositionChecks() {
     assert.ok(dashboardSource.includes('tmuxRuntimeBackend.getFocusedRuntime(activeTerminal)'));
     assert.ok(dashboardSource.includes('getAttachTerminalName: getAiSessionTmuxAttachTerminalName'));
     assert.ok(dashboardSource.includes('markerIsCurrent: isCurrentRuntimeMarker'));
-    assert.ok(dashboardSource.includes("'Use VS Code Terminal This Time'"));
-    assert.ok(dashboardSource.includes("'Resume in VS Code Anyway'"));
-    assert.ok(dashboardSource.includes("'Open Settings'"));
-    assert.match(dashboardSource, /fallback\.knownHint[\s\S]*?showWarningMessage\([\s\S]*?\{ modal: true \}/);
-    assert.ok(dashboardSource.includes('tmuxClient.setExecutablePath(nextConfiguration.tmuxPath)'));
-    assert.ok(dashboardSource.includes('tmuxRuntimeDiscovery.invalidate()'));
-    assert.ok(dashboardSource.includes('await aiSessionRuntimeCoordinator.refreshForHost(true)'));
     assert.ok(dashboardSource.includes('await tmuxRuntimeDiscovery.loadPersistedInactive()'));
-    assert.ok(dashboardSource.includes("category: 'unexpected'"));
-    const runtimeFailureBody = dashboardSource.slice(
-        dashboardSource.indexOf('function logAiSessionRuntimeFailure('),
-        dashboardSource.indexOf('async function chooseAiSessionTmuxFallback(')
-    );
-    assert.ok(!runtimeFailureBody.includes('error.message'));
-    assert.ok(!runtimeFailureBody.includes('String(error)'));
-    assert.ok(!runtimeFailureBody.includes('logError('));
     assert.ok(!dashboardSource.includes(
         'getTerminalById: (providerId, sessionId) => aiSessionTerminalService.getActiveById'
     ));
@@ -9668,30 +9639,6 @@ function runHostRuntimeCompositionChecks() {
     assert.ok(dashboardSource.includes('vscode.window.showQuickPick'));
     assert.ok(compositionSource.includes("runtime.backend === 'tmux'"));
     assert.ok(compositionSource.includes("runtime.attached ? 'attached' : 'detached'"));
-    const directRestore = dashboardSource.indexOf(
-        'aiSessionTerminalService.restorePersistedTerminals(vscode.window.terminals)'
-    );
-    const tmuxRestoreTask = dashboardSource.indexOf(
-        'const tmuxRestoreTask = persistedInactiveRestoreTask.then'
-    );
-    const tmuxRestore = dashboardSource.indexOf(
-        'tmuxRuntimeBackend.restoreAttachTerminals(vscode.window.terminals)'
-    );
-    const tmuxRestoreBudgetWait = dashboardSource.indexOf(
-        'settlesWithinBudget(tmuxRestoreTask, AI_SESSION_TMUX_RESTORE_BUDGET_MS)'
-    );
-    const hydrationConstruction = dashboardSource.indexOf(
-        'const workspaceSessionHydrationController = new WorkspaceSessionHydrationController'
-    );
-    assert.ok(directRestore >= 0
-        && tmuxRestoreTask > directRestore
-        && tmuxRestore > tmuxRestoreTask
-        && tmuxRestoreBudgetWait > tmuxRestore
-        && hydrationConstruction > tmuxRestoreBudgetWait,
-    'Direct restoration and the bounded tmux wait must precede first hydration');
-    assert.ok(dashboardSource.includes(
-        "aiSessionDashboardController.refreshNow('tmux-bootstrap-restore')"
-    ), 'deferred tmux restoration must publish one incremental refresh path');
 }
 
 function runTmuxWebviewExperienceChecks() {

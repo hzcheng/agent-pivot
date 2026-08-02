@@ -5197,24 +5197,11 @@ function runWebviewContentChecks() {
     assert.ok(!pendingTerminalResolverSource.includes('.terminal'));
     assert.ok(resumeControllerSource.includes('runtimeCoordinator.resume(request)'));
     assert.ok(!dashboardRuntimeControllerSource.includes("type: 'ai-session-attention-projects-updated'"));
-    assert.ok(dashboard.includes('sessionEvents: aiSessionAttentionController.getRecoverySessionEvents()'));
     assert.ok(webviewProjectScripts.includes('message.sessionEvents'));
     assert.ok(runtimeSettlement.includes('settleAiSessionRuntimeLifecycles'));
-    assert.ok(dashboard.includes('createAiSessionRuntimeSettlementCapability({'),
-        'the dashboard constructs the extracted runtime settlement capability');
-    assert.ok(dashboard.includes('const runSafeAiSessionRuntimeLifecycleTask = aiSessionRuntimeSettlement.runSafeLifecycleTask;'),
-        'the dashboard keeps one lifecycle task runner from the capability');
-    assert.ok(dashboard.includes('const queueAiSessionRuntimeSettlements = aiSessionRuntimeSettlement.queueSettlements;'),
-        'the dashboard keeps one settlement queue from the capability');
     assert.match(runtimeSettlement,
         /for \(const runtime of runtimes\) \{\s*if \(!runtimeBelongsToCurrentWorkspace\(runtime\)\) \{\s*continue;\s*\}/,
         'runtime settlement collection must reject other scopes before session-key processing');
-    assert.ok(dashboard.includes('const aiSessionAttentionController = new AiSessionAttentionController<AiSessionRuntimeSnapshot<vscode.Terminal>>({'));
-    assert.ok(dashboard.includes("import { AiSessionExecutionController } from './aiSessions/executionController';"));
-    assert.ok(dashboard.includes('const aiSessionExecutionController = new AiSessionExecutionController({'));
-    assert.ok(dashboard.includes('new WorkspaceSessionHydrationController<vscode.Terminal>({'));
-    assert.ok(dashboard.includes('getExecutionSnapshot: () => aiSessionExecutionController.getSnapshot()'));
-    assert.ok(dashboard.includes('getActiveSessions: () => aiSessionRuntimeCoordinator.getActive()'));
     // The cadence itself lives in createAiSessionStatusCapability and is covered
     // behaviourally by ATTENTION-EXECUTION-STATE-SYNC-001; assert only that the
     // dashboard hands it both consumers and routes the tick through it.
@@ -5229,7 +5216,6 @@ function runWebviewContentChecks() {
         /evaluateAttentionSignals: signals => aiSessionAttentionController\.evaluate\(\[\], signals\)/);
     assert.match(dashboard,
         /const evaluateAiSessionLifecycleTick = \(\): void => aiSessionStatus\.tick\(\);/);
-    assert.match(dashboard, /onDidCloseTerminal\(terminal => \{[\s\S]*?handleClosedTerminal\(terminal\);[\s\S]*?evaluateAiSessionLifecycleTick\(\);/);
     assert.ok(!evaluateExecutionFunction.includes('isEnabled'));
     assert.ok(!evaluateExecutionFunction.includes('attention'));
     assert.ok(evaluateAttentionFunction.includes('if (!this.options.isEnabled())'));
@@ -5287,10 +5273,6 @@ function runWebviewContentChecks() {
     const terminalServiceSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'aiSessions', 'terminalService.ts'), 'utf8');
     assert.ok(!terminalServiceSource.includes('AI_SESSION_PROVIDER_IDS'));
     assert.ok(dashboard.includes('const aiSessionProviders = aiSessionProviderRegistry.providers();'));
-    assert.ok(dashboard.includes('aiSessionTerminalService.restorePersistedTerminals(vscode.window.terminals)'));
-    assert.ok(dashboard.includes('tmuxRuntimeBackend.restoreAttachTerminals(vscode.window.terminals)'));
-    assert.match(dashboard, /onDidOpenTerminal\(terminal => \{[\s\S]*?tmuxRuntimeBackend\.restoreAttachTerminals\(\[terminal\]\)/,
-        'a terminal restored after extension activation must still recover its tmux attachment');
     assert.ok(dashboard.includes('new ActiveAiSessionTerminalHighlighter'));
     assert.ok(dashboard.includes('new TmuxFocusedRuntimeMonitor<vscode.Terminal>({'));
     assert.ok(dashboard.includes('tmuxFocusedRuntimeMonitor.start();'));
@@ -5327,15 +5309,6 @@ function runWebviewContentChecks() {
         /tmuxFocusedRuntimeMonitor must not also be pushed directly/,
         'a bootstrap-owned focused-runtime monitor must reject duplicate context ownership',
     );
-    assert.match(dashboard,
-        /beforeRefresh: reason => \{\s*currentAiSessionRefreshReason = reason;\s*postAiSessionAttentionState\(\);\s*\}/,
-        'every incremental AI-session render must publish its current attention event map before the HTML update');
-    assert.match(dashboard,
-        /function postAiSessionAttentionState\(\) \{[\s\S]*?sessionEvents: aiSessionAttentionController\.getRecoverySessionEvents\(\)[\s\S]*?eventIds: aiSessionAttentionController\.getAttentionEventIds\(\)/,
-        'the shared attention-state publisher must carry every event for each logical session');
-    assert.match(dashboard, /const acknowledgeAiSessionAttentionEventIds = async[\s\S]*?aiSessionAttentionController\.acknowledge\(uniqueEventIds\);\s*refreshAiSessionViewsIncrementally\(\);\s*await aiSessionAttentionBridgeClient\.acknowledge\(uniqueEventIds\)/,
-        'attention acknowledgement must refresh the local view before waiting for the cross-window bridge');
-    assert.match(dashboard, /const acknowledgeAiSessionAttention = async[\s\S]*?await acknowledgeAiSessionAttentionEventIds\(getAiSessionAttentionEventIds\(identity\)\)/);
     const selectedProjectHandler = projectMessageHandlers.slice(
         projectMessageHandlers.indexOf("'selected-project': async e =>"),
         projectMessageHandlers.indexOf("'add-project': async e =>")
@@ -5352,12 +5325,6 @@ function runWebviewContentChecks() {
     assert.ok(settlementCall.includes('release: async candidate =>'));
     assert.ok(!settlementCall.includes('acknowledgePublished'));
     assert.ok(!settlementCall.includes('acknowledgeLocal'));
-    assert.doesNotMatch(
-        dashboard,
-        /setRemoteAggregate\(aggregate\)[\s\S]*?getReleasedSessions\(\)\.forEach/,
-        'a later aggregate must not auto-acknowledge a delivered completion'
-    );
-    assert.match(dashboard, /onComplete: resolution => \{[\s\S]*?queueAiSessionRuntimeSettlements\(\[\{/);
     const runtimeSettlementQueue = runtimeSettlement.slice(
         runtimeSettlement.indexOf('const queueAiSessionRuntimeSettlements = ('),
         runtimeSettlement.indexOf('const drainAiSessionRuntimeSettlements = async')
@@ -5377,26 +5344,6 @@ function runWebviewContentChecks() {
         'the dashboard starts the capability settlement scan in place of its old timer');
     assert.match(runtimeSettlement, /queueAiSessionRuntimeSettlements\(\[\.\.\.completedRuntimes, \.\.\.inactiveTmuxRuntimes\]\)/,
         'one completion polling round must queue one structured batch');
-    const closeTerminalHandlerStart = dashboard.indexOf('vscode.window.onDidCloseTerminal(terminal => {');
-    const closeTerminalHandlerEnd = dashboard.indexOf(
-        'const stewardInfos:',
-        closeTerminalHandlerStart
-    );
-    assert.ok(closeTerminalHandlerStart >= 0 && closeTerminalHandlerEnd > closeTerminalHandlerStart);
-    const closeTerminalHandler = dashboard.slice(closeTerminalHandlerStart, closeTerminalHandlerEnd);
-    assert.match(closeTerminalHandler, /hadRuntimeClient[\s\S]*?aiSessionRuntimeCoordinator\.handleClosedTerminal\(terminal\)[\s\S]*?closedSessions\.length \|\| hadRuntimeClient[\s\S]*?refreshAiSessionViewsIncrementally\(\)/);
-    assert.ok(!dashboard.includes('acknowledge-closed-attention'));
-    assert.doesNotMatch(closeTerminalHandler, /suppressRuntimeCompletion|restoreRuntimeCompletion/,
-        'terminal exit and close handlers must not manufacture or suppress runtime-completion attention');
-    assert.match(
-        closeTerminalHandler,
-        /const userClosedTerminal = exitStatus\?\.reason === USER_TERMINAL_EXIT_REASON;[\s\S]*?handleClosedTerminal\(terminal\)[\s\S]*?if \(userClosedTerminal\) \{[\s\S]*?'acknowledge-user-terminal-close'[\s\S]*?acknowledgeAiSessionAttention\(identity\)/,
-        'user terminal closure must acknowledge only inside its reason guard'
-    );
-    assert.ok(dashboard.includes('vscode.window.onDidChangeActiveTerminal'));
-    assert.match(dashboard, /onDidChangeActiveTerminal\(\(\) => \{[\s\S]*?activeAiSessionTerminalHighlighter\.sync\(\);[\s\S]*?runSafeAiSessionRuntimeLifecycleTask\([\s\S]*?'evaluate-attention-active-terminal'[\s\S]*?\}\)/);
-    assert.ok(!dashboard.includes('void evaluateAiSessionAttention()'));
-    assert.ok(!dashboard.includes('void acknowledgeAiSessionAttention('));
     assert.ok(runtimeSettlement.includes('runAiSessionRuntimeLifecycleTask('));
     assert.match(dashboard, /onDidChangeWindowState\(windowState => \{[\s\S]*?dashboardLifecycleController\.handleWindowStateChanged\(windowState\);[\s\S]*?\}\)/);
     assert.ok(dashboardLifecycleControllerSource.includes('this.options.evaluateAiSessionAttention();'));
@@ -5408,8 +5355,6 @@ function runWebviewContentChecks() {
     assert.ok(webviewProjectScripts.includes("type: 'request-active-ai-session-terminal'"));
     assert.ok(webviewProjectScripts.includes("message.type === 'active-ai-session-terminal-changed'"));
     assert.ok(webviewProjectScripts.includes('data-ai-session-active-terminal'));
-    assert.ok(dashboard.includes('activeAiSessionTerminalHighlighter.handleTerminalClosed(terminal)'));
-    assert.ok(dashboard.includes('activeAiSessionTerminalHighlighter.sync()'));
     assert.ok(dashboard.includes('onVisibleChanged: async visible =>'));
     assert.ok(dashboard.includes('activeAiSessionTerminalHighlighter.setVisible(visible)'));
     assert.ok(dashboard.includes('await dashboardRuntimeController.handleAiSessionViewVisibilityChanged(visible)'));

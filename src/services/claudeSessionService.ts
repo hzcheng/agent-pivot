@@ -5,7 +5,7 @@ import * as os from 'os';
 import * as path from 'path';
 
 import { CodexSession } from '../models';
-import { aiSessionPathContains, filterAiSessionsByCandidatePaths, normalizeAiSessionCandidatePaths } from '../aiSessions/sessionHelpers';
+import { aiSessionPathContains, compareAiSessionUpdatedAt, filterAiSessionsByCandidatePaths, getAvailableAiSessionArchivePath, normalizeAiSessionCandidatePaths, resolveAiSessionQueryOptions } from '../aiSessions/sessionHelpers';
 import IncrementalJsonlLifecycleReader from '../aiSessions/incrementalJsonlLifecycleReader';
 import type { AiSessionConversationSourceCandidate, AiSessionQueryOptions } from '../aiSessions/types';
 import { createClaudeLifecycleAccumulator, AiSessionLifecycleRequest, AiSessionLifecycleSignal } from '../aiSessions/lifecycle';
@@ -80,7 +80,7 @@ export default class ClaudeSessionService {
     }
 
     getSessions(options: boolean | AiSessionQueryOptions = false): ClaudeSessionReadResult {
-        let { forceRefresh, candidatePaths, maxFiles } = this.getQueryOptions(options);
+        let { forceRefresh, candidatePaths, maxFiles } = resolveAiSessionQueryOptions(options);
         let now = Date.now();
         if (!forceRefresh && this.cachedResult && now - this.cachedAt < this.cacheTtlMs) {
             return this.filterResult(this.cachedResult, candidatePaths);
@@ -106,7 +106,7 @@ export default class ClaudeSessionService {
         let sessions = sessionFiles
             .map(sessionFile => this.readSession(sessionFile))
             .filter(session => !!session)
-            .sort((a, b) => this.compareUpdatedAt(b.updatedAt, a.updatedAt));
+            .sort((a, b) => compareAiSessionUpdatedAt(b.updatedAt, a.updatedAt));
 
         return this.filterResult(this.cacheResult({
             available: true,
@@ -220,7 +220,7 @@ export default class ClaudeSessionService {
             let projectDirName = path.basename(path.dirname(sessionFile));
             let archivePath = path.join(claudeHome, 'archived_projects', projectDirName);
             fs.mkdirSync(archivePath, { recursive: true });
-            fs.renameSync(sessionFile, this.getAvailableArchivePath(archivePath, path.basename(sessionFile)));
+            fs.renameSync(sessionFile, getAvailableAiSessionArchivePath(archivePath, path.basename(sessionFile)));
             this.sessionFilesById.delete(sessionId);
             this.lifecycleReader.delete(sessionId);
             this.invalidateCache();
@@ -260,18 +260,6 @@ export default class ClaudeSessionService {
         return result;
     }
 
-    private getQueryOptions(options: boolean | AiSessionQueryOptions): { forceRefresh: boolean; candidatePaths: string[]; maxFiles: number } {
-        if (typeof options === 'boolean') {
-            return { forceRefresh: options, candidatePaths: [], maxFiles: 0 };
-        }
-
-        return {
-            forceRefresh: Boolean(options?.forceRefresh),
-            candidatePaths: normalizeAiSessionCandidatePaths(options?.candidatePaths || []),
-            maxFiles: this.normalizeMaxFiles(options?.maxFiles),
-        };
-    }
-
     private filterResult(result: ClaudeSessionReadResult, candidatePaths: string[]): ClaudeSessionReadResult {
         return filterAiSessionsByCandidatePaths(result, candidatePaths, session => session.workDir || session.cwd);
     }
@@ -284,10 +272,6 @@ export default class ClaudeSessionService {
 
         let defaultHome = path.join(os.homedir(), '.claude');
         return fs.existsSync(defaultHome) ? defaultHome : null;
-    }
-
-    private normalizeMaxFiles(maxFiles: number): number {
-        return Number.isFinite(maxFiles) && maxFiles > 0 ? Math.floor(maxFiles) : 0;
     }
 
     private getSessionFiles(projectRoot: string, maxFiles = 0, stats?: { discoveredFiles: number }): string[] {
@@ -626,19 +610,6 @@ export default class ClaudeSessionService {
         return `${stat.size}:${stat.mtimeMs}`;
     }
 
-    private getAvailableArchivePath(archivePath: string, fileName: string): string {
-        let parsed = path.parse(fileName);
-        let destination = path.join(archivePath, fileName);
-        let index = 1;
-
-        while (fs.existsSync(destination)) {
-            destination = path.join(archivePath, `${parsed.name}-${index}${parsed.ext}`);
-            index++;
-        }
-
-        return destination;
-    }
-
     private getSessionIdFromFileName(fileName: string): string {
         let match = fileName.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
         return match ? match[0] : null;
@@ -656,22 +627,4 @@ export default class ClaudeSessionService {
         return value.replace(/\\/g, '/').replace(/\/+$/g, '');
     }
 
-    private compareUpdatedAt(a: string, b: string): number {
-        let aTime = a ? Date.parse(a) : 0;
-        let bTime = b ? Date.parse(b) : 0;
-
-        if (isNaN(aTime) && isNaN(bTime)) {
-            return 0;
-        }
-
-        if (isNaN(aTime)) {
-            return -1;
-        }
-
-        if (isNaN(bTime)) {
-            return 1;
-        }
-
-        return aTime - bTime;
-    }
 }

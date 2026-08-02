@@ -246,6 +246,8 @@
     ],
     "evidence": [
       "scripts/run-ai-session-safety-checks.js"
+    ,
+      "src/aiSessions/sessionHelpers.ts"
     ]
   },
   {
@@ -1106,9 +1108,13 @@
     "status": "automated",
     "owners": [
       "tests/contract/aiSessions/providerSpecificBehavior.test.js"
+    ,
+      "tests/unit/aiSessions/sessionBoundaries.test.js"
     ],
     "evidence": [
       "src/services/codexSessionService.ts"
+    ,
+      "src/aiSessions/sessionHelpers.ts"
     ]
   },
   {
@@ -1119,9 +1125,13 @@
     "status": "automated",
     "owners": [
       "tests/contract/aiSessions/providerSpecificBehavior.test.js"
+    ,
+      "tests/unit/aiSessions/sessionBoundaries.test.js"
     ],
     "evidence": [
       "src/services/claudeSessionService.ts"
+    ,
+      "src/aiSessions/sessionHelpers.ts"
     ]
   },
   {
@@ -1132,12 +1142,16 @@
     "status": "automated",
     "owners": [
       "tests/contract/aiSessions/providerSpecificBehavior.test.js"
+    ,
+      "tests/unit/aiSessions/sessionBoundaries.test.js"
     ],
     "evidence": [
       "src/aiSessions/sessionFingerprint.ts",
       "src/services/claudeSessionService.ts",
       "src/services/codexSessionService.ts",
       "src/services/kimiSessionService.ts"
+    ,
+      "src/aiSessions/sessionHelpers.ts"
     ]
   },
   {

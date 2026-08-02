@@ -1129,7 +1129,10 @@ test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 lists subagents, opens a transcript
         subagents: [],
         activeSubagent: null,
     });
-    assert.equal(await counter.isVisible(), false);
+    // The pill doubles as the Subagents quick entry and stays visible at
+    // zero instead of disappearing.
+    assert.equal(await counter.isVisible(), true);
+    assert.equal(await counter.innerText(), 'Agents 0/0');
 });
 
 test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 keeps boundary navigation inert while Latest stays available', async t => {
@@ -1657,7 +1660,8 @@ test('CONVERSATION-COMMENTS-UI-001 header send pill and telemetry comments pill 
     const pill = page.locator('[data-telemetry-comments]');
     assert.equal(await headerSend.innerText(), 'Send');
     assert.equal(await headerSend.isDisabled(), true);
-    assert.equal(await pill.isVisible(), false);
+    assert.equal(await pill.isVisible(), true);
+    assert.equal(await pill.innerText(), 'Comments 0');
 
     await page.locator('[data-sidebar-tab="comments"]').click();
     await page.locator('[data-comment-action="new"]').click();

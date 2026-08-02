@@ -118,10 +118,10 @@
             var runningCount = lastSubagents.filter(function (entry) {
                 return entry.status === 'running';
             }).length;
-            telemetrySubagents.hidden = lastSubagents.length === 0;
-            if (lastSubagents.length > 0) {
-                telemetrySection.hidden = false;
-            }
+            // The pill doubles as the Subagents quick entry; keep it
+            // visible even at zero.
+            telemetrySubagents.hidden = false;
+            telemetrySection.hidden = false;
             telemetrySubagents.textContent = 'Agents ' + runningCount + '/'
                 + lastSubagents.length;
             telemetrySubagents.title = runningCount + ' running of '

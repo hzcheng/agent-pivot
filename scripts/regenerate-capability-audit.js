@@ -20,6 +20,7 @@ const CONTRACTS_RELATIVE_PATH = path.join('docs', 'testing', 'behavior-contracts
 const USAGE = `Usage: node scripts/regenerate-capability-audit.js \\
   --assign <full-or-short-sha>=<CAPABILITY-ID> [--assign ...] \\
   [--behavior <CAPABILITY-ID>=<BEHAVIOR-ID>] \\
+  --harvest none|updated:<comma-separated .skills/paths> \\
   [--commit "docs: audit message"] [--dry-run]
 
 Regenerates docs/testing/main-capability-coverage.json after a rebase or a new
@@ -27,7 +28,11 @@ implementation commit: every commit in audit.base..HEAD is classified exactly
 once -- assigned to a capability with --assign, or auto-registered into
 audit.ignoredDocumentationCommits when it changes only documentation paths.
 Merge commits need no classification. audit.head advances to the last
-implementation commit in range, which must be one of the --assign targets.`;
+implementation commit in range, which must be one of the --assign targets.
+Every regeneration records the skill harvest review: --harvest none when no
+skill change was justified, or --harvest updated:<paths> listing the iterated
+.skills/ directories. The decision becomes a Skill-Harvest trailer in the
+audit commit message.`;
 
 class AuditRegenerationError extends Error {
     constructor(messages) {
@@ -77,7 +82,13 @@ function commitFiles(repositoryRoot, hash) {
 }
 
 function parseArguments(argv) {
-    const options = { assignments: [], behaviors: [], commitMessage: null, dryRun: false };
+    const options = {
+        assignments: [],
+        behaviors: [],
+        commitMessage: null,
+        dryRun: false,
+        harvest: null,
+    };
     for (let index = 0; index < argv.length; index++) {
         const argument = argv[index];
         if (argument === '--assign' || argument === '--behavior') {
@@ -99,6 +110,16 @@ function parseArguments(argv) {
                 throw new AuditRegenerationError('--commit expects a message');
             }
             options.commitMessage = value;
+            continue;
+        }
+        if (argument === '--harvest') {
+            const value = argv[++index];
+            if (!value) {
+                throw new AuditRegenerationError(
+                    '--harvest expects none or updated:<comma-separated .skills/paths>'
+                );
+            }
+            options.harvest = value;
             continue;
         }
         if (argument === '--dry-run') {
@@ -176,11 +197,54 @@ function arrayOpenIndex(text, keyNeedle, fromIndex, label) {
 }
 
 /**
+ * Normalizes the mandatory skill harvest decision. Returns { kind: 'none' }
+ * or { kind: 'updated', skills: [...] }; every problem is pushed into errors.
+ */
+function normalizeHarvestDecision(repositoryRoot, rawValue, errors) {
+    if (rawValue === null || rawValue === undefined) {
+        errors.push('--harvest is required: record the skill harvest review as'
+            + ' --harvest none or --harvest updated:<comma-separated .skills/paths>');
+        return { kind: 'none' };
+    }
+    const value = String(rawValue).trim();
+    if (value === 'none') {
+        return { kind: 'none' };
+    }
+    if (!value.startsWith('updated:')) {
+        errors.push(`--harvest expects none or updated:<paths>, got "${value}"`);
+        return { kind: 'none' };
+    }
+    const skills = value.slice('updated:'.length).split(',')
+        .map(entry => entry.trim()).filter(Boolean);
+    if (skills.length === 0) {
+        errors.push('--harvest updated: expects at least one .skills/ path');
+        return { kind: 'none' };
+    }
+    for (const skillPath of skills) {
+        if (!skillPath.startsWith('.skills/')) {
+            errors.push(`--harvest updated: path ${skillPath} must live under .skills/`);
+            continue;
+        }
+        if (!fs.existsSync(path.join(repositoryRoot, skillPath))) {
+            errors.push(`--harvest updated: path ${skillPath} does not exist`);
+        }
+    }
+    return { kind: 'updated', skills };
+}
+
+function harvestTrailer(decision) {
+    return decision.kind === 'updated'
+        ? `Skill-Harvest: updated ${decision.skills.join(', ')}`
+        : 'Skill-Harvest: none';
+}
+
+/**
  * Classifies every commit in audit.base..HEAD and plans the manifest edits.
  * Throws AuditRegenerationError listing every refusal reason.
  */
 function planCapabilityAudit(repositoryRoot, cli) {
     const errors = [];
+    const harvestDecision = normalizeHarvestDecision(repositoryRoot, cli.harvest, errors);
     const coveragePath = path.join(repositoryRoot, COVERAGE_RELATIVE_PATH);
     const manifest = loadMainCapabilityCoverage(coveragePath);
     const behaviorEntries = loadBehaviorCatalog(path.join(repositoryRoot, CONTRACTS_RELATIVE_PATH));
@@ -304,6 +368,7 @@ function planCapabilityAudit(repositoryRoot, cli) {
         deferredDocs,
         assignedInRange,
         assignments,
+        harvestDecision,
         behaviorAdditions: cli.behaviors.map(({ left, right }) => ({ capabilityId: left, behaviorId: right })),
     };
 }
@@ -385,6 +450,9 @@ function summarizePlan(plan, output) {
     for (const { capabilityId, behaviorId } of plan.behaviorAdditions) {
         output(`behavior ${capabilityId} += ${behaviorId}`);
     }
+    output(`harvest: ${plan.harvestDecision.kind === 'updated'
+        ? `updated ${plan.harvestDecision.skills.join(', ')}`
+        : 'none'}`);
 }
 
 function regenerateCapabilityAudit(repositoryRoot, cli, output = () => undefined) {
@@ -409,7 +477,9 @@ function regenerateCapabilityAudit(repositoryRoot, cli, output = () => undefined
     let committed = false;
     if (cli.commitMessage) {
         git(repositoryRoot, ['add', COVERAGE_RELATIVE_PATH]);
-        git(repositoryRoot, ['commit', '-m', cli.commitMessage]);
+        git(repositoryRoot, [
+            'commit', '-m', cli.commitMessage, '-m', harvestTrailer(plan.harvestDecision),
+        ]);
         committed = true;
         output(`created audit commit ${git(repositoryRoot, ['rev-parse', 'HEAD'])}`);
     }
@@ -444,6 +514,8 @@ module.exports = {
     applyCapabilityAuditPlan,
     AuditRegenerationError,
     findMatchingBracket,
+    harvestTrailer,
+    normalizeHarvestDecision,
     parseArguments,
     planCapabilityAudit,
     regenerateCapabilityAudit,

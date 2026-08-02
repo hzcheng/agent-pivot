@@ -42,8 +42,14 @@ documentation-only audit commit:
 ```sh
 node scripts/regenerate-capability-audit.js \
   --assign <sha>=<CAPABILITY-ID> [--assign ...] \
+  --harvest none|updated:<comma-separated .skills/paths> \
   --commit "docs: record <topic> capability audit"
 ```
+
+`--harvest` records the mandatory skill harvest review (skill
+`harvesting-workflow-lessons`) as a `Skill-Harvest` trailer in the audit
+commit: `none` when no skill change was justified, or `updated:<paths>` for
+the iterated `.skills/` directories.
 
 Commits touching only `README.md`, `docs/`, or `.superpowers/` count as
 documentation and need no assignment; everything else (including this file)

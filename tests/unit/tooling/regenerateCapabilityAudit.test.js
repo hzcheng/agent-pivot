@@ -140,6 +140,7 @@ function cli(overrides = {}) {
         behaviors: [],
         commitMessage: null,
         dryRun: false,
+        harvest: 'none',
         ...overrides,
     };
 }
@@ -303,6 +304,8 @@ test('ARCH-MAIN-CAPABILITY-CURRENCY-001 --commit creates the documentation-only 
     assert.equal(result.committed, true);
     assert.equal(git(fixture.repositoryRoot, ['show', '-s', '--format=%s', 'HEAD']),
         'docs: audit the sixth implementation');
+    assert.ok(git(fixture.repositoryRoot, ['show', '-s', '--format=%B', 'HEAD'])
+        .includes('Skill-Harvest: none'));
     assert.deepEqual(
         git(fixture.repositoryRoot, ['diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD']).split('\n'),
         ['docs/testing/main-capability-coverage.json'],
@@ -311,11 +314,49 @@ test('ARCH-MAIN-CAPABILITY-CURRENCY-001 --commit creates the documentation-only 
     assert.equal(git(fixture.repositoryRoot, ['status', '--porcelain']), '');
 });
 
+test('ARCH-MAIN-CAPABILITY-CURRENCY-001 requires and validates the skill harvest decision', t => {
+    const fixture = createRepository(t);
+    const implementation = fixture.implement('feat: seventh implementation', 10);
+    const assignments = [{ left: implementation, right: 'MAIN-DEMO-CAPABILITY' }];
+
+    assert.throws(
+        () => regenerateCapabilityAudit(fixture.repositoryRoot, cli({ assignments, harvest: null })),
+        /--harvest is required/
+    );
+    assert.throws(
+        () => regenerateCapabilityAudit(fixture.repositoryRoot, cli({ assignments, harvest: 'maybe' })),
+        /--harvest expects none or updated:<paths>/
+    );
+    assert.throws(
+        () => regenerateCapabilityAudit(fixture.repositoryRoot, cli({ assignments, harvest: 'updated:' })),
+        /expects at least one \.skills\/ path/
+    );
+    assert.throws(
+        () => regenerateCapabilityAudit(fixture.repositoryRoot, cli({ assignments, harvest: 'updated:scripts/foo.js' })),
+        /must live under \.skills\//
+    );
+    assert.throws(
+        () => regenerateCapabilityAudit(fixture.repositoryRoot, cli({ assignments, harvest: 'updated:.skills/missing' })),
+        /\.skills\/missing does not exist/
+    );
+
+    fixture.write('.skills/demo-skill/SKILL.md', '# demo\n');
+    const result = regenerateCapabilityAudit(fixture.repositoryRoot, cli({
+        assignments,
+        harvest: 'updated:.skills/demo-skill',
+        commitMessage: 'docs: audit the seventh implementation',
+    }));
+    assert.equal(result.committed, true);
+    assert.ok(git(fixture.repositoryRoot, ['show', '-s', '--format=%B', 'HEAD'])
+        .includes('Skill-Harvest: updated .skills/demo-skill'));
+});
+
 test('ARCH-MAIN-CAPABILITY-CURRENCY-001 parseArguments reads the CLI surface', () => {
     assert.deepEqual(parseArguments([
         '--assign', 'abc123=MAIN-DEMO-CAPABILITY',
         '--assign', 'def456=MAIN-OTHER-CAPABILITY',
         '--behavior', 'MAIN-DEMO-CAPABILITY=MAIN-DEMO-BEHAVIOR-001',
+        '--harvest', 'updated:.skills/demo-skill',
         '--commit', 'docs: audit message',
         '--dry-run',
     ]), {
@@ -326,7 +367,9 @@ test('ARCH-MAIN-CAPABILITY-CURRENCY-001 parseArguments reads the CLI surface', (
         behaviors: [{ left: 'MAIN-DEMO-CAPABILITY', right: 'MAIN-DEMO-BEHAVIOR-001' }],
         commitMessage: 'docs: audit message',
         dryRun: true,
+        harvest: 'updated:.skills/demo-skill',
     });
     assert.throws(() => parseArguments(['--assign', 'no-equals']), AuditRegenerationError);
     assert.throws(() => parseArguments(['--bogus']), AuditRegenerationError);
+    assert.throws(() => parseArguments(['--harvest']), AuditRegenerationError);
 });

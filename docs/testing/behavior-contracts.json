@@ -3661,7 +3661,8 @@
       ".skills/harvesting-workflow-lessons/SKILL.md",
       ".skills/installing-vscode-extensions-locally/SKILL.md",
       ".skills/publishing-and-merging-github-prs/SKILL.md",
-      ".skills/review-fix-commit-loop/SKILL.md"
+      ".skills/review-fix-commit-loop/SKILL.md",
+      ".skills/developing-provider-conversation-adapters/SKILL.md"
     ]
   },
   {

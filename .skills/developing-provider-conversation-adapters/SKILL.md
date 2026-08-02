@@ -1,0 +1,58 @@
+---
+name: developing-provider-conversation-adapters
+description: Use when adding or changing AI provider (Kimi/Claude/Codex) session or conversation parsing in this repository, including subagent or transcript support, status inference, or onboarding a new provider.
+---
+
+# Developing Provider Conversation Adapters
+
+## Overview
+
+Provider session formats are undocumented and version-drifting. Self-authored
+fixtures embed the same layout guess as the code under test, so both can be
+wrong together while every contract test passes.
+
+**Core rule:** before committing adapter changes, run the compiled adapter
+against real on-disk provider data and compare the output with ground truth.
+Green self-authored fixtures alone are not evidence.
+
+## Workflow
+
+1. **Probe real data first** — never derive the format from assumptions,
+   docs, or a sibling provider's layout:
+   - census record shapes: `type` distribution, field presence per record
+     kind, single-record size bounds
+   - find lifecycle markers (start / finish / interrupt) and cross-file
+     links (toolUseId, promptId, sidechain flags)
+   - detect continuation records (distinct promptIds, injected user turns)
+2. **Mirror the real layout in fixtures** — fixtures derive paths the same
+   way production code does and match the observed directory tree exactly.
+   A fixture that invents a simpler layout is a self-consistent trap.
+3. **Verify against real data before commit** — point a throwaway script at
+   the compiled `out/` adapter with `resolveSource` returning a real session,
+   run the new read path, and eyeball the results against the files on disk.
+4. Then the standard gates: focused owner tests,
+   `npm run test:behavior-contracts`, `npm run test:ci:linux`.
+
+## Current On-Disk Layouts (re-probe before relying)
+
+| Provider | Session source | Subagents |
+|---|---|---|
+| Kimi | `<kimiHome>/sessions/<workdirHash>/<sessionUuid>/wire.jsonl` | `<sessionDir>/subagents/<id>/{meta.json,wire.jsonl}`; meta carries explicit `status` + `created_at` |
+| Claude | `<claudeHome>/projects/<slug>/<sessionId>.jsonl` | `<slug>/<sessionId>/subagents/agent-<id>.{jsonl,meta.json}`, flat across spawnDepths; meta has `agentType`/`description`/`spawnDepth`/`toolUseId` but **no status** — infer from the transcript tail plus mtime; SendMessage resumes arrive as `origin.kind === 'coordinator'` user records |
+| Codex | rollout JSONL | `session_meta.source.subagent.thread_spawn`; app-server read access unverified — spike first |
+
+Subagent transcripts reuse the provider's main record envelope; Claude
+subagent files consist entirely of `isSidechain: true` records, so any
+main-conversation sidechain filter must be relaxed for subagent sources.
+
+## Status Inference Without An On-Disk Status
+
+When the format records no status (Claude today), derive it from the
+transcript tail:
+
+- last complete record is an assistant message without tool_use → finished
+- anything else → running only while the file mtime is fresh (5 minutes);
+  a crashed CLI leaves a stale mid-turn transcript behind → failed
+
+Read bounded head/tail windows (a single record can exceed 200KB); never
+scan whole transcripts in the listing path.

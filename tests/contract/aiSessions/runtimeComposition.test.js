@@ -114,6 +114,7 @@ const RESTORE_EVENTS = new Set([
     'direct-restored',
     'direct-failed',
     'tmux-restored',
+    'tmux-restore-failed',
     'hydration-constructed',
 ]);
 
@@ -305,6 +306,106 @@ test('RUNTIME-BOOTSTRAP-TMUX-RESTORE-DEFERRAL-001 disposed bootstrap ignores lat
             budgetMs: 800,
         },
     ]);
+});
+
+test('RUNTIME-HOST-RUNTIME-COMPOSITION-001 RUNTIME-TMUX-STORE-001 production activation stores tmux runtime bindings under the locked extension storage', () => {
+    const result = runProductionActivation('success');
+    assert.equal(result.failure, null);
+    assert.deepEqual(result.runtimeStoreRoots, [
+        path.join(result.storageRoot, 'ai-session-tmux-runtimes'),
+    ]);
+    assert.equal(
+        result.tmuxCreationLockInvocations.every(
+            invocation => invocation.root === result.storageRoot
+        ),
+        true,
+        'tmux filesystem mutation locks must stay inside the extension global storage'
+    );
+    assert.equal(
+        result.tmuxCreationLockInvocations.some(
+            invocation => invocation.key === 'runtime-binding-final-records'
+        ),
+        true,
+        'final runtime binding records must be serialized under the creation lock'
+    );
+});
+
+test('RUNTIME-HOST-RUNTIME-COMPOSITION-001 production tmux fallback prompt is modal for known hints and plain otherwise', () => {
+    const result = runProductionActivation('fallback-choice');
+    assert.equal(result.failure, null);
+    assert.deepEqual(result.warningMessages, [
+        {
+            message: 'Agent Pivot cannot verify the previous tmux runtime.'
+                + ' Resuming in VS Code may start a duplicate AI process.',
+            modal: true,
+            items: ['Resume in VS Code Anyway', 'Open Settings'],
+        },
+        {
+            message: 'Agent Pivot cannot use tmux in this extension host.',
+            modal: false,
+            items: ['Use VS Code Terminal This Time', 'Open Settings'],
+        },
+    ]);
+    assert.deepEqual(result.fallbackResumeStatuses, ['cancelled', 'cancelled']);
+    assert.deepEqual(
+        result.tmuxRuntimeFailureDiagnostics.filter(
+            diagnostic => diagnostic.operation === 'resume-fallback'
+        ),
+        [
+            { event: 'tmux-runtime-failure', operation: 'resume-fallback', backend: 'tmux', category: 'not-found' },
+            { event: 'tmux-runtime-failure', operation: 'resume-fallback', backend: 'tmux', category: 'not-found' },
+        ]
+    );
+});
+
+test('RUNTIME-HOST-RUNTIME-COMPOSITION-001 RUNTIME-RUNTIME-CONFIGURATION-001 production runtime configuration change rebinds tmux before refreshing runtimes', () => {
+    const result = runProductionActivation('configuration-change');
+    assert.equal(result.failure, null);
+    assert.deepEqual(result.runtimeConfigurationSequence, [
+        'set-executable-path:tmux',
+        'discovery-invalidated',
+        'refresh-for-host:true',
+    ]);
+    assert.equal(
+        result.affectsConfigurationQueries.includes('agentPivot.aiSessionTerminalMode'),
+        true,
+        'the configuration listener must match the AI session terminal mode key'
+    );
+});
+
+test('RUNTIME-HOST-RUNTIME-COMPOSITION-001 production tmux restore failure stays privacy-safe and does not block hydration', () => {
+    const result = runProductionActivation('tmux-restore-failure');
+    assert.equal(result.failure, null);
+    assert.equal(result.bootstrapState, 'ready');
+    assert.deepEqual(result.events.filter(isRestoreEvent), [
+        'inactive-restored',
+        'direct-restored',
+        'tmux-restore-failed',
+        'hydration-constructed',
+    ]);
+    assert.deepEqual(result.tmuxRuntimeFailureDiagnostics, [
+        {
+            event: 'tmux-runtime-failure',
+            operation: 'restore-attach-terminals',
+            backend: 'tmux',
+            category: 'unexpected',
+        },
+    ]);
+    assert.deepEqual(result.leakedPrivacyCanaries, []);
+});
+
+test('RUNTIME-HOST-RUNTIME-COMPOSITION-001 production activation restores tmux attachments for terminals opened after activation', () => {
+    const result = runProductionActivation('opened-terminal-restore');
+    assert.equal(result.failure, null);
+    assert.deepEqual(result.restoreAttachTerminalsInvocations, [
+        [],
+        ['tmux-attach-terminal'],
+    ], 'a terminal opened after activation must recover its tmux attachment exactly once');
+    assert.equal(
+        result.refreshMessageBuildsAfterOpenedTerminal > result.refreshMessageBuildsBeforeOpenedTerminal,
+        true,
+        'restoring an opened attach terminal must publish an incremental refresh'
+    );
 });
 
 test('RUNTIME-HOST-RUNTIME-COMPOSITION-001 assembles real runtime components and restores ownership before hydration', async t => {

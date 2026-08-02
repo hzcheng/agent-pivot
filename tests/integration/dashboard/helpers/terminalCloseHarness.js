@@ -8,6 +8,7 @@ const path = require('node:path');
 
 const root = path.resolve(__dirname, '../../../..');
 const dashboardPath = path.join(root, 'out/dashboard.js');
+const attentionEventCapabilityPath = path.join(root, 'out/aiSessions/attentionEventCapability.js');
 
 function disposable(dispose = () => undefined) {
     return { dispose };
@@ -66,13 +67,17 @@ function createHarnessVscode(listeners, commands) {
     };
 }
 
-function loadDashboard(transform) {
-    const source = transform(fs.readFileSync(dashboardPath, 'utf8'));
-    const loaded = new Module(dashboardPath, module);
-    loaded.filename = dashboardPath;
-    loaded.paths = Module._nodeModulePaths(path.dirname(dashboardPath));
-    loaded._compile(source, dashboardPath);
+function loadTransformedModule(modulePath, transform) {
+    const source = transform(fs.readFileSync(modulePath, 'utf8'));
+    const loaded = new Module(modulePath, module);
+    loaded.filename = modulePath;
+    loaded.paths = Module._nodeModulePaths(path.dirname(modulePath));
+    loaded._compile(source, modulePath);
     return loaded.exports;
+}
+
+function loadDashboard(transform) {
+    return loadTransformedModule(dashboardPath, transform);
 }
 
 function indexOfCall(calls, name, fromIndex = 0) {
@@ -84,9 +89,28 @@ function indexOfLifecycleTask(calls, operation, fromIndex = 0) {
         && call[0] === 'lifecycle-task' && call[1] === operation);
 }
 
-function replaceOnce(source, needle, replacement, label) {
-    assert.ok(source.includes(needle), `controlled mutation must find the production ${label}`);
+function replaceOnce(source, needle, replacement, _label) {
+    if (!source.includes(needle)) {
+        return source;
+    }
     return source.replace(needle, replacement);
+}
+
+// Each mutation's needle lives in exactly one of the transformed modules
+// (dashboard.js or attentionEventCapability.js); trackTransform asserts the
+// mutation landed somewhere after every module was compiled.
+function trackTransform(label, transform) {
+    const tracked = source => {
+        const next = transform(source);
+        if (next !== source) {
+            tracked.applied = true;
+        }
+        return next;
+    };
+    tracked.applied = false;
+    tracked.assertApplied = () => assert.ok(tracked.applied,
+        `controlled mutation must find the production needle for ${label}`);
+    return tracked;
 }
 
 const mutations = {
@@ -94,9 +118,9 @@ const mutations = {
         scenario: 'baseline',
         transform: source => replaceOnce(
             source,
-            'aiSessionRuntimeCoordinator.handleClosedTerminal(terminal);',
-            'aiSessionRuntimeCoordinator.handleClosedTerminal(terminal);'
-                + '\n            aiSessionAttentionController.suppressRuntimeCompletion(\'synthetic-exit\');',
+            'getRuntimeCoordinator().handleClosedTerminal(terminal);',
+            'getRuntimeCoordinator().handleClosedTerminal(terminal);'
+                + '\n            getAttentionController().suppressRuntimeCompletion(\'synthetic-exit\');',
             'callback',
         ),
     },
@@ -104,12 +128,12 @@ const mutations = {
         scenario: 'user-close',
         transform: source => replaceOnce(
             source,
-            'aiSessionAttentionController.acknowledge(uniqueEventIds);\n'
-                + '                    refreshAiSessionViewsIncrementally();\n'
-                + '                    yield aiSessionAttentionBridgeClient.acknowledge(uniqueEventIds);',
-            'aiSessionAttentionController.acknowledge(uniqueEventIds);\n'
-                + '                    yield aiSessionAttentionBridgeClient.acknowledge(uniqueEventIds);\n'
-                + '                    refreshAiSessionViewsIncrementally();',
+            'getAttentionController().acknowledge(uniqueEventIds);\n'
+                + '        refreshAiSessionViewsIncrementally();\n'
+                + '        yield aiSessionAttentionBridgeClient.acknowledge(uniqueEventIds);',
+            'getAttentionController().acknowledge(uniqueEventIds);\n'
+                + '        yield aiSessionAttentionBridgeClient.acknowledge(uniqueEventIds);\n'
+                + '        refreshAiSessionViewsIncrementally();',
             'acknowledgement ordering',
         ),
     },
@@ -127,10 +151,10 @@ const mutations = {
         scenario: 'remote-aggregate',
         transform: source => replaceOnce(
             source,
-            'if (aiSessionAttentionController.setRemoteAggregate(aggregate)) {',
-            'aiSessionAttentionController.getReleasedSessions()'
-                + '.forEach(() => aiSessionAttentionController.acknowledge([\'synthetic-released\']));\n'
-                + '                    if (aiSessionAttentionController.setRemoteAggregate(aggregate)) {',
+            'if (getAttentionController().setRemoteAggregate(aggregate)) {',
+            'getAttentionController().getReleasedSessions()'
+                + '.forEach(() => getAttentionController().acknowledge([\'synthetic-released\']));\n'
+                + '            if (getAttentionController().setRemoteAggregate(aggregate)) {',
             'bridge aggregate callback',
         ),
     },
@@ -138,11 +162,11 @@ const mutations = {
         scenario: 'remote-aggregate',
         transform: source => replaceOnce(
             source,
-            'if (aiSessionAttentionController.setRemoteAggregate(aggregate)) {\n'
-                + '                        scheduleAttentionViewsRefresh();\n'
-                + '                    }',
-            'if (aiSessionAttentionController.setRemoteAggregate(aggregate)) {\n'
-                + '                    }',
+            'if (getAttentionController().setRemoteAggregate(aggregate)) {\n'
+                + '                scheduleAttentionViewsRefresh();\n'
+                + '            }',
+            'if (getAttentionController().setRemoteAggregate(aggregate)) {\n'
+                + '            }',
             'aggregate refresh scheduling',
         ),
     },
@@ -168,9 +192,9 @@ const mutations = {
         scenario: 'baseline',
         transform: source => replaceOnce(
             source,
-            'aiSessionRuntimeCoordinator.handleClosedTerminal(terminal);\n'
-                + '                    evaluateAiSessionLifecycleTick();',
-            'aiSessionRuntimeCoordinator.handleClosedTerminal(terminal);',
+            'getRuntimeCoordinator().handleClosedTerminal(terminal);\n'
+                + '            evaluateAiSessionLifecycleTick();',
+            'getRuntimeCoordinator().handleClosedTerminal(terminal);',
             'close handler lifecycle tick',
         ),
     },
@@ -206,6 +230,9 @@ async function runTerminalCloseContract(transform = source => source, scenario =
                     }
                 },
             };
+        }
+        if (!fromHarness && request.endsWith('aiSessions/attentionEventCapability')) {
+            return loadTransformedModule(attentionEventCapabilityPath, transform);
         }
         if (!fromHarness && request.endsWith('aiSessions/runtimeSettlementCapability')) {
             return {
@@ -357,6 +384,9 @@ async function runTerminalCloseContract(transform = source => source, scenario =
 
         const dashboard = loadDashboard(transform);
         await dashboard.activate(context);
+        if (typeof transform.assertApplied === 'function') {
+            transform.assertApplied();
+        }
         await waitFor(() => listeners.closeTerminal, 'terminal close listener registration');
         assert.equal(typeof listeners.closeTerminal, 'function',
             'ATTENTION-RUNTIME-EXIT-NEUTRAL-001 production activation must register terminal close');
@@ -600,7 +630,7 @@ const mutationName = mode === 'mutation'
 const mutation = mutationName ? mutations[mutationName] : null;
 assert.ok(!mutationName || mutation, `unknown mutation ${mutationName}`);
 const scenario = mutation ? mutation.scenario : mode;
-const transform = mutation ? mutation.transform : source => source;
+const transform = mutation ? trackTransform(mutationName, mutation.transform) : source => source;
 
 runTerminalCloseContract(transform, scenario).catch(error => {
     process.stderr.write(`${error.stack || error}\n`);

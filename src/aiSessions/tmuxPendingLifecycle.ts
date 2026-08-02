@@ -1,0 +1,272 @@
+'use strict';
+
+import { createHash } from 'crypto';
+import type {
+    AiSessionDeferredCreateRuntimeRequest,
+    AiSessionPendingRuntimeSnapshot,
+    AiSessionRuntimeIdentity,
+    AiSessionRuntimeSnapshot,
+    AiSessionTmuxLocator,
+} from './runtimeTypes';
+import {
+    aiSessionRuntimeIdentitiesEqual,
+    cloneAiSessionRuntimeIdentity,
+} from './runtimeTypes';
+import { getTmuxRuntimeKey } from './tmuxLayout';
+import {
+    TmuxAmbiguousRuntimeBinding,
+    TmuxConsumedPendingBinding,
+    TmuxPendingRuntimeBinding,
+    TmuxPromotingRuntimeBinding,
+} from './tmuxRuntimeBindingStore';
+
+export function pendingIdentity(identity: AiSessionRuntimeIdentity & { pendingId: string }): AiSessionRuntimeIdentity {
+    return {
+        ...cloneAiSessionRuntimeIdentity(identity),
+        pendingId: identity.pendingId,
+        sessionId: undefined,
+    };
+}
+
+
+export function pendingLifecycleLockKey(identity: AiSessionRuntimeIdentity): string {
+    return `pending:${getTmuxRuntimeKey(identity)}`;
+}
+
+
+export function pendingLifecycleIdentityMatches(
+    record: TmuxPendingRuntimeBinding | TmuxPromotingRuntimeBinding
+        | TmuxConsumedPendingBinding | TmuxAmbiguousRuntimeBinding,
+    identity: AiSessionRuntimeIdentity
+): boolean {
+    return record.pendingId === identity.pendingId && record.provider === identity.provider
+        && aiSessionRuntimeIdentitiesEqual({
+            ...cloneAiSessionRuntimeIdentity(identity),
+            sessionId: undefined,
+            pendingId: record.pendingId,
+        }, {
+            provider: record.provider,
+            workspaceScopeIdentity: record.workspaceScopeIdentity,
+            workspaceNavigationIdentity: record.workspaceNavigationIdentity,
+            workspaceRootHostPaths: [...record.workspaceRootHostPaths],
+            cwd: record.cwd,
+            pendingId: record.pendingId,
+        });
+}
+
+function locatorsEqual(left: AiSessionTmuxLocator, right: AiSessionTmuxLocator): boolean {
+    return left.layout === right.layout
+        && left.sessionName === right.sessionName
+        && left.windowName === right.windowName;
+}
+
+export function pendingRequestFingerprint(request: AiSessionDeferredCreateRuntimeRequest): string {
+    const digest = createHash('sha256').update(JSON.stringify([
+        3,
+        request.identity.provider,
+        request.identity.workspaceScopeIdentity,
+        request.identity.workspaceNavigationIdentity,
+        request.identity.workspaceRootHostPaths.slice().sort(),
+        request.identity.pendingId,
+        request.identity.cwd,
+        request.createdAt,
+        request.excludedSessionIds,
+        request.title ?? null,
+        request.launchMarkerPath,
+    ]), 'utf8').digest('hex');
+    return `v3:${digest}`;
+}
+
+function identityFromPendingBinding(binding: TmuxPendingRuntimeBinding): AiSessionRuntimeIdentity {
+    return {
+        provider: binding.provider,
+        workspaceScopeIdentity: binding.workspaceScopeIdentity,
+        workspaceNavigationIdentity: binding.workspaceNavigationIdentity,
+        workspaceRootHostPaths: [...binding.workspaceRootHostPaths],
+        cwd: binding.cwd,
+        pendingId: binding.pendingId,
+    };
+}
+
+export function pendingSnapshotFromBinding(binding: TmuxPendingRuntimeBinding): AiSessionPendingRuntimeSnapshot {
+    return {
+        identity: identityFromPendingBinding(binding),
+        backend: 'tmux',
+        state: 'pending',
+        markerPath: '',
+        runStartedAtMs: Date.parse(binding.createdAt),
+        attached: false,
+        tmux: { ...binding.locator },
+        createdAt: binding.createdAt,
+        excludedSessionIds: [...binding.excludedSessionIds],
+        ...(binding.projectName === undefined ? {} : { projectName: binding.projectName }),
+        ...(binding.title === undefined ? {} : { title: binding.title }),
+    };
+}
+
+export function pendingBindingsEqual(left: TmuxPendingRuntimeBinding, right: TmuxPendingRuntimeBinding): boolean {
+    return left.pendingId === right.pendingId && left.provider === right.provider
+        && left.workspaceScopeIdentity === right.workspaceScopeIdentity
+        && left.workspaceNavigationIdentity === right.workspaceNavigationIdentity
+        && JSON.stringify(left.workspaceRootHostPaths.slice().sort())
+            === JSON.stringify(right.workspaceRootHostPaths.slice().sort())
+        && left.cwd === right.cwd
+        && left.createdAt === right.createdAt && left.projectName === right.projectName
+        && left.title === right.title
+        && left.acceptedAtMs === right.acceptedAtMs && left.layout === right.layout
+        && locatorsEqual(left.locator, right.locator)
+        && left.excludedSessionIds.length === right.excludedSessionIds.length
+        && left.excludedSessionIds.every((value, index) => value === right.excludedSessionIds[index]);
+}
+
+export function promotionIntent(
+    binding: TmuxPendingRuntimeBinding,
+    pending: AiSessionRuntimeSnapshot,
+    finalIdentityValue: AiSessionRuntimeIdentity,
+    finalSessionName: string,
+    finalLocator: AiSessionTmuxLocator,
+    recordedAtMs: number
+): TmuxPromotingRuntimeBinding {
+    if (!finalIdentityValue.sessionId) {
+        throw new Error('A promotion intent requires a final session ID.');
+    }
+    const requestFingerprint = promotionRequestFingerprint(
+        binding, pending.markerPath, finalSessionName, finalLocator
+    );
+    return {
+        version: 2,
+        state: 'promoting',
+        pendingId: binding.pendingId,
+        provider: binding.provider,
+        workspaceScopeIdentity: binding.workspaceScopeIdentity,
+        workspaceNavigationIdentity: binding.workspaceNavigationIdentity,
+        workspaceRootHostPaths: [...binding.workspaceRootHostPaths],
+        cwd: binding.cwd,
+        createdAt: binding.createdAt,
+        markerPath: pending.markerPath,
+        pendingBinding: {
+            ...binding,
+            workspaceRootHostPaths: [...binding.workspaceRootHostPaths],
+            excludedSessionIds: [...binding.excludedSessionIds],
+            locator: { ...binding.locator },
+        },
+        finalSessionId: finalIdentityValue.sessionId,
+        finalSessionName,
+        layout: binding.layout,
+        sourceLocator: { ...binding.locator },
+        finalLocator: { ...finalLocator },
+        requestFingerprint,
+        recordedAtMs,
+    };
+}
+
+function promotionRequestFingerprint(
+    binding: TmuxPendingRuntimeBinding,
+    markerPath: string,
+    finalSessionName: string,
+    finalLocator: AiSessionTmuxLocator
+): string {
+    return createHash('sha256').update(JSON.stringify([
+        2,
+        binding.provider,
+        binding.workspaceScopeIdentity,
+        binding.workspaceNavigationIdentity,
+        binding.workspaceRootHostPaths.slice().sort(),
+        binding.pendingId,
+        binding.cwd,
+        binding.createdAt,
+        binding.excludedSessionIds,
+        binding.title ?? null,
+        binding.acceptedAtMs,
+        binding.layout,
+        binding.locator,
+        markerPath,
+        finalSessionName,
+        finalLocator,
+    ]), 'utf8').digest('hex');
+}
+
+export function promotionIntentMatchesLiveBinding(
+    intent: TmuxPromotingRuntimeBinding,
+    binding: TmuxPendingRuntimeBinding
+): boolean {
+    return pendingBindingsEqual(intent.pendingBinding, binding)
+        && intent.requestFingerprint === promotionRequestFingerprint(
+            binding, intent.markerPath, intent.finalSessionName, intent.finalLocator
+        );
+}
+
+export function promotionIntentsMatch(
+    left: TmuxPromotingRuntimeBinding,
+    right: TmuxPromotingRuntimeBinding
+): boolean {
+    return left.pendingId === right.pendingId && left.provider === right.provider
+        && left.workspaceScopeIdentity === right.workspaceScopeIdentity
+        && left.workspaceNavigationIdentity === right.workspaceNavigationIdentity
+        && JSON.stringify(left.workspaceRootHostPaths.slice().sort())
+            === JSON.stringify(right.workspaceRootHostPaths.slice().sort())
+        && left.cwd === right.cwd
+        && left.createdAt === right.createdAt && left.markerPath === right.markerPath
+        && pendingBindingsEqual(left.pendingBinding, right.pendingBinding)
+        && left.finalSessionId === right.finalSessionId
+        && left.finalSessionName === right.finalSessionName && left.layout === right.layout
+        && locatorsEqual(left.sourceLocator, right.sourceLocator)
+        && locatorsEqual(left.finalLocator, right.finalLocator)
+        && left.requestFingerprint === right.requestFingerprint;
+}
+
+export function consumedMatchesPromotionIntent(
+    consumed: TmuxConsumedPendingBinding,
+    intent: TmuxPromotingRuntimeBinding
+): boolean {
+    return consumed.finalSessionName !== undefined
+        && pendingLifecycleIdentityMatches(consumed, intent)
+        && consumed.finalSessionId === intent.finalSessionId
+        && consumed.finalSessionName === intent.finalSessionName
+        && consumed.layout === intent.layout
+        && locatorsEqual(consumed.finalLocator, intent.finalLocator);
+}
+
+export type PendingAmbiguousRuntimeBinding = TmuxAmbiguousRuntimeBinding & {
+    pendingId: string;
+    sessionId?: never;
+    cwd: string;
+    createdAt: string;
+    excludedSessionIds: string[];
+    projectName?: string;
+    title?: string;
+    markerPath?: string;
+    requestFingerprint: string;
+};
+
+export function pendingAmbiguityMatches(
+    ambiguous: PendingAmbiguousRuntimeBinding,
+    request: AiSessionDeferredCreateRuntimeRequest,
+    binding: TmuxPendingRuntimeBinding,
+    locator: AiSessionTmuxLocator
+): boolean {
+    return ambiguous.provider === binding.provider
+        && ambiguous.workspaceScopeIdentity === binding.workspaceScopeIdentity
+        && ambiguous.workspaceNavigationIdentity === binding.workspaceNavigationIdentity
+        && JSON.stringify(ambiguous.workspaceRootHostPaths.slice().sort())
+            === JSON.stringify(binding.workspaceRootHostPaths.slice().sort())
+        && ambiguous.pendingId === binding.pendingId
+        && ambiguous.cwd === binding.cwd
+        && ambiguous.createdAt === binding.createdAt
+        && ambiguous.title === binding.title
+        && (ambiguous.markerPath || '') === request.launchMarkerPath
+        && ambiguous.layout === binding.layout
+        && locatorsEqual(ambiguous.locator, locator)
+        && ambiguous.excludedSessionIds.length === binding.excludedSessionIds.length
+        && ambiguous.excludedSessionIds.every((value, index) => value === binding.excludedSessionIds[index])
+        && (isLegacyPendingRequestFingerprint(ambiguous.requestFingerprint)
+            || ambiguous.requestFingerprint === pendingRequestFingerprint(request));
+}
+
+function isLegacyPendingRequestFingerprint(value: string): boolean {
+    return /^[a-f0-9]{64}$/.test(value);
+}
+
+export function consumedPendingError(record: TmuxConsumedPendingBinding): Error {
+    return new Error(`The pending tmux runtime was already consumed by session ${record.finalSessionId}.`);
+}

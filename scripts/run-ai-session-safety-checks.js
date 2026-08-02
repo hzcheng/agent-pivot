@@ -4897,6 +4897,9 @@ function runWebviewContentChecks() {
     const runtimeSettlement = fs.readFileSync(
         path.join(__dirname, '..', 'src', 'aiSessions', 'runtimeSettlementCapability.ts'), 'utf8'
     );
+    const attentionEvents = fs.readFileSync(
+        path.join(__dirname, '..', 'src', 'aiSessions', 'attentionEventCapability.ts'), 'utf8'
+    );
     const messageHandlersSource = fs.readFileSync(
         path.join(__dirname, '..', 'src', 'dashboard', 'messageHandlers.ts'), 'utf8'
     );
@@ -5222,7 +5225,17 @@ function runWebviewContentChecks() {
     assert.ok(evaluateAttentionMonitorFunction.includes('signal.phase'));
     assert.ok(!dashboard.includes('function getEffectiveAiSessionAttentionAggregate('));
     assert.ok(!dashboard.includes('function getAiSessionAttentionRecoverySessionEvents('));
-    assert.ok(dashboard.includes('async function evaluateAiSessionAttention('));
+    assert.ok(dashboard.includes('createAiSessionAttentionEventCapability({'),
+        'the dashboard constructs the extracted attention event capability');
+    assert.ok(dashboard.includes(
+        "import { createAiSessionAttentionEventCapability } from './aiSessions/attentionEventCapability';"
+    ));
+    assert.ok(dashboard.includes('const evaluateAiSessionAttention = aiSessionAttentionEvent.evaluateAttention;'),
+        'the dashboard aliases the extracted attention evaluation');
+    assert.ok(dashboard.includes(
+        'const refreshAiSessionViewsIncrementally = aiSessionAttentionEvent.refreshViewsIncrementally;'
+    ), 'the dashboard aliases the extracted incremental refresh');
+    assert.ok(attentionEvents.includes('async function evaluateAiSessionAttention('));
     assert.ok(messageHandlersSource.includes("'open-settings': async () =>"));
     assert.ok(settingsFunction.includes('dashboardRuntimeController.openSettings()'));
     assert.ok(dashboardRuntimeControllerSource.includes("executeCommand('workbench.action.openSettings', query)"));
@@ -5276,8 +5289,10 @@ function runWebviewContentChecks() {
     assert.ok(dashboard.includes('new ActiveAiSessionTerminalHighlighter'));
     assert.ok(dashboard.includes('new TmuxFocusedRuntimeMonitor<vscode.Terminal>({'));
     assert.ok(dashboard.includes('tmuxFocusedRuntimeMonitor.start();'));
-    assert.ok((dashboard.match(/void tmuxFocusedRuntimeMonitor\.request\(\);/g) || []).length >= 2,
-        'view visibility and active-terminal changes must both request reconciliation');
+    assert.ok((dashboard.match(/void tmuxFocusedRuntimeMonitor\.request\(\);/g) || []).length >= 1,
+        'view visibility changes must request reconciliation');
+    assert.ok(attentionEvents.includes('void getTmuxFocusedRuntimeMonitor().request();'),
+        'active-terminal changes must request reconciliation through the extracted capability');
     assert.ok(dashboard.includes("logAiSessionRuntimeFailure('sync-focused-runtime', error)"));
     const tmuxMonitorOwnership = {
         variableName: 'tmuxFocusedRuntimeMonitor',
@@ -7262,8 +7277,9 @@ function runAiSessionIncrementalRefreshSourceChecks() {
 
     assert.ok(dashboard.includes('AI_SESSION_WATCHER_REFRESH_MIN_INTERVAL_MS'));
     assert.ok(dashboard.includes('watcherRefreshMinIntervalMs: AI_SESSION_WATCHER_REFRESH_MIN_INTERVAL_MS'));
-    const refreshFunction = extractFunctionBody(dashboard, 'refreshAiSessionViewsIncrementally');
-    assert.ok(refreshFunction.includes('aiSessionDashboardController.refreshNow()'));
+    assert.ok(dashboard.includes(
+        'const refreshAiSessionViewsIncrementally = aiSessionAttentionEvent.refreshViewsIncrementally;'
+    ), 'the incremental refresh alias must reach the extracted attention event capability');
     assert.ok(dashboard.includes('new WorkspaceSessionHydrationController<vscode.Terminal>({'));
     assert.ok(dashboard.includes('getCurrentWorkspaceAiSessions: workspace => workspaceSessionHydrationController.hydrate(workspace)'));
     const sessionControllerCompositionSource = fs.readFileSync(

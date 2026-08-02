@@ -9645,15 +9645,16 @@ function runHostRuntimeCompositionChecks() {
     assert.ok(!dashboardSource.includes('isCommandAvailableOnPath'));
     assert.ok(!dashboardSource.includes('was not found on PATH'));
     assert.ok(dashboardSource.includes('runtimeCoordinator: aiSessionRuntimeCoordinator'));
-    assert.ok(dashboardSource.includes('getActiveRuntimes: () => aiSessionRuntimeCoordinator.getActive()'));
-    assert.ok(dashboardSource.includes('getPendingRuntimes: () => aiSessionRuntimeCoordinator.getPending()'));
-    assert.ok(dashboardSource.includes('findTmuxCollisionRuntime('));
+    const attentionEventSource = fs.readFileSync(
+        path.join(__dirname, '..', 'src', 'aiSessions', 'attentionEventCapability.ts'), 'utf8'
+    );
+    assert.ok(attentionEventSource.includes('findTmuxCollisionRuntime('));
     assert.ok(compositionSource.includes('getRuntimeConflict: getAiSessionRuntimeCollision'));
     assert.ok(dashboardSource.includes('getFocusedAiSessionRuntimeIdentity()'));
-    assert.ok(dashboardSource.includes('tmuxRuntimeBackend.getFocusedRuntime(activeTerminal)'));
+    assert.ok(attentionEventSource.includes('tmuxRuntimeBackend.getFocusedRuntime(activeTerminal)'));
     assert.ok(dashboardSource.includes('getAttachTerminalName: getAiSessionTmuxAttachTerminalName'));
     assert.ok(dashboardSource.includes('markerIsCurrent: isCurrentRuntimeMarker'));
-    assert.ok(dashboardSource.includes('await tmuxRuntimeDiscovery.loadPersistedInactive()'));
+    assert.ok(attentionEventSource.includes('await tmuxRuntimeDiscovery.loadPersistedInactive()'));
     assert.ok(!dashboardSource.includes(
         'getTerminalById: (providerId, sessionId) => aiSessionTerminalService.getActiveById'
     ));

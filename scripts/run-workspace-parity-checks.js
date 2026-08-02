@@ -333,6 +333,9 @@ function runProductionWiringChecks() {
     const openWorkspaceDashboardSource = fs.readFileSync(
         path.join(root, 'src', 'openWorkspaces', 'dashboardController.ts'), 'utf8'
     );
+    const attentionEventSource = fs.readFileSync(
+        path.join(root, 'src', 'aiSessions', 'attentionEventCapability.ts'), 'utf8'
+    );
     const projectScriptsSource = fs.readFileSync(
         path.join(root, 'src', 'webview', 'webviewProjectScripts.js'), 'utf8'
     );
@@ -350,7 +353,7 @@ function runProductionWiringChecks() {
     assert.ok(openWorkspaceDashboardSource.includes(
         'this.options.getAttentionAggregate()?.aggregateRevision || null'
     ));
-    assert.ok(dashboardSource.includes('scheduleAttentionViewsRefresh()'));
+    assert.ok(attentionEventSource.includes('scheduleAttentionViewsRefresh()'));
 
     const navigationBranch = projectScriptsSource.slice(
         projectScriptsSource.indexOf(

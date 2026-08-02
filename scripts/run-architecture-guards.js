@@ -731,6 +731,7 @@ const guards = {
     'ARCH-AI-SESSION-FALLBACK-REASON-001'(root) {
         const risk = 'anonymous fallbacks and runtime-derived attention hide regressions and defeat diagnostics';
         const dashboard = parseTypescript(root, 'src/dashboard.ts', this.id, risk);
+        const attentionEvents = parseTypescript(root, 'src/aiSessions/attentionEventCapability.ts', this.id, risk);
         const attentionController = parseTypescript(
             root, 'src/aiSessions/attentionController.ts', this.id, risk
         );
@@ -741,8 +742,10 @@ const guards = {
             fail(this.id, risk,
                 'runtime completion must not be converted into, or used to suppress, attention');
         }
-        const lifecycleReasons = callArguments(dashboard, 'runSafeAiSessionRuntimeLifecycleTask')
-            .map(args => stringArgument(args[0]));
+        const lifecycleReasons = [
+            ...callArguments(dashboard, 'runSafeAiSessionRuntimeLifecycleTask'),
+            ...callArguments(attentionEvents, 'runSafeAiSessionRuntimeLifecycleTask'),
+        ].map(args => stringArgument(args[0]));
         if (!lifecycleReasons.includes('evaluate-attention-closed-terminal')) {
             fail(this.id, risk, 'terminal-close provider-event reconciliation must have an explicit diagnostic reason');
         }

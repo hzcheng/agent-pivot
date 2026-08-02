@@ -1077,12 +1077,16 @@
       "tests/contract/aiSessions/attention.test.js"
     ,
       "tests/contract/aiSessions/runtimeSettlement.test.js"
+    ,
+      "tests/contract/aiSessions/attentionEventCapability.test.js"
     ],
     "evidence": [
       "src/aiSessions/attentionEvaluationQueue.ts",
       "src/aiSessions/executionController.ts"
     ,
       "src/aiSessions/runtimeSettlementCapability.ts"
+    ,
+      "src/aiSessions/attentionEventCapability.ts"
     ]
   },
   {
@@ -1490,6 +1494,7 @@
     "status": "automated",
     "owners": [
       "tests/contract/aiSessions/runtimeBackends.test.js",
+      "tests/contract/aiSessions/tmuxPromotion.test.js",
       "tests/unit/aiSessions/tmuxRuntimeRequest.test.js"
     ],
     "evidence": [
@@ -3063,10 +3068,14 @@
     "owners": [
       "tests/contract/aiSessions/attention.test.js",
       "tests/integration/dashboard/terminalCloseWiring.test.js"
+    ,
+      "tests/contract/aiSessions/attentionEventCapability.test.js"
     ],
     "evidence": [
       "src/aiSessions/attentionController.ts",
       "src/dashboard.ts"
+    ,
+      "src/aiSessions/attentionEventCapability.ts"
     ]
   },
   {
@@ -3095,11 +3104,15 @@
     "status": "automated",
     "owners": [
       "tests/integration/dashboard/terminalCloseWiring.test.js"
+    ,
+      "tests/contract/aiSessions/attentionEventCapability.test.js"
     ],
     "evidence": [
       "src/dashboard.ts"
     ,
       "src/aiSessions/runtimeSettlementCapability.ts"
+    ,
+      "src/aiSessions/attentionEventCapability.ts"
     ]
   },
   {

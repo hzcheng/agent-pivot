@@ -14,14 +14,14 @@ test('release content validation cannot satisfy current facts from historical no
     const changelog = [
         '# Changelog',
         '',
-        '## [1.0.1] - 2026-07-31',
+        '## [1.0.2] - 2026-08-03',
         '',
-        '- Added a rich AI Conversation review workflow.',
+        '- AI Conversation renders provider tool calls as collapsible entries.',
         '- Added context-window usage telemetry.',
-        '- Added pinning for other open workspace cards.',
-        '- Kept the AI Conversation reading position stable.',
+        '- The usage bar shows a worktree chip.',
+        '- The quick-entry pills stay visible at zero count.',
         '',
-        '## [1.0.0] - 2026-07-26',
+        '## [1.0.1] - 2026-07-31',
         '',
         '- Added an AI Skills workspace.',
         '',
@@ -33,10 +33,10 @@ test('release content validation cannot satisfy current facts from historical no
             changelog,
             packageMetadata: {
                 displayName: 'Agent Pivot',
-                version: '1.0.1',
+                version: '1.0.2',
                 description: 'Workspace command center.',
             },
         }),
-        /1\.0\.1 CHANGELOG release must document AI Skills management/,
+        /1\.0\.2 CHANGELOG release must document subagent viewing/,
     );
 });

@@ -390,7 +390,7 @@ function runRealVsixArchiveChecks(mainPackage, bridgePackage) {
     );
     assert.strictEqual(
         path.basename(mainArtifact),
-        'agent-pivot-1.0.1.vsix',
+        'agent-pivot-1.0.2.vsix',
         'main release artifact name must remain exact',
     );
     assert.strictEqual(

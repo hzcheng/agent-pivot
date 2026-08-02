@@ -408,6 +408,21 @@ test('RUNTIME-HOST-RUNTIME-COMPOSITION-001 production activation restores tmux a
     );
 });
 
+test('RUNTIME-HOST-RUNTIME-COMPOSITION-001 production activation hydrates the workspace through the coordinator runtimes', () => {
+    const result = runProductionActivation('workspace-hydration');
+    assert.equal(result.failure, null);
+    const hydration = result.hydrationDiagnostics.find(diagnostic => diagnostic.workspaceCount === 1);
+    assert.ok(hydration, 'a workspace folder must hydrate through the workspace path');
+    assert.ok(
+        result.hydrationWiring.active >= 1 && result.hydrationWiring.pending >= 1,
+        'hydration must consume the dashboard runtime wiring'
+    );
+    assert.equal(result.hydrationWiring.activeViaCoordinator, result.hydrationWiring.active,
+        'every active-runtime read must be served by the runtime coordinator');
+    assert.equal(result.hydrationWiring.pendingViaCoordinator, result.hydrationWiring.pending,
+        'every pending-runtime read must be served by the runtime coordinator');
+});
+
 test('RUNTIME-HOST-RUNTIME-COMPOSITION-001 assembles real runtime components and restores ownership before hydration', async t => {
     const events = [];
     const composition = assembleRuntimeHost(t, events);

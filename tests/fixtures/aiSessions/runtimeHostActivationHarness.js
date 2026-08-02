@@ -198,6 +198,19 @@ async function main() {
         warningMessages: [],
     };
     const vscode = createVscode(lifecycle);
+    if (mode === 'workspace-hydration') {
+        const workspaceRoot = path.join(storageRoot, 'fixture-workspace');
+        fs.mkdirSync(workspaceRoot, { recursive: true });
+        vscode.workspace.name = 'fixture-workspace';
+        vscode.workspace.workspaceFolders = [{
+            name: 'fixture-workspace',
+            index: 0,
+            uri: {
+                scheme: 'file', fsPath: workspaceRoot, path: workspaceRoot,
+                toString: () => `file://${workspaceRoot}`,
+            },
+        }];
+    }
     const previousLoad = Module._load;
     const restores = [];
     const events = [];
@@ -223,6 +236,13 @@ async function main() {
     const affectsConfigurationQueries = [];
     const fallbackResumeStatuses = [];
     let coordinatorInstance;
+    let coordinatorGetActiveCalls = 0;
+    let coordinatorGetPendingCalls = 0;
+    const coordinatorActiveSentinel = [];
+    const coordinatorPendingSentinel = [];
+    const hydrationWiring = {
+        active: 0, pending: 0, activeViaCoordinator: 0, pendingViaCoordinator: 0,
+    };
     let refreshMessageBuildsBeforeOpenedTerminal = 0;
     let refreshMessageBuildsAfterOpenedTerminal = 0;
     const patch = (prototype, name, replacement) => {
@@ -240,6 +260,29 @@ async function main() {
                 WorkspaceSessionHydrationController: class extends Original {
                     constructor(...args) {
                         events.push('hydration-constructed');
+                        const options = args[0];
+                        if (options && typeof options.getActiveRuntimes === 'function') {
+                            const originalActive = options.getActiveRuntimes;
+                            options.getActiveRuntimes = () => {
+                                hydrationWiring.active += 1;
+                                const result = originalActive();
+                                if (result === coordinatorActiveSentinel) {
+                                    hydrationWiring.activeViaCoordinator += 1;
+                                }
+                                return result;
+                            };
+                        }
+                        if (options && typeof options.getPendingRuntimes === 'function') {
+                            const originalPending = options.getPendingRuntimes;
+                            options.getPendingRuntimes = () => {
+                                hydrationWiring.pending += 1;
+                                const result = originalPending();
+                                if (result === coordinatorPendingSentinel) {
+                                    hydrationWiring.pendingViaCoordinator += 1;
+                                }
+                                return result;
+                            };
+                        }
                         super(...args);
                     }
                 },
@@ -408,11 +451,15 @@ async function main() {
         patch(AiSessionRuntimeCoordinator.prototype, 'getActive', function () {
             assert.ok(this.dependencies.direct instanceof DirectTerminalRuntimeBackend);
             assert.ok(this.dependencies.tmux instanceof TmuxRuntimeBackend);
+            coordinatorGetActiveCalls += 1;
             coordinatorInstance = this;
             verified.add('direct-tmux-coordinator');
-            return [];
+            return coordinatorActiveSentinel;
         });
-        patch(AiSessionRuntimeCoordinator.prototype, 'getPending', () => []);
+        patch(AiSessionRuntimeCoordinator.prototype, 'getPending', () => {
+            coordinatorGetPendingCalls += 1;
+            return coordinatorPendingSentinel;
+        });
         patch(AiSessionAttentionController.prototype, 'getRecoverySessionEvents', () => []);
         patch(AiSessionAttentionController.prototype, 'evaluate', async () => ({
             enabled: true, published: true, inScopeSessionKeys: [], eventIdsBySession: {}, overflowedSessionKeys: [],
@@ -689,6 +736,12 @@ async function main() {
             restoreAttachTerminalsInvocations,
             runtimeStoreRoots,
             storageRoot,
+            hydrationWiring,
+            coordinatorGetActiveCalls,
+            coordinatorGetPendingCalls,
+            hydrationDiagnostics: aiSessionDiagnostics
+                .filter(diagnostic => diagnostic.event === 'workspace-ai-session-hydration')
+                .map(({ loggedAt: _loggedAt, ...diagnostic }) => diagnostic),
             tmuxCreationLockInvocations,
             refreshMessageBuildsBeforeOpenedTerminal,
             refreshMessageBuildsAfterOpenedTerminal,
@@ -706,6 +759,12 @@ async function main() {
             attentionShutdownCalls,
             synchronizedGlobalStateKeySets,
             startupDiagnostics,
+            ...(process.env.HARNESS_DEBUG
+                ? {
+                    outputLines: lifecycle.outputLines,
+                    postedMessageTypes: lifecycle.postedWebviewMessages.map(message => message?.type),
+                }
+                : {}),
         }));
     } finally {
         disposeContextSubscriptions();

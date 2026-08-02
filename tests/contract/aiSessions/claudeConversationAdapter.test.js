@@ -760,3 +760,257 @@ test('CONVERSATION-TELEMETRY-001 Claude resolves the current worktree from the l
         missing: true,
     });
 });
+
+async function writeSubagentFixture(source, id, meta, records) {
+    // Real layout: <dir>/<session>.jsonl -> <dir>/<session>/subagents/.
+    const base = path.basename(source.sourcePath, path.extname(source.sourcePath));
+    const directory = path.join(path.dirname(source.sourcePath), base, 'subagents');
+    await fs.promises.mkdir(directory, { recursive: true });
+    if (meta) {
+        await fs.promises.writeFile(
+            path.join(directory, `agent-${id}.meta.json`),
+            JSON.stringify(meta)
+        );
+    }
+    const transcriptPath = path.join(directory, `agent-${id}.jsonl`);
+    await fs.promises.writeFile(
+        transcriptPath,
+        records.map(record => JSON.stringify(record)).join('\n') + '\n'
+    );
+    return { directory, transcriptPath };
+}
+
+function subagentTranscriptRecords(id, options = {}) {
+    const startedAt = options.startedAt || '2025-01-02T03:04:05.000Z';
+    const finalContent = options.midTurn === 'toolUse'
+        ? [{
+            type: 'tool_use',
+            id: 'toolu_fixture_1',
+            name: 'Bash',
+            input: { command: 'npm test' },
+        }]
+        : [{ type: 'text', text: 'The parser normalizes visible text.' }];
+    return [
+        {
+            type: 'user',
+            uuid: `${id}-user-1`,
+            isSidechain: true,
+            agentId: id,
+            promptId: `${id}-prompt-1`,
+            timestamp: startedAt,
+            message: {
+                role: 'user',
+                content: 'Explore the parser and report back',
+            },
+        },
+        {
+            type: 'assistant',
+            uuid: `${id}-assistant-1`,
+            isSidechain: true,
+            agentId: id,
+            timestamp: '2025-01-02T03:04:06.000Z',
+            message: {
+                role: 'assistant',
+                model: 'claude-haiku-4-5-20251001',
+                content: [{ type: 'thinking', thinking: 'subagent-secret' }],
+            },
+        },
+        {
+            type: 'user',
+            uuid: `${id}-user-2`,
+            isSidechain: true,
+            agentId: id,
+            timestamp: '2025-01-02T03:04:07.000Z',
+            message: {
+                role: 'user',
+                content: [{ type: 'tool_result', content: 'local/path' }],
+            },
+        },
+        ...(options.midTurn === 'toolResult'
+            ? []
+            : [{
+                type: 'assistant',
+                uuid: `${id}-assistant-2`,
+                isSidechain: true,
+                agentId: id,
+                timestamp: '2025-01-02T03:04:08.000Z',
+                message: { role: 'assistant', content: finalContent },
+            }]),
+    ];
+}
+
+test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 Claude lists depth-1 subagents with inferred statuses and labels', async t => {
+    const source = await createFixture(t);
+    const fresh = await writeSubagentFixture(
+        source,
+        'a11111111',
+        {
+            description: 'Explore the parser',
+            agentType: 'Explore',
+            spawnDepth: 1,
+            toolUseId: 'toolu_fixture_alpha',
+        },
+        subagentTranscriptRecords('a11111111')
+    );
+    await writeSubagentFixture(
+        source,
+        'a22222222',
+        { agentType: 'general-purpose', spawnDepth: 1 },
+        subagentTranscriptRecords('a22222222', {
+            startedAt: '2025-01-02T02:04:05.000Z',
+            midTurn: 'toolUse',
+        })
+    );
+    const stale = await writeSubagentFixture(
+        source,
+        'a33333333',
+        { description: 'Stale worker', spawnDepth: 1 },
+        subagentTranscriptRecords('a33333333', {
+            startedAt: '2025-01-02T01:04:05.000Z',
+            midTurn: 'toolResult',
+        })
+    );
+    const tenMinutesAgo = (Date.now() - 10 * 60 * 1000) / 1000;
+    await fs.promises.utimes(
+        stale.transcriptPath,
+        tenMinutesAgo,
+        tenMinutesAgo
+    );
+    await writeSubagentFixture(
+        source,
+        'a44444444',
+        { description: 'Nested grandchild', spawnDepth: 2 },
+        subagentTranscriptRecords('a44444444')
+    );
+    await writeSubagentFixture(
+        source,
+        'a55555555',
+        null,
+        subagentTranscriptRecords('a55555555', {
+            startedAt: '2025-01-02T04:04:05.000Z',
+        })
+    );
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+
+    const entries = await adapter.readSubagents(sessionId);
+    assert.deepEqual(
+        entries.map(entry => [entry.id, entry.status, entry.agentType]),
+        [
+            ['a33333333', 'failed', undefined],
+            ['a22222222', 'running', 'general-purpose'],
+            ['a11111111', 'idle', 'Explore'],
+            ['a55555555', 'idle', undefined],
+        ]
+    );
+    assert.equal(entries[2].label, 'Explore the parser');
+    assert.equal(entries[1].label, 'general-purpose · a22222222');
+    assert.equal(entries[3].label, 'a55555555');
+    assert.equal(entries[2].createdAt, Date.parse('2025-01-02T03:04:05.000Z'));
+    assert.ok(Number.isSafeInteger(entries[0].updatedAt));
+
+    const stat = await fs.promises.stat(fresh.transcriptPath);
+    assert.equal(entries[2].updatedAt, Math.floor(stat.mtimeMs));
+});
+
+test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 Claude reads a subagent transcript as its own conversation', async t => {
+    const source = await createFixture(t);
+    await writeSubagentFixture(
+        source,
+        'a11111111',
+        { description: 'Explore the parser', spawnDepth: 1 },
+        subagentTranscriptRecords('a11111111')
+    );
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+
+    const encodedId = `${sessionId}#agent:a11111111`;
+    const outline = await adapter.readOutline(encodedId);
+    assert.equal(outline.sessionId, encodedId);
+    assert.equal(outline.totalInteractions, 1);
+    assert.equal(
+        outline.interactions[0].userPreview,
+        'Explore the parser and report back'
+    );
+    const page = await adapter.readPage({
+        provider: 'claude',
+        sessionId: encodedId,
+        anchorInteractionId: outline.interactions[0].id,
+        direction: 'around',
+        expectedRevision: outline.sourceRevision,
+    });
+    assert.deepEqual(
+        page.messages.map(message => [message.role, message.markdown]),
+        [
+            ['user', 'Explore the parser and report back'],
+            ['assistant', 'The parser normalizes visible text.'],
+        ]
+    );
+
+    // A resumed subagent (SendMessage) grows a second interaction round.
+    await writeSubagentFixture(
+        source,
+        'a66666666',
+        { description: 'Resumed worker', spawnDepth: 1 },
+        [
+            ...subagentTranscriptRecords('a66666666'),
+            {
+                type: 'user',
+                uuid: 'a66666666-user-3',
+                isSidechain: true,
+                isMeta: true,
+                origin: { kind: 'coordinator' },
+                agentId: 'a66666666',
+                promptId: 'a66666666-prompt-2',
+                timestamp: '2025-01-02T03:05:00.000Z',
+                message: { role: 'user', content: 'One more check please' },
+            },
+            {
+                type: 'assistant',
+                uuid: 'a66666666-assistant-3',
+                isSidechain: true,
+                agentId: 'a66666666',
+                timestamp: '2025-01-02T03:05:01.000Z',
+                message: {
+                    role: 'assistant',
+                    content: [{ type: 'text', text: 'Follow-up done.' }],
+                },
+            },
+        ]
+    );
+    const resumed = await adapter.readOutline(`${sessionId}#agent:a66666666`);
+    assert.equal(resumed.totalInteractions, 2);
+    assert.deepEqual(
+        resumed.interactions.map(item => item.userPreview),
+        ['Explore the parser and report back', 'One more check please']
+    );
+
+    // The parent session conversation is unaffected by the subagent files.
+    const parent = await adapter.readOutline(sessionId);
+    assert.equal(parent.totalInteractions, 3);
+});
+
+test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 Claude rejects malformed and missing subagent targets', async t => {
+    const source = await createFixture(t);
+    await writeSubagentFixture(
+        source,
+        'a11111111',
+        { spawnDepth: 1 },
+        subagentTranscriptRecords('a11111111')
+    );
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+
+    await assert.rejects(
+        () => adapter.readOutline(`${sessionId}#agent:..`),
+        error => error?.code === 'unavailable'
+    );
+    await assert.rejects(
+        () => adapter.readOutline(`${sessionId}#agent:a99999999`),
+        error => error?.code === 'unavailable'
+    );
+    await assert.rejects(
+        () => adapter.readOutline(`${sessionId}#agent:a11111111#agent:a22222222`),
+        error => error?.code === 'unavailable'
+    );
+});

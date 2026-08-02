@@ -1,0 +1,4 @@
+interface:
+  display_name: "Develop Provider Conversation Adapters"
+  short_description: "Verify provider parsing against real on-disk data"
+  default_prompt: "Use $developing-provider-conversation-adapters to probe the real provider session format, mirror it faithfully in fixtures, and verify the compiled adapter against real on-disk data before committing."

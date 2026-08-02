@@ -115,3 +115,16 @@ test('ARCH-REPOSITORY-SKILL-GUIDANCE-001 installs dependencies inside fresh work
         ['path-constructed lookup failure', /constructs[\s\S]*node_modules\/\.\.\.[\s\S]*paths directly/i],
     ]);
 });
+
+
+test('ARCH-REPOSITORY-SKILL-GUIDANCE-001 verifies provider adapters against real on-disk data', () => {
+    const skill = readSkill('.skills/developing-provider-conversation-adapters/SKILL.md');
+
+    assertSkillMentions(skill, [
+        ['real data verification rule', /real on-disk provider data/i],
+        ['self-consistent fixture trap', /self-consistent trap/i],
+        ['probe before assuming', /probe real data first/i],
+        ['layout mirroring', /mirror the real layout/i],
+        ['status inference guidance', /no status[\s\S]*transcript tail/i],
+    ]);
+});

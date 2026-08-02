@@ -49,6 +49,9 @@ const AsyncFunction = Object.getPrototypeOf(async function () { return undefined
 
 const root = path.join(__dirname, '..');
 const dashboardScriptPath = path.join(root, 'src', 'webview', 'webviewDashboardScripts.js');
+const skillPanelScriptPath = path.join(
+    root, 'src', 'webview', 'webviewSkillPanelScripts.js'
+);
 const projectScriptPath = path.join(root, 'src', 'webview', 'webviewProjectScripts.js');
 const aiSessionViewStateScriptPath = path.join(
     root, 'src', 'webview', 'webviewAiSessionViewStateScripts.js'
@@ -86,6 +89,13 @@ function readProjectWebviewSource() {
         projectAiUpdateScriptPath,
         aiSessionControlsScriptPath,
         projectScriptPath,
+    ].map(scriptPath => fs.readFileSync(scriptPath, 'utf8')).join('\n');
+}
+
+function readDashboardWebviewSource() {
+    return [
+        skillPanelScriptPath,
+        dashboardScriptPath,
     ].map(scriptPath => fs.readFileSync(scriptPath, 'utf8')).join('\n');
 }
 const promptScriptPath = path.join(root, 'src', 'webview', 'webviewPromptScripts.js');
@@ -4412,6 +4422,11 @@ function runSourceContractChecks(source) {
         fs.readFileSync(promptScriptPath),
         'generated media/webviewPromptScripts.js must match its source byte-for-byte'
     );
+    assert.deepStrictEqual(
+        fs.readFileSync(path.join(root, 'media', 'webviewSkillPanelScripts.js')),
+        fs.readFileSync(skillPanelScriptPath),
+        'generated media/webviewSkillPanelScripts.js must match its source byte-for-byte'
+    );
     const dndSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewDnDScripts.js'), 'utf8');
     const filterSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewFilterScripts.js'), 'utf8');
     const extensionHostSource = fs.readFileSync(extensionHostPath, 'utf8');
@@ -4485,6 +4500,12 @@ function runSourceContractChecks(source) {
     assert.ok(webviewContentSource.includes('onTodoMounted: (panel, message) =>'));
     assert.ok(webviewContentSource.includes('todos.mount(panel, message.snapshot)'));
     assert.ok(webviewContentSource.includes("'webviewScrollStateScripts.js'"));
+    assert.ok(webviewContentSource.includes("'webviewSkillPanelScripts.js'"));
+    assert.ok(
+        webviewContentSource.indexOf('webviewSkillPanelScripts.js')
+            < webviewContentSource.indexOf('webviewDashboardScripts.js'),
+        'the skill panel controller must load before the Dashboard controller that wires it'
+    );
     assert.ok(
         webviewContentSource.indexOf('webviewScrollStateScripts.js')
             < webviewContentSource.indexOf('webviewProjectScripts.js'),
@@ -5217,7 +5238,7 @@ async function runDashboardMessageRouterChecks() {
 }
 
 async function main() {
-    const source = fs.readFileSync(dashboardScriptPath, 'utf8');
+    const source = readDashboardWebviewSource();
     runErrorContentChecks();
     runConfigurationChecks();
     runStartupChecks();

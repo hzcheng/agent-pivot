@@ -428,7 +428,12 @@ function runSkillStyleChecks() {
 }
 
 function runSkillWebviewScriptChecks() {
-    const script = fs.readFileSync(path.join(__dirname, '..', 'media', 'webviewDashboardScripts.js'), 'utf8');
+    const script = [
+        'webviewSkillPanelScripts.js',
+        'webviewDashboardScripts.js',
+    ].map(fileName => fs.readFileSync(
+        path.join(__dirname, '..', 'media', fileName), 'utf8'
+    )).join('\n');
     assert.ok(script.includes('#ai-panel-skills .sticky-groups-wrapper'), 'skills-updated targets the AI subtab');
     assert.ok(!script.includes('dashboard-tab-skills'), 'no top-level skills panel remains');
     assert.ok(script.includes('data-skill-filter'), 'agent filter wiring present');
@@ -1011,10 +1016,12 @@ function runGlobalStoreLocationChecks() {
     assert.ok(fs.existsSync(path.join(customRoot, 'configured-destination', 'SKILL.md')));
     controller.dispose();
 
-    const sourceScript = fs.readFileSync(
-        path.join(__dirname, '..', 'src', 'webview', 'webviewDashboardScripts.js'),
-        'utf8',
-    );
+    const sourceScript = [
+        'webviewSkillPanelScripts.js',
+        'webviewDashboardScripts.js',
+    ].map(fileName => fs.readFileSync(
+        path.join(__dirname, '..', 'src', 'webview', fileName), 'utf8'
+    )).join('\n');
     assert.ok(sourceScript.includes('Change Global Skills Location…'));
     assert.ok(sourceScript.includes("if (scope === 'user')"),
         'the location action is only added to the Global section');
@@ -1112,7 +1119,12 @@ function runSkillSearchCatalogChecks() {
     assert.strictEqual((viewModel.buildWorkspaceDashboardSearchCatalog([], [], []).skills || []).length, 0,
         'skills key is omitted when empty (keeps the catalog shape stable)');
 
-    const script = fs.readFileSync(path.join(__dirname, '..', 'media', 'webviewDashboardScripts.js'), 'utf8');
+    const script = [
+        'webviewSkillPanelScripts.js',
+        'webviewDashboardScripts.js',
+    ].map(fileName => fs.readFileSync(
+        path.join(__dirname, '..', 'media', fileName), 'utf8'
+    )).join('\n');
     assert.ok(script.includes("'reveal-skill'"));
     assert.ok(script.includes("type: 'skill'"));
     assert.ok(script.includes('revealSkillCard'));
@@ -2047,7 +2059,12 @@ function runSkillCentralChecks() {
     assert.ok(centralHtml.includes('data-skill-delete="/home/dev/.kimi/skills/demo"'), 'plain skills offer Delete');
 
     // wiring + styles
-    const script = fs.readFileSync(path.join(__dirname, '..', 'media', 'webviewDashboardScripts.js'), 'utf8');
+    const script = [
+        'webviewSkillPanelScripts.js',
+        'webviewDashboardScripts.js',
+    ].map(fileName => fs.readFileSync(
+        path.join(__dirname, '..', 'media', fileName), 'utf8'
+    )).join('\n');
     assert.ok(script.includes("'central-toggle-skill'"), 'webview posts per-agent link toggles');
     assert.ok(script.includes("'centralize-skill'"));
     assert.ok(script.includes("'skill-scope-action'"));
@@ -2433,7 +2450,12 @@ function runSkillMigrationChecks() {
     const html = skillContent.getSkillsPanelContent([makeRecord()]);
     assert.ok(!html.includes('data-skill-migrate-central'), 'filter row migrate button removed');
     assert.ok(!html.includes('Migrate to central'), 'filter row has no migrate label');
-    const script = fs.readFileSync(path.join(__dirname, '..', 'media', 'webviewDashboardScripts.js'), 'utf8');
+    const script = [
+        'webviewSkillPanelScripts.js',
+        'webviewDashboardScripts.js',
+    ].map(fileName => fs.readFileSync(
+        path.join(__dirname, '..', 'media', fileName), 'utf8'
+    )).join('\n');
     assert.ok(script.includes("'migrate-skills-to-central'"), 'webview posts migrate command');
     assert.ok(script.includes('data-skill-menu-migrate'), 'section ⋯ menu carries migrate');
     const dashboard = fs.readFileSync(path.join(__dirname, '..', 'src', 'dashboard.ts'), 'utf8');
@@ -2608,7 +2630,12 @@ function runSkillFolderMutationChecks() {
     assert.ok(noViewRoots.includes('data-section-menu="user"'), 'store root derived from records when view omits it');
 
     // wiring
-    const script = fs.readFileSync(path.join(__dirname, '..', 'media', 'webviewDashboardScripts.js'), 'utf8');
+    const script = [
+        'webviewSkillPanelScripts.js',
+        'webviewDashboardScripts.js',
+    ].map(fileName => fs.readFileSync(
+        path.join(__dirname, '..', 'media', fileName), 'utf8'
+    )).join('\n');
     assert.ok(script.includes("'create-skill-folder'"), 'create folder wiring present');
     assert.ok(script.includes("'remove-skill-folder'"), 'remove folder wiring present');
     assert.ok(script.includes('data-skill-menu-new-folder'));

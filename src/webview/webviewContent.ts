@@ -194,6 +194,12 @@ export function getStewardContent(
         'webviewDnDScripts.js',
         assetRevision,
     );
+    var skillPanelScriptsPath = getMediaResource(
+        context,
+        webview,
+        'webviewSkillPanelScripts.js',
+        assetRevision,
+    );
     var dashboardScriptsPath = getMediaResource(
         context,
         webview,
@@ -325,6 +331,7 @@ export function getStewardContent(
     <script src="${projectAiUpdateScriptsPath}"></script>
     <script src="${aiSessionControlsScriptsPath}"></script>
     <script src="${projectScriptsPath}"></script>
+    <script src="${skillPanelScriptsPath}"></script>
     <script src="${dashboardScriptsPath}"></script>
     <script src="${promptScriptsPath}"></script>
     <script src="${todoScriptsPath}"></script>

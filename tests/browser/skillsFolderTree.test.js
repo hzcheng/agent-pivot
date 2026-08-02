@@ -10,8 +10,8 @@ const test = require('node:test');
 const { chromium } = require('playwright-chromium');
 
 const styles = fs.readFileSync(path.join(__dirname, '../../media/styles.css'), 'utf8');
-const dashboardScript = fs.readFileSync(
-    path.join(__dirname, '../../media/webviewDashboardScripts.js'),
+const skillPanelScript = fs.readFileSync(
+    path.join(__dirname, '../../media/webviewSkillPanelScripts.js'),
     'utf8'
 );
 
@@ -97,16 +97,9 @@ function treeRecords() {
     ];
 }
 
-// The skills interaction code lives inside the dashboard script's IIFE; exercise
-// it by extracting its exact span (same technique as skillPanelFilter.test.js).
-function extractSkillCode() {
-    const start = dashboardScript.indexOf('var skillAgentFilter');
-    const end = dashboardScript.indexOf('function revealPendingTodoSearchTarget');
-    assert.notEqual(start, -1, 'skillAgentFilter marker missing — update this test');
-    assert.notEqual(end, -1, 'revealPendingTodoSearchTarget marker missing — update this test');
-    return dashboardScript.slice(start, end);
-}
-
+// The skills interaction code lives in webviewSkillPanelScripts.js; exercise it
+// through the same initSkillPanel factory the Dashboard controller wires (same
+// technique as skillPanelFilter.test.js).
 async function openSkillsPage(browser, records, view = {}) {
     const { getSkillsPanelContent } = loadSkillContent();
     const page = await browser.newPage({ viewport: { width: 340, height: 600 } });
@@ -119,7 +112,7 @@ async function openSkillsPage(browser, records, view = {}) {
                 </section>
             </body>
         </html>`);
-    await page.evaluate(skillSource => {
+    await page.evaluate(skillPanelSource => {
         (function () {
             var options = {
                 postMessage(message) {
@@ -127,20 +120,15 @@ async function openSkillsPage(browser, records, view = {}) {
                     return Promise.resolve(true);
                 },
             };
-            eval(skillSource);
-            document.addEventListener('click', onSkillCardClick);
-            document.addEventListener('dragstart', onSkillDragStart);
-            document.addEventListener('dragover', onSkillDragOver);
-            document.addEventListener('dragleave', onSkillDragLeave);
-            document.addEventListener('drop', onSkillDrop);
-            document.addEventListener('dragend', onSkillDragEnd);
-            window.__captureSkillCollapsedGroups = captureSkillCollapsedGroups;
-            window.__restoreSkillCollapsedGroups = restoreSkillCollapsedGroups;
-            window.__captureSkillFolderMenuState = captureSkillFolderMenuState;
-            window.__restoreSkillFolderMenuState = restoreSkillFolderMenuState;
-            window.__replaceSkillsHtml = replaceSkillsHtml;
+            eval(skillPanelSource);
+            var skillPanel = initSkillPanel(options);
+            window.__captureSkillCollapsedGroups = skillPanel.captureSkillCollapsedGroups;
+            window.__restoreSkillCollapsedGroups = skillPanel.restoreSkillCollapsedGroups;
+            window.__captureSkillFolderMenuState = skillPanel.captureSkillFolderMenuState;
+            window.__restoreSkillFolderMenuState = skillPanel.restoreSkillFolderMenuState;
+            window.__replaceSkillsHtml = skillPanel.replaceSkillsHtml;
         })();
-    }, extractSkillCode());
+    }, skillPanelScript);
     return page;
 }
 
@@ -499,17 +487,14 @@ test('SKILLS-FILTER-EMPTY-FOLDER-001 empty folders stay visible under the agent 
                     </section>
                 </body>
             </html>`);
-        await page.evaluate(skillSource => {
+        await page.evaluate(skillPanelSource => {
             (function () {
                 var options = { postMessage() { return Promise.resolve(true); } };
-                eval(skillSource);
-                document.addEventListener('click', onSkillCardClick);
-                window.__setSkillFilter = function (value) {
-                    skillAgentFilter = value;
-                    applySkillAgentFilter();
-                };
+                eval(skillPanelSource);
+                var skillPanel = initSkillPanel(options);
+                window.__setSkillFilter = skillPanel.setSkillAgentFilter;
             })();
-        }, extractSkillCode());
+        }, skillPanelScript);
         const folderVisible = (path) => page.evaluate(p => {
             const el = document.querySelector(`.skill-folder[data-skill-folder="${p}"]`);
             return el && !el.classList.contains('skill-filter-hidden')

@@ -15,6 +15,9 @@ const { getDashboardWebviewOptions } = require('../../../out/dashboard/webviewOp
 const root = path.join(__dirname, '..', '..', '..');
 const dashboardSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewDashboardScripts.js'), 'utf8');
 const generatedDashboardSource = fs.readFileSync(path.join(root, 'media', 'webviewDashboardScripts.js'), 'utf8');
+const skillPanelSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewSkillPanelScripts.js'), 'utf8');
+const generatedSkillPanelSource = fs.readFileSync(path.join(root, 'media', 'webviewSkillPanelScripts.js'), 'utf8');
+const dashboardVmSource = `${skillPanelSource}\n${dashboardSource}`;
 const projectSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewProjectScripts.js'), 'utf8');
 const generatedProjectSource = fs.readFileSync(path.join(root, 'media', 'webviewProjectScripts.js'), 'utf8');
 const viewStateSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewAiSessionViewStateScripts.js'), 'utf8');
@@ -307,7 +310,7 @@ function createDashboardHarness({
             if (timer) timer.cancelled = true;
         },
     };
-    vm.runInNewContext(dashboardSource, context);
+    vm.runInNewContext(dashboardVmSource, context);
     const controller = context.initDashboard({
         initialSearchQuery,
         postMessage: message => messages.push(message),
@@ -688,6 +691,7 @@ test('WEBVIEW-AI-PROMPT-ASSET-001 keeps the generated Prompt controller byte-ide
 });
 
 test('WEBVIEW-WEBVIEW-CONTENT-001 keeps the generated Dashboard controller byte-identical to source', () => {
+    assert.equal(generatedSkillPanelSource, skillPanelSource);
     assert.equal(generatedDashboardSource, dashboardSource);
 });
 
@@ -839,6 +843,11 @@ test('WEBVIEW-WEBVIEW-CONTENT-001 renders OPEN PROJECTS TODO and lazy AI tab she
     assert.match(html, /id="dashboard-search-catalog"/);
     assert.match(html, /webviewPromptScripts\.js/);
     assert.ok(
+        html.indexOf('webviewSkillPanelScripts.js') > -1
+            && html.indexOf('webviewSkillPanelScripts.js') < html.indexOf('webviewDashboardScripts.js'),
+        'Skill panel controller must load before the Dashboard controller that wires it'
+    );
+    assert.ok(
         html.indexOf('webviewPromptScripts.js') > html.indexOf('webviewDashboardScripts.js'),
         'Prompt interactions must install after the Dashboard lazy loader'
     );
@@ -908,6 +917,7 @@ test('WEBVIEW-RESOURCE-RECOVERY-001 gives every rendered document fresh versione
         'webviewProjectAiUpdateScripts.js',
         'webviewProjectAiSessionControlsScripts.js',
         'webviewProjectScripts.js',
+        'webviewSkillPanelScripts.js',
         'webviewDashboardScripts.js',
         'webviewPromptScripts.js',
         'webviewTodoScripts.js',

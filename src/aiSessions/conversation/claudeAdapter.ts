@@ -1,5 +1,7 @@
 'use strict';
 
+import * as fs from 'fs';
+import * as path from 'path';
 import type {
     AiSessionConversationSourceCandidate,
     AiSessionDisposable,
@@ -31,12 +33,17 @@ import {
     ConversationPage,
     ConversationPageRequest,
     ConversationProviderAdapter,
+    ConversationSubagentEntry,
     ConversationTelemetry,
 } from './types';
 import {
     openValidatedConversationSource,
     OpenConversationSource,
 } from './source';
+import {
+    isSubagentId,
+    splitSubagentSessionId,
+} from './subagentSessions';
 import type {
     ConversationWorktreeInfo,
     ResolveWorktree,
@@ -60,6 +67,13 @@ type ConversationContextUsage = NonNullable<ConversationTelemetry['context']>;
 // Claude Code JSONL does not record the context-window size; all current
 // Claude models default to a 200k window.
 const CLAUDE_DEFAULT_MAX_CONTEXT_TOKENS = 200_000;
+
+const MAX_LISTED_SUBAGENTS = 64;
+const SUBAGENT_TRANSCRIPT_PATTERN = /^agent-([0-9a-z][0-9a-z-]{0,63})\.jsonl$/i;
+const SUBAGENT_RUNNING_FRESHNESS_MS = 5 * 60 * 1000;
+// A single record can exceed 200KB (large tool results); the read window
+// must hold one full record plus the partial line cut by the window edge.
+const SUBAGENT_RECORD_WINDOW_BYTES = 512 * 1024;
 
 interface ClaudeConversationIndex extends AiSessionDisposable {
     source: OpenConversationSource;
@@ -106,6 +120,13 @@ function isVisibleUserEvent(event: Record<string, any>): boolean {
         && typeof event.sourceToolUseID !== 'string'
         && event.promptSource !== 'system'
         && (!origin || origin.kind === undefined || origin.kind === 'human');
+}
+
+// A subagent resumed via SendMessage receives its follow-up instruction as
+// a coordinator-authored user record; inside a subagent transcript that
+// record is the dispatch turn of the next round and must stay visible.
+function isCoordinatorDispatch(event: Record<string, any>): boolean {
+    return asRecord(event.origin)?.kind === 'coordinator';
 }
 
 function visibleInputParts(value: unknown): VisibleUserInputPart[] {
@@ -263,6 +284,57 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
         };
     }
 
+    async readSubagents(
+        sessionId: string,
+        _signal?: ConversationAbortSignal
+    ): Promise<ConversationSubagentEntry[]> {
+        if (this.disposed) {
+            return [];
+        }
+        const split = splitSubagentSessionId(sessionId);
+        if (split.subagentId) {
+            return [];
+        }
+        const candidate = this.options.resolveSource(split.sessionId);
+        if (!candidate) {
+            return [];
+        }
+        const subagentsRoot = subagentsRootFor(candidate.sourcePath);
+        let dirents: fs.Dirent[];
+        try {
+            dirents = await fs.promises.readdir(subagentsRoot, {
+                withFileTypes: true,
+            });
+        } catch (_error) {
+            return [];
+        }
+        const now = Date.now();
+        const entries: ConversationSubagentEntry[] = [];
+        for (const dirent of dirents) {
+            if (entries.length >= MAX_LISTED_SUBAGENTS) {
+                break;
+            }
+            const match = dirent.isFile()
+                ? SUBAGENT_TRANSCRIPT_PATTERN.exec(dirent.name)
+                : null;
+            if (!match || !isSubagentId(match[1])) {
+                continue;
+            }
+            const entry = await readSubagentEntry(
+                subagentsRoot,
+                match[1],
+                now
+            );
+            if (entry) {
+                entries.push(entry);
+            }
+        }
+        entries.sort((left, right) =>
+            (left.createdAt ?? left.updatedAt ?? 0)
+            - (right.createdAt ?? right.updatedAt ?? 0));
+        return entries;
+    }
+
     private async readWorktree(
         loaded: LoadedConversation
     ): Promise<ConversationWorktreeInfo | undefined> {
@@ -350,14 +422,30 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
         if (this.disposed) {
             throw new ConversationError('unavailable', 'missingSource');
         }
-        const candidate = this.options.resolveSource(sessionId);
+        const split = splitSubagentSessionId(sessionId);
+        if (split.subagentId && !isSubagentId(split.subagentId)) {
+            throw new ConversationError('unavailable', 'missingSource');
+        }
+        const candidate = this.options.resolveSource(split.sessionId);
         if (!candidate) {
             throw new ConversationError('unavailable', 'missingSource');
         }
-        const source = await openValidatedConversationSource(candidate);
+        const effectiveCandidate = split.subagentId
+            ? {
+                providerHome: candidate.providerHome,
+                sourcePath: path.join(
+                    subagentsRootFor(candidate.sourcePath),
+                    `agent-${split.subagentId}.jsonl`
+                ),
+            }
+            : candidate;
+        const source = await openValidatedConversationSource(
+            effectiveCandidate
+        );
         if (!source) {
             throw new ConversationError('unavailable', 'missingSource');
         }
+        const isSubagentTranscript = Boolean(split.subagentId);
         const previous = this.cache.get(sessionId);
         let interactions: ConversationInteraction[] = [];
         let openInteractionIndex: number | undefined;
@@ -395,7 +483,9 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
             };
             const normalizeRecord = (record: ConversationJsonlRecord): void => {
                 const event = asRecord(record.value);
-                if (!event || event.isSidechain) {
+                // Subagent transcripts consist entirely of sidechain records;
+                // the sidechain filter only applies to the main conversation.
+                if (!event || (event.isSidechain && !split.subagentId)) {
                     return;
                 }
                 const message = asRecord(event.message);
@@ -426,7 +516,9 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
                     timeoutOpenInteractionIndex = undefined;
                 } else if (event.type === 'user'
                     && message?.role === 'user'
-                    && isVisibleUserEvent(event)
+                    && (isVisibleUserEvent(event)
+                        || (isSubagentTranscript
+                            && isCoordinatorDispatch(event)))
                     && !event.sourceToolAssistantUUID
                     && !event.toolUseResult
                     && !containsBlock(message.content, 'tool_result')) {
@@ -599,5 +691,189 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
             this.options.clearTimeout(this.invalidationTimer);
             this.invalidationTimer = undefined;
         }
+    }
+}
+
+interface SubagentMeta {
+    description?: string;
+    agentType?: string;
+    toolUseId?: string;
+    spawnDepth?: number;
+    model?: string;
+}
+
+// Claude stores subagent transcripts beside the session file:
+// <project>/<sessionId>.jsonl -> <project>/<sessionId>/subagents/.
+function subagentsRootFor(sourcePath: string): string {
+    const base = path.basename(sourcePath, path.extname(sourcePath));
+    return path.join(path.dirname(sourcePath), base, 'subagents');
+}
+
+async function readSubagentEntry(
+    subagentsRoot: string,
+    id: string,
+    now: number
+): Promise<ConversationSubagentEntry | undefined> {
+    const transcriptPath = path.join(subagentsRoot, `agent-${id}.jsonl`);
+    let transcriptStat: fs.Stats;
+    try {
+        transcriptStat = await fs.promises.stat(transcriptPath);
+    } catch (_error) {
+        return undefined;
+    }
+    const meta = await readSubagentMeta(
+        path.join(subagentsRoot, `agent-${id}.meta.json`)
+    );
+    // Only depth-1 agents (dispatched by the main session) are listed;
+    // deeper nested agents stay visible inside their parent's transcript
+    // as Task tool calls.
+    if (typeof meta?.spawnDepth === 'number' && meta.spawnDepth > 1) {
+        return undefined;
+    }
+    const [createdAt, completed] = await Promise.all([
+        readSubagentCreatedAt(transcriptPath),
+        readSubagentCompleted(transcriptPath, transcriptStat.size),
+    ]);
+    return {
+        id,
+        label: subagentLabel(meta, id),
+        ...(meta?.agentType ? { agentType: meta.agentType } : {}),
+        status: subagentStatus(completed, transcriptStat.mtimeMs, now),
+        ...(createdAt !== undefined ? { createdAt } : {}),
+        updatedAt: Math.floor(transcriptStat.mtimeMs),
+    };
+}
+
+async function readSubagentMeta(
+    metaPath: string
+): Promise<SubagentMeta | undefined> {
+    try {
+        const parsed: unknown = JSON.parse(
+            await fs.promises.readFile(metaPath, 'utf8')
+        );
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+            return undefined;
+        }
+        return parsed as SubagentMeta;
+    } catch (_error) {
+        return undefined;
+    }
+}
+
+function subagentLabel(meta: SubagentMeta | undefined, id: string): string {
+    const description = typeof meta?.description === 'string'
+        ? normalizeVisibleText(meta?.description ?? '')
+        : '';
+    if (description) {
+        return countGraphemes(description) <= 120
+            ? description
+            : truncateGraphemes(description, 119);
+    }
+    const agentType = typeof meta?.agentType === 'string'
+        ? meta.agentType
+        : '';
+    return agentType ? `${agentType} · ${id}` : id;
+}
+
+function subagentStatus(
+    completed: boolean,
+    transcriptMtimeMs: number,
+    now: number
+): ConversationSubagentEntry['status'] {
+    if (completed) {
+        return 'idle';
+    }
+    // Claude records no status on disk: a mid-turn tail record only proves
+    // liveness while the transcript is freshly written; a crashed CLI
+    // leaves a stale mid-turn transcript behind.
+    return now - transcriptMtimeMs <= SUBAGENT_RUNNING_FRESHNESS_MS
+        ? 'running'
+        : 'failed';
+}
+
+async function readSubagentCreatedAt(
+    transcriptPath: string
+): Promise<number | undefined> {
+    const head = await readFileWindow(
+        transcriptPath,
+        0,
+        SUBAGENT_RECORD_WINDOW_BYTES
+    );
+    if (!head) {
+        return undefined;
+    }
+    const newline = head.indexOf('\n');
+    if (newline <= 0) {
+        return undefined;
+    }
+    return recordTimestamp(head.slice(0, newline));
+}
+
+async function readSubagentCompleted(
+    transcriptPath: string,
+    fileSize: number
+): Promise<boolean> {
+    const length = Math.min(fileSize, SUBAGENT_RECORD_WINDOW_BYTES);
+    if (!length) {
+        return false;
+    }
+    const tail = await readFileWindow(
+        transcriptPath,
+        fileSize - length,
+        length
+    );
+    if (!tail) {
+        return false;
+    }
+    const lines = tail.split('\n');
+    if (fileSize > length) {
+        // The first line may be cut by the window edge; drop it.
+        lines.shift();
+    }
+    for (let index = lines.length - 1; index >= 0; index--) {
+        const line = lines[index].trim();
+        if (!line) {
+            continue;
+        }
+        try {
+            const record = asRecord(JSON.parse(line));
+            const message = asRecord(record?.message);
+            // An agent finishes with a final assistant message that calls
+            // no tools; anything else as the tail means the turn was still
+            // in flight when the transcript was last written.
+            return record?.type === 'assistant'
+                && message?.role === 'assistant'
+                && !containsBlock(message.content, 'tool_use');
+        } catch (_error) {
+            return false;
+        }
+    }
+    return false;
+}
+
+function recordTimestamp(line: string): number | undefined {
+    try {
+        const record = asRecord(JSON.parse(line));
+        return timestampValue(record?.timestamp);
+    } catch (_error) {
+        return undefined;
+    }
+}
+
+async function readFileWindow(
+    filePath: string,
+    position: number,
+    length: number
+): Promise<string | undefined> {
+    let handle: fs.promises.FileHandle | undefined;
+    try {
+        handle = await fs.promises.open(filePath, 'r');
+        const buffer = Buffer.alloc(length);
+        const { bytesRead } = await handle.read(buffer, 0, length, position);
+        return buffer.toString('utf8', 0, bytesRead);
+    } catch (_error) {
+        return undefined;
+    } finally {
+        await handle?.close().catch(() => undefined);
     }
 }

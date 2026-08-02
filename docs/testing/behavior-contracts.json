@@ -3844,12 +3844,14 @@
     "status": "automated",
     "owners": [
       "tests/contract/aiSessions/kimiConversationAdapter.test.js",
+      "tests/contract/aiSessions/claudeConversationAdapter.test.js",
       "tests/integration/dashboard/conversationViewer.test.js",
       "tests/browser/conversationViewer.test.js"
     ],
     "evidence": [
       "src/aiSessions/conversation/subagentSessions.ts",
       "src/aiSessions/conversation/kimiAdapter.ts",
+      "src/aiSessions/conversation/claudeAdapter.ts",
       "src/aiSessions/conversation/viewer.ts",
       "src/aiSessions/conversation/viewerProtocol.ts",
       "src/aiSessions/conversation/viewerDocument.ts",

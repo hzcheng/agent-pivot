@@ -39,7 +39,7 @@ Green self-authored fixtures alone are not evidence.
 |---|---|---|
 | Kimi | `<kimiHome>/sessions/<workdirHash>/<sessionUuid>/wire.jsonl` | `<sessionDir>/subagents/<id>/{meta.json,wire.jsonl}`; meta carries explicit `status` + `created_at` |
 | Claude | `<claudeHome>/projects/<slug>/<sessionId>.jsonl` | `<slug>/<sessionId>/subagents/agent-<id>.{jsonl,meta.json}`, flat across spawnDepths; meta has `agentType`/`description`/`spawnDepth`/`toolUseId` but **no status** — infer from the transcript tail plus mtime; SendMessage resumes arrive as `origin.kind === 'coordinator'` user records |
-| Codex | rollout JSONL | `session_meta.source.subagent.thread_spawn`; app-server read access unverified — spike first |
+| Codex | rollout JSONL under `<codexHome>/sessions/YYYY/MM/DD/`; conversation content is app-server-only (`thread/read`) | Independent rollout files per thread; `session_meta.payload.source.subagent.thread_spawn` carries `parent_thread_id`/`depth`/`agent_nickname`/`agent_path`; discovery scans first lines by parent id; `thread/read` accepts subagent thread ids (verified 0.146); no userMessage in subagent threads — seed the dispatch interaction from metadata; status = last `event_msg` is `task_complete` → finished, else mtime freshness |
 
 Subagent transcripts reuse the provider's main record envelope; Claude
 subagent files consist entirely of `isSidechain: true` records, so any
@@ -47,10 +47,12 @@ main-conversation sidechain filter must be relaxed for subagent sources.
 
 ## Status Inference Without An On-Disk Status
 
-When the format records no status (Claude today), derive it from the
-transcript tail:
+When the format records no status (Claude and Codex today), derive it from
+the transcript tail:
 
-- last complete record is an assistant message without tool_use → finished
+- last lifecycle signal means finished — Claude: last record is an
+  assistant message without tool_use; Codex: last `event_msg` is
+  `task_complete`
 - anything else → running only while the file mtime is fresh (5 minutes);
   a crashed CLI leaves a stale mid-turn transcript behind → failed
 

@@ -300,8 +300,185 @@ test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 Kimi normalizes epoch seconds 
     );
 });
 
-test('SESSION-AI-SESSION-KIMI-CONVERSATION-003 shares the service poller and disposes logical watches deterministically', async t => {
+async function writeSubagentFixture(source, id, meta, records) {
+    const directory = path.join(
+        path.dirname(source.sourcePath),
+        'subagents',
+        id
+    );
+    await fs.promises.mkdir(directory, { recursive: true });
+    if (meta) {
+        await fs.promises.writeFile(
+            path.join(directory, 'meta.json'),
+            JSON.stringify(meta)
+        );
+    }
+    const wirePath = path.join(directory, 'wire.jsonl');
+    await fs.promises.writeFile(
+        wirePath,
+        records.map(record => JSON.stringify(record)).join('\n') + '\n'
+    );
+    return { directory, wirePath };
+}
+
+function subagentWireRecords() {
+    return [
+        {
+            timestamp: 2000,
+            message: {
+                type: 'TurnBegin',
+                payload: { user_input: 'Explore the parser and report back' },
+            },
+        },
+        {
+            timestamp: 2001,
+            message: {
+                type: 'ContentPart',
+                payload: { type: 'think', text: 'subagent-secret-thought' },
+            },
+        },
+        {
+            timestamp: 2002,
+            message: {
+                type: 'PlanDisplay',
+                payload: { content: '# Subagent Plan\n\n- inspect files' },
+            },
+        },
+        {
+            timestamp: 2003,
+            message: {
+                type: 'ContentPart',
+                payload: {
+                    type: 'text',
+                    text: 'The parser normalizes visible text.',
+                },
+            },
+        },
+        {
+            timestamp: 2004,
+            message: { type: 'TurnEnd', payload: {} },
+        },
+    ];
+}
+
+test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 Kimi lists subagents with mapped statuses and labels', async t => {
     const source = await createFixture(t);
+    const fresh = await writeSubagentFixture(
+        source,
+        'a11111111',
+        {
+            description: 'Explore the parser',
+            subagent_type: 'explore',
+            status: 'running_foreground',
+            created_at: 1_700_000_000,
+        },
+        subagentWireRecords()
+    );
+    const stale = await writeSubagentFixture(
+        source,
+        'a22222222',
+        {
+            subagent_type: 'coder',
+            status: 'running_background',
+            created_at: 1_699_000_000,
+        },
+        subagentWireRecords()
+    );
+    const tenMinutesAgo = (Date.now() - 10 * 60 * 1000) / 1000;
+    await fs.promises.utimes(stale.wirePath, tenMinutesAgo, tenMinutesAgo);
+    await writeSubagentFixture(
+        source,
+        'a33333333',
+        { status: 'killed', created_at: 1_698_000_000 },
+        subagentWireRecords()
+    );
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+
+    const entries = await adapter.readSubagents(sessionId);
+    assert.deepEqual(
+        entries.map(entry => [entry.id, entry.status, entry.agentType]),
+        [
+            ['a33333333', 'killed', undefined],
+            ['a22222222', 'failed', 'coder'],
+            ['a11111111', 'running', 'explore'],
+        ]
+    );
+    assert.equal(entries[2].label, 'Explore the parser');
+    assert.equal(entries[1].label, 'coder · a22222222');
+    assert.equal(entries[2].createdAt, 1_700_000_000_000);
+    assert.ok(Number.isSafeInteger(entries[0].updatedAt));
+
+    const stat = await fs.promises.stat(fresh.wirePath);
+    assert.equal(entries[2].updatedAt, Math.floor(stat.mtimeMs));
+});
+
+test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 Kimi reads a subagent transcript as its own conversation', async t => {
+    const source = await createFixture(t);
+    await writeSubagentFixture(
+        source,
+        'a11111111',
+        { description: 'Explore the parser', status: 'idle' },
+        subagentWireRecords()
+    );
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+
+    const encodedId = `${sessionId}#agent:a11111111`;
+    const outline = await adapter.readOutline(encodedId);
+    assert.equal(outline.sessionId, encodedId);
+    assert.equal(outline.totalInteractions, 1);
+    assert.equal(
+        outline.interactions[0].userPreview,
+        'Explore the parser and report back'
+    );
+    const page = await adapter.readPage({
+        provider: 'kimi',
+        sessionId: encodedId,
+        anchorInteractionId: outline.interactions[0].id,
+        direction: 'around',
+        expectedRevision: outline.sourceRevision,
+    });
+    assert.deepEqual(
+        page.messages.map(message => [message.role, message.markdown]),
+        [
+            ['user', 'Explore the parser and report back'],
+            ['assistant', '# Subagent Plan\n\n- inspect files'],
+            ['assistant', 'The parser normalizes visible text.'],
+        ]
+    );
+
+    // The parent session conversation is unaffected by the subagent files.
+    const parent = await adapter.readOutline(sessionId);
+    assert.equal(parent.totalInteractions, 3);
+});
+
+test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 Kimi rejects malformed and missing subagent targets', async t => {
+    const source = await createFixture(t);
+    await writeSubagentFixture(
+        source,
+        'a11111111',
+        { status: 'idle' },
+        subagentWireRecords()
+    );
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+
+    await assert.rejects(
+        () => adapter.readOutline(`${sessionId}#agent:..`),
+        error => error?.code === 'unavailable'
+    );
+    await assert.rejects(
+        () => adapter.readOutline(`${sessionId}#agent:a99999999`),
+        error => error?.code === 'unavailable'
+    );
+    await assert.rejects(
+        () => adapter.readOutline(`${sessionId}#agent:a11111111#agent:a22222222`),
+        error => error?.code === 'unavailable'
+    );
+});
+
+test('SESSION-AI-SESSION-KIMI-CONVERSATION-003 shares the service poller and disposes logical watches deterministically', async t => {    const source = await createFixture(t);
     let subscribeCount = 0;
     let providerCallback;
     let providerDisposeCount = 0;

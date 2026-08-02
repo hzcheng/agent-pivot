@@ -15,6 +15,7 @@ import {
     ConversationPage,
     ConversationPageRequest,
     ConversationProviderAdapter,
+    ConversationSubagentEntry,
     ConversationTelemetry,
     SanitizedConversationDiagnostic,
 } from './types';
@@ -129,6 +130,24 @@ export class ConversationCoordinator implements AiSessionDisposable {
             };
         } catch (error) {
             throw this.toSafeError(provider, error);
+        }
+    }
+
+    async readSubagents(
+        provider: AiSessionProviderId,
+        sessionId: string,
+        signal?: ConversationAbortSignal
+    ): Promise<ConversationSubagentEntry[]> {
+        const adapter = this.getAdapter(provider);
+        if (typeof adapter.readSubagents !== 'function') {
+            return [];
+        }
+        try {
+            return await adapter.readSubagents(sessionId, signal);
+        } catch (_error) {
+            // The subagent list is a sidebar convenience; a listing failure
+            // must never break the authoritative conversation itself.
+            return [];
         }
     }
 

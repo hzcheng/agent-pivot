@@ -2,6 +2,7 @@
 
 import type { AiSessionProviderId } from '../../models';
 import { CONVERSATION_COMMENT_LIMITS } from './comments';
+import { isSubagentId } from './subagentSessions';
 
 export interface ConversationViewerNavigationMessage {
     type: 'conversation-viewer-previous'
@@ -83,11 +84,24 @@ export interface ConversationViewerOpenWorktreeMessage {
     worktreeRoot: string;
 }
 
+export interface ConversationViewerOpenSubagentMessage {
+    type: 'conversation-viewer-open-subagent';
+    version: 1;
+    subagentId: string;
+}
+
+export interface ConversationViewerCloseSubagentMessage {
+    type: 'conversation-viewer-close-subagent';
+    version: 1;
+}
+
 export type ConversationViewerMessage =
     ConversationViewerNavigationMessage
     | ConversationViewerSelectInteractionMessage
     | ConversationViewerOpenLinkMessage
     | ConversationViewerOpenWorktreeMessage
+    | ConversationViewerOpenSubagentMessage
+    | ConversationViewerCloseSubagentMessage
     | ConversationViewerCommentMutationMessage
     | ConversationViewerSendCommentsMessage
     | ConversationViewerLocateCommentMessage
@@ -149,6 +163,21 @@ export function parseConversationViewerMessage(
             return undefined;
         }
         return value as unknown as ConversationViewerOpenWorktreeMessage;
+    }
+    if (value.type === 'conversation-viewer-open-subagent') {
+        if (!hasExactKeys(value, ['type', 'version', 'subagentId'])
+            || !isSubagentId(value.subagentId)) {
+            return undefined;
+        }
+        return value as unknown as ConversationViewerOpenSubagentMessage;
+    }
+    if (value.type === 'conversation-viewer-close-subagent') {
+        if (keys.length !== 2
+            || !hasOwn(value, 'type')
+            || !hasOwn(value, 'version')) {
+            return undefined;
+        }
+        return value as unknown as ConversationViewerCloseSubagentMessage;
     }
     if (value.type === 'conversation-viewer-locate-comment') {
         if (!hasExactKeys(value, [

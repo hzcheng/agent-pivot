@@ -31,8 +31,10 @@ import {
     ConversationOutline,
     ConversationPage,
     ConversationPageRequest,
+    ConversationSubagentEntry,
     ConversationTelemetry,
 } from './types';
+import { encodeSubagentSessionId } from './subagentSessions';
 
 export interface ConversationViewerOptions {
     createPanel: typeof vscode.window.createWebviewPanel;
@@ -45,6 +47,11 @@ export interface ConversationViewerOptions {
         request: ConversationPageRequest,
         signal: ConversationAbortSignal
     ) => Promise<ConversationPage>;
+    readSubagents?: (
+        provider: AiSessionProviderId,
+        sessionId: string,
+        signal?: ConversationAbortSignal
+    ) => Promise<ConversationSubagentEntry[]>;
     readTelemetry?: (
         provider: AiSessionProviderId,
         sessionId: string,
@@ -107,6 +114,8 @@ export interface ConversationViewerPageMessage {
     previousCursor?: string;
     nextCursor?: string;
     stale: boolean;
+    subagents: ConversationSubagentEntry[];
+    activeSubagent: { id: string; label: string } | null;
 }
 
 export class ConversationViewer implements ConversationViewerApi {
@@ -118,6 +127,8 @@ export class ConversationViewer implements ConversationViewerApi {
     private viewStateListener?: vscode.Disposable;
     private abortController?: ConversationAbortController;
     private pages: RetainedConversationPage[] = [];
+    private subagents: ConversationSubagentEntry[] = [];
+    private mainInteractionId?: string;
     private subscriptionGeneration = 0;
     private nextRequestId = CONVERSATION_LIMITS.minRequestId;
     private currentRequestId = 0;
@@ -179,6 +190,14 @@ export class ConversationViewer implements ConversationViewerApi {
     async follow(target: ConversationViewerTarget): Promise<boolean> {
         if (!this.panel) {
             return false;
+        }
+        // A dashboard-driven follow for the same session must not yank the
+        // user out of a subagent transcript they deliberately opened.
+        if (this.target?.subagent
+            && this.target.projectId === target.projectId
+            && this.target.provider === target.provider
+            && this.target.sessionId === target.sessionId) {
+            return true;
         }
         return this.loadTarget(target, false);
     }
@@ -290,6 +309,7 @@ export class ConversationViewer implements ConversationViewerApi {
         this.watch?.dispose();
         this.watch = undefined;
         this.pages = [];
+        this.subagents = [];
         this.outlineController.reset(target.interactionId);
         this.stale = false;
         this.telemetryController.reset();
@@ -410,6 +430,14 @@ export class ConversationViewer implements ConversationViewerApi {
             await this.commentController.locate(parsed);
             return;
         }
+        if (parsed.type === 'conversation-viewer-open-subagent') {
+            await this.openSubagent(parsed.subagentId);
+            return;
+        }
+        if (parsed.type === 'conversation-viewer-close-subagent') {
+            await this.closeSubagent();
+            return;
+        }
         if (parsed.type === 'conversation-viewer-select-interaction') {
             await this.navigateToInteraction(parsed.interactionId);
             return;
@@ -423,6 +451,142 @@ export class ConversationViewer implements ConversationViewerApi {
             return;
         }
         await this.navigateLatest();
+    }
+
+    private effectiveSessionId(target: ConversationViewerTarget): string {
+        return target.subagent
+            ? encodeSubagentSessionId(target.sessionId, target.subagent.id)
+            : target.sessionId;
+    }
+
+    private async readSubagentsSafely(
+        target: ConversationViewerTarget
+    ): Promise<ConversationSubagentEntry[]> {
+        if (typeof this.options.readSubagents !== 'function') {
+            return [];
+        }
+        try {
+            return await this.options.readSubagents(
+                target.provider,
+                target.sessionId
+            );
+        } catch (_error) {
+            return [];
+        }
+    }
+
+    private async switchConversationView(
+        target: ConversationViewerTarget
+    ): Promise<void> {
+        // In-place subagent switch: keep the subscription generation and the
+        // request counter so the publication applies through the normal page
+        // channel instead of rebuilding the whole document. Stale in-flight
+        // loads are still rejected by target identity and request id checks.
+        if (!this.panel) {
+            return;
+        }
+        this.authoritativeLoadInFlight = undefined;
+        this.authoritativeRefreshPending = false;
+        this.abortController?.abort();
+        this.abortController = undefined;
+        this.watch?.dispose();
+        this.watch = undefined;
+        this.pages = [];
+        this.outlineController.reset(target.interactionId);
+        this.stale = false;
+        this.telemetryController.reset();
+        this.latestPublication = undefined;
+        this.commentController.reset();
+        this.bookmarkController.reset();
+        this.target = { ...target };
+        this.suspended = false;
+        this.currentRequestId = 0;
+        const generation = this.subscriptionGeneration;
+        const activeTarget = this.target;
+        await Promise.all([
+            this.commentController.restore(activeTarget, generation),
+            this.bookmarkController.restore(activeTarget, generation),
+        ]);
+        if (this.target !== activeTarget
+            || this.subscriptionGeneration !== generation) {
+            return;
+        }
+        this.ensureWatch(generation);
+        await this.loadAuthoritative('initial', false);
+    }
+
+    private async openSubagent(subagentId: string): Promise<void> {
+        const target = this.target;
+        if (!target || !this.panel || target.subagent?.id === subagentId) {
+            return;
+        }
+        const entry = this.subagents.find(item => item.id === subagentId);
+        if (!entry) {
+            return;
+        }
+        const effectiveId = encodeSubagentSessionId(target.sessionId, entry.id);
+        let outline: ConversationOutline;
+        try {
+            outline = await this.options.readOutline(
+                target.provider,
+                effectiveId,
+                new ConversationAbortController().signal
+            );
+        } catch (_error) {
+            return;
+        }
+        if (this.target !== target || outline.sessionId !== effectiveId
+            || !outline.interactions.length) {
+            return;
+        }
+        if (!target.subagent) {
+            this.mainInteractionId = this.outlineController.selection;
+        }
+        const anchor = outline.interactions[
+            outline.interactions.length - 1
+        ].id;
+        await this.switchConversationView({
+            ...target,
+            subagent: { id: entry.id, label: entry.label },
+            interactionId: anchor,
+            expectedRevision: outline.sourceRevision,
+        });
+    }
+
+    private async closeSubagent(): Promise<void> {
+        const target = this.target;
+        if (!target || !this.panel || !target.subagent) {
+            return;
+        }
+        let outline: ConversationOutline;
+        try {
+            outline = await this.options.readOutline(
+                target.provider,
+                target.sessionId,
+                new ConversationAbortController().signal
+            );
+        } catch (_error) {
+            return;
+        }
+        if (this.target !== target || outline.sessionId !== target.sessionId
+            || !outline.interactions.length) {
+            return;
+        }
+        const interactionIds = outline.interactions.map(
+            interaction => interaction.id
+        );
+        const anchor = this.mainInteractionId
+            && interactionIds.includes(this.mainInteractionId)
+            ? this.mainInteractionId as string
+            : interactionIds[interactionIds.length - 1];
+        this.mainInteractionId = undefined;
+        const restored = { ...target };
+        delete restored.subagent;
+        await this.switchConversationView({
+            ...restored,
+            interactionId: anchor,
+            expectedRevision: outline.sourceRevision,
+        });
     }
 
     private async openLink(href: string): Promise<void> {
@@ -467,7 +631,7 @@ export class ConversationViewer implements ConversationViewerApi {
         if (!cursor || !anchorInteractionId) {
             return this.read({
                 provider: target.provider,
-                sessionId: target.sessionId,
+                sessionId: this.effectiveSessionId(target),
                 anchorInteractionId: nextInteractionId,
                 direction: 'around',
                 expectedRevision: outline.sourceRevision,
@@ -476,7 +640,7 @@ export class ConversationViewer implements ConversationViewerApi {
         }
         return this.read({
             provider: target.provider,
-            sessionId: target.sessionId,
+            sessionId: this.effectiveSessionId(target),
             anchorInteractionId,
             direction,
             cursor,
@@ -498,7 +662,7 @@ export class ConversationViewer implements ConversationViewerApi {
         }
         await this.read({
             provider: target.provider,
-            sessionId: target.sessionId,
+            sessionId: this.effectiveSessionId(target),
             anchorInteractionId: latestInteractionId,
             direction: 'around',
             expectedRevision: outline.sourceRevision,
@@ -520,7 +684,7 @@ export class ConversationViewer implements ConversationViewerApi {
         }
         return this.read({
             provider: target.provider,
-            sessionId: target.sessionId,
+            sessionId: this.effectiveSessionId(target),
             anchorInteractionId: interactionId,
             direction: 'around',
             expectedRevision: outline.sourceRevision,
@@ -577,14 +741,14 @@ export class ConversationViewer implements ConversationViewerApi {
         try {
             let outline = await this.options.readOutline(
                 target.provider,
-                target.sessionId,
+                this.effectiveSessionId(target),
                 abortController.signal
             );
             if (!this.canPublish(panel, target, generation, requestId)) {
                 return false;
             }
             if (outline.provider !== target.provider
-                || outline.sessionId !== target.sessionId
+                || outline.sessionId !== this.effectiveSessionId(target)
                 || !outline.interactions.length) {
                 await this.publishFailure(replaceDocument, updateKind);
                 return false;
@@ -610,14 +774,18 @@ export class ConversationViewer implements ConversationViewerApi {
                 && !this.stale
                 && this.outlineController.snapshot?.sourceRevision
                     === outline.sourceRevision) {
-                void this.telemetryController.refresh(target, generation);
+                void this.telemetryController.refresh(
+                target,
+                generation,
+                this.effectiveSessionId(target)
+            );
                 return true;
             }
             let page: ConversationPage;
             try {
                 page = await this.options.readPage({
                     provider: target.provider,
-                    sessionId: target.sessionId,
+                    sessionId: this.effectiveSessionId(target),
                     anchorInteractionId: selectedInteractionId,
                     direction: 'around',
                     expectedRevision: outline.sourceRevision,
@@ -633,14 +801,14 @@ export class ConversationViewer implements ConversationViewerApi {
                 }
                 outline = await this.options.readOutline(
                     target.provider,
-                    target.sessionId,
+                    this.effectiveSessionId(target),
                     abortController.signal
                 );
                 if (!this.canPublish(panel, target, generation, requestId)) {
                     return false;
                 }
                 if (outline.provider !== target.provider
-                    || outline.sessionId !== target.sessionId
+                    || outline.sessionId !== this.effectiveSessionId(target)
                     || !outline.interactions.length) {
                     await this.publishFailure(replaceDocument, updateKind);
                     return false;
@@ -653,7 +821,7 @@ export class ConversationViewer implements ConversationViewerApi {
                 }
                 page = await this.options.readPage({
                     provider: target.provider,
-                    sessionId: target.sessionId,
+                    sessionId: this.effectiveSessionId(target),
                     anchorInteractionId: selectedInteractionId,
                     direction: 'around',
                     expectedRevision: outline.sourceRevision,
@@ -664,7 +832,7 @@ export class ConversationViewer implements ConversationViewerApi {
                 return false;
             }
             if (page.provider !== target.provider
-                || page.sessionId !== target.sessionId
+                || page.sessionId !== this.effectiveSessionId(target)
                 || page.sourceRevision !== outline.sourceRevision) {
                 await this.publishFailure(replaceDocument, updateKind);
                 return false;
@@ -682,13 +850,21 @@ export class ConversationViewer implements ConversationViewerApi {
             } else {
                 this.retain(page, 'replace');
             }
+            this.subagents = await this.readSubagentsSafely(target);
+            if (!this.canPublish(panel, target, generation, requestId)) {
+                return false;
+            }
             const publication = this.createPublication(
                 requestId,
                 generation,
                 updateKind
             );
             await this.deliverPublication(publication, replaceDocument);
-            void this.telemetryController.refresh(target, generation);
+            void this.telemetryController.refresh(
+                target,
+                generation,
+                this.effectiveSessionId(target)
+            );
             return true;
         } catch (_error) {
             if (!this.canPublish(panel, target, generation, requestId)
@@ -739,14 +915,14 @@ export class ConversationViewer implements ConversationViewerApi {
                 }
                 outline = await this.options.readOutline(
                     target.provider,
-                    target.sessionId,
+                    this.effectiveSessionId(target),
                     abortController.signal
                 );
                 if (!this.canPublish(panel, target, generation, requestId)) {
                     return false;
                 }
                 if (outline.provider !== target.provider
-                    || outline.sessionId !== target.sessionId
+                    || outline.sessionId !== this.effectiveSessionId(target)
                     || !outline.interactions.length) {
                     await this.publishFailure(replaceDocument, updateKind);
                     return false;
@@ -760,7 +936,7 @@ export class ConversationViewer implements ConversationViewerApi {
                 retriedStaleRevision = true;
                 page = await this.options.readPage({
                     provider: target.provider,
-                    sessionId: target.sessionId,
+                    sessionId: this.effectiveSessionId(target),
                     anchorInteractionId: preferredInteractionId,
                     direction: 'around',
                     expectedRevision: outline.sourceRevision,
@@ -771,7 +947,7 @@ export class ConversationViewer implements ConversationViewerApi {
                 return false;
             }
             if (page.provider !== target.provider
-                || page.sessionId !== target.sessionId
+                || page.sessionId !== this.effectiveSessionId(target)
                 || page.sourceRevision !== outline?.sourceRevision) {
                 await this.publishFailure(replaceDocument, updateKind);
                 return false;
@@ -934,7 +1110,7 @@ export class ConversationViewer implements ConversationViewerApi {
         try {
             const watch = this.options.watch(
                 target.provider,
-                target.sessionId,
+                this.effectiveSessionId(target),
                 () => {
                     if (generation !== this.subscriptionGeneration
                         || this.suspended) {
@@ -1140,6 +1316,8 @@ export class ConversationViewer implements ConversationViewerApi {
                 ? last?.nextCursor || ''
                 : undefined,
             stale: this.stale,
+            subagents: this.subagents.map(entry => ({ ...entry })),
+            activeSubagent: target.subagent ? { ...target.subagent } : null,
         };
     }
 

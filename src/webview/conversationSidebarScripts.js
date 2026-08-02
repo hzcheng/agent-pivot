@@ -9,10 +9,12 @@
         var commentsResizer = options.commentsResizer;
         var sidebarRoot = options.sidebarRoot;
         var sidebarTabs = options.sidebarTabs;
-        var sidebarClose = options.sidebarClose;
         var outlineRoot = options.outlineRoot;
         var commentsRoot = options.commentsRoot;
+        var subagentsRoot = options.subagentsRoot;
         var outlineQuery = options.outlineQuery;
+        var subagentsRunningOnlyQuery = options.subagentsRunningOnlyQuery
+            || function () { return false; };
         var commentsPanelMinWidth = 192;
         var commentsPanelMaxWidth = 420;
         var conversationMinWidth = 320;
@@ -57,6 +59,7 @@
                     width: state.commentsPanelWidth,
                     view: state.sidebarView,
                     query: outlineQuery(),
+                    subagentsRunningOnly: subagentsRunningOnlyQuery(),
                 };
                 delete next.conversationCommentsPanel;
                 vscodeApi.setState(next);
@@ -113,6 +116,7 @@
             commentsResizer.hidden = !state.commentsPanelOpen;
             outlineRoot.hidden = state.sidebarView !== 'outline';
             commentsRoot.hidden = state.sidebarView !== 'comments';
+            subagentsRoot.hidden = state.sidebarView !== 'subagents';
             commentsResizer.setAttribute('aria-valuemax', String(
                 availableCommentsPanelMaxWidth()
             ));
@@ -127,7 +131,8 @@
         }
 
         function setSidebarView(view, open, persist) {
-            if (view !== 'outline' && view !== 'comments') return;
+            if (view !== 'outline' && view !== 'comments'
+                && view !== 'subagents') return;
             state.sidebarView = view;
             state.commentsPanelOpen = open;
             applyCommentsPanelLayout();
@@ -182,10 +187,6 @@
                     );
                     nextTab.focus();
                 });
-            });
-            sidebarClose.addEventListener('click', function () {
-                setCommentsPanelOpen(false, true);
-                sidebarToggle.focus();
             });
             var resizingPointerId = null;
             commentsResizer.addEventListener('pointerdown', function (event) {
@@ -254,7 +255,8 @@
                 );
             }
             if (savedCommentsPanel.view === 'outline'
-                || savedCommentsPanel.view === 'comments') {
+                || savedCommentsPanel.view === 'comments'
+                || savedCommentsPanel.view === 'subagents') {
                 state.sidebarView = savedCommentsPanel.view;
             }
         }

@@ -228,6 +228,9 @@ function createAvailableConversationCapability(
         createPanel: options.createPanel,
         readOutline: coordinator.readOutline.bind(coordinator),
         readPage: coordinator.readPage.bind(coordinator),
+        readSubagents: typeof coordinator.readSubagents === 'function'
+            ? coordinator.readSubagents.bind(coordinator)
+            : undefined,
         readTelemetry: coordinator.readTelemetry.bind(coordinator),
         watch: coordinator.watch.bind(coordinator),
         restoreFocus: target => restoreConversationFocus(options, target),

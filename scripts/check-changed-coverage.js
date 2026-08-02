@@ -32,6 +32,10 @@ const UNINSTRUMENTED_BY_DESIGN = [
     // Type-only module: it declares the NotifyRequest interface and compiles to
     // an empty, statement-less file, so there is nothing to instrument.
     'src/aiSessions/notify/templates/types.ts',
+    // Type-only module: it declares the ConversationViewerTarget interface and
+    // compiles to an empty, statement-less file, so there is nothing to
+    // instrument.
+    'src/aiSessions/conversation/viewerTarget.ts',
 ];
 
 function isUninstrumentedByDesign(file) {

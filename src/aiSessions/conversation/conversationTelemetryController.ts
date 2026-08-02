@@ -46,7 +46,8 @@ export class ConversationTelemetryController {
 
     async refresh(
         target: ConversationViewerTarget,
-        generation: number
+        generation: number,
+        sessionId = target.sessionId
     ): Promise<void> {
         if (!this.options.readTelemetry) {
             return;
@@ -55,7 +56,7 @@ export class ConversationTelemetryController {
         try {
             telemetry = await this.options.readTelemetry(
                 target.provider,
-                target.sessionId
+                sessionId
             );
         } catch (_error) {
             telemetry = undefined;
@@ -214,5 +215,13 @@ export function renderConversationTelemetry(
         </div>
         <div class="conversation-telemetry-limits"
             data-telemetry-limits>${limitMarkup}</div>
+        <button type="button"
+            class="conversation-telemetry-comments"
+            data-telemetry-comments
+            title="Comments" hidden></button>
+        <button type="button"
+            class="conversation-telemetry-subagents"
+            data-telemetry-subagents
+            title="Subagents" hidden></button>
     </section>`;
 }

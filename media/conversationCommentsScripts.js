@@ -9,6 +9,9 @@
         var messages = options.messages;
         var scroll = options.scroll;
         var addComment = options.addComment;
+        var headerSend = options.headerSend;
+        var telemetryComments = options.telemetryComments;
+        var telemetrySection = options.telemetrySection;
         var commentsRoot = options.commentsRoot;
         var commentCount = options.commentCount;
         var commentSummary = options.commentSummary;
@@ -206,6 +209,23 @@
                     + (state.comments.length === 1 ? '' : 's')
             );
             commentSend.disabled = counts.open === 0 || pending;
+            if (headerSend) {
+                headerSend.disabled = counts.open === 0 || pending;
+                headerSend.textContent = counts.open > 0
+                    ? 'Send ' + counts.open
+                    : 'Send';
+            }
+            if (telemetryComments) {
+                telemetryComments.hidden = state.comments.length === 0;
+                telemetryComments.textContent = 'Comments '
+                    + state.comments.length;
+                telemetryComments.title = state.comments.length
+                    + (state.comments.length === 1 ? ' comment' : ' comments')
+                    + ' — click to review';
+                if (state.comments.length > 0 && telemetrySection) {
+                    telemetrySection.hidden = false;
+                }
+            }
             commentNew.disabled = pending;
             commentClearSent.disabled = counts.sent === 0 || pending;
             commentClearResolved.disabled = counts.resolved === 0 || pending;
@@ -240,6 +260,9 @@
                 }
             );
             addComment.disabled = pending;
+            if (headerSend) {
+                headerSend.disabled = pending;
+            }
             if (!pending) {
                 updateCommentControls();
             }
@@ -854,6 +877,9 @@
             handleEscape: handleEscape,
             initializeComments: initializeComments,
             openCount: openCommentCount,
+            sendOpenComments: function () {
+                postCommentOperation('sendComments', {});
+            },
             updateHighlights: updateCommentHighlights,
         });
     }

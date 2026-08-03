@@ -42,6 +42,7 @@ media/brand/**
 !media/webviewDashboardValidationScripts.js
 !media/webviewDashboardSearchScripts.js
 !media/webviewPromptScripts.js
+!media/webviewTodoRenderScripts.js
 !media/webviewTodoScripts.js
 !media/conversationMermaidScripts.js
 !media/conversationReadingAnchorScripts.js

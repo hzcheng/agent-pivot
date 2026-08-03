@@ -46,6 +46,8 @@ const projectVmSource = `${viewStateSource}\n${workspaceUpdateSource}\n${todoGro
 const scrollStateSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewScrollStateScripts.js'), 'utf8');
 const promptSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewPromptScripts.js'), 'utf8');
 const generatedPromptPath = path.join(root, 'media', 'webviewPromptScripts.js');
+const todoRenderSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewTodoRenderScripts.js'), 'utf8');
+const generatedTodoRenderSource = fs.readFileSync(path.join(root, 'media', 'webviewTodoRenderScripts.js'), 'utf8');
 const dndSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewDnDScripts.js'), 'utf8');
 const NOW = '2026-07-23T00:00:00.000Z';
 
@@ -704,6 +706,13 @@ test('WEBVIEW-WEBVIEW-CONTENT-001 keeps the generated Dashboard controller byte-
     assert.equal(generatedDashboardSource, dashboardSource);
 });
 
+test('WEBVIEW-TODO-RENDER-001 keeps the generated TODO renderer byte-identical to source', () => {
+    assert.equal(generatedTodoRenderSource, todoRenderSource);
+    assert.match(todoRenderSource, /function createTodoRenderer\(options\)/);
+    assert.match(todoRenderSource, /function renderTodoBody\(todo\)/);
+    assert.match(todoRenderSource, /function renderListSurface\(\)/);
+});
+
 test('ACTIVE-SESSION-ICON-ANIMATION-001 renders effects only for running Active Session rows', () => {
     const surface = {
         id: 'active-session-icons',
@@ -941,6 +950,7 @@ test('WEBVIEW-RESOURCE-RECOVERY-001 gives every rendered document fresh versione
         'webviewDashboardSearchScripts.js',
         'webviewDashboardScripts.js',
         'webviewPromptScripts.js',
+        'webviewTodoRenderScripts.js',
         'webviewTodoScripts.js',
         'webviewDnDScripts.js',
         'webviewFilterScripts.js',

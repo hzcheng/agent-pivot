@@ -230,6 +230,12 @@ export function getStewardContent(
         'webviewPromptScripts.js',
         assetRevision,
     );
+    var todoRenderScriptsPath = getMediaResource(
+        context,
+        webview,
+        'webviewTodoRenderScripts.js',
+        assetRevision,
+    );
     var todoScriptsPath = getMediaResource(
         context,
         webview,
@@ -355,6 +361,7 @@ export function getStewardContent(
     <script src="${dashboardSearchScriptsPath}"></script>
     <script src="${dashboardScriptsPath}"></script>
     <script src="${promptScriptsPath}"></script>
+    <script src="${todoRenderScriptsPath}"></script>
     <script src="${todoScriptsPath}"></script>
     <script src="${dndScriptsPath}"></script>
     <script src="${filterScriptsPath}"></script>

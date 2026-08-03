@@ -10,6 +10,10 @@ const { buildTodoViewModel } = require('../../out/todos/viewModel');
 
 const NOW = '2026-07-24T00:00:00.000Z';
 const styles = fs.readFileSync(path.join(__dirname, '../../media/styles.css'), 'utf8');
+const todoRenderScript = fs.readFileSync(
+    path.join(__dirname, '../../src/webview/webviewTodoRenderScripts.js'),
+    'utf8'
+);
 const todoScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/webviewTodoScripts.js'),
     'utf8'
@@ -72,6 +76,7 @@ test('TODO-BROWSER-EXPANDED-LAYOUT-001 gives an expanded card its full Chromium 
                 <section id="todo-host">${panel}</section>
             </body>
         </html>`);
+    await page.addScriptTag({ content: todoRenderScript });
     await page.addScriptTag({ content: todoScript });
     await page.evaluate(value => {
         window.vscode = { postMessage() {} };

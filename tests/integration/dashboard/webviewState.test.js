@@ -19,7 +19,11 @@ const skillPanelSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webv
 const generatedSkillPanelSource = fs.readFileSync(path.join(root, 'media', 'webviewSkillPanelScripts.js'), 'utf8');
 const projectsPanelSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewProjectsPanelScripts.js'), 'utf8');
 const generatedProjectsPanelSource = fs.readFileSync(path.join(root, 'media', 'webviewProjectsPanelScripts.js'), 'utf8');
-const dashboardVmSource = `${skillPanelSource}\n${projectsPanelSource}\n${dashboardSource}`;
+const dashboardValidationSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewDashboardValidationScripts.js'), 'utf8');
+const generatedDashboardValidationSource = fs.readFileSync(path.join(root, 'media', 'webviewDashboardValidationScripts.js'), 'utf8');
+const dashboardSearchSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewDashboardSearchScripts.js'), 'utf8');
+const generatedDashboardSearchSource = fs.readFileSync(path.join(root, 'media', 'webviewDashboardSearchScripts.js'), 'utf8');
+const dashboardVmSource = `${skillPanelSource}\n${projectsPanelSource}\n${dashboardValidationSource}\n${dashboardSearchSource}\n${dashboardSource}`;
 const projectSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewProjectScripts.js'), 'utf8');
 const generatedProjectSource = fs.readFileSync(path.join(root, 'media', 'webviewProjectScripts.js'), 'utf8');
 const viewStateSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewAiSessionViewStateScripts.js'), 'utf8');
@@ -695,6 +699,8 @@ test('WEBVIEW-AI-PROMPT-ASSET-001 keeps the generated Prompt controller byte-ide
 test('WEBVIEW-WEBVIEW-CONTENT-001 keeps the generated Dashboard controller byte-identical to source', () => {
     assert.equal(generatedSkillPanelSource, skillPanelSource);
     assert.equal(generatedProjectsPanelSource, projectsPanelSource);
+    assert.equal(generatedDashboardValidationSource, dashboardValidationSource);
+    assert.equal(generatedDashboardSearchSource, dashboardSearchSource);
     assert.equal(generatedDashboardSource, dashboardSource);
 });
 
@@ -853,6 +859,13 @@ test('WEBVIEW-WEBVIEW-CONTENT-001 renders OPEN PROJECTS TODO and lazy AI tab she
         'Skill panel controller must load before the Dashboard controller that wires it'
     );
     assert.ok(
+        html.indexOf('webviewDashboardValidationScripts.js') > -1
+            && html.indexOf('webviewDashboardValidationScripts.js') < html.indexOf('webviewDashboardScripts.js')
+            && html.indexOf('webviewDashboardSearchScripts.js') > -1
+            && html.indexOf('webviewDashboardSearchScripts.js') < html.indexOf('webviewDashboardScripts.js'),
+        'Dashboard pure helpers must load before the Dashboard controller that calls them'
+    );
+    assert.ok(
         html.indexOf('webviewPromptScripts.js') > html.indexOf('webviewDashboardScripts.js'),
         'Prompt interactions must install after the Dashboard lazy loader'
     );
@@ -924,6 +937,8 @@ test('WEBVIEW-RESOURCE-RECOVERY-001 gives every rendered document fresh versione
         'webviewProjectScripts.js',
         'webviewSkillPanelScripts.js',
         'webviewProjectsPanelScripts.js',
+        'webviewDashboardValidationScripts.js',
+        'webviewDashboardSearchScripts.js',
         'webviewDashboardScripts.js',
         'webviewPromptScripts.js',
         'webviewTodoScripts.js',

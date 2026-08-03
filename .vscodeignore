@@ -39,6 +39,8 @@ media/brand/**
 !media/webviewProjectScripts.js
 !media/webviewSkillPanelScripts.js
 !media/webviewProjectsPanelScripts.js
+!media/webviewDashboardValidationScripts.js
+!media/webviewDashboardSearchScripts.js
 !media/webviewPromptScripts.js
 !media/webviewTodoScripts.js
 !media/conversationMermaidScripts.js

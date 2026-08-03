@@ -72,6 +72,8 @@ const EXPECTED_MAIN_ENTRIES = Object.freeze([
     'extension/media/sharingan/mangekyou-sharingan-sasuke.svg',
     'extension/media/sharingan/mangekyou-sharingan-shisui.svg',
     'extension/media/styles.css',
+    'extension/media/webviewDashboardValidationScripts.js',
+    'extension/media/webviewDashboardSearchScripts.js',
     'extension/media/webviewDashboardScripts.js',
     'extension/media/webviewSkillPanelScripts.js',
     'extension/media/webviewProjectsPanelScripts.js',
@@ -607,6 +609,8 @@ function runRealVsixArchiveChecks(mainPackage, bridgePackage) {
         ['extension/media/webviewProjectScripts.js', 'media/webviewProjectScripts.js'],
         ['extension/media/webviewSkillPanelScripts.js', 'media/webviewSkillPanelScripts.js'],
         ['extension/media/webviewProjectsPanelScripts.js', 'media/webviewProjectsPanelScripts.js'],
+        ['extension/media/webviewDashboardValidationScripts.js', 'media/webviewDashboardValidationScripts.js'],
+        ['extension/media/webviewDashboardSearchScripts.js', 'media/webviewDashboardSearchScripts.js'],
         ['extension/media/webviewPromptScripts.js', 'media/webviewPromptScripts.js'],
         ['extension/media/webviewScrollStateScripts.js', 'media/webviewScrollStateScripts.js'],
         ['extension/media/webviewTodoScripts.js', 'media/webviewTodoScripts.js'],
@@ -939,6 +943,8 @@ function run() {
     assertIncludes(mainIgnore, '!media/webviewProjectScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewSkillPanelScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewProjectsPanelScripts.js', 'main VSIX ignore rules');
+    assertIncludes(mainIgnore, '!media/webviewDashboardValidationScripts.js', 'main VSIX ignore rules');
+    assertIncludes(mainIgnore, '!media/webviewDashboardSearchScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewPromptScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewScrollStateScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewTodoScripts.js', 'main VSIX ignore rules');
@@ -969,6 +975,8 @@ function run() {
         'media/webviewProjectScripts.js',
         'media/webviewSkillPanelScripts.js',
         'media/webviewProjectsPanelScripts.js',
+        'media/webviewDashboardValidationScripts.js',
+        'media/webviewDashboardSearchScripts.js',
         'media/webviewPromptScripts.js',
         'media/webviewScrollStateScripts.js',
         'media/webviewTodoScripts.js',

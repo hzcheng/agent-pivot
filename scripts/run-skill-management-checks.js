@@ -1121,6 +1121,8 @@ function runSkillSearchCatalogChecks() {
 
     const script = [
         'webviewSkillPanelScripts.js',
+        'webviewDashboardValidationScripts.js',
+        'webviewDashboardSearchScripts.js',
         'webviewDashboardScripts.js',
     ].map(fileName => fs.readFileSync(
         path.join(__dirname, '..', 'media', fileName), 'utf8'

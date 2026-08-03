@@ -4290,7 +4290,8 @@
     "priority": "P1",
     "status": "automated",
     "owners": [
-      "scripts/run-skill-management-checks.js"
+      "scripts/run-skill-management-checks.js",
+      "tests/contract/skills/skillScanCache.test.js"
     ],
     "evidence": [
       "src/skills/discovery.ts",

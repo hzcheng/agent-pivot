@@ -1988,7 +1988,11 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-REVIEW-001 CONVERSATION
     await settle(second, 2, comments);
 
     assert.equal(await page.locator('[data-comment-id]').count(), 2);
-    assert.equal(await page.locator('[data-comment-count]').textContent(), '2');
+    assert.equal(
+        await page.locator('[data-comment-count]').count(),
+        0,
+        'the redundant count badge stays removed; the summary carries counts'
+    );
     assert.equal(
         await page.locator('[data-comment-summary]').textContent(),
         '2 open'

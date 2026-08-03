@@ -114,7 +114,6 @@ export function renderConversationViewerDocument(
             <strong>${escapeHtml(providerLabel(target.provider))}</strong>
             <span>${escapeHtml(target.displayName + duplicateId)}</span>
         </div>
-        <span data-conversation-position>Input 0 of 0</span>
         <nav class="conversation-navigation" aria-label="Conversation navigation">
             <button type="button" data-action="previous">Previous</button>
             <button type="button" data-action="next">Next</button>
@@ -150,34 +149,43 @@ export function renderConversationViewerDocument(
                 <button type="button" role="tab" data-sidebar-tab="outline"
                     id="conversation-outline-tab"
                     aria-controls="conversation-outline-panel"
-                    aria-selected="true">Outline</button>
+                    aria-selected="true" aria-label="Outline" title="Outline">
+                    <svg viewBox="0 0 16 16" width="14" height="14"
+                        aria-hidden="true" fill="none" stroke="currentColor"
+                        stroke-width="1.3"><path d="M2.5 4h11M2.5 8h7M2.5 12h9"/></svg>
+                </button>
                 <button type="button" role="tab" data-sidebar-tab="comments"
                     id="conversation-comments-tab"
                     aria-controls="conversation-comments-panel"
-                    aria-selected="false">Comments</button>
+                    aria-selected="false" aria-label="Comments" title="Comments">
+                    <svg viewBox="0 0 16 16" width="14" height="14"
+                        aria-hidden="true" fill="none" stroke="currentColor"
+                        stroke-width="1.3"><path d="M3 3.5h10a.5.5 0 0 1 .5.5v6.5a.5.5 0 0 1-.5.5H8l-3 2.2v-2.2H3a.5.5 0 0 1-.5-.5V4a.5.5 0 0 1 .5-.5z"/></svg>
+                </button>
                 <button type="button" role="tab" data-sidebar-tab="subagents"
                     id="conversation-subagents-tab"
                     aria-controls="conversation-subagents-panel"
-                    aria-selected="false">Subagents</button>
+                    aria-selected="false" aria-label="Subagents"
+                    title="Subagents">
+                    <svg viewBox="0 0 16 16" width="14" height="14"
+                        aria-hidden="true" fill="none" stroke="currentColor"
+                        stroke-width="1.3"><circle cx="8" cy="3.4" r="1.7"/><circle cx="3.4" cy="12.2" r="1.7"/><circle cx="12.6" cy="12.2" r="1.7"/><path d="M8 5.1v2.2M8 7.3l-3.3 3.2M8 7.3l3.3 3.2"/></svg>
+                </button>
             </div>
             <section id="conversation-outline-panel"
                 class="conversation-outline" data-conversation-outline
                 role="tabpanel" aria-labelledby="conversation-outline-tab">
-                <div class="conversation-outline-header">
-                    <div>
-                        <strong>Conversation outline</strong>
-                        <span data-outline-summary>No inputs yet</span>
-                    </div>
-                    <span data-outline-count aria-label="0 inputs">0</span>
+                <div class="conversation-outline-toolbar">
+                    <input id="conversation-outline-search" type="search"
+                        data-outline-search placeholder="Search user inputs"
+                        aria-label="Search user inputs">
+                    <button type="button"
+                        class="conversation-outline-bookmarks-only"
+                        data-outline-bookmarks-only aria-pressed="false"
+                        title="Show bookmarked inputs only">☆ 0</button>
+                    <span class="conversation-outline-summary"
+                        data-outline-summary>No inputs yet</span>
                 </div>
-                <label class="conversation-outline-search-label"
-                    for="conversation-outline-search">Search inputs</label>
-                <input id="conversation-outline-search" type="search"
-                    data-outline-search placeholder="Search user inputs">
-                <button type="button" class="conversation-outline-bookmarks-only"
-                    data-outline-bookmarks-only aria-pressed="false">
-                    ☆ Bookmarks
-                </button>
                 <p class="conversation-outline-partial"
                     data-outline-partial hidden>
                     Showing the newest inputs available in this Session.
@@ -191,16 +199,11 @@ export function renderConversationViewerDocument(
                 class="conversation-comments" data-conversation-comments
                 role="tabpanel" aria-labelledby="conversation-comments-tab"
                 hidden>
-                <div class="conversation-comments-header">
-                    <div class="conversation-comments-heading">
-                        <strong>Review comments</strong>
-                        <span data-comment-summary>No comments yet</span>
-                    </div>
-                    <div class="conversation-comments-header-actions">
-                        <button type="button" data-comment-action="new"
-                            title="Add a note about this Session">+ Note</button>
-                        <span data-comment-count aria-label="0 comments">0</span>
-                    </div>
+                <div class="conversation-comments-panelbar">
+                    <button type="button" data-comment-action="new"
+                        title="Add a note about this Session">+ Note</button>
+                    <span class="conversation-comments-summary"
+                        data-comment-summary>No comments yet</span>
                 </div>
                 <div class="conversation-comment-composer"
                     data-comment-composer hidden>
@@ -229,14 +232,16 @@ export function renderConversationViewerDocument(
                     <button class="conversation-comments-clear" type="button"
                         data-comment-action="clearSent"
                         title="Clear comments added to the session input"
-                        disabled>Clear added</button>
+                        aria-label="Clear added comments" disabled>Added</button>
                     <button class="conversation-comments-clear" type="button"
                         data-comment-action="clearResolved"
                         title="Clear resolved comments"
-                        disabled>Clear resolved</button>
+                        aria-label="Clear resolved comments"
+                        disabled>Resolved</button>
                     <button class="conversation-comments-clear conversation-comments-clear-all"
                         type="button" data-comment-action="clearAll"
-                        title="Clear all comments" disabled>Clear all</button>
+                        title="Clear all comments"
+                        aria-label="Clear all comments" disabled>All</button>
                     <button class="conversation-comments-send" type="button"
                         data-comment-action="send" disabled
                         title="Add open comments to the session input">Add open comments to session input</button>
@@ -247,7 +252,6 @@ export function renderConversationViewerDocument(
                 role="tabpanel" aria-labelledby="conversation-subagents-tab"
                 hidden>
                 <div class="conversation-subagents-header">
-                    <strong>Subagents</strong>
                     <label class="conversation-subagents-filter"
                         for="conversation-subagents-running-only">
                         <input id="conversation-subagents-running-only"

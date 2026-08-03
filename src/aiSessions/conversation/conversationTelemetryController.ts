@@ -215,6 +215,10 @@ export function renderConversationTelemetry(
         <div class="conversation-telemetry-limits"
             data-telemetry-limits>${limitMarkup}</div>
         <button type="button"
+            class="conversation-telemetry-position"
+            data-conversation-position
+            title="Jump to the current input in the outline">Input 0 of 0</button>
+        <button type="button"
             class="conversation-telemetry-comments"
             data-telemetry-comments
             title="0 comments — click to review">Comments 0</button>

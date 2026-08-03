@@ -787,8 +787,8 @@ function run() {
     );
     assert.strictEqual(
         mainPackage.scripts['test:ci:linux'],
-        'npm run test-compile && npm run brand:verify && npm run brand:check && npm run test:behavior-contracts && npm run lint:ci && npm run test:deterministic:run && npm run test:conversation-sources:remote && npm run test:conversation-performance && npm run test:browser:run && npm run test:safety:run && npm run test:dashboard:run && npm run test:architecture-baseline && npm run test:architecture-guards && npm run test:release-notes && npm run test:release-packaging && npm run vscode:prepublish && npm run test:coverage:run && node scripts/check-coverage-baseline.js && node scripts/check-changed-coverage.js',
-        'Linux CI must run non-mutating brand verification and identity checks before quality gates',
+        'npm run test-compile && npm run brand:verify && npm run brand:check && npm run test:behavior-contracts && npm run lint:ci && npm run test:coverage:run && npm run test:conversation-sources:remote && npm run test:conversation-performance && npm run test:browser:run && npm run test:safety:run && npm run test:dashboard:run && npm run test:architecture-baseline && npm run test:architecture-guards && npm run test:release-notes && npm run test:release-packaging && node scripts/check-coverage-baseline.js && node scripts/check-changed-coverage.js',
+        'Linux CI must run each quality gate once while retaining coverage enforcement',
     );
     assert.strictEqual(mainPackage.devDependencies['@vscode/test-electron'], '3.0.0',
         '@vscode/test-electron must remain an exact direct development dependency');
@@ -801,10 +801,10 @@ function run() {
         'release package script');
     assertIncludes(mainPackage.scripts['package:release'], 'test-compile',
         'release package script');
-    assertIncludes(mainPackage.scripts['package:release'], 'attention:bridge:compile',
-        'release package script');
-    assertIncludes(mainPackage.scripts['package:release'], 'vscode:prepublish',
-        'release package script');
+    assertNotIncludes(mainPackage.scripts['package:release'], 'npm run attention:bridge:compile',
+        'release package script must rely on test-compile for the UI Bridge build');
+    assertNotIncludes(mainPackage.scripts['package:release'], 'npm run vscode:prepublish',
+        'release package script must rely on the main VSCE prepublish lifecycle');
     assertNotIncludes(mainPackage.scripts['package:release'], 'test:release-packaging',
         'release package script');
 

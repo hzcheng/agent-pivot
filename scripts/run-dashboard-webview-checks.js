@@ -55,6 +55,12 @@ const skillPanelScriptPath = path.join(
 const projectsPanelScriptPath = path.join(
     root, 'src', 'webview', 'webviewProjectsPanelScripts.js'
 );
+const dashboardValidationScriptPath = path.join(
+    root, 'src', 'webview', 'webviewDashboardValidationScripts.js'
+);
+const dashboardSearchScriptPath = path.join(
+    root, 'src', 'webview', 'webviewDashboardSearchScripts.js'
+);
 const projectScriptPath = path.join(root, 'src', 'webview', 'webviewProjectScripts.js');
 const aiSessionViewStateScriptPath = path.join(
     root, 'src', 'webview', 'webviewAiSessionViewStateScripts.js'
@@ -99,6 +105,8 @@ function readDashboardWebviewSource() {
     return [
         skillPanelScriptPath,
         projectsPanelScriptPath,
+        dashboardValidationScriptPath,
+        dashboardSearchScriptPath,
         dashboardScriptPath,
     ].map(scriptPath => fs.readFileSync(scriptPath, 'utf8')).join('\n');
 }
@@ -4515,6 +4523,15 @@ function runSourceContractChecks(source) {
         webviewContentSource.indexOf('webviewProjectsPanelScripts.js')
             < webviewContentSource.indexOf('webviewDashboardScripts.js'),
         'the projects panel capture/restore helpers must load before the Dashboard controller that calls them'
+    );
+    assert.ok(
+        webviewContentSource.indexOf('webviewDashboardValidationScripts.js') > -1
+            && webviewContentSource.indexOf('webviewDashboardValidationScripts.js')
+                < webviewContentSource.indexOf('webviewDashboardScripts.js')
+            && webviewContentSource.indexOf('webviewDashboardSearchScripts.js') > -1
+            && webviewContentSource.indexOf('webviewDashboardSearchScripts.js')
+                < webviewContentSource.indexOf('webviewDashboardScripts.js'),
+        'the Dashboard pure helpers must load before the Dashboard controller that calls them'
     );
     assert.ok(
         webviewContentSource.indexOf('webviewSkillPanelScripts.js')

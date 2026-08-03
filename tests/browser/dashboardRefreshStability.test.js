@@ -34,6 +34,12 @@ const skillPanelScript = fs.readFileSync(
 const projectsPanelScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/webviewProjectsPanelScripts.js'), 'utf8'
 );
+const dashboardValidationScript = fs.readFileSync(
+    path.join(__dirname, '../../src/webview/webviewDashboardValidationScripts.js'), 'utf8'
+);
+const dashboardSearchScript = fs.readFileSync(
+    path.join(__dirname, '../../src/webview/webviewDashboardSearchScripts.js'), 'utf8'
+);
 const todoScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/webviewTodoScripts.js'), 'utf8'
 );
@@ -217,6 +223,8 @@ async function openDashboardPage(t) {
     if (scrollStateScript) await page.addScriptTag({ content: scrollStateScript });
     await page.addScriptTag({ content: skillPanelScript });
     await page.addScriptTag({ content: projectsPanelScript });
+    await page.addScriptTag({ content: dashboardValidationScript });
+    await page.addScriptTag({ content: dashboardSearchScript });
     await page.addScriptTag({ content: dashboardScript });
     await page.addScriptTag({ content: todoScript });
     await page.evaluate(() => {

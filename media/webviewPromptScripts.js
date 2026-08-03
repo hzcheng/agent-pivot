@@ -1,32 +1,13 @@
 (function () {
     'use strict';
 
-    var PROMPT_VERSION = 1;
-    var PROMPT_TARGET = 'global-prompt-library';
-    var MAX_REQUEST_ID_LENGTH = 128;
+
+
+
     var MAX_SETTLED_KEYS = 100;
-    var OPERATIONS = new Set([
-        'create',
-        'update',
-        'delete',
-        'reorder',
-        'select-default',
-    ]);
-    var ERROR_CODES = new Set([
-        'invalid',
-        'not-found',
-        'conflict',
-        'storage',
-        'settings-write-conflict',
-        'unsupported-version',
-        'cancelled',
-    ]);
-    var INSERT_ERROR_CODES = new Set([
-        'no-active-terminal',
-        'prompt-unavailable',
-        'prompt-not-found',
-        'terminal-unavailable',
-    ]);
+
+
+
     var state = {
         snapshot: null,
         pending: new Map(),
@@ -47,154 +28,15 @@
     var dragOriginList = null;
     var dragOriginNodes = [];
 
-    function clone(value) {
-        if (value === null || value === undefined) {
-            return value;
-        }
-        return JSON.parse(JSON.stringify(value));
-    }
 
-    function correlationKey(message) {
-        return [
-            message.version,
-            message.requestId,
-            message.target,
-            message.operation,
-        ].join(':');
-    }
 
-    function insertCorrelationKey(message) {
-        return [
-            message.version,
-            message.requestId,
-            message.target,
-            'insert-terminal',
-        ].join(':');
-    }
 
-    function hasExactKeys(value, requiredKeys, optionalKeys) {
-        if (!value || typeof value !== 'object' || Array.isArray(value)) {
-            return false;
-        }
-        var allowedKeys = requiredKeys.concat(optionalKeys || []);
-        var keys = Object.keys(value);
-        return requiredKeys.every(function (key) {
-            return Object.prototype.hasOwnProperty.call(value, key);
-        }) && keys.every(function (key) {
-            return allowedKeys.indexOf(key) >= 0;
-        });
-    }
 
-    function isRequestId(value) {
-        return typeof value === 'string'
-            && value.length > 0
-            && value.length <= MAX_REQUEST_ID_LENGTH;
-    }
 
-    function isAuthoritySequence(value) {
-        return Number.isSafeInteger(value) && value > 0;
-    }
 
-    function isSnapshot(snapshot) {
-        if (!hasExactKeys(
-            snapshot,
-            ['version', 'revision', 'selectedPromptId', 'prompts'],
-            ['readOnlyReason']
-        )
-            || snapshot.version !== PROMPT_VERSION
-            || !Number.isSafeInteger(snapshot.revision)
-            || snapshot.revision < 0
-            || (snapshot.selectedPromptId !== null
-                && (typeof snapshot.selectedPromptId !== 'string'
-                    || snapshot.selectedPromptId.length === 0))
-            || !Array.isArray(snapshot.prompts)
-            || (snapshot.readOnlyReason !== undefined
-                && snapshot.readOnlyReason !== 'invalid-data'
-                && snapshot.readOnlyReason !== 'unsupported-version')) {
-            return false;
-        }
 
-        var ids = new Set();
-        var names = new Set();
-        for (var prompt of snapshot.prompts) {
-            if (!hasExactKeys(prompt, ['id', 'name', 'text'])
-                || typeof prompt.id !== 'string'
-                || prompt.id.length === 0
-                || typeof prompt.name !== 'string'
-                || prompt.name.trim().length === 0
-                || typeof prompt.text !== 'string'
-                || prompt.text.trim().length === 0
-                || ids.has(prompt.id)
-                || names.has(prompt.name.toLowerCase())) {
-                return false;
-            }
-            ids.add(prompt.id);
-            names.add(prompt.name.toLowerCase());
-        }
-        return snapshot.selectedPromptId === null || ids.has(snapshot.selectedPromptId);
-    }
 
-    function isCommandResult(message) {
-        return hasExactKeys(message, [
-            'type',
-            'version',
-            'authoritySequence',
-            'requestId',
-            'target',
-            'operation',
-            'success',
-            'snapshot',
-            'html',
-        ], ['errorCode'])
-            && message.type === 'prompt-command-result'
-            && message.version === PROMPT_VERSION
-            && isAuthoritySequence(message.authoritySequence)
-            && isRequestId(message.requestId)
-            && message.target === PROMPT_TARGET
-            && OPERATIONS.has(message.operation)
-            && typeof message.success === 'boolean'
-            && isSnapshot(message.snapshot)
-            && typeof message.html === 'string'
-            && (message.success
-                ? message.errorCode === undefined
-                : ERROR_CODES.has(message.errorCode));
-    }
 
-    function isInsertResult(message) {
-        return hasExactKeys(message, [
-            'type',
-            'version',
-            'requestId',
-            'target',
-            'success',
-            'errorCode',
-        ])
-            && message.type === 'prompt-insert-terminal-result'
-            && message.version === PROMPT_VERSION
-            && isRequestId(message.requestId)
-            && message.target === PROMPT_TARGET
-            && typeof message.success === 'boolean'
-            && (message.success
-                ? message.errorCode === null
-                : INSERT_ERROR_CODES.has(message.errorCode));
-    }
-
-    function isRefresh(message) {
-        return hasExactKeys(message, [
-            'type',
-            'version',
-            'authoritySequence',
-            'target',
-            'snapshot',
-            'html',
-        ])
-            && message.type === 'prompt-panel-updated'
-            && message.version === PROMPT_VERSION
-            && isAuthoritySequence(message.authoritySequence)
-            && message.target === PROMPT_TARGET
-            && isSnapshot(message.snapshot)
-            && typeof message.html === 'string';
-    }
 
     function getSurface() {
         return root && typeof root.querySelector === 'function'
@@ -202,17 +44,6 @@
             : null;
     }
 
-    function readSurfaceRevision(surface) {
-        if (!surface || typeof surface.getAttribute !== 'function') {
-            return null;
-        }
-        var value = surface.getAttribute('data-prompt-revision');
-        if (typeof value !== 'string' || !/^(0|[1-9]\d*)$/.test(value)) {
-            return null;
-        }
-        var revision = Number(value);
-        return Number.isSafeInteger(revision) ? revision : null;
-    }
 
     function getStatusRegion() {
         var surface = getSurface();
@@ -253,50 +84,9 @@
         announce('A Prompt change is already in progress. Wait for it to finish.');
     }
 
-    function mutationAnnouncement(operation) {
-        if (operation === 'create') return 'Saving new Prompt…';
-        if (operation === 'update') return 'Saving Prompt changes…';
-        if (operation === 'delete') return 'Waiting for Prompt deletion confirmation…';
-        if (operation === 'reorder') return 'Saving Prompt order…';
-        return 'Saving default Prompt…';
-    }
 
-    function successAnnouncement(operation) {
-        if (operation === 'create') return 'Prompt created.';
-        if (operation === 'update') return 'Prompt updated.';
-        if (operation === 'delete') return 'Prompt deleted.';
-        if (operation === 'reorder') return 'Prompt order saved.';
-        return 'Default Prompt updated.';
-    }
 
-    function errorAnnouncement(code) {
-        if (code === 'cancelled') return 'Prompt deletion was cancelled.';
-        if (code === 'conflict') {
-            return 'Prompts changed elsewhere. Reopen the form to review your draft.';
-        }
-        if (code === 'not-found') return 'That Prompt no longer exists.';
-        if (code === 'invalid') return 'Check the Prompt fields and try again.';
-        if (code === 'unsupported-version') {
-            return 'This Prompt library needs a newer version of Agent Pivot.';
-        }
-        if (code === 'settings-write-conflict') {
-            return 'Save or revert User Settings, then try again. Your Prompt draft is still here.';
-        }
-        return 'Could not save the Prompt change. The latest saved library is shown.';
-    }
 
-    function insertErrorAnnouncement(code) {
-        if (code === 'no-active-terminal') {
-            return 'No active terminal is available to receive the Prompt.';
-        }
-        if (code === 'prompt-unavailable') {
-            return 'AI Prompts are currently unavailable.';
-        }
-        if (code === 'prompt-not-found') {
-            return 'That Prompt is no longer available.';
-        }
-        return 'The selected terminal is no longer available.';
-    }
 
     function setMutationLock(enabled) {
         var surface = getSurface();
@@ -348,11 +138,6 @@
         return (randomId + '-' + requestSequence.toString(36)).slice(0, MAX_REQUEST_ID_LENGTH);
     }
 
-    function closest(target, selector) {
-        return target && typeof target.closest === 'function'
-            ? target.closest(selector)
-            : null;
-    }
 
     function captureSemanticFocus() {
         var active = document.activeElement;
@@ -423,18 +208,6 @@
             }) || null;
     }
 
-    function setInsertPending(control, pending) {
-        if (!control || typeof control.setAttribute !== 'function') {
-            return;
-        }
-        if (pending) {
-            control.setAttribute('aria-disabled', 'true');
-            control.setAttribute('data-prompt-insert-pending', 'true');
-        } else {
-            control.removeAttribute('aria-disabled');
-            control.removeAttribute('data-prompt-insert-pending');
-        }
-    }
 
     function restoreSemanticFocus(target) {
         if (!target) {
@@ -500,7 +273,7 @@
             focus: captureSemanticFocus(),
             scrollTop: list && typeof list.scrollTop === 'number' ? list.scrollTop : 0,
             scrollY: typeof window.scrollY === 'number' ? window.scrollY : 0,
-            draft: clone(state.draft),
+            draft: clonePromptValue(state.draft),
             activeSubtab: state.activeSubtab,
         };
     }
@@ -520,35 +293,6 @@
         }
     }
 
-    function surfaceHtmlHasRevision(html, revision) {
-        var trimmed = String(html || '').trim();
-        if (!trimmed) {
-            return false;
-        }
-        if (typeof document.createElement === 'function') {
-            try {
-                var template = document.createElement('template');
-                template.innerHTML = trimmed;
-                if (!template.content
-                    || template.content.childElementCount !== 1
-                    || !template.content.firstElementChild
-                    || !template.content.firstElementChild.hasAttribute('data-prompt-surface')) {
-                    return false;
-                }
-                return readSurfaceRevision(template.content.firstElementChild) === revision;
-            } catch (_error) {
-                return false;
-            }
-        }
-        var opening = trimmed.match(/^<[a-zA-Z][\w:-]*\b([^>]*)>/);
-        if (!opening || !/\bdata-prompt-surface(?:\s|=|>)/.test(opening[0])) {
-            return false;
-        }
-        var revisionMatch = opening[0].match(
-            /\bdata-prompt-revision\s*=\s*["'](0|[1-9]\d*)["']/
-        );
-        return Boolean(revisionMatch) && Number(revisionMatch[1]) === revision;
-    }
 
     function installAuthoritative(message) {
         if (!surfaceHtmlHasRevision(message.html, message.snapshot.revision)) {
@@ -570,7 +314,7 @@
         }
         currentRevision = message.snapshot.revision;
         currentAuthoritySequence = message.authoritySequence;
-        state.snapshot = clone(message.snapshot);
+        state.snapshot = clonePromptValue(message.snapshot);
         lockedControls = [];
         configurePromptForms();
         state.pendingInserts.forEach(function (pending) {
@@ -609,12 +353,6 @@
             }) || null;
     }
 
-    function readField(form, name) {
-        var field = form && typeof form.querySelector === 'function'
-            ? form.querySelector('[name="' + name + '"]')
-            : null;
-        return field ? String(field.value || '') : '';
-    }
 
     function applyDraft(draft) {
         if (!draft) {
@@ -639,17 +377,6 @@
         return true;
     }
 
-    function resetPromptForm(form) {
-        if (!form) {
-            return;
-        }
-        if (typeof form.reset === 'function') {
-            form.reset();
-        }
-        clearFieldError(form, 'name');
-        clearFieldError(form, 'text');
-        form.hidden = true;
-    }
 
     function resetOpenDraft() {
         getPromptForms().forEach(resetPromptForm);
@@ -657,17 +384,6 @@
         state.blockedDraft = false;
     }
 
-    function formMatchesDraft(form, draft) {
-        if (!form || !draft) {
-            return false;
-        }
-        var kind = form.getAttribute('data-prompt-form');
-        if (kind !== draft.kind) {
-            return false;
-        }
-        return kind === 'create'
-            || form.getAttribute('data-prompt-id') === draft.promptId;
-    }
 
     function applyQueuedRefresh() {
         var refresh = pendingRefresh;
@@ -707,7 +423,7 @@
             target: PROMPT_TARGET,
             expectedRevision: currentRevision,
             operation: operation,
-            payload: clone(payload),
+            payload: clonePromptValue(payload),
         };
         var key = correlationKey(message);
         var local = captureLocalState();
@@ -717,7 +433,7 @@
             target: message.target,
             expectedRevision: message.expectedRevision,
             operation: message.operation,
-            payload: clone(message.payload),
+            payload: clonePromptValue(message.payload),
             draft: local.draft,
             focus: local.focus,
             scrollTop: local.scrollTop,
@@ -819,7 +535,7 @@
             && pending.focus
             && (!document.activeElement || document.activeElement === document.body)
             && local.activeSubtab === pending.activeSubtab) {
-            local.focus = clone(pending.focus);
+            local.focus = clonePromptValue(pending.focus);
         }
         if (message.success && local.focus && local.focus.formKind) {
             if (message.operation === 'create') {
@@ -846,7 +562,7 @@
                 ? null
                 : local.draft;
         } else {
-            state.draft = clone(pending.draft || local.draft);
+            state.draft = clonePromptValue(pending.draft || local.draft);
             state.blockedDraft = message.errorCode === 'conflict' && Boolean(state.draft);
         }
         setMutationLock(false);
@@ -880,7 +596,7 @@
                 version: message.version,
                 authoritySequence: message.authoritySequence,
                 target: message.target,
-                snapshot: clone(message.snapshot),
+                snapshot: clonePromptValue(message.snapshot),
                 html: message.html,
             };
             return true;
@@ -896,23 +612,7 @@
         return applied;
     }
 
-    function clearFieldError(form, name) {
-        var error = form.querySelector('[data-prompt-field-error="' + name + '"]');
-        var field = form.querySelector('[name="' + name + '"]');
-        if (error) error.textContent = '';
-        if (field && typeof field.removeAttribute === 'function') {
-            field.removeAttribute('aria-invalid');
-        }
-    }
 
-    function setFieldError(form, name, message) {
-        var error = form.querySelector('[data-prompt-field-error="' + name + '"]');
-        var field = form.querySelector('[name="' + name + '"]');
-        if (error) error.textContent = message;
-        if (field && typeof field.setAttribute === 'function') {
-            field.setAttribute('aria-invalid', 'true');
-        }
-    }
 
     function submitForm(form) {
         var kind = form.getAttribute('data-prompt-form');
@@ -962,7 +662,7 @@
             return false;
         }
         var retained = state.blockedDraft && state.draft && state.draft.kind === 'create'
-            ? clone(state.draft)
+            ? clonePromptValue(state.draft)
             : { kind: 'create', promptId: null, name: '', text: '' };
         resetOpenDraft();
         state.draft = retained;
@@ -1021,7 +721,7 @@
             && state.draft
             && state.draft.kind === 'edit'
             && state.draft.promptId === promptId
-            ? clone(state.draft)
+            ? clonePromptValue(state.draft)
             : null;
         resetOpenDraft();
         retained = retained || {
@@ -1112,11 +812,6 @@
         clearFieldError(form, name);
     }
 
-    function tabName(tab) {
-        var id = tab && (tab.id || tab.getAttribute('id'));
-        var match = typeof id === 'string' ? id.match(/^ai-tab-(prompts|skills|mcp|hooks)$/) : null;
-        return match ? match[1] : null;
-    }
 
     function activateSubtab(name, focus) {
         if (!root || ['prompts', 'skills', 'mcp', 'hooks'].indexOf(name) < 0) {
@@ -1266,7 +961,7 @@
             || !initialAuthority
             || !isAuthoritySequence(initialAuthority.authoritySequence)
             || initialAuthority.authoritySequence <= currentAuthoritySequence
-            || !isSnapshot(initialAuthority.snapshot)) {
+            || !isPromptSnapshot(initialAuthority.snapshot)) {
             return false;
         }
         var surface = nextRoot.querySelector('[data-prompt-surface]');
@@ -1277,7 +972,7 @@
         root = nextRoot;
         currentAuthoritySequence = initialAuthority.authoritySequence;
         currentRevision = revision;
-        state.snapshot = clone(initialAuthority.snapshot);
+        state.snapshot = clonePromptValue(initialAuthority.snapshot);
         configurePromptForms();
         var selectedTab = typeof root.querySelectorAll === 'function'
             ? Array.from(root.querySelectorAll('[role="tab"]')).find(function (tab) {

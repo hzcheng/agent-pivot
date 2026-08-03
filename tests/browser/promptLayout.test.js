@@ -12,6 +12,10 @@ const {
 } = require('../../out/prompts/webviewContent');
 
 const styles = fs.readFileSync(path.join(__dirname, '../../media/styles.css'), 'utf8');
+const promptProtocolScript = fs.readFileSync(
+    path.join(__dirname, '../../src/webview/webviewPromptProtocolScripts.js'),
+    'utf8'
+);
 const promptScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/webviewPromptScripts.js'),
     'utf8'
@@ -107,6 +111,7 @@ async function openPromptPage(browser, snapshot) {
             },
         };
     });
+    await page.addScriptTag({ content: promptProtocolScript });
     await page.addScriptTag({ content: promptScript });
     assert.equal(await page.evaluate(initialSnapshot =>
         window.__agentPivotPrompts.mount(document.getElementById('ai-host'), {
@@ -262,6 +267,7 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 keeps Prompt controls and text usable in
             await page.evaluate(() => {
                 window.vscode = { postMessage() {} };
             });
+            await page.addScriptTag({ content: promptProtocolScript });
             await page.addScriptTag({ content: promptScript });
             assert.equal(await page.evaluate(snapshot =>
                 window.__agentPivotPrompts.mount(document.getElementById('ai-host'), {
@@ -428,6 +434,7 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 keeps all Prompt actions visible without
     await page.evaluate(() => {
         window.vscode = { postMessage() {} };
     });
+    await page.addScriptTag({ content: promptProtocolScript });
     await page.addScriptTag({ content: promptScript });
     assert.equal(await page.evaluate(snapshot =>
         window.__agentPivotPrompts.mount(document.getElementById('ai-host'), {

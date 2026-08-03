@@ -88,6 +88,7 @@ const EXPECTED_MAIN_ENTRIES = Object.freeze([
     'extension/media/webviewProjectAiUpdateScripts.js',
     'extension/media/webviewProjectAiSessionControlsScripts.js',
     'extension/media/webviewProjectScripts.js',
+    'extension/media/webviewPromptProtocolScripts.js',
     'extension/media/webviewPromptScripts.js',
     'extension/media/webviewScrollStateScripts.js',
     'extension/media/webviewTodoRenderScripts.js',
@@ -612,6 +613,7 @@ function runRealVsixArchiveChecks(mainPackage, bridgePackage) {
         ['extension/media/webviewProjectsPanelScripts.js', 'media/webviewProjectsPanelScripts.js'],
         ['extension/media/webviewDashboardValidationScripts.js', 'media/webviewDashboardValidationScripts.js'],
         ['extension/media/webviewDashboardSearchScripts.js', 'media/webviewDashboardSearchScripts.js'],
+        ['extension/media/webviewPromptProtocolScripts.js', 'media/webviewPromptProtocolScripts.js'],
         ['extension/media/webviewPromptScripts.js', 'media/webviewPromptScripts.js'],
         ['extension/media/webviewScrollStateScripts.js', 'media/webviewScrollStateScripts.js'],
         ['extension/media/webviewTodoRenderScripts.js', 'media/webviewTodoRenderScripts.js'],
@@ -947,6 +949,7 @@ function run() {
     assertIncludes(mainIgnore, '!media/webviewProjectsPanelScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewDashboardValidationScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewDashboardSearchScripts.js', 'main VSIX ignore rules');
+    assertIncludes(mainIgnore, '!media/webviewPromptProtocolScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewPromptScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewScrollStateScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewTodoRenderScripts.js', 'main VSIX ignore rules');
@@ -980,6 +983,7 @@ function run() {
         'media/webviewProjectsPanelScripts.js',
         'media/webviewDashboardValidationScripts.js',
         'media/webviewDashboardSearchScripts.js',
+        'media/webviewPromptProtocolScripts.js',
         'media/webviewPromptScripts.js',
         'media/webviewScrollStateScripts.js',
         'media/webviewTodoRenderScripts.js',

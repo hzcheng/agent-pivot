@@ -4430,6 +4430,11 @@ function runSourceContractChecks(source) {
         'generated media/webviewScrollStateScripts.js must match its source byte-for-byte'
     );
     assert.deepStrictEqual(
+        fs.readFileSync(path.join(root, 'media', 'webviewPromptProtocolScripts.js')),
+        fs.readFileSync(path.join(root, 'src', 'webview', 'webviewPromptProtocolScripts.js')),
+        'generated media/webviewPromptProtocolScripts.js must match its source byte-for-byte'
+    );
+    assert.deepStrictEqual(
         fs.readFileSync(path.join(root, 'media', 'webviewPromptScripts.js')),
         fs.readFileSync(promptScriptPath),
         'generated media/webviewPromptScripts.js must match its source byte-for-byte'

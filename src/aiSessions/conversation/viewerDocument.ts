@@ -205,27 +205,29 @@ export function renderConversationViewerDocument(
                     <span class="conversation-comments-summary"
                         data-comment-summary>No comments yet</span>
                 </div>
-                <div class="conversation-comment-composer"
-                    data-comment-composer hidden>
-                    <blockquote data-comment-selection></blockquote>
-                    <label for="conversation-comment-input">Comment</label>
-                    <textarea id="conversation-comment-input" data-comment-input
-                        rows="3" maxlength="${CONVERSATION_COMMENT_LIMITS.maxCommentGraphemes}"
-                        aria-keyshortcuts="Control+Enter Meta+Enter"
-                        placeholder="What should the AI address?"></textarea>
-                    <div class="conversation-comment-actions">
-                        <button type="button"
-                            data-comment-action="cancel-add">Cancel</button>
-                        <button type="button"
-                            data-comment-action="confirm-add"
-                            title="Add comment (Ctrl+Enter or Cmd+Enter)">Add comment</button>
+                <div class="conversation-comments-body" data-comments-body>
+                    <div class="conversation-comment-composer"
+                        data-comment-composer hidden>
+                        <blockquote data-comment-selection></blockquote>
+                        <label for="conversation-comment-input">Comment</label>
+                        <textarea id="conversation-comment-input" data-comment-input
+                            rows="3" maxlength="${CONVERSATION_COMMENT_LIMITS.maxCommentGraphemes}"
+                            aria-keyshortcuts="Control+Enter Meta+Enter"
+                            placeholder="What should the AI address?"></textarea>
+                        <div class="conversation-comment-actions">
+                            <button type="button"
+                                data-comment-action="cancel-add">Cancel</button>
+                            <button type="button"
+                                data-comment-action="confirm-add"
+                                title="Add comment (Ctrl+Enter or Cmd+Enter)">Add comment</button>
+                        </div>
                     </div>
+                    <div class="conversation-comment-list"
+                        data-comment-list></div>
+                    <p class="conversation-comment-empty" data-comment-empty>
+                        Select text to comment on it, or add a Session note.
+                    </p>
                 </div>
-                <div class="conversation-comment-list"
-                    data-comment-list></div>
-                <p class="conversation-comment-empty" data-comment-empty>
-                    Select text to comment on it, or add a Session note.
-                </p>
                 <div class="conversation-comments-toolbar"
                     data-comments-toolbar role="group"
                     aria-label="Comment actions">

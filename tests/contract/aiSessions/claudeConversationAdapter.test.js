@@ -897,7 +897,7 @@ test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 Claude lists depth-1 subagents with
     assert.deepEqual(
         entries.map(entry => [entry.id, entry.status, entry.agentType]),
         [
-            ['a33333333', 'failed', undefined],
+            ['a33333333', 'quiet', undefined],
             ['a22222222', 'running', 'general-purpose'],
             ['a11111111', 'idle', 'Explore'],
             ['a55555555', 'idle', undefined],

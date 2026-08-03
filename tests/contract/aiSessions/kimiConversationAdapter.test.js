@@ -400,7 +400,7 @@ test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 Kimi lists subagents with mapped st
         entries.map(entry => [entry.id, entry.status, entry.agentType]),
         [
             ['a33333333', 'killed', undefined],
-            ['a22222222', 'failed', 'coder'],
+            ['a22222222', 'quiet', 'coder'],
             ['a11111111', 'running', 'explore'],
         ]
     );

@@ -762,11 +762,12 @@ function subagentStatus(
     }
     if (rawStatus === 'running_foreground'
         || rawStatus === 'running_background') {
-        // A crashed CLI never resets meta.json: only a freshly written wire
-        // proves the subagent is actually alive.
+        // A crashed CLI never resets meta.json, and a long quiet command
+        // looks identical to a crash: only a freshly written wire proves
+        // the subagent is alive; staleness alone is not death evidence.
         return now - wireMtimeMs <= SUBAGENT_RUNNING_FRESHNESS_MS
             ? 'running'
-            : 'failed';
+            : 'quiet';
     }
     return 'idle';
 }

@@ -503,7 +503,8 @@
             && (value.agentType === undefined
                 || typeof value.agentType === 'string')
             && (value.status === 'running' || value.status === 'idle'
-                || value.status === 'failed' || value.status === 'killed')
+                || value.status === 'quiet' || value.status === 'failed'
+                || value.status === 'killed')
             && (value.createdAt === undefined
                 || (Number.isSafeInteger(value.createdAt)
                     && value.createdAt >= 0))

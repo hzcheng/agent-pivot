@@ -4092,19 +4092,19 @@ test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 pins running subagents above finish
                 id: 'a11111111',
                 label: 'Finished first',
                 status: 'idle',
-                updatedAt: 1,
+                updatedAt: Date.now() - 3 * 24 * 60 * 60 * 1000,
             },
             {
                 id: 'a22222222',
-                label: 'Finished second',
-                status: 'idle',
-                updatedAt: 2,
+                label: 'Quiet worker',
+                status: 'quiet',
+                updatedAt: Date.now() - 12 * 60 * 1000,
             },
             {
                 id: 'a33333333',
                 label: 'Still running',
                 status: 'running',
-                updatedAt: 3,
+                updatedAt: Date.now() - 3 * 60 * 1000,
             },
         ],
         activeSubagent: null,
@@ -4116,5 +4116,25 @@ test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 pins running subagents above finish
         elements => elements.map(element =>
             element.getAttribute('data-subagent-id'))
     );
-    assert.deepEqual(ids, ['a33333333', 'a11111111', 'a22222222']);
+    assert.deepEqual(ids, ['a33333333', 'a22222222', 'a11111111']);
+    assert.equal(
+        await page.locator('[data-subagent-id="a22222222"] .conversation-subagent-status').innerText(),
+        'Quiet'
+    );
+    assert.equal(
+        await page.locator('[data-subagent-id="a33333333"] .conversation-subagent-time').innerText(),
+        '3m ago'
+    );
+    assert.equal(
+        await page.locator('[data-subagent-id="a22222222"] .conversation-subagent-time').innerText(),
+        '12m ago'
+    );
+
+    // The Running only filter keeps quiet (not-finished) entries visible.
+    await page.locator('[data-subagents-running-only]').check();
+    const filteredIds = await page.locator('[data-subagent-id]').evaluateAll(
+        elements => elements.map(element =>
+            element.getAttribute('data-subagent-id'))
+    );
+    assert.deepEqual(filteredIds, ['a33333333', 'a22222222']);
 });

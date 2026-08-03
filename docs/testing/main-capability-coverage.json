@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "50149e75f12f8b886e074ec3edea164697ecc5e8",
+        "head": "601d080c79f196d331dd468ea409b7d215c6056c",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -999,7 +999,8 @@
                 "cf89c6b1ffaf8f2b1383f58cd80dd6eb151a9875",
                 "c504d556cda783a5ef2e686d5474d323d5871898",
                 "42f36435479b6e2fd1083508f01afb7e2263b5c1",
-                "4ee4569c7cfd599eed7589e46945b76634de7775"
+                "4ee4569c7cfd599eed7589e46945b76634de7775",
+                "601d080c79f196d331dd468ea409b7d215c6056c"
             ],
             "behaviors": [
                 "PERSIST-AI-PROMPT-STORE-001",

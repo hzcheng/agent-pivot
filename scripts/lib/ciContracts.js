@@ -261,6 +261,25 @@ function validateQualityGateScripts(scripts) {
         'test:architecture-guards must run the architecture guard entry point exactly');
     assert.ok(includesShellCommand(scripts['test:ci:linux'], 'npm run test:architecture-guards'),
         'test:ci:linux must invoke npm run test:architecture-guards');
+    assert.ok(includesShellCommand(scripts['test:ci:linux'], 'npm run test:coverage:run'),
+        'test:ci:linux must invoke the combined deterministic coverage run');
+    assert.equal(includesShellCommand(
+        scripts['test:ci:linux'], 'npm run test:deterministic:run'
+    ), false, 'test:ci:linux must not repeat deterministic tests outside coverage');
+    assert.equal(includesShellCommand(
+        scripts['test:ci:linux'], 'npm run vscode:prepublish'
+    ), false, 'test:ci:linux must not repeat the prepublish build after release packaging');
+    assert.match(scripts['test:coverage:run'], /\bnpm run test:deterministic:run\b/u,
+        'coverage must wrap the deterministic suite instead of defining a second test run');
+    assert.match(scripts['test:coverage:run'], /--reporter=text-summary\b/u,
+        'coverage must emit a bounded summary instead of a per-file table');
+    assert.equal([
+        ...scripts['test:deterministic:run'].matchAll(/--test-concurrency=2\b/gu),
+    ].length, 2, 'deterministic contract and integration suites must use bounded concurrency');
+    assert.doesNotMatch(scripts['test:deterministic:run'], /--test-concurrency=1\b/u,
+        'deterministic suites must not fall back to single-file execution');
+    assert.match(scripts['test:browser:run'], /--test-concurrency=2\b/u,
+        'browser test files must use bounded concurrency');
 }
 
 module.exports = {

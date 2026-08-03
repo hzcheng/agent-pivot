@@ -125,7 +125,34 @@ test('ARCH-CI-QUALITY-GATE-001 requires architecture guards in the compile-once 
     assert.throws(() => validateQualityGateScripts({
         'test:ci:linux': 'npm run test-compile && npm run test:safety:run',
         'test:architecture-guards': 'node scripts/run-architecture-guards.js',
+        'test:coverage:run': 'npm run test:deterministic:run',
+        'test:deterministic:run': "node --test --test-concurrency=2 'tests/contract/**/*.test.js'",
+        'test:browser:run': "node --test --test-concurrency=2 'tests/browser/**/*.test.js'",
     }), /test:ci:linux must invoke npm run test:architecture-guards/);
+});
+
+test('ARCH-CI-QUALITY-GATE-001 runs expensive suites and release builds only once with bounded concurrency', () => {
+    assert.doesNotThrow(() => validateQualityGateScripts(packageScripts));
+
+    assert.throws(() => validateQualityGateScripts({
+        ...packageScripts,
+        'test:ci:linux': `${packageScripts['test:ci:linux']} && npm run test:deterministic:run`,
+    }), /must not repeat deterministic tests/);
+    assert.throws(() => validateQualityGateScripts({
+        ...packageScripts,
+        'test:coverage:run': packageScripts['test:coverage:run']
+            .replace('npm run test:deterministic:run', "node --test 'tests/unit/**/*.test.js'"),
+    }), /coverage must wrap the deterministic suite/);
+    assert.throws(() => validateQualityGateScripts({
+        ...packageScripts,
+        'test:browser:run': packageScripts['test:browser:run']
+            .replace('--test-concurrency=2', '--test-concurrency=1'),
+    }), /browser test files must use bounded concurrency/);
+    assert.throws(() => validateQualityGateScripts({
+        ...packageScripts,
+        'test:deterministic:run': packageScripts['test:deterministic:run']
+            .replace('--test-concurrency=2', '--test-concurrency=1'),
+    }), /deterministic contract and integration suites must use bounded concurrency/);
 });
 
 test('ARCH-CI-QUALITY-GATE-001 keeps the repository Linux quality chain wired exactly', () => {

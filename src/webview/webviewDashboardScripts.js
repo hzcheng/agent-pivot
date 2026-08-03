@@ -3,27 +3,6 @@ function initDashboard(options) {
     var storageKey = 'agentPivot.activeDashboardTab';
     var scrollPositions = { open: 0, projects: 0, todo: 0, ai: 0 };
     var activeTab = normalizeDashboardTab(sessionStorage.getItem(storageKey));
-    var projectsState = 'unloaded';
-    var projectsRequestId = 0;
-    var acceptedProjectsRequestId = 0;
-    var acceptedProjectsUpdateSequence = 0;
-    var projectsPanelReplacementGeneration = 0;
-    var projectsRequestAttempts = 0;
-    var projectsRequestTimer = null;
-    var todoState = 'unloaded';
-    var todoRequestId = 0;
-    var acceptedTodoRequestId = 0;
-    var todoRequestAttempts = 0;
-    var todoRequestTimer = null;
-    var aiState = 'unloaded';
-    var aiRequestId = null;
-    var aiRequestAttempts = 0;
-    var aiRequestTimer = null;
-    var aiRequestSequence = 0;
-    var issuedAiRequestIds = new Set();
-    var pendingAiSubtab = null;
-    var pendingPromptRefresh = null;
-    var pendingTodoSearchTarget = null;
     var pendingScrollRestoreTab = null;
     var panelRequestTimeoutMs = Number(options.panelRequestTimeoutMs) > 0
         ? Number(options.panelRequestTimeoutMs)
@@ -138,140 +117,12 @@ function initDashboard(options) {
         loadingElement.hidden = false;
     }
 
-    function scheduleProjectsRequestTimeout(requestId) {
-        if (!scheduleTimeout) {
-            return;
-        }
-        if (projectsRequestTimer !== null) {
-            cancelTimeout(projectsRequestTimer);
-        }
-        projectsRequestTimer = scheduleTimeout(function () {
-            projectsRequestTimer = null;
-            if (projectsState !== 'loading' || requestId !== projectsRequestId) {
-                return;
-            }
-            projectsState = 'unloaded';
-            if (projectsRequestAttempts < 2 && activeTab === 'projects' && !searchQuery) {
-                ensureProjectsPanel();
-                return;
-            }
-            showPanelUnavailable('projects');
-        }, panelRequestTimeoutMs);
-    }
 
-    function scheduleTodoRequestTimeout(requestId) {
-        if (!scheduleTimeout) {
-            return;
-        }
-        if (todoRequestTimer !== null) {
-            cancelTimeout(todoRequestTimer);
-        }
-        todoRequestTimer = scheduleTimeout(function () {
-            todoRequestTimer = null;
-            if (todoState !== 'loading' || requestId !== todoRequestId) {
-                return;
-            }
-            todoState = 'unloaded';
-            if (todoRequestAttempts < 2 && activeTab === 'todo' && !searchQuery) {
-                ensureTodoPanel();
-                return;
-            }
-            showPanelUnavailable('todo');
-        }, panelRequestTimeoutMs);
-    }
 
-    function scheduleAiRequestTimeout(requestId) {
-        if (!scheduleTimeout) {
-            return;
-        }
-        if (aiRequestTimer !== null) {
-            cancelTimeout(aiRequestTimer);
-        }
-        aiRequestTimer = scheduleTimeout(function () {
-            aiRequestTimer = null;
-            if (aiState !== 'loading' || requestId !== aiRequestId) {
-                return;
-            }
-            aiState = 'unloaded';
-            if (aiRequestAttempts < 2 && activeTab === 'ai' && !searchQuery) {
-                ensureAiPanel();
-                return;
-            }
-            showPanelUnavailable('ai');
-        }, panelRequestTimeoutMs);
-    }
 
-    function createFreshAiRequestId() {
-        aiRequestSequence += 1;
-        var randomId = '';
-        try {
-            if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-                randomId = crypto.randomUUID();
-            }
-        } catch (_error) {
-            randomId = '';
-        }
-        if (!randomId) {
-            randomId = Date.now().toString(36)
-                + '-' + Math.random().toString(36).slice(2);
-        }
-        var requestId = randomId + '-' + aiRequestSequence.toString(36);
-        while (issuedAiRequestIds.has(requestId)) {
-            aiRequestSequence += 1;
-            requestId = randomId + '-' + aiRequestSequence.toString(36);
-        }
-        issuedAiRequestIds.add(requestId);
-        return requestId;
-    }
 
-    function ensureProjectsPanel() {
-        if (projectsState !== 'unloaded') {
-            return;
-        }
-        projectsState = 'loading';
-        projectsRequestAttempts += 1;
-        projectsRequestId += 1;
-        showPanelLoading('projects');
-        options.postMessage({
-            type: 'request-projects-panel',
-            version: 1,
-            requestId: projectsRequestId,
-        });
-        scheduleProjectsRequestTimeout(projectsRequestId);
-    }
 
-    function ensureTodoPanel() {
-        if (todoState !== 'unloaded') {
-            return;
-        }
-        todoState = 'loading';
-        todoRequestAttempts += 1;
-        todoRequestId += 1;
-        showPanelLoading('todo');
-        options.postMessage({
-            type: 'request-todo-panel',
-            version: 1,
-            requestId: todoRequestId,
-        });
-        scheduleTodoRequestTimeout(todoRequestId);
-    }
 
-    function ensureAiPanel() {
-        if (aiState !== 'unloaded') {
-            return;
-        }
-        aiState = 'loading';
-        aiRequestAttempts += 1;
-        aiRequestId = createFreshAiRequestId();
-        showPanelLoading('ai');
-        options.postMessage({
-            type: 'request-ai-panel',
-            version: 1,
-            requestId: aiRequestId,
-            target: 'global-prompt-library',
-        });
-        scheduleAiRequestTimeout(aiRequestId);
-    }
 
     function activateTab(tab, saveScroll) {
         tab = normalizeDashboardTab(tab);
@@ -290,25 +141,25 @@ function initDashboard(options) {
             return;
         }
         if (activeTab === 'projects') {
-            if (projectsState === 'mounted') {
+            if (projectsPanel.getProjectsState() === 'mounted') {
                 restoreScroll('projects');
             } else {
                 pendingScrollRestoreTab = 'projects';
-                ensureProjectsPanel();
+                projectsPanel.ensureProjectsPanel();
             }
         } else if (activeTab === 'todo') {
-            if (todoState === 'mounted') {
+            if (todoPanel.getTodoState() === 'mounted') {
                 restoreScroll('todo');
             } else {
                 pendingScrollRestoreTab = 'todo';
-                ensureTodoPanel();
+                todoPanel.ensureTodoPanel();
             }
         } else if (activeTab === 'ai') {
-            if (aiState === 'mounted') {
+            if (aiPanel.getAiState() === 'mounted') {
                 restoreScroll('ai');
             } else {
                 pendingScrollRestoreTab = 'ai';
-                ensureAiPanel();
+                aiPanel.ensureAiPanel();
             }
         } else {
             restoreScroll(activeTab);
@@ -326,15 +177,15 @@ function initDashboard(options) {
         renderSearchMode();
         if (!searchQuery && wasActive) {
             renderActiveTab();
-            if (activeTab === 'projects' && projectsState !== 'mounted') {
+            if (activeTab === 'projects' && projectsPanel.getProjectsState() !== 'mounted') {
                 pendingScrollRestoreTab = 'projects';
-                ensureProjectsPanel();
-            } else if (activeTab === 'todo' && todoState !== 'mounted') {
+                projectsPanel.ensureProjectsPanel();
+            } else if (activeTab === 'todo' && todoPanel.getTodoState() !== 'mounted') {
                 pendingScrollRestoreTab = 'todo';
-                ensureTodoPanel();
-            } else if (activeTab === 'ai' && aiState !== 'mounted') {
+                todoPanel.ensureTodoPanel();
+            } else if (activeTab === 'ai' && aiPanel.getAiState() !== 'mounted') {
                 pendingScrollRestoreTab = 'ai';
-                ensureAiPanel();
+                aiPanel.ensureAiPanel();
             } else {
                 restoreScroll(activeTab);
             }
@@ -389,7 +240,7 @@ function initDashboard(options) {
             }
             pendingSkillReveal = String(button.dataset.skillDir || '');
             activateTab('ai', false);
-            if (aiState === 'mounted') {
+            if (aiPanel.getAiState() === 'mounted') {
                 var revealDir = pendingSkillReveal;
                 pendingSkillReveal = null;
                 skillPanel.revealSkillCard(revealDir);
@@ -441,20 +292,20 @@ function initDashboard(options) {
             return;
         }
         if (action === 'show-todo') {
-            pendingTodoSearchTarget = {
+            todoPanel.setPendingTodoSearchTarget({
                 todoId: String(button.dataset.todoId || ''),
                 groupId: String(button.dataset.groupId || ''),
                 revealRequested: false,
                 focusScheduled: false,
-            };
+            });
             if (typeof options.clearSearch === 'function') {
                 options.clearSearch();
             } else {
                 setSearchQuery('');
             }
             activateTab('todo', false);
-            if (todoState === 'mounted') {
-                revealPendingTodoSearchTarget();
+            if (todoPanel.getTodoState() === 'mounted') {
+                todoPanel.revealPendingTodoSearchTarget();
             }
         }
     }
@@ -463,327 +314,66 @@ function initDashboard(options) {
         postMessage: options.postMessage,
         aiPanel: panels.ai,
     });
+    var projectsPanel = createDashboardProjectsPanel({
+        options: options,
+        panels: panels,
+        scheduleTimeout: scheduleTimeout,
+        cancelTimeout: cancelTimeout,
+        panelRequestTimeoutMs: panelRequestTimeoutMs,
+        showPanelLoading: showPanelLoading,
+        showPanelUnavailable: showPanelUnavailable,
+        restoreScroll: restoreScroll,
+        replaceSearchCatalog: replaceSearchCatalog,
+        getActiveTab: () => activeTab,
+        getSearchQuery: () => searchQuery,
+        getPendingScrollRestoreTab: () => pendingScrollRestoreTab,
+        setPendingScrollRestoreTab: value => { pendingScrollRestoreTab = value; },
+    });
+    var todoPanel = createDashboardTodoPanel({
+        options: options,
+        panels: panels,
+        scheduleTimeout: scheduleTimeout,
+        cancelTimeout: cancelTimeout,
+        panelRequestTimeoutMs: panelRequestTimeoutMs,
+        showPanelLoading: showPanelLoading,
+        showPanelUnavailable: showPanelUnavailable,
+        restoreScroll: restoreScroll,
+        replaceSearchCatalog: replaceSearchCatalog,
+        getActiveTab: () => activeTab,
+        getSearchQuery: () => searchQuery,
+        getPendingScrollRestoreTab: () => pendingScrollRestoreTab,
+        setPendingScrollRestoreTab: value => { pendingScrollRestoreTab = value; },
+    });
+    var aiPanel = createDashboardAiPanel({
+        options: options,
+        panels: panels,
+        scheduleTimeout: scheduleTimeout,
+        cancelTimeout: cancelTimeout,
+        panelRequestTimeoutMs: panelRequestTimeoutMs,
+        showPanelLoading: showPanelLoading,
+        showPanelUnavailable: showPanelUnavailable,
+        restoreScroll: restoreScroll,
+        replaceSearchCatalog: replaceSearchCatalog,
+        getActiveTab: () => activeTab,
+        getSearchQuery: () => searchQuery,
+        getPendingScrollRestoreTab: () => pendingScrollRestoreTab,
+        setPendingScrollRestoreTab: value => { pendingScrollRestoreTab = value; },
+        skillPanel: skillPanel,
+        getPendingSkillReveal: () => pendingSkillReveal,
+        setPendingSkillReveal: value => { pendingSkillReveal = value; },
+    });
 
-    function revealPendingTodoSearchTarget() {
-        if (!pendingTodoSearchTarget || !panels.todo || pendingTodoSearchTarget.focusScheduled) {
-            return false;
-        }
-        var scheduledTarget = pendingTodoSearchTarget;
-        scheduledTarget.focusScheduled = true;
-        requestAnimationFrame(() => {
-            if (pendingTodoSearchTarget !== scheduledTarget) {
-                return;
-            }
-            scheduledTarget.focusScheduled = false;
-            if (window.__agentPivotTodo
-                && typeof window.__agentPivotTodo.openDetail === 'function'
-                && window.__agentPivotTodo.openDetail(scheduledTarget.todoId)) {
-                pendingTodoSearchTarget = null;
-                return;
-            }
-            var todoItem = Array.from(panels.todo.querySelectorAll('.todo-item[data-todo-id]'))
-                .find(item => item.getAttribute('data-todo-id') === scheduledTarget.todoId);
-            var todoGroup = todoItem && todoItem.closest ? todoItem.closest('.todo-group') : null;
-            if (!todoItem || (todoGroup && todoGroup.classList.contains('collapsed'))) {
-                if (!scheduledTarget.revealRequested) {
-                    scheduledTarget.revealRequested = true;
-                    options.postMessage({
-                        type: 'todo-reveal',
-                        todoId: scheduledTarget.todoId,
-                        groupId: scheduledTarget.groupId,
-                    });
-                }
-                return;
-            }
-            if (!todoItem.isConnected) {
-                return;
-            }
 
-            todoItem.setAttribute('tabindex', '-1');
-            try {
-                todoItem.scrollIntoView({ block: 'nearest' });
-                todoItem.focus();
-            } catch (_error) {
-                todoItem.removeAttribute('tabindex');
-                return;
-            }
-            if (!todoItem.isConnected || document.activeElement !== todoItem) {
-                todoItem.removeAttribute('tabindex');
-                return;
-            }
-            pendingTodoSearchTarget = null;
-            todoItem.addEventListener('blur', () => todoItem.removeAttribute('tabindex'), { once: true });
-        });
-        return true;
-    }
 
-    function applyProjectsPanelMessage(message) {
-        if (!validateProjectsPanelMessage(message)
-            || projectsState !== 'loading'
-            || message.requestId !== projectsRequestId
-            || message.requestId <= acceptedProjectsRequestId
-            || !panels.projects) {
-            return false;
-        }
 
-        acceptedProjectsRequestId = message.requestId;
-        if (projectsRequestTimer !== null) {
-            cancelTimeout(projectsRequestTimer);
-            projectsRequestTimer = null;
-        }
-        projectsRequestAttempts = 0;
-        panels.projects.innerHTML = message.html;
-        projectsState = 'mounted';
-        if (typeof options.onProjectsMounted === 'function') {
-            options.onProjectsMounted(panels.projects);
-        }
-        if (pendingScrollRestoreTab === 'projects') {
-            pendingScrollRestoreTab = null;
-            if (activeTab === 'projects' && !searchQuery) {
-                restoreScroll('projects');
-            }
-        }
-        return true;
-    }
 
-    function replaceProjectsPanelHtml(html) {
-        var panelState = captureProjectsPanelState(panels.projects);
-        var replacementGeneration = ++projectsPanelReplacementGeneration;
-        panels.projects.innerHTML = html;
-        projectsState = 'mounted';
-        if (typeof options.onProjectsMounted === 'function') {
-            options.onProjectsMounted(panels.projects);
-        }
-        restoreProjectsPanelAnchors(panels.projects, panelState);
-        restoreProjectsFocus(panels.projects, panelState.focus);
-        restoreProjectsWindowScroll(panelState);
-        requestAnimationFrame(() => {
-            if (replacementGeneration !== projectsPanelReplacementGeneration) {
-                return;
-            }
-            restoreProjectsPanelAnchors(panels.projects, panelState);
-            restoreProjectsWindowScroll(panelState);
-        });
-    }
 
-    function applyProjectsPanelUpdatedMessage(message) {
-        if (!validateProjectsPanelUpdatedMessage(message)
-            || message.sequence <= acceptedProjectsUpdateSequence
-            || !panels.projects) {
-            return false;
-        }
-        acceptedProjectsUpdateSequence = message.sequence;
-        replaceSearchCatalog(message.searchCatalog);
-        if (projectsState !== 'mounted') {
-            return true;
-        }
-        if (message.mode === 'preserve-order' && isProjectsPanelOrderConsistent(panels.projects, message)) {
-            projectsPanelReplacementGeneration += 1;
-            return true;
-        }
-        replaceProjectsPanelHtml(message.html);
-        return true;
-    }
 
-    function applyTodoPanelMessage(message) {
-        if (!validateTodoPanelMessage(message)
-            || todoState !== 'loading'
-            || message.requestId !== todoRequestId
-            || message.requestId <= acceptedTodoRequestId
-            || !panels.todo) {
-            return false;
-        }
 
-        acceptedTodoRequestId = message.requestId;
-        if (todoRequestTimer !== null) {
-            cancelTimeout(todoRequestTimer);
-            todoRequestTimer = null;
-        }
-        todoRequestAttempts = 0;
-        panels.todo.innerHTML = message.html;
-        todoState = 'mounted';
-        if (normalizeDashboardSearchCatalog(message.searchCatalog) === message.searchCatalog) {
-            replaceSearchCatalog(message.searchCatalog);
-        }
-        if (typeof options.onTodoMounted === 'function') {
-            options.onTodoMounted(panels.todo, message);
-        }
-        if (pendingScrollRestoreTab === 'todo') {
-            pendingScrollRestoreTab = null;
-            if (activeTab === 'todo' && !searchQuery) {
-                restoreScroll('todo');
-            }
-        }
-        revealPendingTodoSearchTarget();
-        return true;
-    }
 
-    function applyTodoPanelUpdatedMessage(message) {
-        if (!validateTodoPanelUpdatedMessage(message) || !panels.todo) {
-            return false;
-        }
 
-        var activeElement = document.activeElement;
-        var restoreShowCompletedFocus = !!activeElement
-            && panels.todo.contains(activeElement)
-            && activeElement.getAttribute('data-action') === 'todo-toggle-show-completed';
-        var fallbackWindowScrollY = restoreShowCompletedFocus
-            ? window.scrollY
-            : null;
-        if (todoRequestTimer !== null) {
-            cancelTimeout(todoRequestTimer);
-            todoRequestTimer = null;
-        }
-        todoRequestAttempts = 0;
-        replaceSearchCatalog(message.searchCatalog);
-        var refreshed = todoState === 'mounted'
-            && message.snapshot
-            && typeof options.onTodoRefresh === 'function'
-            && options.onTodoRefresh(panels.todo, message) === true;
-        if (!refreshed) {
-            panels.todo.innerHTML = message.html;
-            todoState = 'mounted';
-            if (typeof options.onTodoMounted === 'function') {
-                options.onTodoMounted(panels.todo, message);
-            }
-            if (restoreShowCompletedFocus) {
-                var showCompletedToggle = panels.todo.querySelector(
-                    '[data-action="todo-toggle-show-completed"]'
-                );
-                if (showCompletedToggle) {
-                    showCompletedToggle.focus({ preventScroll: true });
-                    if (Number.isFinite(fallbackWindowScrollY)) {
-                        window.scrollTo(0, fallbackWindowScrollY);
-                    }
-                }
-            }
-        }
-        revealPendingTodoSearchTarget();
-        return true;
-    }
 
-    function failAiPanelMount(previousHtml) {
-        if (aiRequestTimer !== null) {
-            cancelTimeout(aiRequestTimer);
-            aiRequestTimer = null;
-        }
-        panels.ai.innerHTML = previousHtml;
-        aiState = 'unloaded';
-        aiRequestAttempts = 0;
-        showPanelUnavailable('ai');
-        return false;
-    }
 
-    function getInstalledPromptSurface(message) {
-        if (!panels.ai
-            || typeof panels.ai.querySelectorAll !== 'function'
-            || !message
-            || !message.snapshot) {
-            return null;
-        }
-        var surfaces = Array.from(panels.ai.querySelectorAll('[data-prompt-surface]'));
-        if (surfaces.length !== 1 || typeof surfaces[0].getAttribute !== 'function') {
-            return null;
-        }
-        var revisionValue = surfaces[0].getAttribute('data-prompt-revision');
-        if (typeof revisionValue !== 'string' || !/^(0|[1-9]\d*)$/.test(revisionValue)) {
-            return null;
-        }
-        var revision = Number(revisionValue);
-        return Number.isSafeInteger(revision) && revision === message.snapshot.revision
-            ? surfaces[0]
-            : null;
-    }
-
-    function applyAiPanelMessage(message) {
-        if (!validateAiPanelMessage(message)
-            || aiState !== 'loading'
-            || message.requestId !== aiRequestId
-            || !panels.ai) {
-            return false;
-        }
-
-        var previousHtml = panels.ai.innerHTML;
-        try {
-            panels.ai.innerHTML = message.html;
-        } catch (_error) {
-            return failAiPanelMount(previousHtml);
-        }
-        if (!getInstalledPromptSurface(message)
-            || !window.__agentPivotPrompts
-            || typeof window.__agentPivotPrompts.mount !== 'function') {
-            return failAiPanelMount(previousHtml);
-        }
-        try {
-            if (window.__agentPivotPrompts.mount(panels.ai, message) !== true) {
-                return failAiPanelMount(previousHtml);
-            }
-        } catch (_error) {
-            return failAiPanelMount(previousHtml);
-        }
-        if (aiRequestTimer !== null) {
-            cancelTimeout(aiRequestTimer);
-            aiRequestTimer = null;
-        }
-        aiRequestAttempts = 0;
-        aiState = 'mounted';
-        drainPendingPromptRefresh();
-        applyPendingAiSubtab();
-        skillPanel.applySkillAgentFilter();
-        if (pendingSkillReveal) {
-            var revealDir = pendingSkillReveal;
-            pendingSkillReveal = null;
-            skillPanel.revealSkillCard(revealDir);
-        }
-        if (pendingScrollRestoreTab === 'ai') {
-            pendingScrollRestoreTab = null;
-            if (activeTab === 'ai' && !searchQuery) {
-                restoreScroll('ai');
-            }
-        }
-        return true;
-    }
-
-    function applyPendingAiSubtab() {
-        if (pendingAiSubtab !== 'prompts'
-            || aiState !== 'mounted'
-            || !panels.ai
-            || typeof panels.ai.querySelector !== 'function') {
-            return false;
-        }
-        var promptTab = panels.ai.querySelector('#ai-tab-prompts');
-        if (!promptTab || typeof promptTab.click !== 'function') {
-            return false;
-        }
-        pendingAiSubtab = null;
-        promptTab.click();
-        return true;
-    }
-
-    function applyPromptPanelUpdatedMessage(message) {
-        if (!validatePromptPanelUpdatedMessage(message)) {
-            return false;
-        }
-        if (aiState !== 'mounted') {
-            if (pendingPromptRefresh
-                && message.authoritySequence <= pendingPromptRefresh.authoritySequence) {
-                return false;
-            }
-            pendingPromptRefresh = message;
-            return true;
-        }
-        if (!window.__agentPivotPrompts
-            || typeof window.__agentPivotPrompts.applyRefresh !== 'function') {
-            return false;
-        }
-        return window.__agentPivotPrompts.applyRefresh(message) === true;
-    }
-
-    function drainPendingPromptRefresh() {
-        var refresh = pendingPromptRefresh;
-        pendingPromptRefresh = null;
-        return refresh ? applyPromptPanelUpdatedMessage(refresh) : false;
-    }
 
     tabButtons.forEach(button => {
         button.addEventListener('click', () => {
@@ -814,14 +404,14 @@ function initDashboard(options) {
 
     window.addEventListener('message', event => {
         if (event && event.data && event.data.type === 'projects-panel-content') {
-            applyProjectsPanelMessage(event.data);
+            projectsPanel.applyProjectsPanelMessage(event.data);
         }
         if (event && event.data && event.data.type === 'projects-panel-updated') {
             if (validateProjectsPanelUpdatedMessage(event.data)
-                && event.data.sequence <= acceptedProjectsUpdateSequence) {
+                && event.data.sequence <= projectsPanel.getAcceptedProjectsUpdateSequence()) {
                 return;
             }
-            if (!applyProjectsPanelUpdatedMessage(event.data)) {
+            if (!projectsPanel.applyProjectsPanelUpdatedMessage(event.data)) {
                 options.postMessage({
                     type: 'request-full-refresh',
                     reason: 'invalid-projects-panel-update',
@@ -829,16 +419,16 @@ function initDashboard(options) {
             }
         }
         if (event && event.data && event.data.type === 'todo-panel-content') {
-            applyTodoPanelMessage(event.data);
+            todoPanel.applyTodoPanelMessage(event.data);
         }
         if (event && event.data && event.data.type === 'todo-panel-updated') {
-            applyTodoPanelUpdatedMessage(event.data);
+            todoPanel.applyTodoPanelUpdatedMessage(event.data);
         }
         if (event && event.data && event.data.type === 'ai-panel-content') {
-            applyAiPanelMessage(event.data);
+            aiPanel.applyAiPanelMessage(event.data);
         }
         if (event && event.data && event.data.type === 'prompt-panel-updated') {
-            applyPromptPanelUpdatedMessage(event.data);
+            aiPanel.applyPromptPanelUpdatedMessage(event.data);
         }
         if (event && event.data && event.data.type === 'skills-updated') {
             skillPanel.replaceSkillsHtml(event.data.html, event.data.settlement);
@@ -857,9 +447,9 @@ function initDashboard(options) {
             if (searchQuery) {
                 setSearchQuery('');
             }
-            pendingAiSubtab = 'prompts';
+            aiPanel.setPendingAiSubtab('prompts');
             activateTab('ai');
-            applyPendingAiSubtab();
+            aiPanel.applyPendingAiSubtab();
         }
     });
     if (searchResults) {
@@ -870,32 +460,32 @@ function initDashboard(options) {
         renderSearchMode();
     } else if (activeTab === 'projects') {
         pendingScrollRestoreTab = 'projects';
-        ensureProjectsPanel();
+        projectsPanel.ensureProjectsPanel();
     } else if (activeTab === 'todo') {
         pendingScrollRestoreTab = 'todo';
-        ensureTodoPanel();
+        todoPanel.ensureTodoPanel();
     } else if (activeTab === 'ai') {
         pendingScrollRestoreTab = 'ai';
-        ensureAiPanel();
+        aiPanel.ensureAiPanel();
     }
     document.body.classList.remove('preload');
     notifyActiveTabChanged();
 
     return {
         activateTab,
-        applyProjectsPanelMessage,
-        applyProjectsPanelUpdatedMessage,
-        applyTodoPanelMessage,
-        applyTodoPanelUpdatedMessage,
-        applyAiPanelMessage,
-        applyPromptPanelUpdatedMessage,
-        ensureProjectsPanel,
-        ensureTodoPanel,
-        ensureAiPanel,
+        applyProjectsPanelMessage: projectsPanel.applyProjectsPanelMessage,
+        applyProjectsPanelUpdatedMessage: projectsPanel.applyProjectsPanelUpdatedMessage,
+        applyTodoPanelMessage: todoPanel.applyTodoPanelMessage,
+        applyTodoPanelUpdatedMessage: todoPanel.applyTodoPanelUpdatedMessage,
+        applyAiPanelMessage: aiPanel.applyAiPanelMessage,
+        applyPromptPanelUpdatedMessage: aiPanel.applyPromptPanelUpdatedMessage,
+        ensureProjectsPanel: projectsPanel.ensureProjectsPanel,
+        ensureTodoPanel: todoPanel.ensureTodoPanel,
+        ensureAiPanel: aiPanel.ensureAiPanel,
         getActiveTab: () => activeTab,
-        getProjectsState: () => projectsState,
-        getTodoState: () => todoState,
-        getAiState: () => aiState,
+        getProjectsState: projectsPanel.getProjectsState,
+        getTodoState: todoPanel.getTodoState,
+        getAiState: aiPanel.getAiState,
         getScrollPosition: tab => scrollPositions[normalizeDashboardTab(tab)],
         isSearchActive: () => searchQuery.length > 0,
         replaceSearchCatalog,

@@ -218,6 +218,24 @@ export function getStewardContent(
         'webviewDashboardSearchScripts.js',
         assetRevision,
     );
+    var dashboardProjectsPanelScriptsPath = getMediaResource(
+        context,
+        webview,
+        'webviewDashboardProjectsPanelScripts.js',
+        assetRevision,
+    );
+    var dashboardTodoPanelScriptsPath = getMediaResource(
+        context,
+        webview,
+        'webviewDashboardTodoPanelScripts.js',
+        assetRevision,
+    );
+    var dashboardAiPanelScriptsPath = getMediaResource(
+        context,
+        webview,
+        'webviewDashboardAiPanelScripts.js',
+        assetRevision,
+    );
     var dashboardScriptsPath = getMediaResource(
         context,
         webview,
@@ -365,6 +383,9 @@ export function getStewardContent(
     <script src="${projectsPanelScriptsPath}"></script>
     <script src="${dashboardValidationScriptsPath}"></script>
     <script src="${dashboardSearchScriptsPath}"></script>
+    <script src="${dashboardProjectsPanelScriptsPath}"></script>
+    <script src="${dashboardTodoPanelScriptsPath}"></script>
+    <script src="${dashboardAiPanelScriptsPath}"></script>
     <script src="${dashboardScriptsPath}"></script>
     <script src="${promptProtocolScriptsPath}"></script>
     <script src="${promptScriptsPath}"></script>

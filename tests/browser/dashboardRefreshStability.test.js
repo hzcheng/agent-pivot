@@ -40,6 +40,15 @@ const dashboardValidationScript = fs.readFileSync(
 const dashboardSearchScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/webviewDashboardSearchScripts.js'), 'utf8'
 );
+const dashboardProjectsPanelScript = fs.readFileSync(
+    path.join(__dirname, '../../src/webview/webviewDashboardProjectsPanelScripts.js'), 'utf8'
+);
+const dashboardTodoPanelScript = fs.readFileSync(
+    path.join(__dirname, '../../src/webview/webviewDashboardTodoPanelScripts.js'), 'utf8'
+);
+const dashboardAiPanelScript = fs.readFileSync(
+    path.join(__dirname, '../../src/webview/webviewDashboardAiPanelScripts.js'), 'utf8'
+);
 const todoRenderScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/webviewTodoRenderScripts.js'), 'utf8'
 );
@@ -228,6 +237,9 @@ async function openDashboardPage(t) {
     await page.addScriptTag({ content: projectsPanelScript });
     await page.addScriptTag({ content: dashboardValidationScript });
     await page.addScriptTag({ content: dashboardSearchScript });
+    await page.addScriptTag({ content: dashboardProjectsPanelScript });
+    await page.addScriptTag({ content: dashboardTodoPanelScript });
+    await page.addScriptTag({ content: dashboardAiPanelScript });
     await page.addScriptTag({ content: dashboardScript });
     await page.addScriptTag({ content: todoRenderScript });
     await page.addScriptTag({ content: todoScript });

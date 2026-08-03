@@ -4890,7 +4890,10 @@ async function runBatchAiSessionArchiveHostChecks() {
 }
 
 function runWebviewContentChecks() {
-    const webviewContent = fs.readFileSync(path.join(__dirname, '..', 'src', 'webview', 'webviewContent.ts'), 'utf8');
+    const webviewContent = [
+        path.join(__dirname, '..', 'src', 'webview', 'webviewContent.ts'),
+        path.join(__dirname, '..', 'src', 'webview', 'webviewAiSessionContent.ts'),
+    ].map(sourcePath => fs.readFileSync(sourcePath, 'utf8')).join('\n');
     const projectMessageHandlers = fs.readFileSync(
         path.join(__dirname, '..', 'src', 'projects', 'projectMessageHandlers.ts'), 'utf8'
     );

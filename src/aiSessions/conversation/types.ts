@@ -40,6 +40,12 @@ export interface ConversationToolCall {
     detail?: string;
 }
 
+export interface ConversationThinkingBlock {
+    /** Assistant text chunks already emitted when the thinking arrived. */
+    position: number;
+    text: string;
+}
+
 export interface ConversationInteraction {
     id: string;
     providerTurnId?: string;
@@ -49,6 +55,7 @@ export interface ConversationInteraction {
     userGraphemeCount: number;
     assistantMarkdown: string[];
     toolCalls?: ConversationToolCall[];
+    thinking?: ConversationThinkingBlock[];
     responseState: ConversationResponseState;
 }
 
@@ -75,10 +82,11 @@ export interface ConversationPageRequest {
 export interface ConversationMessage {
     id: string;
     interactionId: string;
-    role: 'user' | 'assistant' | 'tool';
+    role: 'user' | 'assistant' | 'tool' | 'thinking';
     timestamp?: number;
     markdown: string;
     tool?: Omit<ConversationToolCall, 'position'>;
+    thinking?: Omit<ConversationThinkingBlock, 'position'>;
 }
 
 export interface ConversationPage {

@@ -1196,3 +1196,74 @@ body[data-viewing-subagent="true"] [data-action="send-comments"],
 body[data-viewing-subagent="true"] .conversation-outline-bookmarks-only {
     display: none;
 }
+
+.conversation-thinking {
+    summary {
+        cursor: pointer;
+        font-style: italic;
+        color: var(--vscode-descriptionForeground);
+
+        &:hover {
+            color: var(--vscode-foreground);
+        }
+    }
+}
+
+.conversation-thinking-body {
+    margin: 0.25rem 0 0.5rem;
+    font-family: inherit;
+    padding-left: 0.6rem;
+    border-left: 2px solid var(--vscode-panel-border);
+    color: var(--vscode-descriptionForeground);
+    font-size: 0.9em;
+    white-space: pre-wrap;
+}
+
+.conversation-markdown pre code.hljs {
+    display: block;
+    background: transparent;
+    padding: 0;
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-built_in {
+    color: var(--vscode-symbolIcon-keywordForeground, #569cd6);
+}
+
+.hljs-string,
+.hljs-regexp,
+.hljs-attr {
+    color: var(--vscode-symbolIcon-stringForeground, #ce9178);
+}
+
+.hljs-number,
+.hljs-symbol,
+.hljs-literal {
+    color: var(--vscode-symbolIcon-numberForeground, #b5cea8);
+}
+
+.hljs-comment,
+.hljs-quote {
+    color: var(--vscode-symbolIcon-textForeground, #6a9955);
+    font-style: italic;
+}
+
+.hljs-title,
+.hljs-name,
+.hljs-section {
+    color: var(--vscode-symbolIcon-functionForeground, #dcdcaa);
+}
+
+.hljs-type,
+.hljs-class,
+.hljs-variable,
+.hljs-template-variable {
+    color: var(--vscode-symbolIcon-classForeground, #4ec9b0);
+}
+
+.hljs-operator,
+.hljs-punctuation {
+    color: var(--vscode-foreground);
+}

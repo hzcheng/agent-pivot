@@ -1010,6 +1010,45 @@ test('CONVERSATION-VIEWER-REFRESH-001 retains stale content after a watched fail
     assert.equal(publication.partial, true);
 });
 
+test('CONVERSATION-THINKING-VISIBILITY-001 preserves thinking content across an authoritative refresh', async () => {
+    let revision = 1;
+    const { viewer, panel } = createViewer({
+        readOutline: async (_provider, sessionId) => outline(
+            sessionId,
+            ['input-1'],
+            { sourceRevision: `r${revision}` }
+        ),
+        readPage: async request => ({
+            ...page(
+                request.sessionId,
+                request.anchorInteractionId,
+                'visible-response',
+                { sourceRevision: request.expectedRevision }
+            ),
+            messages: [{
+                id: 'input-1:thinking:0',
+                interactionId: 'input-1',
+                role: 'thinking',
+                markdown: '',
+                thinking: { text: `thinking revision ${revision}` },
+            }],
+        }),
+    });
+
+    await viewer.open(target('session-a', 'input-1'));
+    assert.equal(
+        decodeInitialPublication(panel.webview.html).html
+            .includes('thinking revision 1'),
+        true
+    );
+
+    revision = 2;
+    await viewer.refresh();
+    const publication = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page').at(-1);
+    assert.equal(publication.html.includes('thinking revision 2'), true);
+});
+
 test('CONVERSATION-READING-FOCUS-001 ignores watched refreshes when the authoritative source revision is unchanged', async () => {
     let onChange;
     let outlineReads = 0;

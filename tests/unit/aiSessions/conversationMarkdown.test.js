@@ -22,7 +22,7 @@ Plain **strong** text.
 
     assert.match(html, /<h1>Heading<\/h1>/);
     assert.match(html, /<ul>[\s\S]*<li>first<\/li>[\s\S]*<li>second<\/li>[\s\S]*<\/ul>/);
-    assert.match(html, /<pre><code class="language-js">const answer = 42;\n<\/code><\/pre>/);
+    assert.match(html, /<pre><code class="hljs language-js"><span class="hljs-keyword">const<\/span> answer = <span class="hljs-number">42<\/span>;\n<\/code><\/pre>/);
     assert.match(html, /Plain <strong>strong<\/strong> text\./);
     assert.equal(html.includes('<script>'), false);
     assert.match(html, /&lt;script&gt;window\.__executed = true&lt;\/script&gt;/);
@@ -68,6 +68,6 @@ test('CONVERSATION-VIEWER-MARKDOWN-003 emits rich content only with safe image s
     assert.match(html, /<table>[\s\S]*<th>State<\/th>[\s\S]*<td>Ready<\/td>/);
     assert.match(
         html,
-        /<pre><code class="language-mermaid">flowchart LR\n    A --&gt; B\n<\/code><\/pre>/
+        /<pre><code class="hljs language-mermaid">flowchart LR\n    A --&gt; B\n<\/code><\/pre>/
     );
 });

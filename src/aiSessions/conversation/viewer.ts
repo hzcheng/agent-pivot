@@ -1366,6 +1366,9 @@ function copyMessage(message: ConversationMessage): ConversationMessage {
                 },
             }
             : {}),
+        ...(message.thinking
+            ? { thinking: { text: message.thinking.text } }
+            : {}),
     };
 }
 
@@ -1385,10 +1388,24 @@ function renderToolMessage(message: ConversationMessage): string {
 </article>`;
 }
 
+function renderThinkingMessage(message: ConversationMessage): string {
+    const text = message.thinking?.text || '';
+    return `<article class="conversation-message conversation-message-thinking"
+    data-message-id="${escapeAttribute(message.id)}"
+    data-conversation-message-id="${escapeAttribute(encodeURIComponent(message.id))}"
+    data-interaction-id="${escapeAttribute(message.interactionId)}">
+    <details class="conversation-thinking"><summary>Thinking</summary>
+<pre class="conversation-thinking-body">${escapeAttribute(text)}</pre></details>
+</article>`;
+}
+
 function renderMessages(messages: ConversationMessage[]): string {
     return messages.map(message => {
         if (message.role === 'tool') {
             return renderToolMessage(message);
+        }
+        if (message.role === 'thinking') {
+            return renderThinkingMessage(message);
         }
         return `<article class="conversation-message conversation-message-${message.role}"
     data-message-id="${escapeAttribute(message.id)}"
@@ -1401,4 +1418,3 @@ function renderMessages(messages: ConversationMessage[]): string {
 </article>`;
     }).join('');
 }
-

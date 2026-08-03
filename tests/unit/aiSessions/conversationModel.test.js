@@ -109,3 +109,42 @@ test('CONVERSATION-TOOL-CALL-VISIBILITY-001 interleaves tool calls with assistan
     });
     assert.equal(page.messages[1].markdown, '');
 });
+
+test('CONVERSATION-THINKING-VISIBILITY-001 interleaves thinking blocks with tool calls and assistant text by position', () => {
+    const interactions = [{
+        id: 'i-1',
+        providerTurnId: 'turn-1',
+        timestamp: 1,
+        userMarkdown: 'Fix the bug',
+        userPreview: 'Fix the bug',
+        userGraphemeCount: 11,
+        assistantMarkdown: ['first chunk', 'second chunk'],
+        toolCalls: [
+            { position: 1, name: 'Shell', summary: 'Shell npm test' },
+        ],
+        thinking: [
+            { position: 0, text: 'Let me think.' },
+            { position: 2, text: 'One more check.' },
+        ],
+        responseState: 'complete',
+    }];
+    const page = model.buildConversationPage(interactions, {
+        provider: 'claude',
+        sessionId: 'session',
+        anchorInteractionId: 'i-1',
+        direction: 'around',
+    }, 'r1');
+    assert.deepEqual(
+        page.messages.map(message => [message.role, message.id]),
+        [
+            ['user', 'i-1:user'],
+            ['thinking', 'i-1:thinking:0'],
+            ['assistant', 'i-1:assistant:0'],
+            ['tool', 'i-1:tool:0'],
+            ['assistant', 'i-1:assistant:1'],
+            ['thinking', 'i-1:thinking:1'],
+        ]
+    );
+    assert.deepEqual(page.messages[1].thinking, { text: 'Let me think.' });
+    assert.equal(page.messages[1].markdown, '');
+});

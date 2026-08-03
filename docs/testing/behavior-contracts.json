@@ -3838,6 +3838,30 @@
     ]
   },
   {
+    "id": "CONVERSATION-THINKING-VISIBILITY-001",
+    "domain": "webview",
+    "title": "Conversation viewers render provider thinking blocks as collapsed entries interleaved with assistant text and tool calls",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/conversationModel.test.js",
+      "tests/contract/aiSessions/conversationCoordinator.test.js",
+      "tests/contract/aiSessions/kimiConversationAdapter.test.js",
+      "tests/contract/aiSessions/claudeConversationAdapter.test.js",
+      "tests/integration/dashboard/conversationViewer.test.js",
+      "tests/integration/dashboard/conversationRouting.test.js",
+      "tests/browser/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/types.ts",
+      "src/aiSessions/conversation/model.ts",
+      "src/aiSessions/conversation/kimiAdapter.ts",
+      "src/aiSessions/conversation/claudeAdapter.ts",
+      "src/aiSessions/conversation/viewer.ts",
+      "media/conversationViewer.scss"
+    ]
+  },
+  {
     "id": "CONVERSATION-TOOL-CALL-VISIBILITY-001",
     "domain": "webview",
     "title": "Conversation viewers render provider tool calls as collapsible entries interleaved with assistant text",

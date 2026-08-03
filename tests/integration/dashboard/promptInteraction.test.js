@@ -6,6 +6,10 @@ const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
 
+const protocolSource = fs.readFileSync(
+    path.join(__dirname, '../../../src/webview/webviewPromptProtocolScripts.js'),
+    'utf8'
+);
 const source = fs.readFileSync(
     path.join(__dirname, '../../../src/webview/webviewPromptScripts.js'),
     'utf8'
@@ -421,7 +425,7 @@ function createPromptHarness(options = {}) {
             },
         },
     };
-    vm.runInNewContext(source, context, { filename: 'webviewPromptScripts.js' });
+    vm.runInNewContext(`${protocolSource}\n${source}`, context, { filename: 'webviewPromptScripts.js' });
     const controller = context.window.__agentPivotPrompts;
     const initialRevision = Number(initialHtml.match(/data-prompt-revision="(\d+)"/)?.[1] || 0);
     controller.mount(root, {

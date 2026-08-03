@@ -224,6 +224,12 @@ export function getStewardContent(
         'webviewDashboardScripts.js',
         assetRevision,
     );
+    var promptProtocolScriptsPath = getMediaResource(
+        context,
+        webview,
+        'webviewPromptProtocolScripts.js',
+        assetRevision,
+    );
     var promptScriptsPath = getMediaResource(
         context,
         webview,
@@ -360,6 +366,7 @@ export function getStewardContent(
     <script src="${dashboardValidationScriptsPath}"></script>
     <script src="${dashboardSearchScriptsPath}"></script>
     <script src="${dashboardScriptsPath}"></script>
+    <script src="${promptProtocolScriptsPath}"></script>
     <script src="${promptScriptsPath}"></script>
     <script src="${todoRenderScriptsPath}"></script>
     <script src="${todoScriptsPath}"></script>

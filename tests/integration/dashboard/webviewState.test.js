@@ -44,6 +44,8 @@ const aiSessionControlsSource = fs.readFileSync(path.join(root, 'src', 'webview'
 const generatedAiSessionControlsSource = fs.readFileSync(path.join(root, 'media', 'webviewProjectAiSessionControlsScripts.js'), 'utf8');
 const projectVmSource = `${viewStateSource}\n${workspaceUpdateSource}\n${todoGroupSource}\n${projectCollapseSource}\n${todoControlSource}\n${projectContextMenuSource}\n${projectAiUpdateSource}\n${aiSessionControlsSource}\n${projectSource}`;
 const scrollStateSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewScrollStateScripts.js'), 'utf8');
+const promptProtocolSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewPromptProtocolScripts.js'), 'utf8');
+const generatedPromptProtocolSource = fs.readFileSync(path.join(root, 'media', 'webviewPromptProtocolScripts.js'), 'utf8');
 const promptSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewPromptScripts.js'), 'utf8');
 const generatedPromptPath = path.join(root, 'media', 'webviewPromptScripts.js');
 const todoRenderSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewTodoRenderScripts.js'), 'utf8');
@@ -696,6 +698,7 @@ test('ACTIVE-SESSION-CONVERSATION-OPEN-001 posts an open request for a focused a
 test('WEBVIEW-AI-PROMPT-ASSET-001 keeps the generated Prompt controller byte-identical to source', () => {
     assert.ok(fs.existsSync(generatedPromptPath), 'missing media/webviewPromptScripts.js');
     assert.equal(fs.readFileSync(generatedPromptPath, 'utf8'), promptSource);
+    assert.equal(generatedPromptProtocolSource, promptProtocolSource);
 });
 
 test('WEBVIEW-WEBVIEW-CONTENT-001 keeps the generated Dashboard controller byte-identical to source', () => {
@@ -875,6 +878,11 @@ test('WEBVIEW-WEBVIEW-CONTENT-001 renders OPEN PROJECTS TODO and lazy AI tab she
         'Dashboard pure helpers must load before the Dashboard controller that calls them'
     );
     assert.ok(
+        html.indexOf('webviewPromptProtocolScripts.js') > html.indexOf('webviewDashboardScripts.js')
+            && html.indexOf('webviewPromptProtocolScripts.js') < html.indexOf('webviewPromptScripts.js'),
+        'Prompt protocol helpers must load after the Dashboard lazy loader and before the Prompt controller'
+    );
+    assert.ok(
         html.indexOf('webviewPromptScripts.js') > html.indexOf('webviewDashboardScripts.js'),
         'Prompt interactions must install after the Dashboard lazy loader'
     );
@@ -949,6 +957,7 @@ test('WEBVIEW-RESOURCE-RECOVERY-001 gives every rendered document fresh versione
         'webviewDashboardValidationScripts.js',
         'webviewDashboardSearchScripts.js',
         'webviewDashboardScripts.js',
+        'webviewPromptProtocolScripts.js',
         'webviewPromptScripts.js',
         'webviewTodoRenderScripts.js',
         'webviewTodoScripts.js',

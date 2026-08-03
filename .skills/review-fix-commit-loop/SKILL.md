@@ -49,6 +49,11 @@ commit only the intended files.
    - Also run fresh branch-level checks needed for the PR; do not reuse results
      from before the final fix.
    - Include `git diff --check` when code or docs changed.
+   - For Webview visual or layout changes, also verify rendered output (a
+     screenshot or equivalent) at the panel's default and minimum supported
+     widths: DOM assertions and bounding-box checks are blind to
+     `text-overflow: ellipsis` truncation, so only rendered pixels reveal
+     clipped labels such as `Resol…`.
    - Model verification dependencies before parallelizing. Run any command that
      cleans or rebuilds `out/` before checks that consume `out/`; parallelize
      only checks whose inputs and outputs do not overlap. Classify

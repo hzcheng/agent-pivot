@@ -1477,7 +1477,7 @@ test('PRODUCTION-CONVERSATION-FOCUS-002 rejected reveal and hidden delivery rema
     await harness.dispose();
 });
 
-test('opens one comment-enabled AI Conversation panel through the composed Kimi flow', async t => {
+test('CONVERSATION-THINKING-VISIBILITY-001 opens one comment-enabled AI Conversation panel through the composed Kimi flow', async t => {
     const fixture = await createKimiConversationFixture(t);
     const harness = createDashboardConversationHarness({
         providerHomes: { kimi: fixture.providerHome },
@@ -1512,7 +1512,11 @@ test('opens one comment-enabled AI Conversation panel through the composed Kimi 
     );
     assert.equal(panelHtml.includes('contenteditable'), false);
     assert.equal(panelHtml.includes('data-comment-input'), true);
-    assert.equal(panelHtml.includes('secret-thought'), false);
+    assert.equal(
+        panelHtml.includes('conversation-message-thinking'),
+        true
+    );
+    assert.equal(panelHtml.includes('secret-thought'), true);
     assert.equal(panelHtml.includes('local/path'), false);
     assert.ok(harness.kimiSourceCalls.length >= 1);
     assert.equal(

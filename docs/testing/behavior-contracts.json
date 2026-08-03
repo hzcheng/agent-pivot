@@ -3849,6 +3849,7 @@
       "tests/contract/aiSessions/kimiConversationAdapter.test.js",
       "tests/contract/aiSessions/claudeConversationAdapter.test.js",
       "tests/integration/dashboard/conversationViewer.test.js",
+      "tests/integration/dashboard/conversationRouting.test.js",
       "tests/browser/conversationViewer.test.js"
     ],
     "evidence": [

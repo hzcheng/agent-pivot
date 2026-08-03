@@ -4,6 +4,14 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
 
 ## [Unreleased]
 
+### Added
+
+- AI Conversation renders provider thinking blocks as collapsed entries
+  interleaved with assistant text and tool calls for Kimi and Claude
+  sessions, in main sessions and subagent transcripts alike.
+- AI Conversation Markdown code fences now render with syntax highlighting,
+  while mermaid fences keep their diagram rendering.
+
 ## [1.0.2] - 2026-08-03
 
 ### Added

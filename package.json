@@ -158,21 +158,52 @@
                         "prompts": []
                     },
                     "additionalProperties": false,
-                    "required": ["version", "revision", "selectedPromptId", "prompts"],
+                    "required": [
+                        "version",
+                        "revision",
+                        "selectedPromptId",
+                        "prompts"
+                    ],
                     "properties": {
-                        "version": { "type": "number", "enum": [1] },
-                        "revision": { "type": "number", "minimum": 0 },
-                        "selectedPromptId": { "type": ["string", "null"] },
+                        "version": {
+                            "type": "number",
+                            "enum": [
+                                1
+                            ]
+                        },
+                        "revision": {
+                            "type": "number",
+                            "minimum": 0
+                        },
+                        "selectedPromptId": {
+                            "type": [
+                                "string",
+                                "null"
+                            ]
+                        },
                         "prompts": {
                             "type": "array",
                             "items": {
                                 "type": "object",
                                 "additionalProperties": false,
-                                "required": ["id", "name", "text"],
+                                "required": [
+                                    "id",
+                                    "name",
+                                    "text"
+                                ],
                                 "properties": {
-                                    "id": { "type": "string", "minLength": 1 },
-                                    "name": { "type": "string", "minLength": 1 },
-                                    "text": { "type": "string", "minLength": 1 }
+                                    "id": {
+                                        "type": "string",
+                                        "minLength": 1
+                                    },
+                                    "name": {
+                                        "type": "string",
+                                        "minLength": 1
+                                    },
+                                    "text": {
+                                        "type": "string",
+                                        "minLength": 1
+                                    }
                                 }
                             }
                         }
@@ -333,8 +364,18 @@
                 },
                 "agentPivot.notify.reasons": {
                     "type": "array",
-                    "default": ["completed", "input-required", "failed"],
-                    "items": { "enum": ["completed", "input-required", "failed"] },
+                    "default": [
+                        "completed",
+                        "input-required",
+                        "failed"
+                    ],
+                    "items": {
+                        "enum": [
+                            "completed",
+                            "input-required",
+                            "failed"
+                        ]
+                    },
                     "markdownDescription": "Which stop reasons trigger a notification. `failed` is only produced by Claude sessions."
                 },
                 "agentPivot.notify.minRunDurationMs": {
@@ -356,7 +397,10 @@
                 "agentPivot.notify.projectPathMode": {
                     "type": "string",
                     "default": "basename",
-                    "enum": ["basename", "full"],
+                    "enum": [
+                        "basename",
+                        "full"
+                    ],
                     "markdownDescription": "Whether notifications carry the project folder name only, or its full path."
                 },
                 "agentPivot.notify.includeSessionLabel": {
@@ -456,9 +500,9 @@
         "test-compile": "node scripts/clean-test-build.js && tsc -p ./ && npm run attention:bridge:compile",
         "test:unit": "npm run test-compile && node --test 'tests/unit/**/*.test.js'",
         "test:contract": "npm run test-compile && node --test --test-concurrency=1 'tests/contract/**/*.test.js'",
-    "test:integration": "npm run test-compile && node --test --test-concurrency=1 'tests/integration/**/*.test.js'",
-    "test:browser:run": "node --test --test-concurrency=1 'tests/browser/**/*.test.js'",
-    "test:browser": "npm run test-compile && npm run test:browser:run",
+        "test:integration": "npm run test-compile && node --test --test-concurrency=1 'tests/integration/**/*.test.js'",
+        "test:browser:run": "node --test --test-concurrency=1 'tests/browser/**/*.test.js'",
+        "test:browser": "npm run test-compile && npm run test:browser:run",
         "test:deterministic:run": "node --test 'tests/unit/**/*.test.js' && node --test --test-concurrency=1 'tests/contract/**/*.test.js' && node --test --test-concurrency=1 'tests/integration/**/*.test.js'",
         "test:deterministic": "npm run test-compile && npm run test:deterministic:run",
         "test:coverage:run": "c8 --clean --reporter=text --reporter=json --reporter=json-summary node --test --test-concurrency=1 'tests/unit/**/*.test.js' 'tests/contract/**/*.test.js' 'tests/integration/**/*.test.js'",
@@ -527,6 +571,7 @@
         "dompurify": "3.4.12",
         "dragula": "^3.7.3",
         "fitty": "^2.3.5",
+        "highlight.js": "^11.11.1",
         "markdown-it": "14.3.0",
         "mermaid": "11.16.0"
     }

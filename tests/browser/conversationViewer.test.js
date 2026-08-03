@@ -4142,3 +4142,39 @@ test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 pins running subagents above finish
     );
     assert.deepEqual(filteredIds, ['a33333333', 'a22222222']);
 });
+
+test('CONVERSATION-THINKING-VISIBILITY-001 renders collapsed thinking blocks and strips hostile markup', async t => {
+    const page = await openViewerPage(t, {});
+    await sendPage(page, {
+        ...hostileConversationPage,
+        requestId: 50,
+        updateKind: 'initial',
+        html: `<article class="conversation-message conversation-message-thinking"
+            data-message-id="input-4:thinking:0"
+            data-conversation-message-id="input-4%3Athinking%3A0"
+            data-interaction-id="input-4">
+        <details class="conversation-thinking" ontoggle="window.__pwned = true">
+            <summary>Thinking</summary>
+            <pre class="conversation-thinking-body">Compare the two runs.</pre>
+        </details>
+    </article>`,
+        subagents: [],
+        activeSubagent: null,
+    });
+
+    const details = page.locator('.conversation-thinking');
+    assert.equal(await details.count(), 1);
+    assert.match(await details.locator('summary').innerText(), /Thinking/);
+    assert.equal(
+        await details.evaluate(element => element.hasAttribute('ontoggle')),
+        false,
+        'event handler attributes must be stripped'
+    );
+    assert.equal(await details.evaluate(element => element.open), false);
+    await details.locator('summary').click();
+    assert.equal(await details.evaluate(element => element.open), true);
+    assert.match(
+        await details.locator('.conversation-thinking-body').innerText(),
+        /Compare the two runs\./
+    );
+});

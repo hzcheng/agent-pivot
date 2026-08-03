@@ -208,6 +208,9 @@ function cloneInteractions(
         ...(interaction.toolCalls
             ? { toolCalls: interaction.toolCalls.slice() }
             : {}),
+        ...(interaction.thinking
+            ? { thinking: interaction.thinking.slice() }
+            : {}),
     }));
 }
 
@@ -585,6 +588,20 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
                             if (block.type === 'text'
                                 && typeof block.text === 'string') {
                                 pushTextPart(block.text);
+                                return;
+                            }
+                            if (block.type === 'thinking'
+                                && typeof block.thinking === 'string') {
+                                const text = visibleMessage(block.thinking);
+                                if (text) {
+                                    const interaction =
+                                        interactions[openInteractionIndex];
+                                    (interaction.thinking ||= []).push({
+                                        position: interaction
+                                            .assistantMarkdown.length,
+                                        text,
+                                    });
+                                }
                                 return;
                             }
                             if (block.type !== 'tool_use'

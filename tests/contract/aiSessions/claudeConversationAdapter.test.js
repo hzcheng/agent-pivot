@@ -943,8 +943,14 @@ test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 Claude reads a subagent transcript 
         page.messages.map(message => [message.role, message.markdown]),
         [
             ['user', 'Explore the parser and report back'],
+            ['thinking', ''],
             ['assistant', 'The parser normalizes visible text.'],
         ]
+    );
+    assert.deepEqual(
+        page.messages.filter(message => message.role === 'thinking')
+            .map(message => message.thinking.text),
+        ['subagent-secret']
     );
 
     // A resumed subagent (SendMessage) grows a second interaction round.
@@ -1087,4 +1093,62 @@ test('CONVERSATION-TOOL-CALL-VISIBILITY-001 Claude pairs tool_use and tool_resul
     assert.equal(tool.name, 'Bash');
     assert.match(tool.detail, /"command": "npm test"/);
     assert.match(tool.detail, /9 passing/);
+});
+
+test('CONVERSATION-THINKING-VISIBILITY-001 Claude interleaves thinking blocks with text in arrival order', async t => {
+    const source = await createFixture(t);
+    await fs.promises.appendFile(source.sourcePath, [
+        JSON.stringify({
+            type: 'user',
+            uuid: 'thinking-user',
+            message: {
+                role: 'user',
+                content: [{ type: 'text', text: 'Explain the regression' }],
+            },
+        }),
+        JSON.stringify({
+            type: 'assistant',
+            uuid: 'thinking-assistant',
+            message: {
+                role: 'assistant',
+                content: [
+                    { type: 'thinking', thinking: 'Compare the two runs.' },
+                    { type: 'text', text: 'The regression is in the parser.' },
+                    { type: 'thinking', thinking: 'Offer the fix next.' },
+                    { type: 'text', text: 'Patch attached.' },
+                ],
+            },
+        }),
+        '',
+    ].join('\n'));
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+
+    const outline = await adapter.readOutline(sessionId);
+    const page = await adapter.readPage({
+        provider: 'claude',
+        sessionId,
+        anchorInteractionId: 'thinking-user',
+        direction: 'around',
+        limit: 1,
+        expectedRevision: outline.sourceRevision,
+    });
+    const start = page.messages.findIndex(
+        message => message.interactionId === 'thinking-user'
+    );
+    assert.deepEqual(
+        page.messages.slice(start).map(message => [
+            message.role,
+            message.role === 'thinking'
+                ? message.thinking.text
+                : message.markdown,
+        ]),
+        [
+            ['user', 'Explain the regression'],
+            ['thinking', 'Compare the two runs.'],
+            ['assistant', 'The regression is in the parser.'],
+            ['thinking', 'Offer the fix next.'],
+            ['assistant', 'Patch attached.'],
+        ]
+    );
 });

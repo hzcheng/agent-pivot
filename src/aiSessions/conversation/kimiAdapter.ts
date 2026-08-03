@@ -97,6 +97,7 @@ interface KimiConversationIndex extends AiSessionDisposable {
     telemetryContext?: ConversationContextUsage;
     telemetryPaths: string[];
     toolTracker?: ToolCallTracker;
+    pendingThinking?: { position: number; text: string } | null;
     revision: number;
     partial: boolean;
 }
@@ -134,6 +135,9 @@ function cloneInteractions(
         assistantMarkdown: interaction.assistantMarkdown.slice(),
         ...(interaction.toolCalls
             ? { toolCalls: interaction.toolCalls.slice() }
+            : {}),
+        ...(interaction.thinking
+            ? { thinking: interaction.thinking.slice() }
             : {}),
     }));
 }
@@ -400,6 +404,24 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
             // incremental load still pairs with its ToolCall.
             const toolTracker = (continuing && previous?.toolTracker)
                 || new ToolCallTracker();
+            // Consecutive think deltas merge into one block per run.
+            let pendingThinking: { position: number; text: string } | null =
+                (continuing && previous?.pendingThinking) || null;
+            const flushThinking = (): void => {
+                if (!pendingThinking || openInteractionIndex === undefined) {
+                    pendingThinking = null;
+                    return;
+                }
+                const text = visibleMessage(pendingThinking.text);
+                if (text) {
+                    const interaction = interactions[openInteractionIndex];
+                    (interaction.thinking ||= []).push({
+                        position: pendingThinking.position,
+                        text,
+                    });
+                }
+                pendingThinking = null;
+            };
             const normalizeRecord = (record: ConversationJsonlRecord): void => {
                 const envelope = asRecord(record.value);
                 const event = asRecord(envelope?.message);
@@ -407,6 +429,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                     return;
                 }
                 if (event.type === 'TurnBegin') {
+                    flushThinking();
                     const payload = asRecord(event.payload);
                     const userInput = payload?.user_input;
                     const visibleInput = typeof userInput === 'string'
@@ -458,6 +481,26 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                     }
                 } else if (event.type === 'ContentPart') {
                     const payload = asRecord(event.payload);
+                    const thinkText = payload?.type === 'think'
+                        ? typeof payload.think === 'string'
+                            ? payload.think
+                            : typeof payload.text === 'string'
+                                ? payload.text
+                                : undefined
+                        : undefined;
+                    if (openInteractionIndex !== undefined
+                        && thinkText !== undefined) {
+                        if (!pendingThinking) {
+                            pendingThinking = {
+                                position: interactions[openInteractionIndex]
+                                    .assistantMarkdown.length,
+                                text: '',
+                            };
+                        }
+                        pendingThinking.text += thinkText;
+                        return;
+                    }
+                    flushThinking();
                     if (openInteractionIndex !== undefined
                         && payload?.type === 'text'
                         && typeof payload.text === 'string') {
@@ -468,6 +511,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                         }
                     }
                 } else if (event.type === 'PlanDisplay') {
+                    flushThinking();
                     const payload = asRecord(event.payload);
                     if (openInteractionIndex !== undefined
                         && typeof payload?.content === 'string') {
@@ -489,6 +533,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                         };
                     }
                 } else if (event.type === 'ToolCall') {
+                    flushThinking();
                     const payload = asRecord(event.payload);
                     const toolFunction = asRecord(payload?.function);
                     const toolName = typeof toolFunction?.name === 'string'
@@ -560,6 +605,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
             const finishInteraction = (
                 state: ConversationResponseState
             ): void => {
+                flushThinking();
                 if (openInteractionIndex === undefined) {
                     return;
                 }
@@ -618,6 +664,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                 previous.telemetryContext = telemetryContext;
                 previous.telemetryPaths = telemetryPaths;
                 previous.toolTracker = toolTracker;
+                previous.pendingThinking = pendingThinking;
                 previous.revision = revision;
                 previous.partial = partial;
             } else {
@@ -629,6 +676,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                     telemetryContext,
                     telemetryPaths,
                     toolTracker,
+                    pendingThinking,
                     revision,
                     partial,
                     dispose() {},

@@ -443,9 +443,15 @@ test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 Kimi reads a subagent transcript as
         page.messages.map(message => [message.role, message.markdown]),
         [
             ['user', 'Explore the parser and report back'],
+            ['thinking', ''],
             ['assistant', '# Subagent Plan\n\n- inspect files'],
             ['assistant', 'The parser normalizes visible text.'],
         ]
+    );
+    assert.deepEqual(
+        page.messages.filter(message => message.role === 'thinking')
+            .map(message => message.thinking.text),
+        ['subagent-secret-thought']
     );
 
     // The parent session conversation is unaffected by the subagent files.
@@ -963,4 +969,75 @@ test('CONVERSATION-TOOL-CALL-VISIBILITY-001 Kimi pairs tool calls and results in
     assert.equal(tool.name, 'Shell');
     assert.match(tool.detail, /"command":"npm test"/);
     assert.match(tool.detail, /9 passing/);
+});
+
+test('CONVERSATION-THINKING-VISIBILITY-001 Kimi merges streamed think deltas into one positioned thinking block', async t => {
+    const source = await createFixture(t);
+    await fs.promises.writeFile(source.sourcePath, [
+        {
+            timestamp: 1000,
+            message: {
+                type: 'TurnBegin',
+                payload: { user_input: 'Investigate the failure' },
+            },
+        },
+        {
+            timestamp: 1001,
+            message: {
+                type: 'ContentPart',
+                payload: { type: 'think', think: 'The user ' },
+            },
+        },
+        {
+            timestamp: 1002,
+            message: {
+                type: 'ContentPart',
+                payload: { type: 'think', think: 'reported a failure.' },
+            },
+        },
+        {
+            timestamp: 1003,
+            message: {
+                type: 'ContentPart',
+                payload: { type: 'text', text: 'Let me look.' },
+            },
+        },
+        {
+            timestamp: 1004,
+            message: {
+                type: 'ContentPart',
+                payload: { type: 'think', text: 'Second thought run.' },
+            },
+        },
+        {
+            timestamp: 1005,
+            message: {
+                type: 'ContentPart',
+                payload: { type: 'text', text: 'Found it.' },
+            },
+        },
+        {
+            timestamp: 1006,
+            message: { type: 'TurnEnd', payload: {} },
+        },
+    ].map(record => `${JSON.stringify(record)}\n`).join(''));
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+
+    const { page } = await readWholeConversation(adapter);
+    assert.deepEqual(
+        page.messages.map(message => [
+            message.role,
+            message.role === 'thinking'
+                ? message.thinking.text
+                : message.markdown,
+        ]),
+        [
+            ['user', 'Investigate the failure'],
+            ['thinking', 'The user reported a failure.'],
+            ['assistant', 'Let me look.'],
+            ['thinking', 'Second thought run.'],
+            ['assistant', 'Found it.'],
+        ]
+    );
 });

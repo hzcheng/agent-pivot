@@ -98,7 +98,8 @@ export function buildConversationPage(
                 markdown: interaction.userMarkdown,
             });
             const toolCalls = interaction.toolCalls || [];
-            const pushToolCallsAt = (position: number): void => {
+            const thinkingBlocks = interaction.thinking || [];
+            const pushAnchoredAt = (position: number): void => {
                 toolCalls.forEach((toolCall, toolIndex) => {
                     if (toolCall.position !== position) {
                         return;
@@ -118,9 +119,22 @@ export function buildConversationPage(
                         },
                     });
                 });
+                thinkingBlocks.forEach((block, blockIndex) => {
+                    if (block.position !== position) {
+                        return;
+                    }
+                    messages.push({
+                        id: `${interaction.id}:thinking:${blockIndex}`,
+                        interactionId: interaction.id,
+                        role: 'thinking',
+                        timestamp: interaction.timestamp,
+                        markdown: '',
+                        thinking: { text: block.text },
+                    });
+                });
             };
             interaction.assistantMarkdown.forEach((markdown, index) => {
-                pushToolCallsAt(index);
+                pushAnchoredAt(index);
                 messages.push({
                     id: `${interaction.id}:assistant:${index}`,
                     interactionId: interaction.id,
@@ -129,7 +143,7 @@ export function buildConversationPage(
                     markdown,
                 });
             });
-            pushToolCallsAt(interaction.assistantMarkdown.length);
+            pushAnchoredAt(interaction.assistantMarkdown.length);
             return messages;
         },
         []

@@ -233,7 +233,7 @@ export interface ConversationSubagentEntry {
     id: string;
     label: string;
     agentType?: string;
-    status: 'running' | 'idle' | 'failed' | 'killed';
+    status: 'running' | 'idle' | 'quiet' | 'failed' | 'killed';
     createdAt?: number;
     updatedAt?: number;
 }

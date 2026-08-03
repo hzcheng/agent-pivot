@@ -839,8 +839,10 @@ function subagentStatus(
         return 'idle';
     }
     // A crashed CLI leaves a stale transcript without task_complete
-    // behind; only a freshly written rollout proves the subagent is alive.
+    // behind, but so does a long quiet command: only a freshly written
+    // rollout proves the subagent is alive; staleness alone is not death
+    // evidence, so report quiet rather than failed.
     return now - transcriptMtimeMs <= SUBAGENT_RUNNING_FRESHNESS_MS
         ? 'running'
-        : 'failed';
+        : 'quiet';
 }

@@ -833,11 +833,12 @@ function subagentStatus(
         return 'idle';
     }
     // Claude records no status on disk: a mid-turn tail record only proves
-    // liveness while the transcript is freshly written; a crashed CLI
-    // leaves a stale mid-turn transcript behind.
+    // liveness while the transcript is freshly written. A stale mid-turn
+    // transcript means a crash OR a long quiet command — report quiet, not
+    // failed, without positive death evidence.
     return now - transcriptMtimeMs <= SUBAGENT_RUNNING_FRESHNESS_MS
         ? 'running'
-        : 'failed';
+        : 'quiet';
 }
 
 async function readSubagentCreatedAt(

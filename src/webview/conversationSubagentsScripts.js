@@ -4,6 +4,7 @@
     var STATUS_LABELS = {
         running: 'Running',
         idle: 'Finished',
+        quiet: 'Quiet',
         failed: 'Failed',
         killed: 'Stopped',
     };
@@ -16,6 +17,17 @@
         if (!Number.isFinite(timestamp)) return '';
         try {
             var date = new Date(timestamp);
+            var now = Date.now();
+            var elapsedMs = now - timestamp;
+            if (elapsedMs >= 0 && elapsedMs < 60 * 1000) {
+                return 'just now';
+            }
+            if (elapsedMs >= 0 && elapsedMs < 60 * 60 * 1000) {
+                return Math.floor(elapsedMs / 60000) + 'm ago';
+            }
+            if (elapsedMs >= 0 && elapsedMs < 24 * 60 * 60 * 1000) {
+                return Math.floor(elapsedMs / 3600000) + 'h ago';
+            }
             var today = new Date();
             var sameDay = date.toDateString() === today.toDateString();
             return sameDay
@@ -48,13 +60,19 @@
         function visibleEntries() {
             var entries = runningOnly.checked
                 ? lastSubagents.filter(function (entry) {
-                    return entry.status === 'running';
+                    return entry.status === 'running'
+                        || entry.status === 'quiet';
                 })
                 : lastSubagents.slice();
-            // Running entries pin to the top; the rest keep dispatch order.
+            // Live-ish entries pin to the top: running first, then quiet;
+            // the rest keep dispatch order.
+            var rank = function (entry) {
+                return entry.status === 'running'
+                    ? 0
+                    : entry.status === 'quiet' ? 1 : 2;
+            };
             return entries.slice().sort(function (left, right) {
-                return (left.status === 'running' ? 0 : 1)
-                    - (right.status === 'running' ? 0 : 1);
+                return rank(left) - rank(right);
             });
         }
 

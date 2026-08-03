@@ -685,7 +685,7 @@ test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 Codex lists depth-1 subagent thread
     assert.deepEqual(
         entries.map(entry => [entry.id, entry.status, entry.agentType]),
         [
-            [thirdChildThreadId, 'failed', undefined],
+            [thirdChildThreadId, 'quiet', undefined],
             [otherChildThreadId, 'running', 'review_fix_loop'],
             [childThreadId, 'idle', 'implement_webview_mutation_skill'],
         ]

@@ -23,7 +23,13 @@ const dashboardValidationSource = fs.readFileSync(path.join(root, 'src', 'webvie
 const generatedDashboardValidationSource = fs.readFileSync(path.join(root, 'media', 'webviewDashboardValidationScripts.js'), 'utf8');
 const dashboardSearchSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewDashboardSearchScripts.js'), 'utf8');
 const generatedDashboardSearchSource = fs.readFileSync(path.join(root, 'media', 'webviewDashboardSearchScripts.js'), 'utf8');
-const dashboardVmSource = `${skillPanelSource}\n${projectsPanelSource}\n${dashboardValidationSource}\n${dashboardSearchSource}\n${dashboardSource}`;
+const dashboardProjectsPanelSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewDashboardProjectsPanelScripts.js'), 'utf8');
+const generatedDashboardProjectsPanelSource = fs.readFileSync(path.join(root, 'media', 'webviewDashboardProjectsPanelScripts.js'), 'utf8');
+const dashboardTodoPanelSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewDashboardTodoPanelScripts.js'), 'utf8');
+const generatedDashboardTodoPanelSource = fs.readFileSync(path.join(root, 'media', 'webviewDashboardTodoPanelScripts.js'), 'utf8');
+const dashboardAiPanelSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewDashboardAiPanelScripts.js'), 'utf8');
+const generatedDashboardAiPanelSource = fs.readFileSync(path.join(root, 'media', 'webviewDashboardAiPanelScripts.js'), 'utf8');
+const dashboardVmSource = `${skillPanelSource}\n${projectsPanelSource}\n${dashboardValidationSource}\n${dashboardSearchSource}\n${dashboardProjectsPanelSource}\n${dashboardTodoPanelSource}\n${dashboardAiPanelSource}\n${dashboardSource}`;
 const projectSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewProjectScripts.js'), 'utf8');
 const generatedProjectSource = fs.readFileSync(path.join(root, 'media', 'webviewProjectScripts.js'), 'utf8');
 const viewStateSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewAiSessionViewStateScripts.js'), 'utf8');
@@ -706,6 +712,9 @@ test('WEBVIEW-WEBVIEW-CONTENT-001 keeps the generated Dashboard controller byte-
     assert.equal(generatedProjectsPanelSource, projectsPanelSource);
     assert.equal(generatedDashboardValidationSource, dashboardValidationSource);
     assert.equal(generatedDashboardSearchSource, dashboardSearchSource);
+    assert.equal(generatedDashboardProjectsPanelSource, dashboardProjectsPanelSource);
+    assert.equal(generatedDashboardTodoPanelSource, dashboardTodoPanelSource);
+    assert.equal(generatedDashboardAiPanelSource, dashboardAiPanelSource);
     assert.equal(generatedDashboardSource, dashboardSource);
 });
 
@@ -874,8 +883,14 @@ test('WEBVIEW-WEBVIEW-CONTENT-001 renders OPEN PROJECTS TODO and lazy AI tab she
         html.indexOf('webviewDashboardValidationScripts.js') > -1
             && html.indexOf('webviewDashboardValidationScripts.js') < html.indexOf('webviewDashboardScripts.js')
             && html.indexOf('webviewDashboardSearchScripts.js') > -1
-            && html.indexOf('webviewDashboardSearchScripts.js') < html.indexOf('webviewDashboardScripts.js'),
-        'Dashboard pure helpers must load before the Dashboard controller that calls them'
+            && html.indexOf('webviewDashboardSearchScripts.js') < html.indexOf('webviewDashboardScripts.js')
+            && html.indexOf('webviewDashboardProjectsPanelScripts.js') > -1
+            && html.indexOf('webviewDashboardProjectsPanelScripts.js') < html.indexOf('webviewDashboardScripts.js')
+            && html.indexOf('webviewDashboardTodoPanelScripts.js') > -1
+            && html.indexOf('webviewDashboardTodoPanelScripts.js') < html.indexOf('webviewDashboardScripts.js')
+            && html.indexOf('webviewDashboardAiPanelScripts.js') > -1
+            && html.indexOf('webviewDashboardAiPanelScripts.js') < html.indexOf('webviewDashboardScripts.js'),
+        'Dashboard pure helpers and panel controllers must load before the Dashboard controller that calls them'
     );
     assert.ok(
         html.indexOf('webviewPromptProtocolScripts.js') > html.indexOf('webviewDashboardScripts.js')
@@ -956,6 +971,9 @@ test('WEBVIEW-RESOURCE-RECOVERY-001 gives every rendered document fresh versione
         'webviewProjectsPanelScripts.js',
         'webviewDashboardValidationScripts.js',
         'webviewDashboardSearchScripts.js',
+        'webviewDashboardProjectsPanelScripts.js',
+        'webviewDashboardTodoPanelScripts.js',
+        'webviewDashboardAiPanelScripts.js',
         'webviewDashboardScripts.js',
         'webviewPromptProtocolScripts.js',
         'webviewPromptScripts.js',
@@ -1485,9 +1503,9 @@ test('WEBVIEW-PROJECTS-PANEL-SCROLL-001 captures semantic Projects state and ign
     assert.match(projectsPanelSource, /itemSelector:\s*'\.project\[data-id\]'/);
     assert.match(projectsPanelSource, /getKey:\s*getProjectScrollItemKey/);
     assert.match(projectsPanelSource, /focus\(\{ preventScroll: true \}\)/);
-    assert.match(dashboardSource, /projectsPanelReplacementGeneration/);
+    assert.match(dashboardProjectsPanelSource, /projectsPanelReplacementGeneration/);
     assert.match(
-        dashboardSource,
+        dashboardProjectsPanelSource,
         /replacementGeneration !== projectsPanelReplacementGeneration/
     );
 });

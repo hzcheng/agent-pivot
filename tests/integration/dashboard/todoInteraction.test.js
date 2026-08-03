@@ -22,6 +22,10 @@ const todoControlSource = fs.readFileSync(
     path.join(__dirname, '../../../src/webview/webviewTodoControlScripts.js'),
     'utf8'
 );
+const dashboardTodoPanelSource = fs.readFileSync(
+    path.join(__dirname, '../../../src/webview/webviewDashboardTodoPanelScripts.js'),
+    'utf8'
+);
 const dashboardSource = fs.readFileSync(
     path.join(__dirname, '../../../src/webview/webviewDashboardScripts.js'),
     'utf8'
@@ -1096,5 +1100,5 @@ test('TODO-INCREMENTAL-ROOT-001 isolates mounted TODO events from the legacy pro
     assert.match(projectSource, /todoControls\.isDedicatedTodoTarget/);
     assert.match(todoControlSource, /isDedicatedTodoTarget/);
     assert.match(todoControlSource, /window\.__agentPivotTodo/);
-    assert.match(dashboardSource, /options\.onTodoMounted\(panels\.todo,\s*message\)/);
+    assert.match(dashboardTodoPanelSource, /options\.onTodoMounted\(panels\.todo,\s*message\)/);
 });

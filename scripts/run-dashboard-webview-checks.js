@@ -61,6 +61,15 @@ const dashboardValidationScriptPath = path.join(
 const dashboardSearchScriptPath = path.join(
     root, 'src', 'webview', 'webviewDashboardSearchScripts.js'
 );
+const dashboardProjectsPanelScriptPath = path.join(
+    root, 'src', 'webview', 'webviewDashboardProjectsPanelScripts.js'
+);
+const dashboardTodoPanelScriptPath = path.join(
+    root, 'src', 'webview', 'webviewDashboardTodoPanelScripts.js'
+);
+const dashboardAiPanelScriptPath = path.join(
+    root, 'src', 'webview', 'webviewDashboardAiPanelScripts.js'
+);
 const projectScriptPath = path.join(root, 'src', 'webview', 'webviewProjectScripts.js');
 const aiSessionViewStateScriptPath = path.join(
     root, 'src', 'webview', 'webviewAiSessionViewStateScripts.js'
@@ -107,6 +116,9 @@ function readDashboardWebviewSource() {
         projectsPanelScriptPath,
         dashboardValidationScriptPath,
         dashboardSearchScriptPath,
+        dashboardProjectsPanelScriptPath,
+        dashboardTodoPanelScriptPath,
+        dashboardAiPanelScriptPath,
         dashboardScriptPath,
     ].map(scriptPath => fs.readFileSync(scriptPath, 'utf8')).join('\n');
 }
@@ -4535,8 +4547,17 @@ function runSourceContractChecks(source) {
                 < webviewContentSource.indexOf('webviewDashboardScripts.js')
             && webviewContentSource.indexOf('webviewDashboardSearchScripts.js') > -1
             && webviewContentSource.indexOf('webviewDashboardSearchScripts.js')
+                < webviewContentSource.indexOf('webviewDashboardScripts.js')
+            && webviewContentSource.indexOf('webviewDashboardProjectsPanelScripts.js') > -1
+            && webviewContentSource.indexOf('webviewDashboardProjectsPanelScripts.js')
+                < webviewContentSource.indexOf('webviewDashboardScripts.js')
+            && webviewContentSource.indexOf('webviewDashboardTodoPanelScripts.js') > -1
+            && webviewContentSource.indexOf('webviewDashboardTodoPanelScripts.js')
+                < webviewContentSource.indexOf('webviewDashboardScripts.js')
+            && webviewContentSource.indexOf('webviewDashboardAiPanelScripts.js') > -1
+            && webviewContentSource.indexOf('webviewDashboardAiPanelScripts.js')
                 < webviewContentSource.indexOf('webviewDashboardScripts.js'),
-        'the Dashboard pure helpers must load before the Dashboard controller that calls them'
+        'the Dashboard pure helpers and panel controllers must load before the Dashboard controller that calls them'
     );
     assert.ok(
         webviewContentSource.indexOf('webviewSkillPanelScripts.js')

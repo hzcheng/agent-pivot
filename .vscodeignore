@@ -41,6 +41,9 @@ media/brand/**
 !media/webviewProjectsPanelScripts.js
 !media/webviewDashboardValidationScripts.js
 !media/webviewDashboardSearchScripts.js
+!media/webviewDashboardProjectsPanelScripts.js
+!media/webviewDashboardTodoPanelScripts.js
+!media/webviewDashboardAiPanelScripts.js
 !media/webviewPromptProtocolScripts.js
 !media/webviewPromptScripts.js
 !media/webviewTodoRenderScripts.js

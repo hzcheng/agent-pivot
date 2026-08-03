@@ -8,12 +8,67 @@ import { getProjectSkillsRoots, getUserSkillsRoots } from './roots';
 import { getSkillStableKey } from './skillGroupStore';
 import type { SkillRecord, SkillScope, SkillSourceDir } from './types';
 
+interface SkillHashCacheEntry {
+    manifest: string;
+    hash: string;
+}
+
+// Content fingerprints cached per absolute directory path. The manifest
+// (relative path + mtime + size of every hashed file) is rebuilt with readdir
+// and stat only, so unchanged directories skip every content read. mtime+size
+// signatures follow standard cache semantics (the same tradeoff as git's
+// index): a write preserving both mtime and size would serve a stale hash,
+// which real editor saves never produce.
+const skillHashCache = new Map<string, SkillHashCacheEntry>();
+const SKILL_HASH_CACHE_LIMIT = 256;
+
+// Mirrors the traversal of hashSkillDirectory exactly (same skips, same
+// ordering) so the manifest changes precisely when the hashed content can.
+function buildSkillDirectoryManifest(dirPath: string): string {
+    const parts: string[] = [];
+    const walk = (current: string): void => {
+        let entries: fs.Dirent[];
+        try {
+            entries = fs.readdirSync(current, { withFileTypes: true });
+        } catch (_error) {
+            return;
+        }
+        entries.sort((a, b) => a.name.localeCompare(b.name));
+        for (const entry of entries) {
+            const entryPath = path.join(current, entry.name);
+            if (entry.isDirectory()) {
+                if (entry.name === 'node_modules' || entry.name === '.git') {
+                    continue;
+                }
+                walk(entryPath);
+                continue;
+            }
+            if (!entry.isFile()) {
+                continue;
+            }
+            try {
+                const stat = fs.statSync(entryPath);
+                parts.push(`${path.relative(dirPath, entryPath)}:${stat.mtimeMs}:${stat.size}`);
+            } catch (_error) {
+                // Unreadable files simply do not contribute to the manifest.
+            }
+        }
+    };
+    walk(dirPath);
+    return parts.join('\0');
+}
+
 /**
  * Content fingerprint of a skill directory: a hash over every file's
  * relative path and content, so two copies of "the same" skill can be
  * compared for drift.
  */
 export function hashSkillDirectory(dirPath: string): string {
+    const manifest = buildSkillDirectoryManifest(dirPath);
+    const cached = skillHashCache.get(dirPath);
+    if (cached && cached.manifest === manifest) {
+        return cached.hash;
+    }
     const hash = crypto.createHash('sha256');
     const walk = (current: string): void => {
         let entries: fs.Dirent[];
@@ -46,7 +101,12 @@ export function hashSkillDirectory(dirPath: string): string {
         }
     };
     walk(dirPath);
-    return hash.digest('hex');
+    const digest = hash.digest('hex');
+    if (skillHashCache.size >= SKILL_HASH_CACHE_LIMIT) {
+        skillHashCache.clear();
+    }
+    skillHashCache.set(dirPath, { manifest, hash: digest });
+    return digest;
 }
 
 export interface SkillDuplicateGroup {

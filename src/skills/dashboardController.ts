@@ -68,16 +68,19 @@ export class SkillDashboardController {
     private storeFolders: Partial<Record<SkillScope, string[]>> = {};
     private watchers: fs.FSWatcher[] = [];
     private refreshTimer: NodeJS.Timeout | null = null;
+    private scanStale = false;
     private disposed = false;
 
     constructor(private readonly options: SkillDashboardControllerOptions) {
     }
 
     getRecords(): SkillRecord[] {
+        this.ensureFreshRecords();
         return this.records;
     }
 
     getCollectionSuggestions(): SkillCollectionSuggestion[] {
+        this.ensureFreshRecords();
         const store = this.options.groupStore;
         if (!store) {
             return [];
@@ -86,6 +89,7 @@ export class SkillDashboardController {
     }
 
     getCopyTargets(): Map<string, SkillCopyTarget[]> {
+        this.ensureFreshRecords();
         return computeSkillCopyTargets(
             this.records,
             this.options.getHomeDir(),
@@ -102,6 +106,7 @@ export class SkillDashboardController {
     }
 
     getPanelView(): SkillPanelView {
+        this.ensureFreshRecords();
         return {
             hasWorkspace: Boolean(this.options.getWorkspaceRoot()),
             copyTargets: this.getCopyTargets(),
@@ -438,23 +443,18 @@ export class SkillDashboardController {
         this.refresh('start');
     }
 
-    refresh(_reason = 'refresh', settlement?: unknown): Promise<boolean> {
+    refresh(reason = 'refresh', settlement?: unknown): Promise<boolean> {
         if (this.disposed) {
             return Promise.resolve(false);
         }
-        try {
-            const scan = scanSkillsDetailed({
-                homeDir: this.options.getHomeDir(),
-                workspaceRoot: this.options.getWorkspaceRoot(),
-                globalSkillsRoot: this.getGlobalSkillsRoot(),
-            });
-            this.records = scan.records;
-            this.storeFolders = scan.storeFolders;
-        } catch (error) {
-            this.options.logError('Skill scan failed.', error);
-            this.records = [];
+        if (reason === 'watch' && !this.options.isVisible()) {
+            // Hidden sidebar: skip the rescan entirely. The next read
+            // (getRecords et al.) rescans lazily, and the visible refresh
+            // always reads before rendering the panel.
+            this.scanStale = true;
+            return Promise.resolve(false);
         }
-        this.resetWatchers();
+        this.performScan();
         if (this.options.isVisible()) {
             return Promise.resolve(this.options.postMessage({
                 type: 'skills-updated',
@@ -463,6 +463,29 @@ export class SkillDashboardController {
             }));
         }
         return Promise.resolve(false);
+    }
+
+    private performScan(): void {
+        try {
+            const scan = scanSkillsDetailed({
+                homeDir: this.options.getHomeDir(),
+                workspaceRoot: this.options.getWorkspaceRoot(),
+                globalSkillsRoot: this.getGlobalSkillsRoot(),
+            });
+            this.records = scan.records;
+            this.storeFolders = scan.storeFolders;
+            this.scanStale = false;
+        } catch (error) {
+            this.options.logError('Skill scan failed.', error);
+            this.records = [];
+        }
+        this.resetWatchers();
+    }
+
+    private ensureFreshRecords(): void {
+        if (this.scanStale) {
+            this.performScan();
+        }
     }
 
     handleDeleteSkill(dirPath: string): { ok: boolean; error?: string } {

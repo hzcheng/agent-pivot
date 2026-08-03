@@ -181,8 +181,8 @@
                 }
             );
             var count = state.bookmarkIds.size;
-            outlineBookmarksOnly.textContent = (state.bookmarksOnly ? '★' : '☆')
-                + ' Bookmarks (' + count + ')';
+            outlineBookmarksOnly.textContent = (state.bookmarksOnly ? '★ ' : '☆ ')
+                + count;
             outlineBookmarksOnly.setAttribute(
                 'aria-pressed',
                 state.bookmarksOnly ? 'true' : 'false'
@@ -343,11 +343,13 @@
             state.outlineTotalInputs = message.totalInputs;
             state.outlinePartial = message.partial;
             if (changed) buildOutlineList();
-            outlineCount.textContent = String(message.outline.length);
-            outlineCount.setAttribute(
-                'aria-label',
-                message.outline.length + ' inputs'
-            );
+            if (outlineCount) {
+                outlineCount.textContent = String(message.outline.length);
+                outlineCount.setAttribute(
+                    'aria-label',
+                    message.outline.length + ' inputs'
+                );
+            }
             outlineSummary.textContent = message.partial
                 ? message.outline.length.toLocaleString() + '+ latest inputs'
                 : message.outline.length.toLocaleString() + ' inputs';

@@ -185,7 +185,7 @@
         function resetClearAllConfirmation() {
             if (!commentUiAvailable) return;
             state.clearAllConfirmation = false;
-            commentClearAll.textContent = 'Clear all';
+            commentClearAll.textContent = 'All';
             commentClearAll.removeAttribute('data-confirming');
             commentClearAll.setAttribute('aria-label', 'Clear all comments');
         }
@@ -202,12 +202,14 @@
             commentSummary.textContent = summary.length
                 ? summary.join(' · ')
                 : 'No comments yet';
-            commentCount.textContent = String(state.comments.length);
-            commentCount.setAttribute(
-                'aria-label',
-                state.comments.length + ' comment'
-                    + (state.comments.length === 1 ? '' : 's')
-            );
+            if (commentCount) {
+                commentCount.textContent = String(state.comments.length);
+                commentCount.setAttribute(
+                    'aria-label',
+                    state.comments.length + ' comment'
+                        + (state.comments.length === 1 ? '' : 's')
+                );
+            }
             commentSend.disabled = counts.open === 0 || pending;
             if (headerSend) {
                 headerSend.disabled = counts.open === 0 || pending;
@@ -457,7 +459,7 @@
             commentEmpty.hidden = state.comments.length > 0;
             var openCount = openCommentCount();
             commentSend.textContent = 'Send ' + openCount + ' open comment'
-                + (openCount === 1 ? '' : 's') + ' to this session';
+                + (openCount === 1 ? '' : 's');
             updateCommentControls();
             updateCommentHighlights();
         }

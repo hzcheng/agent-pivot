@@ -120,13 +120,13 @@
     var sidebarUiAvailable = !!sidebarToggle
         && !!commentsWorkspace && !!commentsResizer && !!sidebarRoot
         && sidebarTabs.length === 3 && !!outlineRoot
-        && !!outlineCount && !!outlineSummary && !!outlineSearch
+        && !!outlineSummary && !!outlineSearch
         && !!outlineList && !!outlineEmpty && !!outlinePartial
         && !!outlineBookmarksOnly;
     var bookmarkUiAvailable = sidebarUiAvailable
         && validCommentTarget(commentTarget);
     var commentUiAvailable = sidebarUiAvailable
-        && !!commentsRoot && !!commentCount
+        && !!commentsRoot
         && !!commentSummary
         && !!commentComposer && !!commentSelection && !!commentInput
         && !!commentList && !!commentEmpty && !!commentNew
@@ -260,6 +260,11 @@
         });
         telemetryComments.addEventListener('click', function () {
             sidebarController.setView('comments', true, true);
+        });
+    }
+    if (sidebarUiAvailable && position) {
+        position.addEventListener('click', function () {
+            sidebarController.setView('outline', true, true);
         });
     }
     var telemetryController = window.__agentPivotConversationTelemetry.create({

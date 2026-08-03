@@ -87,6 +87,7 @@
     text-decoration: line-through;
 }
 
+.conversation-telemetry-position,
 .conversation-telemetry-subagents,
 .conversation-telemetry-comments {
     display: inline-flex;
@@ -100,6 +101,7 @@
     cursor: pointer;
 }
 
+.conversation-telemetry-position:hover,
 .conversation-telemetry-subagents:hover,
 .conversation-telemetry-comments:hover {
     border-color: var(--vscode-focusBorder);

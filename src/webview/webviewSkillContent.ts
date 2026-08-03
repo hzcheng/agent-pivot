@@ -26,7 +26,7 @@ export interface SkillPanelView {
     storeFolders?: Partial<Record<SkillScope, string[]>>;
 }
 import { sanitizeProjectName } from '../models';
-import { escapeAttribute } from './webviewContent';
+import { escapeAttribute } from './webviewHtmlEscape';
 import { collapse as collapseIcon, folder as folderIcon, puzzle } from './webviewIcons';
 import type { SkillCollectionSuggestion } from '../skills/knownCollections';
 

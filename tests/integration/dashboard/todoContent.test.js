@@ -11,6 +11,10 @@ const {
 const { buildTodoViewModel } = require('../../../out/todos/viewModel');
 
 const NOW = '2026-07-24T00:00:00.000Z';
+const todoRenderScript = fs.readFileSync(
+    path.join(__dirname, '../../../src/webview/webviewTodoRenderScripts.js'),
+    'utf8'
+);
 const todoScript = fs.readFileSync(
     path.join(__dirname, '../../../src/webview/webviewTodoScripts.js'),
     'utf8'
@@ -131,14 +135,14 @@ test('TODO-PAGE-HIERARCHY-001 separates the page command bar from real group hea
     assert.match(errorPageHeader, /todo-page-command-bar/);
     assert.doesNotMatch(errorPageHeader, /(?:group-title|steward-group-header)/);
     assert.match(html, /class="todo-group-header group-title steward-group-header"/);
-    assert.match(todoScript, /todo-page-header todo-page-command-bar/);
-    assert.doesNotMatch(todoScript, /todo-page-header group-title steward-group-header/);
+    assert.match(todoRenderScript, /todo-page-header todo-page-command-bar/);
+    assert.doesNotMatch(todoRenderScript, /todo-page-header group-title steward-group-header/);
     assert.equal((pageHeaderMarkup.match(/<svg /g) || []).length, 3);
-    assert.match(todoScript, /aria-label="Add todo">'\s*\+\s*renderTodoCommandIcon\('add'\)/);
-    assert.match(todoScript, /aria-label="Add group">'\s*\+\s*renderTodoCommandIcon\('group'\)/);
-    assert.match(todoScript, /<span>'\s*\+\s*renderTodoCommandIcon\('completed'\)/);
-    assert.doesNotMatch(todoScript, /aria-label="Add todo">＋<\/button>/);
-    assert.doesNotMatch(todoScript, /aria-label="Add group">☷<\/button>/);
+    assert.match(todoRenderScript, /aria-label="Add todo">'\s*\+\s*renderTodoCommandIcon\('add'\)/);
+    assert.match(todoRenderScript, /aria-label="Add group">'\s*\+\s*renderTodoCommandIcon\('group'\)/);
+    assert.match(todoRenderScript, /<span>'\s*\+\s*renderTodoCommandIcon\('completed'\)/);
+    assert.doesNotMatch(todoRenderScript, /aria-label="Add todo">＋<\/button>/);
+    assert.doesNotMatch(todoRenderScript, /aria-label="Add group">☷<\/button>/);
     assert.match(styles, /\.todo-page-command-bar\s*\{[^}]*border:\s*0[^}]*background:\s*transparent/);
     assert.match(styles, /\.todo-page-command-bar \.todo-summary-actions\s*\{[^}]*opacity:\s*1[^}]*pointer-events:\s*all/);
     assert.match(styles, /\.todo-page-command-bar \.todo-summary-actions svg\s*\{[^}]*width:\s*14px[^}]*height:\s*14px/);
@@ -166,8 +170,8 @@ test('TODO-GROUP-DISCLOSURE-001 uses one centered SVG chevron with distinct expa
     const html = renderPanel();
 
     assert.match(html, /class="todo-group-chevron collapse-icon"[\s\S]*<svg/);
-    assert.match(todoScript, /class="todo-group-chevron collapse-icon"[\s\S]*<svg/);
-    assert.doesNotMatch(todoScript, /<span class="collapse-icon"[^>]*>⌄<\/span>/);
+    assert.match(todoRenderScript, /class="todo-group-chevron collapse-icon"[\s\S]*<svg/);
+    assert.doesNotMatch(todoRenderScript, /<span class="collapse-icon"[^>]*>⌄<\/span>/);
     assert.match(styles, /\.todo-group-chevron\s*\{[\s\S]*display:\s*grid[\s\S]*place-items:\s*center/);
     assert.match(styles, /\.todo-group\.collapsed \.todo-group-chevron svg\s*\{[\s\S]*transform:\s*rotate\(-90deg\)/);
 });

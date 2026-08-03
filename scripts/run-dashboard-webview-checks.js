@@ -4543,6 +4543,12 @@ function runSourceContractChecks(source) {
             < webviewContentSource.indexOf('webviewProjectScripts.js'),
         'semantic scroll state must load before every domain Webview script'
     );
+    assert.ok(webviewContentSource.includes("'webviewTodoRenderScripts.js'"));
+    assert.ok(
+        webviewContentSource.indexOf('webviewTodoRenderScripts.js')
+            < webviewContentSource.indexOf('webviewTodoScripts.js'),
+        'the TODO renderer must load before the TODO controller that calls it'
+    );
     assert.ok(webviewContentSource.includes("'webviewTodoScripts.js'"));
     assert.match(
         webviewContentSource,

@@ -6,6 +6,10 @@ const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
 
+const renderSource = fs.readFileSync(
+    path.join(__dirname, '../../../src/webview/webviewTodoRenderScripts.js'),
+    'utf8'
+);
 const source = fs.readFileSync(
     path.join(__dirname, '../../../src/webview/webviewTodoScripts.js'),
     'utf8'
@@ -239,7 +243,7 @@ function createHarness(options = {}) {
             },
         },
     };
-    vm.runInNewContext(source, context, { filename: 'webviewTodoScripts.js' });
+    vm.runInNewContext(`${renderSource}\n${source}`, context, { filename: 'webviewTodoScripts.js' });
     const controller = context.initTodos({
         postMessage: message => messages.push(JSON.parse(JSON.stringify(message))),
         replaceSearchCatalog: catalog => catalogs.push(JSON.parse(JSON.stringify(catalog))),

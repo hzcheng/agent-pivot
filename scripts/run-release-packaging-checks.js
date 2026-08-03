@@ -90,6 +90,7 @@ const EXPECTED_MAIN_ENTRIES = Object.freeze([
     'extension/media/webviewProjectScripts.js',
     'extension/media/webviewPromptScripts.js',
     'extension/media/webviewScrollStateScripts.js',
+    'extension/media/webviewTodoRenderScripts.js',
     'extension/media/webviewTodoScripts.js',
     'extension/out/openWorkspaces/bridgeClient.js',
     'extension/out/openWorkspaces/dashboardController.js',
@@ -613,6 +614,7 @@ function runRealVsixArchiveChecks(mainPackage, bridgePackage) {
         ['extension/media/webviewDashboardSearchScripts.js', 'media/webviewDashboardSearchScripts.js'],
         ['extension/media/webviewPromptScripts.js', 'media/webviewPromptScripts.js'],
         ['extension/media/webviewScrollStateScripts.js', 'media/webviewScrollStateScripts.js'],
+        ['extension/media/webviewTodoRenderScripts.js', 'media/webviewTodoRenderScripts.js'],
         ['extension/media/webviewTodoScripts.js', 'media/webviewTodoScripts.js'],
     ]) {
         assert.deepStrictEqual(mainEntries.get(archiveEntry), fs.readFileSync(path.join(repositoryRoot, localPath)),
@@ -947,6 +949,7 @@ function run() {
     assertIncludes(mainIgnore, '!media/webviewDashboardSearchScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewPromptScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewScrollStateScripts.js', 'main VSIX ignore rules');
+    assertIncludes(mainIgnore, '!media/webviewTodoRenderScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewTodoScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/mermaid.min.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/styles.css', 'main VSIX ignore rules');
@@ -979,6 +982,7 @@ function run() {
         'media/webviewDashboardSearchScripts.js',
         'media/webviewPromptScripts.js',
         'media/webviewScrollStateScripts.js',
+        'media/webviewTodoRenderScripts.js',
         'media/webviewTodoScripts.js',
         'media/mermaid.min.js',
         'media/styles.css',

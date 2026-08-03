@@ -780,3 +780,61 @@ test('CONVERSATION-TOOL-CALL-VISIBILITY-001 coordinator preserves tool messages 
         detail: '9 passing',
     });
 });
+
+test('CONVERSATION-THINKING-VISIBILITY-001 coordinator preserves thinking messages through validation and publication', async t => {
+    const calls = { codex: 0, kimi: 0, claude: 0 };
+    const kimi = adapterReturning(calls, 'kimi', {
+        readOutline: async sessionId => makeOutline('kimi', sessionId),
+        readPage: async request => makePage(
+            'kimi',
+            request.sessionId,
+            'native-a',
+            {
+                messages: [
+                    {
+                        id: 'input-a:user',
+                        interactionId: 'input-a',
+                        role: 'user',
+                        markdown: 'Solve this carefully',
+                    },
+                    {
+                        id: 'input-a:thinking:0',
+                        interactionId: 'input-a',
+                        role: 'thinking',
+                        markdown: '',
+                        thinking: {
+                            text: 'I should inspect the coordinator boundary.',
+                        },
+                    },
+                    {
+                        id: 'input-a:assistant:0',
+                        interactionId: 'input-a',
+                        role: 'assistant',
+                        markdown: 'Done.',
+                    },
+                ],
+            }
+        ),
+    });
+    const { coordinator } = createCoordinatorHarness({ kimi });
+    t.after(() => coordinator.dispose());
+
+    const outlineResult = await coordinator.readOutline('kimi', 'session-a');
+    const page = await coordinator.readPage({
+        provider: 'kimi',
+        sessionId: 'session-a',
+        anchorInteractionId: 'input-a',
+        direction: 'around',
+        expectedRevision: outlineResult.sourceRevision,
+    });
+    const thinkingMessage = page.messages.find(
+        message => message.role === 'thinking'
+    );
+    assert.ok(
+        thinkingMessage,
+        'coordinator must not reject a page containing thinking messages'
+    );
+    assert.deepEqual(thinkingMessage.thinking, {
+        text: 'I should inspect the coordinator boundary.',
+    });
+});

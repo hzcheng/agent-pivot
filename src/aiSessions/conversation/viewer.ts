@@ -1366,6 +1366,9 @@ function copyMessage(message: ConversationMessage): ConversationMessage {
                 },
             }
             : {}),
+        ...(message.thinking
+            ? { thinking: { text: message.thinking.text } }
+            : {}),
     };
 }
 
@@ -1415,4 +1418,3 @@ function renderMessages(messages: ConversationMessage[]): string {
 </article>`;
     }).join('');
 }
-

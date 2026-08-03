@@ -3845,8 +3845,10 @@
     "status": "automated",
     "owners": [
       "tests/unit/aiSessions/conversationModel.test.js",
+      "tests/contract/aiSessions/conversationCoordinator.test.js",
       "tests/contract/aiSessions/kimiConversationAdapter.test.js",
       "tests/contract/aiSessions/claudeConversationAdapter.test.js",
+      "tests/integration/dashboard/conversationViewer.test.js",
       "tests/browser/conversationViewer.test.js"
     ],
     "evidence": [

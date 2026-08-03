@@ -221,6 +221,9 @@ export class ConversationCoordinator implements AiSessionDisposable {
                             },
                         }
                         : {}),
+                    ...(message.thinking
+                        ? { thinking: { text: message.thinking.text } }
+                        : {}),
                 })),
                 interactionStates: page.interactionStates.map(state => ({
                     interactionId: state.interactionId,
@@ -599,7 +602,12 @@ export class ConversationCoordinator implements AiSessionDisposable {
                         && (message.tool.detail === undefined
                             || (typeof message.tool.detail === 'string'
                                 && countGraphemes(message.tool.detail)
-                                    <= CONVERSATION_LIMITS.toolCallDetailGraphemes))))
+                                    <= CONVERSATION_LIMITS.toolCallDetailGraphemes)))
+                    || (message.role === 'thinking'
+                        && Boolean(message.thinking)
+                        && typeof message.thinking.text === 'string'
+                        && countGraphemes(message.thinking.text)
+                            <= CONVERSATION_LIMITS.maxMessageGraphemes))
                 && (message.timestamp === undefined
                     || (typeof message.timestamp === 'number'
                         && Number.isFinite(message.timestamp)))

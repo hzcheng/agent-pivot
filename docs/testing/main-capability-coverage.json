@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "b21a4b80ac92429fb67ecb47163bcde79ea6b0b5",
+        "head": "cbbbaa885507ffab0185cd575e83b0570b53d56a",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -107,7 +107,8 @@
             "a54ae75ec363f2cac0cbc180829958dafed8e845",
             "490746bafb393893fa9c1b7f8ef76b1dae3870cc",
             "67ce46629f7725cc20de6d954f669639e1117cf0",
-            "22a4c2f1415153c57dd0e20da4f97e10cd8edcea"
+            "22a4c2f1415153c57dd0e20da4f97e10cd8edcea",
+            "763a8a87f97ab8fa0a9e5e7dee6718ed2a91db77"
         ]
     },
     "capabilities": [
@@ -1153,7 +1154,8 @@
                 "7a517a9cdf8c41f304b95e1e5b9ad9a85494800c",
                 "dff767a47781d6d5b2a57ce889425ba63c3324a1",
                 "dbac7df9ef9f6edfb4d62d628f01360928bf452f",
-                "b21a4b80ac92429fb67ecb47163bcde79ea6b0b5"
+                "b21a4b80ac92429fb67ecb47163bcde79ea6b0b5",
+                "cbbbaa885507ffab0185cd575e83b0570b53d56a"
             ],
             "behaviors": [
                 "SESSION-AI-SESSION-CONVERSATION-ADAPTER-001",
@@ -1186,7 +1188,8 @@
                 "CONVERSATION-FOLLOW-ACTIVE-SESSION-001",
                 "RELEASE-CONVERSATION-JOURNEYS-001",
                 "CONVERSATION-TOOL-CALL-VISIBILITY-001",
-                "CONVERSATION-THINKING-VISIBILITY-001"
+                "CONVERSATION-THINKING-VISIBILITY-001",
+                "CONVERSATION-PROGRESS-VISIBILITY-001"
             ],
             "prGates": [
                 "test:ci:linux"

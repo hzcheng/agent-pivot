@@ -3124,7 +3124,7 @@ test('CONVERSATION-VIEWER-USER-EMPHASIS-001 makes User a full-width Prompt block
     }
 });
 
-test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 sanitizes hostile HTML and posts exact version-1 navigation', async t => {
+test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 sanitizes hostile HTML, posts exact version-1 navigation, and keeps the viewer open on Escape', async t => {
     const page = await openViewerPage(t);
     await sendPage(page, hostileConversationPage);
 
@@ -3173,11 +3173,13 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 sanitizes hostile HTML and post
         href: 'https://example.test/safe',
     });
 
+    const postedBeforeEscape = (await postedMessages(page)).length;
     await page.keyboard.press('Escape');
-    assert.deepEqual((await postedMessages(page)).at(-1), {
-        type: 'conversation-viewer-closed',
-        version: 1,
-    });
+    assert.equal(
+        (await postedMessages(page)).length,
+        postedBeforeEscape,
+        'Escape must not close the conversation viewer'
+    );
 });
 
 test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 preserves ordered numbering across loose multi-paragraph list items', async t => {

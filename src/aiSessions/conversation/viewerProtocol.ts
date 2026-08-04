@@ -7,8 +7,7 @@ import { isSubagentId } from './subagentSessions';
 export interface ConversationViewerNavigationMessage {
     type: 'conversation-viewer-previous'
         | 'conversation-viewer-next'
-        | 'conversation-viewer-latest'
-        | 'conversation-viewer-closed';
+        | 'conversation-viewer-latest';
     version: 1;
 }
 
@@ -110,7 +109,6 @@ const NAVIGATION_MESSAGE_TYPES = new Set([
     'conversation-viewer-previous',
     'conversation-viewer-next',
     'conversation-viewer-latest',
-    'conversation-viewer-closed',
 ]);
 
 export function parseConversationViewerMessage(

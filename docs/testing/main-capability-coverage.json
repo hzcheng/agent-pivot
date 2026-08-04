@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "c9eb810b43b10caf940b0884ea0b2e62d0f3b127",
+        "head": "a6edd4e1b5c4cd77bdbee69a9a2ef2403536719f",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -115,7 +115,8 @@
             "c0b7922b8e40062fb1070c3771a52ac318a0c735",
             "d35a08bc990c63ff4f69bf94c2a3eee67729ca13",
             "9ea58d209a87cfdad86acb3011a9f7de38ea4d80",
-            "0d735cf7a616237a194f1838d93bc124dec7429d"
+            "0d735cf7a616237a194f1838d93bc124dec7429d",
+            "6d7f0acc2e19b0f8ae3a10b6c8d05deb4c63ed85"
         ]
     },
     "capabilities": [
@@ -279,7 +280,8 @@
                 "35a8eba46ff1e7b17dcbfeb020b80caaa3b62d64",
                 "a2b20e451f77413965004d7958af784af08f3449",
                 "d0615b4e0484feb208772e8ccb77cb1054c92308",
-                "c9eb810b43b10caf940b0884ea0b2e62d0f3b127"
+                "c9eb810b43b10caf940b0884ea0b2e62d0f3b127",
+                "a6edd4e1b5c4cd77bdbee69a9a2ef2403536719f"
             ],
             "behaviors": [
                 "OPEN-OPEN-PROJECT-WORKSPACE-CONTROLLER-001",

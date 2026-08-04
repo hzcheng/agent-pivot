@@ -97,6 +97,17 @@ function visibleMessage(value: string): string {
         );
 }
 
+function normalizeReasoningSummary(value: unknown): string | undefined {
+    if (!Array.isArray(value)) {
+        return undefined;
+    }
+    const summary = value
+        .filter((part): part is string => typeof part === 'string')
+        .join('\n\n');
+    const visible = visibleMessage(summary);
+    return visible || undefined;
+}
+
 function turnResponseState(value: string): ConversationResponseState {
     if (value === 'completed') {
         return 'complete';
@@ -220,6 +231,21 @@ function normalizeThreadRead(
                     responseState,
                 });
                 currentInteractionIndex = interactions.length - 1;
+            } else if (item.type === 'reasoning') {
+                if (currentInteractionIndex === undefined) {
+                    continue;
+                }
+                // App-server exposes readable summaries separately from raw
+                // reasoning content. Only the summary is safe viewer output;
+                // never fall back to `content` or legacy `text` fields.
+                const text = normalizeReasoningSummary(item.summary);
+                if (text) {
+                    const interaction = interactions[currentInteractionIndex];
+                    (interaction.thinking ||= []).push({
+                        position: interaction.assistantMarkdown.length,
+                        text,
+                    });
+                }
             } else if (item.type === 'commandExecution'
                 || item.type === 'fileChange') {
                 if (currentInteractionIndex === undefined) {

@@ -125,7 +125,7 @@ test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 Kimi normalizes only visible t
     assert.equal(new Set(appended.interactions.map(item => item.id)).size, 4);
 });
 
-test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 Kimi surfaces PlanDisplay markdown as assistant content', async t => {
+test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 CONVERSATION-PROGRESS-VISIBILITY-001 Kimi surfaces PlanDisplay markdown as progress', async t => {
     const source = await createFixture(t);
     await fs.promises.writeFile(source.sourcePath, [
         {
@@ -205,9 +205,9 @@ test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 Kimi surfaces PlanDisplay mark
         page.messages.map(message => [message.role, message.markdown]),
         [
             ['user', 'Draft a rollout plan'],
-            ['assistant', '# Rollout Plan\n\n## v1 steps'],
+            ['progress', '# Rollout Plan\n\n## v1 steps'],
             ['assistant', 'I revised the plan.'],
-            ['assistant', '# Rollout Plan\n\n## v2 steps'],
+            ['progress', '# Rollout Plan\n\n## v2 steps'],
             ['user', 'Ignore malformed plan payloads'],
         ]
     );
@@ -444,7 +444,7 @@ test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 Kimi reads a subagent transcript as
         [
             ['user', 'Explore the parser and report back'],
             ['thinking', ''],
-            ['assistant', '# Subagent Plan\n\n- inspect files'],
+            ['progress', '# Subagent Plan\n\n- inspect files'],
             ['assistant', 'The parser normalizes visible text.'],
         ]
     );
@@ -903,7 +903,7 @@ test('CONVERSATION-TELEMETRY-001 Kimi resolves the worktree from the newest Shel
     assert.deepEqual(calls.slice(0, 2), ['/tmp', '/repo/.worktree/feat']);
 });
 
-test('CONVERSATION-TOOL-CALL-VISIBILITY-001 Kimi pairs tool calls and results into tool messages', async t => {
+test('CONVERSATION-TOOL-CALL-VISIBILITY-001 CONVERSATION-PROGRESS-VISIBILITY-001 Kimi treats a tool preamble as progress and preserves the final answer', async t => {
     const source = await createFixture(t);
     await fs.promises.writeFile(source.sourcePath, [
         {
@@ -915,6 +915,13 @@ test('CONVERSATION-TOOL-CALL-VISIBILITY-001 Kimi pairs tool calls and results in
         },
         {
             timestamp: 1001,
+            message: {
+                type: 'ContentPart',
+                payload: { type: 'text', text: 'I will run the tests.' },
+            },
+        },
+        {
+            timestamp: 1002,
             message: {
                 type: 'ToolCall',
                 payload: {
@@ -928,7 +935,7 @@ test('CONVERSATION-TOOL-CALL-VISIBILITY-001 Kimi pairs tool calls and results in
             },
         },
         {
-            timestamp: 1002,
+            timestamp: 1003,
             message: {
                 type: 'ToolResult',
                 payload: {
@@ -938,14 +945,14 @@ test('CONVERSATION-TOOL-CALL-VISIBILITY-001 Kimi pairs tool calls and results in
             },
         },
         {
-            timestamp: 1003,
+            timestamp: 1004,
             message: {
                 type: 'ContentPart',
                 payload: { type: 'text', text: 'All tests pass.' },
             },
         },
         {
-            timestamp: 1004,
+            timestamp: 1005,
             message: { type: 'TurnEnd', payload: {} },
         },
     ].map(record => `${JSON.stringify(record)}\n`).join(''));
@@ -961,11 +968,12 @@ test('CONVERSATION-TOOL-CALL-VISIBILITY-001 Kimi pairs tool calls and results in
         ]),
         [
             ['user', 'Run the tests'],
+            ['progress', 'I will run the tests.'],
             ['tool', 'Shell npm test'],
             ['assistant', 'All tests pass.'],
         ]
     );
-    const tool = page.messages[1].tool;
+    const tool = page.messages[2].tool;
     assert.equal(tool.name, 'Shell');
     assert.match(tool.detail, /"command":"npm test"/);
     assert.match(tool.detail, /9 passing/);

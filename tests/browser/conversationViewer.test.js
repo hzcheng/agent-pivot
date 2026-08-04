@@ -508,6 +508,7 @@ function loadHostConversationViewer() {
 
 async function renderHostViewerDocument(options = {}) {
     const ConversationViewer = loadHostConversationViewer();
+    const provider = options.provider || 'codex';
     const interactionIds = options.interactionIds
         || ['input-1', 'input-2', 'input-3'];
     const interactionId = options.interactionId || 'input-2';
@@ -547,7 +548,7 @@ async function renderHostViewerDocument(options = {}) {
     const viewer = new ConversationViewer({
         createPanel: () => panel,
         readOutline: async () => ({
-            provider: 'codex',
+            provider,
             sessionId: 'session-host-document',
             sourceRevision: 'r1',
             interactions: interactionIds.map(id => ({
@@ -560,7 +561,7 @@ async function renderHostViewerDocument(options = {}) {
             partial: false,
         }),
         readPage: async () => ({
-            provider: 'codex',
+            provider,
             sessionId: 'session-host-document',
             sourceRevision: 'r1',
             anchorInteractionId: interactionId,
@@ -592,7 +593,7 @@ async function renderHostViewerDocument(options = {}) {
     });
     await viewer.open({
         projectId: 'project-a',
-        provider: 'codex',
+        provider,
         sessionId: 'session-host-document',
         interactionId,
         expectedRevision: 'r1',
@@ -696,8 +697,27 @@ async function openHostViewerDocument(t, options = {}) {
             });
             return;
         }
+        if (pathname === '/conversationTelemetry.css') {
+            await route.fulfill({
+                contentType: 'text/css',
+                body: options?.includeStyles ? telemetryCss : '',
+            });
+            return;
+        }
         await route.fulfill({ contentType: 'text/html', body: html });
     });
+    if (options.trackScrollIntoView) {
+        await page.addInitScript(() => {
+            window.__scrollIntoViewCalls = [];
+            const scrollIntoView = Element.prototype.scrollIntoView;
+            Element.prototype.scrollIntoView = function (...args) {
+                window.__scrollIntoViewCalls.push({
+                    messageId: this.getAttribute?.('data-message-id') || '',
+                });
+                return scrollIntoView.apply(this, args);
+            };
+        });
+    }
     await page.addInitScript(initialWebviewState => {
         window.__acquireCount = 0;
         window.__postedMessages = [];
@@ -3827,6 +3847,109 @@ test('CONVERSATION-VIEWER-BROWSER-SCROLL-001 CONVERSATION-READING-FOCUS-001 foll
     assert.equal(await page.locator('[data-new-response]').count(), 0);
 });
 
+test('CONVERSATION-SCROLL-CONTAINMENT-001 keeps overscroll inside the message viewport without moving telemetry', async t => {
+    const interactionId = 'input-scroll-containment';
+    const messages = Array.from({ length: 40 }, (_item, index) => ({
+        id: `${interactionId}:assistant:${index}`,
+        interactionId,
+        role: 'assistant',
+        markdown: `Progress line ${index + 1}: inspect the active conversation.`,
+    }));
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+        trackScrollIntoView: true,
+        interactionIds: [interactionId],
+        interactionId,
+        pageOverrides: {
+            messages,
+            previousCursor: undefined,
+            nextCursor: undefined,
+            isStart: true,
+            isEnd: true,
+        },
+    });
+    const telemetry = page.locator('[data-conversation-telemetry]');
+    await telemetry.evaluate(element => {
+        element.hidden = false;
+    });
+    const scroll = page.locator('[data-conversation-scroll]');
+    await scroll.evaluate(element => {
+        element.scrollTop = element.scrollHeight - element.clientHeight;
+    });
+    await scroll.hover();
+    await page.mouse.wheel(0, 4_000);
+
+    const layout = await page.evaluate(() => {
+        const reader = document.querySelector('[data-conversation-scroll]');
+        const usage = document.querySelector('[data-conversation-telemetry]');
+        return {
+            rootScrollTop: document.documentElement.scrollTop,
+            bodyScrollTop: document.body.scrollTop,
+            rootOverflowY: getComputedStyle(document.documentElement).overflowY,
+            bodyOverflowY: getComputedStyle(document.body).overflowY,
+            readerOverscrollY: getComputedStyle(reader).overscrollBehaviorY,
+            telemetryTop: usage.getBoundingClientRect().top,
+            telemetryBottom: usage.getBoundingClientRect().bottom,
+            viewportHeight: window.innerHeight,
+        };
+    });
+    assert.deepEqual(
+        [layout.rootOverflowY, layout.bodyOverflowY],
+        ['hidden', 'hidden']
+    );
+    assert.equal(layout.readerOverscrollY, 'contain');
+    assert.equal(layout.rootScrollTop, 0);
+    assert.equal(layout.bodyScrollTop, 0);
+    assert.ok(layout.telemetryTop >= 0);
+    assert.ok(layout.telemetryBottom <= layout.viewportHeight);
+
+    await page.locator('[data-action="latest"]').click();
+    const latestInteractionId = 'input-latest';
+    await sendPage(page, {
+        ...hostileConversationPage,
+        requestId: 2,
+        updateKind: 'navigation',
+        html: Array.from({ length: 40 }, (_item, index) =>
+            `<article data-message-id="latest-${index}"
+                data-interaction-id="${latestInteractionId}">
+                <section><p>Latest response line ${index + 1}</p></section>
+            </article>`
+        ).join(''),
+        outline: [{
+            interactionId: latestInteractionId,
+            userPreview: 'Latest input',
+            responseState: 'complete',
+        }],
+        selectedInteractionId: latestInteractionId,
+        selectedInput: 1,
+        totalInputs: 1,
+        atLatest: true,
+        previousCursor: undefined,
+        nextCursor: undefined,
+    });
+
+    const latestLayout = await page.evaluate(() => {
+        const header = document.querySelector('.conversation-header');
+        const usage = document.querySelector('[data-conversation-telemetry]');
+        return {
+            rootScrollTop: document.documentElement.scrollTop,
+            bodyScrollTop: document.body.scrollTop,
+            headerTop: header.getBoundingClientRect().top,
+            telemetryTop: usage.getBoundingClientRect().top,
+        };
+    });
+    assert.equal(latestLayout.rootScrollTop, 0);
+    assert.equal(latestLayout.bodyScrollTop, 0);
+    assert.ok(latestLayout.headerTop >= 0);
+    assert.ok(latestLayout.telemetryTop >= 0);
+    assert.deepEqual(
+        await page.evaluate(() => window.__scrollIntoViewCalls),
+        [],
+        'Latest navigation must scroll only the message viewport'
+    );
+});
+
 test('CONVERSATION-WORKING-INDICATOR-001 shows an animated status only for the latest in-progress response', async t => {
     const page = await openViewerPage(t);
     await page.addStyleTag({ content: viewerCss });
@@ -4264,5 +4387,476 @@ test('CONVERSATION-THINKING-VISIBILITY-001 omits Thinking from the default Host 
     assert.equal(
         await details.locator('.conversation-thinking-body').innerText(),
         'Compare the two runs.'
+    );
+});
+
+test('CONVERSATION-PROGRESS-VISIBILITY-001 renders progress by default while Thinking remains hidden', async t => {
+    const opened = await openHostViewerDocument(t, {
+        showThinking: () => false,
+        pageOverrides: {
+            messages: [
+                {
+                    id: 'input-2:progress:0',
+                    interactionId: 'input-2',
+                    role: 'progress',
+                    markdown: 'Running the cross-provider checks.',
+                },
+                {
+                    id: 'input-2:thinking:0',
+                    interactionId: 'input-2',
+                    role: 'thinking',
+                    markdown: '',
+                    thinking: { text: 'Private reasoning.' },
+                },
+            ],
+        },
+    });
+    const progress = opened.page.locator('.conversation-progress');
+    assert.equal(await progress.count(), 1);
+    assert.match(await progress.innerText(), /Running the cross-provider checks\./);
+    assert.equal(
+        await progress.locator('.conversation-progress-label').textContent(),
+        'Progress:'
+    );
+    assert.equal(
+        await opened.page.locator('.conversation-message-thinking').count(),
+        0
+    );
+    for (const width of [700, 240]) {
+        await opened.page.setViewportSize({ width, height: 500 });
+        assert.equal(await progress.evaluate(element => {
+            const bounds = element.getBoundingClientRect();
+            return bounds.left >= 0
+                && bounds.right <= document.documentElement.clientWidth
+                && element.scrollWidth <= element.clientWidth;
+        }), true, `Progress fits at ${width}px`);
+    }
+});
+
+test('CONVERSATION-PROVIDER-PARITY-001 keeps default disclosure and live status consistent for Codex, Claude, and Kimi', async t => {
+    for (const fixture of [
+        { provider: 'codex', label: 'Codex' },
+        { provider: 'claude', label: 'Claude' },
+        { provider: 'kimi', label: 'Kimi' },
+    ]) {
+        const interactionId = `${fixture.provider}-input`;
+        const { page } = await openHostViewerDocument(t, {
+            provider: fixture.provider,
+            includeStyles: true,
+            themeFixture: viewerThemeFixtures[0],
+            interactionIds: [interactionId],
+            interactionId,
+            responseStates: { [interactionId]: 'inProgress' },
+            showThinking: () => false,
+            pageOverrides: {
+                messages: [
+                    {
+                        id: `${interactionId}:user`,
+                        interactionId,
+                        role: 'user',
+                        markdown: `Test ${fixture.label}`,
+                    },
+                    {
+                        id: `${interactionId}:progress:0`,
+                        interactionId,
+                        role: 'progress',
+                        markdown: `${fixture.label} is checking the workspace.`,
+                    },
+                    {
+                        id: `${interactionId}:thinking:0`,
+                        interactionId,
+                        role: 'thinking',
+                        markdown: '',
+                        thinking: { text: `${fixture.label} private reasoning.` },
+                    },
+                    {
+                        id: `${interactionId}:tool:0`,
+                        interactionId,
+                        role: 'tool',
+                        markdown: '',
+                        tool: {
+                            name: 'Read',
+                            summary: 'Read the active file',
+                            detail: 'file contents',
+                        },
+                    },
+                ],
+                interactionStates: [{
+                    interactionId,
+                    responseState: 'inProgress',
+                }],
+                previousCursor: undefined,
+                nextCursor: undefined,
+                isStart: true,
+                isEnd: true,
+            },
+        });
+
+        assert.equal(
+            await page.locator('.conversation-identity strong').innerText(),
+            fixture.label
+        );
+        assert.match(
+            await page.locator('.conversation-progress').innerText(),
+            new RegExp(`${fixture.label} is checking the workspace\\.`)
+        );
+        assert.equal(
+            await page.locator('.conversation-message-thinking').count(),
+            0,
+            `${fixture.label} must hide Thinking by default`
+        );
+        assert.equal(
+            await page.locator('.conversation-tool-call').evaluate(
+                element => element.open
+            ),
+            false,
+            `${fixture.label} tool calls must start collapsed`
+        );
+        assert.equal(
+            await page.locator('[data-conversation-working]').isVisible(),
+            true,
+            `${fixture.label} must show Working for its latest live response`
+        );
+        assert.equal(
+            await page.locator('[data-new-response]').count(),
+            0,
+            `${fixture.label} must never require a New response content control`
+        );
+    }
+});
+
+test('CONVERSATION-CHROME-LAYOUT-001 keeps header, telemetry, and the message viewport bounded at wide and narrow widths', async t => {
+    const interactionId = 'layout-input';
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+        viewport: { width: 700, height: 500 },
+        interactionIds: [interactionId],
+        interactionId,
+        responseStates: { [interactionId]: 'inProgress' },
+        pageOverrides: {
+            messages: Array.from({ length: 40 }, (_item, index) => ({
+                id: `${interactionId}:assistant:${index}`,
+                interactionId,
+                role: 'assistant',
+                markdown: `Visible response line ${index + 1}.`,
+            })),
+            interactionStates: [{
+                interactionId,
+                responseState: 'inProgress',
+            }],
+            previousCursor: undefined,
+            nextCursor: undefined,
+            isStart: true,
+            isEnd: true,
+        },
+    });
+    await sendPage(page, {
+        type: 'conversation-viewer-telemetry',
+        version: 1,
+        requestId: 1,
+        subscriptionGeneration: 1,
+        telemetry: {
+            provider: 'codex',
+            sessionId: 'session-host-document',
+            model: 'gpt-5.6-sol',
+            context: { usedTokens: 32_000, maxTokens: 128_000 },
+            rateLimits: [],
+        },
+    });
+
+    for (const width of [700, 240]) {
+        await page.setViewportSize({ width, height: 500 });
+        const layout = await page.evaluate(() => {
+            const header = document.querySelector('.conversation-header');
+            const telemetry = document.querySelector(
+                '[data-conversation-telemetry]'
+            );
+            const workspace = document.querySelector(
+                '.conversation-workspace'
+            );
+            const reader = document.querySelector(
+                '[data-conversation-scroll]'
+            );
+            const headerBounds = header.getBoundingClientRect();
+            const telemetryBounds = telemetry.getBoundingClientRect();
+            const workspaceBounds = workspace.getBoundingClientRect();
+            const readerBounds = reader.getBoundingClientRect();
+            return {
+                rootScrollTop: document.documentElement.scrollTop,
+                bodyScrollTop: document.body.scrollTop,
+                rootHeight: document.documentElement.scrollHeight,
+                viewportHeight: document.documentElement.clientHeight,
+                headerTop: headerBounds.top,
+                headerBottom: headerBounds.bottom,
+                telemetryTop: telemetryBounds.top,
+                telemetryBottom: telemetryBounds.bottom,
+                workspaceTop: workspaceBounds.top,
+                workspaceBottom: workspaceBounds.bottom,
+                readerTop: readerBounds.top,
+                readerBottom: readerBounds.bottom,
+                readerScrollable: reader.scrollHeight > reader.clientHeight,
+                rootOverflow: getComputedStyle(
+                    document.documentElement
+                ).overflowY,
+                bodyOverflow: getComputedStyle(document.body).overflowY,
+            };
+        });
+        assert.equal(layout.rootScrollTop, 0, `root scroll at ${width}px`);
+        assert.equal(layout.bodyScrollTop, 0, `body scroll at ${width}px`);
+        assert.equal(layout.rootHeight, layout.viewportHeight);
+        assert.deepEqual(
+            [layout.rootOverflow, layout.bodyOverflow],
+            ['hidden', 'hidden']
+        );
+        assert.ok(layout.headerTop >= 0);
+        assert.ok(layout.telemetryTop >= layout.headerBottom - 1);
+        assert.ok(layout.workspaceTop >= layout.telemetryBottom - 1);
+        assert.ok(layout.readerTop >= layout.workspaceTop - 1);
+        assert.ok(layout.readerBottom <= layout.workspaceBottom + 1);
+        assert.ok(layout.workspaceBottom <= layout.viewportHeight + 1);
+        assert.equal(layout.readerScrollable, true);
+
+        const reader = page.locator('[data-conversation-scroll]');
+        await reader.evaluate(element => {
+            element.scrollTop = element.scrollHeight - element.clientHeight;
+        });
+        await reader.hover();
+        await page.mouse.wheel(0, 4_000);
+        assert.deepEqual(await page.evaluate(() => [
+            document.documentElement.scrollTop,
+            document.body.scrollTop,
+        ]), [0, 0], `overscroll escaped at ${width}px`);
+    }
+});
+
+test('CONVERSATION-LIVE-UPDATE-JOURNEY-001 preserves telemetry, auto-follow, history, and Working through a response lifecycle', async t => {
+    const interactionId = 'live-input';
+    const initialHtml = messageHtml('live-history', 30)
+        + `<article data-message-id="live-current"
+            data-interaction-id="${interactionId}">
+            <section><p>Initial live output.</p></section>
+        </article>`;
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+        interactionIds: [interactionId],
+        interactionId,
+        responseStates: { [interactionId]: 'inProgress' },
+        pageOverrides: {
+            messages: Array.from({ length: 30 }, (_item, index) => ({
+                id: `live-history-${index}`,
+                interactionId: `live-history-${index}`,
+                role: 'assistant',
+                markdown: `History ${index + 1}.`,
+            })).concat({
+                id: 'live-current',
+                interactionId,
+                role: 'progress',
+                markdown: 'Initial live output.',
+            }),
+            interactionStates: [{
+                interactionId,
+                responseState: 'inProgress',
+            }],
+            previousCursor: undefined,
+            nextCursor: undefined,
+            isStart: true,
+            isEnd: true,
+        },
+    });
+    await sendPage(page, {
+        type: 'conversation-viewer-telemetry',
+        version: 1,
+        requestId: 1,
+        subscriptionGeneration: 1,
+        telemetry: {
+            provider: 'codex',
+            sessionId: 'session-host-document',
+            model: 'gpt-5.6-sol',
+            rateLimits: [],
+        },
+    });
+    const reader = page.locator('[data-conversation-scroll]');
+    assert.equal(await page.locator('[data-conversation-working]').isVisible(), true);
+
+    const appendedHtml = initialHtml + messageHtml('live-appended', 3);
+    await sendPage(page, {
+        ...hostileConversationPage,
+        requestId: 2,
+        updateKind: 'refresh',
+        html: appendedHtml,
+        outline: [{
+            interactionId,
+            userPreview: 'Live input',
+            responseState: 'inProgress',
+        }],
+        selectedInteractionId: interactionId,
+        selectedInput: 1,
+        totalInputs: 1,
+        atLatest: true,
+        previousCursor: undefined,
+        nextCursor: undefined,
+    });
+    assert.ok(await reader.evaluate(element =>
+        element.scrollHeight - element.clientHeight - element.scrollTop <= 1
+    ));
+    assert.equal(await page.locator('[data-conversation-working]').isVisible(), true);
+    assert.equal(await page.locator('[data-new-response]').count(), 0);
+    assert.equal(
+        await page.locator('[data-telemetry-model-value]').innerText(),
+        'gpt-5.6-sol'
+    );
+
+    await reader.evaluate(element => {
+        element.scrollTop = Math.max(
+            0,
+            element.scrollHeight - element.clientHeight - 40
+        );
+    });
+    const historicalScrollTop = await reader.evaluate(
+        element => element.scrollTop
+    );
+    const laterHtml = appendedHtml + messageHtml('live-later', 2);
+    await sendPage(page, {
+        ...hostileConversationPage,
+        requestId: 3,
+        updateKind: 'refresh',
+        html: laterHtml,
+        outline: [{
+            interactionId,
+            userPreview: 'Live input',
+            responseState: 'inProgress',
+        }],
+        selectedInteractionId: interactionId,
+        selectedInput: 1,
+        totalInputs: 1,
+        atLatest: true,
+        previousCursor: undefined,
+        nextCursor: undefined,
+    });
+    assert.equal(
+        await reader.evaluate(element => element.scrollTop),
+        historicalScrollTop,
+        'a reader away from the end must not be pulled down'
+    );
+
+    await sendPage(page, {
+        ...hostileConversationPage,
+        requestId: 4,
+        updateKind: 'refresh',
+        html: laterHtml,
+        outline: [{
+            interactionId,
+            userPreview: 'Live input',
+            responseState: 'complete',
+        }],
+        selectedInteractionId: interactionId,
+        selectedInput: 1,
+        totalInputs: 1,
+        atLatest: true,
+        previousCursor: undefined,
+        nextCursor: undefined,
+    });
+    assert.equal(await page.locator('[data-conversation-working]').isHidden(), true);
+    assert.equal(await page.locator('[data-new-response]').count(), 0);
+    assert.equal(
+        await page.locator('[data-telemetry-model-value]').innerText(),
+        'gpt-5.6-sol',
+        'content refreshes must not replace telemetry'
+    );
+});
+
+test('CONVERSATION-NAVIGATION-STATE-001 keeps controls, status, focus, and scroll ownership correlated', async t => {
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+        trackScrollIntoView: true,
+    });
+    const previous = page.locator('[data-action="previous"]');
+    const next = page.locator('[data-action="next"]');
+    const latest = page.locator('[data-action="latest"]');
+    assert.equal(await page.locator('[data-conversation-position]').innerText(), 'Input 2 of 3');
+    assert.equal(await previous.isEnabled(), true);
+    assert.equal(await next.isEnabled(), true);
+    assert.equal(await latest.isEnabled(), true);
+
+    await sendPage(page, {
+        ...hostileConversationPage,
+        requestId: 2,
+        updateKind: 'navigation',
+        html: interactionHtml('nav', 1, 3),
+        outline: [{
+            interactionId: 'nav-0',
+            userPreview: 'First input',
+            responseState: 'complete',
+        }],
+        selectedInteractionId: 'nav-0',
+        selectedInput: 1,
+        totalInputs: 3,
+        partial: true,
+        atLatest: false,
+        previousCursor: undefined,
+        nextCursor: 'next-page',
+        stale: true,
+    });
+    assert.equal(await page.locator('[data-conversation-position]').innerText(), 'Input 1 of 3+');
+    assert.equal(await previous.isDisabled(), true);
+    assert.equal(await next.isEnabled(), true);
+    assert.match(
+        await page.locator('[data-conversation-status]').innerText(),
+        /out of date.*Partial history/
+    );
+
+    await latest.click();
+    assert.deepEqual((await postedMessages(page)).at(-1), {
+        type: 'conversation-viewer-latest',
+        version: 1,
+    });
+    await sendPage(page, {
+        ...hostileConversationPage,
+        requestId: 3,
+        updateKind: 'navigation',
+        html: interactionHtml('nav', 3, 20),
+        outline: [0, 1, 2].map(index => ({
+            interactionId: `nav-${index}`,
+            userPreview: `Input ${index + 1}`,
+            responseState: 'complete',
+        })),
+        selectedInteractionId: 'nav-2',
+        selectedInput: 3,
+        totalInputs: 3,
+        partial: false,
+        atLatest: true,
+        previousCursor: 'previous-page',
+        nextCursor: undefined,
+        stale: false,
+    });
+    assert.equal(await page.locator('[data-conversation-position]').innerText(), 'Input 3 of 3');
+    assert.equal(await previous.isEnabled(), true);
+    assert.equal(await next.isDisabled(), true);
+    assert.equal(await page.locator('[data-conversation-status]').innerText(), '');
+    assert.equal(
+        await page.evaluate(() => document.activeElement?.getAttribute(
+            'data-message-id'
+        )),
+        'nav-2-user'
+    );
+    assert.equal(await page.evaluate(() => {
+        const reader = document.querySelector('[data-conversation-scroll]');
+        const selected = document.querySelector(
+            '[data-message-id="nav-2-user"]'
+        ).getBoundingClientRect();
+        const bounds = reader.getBoundingClientRect();
+        return selected.bottom > bounds.top && selected.top < bounds.bottom;
+    }), true);
+    assert.deepEqual(await page.evaluate(() => [
+        document.documentElement.scrollTop,
+        document.body.scrollTop,
+    ]), [0, 0]);
+    assert.deepEqual(
+        await page.evaluate(() => window.__scrollIntoViewCalls),
+        [],
+        'navigation must remain inside the message viewport'
     );
 });

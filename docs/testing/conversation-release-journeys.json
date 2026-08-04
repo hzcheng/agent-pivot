@@ -8,7 +8,20 @@
       "enforcement": "pull-request",
       "behaviors": [
         "SESSION-AI-SESSION-CONVERSATION-ADAPTER-001",
-        "WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001"
+        "WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001",
+        "CONVERSATION-PROGRESS-VISIBILITY-001",
+        "CONVERSATION-SCROLL-CONTAINMENT-001"
+      ]
+    },
+    {
+      "id": "CONVERSATION-RELEASE-CORE-JOURNEY-001",
+      "title": "Cross-provider live updates preserve chrome, navigation, telemetry, and reading position",
+      "enforcement": "pull-request",
+      "behaviors": [
+        "CONVERSATION-PROVIDER-PARITY-001",
+        "CONVERSATION-CHROME-LAYOUT-001",
+        "CONVERSATION-LIVE-UPDATE-JOURNEY-001",
+        "CONVERSATION-NAVIGATION-STATE-001"
       ]
     },
     {

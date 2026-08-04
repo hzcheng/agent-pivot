@@ -76,7 +76,8 @@ test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 Claude normalizes only top-lev
         outline.interactions.map(item => item.id),
         ['claude-user-1', 'claude-user-2', 'claude-user-3']
     );
-    assert.equal(page.messages.filter(message => message.role === 'assistant').length, 3);
+    assert.equal(page.messages.filter(message => message.role === 'progress').length, 1);
+    assert.equal(page.messages.filter(message => message.role === 'assistant').length, 2);
     assert.equal(
         page.messages.some(message =>
             /tool_result|secret-thought|local\/path|private\.invalid/.test(message.markdown)
@@ -387,7 +388,8 @@ test('SESSION-AI-SESSION-CLAUDE-CONVERSATION-002 excludes assistant tool blocks 
         outline.interactions.some(item => item.id.startsWith('synthetic-')),
         false
     );
-    assert.equal(page.messages.filter(message => message.role === 'assistant').length, 3);
+    assert.equal(page.messages.filter(message => message.role === 'progress').length, 1);
+    assert.equal(page.messages.filter(message => message.role === 'assistant').length, 2);
     assert.equal(
         page.messages.some(message => /read_file|search/.test(message.markdown)),
         false
@@ -1021,7 +1023,7 @@ test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 Claude rejects malformed and missin
     );
 });
 
-test('CONVERSATION-TOOL-CALL-VISIBILITY-001 Claude pairs tool_use and tool_result blocks into tool messages', async t => {
+test('CONVERSATION-TOOL-CALL-VISIBILITY-001 CONVERSATION-PROGRESS-VISIBILITY-001 Claude treats a tool preamble as progress and preserves the final answer', async t => {
     const source = await createFixture(t);
     await fs.promises.writeFile(source.sourcePath, [
         {
@@ -1084,7 +1086,7 @@ test('CONVERSATION-TOOL-CALL-VISIBILITY-001 Claude pairs tool_use and tool_resul
         ]),
         [
             ['user', 'Run the tests'],
-            ['assistant', 'Let me run them.'],
+            ['progress', 'Let me run them.'],
             ['tool', 'Bash npm test'],
             ['assistant', 'All tests pass.'],
         ]

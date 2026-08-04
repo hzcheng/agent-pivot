@@ -22,6 +22,10 @@ Turn every confirmed regression into a CI-owned behavior before changing product
    - Read `docs/testing/README.md`.
    - Select an existing behavior ID or add one to `docs/testing/behavior-contracts.json`.
    - Add the ID to a focused test at the lowest stable layer.
+   - When one change has regressed multiple neighboring features, add a
+     cross-feature journey in the real rendered surface in addition to the
+     focused owners. Exercise the relevant transition, provider, and viewport
+     matrix without duplicating unrelated coverage.
 3. **Prove CI reachability**
    - Before reporting RED, trace the test file through `package.json` to an existing required PR check; state that trace before any production-edit plan.
    - A locally runnable orphan test is not CI coverage.
@@ -30,6 +34,10 @@ Turn every confirmed regression into a CI-owned behavior before changing product
    - Confirm it fails because of the reported regression, not setup, compilation, or an unrelated assertion.
    - If the test reads repository working-tree files, confirm every path is git-tracked or produced by an earlier step of the CI job that runs it, and rerun the test with build outputs absent. A locally built artifact is not CI evidence.
    - The same hermeticity rule covers machine state the test relies on: git identity, environment variables, tools on PATH. A fixture that shells out must provide its own configuration (e.g. repo-local `git config user.name`), and proves it by rerunning with an empty HOME.
+   - When adding a guardrail after the implementation is already repaired,
+     prove mutation sensitivity: temporarily reintroduce each causal defect,
+     observe the new focused or journey assertion fail for that defect, then
+     restore the implementation before GREEN.
    - If it passes, repair the test; do not touch production code.
 5. **Fix minimally**
    - Change only enough production code to satisfy the behavior.

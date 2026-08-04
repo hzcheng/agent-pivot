@@ -5,7 +5,9 @@ import type {
     AiSessionCodexSubagentThread,
     AiSessionDisposable,
 } from '../types';
+import type { AiSessionLifecycleSignal } from '../lifecycle';
 import {
+    appendConversationAssistantText,
     buildConversationOutline,
     buildConversationPage,
 } from './model';
@@ -61,6 +63,9 @@ export interface CodexConversationAdapterOptions {
     clearTimeout(handle: TimerHandle): void;
     resolveWorktree?: ResolveWorktree;
     readCurrentWorkdir?(sessionId: string): string | undefined;
+    readLifecycleSignal?(
+        sessionId: string
+    ): AiSessionLifecycleSignal | undefined;
     listSubagentThreads?(
         sessionId: string
     ): AiSessionCodexSubagentThread[] | Promise<AiSessionCodexSubagentThread[]>;
@@ -115,7 +120,7 @@ function turnResponseState(value: string): ConversationResponseState {
     if (value === 'active' || value === 'inProgress') {
         return 'inProgress';
     }
-    if (value === 'failed' || value === 'cancelled') {
+    if (value === 'failed' || value === 'cancelled' || value === 'interrupted') {
         return 'interrupted';
     }
     return 'unknown';
@@ -273,12 +278,13 @@ function normalizeThreadRead(
                 }
                 const interaction = interactions[currentInteractionIndex];
                 if (item.phase === 'commentary') {
-                    (interaction.thinking ||= []).push({
-                        position: interaction.assistantMarkdown.length,
+                    appendConversationAssistantText(
+                        interaction,
                         text,
-                    });
+                        'progress'
+                    );
                 } else {
-                    interaction.assistantMarkdown.push(text);
+                    appendConversationAssistantText(interaction, text);
                 }
             }
         }
@@ -763,10 +769,31 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
             }
             throw protocolError();
         }
-        return {
-            interactions,
-            sourceRevision: fingerprintInteractions(interactions),
-        };
+        // App Server instances do not share live turn state. When another
+        // extension owns the running turn, thread/read can persist it as
+        // interrupted even while its rollout is still receiving events.
+        // Keep the protocol fingerprint content-only, then let the rollout's
+        // authoritative lifecycle promote the latest visible interaction.
+        const sourceRevision = fingerprintInteractions(interactions);
+        if (!split.subagentId && interactions.length) {
+            let lifecycleSignal: AiSessionLifecycleSignal | undefined;
+            try {
+                lifecycleSignal = this.options.readLifecycleSignal?.(
+                    split.sessionId
+                );
+            } catch (_error) {
+                // Lifecycle enrichment is best effort. Protocol content must
+                // remain readable if the rollout disappears during a refresh.
+            }
+            if (lifecycleSignal?.executionState === 'running') {
+                const latest = interactions[interactions.length - 1];
+                interactions = [
+                    ...interactions.slice(0, -1),
+                    { ...latest, responseState: 'inProgress' },
+                ];
+            }
+        }
+        return { interactions, sourceRevision };
     }
 
     private ensureProviderWatch(): void {

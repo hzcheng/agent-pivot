@@ -4105,20 +4105,126 @@
     ]
   },
   {
+    "id": "CONVERSATION-SCROLL-CONTAINMENT-001",
+    "domain": "webview",
+    "title": "AI Conversation confines scrolling and overscroll to the message viewport so telemetry remains visible without unbounded blank space",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/browser/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/webview/conversationViewerScripts.js",
+      "media/conversationViewer.scss"
+    ]
+  },
+  {
     "id": "CONVERSATION-WORKING-INDICATOR-001",
     "domain": "webview",
     "title": "AI Conversation shows a reduced-motion-safe Working indicator only while the latest response remains in progress",
     "priority": "P0",
     "status": "automated",
     "owners": [
+      "tests/unit/aiSessions/codexSessionFilePath.test.js",
+      "tests/contract/aiSessions/codexConversationAdapter.test.js",
       "tests/contract/aiSessions/conversationCoordinator.test.js",
       "tests/integration/dashboard/conversationViewer.test.js",
       "tests/browser/conversationViewer.test.js"
     ],
     "evidence": [
+      "src/services/codexSessionService.ts",
+      "src/aiSessions/conversation/codexAdapter.ts",
+      "src/aiSessions/conversation/composition.ts",
+      "src/aiSessions/conversation/viewer.ts",
       "src/aiSessions/conversation/viewerDocument.ts",
       "src/webview/conversationViewerScripts.js",
       "media/conversationViewer.scss"
+    ]
+  },
+  {
+    "id": "CONVERSATION-PROGRESS-VISIBILITY-001",
+    "domain": "webview",
+    "title": "AI Conversation shows user-facing progress by default for Codex, Claude, and Kimi while keeping reasoning independently hidden",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/conversationModel.test.js",
+      "tests/unit/aiSessions/conversationComments.test.js",
+      "tests/contract/aiSessions/codexConversationAdapter.test.js",
+      "tests/contract/aiSessions/claudeConversationAdapter.test.js",
+      "tests/contract/aiSessions/kimiConversationAdapter.test.js",
+      "tests/contract/aiSessions/conversationCoordinator.test.js",
+      "tests/browser/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/types.ts",
+      "src/aiSessions/conversation/model.ts",
+      "src/aiSessions/conversation/comments.ts",
+      "src/aiSessions/conversation/codexAdapter.ts",
+      "src/aiSessions/conversation/claudeAdapter.ts",
+      "src/aiSessions/conversation/kimiAdapter.ts",
+      "src/aiSessions/conversation/coordinator.ts",
+      "src/aiSessions/conversation/viewer.ts",
+      "media/conversationViewer.scss"
+    ]
+  },
+  {
+    "id": "CONVERSATION-PROVIDER-PARITY-001",
+    "domain": "webview",
+    "title": "Codex, Claude, and Kimi share the same default progress, hidden-thinking, collapsed-tool, and live Working presentation",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/browser/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/viewerDocument.ts",
+      "src/aiSessions/conversation/viewer.ts",
+      "src/webview/conversationViewerScripts.js"
+    ]
+  },
+  {
+    "id": "CONVERSATION-CHROME-LAYOUT-001",
+    "domain": "webview",
+    "title": "AI Conversation keeps its header and telemetry visible, non-overlapping, and outside the only scrollable message viewport at wide and narrow widths",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/browser/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/viewerDocument.ts",
+      "media/conversationViewer.scss",
+      "media/conversationTelemetry.css"
+    ]
+  },
+  {
+    "id": "CONVERSATION-LIVE-UPDATE-JOURNEY-001",
+    "domain": "webview",
+    "title": "A live response preserves telemetry, follows from the end, preserves historical reading position, and transitions Working to complete without a manual new-content control",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/browser/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/webview/conversationViewerScripts.js",
+      "src/webview/conversationReconcileScripts.js",
+      "media/conversationViewer.scss"
+    ]
+  },
+  {
+    "id": "CONVERSATION-NAVIGATION-STATE-001",
+    "domain": "webview",
+    "title": "Conversation navigation keeps Previous, Next, Latest, position, partial or stale status, focus, and message-only scrolling correlated",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/browser/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/viewer.ts",
+      "src/webview/conversationViewerScripts.js"
     ]
   },
   {

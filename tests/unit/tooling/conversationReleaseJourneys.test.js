@@ -56,6 +56,7 @@ test('RELEASE-CONVERSATION-JOURNEYS-001 accepts every reviewed AI Conversation r
     assert.deepEqual(validateReleaseJourneyCatalog(manifest, { behaviors }), []);
     assert.deepEqual(manifest.blockers.map(blocker => blocker.id), [
         'CONVERSATION-RELEASE-PROVIDERS-001',
+        'CONVERSATION-RELEASE-CORE-JOURNEY-001',
         'CONVERSATION-RELEASE-READING-FOCUS-001',
         'CONVERSATION-RELEASE-MERMAID-001',
         'CONVERSATION-RELEASE-COMMENT-PERSISTENCE-001',

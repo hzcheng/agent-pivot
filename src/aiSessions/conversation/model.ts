@@ -4,6 +4,7 @@ import type { AiSessionProviderId } from '../../models';
 import {
     CONVERSATION_LIMITS,
     ConversationError,
+    ConversationAssistantPhase,
     ConversationInteraction,
     ConversationMessage,
     ConversationOutline,
@@ -55,11 +56,35 @@ export function applyActiveLifecycleToResponseState(
     active: boolean,
     latest: boolean
 ): ConversationResponseState {
-    return active
-        && latest
-        && (state === 'interrupted' || state === 'unknown')
+    return active && latest
         ? 'inProgress'
         : state;
+}
+
+export function appendConversationAssistantText(
+    interaction: ConversationInteraction,
+    markdown: string,
+    phase: ConversationAssistantPhase = 'answer'
+): void {
+    const index = interaction.assistantMarkdown.length;
+    interaction.assistantMarkdown.push(markdown);
+    if (phase === 'progress' && !interaction.assistantPhases) {
+        interaction.assistantPhases = Array(index).fill('answer');
+    }
+    interaction.assistantPhases?.push(phase);
+}
+
+function assistantPhase(
+    interaction: ConversationInteraction,
+    index: number
+): ConversationAssistantPhase {
+    const explicit = interaction.assistantPhases?.[index];
+    if (explicit) {
+        return explicit;
+    }
+    return interaction.toolCalls?.some(toolCall => toolCall.position > index)
+        ? 'progress'
+        : 'answer';
 }
 
 export function buildConversationPage(
@@ -147,10 +172,13 @@ export function buildConversationPage(
             };
             interaction.assistantMarkdown.forEach((markdown, index) => {
                 pushAnchoredAt(index);
+                const phase = assistantPhase(interaction, index);
                 messages.push({
-                    id: `${interaction.id}:assistant:${index}`,
+                    id: `${interaction.id}:${phase === 'progress'
+                        ? 'progress'
+                        : 'assistant'}:${index}`,
                     interactionId: interaction.id,
-                    role: 'assistant',
+                    role: phase === 'progress' ? 'progress' : 'assistant',
                     timestamp: interaction.timestamp,
                     markdown,
                 });

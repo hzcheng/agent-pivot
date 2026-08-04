@@ -46,6 +46,8 @@ export interface ConversationThinkingBlock {
     text: string;
 }
 
+export type ConversationAssistantPhase = 'progress' | 'answer';
+
 export interface ConversationInteraction {
     id: string;
     providerTurnId?: string;
@@ -54,6 +56,7 @@ export interface ConversationInteraction {
     userPreview: string;
     userGraphemeCount: number;
     assistantMarkdown: string[];
+    assistantPhases?: ConversationAssistantPhase[];
     toolCalls?: ConversationToolCall[];
     thinking?: ConversationThinkingBlock[];
     responseState: ConversationResponseState;
@@ -64,7 +67,7 @@ export interface ConversationOutline {
     sessionId: string;
     sourceRevision: string;
     interactions: Array<Omit<ConversationInteraction,
-        'userMarkdown' | 'assistantMarkdown'>>;
+        'userMarkdown' | 'assistantMarkdown' | 'assistantPhases'>>;
     totalInteractions: number;
     partial: boolean;
 }
@@ -82,7 +85,7 @@ export interface ConversationPageRequest {
 export interface ConversationMessage {
     id: string;
     interactionId: string;
-    role: 'user' | 'assistant' | 'tool' | 'thinking';
+    role: 'user' | 'assistant' | 'progress' | 'tool' | 'thinking';
     timestamp?: number;
     markdown: string;
     tool?: Omit<ConversationToolCall, 'position'>;

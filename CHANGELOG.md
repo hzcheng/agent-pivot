@@ -6,17 +6,24 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
 
 ### Fixed
 
+- AI Conversation now contains scrolling within the message viewport, keeping
+  its header and session telemetry visible during Latest navigation, and
+  preventing blank overscroll beyond the content.
 - AI Conversation now follows live response content automatically while the
   reader is at the end, without requiring a New response content button;
   scrolling up still preserves the historical reading position.
 - AI Conversation shows an animated Working status below the latest response
   while the provider is still processing, including active Codex turns read as
-  interrupted by a detached reader, then removes it on completion.
+  interrupted by a detached reader and lifecycle-only transitions without new
+  provider content, then removes it on completion.
 
 ### Added
 
-- AI Conversation can show provider thinking blocks, including visible Codex
-  commentary and safe reasoning summaries, as collapsed entries interleaved
+- AI Conversation now shows user-facing progress updates by default across
+  Codex, Claude, and Kimi, including tool preambles and Kimi plans, while
+  keeping private Thinking independently hidden unless enabled.
+- AI Conversation can show provider thinking blocks, including safe Codex
+  reasoning summaries, as collapsed entries interleaved
   with assistant text and tool calls for Kimi, Claude, and Codex sessions.
   Thinking is hidden by default and can be enabled for main sessions and
   subagent transcripts with `agentPivot.aiConversation.showThinking`.

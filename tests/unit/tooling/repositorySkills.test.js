@@ -47,6 +47,8 @@ test('ARCH-REPOSITORY-SKILL-GUIDANCE-001 keeps regression audits path-based and 
         ['tracked or CI-produced test inputs', /git-tracked or produced by an earlier step of the CI job/i],
         ['build outputs absent rerun', /build outputs absent/i],
         ['machine state hermeticity', /git identity, environment variables, tools on PATH/i],
+        ['cross-feature rendered journey', /cross-feature journey[\s\S]*real rendered surface[\s\S]*provider[\s\S]*viewport\s+matrix/i],
+        ['post-repair mutation sensitivity', /implementation is already repaired[\s\S]*mutation sensitivity[\s\S]*reintroduce each causal defect/i],
     ]);
 });
 

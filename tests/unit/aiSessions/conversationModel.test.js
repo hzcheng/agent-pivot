@@ -60,7 +60,7 @@ test('SESSION-AI-SESSION-CONVERSATION-MODEL-002 projects immutable bounded summa
     );
     assert.equal(
         model.applyActiveLifecycleToResponseState('complete', true, true),
-        'complete'
+        'inProgress'
     );
 });
 
@@ -81,7 +81,7 @@ test('SESSION-AI-SESSION-CONVERSATION-MODEL-003 removes complete interactions un
     assert.ok(Buffer.byteLength(JSON.stringify(page), 'utf8') <= CONVERSATION_LIMITS.maxPageBytes);
 });
 
-test('CONVERSATION-TOOL-CALL-VISIBILITY-001 interleaves tool calls with assistant text by position', () => {
+test('CONVERSATION-TOOL-CALL-VISIBILITY-001 CONVERSATION-PROGRESS-VISIBILITY-001 interleaves tool calls with progress and final assistant text by position', () => {
     const interactions = [{
         id: 'i-1',
         providerTurnId: 'turn-1',
@@ -90,6 +90,7 @@ test('CONVERSATION-TOOL-CALL-VISIBILITY-001 interleaves tool calls with assistan
         userPreview: 'Run the tests',
         userGraphemeCount: 13,
         assistantMarkdown: ['first chunk', 'second chunk'],
+        assistantPhases: ['progress', 'answer'],
         toolCalls: [
             { position: 0, name: 'Shell', summary: 'Shell npm test' },
             { position: 1, name: 'ReadFile', summary: 'ReadFile a.ts', detail: 'file body' },
@@ -108,7 +109,7 @@ test('CONVERSATION-TOOL-CALL-VISIBILITY-001 interleaves tool calls with assistan
         [
             ['user', 'i-1:user'],
             ['tool', 'i-1:tool:0'],
-            ['assistant', 'i-1:assistant:0'],
+            ['progress', 'i-1:progress:0'],
             ['tool', 'i-1:tool:1'],
             ['assistant', 'i-1:assistant:1'],
             ['tool', 'i-1:tool:2'],
@@ -151,7 +152,7 @@ test('CONVERSATION-THINKING-VISIBILITY-001 interleaves thinking blocks with tool
         [
             ['user', 'i-1:user'],
             ['thinking', 'i-1:thinking:0'],
-            ['assistant', 'i-1:assistant:0'],
+            ['progress', 'i-1:progress:0'],
             ['tool', 'i-1:tool:0'],
             ['assistant', 'i-1:assistant:1'],
             ['thinking', 'i-1:thinking:1'],

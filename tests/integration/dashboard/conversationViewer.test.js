@@ -1152,6 +1152,44 @@ test('CONVERSATION-READING-FOCUS-001 ignores watched refreshes when the authorit
     assert.equal(panel.webview.html.includes('visible-1'), true);
 });
 
+test('CONVERSATION-WORKING-INDICATOR-001 republishes lifecycle state when content revision is unchanged', async () => {
+    let onChange;
+    let responseState = 'complete';
+    let pageReads = 0;
+    const { viewer, panel } = createViewer({
+        watch: (_provider, _sessionId, callback) => {
+            onChange = callback;
+            return { dispose() {} };
+        },
+        readOutline: async (_provider, sessionId) => {
+            const value = outline(sessionId, ['input-1'], {
+                sourceRevision: 'stable-r1',
+            });
+            value.interactions[0].responseState = responseState;
+            return value;
+        },
+        readPage: async request => {
+            pageReads += 1;
+            return page(request.sessionId, request.anchorInteractionId, 'visible', {
+                sourceRevision: request.expectedRevision,
+            });
+        },
+    });
+
+    await viewer.open(target('session-a', 'input-1', {
+        expectedRevision: 'stable-r1',
+    }));
+    responseState = 'inProgress';
+    onChange();
+    await new Promise(resolve => setImmediate(resolve));
+
+    const publications = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page');
+    assert.equal(pageReads, 1, 'lifecycle-only refresh reuses retained messages');
+    assert.equal(publications.length, 1);
+    assert.equal(publications[0].outline[0].responseState, 'inProgress');
+});
+
 test('CONVERSATION-VIEWER-LOADING-001 coalesces watched invalidations without starving the initial publication', async t => {
     let onChange;
     let outlineReads = 0;

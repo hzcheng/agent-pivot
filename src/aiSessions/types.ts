@@ -114,6 +114,9 @@ export interface AiSessionService {
     archiveSession(sessionId: string): boolean;
     invalidateCache(): void;
     resolveSessionFilePath?(sessionId: string): string | null;
+    getConversationLifecycleSignal?(
+        sessionId: string
+    ): AiSessionLifecycleSignal | undefined;
     resolveConversationSource?(
         sessionId: string,
 

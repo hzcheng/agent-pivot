@@ -14,6 +14,7 @@ import {
     readConversationJsonl,
 } from './jsonlReader';
 import {
+    appendConversationAssistantText,
     buildConversationOutline,
     buildConversationPage,
 } from './model';
@@ -133,6 +134,9 @@ function cloneInteractions(
     return interactions.map(interaction => ({
         ...interaction,
         assistantMarkdown: interaction.assistantMarkdown.slice(),
+        ...(interaction.assistantPhases
+            ? { assistantPhases: interaction.assistantPhases.slice() }
+            : {}),
         ...(interaction.toolCalls
             ? { toolCalls: interaction.toolCalls.slice() }
             : {}),
@@ -506,8 +510,10 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                         && typeof payload.text === 'string') {
                         const text = visibleMessage(payload.text);
                         if (text) {
-                            interactions[openInteractionIndex]
-                                .assistantMarkdown.push(text);
+                            appendConversationAssistantText(
+                                interactions[openInteractionIndex],
+                                text
+                            );
                         }
                     }
                 } else if (event.type === 'PlanDisplay') {
@@ -517,8 +523,11 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                         && typeof payload?.content === 'string') {
                         const content = visibleMessage(payload.content);
                         if (content) {
-                            interactions[openInteractionIndex]
-                                .assistantMarkdown.push(content);
+                            appendConversationAssistantText(
+                                interactions[openInteractionIndex],
+                                content,
+                                'progress'
+                            );
                         }
                     }
                 } else if (event.type === 'StatusUpdate') {

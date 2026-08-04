@@ -205,6 +205,9 @@ function cloneInteractions(
     return interactions.map(interaction => ({
         ...interaction,
         assistantMarkdown: interaction.assistantMarkdown.slice(),
+        ...(interaction.assistantPhases
+            ? { assistantPhases: interaction.assistantPhases.slice() }
+            : {}),
         ...(interaction.toolCalls
             ? { toolCalls: interaction.toolCalls.slice() }
             : {}),

@@ -896,3 +896,76 @@ test('CONVERSATION-THINKING-VISIBILITY-001 coordinator preserves thinking messag
         text: 'I should inspect the coordinator boundary.',
     });
 });
+
+test('CONVERSATION-PROGRESS-VISIBILITY-001 coordinator preserves progress and projects active Claude and Kimi responses as in progress', async () => {
+    for (const provider of ['claude', 'kimi']) {
+        const calls = { codex: 0, kimi: 0, claude: 0 };
+        const adapter = adapterReturning(calls, provider, {
+            readOutline: async sessionId => makeOutline(
+                provider,
+                sessionId,
+                `native-${provider}`,
+                {
+                    interactions: [{
+                        id: 'input-a',
+                        userPreview: 'Current request',
+                        userGraphemeCount: 15,
+                        responseState: 'complete',
+                    }],
+                    totalInteractions: 1,
+                }
+            ),
+            readPage: async request => makePage(
+                provider,
+                request.sessionId,
+                `native-${provider}`,
+                {
+                    messages: [
+                        {
+                            id: 'input-a:user',
+                            interactionId: 'input-a',
+                            role: 'user',
+                            markdown: 'Current request',
+                        },
+                        {
+                            id: 'input-a:progress:0',
+                            interactionId: 'input-a',
+                            role: 'progress',
+                            markdown: 'Running checks.',
+                        },
+                        {
+                            id: 'input-a:assistant:0',
+                            interactionId: 'input-a',
+                            role: 'assistant',
+                            markdown: 'Still processing.',
+                        },
+                    ],
+                    interactionStates: [{
+                        interactionId: 'input-a',
+                        responseState: 'complete',
+                    }],
+                    previousCursor: undefined,
+                    nextCursor: undefined,
+                    isStart: true,
+                    isEnd: true,
+                }
+            ),
+        });
+        const { coordinator } = createCoordinatorHarness({ [provider]: adapter });
+        coordinator.setSessionStopped(provider, 'session-a', false);
+        const outline = await coordinator.readOutline(provider, 'session-a');
+        const page = await coordinator.readPage({
+            provider,
+            sessionId: 'session-a',
+            anchorInteractionId: 'input-a',
+            direction: 'around',
+            expectedRevision: outline.sourceRevision,
+        });
+
+        assert.equal(outline.interactions[0].responseState, 'inProgress');
+        assert.equal(page.interactionStates[0].responseState, 'inProgress');
+        assert.equal(page.messages[1].role, 'progress');
+        assert.equal(page.messages[2].role, 'progress');
+        coordinator.dispose();
+    }
+});

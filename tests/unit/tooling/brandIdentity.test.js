@@ -50,7 +50,7 @@ function manifests() {
             name: 'agent-pivot',
             displayName: 'Agent Pivot',
             publisher: 'hzcheng',
-            version: '1.0.2',
+            version: '1.0.3',
             icon: 'media/extension_icon.png',
             repository: {
                 type: 'git',
@@ -294,7 +294,7 @@ test('brand identity exposes the exact approved public contract', () => {
         publisher: 'hzcheng',
         mainPackageName: 'agent-pivot',
         mainExtensionId: 'hzcheng.agent-pivot',
-        mainVersion: '1.0.2',
+        mainVersion: '1.0.3',
         bridgePackageName: 'agent-pivot-attention-ui-bridge',
         bridgeExtensionId: 'hzcheng.agent-pivot-attention-ui-bridge',
         commandPrefix: 'agentPivot.',

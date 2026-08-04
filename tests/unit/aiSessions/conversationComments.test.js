@@ -8,10 +8,9 @@ const {
     ConversationCommentError,
     createConversationComment,
     createConversationSessionComment,
-    markConversationCommentsSent,
-    reopenConversationComment,
-    resolveConversationComment,
+    markConversationCommentsDone,
     updateConversationComment,
+    validateConversationComments,
 } = require('../../../out/aiSessions/conversation/comments');
 
 const message = Object.freeze({
@@ -21,7 +20,7 @@ const message = Object.freeze({
     markdown: 'The original response.',
 });
 
-test('CONVERSATION-COMMENTS-001 CONVERSATION-COMMENTS-REVIEW-001 creates bounded host-authoritative drafts and review states', () => {
+test('CONVERSATION-COMMENTS-001 creates bounded host-authoritative drafts and open/done states', () => {
     const draft = createConversationComment('comment-a', {
         messageId: 'message-a',
         interactionId: 'interaction-a',
@@ -42,22 +41,40 @@ test('CONVERSATION-COMMENTS-001 CONVERSATION-COMMENTS-REVIEW-001 creates bounded
         comment: 'Explain this.',
         status: 'open',
     });
-    assert.equal(
-        updateConversationComment(draft, '  Add a test.  ').comment,
-        'Add a test.'
-    );
-    assert.equal(resolveConversationComment(draft).status, 'resolved');
-    assert.equal(
-        reopenConversationComment(resolveConversationComment(draft)).status,
-        'open'
+    const editedOpen = updateConversationComment(draft, '  Add a test.  ');
+    assert.equal(editedOpen.comment, 'Add a test.');
+    assert.equal(editedOpen.status, 'open');
+    assert.equal('sentAt' in editedOpen, false);
+
+    const doneDraft = {
+        ...draft,
+        status: 'done',
+        createdAt: 1_700_000_000_000,
+        sentAt: 1_700_000_000_100,
+    };
+    const editedDone = updateConversationComment(doneDraft, 'Rephrase this.');
+    assert.equal(editedDone.comment, 'Rephrase this.');
+    assert.equal(editedDone.status, 'open');
+    assert.equal(editedDone.createdAt, 1_700_000_000_000);
+    assert.equal('sentAt' in editedDone, false);
+
+    const marked = markConversationCommentsDone(
+        [draft, doneDraft],
+        1_700_000_000_200
     );
     assert.deepEqual(
-        markConversationCommentsSent([
-            draft,
-            resolveConversationComment(draft),
-        ]).map(comment => comment.status),
-        ['sent', 'resolved']
+        marked.map(comment => comment.status),
+        ['done', 'done']
     );
+    assert.equal(marked[0].sentAt, 1_700_000_000_200);
+    assert.equal(marked[0].createdAt, undefined);
+    assert.equal(
+        marked[1].sentAt,
+        1_700_000_000_100,
+        'a done comment keeps its original send timestamp'
+    );
+    assert.equal(marked[1].createdAt, 1_700_000_000_000);
+
     assert.throws(
         () => createConversationComment('comment-b', {
             messageId: 'other-message',
@@ -88,7 +105,9 @@ test('CONVERSATION-PROGRESS-VISIBILITY-001 treats selected progress text as assi
     });
 
     assert.equal(draft.role, 'assistant');
-    assert.doesNotThrow(() => markConversationCommentsSent([draft]));
+    assert.doesNotThrow(
+        () => markConversationCommentsDone([draft], 1_700_000_000_000)
+    );
 });
 
 test('CONVERSATION-COMMENTS-001 creates a session-wide note without a selected message', () => {
@@ -168,7 +187,53 @@ test('CONVERSATION-COMMENTS-003 rejects empty and oversized batches', () => {
     );
 });
 
-test('CONVERSATION-COMMENTS-BULK-001 clears sent, resolved, or all comments without mutating the input', () => {
+test('CONVERSATION-COMMENTS-001 validates optional timestamps and rejects legacy statuses', () => {
+    const base = {
+        id: 'comment-a',
+        messageId: 'message-a',
+        interactionId: 'interaction-a',
+        role: 'assistant',
+        quote: 'Original answer',
+        prefix: '',
+        suffix: '',
+        comment: 'Please clarify this.',
+        status: 'open',
+    };
+
+    assert.doesNotThrow(() => validateConversationComments([base]));
+    assert.doesNotThrow(() => validateConversationComments([{
+        ...base,
+        status: 'done',
+        createdAt: 1_700_000_000_000,
+        sentAt: 0,
+    }]));
+
+    ['sent', 'resolved'].forEach(status => {
+        assert.throws(
+            () => validateConversationComments([{ ...base, status }]),
+            error => error instanceof ConversationCommentError
+                && error.code === 'invalid'
+        );
+    });
+    [-1, 1.5, Number.MAX_SAFE_INTEGER + 1, 'yesterday'].forEach(value => {
+        assert.throws(
+            () => validateConversationComments([{ ...base, createdAt: value }]),
+            error => error instanceof ConversationCommentError
+                && error.code === 'invalid'
+        );
+        assert.throws(
+            () => validateConversationComments([{
+                ...base,
+                status: 'done',
+                sentAt: value,
+            }]),
+            error => error instanceof ConversationCommentError
+                && error.code === 'invalid'
+        );
+    });
+});
+
+test('CONVERSATION-COMMENTS-BULK-001 clears done or all comments without mutating the input', () => {
     const comments = [{
         id: 'comment-open',
         messageId: 'message-a',
@@ -180,42 +245,45 @@ test('CONVERSATION-COMMENTS-BULK-001 clears sent, resolved, or all comments with
         comment: 'Open question.',
         status: 'open',
     }, {
-        id: 'comment-sent',
+        id: 'comment-done',
         messageId: 'message-a',
         interactionId: 'interaction-a',
         role: 'assistant',
-        quote: 'Sent quote',
+        quote: 'Done quote',
         prefix: '',
         suffix: '',
-        comment: 'Sent question.',
-        status: 'sent',
+        comment: 'Done question.',
+        status: 'done',
+        createdAt: 1_700_000_000_000,
+        sentAt: 1_700_000_000_100,
     }, {
-        id: 'comment-resolved',
+        id: 'comment-done-later',
         messageId: 'message-a',
         interactionId: 'interaction-a',
         role: 'assistant',
-        quote: 'Resolved quote',
+        quote: 'Later done quote',
         prefix: '',
         suffix: '',
-        comment: 'Resolved question.',
-        status: 'resolved',
+        comment: 'Later done question.',
+        status: 'done',
     }];
 
     assert.deepEqual(
-        clearConversationComments(comments, 'clearSent').map(
+        clearConversationComments(comments, 'clearDone').map(
             comment => comment.id
         ),
-        ['comment-open', 'comment-resolved']
-    );
-    assert.deepEqual(
-        clearConversationComments(comments, 'clearResolved').map(
-            comment => comment.id
-        ),
-        ['comment-open', 'comment-sent']
+        ['comment-open']
     );
     assert.deepEqual(clearConversationComments(comments, 'clearAll'), []);
     assert.deepEqual(
         comments.map(comment => comment.id),
-        ['comment-open', 'comment-sent', 'comment-resolved']
+        ['comment-open', 'comment-done', 'comment-done-later']
     );
+    ['clearSent', 'clearResolved'].forEach(operation => {
+        assert.throws(
+            () => clearConversationComments(comments, operation),
+            error => error instanceof ConversationCommentError
+                && error.code === 'invalid'
+        );
+    });
 });

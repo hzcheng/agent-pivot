@@ -66,6 +66,7 @@ export class ConversationCommentFileStore implements ConversationCommentStore {
             if (!isPersistedSnapshot(value, target)) {
                 return emptySnapshot();
             }
+            normalizeLegacyCommentStatuses(value.comments);
             validateConversationComments(value.comments);
             return {
                 revision: value.revision,
@@ -145,6 +146,19 @@ export class ConversationCommentFileStore implements ConversationCommentStore {
 
 function emptySnapshot(): ConversationCommentSnapshot {
     return { revision: 0, comments: [] };
+}
+
+// Migrates snapshots persisted before the open/done simplification: legacy
+// 'sent' and 'resolved' statuses both collapse into 'done'. Timestamps are
+// left untouched; createdAt/sentAt are optional and stay absent when the
+// legacy snapshot never recorded them.
+function normalizeLegacyCommentStatuses(comments: unknown[]): void {
+    comments.forEach(comment => {
+        if (isRecord(comment)
+            && (comment.status === 'sent' || comment.status === 'resolved')) {
+            comment.status = 'done';
+        }
+    });
 }
 
 function isSnapshot(value: unknown): value is ConversationCommentSnapshot {

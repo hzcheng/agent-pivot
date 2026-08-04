@@ -32,8 +32,7 @@ export interface ConversationViewerCommentMutationMessage {
     projectId: string;
     provider: AiSessionProviderId;
     sessionId: string;
-    operation: 'add' | 'update' | 'delete' | 'resolve' | 'reopen'
-        | 'clearSent' | 'clearResolved' | 'clearAll';
+    operation: 'add' | 'update' | 'delete' | 'clearDone' | 'clearAll';
     expectedRevision: number;
     payload: unknown;
 }
@@ -240,10 +239,7 @@ export function parseConversationViewerMessage(
         if (value.operation !== 'add'
             && value.operation !== 'update'
             && value.operation !== 'delete'
-            && value.operation !== 'resolve'
-            && value.operation !== 'reopen'
-            && value.operation !== 'clearSent'
-            && value.operation !== 'clearResolved'
+            && value.operation !== 'clearDone'
             && value.operation !== 'clearAll') {
             return undefined;
         }

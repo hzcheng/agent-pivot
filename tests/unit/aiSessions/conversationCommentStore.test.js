@@ -76,6 +76,35 @@ test('CONVERSATION-COMMENTS-PERSISTENCE-001 stores isolated, validated snapshots
     assert.deepEqual(await fs.promises.readdir(directory), []);
 });
 
+test('CONVERSATION-COMMENTS-PERSISTENCE-001 normalizes legacy sent and resolved statuses to done on load', async t => {
+    const root = await fs.promises.mkdtemp(
+        path.join(os.tmpdir(), 'agent-pivot-conversation-comments-legacy-')
+    );
+    t.after(() => fs.promises.rm(root, { recursive: true, force: true }));
+    const store = new ConversationCommentFileStore(root);
+    await store.save(target(), snapshot());
+    const directory = path.join(root, 'conversation-comments', 'v1');
+    const [fileName] = await fs.promises.readdir(directory);
+    const filePath = path.join(directory, fileName);
+    const persisted = JSON.parse(
+        await fs.promises.readFile(filePath, 'utf8')
+    );
+    persisted.comments[0].status = 'sent';
+    persisted.comments[1].status = 'resolved';
+    await fs.promises.writeFile(filePath, JSON.stringify(persisted), 'utf8');
+
+    const restored = await store.load(target());
+    assert.equal(restored.revision, 4);
+    assert.deepEqual(
+        restored.comments.map(comment => comment.status),
+        ['done', 'done']
+    );
+    assert.equal(restored.comments[0].createdAt, undefined);
+    assert.equal(restored.comments[0].sentAt, undefined);
+    assert.equal(restored.comments[1].createdAt, undefined);
+    assert.equal(restored.comments[1].sentAt, undefined);
+});
+
 test('CONVERSATION-COMMENTS-PERSISTENCE-001 ignores malformed private snapshots without blocking Conversation', async t => {
     const root = await fs.promises.mkdtemp(
         path.join(os.tmpdir(), 'agent-pivot-conversation-comments-corrupt-')

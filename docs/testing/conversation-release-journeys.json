@@ -57,8 +57,7 @@
       "enforcement": "pull-request",
       "behaviors": [
         "CONVERSATION-COMMENTS-SUBMIT-001",
-        "CONVERSATION-COMMENTS-SUBMIT-002",
-        "CONVERSATION-COMMENTS-REVIEW-001"
+        "CONVERSATION-COMMENTS-SUBMIT-002"
       ]
     },
     {

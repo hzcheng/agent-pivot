@@ -2298,6 +2298,28 @@ test('CONVERSATION-COMMENTS-UI-001 filters cards, jumps from message markers, an
         `comment toolbar height ${toolbarHeight}px must remain compact`
     );
 
+    // The send action is a bare icon: no count badge, one uniform size.
+    assert.equal(
+        await toolbar.locator('[data-comment-send-count]').count(),
+        0,
+        'send button must not render a count badge'
+    );
+    assert.equal(
+        await toolbar.locator('[data-comment-action="send"]').innerText(),
+        '',
+        'send button must stay icon-only'
+    );
+    assert.deepEqual(
+        (await toolbar.locator('[data-comment-action]').evaluateAll(buttons =>
+            Array.from(new Set(buttons.map(button => {
+                const box = button.getBoundingClientRect();
+                return Math.round(box.width) + 'x' + Math.round(box.height);
+            })))
+        )).length,
+        1,
+        'toolbar buttons must share one uniform icon size'
+    );
+
     // Telemetry pill reports open/total.
     assert.equal(
         await page.locator('[data-telemetry-comments]').innerText(),

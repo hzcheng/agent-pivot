@@ -264,12 +264,10 @@ export function renderConversationViewerDocument(
                             aria-pressed="false">${CONVERSATION_COMMENT_ICON_CHECK}</button>
                     </div>
                     <div class="conversation-comments-toolbar-actions">
-                        <button class="conversation-comment-icon-button conversation-comments-send"
+                        <button class="conversation-comment-icon-button"
                             type="button" data-comment-action="send" disabled
                             title="Send open comments to the session input"
-                            aria-label="Send open comments to the session input">${CONVERSATION_COMMENT_ICON_SEND}<span
-                                class="conversation-comments-send-count"
-                                data-comment-send-count hidden></span></button>
+                            aria-label="Send open comments to the session input">${CONVERSATION_COMMENT_ICON_SEND}</button>
                         <button class="conversation-comment-icon-button" type="button"
                             data-comment-action="clearDone" disabled
                             title="Clear done comments"

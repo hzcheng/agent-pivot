@@ -23,7 +23,6 @@
         var commentFilterEmpty = options.commentFilterEmpty;
         var commentNew = options.commentNew;
         var commentSend = options.commentSend;
-        var commentSendCount = options.commentSendCount;
         var commentClearDone = options.commentClearDone;
         var commentClearAll = options.commentClearAll;
         var vscodeApi = options.vscodeApi;
@@ -222,10 +221,6 @@
             commentSend.disabled = counts.open === 0 || pending;
             commentSend.title = sendLabel;
             commentSend.setAttribute('aria-label', sendLabel);
-            if (commentSendCount) {
-                commentSendCount.textContent = String(counts.open);
-                commentSendCount.hidden = counts.open === 0;
-            }
             if (headerSend) {
                 headerSend.disabled = counts.open === 0 || pending;
                 headerSend.textContent = counts.open > 0

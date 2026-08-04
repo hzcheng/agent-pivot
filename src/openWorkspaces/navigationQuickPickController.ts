@@ -6,13 +6,20 @@ import type { OpenWorkspaceRecord } from './protocol';
 export interface OpenWindowQuickPickItem {
     label: string;
     description?: string;
-    detail?: string;
     cardId: string;
+}
+
+export interface OpenWindowProjectDisplay {
+    name: string;
+    groupName: string | null;
 }
 
 export interface WorkspaceNavigationQuickPickControllerOptions {
     getCards: () => WorkspaceCardViewModel[];
     getRecord: (cardId: string) => OpenWorkspaceRecord | null;
+    getProjectDisplay: (
+        workspace: Pick<OpenWorkspaceRecord, 'kind' | 'navigationUri'>,
+    ) => OpenWindowProjectDisplay | null;
     showQuickPick: (
         items: OpenWindowQuickPickItem[],
         options: { placeHolder: string; title: string },
@@ -44,24 +51,10 @@ export class WorkspaceNavigationQuickPickController {
 
     private createItem(card: WorkspaceCardViewModel): OpenWindowQuickPickItem {
         const record = this.options.getRecord(card.id);
-        const segments = [card.environmentLabel];
-        if (card.runningSessionCount > 0) {
-            segments.push(card.runningSessionCount === 1
-                ? '1 running session'
-                : `${card.runningSessionCount} running sessions`);
-        }
-        if (card.attentionCount > 0) {
-            segments.push(card.attentionCount === 1
-                ? '1 needs attention'
-                : `${card.attentionCount} need attention`);
-        }
-        if (card.workspaceKind === 'untitledMultiRoot') {
-            segments.push('unsaved workspace');
-        }
+        const projectDisplay = record ? this.options.getProjectDisplay(record) : null;
         return {
-            label: card.name,
-            description: segments.filter(segment => !!segment).join(' · '),
-            detail: record ? record.navigationUri : undefined,
+            label: projectDisplay ? projectDisplay.name : card.name,
+            description: projectDisplay?.groupName || undefined,
             cardId: card.id,
         };
     }

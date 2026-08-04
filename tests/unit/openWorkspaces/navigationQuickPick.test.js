@@ -12,9 +12,6 @@ function card(overrides) {
         kind: 'navigation',
         workspaceKind: 'singleFolder',
         name: 'workspace-a',
-        environmentLabel: 'Local',
-        runningSessionCount: 0,
-        attentionCount: 0,
     }, overrides);
 }
 
@@ -32,10 +29,11 @@ function record(navigationUri) {
 }
 
 function createController(overrides) {
-    const calls = { quickPick: 0, open: [], info: [] };
+    const calls = { quickPick: 0, open: [], info: [], projectDisplay: [] };
     const options = Object.assign({
         getCards: () => [],
         getRecord: () => null,
+        getProjectDisplay: workspace => { calls.projectDisplay.push(workspace); return null; },
         showQuickPick: async () => { calls.quickPick += 1; return undefined; },
         open: async cardId => { calls.open.push(cardId); },
         showInformationMessage: message => { calls.info.push(message); },
@@ -58,47 +56,46 @@ test('pickAndOpen informs when no other windows are open', async () => {
     assert.deepEqual(calls.info, ['No other open windows to switch to.']);
 });
 
-test('pickAndOpen maps navigation cards to quick pick items', async () => {
-    const uri = 'vscode-remote://ssh-remote%2Bhost/work/workspace-a';
+test('pickAndOpen shows project name and group name for saved projects', async () => {
     let shownItems;
     let shownOptions;
-    const { controller } = createController({
+    const { controller, calls } = createController({
         getCards: () => [
             card({ kind: 'current', id: '__currentWorkspace-fff' }),
-            card({ runningSessionCount: 2, attentionCount: 1 }),
-            card({
-                id: '__openWorkspaceNavigation-def456',
-                name: 'workspace-b',
-                environmentLabel: 'WSL',
-                workspaceKind: 'untitledMultiRoot',
-            }),
+            card(),
+            card({ id: '__openWorkspaceNavigation-def456', name: 'workspace-b' }),
+            card({ id: '__openWorkspaceNavigation-ghi789', name: 'workspace-c' }),
         ],
-        getRecord: cardId => (cardId === '__openWorkspaceNavigation-abc123' ? record(uri) : null),
+        getRecord: cardId => (cardId === '__openWorkspaceNavigation-ghi789' ? null : record(`file:///work/${cardId}`)),
+        getProjectDisplay: workspace => {
+            calls.projectDisplay.push(workspace);
+            if (workspace.navigationUri.endsWith('abc123')) {
+                return { name: 'Project Alpha', groupName: 'Backend' };
+            }
+            if (workspace.navigationUri.endsWith('def456')) {
+                return { name: 'Project Beta', groupName: null };
+            }
+            return null;
+        },
         showQuickPick: async (items, options) => { shownItems = items; shownOptions = options; return undefined; },
     });
 
     await controller.pickAndOpen();
 
-    assert.equal(shownItems.length, 2);
-    assert.deepEqual(shownItems[0], {
-        label: 'workspace-a',
-        description: 'Local · 2 running sessions · 1 needs attention',
-        detail: uri,
-        cardId: '__openWorkspaceNavigation-abc123',
-    });
-    assert.deepEqual(shownItems[1], {
-        label: 'workspace-b',
-        description: 'WSL · unsaved workspace',
-        detail: undefined,
-        cardId: '__openWorkspaceNavigation-def456',
-    });
+    assert.deepEqual(shownItems, [
+        { label: 'Project Alpha', description: 'Backend', cardId: '__openWorkspaceNavigation-abc123' },
+        { label: 'Project Beta', description: undefined, cardId: '__openWorkspaceNavigation-def456' },
+        { label: 'workspace-c', description: undefined, cardId: '__openWorkspaceNavigation-ghi789' },
+    ]);
     assert.equal(shownOptions.title, 'Switch to Open Window');
     assert.ok(shownOptions.placeHolder.length > 0);
+    assert.equal(calls.projectDisplay.length, 2);
 });
 
 test('pickAndOpen opens the selected card', async () => {
     const { controller, calls } = createController({
         getCards: () => [card()],
+        getRecord: () => record('file:///work/workspace-a'),
         showQuickPick: async items => items[0],
     });
 
@@ -117,16 +114,4 @@ test('pickAndOpen does nothing when the pick is cancelled', async () => {
     await controller.pickAndOpen();
 
     assert.deepEqual(calls.open, []);
-});
-
-test('pickAndOpen uses singular running session wording', async () => {
-    let shownItems;
-    const { controller } = createController({
-        getCards: () => [card({ runningSessionCount: 1 })],
-        showQuickPick: async items => { shownItems = items; return undefined; },
-    });
-
-    await controller.pickAndOpen();
-
-    assert.equal(shownItems[0].description, 'Local · 1 running session');
 });

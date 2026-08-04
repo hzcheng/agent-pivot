@@ -5,6 +5,7 @@
 html,
 body {
     height: 100%;
+    overflow: hidden;
 }
 
 body {
@@ -114,6 +115,7 @@ button {
 .conversation-scroll {
     min-height: 0;
     overflow-y: auto;
+    overscroll-behavior-y: contain;
     padding: 0.5rem 1rem 1rem;
 }
 

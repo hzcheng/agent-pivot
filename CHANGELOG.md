@@ -6,6 +6,8 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
 
 ### Fixed
 
+- AI Conversation now contains scrolling within the message viewport, keeping
+  session telemetry visible and preventing blank overscroll beyond the content.
 - AI Conversation now follows live response content automatically while the
   reader is at the end, without requiring a New response content button;
   scrolling up still preserves the historical reading position.

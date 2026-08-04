@@ -696,6 +696,13 @@ async function openHostViewerDocument(t, options = {}) {
             });
             return;
         }
+        if (pathname === '/conversationTelemetry.css') {
+            await route.fulfill({
+                contentType: 'text/css',
+                body: options?.includeStyles ? telemetryCss : '',
+            });
+            return;
+        }
         await route.fulfill({ contentType: 'text/html', body: html });
     });
     await page.addInitScript(initialWebviewState => {
@@ -3825,6 +3832,63 @@ test('CONVERSATION-VIEWER-BROWSER-SCROLL-001 CONVERSATION-READING-FOCUS-001 foll
     });
     assert.equal(await scroll.evaluate(element => element.scrollTop), before);
     assert.equal(await page.locator('[data-new-response]').count(), 0);
+});
+
+test('CONVERSATION-SCROLL-CONTAINMENT-001 keeps overscroll inside the message viewport without moving telemetry', async t => {
+    const interactionId = 'input-scroll-containment';
+    const messages = Array.from({ length: 40 }, (_item, index) => ({
+        id: `${interactionId}:assistant:${index}`,
+        interactionId,
+        role: 'assistant',
+        markdown: `Progress line ${index + 1}: inspect the active conversation.`,
+    }));
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+        interactionIds: [interactionId],
+        interactionId,
+        pageOverrides: {
+            messages,
+            previousCursor: undefined,
+            nextCursor: undefined,
+            isStart: true,
+            isEnd: true,
+        },
+    });
+    const telemetry = page.locator('[data-conversation-telemetry]');
+    await telemetry.evaluate(element => {
+        element.hidden = false;
+    });
+    const scroll = page.locator('[data-conversation-scroll]');
+    await scroll.evaluate(element => {
+        element.scrollTop = element.scrollHeight - element.clientHeight;
+    });
+    await scroll.hover();
+    await page.mouse.wheel(0, 4_000);
+
+    const layout = await page.evaluate(() => {
+        const reader = document.querySelector('[data-conversation-scroll]');
+        const usage = document.querySelector('[data-conversation-telemetry]');
+        return {
+            rootScrollTop: document.documentElement.scrollTop,
+            bodyScrollTop: document.body.scrollTop,
+            rootOverflowY: getComputedStyle(document.documentElement).overflowY,
+            bodyOverflowY: getComputedStyle(document.body).overflowY,
+            readerOverscrollY: getComputedStyle(reader).overscrollBehaviorY,
+            telemetryTop: usage.getBoundingClientRect().top,
+            telemetryBottom: usage.getBoundingClientRect().bottom,
+            viewportHeight: window.innerHeight,
+        };
+    });
+    assert.deepEqual(
+        [layout.rootOverflowY, layout.bodyOverflowY],
+        ['hidden', 'hidden']
+    );
+    assert.equal(layout.readerOverscrollY, 'contain');
+    assert.equal(layout.rootScrollTop, 0);
+    assert.equal(layout.bodyScrollTop, 0);
+    assert.ok(layout.telemetryTop >= 0);
+    assert.ok(layout.telemetryBottom <= layout.viewportHeight);
 });
 
 test('CONVERSATION-WORKING-INDICATOR-001 shows an animated status only for the latest in-progress response', async t => {

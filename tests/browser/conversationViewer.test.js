@@ -1716,9 +1716,20 @@ test('CONVERSATION-COMMENTS-UI-001 send action and telemetry comments pill drive
                 const box = button.getBoundingClientRect();
                 return Math.round(box.width) + 'x' + Math.round(box.height);
             })))
-        )).length,
-        1,
-        'header buttons must share one uniform icon size'
+        )),
+        ['28x28'],
+        'header buttons must render as one uniform row of 28px icons'
+    );
+    assert.deepEqual(
+        (await navButtons.evaluateAll(buttons =>
+            Array.from(new Set(buttons.map(button =>
+                Math.round(
+                    button.querySelector('svg').getBoundingClientRect().width
+                )
+            )))
+        )),
+        [16],
+        'header icons must render at 16px'
     );
 
     const toolbarSend = page.locator(

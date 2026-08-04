@@ -880,6 +880,16 @@ button {
     }
 }
 
+.conversation-icon-button {
+    width: 28px;
+    height: 28px;
+
+    svg {
+        width: 16px;
+        height: 16px;
+    }
+}
+
 .conversation-icon-button[aria-expanded="true"] {
     color: var(--vscode-foreground);
     border-color: var(--vscode-panel-border);

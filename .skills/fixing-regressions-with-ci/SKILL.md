@@ -22,6 +22,7 @@ Turn every confirmed regression into a CI-owned behavior before changing product
    - Read `docs/testing/README.md`.
    - Select an existing behavior ID or add one to `docs/testing/behavior-contracts.json`.
    - Add the ID to a focused test at the lowest stable layer.
+   - For every user-visible UI/Webview regression, ensure at least one automated owner asserts the final rendered or interaction surface. A ViewModel, controller, protocol, or intermediate message assertion alone is insufficient; if the focused owner stops at an intermediate layer, add a rendered-surface owner.
    - When one change has regressed multiple neighboring features, add a
      cross-feature journey in the real rendered surface in addition to the
      focused owners. Exercise the relevant transition, provider, and viewport

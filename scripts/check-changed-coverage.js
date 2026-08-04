@@ -36,6 +36,10 @@ const UNINSTRUMENTED_BY_DESIGN = [
     // compiles to an empty, statement-less file, so there is nothing to
     // instrument.
     'src/aiSessions/conversation/viewerTarget.ts',
+    // Vendored third-party library (Name that Color, Creative Commons). It is
+    // only reachable through colorService, whose own unit tests exercise the
+    // ntc call sites; vendored code carries no per-change coverage obligation.
+    'src/services/ntc.ts',
 ];
 
 function isUninstrumentedByDesign(file) {

@@ -86,6 +86,8 @@ test('COVERAGE-CHANGED-CODE-001 exempts only the paths the suite structurally ca
     assert.equal(isUninstrumentedByDesign('src/dashboard.ts'), true);
     assert.equal(isUninstrumentedByDesign('scripts/run-ai-session-safety-checks.js'), true);
     assert.equal(isUninstrumentedByDesign('src/webview/conversationViewerScripts.js'), true);
+    assert.equal(isUninstrumentedByDesign('src/services/ntc.ts'), true);
+    assert.equal(isUninstrumentedByDesign('src/services/colorService.ts'), false);
     assert.equal(isUninstrumentedByDesign('src/webview/webviewContent.ts'), false);
     assert.equal(isUninstrumentedByDesign('src/aiSessions/dashboardController.ts'), false);
     assert.equal(isUninstrumentedByDesign('scripts/lib/behaviorCatalog.js'), false);

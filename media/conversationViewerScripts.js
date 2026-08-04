@@ -105,9 +105,6 @@
     );
     var commentNew = document.querySelector('[data-comment-action="new"]');
     var commentSend = document.querySelector('[data-comment-action="send"]');
-    var commentSendCount = document.querySelector(
-        '[data-comment-send-count]'
-    );
     var commentClearDone = document.querySelector(
         '[data-comment-action="clearDone"]'
     );
@@ -134,7 +131,7 @@
         && !!commentComposer && !!commentSelection && !!commentInput
         && !!commentList && !!commentEmpty && !!commentFilterEmpty
         && !!commentNew
-        && !!commentSend && !!commentSendCount && !!addComment
+        && !!commentSend && !!addComment
         && !!commentClearDone && !!commentClearAll
         && !!headerSend && !!telemetryComments && !!telemetrySection
         && validCommentTarget(commentTarget);
@@ -308,7 +305,6 @@
         commentFilterEmpty: commentFilterEmpty,
         commentNew: commentNew,
         commentSend: commentSend,
-        commentSendCount: commentSendCount,
         commentClearDone: commentClearDone,
         commentClearAll: commentClearAll,
         vscodeApi: vscodeApi,

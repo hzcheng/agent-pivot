@@ -811,19 +811,6 @@ button {
     );
 }
 
-.conversation-comments-send {
-    display: inline-flex;
-    width: auto;
-    gap: 0.15rem;
-    align-items: center;
-    padding: 0 0.25rem;
-}
-
-.conversation-comments-send-count {
-    font-size: 0.68rem;
-    font-weight: 600;
-}
-
 .conversation-comments-clear-all {
     &[data-confirming="true"] {
         color: var(--vscode-inputValidation-errorForeground);

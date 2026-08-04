@@ -183,6 +183,7 @@ button {
 }
 
 .conversation-message {
+    position: relative;
     margin: 0.75rem 0;
 
     &:focus {
@@ -779,10 +780,11 @@ button {
 }
 
 .conversation-comments-toolbar {
-    display: grid;
+    display: flex;
     flex: 0 0 auto;
     min-width: 0;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    align-items: center;
+    justify-content: space-between;
     gap: 0.25rem;
     padding: 0.3rem 0.5rem;
     border-top: 1px solid var(--vscode-panel-border);
@@ -790,40 +792,36 @@ button {
         --vscode-sideBar-background,
         var(--vscode-editor-background)
     );
-
-    button {
-        min-width: 0;
-        max-width: 100%;
-        padding: 0.18rem 0.15rem;
-        overflow: hidden;
-        border-radius: 4px;
-        font-size: 0.72rem;
-        line-height: 1.15;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
 }
 
-.conversation-comments-clear {
-    color: var(
-        --vscode-button-secondaryForeground,
-        var(--vscode-editor-foreground)
-    );
-    background: var(
-        --vscode-button-secondaryBackground,
-        var(--vscode-input-background)
-    );
+.conversation-comments-filter,
+.conversation-comments-toolbar-actions {
+    display: flex;
+    min-width: 0;
+    gap: 2px;
+    align-items: center;
+}
 
-    &:hover {
-        color: var(
-            --vscode-button-secondaryForeground,
-            var(--vscode-editor-foreground)
-        );
-        background: var(
-            --vscode-button-secondaryHoverBackground,
-            var(--vscode-toolbar-hoverBackground)
-        );
-    }
+.conversation-comments-filter-button[aria-pressed="true"] {
+    color: var(--vscode-foreground);
+    border-color: var(--vscode-panel-border);
+    background: var(
+        --vscode-toolbar-hoverBackground,
+        var(--vscode-list-hoverBackground)
+    );
+}
+
+.conversation-comments-send {
+    display: inline-flex;
+    width: auto;
+    gap: 0.15rem;
+    align-items: center;
+    padding: 0 0.25rem;
+}
+
+.conversation-comments-send-count {
+    font-size: 0.68rem;
+    font-weight: 600;
 }
 
 .conversation-comments-clear-all {
@@ -947,17 +945,10 @@ button {
     );
 }
 
-.conversation-comment[data-comment-status="sent"] {
+.conversation-comment[data-comment-status="done"] {
     border-top-color: var(
         --vscode-editorInfo-foreground,
         var(--vscode-focusBorder)
-    );
-}
-
-.conversation-comment[data-comment-status="resolved"] {
-    border-top-color: var(
-        --vscode-testing-iconPassed,
-        var(--vscode-descriptionForeground)
     );
 }
 
@@ -1075,11 +1066,77 @@ button {
     text-align: center;
 }
 
-.conversation-comments-toolbar .conversation-comments-send {
-    grid-column: 1 / -1;
-    min-width: 0;
-    padding: 0.2rem 0.45rem;
-    font-size: 0.78rem;
+.conversation-comment-filter-empty {
+    margin: 0.6rem 0;
+    color: var(--vscode-descriptionForeground);
+    font-size: 0.72rem;
+    text-align: center;
+}
+
+.conversation-comment-done-collapsed {
+    opacity: 0.65;
+
+    &:hover {
+        opacity: 0.85;
+    }
+}
+
+.conversation-comment-collapsed-body {
+    margin-top: 0.25rem;
+    overflow: hidden;
+    font-size: 0.75rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.conversation-comment-icon-button[aria-expanded="true"] svg {
+    transform: rotate(180deg);
+}
+
+.conversation-comment-flash {
+    outline: 2px solid var(--vscode-editorWarning-foreground);
+    outline-offset: 2px;
+}
+
+.conversation-comment-marker {
+    position: absolute;
+    top: 0.15rem;
+    right: 0.25rem;
+    display: inline-flex;
+    gap: 0.15rem;
+    align-items: center;
+    padding: 0.1rem 0.3rem;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    color: var(--vscode-descriptionForeground);
+    background: transparent;
+    font-size: 0.66rem;
+    line-height: 1;
+    cursor: pointer;
+    opacity: 0.75;
+    transition: background-color 120ms ease, color 120ms ease,
+        opacity 120ms ease;
+
+    svg {
+        display: block;
+        width: 11px;
+        height: 11px;
+    }
+
+    &:hover {
+        color: var(--vscode-foreground);
+        background: var(--vscode-list-hoverBackground);
+        opacity: 1;
+    }
+
+    &:focus-visible {
+        outline: 1px solid var(--vscode-focusBorder);
+        outline-offset: 1px;
+    }
+}
+
+.conversation-comment-marker-count {
     font-weight: 600;
 }
 
@@ -1132,6 +1189,10 @@ button {
     }
 
     .conversation-comment-located {
+        outline-color: Highlight;
+    }
+
+    .conversation-comment-flash {
         outline-color: Highlight;
     }
 

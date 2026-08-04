@@ -980,9 +980,12 @@
             }
             if (commentUiAvailable && state.editingComment) {
                 event.preventDefault();
-                state.editingComment = null;
-                renderComments();
-                status.textContent = 'Edit cancelled.';
+                if (!state.pendingCommentRequest
+                    && !state.pendingLocateRequest) {
+                    state.editingComment = null;
+                    renderComments();
+                    status.textContent = 'Edit cancelled.';
+                }
                 return true;
             }
             if (commentUiAvailable && !commentComposer.hidden) {

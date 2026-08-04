@@ -2038,6 +2038,66 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-SUBMIT-002 renders read
         'Explain beta thoroughly.'
     );
 
+    // A failed save keeps the draft editable and reports the failure.
+    await card.locator('[data-comment-action="edit-comment"]').click();
+    await card.locator('[data-comment-edit]').fill('Add verification steps.');
+    await card.locator('[data-comment-action="update"]').click();
+    assert.equal(
+        await card.locator('[data-comment-action="update"]').isDisabled(),
+        true,
+        'controls must stay disabled while the save is in flight'
+    );
+    assert.equal(
+        await card.locator('[data-comment-edit]').isDisabled(),
+        true
+    );
+    const postedBeforeEscape = (await postedMessages(page)).length;
+    await page.keyboard.press('Escape');
+    assert.equal(
+        await card.locator('[data-comment-edit]').count(),
+        1,
+        'Escape must not cancel editing while a request is pending'
+    );
+    assert.equal(
+        (await postedMessages(page)).length,
+        postedBeforeEscape,
+        'Escape during a pending edit must not close the viewer'
+    );
+    const failedUpdate = (await postedMessages(page)).at(-1);
+    assert.equal(failedUpdate.operation, 'update');
+    await page.evaluate(({ request, comments }) => {
+        window.dispatchEvent(new MessageEvent('message', {
+            data: {
+                type: 'conversation-viewer-comments-result',
+                version: 1,
+                requestId: request.requestId,
+                subscriptionGeneration: request.subscriptionGeneration,
+                projectId: request.projectId,
+                provider: request.provider,
+                sessionId: request.sessionId,
+                operation: request.operation,
+                success: false,
+                revision: 2,
+                comments,
+                error: 'failed',
+            },
+        }));
+    }, { request: failedUpdate, comments });
+    assert.equal(
+        await page.locator('[data-conversation-status]').textContent(),
+        'The comment action failed. Your comments were kept.'
+    );
+    assert.equal(
+        await card.locator('[data-comment-edit]').inputValue(),
+        'Add verification steps.',
+        'a failed save must preserve the edited draft'
+    );
+    await card.locator('[data-comment-action="cancel-edit"]').click();
+    assert.equal(
+        await card.locator('.conversation-comment-body').textContent(),
+        'Explain beta thoroughly.'
+    );
+
     // Per-card send stages only this comment through the send channel.
     await card.locator('[data-comment-action="send-comment"]').click();
     const sendOne = (await postedMessages(page)).at(-1);
@@ -5091,4 +5151,3 @@ test('CONVERSATION-NAVIGATION-STATE-001 keeps controls, status, focus, and scrol
         'navigation must remain inside the message viewport'
     );
 });
-

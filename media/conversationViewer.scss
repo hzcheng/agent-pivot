@@ -1041,7 +1041,6 @@ button {
     display: block;
     min-width: 0;
     width: 100%;
-    resize: vertical;
     padding: 0.3rem 0.45rem;
     border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
     border-radius: 4px;
@@ -1058,6 +1057,14 @@ button {
         outline: 1px solid var(--vscode-focusBorder);
         outline-offset: -1px;
     }
+}
+
+.conversation-comment textarea {
+    resize: none;
+}
+
+.conversation-comment-composer textarea {
+    resize: vertical;
 }
 
 .conversation-comment-empty {

@@ -705,6 +705,18 @@ async function openHostViewerDocument(t, options = {}) {
         }
         await route.fulfill({ contentType: 'text/html', body: html });
     });
+    if (options.trackScrollIntoView) {
+        await page.addInitScript(() => {
+            window.__scrollIntoViewCalls = [];
+            const scrollIntoView = Element.prototype.scrollIntoView;
+            Element.prototype.scrollIntoView = function (...args) {
+                window.__scrollIntoViewCalls.push({
+                    messageId: this.getAttribute?.('data-message-id') || '',
+                });
+                return scrollIntoView.apply(this, args);
+            };
+        });
+    }
     await page.addInitScript(initialWebviewState => {
         window.__acquireCount = 0;
         window.__postedMessages = [];
@@ -3845,6 +3857,7 @@ test('CONVERSATION-SCROLL-CONTAINMENT-001 keeps overscroll inside the message vi
     const { page } = await openHostViewerDocument(t, {
         includeStyles: true,
         themeFixture: viewerThemeFixtures[0],
+        trackScrollIntoView: true,
         interactionIds: [interactionId],
         interactionId,
         pageOverrides: {
@@ -3889,6 +3902,51 @@ test('CONVERSATION-SCROLL-CONTAINMENT-001 keeps overscroll inside the message vi
     assert.equal(layout.bodyScrollTop, 0);
     assert.ok(layout.telemetryTop >= 0);
     assert.ok(layout.telemetryBottom <= layout.viewportHeight);
+
+    await page.locator('[data-action="latest"]').click();
+    const latestInteractionId = 'input-latest';
+    await sendPage(page, {
+        ...hostileConversationPage,
+        requestId: 2,
+        updateKind: 'navigation',
+        html: Array.from({ length: 40 }, (_item, index) =>
+            `<article data-message-id="latest-${index}"
+                data-interaction-id="${latestInteractionId}">
+                <section><p>Latest response line ${index + 1}</p></section>
+            </article>`
+        ).join(''),
+        outline: [{
+            interactionId: latestInteractionId,
+            userPreview: 'Latest input',
+            responseState: 'complete',
+        }],
+        selectedInteractionId: latestInteractionId,
+        selectedInput: 1,
+        totalInputs: 1,
+        atLatest: true,
+        previousCursor: undefined,
+        nextCursor: undefined,
+    });
+
+    const latestLayout = await page.evaluate(() => {
+        const header = document.querySelector('.conversation-header');
+        const usage = document.querySelector('[data-conversation-telemetry]');
+        return {
+            rootScrollTop: document.documentElement.scrollTop,
+            bodyScrollTop: document.body.scrollTop,
+            headerTop: header.getBoundingClientRect().top,
+            telemetryTop: usage.getBoundingClientRect().top,
+        };
+    });
+    assert.equal(latestLayout.rootScrollTop, 0);
+    assert.equal(latestLayout.bodyScrollTop, 0);
+    assert.ok(latestLayout.headerTop >= 0);
+    assert.ok(latestLayout.telemetryTop >= 0);
+    assert.deepEqual(
+        await page.evaluate(() => window.__scrollIntoViewCalls),
+        [],
+        'Latest navigation must scroll only the message viewport'
+    );
 });
 
 test('CONVERSATION-WORKING-INDICATOR-001 shows an animated status only for the latest in-progress response', async t => {

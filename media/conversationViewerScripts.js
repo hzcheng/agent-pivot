@@ -592,6 +592,13 @@
         position.textContent = 'Input ' + message.selectedInput + ' of ' + total;
     }
 
+    function centerInMessageViewport(element) {
+        var viewportBounds = scroll.getBoundingClientRect();
+        var elementBounds = element.getBoundingClientRect();
+        scroll.scrollTop += elementBounds.top - viewportBounds.top
+            - (scroll.clientHeight - elementBounds.height) / 2;
+    }
+
     function applyPage(message) {
         if (!validPage(message)
             || message.subscriptionGeneration !== state.subscriptionGeneration
@@ -704,7 +711,7 @@
             if (openingAtLatest) {
                 reconcileController.scrollToEnd();
             } else if (selected) {
-                selected.scrollIntoView({ block: 'center' });
+                centerInMessageViewport(selected);
             }
             if (selected && message.updateKind === 'navigation') {
                 selected.tabIndex = -1;

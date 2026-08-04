@@ -4114,6 +4114,7 @@
       "tests/browser/conversationViewer.test.js"
     ],
     "evidence": [
+      "src/webview/conversationViewerScripts.js",
       "media/conversationViewer.scss"
     ]
   },

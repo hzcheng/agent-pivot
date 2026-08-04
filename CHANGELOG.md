@@ -4,6 +4,13 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
 
 ## [Unreleased]
 
+### Added
+
+- New `Agent Pivot: Switch to Open Window` command lists the other open VS
+  Code windows in a Quick Pick — with environment, running AI session, and
+  attention summaries — and switches to the selected window, so window
+  switching is available from the keyboard without opening the dashboard.
+
 ## [1.0.3] - 2026-08-04
 
 ### Added

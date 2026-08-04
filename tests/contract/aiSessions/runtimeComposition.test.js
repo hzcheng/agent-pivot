@@ -153,6 +153,7 @@ test('WEBVIEW-DASHBOARD-COMMAND-AVAILABILITY-001 production activation exposes s
         'agentPivot.migrateSkillsToCentral',
         'agentPivot.changeGlobalSkillsLocation',
         'agentPivot.openCurrentAiSessionConversation',
+        'agentPivot.switchToOpenWindow',
     ]);
     assert.equal(result.dashboardCommandRegistrationInvocations, 1);
     assert.equal(result.pendingOpenRevealedBootShell, true);

@@ -1,0 +1,68 @@
+'use strict';
+
+import type { WorkspaceCardViewModel } from '../models';
+import type { OpenWorkspaceRecord } from './protocol';
+
+export interface OpenWindowQuickPickItem {
+    label: string;
+    description?: string;
+    detail?: string;
+    cardId: string;
+}
+
+export interface WorkspaceNavigationQuickPickControllerOptions {
+    getCards: () => WorkspaceCardViewModel[];
+    getRecord: (cardId: string) => OpenWorkspaceRecord | null;
+    showQuickPick: (
+        items: OpenWindowQuickPickItem[],
+        options: { placeHolder: string; title: string },
+    ) => Thenable<OpenWindowQuickPickItem | undefined> | Promise<OpenWindowQuickPickItem | undefined>;
+    open: (cardId: string) => Promise<void>;
+    showInformationMessage: (message: string) => unknown;
+}
+
+export class WorkspaceNavigationQuickPickController {
+    constructor(private readonly options: WorkspaceNavigationQuickPickControllerOptions) {
+    }
+
+    async pickAndOpen(): Promise<void> {
+        const cards = this.options.getCards().filter(card => card.kind === 'navigation');
+        if (cards.length === 0) {
+            this.options.showInformationMessage('No other open windows to switch to.');
+            return;
+        }
+
+        const picked = await this.options.showQuickPick(cards.map(card => this.createItem(card)), {
+            placeHolder: 'Select an open window to switch to',
+            title: 'Switch to Open Window',
+        });
+        if (!picked) {
+            return;
+        }
+        await this.options.open(picked.cardId);
+    }
+
+    private createItem(card: WorkspaceCardViewModel): OpenWindowQuickPickItem {
+        const record = this.options.getRecord(card.id);
+        const segments = [card.environmentLabel];
+        if (card.runningSessionCount > 0) {
+            segments.push(card.runningSessionCount === 1
+                ? '1 running session'
+                : `${card.runningSessionCount} running sessions`);
+        }
+        if (card.attentionCount > 0) {
+            segments.push(card.attentionCount === 1
+                ? '1 needs attention'
+                : `${card.attentionCount} need attention`);
+        }
+        if (card.workspaceKind === 'untitledMultiRoot') {
+            segments.push('unsaved workspace');
+        }
+        return {
+            label: card.name,
+            description: segments.filter(segment => !!segment).join(' · '),
+            detail: record ? record.navigationUri : undefined,
+            cardId: card.id,
+        };
+    }
+}

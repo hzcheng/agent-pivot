@@ -146,6 +146,9 @@ import { getDashboardWebviewOptions } from './dashboard/webviewOptions';
 import OpenWorkspaceBridgeClient from './openWorkspaces/bridgeClient';
 import { OpenWorkspaceDashboardController } from './openWorkspaces/dashboardController';
 import { WorkspaceNavigationController } from './openWorkspaces/navigationController';
+import {
+    WorkspaceNavigationQuickPickController,
+} from './openWorkspaces/navigationQuickPickController';
 import { OpenWorkspacePinController } from './openWorkspaces/pinController';
 import { OpenWorkspaceController } from './openWorkspaces/workspaceController';
 import { WorkspaceContextResolver } from './workspaces/contextResolver';
@@ -1351,6 +1354,13 @@ async function initializeDashboard(
         showWarningMessage: message => vscode.window.showWarningMessage(message),
         refresh: refreshStewardViews,
     });
+    const workspaceNavigationQuickPickController = new WorkspaceNavigationQuickPickController({
+        getCards: () => openWorkspaceDashboardController.getCards(),
+        getRecord: cardId => openWorkspaceDashboardController.getNavigationWorkspace(cardId),
+        showQuickPick: (items, options) => vscode.window.showQuickPick(items, options),
+        open: cardId => workspaceNavigationController.open(cardId),
+        showInformationMessage: message => vscode.window.showInformationMessage(message),
+    });
     openWorkspaceBridgeClient = ownResource(() => new OpenWorkspaceBridgeClient(
         openWorkspaceController.getPublication(),
         aggregate => {
@@ -1584,6 +1594,7 @@ async function initializeDashboard(
         changeGlobalSkillsLocation: () =>
             skillPanel.changeGlobalStoreLocation(),
         openCurrentAiSessionConversation: () => openCurrentAiSessionConversation(),
+        switchToOpenWindow: () => workspaceNavigationQuickPickController.pickAndOpen(),
     };
 
     ownResource(() => vscode.workspace.onDidChangeConfiguration(

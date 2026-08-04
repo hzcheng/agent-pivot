@@ -328,7 +328,7 @@ const DASHBOARD_COMMANDS = [
     'agentPivot.removeGroup', 'agentPivot.addProjectsFromFolder',
     'agentPivot.addFileToActiveTerminal', 'agentPivot.insertPromptToActiveTerminal',
     'agentPivot.migrateSkillsToCentral', 'agentPivot.changeGlobalSkillsLocation',
-    'agentPivot.openCurrentAiSessionConversation',
+    'agentPivot.openCurrentAiSessionConversation', 'agentPivot.switchToOpenWindow',
 ];
 
 // Registered directly from initializeDashboard, outside the dashboard command facade.
@@ -345,7 +345,7 @@ test('WEBVIEW-DASHBOARD-COMMAND-REGISTRATION-001 WEBVIEW-DASHBOARD-COMMAND-AVAIL
         'open', 'addProject', 'saveProject', 'removeProject', 'editProjects', 'addGroup', 'removeGroup',
         'addProjectsFromFolder', 'addFileToActiveTerminal', 'insertPromptToActiveTerminal',
         'migrateSkillsToCentral', 'changeGlobalSkillsLocation',
-        'openCurrentAiSessionConversation',
+        'openCurrentAiSessionConversation', 'switchToOpenWindow',
     ];
     const facade = new DashboardCommandRegistration({
         registerCommand: (command, callback) => {

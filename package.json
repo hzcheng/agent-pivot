@@ -109,6 +109,10 @@
             {
                 "command": "agentPivot.notify.showOutput",
                 "title": "Agent Pivot: Show Notification Log"
+            },
+            {
+                "command": "agentPivot.switchToOpenWindow",
+                "title": "Agent Pivot: Switch to Open Window"
             }
         ],
         "keybindings": [

@@ -20,6 +20,7 @@ export interface DashboardCommandHandlers {
     migrateSkillsToCentral: DashboardCommandHandler;
     changeGlobalSkillsLocation: DashboardCommandHandler;
     openCurrentAiSessionConversation: DashboardCommandHandler;
+    switchToOpenWindow: DashboardCommandHandler;
 }
 
 export interface DashboardCommandRegistrationOptions<TDisposable extends DisposableLike = DisposableLike> {
@@ -47,6 +48,7 @@ const DASHBOARD_COMMANDS: ReadonlyArray<readonly [string, DashboardCommandName]>
     ['agentPivot.migrateSkillsToCentral', 'migrateSkillsToCentral'],
     ['agentPivot.changeGlobalSkillsLocation', 'changeGlobalSkillsLocation'],
     ['agentPivot.openCurrentAiSessionConversation', 'openCurrentAiSessionConversation'],
+    ['agentPivot.switchToOpenWindow', 'switchToOpenWindow'],
 ];
 
 interface DashboardCommandGeneration {

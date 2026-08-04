@@ -234,6 +234,12 @@
                     "minimum": 1,
                     "markdownDescription": "Maximum number of AI session rows visible in an expanded project card before the session list scrolls."
                 },
+                "agentPivot.aiConversation.showThinking": {
+                    "type": "boolean",
+                    "default": false,
+                    "scope": "application",
+                    "description": "Show provider Thinking content in AI Conversation for Kimi, Claude, and Codex."
+                },
                 "agentPivot.aiSessionTerminalMode": {
                     "type": "string",
                     "enum": [

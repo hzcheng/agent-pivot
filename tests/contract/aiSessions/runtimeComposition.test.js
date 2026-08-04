@@ -358,7 +358,7 @@ test('RUNTIME-HOST-RUNTIME-COMPOSITION-001 production tmux fallback prompt is mo
     );
 });
 
-test('RUNTIME-HOST-RUNTIME-COMPOSITION-001 RUNTIME-RUNTIME-CONFIGURATION-001 production runtime configuration change rebinds tmux before refreshing runtimes', () => {
+test('RUNTIME-HOST-RUNTIME-COMPOSITION-001 RUNTIME-RUNTIME-CONFIGURATION-001 CONVERSATION-THINKING-VISIBILITY-001 production configuration change routes runtime and Conversation settings', () => {
     const result = runProductionActivation('configuration-change');
     assert.equal(result.failure, null);
     assert.deepEqual(result.runtimeConfigurationSequence, [
@@ -370,6 +370,13 @@ test('RUNTIME-HOST-RUNTIME-COMPOSITION-001 RUNTIME-RUNTIME-CONFIGURATION-001 pro
         result.affectsConfigurationQueries.includes('agentPivot.aiSessionTerminalMode'),
         true,
         'the configuration listener must match the AI session terminal mode key'
+    );
+    assert.equal(
+        result.affectsConfigurationQueries.includes(
+            'agentPivot.aiConversation.showThinking'
+        ),
+        true,
+        'the configuration listener must match the shared Thinking visibility key'
     );
 });
 

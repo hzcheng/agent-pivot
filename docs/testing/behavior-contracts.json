@@ -3840,11 +3840,13 @@
   {
     "id": "CONVERSATION-THINKING-VISIBILITY-001",
     "domain": "webview",
-    "title": "Conversation viewers render provider thinking and Codex commentary as collapsed entries interleaved with assistant text and tool calls",
+    "title": "Conversation viewers hide provider thinking by default and render it as collapsed entries when enabled",
     "priority": "P1",
     "status": "automated",
     "owners": [
       "tests/unit/aiSessions/conversationModel.test.js",
+      "tests/contract/aiSessions/runtimePrimitives.test.js",
+      "tests/contract/aiSessions/runtimeComposition.test.js",
       "tests/contract/aiSessions/conversationCoordinator.test.js",
       "tests/contract/aiSessions/kimiConversationAdapter.test.js",
       "tests/contract/aiSessions/claudeConversationAdapter.test.js",
@@ -3860,6 +3862,8 @@
       "src/aiSessions/conversation/claudeAdapter.ts",
       "src/aiSessions/conversation/codexAdapter.ts",
       "src/aiSessions/conversation/viewer.ts",
+      "src/dashboard.ts",
+      "package.json",
       "media/conversationViewer.scss"
     ]
   },

@@ -67,6 +67,7 @@ export interface ConversationViewerOptions {
     ) => void | PromiseLike<void>;
     openExternal: (uri: vscode.Uri) => Thenable<boolean>;
     mediaUri: (fileName: string) => vscode.Uri;
+    showThinking?: () => boolean;
     submitPrompt: (
         target: ConversationViewerTarget,
         prompt: string
@@ -89,6 +90,7 @@ export interface ConversationViewerApi extends AiSessionDisposable {
     open(target: ConversationViewerTarget): Promise<void>;
     follow(target: ConversationViewerTarget): Promise<boolean>;
     refresh(): Promise<void>;
+    refreshPresentation(): Promise<void>;
     reconcileAuthority(
         resolveAuthority: (target: ConversationViewerTarget) => boolean
     ): Promise<void>;
@@ -240,6 +242,28 @@ export class ConversationViewer implements ConversationViewerApi {
             return;
         }
         await this.loadAuthoritative('refresh', false);
+    }
+
+    async refreshPresentation(): Promise<void> {
+        const pendingLoad = this.authoritativeLoadInFlight;
+        if (pendingLoad) {
+            try {
+                await pendingLoad;
+            } catch (_error) {
+                // The normal load path owns its failure presentation.
+            }
+        }
+        if (!this.panel || !this.target || !this.outlineController.snapshot
+            || !this.pages.length || this.suspended) {
+            return;
+        }
+        const requestId = this.allocateRequestId();
+        this.currentRequestId = requestId;
+        await this.deliverPublication(this.createPublication(
+            requestId,
+            this.subscriptionGeneration,
+            'refresh'
+        ), false);
     }
 
     async reconcileAuthority(
@@ -1306,7 +1330,7 @@ export class ConversationViewer implements ConversationViewerApi {
             requestId,
             subscriptionGeneration: generation,
             updateKind,
-            html: renderMessages(this.messages()),
+            html: renderMessages(this.messages(), this.showThinking()),
             ...projection,
             previousCursor: selectedIndex > 0
                 ? first?.previousCursor || ''
@@ -1341,6 +1365,14 @@ export class ConversationViewer implements ConversationViewerApi {
             initialPage,
             initialStatus,
         });
+    }
+
+    private showThinking(): boolean {
+        try {
+            return this.options.showThinking?.() === true;
+        } catch (_error) {
+            return false;
+        }
     }
 }
 
@@ -1399,13 +1431,16 @@ function renderThinkingMessage(message: ConversationMessage): string {
 </article>`;
 }
 
-function renderMessages(messages: ConversationMessage[]): string {
+function renderMessages(
+    messages: ConversationMessage[],
+    showThinking: boolean
+): string {
     return messages.map(message => {
         if (message.role === 'tool') {
             return renderToolMessage(message);
         }
         if (message.role === 'thinking') {
-            return renderThinkingMessage(message);
+            return showThinking ? renderThinkingMessage(message) : '';
         }
         return `<article class="conversation-message conversation-message-${message.role}"
     data-message-id="${escapeAttribute(message.id)}"

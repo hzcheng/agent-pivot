@@ -116,6 +116,20 @@ test('SESSION-AI-SESSION-YOLO-CONFIGURATION-001 reads only literal true and decl
     assert.match(setting.description, /newly created and resumed/i);
 });
 
+test('CONVERSATION-THINKING-VISIBILITY-001 declares Thinking hidden by default for every AI Conversation', () => {
+    const manifest = JSON.parse(fs.readFileSync(
+        path.resolve(__dirname, '../../../package.json'),
+        'utf8'
+    ));
+    const setting = manifest.contributes.configuration.properties[
+        'agentPivot.aiConversation.showThinking'
+    ];
+    assert.equal(setting.type, 'boolean');
+    assert.equal(setting.default, false);
+    assert.equal(setting.scope, 'application');
+    assert.match(setting.description, /Kimi, Claude, and Codex/);
+});
+
 test('RUNTIME-LAUNCH-SPEC-001 preserves argv boundaries and renders hostile values as inert shell data', () => {
     const resume = commandBuilders.buildCodexResumeLaunchSpec(
         `session'; touch /tmp/nope; '`, directoryScope(`/work/it's app`), '/tmp/done marker'

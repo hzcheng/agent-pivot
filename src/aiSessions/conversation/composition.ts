@@ -182,6 +182,10 @@ function createAvailableConversationCapability(
                 ? readCodexRolloutWorkdir(rolloutPath)
                 : undefined;
         },
+        readLifecycleSignal: sessionId =>
+            options.services.codex.getConversationLifecycleSignal?.(
+                sessionId
+            ),
         listSubagentThreads: sessionId =>
             options.services.codex.listSubagentThreads?.(sessionId) || [],
     }));

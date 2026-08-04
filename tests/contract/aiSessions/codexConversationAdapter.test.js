@@ -46,6 +46,7 @@ function createAdapter(result = fixture, overrides = {}) {
         clearTimeout: overrides.clearTimeout || (() => undefined),
         resolveWorktree: overrides.resolveWorktree,
         readCurrentWorkdir: overrides.readCurrentWorkdir,
+        readLifecycleSignal: overrides.readLifecycleSignal,
         listSubagentThreads: overrides.listSubagentThreads,
     });
     return {
@@ -54,6 +55,34 @@ function createAdapter(result = fixture, overrides = {}) {
         getClientDisposeCount: () => clientDisposeCount,
     };
 }
+
+test('CONVERSATION-WORKING-INDICATOR-001 Codex rollout lifecycle promotes an externally running interrupted turn', async t => {
+    const interrupted = clone(fixture);
+    interrupted.thread.turns.at(-1).status = 'interrupted';
+    let executionState = 'running';
+    const harness = createAdapter(interrupted, {
+        readLifecycleSignal: () => ({
+            token: `codex:lifecycle:1:${executionState}`,
+            phase: executionState === 'running' ? 'running' : 'idle',
+            executionState,
+            occurredAtMs: 1,
+        }),
+    });
+    t.after(() => harness.adapter.dispose());
+
+    const { outline, page } = await readWholeConversation(harness.adapter);
+
+    assert.equal(outline.interactions.at(-1).responseState, 'inProgress');
+    assert.equal(
+        page.interactionStates.at(-1).responseState,
+        'inProgress'
+    );
+
+    executionState = 'stopped';
+    const stopped = await harness.adapter.readOutline(sessionId);
+    assert.equal(stopped.interactions.at(-1).responseState, 'interrupted');
+    assert.equal(stopped.sourceRevision, outline.sourceRevision);
+});
 
 async function readWholeConversation(adapter) {
     const outline = await adapter.readOutline(sessionId);

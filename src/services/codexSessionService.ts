@@ -59,6 +59,7 @@ export default class CodexSessionService {
     private readonly sessionIndexCache = new Map<string, { signature: string; entries: CodexSessionIndexEntry[] }>();
     private readonly lifecycleSessionFiles = new Map<string, string>();
     private readonly lifecycleReader = new IncrementalJsonlLifecycleReader();
+    private readonly conversationLifecycleReader = new IncrementalJsonlLifecycleReader();
     private readonly cacheTtlMs = 5000;
     private readonly changePollIntervalMs = 3000;
 
@@ -186,6 +187,31 @@ export default class CodexSessionService {
         return this.getSessionFiles(codexHome).get(sessionId) || null;
     }
 
+    getConversationLifecycleSignal(
+        sessionId: string
+    ): AiSessionLifecycleSignal | undefined {
+        const retainedSessionIds = new Set<string>();
+        if (!sessionId) {
+            this.conversationLifecycleReader.retain(retainedSessionIds);
+            return undefined;
+        }
+        retainedSessionIds.add(sessionId);
+        const sessionFile = this.resolveSessionFilePath(sessionId);
+        if (!sessionFile) {
+            this.conversationLifecycleReader.delete(sessionId);
+            this.conversationLifecycleReader.retain(retainedSessionIds);
+            return undefined;
+        }
+        const signal = this.conversationLifecycleReader.read(
+            sessionId,
+            sessionFile,
+            0,
+            () => createCodexLifecycleAccumulator(0)
+        );
+        this.conversationLifecycleReader.retain(retainedSessionIds);
+        return signal || undefined;
+    }
+
     archiveSession(sessionId: string): boolean {
         if (!sessionId) {
             return false;
@@ -207,6 +233,7 @@ export default class CodexSessionService {
             fs.renameSync(sessionFile, getAvailableAiSessionArchivePath(archivePath, path.basename(sessionFile)));
             this.lifecycleSessionFiles.delete(sessionId);
             this.lifecycleReader.delete(sessionId);
+            this.conversationLifecycleReader.delete(sessionId);
             this.invalidateCache();
             return true;
         } catch (e) {

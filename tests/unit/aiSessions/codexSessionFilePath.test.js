@@ -36,6 +36,48 @@ test('CONVERSATION-TELEMETRY-001 resolveSessionFilePath locates rollout files by
     assert.equal(service.resolveSessionFilePath(''), null);
 });
 
+test('CONVERSATION-WORKING-INDICATOR-001 reads the current Codex rollout lifecycle independently', async t => {
+    const home = await fs.promises.mkdtemp(
+        path.join(os.tmpdir(), 'steward-codex-lifecycle-')
+    );
+    t.after(() => fs.promises.rm(home, { recursive: true, force: true }));
+    const sessionsDir = path.join(home, 'sessions', '2026', '08', '04');
+    await fs.promises.mkdir(sessionsDir, { recursive: true });
+    const sessionId = '22222222-2222-4222-8222-222222222222';
+    const rolloutPath = path.join(
+        sessionsDir,
+        `rollout-2026-08-04T00-00-00-${sessionId}.jsonl`
+    );
+    const event = (timestamp, type) => `${JSON.stringify({
+        timestamp,
+        type: 'event_msg',
+        payload: { type, turn_id: 'turn-1' },
+    })}\n`;
+    await fs.promises.writeFile(
+        rolloutPath,
+        event('2026-08-04T00:00:01.000Z', 'task_started')
+    );
+
+    process.env.CODEX_HOME = home;
+    t.after(() => {
+        delete process.env.CODEX_HOME;
+    });
+    const service = new CodexSessionService();
+
+    assert.equal(
+        service.getConversationLifecycleSignal(sessionId).executionState,
+        'running'
+    );
+    await fs.promises.appendFile(
+        rolloutPath,
+        event('2026-08-04T00:00:02.000Z', 'task_complete')
+    );
+    assert.equal(
+        service.getConversationLifecycleSignal(sessionId).executionState,
+        'stopped'
+    );
+});
+
 
 test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 listSubagentThreads discovers depth-1 spawn threads by parent id', async t => {
     const home = await fs.promises.mkdtemp(

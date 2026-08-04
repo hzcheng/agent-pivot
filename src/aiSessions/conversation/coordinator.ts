@@ -4,7 +4,10 @@ import { randomBytes } from 'crypto';
 import type { AiSessionProviderId } from '../../models';
 import { getAiSessionKey } from '../sessionHelpers';
 import type { AiSessionDisposable } from '../types';
-import { applyStoppedLifecycleToResponseState } from './model';
+import {
+    applyActiveLifecycleToResponseState,
+    applyStoppedLifecycleToResponseState,
+} from './model';
 import { countGraphemes } from './text';
 import {
     CONVERSATION_LIMITS,
@@ -84,6 +87,7 @@ const MAX_CURSORS_PER_SESSION = CONVERSATION_LIMITS.maxOutlineInteractions * 2;
 
 export class ConversationCoordinator implements AiSessionDisposable {
     private readonly revisions = new Map<string, PublicRevision>();
+    private readonly activeSessions = new Set<string>();
     private readonly stoppedSessions = new Set<string>();
     private readonly cursors = new Map<string, StoredCursor>();
     private readonly cursorKeysBySession = new Map<string, string[]>();
@@ -110,19 +114,24 @@ export class ConversationCoordinator implements AiSessionDisposable {
                 getAiSessionKey(provider, sessionId),
                 outline.sourceRevision
             );
+            const key = getAiSessionKey(provider, sessionId);
             return {
                 provider,
                 sessionId,
                 sourceRevision: revision.token,
-                interactions: outline.interactions.map(interaction => ({
+                interactions: outline.interactions.map((interaction, index) => ({
                     id: interaction.id,
                     providerTurnId: interaction.providerTurnId,
                     timestamp: interaction.timestamp,
                     userPreview: interaction.userPreview,
                     userGraphemeCount: interaction.userGraphemeCount,
-                    responseState: applyStoppedLifecycleToResponseState(
-                        interaction.responseState,
-                        this.stoppedSessions.has(getAiSessionKey(provider, sessionId))
+                    responseState: applyActiveLifecycleToResponseState(
+                        applyStoppedLifecycleToResponseState(
+                            interaction.responseState,
+                            this.stoppedSessions.has(key)
+                        ),
+                        this.activeSessions.has(key),
+                        index === outline.interactions.length - 1
                     ),
                 })),
                 totalInteractions: outline.totalInteractions,
@@ -199,6 +208,7 @@ export class ConversationCoordinator implements AiSessionDisposable {
                 throw new ConversationError('staleRevision');
             }
             const stopped = this.stoppedSessions.has(key);
+            const active = this.activeSessions.has(key);
             const result: ConversationPage = {
                 provider: request.provider,
                 sessionId: request.sessionId,
@@ -225,11 +235,15 @@ export class ConversationCoordinator implements AiSessionDisposable {
                         ? { thinking: { text: message.thinking.text } }
                         : {}),
                 })),
-                interactionStates: page.interactionStates.map(state => ({
+                interactionStates: page.interactionStates.map((state, index) => ({
                     interactionId: state.interactionId,
-                    responseState: applyStoppedLifecycleToResponseState(
-                        state.responseState,
-                        stopped
+                    responseState: applyActiveLifecycleToResponseState(
+                        applyStoppedLifecycleToResponseState(
+                            state.responseState,
+                            stopped
+                        ),
+                        active,
+                        page.isEnd && index === page.interactionStates.length - 1
                     ),
                 })),
                 previousCursor: page.previousCursor === undefined
@@ -342,9 +356,11 @@ export class ConversationCoordinator implements AiSessionDisposable {
     ): void {
         const key = getAiSessionKey(provider, sessionId);
         if (stopped) {
+            this.activeSessions.delete(key);
             this.stoppedSessions.add(key);
         } else {
             this.stoppedSessions.delete(key);
+            this.activeSessions.add(key);
         }
     }
 
@@ -356,6 +372,7 @@ export class ConversationCoordinator implements AiSessionDisposable {
         Array.from(this.watches.values()).forEach(watch => this.disposeWatch(watch));
         this.subscriptionOwners.clear();
         this.revisions.clear();
+        this.activeSessions.clear();
         this.stoppedSessions.clear();
         this.cursors.clear();
         this.cursorKeysBySession.clear();

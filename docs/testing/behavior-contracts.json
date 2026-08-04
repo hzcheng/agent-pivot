@@ -4111,6 +4111,7 @@
     "priority": "P0",
     "status": "automated",
     "owners": [
+      "tests/contract/aiSessions/conversationCoordinator.test.js",
       "tests/integration/dashboard/conversationViewer.test.js",
       "tests/browser/conversationViewer.test.js"
     ],

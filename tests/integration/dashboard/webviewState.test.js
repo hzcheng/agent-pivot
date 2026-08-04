@@ -543,6 +543,27 @@ test('OPEN-ALL-WINDOWS-LIST-001 WEBVIEW-CURRENT-WORKSPACE-RENDERING-001 WEBVIEW-
     assert.equal(html.includes('Leaked'), false);
 });
 
+test('OPEN-ALL-WINDOWS-LIST-001 renders saved project names for single-root window cards', () => {
+    const html = webviewModules.content.getOpenWorkspacesGroupContent([
+        makeWorkspaceCard({
+            id: 'current',
+            name: 'agent-pivot',
+            rootName: 'vscode-dashboard',
+        }),
+        makeWorkspaceCard({
+            id: 'navigation',
+            kind: 'navigation',
+            name: 'reddb project',
+            rootName: 'reddb',
+        }),
+    ], false, 'ready');
+
+    const renderedNames = Array.from(html.matchAll(
+        /<h2 class="project-header">([^<]+)<\/h2>/g
+    )).map(match => match[1]);
+    assert.deepEqual(renderedNames, ['agent-pivot', 'agent-pivot', 'reddb project']);
+});
+
 test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-001 WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-002 renders a pinned-first selected-provider history list', () => {
     const html = webviewModules.content.getOpenWorkspacesGroupContent([
         makeWorkspaceCard({

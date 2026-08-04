@@ -476,9 +476,8 @@ function getWorkspaceCardDiv(
 ): string {
     const roots = card.roots.slice().sort((left, right) => left.ordinal - right.ordinal);
     const rootCount = roots.length;
-    const compactWorkspaceName = rootCount === 1
-        ? roots[0].name
-        : removeWorkspaceWindowDecorations(card.name);
+    const compactWorkspaceName = removeWorkspaceWindowDecorations(card.name)
+        || (rootCount === 1 ? roots[0].name : '');
     const workspaceName = escapeAttribute(sanitizeProjectName(compactWorkspaceName) || 'Workspace');
     const environmentLabel = escapeAttribute(sanitizeProjectName(card.environmentLabel) || 'Local');
     const remoteType = getWorkspaceRemoteType(card.environment);

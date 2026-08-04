@@ -32,8 +32,17 @@ jobs:
           cache: npm
       - name: Install dependencies
         run: npm ci
-      - name: Install pinned Chromium
-        run: npx playwright install --with-deps chromium
+      - name: Install pinned Chromium headless shell
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if timeout --kill-after=10s 120s npx playwright install --only-shell chromium; then
+              exit 0
+            fi
+            echo "::warning::Chromium install attempt ${attempt} failed"
+          done
+          exit 1
       - name: Run Linux quality gate
         run: npm run test:ci:linux
         env:

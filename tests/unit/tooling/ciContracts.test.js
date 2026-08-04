@@ -90,13 +90,55 @@ test('ARCH-MAIN-CAPABILITY-COVERAGE-001 requires full Git history in the Linux q
 
 test('TODO-BROWSER-EXPANDED-LAYOUT-001 requires pinned Chromium in the Linux quality job', () => {
     const missingChromiumWorkflow = verifyWorkflow.replace(
-        '        run: npx playwright install --with-deps chromium',
-        '        run: npx playwright --version'
+        '            if timeout --kill-after=10s 120s npx playwright install --only-shell chromium; then',
+        '            if npx playwright --version; then'
     );
 
     assert.throws(
         () => validateVerifyWorkflow(missingChromiumWorkflow),
-        /quality-linux must run npx playwright install --with-deps chromium/
+        /quality-linux must install only the Chromium headless shell with three bounded retries/
+    );
+});
+
+test('ARCH-CI-QUALITY-GATE-001 accepts bounded retries for the Chromium headless shell', () => {
+    assert.doesNotThrow(() => validateVerifyWorkflow(verifyWorkflow));
+});
+
+test('ARCH-CI-QUALITY-GATE-001 rejects Chromium installs without three attempts', () => {
+    const oneAttemptWorkflow = verifyWorkflow.replace(
+        '          for attempt in 1 2 3; do',
+        '          for attempt in 1; do'
+    );
+
+    assert.throws(
+        () => validateVerifyWorkflow(oneAttemptWorkflow),
+        /quality-linux must install only the Chromium headless shell with three bounded retries/
+    );
+});
+
+test('ARCH-CI-QUALITY-GATE-001 rejects Chromium installs without a hard timeout', () => {
+    const unboundedWorkflow = verifyWorkflow.replace(
+        'timeout --kill-after=10s 120s npx playwright install --only-shell chromium',
+        'npx playwright install --only-shell chromium'
+    );
+
+    assert.throws(
+        () => validateVerifyWorkflow(unboundedWorkflow),
+        /quality-linux must install only the Chromium headless shell with three bounded retries/
+    );
+});
+
+test('ARCH-CI-QUALITY-GATE-001 rejects redundant apt font downloads on the hosted runner', () => {
+    const aptBackedWorkflow = verifyWorkflow.replace(
+        '      - name: Install pinned Chromium headless shell',
+        '      - name: Install Chromium system dependencies\n'
+            + '        run: npx playwright install-deps chromium\n'
+            + '      - name: Install pinned Chromium headless shell'
+    );
+
+    assert.throws(
+        () => validateVerifyWorkflow(aptBackedWorkflow),
+        /quality-linux must not run redundant apt-backed Playwright dependency installs/
     );
 });
 

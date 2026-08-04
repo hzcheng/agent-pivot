@@ -1665,9 +1665,11 @@ test('CONVERSATION-COMMENTS-DOM-STABILITY-001 keeps the Conversation DOM intact 
     });
 });
 
-test('CONVERSATION-COMMENTS-UI-001 header send pill and telemetry comments pill drive the comments flow', async t => {
+test('CONVERSATION-COMMENTS-UI-001 send action and telemetry comments pill drive the comments flow', async t => {
     const interactionId = 'input-header-send';
     const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
         interactionIds: [interactionId],
         interactionId,
         initialWebviewState: {
@@ -1686,10 +1688,55 @@ test('CONVERSATION-COMMENTS-UI-001 header send pill and telemetry comments pill 
         },
     });
 
-    const headerSend = page.locator('[data-action="send-comments"]');
+    // The header chrome is one uniform row of four icon buttons; sending
+    // lives in the comments toolbar, not the header.
+    const navButtons = page.locator('.conversation-navigation [data-action]');
+    assert.equal(await navButtons.count(), 4);
+    assert.equal(
+        await page.locator('[data-action="send-comments"]').count(),
+        0,
+        'header must not carry a Send button'
+    );
+    assert.deepEqual(
+        await navButtons.evaluateAll(buttons => buttons.map(button => ({
+            text: button.innerText,
+            icons: button.querySelectorAll('svg').length,
+        }))),
+        [
+            { text: '', icons: 1 },
+            { text: '', icons: 1 },
+            { text: '', icons: 1 },
+            { text: '', icons: 1 },
+        ],
+        'header buttons must stay icon-only'
+    );
+    assert.deepEqual(
+        (await navButtons.evaluateAll(buttons =>
+            Array.from(new Set(buttons.map(button => {
+                const box = button.getBoundingClientRect();
+                return Math.round(box.width) + 'x' + Math.round(box.height);
+            })))
+        )),
+        ['28x28'],
+        'header buttons must render as one uniform row of 28px icons'
+    );
+    assert.deepEqual(
+        (await navButtons.evaluateAll(buttons =>
+            Array.from(new Set(buttons.map(button =>
+                Math.round(
+                    button.querySelector('svg').getBoundingClientRect().width
+                )
+            )))
+        )),
+        [16],
+        'header icons must render at 16px'
+    );
+
+    const toolbarSend = page.locator(
+        '[data-comments-toolbar] [data-comment-action="send"]'
+    );
     const pill = page.locator('[data-telemetry-comments]');
-    assert.equal(await headerSend.innerText(), 'Send');
-    assert.equal(await headerSend.isDisabled(), true);
+    assert.equal(await toolbarSend.isDisabled(), true);
     assert.equal(await pill.isVisible(), true);
     assert.equal(await pill.innerText(), 'Comments 0');
 
@@ -1730,8 +1777,11 @@ test('CONVERSATION-COMMENTS-UI-001 header send pill and telemetry comments pill 
         }));
     }, { request: addRequest, comment });
 
-    assert.equal(await headerSend.innerText(), 'Send 1');
-    assert.equal(await headerSend.isDisabled(), false);
+    assert.equal(await toolbarSend.isDisabled(), false);
+    assert.equal(
+        await toolbarSend.getAttribute('title'),
+        'Send 1 open comment to the session input'
+    );
     assert.equal(await pill.isVisible(), true);
     assert.equal(await pill.innerText(), 'Comments 1/1');
 
@@ -1742,7 +1792,7 @@ test('CONVERSATION-COMMENTS-UI-001 header send pill and telemetry comments pill 
             .getAttribute('aria-selected'),
         'true'
     );
-    await headerSend.click();
+    await toolbarSend.click();
     const sendRequest = (await postedMessages(page)).at(-1);
     assert.equal(sendRequest.type, 'conversation-viewer-send-comments');
     assert.equal(sendRequest.operation, 'sendComments');

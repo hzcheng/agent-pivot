@@ -93,6 +93,8 @@
             );
             sidebarToggle.setAttribute('aria-label',
                 state.commentsPanelOpen ? 'Hide side panel' : 'Show side panel');
+            sidebarToggle.setAttribute('title',
+                state.commentsPanelOpen ? 'Hide side panel' : 'Show side panel');
             sidebarTabs.forEach(function (tab) {
                 var selected = tab.getAttribute('data-sidebar-tab')
                     === state.sidebarView;

@@ -112,7 +112,6 @@
         '[data-comment-action="clearAll"]'
     );
     var addComment = document.querySelector('[data-add-comment]');
-    var headerSend = document.querySelector('[data-action="send-comments"]');
     var telemetryComments = document.querySelector(
         '[data-telemetry-comments]'
     );
@@ -133,7 +132,7 @@
         && !!commentNew
         && !!commentSend && !!addComment
         && !!commentClearDone && !!commentClearAll
-        && !!headerSend && !!telemetryComments && !!telemetrySection
+        && !!telemetryComments && !!telemetrySection
         && validCommentTarget(commentTarget);
     var subagentUiAvailable = sidebarUiAvailable
         && !!subagentsRoot && !!subagentsList && !!subagentsEmpty
@@ -255,9 +254,6 @@
         });
     }
     if (commentUiAvailable) {
-        headerSend.addEventListener('click', function () {
-            commentsController.sendOpenComments();
-        });
         telemetryComments.addEventListener('click', function () {
             sidebarController.setView('comments', true, true);
         });
@@ -308,7 +304,6 @@
         commentClearDone: commentClearDone,
         commentClearAll: commentClearAll,
         vscodeApi: vscodeApi,
-        headerSend: headerSend,
         telemetryComments: telemetryComments,
         telemetrySection: telemetrySection,
         post: post,

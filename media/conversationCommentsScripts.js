@@ -240,7 +240,7 @@
                     ? 'Comments ' + counts.open + '/' + state.comments.length
                     : 'Comments 0';
                 telemetryComments.title = counts.open
-                    + (counts.open === 1 ? ' open of ' : ' open of ')
+                    + ' open of '
                     + state.comments.length
                     + (state.comments.length === 1 ? ' comment' : ' comments')
                     + ' — click to review';
@@ -574,11 +574,13 @@
                     || state.expandedDoneComments.has(comment.id);
                 if (comment.status === 'done' && !expanded) {
                     item.classList.add('conversation-comment-done-collapsed');
-                    actions.appendChild(commentIconButton(
+                    var expand = commentIconButton(
                         'toggle-done',
                         COMMENT_ICONS.chevron,
                         'Expand comment'
-                    ));
+                    );
+                    expand.setAttribute('aria-expanded', 'false');
+                    actions.appendChild(expand);
                     var collapsedBody = document.createElement('div');
                     collapsedBody.className =
                         'conversation-comment-collapsed-body';
@@ -653,7 +655,8 @@
                     scope.textContent = 'Session note';
                     meta.appendChild(scope);
                 }
-                var timeText = comment.status === 'done' && comment.sentAt
+                var timeText = comment.status === 'done'
+                    && typeof comment.sentAt === 'number'
                     ? 'sent ' + formatCommentTime(comment.sentAt)
                     : formatCommentTime(comment.createdAt);
                 if (timeText) {
@@ -707,7 +710,7 @@
             }
             setSidebarView('comments', true, true);
             var card = commentList.querySelector(
-                '[data-comment-id="' + commentId + '"]'
+                '[data-comment-id="' + CSS.escape(commentId) + '"]'
             );
             if (!card) return false;
             card.scrollIntoView({ block: 'center' });
@@ -1265,7 +1268,6 @@
             handleEscape: handleEscape,
             initializeComments: initializeComments,
             openCount: openCommentCount,
-            revealComment: revealCommentCard,
             sendOpenComments: function () {
                 postCommentOperation('sendComments', {});
             },

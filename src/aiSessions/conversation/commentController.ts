@@ -15,6 +15,7 @@ import {
     ConversationCommentTarget,
     createConversationComment,
     createConversationSessionComment,
+    markConversationCommentsDone,
     updateConversationComment,
     validateConversationComments,
 } from './comments';
@@ -387,11 +388,11 @@ export class ConversationCommentController {
     private markDone(
         ids: Set<string> | null
     ): ConversationCommentDraft[] {
-        const at = this.now();
-        return this.comments.map(comment =>
-            comment.status === 'open' && (!ids || ids.has(comment.id))
-                ? { ...comment, status: 'done' as const, sentAt: at }
-                : { ...comment });
+        return markConversationCommentsDone(
+            this.comments,
+            this.now(),
+            ids ?? undefined
+        );
     }
 
     private async persist(

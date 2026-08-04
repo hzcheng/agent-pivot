@@ -2336,8 +2336,16 @@ test('CONVERSATION-COMMENTS-UI-001 filters cards, jumps from message markers, an
     await page.locator('[data-comment-filter="open"]').click();
     assert.equal(await page.locator('[data-comment-id]').count(), 2);
 
-    // Jumping from the marker flashes the open card in place.
+    // A marker jump resets a filter that hides the target card.
+    await page.locator('[data-comment-filter="done"]').click();
+    assert.equal(await page.locator('[data-comment-id]').count(), 1);
     await marker.click();
+    assert.equal(
+        await page.locator('[data-comment-filter="all"]')
+            .getAttribute('aria-pressed'),
+        'true'
+    );
+    assert.equal(await page.locator('[data-comment-id]').count(), 3);
     assert.equal(
         await card.evaluate(element =>
             element.classList.contains('conversation-comment-flash')
@@ -2388,6 +2396,37 @@ test('CONVERSATION-COMMENTS-UI-001 filters cards, jumps from message markers, an
         'a marker jump must expand the collapsed done card'
     );
 
+    // Markers are rebuilt after Host page re-renders.
+    await sendPage(page, {
+        type: 'conversation-viewer-page',
+        version: 1,
+        requestId: 100,
+        subscriptionGeneration: 1,
+        updateKind: 'navigation',
+        html: `<article data-conversation-message-id="${
+            encodeURIComponent(`${interactionId}:user`)
+        }"
+            data-interaction-id="${interactionId}">
+            <section class="conversation-markdown">
+                <p>Alpha beta gamma beta delta.</p>
+            </section>
+        </article>`,
+        outline: [{
+            interactionId,
+            userPreview: 'Alpha beta gamma beta delta.',
+            responseState: 'complete',
+        }],
+        selectedInteractionId: interactionId,
+        selectedInput: 1,
+        totalInputs: 1,
+        partial: false,
+        atLatest: true,
+        stale: false,
+        subagents: [],
+        activeSubagent: null,
+    });
+    assert.equal(await page.locator('[data-comment-marker]').count(), 1);
+
     // Clear done empties the list in one correlated mutation.
     await page.locator('[data-comment-action="clearDone"]').click();
     const clearDone = (await postedMessages(page)).at(-1);
@@ -2395,6 +2434,7 @@ test('CONVERSATION-COMMENTS-UI-001 filters cards, jumps from message markers, an
     assert.deepEqual(clearDone.payload, {});
     await settle(clearDone, 3, []);
     assert.equal(await page.locator('[data-comment-id]').count(), 0);
+    assert.equal(await page.locator('[data-comment-marker]').count(), 0);
     assert.equal(
         await page.locator('[data-telemetry-comments]').innerText(),
         'Comments 0'

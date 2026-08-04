@@ -147,11 +147,13 @@ export function updateConversationComment(
 
 export function markConversationCommentsDone(
     comments: readonly ConversationCommentDraft[],
-    sentAt: number
+    sentAt: number,
+    onlyIds?: ReadonlySet<string>
 ): ConversationCommentDraft[] {
     return comments.map(comment => {
         validateDraft(comment);
         return comment.status === 'open'
+            && (!onlyIds || onlyIds.has(comment.id))
             ? { ...comment, status: 'done', sentAt }
             : { ...comment };
     });

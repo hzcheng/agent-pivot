@@ -50,6 +50,18 @@ test('SESSION-AI-SESSION-CONVERSATION-MODEL-002 projects immutable bounded summa
     assert.equal('assistantMarkdown' in outline.interactions[0], false);
     assert.equal(model.applyStoppedLifecycleToResponseState('inProgress', true), 'interrupted');
     assert.equal(model.applyStoppedLifecycleToResponseState('complete', true), 'complete');
+    assert.equal(
+        model.applyActiveLifecycleToResponseState('interrupted', true, true),
+        'inProgress'
+    );
+    assert.equal(
+        model.applyActiveLifecycleToResponseState('interrupted', true, false),
+        'interrupted'
+    );
+    assert.equal(
+        model.applyActiveLifecycleToResponseState('complete', true, true),
+        'complete'
+    );
 });
 
 test('SESSION-AI-SESSION-CONVERSATION-MODEL-003 removes complete interactions until an UTF-8 page fits', () => {

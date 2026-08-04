@@ -321,6 +321,64 @@ test('SESSION-CONVERSATION-COORDINATOR-003 projects stopped in-progress states w
     assert.equal(stopped.interactions.at(-1).responseState, 'interrupted');
 });
 
+test('CONVERSATION-WORKING-INDICATOR-001 projects only the latest interrupted provider response as in progress while the runtime is running', async t => {
+    const calls = { codex: 0, kimi: 0, claude: 0 };
+    const codex = adapterReturning(calls, 'codex', {
+        readOutline: async sessionId => makeOutline(
+            'codex',
+            sessionId,
+            'native-running',
+            {
+                interactions: [
+                    {
+                        id: 'input-a',
+                        userPreview: 'Earlier interrupted response',
+                        userGraphemeCount: 28,
+                        responseState: 'interrupted',
+                    },
+                    {
+                        id: 'input-b',
+                        userPreview: 'Current response',
+                        userGraphemeCount: 16,
+                        responseState: 'interrupted',
+                    },
+                ],
+            }
+        ),
+        readPage: async request => makePage(
+            'codex',
+            request.sessionId,
+            'native-running',
+            {
+                interactionStates: [
+                    { interactionId: 'input-a', responseState: 'interrupted' },
+                    { interactionId: 'input-b', responseState: 'interrupted' },
+                ],
+                nextCursor: undefined,
+                isEnd: true,
+            }
+        ),
+    });
+    const { coordinator } = createCoordinatorHarness({ codex });
+    t.after(() => coordinator.dispose());
+
+    coordinator.setSessionStopped('codex', 'session-a', false);
+    const outline = await coordinator.readOutline('codex', 'session-a');
+
+    assert.equal(outline.interactions[0].responseState, 'interrupted');
+    assert.equal(outline.interactions[1].responseState, 'inProgress');
+
+    const page = await coordinator.readPage({
+        provider: 'codex',
+        sessionId: 'session-a',
+        anchorInteractionId: 'input-a',
+        direction: 'around',
+        expectedRevision: outline.sourceRevision,
+    });
+    assert.equal(page.interactionStates[0].responseState, 'interrupted');
+    assert.equal(page.interactionStates[1].responseState, 'inProgress');
+});
+
 test('SESSION-CONVERSATION-COORDINATOR-005 releases only the exact opaque watch ownership', async () => {
     const { adapters, clock, coordinator } = createCoordinatorHarness();
     const calls = [];

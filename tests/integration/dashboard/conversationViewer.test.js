@@ -936,6 +936,21 @@ test('CONVERSATION-VIEWER-SECURITY-001 emits a nonce-only CSP and opens only HTT
     assert.deepEqual(openedUris, ['https://example.test/safe']);
 });
 
+test('CONVERSATION-WORKING-INDICATOR-001 includes one polite hidden Working status in the Host document', async () => {
+    const { viewer, panel } = createViewer();
+    await viewer.open(target('session-working'));
+
+    assert.equal(
+        (panel.webview.html.match(/data-conversation-working/g) || []).length,
+        1
+    );
+    assert.match(
+        panel.webview.html,
+        /data-conversation-working[\s\S]*role="status"[\s\S]*aria-live="polite"[\s\S]*hidden/
+    );
+    assert.match(panel.webview.html, />Working<\/span>/);
+});
+
 test('CONVERSATION-READING-FOCUS-001 keeps modular Webview controllers byte-identical in packaged media', () => {
     for (const fileName of [
         'conversationReadingAnchorScripts.js',

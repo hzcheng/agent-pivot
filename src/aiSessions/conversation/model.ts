@@ -50,6 +50,18 @@ export function applyStoppedLifecycleToResponseState(
     return stopped && state === 'inProgress' ? 'interrupted' : state;
 }
 
+export function applyActiveLifecycleToResponseState(
+    state: ConversationResponseState,
+    active: boolean,
+    latest: boolean
+): ConversationResponseState {
+    return active
+        && latest
+        && (state === 'interrupted' || state === 'unknown')
+        ? 'inProgress'
+        : state;
+}
+
 export function buildConversationPage(
     interactions: readonly ConversationInteraction[],
     request: ConversationPageRequest,

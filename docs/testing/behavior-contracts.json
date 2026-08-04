@@ -4092,7 +4092,7 @@
   {
     "id": "CONVERSATION-READING-FOCUS-001",
     "domain": "webview",
-    "title": "AI Conversation refreshes preserve the selected interaction, reading viewport, and semantic message focus",
+    "title": "AI Conversation refreshes follow new content at the end while preserving historical reading position and semantic message focus",
     "priority": "P0",
     "status": "automated",
     "owners": [
@@ -4102,6 +4102,23 @@
     "evidence": [
       "src/aiSessions/conversation/viewer.ts",
       "src/webview/conversationViewerScripts.js"
+    ]
+  },
+  {
+    "id": "CONVERSATION-WORKING-INDICATOR-001",
+    "domain": "webview",
+    "title": "AI Conversation shows a reduced-motion-safe Working indicator only while the latest response remains in progress",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/aiSessions/conversationCoordinator.test.js",
+      "tests/integration/dashboard/conversationViewer.test.js",
+      "tests/browser/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/viewerDocument.ts",
+      "src/webview/conversationViewerScripts.js",
+      "media/conversationViewer.scss"
     ]
   },
   {

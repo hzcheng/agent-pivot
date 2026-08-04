@@ -30,6 +30,7 @@
     }
     var scroll = document.querySelector('[data-conversation-scroll]');
     var messages = document.querySelector('[data-conversation-messages]');
+    var working = document.querySelector('[data-conversation-working]');
     var position = document.querySelector('[data-conversation-position]');
     var status = document.querySelector('[data-conversation-status]');
     var telemetryRoot = document.querySelector('[data-conversation-telemetry]');
@@ -49,7 +50,6 @@
     var telemetryWorktreeBranch = document.querySelector(
         '[data-telemetry-worktree-branch]'
     );
-    var newResponse = document.querySelector('[data-new-response]');
     var previous = document.querySelector('[data-action="previous"]');
     var next = document.querySelector('[data-action="next"]');
     var latest = document.querySelector('[data-action="latest"]');
@@ -149,7 +149,6 @@
         )),
         messageIds: [],
         messageSignatures: new Map(),
-        firstNewMessageId: null,
         renderGeneration: 0,
     };
     var readingAnchorController =
@@ -317,7 +316,7 @@
         updateToggle: sidebarController.updateToggle,
     });
 
-    if (!scroll || !messages || !position || !status || !newResponse
+    if (!scroll || !messages || !working || !position || !status
         || !previous || !next || !latest || !window.DOMPurify) {
         return;
     }
@@ -603,6 +602,7 @@
         var previousScrollTop = scroll.scrollTop;
         var isLiveRefresh = state.initialized
             && message.updateKind === 'refresh';
+        var wasFollowingEnd = isLiveRefresh && reconcileController.atEnd();
         var readingAnchor = isLiveRefresh ? captureReadingAnchor() : null;
         var focusedMessage = document.activeElement
             && document.activeElement.closest
@@ -611,7 +611,6 @@
         var focusedMessageId = focusedMessage
             ? conversationMessageId(focusedMessage)
             : null;
-        var oldIds = new Set(state.messageIds);
         var oldSignatures = state.messageSignatures;
         state.renderGeneration += 1;
         var renderGeneration = state.renderGeneration;
@@ -638,10 +637,6 @@
         );
         var nextIds = reconciled.ids;
         var nextSignatures = reconciled.signatures;
-        var appendedOrChanged = nextIds.filter(function (id) {
-            return !oldIds.has(id)
-                || oldSignatures.get(id) !== nextSignatures.get(id);
-        });
         state.messageIds = nextIds;
         state.messageSignatures = nextSignatures;
         state.atLatest = message.atLatest;
@@ -655,6 +650,10 @@
         }
         commentsController.updateHighlights();
         updatePosition(message);
+        var latestInteraction = message.outline[message.outline.length - 1];
+        working.hidden = !message.atLatest
+            || !latestInteraction
+            || latestInteraction.responseState !== 'inProgress';
         previous.disabled = message.previousCursor === undefined;
         next.disabled = message.nextCursor === undefined;
         latest.disabled = !message.selectedInteractionId;
@@ -699,8 +698,6 @@
         renderMermaidDiagrams(renderGeneration);
 
         if (!isLiveRefresh) {
-            state.firstNewMessageId = null;
-            newResponse.hidden = true;
             var selected = selectedMessages[0];
             var openingAtLatest = message.atLatest
                 && message.updateKind === 'initial';
@@ -717,16 +714,12 @@
             return;
         }
 
-        restoreReadingPosition(readingAnchor, previousScrollTop);
-        if (state.firstNewMessageId
-            && !nextIds.includes(state.firstNewMessageId)) {
-            state.firstNewMessageId = null;
+        if (wasFollowingEnd) {
+            reconcileController.scrollToEnd();
+        } else {
+            restoreReadingPosition(readingAnchor, previousScrollTop);
+            reconcileController.trackEnd();
         }
-        if (!state.firstNewMessageId && appendedOrChanged.length) {
-            state.firstNewMessageId = appendedOrChanged[0];
-        }
-        newResponse.hidden = !state.firstNewMessageId;
-        reconcileController.trackEnd();
     }
 
     function postNavigation(type) {
@@ -762,21 +755,6 @@
         sidebarController.attach();
         outlineController.attach();
     }
-    newResponse.addEventListener('click', function () {
-        var target = Array.prototype.find.call(
-            messages.querySelectorAll(conversationMessageSelector()),
-            function (message) {
-                return conversationMessageId(message)
-                    === state.firstNewMessageId;
-            }
-        );
-        if (!target) return;
-        target.tabIndex = -1;
-        target.scrollIntoView({ block: 'nearest' });
-        target.focus();
-        state.firstNewMessageId = null;
-        newResponse.hidden = true;
-    });
     messages.addEventListener('click', function (event) {
         var link = event.target && event.target.closest
             ? event.target.closest('a[href]')

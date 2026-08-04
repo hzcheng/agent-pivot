@@ -208,8 +208,17 @@ async function openViewerPage(t, options = {}) {
                 <div data-conversation-scroll tabindex="0"
                     style="height: 160px; overflow-y: auto">
                     <div data-conversation-messages></div>
+                    <div class="conversation-working" data-conversation-working
+                        role="status" aria-live="polite" hidden>
+                        <span>Working</span>
+                        <span class="conversation-working-dots"
+                            aria-hidden="true">
+                            <span class="conversation-working-dot"></span>
+                            <span class="conversation-working-dot"></span>
+                            <span class="conversation-working-dot"></span>
+                        </span>
+                    </div>
                 </div>
-                <button type="button" data-new-response hidden>New response content</button>
             </body>
         </html>`);
     await page.evaluate(() => {
@@ -3510,16 +3519,14 @@ test('CONVERSATION-READING-FOCUS-001 preserves the visible block inside a change
     );
 });
 
-test('CONVERSATION-VIEWER-BROWSER-NAVIGATION-001 preserves historical scroll and focuses the first appended message', async t => {
+test('CONVERSATION-VIEWER-BROWSER-NAVIGATION-001 preserves historical scroll without a pending-response control', async t => {
     const page = await openViewerPage(t);
     const originalHtml = messageHtml('message', 12);
     await sendPage(page, {
         ...hostileConversationPage,
         html: originalHtml,
     });
-    assert.equal(await page.getByRole('button', {
-        name: 'New response content',
-    }).isHidden(), true);
+    assert.equal(await page.locator('[data-new-response]').count(), 0);
     const scroll = page.locator('[data-conversation-scroll]');
     await scroll.evaluate(element => { element.scrollTop = 90; });
     const historicalScroll = await scroll.evaluate(element => element.scrollTop);
@@ -3540,16 +3547,8 @@ test('CONVERSATION-VIEWER-BROWSER-NAVIGATION-001 preserves historical scroll and
         await scroll.evaluate(element => element.scrollTop),
         historicalScroll
     );
-    const newResponse = page.getByRole('button', {
-        name: 'New response content',
-    });
-    assert.equal(await newResponse.isVisible(), true);
-    await newResponse.click();
-    assert.equal(await page.evaluate(() =>
-        document.activeElement
-            && document.activeElement.getAttribute('data-message-id')
-    ), 'message-12');
-    assert.equal(await newResponse.isHidden(), true);
+    assert.equal(await page.locator('[data-message-id="message-12"]').count(), 1);
+    assert.equal(await page.locator('[data-new-response]').count(), 0);
 });
 
 test('CONVERSATION-VIEWER-BROWSER-NAVIGATION-002 anchors and focuses the Host-selected interaction', async t => {
@@ -3762,7 +3761,7 @@ test('CONVERSATION-VIEWER-PARTIAL-001 labels capped input positions and partial 
     );
 });
 
-test('CONVERSATION-VIEWER-BROWSER-SCROLL-001 CONVERSATION-READING-FOCUS-001 preserves the reading viewport and semantic focus on refresh', async t => {
+test('CONVERSATION-VIEWER-BROWSER-SCROLL-001 CONVERSATION-READING-FOCUS-001 follows new content from the end and preserves historical reading focus', async t => {
     const page = await openViewerPage(t);
     const baseHtml = messageHtml('follow', 20);
     const appendedHtml = baseHtml + messageHtml('follow-new', 1);
@@ -3787,7 +3786,6 @@ test('CONVERSATION-VIEWER-BROWSER-SCROLL-001 CONVERSATION-READING-FOCUS-001 pres
     await scroll.evaluate(element => {
         element.scrollTop = element.scrollHeight - element.clientHeight;
     });
-    const bottomBefore = await scroll.evaluate(element => element.scrollTop);
     await sendPage(page, {
         ...baseMessage,
         requestId: 2,
@@ -3795,18 +3793,19 @@ test('CONVERSATION-VIEWER-BROWSER-SCROLL-001 CONVERSATION-READING-FOCUS-001 pres
         html: appendedHtml,
         totalInputs: 21,
     });
-    assert.equal(
-        await scroll.evaluate(element => element.scrollTop),
-        bottomBefore
+    assert.ok(
+        await scroll.evaluate(element =>
+            element.scrollHeight - element.clientHeight - element.scrollTop
+                <= 1
+        ),
+        'live refresh follows newly appended content when already at the end'
     );
     assert.equal(
         await page.evaluate(() =>
             document.activeElement?.getAttribute('data-message-id')),
         'follow-10'
     );
-    assert.equal(await page.getByRole('button', {
-        name: 'New response content',
-    }).isVisible(), true);
+    assert.equal(await page.locator('[data-new-response]').count(), 0);
 
     await sendPage(page, {
         ...baseMessage,
@@ -3825,12 +3824,72 @@ test('CONVERSATION-VIEWER-BROWSER-SCROLL-001 CONVERSATION-READING-FOCUS-001 pres
         totalInputs: 21,
     });
     assert.equal(await scroll.evaluate(element => element.scrollTop), before);
-    assert.equal(await page.getByRole('button', {
-        name: 'New response content',
-    }).isVisible(), true);
+    assert.equal(await page.locator('[data-new-response]').count(), 0);
 });
 
-test('CONVERSATION-VIEWER-BROWSER-PENDING-001 preserves the earliest unread response across refreshes and ignores explicit navigation', async t => {
+test('CONVERSATION-WORKING-INDICATOR-001 shows an animated status only for the latest in-progress response', async t => {
+    const page = await openViewerPage(t);
+    await page.addStyleTag({ content: viewerCss });
+    const working = page.locator('[data-conversation-working]');
+    const inProgressOutline = [{
+        interactionId: 'input-4',
+        userPreview: 'Waiting for a response',
+        responseState: 'inProgress',
+    }];
+
+    await sendPage(page, {
+        ...hostileConversationPage,
+        outline: inProgressOutline,
+        atLatest: true,
+        totalInputs: 4,
+    });
+
+    assert.equal(await working.isVisible(), true);
+    assert.equal((await working.innerText()).trim(), 'Working');
+    assert.notEqual(await working.locator(
+        '.conversation-working-dot'
+    ).first().evaluate(element =>
+        getComputedStyle(element).animationName
+    ), 'none');
+    for (const width of [700, 240]) {
+        await page.setViewportSize({ width, height: 500 });
+        const fitsViewport = await working.evaluate(element => {
+            const bounds = element.getBoundingClientRect();
+            return bounds.left >= 0
+                && bounds.right <= document.documentElement.clientWidth
+                && element.scrollWidth <= element.clientWidth;
+        });
+        assert.equal(fitsViewport, true, `Working fits at ${width}px`);
+    }
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    assert.equal(await working.locator(
+        '.conversation-working-dot'
+    ).first().evaluate(element =>
+        getComputedStyle(element).animationName
+    ), 'none');
+
+    await sendPage(page, {
+        ...hostileConversationPage,
+        requestId: 2,
+        updateKind: 'refresh',
+        outline: [{ ...inProgressOutline[0], responseState: 'complete' }],
+        atLatest: true,
+        totalInputs: 4,
+    });
+    assert.equal(await working.isHidden(), true);
+
+    await sendPage(page, {
+        ...hostileConversationPage,
+        requestId: 3,
+        updateKind: 'navigation',
+        outline: inProgressOutline,
+        atLatest: false,
+        totalInputs: 4,
+    });
+    assert.equal(await working.isHidden(), true);
+});
+
+test('CONVERSATION-VIEWER-BROWSER-PENDING-001 applies repeated refreshes without a pending-response control', async t => {
     const page = await openViewerPage(t);
     const originalHtml = messageHtml('pending', 8);
     await sendPage(page, {
@@ -3860,15 +3919,9 @@ test('CONVERSATION-VIEWER-BROWSER-PENDING-001 preserves the earliest unread resp
             + messageHtml('pending-later', 1),
     });
 
-    const newResponse = page.getByRole('button', {
-        name: 'New response content',
-    });
-    assert.equal(await newResponse.isVisible(), true);
-    await newResponse.click();
-    assert.equal(await page.evaluate(() =>
-        document.activeElement
-            && document.activeElement.getAttribute('data-message-id')
-    ), 'pending-new-0');
+    assert.equal(await page.locator('[data-message-id="pending-new-0"]').count(), 1);
+    assert.equal(await page.locator('[data-message-id="pending-later-0"]').count(), 1);
+    assert.equal(await page.locator('[data-new-response]').count(), 0);
 
     await sendPage(page, {
         ...hostileConversationPage,
@@ -3876,7 +3929,7 @@ test('CONVERSATION-VIEWER-BROWSER-PENDING-001 preserves the earliest unread resp
         updateKind: 'navigation',
         html: originalHtml + messageHtml('historical-page', 1),
     });
-    assert.equal(await newResponse.isHidden(), true);
+    assert.equal(await page.locator('[data-new-response]').count(), 0);
 });
 
 test('CONVERSATION-VIEWER-BROWSER-CORRELATION-001 rejects stale request and subscription publications', async t => {
@@ -3910,15 +3963,13 @@ test('CONVERSATION-VIEWER-BROWSER-RACE-001 treats a refresh that wins initial lo
         updateKind: 'refresh',
     });
 
-    assert.equal(await page.getByRole('button', {
-        name: 'New response content',
-    }).isHidden(), true);
+    assert.equal(await page.locator('[data-new-response]').count(), 0);
     assert.equal(await page.locator(
         '[data-interaction-id="input-4"].conversation-selected-interaction'
     ).count(), 1);
 });
 
-test('CONVERSATION-VIEWER-BROWSER-REFRESH-001 CONVERSATION-READING-FOCUS-001 preserves a real Host history window at every reading position', async t => {
+test('CONVERSATION-VIEWER-BROWSER-REFRESH-001 CONVERSATION-READING-FOCUS-001 follows or preserves a real Host history window at the end threshold', async t => {
     const publications = await realHostAppendPublications();
     for (const distance of [9, 8]) {
         const page = await openViewerPage(t);
@@ -3939,13 +3990,18 @@ test('CONVERSATION-VIEWER-BROWSER-REFRESH-001 CONVERSATION-READING-FOCUS-001 pre
         assert.equal(await page.locator(
             '[data-interaction-id="host-input-21"]'
         ).count(), 1);
-        assert.equal(
-            await scroll.evaluate(element => element.scrollTop),
-            before
-        );
-        assert.equal(await page.getByRole('button', {
-            name: 'New response content',
-        }).isVisible(), true);
+        if (distance <= 8) {
+            assert.ok(await scroll.evaluate(element =>
+                element.scrollHeight - element.clientHeight
+                    - element.scrollTop <= 1
+            ));
+        } else {
+            assert.equal(
+                await scroll.evaluate(element => element.scrollTop),
+                before
+            );
+        }
+        assert.equal(await page.locator('[data-new-response]').count(), 0);
     }
 });
 

@@ -4,6 +4,15 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
 
 ## [Unreleased]
 
+### Fixed
+
+- AI Conversation now follows live response content automatically while the
+  reader is at the end, without requiring a New response content button;
+  scrolling up still preserves the historical reading position.
+- AI Conversation shows an animated Working status below the latest response
+  while the provider is still processing, including active Codex turns read as
+  interrupted by a detached reader, then removes it on completion.
+
 ### Added
 
 - AI Conversation can show provider thinking blocks, including visible Codex

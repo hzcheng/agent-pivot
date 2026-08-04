@@ -9,7 +9,6 @@
         var messages = options.messages;
         var scroll = options.scroll;
         var addComment = options.addComment;
-        var headerSend = options.headerSend;
         var telemetryComments = options.telemetryComments;
         var telemetrySection = options.telemetrySection;
         var commentsRoot = options.commentsRoot;
@@ -221,12 +220,6 @@
             commentSend.disabled = counts.open === 0 || pending;
             commentSend.title = sendLabel;
             commentSend.setAttribute('aria-label', sendLabel);
-            if (headerSend) {
-                headerSend.disabled = counts.open === 0 || pending;
-                headerSend.textContent = counts.open > 0
-                    ? 'Send ' + counts.open
-                    : 'Send';
-            }
             if (telemetryComments) {
                 // The pill doubles as the Comments quick entry; keep it
                 // visible even at zero.
@@ -276,9 +269,6 @@
                 }
             );
             addComment.disabled = pending;
-            if (headerSend) {
-                headerSend.disabled = pending;
-            }
             if (!pending) {
                 updateCommentControls();
             }

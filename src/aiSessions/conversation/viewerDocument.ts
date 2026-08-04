@@ -20,6 +20,10 @@ const CONVERSATION_COMMENT_ICON_CHECK = '<svg viewBox="0 0 24 24" fill="none" st
 const CONVERSATION_COMMENT_ICON_SEND = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4Z"/></svg>';
 const CONVERSATION_COMMENT_ICON_ERASER = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></svg>';
 const CONVERSATION_COMMENT_ICON_TRASH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="m19 6-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>';
+const CONVERSATION_NAV_ICON_PREVIOUS = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>';
+const CONVERSATION_NAV_ICON_NEXT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>';
+const CONVERSATION_NAV_ICON_LATEST = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 6 5 5 5-5"/><path d="m7 13 5 5 5-5"/></svg>';
+const CONVERSATION_NAV_ICON_SIDEBAR = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/></svg>';
 
 export interface ConversationViewerDocumentOptions {
     panel: vscode.WebviewPanel;
@@ -122,14 +126,19 @@ export function renderConversationViewerDocument(
             <span>${escapeHtml(target.displayName + duplicateId)}</span>
         </div>
         <nav class="conversation-navigation" aria-label="Conversation navigation">
-            <button type="button" data-action="previous">Previous</button>
-            <button type="button" data-action="next">Next</button>
-            <button type="button" data-action="latest">Latest</button>
-            <button type="button" data-action="send-comments" disabled
-                title="Add open comments to the session input">Send</button>
-            <button type="button" data-action="toggle-sidebar"
-                aria-controls="conversation-sidebar"
-                aria-expanded="false" aria-label="Show side panel">Sidebar</button>
+            <button class="conversation-icon-button" type="button"
+                data-action="previous" title="Previous"
+                aria-label="Previous">${CONVERSATION_NAV_ICON_PREVIOUS}</button>
+            <button class="conversation-icon-button" type="button"
+                data-action="next" title="Next"
+                aria-label="Next">${CONVERSATION_NAV_ICON_NEXT}</button>
+            <button class="conversation-icon-button" type="button"
+                data-action="latest" title="Latest"
+                aria-label="Latest">${CONVERSATION_NAV_ICON_LATEST}</button>
+            <button class="conversation-icon-button" type="button"
+                data-action="toggle-sidebar" aria-controls="conversation-sidebar"
+                aria-expanded="false" title="Show side panel"
+                aria-label="Show side panel">${CONVERSATION_NAV_ICON_SIDEBAR}</button>
         </nav>
     </header>
     ${renderConversationTelemetry(options.telemetrySnapshot)}

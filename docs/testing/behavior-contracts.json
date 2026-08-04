@@ -4092,7 +4092,7 @@
   {
     "id": "CONVERSATION-READING-FOCUS-001",
     "domain": "webview",
-    "title": "AI Conversation refreshes preserve the selected interaction, reading viewport, and semantic message focus",
+    "title": "AI Conversation refreshes follow new content at the end while preserving historical reading position and semantic message focus",
     "priority": "P0",
     "status": "automated",
     "owners": [

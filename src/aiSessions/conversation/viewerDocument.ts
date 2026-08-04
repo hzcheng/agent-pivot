@@ -271,7 +271,6 @@ export function renderConversationViewerDocument(
     </div>
     <button class="conversation-add-comment" type="button"
         data-add-comment hidden>Add comment</button>
-    <button class="new-response" type="button" data-new-response hidden>New response content</button>
     <script nonce="${escapeAttribute(nonce)}" src="${escapeAttribute(
         purify.toString()
     )}"></script>

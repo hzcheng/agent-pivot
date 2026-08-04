@@ -109,6 +109,7 @@
 
         return Object.freeze({
             attach: attach,
+            atEnd: conversationAtEnd,
             reconcile: reconcileMessages,
             scrollToEnd: scrollToConversationEnd,
             trackEnd: trackConversationEnd,

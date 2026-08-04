@@ -14,6 +14,17 @@
       ]
     },
     {
+      "id": "CONVERSATION-RELEASE-CORE-JOURNEY-001",
+      "title": "Cross-provider live updates preserve chrome, navigation, telemetry, and reading position",
+      "enforcement": "pull-request",
+      "behaviors": [
+        "CONVERSATION-PROVIDER-PARITY-001",
+        "CONVERSATION-CHROME-LAYOUT-001",
+        "CONVERSATION-LIVE-UPDATE-JOURNEY-001",
+        "CONVERSATION-NAVIGATION-STATE-001"
+      ]
+    },
+    {
       "id": "CONVERSATION-RELEASE-READING-FOCUS-001",
       "title": "Background refresh preserves the reader's viewport and semantic focus",
       "enforcement": "pull-request",

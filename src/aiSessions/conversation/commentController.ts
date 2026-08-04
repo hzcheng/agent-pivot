@@ -210,10 +210,13 @@ export class ConversationCommentController {
             return;
         }
         try {
-            if (request.operation === 'sendComments') {
+            if (request.type === 'conversation-viewer-send-comments') {
                 await this.sendComments(
                     target,
-                    this.options.getSubscriptionGeneration()
+                    this.options.getSubscriptionGeneration(),
+                    request.operation === 'sendComment'
+                        ? (request.payload as { commentId: string }).commentId
+                        : undefined
                 );
             } else {
                 await this.mutateComments(
@@ -223,7 +226,7 @@ export class ConversationCommentController {
                 );
             }
             await this.settleRequest(request, true);
-            if (request.operation === 'sendComments') {
+            if (request.type === 'conversation-viewer-send-comments') {
                 await this.focusSessionAfterSend(target);
             }
         } catch (error) {
@@ -333,15 +336,29 @@ export class ConversationCommentController {
 
     private async sendComments(
         target: ConversationViewerTarget,
-        generation: number
+        generation: number,
+        commentId?: string
     ): Promise<void> {
-        const prompt = buildConversationCommentsPrompt(
-            this.comments.filter(comment => comment.status === 'open')
+        const openComments = this.comments.filter(
+            comment => comment.status === 'open'
         );
+        const targetComments = commentId
+            ? openComments.filter(comment => comment.id === commentId)
+            : openComments;
+        if (commentId && targetComments.length !== 1) {
+            // The card no longer exists or is no longer open.
+            throw new ConversationCommentError('stale');
+        }
+        const prompt = buildConversationCommentsPrompt(targetComments);
         const previousSnapshot = this.snapshot;
         const sentSnapshot = {
             revision: this.revision + 1,
-            comments: markConversationCommentsSent(this.comments),
+            comments: commentId
+                ? this.comments.map(comment =>
+                    comment.id === commentId && comment.status === 'open'
+                        ? { ...comment, status: 'sent' as const }
+                        : { ...comment })
+                : markConversationCommentsSent(this.comments),
         };
         await this.persist(target, sentSnapshot);
         if (this.options.getTarget() !== target

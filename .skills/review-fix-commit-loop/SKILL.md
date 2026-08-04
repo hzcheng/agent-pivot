@@ -75,6 +75,11 @@ commit only the intended files.
    - Stage explicit paths.
    - Use a commit message that names the fixed issue, e.g. `fix: tighten open projects update consistency`.
    - Re-check `git status -sb`.
+   - Edit large machine-formatted JSON manifests (`docs/testing/*.json`) with
+     targeted text edits, never programmatic parse-and-rewrite; before
+     committing, check `git diff --stat` for whole-file reformat churn
+     (hundreds of rewritten lines for a few-line change) and redo the edit
+     when seen.
    - After the final implementation or skill-owner commit exists, complete the
      main-capability assignment and `audit.head` update in a separate
      documentation-only audit commit, then rerun

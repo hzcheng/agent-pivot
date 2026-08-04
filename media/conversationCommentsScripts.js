@@ -38,6 +38,7 @@
             pendingLocateRequest: null,
             clearAllConfirmation: false,
             selectedCommentText: null,
+            editingComment: null,
         };
 
         function readJsonAttribute(name) {
@@ -128,7 +129,8 @@
                     || value.operation === 'clearSent'
                     || value.operation === 'clearResolved'
                     || value.operation === 'clearAll'
-                    || value.operation === 'sendComments')
+                    || value.operation === 'sendComments'
+                    || value.operation === 'sendComment')
                 && typeof value.success === 'boolean'
                 && Number.isSafeInteger(value.revision)
                 && value.revision >= 0
@@ -283,13 +285,16 @@
             setCommentPending(true);
             status.textContent = operation === 'sendComments'
                 ? 'Adding comments to session input…'
-                : operation === 'clearSent'
-                    || operation === 'clearResolved'
-                    || operation === 'clearAll'
-                    ? 'Clearing comments…'
-                    : 'Saving comment…';
+                : operation === 'sendComment'
+                    ? 'Adding comment to session input…'
+                    : operation === 'clearSent'
+                        || operation === 'clearResolved'
+                        || operation === 'clearAll'
+                        ? 'Clearing comments…'
+                        : 'Saving comment…';
             post({
                 type: operation === 'sendComments'
+                    || operation === 'sendComment'
                     ? 'conversation-viewer-send-comments'
                     : 'conversation-viewer-comment-mutation',
                 version: 1,
@@ -350,10 +355,64 @@
             });
         }
 
+        var COMMENT_ICON_ATTRS = 'viewBox="0 0 24 24" fill="none" '
+            + 'stroke="currentColor" stroke-width="2" '
+            + 'stroke-linecap="round" stroke-linejoin="round" '
+            + 'aria-hidden="true" focusable="false"';
+
+        function commentIcon(paths) {
+            return '<svg ' + COMMENT_ICON_ATTRS + '>' + paths + '</svg>';
+        }
+
+        var COMMENT_ICONS = {
+            send: commentIcon('<path d="M22 2 11 13"/>'
+                + '<path d="M22 2 15 22l-4-9-9-4Z"/>'),
+            locate: commentIcon('<circle cx="12" cy="12" r="7"/>'
+                + '<path d="M12 2v3"/><path d="M12 19v3"/>'
+                + '<path d="M2 12h3"/><path d="M19 12h3"/>'),
+            edit: commentIcon('<path d="M17 3a2.85 2.83 0 1 1 4 4'
+                + 'L7.5 20.5 2 22l1.5-5.5Z"/>'),
+            save: commentIcon('<path d="M20 6 9 17l-5-5"/>'),
+            cancel: commentIcon('<path d="M18 6 6 18"/><path d="M6 6l12 12"/>'),
+            resolve: commentIcon('<circle cx="12" cy="12" r="9"/>'
+                + '<path d="m8.5 12.2 2.4 2.4 4.8-5"/>'),
+            reopen: commentIcon('<path d="M3 12a9 9 0 1 0 3-6.7"/>'
+                + '<path d="M3 4v5h5"/>'),
+            remove: commentIcon('<path d="M3 6h18"/><path d="M8 6V4h8v2"/>'
+                + '<path d="m19 6-1 14H6L5 6"/>'
+                + '<path d="M10 11v6"/><path d="M14 11v6"/>'),
+        };
+
+        function commentIconButton(action, icon, label, modifier) {
+            var button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'conversation-comment-icon-button'
+                + (modifier ? ' ' + modifier : '');
+            button.setAttribute('data-comment-action', action);
+            button.title = label;
+            button.setAttribute('aria-label', label);
+            button.innerHTML = icon;
+            return button;
+        }
+
+        function autosizeCommentInput(textarea) {
+            textarea.style.height = 'auto';
+            var chrome = textarea.offsetHeight - textarea.clientHeight;
+            textarea.style.height = (textarea.scrollHeight + chrome) + 'px';
+        }
+
         function renderComments() {
             if (!commentUiAvailable) return;
             resetClearAllConfirmation();
             commentList.replaceChildren();
+            if (state.editingComment) {
+                var editingTarget = state.comments.find(function (candidate) {
+                    return candidate.id === state.editingComment.commentId;
+                });
+                if (!editingTarget || editingTarget.status !== 'open') {
+                    state.editingComment = null;
+                }
+            }
             state.comments.forEach(function (comment, index) {
                 var item = document.createElement('article');
                 item.className = 'conversation-comment';
@@ -366,93 +425,124 @@
 
                 var heading = document.createElement('div');
                 heading.className = 'conversation-comment-heading';
-                var identity = document.createElement('div');
-                identity.className = 'conversation-comment-identity';
-                var label = document.createElement('strong');
-                label.textContent = 'Comment ' + (index + 1);
-                if (comment.scope === 'session') {
-                    var scope = document.createElement('span');
-                    scope.className = 'conversation-comment-scope';
-                    scope.textContent = 'Session note';
-                    identity.append(label, scope);
-                } else {
-                    identity.appendChild(label);
-                }
                 var statusLabel = document.createElement('span');
                 statusLabel.className = 'conversation-comment-status';
                 statusLabel.setAttribute('data-comment-status-label', '');
                 statusLabel.textContent = comment.status === 'open'
                     ? 'Open'
                     : comment.status === 'sent' ? 'Added' : 'Resolved';
-                identity.appendChild(statusLabel);
-                heading.appendChild(identity);
-                if (comment.scope !== 'session') {
-                    var locate = document.createElement('button');
-                    locate.type = 'button';
-                    locate.className = 'conversation-comment-locate';
-                    locate.setAttribute('data-comment-action', 'locate');
-                    locate.textContent = 'Show text';
-                    heading.appendChild(locate);
-                }
-
-                var quoteGroup = document.createElement('div');
-                quoteGroup.className = 'conversation-comment-quote';
-                var quoteLabel = document.createElement('span');
-                quoteLabel.className = 'conversation-comment-quote-label';
-                quoteLabel.textContent = 'Selected text';
-                var quote = document.createElement('blockquote');
-                quote.textContent = comment.quote;
-                quoteGroup.append(quoteLabel, quote);
-                var input = document.createElement('textarea');
-                input.rows = 2;
-                input.maxLength = 4000;
-                input.value = comment.comment;
-                input.readOnly = comment.status !== 'open';
-                input.setAttribute('aria-label', 'Comment ' + (index + 1));
-                input.setAttribute(
-                    'aria-keyshortcuts',
-                    'Control+Enter Meta+Enter'
-                );
-                input.setAttribute('data-comment-edit', '');
+                heading.appendChild(statusLabel);
                 var actions = document.createElement('div');
                 actions.className = 'conversation-comment-actions';
-                var remove = document.createElement('button');
-                remove.type = 'button';
-                remove.className = 'conversation-comment-delete';
-                remove.setAttribute('data-comment-action', 'delete');
-                remove.textContent = 'Delete';
-                actions.appendChild(remove);
-                if (comment.status === 'open') {
-                    var save = document.createElement('button');
-                    save.type = 'button';
-                    save.setAttribute('data-comment-action', 'update');
-                    save.title = 'Save comment (Ctrl+Enter or Cmd+Enter)';
-                    save.textContent = 'Save';
-                    actions.appendChild(save);
-                }
-                var review = document.createElement('button');
-                review.type = 'button';
-                if (comment.status === 'resolved') {
-                    review.setAttribute('data-comment-action', 'reopen');
-                    review.textContent = 'Reopen';
-                } else if (comment.status === 'sent') {
-                    review.setAttribute('data-comment-action', 'resolve');
-                    review.textContent = 'Resolve';
-                    var reopen = document.createElement('button');
-                    reopen.type = 'button';
-                    reopen.setAttribute('data-comment-action', 'reopen');
-                    reopen.textContent = 'Reopen';
-                    actions.appendChild(reopen);
-                } else {
-                    review.setAttribute('data-comment-action', 'resolve');
-                    review.textContent = 'Resolve';
-                }
-                actions.appendChild(review);
+                heading.appendChild(actions);
                 item.appendChild(heading);
+
+                var editing = !!state.editingComment
+                    && state.editingComment.commentId === comment.id;
+                if (editing) {
+                    actions.appendChild(commentIconButton(
+                        'update',
+                        COMMENT_ICONS.save,
+                        'Save comment (Ctrl+Enter or Cmd+Enter)'
+                    ));
+                    actions.appendChild(commentIconButton(
+                        'cancel-edit',
+                        COMMENT_ICONS.cancel,
+                        'Discard changes (Esc)'
+                    ));
+                    var input = document.createElement('textarea');
+                    input.rows = 1;
+                    input.maxLength = 4000;
+                    input.value = state.editingComment.draft;
+                    input.setAttribute('aria-label', 'Comment ' + (index + 1));
+                    input.setAttribute(
+                        'aria-keyshortcuts',
+                        'Control+Enter Meta+Enter'
+                    );
+                    input.setAttribute('data-comment-edit', '');
+                    var hint = document.createElement('div');
+                    hint.className = 'conversation-comment-edit-hint';
+                    hint.textContent = 'Ctrl+Enter to save · Esc to cancel';
+                    item.append(input, hint);
+                    commentList.appendChild(item);
+                    autosizeCommentInput(input);
+                    input.focus();
+                    input.setSelectionRange(
+                        input.value.length,
+                        input.value.length
+                    );
+                    return;
+                }
+
+                if (comment.status === 'open') {
+                    actions.appendChild(commentIconButton(
+                        'send-comment',
+                        COMMENT_ICONS.send,
+                        'Send this comment to the session'
+                    ));
+                }
                 if (comment.scope !== 'session') {
+                    actions.appendChild(commentIconButton(
+                        'locate',
+                        COMMENT_ICONS.locate,
+                        'Show commented text'
+                    ));
+                }
+                if (comment.status === 'open') {
+                    actions.appendChild(commentIconButton(
+                        'edit-comment',
+                        COMMENT_ICONS.edit,
+                        'Edit comment'
+                    ));
+                }
+                if (comment.status !== 'resolved') {
+                    actions.appendChild(commentIconButton(
+                        'resolve',
+                        COMMENT_ICONS.resolve,
+                        'Resolve comment'
+                    ));
+                }
+                if (comment.status !== 'open') {
+                    actions.appendChild(commentIconButton(
+                        'reopen',
+                        COMMENT_ICONS.reopen,
+                        'Reopen comment'
+                    ));
+                }
+                actions.appendChild(commentIconButton(
+                    'delete',
+                    COMMENT_ICONS.remove,
+                    'Delete comment',
+                    'danger'
+                ));
+
+                var body = document.createElement('div');
+                body.className = 'conversation-comment-body';
+                body.textContent = comment.comment;
+                item.appendChild(body);
+                if (comment.scope !== 'session') {
+                    var quoteGroup = document.createElement('div');
+                    quoteGroup.className = 'conversation-comment-quote';
+                    var quoteLabel = document.createElement('span');
+                    quoteLabel.className = 'conversation-comment-quote-label';
+                    quoteLabel.textContent = 'Selected text';
+                    var quote = document.createElement('blockquote');
+                    quote.textContent = comment.quote;
+                    quoteGroup.append(quoteLabel, quote);
                     item.appendChild(quoteGroup);
                 }
-                item.append(input, actions);
+                var meta = document.createElement('div');
+                meta.className = 'conversation-comment-meta';
+                var metaLabel = document.createElement('span');
+                metaLabel.textContent = '#' + (index + 1);
+                meta.appendChild(metaLabel);
+                if (comment.scope === 'session') {
+                    var scope = document.createElement('span');
+                    scope.className = 'conversation-comment-scope';
+                    scope.textContent = 'Session note';
+                    meta.appendChild(scope);
+                }
+                item.appendChild(meta);
                 commentList.appendChild(item);
             });
             updateToggle();
@@ -563,6 +653,9 @@
             state.comments = message.comments.map(function (comment) {
                 return Object.assign({}, comment);
             });
+            if (message.success && message.operation === 'update') {
+                state.editingComment = null;
+            }
             renderComments();
             var operation = state.pendingCommentRequest.operation;
             state.pendingCommentRequest = null;
@@ -570,7 +663,9 @@
             if (message.success) {
                 status.textContent = operation === 'sendComments'
                     ? 'Comments added to session input. Review and press Enter to send.'
-                    : operation === 'clearSent'
+                    : operation === 'sendComment'
+                        ? 'Comment added to session input. Review and press Enter to send.'
+                        : operation === 'clearSent'
                         ? 'Added comments cleared.'
                         : operation === 'clearResolved'
                             ? 'Resolved comments cleared.'
@@ -719,6 +814,16 @@
             scroll.addEventListener('scroll', function () {
                 addComment.hidden = true;
             });
+            commentsRoot.addEventListener('input', function (event) {
+                var target = event.target;
+                if (target && target.matches
+                    && target.matches('[data-comment-edit]')) {
+                    if (state.editingComment) {
+                        state.editingComment.draft = target.value;
+                    }
+                    autosizeCommentInput(target);
+                }
+            });
             addComment.addEventListener('click', openCommentComposer);
             commentsRoot.addEventListener('click', function (event) {
                 var button = event.target && event.target.closest
@@ -787,6 +892,27 @@
                     return candidate.id === commentId;
                 });
                 if (!item || !comment) return;
+                if (action === 'send-comment') {
+                    postCommentOperation(
+                        'sendComment',
+                        { commentId: comment.id }
+                    );
+                    return;
+                }
+                if (action === 'edit-comment') {
+                    state.editingComment = {
+                        commentId: comment.id,
+                        draft: comment.comment,
+                    };
+                    renderComments();
+                    return;
+                }
+                if (action === 'cancel-edit') {
+                    state.editingComment = null;
+                    renderComments();
+                    status.textContent = 'Edit cancelled.';
+                    return;
+                }
                 if (action === 'locate') {
                     requestCommentLocation(comment);
                     return;
@@ -850,6 +976,16 @@
                 resetClearAllConfirmation();
                 status.textContent = 'Clear all cancelled.';
                 commentClearAll.focus();
+                return true;
+            }
+            if (commentUiAvailable && state.editingComment) {
+                event.preventDefault();
+                if (!state.pendingCommentRequest
+                    && !state.pendingLocateRequest) {
+                    state.editingComment = null;
+                    renderComments();
+                    status.textContent = 'Edit cancelled.';
+                }
                 return true;
             }
             if (commentUiAvailable && !commentComposer.hidden) {

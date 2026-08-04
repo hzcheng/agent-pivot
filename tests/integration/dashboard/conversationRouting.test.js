@@ -1091,6 +1091,205 @@ test('PRODUCTION-CONVERSATION-COMMENTS-002 keeps authoritative drafts after subm
     await harness.dispose();
 });
 
+test('CONVERSATION-COMMENTS-SUBMIT-002 sends one card comment to the exact idle runtime and leaves other drafts open', async () => {
+    const prompts = [];
+    const harness = createDashboardConversationHarness({
+        useConcreteViewer: true,
+        submitPrompt: async (_target, prompt) => {
+            prompts.push(prompt);
+        },
+    });
+    await harness.activate();
+    assert.equal(await harness.openActiveConversation(), 'opened');
+    const panel = harness.panels[0];
+    await panel.receiveMessage({
+        type: 'conversation-viewer-previous',
+        version: 1,
+    });
+    const base = {
+        version: 1,
+        subscriptionGeneration: 1,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    };
+    await panel.receiveMessage({
+        ...base,
+        type: 'conversation-viewer-comment-mutation',
+        requestId: 'single:add:1',
+        operation: 'add',
+        expectedRevision: 0,
+        payload: {
+            messageId: 'input-a:user',
+            interactionId: 'input-a',
+            quote: 'input-a',
+            prefix: '',
+            suffix: '',
+            comment: 'First comment stays private.',
+        },
+    });
+    const firstId = panel.postedMessages.at(-1).comments[0].id;
+    await panel.receiveMessage({
+        ...base,
+        type: 'conversation-viewer-comment-mutation',
+        requestId: 'single:add:2',
+        operation: 'add',
+        expectedRevision: 1,
+        payload: {
+            messageId: 'input-a:user',
+            interactionId: 'input-a',
+            quote: 'input-a',
+            prefix: '',
+            suffix: '',
+            comment: 'Second comment must not leak.',
+        },
+    });
+    const secondId = panel.postedMessages.at(-1).comments[1].id;
+
+    await panel.receiveMessage({
+        ...base,
+        type: 'conversation-viewer-send-comments',
+        requestId: 'single:send:3',
+        operation: 'sendComment',
+        expectedRevision: 2,
+        payload: { commentId: firstId },
+    });
+    const sentOne = panel.postedMessages.at(-1);
+    assert.equal(sentOne.type, 'conversation-viewer-comments-result');
+    assert.equal(sentOne.operation, 'sendComment');
+    assert.equal(sentOne.success, true);
+    assert.equal(sentOne.revision, 3);
+    assert.equal(
+        sentOne.comments.find(comment => comment.id === firstId).status,
+        'sent'
+    );
+    assert.equal(
+        sentOne.comments.find(comment => comment.id === secondId).status,
+        'open'
+    );
+    assert.equal(prompts.length, 1);
+    assert.match(prompts[0], /First comment stays private\./);
+    assert.equal(
+        prompts[0].includes('Second comment must not leak'),
+        false,
+        'a single-card send must not stage other open drafts'
+    );
+    assert.deepEqual(harness.sessionFocusTargets, [{
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    }]);
+
+    // Resending an already-sent card fails closed without restaging.
+    await panel.receiveMessage({
+        ...base,
+        type: 'conversation-viewer-send-comments',
+        requestId: 'single:send:4',
+        operation: 'sendComment',
+        expectedRevision: 3,
+        payload: { commentId: firstId },
+    });
+    const resent = panel.postedMessages.at(-1);
+    assert.equal(resent.success, false);
+    assert.equal(resent.error, 'stale');
+    assert.equal(prompts.length, 1);
+    assert.equal(harness.sessionFocusTargets.length, 1);
+
+    // Unknown comment ids fail closed without restaging.
+    await panel.receiveMessage({
+        ...base,
+        type: 'conversation-viewer-send-comments',
+        requestId: 'single:send:5',
+        operation: 'sendComment',
+        expectedRevision: 3,
+        payload: { commentId: 'missing-comment' },
+    });
+    const missing = panel.postedMessages.at(-1);
+    assert.equal(missing.success, false);
+    assert.equal(missing.error, 'stale');
+    assert.equal(prompts.length, 1);
+    await harness.dispose();
+});
+
+test('CONVERSATION-COMMENTS-SUBMIT-002 keeps a single draft open when staging one card fails', async () => {
+    let persisted = { revision: 0, comments: [] };
+    const harness = createDashboardConversationHarness({
+        useConcreteViewer: true,
+        commentStore: {
+            async load() {
+                return {
+                    revision: persisted.revision,
+                    comments: persisted.comments.map(comment => ({
+                        ...comment,
+                    })),
+                };
+            },
+            async save(_target, snapshot) {
+                persisted = {
+                    revision: snapshot.revision,
+                    comments: snapshot.comments.map(comment => ({
+                        ...comment,
+                    })),
+                };
+            },
+        },
+        submitPrompt: async () => {
+            throw new Error('private provider failure');
+        },
+    });
+    await harness.activate();
+    assert.equal(await harness.openActiveConversation(), 'opened');
+    const panel = harness.panels[0];
+    await panel.receiveMessage({
+        type: 'conversation-viewer-previous',
+        version: 1,
+    });
+    const base = {
+        version: 1,
+        subscriptionGeneration: 1,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    };
+    await panel.receiveMessage({
+        ...base,
+        type: 'conversation-viewer-comment-mutation',
+        requestId: 'single-failure:add:1',
+        operation: 'add',
+        expectedRevision: 0,
+        payload: {
+            messageId: 'input-a:user',
+            interactionId: 'input-a',
+            quote: 'input-a',
+            prefix: '',
+            suffix: '',
+            comment: 'Keep this single draft.',
+        },
+    });
+    const commentId = panel.postedMessages.at(-1).comments[0].id;
+    await panel.receiveMessage({
+        ...base,
+        type: 'conversation-viewer-send-comments',
+        requestId: 'single-failure:send:2',
+        operation: 'sendComment',
+        expectedRevision: 1,
+        payload: { commentId },
+    });
+
+    const failure = panel.postedMessages.at(-1);
+    assert.equal(failure.success, false);
+    assert.equal(failure.error, 'failed');
+    assert.equal(failure.revision, 1);
+    assert.equal(failure.comments[0].status, 'open');
+    assert.equal(persisted.revision, 1);
+    assert.equal(persisted.comments[0].status, 'open');
+    assert.equal(
+        JSON.stringify(failure).includes('private provider failure'),
+        false
+    );
+    await harness.dispose();
+});
+
 test('CONVERSATION-COMMENTS-001 accepts and stages a Host-authoritative session-wide note', async () => {
     const prompts = [];
     const harness = createDashboardConversationHarness({

@@ -841,37 +841,89 @@ button {
     display: flex;
     min-width: 0;
     flex-wrap: wrap;
-    gap: 0.15rem 0.35rem;
+    gap: 0.2rem 0.35rem;
     align-items: center;
+    justify-content: space-between;
 }
 
 .conversation-comment-actions {
     display: flex;
     min-width: 0;
+    flex: 0 1 auto;
     flex-wrap: wrap;
-    gap: 0.25rem 0.4rem;
+    gap: 2px;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-end;
+    margin-left: auto;
 }
 
-.conversation-comment-identity {
+.conversation-comment-icon-button {
+    display: inline-grid;
+    width: 22px;
+    height: 22px;
+    place-items: center;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    color: var(--vscode-descriptionForeground);
+    background: transparent;
+    cursor: pointer;
+    transition: background-color 120ms ease, color 120ms ease;
+
+    svg {
+        display: block;
+        width: 12px;
+        height: 12px;
+    }
+
+    &:hover:not(:disabled) {
+        color: var(--vscode-foreground);
+        background: var(--vscode-list-hoverBackground);
+    }
+
+    &:focus-visible {
+        outline: 1px solid var(--vscode-focusBorder);
+        outline-offset: 1px;
+    }
+
+    &:disabled {
+        cursor: default;
+        opacity: 0.5;
+    }
+
+    &.danger:hover:not(:disabled) {
+        color: var(--vscode-errorForeground);
+        background: var(--vscode-toolbar-hoverBackground);
+    }
+}
+
+.conversation-comment-body {
+    min-width: 0;
+    margin-top: 0.35rem;
+    font-size: 0.78rem;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.conversation-comment-meta {
     display: flex;
     min-width: 0;
-    flex: 1 1 auto;
     gap: 0.3rem;
     align-items: baseline;
+    margin-top: 0.4rem;
+    color: var(--vscode-descriptionForeground);
+    font-size: 0.68rem;
+}
 
-    strong {
-        overflow: hidden;
-        font-size: 0.8rem;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
+.conversation-comment-edit-hint {
+    margin-top: 0.3rem;
+    color: var(--vscode-descriptionForeground);
+    font-size: 0.66rem;
 }
 
 .conversation-comment-status {
     flex: 0 0 auto;
-    margin-left: auto;
     padding: 0 0.35rem;
     border-radius: 999px;
     color: var(--vscode-badge-foreground);
@@ -989,7 +1041,6 @@ button {
     display: block;
     min-width: 0;
     width: 100%;
-    resize: vertical;
     padding: 0.3rem 0.45rem;
     border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
     border-radius: 4px;
@@ -1008,50 +1059,12 @@ button {
     }
 }
 
-.conversation-comment-actions {
-    margin-top: 0.4rem;
-    justify-content: flex-end;
-
-    button {
-        min-width: 0;
-        max-width: 100%;
-        flex: 0 1 auto;
-        padding: 0.12rem 0.45rem;
-        font-size: 0.72rem;
-        overflow-wrap: anywhere;
-        white-space: normal;
-    }
+.conversation-comment textarea {
+    resize: none;
 }
 
-.conversation-comment-locate {
-    min-width: 0;
-    max-width: 100%;
-    flex: 0 0 auto;
-    margin-left: auto;
-    padding: 0.1rem 0.2rem;
-    border-color: transparent;
-    color: var(--vscode-textLink-foreground);
-    background: transparent;
-    font-size: 0.72rem;
-    white-space: normal;
-
-    &:hover {
-        color: var(
-            --vscode-textLink-activeForeground,
-            var(--vscode-textLink-foreground)
-        );
-        background: var(--vscode-toolbar-hoverBackground);
-    }
-}
-
-.conversation-comment-delete {
-    color: var(--vscode-errorForeground);
-    background: transparent;
-
-    &:hover {
-        color: var(--vscode-errorForeground);
-        background: var(--vscode-toolbar-hoverBackground);
-    }
+.conversation-comment-composer textarea {
+    resize: vertical;
 }
 
 .conversation-comment-empty {

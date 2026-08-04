@@ -59,6 +59,13 @@ test('CONVERSATION-PROTOCOL-VALIDATOR-001 accepts every exact version-1 viewer i
         operation: 'sendComments',
         expectedRevision: 2,
         payload: {},
+    }, {
+        type: 'conversation-viewer-send-comments',
+        version: 1,
+        ...target,
+        operation: 'sendComment',
+        expectedRevision: 2,
+        payload: { commentId: 'comment-1' },
     }];
 
     assert.deepEqual(
@@ -119,6 +126,38 @@ test('CONVERSATION-PROTOCOL-VALIDATOR-001 rejects malformed, inherited, and over
             operation: 'sendComments',
             expectedRevision: 2,
             payload: { submit: true },
+        },
+        {
+            type: 'conversation-viewer-send-comments',
+            version: 1,
+            ...target,
+            operation: 'sendComments',
+            expectedRevision: 2,
+            payload: { commentId: 'comment-1' },
+        },
+        {
+            type: 'conversation-viewer-send-comments',
+            version: 1,
+            ...target,
+            operation: 'sendComment',
+            expectedRevision: 2,
+            payload: {},
+        },
+        {
+            type: 'conversation-viewer-send-comments',
+            version: 1,
+            ...target,
+            operation: 'sendComment',
+            expectedRevision: 2,
+            payload: { commentId: 7 },
+        },
+        {
+            type: 'conversation-viewer-send-comments',
+            version: 1,
+            ...target,
+            operation: 'sendComment',
+            expectedRevision: 2,
+            payload: { commentId: 'comment-1', submit: true },
         },
     ];
 

@@ -32,6 +32,7 @@ export interface OpenWorkspaceDashboardControllerOptions {
     getCurrentWorkspace: () => OpenWorkspace | null;
     isWorkspaceSavedAsProject: (workspace: OpenWorkspace) => boolean;
     getWorkspaceProjectColor: (workspace: Pick<OpenWorkspace, 'kind' | 'navigationUri'>) => string;
+    getWorkspaceProjectName?: (workspace: Pick<OpenWorkspace, 'kind' | 'navigationUri'>) => string;
     getCurrentWorkspaceAiSessions: (workspace: OpenWorkspace) => WorkspaceAiSessionViewModel | null;
     getGroups: () => Group[];
     getTodoSearchItems: () => TodoSearchCatalogItem[];
@@ -134,6 +135,7 @@ export class OpenWorkspaceDashboardController {
         const navigationCards = navigationProjections.map(projection => ({
             card: {
                 ...projection.card,
+                name: this.getWorkspaceProjectName(projection.workspace) || projection.card.name,
                 color: this.getWorkspaceCardColor(projection.workspace),
             },
             openedAtMs: projection.openedAtMs,
@@ -236,7 +238,7 @@ export class OpenWorkspaceDashboardController {
                 .filter(session => session.executionState === 'running').length,
             navigationIdentity,
             scopeIdentity: workspace.scopeIdentity,
-            name: workspace.displayName,
+            name: this.getWorkspaceProjectName(workspace) || workspace.displayName,
             environment: workspace.environment,
             environmentLabel: this.getEnvironmentLabel(workspace.environment),
             color: this.getWorkspaceCardColor(workspace),
@@ -258,6 +260,14 @@ export class OpenWorkspaceDashboardController {
             case 'local':
             default: return 'Local';
         }
+    }
+
+    private getWorkspaceProjectName(
+        workspace: Pick<OpenWorkspace, 'kind' | 'navigationUri'>,
+    ): string {
+        if (!this.options.getWorkspaceProjectName) { return ''; }
+        const name = this.options.getWorkspaceProjectName(workspace);
+        return name && name.trim() ? name : '';
     }
 
     private getWorkspaceCardColor(

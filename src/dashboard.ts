@@ -1330,6 +1330,7 @@ async function initializeDashboard(
         getCurrentWorkspace: getCurrentOpenWorkspace,
         isWorkspaceSavedAsProject: workspace => Boolean(getSavedProjectForWorkspace(workspace)),
         getWorkspaceProjectColor: workspace => getSavedProjectForWorkspace(workspace)?.color || '',
+        getWorkspaceProjectName: workspace => getSavedProjectForWorkspace(workspace)?.name || '',
         getCurrentWorkspaceAiSessions: workspace => workspaceSessionHydrationController.hydrate(workspace),
         getGroups: () => projectService.getGroups(),
         getTodoSearchItems: () => todoService.getSearchItems(),

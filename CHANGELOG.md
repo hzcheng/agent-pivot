@@ -7,10 +7,12 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
 ### Added
 
 - New `Agent Pivot: Switch to Open Window` command lists the other open VS
-  Code windows in a Quick Pick — by window name, with the project group as
-  the description when the window matches a saved project — and switches to
-  the selected window, so window switching is available from the keyboard
-  without opening the dashboard.
+  Code windows in a Quick Pick and switches to the selected window, so window
+  switching is available from the keyboard without opening the dashboard.
+- OPEN WINDOWS cards and the Switch to Open Window Quick Pick now display the
+  saved project name when the window matches a saved project (falling back to
+  the workspace name otherwise), with the project group shown as the Quick
+  Pick description.
 
 ## [1.0.3] - 2026-08-04
 

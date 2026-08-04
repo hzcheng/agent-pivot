@@ -136,6 +136,15 @@ export function renderConversationViewerDocument(
     <div class="conversation-workspace" data-comments-open="false">
         <main class="conversation-scroll" data-conversation-scroll tabindex="0">
             <div class="conversation-messages" data-conversation-messages></div>
+            <div class="conversation-working" data-conversation-working
+                role="status" aria-live="polite" hidden>
+                <span>Working</span>
+                <span class="conversation-working-dots" aria-hidden="true">
+                    <span class="conversation-working-dot"></span>
+                    <span class="conversation-working-dot"></span>
+                    <span class="conversation-working-dot"></span>
+                </span>
+            </div>
         </main>
         <div class="conversation-comments-resizer" data-comments-resizer
             role="separator" aria-label="Resize side panel"

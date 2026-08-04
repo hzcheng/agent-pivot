@@ -208,6 +208,16 @@ async function openViewerPage(t, options = {}) {
                 <div data-conversation-scroll tabindex="0"
                     style="height: 160px; overflow-y: auto">
                     <div data-conversation-messages></div>
+                    <div class="conversation-working" data-conversation-working
+                        role="status" aria-live="polite" hidden>
+                        <span>Working</span>
+                        <span class="conversation-working-dots"
+                            aria-hidden="true">
+                            <span class="conversation-working-dot"></span>
+                            <span class="conversation-working-dot"></span>
+                            <span class="conversation-working-dot"></span>
+                        </span>
+                    </div>
                 </div>
             </body>
         </html>`);
@@ -3815,6 +3825,68 @@ test('CONVERSATION-VIEWER-BROWSER-SCROLL-001 CONVERSATION-READING-FOCUS-001 foll
     });
     assert.equal(await scroll.evaluate(element => element.scrollTop), before);
     assert.equal(await page.locator('[data-new-response]').count(), 0);
+});
+
+test('CONVERSATION-WORKING-INDICATOR-001 shows an animated status only for the latest in-progress response', async t => {
+    const page = await openViewerPage(t);
+    await page.addStyleTag({ content: viewerCss });
+    const working = page.locator('[data-conversation-working]');
+    const inProgressOutline = [{
+        interactionId: 'input-4',
+        userPreview: 'Waiting for a response',
+        responseState: 'inProgress',
+    }];
+
+    await sendPage(page, {
+        ...hostileConversationPage,
+        outline: inProgressOutline,
+        atLatest: true,
+        totalInputs: 4,
+    });
+
+    assert.equal(await working.isVisible(), true);
+    assert.equal((await working.innerText()).trim(), 'Working');
+    assert.notEqual(await working.locator(
+        '.conversation-working-dot'
+    ).first().evaluate(element =>
+        getComputedStyle(element).animationName
+    ), 'none');
+    for (const width of [700, 240]) {
+        await page.setViewportSize({ width, height: 500 });
+        const fitsViewport = await working.evaluate(element => {
+            const bounds = element.getBoundingClientRect();
+            return bounds.left >= 0
+                && bounds.right <= document.documentElement.clientWidth
+                && element.scrollWidth <= element.clientWidth;
+        });
+        assert.equal(fitsViewport, true, `Working fits at ${width}px`);
+    }
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    assert.equal(await working.locator(
+        '.conversation-working-dot'
+    ).first().evaluate(element =>
+        getComputedStyle(element).animationName
+    ), 'none');
+
+    await sendPage(page, {
+        ...hostileConversationPage,
+        requestId: 2,
+        updateKind: 'refresh',
+        outline: [{ ...inProgressOutline[0], responseState: 'complete' }],
+        atLatest: true,
+        totalInputs: 4,
+    });
+    assert.equal(await working.isHidden(), true);
+
+    await sendPage(page, {
+        ...hostileConversationPage,
+        requestId: 3,
+        updateKind: 'navigation',
+        outline: inProgressOutline,
+        atLatest: false,
+        totalInputs: 4,
+    });
+    assert.equal(await working.isHidden(), true);
 });
 
 test('CONVERSATION-VIEWER-BROWSER-PENDING-001 applies repeated refreshes without a pending-response control', async t => {

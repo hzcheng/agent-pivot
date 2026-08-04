@@ -30,6 +30,7 @@
     }
     var scroll = document.querySelector('[data-conversation-scroll]');
     var messages = document.querySelector('[data-conversation-messages]');
+    var working = document.querySelector('[data-conversation-working]');
     var position = document.querySelector('[data-conversation-position]');
     var status = document.querySelector('[data-conversation-status]');
     var telemetryRoot = document.querySelector('[data-conversation-telemetry]');
@@ -315,7 +316,7 @@
         updateToggle: sidebarController.updateToggle,
     });
 
-    if (!scroll || !messages || !position || !status
+    if (!scroll || !messages || !working || !position || !status
         || !previous || !next || !latest || !window.DOMPurify) {
         return;
     }
@@ -649,6 +650,10 @@
         }
         commentsController.updateHighlights();
         updatePosition(message);
+        var latestInteraction = message.outline[message.outline.length - 1];
+        working.hidden = !message.atLatest
+            || !latestInteraction
+            || latestInteraction.responseState !== 'inProgress';
         previous.disabled = message.previousCursor === undefined;
         next.disabled = message.nextCursor === undefined;
         latest.disabled = !message.selectedInteractionId;

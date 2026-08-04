@@ -80,6 +80,10 @@ commit only the intended files.
      committing, check `git diff --stat` for whole-file reformat churn
      (hundreds of rewritten lines for a few-line change) and redo the edit
      when seen.
+   - Keep every commit self-consistent across Host-document ↔ Webview-script
+     contract pairs (availability guards, message shapes, shared markup):
+     coupled markup and script changes belong in the same commit, so no
+     intermediate commit leaves the Webview gated off by missing elements.
    - After the final implementation or skill-owner commit exists, complete the
      main-capability assignment and `audit.head` update in a separate
      documentation-only audit commit, then rerun

@@ -822,7 +822,7 @@ test('PRODUCTION-CONVERSATION-LIFECYCLE-002 fire-and-forget reconcile isolates v
     await harness.dispose();
 });
 
-test('PRODUCTION-CONVERSATION-COMMENTS-001 CONVERSATION-COMMENTS-REVIEW-001 CONVERSATION-COMMENTS-BULK-001 settles review mutations, cross-page location, and Host-owned batches', async () => {
+test('PRODUCTION-CONVERSATION-COMMENTS-001 CONVERSATION-COMMENTS-BULK-001 settles review mutations, cross-page location, and Host-owned batches', async () => {
     const prompts = [];
     const harness = createDashboardConversationHarness({
         useConcreteViewer: true,
@@ -866,6 +866,8 @@ test('PRODUCTION-CONVERSATION-COMMENTS-001 CONVERSATION-COMMENTS-REVIEW-001 CONV
     assert.equal(added.revision, 1);
     assert.equal(added.comments.length, 1);
     assert.equal(added.comments[0].status, 'open');
+    const createdAt = added.comments[0].createdAt;
+    assert.equal(Number.isFinite(createdAt), true);
 
     await panel.receiveMessage({
         type: 'conversation-viewer-next',
@@ -932,7 +934,9 @@ test('PRODUCTION-CONVERSATION-COMMENTS-001 CONVERSATION-COMMENTS-REVIEW-001 CONV
     assert.equal(sent.success, true);
     assert.equal(sent.revision, 3);
     assert.equal(sent.comments.length, 1);
-    assert.equal(sent.comments[0].status, 'sent');
+    assert.equal(sent.comments[0].status, 'done');
+    assert.equal(Number.isFinite(sent.comments[0].sentAt), true);
+    assert.equal(sent.comments[0].createdAt, createdAt);
     assert.equal(prompts.length, 1);
     assert.deepEqual(harness.sessionFocusTargets, [{
         projectId: 'project-a',
@@ -964,44 +968,104 @@ test('PRODUCTION-CONVERSATION-COMMENTS-001 CONVERSATION-COMMENTS-REVIEW-001 CONV
     assert.equal(collision.error, 'invalid');
     assert.equal(prompts.length, 1);
 
+    // A done comment cannot be sent again until it is edited.
     await panel.receiveMessage({
         ...base,
-        type: 'conversation-viewer-comment-mutation',
-        requestId: 'comment:resolve:5',
-        operation: 'resolve',
+        type: 'conversation-viewer-send-comments',
+        requestId: 'comment:send-done:5',
+        operation: 'sendComment',
         expectedRevision: 3,
         payload: { commentId: added.comments[0].id },
     });
-    const resolved = panel.postedMessages.at(-1);
-    assert.equal(resolved.success, true);
-    assert.equal(resolved.revision, 4);
-    assert.equal(resolved.comments[0].status, 'resolved');
+    const resendDone = panel.postedMessages.at(-1);
+    assert.equal(resendDone.success, false);
+    assert.equal(resendDone.error, 'stale');
+    assert.equal(prompts.length, 1);
+
+    // Editing a done comment re-opens it so it can be sent again.
+    await panel.receiveMessage({
+        ...base,
+        type: 'conversation-viewer-comment-mutation',
+        requestId: 'comment:update-done:6',
+        operation: 'update',
+        expectedRevision: 3,
+        payload: {
+            commentId: added.comments[0].id,
+            comment: 'Explain, test, and document this behavior.',
+        },
+    });
+    const reopened = panel.postedMessages.at(-1);
+    assert.equal(reopened.success, true);
+    assert.equal(reopened.revision, 4);
+    assert.equal(reopened.comments[0].status, 'open');
+    assert.equal('sentAt' in reopened.comments[0], false);
+    assert.equal(Number.isFinite(reopened.comments[0].createdAt), true);
+    assert.equal(reopened.comments[0].createdAt, createdAt);
+
+    await panel.receiveMessage({
+        ...base,
+        type: 'conversation-viewer-send-comments',
+        requestId: 'comment:send-reopened:7',
+        operation: 'sendComment',
+        expectedRevision: 4,
+        payload: { commentId: added.comments[0].id },
+    });
+    const resent = panel.postedMessages.at(-1);
+    assert.equal(resent.success, true);
+    assert.equal(resent.revision, 5);
+    assert.equal(resent.comments[0].status, 'done');
+    assert.equal(Number.isFinite(resent.comments[0].sentAt), true);
+    assert.equal(prompts.length, 2);
 
     await panel.receiveMessage({
         ...base,
         type: 'conversation-viewer-comment-mutation',
-        requestId: 'comment:reopen:6',
-        operation: 'reopen',
-        expectedRevision: 4,
-        payload: { commentId: added.comments[0].id },
+        requestId: 'comment:add:8',
+        operation: 'add',
+        expectedRevision: 5,
+        payload: {
+            messageId: 'input-a:user',
+            interactionId: 'input-a',
+            quote: 'input-a',
+            prefix: '',
+            suffix: '',
+            comment: 'A second open draft.',
+        },
     });
-    const reopened = panel.postedMessages.at(-1);
-    assert.equal(reopened.success, true);
-    assert.equal(reopened.revision, 5);
-    assert.equal(reopened.comments[0].status, 'open');
+    const addedSecond = panel.postedMessages.at(-1);
+    assert.equal(addedSecond.success, true);
+    assert.equal(addedSecond.revision, 6);
+    assert.equal(addedSecond.comments.length, 2);
+
+    await panel.receiveMessage({
+        ...base,
+        type: 'conversation-viewer-comment-mutation',
+        requestId: 'comment:clear-done:9',
+        operation: 'clearDone',
+        expectedRevision: 6,
+        payload: {},
+    });
+    const clearedDone = panel.postedMessages.at(-1);
+    assert.equal(clearedDone.success, true);
+    assert.equal(clearedDone.revision, 7);
+    assert.deepEqual(
+        clearedDone.comments.map(comment => comment.status),
+        ['open']
+    );
+    assert.equal(clearedDone.comments[0].comment, 'A second open draft.');
 
     const clearAll = {
         ...base,
         type: 'conversation-viewer-comment-mutation',
-        requestId: 'comment:clear-all:7',
+        requestId: 'comment:clear-all:10',
         operation: 'clearAll',
-        expectedRevision: 5,
+        expectedRevision: 7,
         payload: {},
     };
     await panel.receiveMessage(clearAll);
     const cleared = panel.postedMessages.at(-1);
     assert.equal(cleared.success, true);
-    assert.equal(cleared.revision, 6);
+    assert.equal(cleared.revision, 8);
     assert.deepEqual(cleared.comments, []);
 
     await panel.receiveMessage(clearAll);
@@ -1161,7 +1225,7 @@ test('CONVERSATION-COMMENTS-SUBMIT-002 sends one card comment to the exact idle 
     assert.equal(sentOne.revision, 3);
     assert.equal(
         sentOne.comments.find(comment => comment.id === firstId).status,
-        'sent'
+        'done'
     );
     assert.equal(
         sentOne.comments.find(comment => comment.id === secondId).status,

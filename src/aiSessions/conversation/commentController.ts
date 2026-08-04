@@ -15,9 +15,7 @@ import {
     ConversationCommentTarget,
     createConversationComment,
     createConversationSessionComment,
-    markConversationCommentsSent,
-    reopenConversationComment,
-    resolveConversationComment,
+    markConversationCommentsDone,
     updateConversationComment,
     validateConversationComments,
 } from './comments';
@@ -65,6 +63,7 @@ interface ConversationViewerCommentsResultMessage {
 
 export interface ConversationCommentControllerOptions {
     commentStore?: ConversationCommentStore;
+    now?: () => number;
     submitPrompt: (
         target: ConversationViewerTarget,
         prompt: string
@@ -93,6 +92,10 @@ export class ConversationCommentController {
     constructor(
         private readonly options: ConversationCommentControllerOptions
     ) {}
+
+    private now(): number {
+        return this.options.now?.() ?? Date.now();
+    }
 
     get snapshot(): ConversationCommentSnapshot {
         return {
@@ -266,10 +269,13 @@ export class ConversationCommentController {
             }
             const payload = parseCommentInput(request.payload);
             if (payload.scope === 'session') {
-                comments.push(createConversationSessionComment(
-                    randomBytes(16).toString('hex'),
-                    payload.comment
-                ));
+                comments.push({
+                    ...createConversationSessionComment(
+                        randomBytes(16).toString('hex'),
+                        payload.comment
+                    ),
+                    createdAt: this.now(),
+                });
             } else {
                 const message = this.options.getMessages().find(candidate =>
                     candidate.id === payload.messageId
@@ -278,15 +284,17 @@ export class ConversationCommentController {
                 if (!message) {
                     throw new ConversationCommentError('stale');
                 }
-                comments.push(createConversationComment(
-                    randomBytes(16).toString('hex'),
-                    payload,
-                    message
-                ));
+                comments.push({
+                    ...createConversationComment(
+                        randomBytes(16).toString('hex'),
+                        payload,
+                        message
+                    ),
+                    createdAt: this.now(),
+                });
             }
             revision += 1;
-        } else if (request.operation === 'clearSent'
-            || request.operation === 'clearResolved'
+        } else if (request.operation === 'clearDone'
             || request.operation === 'clearAll') {
             if (!hasExactKeys(request.payload as object, [])) {
                 throw new ConversationCommentError('invalid');
@@ -312,15 +320,11 @@ export class ConversationCommentController {
             }
             if (request.operation === 'delete') {
                 comments.splice(index, 1);
-            } else if (request.operation === 'update') {
+            } else {
                 comments[index] = updateConversationComment(
                     comments[index],
                     payload.comment
                 );
-            } else if (request.operation === 'resolve') {
-                comments[index] = resolveConversationComment(comments[index]);
-            } else {
-                comments[index] = reopenConversationComment(comments[index]);
             }
             revision += 1;
         }
@@ -353,12 +357,7 @@ export class ConversationCommentController {
         const previousSnapshot = this.snapshot;
         const sentSnapshot = {
             revision: this.revision + 1,
-            comments: commentId
-                ? this.comments.map(comment =>
-                    comment.id === commentId && comment.status === 'open'
-                        ? { ...comment, status: 'sent' as const }
-                        : { ...comment })
-                : markConversationCommentsSent(this.comments),
+            comments: this.markDone(commentId ? new Set([commentId]) : null),
         };
         await this.persist(target, sentSnapshot);
         if (this.options.getTarget() !== target
@@ -384,6 +383,16 @@ export class ConversationCommentController {
         }
         this.comments = sentSnapshot.comments;
         this.revision = sentSnapshot.revision;
+    }
+
+    private markDone(
+        ids: Set<string> | null
+    ): ConversationCommentDraft[] {
+        return markConversationCommentsDone(
+            this.comments,
+            this.now(),
+            ids ?? undefined
+        );
     }
 
     private async persist(
@@ -548,7 +557,7 @@ function parseCommentInput(
 }
 
 function parseExistingCommentPayload(
-    operation: 'update' | 'delete' | 'resolve' | 'reopen',
+    operation: 'update' | 'delete',
     payload: unknown
 ): { commentId: string; comment?: string } {
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {

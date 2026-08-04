@@ -14,6 +14,13 @@ import {
 import type { ConversationViewerPageMessage } from './viewer';
 import type { ConversationViewerTarget } from './viewerTarget';
 
+const CONVERSATION_COMMENT_ICON_LIST = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h16"/></svg>';
+const CONVERSATION_COMMENT_ICON_DOT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="6"/></svg>';
+const CONVERSATION_COMMENT_ICON_CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+const CONVERSATION_COMMENT_ICON_SEND = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4Z"/></svg>';
+const CONVERSATION_COMMENT_ICON_ERASER = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></svg>';
+const CONVERSATION_COMMENT_ICON_TRASH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="m19 6-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>';
+
 export interface ConversationViewerDocumentOptions {
     panel: vscode.WebviewPanel;
     target: ConversationViewerTarget;
@@ -233,29 +240,45 @@ export function renderConversationViewerDocument(
                     </div>
                     <div class="conversation-comment-list"
                         data-comment-list></div>
+                    <p class="conversation-comment-filter-empty"
+                        data-comment-filter-empty hidden></p>
                     <p class="conversation-comment-empty" data-comment-empty>
                         Select text to comment on it, or add a Session note.
                     </p>
                 </div>
                 <div class="conversation-comments-toolbar"
-                    data-comments-toolbar role="group"
-                    aria-label="Comment actions">
-                    <button class="conversation-comments-clear" type="button"
-                        data-comment-action="clearSent"
-                        title="Clear comments added to the session input"
-                        aria-label="Clear added comments" disabled>Added</button>
-                    <button class="conversation-comments-clear" type="button"
-                        data-comment-action="clearResolved"
-                        title="Clear resolved comments"
-                        aria-label="Clear resolved comments"
-                        disabled>Resolved</button>
-                    <button class="conversation-comments-clear conversation-comments-clear-all"
-                        type="button" data-comment-action="clearAll"
-                        title="Clear all comments"
-                        aria-label="Clear all comments" disabled>All</button>
-                    <button class="conversation-comments-send" type="button"
-                        data-comment-action="send" disabled
-                        title="Add open comments to the session input">Add open comments to session input</button>
+                    data-comments-toolbar role="group" aria-label="Comment actions">
+                    <div class="conversation-comments-filter" role="group"
+                        aria-label="Filter comments">
+                        <button class="conversation-comment-icon-button conversation-comments-filter-button"
+                            type="button" data-comment-action="filter" data-comment-filter="all"
+                            title="All comments" aria-label="All comments"
+                            aria-pressed="true">${CONVERSATION_COMMENT_ICON_LIST}</button>
+                        <button class="conversation-comment-icon-button conversation-comments-filter-button"
+                            type="button" data-comment-action="filter" data-comment-filter="open"
+                            title="Open only" aria-label="Open only"
+                            aria-pressed="false">${CONVERSATION_COMMENT_ICON_DOT}</button>
+                        <button class="conversation-comment-icon-button conversation-comments-filter-button"
+                            type="button" data-comment-action="filter" data-comment-filter="done"
+                            title="Done only" aria-label="Done only"
+                            aria-pressed="false">${CONVERSATION_COMMENT_ICON_CHECK}</button>
+                    </div>
+                    <div class="conversation-comments-toolbar-actions">
+                        <button class="conversation-comment-icon-button conversation-comments-send"
+                            type="button" data-comment-action="send" disabled
+                            title="Send open comments to the session input"
+                            aria-label="Send open comments to the session input">${CONVERSATION_COMMENT_ICON_SEND}<span
+                                class="conversation-comments-send-count"
+                                data-comment-send-count hidden></span></button>
+                        <button class="conversation-comment-icon-button" type="button"
+                            data-comment-action="clearDone" disabled
+                            title="Clear done comments"
+                            aria-label="Clear done comments">${CONVERSATION_COMMENT_ICON_ERASER}</button>
+                        <button class="conversation-comment-icon-button danger conversation-comments-clear-all"
+                            type="button" data-comment-action="clearAll" disabled
+                            title="Clear all comments"
+                            aria-label="Clear all comments">${CONVERSATION_COMMENT_ICON_TRASH}</button>
+                    </div>
                 </div>
             </section>
             <section id="conversation-subagents-panel"

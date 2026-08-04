@@ -1733,7 +1733,7 @@ test('CONVERSATION-COMMENTS-UI-001 header send pill and telemetry comments pill 
     assert.equal(await headerSend.innerText(), 'Send 1');
     assert.equal(await headerSend.isDisabled(), false);
     assert.equal(await pill.isVisible(), true);
-    assert.equal(await pill.innerText(), 'Comments 1');
+    assert.equal(await pill.innerText(), 'Comments 1/1');
 
     await page.locator('[data-sidebar-tab="outline"]').click();
     await pill.click();
@@ -1910,6 +1910,7 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-SUBMIT-002 renders read
         suffix: ' gamma beta delta.',
         comment: 'Explain beta.\nSecond line stays visible.',
         status: 'open',
+        createdAt: Date.now() - 5 * 60000,
     }, {
         id: 'comment-2',
         scope: 'session',
@@ -1921,6 +1922,7 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-SUBMIT-002 renders read
         suffix: '',
         comment: 'Session-wide reminder.',
         status: 'open',
+        createdAt: Date.now() - 5 * 60000,
     }];
     await settle(addRequest, 1, comments);
 
@@ -1943,21 +1945,25 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-SUBMIT-002 renders read
         '#1'
     );
     assert.equal(
+        await card.locator('.conversation-comment-time').textContent(),
+        '5m ago'
+    );
+    assert.equal(
         await noteCard.locator('.conversation-comment-scope').textContent(),
         'Session note'
     );
 
     // Open cards expose the full icon action set per scope.
     assert.deepEqual(await cardActions(card), [
-        'send-comment', 'locate', 'edit-comment', 'resolve', 'delete',
+        'send-comment', 'locate', 'edit-comment', 'delete',
     ]);
     assert.deepEqual(await cardActions(noteCard), [
-        'send-comment', 'edit-comment', 'resolve', 'delete',
+        'send-comment', 'edit-comment', 'delete',
     ]);
 
     // Every action is a uniform compact icon button with a tooltip label.
     const iconMetrics = await page
-        .locator('.conversation-comment-icon-button')
+        .locator('.conversation-comment .conversation-comment-icon-button')
         .evaluateAll(buttons => buttons.map(button => {
             const rect = button.getBoundingClientRect();
             return {
@@ -1969,7 +1975,7 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-SUBMIT-002 renders read
                 hasIcon: !!button.querySelector('svg'),
             };
         }));
-    assert.equal(iconMetrics.length, 9);
+    assert.equal(iconMetrics.length, 7);
     iconMetrics.forEach(metric => {
         assert.deepEqual(
             { width: metric.width, height: metric.height },
@@ -2104,27 +2110,338 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-SUBMIT-002 renders read
     assert.equal(sendOne.type, 'conversation-viewer-send-comments');
     assert.equal(sendOne.operation, 'sendComment');
     assert.deepEqual(sendOne.payload, { commentId: 'comment-1' });
-    comments[0] = { ...comments[0], status: 'sent' };
+    comments[0] = {
+        ...comments[0],
+        status: 'done',
+        sentAt: Date.now() - 60000,
+    };
     await settle(sendOne, 3, comments);
     assert.equal(
         await page.locator('[data-conversation-status]').textContent(),
         'Comment added to session input. Review and press Enter to send.'
     );
 
-    // Sent and resolved cards hide send/edit and keep review actions.
+    // A freshly sent card flips to Done, stays expanded once, and drops
+    // the send action while keeping edit (which reopens it) and delete.
+    assert.equal(
+        await card.locator('[data-comment-status-label]').textContent(),
+        'Done'
+    );
     assert.deepEqual(await cardActions(card), [
-        'locate', 'resolve', 'reopen', 'delete',
+        'toggle-done', 'locate', 'edit-comment', 'delete',
     ]);
-    await card.locator('[data-comment-action="resolve"]').click();
-    const resolve = (await postedMessages(page)).at(-1);
-    comments[0] = { ...comments[0], status: 'resolved' };
-    await settle(resolve, 4, comments);
+    assert.equal(
+        await card.locator('.conversation-comment-time').textContent(),
+        'sent 1m ago'
+    );
+
+    // Collapsing a done card dims it to a single line; clicking the
+    // collapsed body expands it again.
+    await card.locator('[data-comment-action="toggle-done"]').click();
+    assert.equal(
+        await card.getAttribute('class'),
+        'conversation-comment conversation-comment-done-collapsed'
+    );
+    assert.deepEqual(await cardActions(card), ['toggle-done']);
+    assert.equal(
+        await card.locator('.conversation-comment-collapsed-body')
+            .textContent(),
+        'Explain beta thoroughly.'
+    );
+    await card.locator('.conversation-comment-collapsed-body').click();
     assert.deepEqual(await cardActions(card), [
-        'locate', 'reopen', 'delete',
+        'toggle-done', 'locate', 'edit-comment', 'delete',
+    ]);
+
+    // Editing a done card posts the update and the Host flips it back to
+    // open so it can be sent again.
+    await card.locator('[data-comment-action="edit-comment"]').click();
+    await card.locator('[data-comment-edit]').fill(
+        'Explain beta thoroughly with a test.'
+    );
+    await card.locator('[data-comment-action="update"]').click();
+    const reopenUpdate = (await postedMessages(page)).at(-1);
+    assert.equal(reopenUpdate.operation, 'update');
+    assert.deepEqual(reopenUpdate.payload, {
+        commentId: 'comment-1',
+        comment: 'Explain beta thoroughly with a test.',
+    });
+    comments[0] = {
+        ...comments[0],
+        comment: 'Explain beta thoroughly with a test.',
+        status: 'open',
+    };
+    delete comments[0].sentAt;
+    await settle(reopenUpdate, 4, comments);
+    assert.equal(
+        await card.locator('[data-comment-status-label]').textContent(),
+        'Open'
+    );
+    assert.deepEqual(await cardActions(card), [
+        'send-comment', 'locate', 'edit-comment', 'delete',
     ]);
 });
 
-test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-REVIEW-001 CONVERSATION-COMMENTS-BULK-001 CONVERSATION-COMMENTS-LAYOUT-001 reviews contained cards and Host-owned comment batches', async t => {
+test('CONVERSATION-COMMENTS-UI-001 filters cards, jumps from message markers, and keeps the toolbar to one icon row', async t => {
+    const interactionId = 'input-filter-marker';
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+        viewport: { width: 850, height: 600 },
+        initialWebviewState: {
+            conversationCommentsPanel: { open: true, width: 192 },
+        },
+        interactionIds: [interactionId],
+        interactionId,
+        markdown: 'Alpha beta gamma beta delta.',
+        pageOverrides: {
+            previousCursor: undefined,
+            nextCursor: undefined,
+            isStart: true,
+            isEnd: true,
+        },
+    });
+
+    async function settle(request, revision, comments, operation) {
+        await page.evaluate(({ request, revision, comments, operation }) => {
+            window.dispatchEvent(new MessageEvent('message', {
+                data: {
+                    type: 'conversation-viewer-comments-result',
+                    version: 1,
+                    requestId: request.requestId,
+                    subscriptionGeneration: request.subscriptionGeneration,
+                    projectId: request.projectId,
+                    provider: request.provider,
+                    sessionId: request.sessionId,
+                    operation: operation || request.operation,
+                    success: true,
+                    revision,
+                    comments,
+                },
+            }));
+        }, { request, revision, comments, operation });
+    }
+
+    await page.locator('.conversation-markdown').evaluate(element => {
+        const node = element.querySelector('p').firstChild;
+        const start = node.nodeValue.indexOf('beta');
+        const range = document.createRange();
+        range.setStart(node, start);
+        range.setEnd(node, start + 'beta'.length);
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+        element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    });
+    await page.locator('[data-add-comment]').click();
+    await page.locator('[data-comment-input]').fill('Explain beta.');
+    await page.locator('[data-comment-input]').press('Control+Enter');
+    const addRequest = (await postedMessages(page)).at(-1);
+    const comments = [{
+        id: 'comment-1',
+        messageId: `${interactionId}:user`,
+        interactionId,
+        role: 'user',
+        quote: 'beta',
+        prefix: 'Alpha ',
+        suffix: ' gamma beta delta.',
+        comment: 'Explain beta.',
+        status: 'open',
+        createdAt: Date.now() - 60000,
+    }, {
+        id: 'comment-2',
+        messageId: `${interactionId}:user`,
+        interactionId,
+        role: 'user',
+        quote: 'gamma',
+        prefix: 'Alpha beta ',
+        suffix: ' beta delta.',
+        comment: 'Already sent to the session.',
+        status: 'done',
+        createdAt: Date.now() - 3600000,
+        sentAt: Date.now() - 1800000,
+    }, {
+        id: 'comment-3',
+        scope: 'session',
+        messageId: '',
+        interactionId: '',
+        role: 'user',
+        quote: '',
+        prefix: '',
+        suffix: '',
+        comment: 'Session-wide reminder.',
+        status: 'open',
+        createdAt: Date.now() - 120000,
+    }];
+    await settle(addRequest, 1, comments);
+
+    const card = page.locator('[data-comment-id="comment-1"]');
+    const doneCard = page.locator('[data-comment-id="comment-2"]');
+
+    // The toolbar is a single row of six icon buttons.
+    const toolbar = page.locator('[data-comments-toolbar]');
+    assert.equal(await toolbar.locator('[data-comment-action]').count(), 6);
+    assert.deepEqual(
+        (await toolbar.locator('[data-comment-action]').evaluateAll(buttons =>
+            Array.from(new Set(buttons.map(button =>
+                Math.round(button.getBoundingClientRect().top)
+            )))
+        )).length,
+        1,
+        'toolbar buttons must share a single row'
+    );
+    const toolbarHeight = await toolbar.evaluate(element =>
+        element.getBoundingClientRect().height
+    );
+    assert.ok(
+        toolbarHeight <= 64,
+        `comment toolbar height ${toolbarHeight}px must remain compact`
+    );
+
+    // Telemetry pill reports open/total.
+    assert.equal(
+        await page.locator('[data-telemetry-comments]').innerText(),
+        'Comments 2/3'
+    );
+
+    // A done card settled outside a send starts collapsed and dimmed.
+    assert.equal(
+        await doneCard.getAttribute('class'),
+        'conversation-comment conversation-comment-done-collapsed'
+    );
+
+    // The message marker counts every comment on that message.
+    const marker = page.locator('[data-comment-marker]');
+    assert.equal(await marker.count(), 1);
+    assert.equal(
+        await marker.locator('.conversation-comment-marker-count')
+            .textContent(),
+        '2'
+    );
+
+    // Filtering narrows the rendered cards and persists the choice.
+    await page.locator('[data-comment-filter="done"]').click();
+    assert.equal(await page.locator('[data-comment-id]').count(), 1);
+    assert.equal(
+        await page.locator('[data-comment-filter="done"]')
+            .getAttribute('aria-pressed'),
+        'true'
+    );
+    assert.equal(
+        await page.evaluate(() =>
+            window.__webviewState.conversationCommentsFilter
+        ),
+        'done'
+    );
+    await page.locator('[data-comment-filter="open"]').click();
+    assert.equal(await page.locator('[data-comment-id]').count(), 2);
+
+    // A marker jump resets a filter that hides the target card.
+    await page.locator('[data-comment-filter="done"]').click();
+    assert.equal(await page.locator('[data-comment-id]').count(), 1);
+    await marker.click();
+    assert.equal(
+        await page.locator('[data-comment-filter="all"]')
+            .getAttribute('aria-pressed'),
+        'true'
+    );
+    assert.equal(await page.locator('[data-comment-id]').count(), 3);
+    assert.equal(
+        await card.evaluate(element =>
+            element.classList.contains('conversation-comment-flash')
+        ),
+        true
+    );
+
+    // Sending every open comment empties the open filter with a hint.
+    await page.locator('[data-comment-filter="all"]').click();
+    await page.locator('[data-comments-toolbar] [data-comment-action="send"]')
+        .click();
+    const sendAll = (await postedMessages(page)).at(-1);
+    assert.equal(sendAll.operation, 'sendComments');
+    const allDone = comments.map(comment => ({
+        ...comment,
+        status: 'done',
+        sentAt: Date.now(),
+    }));
+    await settle(sendAll, 2, allDone);
+    assert.equal(
+        await page.locator('[data-telemetry-comments]').innerText(),
+        'Comments 0/3'
+    );
+    await page.locator('[data-comment-filter="open"]').click();
+    assert.equal(await page.locator('[data-comment-id]').count(), 0);
+    assert.equal(
+        await page.locator('[data-comment-filter-empty]').textContent(),
+        'No open comments.'
+    );
+
+    // With only done cards left, the marker targets and expands the first.
+    await page.locator('[data-comment-filter="all"]').click();
+    await card.locator('[data-comment-action="toggle-done"]').click();
+    assert.equal(
+        await card.getAttribute('class'),
+        'conversation-comment conversation-comment-done-collapsed'
+    );
+    await marker.click();
+    assert.equal(
+        await card.evaluate(element =>
+            element.classList.contains('conversation-comment-flash')
+        ),
+        true
+    );
+    assert.equal(
+        await card.locator('.conversation-comment-collapsed-body').count(),
+        0,
+        'a marker jump must expand the collapsed done card'
+    );
+
+    // Markers are rebuilt after Host page re-renders.
+    await sendPage(page, {
+        type: 'conversation-viewer-page',
+        version: 1,
+        requestId: 100,
+        subscriptionGeneration: 1,
+        updateKind: 'navigation',
+        html: `<article data-conversation-message-id="${
+            encodeURIComponent(`${interactionId}:user`)
+        }"
+            data-interaction-id="${interactionId}">
+            <section class="conversation-markdown">
+                <p>Alpha beta gamma beta delta.</p>
+            </section>
+        </article>`,
+        outline: [{
+            interactionId,
+            userPreview: 'Alpha beta gamma beta delta.',
+            responseState: 'complete',
+        }],
+        selectedInteractionId: interactionId,
+        selectedInput: 1,
+        totalInputs: 1,
+        partial: false,
+        atLatest: true,
+        stale: false,
+        subagents: [],
+        activeSubagent: null,
+    });
+    assert.equal(await page.locator('[data-comment-marker]').count(), 1);
+
+    // Clear done empties the list in one correlated mutation.
+    await page.locator('[data-comment-action="clearDone"]').click();
+    const clearDone = (await postedMessages(page)).at(-1);
+    assert.equal(clearDone.operation, 'clearDone');
+    assert.deepEqual(clearDone.payload, {});
+    await settle(clearDone, 3, []);
+    assert.equal(await page.locator('[data-comment-id]').count(), 0);
+    assert.equal(await page.locator('[data-comment-marker]').count(), 0);
+    assert.equal(
+        await page.locator('[data-telemetry-comments]').innerText(),
+        'Comments 0'
+    );
+});
+
+test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-BULK-001 CONVERSATION-COMMENTS-LAYOUT-001 reviews contained cards and Host-owned comment batches', async t => {
     const interactionId = 'input-comments';
     const { page } = await openHostViewerDocument(t, {
         includeStyles: true,
@@ -2322,7 +2639,7 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-REVIEW-001 CONVERSATION
     assert.equal(await commentToolbar.count(), 1);
     assert.equal(
         await commentToolbar.locator('[data-comment-action]').count(),
-        4
+        6
     );
     const commentToolbarHeight = await commentToolbar.evaluate(element =>
         element.getBoundingClientRect().height
@@ -2510,14 +2827,14 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-REVIEW-001 CONVERSATION
     assert.equal(send.expectedRevision, 2);
     assert.deepEqual(send.payload, {});
     comments.forEach(comment => {
-        comment.status = 'sent';
+        comment.status = 'done';
     });
     await settle(send, 3, comments);
 
     assert.equal(await page.locator('[data-comment-id]').count(), 2);
     assert.deepEqual(
         await page.locator('[data-comment-status-label]').allTextContents(),
-        ['Added', 'Added']
+        ['Done', 'Done']
     );
     assert.equal(
         await page.locator('[data-comment-action="send"]').isDisabled(),
@@ -2528,26 +2845,25 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-REVIEW-001 CONVERSATION
         'Comments added to session input. Review and press Enter to send.'
     );
 
+    // Editing a done card posts an update and the Host flips it back to
+    // open so it can be sent again.
     await page.locator('[data-comment-id="comment-1"]')
-        .locator('[data-comment-action="resolve"]').click();
+        .locator('[data-comment-action="edit-comment"]').click();
+    await page.locator('[data-comment-id="comment-1"]')
+        .locator('[data-comment-edit]').fill('Explain beta differently.');
+    await page.locator('[data-comment-id="comment-1"]')
+        .locator('[data-comment-action="update"]').click();
     requests = await postedMessages(page);
-    const resolve = requests.at(-1);
-    assert.equal(resolve.operation, 'resolve');
-    comments[0].status = 'resolved';
-    await settle(resolve, 4, comments);
+    const reopenUpdate = requests.at(-1);
+    assert.equal(reopenUpdate.operation, 'update');
+    comments[0].status = 'open';
+    comments[0].comment = 'Explain beta differently.';
+    await settle(reopenUpdate, 4, comments);
     assert.equal(
         await page.locator('[data-comment-id="comment-1"]')
             .getAttribute('data-comment-status'),
-        'resolved'
+        'open'
     );
-
-    await page.locator('[data-comment-id="comment-1"]')
-        .locator('[data-comment-action="reopen"]').click();
-    requests = await postedMessages(page);
-    const reopen = requests.at(-1);
-    assert.equal(reopen.operation, 'reopen');
-    comments[0].status = 'open';
-    await settle(reopen, 5, comments);
     assert.ok(
         (await page.locator('[data-comment-summary]').textContent())
             .includes('1 open')
@@ -2557,33 +2873,33 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-REVIEW-001 CONVERSATION
         true
     );
 
-    await page.locator('[data-comment-action="clearSent"]').click();
+    await page.locator('[data-comment-action="clearDone"]').click();
     requests = await postedMessages(page);
-    const clearSent = requests.at(-1);
-    assert.equal(clearSent.operation, 'clearSent');
-    assert.equal(clearSent.expectedRevision, 5);
-    assert.deepEqual(clearSent.payload, {});
+    const clearDone = requests.at(-1);
+    assert.equal(clearDone.operation, 'clearDone');
+    assert.equal(clearDone.expectedRevision, 4);
+    assert.deepEqual(clearDone.payload, {});
     comments.splice(1, 1);
-    await settle(clearSent, 6, comments);
+    await settle(clearDone, 5, comments);
     assert.deepEqual(
         await page.locator('[data-comment-status-label]').allTextContents(),
         ['Open']
     );
 
     await page.locator('[data-comment-id="comment-1"]')
-        .locator('[data-comment-action="resolve"]').click();
+        .locator('[data-comment-action="send-comment"]').click();
     requests = await postedMessages(page);
-    const resolveRemaining = requests.at(-1);
-    comments[0].status = 'resolved';
-    await settle(resolveRemaining, 7, comments);
+    const sendRemaining = requests.at(-1);
+    comments[0].status = 'done';
+    await settle(sendRemaining, 6, comments);
 
-    await page.locator('[data-comment-action="clearResolved"]').click();
+    await page.locator('[data-comment-action="clearDone"]').click();
     requests = await postedMessages(page);
-    const clearResolved = requests.at(-1);
-    assert.equal(clearResolved.operation, 'clearResolved');
-    assert.equal(clearResolved.expectedRevision, 7);
+    const clearDoneRemaining = requests.at(-1);
+    assert.equal(clearDoneRemaining.operation, 'clearDone');
+    assert.equal(clearDoneRemaining.expectedRevision, 6);
     comments.splice(0);
-    await settle(clearResolved, 8, comments);
+    await settle(clearDoneRemaining, 7, comments);
     assert.equal(await page.locator('[data-comment-id]').count(), 0);
 
     await selectText('gamma');
@@ -2602,26 +2918,31 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-REVIEW-001 CONVERSATION
         comment: 'Check gamma again.',
         status: 'open',
     });
-    await settle(third, 9, comments);
+    await settle(third, 8, comments);
 
     const messageCountBeforeConfirmation = (await postedMessages(page)).length;
-    await page.locator('[data-comment-action="clearAll"]').click();
+    const clearAllButton = page.locator('[data-comment-action="clearAll"]');
+    await clearAllButton.click();
     assert.equal(
         (await postedMessages(page)).length,
         messageCountBeforeConfirmation
     );
     assert.equal(
-        await page.locator('[data-comment-action="clearAll"]').textContent(),
-        'Confirm clear all'
+        await clearAllButton.getAttribute('data-confirming'),
+        'true'
     );
-    await page.locator('[data-comment-action="clearAll"]').click();
+    assert.equal(
+        await clearAllButton.getAttribute('aria-label'),
+        'Confirm clearing all comments'
+    );
+    await clearAllButton.click();
     requests = await postedMessages(page);
     const clearAll = requests.at(-1);
     assert.equal(clearAll.operation, 'clearAll');
-    assert.equal(clearAll.expectedRevision, 9);
+    assert.equal(clearAll.expectedRevision, 8);
     assert.deepEqual(clearAll.payload, {});
     comments.splice(0);
-    await settle(clearAll, 10, comments);
+    await settle(clearAll, 9, comments);
     assert.equal(await page.locator('[data-comment-id]').count(), 0);
     assert.equal(
         await page.locator('[data-comment-action="clearAll"]').isDisabled(),

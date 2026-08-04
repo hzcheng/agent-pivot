@@ -4056,26 +4056,9 @@
     ]
   },
   {
-    "id": "CONVERSATION-COMMENTS-REVIEW-001",
-    "domain": "webview",
-    "title": "AI Conversation comments support keyboard saving, retain Host-authoritative review states, locate exact sources, and focus the session after staging",
-    "priority": "P0",
-    "status": "automated",
-    "owners": [
-      "tests/unit/aiSessions/conversationComments.test.js",
-      "tests/integration/dashboard/conversationRouting.test.js",
-      "tests/browser/conversationViewer.test.js"
-    ],
-    "evidence": [
-      "src/aiSessions/conversation/comments.ts",
-      "src/aiSessions/conversation/viewer.ts",
-      "src/webview/conversationViewerScripts.js"
-    ]
-  },
-  {
     "id": "CONVERSATION-COMMENTS-BULK-001",
     "domain": "webview",
-    "title": "AI Conversation clears sent, resolved, or all comments through correlated Host-authoritative batch mutations with explicit clear-all confirmation",
+    "title": "AI Conversation clears done or all comments through correlated Host-authoritative batch mutations with explicit clear-all confirmation",
     "priority": "P0",
     "status": "automated",
     "owners": [

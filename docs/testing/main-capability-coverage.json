@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "66771a061609afa5cf02ee62b4920e49d3d1ae28",
+        "head": "699ad0032eeb22c9ebf065356e68ef889eb05f45",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -123,7 +123,8 @@
             "443ead14d8013fa321c7b7431babceea43acf550",
             "26780e9b673c21035ec297fb86cedde520a7e786",
             "3e1742cfab4bff723886c6133be4a612b6897b33",
-            "b3107928e042ca50ec3883381e32cbde869945f4"
+            "b3107928e042ca50ec3883381e32cbde869945f4",
+            "ff8a679b2491c8408b218954c30c028b7388c32b"
         ]
     },
     "capabilities": [
@@ -977,7 +978,8 @@
                 "1123385bc527059ed7325350e92923f770d070b3",
                 "9dd6c07a94418fb1e71997ab3e49cefad2ffe8e9",
                 "14c1213f64d62dad5cf200d642c83cdadd608b5f",
-                "d474d872dc937c72c39d92cde988b46c5844dbbb"
+                "d474d872dc937c72c39d92cde988b46c5844dbbb",
+                "699ad0032eeb22c9ebf065356e68ef889eb05f45"
             ],
             "behaviors": [
                 "ARCH-CI-QUALITY-GATE-001",
@@ -1187,7 +1189,10 @@
                 "3995ab1b43da5255ffe198f469f947f18de05b24",
                 "d6243e95f56ccc846112fe1817d3734a0e3e1d2c",
                 "f26b9482a0993dda5041e8937ffdc96b6b10607c",
-                "66771a061609afa5cf02ee62b4920e49d3d1ae28"
+                "66771a061609afa5cf02ee62b4920e49d3d1ae28",
+                "e768127b71b2517b658ba116b31527612a29fa61",
+                "1b41bfd14aafb639f6686f2fb921ccd5575d3b46",
+                "70a4e9d3236772426b5855a516cf572c92fdf905"
             ],
             "behaviors": [
                 "SESSION-AI-SESSION-CONVERSATION-ADAPTER-001",
@@ -1205,7 +1210,6 @@
                 "CONVERSATION-COMMENTS-SUBMIT-001",
                 "CONVERSATION-COMMENTS-SUBMIT-002",
                 "CONVERSATION-COMMENTS-UI-001",
-                "CONVERSATION-COMMENTS-REVIEW-001",
                 "CONVERSATION-COMMENTS-BULK-001",
                 "CONVERSATION-COMMENTS-PERSISTENCE-001",
                 "CONVERSATION-COMMENTS-LAYOUT-001",

@@ -100,13 +100,16 @@
     var commentInput = document.querySelector('[data-comment-input]');
     var commentList = document.querySelector('[data-comment-list]');
     var commentEmpty = document.querySelector('[data-comment-empty]');
+    var commentFilterEmpty = document.querySelector(
+        '[data-comment-filter-empty]'
+    );
     var commentNew = document.querySelector('[data-comment-action="new"]');
     var commentSend = document.querySelector('[data-comment-action="send"]');
-    var commentClearSent = document.querySelector(
-        '[data-comment-action="clearSent"]'
+    var commentSendCount = document.querySelector(
+        '[data-comment-send-count]'
     );
-    var commentClearResolved = document.querySelector(
-        '[data-comment-action="clearResolved"]'
+    var commentClearDone = document.querySelector(
+        '[data-comment-action="clearDone"]'
     );
     var commentClearAll = document.querySelector(
         '[data-comment-action="clearAll"]'
@@ -129,9 +132,10 @@
         && !!commentsRoot
         && !!commentSummary
         && !!commentComposer && !!commentSelection && !!commentInput
-        && !!commentList && !!commentEmpty && !!commentNew
-        && !!commentSend && !!addComment
-        && !!commentClearSent && !!commentClearResolved && !!commentClearAll
+        && !!commentList && !!commentEmpty && !!commentFilterEmpty
+        && !!commentNew
+        && !!commentSend && !!commentSendCount && !!addComment
+        && !!commentClearDone && !!commentClearAll
         && !!headerSend && !!telemetryComments && !!telemetrySection
         && validCommentTarget(commentTarget);
     var subagentUiAvailable = sidebarUiAvailable
@@ -301,11 +305,13 @@
         commentInput: commentInput,
         commentList: commentList,
         commentEmpty: commentEmpty,
+        commentFilterEmpty: commentFilterEmpty,
         commentNew: commentNew,
         commentSend: commentSend,
-        commentClearSent: commentClearSent,
-        commentClearResolved: commentClearResolved,
+        commentSendCount: commentSendCount,
+        commentClearDone: commentClearDone,
         commentClearAll: commentClearAll,
+        vscodeApi: vscodeApi,
         headerSend: headerSend,
         telemetryComments: telemetryComments,
         telemetrySection: telemetrySection,

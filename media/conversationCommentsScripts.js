@@ -20,11 +20,13 @@
         var commentInput = options.commentInput;
         var commentList = options.commentList;
         var commentEmpty = options.commentEmpty;
+        var commentFilterEmpty = options.commentFilterEmpty;
         var commentNew = options.commentNew;
         var commentSend = options.commentSend;
-        var commentClearSent = options.commentClearSent;
-        var commentClearResolved = options.commentClearResolved;
+        var commentSendCount = options.commentSendCount;
+        var commentClearDone = options.commentClearDone;
         var commentClearAll = options.commentClearAll;
+        var vscodeApi = options.vscodeApi;
         var post = options.post;
         var conversationMessageSelector = options.messageSelector;
         var conversationMessageId = options.messageId;
@@ -39,6 +41,8 @@
             clearAllConfirmation: false,
             selectedCommentText: null,
             editingComment: null,
+            filter: 'all',
+            expandedDoneComments: new Set(),
         };
 
         function readJsonAttribute(name) {
@@ -56,16 +60,17 @@
             if (!value || typeof value !== 'object' || Array.isArray(value)) {
                 return false;
             }
-            var keys = [
+            var required = [
                 'id', 'messageId', 'interactionId', 'role',
                 'quote', 'prefix', 'suffix', 'comment', 'status',
             ];
-            var actualKeys = Object.keys(value);
+            var allowed = required.concat(['scope', 'createdAt', 'sentAt']);
             var hasSessionScope = value.scope === 'session';
-            return actualKeys.length === keys.length + (hasSessionScope ? 1 : 0)
-                && keys.every(function (key) {
-                    return Object.prototype.hasOwnProperty.call(value, key);
-                })
+            return Object.keys(value).every(function (key) {
+                return allowed.indexOf(key) >= 0;
+            }) && required.every(function (key) {
+                return Object.prototype.hasOwnProperty.call(value, key);
+            })
                 && (value.scope === undefined || hasSessionScope)
                 && typeof value.id === 'string'
                 && typeof value.messageId === 'string'
@@ -82,9 +87,13 @@
                         && value.quote === ''
                         && value.prefix === ''
                         && value.suffix === ''))
-                && (value.status === 'open'
-                    || value.status === 'sent'
-                    || value.status === 'resolved');
+                && (value.status === 'open' || value.status === 'done')
+                && (value.createdAt === undefined
+                    || (Number.isSafeInteger(value.createdAt)
+                        && value.createdAt >= 0))
+                && (value.sentAt === undefined
+                    || (Number.isSafeInteger(value.sentAt)
+                        && value.sentAt >= 0));
         }
 
         function validInitialComments(value) {
@@ -124,10 +133,7 @@
                 && (value.operation === 'add'
                     || value.operation === 'update'
                     || value.operation === 'delete'
-                    || value.operation === 'resolve'
-                    || value.operation === 'reopen'
-                    || value.operation === 'clearSent'
-                    || value.operation === 'clearResolved'
+                    || value.operation === 'clearDone'
                     || value.operation === 'clearAll'
                     || value.operation === 'sendComments'
                     || value.operation === 'sendComment')
@@ -181,14 +187,14 @@
             return state.comments.reduce(function (counts, comment) {
                 counts[comment.status] += 1;
                 return counts;
-            }, { open: 0, sent: 0, resolved: 0 });
+            }, { open: 0, done: 0 });
         }
 
         function resetClearAllConfirmation() {
             if (!commentUiAvailable) return;
             state.clearAllConfirmation = false;
-            commentClearAll.textContent = 'All';
             commentClearAll.removeAttribute('data-confirming');
+            commentClearAll.title = 'Clear all comments';
             commentClearAll.setAttribute('aria-label', 'Clear all comments');
         }
 
@@ -199,8 +205,7 @@
                 || !!state.pendingLocateRequest;
             var summary = [];
             if (counts.open) summary.push(counts.open + ' open');
-            if (counts.sent) summary.push(counts.sent + ' added');
-            if (counts.resolved) summary.push(counts.resolved + ' resolved');
+            if (counts.done) summary.push(counts.done + ' done');
             commentSummary.textContent = summary.length
                 ? summary.join(' · ')
                 : 'No comments yet';
@@ -212,7 +217,15 @@
                         + (state.comments.length === 1 ? '' : 's')
                 );
             }
+            var sendLabel = 'Send ' + counts.open + ' open comment'
+                + (counts.open === 1 ? '' : 's') + ' to the session input';
             commentSend.disabled = counts.open === 0 || pending;
+            commentSend.title = sendLabel;
+            commentSend.setAttribute('aria-label', sendLabel);
+            if (commentSendCount) {
+                commentSendCount.textContent = String(counts.open);
+                commentSendCount.hidden = counts.open === 0;
+            }
             if (headerSend) {
                 headerSend.disabled = counts.open === 0 || pending;
                 headerSend.textContent = counts.open > 0
@@ -223,9 +236,12 @@
                 // The pill doubles as the Comments quick entry; keep it
                 // visible even at zero.
                 telemetryComments.hidden = false;
-                telemetryComments.textContent = 'Comments '
-                    + state.comments.length;
-                telemetryComments.title = state.comments.length
+                telemetryComments.textContent = state.comments.length > 0
+                    ? 'Comments ' + counts.open + '/' + state.comments.length
+                    : 'Comments 0';
+                telemetryComments.title = counts.open
+                    + ' open of '
+                    + state.comments.length
                     + (state.comments.length === 1 ? ' comment' : ' comments')
                     + ' — click to review';
                 if (telemetrySection) {
@@ -233,8 +249,7 @@
                 }
             }
             commentNew.disabled = pending;
-            commentClearSent.disabled = counts.sent === 0 || pending;
-            commentClearResolved.disabled = counts.resolved === 0 || pending;
+            commentClearDone.disabled = counts.done === 0 || pending;
             commentClearAll.disabled = state.comments.length === 0 || pending;
         }
 
@@ -287,8 +302,7 @@
                 ? 'Adding comments to session input…'
                 : operation === 'sendComment'
                     ? 'Adding comment to session input…'
-                    : operation === 'clearSent'
-                        || operation === 'clearResolved'
+                    : operation === 'clearDone'
                         || operation === 'clearAll'
                         ? 'Clearing comments…'
                         : 'Saving comment…';
@@ -374,13 +388,12 @@
                 + 'L7.5 20.5 2 22l1.5-5.5Z"/>'),
             save: commentIcon('<path d="M20 6 9 17l-5-5"/>'),
             cancel: commentIcon('<path d="M18 6 6 18"/><path d="M6 6l12 12"/>'),
-            resolve: commentIcon('<circle cx="12" cy="12" r="9"/>'
-                + '<path d="m8.5 12.2 2.4 2.4 4.8-5"/>'),
-            reopen: commentIcon('<path d="M3 12a9 9 0 1 0 3-6.7"/>'
-                + '<path d="M3 4v5h5"/>'),
             remove: commentIcon('<path d="M3 6h18"/><path d="M8 6V4h8v2"/>'
                 + '<path d="m19 6-1 14H6L5 6"/>'
                 + '<path d="M10 11v6"/><path d="M14 11v6"/>'),
+            chevron: commentIcon('<path d="m6 9 6 6 6-6"/>'),
+            marker: commentIcon('<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5'
+                + 'a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z"/>'),
         };
 
         function commentIconButton(action, icon, label, modifier) {
@@ -401,6 +414,77 @@
             textarea.style.height = (textarea.scrollHeight + chrome) + 'px';
         }
 
+        function formatCommentTime(timestamp) {
+            if (!Number.isSafeInteger(timestamp) || timestamp < 0) return '';
+            var elapsed = Date.now() - timestamp;
+            if (elapsed < 60 * 1000) return 'just now';
+            if (elapsed < 60 * 60 * 1000) {
+                return Math.floor(elapsed / 60000) + 'm ago';
+            }
+            if (elapsed < 24 * 60 * 60 * 1000) {
+                return Math.floor(elapsed / 3600000) + 'h ago';
+            }
+            return Math.floor(elapsed / 86400000) + 'd ago';
+        }
+
+        function readCommentsFilter() {
+            if (!vscodeApi || typeof vscodeApi.getState !== 'function') {
+                return 'all';
+            }
+            try {
+                var saved = vscodeApi.getState();
+                var filter = saved && saved.conversationCommentsFilter;
+                return filter === 'open' || filter === 'done'
+                    ? filter
+                    : 'all';
+            } catch (_error) {
+                return 'all';
+            }
+        }
+
+        function saveCommentsFilter() {
+            if (!vscodeApi || typeof vscodeApi.setState !== 'function') {
+                return;
+            }
+            try {
+                var saved = typeof vscodeApi.getState === 'function'
+                    ? vscodeApi.getState()
+                    : null;
+                var next = saved && typeof saved === 'object'
+                    && !Array.isArray(saved)
+                    ? Object.assign({}, saved)
+                    : {};
+                next.conversationCommentsFilter = state.filter;
+                vscodeApi.setState(next);
+            } catch (_error) {
+                // Filter persistence is best-effort local Webview state.
+            }
+        }
+
+        function updateFilterButtons() {
+            Array.prototype.forEach.call(
+                commentsRoot.querySelectorAll('[data-comment-filter]'),
+                function (button) {
+                    button.setAttribute(
+                        'aria-pressed',
+                        button.getAttribute('data-comment-filter')
+                            === state.filter ? 'true' : 'false'
+                    );
+                }
+            );
+        }
+
+        function visibleCommentEntries() {
+            return state.comments
+                .map(function (comment, index) {
+                    return { comment: comment, index: index };
+                })
+                .filter(function (entry) {
+                    return state.filter === 'all'
+                        || entry.comment.status === state.filter;
+                });
+        }
+
         function renderComments() {
             if (!commentUiAvailable) return;
             resetClearAllConfirmation();
@@ -409,11 +493,23 @@
                 var editingTarget = state.comments.find(function (candidate) {
                     return candidate.id === state.editingComment.commentId;
                 });
-                if (!editingTarget || editingTarget.status !== 'open') {
+                if (!editingTarget) {
                     state.editingComment = null;
                 }
             }
-            state.comments.forEach(function (comment, index) {
+            var ids = new Set(state.comments.map(function (comment) {
+                return comment.id;
+            }));
+            state.expandedDoneComments.forEach(function (id) {
+                if (!ids.has(id)) {
+                    state.expandedDoneComments.delete(id);
+                }
+            });
+            updateFilterButtons();
+            var entries = visibleCommentEntries();
+            entries.forEach(function (entry) {
+                var comment = entry.comment;
+                var index = entry.index;
                 var item = document.createElement('article');
                 item.className = 'conversation-comment';
                 item.setAttribute('data-comment-id', comment.id);
@@ -430,7 +526,7 @@
                 statusLabel.setAttribute('data-comment-status-label', '');
                 statusLabel.textContent = comment.status === 'open'
                     ? 'Open'
-                    : comment.status === 'sent' ? 'Added' : 'Resolved';
+                    : 'Done';
                 heading.appendChild(statusLabel);
                 var actions = document.createElement('div');
                 actions.className = 'conversation-comment-actions';
@@ -474,6 +570,39 @@
                     return;
                 }
 
+                var expanded = comment.status !== 'done'
+                    || state.expandedDoneComments.has(comment.id);
+                if (comment.status === 'done' && !expanded) {
+                    item.classList.add('conversation-comment-done-collapsed');
+                    var expand = commentIconButton(
+                        'toggle-done',
+                        COMMENT_ICONS.chevron,
+                        'Expand comment'
+                    );
+                    expand.setAttribute('aria-expanded', 'false');
+                    actions.appendChild(expand);
+                    var collapsedBody = document.createElement('div');
+                    collapsedBody.className =
+                        'conversation-comment-collapsed-body';
+                    collapsedBody.setAttribute(
+                        'data-comment-action',
+                        'toggle-done'
+                    );
+                    collapsedBody.textContent = comment.comment;
+                    item.appendChild(collapsedBody);
+                    commentList.appendChild(item);
+                    return;
+                }
+
+                if (comment.status === 'done') {
+                    var collapse = commentIconButton(
+                        'toggle-done',
+                        COMMENT_ICONS.chevron,
+                        'Collapse comment'
+                    );
+                    collapse.setAttribute('aria-expanded', 'true');
+                    actions.appendChild(collapse);
+                }
                 if (comment.status === 'open') {
                     actions.appendChild(commentIconButton(
                         'send-comment',
@@ -488,27 +617,11 @@
                         'Show commented text'
                     ));
                 }
-                if (comment.status === 'open') {
-                    actions.appendChild(commentIconButton(
-                        'edit-comment',
-                        COMMENT_ICONS.edit,
-                        'Edit comment'
-                    ));
-                }
-                if (comment.status !== 'resolved') {
-                    actions.appendChild(commentIconButton(
-                        'resolve',
-                        COMMENT_ICONS.resolve,
-                        'Resolve comment'
-                    ));
-                }
-                if (comment.status !== 'open') {
-                    actions.appendChild(commentIconButton(
-                        'reopen',
-                        COMMENT_ICONS.reopen,
-                        'Reopen comment'
-                    ));
-                }
+                actions.appendChild(commentIconButton(
+                    'edit-comment',
+                    COMMENT_ICONS.edit,
+                    'Edit comment'
+                ));
                 actions.appendChild(commentIconButton(
                     'delete',
                     COMMENT_ICONS.remove,
@@ -542,16 +655,70 @@
                     scope.textContent = 'Session note';
                     meta.appendChild(scope);
                 }
+                var timeText = comment.status === 'done'
+                    && typeof comment.sentAt === 'number'
+                    ? 'sent ' + formatCommentTime(comment.sentAt)
+                    : formatCommentTime(comment.createdAt);
+                if (timeText) {
+                    var time = document.createElement('span');
+                    time.className = 'conversation-comment-time';
+                    time.textContent = timeText;
+                    meta.appendChild(time);
+                }
                 item.appendChild(meta);
                 commentList.appendChild(item);
             });
             updateToggle();
             commentEmpty.hidden = state.comments.length > 0;
-            var openCount = openCommentCount();
-            commentSend.textContent = 'Send ' + openCount + ' open comment'
-                + (openCount === 1 ? '' : 's');
+            if (commentFilterEmpty) {
+                var filteredOut = state.comments.length > 0
+                    && entries.length === 0;
+                commentFilterEmpty.hidden = !filteredOut;
+                commentFilterEmpty.textContent = filteredOut
+                    ? state.filter === 'open'
+                        ? 'No open comments.'
+                        : 'No done comments.'
+                    : '';
+            }
             updateCommentControls();
             updateCommentHighlights();
+            if (state.pendingCommentRequest || state.pendingLocateRequest) {
+                // Any re-render during an in-flight request must keep the
+                // disabled pending state instead of reviving controls.
+                setCommentPending(true);
+            }
+        }
+
+        function revealCommentCard(commentId) {
+            var comment = state.comments.find(function (candidate) {
+                return candidate.id === commentId;
+            });
+            if (!comment) return false;
+            var needsRender = false;
+            if (comment.status === 'done'
+                && !state.expandedDoneComments.has(commentId)) {
+                state.expandedDoneComments.add(commentId);
+                needsRender = true;
+            }
+            if (state.filter !== 'all' && comment.status !== state.filter) {
+                state.filter = 'all';
+                saveCommentsFilter();
+                needsRender = true;
+            }
+            if (needsRender) {
+                renderComments();
+            }
+            setSidebarView('comments', true, true);
+            var card = commentList.querySelector(
+                '[data-comment-id="' + CSS.escape(commentId) + '"]'
+            );
+            if (!card) return false;
+            card.scrollIntoView({ block: 'center' });
+            card.classList.add('conversation-comment-flash');
+            window.setTimeout(function () {
+                card.classList.remove('conversation-comment-flash');
+            }, 1600);
+            return true;
         }
 
         function findQuoteRange(root, comment) {
@@ -609,22 +776,57 @@
                     message.classList.remove('conversation-has-comment');
                 }
             );
-            var ranges = [];
+            Array.prototype.forEach.call(
+                messages.querySelectorAll('.conversation-comment-marker'),
+                function (marker) {
+                    marker.remove();
+                }
+            );
+            var commentsByMessage = new Map();
             state.comments.forEach(function (comment) {
-                if (comment.status === 'resolved'
-                    || comment.scope === 'session') return;
+                if (comment.scope === 'session') return;
+                var bucket = commentsByMessage.get(comment.messageId);
+                if (!bucket) {
+                    bucket = [];
+                    commentsByMessage.set(comment.messageId, bucket);
+                }
+                bucket.push(comment);
+            });
+            var ranges = [];
+            commentsByMessage.forEach(function (bucket, messageId) {
                 var message = Array.prototype.find.call(
                     messages.querySelectorAll(conversationMessageSelector()),
                     function (candidate) {
-                        return conversationMessageId(candidate)
-                            === comment.messageId;
+                        return conversationMessageId(candidate) === messageId;
                     }
                 );
                 if (!message) return;
-                message.classList.add('conversation-has-comment');
-                var markdown = message.querySelector('.conversation-markdown');
-                var range = markdown && findQuoteRange(markdown, comment);
-                if (range) ranges.push(range);
+                var openOnMessage = bucket.filter(function (comment) {
+                    return comment.status === 'open';
+                });
+                if (openOnMessage.length) {
+                    message.classList.add('conversation-has-comment');
+                }
+                openOnMessage.forEach(function (comment) {
+                    var markdown = message.querySelector(
+                        '.conversation-markdown'
+                    );
+                    var range = markdown && findQuoteRange(markdown, comment);
+                    if (range) ranges.push(range);
+                });
+                var label = bucket.length
+                    + (bucket.length === 1 ? ' comment' : ' comments')
+                    + ' — click to review';
+                var marker = document.createElement('button');
+                marker.type = 'button';
+                marker.className = 'conversation-comment-marker';
+                marker.setAttribute('data-comment-marker', messageId);
+                marker.title = label;
+                marker.setAttribute('aria-label', label);
+                marker.innerHTML = COMMENT_ICONS.marker
+                    + '<span class="conversation-comment-marker-count">'
+                    + bucket.length + '</span>';
+                message.appendChild(marker);
             });
             if (window.CSS && CSS.highlights && typeof Highlight === 'function') {
                 CSS.highlights.delete('conversation-comments');
@@ -649,6 +851,25 @@
                 || message.operation !== state.pendingCommentRequest.operation) {
                 return false;
             }
+            var operation = state.pendingCommentRequest.operation;
+            if (message.success
+                && (operation === 'sendComment'
+                    || operation === 'sendComments')) {
+                // Keep freshly sent cards expanded once so a card does not
+                // appear to vanish right after sending.
+                var previouslyOpen = new Set();
+                state.comments.forEach(function (comment) {
+                    if (comment.status === 'open') {
+                        previouslyOpen.add(comment.id);
+                    }
+                });
+                message.comments.forEach(function (comment) {
+                    if (comment.status === 'done'
+                        && previouslyOpen.has(comment.id)) {
+                        state.expandedDoneComments.add(comment.id);
+                    }
+                });
+            }
             state.commentRevision = message.revision;
             state.comments = message.comments.map(function (comment) {
                 return Object.assign({}, comment);
@@ -657,7 +878,6 @@
                 state.editingComment = null;
             }
             renderComments();
-            var operation = state.pendingCommentRequest.operation;
             state.pendingCommentRequest = null;
             setCommentPending(false);
             if (message.success) {
@@ -665,10 +885,8 @@
                     ? 'Comments added to session input. Review and press Enter to send.'
                     : operation === 'sendComment'
                         ? 'Comment added to session input. Review and press Enter to send.'
-                        : operation === 'clearSent'
-                        ? 'Added comments cleared.'
-                        : operation === 'clearResolved'
-                            ? 'Resolved comments cleared.'
+                        : operation === 'clearDone'
+                            ? 'Sent comments cleared.'
                             : operation === 'clearAll'
                                 ? 'All comments cleared.'
                                 : 'Comments saved.';
@@ -811,6 +1029,22 @@
                     window.setTimeout(captureCommentSelection, 0);
                 }
             });
+            messages.addEventListener('click', function (event) {
+                var marker = event.target && event.target.closest
+                    ? event.target.closest('[data-comment-marker]')
+                    : null;
+                if (!marker || !messages.contains(marker)) return;
+                var messageId = marker.getAttribute('data-comment-marker');
+                var matching = state.comments.filter(function (comment) {
+                    return comment.messageId === messageId
+                        && comment.scope !== 'session';
+                });
+                if (!matching.length) return;
+                var target = matching.find(function (comment) {
+                    return comment.status === 'open';
+                }) || matching[0];
+                revealCommentCard(target.id);
+            });
             scroll.addEventListener('scroll', function () {
                 addComment.hidden = true;
             });
@@ -862,19 +1096,30 @@
                     postCommentOperation('add', payload);
                     return;
                 }
+                if (action === 'filter') {
+                    var filter = button.getAttribute('data-comment-filter');
+                    if (filter === 'all' || filter === 'open'
+                        || filter === 'done') {
+                        state.filter = filter;
+                        saveCommentsFilter();
+                        renderComments();
+                    }
+                    return;
+                }
                 if (action === 'send') {
                     postCommentOperation('sendComments', {});
                     return;
                 }
-                if (action === 'clearSent' || action === 'clearResolved') {
-                    postCommentOperation(action, {});
+                if (action === 'clearDone') {
+                    postCommentOperation('clearDone', {});
                     return;
                 }
                 if (action === 'clearAll') {
                     if (!state.clearAllConfirmation) {
                         state.clearAllConfirmation = true;
-                        commentClearAll.textContent = 'Confirm clear all';
                         commentClearAll.setAttribute('data-confirming', 'true');
+                        commentClearAll.title =
+                            'Click again to confirm clear all';
                         commentClearAll.setAttribute(
                             'aria-label',
                             'Confirm clearing all comments'
@@ -892,6 +1137,15 @@
                     return candidate.id === commentId;
                 });
                 if (!item || !comment) return;
+                if (action === 'toggle-done') {
+                    if (state.expandedDoneComments.has(comment.id)) {
+                        state.expandedDoneComments.delete(comment.id);
+                    } else {
+                        state.expandedDoneComments.add(comment.id);
+                    }
+                    renderComments();
+                    return;
+                }
                 if (action === 'send-comment') {
                     postCommentOperation(
                         'sendComment',
@@ -919,10 +1173,6 @@
                 }
                 if (action === 'delete') {
                     postCommentOperation('delete', { commentId: comment.id });
-                    return;
-                }
-                if (action === 'resolve' || action === 'reopen') {
-                    postCommentOperation(action, { commentId: comment.id });
                     return;
                 }
                 if (action === 'update') {
@@ -997,6 +1247,7 @@
         }
 
         function initializeComments() {
+            state.filter = readCommentsFilter();
             var initialComments = readJsonAttribute('data-initial-comments');
             if (validInitialComments(initialComments)) {
                 state.commentRevision = initialComments.revision;

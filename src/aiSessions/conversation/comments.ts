@@ -29,9 +29,11 @@ export interface ConversationCommentDraft {
     suffix: string;
     comment: string;
     status: ConversationCommentStatus;
+    createdAt?: number;
+    sentAt?: number;
 }
 
-export type ConversationCommentStatus = 'open' | 'sent' | 'resolved';
+export type ConversationCommentStatus = 'open' | 'done';
 
 export interface ConversationCommentSelection {
     scope: 'selection';
@@ -49,12 +51,11 @@ export interface ConversationCommentSessionNote {
 }
 
 export type ConversationCommentOperation =
-    'add' | 'update' | 'delete' | 'resolve' | 'reopen'
-    | 'clearSent' | 'clearResolved' | 'clearAll'
+    'add' | 'update' | 'delete' | 'clearDone' | 'clearAll'
     | 'sendComments' | 'sendComment';
 
 export type ConversationCommentClearOperation =
-    'clearSent' | 'clearResolved' | 'clearAll';
+    'clearDone' | 'clearAll';
 
 export class ConversationCommentError extends Error {
     constructor(
@@ -131,45 +132,29 @@ export function updateConversationComment(
     draft: ConversationCommentDraft,
     comment: unknown
 ): ConversationCommentDraft {
-    if (draft.status !== 'open') {
-        throw new ConversationCommentError('invalid');
+    const text = requireBoundedText(
+        comment,
+        CONVERSATION_COMMENT_LIMITS.maxCommentGraphemes
+    );
+    if (draft.status !== 'done') {
+        return { ...draft, comment: text };
     }
-    return {
-        ...draft,
-        comment: requireBoundedText(
-            comment,
-            CONVERSATION_COMMENT_LIMITS.maxCommentGraphemes
-        ),
-    };
+    // Editing a done comment re-opens it so it can be sent again: the stale
+    // send timestamp is dropped while the creation timestamp is preserved.
+    const { sentAt: _sentAt, ...reopened } = draft;
+    return { ...reopened, comment: text, status: 'open' };
 }
 
-export function resolveConversationComment(
-    draft: ConversationCommentDraft
-): ConversationCommentDraft {
-    validateDraft(draft);
-    if (draft.status === 'resolved') {
-        throw new ConversationCommentError('invalid');
-    }
-    return { ...draft, status: 'resolved' };
-}
-
-export function reopenConversationComment(
-    draft: ConversationCommentDraft
-): ConversationCommentDraft {
-    validateDraft(draft);
-    if (draft.status === 'open') {
-        throw new ConversationCommentError('invalid');
-    }
-    return { ...draft, status: 'open' };
-}
-
-export function markConversationCommentsSent(
-    comments: readonly ConversationCommentDraft[]
+export function markConversationCommentsDone(
+    comments: readonly ConversationCommentDraft[],
+    sentAt: number,
+    onlyIds?: ReadonlySet<string>
 ): ConversationCommentDraft[] {
     return comments.map(comment => {
         validateDraft(comment);
         return comment.status === 'open'
-            ? { ...comment, status: 'sent' }
+            && (!onlyIds || onlyIds.has(comment.id))
+            ? { ...comment, status: 'done', sentAt }
             : { ...comment };
     });
 }
@@ -179,18 +164,12 @@ export function clearConversationComments(
     operation: ConversationCommentClearOperation
 ): ConversationCommentDraft[] {
     if (!Array.isArray(comments)
-        || (operation !== 'clearSent'
-            && operation !== 'clearResolved'
-            && operation !== 'clearAll')) {
+        || (operation !== 'clearDone' && operation !== 'clearAll')) {
         throw new ConversationCommentError('invalid');
     }
     return comments.filter(comment => {
         validateDraft(comment);
-        return operation === 'clearAll'
-            ? false
-            : comment.status !== (
-                operation === 'clearSent' ? 'sent' : 'resolved'
-            );
+        return operation === 'clearAll' ? false : comment.status !== 'done';
     }).map(comment => ({ ...comment }));
 }
 
@@ -266,9 +245,9 @@ export function validateConversationComments(
 function validateDraft(draft: ConversationCommentDraft): void {
     if (!draft || !isBoundedId(draft.id)
         || (draft.scope !== undefined && draft.scope !== 'session')
-        || (draft.status !== 'open'
-            && draft.status !== 'sent'
-            && draft.status !== 'resolved')) {
+        || (draft.status !== 'open' && draft.status !== 'done')
+        || !isOptionalTimestamp(draft.createdAt)
+        || !isOptionalTimestamp(draft.sentAt)) {
         throw new ConversationCommentError('invalid');
     }
     if (draft.scope === 'session') {
@@ -329,6 +308,13 @@ function optionalBoundedText(value: unknown, max: number): string {
         throw new ConversationCommentError('invalid');
     }
     return normalized;
+}
+
+function isOptionalTimestamp(value: unknown): boolean {
+    return value === undefined
+        || (typeof value === 'number'
+            && Number.isSafeInteger(value)
+            && value >= 0);
 }
 
 function graphemeLength(value: string): number {

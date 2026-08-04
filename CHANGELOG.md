@@ -16,12 +16,21 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
 
 ### Changed
 
-- AI Conversation comment cards were redesigned: comments render in full in a
-  read-only view with uniform rounded icon buttons (send, locate, edit,
-  resolve, reopen, delete) instead of mixed text buttons, an explicit edit
-  mode with autosized textarea (Ctrl+Enter saves, Esc cancels), and a per-card
-  send button that stages only that comment (with its quoted source) into the
-  active Session input alongside the existing send-all action.
+- AI Conversation comment cards were redesigned around two states: `open`
+  (unsent, the only sendable state) and `done` (sent). Cards render comments
+  in full in a read-only view with uniform rounded icon buttons; open cards
+  offer send/locate/edit/delete, done cards collapse to a dimmed single line
+  by default (freshly sent cards stay expanded once) and can be edited, which
+  flips them back to open for resending. An explicit edit mode uses an
+  autosized textarea (Ctrl+Enter saves, Esc cancels), a per-card send button
+  stages only that comment (with its quoted source) into the active Session
+  input, and the resolve/reopen review states were removed.
+- AI Conversation comments panel: an All/Open/Done icon filter plus a one-row
+  icon toolbar (filter, send with open count, clear done, confirmed clear
+  all), relative created/sent timestamps on cards, a clickable count marker on
+  messages with comments that jumps to and flashes the matching card, and the
+  telemetry pill now reports open/total (e.g. `Comments 2/5`). Existing stored
+  comments migrate automatically (sent and resolved become done).
 
 ## [1.0.3] - 2026-08-04
 

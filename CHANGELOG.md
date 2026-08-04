@@ -4,18 +4,7 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
 
 ## [Unreleased]
 
-### Fixed
-
-- AI Conversation now contains scrolling within the message viewport, keeping
-  its header and session telemetry visible during Latest navigation, and
-  preventing blank overscroll beyond the content.
-- AI Conversation now follows live response content automatically while the
-  reader is at the end, without requiring a New response content button;
-  scrolling up still preserves the historical reading position.
-- AI Conversation shows an animated Working status below the latest response
-  while the provider is still processing, including active Codex turns read as
-  interrupted by a detached reader and lifecycle-only transitions without new
-  provider content, then removes it on completion.
+## [1.0.3] - 2026-08-04
 
 ### Added
 
@@ -29,6 +18,19 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
   subagent transcripts with `agentPivot.aiConversation.showThinking`.
 - AI Conversation Markdown code fences now render with syntax highlighting,
   while mermaid fences keep their diagram rendering.
+
+### Fixed
+
+- AI Conversation now contains scrolling within the message viewport, keeping
+  its header and session telemetry visible during Latest navigation, and
+  preventing blank overscroll beyond the content.
+- AI Conversation now follows live response content automatically while the
+  reader is at the end, without requiring a New response content button;
+  scrolling up still preserves the historical reading position.
+- AI Conversation shows an animated Working status below the latest response
+  while the provider is still processing, including active Codex turns read as
+  interrupted by a detached reader and lifecycle-only transitions without new
+  provider content, then removes it on completion.
 
 ## [1.0.2] - 2026-08-03
 

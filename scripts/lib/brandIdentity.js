@@ -10,7 +10,7 @@ const BRAND_IDENTITY = Object.freeze({
     publisher: 'hzcheng',
     mainPackageName: 'agent-pivot',
     mainExtensionId: 'hzcheng.agent-pivot',
-    mainVersion: '1.0.2',
+    mainVersion: '1.0.3',
     bridgePackageName: 'agent-pivot-attention-ui-bridge',
     bridgeExtensionId: 'hzcheng.agent-pivot-attention-ui-bridge',
     commandPrefix: 'agentPivot.',

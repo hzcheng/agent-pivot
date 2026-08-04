@@ -33,7 +33,7 @@ function createController(overrides) {
     const options = Object.assign({
         getCards: () => [],
         getRecord: () => null,
-        getProjectDisplay: workspace => { calls.projectDisplay.push(workspace); return null; },
+        getProjectGroupName: workspace => { calls.projectDisplay.push(workspace); return null; },
         showQuickPick: async () => { calls.quickPick += 1; return undefined; },
         open: async cardId => { calls.open.push(cardId); },
         showInformationMessage: message => { calls.info.push(message); },
@@ -56,7 +56,7 @@ test('pickAndOpen informs when no other windows are open', async () => {
     assert.deepEqual(calls.info, ['No other open windows to switch to.']);
 });
 
-test('pickAndOpen shows project name and group name for saved projects', async () => {
+test('pickAndOpen shows the window name with its project group', async () => {
     let shownItems;
     let shownOptions;
     const { controller, calls } = createController({
@@ -67,13 +67,10 @@ test('pickAndOpen shows project name and group name for saved projects', async (
             card({ id: '__openWorkspaceNavigation-ghi789', name: 'workspace-c' }),
         ],
         getRecord: cardId => (cardId === '__openWorkspaceNavigation-ghi789' ? null : record(`file:///work/${cardId}`)),
-        getProjectDisplay: workspace => {
+        getProjectGroupName: workspace => {
             calls.projectDisplay.push(workspace);
             if (workspace.navigationUri.endsWith('abc123')) {
-                return { name: 'Project Alpha', groupName: 'Backend' };
-            }
-            if (workspace.navigationUri.endsWith('def456')) {
-                return { name: 'Project Beta', groupName: null };
+                return 'Backend';
             }
             return null;
         },
@@ -83,8 +80,8 @@ test('pickAndOpen shows project name and group name for saved projects', async (
     await controller.pickAndOpen();
 
     assert.deepEqual(shownItems, [
-        { label: 'Project Alpha', description: 'Backend', cardId: '__openWorkspaceNavigation-abc123' },
-        { label: 'Project Beta', description: undefined, cardId: '__openWorkspaceNavigation-def456' },
+        { label: 'workspace-a', description: 'Backend', cardId: '__openWorkspaceNavigation-abc123' },
+        { label: 'workspace-b', description: undefined, cardId: '__openWorkspaceNavigation-def456' },
         { label: 'workspace-c', description: undefined, cardId: '__openWorkspaceNavigation-ghi789' },
     ]);
     assert.equal(shownOptions.title, 'Switch to Open Window');

@@ -9,17 +9,12 @@ export interface OpenWindowQuickPickItem {
     cardId: string;
 }
 
-export interface OpenWindowProjectDisplay {
-    name: string;
-    groupName: string | null;
-}
-
 export interface WorkspaceNavigationQuickPickControllerOptions {
     getCards: () => WorkspaceCardViewModel[];
     getRecord: (cardId: string) => OpenWorkspaceRecord | null;
-    getProjectDisplay: (
+    getProjectGroupName: (
         workspace: Pick<OpenWorkspaceRecord, 'kind' | 'navigationUri'>,
-    ) => OpenWindowProjectDisplay | null;
+    ) => string | null;
     showQuickPick: (
         items: OpenWindowQuickPickItem[],
         options: { placeHolder: string; title: string },
@@ -51,10 +46,10 @@ export class WorkspaceNavigationQuickPickController {
 
     private createItem(card: WorkspaceCardViewModel): OpenWindowQuickPickItem {
         const record = this.options.getRecord(card.id);
-        const projectDisplay = record ? this.options.getProjectDisplay(record) : null;
+        const groupName = record ? this.options.getProjectGroupName(record) : null;
         return {
-            label: projectDisplay ? projectDisplay.name : card.name,
-            description: projectDisplay?.groupName || undefined,
+            label: card.name,
+            description: groupName || undefined,
             cardId: card.id,
         };
     }

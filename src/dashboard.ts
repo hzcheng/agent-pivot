@@ -1358,12 +1358,12 @@ async function initializeDashboard(
         getCards: () => openWorkspaceDashboardController.getCards(),
         getRecord: cardId => openWorkspaceDashboardController.getNavigationWorkspace(cardId),
         showQuickPick: (items, options) => vscode.window.showQuickPick(items, options),
-        getProjectDisplay: workspace => {
+        getProjectGroupName: workspace => {
             const project = getSavedProjectForWorkspace(workspace);
             if (!project) { return null; }
             const group = projectService.getGroups()
                 .find(candidate => candidate.projects.some(entry => entry.id === project.id));
-            return { name: project.name, groupName: group ? group.groupName : null };
+            return group ? group.groupName : null;
         },
         open: cardId => workspaceNavigationController.open(cardId),
         showInformationMessage: message => vscode.window.showInformationMessage(message),

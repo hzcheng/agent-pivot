@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "20f0258e412d2e448840658e67d181b06afb0fdf",
+        "head": "f287d527971ec6a53b99ab20e75dbe73d8e28ec5",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -118,7 +118,8 @@
             "0d735cf7a616237a194f1838d93bc124dec7429d",
             "6d7f0acc2e19b0f8ae3a10b6c8d05deb4c63ed85",
             "683ca1eeba16f817b07e65ed9e5d0a9d2c276c94",
-            "65d60138ffd2d2c28bebb38abb86d73295fa0e52"
+            "65d60138ffd2d2c28bebb38abb86d73295fa0e52",
+            "e1b690ecfb1e03bc0119615882c1981e4f6c12d3"
         ]
     },
     "capabilities": [
@@ -249,7 +250,8 @@
                 "12559648732d3bcd2e830f70c3406de9ba5b3751",
                 "8bb4c12dde9e7f1ce4ea163ffb2e97edcdcb9b73",
                 "1cb17856b4e8db7fc94d2f6b4a5479d11f95f7d1",
-                "20f0258e412d2e448840658e67d181b06afb0fdf"
+                "20f0258e412d2e448840658e67d181b06afb0fdf",
+                "f287d527971ec6a53b99ab20e75dbe73d8e28ec5"
             ],
             "behaviors": [
                 "OPEN-OPEN-PROJECT-AUTHORITATIVE-IDENTITY-001",
@@ -263,7 +265,8 @@
                 "OPEN-WORKSPACE-PIN-CLIENT-001",
                 "OPEN-WORKSPACE-PIN-HOST-001",
                 "OPEN-WORKSPACE-PIN-SORT-001",
-                "OPEN-WORKSPACE-PIN-WEBVIEW-001"
+                "OPEN-WORKSPACE-PIN-WEBVIEW-001",
+                "OPEN-ALL-WINDOWS-LIST-001"
             ],
             "prGates": [
                 "test:deterministic:run"

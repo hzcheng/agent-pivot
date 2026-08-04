@@ -3840,7 +3840,7 @@
   {
     "id": "CONVERSATION-THINKING-VISIBILITY-001",
     "domain": "webview",
-    "title": "Conversation viewers render provider thinking blocks as collapsed entries interleaved with assistant text and tool calls",
+    "title": "Conversation viewers render provider thinking and Codex commentary as collapsed entries interleaved with assistant text and tool calls",
     "priority": "P1",
     "status": "automated",
     "owners": [

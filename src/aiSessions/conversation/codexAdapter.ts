@@ -267,10 +267,18 @@ function normalizeThreadRead(
                 if (currentInteractionIndex === undefined) {
                     continue;
                 }
-                const assistantMarkdown = visibleMessage(item.text);
-                if (assistantMarkdown) {
-                    interactions[currentInteractionIndex]
-                        .assistantMarkdown.push(assistantMarkdown);
+                const text = visibleMessage(item.text);
+                if (!text) {
+                    continue;
+                }
+                const interaction = interactions[currentInteractionIndex];
+                if (item.phase === 'commentary') {
+                    (interaction.thinking ||= []).push({
+                        position: interaction.assistantMarkdown.length,
+                        text,
+                    });
+                } else {
+                    interaction.assistantMarkdown.push(text);
                 }
             }
         }

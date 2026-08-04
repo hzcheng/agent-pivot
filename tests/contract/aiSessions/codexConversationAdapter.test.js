@@ -521,6 +521,54 @@ test('CONVERSATION-THINKING-VISIBILITY-001 Codex never falls back to raw reasoni
     assert.equal(serialized.includes('legacy-reasoning-secret'), false);
 });
 
+test('CONVERSATION-THINKING-VISIBILITY-001 Codex renders commentary as thinking and final answers as assistant output', async t => {
+    const native = {
+        thread: {
+            id: sessionId,
+            turns: [{
+                id: 'phased-agent-turn',
+                status: 'completed',
+                items: [
+                    {
+                        id: 'phased-agent-user',
+                        type: 'userMessage',
+                        content: [{ type: 'text', text: 'Inspect the failure' }],
+                    },
+                    {
+                        id: 'phased-agent-commentary',
+                        type: 'agentMessage',
+                        phase: 'commentary',
+                        text: 'Comparing the two runs.',
+                    },
+                    {
+                        id: 'phased-agent-answer',
+                        type: 'agentMessage',
+                        phase: 'final_answer',
+                        text: 'The parser dropped the event.',
+                    },
+                ],
+            }],
+        },
+    };
+    const harness = createAdapter(native);
+    t.after(() => harness.adapter.dispose());
+    const { page } = await readWholeConversation(harness.adapter);
+
+    assert.deepEqual(
+        page.messages.map(message => [
+            message.role,
+            message.role === 'thinking'
+                ? message.thinking.text
+                : message.markdown,
+        ]),
+        [
+            ['user', 'Inspect the failure'],
+            ['thinking', 'Comparing the two runs.'],
+            ['assistant', 'The parser dropped the event.'],
+        ]
+    );
+});
+
 test('SESSION-AI-SESSION-CODEX-CONVERSATION-006 shares the service watcher and disposes lifecycle ownership once', async () => {
     let subscribeCount = 0;
     let providerCallback;

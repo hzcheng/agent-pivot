@@ -99,6 +99,32 @@ function validateJob(
         `${jobId} must run ${expectedGate}`);
 }
 
+function validateChromiumInstall(job) {
+    assert.equal(findStep(job, step => isMapping(step) && typeof step.run === 'string'
+        && (step.run.includes('playwright install-deps') || step.run.includes('--with-deps'))),
+    undefined,
+    'quality-linux must not run redundant apt-backed Playwright dependency installs');
+
+    const browserInstall = findStep(job,
+        step => isMapping(step) && step.name === 'Install pinned Chromium headless shell');
+    assert.ok(browserInstall,
+        'quality-linux must define the pinned Chromium headless shell install step');
+    assert.equal(browserInstall.shell, 'bash',
+        'quality-linux Chromium install step must use bash');
+    assert.equal(browserInstall.run, [
+        'set -euo pipefail',
+        'for attempt in 1 2 3; do',
+        '  if timeout --kill-after=10s 120s npx playwright install --only-shell chromium; then',
+        '    exit 0',
+        '  fi',
+        '  echo "::warning::Chromium install attempt ${attempt} failed"',
+        'done',
+        'exit 1',
+        '',
+    ].join('\n'),
+    'quality-linux must install only the Chromium headless shell with three bounded retries');
+}
+
 function validateVerifyWorkflow(verifyWorkflow) {
     const workflow = parseVerifyWorkflow(verifyWorkflow);
     validateTriggers(workflow);
@@ -116,10 +142,11 @@ function validateVerifyWorkflow(verifyWorkflow) {
         'quality-linux',
         'ubuntu-latest',
         'npm run test:ci:linux',
-        ['npx playwright install --with-deps chromium'],
+        [],
         true,
         15
     );
+    validateChromiumInstall(workflow.jobs['quality-linux']);
     validateJob(workflow.jobs, 'platform-windows', 'windows-latest', 'npm run test:ci:windows');
     validateJob(workflow.jobs, 'tmux-smoke-linux', 'ubuntu-latest',
         'npm run test:tmux:smoke', ['sudo apt-get install -y tmux']);

@@ -23,6 +23,7 @@ const publicCommands = [
     'agentPivot.migrateSkillsToCentral',
     'agentPivot.changeGlobalSkillsLocation',
     'agentPivot.openCurrentAiSessionConversation',
+    'agentPivot.switchToOpenWindow',
 ];
 
 function loadSuite(vscode) {

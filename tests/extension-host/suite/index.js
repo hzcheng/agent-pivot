@@ -20,6 +20,7 @@ const PUBLIC_COMMANDS = [
     'agentPivot.migrateSkillsToCentral',
     'agentPivot.changeGlobalSkillsLocation',
     'agentPivot.openCurrentAiSessionConversation',
+    'agentPivot.switchToOpenWindow',
 ];
 
 async function verifyExtensionHostLifecycle() {

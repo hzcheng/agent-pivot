@@ -539,7 +539,7 @@ function runWorkspaceCardRenderingChecks() {
     assert.strictEqual((singleHtml.match(/class="codex-sessions"/g) || []).length, 1);
     assert.ok(singleHtml.includes(icons.folder));
     assert.ok(singleHtml.includes('title="Local Project"'));
-    assert.ok(singleHtml.includes('<h2 class="project-header">App</h2>'));
+    assert.ok(singleHtml.includes('<h2 class="project-header">Dashboard</h2>'));
     assert.ok(singleHtml.includes('<p class="project-description workspace-metadata">1 folder</p>'));
     assert.strictEqual(singleHtml.includes('Local ·'), false,
         'the environment icon already identifies local workspaces');
@@ -3704,6 +3704,7 @@ async function runDashboardCommandRegistrationChecks() {
         'migrateSkillsToCentral',
         'changeGlobalSkillsLocation',
         'openCurrentAiSessionConversation',
+        'switchToOpenWindow',
     ];
     const registration = new DashboardCommandRegistration({
         registerCommand: (command, callback) => {
@@ -3731,6 +3732,7 @@ async function runDashboardCommandRegistrationChecks() {
         'agentPivot.migrateSkillsToCentral',
         'agentPivot.changeGlobalSkillsLocation',
         'agentPivot.openCurrentAiSessionConversation',
+        'agentPivot.switchToOpenWindow',
     ]);
     assert.deepStrictEqual(subscriptions.map(disposable => disposable.command), registered.map(([command]) => command));
 
@@ -3761,6 +3763,7 @@ async function runDashboardCommandRegistrationChecks() {
         'migrateSkillsToCentral',
         'changeGlobalSkillsLocation',
         'openCurrentAiSessionConversation',
+        'switchToOpenWindow',
     ]);
 
     registration.dispose();

@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "a2008ccbea072221e551fded2cc7ef02f8a96ff3",
+        "head": "14c1213f64d62dad5cf200d642c83cdadd608b5f",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -114,7 +114,14 @@
             "299338b91f6f36559b78fec16e9dd24cbde49c37",
             "c0b7922b8e40062fb1070c3771a52ac318a0c735",
             "d35a08bc990c63ff4f69bf94c2a3eee67729ca13",
-            "9ea58d209a87cfdad86acb3011a9f7de38ea4d80"
+            "9ea58d209a87cfdad86acb3011a9f7de38ea4d80",
+            "0d735cf7a616237a194f1838d93bc124dec7429d",
+            "6d7f0acc2e19b0f8ae3a10b6c8d05deb4c63ed85",
+            "683ca1eeba16f817b07e65ed9e5d0a9d2c276c94",
+            "65d60138ffd2d2c28bebb38abb86d73295fa0e52",
+            "e1b690ecfb1e03bc0119615882c1981e4f6c12d3",
+            "443ead14d8013fa321c7b7431babceea43acf550",
+            "26780e9b673c21035ec297fb86cedde520a7e786"
         ]
     },
     "capabilities": [
@@ -244,7 +251,9 @@
                 "837c9d66584a0ed8265d23e314faaa34df5f5f1f",
                 "12559648732d3bcd2e830f70c3406de9ba5b3751",
                 "8bb4c12dde9e7f1ce4ea163ffb2e97edcdcb9b73",
-                "1cb17856b4e8db7fc94d2f6b4a5479d11f95f7d1"
+                "1cb17856b4e8db7fc94d2f6b4a5479d11f95f7d1",
+                "20f0258e412d2e448840658e67d181b06afb0fdf",
+                "f287d527971ec6a53b99ab20e75dbe73d8e28ec5"
             ],
             "behaviors": [
                 "OPEN-OPEN-PROJECT-AUTHORITATIVE-IDENTITY-001",
@@ -258,7 +267,8 @@
                 "OPEN-WORKSPACE-PIN-CLIENT-001",
                 "OPEN-WORKSPACE-PIN-HOST-001",
                 "OPEN-WORKSPACE-PIN-SORT-001",
-                "OPEN-WORKSPACE-PIN-WEBVIEW-001"
+                "OPEN-WORKSPACE-PIN-WEBVIEW-001",
+                "OPEN-ALL-WINDOWS-LIST-001"
             ],
             "prGates": [
                 "test:deterministic:run"
@@ -277,7 +287,10 @@
                 "3d1588d05d4b7f30b971702e24e55f561786c527",
                 "35a8eba46ff1e7b17dcbfeb020b80caaa3b62d64",
                 "a2b20e451f77413965004d7958af784af08f3449",
-                "d0615b4e0484feb208772e8ccb77cb1054c92308"
+                "d0615b4e0484feb208772e8ccb77cb1054c92308",
+                "c9eb810b43b10caf940b0884ea0b2e62d0f3b127",
+                "a6edd4e1b5c4cd77bdbee69a9a2ef2403536719f",
+                "73221dde44294e71adb8190f0e3116aa1e3283d6"
             ],
             "behaviors": [
                 "OPEN-OPEN-PROJECT-WORKSPACE-CONTROLLER-001",
@@ -959,7 +972,9 @@
                 "822c2648c29207d7b17d8a03e52940a053324081",
                 "c4fc3765929b05fc0e3b41710d6ca2527d0b15d0",
                 "3b72a3f40da2d816105c7fbd37f76e16e4fd239c",
-                "1123385bc527059ed7325350e92923f770d070b3"
+                "1123385bc527059ed7325350e92923f770d070b3",
+                "9dd6c07a94418fb1e71997ab3e49cefad2ffe8e9",
+                "14c1213f64d62dad5cf200d642c83cdadd608b5f"
             ],
             "behaviors": [
                 "ARCH-CI-QUALITY-GATE-001",

@@ -162,6 +162,32 @@ test('OPEN-ALL-WINDOWS-LIST-001 orders current and navigation cards together wit
     assert.equal(pinned[0].pinned, true);
 });
 
+test('OPEN-ALL-WINDOWS-LIST-001 prefers saved project names over window display names', () => {
+    const current = makeRecord({ name: 'Current', uri: '/work/current' });
+    const other = makeRecord({ name: 'Other', uri: '/work/other' });
+    const unnamed = makeRecord({ name: 'Unnamed', uri: '/work/unnamed' });
+    const controller = new OpenWorkspaceDashboardController(createOptions({
+        getCurrentWorkspace: () => ({
+            ...current,
+            roots: current.roots.map(root => ({ ...root, hostPath: '/work/current' })),
+        }),
+        getWorkspaceProjectName: workspace => {
+            if (workspace.navigationUri === current.navigationUri) { return 'Current Alias'; }
+            if (workspace.navigationUri === other.navigationUri) { return 'Other Alias'; }
+            return '   ';
+        },
+    }));
+    controller.setAggregate(makeAggregate([
+        makeRegistration(SELF, 9000, current.navigationUri, { openedAtMs: 3000, workspace: current }),
+        makeRegistration(OLDER, 8000, other.navigationUri, { openedAtMs: 1000, workspace: other }),
+        makeRegistration(NEWER, 7000, unnamed.navigationUri, { openedAtMs: 2000, workspace: unnamed }),
+    ]));
+
+    const cards = controller.getCards();
+    assert.deepEqual(cards.map(card => card.name), ['Other Alias', 'Unnamed', 'Current Alias']);
+    assert.equal(cards[2].kind, 'current');
+});
+
 test('OPEN-ALL-WINDOWS-LIST-001 gives every remote window the same authoritative project order', () => {
     const localProjectA = makeRecord({ name: 'Project A', uri: '/work/project-a' });
     const localProjectB = makeRecord({ name: 'Project B', uri: '/work/project-b' });

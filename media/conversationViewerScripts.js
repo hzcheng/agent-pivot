@@ -793,9 +793,7 @@
         if (commentsController.handleEnterShortcut(event)) return;
         if (event.key !== 'Escape') return;
         if (commentsController.handleEscape(event)) return;
-        if (sidebarController.handleEscape(event)) return;
-        event.preventDefault();
-        postNavigation('conversation-viewer-closed');
+        sidebarController.handleEscape(event);
     });
     window.addEventListener('message', function (event) {
         if (outlineController.applyBookmarksResult(event.data)) return;

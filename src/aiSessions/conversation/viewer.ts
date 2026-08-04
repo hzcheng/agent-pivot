@@ -427,10 +427,6 @@ export class ConversationViewer implements ConversationViewerApi {
         if (!parsed || !this.target || !this.panel) {
             return;
         }
-        if (parsed.type === 'conversation-viewer-closed') {
-            this.panel.dispose();
-            return;
-        }
         if (parsed.type === 'conversation-viewer-open-link') {
             await this.openLink(parsed.href);
             return;

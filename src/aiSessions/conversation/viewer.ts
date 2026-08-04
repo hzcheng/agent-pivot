@@ -1431,6 +1431,21 @@ function renderThinkingMessage(message: ConversationMessage): string {
 </article>`;
 }
 
+function renderProgressMessage(message: ConversationMessage): string {
+    return `<article class="conversation-message conversation-message-progress"
+    data-message-id="${escapeAttribute(message.id)}"
+    data-conversation-message-id="${escapeAttribute(encodeURIComponent(message.id))}"
+    data-interaction-id="${escapeAttribute(message.interactionId)}">
+    <section class="conversation-progress">
+        <span class="conversation-progress-label">Progress:</span>
+        <span class="conversation-progress-dot"></span>
+        <section class="conversation-markdown">${renderConversationMarkdown(
+        message.markdown
+    )}</section>
+    </section>
+</article>`;
+}
+
 function renderMessages(
     messages: ConversationMessage[],
     showThinking: boolean
@@ -1441,6 +1456,9 @@ function renderMessages(
         }
         if (message.role === 'thinking') {
             return showThinking ? renderThinkingMessage(message) : '';
+        }
+        if (message.role === 'progress') {
+            return renderProgressMessage(message);
         }
         return `<article class="conversation-message conversation-message-${message.role}"
     data-message-id="${escapeAttribute(message.id)}"

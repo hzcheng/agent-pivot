@@ -72,6 +72,25 @@ test('CONVERSATION-COMMENTS-001 CONVERSATION-COMMENTS-REVIEW-001 creates bounded
     );
 });
 
+test('CONVERSATION-PROGRESS-VISIBILITY-001 treats selected progress text as assistant-authored feedback', () => {
+    const draft = createConversationComment('comment-progress', {
+        messageId: 'message-progress',
+        interactionId: 'interaction-progress',
+        quote: 'Checking the implementation.',
+        prefix: '',
+        suffix: '',
+        comment: 'Please explain this step.',
+    }, {
+        id: 'message-progress',
+        interactionId: 'interaction-progress',
+        role: 'progress',
+        markdown: 'Checking the implementation.',
+    });
+
+    assert.equal(draft.role, 'assistant');
+    assert.doesNotThrow(() => markConversationCommentsSent([draft]));
+});
+
 test('CONVERSATION-COMMENTS-001 creates a session-wide note without a selected message', () => {
     const draft = createConversationSessionComment(
         'comment-session',

@@ -15,8 +15,11 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
 
 ### Added
 
-- AI Conversation can show provider thinking blocks, including visible Codex
-  commentary and safe reasoning summaries, as collapsed entries interleaved
+- AI Conversation now shows user-facing progress updates by default across
+  Codex, Claude, and Kimi, including tool preambles and Kimi plans, while
+  keeping private Thinking independently hidden unless enabled.
+- AI Conversation can show provider thinking blocks, including safe Codex
+  reasoning summaries, as collapsed entries interleaved
   with assistant text and tool calls for Kimi, Claude, and Codex sessions.
   Thinking is hidden by default and can be enabled for main sessions and
   subagent transcripts with `agentPivot.aiConversation.showThinking`.

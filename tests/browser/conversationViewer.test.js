@@ -4266,3 +4266,46 @@ test('CONVERSATION-THINKING-VISIBILITY-001 omits Thinking from the default Host 
         'Compare the two runs.'
     );
 });
+
+test('CONVERSATION-PROGRESS-VISIBILITY-001 renders progress by default while Thinking remains hidden', async t => {
+    const opened = await openHostViewerDocument(t, {
+        showThinking: () => false,
+        pageOverrides: {
+            messages: [
+                {
+                    id: 'input-2:progress:0',
+                    interactionId: 'input-2',
+                    role: 'progress',
+                    markdown: 'Running the cross-provider checks.',
+                },
+                {
+                    id: 'input-2:thinking:0',
+                    interactionId: 'input-2',
+                    role: 'thinking',
+                    markdown: '',
+                    thinking: { text: 'Private reasoning.' },
+                },
+            ],
+        },
+    });
+    const progress = opened.page.locator('.conversation-progress');
+    assert.equal(await progress.count(), 1);
+    assert.match(await progress.innerText(), /Running the cross-provider checks\./);
+    assert.equal(
+        await progress.locator('.conversation-progress-label').textContent(),
+        'Progress:'
+    );
+    assert.equal(
+        await opened.page.locator('.conversation-message-thinking').count(),
+        0
+    );
+    for (const width of [700, 240]) {
+        await opened.page.setViewportSize({ width, height: 500 });
+        assert.equal(await progress.evaluate(element => {
+            const bounds = element.getBoundingClientRect();
+            return bounds.left >= 0
+                && bounds.right <= document.documentElement.clientWidth
+                && element.scrollWidth <= element.clientWidth;
+        }), true, `Progress fits at ${width}px`);
+    }
+});

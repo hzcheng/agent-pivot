@@ -6,6 +6,7 @@ import type {
     AiSessionDisposable,
 } from '../types';
 import {
+    appendConversationAssistantText,
     buildConversationOutline,
     buildConversationPage,
 } from './model';
@@ -273,12 +274,13 @@ function normalizeThreadRead(
                 }
                 const interaction = interactions[currentInteractionIndex];
                 if (item.phase === 'commentary') {
-                    (interaction.thinking ||= []).push({
-                        position: interaction.assistantMarkdown.length,
+                    appendConversationAssistantText(
+                        interaction,
                         text,
-                    });
+                        'progress'
+                    );
                 } else {
-                    interaction.assistantMarkdown.push(text);
+                    appendConversationAssistantText(interaction, text);
                 }
             }
         }

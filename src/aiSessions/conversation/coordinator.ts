@@ -209,6 +209,12 @@ export class ConversationCoordinator implements AiSessionDisposable {
             }
             const stopped = this.stoppedSessions.has(key);
             const active = this.activeSessions.has(key);
+            const activeInferredInteractionId = active
+                && request.provider !== 'codex'
+                && page.isEnd
+                ? page.interactionStates[page.interactionStates.length - 1]
+                    .interactionId
+                : undefined;
             const result: ConversationPage = {
                 provider: request.provider,
                 sessionId: request.sessionId,
@@ -217,7 +223,10 @@ export class ConversationCoordinator implements AiSessionDisposable {
                 messages: page.messages.map(message => ({
                     id: message.id,
                     interactionId: message.interactionId,
-                    role: message.role,
+                    role: message.role === 'assistant'
+                        && message.interactionId === activeInferredInteractionId
+                        ? 'progress'
+                        : message.role,
                     timestamp: message.timestamp,
                     markdown: message.markdown,
                     ...(message.tool
@@ -607,6 +616,7 @@ export class ConversationCoordinator implements AiSessionDisposable {
                 && typeof message.interactionId === 'string'
                 && Boolean(message.interactionId)
                 && (message.role === 'user' || message.role === 'assistant'
+                    || message.role === 'progress'
                     || (message.role === 'tool'
                         && Boolean(message.tool)
                         && typeof message.tool.name === 'string'

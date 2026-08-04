@@ -87,7 +87,9 @@ test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 Codex normalizes only stable v
         'inProgress',
     ]);
     assert.deepEqual(
-        page.messages.filter(message => message.role === 'assistant')
+        page.messages.filter(message =>
+            message.role === 'progress' || message.role === 'assistant'
+        )
             .map(message => [message.interactionId, message.markdown]),
         [
             ['user-item-1', 'Visible response'],
@@ -107,7 +109,7 @@ test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 Codex normalizes only stable v
         page.messages.filter(message =>
             message.interactionId === 'user-item-1'
         ).map(message => message.role),
-        ['user', 'thinking', 'assistant', 'tool', 'tool']
+        ['user', 'thinking', 'progress', 'tool', 'tool']
     );
     assert.equal(JSON.stringify(page).includes('raw-reasoning-secret'), false);
     assert.equal(
@@ -521,7 +523,7 @@ test('CONVERSATION-THINKING-VISIBILITY-001 Codex never falls back to raw reasoni
     assert.equal(serialized.includes('legacy-reasoning-secret'), false);
 });
 
-test('CONVERSATION-THINKING-VISIBILITY-001 Codex renders commentary as thinking and final answers as assistant output', async t => {
+test('CONVERSATION-PROGRESS-VISIBILITY-001 Codex renders commentary as progress and final answers as assistant output', async t => {
     const native = {
         thread: {
             id: sessionId,
@@ -557,13 +559,11 @@ test('CONVERSATION-THINKING-VISIBILITY-001 Codex renders commentary as thinking 
     assert.deepEqual(
         page.messages.map(message => [
             message.role,
-            message.role === 'thinking'
-                ? message.thinking.text
-                : message.markdown,
+            message.markdown,
         ]),
         [
             ['user', 'Inspect the failure'],
-            ['thinking', 'Comparing the two runs.'],
+            ['progress', 'Comparing the two runs.'],
             ['assistant', 'The parser dropped the event.'],
         ]
     );
@@ -877,7 +877,7 @@ test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 Codex reads a subagent thread as it
         page.messages.map(message => [message.role, message.role === 'tool' ? message.tool.summary : message.markdown]),
         [
             ['user', 'Zeno · implement_webview_mutation_skill'],
-            ['assistant', 'First progress note'],
+            ['progress', 'First progress note'],
             ['tool', 'fileChange update /repo/x.ts'],
             ['assistant', 'status: complete'],
         ]

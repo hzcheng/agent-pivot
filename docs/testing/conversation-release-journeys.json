@@ -8,7 +8,8 @@
       "enforcement": "pull-request",
       "behaviors": [
         "SESSION-AI-SESSION-CONVERSATION-ADAPTER-001",
-        "WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001"
+        "WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001",
+        "CONVERSATION-PROGRESS-VISIBILITY-001"
       ]
     },
     {

@@ -14,6 +14,15 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
   the workspace name otherwise), with the project group shown as the Quick
   Pick description.
 
+### Changed
+
+- AI Conversation comment cards were redesigned: comments render in full in a
+  read-only view with uniform rounded icon buttons (send, locate, edit,
+  resolve, reopen, delete) instead of mixed text buttons, an explicit edit
+  mode with autosized textarea (Ctrl+Enter saves, Esc cancels), and a per-card
+  send button that stages only that comment (with its quoted source) into the
+  active Session input alongside the existing send-all action.
+
 ## [1.0.3] - 2026-08-04
 
 ### Added

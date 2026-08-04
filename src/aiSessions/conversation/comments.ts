@@ -50,7 +50,8 @@ export interface ConversationCommentSessionNote {
 
 export type ConversationCommentOperation =
     'add' | 'update' | 'delete' | 'resolve' | 'reopen'
-    | 'clearSent' | 'clearResolved' | 'clearAll' | 'sendComments';
+    | 'clearSent' | 'clearResolved' | 'clearAll'
+    | 'sendComments' | 'sendComment';
 
 export type ConversationCommentClearOperation =
     'clearSent' | 'clearResolved' | 'clearAll';

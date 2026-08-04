@@ -1833,6 +1833,237 @@ test('CONVERSATION-COMMENTS-UI-001 adds a session-wide note without selecting co
     assert.equal(await card.locator('blockquote').count(), 0);
 });
 
+test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-SUBMIT-002 renders read-only icon-action cards with edit mode and per-card send', async t => {
+    const interactionId = 'input-card-actions';
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+        viewport: { width: 850, height: 600 },
+        initialWebviewState: {
+            conversationCommentsPanel: { open: true, width: 192 },
+        },
+        interactionIds: [interactionId],
+        interactionId,
+        markdown: 'Alpha beta gamma beta delta.',
+        pageOverrides: {
+            previousCursor: undefined,
+            nextCursor: undefined,
+            isStart: true,
+            isEnd: true,
+        },
+    });
+
+    async function settle(request, revision, comments) {
+        await page.evaluate(({ request, revision, comments }) => {
+            window.dispatchEvent(new MessageEvent('message', {
+                data: {
+                    type: 'conversation-viewer-comments-result',
+                    version: 1,
+                    requestId: request.requestId,
+                    subscriptionGeneration: request.subscriptionGeneration,
+                    projectId: request.projectId,
+                    provider: request.provider,
+                    sessionId: request.sessionId,
+                    operation: request.operation,
+                    success: true,
+                    revision,
+                    comments,
+                },
+            }));
+        }, { request, revision, comments });
+    }
+
+    function cardActions(cardLocator) {
+        return cardLocator
+            .locator('.conversation-comment-actions [data-comment-action]')
+            .evaluateAll(buttons => buttons.map(button =>
+                button.getAttribute('data-comment-action')
+            ));
+    }
+
+    await page.locator('.conversation-markdown').evaluate(element => {
+        const node = element.querySelector('p').firstChild;
+        const start = node.nodeValue.indexOf('beta');
+        const range = document.createRange();
+        range.setStart(node, start);
+        range.setEnd(node, start + 'beta'.length);
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+        element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    });
+    await page.locator('[data-add-comment]').click();
+    await page.locator('[data-comment-input]').fill(
+        'Explain beta.\nSecond line stays visible.'
+    );
+    await page.locator('[data-comment-input]').press('Control+Enter');
+    const addRequest = (await postedMessages(page)).at(-1);
+    assert.equal(addRequest.operation, 'add');
+
+    const comments = [{
+        id: 'comment-1',
+        messageId: `${interactionId}:user`,
+        interactionId,
+        role: 'user',
+        quote: 'beta',
+        prefix: 'Alpha ',
+        suffix: ' gamma beta delta.',
+        comment: 'Explain beta.\nSecond line stays visible.',
+        status: 'open',
+    }, {
+        id: 'comment-2',
+        scope: 'session',
+        messageId: '',
+        interactionId: '',
+        role: 'user',
+        quote: '',
+        prefix: '',
+        suffix: '',
+        comment: 'Session-wide reminder.',
+        status: 'open',
+    }];
+    await settle(addRequest, 1, comments);
+
+    const card = page.locator('[data-comment-id="comment-1"]');
+    const noteCard = page.locator('[data-comment-id="comment-2"]');
+
+    // Read mode renders the full comment without a textarea or clipping.
+    assert.equal(await card.locator('textarea').count(), 0);
+    const body = card.locator('.conversation-comment-body');
+    assert.equal(
+        await body.textContent(),
+        'Explain beta.\nSecond line stays visible.'
+    );
+    assert.equal(await body.evaluate(element =>
+        element.scrollHeight <= element.clientHeight
+    ), true, 'read mode must show the full comment without scrolling');
+    assert.equal(
+        await card.locator('.conversation-comment-meta span').first()
+            .textContent(),
+        '#1'
+    );
+    assert.equal(
+        await noteCard.locator('.conversation-comment-scope').textContent(),
+        'Session note'
+    );
+
+    // Open cards expose the full icon action set per scope.
+    assert.deepEqual(await cardActions(card), [
+        'send-comment', 'locate', 'edit-comment', 'resolve', 'delete',
+    ]);
+    assert.deepEqual(await cardActions(noteCard), [
+        'send-comment', 'edit-comment', 'resolve', 'delete',
+    ]);
+
+    // Every action is a uniform compact icon button with a tooltip label.
+    const iconMetrics = await page
+        .locator('.conversation-comment-icon-button')
+        .evaluateAll(buttons => buttons.map(button => {
+            const rect = button.getBoundingClientRect();
+            return {
+                width: Math.round(rect.width),
+                height: Math.round(rect.height),
+                labelled: button.getAttribute('aria-label')
+                    === button.title
+                    && button.title.length > 0,
+                hasIcon: !!button.querySelector('svg'),
+            };
+        }));
+    assert.equal(iconMetrics.length, 9);
+    iconMetrics.forEach(metric => {
+        assert.deepEqual(
+            { width: metric.width, height: metric.height },
+            { width: iconMetrics[0].width, height: iconMetrics[0].height },
+            'icon buttons must share one size'
+        );
+        assert.ok(metric.width <= 24 && metric.height <= 24);
+        assert.equal(metric.labelled, true);
+        assert.equal(metric.hasIcon, true);
+    });
+
+    // Edit mode swaps the body for an autosized textarea and save/cancel.
+    await card.locator('[data-comment-action="edit-comment"]').click();
+    const editor = card.locator('[data-comment-edit]');
+    assert.equal(await editor.count(), 1);
+    assert.equal(
+        await editor.inputValue(),
+        'Explain beta.\nSecond line stays visible.'
+    );
+    assert.deepEqual(await cardActions(card), ['update', 'cancel-edit']);
+    assert.equal(await editor.evaluate(element =>
+        element.scrollHeight <= element.clientHeight + 1
+    ), true, 'edit textarea must autosize to the draft');
+
+    // Empty saves are rejected locally without posting.
+    const postedBeforeEmptySave = (await postedMessages(page)).length;
+    await editor.fill('   ');
+    await card.locator('[data-comment-action="update"]').click();
+    assert.equal((await postedMessages(page)).length, postedBeforeEmptySave);
+    assert.equal(
+        await page.locator('[data-conversation-status]').textContent(),
+        'A comment cannot be empty.'
+    );
+    assert.equal(await editor.count(), 1);
+
+    // Escape cancels the edit and restores the authoritative read view.
+    await editor.fill('Discard me.');
+    await editor.press('Escape');
+    assert.equal(await card.locator('textarea').count(), 0);
+    assert.equal(
+        await card.locator('.conversation-comment-body').textContent(),
+        'Explain beta.\nSecond line stays visible.'
+    );
+
+    // Saving posts the edited draft and exits edit mode on settlement.
+    await card.locator('[data-comment-action="edit-comment"]').click();
+    await card.locator('[data-comment-edit]').fill(
+        'Explain beta thoroughly.'
+    );
+    await card.locator('[data-comment-action="update"]').click();
+    const update = (await postedMessages(page)).at(-1);
+    assert.equal(update.type, 'conversation-viewer-comment-mutation');
+    assert.equal(update.operation, 'update');
+    assert.deepEqual(update.payload, {
+        commentId: 'comment-1',
+        comment: 'Explain beta thoroughly.',
+    });
+    comments[0] = {
+        ...comments[0],
+        comment: 'Explain beta thoroughly.',
+    };
+    await settle(update, 2, comments);
+    assert.equal(await card.locator('textarea').count(), 0);
+    assert.equal(
+        await card.locator('.conversation-comment-body').textContent(),
+        'Explain beta thoroughly.'
+    );
+
+    // Per-card send stages only this comment through the send channel.
+    await card.locator('[data-comment-action="send-comment"]').click();
+    const sendOne = (await postedMessages(page)).at(-1);
+    assert.equal(sendOne.type, 'conversation-viewer-send-comments');
+    assert.equal(sendOne.operation, 'sendComment');
+    assert.deepEqual(sendOne.payload, { commentId: 'comment-1' });
+    comments[0] = { ...comments[0], status: 'sent' };
+    await settle(sendOne, 3, comments);
+    assert.equal(
+        await page.locator('[data-conversation-status]').textContent(),
+        'Comment added to session input. Review and press Enter to send.'
+    );
+
+    // Sent and resolved cards hide send/edit and keep review actions.
+    assert.deepEqual(await cardActions(card), [
+        'locate', 'resolve', 'reopen', 'delete',
+    ]);
+    await card.locator('[data-comment-action="resolve"]').click();
+    const resolve = (await postedMessages(page)).at(-1);
+    comments[0] = { ...comments[0], status: 'resolved' };
+    await settle(resolve, 4, comments);
+    assert.deepEqual(await cardActions(card), [
+        'locate', 'reopen', 'delete',
+    ]);
+});
+
 test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-REVIEW-001 CONVERSATION-COMMENTS-BULK-001 CONVERSATION-COMMENTS-LAYOUT-001 reviews contained cards and Host-owned comment batches', async t => {
     const interactionId = 'input-comments';
     const { page } = await openHostViewerDocument(t, {
@@ -4860,3 +5091,4 @@ test('CONVERSATION-NAVIGATION-STATE-001 keeps controls, status, focus, and scrol
         'navigation must remain inside the message viewport'
     );
 });
+

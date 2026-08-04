@@ -57,9 +57,9 @@ export interface ConversationViewerSendCommentsMessage {
     projectId: string;
     provider: AiSessionProviderId;
     sessionId: string;
-    operation: 'sendComments';
+    operation: 'sendComments' | 'sendComment';
     expectedRevision: number;
-    payload: Record<string, never>;
+    payload: Record<string, never> | { commentId: string };
 }
 
 export interface ConversationViewerBookmarkMutationMessage {
@@ -249,8 +249,17 @@ export function parseConversationViewerMessage(
         }
         return value as unknown as ConversationViewerCommentMutationMessage;
     }
-    if (value.operation !== 'sendComments'
-        || Object.keys(value.payload as object).length !== 0) {
+    if (value.operation === 'sendComments') {
+        if (Object.keys(value.payload as object).length !== 0) {
+            return undefined;
+        }
+        return value as unknown as ConversationViewerSendCommentsMessage;
+    }
+    if (value.operation !== 'sendComment'
+        || !hasExactKeys(value.payload as object, ['commentId'])
+        || !isConversationViewerTargetId(
+            (value.payload as { commentId: unknown }).commentId
+        )) {
         return undefined;
     }
     return value as unknown as ConversationViewerSendCommentsMessage;

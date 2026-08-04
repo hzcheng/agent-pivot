@@ -95,7 +95,25 @@ test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 Codex normalizes only stable v
             ['user-item-3', 'Streaming visible response'],
         ]
     );
-    assert.equal(JSON.stringify(page).includes('reasoning-secret'), false);
+    assert.deepEqual(
+        page.messages.filter(message => message.role === 'thinking')
+            .map(message => [message.interactionId, message.thinking.text]),
+        [[
+            'user-item-1',
+            'Inspect the request.\n\nChoose a safe response.',
+        ]]
+    );
+    assert.deepEqual(
+        page.messages.filter(message =>
+            message.interactionId === 'user-item-1'
+        ).map(message => message.role),
+        ['user', 'thinking', 'assistant', 'tool', 'tool']
+    );
+    assert.equal(JSON.stringify(page).includes('raw-reasoning-secret'), false);
+    assert.equal(
+        JSON.stringify(page).includes('legacy-reasoning-secret'),
+        false
+    );
     assert.deepEqual(
         page.messages.filter(message => message.role === 'tool')
             .map(message => [
@@ -433,6 +451,121 @@ test('SESSION-AI-SESSION-CODEX-CONVERSATION-005 applies shared message and page 
         Buffer.byteLength(JSON.stringify(page), 'utf8')
             <= CONVERSATION_LIMITS.maxPageBytes,
         true
+    );
+});
+
+test('CONVERSATION-THINKING-VISIBILITY-001 Codex bounds readable reasoning summaries without exposing raw content', async t => {
+    const longSummary = '🙂'.repeat(
+        CONVERSATION_LIMITS.maxMessageGraphemes + 50
+    );
+    const native = {
+        thread: {
+            id: sessionId,
+            turns: [{
+                id: 'reasoning-turn',
+                status: 'completed',
+                items: [
+                    {
+                        id: 'reasoning-user',
+                        type: 'userMessage',
+                        content: [{ type: 'text', text: 'Explain the change' }],
+                    },
+                    {
+                        id: 'reasoning-item',
+                        type: 'reasoning',
+                        summary: [longSummary],
+                        content: ['RAW-REASONING-CONTENT'],
+                        text: 'LEGACY-REASONING-CONTENT',
+                    },
+                    {
+                        id: 'reasoning-answer',
+                        type: 'agentMessage',
+                        text: 'Visible answer',
+                    },
+                ],
+            }],
+        },
+    };
+    const harness = createAdapter(native);
+    t.after(() => harness.adapter.dispose());
+    const { page } = await readWholeConversation(harness.adapter);
+    const thinking = page.messages.find(message =>
+        message.role === 'thinking'
+    );
+
+    assert.ok(thinking);
+    assert.equal(
+        Array.from(thinking.thinking.text).length,
+        CONVERSATION_LIMITS.maxMessageGraphemes
+    );
+    assert.equal(JSON.stringify(page).includes('RAW-REASONING-CONTENT'), false);
+    assert.equal(
+        JSON.stringify(page).includes('LEGACY-REASONING-CONTENT'),
+        false
+    );
+});
+
+test('CONVERSATION-THINKING-VISIBILITY-001 Codex never falls back to raw reasoning fields when a summary is unavailable', async t => {
+    const native = clone(fixture);
+    delete native.thread.turns[0].items[1].summary;
+    const harness = createAdapter(native);
+    t.after(() => harness.adapter.dispose());
+    const { page } = await readWholeConversation(harness.adapter);
+    const serialized = JSON.stringify(page);
+
+    assert.equal(
+        page.messages.some(message => message.role === 'thinking'),
+        false
+    );
+    assert.equal(serialized.includes('raw-reasoning-secret'), false);
+    assert.equal(serialized.includes('legacy-reasoning-secret'), false);
+});
+
+test('CONVERSATION-THINKING-VISIBILITY-001 Codex renders commentary as thinking and final answers as assistant output', async t => {
+    const native = {
+        thread: {
+            id: sessionId,
+            turns: [{
+                id: 'phased-agent-turn',
+                status: 'completed',
+                items: [
+                    {
+                        id: 'phased-agent-user',
+                        type: 'userMessage',
+                        content: [{ type: 'text', text: 'Inspect the failure' }],
+                    },
+                    {
+                        id: 'phased-agent-commentary',
+                        type: 'agentMessage',
+                        phase: 'commentary',
+                        text: 'Comparing the two runs.',
+                    },
+                    {
+                        id: 'phased-agent-answer',
+                        type: 'agentMessage',
+                        phase: 'final_answer',
+                        text: 'The parser dropped the event.',
+                    },
+                ],
+            }],
+        },
+    };
+    const harness = createAdapter(native);
+    t.after(() => harness.adapter.dispose());
+    const { page } = await readWholeConversation(harness.adapter);
+
+    assert.deepEqual(
+        page.messages.map(message => [
+            message.role,
+            message.role === 'thinking'
+                ? message.thinking.text
+                : message.markdown,
+        ]),
+        [
+            ['user', 'Inspect the failure'],
+            ['thinking', 'Comparing the two runs.'],
+            ['assistant', 'The parser dropped the event.'],
+        ]
     );
 });
 

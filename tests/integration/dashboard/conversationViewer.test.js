@@ -246,6 +246,7 @@ function createViewer(options = {}) {
             return true;
         },
         mediaUri: fileName => fakeUri(`file:///extension/media/${fileName}`),
+        showThinking: options.showThinking,
         bookmarkStore: options.bookmarkStore,
     });
     return { viewer, panel, watchDisposals, restoredTargets, openedUris };
@@ -1033,6 +1034,7 @@ test('CONVERSATION-THINKING-VISIBILITY-001 preserves thinking content across an 
                 thinking: { text: `thinking revision ${revision}` },
             }],
         }),
+        showThinking: () => true,
     });
 
     await viewer.open(target('session-a', 'input-1'));
@@ -1047,6 +1049,55 @@ test('CONVERSATION-THINKING-VISIBILITY-001 preserves thinking content across an 
     const publication = panel.postedMessages.filter(message =>
         message.type === 'conversation-viewer-page').at(-1);
     assert.equal(publication.html.includes('thinking revision 2'), true);
+});
+
+test('CONVERSATION-THINKING-VISIBILITY-001 hides Thinking by default and republishes it only when enabled', async () => {
+    let showThinking = false;
+    let pageReads = 0;
+    const { viewer, panel } = createViewer({
+        readPage: async request => {
+            pageReads += 1;
+            return {
+                ...page(request.sessionId, request.anchorInteractionId),
+                messages: [
+                    {
+                        id: 'input-1:thinking:0',
+                        interactionId: 'input-1',
+                        role: 'thinking',
+                        markdown: '',
+                        thinking: { text: 'private working notes' },
+                    },
+                    {
+                        id: 'input-1:assistant:0',
+                        interactionId: 'input-1',
+                        role: 'assistant',
+                        markdown: 'public answer',
+                    },
+                ],
+            };
+        },
+        showThinking: () => showThinking,
+    });
+
+    await viewer.open(target('session-a', 'input-1'));
+    let publication = decodeInitialPublication(panel.webview.html);
+    assert.equal(publication.html.includes('private working notes'), false);
+    assert.equal(publication.html.includes('public answer'), true);
+
+    showThinking = true;
+    await viewer.refreshPresentation();
+    publication = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page').at(-1);
+    assert.equal(publication.html.includes('private working notes'), true);
+    assert.equal(publication.html.includes('public answer'), true);
+
+    showThinking = false;
+    await viewer.refreshPresentation();
+    publication = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page').at(-1);
+    assert.equal(publication.html.includes('private working notes'), false);
+    assert.equal(publication.html.includes('public answer'), true);
+    assert.equal(pageReads, 1, 'presentation changes must reuse retained data');
 });
 
 test('CONVERSATION-READING-FOCUS-001 ignores watched refreshes when the authoritative source revision is unchanged', async () => {

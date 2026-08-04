@@ -6,9 +6,11 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
 
 ### Added
 
-- AI Conversation renders provider thinking blocks as collapsed entries
-  interleaved with assistant text and tool calls for Kimi and Claude
-  sessions, in main sessions and subagent transcripts alike.
+- AI Conversation can show provider thinking blocks, including visible Codex
+  commentary and safe reasoning summaries, as collapsed entries interleaved
+  with assistant text and tool calls for Kimi, Claude, and Codex sessions.
+  Thinking is hidden by default and can be enabled for main sessions and
+  subagent transcripts with `agentPivot.aiConversation.showThinking`.
 - AI Conversation Markdown code fences now render with syntax highlighting,
   while mermaid fences keep their diagram rendering.
 

@@ -1514,9 +1514,9 @@ test('CONVERSATION-THINKING-VISIBILITY-001 opens one comment-enabled AI Conversa
     assert.equal(panelHtml.includes('data-comment-input'), true);
     assert.equal(
         panelHtml.includes('conversation-message-thinking'),
-        true
+        false
     );
-    assert.equal(panelHtml.includes('secret-thought'), true);
+    assert.equal(panelHtml.includes('secret-thought'), false);
     assert.equal(panelHtml.includes('local/path'), false);
     assert.ok(harness.kimiSourceCalls.length >= 1);
     assert.equal(

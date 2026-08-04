@@ -1148,6 +1148,8 @@ async function initializeDashboard(
         bookmarkStore: new ConversationBookmarkFileStore(
             context.globalStoragePath
         ),
+        getShowThinking: () => getAgentPivotConfiguration()
+            .get<unknown>('aiConversation.showThinking', false) === true,
         submitPrompt: (viewerTarget, prompt) => submitConversationPrompt({
             getWorkspaceTarget: getCurrentWorkspaceActionTarget,
             getRuntime: getAiSessionRuntimeById,
@@ -1509,6 +1511,11 @@ async function initializeDashboard(
                 || event.affectsConfiguration(`${AGENT_PIVOT_CONFIG_SECTION}.aiSessionTmuxLayout`)
                 || event.affectsConfiguration(`${AGENT_PIVOT_CONFIG_SECTION}.aiSessionTmuxPath`)) {
                 await handleAiSessionRuntimeConfigurationChanged();
+            }
+            if (event.affectsConfiguration(
+                `${AGENT_PIVOT_CONFIG_SECTION}.aiConversation.showThinking`
+            )) {
+                await conversationCapability.viewer.refreshPresentation();
             }
         },
         checkDataMigration: async openStewardAfterMigrate => {

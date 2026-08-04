@@ -99,6 +99,7 @@ export interface ConversationCapabilityOptions {
     ) => PromiseLike<void> | Promise<void>;
     commentStore?: ConversationCommentStore;
     bookmarkStore?: ConversationBookmarkStore;
+    getShowThinking?: () => boolean;
 }
 
 interface ConversationCapabilityInternalFactories {
@@ -238,6 +239,7 @@ function createAvailableConversationCapability(
         restoreFocus: target => restoreConversationFocus(options, target),
         openExternal: options.openExternal,
         mediaUri: getConversationMediaUri,
+        showThinking: options.getShowThinking,
         submitPrompt: options.submitPrompt,
         focusSession: options.focusSession,
         commentStore: options.commentStore,
@@ -327,6 +329,7 @@ function createUnavailableConversationCapability(): ConversationCapability {
             return false;
         },
         async refresh() {},
+        async refreshPresentation() {},
         async reconcileAuthority() {},
         dispose() {},
     };

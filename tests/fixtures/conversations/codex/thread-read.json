@@ -23,7 +23,14 @@
           {
             "id": "reasoning-item-1",
             "type": "reasoning",
-            "text": "reasoning-secret"
+            "summary": [
+              "Inspect the request.",
+              "Choose a safe response."
+            ],
+            "content": [
+              "raw-reasoning-secret"
+            ],
+            "text": "legacy-reasoning-secret"
           },
           {
             "id": "agent-item-1",

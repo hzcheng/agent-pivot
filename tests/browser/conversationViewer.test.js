@@ -577,6 +577,7 @@ async function renderHostViewerDocument(options = {}) {
         openExternal: async () => true,
         mediaUri: fileName =>
             fakeHostUri(`file:///extension/media/${fileName}`),
+        showThinking: options.showThinking,
         submitPrompt: options.submitPrompt || (async () => {}),
         bookmarkStore: options.bookmarkStore,
     });
@@ -4176,5 +4177,36 @@ test('CONVERSATION-THINKING-VISIBILITY-001 renders collapsed thinking blocks and
     assert.match(
         await details.locator('.conversation-thinking-body').innerText(),
         /Compare the two runs\./
+    );
+});
+
+test('CONVERSATION-THINKING-VISIBILITY-001 omits Thinking from the default Host document and renders it when enabled', async t => {
+    const thinkingMessage = {
+        id: 'input-2:thinking:0',
+        interactionId: 'input-2',
+        role: 'thinking',
+        markdown: '',
+        thinking: { text: 'Compare the two runs.' },
+    };
+    const hidden = await openHostViewerDocument(t, {
+        showThinking: () => false,
+        pageOverrides: { messages: [thinkingMessage] },
+    });
+    assert.equal(
+        await hidden.page.locator('.conversation-message-thinking').count(),
+        0
+    );
+
+    const shown = await openHostViewerDocument(t, {
+        showThinking: () => true,
+        pageOverrides: { messages: [thinkingMessage] },
+    });
+    const details = shown.page.locator('.conversation-thinking');
+    assert.equal(await details.count(), 1);
+    assert.equal(await details.evaluate(element => element.open), false);
+    await details.locator('summary').click();
+    assert.equal(
+        await details.locator('.conversation-thinking-body').innerText(),
+        'Compare the two runs.'
     );
 });

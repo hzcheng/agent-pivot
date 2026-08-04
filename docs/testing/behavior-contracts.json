@@ -4129,6 +4129,7 @@
       "tests/browser/conversationViewer.test.js"
     ],
     "evidence": [
+      "src/aiSessions/conversation/viewer.ts",
       "src/aiSessions/conversation/viewerDocument.ts",
       "src/webview/conversationViewerScripts.js",
       "media/conversationViewer.scss"

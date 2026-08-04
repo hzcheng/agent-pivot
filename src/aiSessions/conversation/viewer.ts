@@ -794,15 +794,38 @@ export class ConversationViewer implements ConversationViewerApi {
             const selectedInteractionId = updateKind === 'initial'
                 ? target.interactionId
                 : previousSelectedInteractionId as string;
+            const retainedOutline = this.outlineController.snapshot;
             if (updateKind === 'refresh'
                 && !this.stale
-                && this.outlineController.snapshot?.sourceRevision
+                && retainedOutline?.sourceRevision
                     === outline.sourceRevision) {
+                const sameInteractionIds = retainedOutline.interactions.length
+                    === outline.interactions.length
+                    && outline.interactions.every((interaction, index) =>
+                        retainedOutline.interactions[index].id
+                            === interaction.id
+                    );
+                const lifecycleChanged = sameInteractionIds
+                    && outline.interactions.some((interaction, index) =>
+                        retainedOutline.interactions[index].responseState
+                            !== interaction.responseState
+                    );
+                if (lifecycleChanged
+                    && this.outlineController.replace(
+                        outline,
+                        selectedInteractionId
+                    )) {
+                    await this.deliverPublication(this.createPublication(
+                        requestId,
+                        generation,
+                        updateKind
+                    ), replaceDocument);
+                }
                 void this.telemetryController.refresh(
-                target,
-                generation,
-                this.effectiveSessionId(target)
-            );
+                    target,
+                    generation,
+                    this.effectiveSessionId(target)
+                );
                 return true;
             }
             let page: ConversationPage;

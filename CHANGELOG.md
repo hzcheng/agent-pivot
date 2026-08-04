@@ -13,7 +13,8 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
   scrolling up still preserves the historical reading position.
 - AI Conversation shows an animated Working status below the latest response
   while the provider is still processing, including active Codex turns read as
-  interrupted by a detached reader, then removes it on completion.
+  interrupted by a detached reader and lifecycle-only transitions without new
+  provider content, then removes it on completion.
 
 ### Added
 

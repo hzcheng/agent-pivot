@@ -687,6 +687,19 @@
     ]
   },
   {
+    "id": "WEBVIEW-ASSET-IDENTITY-001",
+    "domain": "webview",
+    "title": "src/webview scripts mirror into media byte-for-byte",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/integration/dashboard/webviewAssetIdentity.test.js"
+    ],
+    "evidence": [
+      "src/webview/webviewDashboardScripts.js"
+    ]
+  },
+  {
     "id": "RUNTIME-TMUX-SMOKE-HARNESS-SAFETY-001",
     "domain": "runtime",
     "title": "Tmux Smoke Harness Safety behavior",

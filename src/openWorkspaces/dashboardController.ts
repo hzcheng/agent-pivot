@@ -58,6 +58,9 @@ export class OpenWorkspaceDashboardController {
     private pinNavigationIdentityById = new Map<string, string>();
     private lastPostedSemanticRevision: string | null = null;
     private deliveryGeneration = 0;
+    private updateFlight: Promise<void> | null = null;
+    private updateRequested = false;
+    private requestedFallbackToFullRefresh = true;
     private readonly fallbackOpenedAtMs: number;
 
     constructor(private readonly options: OpenWorkspaceDashboardControllerOptions) {
@@ -177,6 +180,42 @@ export class OpenWorkspaceDashboardController {
 
     postUpdated(options: { fallbackToFullRefresh?: boolean } = {}): Promise<void> {
         if (!this.options.isVisible()) { return Promise.resolve(); }
+        this.updateRequested = true;
+        this.requestedFallbackToFullRefresh = options.fallbackToFullRefresh !== false;
+        if (this.updateFlight) { return this.updateFlight; }
+
+        let resolveFlight: () => void;
+        let rejectFlight: (error: unknown) => void;
+        const flight = new Promise<void>((resolve, reject) => {
+            resolveFlight = resolve;
+            rejectFlight = reject;
+        });
+        this.updateFlight = flight;
+        void this.drainUpdates(flight, resolveFlight, rejectFlight);
+        return flight;
+    }
+
+    private async drainUpdates(
+        flight: Promise<void>,
+        resolveFlight: () => void,
+        rejectFlight: (error: unknown) => void,
+    ): Promise<void> {
+        try {
+            while (this.updateRequested) {
+                this.updateRequested = false;
+                const fallbackToFullRefresh = this.requestedFallbackToFullRefresh;
+                await this.postLatestUpdate(fallbackToFullRefresh);
+            }
+            if (this.updateFlight === flight) { this.updateFlight = null; }
+            resolveFlight();
+        } catch (error) {
+            if (this.updateFlight === flight) { this.updateFlight = null; }
+            rejectFlight(error);
+        }
+    }
+
+    private postLatestUpdate(fallbackToFullRefresh: boolean): Promise<void> {
+        if (!this.options.isVisible()) { return Promise.resolve(); }
         const semanticRevision = this.getViewSemanticRevision();
         if (semanticRevision === this.lastPostedSemanticRevision) { return Promise.resolve(); }
         const message = buildOpenWorkspacesUpdatedMessage({
@@ -198,7 +237,7 @@ export class OpenWorkspaceDashboardController {
                     message.semanticRevision,
                     deliveryGeneration
                 );
-                if (current && options.fallbackToFullRefresh !== false
+                if (current && !this.updateRequested && fallbackToFullRefresh
                     && this.options.isVisible()) {
                     this.options.refresh('open-workspace-update-not-delivered');
                 }
@@ -209,7 +248,7 @@ export class OpenWorkspaceDashboardController {
                 deliveryGeneration
             );
             this.options.logError('Failed to post OPEN WORKSPACE update message.', error);
-            if (current && options.fallbackToFullRefresh !== false
+            if (current && !this.updateRequested && fallbackToFullRefresh
                 && this.options.isVisible()) {
                 this.options.refresh('open-workspace-update-post-error');
             }

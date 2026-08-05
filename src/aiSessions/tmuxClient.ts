@@ -311,17 +311,21 @@ export class TmuxClient {
         if (!Number.isSafeInteger(processId) || processId < 1 || processId > MAX_PID) {
             throw new TypeError('The terminal process ID is invalid.');
         }
+        return (await this.getClientSessionsByProcess()).get(processId) || null;
+    }
+
+    async getClientSessionsByProcess(): Promise<Map<number, string>> {
         await this.requireAvailable();
         const result = await this.invoke('list-clients', [
             'list-clients', '-F', LIST_CLIENTS_FORMAT,
         ]);
         if (result.exitCode !== 0) {
             if (isNoServerResult(result)) {
-                return null;
+                return new Map();
             }
             throw resultError('list-clients', result);
         }
-        return parseClientSessions(result.stdout).get(processId) || null;
+        return parseClientSessions(result.stdout);
     }
 
     async getTargetWindow(locator: AiSessionTmuxLocator): Promise<TmuxTargetWindowRecord | null> {

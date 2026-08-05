@@ -106,6 +106,37 @@ test('OPEN-OPEN-PROJECT-DASHBOARD-CONTROLLER-001 posts each semantic revision on
     assert.notEqual(posted[0].semanticRevision, posted[1].semanticRevision);
 });
 
+test('WEBVIEW-SIDEBAR-VISIBILITY-RETENTION-001 coalesces rapid OPEN revisions behind one delivery', async () => {
+    const firstDelivery = createDeferred();
+    const posted = [];
+    let groups = [];
+    const controller = new OpenWorkspaceDashboardController(createOptions({
+        getGroups: () => groups,
+        postMessage: message => {
+            posted.push(message);
+            return posted.length === 1 ? firstDelivery.promise : Promise.resolve(true);
+        },
+    }));
+
+    controller.postUpdated();
+    for (let iteration = 1; iteration <= 15; iteration += 1) {
+        groups = [{
+            id: 'work',
+            groupName: `Work ${iteration}`,
+            collapsed: false,
+            projects: [{ id: 'saved', name: 'Saved', path: '/work/saved' }],
+        }];
+        controller.postUpdated();
+    }
+
+    assert.equal(posted.length, 1, 'an unresolved Webview delivery must bound the queue');
+    firstDelivery.resolve(true);
+    await flushAsync();
+
+    assert.equal(posted.length, 2, 'only the latest hidden-epoch state is replayed');
+    assert.deepEqual(posted[1].searchCatalog.savedProjects[0].groupLabels, ['Work 15']);
+});
+
 test('OPEN-ALL-WINDOWS-LIST-001 orders current and navigation cards together without focus-driven movement', () => {
     const current = makeRecord({ name: 'Current', uri: '/work/current' });
     const oldest = makeRecord({ name: 'Oldest', uri: '/work/oldest' });
@@ -321,8 +352,10 @@ test('PROJECT-INCREMENTAL-REFRESH-001 ignores stale and invalidated OPEN deliver
         projects: [{ id: 'saved', name: 'Saved', path: '/work/saved' }],
     }];
     controller.postUpdated();
-    deliveries[1].resolve(true);
     deliveries[0].resolve(false);
+    await flushAsync();
+    assert.equal(deliveries.length, 2);
+    deliveries[1].resolve(true);
     await flushAsync();
 
     groups = [{

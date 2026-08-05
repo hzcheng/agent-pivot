@@ -142,6 +142,7 @@ function createHarness(options = {}) {
         resolveTarget: options.resolveTarget || (() => session),
         resolveActiveTargets: options.resolveActiveTargets
             || (() => (session ? [session] : [])),
+        focusSession: options.focusSession,
         publish: async () => true,
         createPanel: () => {
             throw new Error('createPanel is not used by openLatestConversation');
@@ -383,6 +384,7 @@ test('CONVERSATION-FOLLOW-ACTIVE-SESSION-001 follows the adjacent active session
             name: 'Third',
         }),
     ];
+    const focusedSessions = [];
     const harness = createHarness({
         viewerOpen: true,
         resolveTarget: (_projectId, provider, sessionId) =>
@@ -390,6 +392,9 @@ test('CONVERSATION-FOLLOW-ACTIVE-SESSION-001 follows the adjacent active session
                 session.provider === provider && session.sessionId === sessionId
             ) || null,
         resolveActiveTargets: () => sessions,
+        focusSession: async target => {
+            focusedSessions.push(target);
+        },
     });
     const switchSession = harness.viewerOptions.followAdjacentConversation;
     assert.equal(typeof switchSession, 'function');
@@ -404,6 +409,12 @@ test('CONVERSATION-FOLLOW-ACTIVE-SESSION-001 follows the adjacent active session
     ]);
     assert.equal(harness.followedViewerTargets[0].interactionId, 'input-b');
     assert.equal(harness.followedViewerTargets[0].displayName, 'Second');
+    // A successful switch also syncs the session terminal/tmux window.
+    assert.deepEqual(focusedSessions, [{
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-b',
+    }]);
 
     // The previous direction wraps around the ordered active list.
     assert.equal(await switchSession('previous', {
@@ -412,6 +423,10 @@ test('CONVERSATION-FOLLOW-ACTIVE-SESSION-001 follows the adjacent active session
         sessionId: 'session-a',
     }), 'opened');
     assert.deepEqual(harness.followedViewerTargets.map(target => target.sessionId), [
+        'session-b',
+        'session-c',
+    ]);
+    assert.deepEqual(focusedSessions.map(target => target.sessionId), [
         'session-b',
         'session-c',
     ]);
@@ -429,6 +444,7 @@ test('CONVERSATION-FOLLOW-ACTIVE-SESSION-001 skips pending sessions and reports 
         }),
         makeSession({ key: 'codex:session-b', sessionId: 'session-b' }),
     ];
+    const focusedSessions = [];
     const harness = createHarness({
         viewerOpen: true,
         resolveTarget: (_projectId, provider, sessionId) =>
@@ -436,6 +452,9 @@ test('CONVERSATION-FOLLOW-ACTIVE-SESSION-001 skips pending sessions and reports 
                 session.provider === provider && session.sessionId === sessionId
             ) || null,
         resolveActiveTargets: () => sessions,
+        focusSession: async target => {
+            focusedSessions.push(target);
+        },
     });
     assert.equal(await harness.viewerOptions.followAdjacentConversation('next', {
         projectId: 'project-a',
@@ -443,6 +462,9 @@ test('CONVERSATION-FOLLOW-ACTIVE-SESSION-001 skips pending sessions and reports 
         sessionId: 'session-a',
     }), 'opened');
     assert.deepEqual(harness.followedViewerTargets.map(target => target.sessionId), [
+        'session-b',
+    ]);
+    assert.deepEqual(focusedSessions.map(target => target.sessionId), [
         'session-b',
     ]);
     harness.capability.dispose();
@@ -478,6 +500,7 @@ test('CONVERSATION-FOLLOW-ACTIVE-SESSION-001 lets the newest adjacent switch win
         makeSession({ key: 'codex:session-c', sessionId: 'session-c' }),
     ];
     const slowOutline = deferred();
+    const focusedSessions = [];
     const harness = createHarness({
         viewerOpen: true,
         resolveTarget: (_projectId, provider, sessionId) =>
@@ -485,6 +508,9 @@ test('CONVERSATION-FOLLOW-ACTIVE-SESSION-001 lets the newest adjacent switch win
                 session.provider === provider && session.sessionId === sessionId
             ) || null,
         resolveActiveTargets: () => sessions,
+        focusSession: async target => {
+            focusedSessions.push(target);
+        },
         readOutline: (provider, sessionId) => sessionId === 'session-b'
             ? slowOutline.promise
             : makeOutline(provider, sessionId, ['input-x']),
@@ -506,6 +532,10 @@ test('CONVERSATION-FOLLOW-ACTIVE-SESSION-001 lets the newest adjacent switch win
     assert.deepEqual(harness.followedViewerTargets.map(target => target.sessionId), [
         'session-c',
     ]);
+    // Only the winning switch syncs the session terminal.
+    assert.deepEqual(focusedSessions.map(target => target.sessionId), [
+        'session-c',
+    ]);
     harness.capability.dispose();
 });
 
@@ -522,5 +552,32 @@ test('CONVERSATION-FOLLOW-ACTIVE-SESSION-001 fails closed when the active list c
         sessionId: 'session-a',
     }), 'unavailable');
     assert.deepEqual(harness.followedViewerTargets, []);
+    harness.capability.dispose();
+});
+
+test('CONVERSATION-FOLLOW-ACTIVE-SESSION-001 keeps the switch settled when terminal sync fails', async () => {
+    const sessions = [
+        makeSession({ key: 'codex:session-a', sessionId: 'session-a' }),
+        makeSession({ key: 'codex:session-b', sessionId: 'session-b' }),
+    ];
+    const harness = createHarness({
+        viewerOpen: true,
+        resolveTarget: (_projectId, provider, sessionId) =>
+            sessions.find(session =>
+                session.provider === provider && session.sessionId === sessionId
+            ) || null,
+        resolveActiveTargets: () => sessions,
+        focusSession: async () => {
+            throw new Error('terminal focus failed');
+        },
+    });
+    assert.equal(await harness.viewerOptions.followAdjacentConversation('next', {
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    }), 'opened');
+    assert.deepEqual(harness.followedViewerTargets.map(target => target.sessionId), [
+        'session-b',
+    ]);
     harness.capability.dispose();
 });

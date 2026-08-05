@@ -1922,7 +1922,7 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 renders ghost session-switch ra
         getComputedStyle(element).pointerEvents
     ), 'none', 'the rail overlay must never block conversation interactions');
 
-    // Big ghost affordances: 48px circles at 35% opacity until hovered.
+    // Ghost affordances stay compact and translucent until hovered.
     const next = page.locator('[data-session-nav="next"]');
     assert.deepEqual(
         await next.evaluate(element => {
@@ -1937,21 +1937,21 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 renders ghost session-switch ra
         }),
         {
             position: 'absolute',
-            width: '48px',
-            height: '48px',
+            width: '36px',
+            height: '36px',
             borderRadius: '50%',
-            opacity: '0.35',
+            opacity: '0.3',
         },
-        'session rails must render as large translucent circles'
+        'session rails must render as compact translucent circles'
     );
 
     const previousBox = await page.locator('[data-session-nav="previous"]')
         .boundingBox();
     const nextBox = await next.boundingBox();
-    assert.equal(previousBox.x, 24);
-    assert.equal(previousBox.y + previousBox.height, 600 - 24);
-    assert.equal(nextBox.x + nextBox.width, 850 - 24);
-    assert.equal(nextBox.y + nextBox.height, 600 - 24);
+    assert.equal(previousBox.x, 16);
+    assert.equal(previousBox.y + previousBox.height, 600 - 16);
+    assert.equal(nextBox.x + nextBox.width, 850 - 16);
+    assert.equal(nextBox.y + nextBox.height, 600 - 16);
 
     await next.hover();
     await page.waitForFunction(() =>

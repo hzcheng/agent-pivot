@@ -461,9 +461,23 @@ async function followAdjacentConversation(
     if (!viewer.isOpen()) {
         return 'closed';
     }
-    return await viewer.follow(resolution.viewerTarget)
-        ? 'opened'
-        : 'closed';
+    const followed = await viewer.follow(resolution.viewerTarget);
+    if (!followed) {
+        return 'closed';
+    }
+    // Keep the visible session terminal/tmux window in sync with the
+    // conversation. Terminal sync is best-effort: a focus failure must not
+    // undo or retry the settled conversation switch.
+    try {
+        await options.focusSession?.({
+            projectId: currentTarget.projectId,
+            provider: adjacent.provider,
+            sessionId: adjacent.sessionId,
+        });
+    } catch (_error) {
+        // The conversation switch has already settled.
+    }
+    return 'opened';
 }
 
 async function resolveLatestConversationTarget(

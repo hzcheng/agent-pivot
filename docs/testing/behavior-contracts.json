@@ -601,7 +601,8 @@
     "priority": "P1",
     "status": "automated",
     "owners": [
-      "tests/contract/aiSessions/tmuxDiscovery.test.js"
+      "tests/contract/aiSessions/tmuxDiscovery.test.js",
+      "tests/contract/aiSessions/runtimeTickOverhead.test.js"
     ],
     "evidence": [
       "scripts/run-ai-session-safety-checks.js"
@@ -1047,7 +1048,8 @@
     "priority": "P1",
     "status": "automated",
     "owners": [
-      "tests/contract/aiSessions/incrementalJsonlLifecycleReader.test.js"
+      "tests/contract/aiSessions/incrementalJsonlLifecycleReader.test.js",
+      "tests/contract/aiSessions/runtimeTickOverhead.test.js"
     ],
     "evidence": [
       "scripts/run-ai-session-safety-checks.js"

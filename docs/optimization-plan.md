@@ -1,5 +1,11 @@
 # Agent Pivot Optimization Plan
 
+> **Archived (2026-08, 1.0.3).** This plan is complete: Phases 0-7 landed, and
+> the follow-up refactor/performance/test/process lines landed afterwards (see
+> the epilogue). The living reference is `docs/architecture-current-state.md`.
+> The body below is kept unchanged as the historical record of the plan and its
+> rationale.
+
 This document describes the optimization plan for Agent Pivot after the 1.1.4 release. It focuses on performance, maintainability, AI session extensibility, and future product velocity.
 
 ## Background
@@ -895,3 +901,22 @@ Mitigation:
 Start with Phase 0: safety net and message protocol.
 
 This is the safest foundation because the next changes touch terminal behavior, provider routing, and webview update semantics. The first code PR should extract provider-neutral types and pure helpers without behavior changes. After that, the provider registry can be introduced on top of a smaller, testable surface, and incremental webview updates can depend on a clear message contract instead of ad hoc DOM patching.
+
+## Epilogue: Plan Outcome (2026-08)
+
+Phases 0-7 completed as recorded above. How the stated problems resolved, and what landed after the plan window:
+
+| Plan item | Outcome |
+| --- | --- |
+| 1. Full webview rebuilds | Incremental update channels landed (Phase 4); dashboard panel controllers later factory-extracted (#104) |
+| 2. Provider registry | Landed (Phase 2); codex/kimi/claude share the registry contract |
+| 3. Split `dashboard.ts` | Partially: 3,500+ → 1,936 lines via service/capability extractions; slicing continues |
+| 4. Synchronous I/O | `execSync` git detection removed (Phase 6); skills scan chain optimized with hash caching + hidden-scan deferral (#110); focused tmux monitor backs off when quiet (#125) |
+| 5. Discovery performance | Landed (Phase 6): candidate-path scoping, segmented reads for large Claude JSONL, incremental lifecycle readers |
+| 6. Webview maintainability | Shared render helpers + script splits: dashboard 1234→494 lines (#101/#104), todo renderer (#102), prompt protocol (#103), AI session content (#105); `src/webview`↔`media/` byte identity now loop-guarded (#124) |
+| 7. State ownership | Partially: local stores and attention persistence landed; some `globalState` usage remains transitional |
+| 8-10. Testing / lint / release | Deterministic suites + behavior-contract catalog + capability audit now gate every PR; changed-line coverage ≥80%; extension-host smoke runs weekly (macOS) and as an advisory PR job (Linux/xvfb, #129) |
+
+Post-plan execution lines: capability extractions in the tmux runtime (#92 onward), webview/TS splits (#101-#106), performance (#110, #125), test/CI (#124, #129), and the merge-approval gate (#126, #128).
+
+Success metrics check: `dashboard.ts` below 2,000 lines ✓ (1,936); incremental session updates ✓; no release workflow regression ✓. The remaining backlog lives in `docs/architecture-current-state.md`.

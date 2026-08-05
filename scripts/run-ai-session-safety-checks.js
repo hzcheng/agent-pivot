@@ -3352,8 +3352,15 @@ async function runAgentPivotViewProviderOrderingChecks() {
         'hidden views must not render or force a runtime refresh');
     view.visible = true;
     await visibilityListeners[0]();
-    assert.deepStrictEqual(order.slice(-3), ['render', 'visible:true:start', 'visible:true:end'],
-        'later visible renders must also paint before refresh and render exactly once');
+    assert.deepStrictEqual(order, [
+        'render',
+        'visible:true:start',
+        'visible:true:end',
+        'visible:false:start',
+        'visible:false:end',
+        'visible:true:start',
+        'visible:true:end',
+    ], 'later visibility changes must refresh without replacing the retained document');
 
     let staleRenderCount = 0;
     const failedLogs = [];
@@ -5377,7 +5384,7 @@ function runWebviewContentChecks() {
     assert.ok(dashboard.includes('activeAiSessionTerminalHighlighter.setVisible(visible)'));
     assert.ok(dashboard.includes('await dashboardRuntimeController.handleAiSessionViewVisibilityChanged(visible)'));
     const viewProvider = fs.readFileSync(path.join(__dirname, '..', 'src', 'dashboard', 'viewProvider.ts'), 'utf8');
-    assert.ok(viewProvider.includes('await options.onVisibleChanged(webviewView.visible)'));
+    assert.ok(viewProvider.includes('await options.onVisibleChanged(visible)'));
     const terminalCandidatesSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'aiSessions', 'terminalCandidates.ts'), 'utf8');
     assert.ok(terminalCandidatesSource.includes("reason: 'terminal-candidates'"));
     assert.ok(!terminalCandidatesSource.includes('AI_SESSION_PROVIDER_IDS'));

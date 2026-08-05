@@ -289,7 +289,7 @@ test('WEBVIEW-NONBLOCKING-FIRST-PAINT-001 renders cached HTML before visible pre
     assert.deepEqual(order, ['render', 'visible:true:start', 'visible:true:end']);
 });
 
-test('WEBVIEW-NONBLOCKING-FIRST-PAINT-001 keeps the rendered document across rapid sidebar visibility changes', async () => {
+test('WEBVIEW-NONBLOCKING-FIRST-PAINT-001 WEBVIEW-SIDEBAR-VISIBILITY-RETENTION-001 keeps the rendered document across rapid sidebar visibility changes', async () => {
     let visibilityChanged;
     let renderCalls = 0;
     const prepared = [];

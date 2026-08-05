@@ -295,6 +295,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         vscode.window.registerWebviewViewProvider(
             AGENT_PIVOT_DASHBOARD_VIEW_ID,
             provider,
+            {
+                webviewOptions: {
+                    retainContextWhenHidden: true,
+                },
+            },
         ),
     );
 

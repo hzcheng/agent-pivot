@@ -1961,6 +1961,32 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-SUBMIT-002 renders read
         ],
         'selection bubble actions must be icon-only buttons'
     );
+    // The send action is the bubble's accent chip; comment stays a ghost.
+    assert.deepEqual(
+        await selectionBubble.locator('button').evaluateAll(buttons =>
+            buttons.map(button => {
+                const style = getComputedStyle(button);
+                return {
+                    action: button.getAttribute('data-comment-selection-action'),
+                    background: style.backgroundColor,
+                    color: style.color,
+                };
+            })
+        ),
+        [
+            {
+                action: 'comment',
+                background: 'rgba(0, 0, 0, 0)',
+                color: 'rgb(160, 160, 160)',
+            },
+            {
+                action: 'send',
+                background: 'rgb(14, 99, 156)',
+                color: 'rgb(255, 255, 255)',
+            },
+        ],
+        'send must render as the accent chip and comment as a ghost button'
+    );
 
     // Send drops the selected text into the active terminal via the Host.
     await selectionBubble.locator('[data-comment-selection-action="send"]')

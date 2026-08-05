@@ -317,7 +317,7 @@ export function renderConversationViewerDocument(
         <button class="conversation-comment-icon-button" type="button"
             data-comment-selection-action="comment" title="Add comment"
             aria-label="Add comment">${CONVERSATION_COMMENT_ICON_COMMENT}</button>
-        <button class="conversation-comment-icon-button" type="button"
+        <button class="conversation-comment-icon-button accent" type="button"
             data-comment-selection-action="send"
             title="Send selection to the active terminal"
             aria-label="Send selection to the active terminal">${CONVERSATION_COMMENT_ICON_SEND}</button>

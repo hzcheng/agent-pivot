@@ -30,6 +30,7 @@ export interface AiSessionDashboardControllerOptions {
     afterRefresh?: () => void;
     debounceMs: number;
     watcherRefreshMinIntervalMs?: number;
+    watcherStopGraceMs?: number;
     newSessionRefreshDelaysMs: number[];
     setTimeout: (callback: () => void, delayMs: number) => NodeJS.Timeout;
     clearTimeout: (handle: NodeJS.Timeout) => void;
@@ -41,6 +42,7 @@ export interface AiSessionDashboardRefreshOptions {
 
 export class AiSessionDashboardController {
     private refreshTimeout: NodeJS.Timeout = null;
+    private watcherStopTimeout: NodeJS.Timeout = null;
     private newSessionRefreshTimeouts: NodeJS.Timeout[] = [];
     private watcherDisposables: DisposableLike[] = [];
     private pendingRefreshReason = 'refresh';
@@ -79,9 +81,10 @@ export class AiSessionDashboardController {
 
     setWatchersActive(active: boolean): void {
         if (active) {
+            this.cancelWatcherStop();
             this.startWatchers();
         } else {
-            this.stopWatchers();
+            this.scheduleWatcherStop();
         }
     }
 
@@ -183,6 +186,7 @@ export class AiSessionDashboardController {
     }
 
     dispose(): void {
+        this.cancelWatcherStop();
         this.stopWatchers();
         for (let timeout of this.newSessionRefreshTimeouts) {
             this.options.clearTimeout(timeout);
@@ -197,6 +201,31 @@ export class AiSessionDashboardController {
 
         this.watcherDisposables = this.options.providerIds
             .map(providerId => this.options.watchSessionChanges(providerId, () => this.scheduleRefresh('watcher')));
+    }
+
+    private scheduleWatcherStop(): void {
+        if (!this.watcherDisposables.length || this.watcherStopTimeout !== null) {
+            return;
+        }
+        const delayMs = Math.max(0, this.options.watcherStopGraceMs ?? 5000);
+        if (delayMs === 0) {
+            this.stopWatchers();
+            return;
+        }
+        this.watcherStopTimeout = this.options.setTimeout(() => {
+            this.watcherStopTimeout = null;
+            if (!this.options.isVisible()) {
+                this.stopWatchers();
+            }
+        }, delayMs);
+    }
+
+    private cancelWatcherStop(): void {
+        if (this.watcherStopTimeout === null) {
+            return;
+        }
+        this.options.clearTimeout(this.watcherStopTimeout);
+        this.watcherStopTimeout = null;
     }
 
     private stopWatchers(): void {

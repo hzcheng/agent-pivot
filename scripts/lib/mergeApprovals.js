@@ -10,8 +10,11 @@
 const MERGE_APPROVAL_PATTERN = /^\s*(?:合并|批准|lgtm|approve[ds]?|merge)(?![A-Za-z])/i;
 
 // Merges before this date predate the gate and are exempt from the audit
-// (they were approved in conversation under the previous rules).
-const MERGE_APPROVAL_REQUIRED_SINCE = '2026-08-05T00:00:00Z';
+// (they were approved in conversation under the previous rules). The cutoff
+// must sit after the merges of the gate-building PRs themselves (#126/#128,
+// merged 2026-08-05T01:57:01Z/02:05:43Z), which by definition could not carry
+// the approval comment the gate introduced.
+const MERGE_APPROVAL_REQUIRED_SINCE = '2026-08-05T02:06:00Z';
 
 function isApprovalComment(body) {
     return MERGE_APPROVAL_PATTERN.test(String(body || ''));

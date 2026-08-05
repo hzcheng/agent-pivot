@@ -32,6 +32,15 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
   telemetry pill now reports open/total (e.g. `Comments 2/5`). Existing stored
   comments migrate automatically (sent and resolved become done).
 
+### Fixed
+
+- Window reloads no longer stall tmux session restoration on windows with many
+  terminals: attach restore now resolves terminal process IDs concurrently
+  (previously serial with a per-terminal timeout, which multiplied the delay
+  by the terminal count while the pty host was still reconnecting) and shares
+  a single live-client list across all terminals instead of one tmux
+  invocation per terminal.
+
 ## [1.0.3] - 2026-08-04
 
 ### Added

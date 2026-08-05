@@ -132,3 +132,17 @@ test('ARCH-REPOSITORY-SKILL-GUIDANCE-001 verifies provider adapters against real
         ['status inference guidance', /no status[\s\S]*transcript tail/i],
     ]);
 });
+
+
+test('ARCH-REPOSITORY-SKILL-GUIDANCE-001 gates every PR merge on explicit approval', () => {
+    const skill = readSkill('.skills/publishing-and-merging-github-prs/SKILL.md');
+
+    assertSkillMentions(skill, [
+        ['merge gated by default', /every merge as gated by default/i],
+        ['green CI is not merge authorization', /green CI is never merge authorization/i],
+        ['stop and wait for explicit approval', /stop, report the state, and wait for an explicit in-conversation approval/i],
+        ['every PR type covered', /refactors, test-only changes, and behavior changes alike/i],
+        ['pure-refactor merge habits do not carry over', /does not carry over/i],
+        ['guardrail: checks are not approval', /Never merge a PR without an explicit in-conversation approval[\s\S]*green checks are not approval/i],
+    ]);
+});

@@ -103,6 +103,7 @@ function makeSession(overrides = {}) {
 function createHarness(options = {}) {
     const viewerTargets = [];
     const followedViewerTargets = [];
+    let capturedViewerOptions;
     let outlineReads = 0;
     const session = 'session' in options ? options.session : makeSession({
         conversationDisplayName: options.conversationDisplayName,
@@ -139,6 +140,9 @@ function createHarness(options = {}) {
             claude: makeService('claude'),
         },
         resolveTarget: options.resolveTarget || (() => session),
+        resolveActiveTargets: options.resolveActiveTargets
+            || (() => (session ? [session] : [])),
+        focusSession: options.focusSession,
         publish: async () => true,
         createPanel: () => {
             throw new Error('createPanel is not used by openLatestConversation');
@@ -156,24 +160,30 @@ function createHarness(options = {}) {
         createCodexAdapter: fakeAdapter('codex'),
         createKimiAdapter: fakeAdapter('kimi'),
         createClaudeAdapter: fakeAdapter('claude'),
-        createViewer: () => ({
-            isOpen: () => options.viewerOpen === true,
-            open: async target => {
-                viewerTargets.push(target);
-            },
-            follow: async target => {
-                followedViewerTargets.push(target);
-                return true;
-            },
-            refresh: async () => undefined,
-            reconcileAuthority: async () => undefined,
-            dispose() {},
-        }),
+        createViewer: viewerOptions => {
+            capturedViewerOptions = viewerOptions;
+            return {
+                isOpen: () => options.viewerOpen === true,
+                open: async target => {
+                    viewerTargets.push(target);
+                },
+                follow: async target => {
+                    followedViewerTargets.push(target);
+                    return true;
+                },
+                refresh: async () => undefined,
+                reconcileAuthority: async () => undefined,
+                dispose() {},
+            };
+        },
     });
     return {
         capability,
         viewerTargets,
         followedViewerTargets,
+        get viewerOptions() {
+            return capturedViewerOptions;
+        },
         get outlineReads() {
             return outlineReads;
         },
@@ -352,5 +362,222 @@ test('CONVERSATION-FOLLOW-ACTIVE-SESSION-001 lets the newest Session follow inte
         harness.followedViewerTargets.map(target => target.sessionId),
         ['session-b']
     );
+    harness.capability.dispose();
+});
+
+test('CONVERSATION-FOLLOW-ACTIVE-SESSION-001 follows the adjacent active session in dashboard order', async () => {
+    const sessions = [
+        makeSession({
+            key: 'codex:session-a',
+            sessionId: 'session-a',
+            name: 'First',
+        }),
+        makeSession({
+            key: 'codex:session-b',
+            sessionId: 'session-b',
+            name: 'Second',
+        }),
+        makeSession({
+            key: 'kimi:session-c',
+            provider: 'kimi',
+            sessionId: 'session-c',
+            name: 'Third',
+        }),
+    ];
+    const focusedSessions = [];
+    const harness = createHarness({
+        viewerOpen: true,
+        resolveTarget: (_projectId, provider, sessionId) =>
+            sessions.find(session =>
+                session.provider === provider && session.sessionId === sessionId
+            ) || null,
+        resolveActiveTargets: () => sessions,
+        focusSession: async target => {
+            focusedSessions.push(target);
+        },
+    });
+    const switchSession = harness.viewerOptions.followAdjacentConversation;
+    assert.equal(typeof switchSession, 'function');
+
+    assert.equal(await switchSession('next', {
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    }), 'opened');
+    assert.deepEqual(harness.followedViewerTargets.map(target => target.sessionId), [
+        'session-b',
+    ]);
+    assert.equal(harness.followedViewerTargets[0].interactionId, 'input-b');
+    assert.equal(harness.followedViewerTargets[0].displayName, 'Second');
+    // A successful switch also syncs the session terminal/tmux window.
+    assert.deepEqual(focusedSessions, [{
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-b',
+    }]);
+
+    // The previous direction wraps around the ordered active list.
+    assert.equal(await switchSession('previous', {
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    }), 'opened');
+    assert.deepEqual(harness.followedViewerTargets.map(target => target.sessionId), [
+        'session-b',
+        'session-c',
+    ]);
+    assert.deepEqual(focusedSessions.map(target => target.sessionId), [
+        'session-b',
+        'session-c',
+    ]);
+    harness.capability.dispose();
+});
+
+test('CONVERSATION-FOLLOW-ACTIVE-SESSION-001 skips pending sessions and reports when no adjacent session exists', async () => {
+    const sessions = [
+        makeSession({ key: 'codex:session-a', sessionId: 'session-a' }),
+        makeSession({
+            key: 'kimi:pending',
+            provider: 'kimi',
+            sessionId: undefined,
+            pending: true,
+        }),
+        makeSession({ key: 'codex:session-b', sessionId: 'session-b' }),
+    ];
+    const focusedSessions = [];
+    const harness = createHarness({
+        viewerOpen: true,
+        resolveTarget: (_projectId, provider, sessionId) =>
+            sessions.find(session =>
+                session.provider === provider && session.sessionId === sessionId
+            ) || null,
+        resolveActiveTargets: () => sessions,
+        focusSession: async target => {
+            focusedSessions.push(target);
+        },
+    });
+    assert.equal(await harness.viewerOptions.followAdjacentConversation('next', {
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    }), 'opened');
+    assert.deepEqual(harness.followedViewerTargets.map(target => target.sessionId), [
+        'session-b',
+    ]);
+    assert.deepEqual(focusedSessions.map(target => target.sessionId), [
+        'session-b',
+    ]);
+    harness.capability.dispose();
+
+    const singleHarness = createHarness({ viewerOpen: true });
+    assert.equal(await singleHarness.viewerOptions.followAdjacentConversation('next', {
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    }), 'noAdjacentSession');
+    assert.equal(await singleHarness.viewerOptions.followAdjacentConversation('next', {
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-elsewhere',
+    }), 'noAdjacentSession');
+    assert.deepEqual(singleHarness.followedViewerTargets, []);
+    singleHarness.capability.dispose();
+
+    const closedHarness = createHarness({ viewerOpen: false });
+    assert.equal(await closedHarness.viewerOptions.followAdjacentConversation('next', {
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    }), 'closed');
+    assert.equal(closedHarness.outlineReads, 0);
+    closedHarness.capability.dispose();
+});
+
+test('CONVERSATION-FOLLOW-ACTIVE-SESSION-001 lets the newest adjacent switch win when an older outline resolves late', async () => {
+    const sessions = [
+        makeSession({ key: 'codex:session-a', sessionId: 'session-a' }),
+        makeSession({ key: 'codex:session-b', sessionId: 'session-b' }),
+        makeSession({ key: 'codex:session-c', sessionId: 'session-c' }),
+    ];
+    const slowOutline = deferred();
+    const focusedSessions = [];
+    const harness = createHarness({
+        viewerOpen: true,
+        resolveTarget: (_projectId, provider, sessionId) =>
+            sessions.find(session =>
+                session.provider === provider && session.sessionId === sessionId
+            ) || null,
+        resolveActiveTargets: () => sessions,
+        focusSession: async target => {
+            focusedSessions.push(target);
+        },
+        readOutline: (provider, sessionId) => sessionId === 'session-b'
+            ? slowOutline.promise
+            : makeOutline(provider, sessionId, ['input-x']),
+    });
+    const switchSession = harness.viewerOptions.followAdjacentConversation;
+    const first = switchSession('next', {
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(await switchSession('previous', {
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    }), 'opened');
+    slowOutline.resolve(makeOutline('codex', 'session-b', ['input-b']));
+    assert.equal(await first, 'superseded');
+    assert.deepEqual(harness.followedViewerTargets.map(target => target.sessionId), [
+        'session-c',
+    ]);
+    // Only the winning switch syncs the session terminal.
+    assert.deepEqual(focusedSessions.map(target => target.sessionId), [
+        'session-c',
+    ]);
+    harness.capability.dispose();
+});
+
+test('CONVERSATION-FOLLOW-ACTIVE-SESSION-001 fails closed when the active list cannot be resolved', async () => {
+    const harness = createHarness({
+        viewerOpen: true,
+        resolveActiveTargets: () => {
+            throw new Error('workspace snapshot unavailable');
+        },
+    });
+    assert.equal(await harness.viewerOptions.followAdjacentConversation('next', {
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    }), 'unavailable');
+    assert.deepEqual(harness.followedViewerTargets, []);
+    harness.capability.dispose();
+});
+
+test('CONVERSATION-FOLLOW-ACTIVE-SESSION-001 keeps the switch settled when terminal sync fails', async () => {
+    const sessions = [
+        makeSession({ key: 'codex:session-a', sessionId: 'session-a' }),
+        makeSession({ key: 'codex:session-b', sessionId: 'session-b' }),
+    ];
+    const harness = createHarness({
+        viewerOpen: true,
+        resolveTarget: (_projectId, provider, sessionId) =>
+            sessions.find(session =>
+                session.provider === provider && session.sessionId === sessionId
+            ) || null,
+        resolveActiveTargets: () => sessions,
+        focusSession: async () => {
+            throw new Error('terminal focus failed');
+        },
+    });
+    assert.equal(await harness.viewerOptions.followAdjacentConversation('next', {
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    }), 'opened');
+    assert.deepEqual(harness.followedViewerTargets.map(target => target.sessionId), [
+        'session-b',
+    ]);
     harness.capability.dispose();
 });

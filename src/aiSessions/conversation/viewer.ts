@@ -20,6 +20,7 @@ import {
 } from './outlineController';
 import { renderConversationMarkdown } from './markdown';
 import { parseConversationViewerMessage } from './viewerProtocol';
+import type { ConversationSessionSwitchDirection } from './viewerProtocol';
 import type { ConversationViewerTarget } from './viewerTarget';
 export type { ConversationViewerTarget } from './viewerTarget';
 import {
@@ -86,6 +87,13 @@ export interface ConversationViewerOptions {
     insertIntoActiveTerminal?: (
         text: string
     ) => PromiseLike<void> | Promise<void> | void;
+    followAdjacentConversation?: (
+        direction: ConversationSessionSwitchDirection,
+        currentTarget: Pick<
+            ConversationViewerTarget,
+            'projectId' | 'provider' | 'sessionId'
+        >
+    ) => PromiseLike<unknown> | Promise<unknown> | void;
 }
 
 export interface ConversationViewerApi extends AiSessionDisposable {
@@ -442,6 +450,15 @@ export class ConversationViewer implements ConversationViewerApi {
         }
         if (parsed.type === 'conversation-viewer-send-selection') {
             await this.options.insertIntoActiveTerminal?.(parsed.text);
+            return;
+        }
+        if (parsed.type === 'conversation-viewer-switch-session') {
+            const currentTarget = this.target;
+            await this.options.followAdjacentConversation?.(parsed.direction, {
+                projectId: currentTarget.projectId,
+                provider: currentTarget.provider,
+                sessionId: currentTarget.sessionId,
+            });
             return;
         }
         if (parsed.type === 'conversation-viewer-comment-mutation'

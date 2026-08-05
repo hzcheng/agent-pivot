@@ -246,6 +246,7 @@ function createViewer(options = {}) {
             return true;
         },
         insertIntoActiveTerminal: options.insertIntoActiveTerminal,
+        followAdjacentConversation: options.followAdjacentConversation,
         mediaUri: fileName => fakeUri(`file:///extension/media/${fileName}`),
         showThinking: options.showThinking,
         bookmarkStore: options.bookmarkStore,
@@ -971,6 +972,48 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 routes one exact selection send
         await panel.receive(message);
     }
     assert.deepEqual(inserted, ['beta quote']);
+});
+
+test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 routes adjacent session switches with the authoritative current target', async () => {
+    const switches = [];
+    const { viewer, panel } = createViewer({
+        followAdjacentConversation: async (direction, currentTarget) => {
+            switches.push({ direction, currentTarget });
+        },
+    });
+    await viewer.open(target('session-a', 'input-1'));
+
+    await panel.receive({
+        type: 'conversation-viewer-switch-session',
+        version: 1,
+        direction: 'next',
+    });
+    assert.deepEqual(switches, [{
+        direction: 'next',
+        currentTarget: {
+            projectId: 'project-a',
+            provider: 'codex',
+            sessionId: 'session-a',
+        },
+    }]);
+
+    for (const message of [
+        { type: 'conversation-viewer-switch-session', version: 1 },
+        {
+            type: 'conversation-viewer-switch-session',
+            version: 1,
+            direction: 'up',
+        },
+        {
+            type: 'conversation-viewer-switch-session',
+            version: 1,
+            direction: 'previous',
+            extra: true,
+        },
+    ]) {
+        await panel.receive(message);
+    }
+    assert.equal(switches.length, 1);
 });
 
 test('CONVERSATION-WORKING-INDICATOR-001 includes one polite hidden Working status in the Host document', async () => {

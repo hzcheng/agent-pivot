@@ -44,6 +44,7 @@ import {
     ConversationViewerOptions,
     ConversationViewerTarget,
 } from './viewer';
+import type { ConversationSessionSwitchDirection } from './viewerProtocol';
 import { ConversationWorktreeResolver } from './worktreeResolver';
 import { readCodexRolloutWorkdir } from '../codexRolloutWorkdir';
 
@@ -57,6 +58,8 @@ export type OpenLatestConversationResult =
     'opened' | 'unavailable' | 'empty' | 'unknownSession' | 'superseded';
 export type FollowActiveConversationResult =
     OpenLatestConversationResult | 'closed';
+export type FollowAdjacentConversationResult =
+    FollowActiveConversationResult | 'noAdjacentSession';
 
 export interface ConversationCapability {
     viewer: ConversationViewerApi;
@@ -78,6 +81,9 @@ export interface ConversationCapabilityOptions {
         provider: AiSessionProviderId,
         sessionId: string
     ) => ActiveAiSessionViewModel | null;
+    resolveActiveTargets?: (
+        projectId: string
+    ) => readonly ActiveAiSessionViewModel[];
     publish: (message: unknown) => Thenable<boolean>;
     createPanel: typeof vscode.window.createWebviewPanel;
     openExternal: typeof vscode.env.openExternal;
@@ -253,6 +259,17 @@ function createAvailableConversationCapability(
         bookmarkStore: options.bookmarkStore,
         showWorktreeInSourceControl: options.showWorktreeInSourceControl,
         insertIntoActiveTerminal: options.insertIntoActiveTerminal,
+        followAdjacentConversation: (direction, currentTarget) => {
+            const intentGeneration = ++viewerIntentGeneration;
+            return followAdjacentConversation(
+                options,
+                coordinator,
+                viewer,
+                direction,
+                currentTarget,
+                () => intentGeneration === viewerIntentGeneration
+            );
+        },
     }));
     let viewerIntentGeneration = 0;
     let disposed = false;
@@ -387,6 +404,80 @@ async function openLatestConversation(
 interface LatestConversationTargetResolution {
     result: OpenLatestConversationResult;
     viewerTarget?: ConversationViewerTarget;
+}
+
+async function followAdjacentConversation(
+    options: ConversationCapabilityOptions,
+    coordinator: ConversationCoordinator,
+    viewer: ConversationViewerApi,
+    direction: ConversationSessionSwitchDirection,
+    currentTarget: ConversationSessionOpenTarget,
+    isCurrent: () => boolean
+): Promise<FollowAdjacentConversationResult> {
+    if (!viewer.isOpen()) {
+        return 'closed';
+    }
+    let sessions: readonly ActiveAiSessionViewModel[];
+    try {
+        sessions = typeof options.resolveActiveTargets === 'function'
+            ? options.resolveActiveTargets(currentTarget.projectId)
+            : [];
+    } catch (_error) {
+        return 'unavailable';
+    }
+    const switchable = sessions.filter((
+        session
+    ): session is ActiveAiSessionViewModel & { sessionId: string } =>
+        Boolean(session)
+            && typeof session.sessionId === 'string'
+            && session.sessionId.length > 0
+    );
+    const currentIndex = switchable.findIndex(session =>
+        session.provider === currentTarget.provider
+            && session.sessionId === currentTarget.sessionId
+    );
+    if (currentIndex === -1 || switchable.length < 2) {
+        return 'noAdjacentSession';
+    }
+    const step = direction === 'next' ? 1 : -1;
+    const adjacent = switchable[
+        (currentIndex + step + switchable.length) % switchable.length
+    ];
+    const resolution = await resolveLatestConversationTarget(
+        options,
+        coordinator,
+        {
+            projectId: currentTarget.projectId,
+            provider: adjacent.provider,
+            sessionId: adjacent.sessionId,
+        }
+    );
+    if (!isCurrent()) {
+        return 'superseded';
+    }
+    if (!resolution.viewerTarget) {
+        return resolution.result;
+    }
+    if (!viewer.isOpen()) {
+        return 'closed';
+    }
+    const followed = await viewer.follow(resolution.viewerTarget);
+    if (!followed) {
+        return 'closed';
+    }
+    // Keep the visible session terminal/tmux window in sync with the
+    // conversation. Terminal sync is best-effort: a focus failure must not
+    // undo or retry the settled conversation switch.
+    try {
+        await options.focusSession?.({
+            projectId: currentTarget.projectId,
+            provider: adjacent.provider,
+            sessionId: adjacent.sessionId,
+        });
+    } catch (_error) {
+        // The conversation switch has already settled.
+    }
+    return 'opened';
 }
 
 async function resolveLatestConversationTarget(

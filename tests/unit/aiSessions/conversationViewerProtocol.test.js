@@ -35,6 +35,14 @@ test('CONVERSATION-PROTOCOL-VALIDATOR-001 accepts every exact version-1 viewer i
         version: 1,
         text: 'quoted selection',
     }, {
+        type: 'conversation-viewer-switch-session',
+        version: 1,
+        direction: 'previous',
+    }, {
+        type: 'conversation-viewer-switch-session',
+        version: 1,
+        direction: 'next',
+    }, {
         type: 'conversation-viewer-locate-comment',
         version: 1,
         ...target,
@@ -130,6 +138,21 @@ test('CONVERSATION-PROTOCOL-VALIDATOR-001 rejects malformed, inherited, and over
             type: 'conversation-viewer-send-selection',
             version: 1,
             text: 'quoted selection',
+            extra: true,
+        },
+        {
+            type: 'conversation-viewer-switch-session',
+            version: 1,
+        },
+        {
+            type: 'conversation-viewer-switch-session',
+            version: 1,
+            direction: 'up',
+        },
+        {
+            type: 'conversation-viewer-switch-session',
+            version: 1,
+            direction: 'next',
             extra: true,
         },
         {

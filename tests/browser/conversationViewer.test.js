@@ -963,9 +963,9 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 acquires one real document API 
     const { page } = await openHostViewerDocument(t);
 
     assert.equal(await page.evaluate(() => window.__acquireCount), 1);
-    await page.getByRole('button', { name: 'Previous' }).click();
-    await page.getByRole('button', { name: 'Next' }).click();
-    await page.getByRole('button', { name: 'Latest' }).click();
+    await page.getByRole('button', { name: 'Previous', exact: true }).click();
+    await page.getByRole('button', { name: 'Next', exact: true }).click();
+    await page.getByRole('button', { name: 'Latest', exact: true }).click();
     await page.locator('a[href="https://example.test/safe"]').click();
 
     assert.deepEqual(await postedMessages(page), [
@@ -1176,9 +1176,9 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 keeps boundary navigation inert
             isEnd: true,
         },
     });
-    const previous = page.getByRole('button', { name: 'Previous' });
-    const next = page.getByRole('button', { name: 'Next' });
-    const latest = page.getByRole('button', { name: 'Latest' });
+    const previous = page.getByRole('button', { name: 'Previous', exact: true });
+    const next = page.getByRole('button', { name: 'Next', exact: true });
+    const latest = page.getByRole('button', { name: 'Latest', exact: true });
 
     assert.equal(await page.evaluate(() => window.__acquireCount), 1);
     assert.equal(await previous.isDisabled(), true);
@@ -1881,6 +1881,122 @@ test('CONVERSATION-COMMENTS-UI-001 adds a session-wide note without selecting co
         0
     );
     assert.equal(await card.locator('blockquote').count(), 0);
+});
+
+test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 renders ghost session-switch rails that post exact switch intents', async t => {
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+        viewport: { width: 850, height: 600 },
+        interactionIds: ['input-1'],
+        interactionId: 'input-1',
+        markdown: 'Alpha beta gamma delta.',
+    });
+
+    const buttons = page.locator('[data-session-nav]');
+    assert.equal(await buttons.count(), 2);
+    assert.deepEqual(
+        await buttons.evaluateAll(elements => elements.map(element => ({
+            direction: element.getAttribute('data-session-nav'),
+            label: element.getAttribute('aria-label'),
+            iconOnly: element.innerText === ''
+                && element.querySelectorAll('svg').length === 1,
+        }))),
+        [
+            {
+                direction: 'previous',
+                label: 'Previous active session',
+                iconOnly: true,
+            },
+            {
+                direction: 'next',
+                label: 'Next active session',
+                iconOnly: true,
+            },
+        ],
+        'session rails must be two icon-only buttons'
+    );
+
+    const rail = page.locator('.conversation-session-nav-layer');
+    assert.equal(await rail.evaluate(element =>
+        getComputedStyle(element).pointerEvents
+    ), 'none', 'the rail overlay must never block conversation interactions');
+
+    // Ghost affordances stay compact and translucent until hovered.
+    const next = page.locator('[data-session-nav="next"]');
+    assert.deepEqual(
+        await next.evaluate(element => {
+            const style = getComputedStyle(element);
+            return {
+                position: style.position,
+                width: style.width,
+                height: style.height,
+                borderRadius: style.borderRadius,
+                opacity: style.opacity,
+            };
+        }),
+        {
+            position: 'absolute',
+            width: '36px',
+            height: '36px',
+            borderRadius: '50%',
+            opacity: '0.3',
+        },
+        'session rails must render as compact translucent circles'
+    );
+
+    const previousBox = await page.locator('[data-session-nav="previous"]')
+        .boundingBox();
+    const nextBox = await next.boundingBox();
+    assert.equal(previousBox.x, 16);
+    assert.equal(previousBox.y + previousBox.height, 600 - 16);
+    assert.equal(nextBox.x + nextBox.width, 850 - 16);
+    assert.equal(nextBox.y + nextBox.height, 600 - 16);
+
+    await next.hover();
+    await page.waitForFunction(() =>
+        getComputedStyle(document.querySelector('[data-session-nav="next"]'))
+            .opacity === '1'
+    );
+    assert.equal(await next.evaluate(element =>
+        getComputedStyle(element).opacity
+    ), '1', 'session rails must become fully opaque on hover');
+
+    await next.click();
+    assert.deepEqual((await postedMessages(page)).at(-1), {
+        type: 'conversation-viewer-switch-session',
+        version: 1,
+        direction: 'next',
+    });
+    await page.locator('[data-session-nav="previous"]').click();
+    assert.deepEqual((await postedMessages(page)).at(-1), {
+        type: 'conversation-viewer-switch-session',
+        version: 1,
+        direction: 'previous',
+    });
+});
+
+test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 keeps session rails inside the conversation column when the side panel is open', async t => {
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+        viewport: { width: 850, height: 600 },
+        initialWebviewState: {
+            conversationCommentsPanel: { open: true, width: 192 },
+        },
+        interactionIds: ['input-1'],
+        interactionId: 'input-1',
+        markdown: 'Alpha beta gamma delta.',
+    });
+
+    const sidebar = page.locator('[data-conversation-sidebar]');
+    assert.equal(await sidebar.isVisible(), true);
+    const nextBox = await page.locator('[data-session-nav="next"]').boundingBox();
+    const sidebarBox = await sidebar.boundingBox();
+    assert.ok(
+        nextBox.x + nextBox.width <= sidebarBox.x,
+        `next rail right edge ${nextBox.x + nextBox.width} must stay left of the side panel at ${sidebarBox.x}`
+    );
 });
 
 test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-SUBMIT-002 renders read-only icon-action cards with edit mode and per-card send', async t => {
@@ -3322,17 +3438,17 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 sanitizes hostile HTML, posts e
         1
     );
 
-    await page.getByRole('button', { name: 'Previous' }).click();
+    await page.getByRole('button', { name: 'Previous', exact: true }).click();
     assert.deepEqual((await postedMessages(page)).at(-1), {
         type: 'conversation-viewer-previous',
         version: 1,
     });
-    await page.getByRole('button', { name: 'Next' }).click();
+    await page.getByRole('button', { name: 'Next', exact: true }).click();
     assert.deepEqual((await postedMessages(page)).at(-1), {
         type: 'conversation-viewer-next',
         version: 1,
     });
-    await page.getByRole('button', { name: 'Latest' }).click();
+    await page.getByRole('button', { name: 'Latest', exact: true }).click();
     assert.deepEqual((await postedMessages(page)).at(-1), {
         type: 'conversation-viewer-latest',
         version: 1,

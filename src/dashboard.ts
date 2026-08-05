@@ -1139,6 +1139,9 @@ async function initializeDashboard(
                 )
                 : null;
         },
+        resolveActiveTargets: projectId =>
+            getCurrentWorkspaceActionTarget(projectId)
+                ?.sessions.activeSessions || [],
         getWorkspaceRootHostPaths: () =>
             getCurrentWorkspaceActionTargetWithoutCardId()
                 ?.workspace.roots.map(root => root.hostPath) || [],

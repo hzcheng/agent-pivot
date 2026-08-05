@@ -110,10 +110,78 @@ button {
 }
 
 .conversation-scroll {
+    grid-column: 1;
+    grid-row: 1;
     min-height: 0;
     overflow-y: auto;
     overscroll-behavior-y: contain;
-    padding: 0.5rem 1rem 1rem;
+    /* Keep the last line clear of the floating session rails. */
+    padding: 0.5rem 1rem 68px;
+}
+
+.conversation-session-nav-layer {
+    position: relative;
+    z-index: 2;
+    grid-column: 1;
+    grid-row: 1;
+    min-width: 0;
+    min-height: 0;
+    pointer-events: none;
+}
+
+.conversation-session-nav {
+    position: absolute;
+    bottom: 16px;
+    display: inline-flex;
+    width: 36px;
+    height: 36px;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 50%;
+    color: var(--vscode-foreground);
+    background: var(
+        --vscode-editorWidget-background,
+        var(--vscode-editor-background)
+    );
+    box-shadow: 0 2px 10px var(--vscode-widget-shadow);
+    cursor: pointer;
+    opacity: 0.3;
+    pointer-events: auto;
+    transition: opacity 140ms ease, transform 140ms ease,
+        box-shadow 140ms ease, border-color 140ms ease;
+
+    svg {
+        display: block;
+        width: 20px;
+        height: 20px;
+    }
+
+    &:hover,
+    &:focus-visible {
+        border-color: var(--vscode-focusBorder);
+        box-shadow: 0 6px 18px var(--vscode-widget-shadow);
+        opacity: 1;
+        transform: translateY(-2px);
+    }
+
+    &:focus-visible {
+        outline: 1px solid var(--vscode-focusBorder);
+        outline-offset: 1px;
+    }
+
+    &:active {
+        transform: translateY(0);
+    }
+}
+
+.conversation-session-nav-previous {
+    left: 16px;
+}
+
+.conversation-session-nav-next {
+    right: 16px;
 }
 
 .conversation-messages {
@@ -451,6 +519,8 @@ button {
 
 .conversation-sidebar {
     display: flex;
+    grid-column: 3;
+    grid-row: 1;
     min-width: 0;
     flex-direction: column;
     overflow: hidden;
@@ -723,6 +793,8 @@ button {
 
 .conversation-comments-resizer {
     position: relative;
+    grid-column: 2;
+    grid-row: 1;
     cursor: col-resize;
     touch-action: none;
 
@@ -1191,12 +1263,26 @@ button {
     .conversation-add-comment {
         animation: none;
     }
+
+    .conversation-session-nav {
+        transition: none;
+
+        &:hover,
+        &:focus-visible {
+            transform: none;
+        }
+    }
 }
 
 @media (forced-colors: active) {
     .conversation-comment-icon-button.accent,
     .conversation-icon-button.accent {
         border-color: ButtonText;
+    }
+
+    .conversation-session-nav {
+        border-color: ButtonText;
+        opacity: 1;
     }
 
     .conversation-message-user {

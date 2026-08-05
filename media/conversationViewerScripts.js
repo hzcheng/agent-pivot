@@ -56,6 +56,9 @@
     var sidebarToggle = document.querySelector(
         '[data-action="toggle-sidebar"]'
     );
+    var sessionNavButtons = Array.prototype.slice.call(
+        document.querySelectorAll('[data-session-nav]')
+    );
     var commentsWorkspace = document.querySelector('.conversation-workspace');
     var commentsResizer = document.querySelector('[data-comments-resizer]');
     var sidebarRoot = document.querySelector('[data-conversation-sidebar]');
@@ -740,6 +743,15 @@
     });
     latest.addEventListener('click', function () {
         postNavigation('conversation-viewer-latest');
+    });
+    sessionNavButtons.forEach(function (button) {
+        button.addEventListener('click', function () {
+            post({
+                type: 'conversation-viewer-switch-session',
+                version: 1,
+                direction: button.getAttribute('data-session-nav'),
+            });
+        });
     });
     if (telemetryWorktree) {
         telemetryWorktree.addEventListener('click', function () {

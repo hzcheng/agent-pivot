@@ -88,3 +88,21 @@ jobs:
         run: sudo apt-get install -y tmux
       - name: Run isolated real-tmux smoke gate
         run: npm run test:tmux:smoke
+
+  merge-approval-audit:
+    name: merge-approval-audit
+    # Post-merge backstop: only meaningful on the default branch.
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Audit recent merges for owner approval markers
+        run: node scripts/run-merge-approval-audit.js
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

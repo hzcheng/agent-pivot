@@ -677,12 +677,13 @@
                     === message.selectedInteractionId;
             }
         );
-        selectedMessages.forEach(function (candidate) {
-            candidate.classList.add('conversation-selected-interaction');
+        var selected = selectedMessages[0];
+        if (!isLiveRefresh && selected) {
+            selected.classList.add('conversation-selected-interaction');
             window.setTimeout(function () {
-                candidate.classList.remove('conversation-selected-interaction');
+                selected.classList.remove('conversation-selected-interaction');
             }, 1600);
-        });
+        }
         if (isLiveRefresh
             && focusedMessageId
             && (!focusedMessage.isConnected
@@ -702,7 +703,6 @@
         renderMermaidDiagrams(renderGeneration);
 
         if (!isLiveRefresh) {
-            var selected = selectedMessages[0];
             var openingAtLatest = message.atLatest
                 && message.updateKind === 'initial';
             if (openingAtLatest) {

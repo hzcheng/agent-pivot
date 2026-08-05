@@ -4393,6 +4393,66 @@ test('CONVERSATION-VIEWER-BROWSER-NAVIGATION-002 anchors and focuses the Host-se
     ), 'selected-2');
 });
 
+test('CONVERSATION-NAVIGATION-STATE-001 CONVERSATION-READING-FOCUS-001 highlights only the selected input and does not replay the locator on live refresh', async t => {
+    const page = await openViewerPage(t);
+    const outline = [{
+        interactionId: 'highlight-0',
+        userPreview: 'Highlighted input',
+        responseState: 'inProgress',
+    }];
+    await sendPage(page, {
+        ...hostileConversationPage,
+        html: interactionHtml('highlight', 1, 3),
+        outline,
+        selectedInteractionId: 'highlight-0',
+        selectedInput: 1,
+        totalInputs: 1,
+        atLatest: true,
+        previousCursor: undefined,
+        nextCursor: undefined,
+    });
+    const initialHighlights = await page.locator(
+        '.conversation-selected-interaction'
+    ).evaluateAll(elements => elements.map(element =>
+        element.getAttribute('data-message-id')
+    ));
+
+    await page.locator('.conversation-selected-interaction').evaluateAll(
+        elements => elements.forEach(element =>
+            element.classList.remove('conversation-selected-interaction')
+        )
+    );
+    const refreshHighlights = [];
+    for (const requestId of [2, 3]) {
+        await sendPage(page, {
+            ...hostileConversationPage,
+            requestId,
+            updateKind: 'refresh',
+            html: interactionHtml('highlight', 1, requestId + 2),
+            outline,
+            selectedInteractionId: 'highlight-0',
+            selectedInput: 1,
+            totalInputs: 1,
+            atLatest: true,
+            previousCursor: undefined,
+            nextCursor: undefined,
+        });
+        refreshHighlights.push(await page.locator(
+            '.conversation-selected-interaction'
+        ).evaluateAll(elements => elements.map(element =>
+            element.getAttribute('data-message-id')
+        )));
+        await page.locator('.conversation-selected-interaction').evaluateAll(
+            elements => elements.forEach(element =>
+                element.classList.remove('conversation-selected-interaction')
+            )
+        );
+    }
+
+    assert.deepEqual(refreshHighlights, [[], []]);
+    assert.deepEqual(initialHighlights, ['highlight-0-user']);
+});
+
 test('CONVERSATION-OPEN-LATEST-001 reveals the newest line when the viewer opens at the latest interaction inside a short viewport', async t => {
     const page = await openViewerPage(t);
     const outline = Array.from({ length: 5 }, (_item, index) => ({

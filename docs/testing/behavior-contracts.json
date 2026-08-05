@@ -2211,9 +2211,11 @@
     "owners": [
       "tests/browser/dashboardBootShell.test.js",
       "tests/contract/dashboardBoundaries.test.js",
-      "tests/integration/dashboard/errorRecovery.test.js"
+      "tests/integration/dashboard/errorRecovery.test.js",
+      "tests/integration/dashboard/sessionRuntimeFlow.test.js"
     ],
     "evidence": [
+      "src/aiSessions/dashboardController.ts",
       "src/dashboard.ts",
       "src/dashboard/viewProvider.ts"
     ]

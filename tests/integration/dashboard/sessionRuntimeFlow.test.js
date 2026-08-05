@@ -245,6 +245,57 @@ test('WEBVIEW-AI-SESSION-DASHBOARD-WATCHER-COALESCING-001 coalesces watcher refr
     assert.deepEqual(reasons, ['watcher', 'watcher', 'attention']);
 });
 
+test('WEBVIEW-SIDEBAR-VISIBILITY-RETENTION-001 reuses provider watchers across rapid sidebar visibility changes', () => {
+    const clock = createFakeClock(1000);
+    let visible = true;
+    let watcherStarts = 0;
+    let watcherDisposals = 0;
+    const { AiSessionDashboardController } = loadFreshWithFakeVscode(
+        '../../../out/aiSessions/dashboardController', {}, __dirname
+    );
+    const controller = new AiSessionDashboardController({
+        providerIds: ['codex', 'kimi', 'claude'],
+        isVisible: () => visible,
+        invalidateCache: () => undefined,
+        watchSessionChanges: () => {
+            watcherStarts += 1;
+            return { dispose: () => { watcherDisposals += 1; } };
+        },
+        getGroups: () => [], getTodoSearchItems: () => [], getCards: () => [],
+        getRunningCardAnimation: () => undefined,
+        getRunningIconAnimation: () => undefined,
+        nextSequence: () => 1,
+        postMessage: () => Promise.resolve(true),
+        refresh: () => undefined,
+        logError: (_message, error) => { throw error; },
+        debounceMs: 100,
+        watcherStopGraceMs: 5000,
+        newSessionRefreshDelaysMs: [],
+        setTimeout: (callback, delay) => clock.setTimeout(callback, delay),
+        clearTimeout: handle => clock.clearTimeout(handle),
+    });
+
+    controller.setWatchersActive(true);
+    for (let iteration = 0; iteration < 15; iteration += 1) {
+        visible = false;
+        controller.setWatchersActive(false);
+        clock.advanceBy(100);
+        visible = true;
+        controller.setWatchersActive(true);
+    }
+
+    assert.equal(watcherStarts, 3, 'each provider watcher must be created only once');
+    assert.equal(watcherDisposals, 0, 'brief hidden epochs must keep the watchers reusable');
+
+    visible = false;
+    controller.setWatchersActive(false);
+    clock.advanceBy(4999);
+    assert.equal(watcherDisposals, 0, 'watchers stay alive throughout the visibility grace period');
+    clock.advanceBy(1);
+    assert.equal(watcherDisposals, 3, 'a genuinely hidden dashboard eventually releases every watcher');
+    controller.dispose();
+});
+
 test('WEBVIEW-AI-SESSION-DASHBOARD-WATCHER-COALESCING-001 never postpones a pending status refresh behind later watcher events', async () => {
     const clock = createFakeClock(1000);
     const reasons = [];

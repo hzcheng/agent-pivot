@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "a9ab1f23959547152581dd031c131a9ff21acc82",
+        "head": "1f76af30e55e5801ff0908f9673625b98e1d13fe",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -133,7 +133,9 @@
             "afc02d771d7cacd7d590a44e384d24ab6108be14",
             "62af4782282fe782affbc4eab6531e3fa6676777",
             "4d1bbc3a1e04d7c17a173fec51f36aaa311d7a71",
-            "cc0386c57b9b30ae01b4be64aefa9e8d8b4c0042"
+            "cc0386c57b9b30ae01b4be64aefa9e8d8b4c0042",
+            "3b531708f9edfc5ddbd5f7484f822c8099ecaab3",
+            "1f76af30e55e5801ff0908f9673625b98e1d13fe"
         ]
     },
     "capabilities": [

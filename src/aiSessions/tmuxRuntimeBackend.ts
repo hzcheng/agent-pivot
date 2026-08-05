@@ -549,12 +549,25 @@ implements AiSessionExecutableRuntimeBackend<TTerminal> {
 
     private async restoreAttachTerminalsOnce(terminals: readonly TTerminal[]): Promise<void> {
         await this.dependencies.discovery.refresh(true);
-        for (const terminal of terminals || []) {
+        const untracked = (terminals || []).filter(terminal =>
+            ![...this.attaches.values()].some(entry => entry.terminal === terminal));
+        // Terminal process IDs can stay pending until the pty host reconnects them after
+        // a window reload (up to the per-terminal timeout each), so resolve them
+        // concurrently instead of multiplying the restore latency by the terminal count.
+        const resolved = await Promise.all(untracked.map(async terminal => {
             const attach = attachTerminal(terminal);
-            if ([...this.attaches.values()].some(entry => entry.terminal === terminal)) {
-                continue;
+            return { terminal, attach, processId: await resolveProcessId(attach.processId) };
+        }));
+        // Live tmux client lookups share one list-clients snapshot per restore pass so a
+        // window with many plain terminals does not spawn one tmux invocation each.
+        let clientSessionsByProcess: Map<number, string> | null = null;
+        const liveSessionForProcess = async (processId: number): Promise<string | null> => {
+            if (!clientSessionsByProcess) {
+                clientSessionsByProcess = await this.dependencies.client.getClientSessionsByProcess();
             }
-            const processId = await resolveProcessId(attach.processId);
+            return clientSessionsByProcess.get(processId) || null;
+        };
+        for (const { terminal, attach, processId } of resolved) {
             if (processId === null) {
                 continue;
             }
@@ -570,7 +583,7 @@ implements AiSessionExecutableRuntimeBackend<TTerminal> {
                 ? Boolean(recovery) || terminalMatchesBinding(attach, binding, launchSessionName)
                 : false;
             const liveSessionName = !bindingMatchesTerminal && launchSessionName === null
-                ? await this.dependencies.client.getClientSessionForProcess(processId)
+                ? await liveSessionForProcess(processId)
                 : launchSessionName;
             let runtime = bindingMatchesTerminal ? this.runtimeForBinding(binding as TmuxAttachBinding)
                 : await this.runtimeForAttachSession(liveSessionName);

@@ -403,6 +403,10 @@ function createTmuxRuntimeHarness(layout, options = {}) {
             operations.push({ type: 'get-client-session', processId });
             return clientSessionsByProcessId.get(processId) || null;
         },
+        getClientSessionsByProcess: async () => {
+            operations.push({ type: 'get-client-sessions' });
+            return new Map(clientSessionsByProcessId);
+        },
         listWindows: async () => {
             operations.push({ type: 'list-windows' });
             if (listError) throw listError;

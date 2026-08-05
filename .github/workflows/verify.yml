@@ -89,6 +89,49 @@ jobs:
       - name: Run isolated real-tmux smoke gate
         run: npm run test:tmux:smoke
 
+  extension-host-linux:
+    name: extension-host-linux
+    # Advisory PR gate: real VS Code activation smoke, only when the command
+    # surface or the harness itself changed. Not a required check yet.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Detect extension-host-relevant changes
+        id: changes
+        run: |
+          if git diff --name-only "origin/${{ github.base_ref }}...HEAD" -- \
+              package.json \
+              src/dashboard.ts \
+              extensions \
+              tests/extension-host \
+              scripts/run-extension-host-tests.js \
+              scripts/run-extension-host-worker.js \
+              scripts/lib/extensionHostLauncher.js | grep -q .; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "relevant=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Setup Node
+        if: steps.changes.outputs.relevant == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.12.0
+          cache: npm
+      - name: Install dependencies
+        if: steps.changes.outputs.relevant == 'true'
+        run: npm ci
+      - name: Install Xvfb
+        if: steps.changes.outputs.relevant == 'true'
+        run: sudo apt-get install -y xvfb
+      - name: Run Extension Host smoke
+        if: steps.changes.outputs.relevant == 'true'
+        run: xvfb-run -a npm run test:extension-host
+
   merge-approval-audit:
     name: merge-approval-audit
     # Post-merge backstop: only meaningful on the default branch.

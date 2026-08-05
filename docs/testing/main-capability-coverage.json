@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "1f76af30e55e5801ff0908f9673625b98e1d13fe",
+        "head": "fb76fbaed8adbae010148a9d0322e7c9f3a40a9f",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -135,7 +135,8 @@
             "4d1bbc3a1e04d7c17a173fec51f36aaa311d7a71",
             "cc0386c57b9b30ae01b4be64aefa9e8d8b4c0042",
             "3b531708f9edfc5ddbd5f7484f822c8099ecaab3",
-            "1f76af30e55e5801ff0908f9673625b98e1d13fe"
+            "1f76af30e55e5801ff0908f9673625b98e1d13fe",
+            "57a90bc92f06d1143b418fa3737f11d1f74083c9"
         ]
     },
     "capabilities": [
@@ -837,7 +838,10 @@
                 "cf9022357308f9a5a45f8cf5523ce6a9cb94bd6d",
                 "202a407eee5c56c91e9a1a6e2e1ea78990fcf98d",
                 "7014d420067a4e2d95fbfcd21b40201ab6b5485b",
-                "f0a0a93cd0b01d606d4f3479f6d60a3c7c8f63a6"
+                "f0a0a93cd0b01d606d4f3479f6d60a3c7c8f63a6",
+                "4ea1cdb42f68bd853797824a5b976f3049dbba3d",
+                "b5833dc9dbabe561820ff330db4354e836859767",
+                "fb76fbaed8adbae010148a9d0322e7c9f3a40a9f"
             ],
             "behaviors": [
                 "RUNTIME-TMUX-BACKEND-001",
@@ -856,7 +860,8 @@
                 "WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-001",
                 "PERSIST-MULTI-PROVIDER-BATCH-ARCHIVE-001",
                 "AI-SESSION-PROVIDER-ICON-001",
-                "RUNTIME-TMUX-TERMINATE-SESSION-001"
+                "RUNTIME-TMUX-TERMINATE-SESSION-001",
+                "RUNTIME-TMUX-ATTACH-RESTORE-CONCURRENCY-001"
             ],
             "prGates": [
                 "test:ci:linux",

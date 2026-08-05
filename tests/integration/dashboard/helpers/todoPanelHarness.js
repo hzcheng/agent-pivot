@@ -189,8 +189,8 @@ if (mode === 'missing-live-probe') {
         'if (error instanceof types_1.UnsupportedTodoDataVersionError)');
 } else if (mode === 'missing-view-registration') {
     transform = source => source.replace(
-        'context.subscriptions.push(vscode.window.registerWebviewViewProvider(constants_1.AGENT_PIVOT_DASHBOARD_VIEW_ID, provider));',
-        'context.subscriptions.push({ dispose: () => undefined });');
+        'vscode.window.registerWebviewViewProvider',
+        '((_viewId, _provider, _options) => ({ dispose: () => undefined }))');
 }
 
 runTodoPanelContract(transform).catch(error => {

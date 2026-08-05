@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "8a21bfdda38027a0970fd4b01dfd9bb029928274",
+        "head": "4475d2c1b5a1f16ee1950ddeaeb783e188ede071",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -129,7 +129,8 @@
             "1b90455b3055ff675a17a93a016ddc162ab5eba3",
             "a07588151b5209f33971c0f6a5b2c7401ab38546",
             "22af2cec2ef399860fa92bc10a97fab0df4dc9a9",
-            "8b0df252fdea186bf8d8f4291f91fb3aef9ca81d"
+            "8b0df252fdea186bf8d8f4291f91fb3aef9ca81d",
+            "afc02d771d7cacd7d590a44e384d24ab6108be14"
         ]
     },
     "capabilities": [
@@ -435,7 +436,8 @@
                 "47fd52eda4c1c3b1469d5b3cd9b3eb45d098f516",
                 "e2e32b9e3706fc3100667f1236ee56fd90ca27d6",
                 "08f7837ea30b562e6e3a1a705dfac474b6f88a2d",
-                "0aa444ce65cfcd15d442289db8e69d668f0afa95"
+                "0aa444ce65cfcd15d442289db8e69d668f0afa95",
+                "2340f5e7588b35972ac7a611a7fbdadb500bf645"
             ],
             "behaviors": [
                 "RUNTIME-RUNTIME-COORDINATOR-001",
@@ -986,7 +988,8 @@
                 "14c1213f64d62dad5cf200d642c83cdadd608b5f",
                 "d474d872dc937c72c39d92cde988b46c5844dbbb",
                 "699ad0032eeb22c9ebf065356e68ef889eb05f45",
-                "8a21bfdda38027a0970fd4b01dfd9bb029928274"
+                "8a21bfdda38027a0970fd4b01dfd9bb029928274",
+                "4475d2c1b5a1f16ee1950ddeaeb783e188ede071"
             ],
             "behaviors": [
                 "ARCH-CI-QUALITY-GATE-001",

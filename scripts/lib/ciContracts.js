@@ -150,6 +150,20 @@ function validateVerifyWorkflow(verifyWorkflow) {
     validateJob(workflow.jobs, 'platform-windows', 'windows-latest', 'npm run test:ci:windows');
     validateJob(workflow.jobs, 'tmux-smoke-linux', 'ubuntu-latest',
         'npm run test:tmux:smoke', ['sudo apt-get install -y tmux']);
+    validateJob(
+        workflow.jobs,
+        'extension-host-linux',
+        'ubuntu-latest',
+        'xvfb-run -a npm run test:extension-host',
+        ['sudo apt-get install -y xvfb'],
+        true,
+        15
+    );
+    assert.equal(
+        workflow.jobs['extension-host-linux'].if,
+        "github.event_name == 'pull_request'",
+        'extension-host-linux must stay a pull_request-only advisory gate'
+    );
     assert.equal(containsKey(workflow, 'continue-on-error'), false,
         'GitHub verification workflow must not define continue-on-error');
 }

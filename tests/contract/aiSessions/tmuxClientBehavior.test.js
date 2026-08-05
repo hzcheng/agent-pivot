@@ -261,6 +261,54 @@ test('RUNTIME-TMUX-CLIENT-001 resolves a live terminal process to exactly one tm
     await assert.rejects(client.getClientSessionForProcess(0), TypeError);
 });
 
+test('RUNTIME-TMUX-CLIENT-001 lists live tmux client sessions by process in one snapshot', async () => {
+    const calls = [];
+    let result = {
+        exitCode: 0,
+        stdout: [
+            '4311|:ap-field:|other-session',
+            '4312|:ap-field:|managed-session',
+        ].join('\n') + '\n',
+        stderr: '',
+    };
+    const client = new TmuxClient('/private/tmux', {
+        run: async (_file, args) => {
+            calls.push(args);
+            return availabilityResult(args) || result;
+        },
+    });
+
+    const sessions = await client.getClientSessionsByProcess();
+    assert.deepEqual([...sessions.entries()], [[4311, 'other-session'], [4312, 'managed-session']]);
+    assert.deepEqual(calls.at(-1), [
+        'list-clients', '-F', '#{client_pid}|:ap-field:|#{session_name}',
+    ]);
+
+    result = {
+        exitCode: 1,
+        stdout: '',
+        stderr: 'no server running on /private/tmux-1000/default',
+    };
+    assert.deepEqual([...(await client.getClientSessionsByProcess()).entries()], []);
+
+    result = { exitCode: 0, stdout: '4312|:ap-field:|a\n4312|:ap-field:|b\n', stderr: '' };
+    await assert.rejects(
+        client.getClientSessionsByProcess(),
+        error => error instanceof TmuxClientError
+            && error.operation === 'list-clients'
+            && error.category === 'invalid-output'
+    );
+
+    result = { exitCode: 2, stdout: 'secret stdout', stderr: 'secret stderr' };
+    await assert.rejects(
+        client.getClientSessionsByProcess(),
+        error => error instanceof TmuxClientError
+            && error.operation === 'list-clients'
+            && error.category === 'nonzero-exit'
+            && !error.message.includes('secret')
+    );
+});
+
 test('RUNTIME-TMUX-CLIENT-001 reads and writes metadata options and maps runner failures safely', async () => {
     const calls = [];
     const values = {

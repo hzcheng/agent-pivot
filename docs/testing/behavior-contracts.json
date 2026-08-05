@@ -1646,6 +1646,19 @@
     ]
   },
   {
+    "id": "RUNTIME-TMUX-ATTACH-RESTORE-CONCURRENCY-001",
+    "domain": "runtime",
+    "title": "Reload attach restore resolves terminal process IDs concurrently and shares one live-client list per pass",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/contract/aiSessions/runtimeBackends.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/tmuxRuntimeBackend.ts"
+    ]
+  },
+  {
     "id": "RUNTIME-TMUX-WEBVIEW-EXPERIENCE-001",
     "domain": "runtime",
     "title": "Tmux Webview Experience behavior",

@@ -355,6 +355,7 @@ function createTmuxBackendHarness(options = {}) {
         },
         getExecutablePath: () => '/opt/tmux',
         getClientSessionForProcess: async () => null,
+        getClientSessionsByProcess: async () => new Map(),
         setExecutablePath: () => undefined,
         listWindows: async () => {
             operations.push({ type: 'list-windows' });

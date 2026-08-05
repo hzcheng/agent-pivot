@@ -36,6 +36,17 @@ function createLaunchProbe(request) {
     };
 }
 
+function plainRestoredTerminal(name, processId) {
+    return {
+        name,
+        processId: Promise.resolve(processId),
+        shown: false,
+        disposed: false,
+        show() { this.shown = true; },
+        dispose() { this.disposed = true; },
+    };
+}
+
 // SESSION-DIRECT-BACKEND-001
 defineRuntimeContract({
     backendId: 'vscode',
@@ -86,10 +97,110 @@ for (const layout of ['project', 'session']) {
         );
         assert.equal(originalTerminal.shown, true);
         assert.equal(
-            harness.operations.some(operation => operation.type === 'get-client-session'),
+            harness.operations.some(operation => operation.type === 'get-client-sessions'),
             true,
             'reload recovery must use the live terminal process when VS Code metadata is unavailable'
         );
+    });
+
+    test(`RUNTIME-TMUX-ATTACH-RESTORE-CONCURRENCY-001 [tmux ${layout}] reload restore subscribes to every terminal process ID before any of them resolves`, async () => {
+        const harness = createTmuxRuntimeHarness(layout);
+        const runtime = await harness.backend.ensureResume(fakeResumeRequest(`concurrent-${layout}`), layout);
+        await harness.dependencies.attachStore.flush();
+        assert.equal(harness.terminals.length, 1);
+        harness.terminals.push(plainRestoredTerminal('bash', 9421));
+
+        const reloadedBackend = harness.createReloadedBackend();
+        const subscriptions = [];
+        const releases = [];
+        harness.terminals.forEach((terminal, index) => {
+            const originalProcessId = terminal.processId;
+            let unblocked = false;
+            terminal.processId = {
+                then: (onFulfilled, onRejected) => {
+                    if (unblocked) {
+                        return Promise.resolve(originalProcessId).then(onFulfilled, onRejected);
+                    }
+                    subscriptions.push(index);
+                    const released = new Promise(resolve => releases.push(() => {
+                        unblocked = true;
+                        resolve(originalProcessId);
+                    }));
+                    return released.then(onFulfilled, onRejected);
+                },
+            };
+        });
+
+        const restore = reloadedBackend.restoreAttachTerminals(harness.terminals);
+        await new Promise(resolve => setImmediate(resolve));
+        assert.deepEqual([...subscriptions].sort(), [0, 1],
+            'restore must start resolving every terminal process ID before any of them settles');
+
+        for (const release of releases) {
+            release();
+        }
+        await restore;
+
+        const viewerCount = harness.viewerCount();
+        await reloadedBackend.focus(reloadedBackend.find(runtime.identity)[0]);
+        assert.equal(harness.viewerCount(), viewerCount,
+            'attach terminals restored after reload must be reused instead of recreated');
+        assert.equal(harness.terminals[0].shown, true);
+        assert.equal(harness.terminals[1].shown, false,
+            'plain terminals must not be attached');
+    });
+
+    test(`RUNTIME-TMUX-ATTACH-RESTORE-CONCURRENCY-001 [tmux ${layout}] reload restore shares one live-client list across terminals`, async () => {
+        const harness = createTmuxRuntimeHarness(layout);
+        const runtime = await harness.backend.ensureResume(fakeResumeRequest(`batch-${layout}`), layout);
+        await harness.dependencies.attachStore.flush();
+        harness.loseReloadAttachMetadata(harness.terminals[0]);
+        harness.terminals.push(
+            plainRestoredTerminal('bash', 9501),
+            plainRestoredTerminal('zsh', 9502),
+        );
+
+        const reloadedBackend = harness.createReloadedBackend();
+        await reloadedBackend.restoreAttachTerminals(harness.terminals);
+
+        assert.equal(
+            harness.operations.filter(operation => operation.type === 'get-client-sessions').length,
+            1,
+            'live client recovery must reuse one list-clients snapshot per restore pass'
+        );
+        assert.equal(
+            harness.operations.some(operation => operation.type === 'get-client-session'),
+            false,
+            'restore must not spawn one tmux list-clients invocation per terminal'
+        );
+
+        const viewerCount = harness.viewerCount();
+        await reloadedBackend.focus(reloadedBackend.find(runtime.identity)[0]);
+        assert.equal(harness.viewerCount(), viewerCount,
+            'the attach terminal recovered through the live client list must be reused');
+        assert.equal(harness.terminals[0].shown, true);
+        assert.equal(harness.terminals[1].shown, false);
+        assert.equal(harness.terminals[2].shown, false);
+    });
+
+    test(`RUNTIME-TMUX-ATTACH-RESTORE-CONCURRENCY-001 [tmux ${layout}] terminals without process IDs are skipped without blocking the rest`, async () => {
+        const harness = createTmuxRuntimeHarness(layout);
+        const runtime = await harness.backend.ensureResume(fakeResumeRequest(`unresolved-pid-${layout}`), layout);
+        await harness.dependencies.attachStore.flush();
+
+        const reloadedBackend = harness.createReloadedBackend();
+        const plainTerminal = plainRestoredTerminal('bash', 9377);
+        plainTerminal.processId = Promise.resolve(undefined);
+
+        await reloadedBackend.restoreAttachTerminals([plainTerminal, ...harness.terminals]);
+
+        assert.equal(plainTerminal.shown, false,
+            'a terminal whose process ID never resolves must not be attached');
+        const viewerCount = harness.viewerCount();
+        await reloadedBackend.focus(reloadedBackend.find(runtime.identity)[0]);
+        assert.equal(harness.viewerCount(), viewerCount,
+            'the attach terminal with a live process must still be restored and reused');
+        assert.equal(harness.terminals[0].shown, true);
     });
 
     test(`RUNTIME-TMUX-BACKEND-001 [tmux ${layout}] creates a recoverable tmux attach terminal`, async () => {

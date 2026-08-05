@@ -52,6 +52,34 @@ test('RUNTIME-REAL-TMUX-CI-GATE-001 requires tmux installation in the smoke job'
     );
 });
 
+test('ARCH-CI-QUALITY-GATE-001 requires the extension host smoke to run headless on PRs', () => {
+    const directRunWorkflow = verifyWorkflow.replace(
+        '        run: xvfb-run -a npm run test:extension-host',
+        '        run: npm run test:extension-host'
+    );
+    assert.throws(
+        () => validateVerifyWorkflow(directRunWorkflow),
+        /extension-host-linux must run xvfb-run -a npm run test:extension-host/
+    );
+});
+
+test('ARCH-CI-QUALITY-GATE-001 keeps the Windows gate on meaningful platform coverage', () => {
+    const windows = packageScripts['test:ci:windows'];
+    for (const required of [
+        'tests/platform/windows/commandBuilders.test.js',
+        'tests/platform/windows/projectPaths.test.js',
+        'tests/platform/windows/conversationSources.test.js',
+        'tests/unit/projects/projectPathUtils.test.js',
+        'tests/unit/projects/orderAndFavorites.test.js',
+        'tests/unit/projects/workspaceAndOpenMatching.test.js',
+        'tests/unit/aiSessions/commandBuilders.test.js',
+        'tests/unit/todos/types.test.js',
+        'tests/unit/prompts/service.test.js',
+    ]) {
+        assert.ok(windows.includes(required), `test:ci:windows must run ${required}`);
+    }
+});
+
 test('RELEASE-VSIX-PACKAGING-001 rejects workflow requirements that appear only in comments', () => {
     const commentOnlyWorkflow = verifyWorkflow
         .split('\n')

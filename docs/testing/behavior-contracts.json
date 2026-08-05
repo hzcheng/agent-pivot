@@ -4455,7 +4455,8 @@
     "owners": [
       "scripts/run-skill-management-checks.js"
     ,
-      "tests/contract/skills/skillPanelCapability.test.js"
+      "tests/contract/skills/skillPanelCapability.test.js",
+      "tests/contract/skills/skillCentralAndScope.test.js"
     ],
     "evidence": [
       "src/skills/centralService.ts",
@@ -4506,7 +4507,8 @@
       "scripts/run-skill-management-checks.js",
       "tests/browser/skillsFolderTree.test.js"
     ,
-      "tests/contract/skills/skillPanelCapability.test.js"
+      "tests/contract/skills/skillPanelCapability.test.js",
+      "tests/contract/skills/skillCentralAndScope.test.js"
     ],
     "evidence": [
       "src/skills/scopeService.ts",

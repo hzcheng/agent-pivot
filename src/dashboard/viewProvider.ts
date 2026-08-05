@@ -124,7 +124,6 @@ export class AgentPivotViewProvider implements vscode.WebviewViewProvider {
             void this.prepareVisibility(
                 webviewView,
                 () => this._view === webviewView,
-                false,
             ).catch(_error => undefined);
         }
         return true;
@@ -202,6 +201,7 @@ export class AgentPivotViewProvider implements vscode.WebviewViewProvider {
             });
         }
         if (this.lifecycle.kind === 'ready') {
+            this.refresh();
             void this.prepareVisibility(webviewView, isCurrent);
             return;
         }
@@ -353,24 +353,21 @@ export class AgentPivotViewProvider implements vscode.WebviewViewProvider {
     private async prepareVisibility(
         webviewView: vscode.WebviewView,
         isCurrent: () => boolean,
-        refresh = true,
     ): Promise<void> {
         const options = this.readyOptions();
         if (!options) {
             return;
         }
+        const visible = webviewView.visible;
         const preparationGeneration = ++this.preparationGeneration;
         const isLatest = () =>
             isCurrent() && preparationGeneration === this.preparationGeneration;
         if (!isLatest()) {
             return;
         }
-        if (refresh && webviewView.visible) {
-            this.refresh();
-        }
         try {
-            await options.onVisibleChanged(webviewView.visible);
-            if (!isLatest() || !webviewView.visible) {
+            await options.onVisibleChanged(visible);
+            if (!isLatest() || !visible || !webviewView.visible) {
                 return;
             }
             await options.onVisiblePrepared?.();

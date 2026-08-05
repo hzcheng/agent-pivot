@@ -3,6 +3,7 @@
 import type { TmuxFocusedRuntimeSyncResult } from './tmuxRuntimeBackend';
 
 export const TMUX_FOCUSED_RUNTIME_CHECK_INTERVAL_MS = 1000;
+const MAX_FOCUSED_RUNTIME_CHECK_DELAY_MS = 4000;
 
 export interface TmuxFocusedRuntimeMonitorOptions<TTerminal> {
     isVisible(): boolean;
@@ -12,11 +13,15 @@ export interface TmuxFocusedRuntimeMonitorOptions<TTerminal> {
     onError(error: unknown): void;
     setInterval(callback: () => void, intervalMs: number): unknown;
     clearInterval(handle: unknown): void;
+    /** Test hook for the backoff cadence; defaults to Date.now. */
+    nowMs?(): number;
 }
 
 export class TmuxFocusedRuntimeMonitor<TTerminal> {
     private interval: unknown = null;
     private inFlight: Promise<void> | null = null;
+    private currentDelayMs = TMUX_FOCUSED_RUNTIME_CHECK_INTERVAL_MS;
+    private nextTimerSyncAtMs = 0;
     private disposed = false;
 
     constructor(private readonly options: TmuxFocusedRuntimeMonitorOptions<TTerminal>) { }
@@ -26,12 +31,37 @@ export class TmuxFocusedRuntimeMonitor<TTerminal> {
             return;
         }
         this.interval = this.options.setInterval(
-            () => { void this.request(); },
+            () => this.requestFromTimer(),
             TMUX_FOCUSED_RUNTIME_CHECK_INTERVAL_MS
         );
     }
 
+    // The timer keeps its 1s beat (and its pinned contract), but quiet periods
+    // skip beats: unchanged results double the gap up to 4s, any change snaps
+    // back to 1s. Each timer-driven sync still spawns a private tmux query, so
+    // this is where the steady-state subprocess churn is saved.
+    private requestFromTimer(): void {
+        if (this.disposed) {
+            return;
+        }
+        if (this.now() < this.nextTimerSyncAtMs) {
+            return;
+        }
+        void this.runRequest(true);
+    }
+
+    private now(): number {
+        return this.options.nowMs ? this.options.nowMs() : Date.now();
+    }
+
+    /** Explicit requests (focus/visibility events) run immediately at the fast cadence. */
     request(): Promise<void> {
+        this.currentDelayMs = TMUX_FOCUSED_RUNTIME_CHECK_INTERVAL_MS;
+        this.nextTimerSyncAtMs = 0;
+        return this.runRequest(false);
+    }
+
+    private runRequest(fromTimer: boolean): Promise<void> {
         if (this.disposed || !this.options.isVisible()) {
             return Promise.resolve();
         }
@@ -52,6 +82,12 @@ export class TmuxFocusedRuntimeMonitor<TTerminal> {
             if (!this.disposed && result.changed && this.options.isVisible()
                 && this.options.getActiveTerminal() === terminal) {
                 this.options.refresh();
+            }
+            if (fromTimer && !this.disposed) {
+                this.currentDelayMs = result.changed
+                    ? TMUX_FOCUSED_RUNTIME_CHECK_INTERVAL_MS
+                    : Math.min(this.currentDelayMs * 2, MAX_FOCUSED_RUNTIME_CHECK_DELAY_MS);
+                this.nextTimerSyncAtMs = this.now() + this.currentDelayMs;
             }
         }, error => {
             try {

@@ -9,6 +9,7 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 
 const { createAiSessionStatusCapability } = require('../../../out/aiSessions/statusCapability');
+const { AiSessionAttentionController } = require('../../../out/aiSessions/attentionController');
 const { createAiSessionRuntimeSettlementCapability } = require('../../../out/aiSessions/runtimeSettlementCapability');
 const { TmuxFocusedRuntimeMonitor } = require('../../../out/aiSessions/tmuxFocusedRuntimeMonitor');
 
@@ -87,6 +88,59 @@ test('PERSIST-INCREMENTAL-JSONL-LIFECYCLE-READER-001 idle status tick performs n
     // The attention evaluation queue evaluates asynchronously.
     await new Promise(resolve => setImmediate(resolve));
     assert.strictEqual(runtimeReconciliations, 1);
+
+    capability.dispose();
+});
+
+test('PERSIST-INCREMENTAL-JSONL-LIFECYCLE-READER-001 status ticks reuse the stable attention workspace snapshot', async () => {
+    let workspaceTargetReads = 0;
+    let workspaceIdentity = 'scope:fixture';
+    const attentionController = new AiSessionAttentionController({
+        isEnabled: () => true,
+        getWorkspaceIdentity: () => workspaceIdentity,
+        getWorkspaceTarget: () => {
+            workspaceTargetReads += 1;
+            return {
+                cardId: 'current',
+                workspace: { scopeIdentity: workspaceIdentity, roots: [] },
+                sessions: { sessionsByProvider: {} },
+            };
+        },
+        getProviders: () => [],
+        getRuntimeById: () => null,
+        publish: () => Promise.resolve(true),
+        scheduleRefresh: () => undefined,
+        nowMs: () => 0,
+    });
+    const capability = createAiSessionStatusCapability({
+        getProviders: () => [],
+        getLifecycleRequests: () => [attentionController.getLifecycleRequests()],
+        evaluateExecution: () => undefined,
+        evaluateAttentionSignals: signals => attentionController.evaluate([], signals),
+        evaluateAttentionRuntimes: () => Promise.resolve({}),
+        onFailure: () => undefined,
+        setInterval: () => ({}),
+        clearInterval: () => undefined,
+    });
+    const tick = async () => {
+        capability.tick();
+        await new Promise(resolve => setImmediate(resolve));
+    };
+
+    await tick();
+    await tick();
+    assert.strictEqual(workspaceTargetReads, 1,
+        'resident ticks must not rebuild the workspace cards and session hydration');
+
+    attentionController.invalidateWorkspaceTarget();
+    await tick();
+    assert.strictEqual(workspaceTargetReads, 2,
+        'an explicit catalog invalidation must refresh the cached workspace target');
+
+    workspaceIdentity = 'scope:other';
+    await tick();
+    assert.strictEqual(workspaceTargetReads, 3,
+        'changing workspaces must refresh the cached workspace target');
 
     capability.dispose();
 });

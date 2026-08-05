@@ -372,6 +372,26 @@ test('OPEN-OPEN-PROJECT-DASHBOARD-CONTROLLER-001 retries undelivered and rejecte
     assert.deepEqual(errors, [['Failed to post OPEN WORKSPACE update message.', 'webview closed']]);
 });
 
+test('OPEN-OPEN-PROJECT-INCREMENTAL-RENDERING-001 renderer-ready replay never falls back to a self-refresh loop', async () => {
+    const refreshes = [];
+    const errors = [];
+    let delivery = () => Promise.resolve(false);
+    const controller = new OpenWorkspaceDashboardController(createOptions({
+        postMessage: () => delivery(),
+        refresh: reason => refreshes.push(reason),
+        logError: (message, error) => errors.push([message, error.message]),
+    }));
+
+    controller.postUpdated({ fallbackToFullRefresh: false });
+    await flushAsync();
+    delivery = () => Promise.reject(new Error('webview closed'));
+    controller.postUpdated({ fallbackToFullRefresh: false });
+    await flushAsync();
+
+    assert.deepEqual(refreshes, []);
+    assert.deepEqual(errors, [['Failed to post OPEN WORKSPACE update message.', 'webview closed']]);
+});
+
 test('PERSIST-DASHBOARD-MIGRATION-PUBLICATION-001 republishes only after migrated project metadata is visible', async () => {
     const events = [];
     let metadata = 'before-migration';

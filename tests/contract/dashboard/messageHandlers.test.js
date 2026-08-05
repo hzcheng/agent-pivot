@@ -65,6 +65,7 @@ function createFixture(overrides = {}) {
         refreshStewardViews: reason => calls.push(['refreshStewardViews', reason]),
         requestActiveAiSessionTerminalHighlight: () => calls.push(['requestHighlight']),
         postAiSessionAttentionState: () => calls.push(['postAttentionState']),
+        onOpenWorkspacesRendererReady: () => calls.push(['openWorkspacesRendererReady']),
         showAgentPivotSettings: async () => { calls.push(['showSettings']); },
         showBridgeExtension: async () => { calls.push(['showBridgeExtension']); },
     });
@@ -91,6 +92,7 @@ test('WEBVIEW-DASHBOARD-MESSAGE-ROUTER-001 exposes every extracted handler key',
         'rename-ai-session',
         'copy-ai-session-id',
         'request-full-refresh',
+        'open-workspaces-renderer-ready',
         'open-workspaces-rendered',
         'request-active-ai-session-terminal',
         'request-ai-session-attention-state',
@@ -192,6 +194,9 @@ test('WEBVIEW-DASHBOARD-MESSAGE-ROUTER-001 delegates the simple openers and stat
 
     await handlers['request-active-ai-session-terminal']({});
     await handlers['request-ai-session-attention-state']({});
+    await handlers['open-workspaces-renderer-ready']({
+        type: 'open-workspaces-renderer-ready', version: 1,
+    });
     await handlers['open-settings']({});
     await handlers['open-bridge-extension']({});
     await handlers['acknowledge-ai-session-attention']({ eventIds: ['a', 1, 'b'] });
@@ -199,10 +204,28 @@ test('WEBVIEW-DASHBOARD-MESSAGE-ROUTER-001 delegates the simple openers and stat
     assert.deepEqual(calls, [
         ['requestHighlight'],
         ['postAttentionState'],
+        ['rendererDiagnostic', 'Renderer', {
+            event: 'open-workspaces-renderer-ready',
+        }],
+        ['openWorkspacesRendererReady'],
         ['showSettings'],
         ['showBridgeExtension'],
         ['acknowledgeAttention', ['a', 'b']],
     ], 'non-string attention event ids are filtered before acknowledgement');
+});
+
+test('WEBVIEW-DASHBOARD-MESSAGE-ROUTER-001 rejects malformed open-workspaces renderer readiness', async () => {
+    const { handlers, calls } = createFixture();
+
+    await handlers['open-workspaces-renderer-ready']({});
+    await handlers['open-workspaces-renderer-ready']({
+        type: 'open-workspaces-renderer-ready', version: 2,
+    });
+    await handlers['open-workspaces-renderer-ready']({
+        type: 'open-workspaces-renderer-ready', version: 1, extra: true,
+    });
+
+    assert.deepEqual(calls, []);
 });
 
 test('SESSION-AI-SESSION-TERMINAL-COMMAND-CONTROLLER-001 delegates focus and close flows', async () => {

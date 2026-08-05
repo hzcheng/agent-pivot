@@ -28,6 +28,7 @@ export interface DashboardMessageHandlersOptions {
     acknowledgeAiSessionAttentionEventIds: (eventIds: string[]) => Promise<void>;
     logOpenWorkspaceDiagnostic: (component: string, event: unknown) => void;
     refreshStewardViews: (reason?: string) => void;
+    onOpenWorkspacesRendererReady: () => void;
     /** Late-bound: the highlighter is constructed after the message router. */
     requestActiveAiSessionTerminalHighlight: () => void;
     postAiSessionAttentionState: () => void;
@@ -61,6 +62,7 @@ export function createDashboardMessageHandlers(
     const acknowledgeAiSessionAttentionEventIds = options.acknowledgeAiSessionAttentionEventIds;
     const logOpenWorkspaceDiagnostic = options.logOpenWorkspaceDiagnostic;
     const refreshStewardViews = options.refreshStewardViews;
+    const onOpenWorkspacesRendererReady = options.onOpenWorkspacesRendererReady;
     const requestActiveAiSessionTerminalHighlight = options.requestActiveAiSessionTerminalHighlight;
     const postAiSessionAttentionState = options.postAiSessionAttentionState;
     const showAgentPivotSettings = options.showAgentPivotSettings;
@@ -185,6 +187,17 @@ export function createDashboardMessageHandlers(
                 reason: typeof e.reason === 'string' ? e.reason.slice(0, 256) : 'unknown',
             });
             refreshStewardViews(typeof e.reason === 'string' ? e.reason.slice(0, 256) : 'webview-requested');
+        },
+        'open-workspaces-renderer-ready': e => {
+            if (Object.keys(e).length !== 2
+                || e.type !== 'open-workspaces-renderer-ready'
+                || e.version !== 1) {
+                return;
+            }
+            logOpenWorkspaceDiagnostic('Renderer', {
+                event: 'open-workspaces-renderer-ready',
+            });
+            onOpenWorkspacesRendererReady();
         },
         'open-workspaces-rendered': e => {
             logOpenWorkspaceDiagnostic('Renderer', {

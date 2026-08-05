@@ -6706,11 +6706,18 @@ function runBatchAiSessionWebviewChecks() {
     context.initProjects();
 
     const messageListenerIndex = source.indexOf("window.addEventListener('message', onWindowMessage)");
+    const rendererReadyIndex = source.indexOf("type: 'open-workspaces-renderer-ready'");
     const activeTerminalRequestIndex = source.indexOf("type: 'request-active-ai-session-terminal'");
     assert.notStrictEqual(messageListenerIndex, -1);
+    assert.notStrictEqual(rendererReadyIndex, -1);
     assert.notStrictEqual(activeTerminalRequestIndex, -1);
-    assert.ok(messageListenerIndex < activeTerminalRequestIndex);
+    assert.ok(messageListenerIndex < rendererReadyIndex);
+    assert.ok(rendererReadyIndex < activeTerminalRequestIndex);
     assert.ok(windowEventListeners.message);
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(messages.shift())), {
+        type: 'open-workspaces-renderer-ready',
+        version: 1,
+    });
     assert.deepStrictEqual(JSON.parse(JSON.stringify(messages.shift())), {
         type: 'request-active-ai-session-terminal',
     });

@@ -1834,6 +1834,7 @@ function createProjectVm({
     const documentListeners = {};
     const windowListeners = {};
     const messages = [];
+    const initializationEvents = [];
     const replacedCatalogs = [];
     let webviewState = { unrelated: 'preserved' };
     const context = {
@@ -1864,11 +1865,17 @@ function createProjectVm({
         window: {
             innerWidth: 1024,
             innerHeight: 768,
-            addEventListener: (type, listener) => { windowListeners[type] = listener; },
+            addEventListener: (type, listener) => {
+                windowListeners[type] = listener;
+                initializationEvents.push(`listener:${type}`);
+            },
             requestAnimationFrame: callback => callback(),
             setTimeout: callback => callback(),
             vscode: {
-                postMessage: message => messages.push(message),
+                postMessage: message => {
+                    messages.push(message);
+                    initializationEvents.push(`message:${message.type}`);
+                },
                 getState: () => webviewState,
                 setState: state => { webviewState = state; },
             },
@@ -1881,8 +1888,18 @@ function createProjectVm({
     vm.runInNewContext(scrollStateSource, context);
     vm.runInNewContext(source, context);
     context.initProjects();
+    const initialMessages = messages.map(message => ({ ...message }));
     messages.length = 0;
-    return { context, documentListeners, windowListeners, messages, replacedCatalogs, getWebviewState: () => webviewState };
+    return {
+        context,
+        documentListeners,
+        windowListeners,
+        messages,
+        initialMessages,
+        initializationEvents,
+        replacedCatalogs,
+        getWebviewState: () => webviewState,
+    };
 }
 
 function createCrossProviderBatchProject() {
@@ -2286,6 +2303,19 @@ test('SESSION-CONTROLLER-001 preserves AI tab helpers, persisted state, and sema
     assert.equal(historyList.scrollTop, 29);
     assert.equal(tabs[0].getAttribute('aria-selected'), 'true');
     assert.equal(tabs[1].getAttribute('aria-selected'), 'false');
+});
+
+test('OPEN-OPEN-PROJECT-INCREMENTAL-RENDERING-001 announces renderer readiness after installing the message listener', () => {
+    const harness = createProjectVm();
+    assert.deepEqual(toPlain(harness.initialMessages[0]), {
+        type: 'open-workspaces-renderer-ready',
+        version: 1,
+    });
+    assert.ok(
+        harness.initializationEvents.indexOf('listener:message')
+            < harness.initializationEvents.indexOf('message:open-workspaces-renderer-ready'),
+        'the host handshake must not race ahead of the installed message listener',
+    );
 });
 
 function assertCollapseButtonBehavior(context) {

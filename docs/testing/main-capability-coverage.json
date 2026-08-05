@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "9111829c98e594f2cde4c24803449e045955fb92",
+        "head": "ce77d458452d77fa64281a3e160c683afa46880e",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -142,7 +142,8 @@
             "afa2f485202870540d17c33608512c2ec42a481a",
             "63cd5d2f5d69ee92d9d60cc96cb08e30eb546107",
             "275a72370040a46240e980522b93a5bd6eaa8ab3",
-            "dbd8578d82d5629db962805fce9d1d4f0e9ae678"
+            "dbd8578d82d5629db962805fce9d1d4f0e9ae678",
+            "b686c08e36abd26c9c0c9eb93bc662ff4c1940da"
         ]
     },
     "capabilities": [
@@ -919,7 +920,8 @@
                 "adf59d17328ff629dece01d2dcb32953512995aa",
                 "5a25b7235bc87ef798884d88f1fce06fcde091ac",
                 "ca08c5218352a702fd36d0abbab7ac418663388b",
-                "9111829c98e594f2cde4c24803449e045955fb92"
+                "9111829c98e594f2cde4c24803449e045955fb92",
+                "ce77d458452d77fa64281a3e160c683afa46880e"
             ],
             "behaviors": [
                 "RUNTIME-BOOTSTRAP-TMUX-RESTORE-DEFERRAL-001",

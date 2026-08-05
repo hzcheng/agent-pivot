@@ -2778,6 +2778,44 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-BULK-001 CONVERSATION-C
             clearOfFirstCard: true,
         }
     );
+
+    // The composer actions are icon buttons, same family as card actions.
+    assert.deepEqual(
+        await page.evaluate(() => {
+            const actions = document.querySelector(
+                '[data-comment-composer] .conversation-comment-actions'
+            );
+            return Array.from(actions.querySelectorAll('button'))
+                .map(button => {
+                    const box = button.getBoundingClientRect();
+                    return {
+                        action: button.getAttribute('data-comment-action'),
+                        iconOnly: button.innerText === ''
+                            && button.querySelectorAll('svg').length === 1,
+                        iconButtonClass: button.classList.contains(
+                            'conversation-comment-icon-button'
+                        ),
+                        size: Math.round(box.width) + 'x'
+                            + Math.round(box.height),
+                    };
+                });
+        }),
+        [
+            {
+                action: 'cancel-add',
+                iconOnly: true,
+                iconButtonClass: true,
+                size: '22x22',
+            },
+            {
+                action: 'confirm-add',
+                iconOnly: true,
+                iconButtonClass: true,
+                size: '22x22',
+            },
+        ],
+        'composer actions must be 22px icon buttons like the card actions'
+    );
     await page.locator('[data-comment-action="cancel-add"]').click();
 
     await page.setViewportSize({ width: 180, height: 600 });

@@ -26,6 +26,8 @@ const CONVERSATION_NAV_ICON_PREVIOUS = '<svg viewBox="0 0 24 24" fill="none" str
 const CONVERSATION_NAV_ICON_NEXT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>';
 const CONVERSATION_NAV_ICON_LATEST = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 6 5 5 5-5"/><path d="m7 13 5 5 5-5"/></svg>';
 const CONVERSATION_NAV_ICON_SIDEBAR = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/></svg>';
+const CONVERSATION_SESSION_NAV_ICON_PREVIOUS = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m17 18-6-6 6-6"/><path d="M7 6v12"/></svg>';
+const CONVERSATION_SESSION_NAV_ICON_NEXT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 18 6-6-6-6"/><path d="M17 6v12"/></svg>';
 
 export interface ConversationViewerDocumentOptions {
     panel: vscode.WebviewPanel;
@@ -164,6 +166,16 @@ export function renderConversationViewerDocument(
                 </span>
             </div>
         </main>
+        <div class="conversation-session-nav-layer">
+            <button class="conversation-session-nav conversation-session-nav-previous"
+                type="button" data-session-nav="previous"
+                title="Previous active session"
+                aria-label="Previous active session">${CONVERSATION_SESSION_NAV_ICON_PREVIOUS}</button>
+            <button class="conversation-session-nav conversation-session-nav-next"
+                type="button" data-session-nav="next"
+                title="Next active session"
+                aria-label="Next active session">${CONVERSATION_SESSION_NAV_ICON_NEXT}</button>
+        </div>
         <div class="conversation-comments-resizer" data-comments-resizer
             role="separator" aria-label="Resize side panel"
             aria-orientation="vertical" aria-valuemin="192"

@@ -88,6 +88,14 @@ export interface ConversationViewerSendSelectionMessage {
     text: string;
 }
 
+export type ConversationSessionSwitchDirection = 'previous' | 'next';
+
+export interface ConversationViewerSwitchSessionMessage {
+    type: 'conversation-viewer-switch-session';
+    version: 1;
+    direction: ConversationSessionSwitchDirection;
+}
+
 export interface ConversationViewerOpenSubagentMessage {
     type: 'conversation-viewer-open-subagent';
     version: 1;
@@ -105,6 +113,7 @@ export type ConversationViewerMessage =
     | ConversationViewerOpenLinkMessage
     | ConversationViewerOpenWorktreeMessage
     | ConversationViewerSendSelectionMessage
+    | ConversationViewerSwitchSessionMessage
     | ConversationViewerOpenSubagentMessage
     | ConversationViewerCloseSubagentMessage
     | ConversationViewerCommentMutationMessage
@@ -179,6 +188,14 @@ export function parseConversationViewerMessage(
             return undefined;
         }
         return value as unknown as ConversationViewerSendSelectionMessage;
+    }
+    if (value.type === 'conversation-viewer-switch-session') {
+        if (!hasExactKeys(value, ['type', 'version', 'direction'])
+            || (value.direction !== 'previous'
+                && value.direction !== 'next')) {
+            return undefined;
+        }
+        return value as unknown as ConversationViewerSwitchSessionMessage;
     }
     if (value.type === 'conversation-viewer-open-subagent') {
         if (!hasExactKeys(value, ['type', 'version', 'subagentId'])

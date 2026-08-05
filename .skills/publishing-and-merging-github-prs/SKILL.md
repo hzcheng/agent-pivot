@@ -20,6 +20,12 @@ after every GitHub write.
   when more than one repository remote exists; do not rely on automatic remote
   selection.
 - Resolve base branch from the user request first; otherwise use the target repo default.
+- Immediately before final verification, packaging, installation, and push,
+  fetch the target base and inspect whether the feature branch is behind it.
+  If it is behind, rebase before those final steps, reinstall worktree
+  dependencies, and rerun every affected build, local installation, byte
+  verification, and test. Never publish or report artifacts built before the
+  rebase as current.
 - Check for an existing PR with `gh pr list --head <branch> --repo <owner/repo>`.
 
 ## Create PR

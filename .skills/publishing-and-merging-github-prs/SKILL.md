@@ -59,22 +59,23 @@ If push reports HTTP 408, `unexpected EOF`, or an RPC disconnect:
    - `gh pr view <n> --repo <owner/repo> --json state,isDraft,mergeable,mergeStateStatus,statusCheckRollup,baseRefName,headRefName`
    - Inspect failing Actions with `gh pr checks <n> --repo <owner/repo>` and
      `gh run view <run-id> --repo <owner/repo> --log-failed`.
-2. Honor approval gates exactly. If the user said "merge after I approve", stop until that approval is present in the conversation.
-3. If draft and user approved/asked to merge, run `gh pr ready <n>`.
-4. Merge with the repository's expected strategy, or default to merge commit:
+2. Treat every merge as gated by default: a green CI is never merge authorization. After all checks pass, stop, report the state, and wait for an explicit in-conversation approval ("merge", "合并", or equivalent) for this specific PR. This applies to every PR type — refactors, test-only changes, and behavior changes alike. Only a standing instruction from the user in the current conversation can relax this default, and any earlier "merge after CI" habit from pure-refactor rounds does not carry over.
+3. Honor approval gates exactly. If the user said "merge after I approve", stop until that approval is present in the conversation.
+4. If draft and user approved/asked to merge, run `gh pr ready <n>`.
+5. Merge with the repository's expected strategy, or default to merge commit:
    - `gh pr merge <n> --merge --delete-branch`
-5. GitHub GraphQL can return `unexpected EOF` after a successful mutation. Always re-check:
+6. GitHub GraphQL can return `unexpected EOF` after a successful mutation. Always re-check:
    - `gh pr view <n> --json state,mergedAt,mergeCommit,isDraft`
    - `git fetch origin <base> --prune`
    - `git log --oneline -1 origin/<base>`
-6. If `--delete-branch` did not run because of a transient API failure, delete the remote feature branch explicitly after confirming the PR is merged:
+7. If `--delete-branch` did not run because of a transient API failure, delete the remote feature branch explicitly after confirming the PR is merged:
    - `git push origin --delete <branch>`
    - `git ls-remote --heads origin <branch>`
 
 ## Guardrails
 
 - Never merge a PR whose target repository or base branch is ambiguous.
-- Never merge before an explicit requested approval gate has been satisfied.
+- Never merge a PR without an explicit in-conversation approval for that PR; green checks are not approval.
 - Never treat an API transport error as failure or success without checking PR state.
 - Never delete the local worktree or branch until the merge commit is confirmed.
 - Do not force push or force update refs unless the user explicitly asks.

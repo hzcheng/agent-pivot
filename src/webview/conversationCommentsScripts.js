@@ -268,7 +268,12 @@
                     control.disabled = pending;
                 }
             );
-            addComment.disabled = pending;
+            Array.prototype.forEach.call(
+                addComment.querySelectorAll('button'),
+                function (control) {
+                    control.disabled = pending;
+                }
+            );
             if (!pending) {
                 updateCommentControls();
             }
@@ -962,10 +967,29 @@
             var rect = range.getBoundingClientRect();
             addComment.style.left = Math.max(
                 8,
-                Math.min(window.innerWidth - 120, rect.left)
+                Math.min(window.innerWidth - 64, rect.left)
             ) + 'px';
             addComment.style.top = Math.max(8, rect.bottom + 6) + 'px';
             addComment.hidden = false;
+        }
+
+        function sendSelectionToTerminal() {
+            if (!state.selectedCommentText || state.pendingCommentRequest) {
+                return;
+            }
+            var quote = state.selectedCommentText.quote;
+            addComment.hidden = true;
+            state.selectedCommentText = null;
+            var selection = window.getSelection();
+            if (selection) {
+                selection.removeAllRanges();
+            }
+            post({
+                type: 'conversation-viewer-send-selection',
+                version: 1,
+                text: quote,
+            });
+            status.textContent = 'Selection sent to the active terminal.';
         }
 
         function openCommentComposer() {
@@ -1043,7 +1067,18 @@
                     autosizeCommentInput(target);
                 }
             });
-            addComment.addEventListener('click', openCommentComposer);
+            addComment.addEventListener('click', function (event) {
+                var button = event.target && event.target.closest
+                    ? event.target.closest('[data-comment-selection-action]')
+                    : null;
+                if (!button || !addComment.contains(button)) return;
+                if (button.getAttribute('data-comment-selection-action')
+                    === 'send') {
+                    sendSelectionToTerminal();
+                    return;
+                }
+                openCommentComposer();
+            });
             commentsRoot.addEventListener('click', function (event) {
                 var button = event.target && event.target.closest
                     ? event.target.closest('[data-comment-action]')

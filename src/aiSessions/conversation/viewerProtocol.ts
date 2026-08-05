@@ -82,6 +82,12 @@ export interface ConversationViewerOpenWorktreeMessage {
     worktreeRoot: string;
 }
 
+export interface ConversationViewerSendSelectionMessage {
+    type: 'conversation-viewer-send-selection';
+    version: 1;
+    text: string;
+}
+
 export interface ConversationViewerOpenSubagentMessage {
     type: 'conversation-viewer-open-subagent';
     version: 1;
@@ -98,6 +104,7 @@ export type ConversationViewerMessage =
     | ConversationViewerSelectInteractionMessage
     | ConversationViewerOpenLinkMessage
     | ConversationViewerOpenWorktreeMessage
+    | ConversationViewerSendSelectionMessage
     | ConversationViewerOpenSubagentMessage
     | ConversationViewerCloseSubagentMessage
     | ConversationViewerCommentMutationMessage
@@ -160,6 +167,18 @@ export function parseConversationViewerMessage(
             return undefined;
         }
         return value as unknown as ConversationViewerOpenWorktreeMessage;
+    }
+    if (value.type === 'conversation-viewer-send-selection') {
+        if (keys.length !== 3
+            || !hasOwn(value, 'type')
+            || !hasOwn(value, 'version')
+            || !hasOwn(value, 'text')
+            || typeof value.text !== 'string'
+            || !value.text.trim()
+            || value.text.length > 4000) {
+            return undefined;
+        }
+        return value as unknown as ConversationViewerSendSelectionMessage;
     }
     if (value.type === 'conversation-viewer-open-subagent') {
         if (!hasExactKeys(value, ['type', 'version', 'subagentId'])

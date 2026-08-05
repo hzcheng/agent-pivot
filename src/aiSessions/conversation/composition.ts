@@ -90,6 +90,9 @@ export interface ConversationCapabilityOptions {
     showWorktreeInSourceControl?: (
         worktreeRoot: string
     ) => PromiseLike<void> | Promise<void> | void;
+    insertIntoActiveTerminal?: (
+        text: string
+    ) => PromiseLike<void> | Promise<void> | void;
     submitPrompt: (
         target: ConversationViewerTarget,
         prompt: string
@@ -249,6 +252,7 @@ function createAvailableConversationCapability(
         commentStore: options.commentStore,
         bookmarkStore: options.bookmarkStore,
         showWorktreeInSourceControl: options.showWorktreeInSourceControl,
+        insertIntoActiveTerminal: options.insertIntoActiveTerminal,
     }));
     let viewerIntentGeneration = 0;
     let disposed = false;

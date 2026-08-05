@@ -1931,7 +1931,7 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-SUBMIT-002 renders read
             ));
     }
 
-    await page.locator('.conversation-markdown').evaluate(element => {
+    const selectBeta = () => page.locator('.conversation-markdown').evaluate(element => {
         const node = element.querySelector('p').firstChild;
         const start = node.nodeValue.indexOf('beta');
         const range = document.createRange();
@@ -1942,7 +1942,39 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-SUBMIT-002 renders read
         selection.addRange(range);
         element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
     });
-    await page.locator('[data-add-comment]').click();
+    await selectBeta();
+
+    // The selection bubble offers two icon actions: comment and send.
+    const selectionBubble = page.locator('[data-add-comment]');
+    assert.equal(await selectionBubble.isVisible(), true);
+    assert.deepEqual(
+        await selectionBubble.locator('button').evaluateAll(buttons =>
+            buttons.map(button => ({
+                action: button.getAttribute('data-comment-selection-action'),
+                iconOnly: button.innerText === ''
+                    && button.querySelectorAll('svg').length === 1,
+            }))
+        ),
+        [
+            { action: 'comment', iconOnly: true },
+            { action: 'send', iconOnly: true },
+        ],
+        'selection bubble actions must be icon-only buttons'
+    );
+
+    // Send drops the selected text into the active terminal via the Host.
+    await selectionBubble.locator('[data-comment-selection-action="send"]')
+        .click();
+    assert.deepEqual((await postedMessages(page)).at(-1), {
+        type: 'conversation-viewer-send-selection',
+        version: 1,
+        text: 'beta',
+    });
+    assert.equal(await selectionBubble.isHidden(), true);
+
+    await selectBeta();
+    await selectionBubble.locator('[data-comment-selection-action="comment"]')
+        .click();
     await page.locator('[data-comment-input]').fill(
         'Explain beta.\nSecond line stays visible.'
     );
@@ -2283,7 +2315,9 @@ test('CONVERSATION-COMMENTS-UI-001 filters cards, jumps from message markers, an
         selection.addRange(range);
         element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
     });
-    await page.locator('[data-add-comment]').click();
+    await page.locator(
+        '[data-comment-selection-action="comment"]'
+    ).click();
     await page.locator('[data-comment-input]').fill('Explain beta.');
     await page.locator('[data-comment-input]').press('Control+Enter');
     const addRequest = (await postedMessages(page)).at(-1);
@@ -2592,7 +2626,9 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-BULK-001 CONVERSATION-C
             true,
             JSON.stringify({ selectionState, capturedState })
         );
-        await page.locator('[data-add-comment]').click();
+        await page.locator(
+            '[data-comment-selection-action="comment"]'
+        ).click();
     }
 
     async function settle(request, revision, comments) {

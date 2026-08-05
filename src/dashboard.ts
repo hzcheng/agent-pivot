@@ -1147,6 +1147,17 @@ async function initializeDashboard(
         openExternal: vscode.env.openExternal,
         showWorktreeInSourceControl: (worktreeRoot: string) =>
             showWorktreeInSourceControl(worktreeRoot),
+        insertIntoActiveTerminal: async text => {
+            const terminal = vscode.window.activeTerminal;
+            if (!terminal) {
+                vscode.window.showWarningMessage(
+                    'No active terminal is available to receive the selection.'
+                );
+                return;
+            }
+            await Promise.resolve(terminal.sendText(text, false));
+            terminal.show();
+        },
         spawnCodex: childProcess.spawn,
         now: () => Date.now(),
         setTimer: setTimeout,

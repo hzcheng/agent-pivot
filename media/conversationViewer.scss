@@ -1147,7 +1147,20 @@ button {
 .conversation-add-comment {
     position: fixed;
     z-index: 4;
+    display: flex;
+    gap: 2px;
+    padding: 2px;
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 6px;
+    background: var(
+        --vscode-editorWidget-background,
+        var(--vscode-editor-background)
+    );
     box-shadow: 0 2px 8px var(--vscode-widget-shadow);
+
+    &[hidden] {
+        display: none;
+    }
 }
 
 @media (forced-colors: active) {

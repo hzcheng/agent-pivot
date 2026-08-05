@@ -289,6 +289,55 @@ test('WEBVIEW-NONBLOCKING-FIRST-PAINT-001 renders cached HTML before visible pre
     assert.deepEqual(order, ['render', 'visible:true:start', 'visible:true:end']);
 });
 
+test('WEBVIEW-NONBLOCKING-FIRST-PAINT-001 WEBVIEW-SIDEBAR-VISIBILITY-RETENTION-001 keeps the rendered document across rapid sidebar visibility changes', async () => {
+    let visibilityChanged;
+    let renderCalls = 0;
+    const prepared = [];
+    const view = {
+        visible: true,
+        webview: {
+            html: '',
+            options: {},
+            onDidReceiveMessage: () => ({ dispose() {} }),
+            postMessage: async () => true,
+        },
+        onDidChangeVisibility(callback) {
+            visibilityChanged = callback;
+            return { dispose() {} };
+        },
+        onDidDispose: () => ({ dispose() {} }),
+    };
+    const provider = new AgentPivotViewProvider({ mode: 'ready', options: {
+        getWebviewOptions: () => ({}),
+        renderContent: () => {
+            renderCalls += 1;
+            return `<main>dashboard document ${renderCalls}</main>`;
+        },
+        renderError: () => '<main>safe error</main>',
+        onMessage: async () => undefined,
+        onVisibleChanged: async () => undefined,
+        onVisiblePrepared: async () => {
+            prepared.push('prepared');
+        },
+        onDisposed: () => undefined,
+        logError: () => undefined,
+    }});
+
+    await provider.resolveWebviewView(view, {}, {});
+    await new Promise(resolve => setImmediate(resolve));
+
+    for (let iteration = 0; iteration < 15; iteration += 1) {
+        view.visible = false;
+        await visibilityChanged();
+        view.visible = true;
+        await visibilityChanged();
+    }
+
+    assert.equal(renderCalls, 1, 'visibility changes must not recreate the Webview document');
+    assert.equal(view.webview.html, '<main>dashboard document 1</main>');
+    assert.equal(prepared.length, 16, 'each visible epoch still receives incremental preparation');
+});
+
 test('SESSION-SIDEBAR-STEWARD-VIEW-PROVIDER-ORDERING-001 preserves healthy HTML when visible preparation fails', async () => {
     const visibilityGate = deferred();
     const logs = [];
@@ -495,7 +544,7 @@ test('SESSION-SIDEBAR-STEWARD-VIEW-PROVIDER-OWNERSHIP-001 ignores stale visibili
     const staleInFlight = viewA.fireVisibility();
     await new Promise(resolve => setImmediate(resolve));
     await provider.resolveWebviewView(viewB.view, {}, {});
-    assert.deepEqual(renders, ['a', 'a', 'b']);
+    assert.deepEqual(renders, ['a', 'b']);
     assert.equal(disposed, 1);
     assert.deepEqual(disposalVisibility, [false]);
 
@@ -503,7 +552,7 @@ test('SESSION-SIDEBAR-STEWARD-VIEW-PROVIDER-OWNERSHIP-001 ignores stale visibili
     await staleInFlight;
     assert.deepEqual(
         renders,
-        ['a', 'a', 'b'],
+        ['a', 'b'],
         'an old post-await continuation must not refresh the current view'
     );
 
@@ -523,7 +572,7 @@ test('SESSION-SIDEBAR-STEWARD-VIEW-PROVIDER-OWNERSHIP-001 ignores stale visibili
     viewB.view.visible = true;
     await viewB.fireVisibility();
     assert.equal(provider.visible, true);
-    assert.deepEqual(renders, ['a', 'a', 'b', 'b']);
+    assert.deepEqual(renders, ['a', 'b']);
     await viewB.fireDispose();
     assert.equal(disposed, 2);
     assert.deepEqual(disposalVisibility, [false, false]);

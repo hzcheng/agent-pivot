@@ -101,7 +101,7 @@ test('WEBVIEW-TWO-STAGE-STARTUP-001 failed shell provides one focusable Retry th
     ]);
 });
 
-test('WEBVIEW-TWO-STAGE-STARTUP-001 boot shell becomes authoritative content in the same Webview document', async t => {
+test('WEBVIEW-TWO-STAGE-STARTUP-001 WEBVIEW-SIDEBAR-VISIBILITY-RETENTION-001 boot shell becomes authoritative content that survives repeated visibility changes', async t => {
     const page = await openBootDocument(t, { kind: 'booting', generation: 9 });
     const context = page.context();
     const initialPageCount = context.pages().length;
@@ -126,11 +126,40 @@ test('WEBVIEW-TWO-STAGE-STARTUP-001 boot shell becomes authoritative content in 
 
     await assignWebviewDocument(page, [
         '<head><title>Agent Pivot</title></head>',
-        '<body><main data-agent-pivot-authoritative="ready">ready dashboard</main></body>',
+        '<body><main data-agent-pivot-authoritative="ready">',
+        '<button data-agent-pivot-retained-action>ready dashboard</button>',
+        '</main></body>',
     ].join(''));
+    await page.evaluate(() => {
+        const root = document.querySelector('[data-agent-pivot-authoritative="ready"]');
+        const action = document.querySelector('[data-agent-pivot-retained-action]');
+        window.__agentPivotRetainedRoot = root;
+        root.dataset.activationCount = '0';
+        action.addEventListener('click', () => {
+            root.dataset.activationCount = String(Number(root.dataset.activationCount) + 1);
+        });
+        action.focus();
+    });
+
+    for (let iteration = 0; iteration < 15; iteration += 1) {
+        await page.evaluate(() => {
+            document.body.hidden = true;
+            document.body.hidden = false;
+        });
+    }
+    await page.locator('[data-agent-pivot-retained-action]').click();
 
     assert.equal(await page.locator('[data-agent-pivot-authoritative="ready"]').count(), 1);
     assert.equal(await page.locator('[data-agent-pivot-authoritative="ready"]').isVisible(), true);
+    assert.equal(await page.evaluate(() => (
+        window.__agentPivotRetainedRoot
+        === document.querySelector('[data-agent-pivot-authoritative="ready"]')
+    )), true);
+    assert.equal(await page.locator('[data-agent-pivot-authoritative="ready"]')
+        .getAttribute('data-activation-count'), '1');
+    assert.equal(await page.locator('[data-agent-pivot-retained-action]').evaluate(
+        element => document.activeElement === element
+    ), true);
     assert.equal(await page.evaluate(() => window.__agentPivotWindowOpenCalls.length), 0);
     assert.equal(context.pages().length, initialPageCount);
     assert.deepEqual(popupUrls, []);

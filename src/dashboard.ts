@@ -295,6 +295,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         vscode.window.registerWebviewViewProvider(
             AGENT_PIVOT_DASHBOARD_VIEW_ID,
             provider,
+            {
+                webviewOptions: {
+                    retainContextWhenHidden: true,
+                },
+            },
         ),
     );
 
@@ -982,6 +987,7 @@ async function initializeDashboard(
     };
     const aiSessionAttentionController = new AiSessionAttentionController<AiSessionRuntimeSnapshot<vscode.Terminal>>({
         isEnabled: () => getAgentPivotConfiguration().get<boolean>('aiSessionAttention.enabled', true) !== false,
+        getWorkspaceIdentity: () => getCurrentOpenWorkspace()?.scopeIdentity || null,
         getWorkspaceTarget: getCurrentWorkspaceActionTargetWithoutCardId,
         getProviders: getRegisteredAiSessionProviders,
         getRuntimeById: getAiSessionRuntimeById,
@@ -1103,6 +1109,7 @@ async function initializeDashboard(
         logError,
         logDiagnostic: logAiSessionDiagnostic,
         beforeRefresh: reason => {
+            aiSessionAttentionController.invalidateWorkspaceTarget();
             currentAiSessionRefreshReason = reason;
             postAiSessionAttentionState();
         },
@@ -1218,6 +1225,12 @@ async function initializeDashboard(
         acknowledgeAiSessionAttentionEventIds,
         logOpenWorkspaceDiagnostic,
         refreshStewardViews,
+        onOpenWorkspacesRendererReady: () => {
+            openWorkspaceDashboardController.invalidatePendingUpdates();
+            void openWorkspaceDashboardController.postUpdated({
+                fallbackToFullRefresh: false,
+            });
+        },
         requestActiveAiSessionTerminalHighlight: () => activeAiSessionTerminalHighlighter.request(),
         postAiSessionAttentionState,
         showAgentPivotSettings,

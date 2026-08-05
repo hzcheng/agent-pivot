@@ -265,6 +265,26 @@ test('WEBVIEW-TWO-STAGE-STARTUP-001 production activation registers one provider
     );
 });
 
+test('WEBVIEW-SIDEBAR-VISIBILITY-RETENTION-001 production retains the rendered dashboard while its sidebar is hidden', () => {
+    const dashboardSource = fs.readFileSync(
+        path.resolve(__dirname, '../../src/dashboard.ts'),
+        'utf8'
+    );
+    const activateStart = dashboardSource.indexOf(
+        'export async function activate(context: vscode.ExtensionContext): Promise<void> {'
+    );
+    const initializeStart = dashboardSource.indexOf(
+        'async function initializeDashboard(',
+        activateStart
+    );
+    const activationSource = dashboardSource.slice(activateStart, initializeStart);
+
+    assert.match(
+        activationSource,
+        /registerWebviewViewProvider\(\s*AGENT_PIVOT_DASHBOARD_VIEW_ID,\s*provider,\s*\{\s*webviewOptions:\s*\{\s*retainContextWhenHidden:\s*true,?\s*\},?\s*\},?\s*\)/
+    );
+});
+
 test('WEBVIEW-DASHBOARD-STARTUP-CONTROLLER-001 production startup uses the bootstrap generation liveness guard', () => {
     const dashboardSource = fs.readFileSync(
         path.resolve(__dirname, '../../src/dashboard.ts'),

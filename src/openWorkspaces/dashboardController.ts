@@ -175,7 +175,7 @@ export class OpenWorkspaceDashboardController {
         return cards;
     }
 
-    postUpdated(): Promise<void> {
+    postUpdated(options: { fallbackToFullRefresh?: boolean } = {}): Promise<void> {
         if (!this.options.isVisible()) { return Promise.resolve(); }
         const semanticRevision = this.getViewSemanticRevision();
         if (semanticRevision === this.lastPostedSemanticRevision) { return Promise.resolve(); }
@@ -198,7 +198,8 @@ export class OpenWorkspaceDashboardController {
                     message.semanticRevision,
                     deliveryGeneration
                 );
-                if (current && this.options.isVisible()) {
+                if (current && options.fallbackToFullRefresh !== false
+                    && this.options.isVisible()) {
                     this.options.refresh('open-workspace-update-not-delivered');
                 }
             }
@@ -208,7 +209,8 @@ export class OpenWorkspaceDashboardController {
                 deliveryGeneration
             );
             this.options.logError('Failed to post OPEN WORKSPACE update message.', error);
-            if (current && this.options.isVisible()) {
+            if (current && options.fallbackToFullRefresh !== false
+                && this.options.isVisible()) {
                 this.options.refresh('open-workspace-update-post-error');
             }
         });

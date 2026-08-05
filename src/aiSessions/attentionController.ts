@@ -36,6 +36,8 @@ export interface AiSessionAttentionProvider {
 
 export interface AiSessionAttentionControllerOptions<TRuntime extends AiSessionAttentionRuntimeEntry = AiSessionAttentionRuntimeEntry> {
     isEnabled: () => boolean;
+    /** A cheap stable identity opts the resident lifecycle tick into snapshot reuse. */
+    getWorkspaceIdentity?: () => string | null;
     getWorkspaceTarget: () => WorkspaceAiSessionActionTarget | null;
     getProviders: () => AiSessionAttentionProvider[];
     getSessionKey?: (providerId: AiSessionProviderId, sessionId: string) => string;
@@ -67,6 +69,11 @@ export interface AiSessionAttentionRuntimeOverride<TRuntime> {
 
 export class AiSessionAttentionController<TRuntime extends AiSessionAttentionRuntimeEntry = AiSessionAttentionRuntimeEntry> {
     private readonly monitor: AiSessionAttentionMonitor;
+    // The one-second lifecycle pass needs stable session ids and workspace roots,
+    // while runtime and signal state are read independently on every pass.
+    private workspaceTargetCached = false;
+    private workspaceTargetIdentity: string | null = null;
+    private workspaceTarget: WorkspaceAiSessionActionTarget | null = null;
     private remoteAggregate: AttentionAggregate | null = null;
     private localItems: AttentionPayloadItem[] = [];
     private attentionKeysBySession = new Map<string, string[]>();
@@ -82,6 +89,7 @@ export class AiSessionAttentionController<TRuntime extends AiSessionAttentionRun
         signals?: AiSessionLifecycleSignals
     ): Promise<AiSessionAttentionEvaluation> {
         if (!this.options.isEnabled()) {
+            this.invalidateWorkspaceTarget();
             this.monitor.clear();
             this.remoteAggregate = null;
             this.localItems = [];
@@ -99,7 +107,7 @@ export class AiSessionAttentionController<TRuntime extends AiSessionAttentionRun
             };
         }
 
-        const workspaceTarget = this.options.getWorkspaceTarget();
+        const workspaceTarget = this.getWorkspaceTargetSnapshot();
         const providers = this.options.getProviders();
         const ownedSessions = this.getOwnedSessions(workspaceTarget?.sessions || null, providers, runtimeOverrides);
         for (const [attentionKey, owned] of ownedSessions) {
@@ -190,8 +198,14 @@ export class AiSessionAttentionController<TRuntime extends AiSessionAttentionRun
         } catch (_error) {
             // 同上。
         }
-        const result = this.buildLocalItems(this.options.getWorkspaceTarget(), this.options.getProviders());
+        const result = this.buildLocalItems(this.getWorkspaceTargetSnapshot(), this.options.getProviders());
         this.localItems = result.items;
+    }
+
+    invalidateWorkspaceTarget(): void {
+        this.workspaceTargetCached = false;
+        this.workspaceTargetIdentity = null;
+        this.workspaceTarget = null;
     }
 
     setRemoteAggregate(aggregate: AttentionAggregate): boolean {
@@ -374,11 +388,12 @@ export class AiSessionAttentionController<TRuntime extends AiSessionAttentionRun
         runtimeOverrides: readonly AiSessionAttentionRuntimeOverride<TRuntime>[] = []
     ): AiSessionLifecycleRequestsByProvider {
         if (!this.options.isEnabled()) {
+            this.invalidateWorkspaceTarget();
             return {};
         }
         const requests: Partial<Record<AiSessionProviderId, AiSessionLifecycleRequest[]>> = {};
         const ownedSessions = this.getOwnedSessions(
-            this.options.getWorkspaceTarget()?.sessions || null,
+            this.getWorkspaceTargetSnapshot()?.sessions || null,
             this.options.getProviders(),
             runtimeOverrides
         );
@@ -391,6 +406,21 @@ export class AiSessionAttentionController<TRuntime extends AiSessionAttentionRun
             requests[owned.providerId] = owning;
         }
         return requests;
+    }
+
+    private getWorkspaceTargetSnapshot(): WorkspaceAiSessionActionTarget | null {
+        if (!this.options.getWorkspaceIdentity) {
+            return this.options.getWorkspaceTarget();
+        }
+        const currentIdentity = this.options.getWorkspaceIdentity();
+        if (this.workspaceTargetCached
+            && currentIdentity === this.workspaceTargetIdentity) {
+            return this.workspaceTarget;
+        }
+        this.workspaceTarget = this.options.getWorkspaceTarget();
+        this.workspaceTargetIdentity = currentIdentity;
+        this.workspaceTargetCached = true;
+        return this.workspaceTarget;
     }
 
     private readSignals(

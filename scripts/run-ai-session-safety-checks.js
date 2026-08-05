@@ -3352,8 +3352,15 @@ async function runAgentPivotViewProviderOrderingChecks() {
         'hidden views must not render or force a runtime refresh');
     view.visible = true;
     await visibilityListeners[0]();
-    assert.deepStrictEqual(order.slice(-3), ['render', 'visible:true:start', 'visible:true:end'],
-        'later visible renders must also paint before refresh and render exactly once');
+    assert.deepStrictEqual(order, [
+        'render',
+        'visible:true:start',
+        'visible:true:end',
+        'visible:false:start',
+        'visible:false:end',
+        'visible:true:start',
+        'visible:true:end',
+    ], 'later visibility changes must refresh without replacing the retained document');
 
     let staleRenderCount = 0;
     const failedLogs = [];
@@ -5377,7 +5384,7 @@ function runWebviewContentChecks() {
     assert.ok(dashboard.includes('activeAiSessionTerminalHighlighter.setVisible(visible)'));
     assert.ok(dashboard.includes('await dashboardRuntimeController.handleAiSessionViewVisibilityChanged(visible)'));
     const viewProvider = fs.readFileSync(path.join(__dirname, '..', 'src', 'dashboard', 'viewProvider.ts'), 'utf8');
-    assert.ok(viewProvider.includes('await options.onVisibleChanged(webviewView.visible)'));
+    assert.ok(viewProvider.includes('await options.onVisibleChanged(visible)'));
     const terminalCandidatesSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'aiSessions', 'terminalCandidates.ts'), 'utf8');
     assert.ok(terminalCandidatesSource.includes("reason: 'terminal-candidates'"));
     assert.ok(!terminalCandidatesSource.includes('AI_SESSION_PROVIDER_IDS'));
@@ -6706,11 +6713,18 @@ function runBatchAiSessionWebviewChecks() {
     context.initProjects();
 
     const messageListenerIndex = source.indexOf("window.addEventListener('message', onWindowMessage)");
+    const rendererReadyIndex = source.indexOf("type: 'open-workspaces-renderer-ready'");
     const activeTerminalRequestIndex = source.indexOf("type: 'request-active-ai-session-terminal'");
     assert.notStrictEqual(messageListenerIndex, -1);
+    assert.notStrictEqual(rendererReadyIndex, -1);
     assert.notStrictEqual(activeTerminalRequestIndex, -1);
-    assert.ok(messageListenerIndex < activeTerminalRequestIndex);
+    assert.ok(messageListenerIndex < rendererReadyIndex);
+    assert.ok(rendererReadyIndex < activeTerminalRequestIndex);
     assert.ok(windowEventListeners.message);
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(messages.shift())), {
+        type: 'open-workspaces-renderer-ready',
+        version: 1,
+    });
     assert.deepStrictEqual(JSON.parse(JSON.stringify(messages.shift())), {
         type: 'request-active-ai-session-terminal',
     });

@@ -707,6 +707,10 @@ function initProjects() {
     });
 
     window.addEventListener('message', onWindowMessage);
+    window.vscode.postMessage({
+        type: 'open-workspaces-renderer-ready',
+        version: 1,
+    });
     restoreAiSessionTabsFromState(document, window.vscode);
     window.vscode.postMessage({ type: 'request-active-ai-session-terminal' });
     window.vscode.postMessage({ type: 'request-ai-session-attention-state' });

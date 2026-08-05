@@ -2203,6 +2203,22 @@
     ]
   },
   {
+    "id": "WEBVIEW-SIDEBAR-VISIBILITY-RETENTION-001",
+    "domain": "webview",
+    "title": "Rapid dashboard sidebar visibility changes retain one authoritative Webview document",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/browser/dashboardBootShell.test.js",
+      "tests/contract/dashboardBoundaries.test.js",
+      "tests/integration/dashboard/errorRecovery.test.js"
+    ],
+    "evidence": [
+      "src/dashboard.ts",
+      "src/dashboard/viewProvider.ts"
+    ]
+  },
+  {
     "id": "WEBVIEW-TWO-STAGE-STARTUP-001",
     "domain": "webview",
     "title": "Agent Pivot paints a privacy-safe boot shell before ordered dashboard bootstrap completes",

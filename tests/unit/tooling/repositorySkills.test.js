@@ -144,5 +144,8 @@ test('ARCH-REPOSITORY-SKILL-GUIDANCE-001 gates every PR merge on explicit approv
         ['every PR type covered', /refactors, test-only changes, and behavior changes alike/i],
         ['pure-refactor merge habits do not carry over', /does not carry over/i],
         ['guardrail: checks are not approval', /Never merge a PR without an explicit in-conversation approval[\s\S]*green checks are not approval/i],
+        ['mechanical merge-approval status', /`merge-approval` status[\s\S]*turns green only after the repository owner posts an approval comment/i],
+        ['never bypass or forge approval', /Never use `--admin`[\s\S]*never post, edit, or imitate the approval comment/i],
+        ['post-merge audit catches violations', /run-merge-approval-audit\.js[\s\S]*fails red/i],
     ]);
 });

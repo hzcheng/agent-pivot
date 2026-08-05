@@ -3483,6 +3483,22 @@
     ]
   },
   {
+    "id": "ARCH-PR-MERGE-APPROVAL-GATE-001",
+    "domain": "architecture",
+    "title": "Merges mechanically require an owner approval comment and are audited afterwards",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/unit/tooling/mergeApprovals.test.js",
+      "tests/unit/tooling/mergeApprovalGate.test.js"
+    ],
+    "evidence": [
+      "scripts/lib/mergeApprovals.js",
+      ".github/workflows/merge-approval-gate.yml",
+      ".github/workflows/verify.yml"
+    ]
+  },
+  {
     "id": "ARCH-MAIN-CAPABILITY-CURRENCY-001",
     "domain": "architecture",
     "title": "Implementation commits cannot remain beyond the recorded capability audit head",

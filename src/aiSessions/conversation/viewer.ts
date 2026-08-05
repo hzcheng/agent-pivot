@@ -83,6 +83,9 @@ export interface ConversationViewerOptions {
     showWorktreeInSourceControl?: (
         worktreeRoot: string
     ) => PromiseLike<void> | Promise<void> | void;
+    insertIntoActiveTerminal?: (
+        text: string
+    ) => PromiseLike<void> | Promise<void> | void;
 }
 
 export interface ConversationViewerApi extends AiSessionDisposable {
@@ -435,6 +438,10 @@ export class ConversationViewer implements ConversationViewerApi {
             await this.options.showWorktreeInSourceControl?.(
                 parsed.worktreeRoot
             );
+            return;
+        }
+        if (parsed.type === 'conversation-viewer-send-selection') {
+            await this.options.insertIntoActiveTerminal?.(parsed.text);
             return;
         }
         if (parsed.type === 'conversation-viewer-comment-mutation'

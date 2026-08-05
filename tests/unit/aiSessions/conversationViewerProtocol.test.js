@@ -31,6 +31,10 @@ test('CONVERSATION-PROTOCOL-VALIDATOR-001 accepts every exact version-1 viewer i
         version: 1,
         worktreeRoot: '/repo/.worktree/feature-x',
     }, {
+        type: 'conversation-viewer-send-selection',
+        version: 1,
+        text: 'quoted selection',
+    }, {
         type: 'conversation-viewer-locate-comment',
         version: 1,
         ...target,
@@ -106,6 +110,26 @@ test('CONVERSATION-PROTOCOL-VALIDATOR-001 rejects malformed, inherited, and over
             type: 'conversation-viewer-open-worktree',
             version: 1,
             worktreeRoot: '/repo',
+            extra: true,
+        },
+        {
+            type: 'conversation-viewer-send-selection',
+            version: 1,
+        },
+        {
+            type: 'conversation-viewer-send-selection',
+            version: 1,
+            text: '   ',
+        },
+        {
+            type: 'conversation-viewer-send-selection',
+            version: 1,
+            text: 'x'.repeat(4001),
+        },
+        {
+            type: 'conversation-viewer-send-selection',
+            version: 1,
+            text: 'quoted selection',
             extra: true,
         },
         {

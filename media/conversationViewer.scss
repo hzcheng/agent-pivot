@@ -878,6 +878,17 @@ button {
         color: var(--vscode-errorForeground);
         background: var(--vscode-toolbar-hoverBackground);
     }
+
+    &.accent {
+        color: var(--vscode-button-foreground);
+        border-color: var(--vscode-button-border, transparent);
+        background: var(--vscode-button-background);
+
+        &:hover:not(:disabled) {
+            color: var(--vscode-button-foreground);
+            background: var(--vscode-button-hoverBackground);
+        }
+    }
 }
 
 .conversation-icon-button {
@@ -1147,10 +1158,47 @@ button {
 .conversation-add-comment {
     position: fixed;
     z-index: 4;
-    box-shadow: 0 2px 8px var(--vscode-widget-shadow);
+    display: flex;
+    gap: 2px;
+    padding: 2px;
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 7px;
+    background: var(
+        --vscode-editorWidget-background,
+        var(--vscode-editor-background)
+    );
+    box-shadow: 0 4px 16px var(--vscode-widget-shadow);
+    animation: conversation-add-comment-enter 120ms ease-out;
+
+    &[hidden] {
+        display: none;
+    }
+}
+
+@keyframes conversation-add-comment-enter {
+    from {
+        opacity: 0;
+        transform: translateY(2px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .conversation-add-comment {
+        animation: none;
+    }
 }
 
 @media (forced-colors: active) {
+    .conversation-comment-icon-button.accent,
+    .conversation-icon-button.accent {
+        border-color: ButtonText;
+    }
+
     .conversation-message-user {
         border-color: CanvasText;
         border-left-color: Highlight;

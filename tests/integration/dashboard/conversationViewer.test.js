@@ -245,6 +245,7 @@ function createViewer(options = {}) {
             openedUris.push(uri.toString());
             return true;
         },
+        insertIntoActiveTerminal: options.insertIntoActiveTerminal,
         mediaUri: fileName => fakeUri(`file:///extension/media/${fileName}`),
         showThinking: options.showThinking,
         bookmarkStore: options.bookmarkStore,
@@ -934,6 +935,42 @@ test('CONVERSATION-VIEWER-SECURITY-001 emits a nonce-only CSP and opens only HTT
     }
 
     assert.deepEqual(openedUris, ['https://example.test/safe']);
+});
+
+test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 routes one exact selection send to the active terminal inserter', async () => {
+    const inserted = [];
+    const { viewer, panel } = createViewer({
+        insertIntoActiveTerminal: async text => {
+            inserted.push(text);
+        },
+    });
+    await viewer.open(target('session-a', 'input-1'));
+
+    await panel.receive({
+        type: 'conversation-viewer-send-selection',
+        version: 1,
+        text: 'beta quote',
+    });
+    assert.deepEqual(inserted, ['beta quote']);
+
+    for (const message of [
+        { type: 'conversation-viewer-send-selection', version: 1 },
+        { type: 'conversation-viewer-send-selection', version: 1, text: '   ' },
+        {
+            type: 'conversation-viewer-send-selection',
+            version: 1,
+            text: 'x'.repeat(4001),
+        },
+        {
+            type: 'conversation-viewer-send-selection',
+            version: 1,
+            text: 'ok',
+            extra: true,
+        },
+    ]) {
+        await panel.receive(message);
+    }
+    assert.deepEqual(inserted, ['beta quote']);
 });
 
 test('CONVERSATION-WORKING-INDICATOR-001 includes one polite hidden Working status in the Host document', async () => {

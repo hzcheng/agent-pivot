@@ -88,6 +88,7 @@ function renderDashboardShell() {
         true,
     );
     return html
+        .replace('class="dashboard-styles-pending"', '')
         .replace(/<link\b[^>]*>/gi, '')
         .replace(/<script\b[\s\S]*?<\/script>/gi, '')
         .replace('</head>', `<style>${styles}</style></head>`);

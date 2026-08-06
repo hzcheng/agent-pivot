@@ -9,6 +9,11 @@ const packageJson = require(path.resolve(__dirname, '../../../package.json'));
 const {
     createAttentionExtensionPackagePlan,
 } = require('../../../scripts/package-attention-extensions');
+const {
+    buildDashboardWebviewBundle,
+    inputPaths: dashboardBundleInputPaths,
+    outputPath: dashboardBundleOutputPath,
+} = require('../../../scripts/build-dashboard-webview-bundle');
 const { staleRelativePaths } = require('../../../scripts/seed-release-packaging-stale-output');
 
 const expectedStaleRelativePaths = [
@@ -30,7 +35,8 @@ function assertReleaseResidueContract(paths, vscodeIgnore) {
 test('TEST-PACKAGE-SCRIPTS-001 test-compile removes stale outputs before building root and attention bridge TypeScript', () => {
     assert.equal(
         packageJson.scripts['test-compile'],
-        'node scripts/clean-test-build.js && tsc -p ./ && npm run attention:bridge:compile'
+        'node scripts/clean-test-build.js && node scripts/build-dashboard-webview-bundle.js'
+            + ' && tsc -p ./ && npm run attention:bridge:compile'
     );
     assert.equal(require('node:fs').existsSync(
         path.resolve(__dirname, '../../../scripts/clean-test-build.js')
@@ -39,6 +45,28 @@ test('TEST-PACKAGE-SCRIPTS-001 test-compile removes stale outputs before buildin
         packageJson.scripts['attention:bridge:compile'],
         'tsc -p extensions/attention-ui-bridge/tsconfig.json'
     );
+});
+
+test('TEST-PACKAGE-SCRIPTS-001 WEBVIEW-SINGLE-BOOT-ASSET-001 rebuilds the committed dashboard bundle deterministically', () => {
+    const committed = fs.readFileSync(dashboardBundleOutputPath, 'utf8');
+
+    assert.equal(buildDashboardWebviewBundle(), dashboardBundleOutputPath);
+    assert.equal(fs.readFileSync(dashboardBundleOutputPath, 'utf8'), committed);
+    assert.equal(dashboardBundleInputPaths.length, 27);
+    for (const inputPath of dashboardBundleInputPaths) {
+        assert.ok(committed.includes(`/* ${inputPath} */\n`),
+            `the generated bundle must identify ${inputPath}`);
+    }
+});
+
+test('TEST-PACKAGE-SCRIPTS-001 WEBVIEW-SINGLE-BOOT-ASSET-001 development watcher rebuilds the dashboard bundle', () => {
+    const gulpfile = fs.readFileSync(
+        path.resolve(__dirname, '../../../gulpfile.js'),
+        'utf8'
+    );
+
+    assert.match(gulpfile,
+        /gulp\.watch\(\s*'src\/webview\/\*\.js',\s*gulp\.series\(copyWebviewAssets, buildDashboardBundle\)\s*\)/);
 });
 
 test('RELEASE-ATTENTION-SPIKE-ARTIFACT-VERSION-001 derives every current UI Bridge spike artifact reference from its manifest', () => {

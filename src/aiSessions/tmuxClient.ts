@@ -29,6 +29,8 @@ const MAX_ENCODED_METADATA_VALUE_LENGTH = 8192;
 const METADATA_ENCODING_PREFIX = 'psb64v1.';
 const METADATA_CHECKSUM_LENGTH = 16;
 const METADATA_READ_MARKER_PREFIX = '__project_steward_metadata__:';
+const METADATA_BATCH_MARKER_PREFIX = '__project_steward_metadata_batch__:';
+const MAX_METADATA_BATCH_TARGETS = 8;
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;
 const REQUIRED_COMMANDS = [
     'new-session',
@@ -105,6 +107,11 @@ export interface TmuxActiveWindowRecord {
 
 interface TmuxWindowIdentityRow extends TmuxActiveWindowRecord {
     active: boolean;
+}
+
+interface MetadataReadRequest {
+    id: string;
+    baseArgs: string[];
 }
 
 export interface TmuxTargetWindowRecord {
@@ -250,23 +257,28 @@ export class TmuxClient {
             || [...activePanePids.keys()].some(windowId => !windowIds.has(windowId))) {
             throw new TmuxClientError('list-panes', 'invalid-output');
         }
-        const sessionMetadata = new Map<string, Record<string, string>>();
+        const sessionNames = Array.from(new Set(rows.map(row => row.sessionName)));
+        const metadata = await this.readMetadataOptionsBatch([
+            ...sessionNames.map(sessionName => ({
+                id: `session:${sessionName}`,
+                baseArgs: ['show-options', '-qv', '-t', sessionName],
+            })),
+            ...rows.map(row => ({
+                id: `window:${row.windowId}`,
+                baseArgs: ['show-options', '-qvw', '-t', row.windowId],
+            })),
+        ]);
         const records: TmuxWindowRecord[] = [];
         for (const row of rows) {
             const panePid = activePanePids.get(row.windowId);
             if (panePid === undefined) {
                 throw new TmuxClientError('list-panes', 'invalid-output');
             }
-            let sessionOptions = sessionMetadata.get(row.sessionName);
-            if (!sessionOptions) {
-                sessionOptions = await this.readMetadataOptions(
-                    'get-session-options', ['show-options', '-qv', '-t', row.sessionName]
-                );
-                sessionMetadata.set(row.sessionName, sessionOptions);
+            const sessionOptions = metadata.get(`session:${row.sessionName}`);
+            const windowOptions = metadata.get(`window:${row.windowId}`);
+            if (!sessionOptions || !windowOptions) {
+                throw new TmuxClientError('list-windows', 'invalid-output');
             }
-            const windowOptions = await this.readMetadataOptions(
-                'get-window-options', ['show-options', '-qvw', '-t', row.windowId]
-            );
             records.push({
                 ...row,
                 panePid,
@@ -532,6 +544,24 @@ export class TmuxClient {
             throw resultError(operation, result);
         }
         return parseMetadataSequence(result.stdout, operation);
+    }
+
+    private async readMetadataOptionsBatch(
+        requests: MetadataReadRequest[]
+    ): Promise<Map<string, Record<string, string>>> {
+        const values = new Map<string, Record<string, string>>();
+        for (let offset = 0; offset < requests.length; offset += MAX_METADATA_BATCH_TARGETS) {
+            const batch = requests.slice(offset, offset + MAX_METADATA_BATCH_TARGETS);
+            const result = await this.invoke('list-windows', metadataBatchReadArgs(batch));
+            if (result.exitCode !== 0) {
+                throw resultError('list-windows', result);
+            }
+            const parsed = parseMetadataBatchSequence(result.stdout, batch.length);
+            for (let index = 0; index < batch.length; index++) {
+                values.set(batch[index].id, parsed[index]);
+            }
+        }
+        return values;
     }
 
     private async invokeForAvailability(args: string[]): Promise<TmuxCommandResult> {
@@ -816,6 +846,49 @@ function metadataReadArgs(baseArgs: string[]): string[] {
     return args;
 }
 
+function metadataBatchReadArgs(requests: MetadataReadRequest[]): string[] {
+    const args: string[] = [];
+    for (let index = 0; index < requests.length; index++) {
+        if (args.length) {
+            args.push(';');
+        }
+        args.push(
+            'display-message', '-p', metadataBatchReadMarker(index),
+            ';',
+            ...metadataReadArgs(requests[index].baseArgs),
+        );
+    }
+    return args;
+}
+
+function parseMetadataBatchSequence(
+    stdout: string,
+    requestCount: number
+): Record<string, string>[] {
+    if (stdout.length > MAX_LIST_OUTPUT_LENGTH || !stdout) {
+        throw new TmuxClientError('list-windows', 'invalid-output');
+    }
+    const lines = stdout.endsWith('\n') ? stdout.slice(0, -1).split('\n') : stdout.split('\n');
+    if (lines.length > MAX_LIST_ROWS) {
+        throw new TmuxClientError('list-windows', 'invalid-output');
+    }
+    const values: Record<string, string>[] = [];
+    let lineIndex = 0;
+    for (let index = 0; index < requestCount; index++) {
+        if (lines[lineIndex] !== metadataBatchReadMarker(index)) {
+            throw new TmuxClientError('list-windows', 'invalid-output');
+        }
+        lineIndex += 1;
+        const parsed = parseMetadataSequenceLines(lines, lineIndex, 'list-windows');
+        values.push(parsed.values);
+        lineIndex = parsed.nextLineIndex;
+    }
+    if (lineIndex !== lines.length) {
+        throw new TmuxClientError('list-windows', 'invalid-output');
+    }
+    return values;
+}
+
 function parseMetadataSequence(
     stdout: string,
     operation: TmuxOperation
@@ -830,8 +903,20 @@ function parseMetadataSequence(
     if (lines.length > MAX_LIST_ROWS) {
         throw new TmuxClientError(operation, 'invalid-output');
     }
+    const parsed = parseMetadataSequenceLines(lines, 0, operation);
+    if (parsed.nextLineIndex !== lines.length) {
+        throw new TmuxClientError(operation, 'invalid-output');
+    }
+    return parsed.values;
+}
+
+function parseMetadataSequenceLines(
+    lines: string[],
+    startLineIndex: number,
+    operation: TmuxOperation,
+): { values: Record<string, string>; nextLineIndex: number } {
     const values: Record<string, string> = {};
-    let lineIndex = 0;
+    let lineIndex = startLineIndex;
     for (const key of metadataOptionKeys()) {
         const marker = metadataReadMarker(key);
         if (lines[lineIndex] !== marker) {
@@ -847,14 +932,15 @@ function parseMetadataSequence(
         }
         lineIndex++;
     }
-    if (lineIndex !== lines.length) {
-        throw new TmuxClientError(operation, 'invalid-output');
-    }
-    return values;
+    return { values, nextLineIndex: lineIndex };
 }
 
 function metadataReadMarker(key: MetadataOptionKey): string {
     return `${METADATA_READ_MARKER_PREFIX}${key}`;
+}
+
+function metadataBatchReadMarker(index: number): string {
+    return `${METADATA_BATCH_MARKER_PREFIX}${index}`;
 }
 
 function parseTargetWindow(stdout: string): TmuxTargetWindowRecord {

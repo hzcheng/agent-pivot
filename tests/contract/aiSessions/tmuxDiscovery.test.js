@@ -87,6 +87,34 @@ test('RUNTIME-TMUX-DISCOVERY-001 enumerate falls back to separate binding lists 
     assert.equal(discovery.getActive().length, 1);
 });
 
+test('RUNTIME-TMUX-DISCOVERY-001 coalesces concurrent persisted inactive loads', async () => {
+    const first = createDeferred();
+    let lists = 0;
+    const store = createSyntheticTmuxStore();
+    store.listInactive = async () => {
+        lists += 1;
+        return first.promise;
+    };
+    const discovery = new TmuxRuntimeDiscovery({
+        client: { listWindows: async () => [] },
+        bindingStore: store,
+        markerIsCurrent: () => false,
+    });
+
+    const startupLoad = discovery.loadPersistedInactive();
+    const attentionLoad = discovery.loadPersistedInactive();
+    assert.equal(lists, 1);
+
+    first.resolve([]);
+    await Promise.all([startupLoad, attentionLoad]);
+    store.listInactive = async () => {
+        lists += 1;
+        return [];
+    };
+    await discovery.loadPersistedInactive();
+    assert.equal(lists, 2, 'a settled load must not become a permanent cache');
+});
+
 test('RUNTIME-TMUX-DISCOVERY-001 coalesces refreshes and marks retained state stale after failure', async () => {
     const first = createDeferred();
     let lists = 0;

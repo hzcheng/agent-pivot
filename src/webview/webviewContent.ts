@@ -65,152 +65,10 @@ export function getStewardContent(
 ): string {
     var assetRevision = `${WEBVIEW_ASSET_ACTIVATION}-${++webviewAssetRevision}`;
     var stylesPath = getMediaResource(context, webview, 'styles.css', assetRevision);
-    var fittyPath = getMediaResource(context, webview, 'fitty.min.js', assetRevision);
-    var dragulaPath = getMediaResource(context, webview, 'dragula.min.js', assetRevision);
-    var autoScrollerPath = getMediaResource(context, webview, 'dom-autoscroller.min.js', assetRevision);
-
-    var scrollStateScriptsPath = getMediaResource(
+    var dashboardBundlePath = getMediaResource(
         context,
         webview,
-        'webviewScrollStateScripts.js',
-        assetRevision,
-    );
-    var aiSessionViewStateScriptsPath = getMediaResource(
-        context,
-        webview,
-        'webviewAiSessionViewStateScripts.js',
-        assetRevision,
-    );
-    var workspaceUpdateScriptsPath = getMediaResource(
-        context,
-        webview,
-        'webviewWorkspaceUpdateScripts.js',
-        assetRevision,
-    );
-    var todoGroupScriptsPath = getMediaResource(
-        context,
-        webview,
-        'webviewTodoGroupScripts.js',
-        assetRevision,
-    );
-    var projectCollapseScriptsPath = getMediaResource(
-        context,
-        webview,
-        'webviewProjectCollapseScripts.js',
-        assetRevision,
-    );
-    var todoControlScriptsPath = getMediaResource(
-        context,
-        webview,
-        'webviewTodoControlScripts.js',
-        assetRevision,
-    );
-    var projectContextMenuScriptsPath = getMediaResource(
-        context,
-        webview,
-        'webviewProjectContextMenuScripts.js',
-        assetRevision,
-    );
-    var projectAiUpdateScriptsPath = getMediaResource(
-        context,
-        webview,
-        'webviewProjectAiUpdateScripts.js',
-        assetRevision,
-    );
-    var aiSessionControlsScriptsPath = getMediaResource(
-        context,
-        webview,
-        'webviewProjectAiSessionControlsScripts.js',
-        assetRevision,
-    );
-    var projectScriptsPath = getMediaResource(
-        context,
-        webview,
-        'webviewProjectScripts.js',
-        assetRevision,
-    );
-    var dndScriptsPath = getMediaResource(
-        context,
-        webview,
-        'webviewDnDScripts.js',
-        assetRevision,
-    );
-    var skillPanelScriptsPath = getMediaResource(
-        context,
-        webview,
-        'webviewSkillPanelScripts.js',
-        assetRevision,
-    );
-    var projectsPanelScriptsPath = getMediaResource(
-        context,
-        webview,
-        'webviewProjectsPanelScripts.js',
-        assetRevision,
-    );
-    var dashboardValidationScriptsPath = getMediaResource(
-        context,
-        webview,
-        'webviewDashboardValidationScripts.js',
-        assetRevision,
-    );
-    var dashboardSearchScriptsPath = getMediaResource(
-        context,
-        webview,
-        'webviewDashboardSearchScripts.js',
-        assetRevision,
-    );
-    var dashboardProjectsPanelScriptsPath = getMediaResource(
-        context,
-        webview,
-        'webviewDashboardProjectsPanelScripts.js',
-        assetRevision,
-    );
-    var dashboardTodoPanelScriptsPath = getMediaResource(
-        context,
-        webview,
-        'webviewDashboardTodoPanelScripts.js',
-        assetRevision,
-    );
-    var dashboardAiPanelScriptsPath = getMediaResource(
-        context,
-        webview,
-        'webviewDashboardAiPanelScripts.js',
-        assetRevision,
-    );
-    var dashboardScriptsPath = getMediaResource(
-        context,
-        webview,
-        'webviewDashboardScripts.js',
-        assetRevision,
-    );
-    var promptProtocolScriptsPath = getMediaResource(
-        context,
-        webview,
-        'webviewPromptProtocolScripts.js',
-        assetRevision,
-    );
-    var promptScriptsPath = getMediaResource(
-        context,
-        webview,
-        'webviewPromptScripts.js',
-        assetRevision,
-    );
-    var todoRenderScriptsPath = getMediaResource(
-        context,
-        webview,
-        'webviewTodoRenderScripts.js',
-        assetRevision,
-    );
-    var todoScriptsPath = getMediaResource(
-        context,
-        webview,
-        'webviewTodoScripts.js',
-        assetRevision,
-    );
-    var filterScriptsPath = getMediaResource(
-        context,
-        webview,
-        'webviewFilterScripts.js',
+        'webviewDashboardBundle.js',
         assetRevision,
     );
 
@@ -229,7 +87,7 @@ export function getStewardContent(
 
     return `
 <!DOCTYPE html>
-    <html lang="en">
+    <html lang="en" class="dashboard-styles-pending">
     <head>
         <meta charset="UTF-8">
         <meta
@@ -239,7 +97,8 @@ export function getStewardContent(
         />
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <style>${criticalStartupStyle()}</style>
-        <link rel="stylesheet" type="text/css" href="${stylesPath}">
+        <link rel="stylesheet" type="text/css" href="${stylesPath}"
+            onload="document.documentElement.classList.remove('dashboard-styles-pending')">
         <style>${colorDefaults()}</style>
         <style>
             /* Custom CSS from configuration */
@@ -249,6 +108,20 @@ export function getStewardContent(
         ${getCustomStyle(infos.config)}
     </head>
     <body class="preload ${isSidebar ? 'steward-sidebar' : ''} ${!groups.length ? 'steward-empty' : ''} ${allGroupsCollapsed ? 'steward-all-collapsed' : ''}">
+        <main class="dashboard-style-loading" data-dashboard-style-loading aria-busy="true" aria-label="Loading Agent Pivot">
+            <div class="dashboard-style-loading-tabs" aria-hidden="true">
+                <span class="dashboard-style-loading-tab active"></span>
+                <span class="dashboard-style-loading-tab"></span>
+                <span class="dashboard-style-loading-tab"></span>
+                <span class="dashboard-style-loading-tab"></span>
+            </div>
+            <div class="dashboard-style-loading-cards" aria-hidden="true">
+                <span class="dashboard-style-loading-card"></span>
+                <span class="dashboard-style-loading-card"></span>
+                <span class="dashboard-style-loading-card"></span>
+            </div>
+        </main>
+        <div data-dashboard-ready-content>
         <div class="steward-sticky-header">
             <div class="filter-wrapper">
                 <div class="search-box">
@@ -305,35 +178,10 @@ export function getStewardContent(
         ${getProjectContextMenu()}
         ${getGroupContextMenu()}
         ${getAiSessionContextMenu()}
+        </div>
     </body>
 
-    <script src="${fittyPath}"></script>
-    <script src="${dragulaPath}"></script>
-    <script src="${autoScrollerPath}"></script>
-    <script src="${scrollStateScriptsPath}"></script>
-    <script src="${aiSessionViewStateScriptsPath}"></script>
-    <script src="${workspaceUpdateScriptsPath}"></script>
-    <script src="${todoGroupScriptsPath}"></script>
-    <script src="${projectCollapseScriptsPath}"></script>
-    <script src="${todoControlScriptsPath}"></script>
-    <script src="${projectContextMenuScriptsPath}"></script>
-    <script src="${projectAiUpdateScriptsPath}"></script>
-    <script src="${aiSessionControlsScriptsPath}"></script>
-    <script src="${projectScriptsPath}"></script>
-    <script src="${skillPanelScriptsPath}"></script>
-    <script src="${projectsPanelScriptsPath}"></script>
-    <script src="${dashboardValidationScriptsPath}"></script>
-    <script src="${dashboardSearchScriptsPath}"></script>
-    <script src="${dashboardProjectsPanelScriptsPath}"></script>
-    <script src="${dashboardTodoPanelScriptsPath}"></script>
-    <script src="${dashboardAiPanelScriptsPath}"></script>
-    <script src="${dashboardScriptsPath}"></script>
-    <script src="${promptProtocolScriptsPath}"></script>
-    <script src="${promptScriptsPath}"></script>
-    <script src="${todoRenderScriptsPath}"></script>
-    <script src="${todoScriptsPath}"></script>
-    <script src="${dndScriptsPath}"></script>
-    <script src="${filterScriptsPath}"></script>
+    <script src="${dashboardBundlePath}"></script>
 
     <script>
         (function() {
@@ -629,10 +477,57 @@ function getOpenCurrentWorkspaceEmptyState(hasOtherWindows: boolean): string {
 
 function criticalStartupStyle(): string {
     return `
+        * {
+            box-sizing: border-box;
+        }
+        html,
         body {
+            min-height: 100%;
+        }
+        body {
+            background: var(--vscode-sideBar-background);
             color: var(--vscode-editor-foreground);
             font-family: var(--vscode-font-family);
             margin: 0;
+        }
+        html.dashboard-styles-pending [data-dashboard-ready-content] {
+            display: none !important;
+        }
+        html:not(.dashboard-styles-pending) [data-dashboard-style-loading] {
+            display: none !important;
+        }
+        .dashboard-style-loading {
+            min-height: 264px;
+            padding: 12px;
+        }
+        .dashboard-style-loading-tabs {
+            display: flex;
+            gap: 8px;
+            height: 32px;
+            border-bottom: 1px solid var(--vscode-panel-border, transparent);
+        }
+        .dashboard-style-loading-tab {
+            display: block;
+            width: 52px;
+            height: 20px;
+            margin-top: 4px;
+            border-radius: 4px 4px 0 0;
+            background: var(--vscode-editor-inactiveSelectionBackground, rgba(127, 127, 127, .22));
+        }
+        .dashboard-style-loading-tab.active {
+            background: var(--vscode-editor-selectionBackground, rgba(127, 127, 127, .42));
+        }
+        .dashboard-style-loading-cards {
+            height: 196px;
+            overflow: hidden;
+            padding-top: 12px;
+        }
+        .dashboard-style-loading-card {
+            display: block;
+            height: 52px;
+            margin-bottom: 10px;
+            border-radius: 6px;
+            background: var(--vscode-editor-inactiveSelectionBackground, rgba(127, 127, 127, .18));
         }
         .filter-wrapper {
             display: flex;

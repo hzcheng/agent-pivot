@@ -72,6 +72,7 @@ const EXPECTED_MAIN_ENTRIES = Object.freeze([
     'extension/media/sharingan/mangekyou-sharingan-sasuke.svg',
     'extension/media/sharingan/mangekyou-sharingan-shisui.svg',
     'extension/media/styles.css',
+    'extension/media/webviewDashboardBundle.js',
     'extension/media/webviewDashboardValidationScripts.js',
     'extension/media/webviewDashboardSearchScripts.js',
     'extension/media/webviewDashboardProjectsPanelScripts.js',

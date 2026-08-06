@@ -128,6 +128,7 @@ test('WEBVIEW-TWO-STAGE-STARTUP-001 resolves the current view with boot HTML bef
 
     assert.deepEqual(fake.assignedHtml, ['<main>boot 1</main>']);
     assert.deepEqual(events, [['shell', 1]]);
+    assert.equal(provider.visible, false);
 });
 
 test('WEBVIEW-TWO-STAGE-STARTUP-001 reports shell assignment before one current first-paint acknowledgement', async () => {
@@ -163,6 +164,7 @@ test('WEBVIEW-TWO-STAGE-STARTUP-001 adopts ready callbacks once and prepares the
 
     assert.equal(provider.completeBootstrap(1, readyOptions(events)), true);
     await new Promise(resolve => setImmediate(resolve));
+    assert.equal(provider.visible, true);
 
     assert.deepEqual(fake.assignedHtml, [
         '<main>boot 1</main>',

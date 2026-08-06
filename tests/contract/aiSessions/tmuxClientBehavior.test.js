@@ -36,7 +36,7 @@ function metadataSequenceResult(args, getValue) {
             const option = command.at(-1);
             const key = Object.keys(TMUX_METADATA_OPTIONS)
                 .find(name => TMUX_METADATA_OPTIONS[name] === option);
-            const value = key && getValue(key);
+            const value = key && getValue(key, command);
             if (value !== undefined) {
                 stdout.push(value);
             }
@@ -360,9 +360,9 @@ test('RUNTIME-TMUX-CLIENT-001 reads and writes metadata options and maps runner 
                     stderr: '',
                 };
             }
-            if (args[0] === 'show-options') {
-                const target = args[args.indexOf('-t') + 1];
-                return metadataSequenceResult(args, key => {
+            if (args.includes('show-options')) {
+                return metadataSequenceResult(args, (key, command) => {
+                    const target = command[command.indexOf('-t') + 1];
                     const value = values[`${target}|${key}`];
                     return value === undefined ? undefined : encodedMetadata(value);
                 });
@@ -372,9 +372,8 @@ test('RUNTIME-TMUX-CLIENT-001 reads and writes metadata options and maps runner 
     };
     const client = new TmuxClient('tmux', runner);
     const windows = await client.listWindows();
-    assert.equal(calls.filter(call => call.args[0] === 'show-options').length, 3);
-    assert.ok(calls.filter(call => call.args[0] === 'show-options')
-        .every(call => call.args.includes(';')));
+    assert.equal(calls.filter(call => call.args.includes('show-options')).length, 1,
+        'window enumeration must batch metadata into one tmux process for this fixture');
     assert.deepEqual(calls.find(call => call.args[0] === 'list-panes').args, [
         'list-panes', '-a', '-F',
         '#{window_id}|:ap-field:|#{pane_id}|:ap-field:|#{pane_active}|:ap-field:|#{pane_pid}',
@@ -479,7 +478,7 @@ test('RUNTIME-TMUX-CLIENT-001 fails closed on missing, ambiguous, or malformed a
                 };
             }
             if (args[0] === 'list-panes') return paneResult;
-            if (args[0] === 'show-options') {
+            if (args.includes('show-options')) {
                 return metadataSequenceResult(args, () => undefined);
             }
             return { exitCode: 0, stdout: '', stderr: '' };

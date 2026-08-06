@@ -164,7 +164,6 @@ const NEW_AI_SESSION_REFRESH_DELAYS_MS = [250, 1000, 2500, 5000];
 const AI_SESSION_REFRESH_DEBOUNCE_MS = 3000;
 const AI_SESSION_WATCHER_REFRESH_MIN_INTERVAL_MS = 10000;
 const AI_SESSION_INCREMENTAL_SCAN_MAX_FILES = 2000;
-const AI_SESSION_TMUX_RESTORE_BUDGET_MS = 800;
 const DASHBOARD_BOOTSTRAP_PHASE_ORDER = [
     'skill-scan',
     'tmux-persisted-inactive-restore',
@@ -198,25 +197,6 @@ function resolveAiProviderExecutable(commandName: string): string | null {
         }
     }
     return null;
-}
-
-async function settlesWithinBudget<T>(
-    task: Promise<T>,
-    budgetMs: number
-): Promise<boolean> {
-    let timeout: NodeJS.Timeout | undefined;
-    try {
-        return await Promise.race([
-            task.then(() => true),
-            new Promise<boolean>(resolve => {
-                timeout = setTimeout(() => resolve(false), budgetMs);
-            }),
-        ]);
-    } finally {
-        if (timeout) {
-            clearTimeout(timeout);
-        }
-    }
 }
 
 function runBoundedAiProviderHelp(
@@ -392,6 +372,9 @@ async function initializeDashboard(
     const logOpenWorkspaceDiagnostic = (component: string, event: unknown) => dashboardDiagnostics.logOpenWorkspaceDiagnostic(component, event);
     const logOpenWorkspaceBridgeError = (error: unknown) => dashboardDiagnostics.logOpenWorkspaceBridgeError(error);
     const bootstrapPhaseTimings: Record<string, number> = {};
+    for (const phase of DASHBOARD_BOOTSTRAP_PHASE_ORDER) {
+        bootstrapPhaseTimings[phase] = 0;
+    }
     const timeBootstrapPhase = async <T>(
         phase: string,
         run: () => T | Promise<T>
@@ -402,6 +385,50 @@ async function initializeDashboard(
         } finally {
             bootstrapPhaseTimings[phase] = Math.max(0, Date.now() - startedAtMs);
         }
+    };
+    let settleStorageMigration: (available: boolean) => void = () => undefined;
+    let storageMigrationSettled = false;
+    const storageMigrationReady = new Promise<boolean>(resolve => {
+        settleStorageMigration = available => {
+            if (storageMigrationSettled) {
+                return;
+            }
+            storageMigrationSettled = true;
+            resolve(available);
+        };
+    });
+    resources.own({ dispose: () => settleStorageMigration(false) });
+    const runAfterStorageMigration = async <T>(run: () => T | PromiseLike<T>): Promise<T> => {
+        const available = await storageMigrationReady;
+        resources.assertActive();
+        if (!available) {
+            throw new Error('Agent Pivot storage migration did not complete.');
+        }
+        return run();
+    };
+    const storageMutationMessageTypes = new Set([
+        'save-current-workspace',
+        'save-project',
+        'add-project',
+        'import-from-other-storage',
+        'reordered-projects',
+        'reordered-favorites',
+        'remove-project',
+        'edit-project',
+        'color-project',
+        'favorite-project',
+        'edit-group',
+        'remove-group',
+        'add-group',
+    ]);
+    const messageRequiresStorageMigration = (message: unknown): boolean => {
+        if (!message || typeof message !== 'object') {
+            return false;
+        }
+        const messageType = (message as { type?: unknown }).type;
+        return typeof messageType === 'string'
+            && (messageType.startsWith('todo-')
+                || storageMutationMessageTypes.has(messageType));
     };
 
     const colorService = new ColorService(context);
@@ -768,48 +795,61 @@ async function initializeDashboard(
             }
         },
     });
-    await timeBootstrapPhase('direct-terminal-restore', () =>
+    const directTerminalRestoreTask = timeBootstrapPhase('direct-terminal-restore', () =>
         aiSessionTerminalService.restorePersistedTerminals(vscode.window.terminals));
-    resources.assertActive();
-    const tmuxRestoreTask = persistedInactiveRestoreTask.then(async (): Promise<'restored' | 'failed' | 'disposed'> => {
-        try {
-            resources.assertActive();
-        } catch (_error) {
-            return 'disposed';
-        }
-        try {
-            await timeBootstrapPhase('tmux-attach-restore', () =>
-                tmuxRuntimeBackend.restoreAttachTerminals(vscode.window.terminals));
-            return 'restored';
-        } catch (error) {
-            logAiSessionRuntimeFailure('restore-attach-terminals', error);
-            return 'failed';
-        }
-    });
-    const tmuxRestoreCompleted = await timeBootstrapPhase('tmux-restore-wait', () =>
-        settlesWithinBudget(tmuxRestoreTask, AI_SESSION_TMUX_RESTORE_BUDGET_MS));
-    resources.assertActive();
-    if (!tmuxRestoreCompleted) {
-        logDashboardDiagnostic({
-            event: 'agent-pivot-bootstrap-tmux-restore-deferred',
-            generation: bootstrapGeneration,
-            budgetMs: AI_SESSION_TMUX_RESTORE_BUDGET_MS,
-        });
-        void tmuxRestoreTask.then(outcome => {
+    const directTerminalRestoreOutcomeTask = directTerminalRestoreTask.then(
+        () => ({ outcome: 'restored' as const }),
+        error => ({ outcome: 'failed' as const, error }),
+    );
+    const tmuxRestoreTask = persistedInactiveRestoreTask.then(
+        async (): Promise<'restored' | 'failed' | 'disposed'> => {
             try {
                 resources.assertActive();
             } catch (_error) {
-                return;
+                return 'disposed';
             }
-            aiSessionAttentionEvent.setDeferredRestoreSettled();
-            logDashboardDiagnostic({
-                event: 'agent-pivot-bootstrap-tmux-restore-settled',
-                generation: bootstrapGeneration,
-                outcome,
-            });
-            publishDeferredTmuxRestoreIfReady();
+            try {
+                await timeBootstrapPhase('tmux-attach-restore', () =>
+                    tmuxRuntimeBackend.restoreAttachTerminals(vscode.window.terminals));
+                return 'restored';
+            } catch (error) {
+                logAiSessionRuntimeFailure('restore-attach-terminals', error);
+                return 'failed';
+            }
         });
-    }
+    // Persisted discovery and Direct restoration start concurrently. Runtime
+    // recovery is always post-render work: process ID resolution, filesystem
+    // scans, and a delayed Extension Host timer must never gate ready HTML.
+    bootstrapPhaseTimings['tmux-restore-wait'] = 0;
+    resources.assertActive();
+    logDashboardDiagnostic({
+        event: 'agent-pivot-bootstrap-tmux-restore-deferred',
+        generation: bootstrapGeneration,
+        budgetMs: 0,
+    });
+    const publishDeferredRuntimeRestore = (
+        outcome: 'restored' | 'failed' | 'disposed',
+    ): void => {
+        try {
+            resources.assertActive();
+        } catch (_error) {
+            return;
+        }
+        aiSessionAttentionEvent.setDeferredRestoreSettled();
+        logDashboardDiagnostic({
+            event: 'agent-pivot-bootstrap-tmux-restore-settled',
+            generation: bootstrapGeneration,
+            outcome,
+        });
+        publishDeferredTmuxRestoreIfReady();
+    };
+    void tmuxRestoreTask.then(
+        publishDeferredRuntimeRestore,
+        error => {
+            logAiSessionRuntimeFailure('restore-attach-terminals', error);
+            publishDeferredRuntimeRestore('failed');
+        },
+    );
     const aiSessionPinStore = new AiSessionPinStore(context.globalStoragePath);
     const aiSessionPinController = new AiSessionPinController({
         store: aiSessionPinStore,
@@ -1123,6 +1163,28 @@ async function initializeDashboard(
         setTimeout: (callback, delayMs) => setTimeout(callback, delayMs),
         clearTimeout: handle => clearTimeout(handle),
     }));
+    void directTerminalRestoreOutcomeTask.then(result => {
+        if (result.outcome === 'restored') {
+            try {
+                resources.assertActive();
+            } catch (_error) {
+                return;
+            }
+            void aiSessionDashboardController.refreshNow(
+                'direct-bootstrap-restore',
+                { fallbackToFullRefresh: false },
+            );
+            return;
+        }
+        try {
+            resources.assertActive();
+        } catch (_error) {
+            return;
+        }
+        logAiSessionRuntimeFailure(
+            'restore-persisted-terminals', result.error, 'vscode'
+        );
+    });
     conversationCapability = ownResource(() => createConversationCapability({
         services: aiSessionServices,
         resolveTarget: (projectId, providerId, sessionId) => {
@@ -1305,18 +1367,20 @@ async function initializeDashboard(
             openWorkspaceDashboardController.getState().otherWindows.status,
         ),
         renderError: getErrorContent,
-        onMessage: dashboardMessageRouter,
+        onMessage: message => messageRequiresStorageMigration(message)
+            ? runAfterStorageMigration(() => dashboardMessageRouter(message))
+            : dashboardMessageRouter(message),
         onVisibleChanged: async visible => {
             projectsPanelController?.invalidatePendingUpdates();
             openWorkspaceDashboardController?.invalidatePendingUpdates();
             setAiSessionWatchersActive(visible);
             activeAiSessionTerminalHighlighter.setVisible(visible);
+            aiSessionAttentionEvent.setDeferredRestoreRefreshReady(visible);
+            publishDeferredTmuxRestoreIfReady();
             if (visible) {
                 void tmuxFocusedRuntimeMonitor.request();
             }
             await dashboardRuntimeController.handleAiSessionViewVisibilityChanged(visible);
-            aiSessionAttentionEvent.setDeferredRestoreRefreshReady(true);
-            publishDeferredTmuxRestoreIfReady();
         },
         onVisiblePrepared: () =>
             aiSessionDashboardController.refreshNow('dashboard-visible', {
@@ -1531,8 +1595,11 @@ async function initializeDashboard(
         migrateDataIfNeeded: async () => {
             const projectMigration = settleMigration(() => projectService.migrateDataIfNeeded());
             const todoMigration = settleMigration(() => todoService.migrateDataIfNeeded());
-            todoPanel.setStorageMigrationReady(todoMigration.then(() => undefined, () => undefined));
+            if (storageMigrationSettled) {
+                todoPanel.setStorageMigrationReady(todoMigration.then(() => undefined));
+            }
             const [projects, todos] = await Promise.all([projectMigration, todoMigration]);
+            settleStorageMigration(true);
             return { projects, todos };
         },
         refreshDashboard: () => provider.refresh(),
@@ -1626,13 +1693,15 @@ async function initializeDashboard(
 
     const commandHandlers = {
         open: () => showAgentPivot(),
-        addProject: () => projectMutationController.addProject(),
-        saveProject: () => savedWorkspaceProjectAdapter.saveCurrentWorkspace(),
-        removeProject: () => projectRemovalController.removeProjectPerCommand(),
-        editProjects: () => projectManualEditController.editProjectsManually(),
-        addGroup: () => groupCommandController.addGroup(),
-        removeGroup: () => groupCommandController.removeGroupPerCommand(),
-        addProjectsFromFolder: () => addProjectsFromFolderController.addProjectsFromFolder(),
+        addProject: () => runAfterStorageMigration(() => projectMutationController.addProject()),
+        saveProject: () => runAfterStorageMigration(() => savedWorkspaceProjectAdapter.saveCurrentWorkspace()),
+        removeProject: () => runAfterStorageMigration(() => projectRemovalController.removeProjectPerCommand()),
+        editProjects: () => runAfterStorageMigration(() => projectManualEditController.editProjectsManually()),
+        addGroup: () => runAfterStorageMigration(() => groupCommandController.addGroup()),
+        removeGroup: () => runAfterStorageMigration(() => groupCommandController.removeGroupPerCommand()),
+        addProjectsFromFolder: () => runAfterStorageMigration(
+            () => addProjectsFromFolderController.addProjectsFromFolder()
+        ),
         addFileToActiveTerminal: () => activeTerminalFileReferenceController.addFileToActiveTerminal(),
         insertPromptToActiveTerminal: () => promptTerminalCommandController.insertPromptToActiveTerminal(),
         migrateSkillsToCentral: () => skillPanel.migrateToCentral(),
@@ -1660,9 +1729,7 @@ async function initializeDashboard(
         dashboardLifecycleController.handleWindowStateChanged(windowState);
     }));
 
-    await timeBootstrapPhase('startup-sequence', () =>
-        dashboardStartupController.startUp());
-    resources.assertActive();
+    bootstrapPhaseTimings['startup-sequence'] = 0;
     const orderedBootstrapPhaseTimings: Record<string, number> = {};
     for (const phase of DASHBOARD_BOOTSTRAP_PHASE_ORDER) {
         if (Object.prototype.hasOwnProperty.call(bootstrapPhaseTimings, phase)) {
@@ -1680,6 +1747,34 @@ async function initializeDashboard(
     resources.own({
         dispose: () => dashboardCommandRegistration.discard(bootstrapGeneration),
     });
+    ownTimer(
+        () => setTimeout(() => {
+            void timeBootstrapPhase('startup-sequence', () =>
+                dashboardStartupController.startUp()).then(
+                () => {
+                    try {
+                        resources.assertActive();
+                    } catch (_error) {
+                        return;
+                    }
+                    logDashboardDiagnostic({
+                        event: 'agent-pivot-post-ready-startup-settled',
+                        generation: bootstrapGeneration,
+                        durationMs: bootstrapPhaseTimings['startup-sequence'],
+                    });
+                },
+                error => {
+                    try {
+                        resources.assertActive();
+                    } catch (_error) {
+                        return;
+                    }
+                    logError('Failed to complete Agent Pivot post-ready startup.', error);
+                },
+            );
+        }, 0),
+        handle => clearTimeout(handle),
+    );
     return providerOptions;
 
     // ~~~~~~~~~~~~~~~~~~~~~~~~~ Functions ~~~~~~~~~~~~~~~~~~~~~~~~~

@@ -21,7 +21,11 @@ export interface DashboardRuntimeControllerOptions<TProject extends Project = Pr
     logError: (message: string, error: unknown) => void;
     refreshAiSessionRuntimes?: (reason: string, force: boolean) => Thenable<void> | Promise<void>;
     logAiSessionRuntimeFailure?: (operation: string, error: unknown) => void;
+    nowMs?: () => number;
+    visibilityRefreshMinIntervalMs?: number;
 }
+
+const DEFAULT_VISIBILITY_REFRESH_MIN_INTERVAL_MS = 10_000;
 
 export interface RevealAgentPivotDashboardOptions {
     executeCommand: (command: string, ...args: unknown[]) => Thenable<unknown> | Promise<unknown>;
@@ -40,6 +44,9 @@ export function revealAgentPivotDashboard(
 }
 
 export class DashboardRuntimeController<TProject extends Project = Project> {
+    private visibilityRefreshFlight: Promise<void> | null = null;
+    private lastVisibilityRefreshAtMs: number | null = null;
+
     constructor(private readonly options: DashboardRuntimeControllerOptions<TProject>) {
     }
 
@@ -65,11 +72,31 @@ export class DashboardRuntimeController<TProject extends Project = Project> {
         if (!visible || !this.options.refreshAiSessionRuntimes) {
             return;
         }
-        try {
-            await this.runAsync(() => this.options.refreshAiSessionRuntimes('dashboard-visible', true));
-        } catch (error) {
-            this.options.logAiSessionRuntimeFailure?.('dashboard-visible', error);
+
+        if (this.visibilityRefreshFlight) {
+            return this.visibilityRefreshFlight;
         }
+
+        const nowMs = this.nowMs();
+        if (this.lastVisibilityRefreshAtMs !== null
+            && nowMs - this.lastVisibilityRefreshAtMs < this.visibilityRefreshMinIntervalMs()) {
+            return;
+        }
+
+        let tracked: Promise<void>;
+        const refresh = this.runAsync(() => this.options.refreshAiSessionRuntimes(
+            'dashboard-visible', false
+        )).then(
+            () => { this.lastVisibilityRefreshAtMs = this.nowMs(); },
+            error => { this.options.logAiSessionRuntimeFailure?.('dashboard-visible', error); },
+        );
+        tracked = refresh.then(() => {
+            if (this.visibilityRefreshFlight === tracked) {
+                this.visibilityRefreshFlight = null;
+            }
+        });
+        this.visibilityRefreshFlight = tracked;
+        return tracked;
     }
 
     refreshAfterMutation(reason = 'project-mutation'): void {
@@ -112,6 +139,17 @@ export class DashboardRuntimeController<TProject extends Project = Project> {
 
     private runAsync<T>(operation: () => Thenable<T> | Promise<T> | T): Promise<T> {
         return runAsync(operation);
+    }
+
+    private nowMs(): number {
+        return this.options.nowMs ? this.options.nowMs() : Date.now();
+    }
+
+    private visibilityRefreshMinIntervalMs(): number {
+        const configured = this.options.visibilityRefreshMinIntervalMs;
+        return Number.isFinite(configured) && (configured as number) >= 0
+            ? configured as number
+            : DEFAULT_VISIBILITY_REFRESH_MIN_INTERVAL_MS;
     }
 }
 

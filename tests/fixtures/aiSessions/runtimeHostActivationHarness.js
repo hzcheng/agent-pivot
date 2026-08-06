@@ -176,6 +176,15 @@ function createVscode(lifecycle) {
 
 async function main() {
     const mode = process.argv[2] || 'success';
+    const nativeSetTimeout = global.setTimeout;
+    if (mode === 'blocked-restore-budget') {
+        global.setTimeout = (callback, delay, ...args) => {
+            const effectiveDelay = delay === 800 ? 60_000 : delay;
+            const timer = nativeSetTimeout(callback, effectiveDelay, ...args);
+            if (delay === 800) timer.unref();
+            return timer;
+        };
+    }
     const storageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'PRIVATE_PATH_CANARY-'));
     const privacyCanaries = [
         storageRoot,
@@ -222,11 +231,24 @@ async function main() {
     let activationReturnedBeforeDirectRestoreSettled = false;
     let directRestoreSettled = false;
     let initialInactiveRestoreRecorded = false;
+    let pendingInactiveRestoreEntered = false;
+    let inactiveRestoreSettled = false;
+    let releasePendingInactiveRestore;
+    let pendingInactiveRestoreFlight;
     let pendingDirectRestoreEntered = false;
     let releasePendingDirectRestore;
     let pendingTmuxRestoreEntered = false;
+    let tmuxRestoreEnteredBeforeDirectRestoreSettled = false;
     let tmuxRestoreSettled = false;
+    let tmuxRestorePublishedBeforeDirectRestoreSettled = false;
     let releasePendingTmuxRestore;
+    let pendingStartupSequenceEntered = false;
+    let startupSequenceSettled = false;
+    let releasePendingStartupSequence;
+    let projectMutationInvocations = 0;
+    let projectMutationBlockedDuringMigration = false;
+    let readOnlyHydrationPassedDuringMigration = false;
+    let directRestoreRefreshAfterSettlement = false;
     const synchronizedGlobalStateKeySets = [];
     const runtimeStoreRoots = [];
     const capturedRuntimeStores = [];
@@ -350,11 +372,27 @@ async function main() {
         const AttentionBridgeClient = require('../../../out/aiSessions/attentionBridgeClient').default;
         const AiSessionAliasController = require('../../../out/aiSessions/aliasController').default;
         const { DashboardCommandRegistration } = require('../../../out/dashboard/commandRegistration');
+        const { DashboardStartupController } = require('../../../out/dashboard/startupController');
+        const { ProjectMutationController } = require('../../../out/projects/projectMutationController');
 
         const originalDashboardRegister = DashboardCommandRegistration.prototype.register;
         patch(DashboardCommandRegistration.prototype, 'register', function (...args) {
             dashboardCommandRegistrationInvocations += 1;
             return originalDashboardRegister.apply(this, args);
+        });
+        const originalDashboardStartUp = DashboardStartupController.prototype.startUp;
+        patch(DashboardStartupController.prototype, 'startUp', async function (...args) {
+            if (mode === 'slow-startup-sequence') {
+                pendingStartupSequenceEntered = true;
+                await new Promise(resolve => {
+                    releasePendingStartupSequence = resolve;
+                });
+            }
+            await originalDashboardStartUp.apply(this, args);
+            startupSequenceSettled = true;
+        });
+        patch(ProjectMutationController.prototype, 'addProject', async function () {
+            projectMutationInvocations += 1;
         });
         patch(AiSessionAliasController.prototype, 'copyForRebind', function (...args) {
             aliasRebinds.push(args);
@@ -374,14 +412,27 @@ async function main() {
             }
             verified.add('client-store-discovery');
             verified.add('thread-switch-alias-wiring');
+            if ((mode === 'slow-runtime-restore' || mode === 'blocked-restore-budget')
+                && !initialInactiveRestoreRecorded) {
+                if (!pendingInactiveRestoreFlight) {
+                    pendingInactiveRestoreEntered = true;
+                    pendingInactiveRestoreFlight = new Promise(resolve => {
+                        releasePendingInactiveRestore = resolve;
+                    });
+                }
+                await pendingInactiveRestoreFlight;
+            }
             if (!initialInactiveRestoreRecorded) {
                 initialInactiveRestoreRecorded = true;
                 events.push('inactive-restored');
+                inactiveRestoreSettled = true;
             }
         });
         patch(TerminalService.prototype, 'restorePersistedTerminals', async function () {
             assert.ok(this instanceof TerminalService);
-            if (mode === 'pending' || mode === 'diagnostics') {
+            if (mode === 'pending' || mode === 'diagnostics'
+                || mode === 'slow-direct-restore'
+                || mode === 'slow-runtime-restore' || mode === 'blocked-restore-budget') {
                 pendingDirectRestoreEntered = true;
                 await new Promise(resolve => {
                     releasePendingDirectRestore = resolve;
@@ -433,6 +484,7 @@ async function main() {
             assert.ok(this.dependencies.runtimeStore instanceof TmuxRuntimeBindingStore);
             assert.ok(this.dependencies.attachStore instanceof TmuxAttachBindingStore);
             verified.add('tmux-backend');
+            tmuxRestoreEnteredBeforeDirectRestoreSettled = !directRestoreSettled;
             restoreAttachTerminalsInvocations.push((terminals || []).map(terminal => terminal?.name));
             if (mode === 'tmux-restore-failure') {
                 events.push('tmux-restore-failed');
@@ -489,6 +541,8 @@ async function main() {
         })();
         let dashboardDeactivated = false;
         let readyBeforeTmuxRestoreSettled = false;
+        let readyBeforeRuntimeRestoresSettled = false;
+        let readyBeforeStartupSequenceSettled = false;
         if (mode === 'pending') {
             await waitFor(
                 () => pendingDirectRestoreEntered,
@@ -498,8 +552,64 @@ async function main() {
                 () => activationSettled,
                 'activation to return while Direct restoration is pending'
             );
+            await waitFor(() => tmuxRestoreSettled, 'tmux restoration to settle');
         }
         await activationFlight;
+        if (mode === 'slow-runtime-restore' || mode === 'blocked-restore-budget') {
+            await waitFor(
+                () => pendingInactiveRestoreEntered && pendingDirectRestoreEntered,
+                'pending startup runtime restorations to begin'
+            );
+            const deadline = Date.now() + 1_500;
+            while (Date.now() < deadline
+                && vscode.registeredProvider?.lifecycle?.kind !== 'ready') {
+                await new Promise(resolve => setTimeout(resolve, 10));
+            }
+            readyBeforeRuntimeRestoresSettled =
+                vscode.registeredProvider?.lifecycle?.kind === 'ready'
+                && !inactiveRestoreSettled
+                && !directRestoreSettled;
+            releasePendingInactiveRestore?.();
+            releasePendingDirectRestore?.();
+            await waitFor(
+                () => inactiveRestoreSettled && directRestoreSettled && tmuxRestoreSettled,
+                'released startup runtime restorations to settle'
+            );
+        }
+        if (mode === 'slow-startup-sequence') {
+            await waitFor(
+                () => pendingStartupSequenceEntered,
+                'pending startup sequence to begin'
+            );
+            for (let attempt = 0; attempt < 100
+                && vscode.registeredProvider?.lifecycle?.kind !== 'ready'; attempt += 1) {
+                await new Promise(resolve => setImmediate(resolve));
+            }
+            readyBeforeStartupSequenceSettled =
+                vscode.registeredProvider?.lifecycle?.kind === 'ready'
+                && !startupSequenceSettled;
+            const mutationFlight = vscode.bootWebviewMessageCallback?.({
+                type: 'add-project',
+                groupId: null,
+            });
+            const hydrationFlight = vscode.bootWebviewMessageCallback?.({
+                type: 'request-projects-panel',
+                version: 1,
+                requestId: 991,
+            });
+            for (let attempt = 0; attempt < 10; attempt += 1) {
+                await new Promise(resolve => setImmediate(resolve));
+            }
+            projectMutationBlockedDuringMigration = projectMutationInvocations === 0
+                && !startupSequenceSettled;
+            readOnlyHydrationPassedDuringMigration = lifecycle.postedWebviewMessages.some(
+                message => message?.type === 'projects-panel-content'
+                    && message.requestId === 991
+            );
+            releasePendingStartupSequence?.();
+            await waitFor(() => startupSequenceSettled, 'startup sequence to settle');
+            await Promise.all([mutationFlight, hydrationFlight]);
+        }
         if (mode === 'slow-tmux-restore' || mode === 'slow-tmux-restore-dispose') {
             await waitFor(
                 () => pendingTmuxRestoreEntered,
@@ -560,6 +670,20 @@ async function main() {
             await waitFor(() => vscode.providerRegistrations === 1, 'provider registration');
             await vscode.providerResolution;
             await waitFor(() => vscode.webviewHtmlHistory.length > 0, 'Webview HTML assignment');
+            if (mode === 'pending') {
+                await waitFor(
+                    () => vscode.registeredProvider?.lifecycle?.kind === 'ready',
+                    'ready dashboard while Direct restoration is pending'
+                );
+                for (let attempt = 0; attempt < 100
+                    && !lifecycle.outputLines.some(line =>
+                        line.includes('"reason":"tmux-bootstrap-restore"')); attempt += 1) {
+                    await new Promise(resolve => setImmediate(resolve));
+                }
+                tmuxRestorePublishedBeforeDirectRestoreSettled = !directRestoreSettled
+                    && lifecycle.outputLines.some(line =>
+                        line.includes('"reason":"tmux-bootstrap-restore"'));
+            }
             const generation = vscode.registeredProvider?.lifecycle?.generation;
             if (Number.isSafeInteger(generation) && generation > 0
                 && vscode.bootWebviewMessageCallback) {
@@ -576,6 +700,39 @@ async function main() {
                 await waitFor(
                     () => ['ready', 'failed'].includes(vscode.registeredProvider?.lifecycle?.kind),
                     'dashboard bootstrap completion'
+                );
+            }
+            if (mode === 'slow-direct-restore') {
+                await waitFor(
+                    () => pendingDirectRestoreEntered && tmuxRestoreSettled,
+                    'Direct restoration to remain pending after tmux settlement'
+                );
+                await waitFor(
+                    () => lifecycle.outputLines.some(line =>
+                        line.includes('"reason":"tmux-bootstrap-restore"')),
+                    'tmux restoration refresh before Direct settlement'
+                );
+                releasePendingDirectRestore?.();
+                await waitFor(() => directRestoreSettled, 'Direct restoration to settle');
+                await waitFor(
+                    () => lifecycle.outputLines.some(line =>
+                        line.includes('"reason":"direct-bootstrap-restore"')),
+                    'Direct restoration refresh after settlement'
+                );
+                directRestoreRefreshAfterSettlement = true;
+            }
+            if (mode === 'slow-runtime-restore') {
+                const refreshDeadline = Date.now() + 1_500;
+                while (Date.now() < refreshDeadline
+                    && !lifecycle.outputLines.some(line =>
+                        line.includes('"reason":"tmux-bootstrap-restore"'))) {
+                    await new Promise(resolve => setTimeout(resolve, 10));
+                }
+                assert.equal(
+                    lifecycle.outputLines.some(line =>
+                        line.includes('"reason":"tmux-bootstrap-restore"')),
+                    true,
+                    'Timed out waiting for startup runtime restoration refresh'
                 );
             }
             if (mode === 'success') {
@@ -714,6 +871,13 @@ async function main() {
             events,
             failure,
             pendingDirectRestoreEntered,
+            pendingInactiveRestoreEntered,
+            readyBeforeRuntimeRestoresSettled,
+            pendingStartupSequenceEntered,
+            readyBeforeStartupSequenceSettled,
+            projectMutationBlockedDuringMigration,
+            projectMutationInvocations,
+            readOnlyHydrationPassedDuringMigration,
             pendingOpenRevealedBootShell,
             pendingUnavailableCommandError,
             inFlightListenerDisposedBeforeGateRelease,
@@ -723,11 +887,18 @@ async function main() {
             postDisposeWebviewMessages: lifecycle.postDisposeWebviewMessages,
             lateAttentionClientObserved,
             pendingTmuxRestoreEntered,
+            tmuxRestoreEnteredBeforeDirectRestoreSettled,
+            tmuxRestorePublishedBeforeDirectRestoreSettled,
             readyBeforeTmuxRestoreSettled,
             tmuxRestoreRefreshCount: aiSessionDiagnostics.filter(
                 diagnostic => diagnostic.event === 'ai-session-message-build'
                     && diagnostic.reason === 'tmux-bootstrap-restore'
             ).length,
+            directRestoreRefreshCount: aiSessionDiagnostics.filter(
+                diagnostic => diagnostic.event === 'ai-session-message-build'
+                    && diagnostic.reason === 'direct-bootstrap-restore'
+            ).length,
+            directRestoreRefreshAfterSettlement,
             tmuxRuntimeFailureDiagnostics,
             warningMessages: lifecycle.warningMessages,
             fallbackResumeStatuses,
@@ -767,6 +938,7 @@ async function main() {
                 : {}),
         }));
     } finally {
+        global.setTimeout = nativeSetTimeout;
         disposeContextSubscriptions();
         restores.reverse().forEach(restore => restore());
         Module._load = previousLoad;

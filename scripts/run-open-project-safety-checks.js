@@ -3239,12 +3239,36 @@ function runDashboardBridgeLifecycleChecks() {
     assert.ok(dashboard.includes('openWorkspaceDashboardController = new OpenWorkspaceDashboardController({'));
     assert.ok(dashboard.includes('openWorkspaceController = new OpenWorkspaceController({'));
     assert.ok(dashboard.includes('new OpenWorkspaceBridgeClient('));
-    assert.ok(dashboard.includes("reportDiagnostic: event => logOpenWorkspaceDiagnostic('Workspace', event)"));
-    assert.ok(dashboard.includes("reportBridgeDiagnostic: event => logOpenWorkspaceDiagnostic('Bridge', event)"));
-    assert.ok(dashboard.includes('error => logOpenWorkspaceBridgeError(error)'),
+    assert.ok(dashboard.includes(
+        "reportDiagnostic: event =>\n                    dashboardDiagnostics.logOpenWorkspaceDiagnostic('Workspace', event)"
+    ), 'the bridge must report workspace diagnostics through the bounded entry');
+    assert.ok(dashboard.includes(
+        "reportBridgeDiagnostic: event =>\n                    dashboardDiagnostics.logOpenWorkspaceDiagnostic('Bridge', event)"
+    ), 'the bridge must report bridge diagnostics through the bounded entry');
+    assert.ok(dashboard.includes('onError: error => logOpenWorkspaceBridgeError(error)'),
         'the OpenWorkspaceBridgeClient error callback must use the privacy-bounded diagnostics entry');
+    // The client is deliberately created before bootstrap so its cross-host
+    // handshake overlaps the dashboard build, which means it is owned by the
+    // extension context rather than by a bootstrap generation.
+    assert.strictEqual(
+        dashboard.includes('new OpenWorkspaceBridgeClient(', dashboard.indexOf('async function initializeDashboard')),
+        false,
+        'the open-workspace bridge must be constructed before bootstrap, not inside it',
+    );
+    assert.strictEqual(
+        (dashboard.match(/new OpenWorkspaceBridgeClient\(/g) || []).length,
+        1,
+        'exactly one open-workspace bridge client may be constructed',
+    );
+    assert.ok(dashboard.includes('const earlyOpenWorkspaceBridge = new EarlyOpenWorkspaceBridge<OpenWorkspaceBridgeClient>({'));
+    assert.ok(dashboard.includes('openWorkspaceBridgeClient = earlyOpenWorkspaceBridge.adopt({'),
+        'bootstrap must adopt the pre-bootstrap bridge instead of building a second one');
+    assert.ok(dashboard.includes('resources.own({ dispose: () => earlyOpenWorkspaceBridge.release() });'),
+        'a disposed bootstrap generation must stop bridge delivery without shutting the bridge down');
+    assert.ok(dashboard.includes('void earlyOpenWorkspaceBridge.getClient().shutdown();'),
+        'the bridge must be shut down when the extension context is disposed');
     const openWorkspaceBridgeWiring = dashboard.slice(
-        dashboard.indexOf('openWorkspaceBridgeClient = ownResource(() => new OpenWorkspaceBridgeClient('),
+        dashboard.indexOf('openWorkspaceBridgeClient = earlyOpenWorkspaceBridge.adopt({'),
         dashboard.indexOf('const activeAiSessionTerminalHighlighter')
     );
     assert.strictEqual(openWorkspaceBridgeWiring.includes("logError('Open workspace bridge unavailable"), false,
@@ -3254,36 +3278,6 @@ function runDashboardBridgeLifecycleChecks() {
     assert.ok(dashboard.includes('new DashboardDiagnostics({'));
     assert.ok(!dashboard.includes('function logOpenWorkspaceDiagnostic('));
     assert.ok(dashboard.includes('openWorkspaceController.publish('));
-    const openWorkspaceBridgeOwnership = {
-        variableName: 'openWorkspaceBridgeClient',
-        factoryKind: 'new',
-        factoryName: 'OpenWorkspaceBridgeClient',
-    };
-    assert.doesNotThrow(() =>
-        assertBootstrapOwnedResource(dashboard, openWorkspaceBridgeOwnership));
-    assert.throws(
-        () => assertBootstrapOwnedResource(
-            withRenamedBootstrapFactory(
-                dashboard,
-                openWorkspaceBridgeOwnership,
-                'UnexpectedOpenWorkspaceBridgeClient',
-            ),
-            openWorkspaceBridgeOwnership,
-        ),
-        /exactly one bootstrap-owned OpenWorkspaceBridgeClient factory/,
-        'the open-workspace bridge must remain linked to its exact constructor',
-    );
-    assert.throws(
-        () => assertBootstrapOwnedResource(
-            withDuplicateBootstrapPush(
-                dashboard,
-                openWorkspaceBridgeOwnership.variableName,
-            ),
-            openWorkspaceBridgeOwnership,
-        ),
-        /openWorkspaceBridgeClient must not also be pushed directly/,
-        'the bootstrap-owned open-workspace bridge must reject duplicate context ownership',
-    );
     assert.ok(!dashboard.includes('get openProjects()'));
     assert.ok(projectedOpenWorkspaces.includes('openWorkspaceDashboardController.getCards()'));
     assert.ok(selectedProjectHandler.includes("projectId.startsWith('__openWorkspaceNavigation-')"));

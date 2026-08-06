@@ -88,6 +88,23 @@ function bootProvider(events, getWebviewOptions = () => ({ enableScripts: true }
     });
 }
 
+function manualScheduler() {
+    const timers = [];
+    return {
+        scheduler: {
+            setTimeout(callback, delayMs) {
+                const timer = { callback, delayMs, cleared: false };
+                timers.push(timer);
+                return timer;
+            },
+            clearTimeout(timer) {
+                timer.cleared = true;
+            },
+        },
+        timers,
+    };
+}
+
 function nextTurn() {
     return new Promise(resolve => setImmediate(resolve));
 }
@@ -176,6 +193,150 @@ test('WEBVIEW-TWO-STAGE-STARTUP-001 adopts ready callbacks once and prepares the
         ['prepared'],
     ]);
     assert.equal(provider.completeBootstrap(1, readyOptions(events)), false);
+});
+
+test('WEBVIEW-NONBLOCKING-FIRST-PAINT-001 coalesces refreshes until the ready document handshake', async () => {
+    const events = [];
+    const provider = new AgentPivotViewProvider({
+        mode: 'boot',
+        options: {
+            getWebviewOptions: () => ({ enableScripts: true }),
+            renderBootContent: (_webview, generation) => `<main>boot ${generation}</main>`,
+            renderBootError: (_webview, generation) => `<main>failed ${generation}</main>`,
+            onBootShellAssigned: generation => events.push(['shell', generation]),
+            onRetry: () => undefined,
+            onFirstPaint: () => undefined,
+            logError: () => undefined,
+        },
+    });
+    const fake = makeVisibleView();
+    let renderCount = 0;
+    provider.beginBootstrap(1);
+    await provider.resolveWebviewView(fake.view, {}, {});
+    assert.equal(provider.completeBootstrap(1, {
+        ...readyOptions(events),
+        renderContent: (_webview, documentGeneration) =>
+            `<main data-document-generation="${documentGeneration}">ready ${++renderCount}</main>`,
+    }), true);
+
+    for (let refresh = 0; refresh < 100; refresh += 1) {
+        provider.refresh();
+    }
+
+    assert.deepEqual(fake.assignedHtml, [
+        '<main>boot 1</main>',
+        '<main data-document-generation="1">ready 1</main>',
+    ]);
+    await fake.receiveMessage({
+        type: 'open-workspaces-renderer-ready',
+        version: 1,
+        documentGeneration: 1,
+        extra: true,
+    });
+    assert.equal(fake.assignedHtml.length, 2);
+
+    await fake.receiveMessage({
+        type: 'open-workspaces-renderer-ready',
+        version: 1,
+        documentGeneration: 1,
+    });
+
+    assert.deepEqual(fake.assignedHtml, [
+        '<main>boot 1</main>',
+        '<main data-document-generation="1">ready 1</main>',
+        '<main data-document-generation="2">ready 2</main>',
+    ]);
+    assert.deepEqual(events.filter(event => event[0] === 'dashboard-message'), [
+        [
+            'dashboard-message',
+            { type: 'open-workspaces-renderer-ready', version: 1 },
+        ],
+    ]);
+});
+
+test('WEBVIEW-NONBLOCKING-FIRST-PAINT-001 retries at most once when the ready handshake stays missing', async () => {
+    const events = [];
+    const scheduled = manualScheduler();
+    const provider = new AgentPivotViewProvider({ mode: 'ready', options: {
+        ...readyOptions(events),
+        renderContent: (_webview, documentGeneration) =>
+            `<main>ready ${documentGeneration}</main>`,
+    } }, scheduled.scheduler);
+    const fake = makeVisibleView();
+    await provider.resolveWebviewView(fake.view, {}, {});
+
+    for (let refresh = 0; refresh < 100; refresh += 1) {
+        provider.refresh();
+    }
+
+    assert.deepEqual(fake.assignedHtml, ['<main>ready 1</main>']);
+    assert.equal(scheduled.timers.length, 1);
+    assert.equal(scheduled.timers[0].delayMs, 30_000);
+
+    scheduled.timers[0].callback();
+    for (let refresh = 0; refresh < 100; refresh += 1) {
+        provider.refresh();
+    }
+
+    assert.deepEqual(fake.assignedHtml, [
+        '<main>ready 1</main>',
+        '<main>ready 2</main>',
+    ]);
+    assert.equal(scheduled.timers.length, 1);
+
+    await fake.receiveMessage({
+        type: 'open-workspaces-renderer-ready',
+        version: 1,
+        documentGeneration: 2,
+    });
+    provider.refresh();
+    assert.deepEqual(fake.assignedHtml, [
+        '<main>ready 1</main>',
+        '<main>ready 2</main>',
+        '<main>ready 3</main>',
+    ]);
+    assert.equal(scheduled.timers.length, 2);
+});
+
+test('WEBVIEW-NONBLOCKING-FIRST-PAINT-001 ignores a stale ready handshake from the replaced document', async () => {
+    const events = [];
+    const provider = new AgentPivotViewProvider({ mode: 'ready', options: {
+        ...readyOptions(events),
+        renderContent: (_webview, documentGeneration) =>
+            `<main>ready ${documentGeneration}</main>`,
+    } });
+    const fake = makeVisibleView();
+    await provider.resolveWebviewView(fake.view, {}, {});
+    provider.refresh();
+
+    await fake.receiveMessage({
+        type: 'open-workspaces-renderer-ready',
+        version: 1,
+        documentGeneration: 1,
+    });
+    assert.deepEqual(fake.assignedHtml, [
+        '<main>ready 1</main>',
+        '<main>ready 2</main>',
+    ]);
+
+    provider.refresh();
+    await fake.receiveMessage({
+        type: 'open-workspaces-renderer-ready',
+        version: 1,
+        documentGeneration: 1,
+    });
+    assert.equal(fake.assignedHtml.length, 2);
+
+    await fake.receiveMessage({
+        type: 'open-workspaces-renderer-ready',
+        version: 1,
+        documentGeneration: 2,
+    });
+    assert.deepEqual(fake.assignedHtml, [
+        '<main>ready 1</main>',
+        '<main>ready 2</main>',
+        '<main>ready 3</main>',
+    ]);
 });
 
 test('WEBVIEW-TWO-STAGE-STARTUP-001 applies ready webview options before ready rendering and preparation', async () => {

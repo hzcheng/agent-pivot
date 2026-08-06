@@ -2231,7 +2231,9 @@
     "priority": "P0",
     "status": "automated",
     "owners": [
-      "tests/integration/dashboard/errorRecovery.test.js"
+      "tests/browser/dashboardStylesheetStartup.test.js",
+      "tests/integration/dashboard/errorRecovery.test.js",
+      "tests/integration/dashboard/twoStageStartup.test.js"
     ],
     "evidence": [
       "src/dashboard/viewProvider.ts",

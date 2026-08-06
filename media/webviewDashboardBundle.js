@@ -3220,6 +3220,7 @@ function initProjects() {
     window.vscode.postMessage({
         type: 'open-workspaces-renderer-ready',
         version: 1,
+        documentGeneration: window.__agentPivotReadyDocumentGeneration,
     });
     restoreAiSessionTabsFromState(document, window.vscode);
     window.vscode.postMessage({ type: 'request-active-ai-session-terminal' });

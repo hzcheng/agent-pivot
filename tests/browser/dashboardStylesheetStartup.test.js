@@ -31,6 +31,10 @@ const dashboardStyles = fs.readFileSync(
     path.join(__dirname, '../../media/styles.css'),
     'utf8'
 );
+const dashboardBundle = fs.readFileSync(
+    path.join(__dirname, '../../media/webviewDashboardBundle.js'),
+    'utf8'
+);
 
 let browser;
 
@@ -85,4 +89,75 @@ test('WEBVIEW-STYLESHEET-FIRST-PAINT-001 keeps the real Dashboard out of layout 
     const settingsBox = await page.locator('.settings-button').boundingBox();
     assert.ok(settingsBox && settingsBox.width <= 32 && settingsBox.height <= 32,
         `the styled settings icon must stay bounded: ${JSON.stringify(settingsBox)}`);
+});
+
+test('WEBVIEW-NONBLOCKING-FIRST-PAINT-001 production Dashboard announces its document generation', async t => {
+    const page = await browser.newPage({ viewport: { width: 360, height: 640 } });
+    t.after(() => page.close());
+    const pageErrors = [];
+    page.on('pageerror', error => pageErrors.push(error.message));
+    await page.addInitScript(() => {
+        window.__agentPivotMessages = [];
+        window.acquireVsCodeApi = () => ({
+            postMessage(message) { window.__agentPivotMessages.push(message); },
+            getState() { return {}; },
+            setState() {},
+        });
+    });
+    await page.route('https://assets.test/**', route => {
+        const url = route.request().url();
+        if (url.includes('webviewDashboardBundle.js')) {
+            return route.fulfill({
+                status: 200,
+                contentType: 'application/javascript',
+                body: dashboardBundle,
+            });
+        }
+        if (url.includes('styles.css')) {
+            return route.fulfill({
+                status: 200,
+                contentType: 'text/css',
+                body: dashboardStyles,
+            });
+        }
+        return route.abort();
+    });
+    const html = getStewardContent(
+        { extensionPath: '/extension' },
+        {
+            cspSource: 'https://assets.test',
+            asWebviewUri: resource => ({
+                toString: () => `https://assets.test/${path.basename(resource.fsPath)}`,
+            }),
+        },
+        [],
+        {
+            config: { get: (_key, fallback) => fallback },
+            relevantExtensionsInstalls: { remoteSSH: true, remoteContainers: false },
+            otherStorageHasData: false,
+        },
+        true,
+        [],
+        'ready',
+        41,
+    );
+
+    await page.route('https://dashboard.test/', route => route.fulfill({
+        status: 200,
+        contentType: 'text/html',
+        body: html,
+    }));
+    await page.goto('https://dashboard.test/', { waitUntil: 'load' });
+    await page.waitForTimeout(100);
+    const readyMessage = await page.evaluate(() =>
+        window.__agentPivotMessages.find(message =>
+            message.type === 'open-workspaces-renderer-ready'
+        )
+    );
+    assert.deepEqual(readyMessage, {
+        type: 'open-workspaces-renderer-ready',
+        version: 1,
+        documentGeneration: 41,
+    }, pageErrors.join('\n'));
+    assert.deepEqual(pageErrors, []);
 });

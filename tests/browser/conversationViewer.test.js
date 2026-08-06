@@ -2775,6 +2775,249 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-SUBMIT-002 renders read
     ]);
 });
 
+test('CONVERSATION-COMMENT-QUOTE-LOCATION-001 centers the exact quoted occurrence instead of the whole message', async t => {
+    const interactionId = 'input-quote-location';
+    const fillerBefore = Array.from(
+        { length: 60 },
+        (_item, index) => `Filler paragraph ${index}.`
+    ).join('\n\n');
+    const fillerAfter = Array.from(
+        { length: 20 },
+        (_item, index) => `Trailing paragraph ${index}.`
+    ).join('\n\n');
+    const comment = {
+        id: 'comment-quote-location',
+        messageId: `${interactionId}:user`,
+        interactionId,
+        role: 'user',
+        quote: 'repeated quote',
+        // Legacy comments could omit selected edge whitespace from their
+        // context, so this intentionally lacks the space before the quote.
+        prefix: 'Second occurrence:',
+        suffix: ' after second.',
+        comment: 'Review the second occurrence.',
+        status: 'open',
+    };
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+        viewport: { width: 850, height: 500 },
+        initialWebviewState: {
+            conversationCommentsPanel: { open: true, width: 240 },
+        },
+        interactionIds: [interactionId],
+        interactionId,
+        markdown: `First occurrence: repeated quote after first.\n\n${fillerBefore}`
+            + '\n\nSecond occurrence: repeated quote after second.\n\n'
+            + fillerAfter,
+        pageOverrides: {
+            previousCursor: undefined,
+            nextCursor: undefined,
+            isStart: true,
+            isEnd: true,
+        },
+        commentStore: {
+            async load() {
+                return { revision: 1, comments: [comment] };
+            },
+        },
+    });
+    const target = page.locator('.conversation-markdown p')
+        .filter({ hasText: /^Second occurrence:/ });
+    assert.match(await target.innerText(), /^Second occurrence:/);
+
+    await page.locator('[data-comment-id="comment-quote-location"]')
+        .locator('[data-comment-action="locate"]').click();
+
+    const location = await target.evaluate(element => {
+        const scroll = document.querySelector('[data-conversation-scroll]');
+        const targetBounds = element.getBoundingClientRect();
+        const scrollBounds = scroll.getBoundingClientRect();
+        return {
+            visible: targetBounds.top >= scrollBounds.top
+                && targetBounds.bottom <= scrollBounds.bottom,
+            centerOffset: Math.abs(
+                (targetBounds.top + targetBounds.bottom) / 2
+                - (scrollBounds.top + scrollBounds.bottom) / 2
+            ),
+        };
+    });
+    assert.equal(location.visible, true, JSON.stringify(location));
+    assert.ok(
+        location.centerOffset <= 40,
+        `quoted text was ${location.centerOffset}px away from viewport center`
+    );
+
+    await target.evaluate(element => {
+        const node = element.firstChild;
+        const selectedText = ' repeated quote ';
+        const start = node.nodeValue.indexOf(selectedText);
+        const range = document.createRange();
+        range.setStart(node, start);
+        range.setEnd(node, start + selectedText.length);
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+        element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    });
+    await page.locator(
+        '[data-comment-selection-action="comment"]'
+    ).click();
+    await page.locator('[data-comment-input]').fill(
+        'Keep context aligned with the trimmed quote.'
+    );
+    await page.locator('[data-comment-input]').press('Control+Enter');
+    const addRequest = (await postedMessages(page)).at(-1);
+    assert.equal(addRequest.operation, 'add');
+    const { prefix, suffix, ...selection } = addRequest.payload;
+    assert.deepEqual(selection, {
+        messageId: `${interactionId}:user`,
+        interactionId,
+        quote: 'repeated quote',
+        comment: 'Keep context aligned with the trimmed quote.',
+    });
+    assert.equal(prefix.endsWith('Second occurrence: '), true);
+    assert.equal(suffix.startsWith(' after second.'), true);
+});
+
+test('CONVERSATION-COMMENT-QUOTE-LOCATION-001 preserves and locates a quote spanning Markdown blocks', async t => {
+    const interactionId = 'input-block-quote-location';
+    const fillerBefore = Array.from(
+        { length: 50 },
+        (_item, index) => `Earlier paragraph ${index}.`
+    ).join('\n\n');
+    const fillerAfter = Array.from(
+        { length: 20 },
+        (_item, index) => `Later paragraph ${index}.`
+    ).join('\n\n');
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+        viewport: { width: 850, height: 500 },
+        initialWebviewState: {
+            conversationCommentsPanel: { open: true, width: 240 },
+        },
+        interactionIds: [interactionId],
+        interactionId,
+        markdown: `${fillerBefore}\n\nOpening block phrase alpha.`
+            + '\n\nClosing block beta phrase.\n\n'
+            + fillerAfter,
+        pageOverrides: {
+            previousCursor: undefined,
+            nextCursor: undefined,
+            isStart: true,
+            isEnd: true,
+        },
+    });
+    const opening = page.locator('.conversation-markdown p')
+        .filter({ hasText: /^Opening block/ });
+    const closing = page.locator('.conversation-markdown p')
+        .filter({ hasText: /^Closing block/ });
+    await page.locator('.conversation-markdown').evaluate((element, labels) => {
+        const paragraphs = Array.from(element.querySelectorAll('p'));
+        const startNode = paragraphs.find(paragraph =>
+            paragraph.textContent.startsWith(labels.opening)
+        ).firstChild;
+        const endNode = paragraphs.find(paragraph =>
+            paragraph.textContent.startsWith(labels.closing)
+        ).firstChild;
+        const range = document.createRange();
+        range.setStart(startNode, startNode.nodeValue.indexOf('alpha'));
+        range.setEnd(
+            endNode,
+            endNode.nodeValue.indexOf('beta') + 'beta'.length
+        );
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+        element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    }, { opening: 'Opening block', closing: 'Closing block' });
+    await page.locator('[data-comment-selection-action="comment"]')
+        .evaluate(button => button.click());
+    await page.locator('[data-comment-input]').fill('Review both blocks.');
+    await page.locator('[data-comment-input]').press('Control+Enter');
+    const addRequest = (await postedMessages(page)).at(-1);
+    assert.equal(addRequest.payload.quote, 'alpha.\n\nClosing block beta');
+    const comment = {
+        id: 'comment-block-quote-location',
+        ...addRequest.payload,
+        role: 'user',
+        status: 'open',
+    };
+    await page.evaluate(({ request, comment }) => {
+        window.dispatchEvent(new MessageEvent('message', {
+            data: {
+                type: 'conversation-viewer-comments-result',
+                version: 1,
+                requestId: request.requestId,
+                subscriptionGeneration: request.subscriptionGeneration,
+                projectId: request.projectId,
+                provider: request.provider,
+                sessionId: request.sessionId,
+                operation: request.operation,
+                success: true,
+                revision: 1,
+                comments: [{ ...comment, quote: '   ' }],
+            },
+        }));
+    }, { request: addRequest, comment });
+    assert.equal(
+        await page.locator('[data-conversation-comments]')
+            .getAttribute('aria-busy'),
+        'true',
+        'a whitespace-only quote settlement must be rejected'
+    );
+    await page.evaluate(({ request, comment }) => {
+        window.dispatchEvent(new MessageEvent('message', {
+            data: {
+                type: 'conversation-viewer-comments-result',
+                version: 1,
+                requestId: request.requestId,
+                subscriptionGeneration: request.subscriptionGeneration,
+                projectId: request.projectId,
+                provider: request.provider,
+                sessionId: request.sessionId,
+                operation: request.operation,
+                success: true,
+                revision: 1,
+                comments: [comment],
+            },
+        }));
+    }, { request: addRequest, comment });
+
+    await page.locator('[data-comment-id="comment-block-quote-location"]')
+        .locator('[data-comment-action="locate"]').click();
+    const location = await page.evaluate(() => {
+        const scroll = document.querySelector('[data-conversation-scroll]');
+        const paragraphs = Array.from(document.querySelectorAll(
+            '.conversation-markdown p'
+        ));
+        const opening = paragraphs.find(paragraph =>
+            paragraph.textContent.startsWith('Opening block')
+        ).getBoundingClientRect();
+        const closing = paragraphs.find(paragraph =>
+            paragraph.textContent.startsWith('Closing block')
+        ).getBoundingClientRect();
+        const scrollBounds = scroll.getBoundingClientRect();
+        return {
+            openingVisible: opening.top >= scrollBounds.top,
+            closingVisible: closing.bottom <= scrollBounds.bottom,
+            centerOffset: Math.abs(
+                (opening.top + closing.bottom) / 2
+                - (scrollBounds.top + scrollBounds.bottom) / 2
+            ),
+        };
+    });
+    assert.equal(await opening.count(), 1);
+    assert.equal(await closing.count(), 1);
+    assert.equal(location.openingVisible, true, JSON.stringify(location));
+    assert.equal(location.closingVisible, true, JSON.stringify(location));
+    assert.ok(
+        location.centerOffset <= 40,
+        `block quote was ${location.centerOffset}px away from viewport center`
+    );
+});
+
 test('CONVERSATION-COMMENTS-UI-001 filters cards, jumps from message markers, and keeps the toolbar to one icon row', async t => {
     const interactionId = 'input-filter-marker';
     const { page } = await openHostViewerDocument(t, {

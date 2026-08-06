@@ -86,6 +86,7 @@
                         && value.quote === ''
                         && value.prefix === ''
                         && value.suffix === ''))
+                && (hasSessionScope || value.quote.trim().length > 0)
                 && (value.status === 'open' || value.status === 'done')
                 && (value.createdAt === undefined
                     || (Number.isSafeInteger(value.createdAt)
@@ -355,7 +356,17 @@
             if (!message) {
                 return false;
             }
-            message.scrollIntoView({ block: 'center' });
+            var markdown = message.querySelector('.conversation-markdown');
+            var range = markdown && findQuoteRange(markdown, comment);
+            var scroll = messages.closest('[data-conversation-scroll]');
+            if (range && scroll) {
+                var quoteBounds = range.getBoundingClientRect();
+                var scrollBounds = scroll.getBoundingClientRect();
+                scroll.scrollTop += (quoteBounds.top + quoteBounds.bottom) / 2
+                    - (scrollBounds.top + scrollBounds.bottom) / 2;
+            } else {
+                message.scrollIntoView({ block: 'center' });
+            }
             message.tabIndex = -1;
             message.focus({ preventScroll: true });
             message.classList.add('conversation-comment-located');
@@ -861,19 +872,90 @@
                 );
             }
             var start = candidates.find(function (offset) {
-                var before = combined.slice(
-                    Math.max(0, offset - comment.prefix.length),
-                    offset
-                );
-                var after = combined.slice(
-                    offset + comment.quote.length,
-                    offset + comment.quote.length + comment.suffix.length
-                );
-                return before === comment.prefix && after === comment.suffix;
+                return offset >= comment.prefix.length
+                    && combined.startsWith(
+                        comment.prefix,
+                        offset - comment.prefix.length
+                    )
+                    && combined.startsWith(
+                        comment.suffix,
+                        offset + comment.quote.length
+                    );
             });
+            if (start === undefined) {
+                var relaxedPrefix = comment.prefix.trimEnd();
+                var relaxedSuffix = comment.suffix.trimStart();
+                start = candidates.find(function (offset) {
+                    var beforeEnd = offset;
+                    while (beforeEnd > 0
+                        && /\s/.test(combined.charAt(beforeEnd - 1))) {
+                        beforeEnd -= 1;
+                    }
+                    var afterStart = offset + comment.quote.length;
+                    while (afterStart < combined.length
+                        && /\s/.test(combined.charAt(afterStart))) {
+                        afterStart += 1;
+                    }
+                    return beforeEnd >= relaxedPrefix.length
+                        && combined.startsWith(
+                            relaxedPrefix,
+                            beforeEnd - relaxedPrefix.length
+                        )
+                        && combined.startsWith(relaxedSuffix, afterStart);
+                });
+            }
+            var end;
+            if (start !== undefined) {
+                end = start + comment.quote.length;
+            } else {
+                var compactChars = [];
+                var compactOffsets = [];
+                for (var index = 0; index < combined.length; index += 1) {
+                    if (/\s/.test(combined.charAt(index))) continue;
+                    compactOffsets.push(index);
+                    compactChars.push(combined.charAt(index));
+                }
+                var compacted = compactChars.join('');
+                var compactQuote = comment.quote.replace(/\s/g, '');
+                if (!compactQuote) return null;
+                var compactPrefix = comment.prefix.replace(/\s/g, '');
+                var compactSuffix = comment.suffix.replace(/\s/g, '');
+                var compactCandidate = compacted.indexOf(compactQuote);
+                var firstCompactCandidate = compactCandidate >= 0
+                    ? compactCandidate
+                    : undefined;
+                var compactStart;
+                while (compactCandidate >= 0) {
+                    if (compactCandidate >= compactPrefix.length
+                        && compacted.startsWith(
+                            compactPrefix,
+                            compactCandidate - compactPrefix.length
+                        )
+                        && compacted.startsWith(
+                            compactSuffix,
+                            compactCandidate + compactQuote.length
+                        )) {
+                        compactStart = compactCandidate;
+                        break;
+                    }
+                    compactCandidate = compacted.indexOf(
+                        compactQuote,
+                        compactCandidate + 1
+                    );
+                }
+                if (compactStart === undefined) {
+                    compactStart = firstCompactCandidate;
+                }
+                if (compactStart !== undefined) {
+                    start = compactOffsets[compactStart];
+                    end = compactOffsets[
+                        compactStart + compactQuote.length - 1
+                    ] + 1;
+                }
+            }
             if (start === undefined) start = candidates[0];
             if (start === undefined) return null;
-            var end = start + comment.quote.length;
+            if (end === undefined) end = start + comment.quote.length;
             var startRecord = nodes.find(function (record) {
                 return start >= record.start
                     && start <= record.start + (record.node.nodeValue || '').length;
@@ -1083,7 +1165,8 @@
             var markdown = startElement && startElement.closest
                 ? startElement.closest('.conversation-markdown')
                 : null;
-            var quote = selection.toString().trim();
+            var selectedText = selection.toString();
+            var quote = selectedText.trim();
             if (!startMessage || startMessage !== endMessage || !markdown
                 || !messages.contains(startMessage) || !quote
                 || Array.from(quote).length > 4000) {
@@ -1092,6 +1175,12 @@
                 return;
             }
             var context = selectionContext(range, markdown);
+            var quoteStart = selectedText.indexOf(quote);
+            var quoteEnd = quoteStart + quote.length;
+            context.prefix = (context.prefix
+                + selectedText.slice(0, quoteStart)).slice(-240);
+            context.suffix = (selectedText.slice(quoteEnd)
+                + context.suffix).slice(0, 240);
             state.selectedCommentText = {
                 messageId: conversationMessageId(startMessage),
                 interactionId: startMessage.getAttribute('data-interaction-id'),

@@ -4182,6 +4182,19 @@
     ]
   },
   {
+    "id": "CONVERSATION-COMMENT-QUOTE-LOCATION-001",
+    "domain": "webview",
+    "title": "AI Conversation locates the exact quoted occurrence for a comment and centers that text within the conversation viewport",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/browser/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/webview/conversationCommentsScripts.js"
+    ]
+  },
+  {
     "id": "CONVERSATION-COMMENTS-BULK-001",
     "domain": "webview",
     "title": "AI Conversation clears done or all comments through correlated Host-authoritative batch mutations with explicit clear-all confirmation",

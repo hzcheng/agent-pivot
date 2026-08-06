@@ -4,6 +4,8 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
 
 ## [Unreleased]
 
+## [1.0.4] - 2026-08-06
+
 ### Added
 
 - New `Agent Pivot: Switch to Open Window` command lists the other open VS
@@ -34,6 +36,9 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
 
 ### Fixed
 
+- Cleared AI-session attention no longer returns after 24 hours when an old
+  completion is replayed by a restarted Extension Host; the UI Bridge retains
+  stable event acknowledgements until bounded capacity eviction.
 - Window reloads no longer stall tmux session restoration on windows with many
   terminals: attach restore now resolves terminal process IDs concurrently
   (previously serial with a per-terminal timeout, which multiplied the delay

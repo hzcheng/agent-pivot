@@ -49,6 +49,9 @@ function loadConversationComposition() {
 const {
     createConversationCapability,
 } = loadConversationComposition();
+const {
+    ConversationPanelRestoreCoordinator,
+} = require('../../../out/aiSessions/conversation/panelRestoreCoordinator');
 
 function makeService(provider) {
     return {
@@ -103,6 +106,7 @@ function makeSession(overrides = {}) {
 function createHarness(options = {}) {
     const viewerTargets = [];
     const followedViewerTargets = [];
+    const restoredViewerTargets = [];
     let capturedViewerOptions;
     let outlineReads = 0;
     const session = 'session' in options ? options.session : makeSession({
@@ -155,6 +159,7 @@ function createHarness(options = {}) {
         setTimer: (callback, delayMs) => setTimeout(callback, delayMs),
         clearTimer: handle => clearTimeout(handle),
         onDiagnostic: () => {},
+        resolveReboundTarget: options.resolveReboundTarget,
     }, {
         createCodexClient: options.createCodexClient || (() => ({ dispose() {} })),
         createCodexAdapter: fakeAdapter('codex'),
@@ -167,10 +172,15 @@ function createHarness(options = {}) {
                 open: async target => {
                     viewerTargets.push(target);
                 },
+                restore: async (panel, target) => {
+                    restoredViewerTargets.push({ panel, target });
+                },
                 follow: async target => {
                     followedViewerTargets.push(target);
                     return true;
                 },
+                rebindSession: async () => false,
+                freezeSessionMetadata: async () => false,
                 refresh: async () => undefined,
                 reconcileAuthority: async () => undefined,
                 dispose() {},
@@ -181,6 +191,7 @@ function createHarness(options = {}) {
         capability,
         viewerTargets,
         followedViewerTargets,
+        restoredViewerTargets,
         get viewerOptions() {
             return capturedViewerOptions;
         },
@@ -208,6 +219,171 @@ test('CONVERSATION-OPEN-LATEST-001 opens the latest interaction of the resolved 
         duplicateDisplayName: false,
     }]);
     capability.dispose();
+});
+
+test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 dashboard registers a serializer that restores AI Conversation panels', () => {
+    const dashboardSource = fs.readFileSync(
+        path.join(__dirname, '../../../src/dashboard.ts'),
+        'utf8'
+    );
+    assert.match(
+        dashboardSource,
+        /registerWebviewPanelSerializer\([\s\S]*AGENT_PIVOT_CONVERSATION_VIEW_TYPE[\s\S]*deserializeWebviewPanel[\s\S]*conversationPanelRestore\.restorePanel\(/
+    );
+    assert.ok(
+        dashboardSource.indexOf('registerWebviewPanelSerializer(')
+            < dashboardSource.indexOf('bootstrapController.start()'),
+        'the serializer must be registered before activation returns'
+    );
+});
+
+test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 queues retained panels until the asynchronous dashboard capability is ready', async () => {
+    const coordinator = new ConversationPanelRestoreCoordinator();
+    const runtimeAuthority = deferred();
+    const restored = [];
+    let disposed = false;
+    const panel = {
+        webview: { html: 'stale transcript' },
+        dispose() { disposed = true; },
+    };
+    let settled = false;
+    const restoration = coordinator.restorePanel(panel, { saved: true })
+        .then(() => { settled = true; });
+
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(settled, false);
+    assert.match(panel.webview.html, /Restoring conversation/);
+
+    const connection = coordinator.connectWhenReady({
+        async restorePanel(restoredPanel, state) {
+            restored.push({ restoredPanel, state });
+        },
+    }, runtimeAuthority.promise);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(restored.length, 0, 'runtime authority must settle first');
+
+    runtimeAuthority.resolve();
+    await restoration;
+    assert.equal(disposed, false);
+    assert.deepEqual(restored, [{ restoredPanel: panel, state: { saved: true } }]);
+
+    connection.dispose();
+    coordinator.dispose();
+});
+
+test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 waits for direct and tmux runtime restoration before resolving panel authority', () => {
+    const dashboardSource = fs.readFileSync(
+        path.join(__dirname, '../../../src/dashboard.ts'),
+        'utf8'
+    );
+    assert.match(
+        dashboardSource,
+        /conversationPanelRestore\.connectWhenReady\([\s\S]*Promise\.all\(\[[\s\S]*directTerminalRestoreOutcomeTask[\s\S]*tmuxRestoreTask/
+    );
+});
+
+test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 restores only an authoritative serialized target at its saved interaction', async () => {
+    const harness = createHarness();
+    const panel = { dispose() { throw new Error('must not dispose'); } };
+
+    await harness.capability.restorePanel(panel, {
+        conversationSidebar: { open: true },
+        conversationViewer: {
+            version: 1,
+            target: {
+                projectId: 'project-a',
+                provider: 'codex',
+                sessionId: 'session-a',
+                interactionId: 'input-a',
+            },
+        },
+    });
+
+    assert.equal(harness.restoredViewerTargets.length, 1);
+    assert.equal(harness.restoredViewerTargets[0].panel, panel);
+    assert.deepEqual(harness.restoredViewerTargets[0].target, {
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+        interactionId: 'input-a',
+        expectedRevision: 'r1',
+        displayName: 'Focused session',
+        duplicateDisplayName: false,
+    });
+    harness.capability.dispose();
+});
+
+test('CONVERSATION-SESSION-REBIND-001 restores an old serialized target through the explicit rebound Session', async () => {
+    const harness = createHarness({
+        resolveTarget: (_projectId, _provider, sessionId) =>
+            sessionId === 'new-root'
+                ? makeSession({ id: 'new-root', sessionId: 'new-root' })
+                : null,
+        resolveReboundTarget: target => target.sessionId === 'old-root'
+            ? { ...target, sessionId: 'new-root' }
+            : target,
+    });
+    const panel = { dispose() { throw new Error('must not dispose'); } };
+
+    await harness.capability.restorePanel(panel, {
+        conversationViewer: {
+            version: 1,
+            target: {
+                projectId: 'project-a',
+                provider: 'codex',
+                sessionId: 'old-root',
+                interactionId: 'input-a',
+                subagentId: 'old-root-subagent',
+            },
+        },
+    });
+
+    assert.equal(harness.restoredViewerTargets.length, 1);
+    assert.equal(harness.restoredViewerTargets[0].target.sessionId, 'new-root');
+    assert.equal(
+        harness.restoredViewerTargets[0].target.subagent,
+        undefined,
+        'a subagent from the old root must not be resolved in the new root'
+    );
+    assert.equal(await harness.capability.openLatestConversation({
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'old-root',
+    }), 'unknownSession', 'an explicit historical open must not be redirected');
+    harness.capability.dispose();
+});
+
+test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 closes a retained panel with invalid or stale restore authority', async () => {
+    let disposeCount = 0;
+    const panel = { dispose() { disposeCount += 1; } };
+    const invalidHarness = createHarness();
+    await invalidHarness.capability.restorePanel(panel, {
+        conversationViewer: {
+            version: 1,
+            target: {
+                projectId: 'project-a',
+                provider: 'codex',
+                sessionId: 'session-a',
+            },
+        },
+    });
+    invalidHarness.capability.dispose();
+
+    const staleHarness = createHarness({ session: null });
+    await staleHarness.capability.restorePanel(panel, {
+        conversationViewer: {
+            version: 1,
+            target: {
+                projectId: 'project-a',
+                provider: 'codex',
+                sessionId: 'session-a',
+                interactionId: 'input-a',
+            },
+        },
+    });
+    staleHarness.capability.dispose();
+
+    assert.equal(disposeCount, 2);
 });
 
 test('CONVERSATION-OPEN-LATEST-001 prefers conversation display metadata for the viewer target', async () => {

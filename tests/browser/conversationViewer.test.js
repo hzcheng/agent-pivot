@@ -3,9 +3,16 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const Module = require('node:module');
+const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 const { chromium } = require('playwright-chromium');
+const {
+    ConversationCommentFileStore,
+} = require('../../out/aiSessions/conversation/commentStore');
+const {
+    ConversationBookmarkFileStore,
+} = require('../../out/aiSessions/conversation/bookmarkStore');
 
 const purifyScript = fs.readFileSync(
     path.join(__dirname, '../../node_modules/dompurify/dist/purify.min.js'),
@@ -181,6 +188,7 @@ async function openViewerPage(t, options = {}) {
                 data-subscription-generation="1"
                 data-conversation-target='{"projectId":"project-1","provider":"codex","sessionId":"session-telemetry"}'>
                 <header>
+                    <span data-conversation-display-name>Original session</span>
                     <span data-conversation-position>Input 0 of 0</span>
                     <button type="button" data-action="previous">Previous</button>
                     <button type="button" data-action="next">Next</button>
@@ -886,6 +894,62 @@ async function realHostAppendPublications() {
     return { initial, refresh };
 }
 
+test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 persists the authoritative target for extension-host reload restoration', async t => {
+    const { page } = await openHostViewerDocument(t, {
+        initialWebviewState: {
+            conversationSidebar: { open: true, width: 260, view: 'outline' },
+        },
+    });
+
+    const savedState = await page.evaluate(() => window.__webviewState);
+    assert.deepEqual(savedState.conversationSidebar, {
+        open: true,
+        width: 260,
+        view: 'outline',
+    });
+    assert.deepEqual(savedState.conversationViewer, {
+        version: 1,
+        target: {
+            projectId: 'project-a',
+            provider: 'codex',
+            sessionId: 'session-host-document',
+            interactionId: 'input-2',
+        },
+    });
+});
+
+test('CONVERSATION-SESSION-REBIND-001 updates the identity without replacing focused DOM state', async t => {
+    const page = await openViewerPage(t);
+    await page.evaluate(() => {
+        const draft = document.createElement('input');
+        draft.setAttribute('data-test-local-draft', '');
+        draft.value = 'unfinished local draft';
+        document.body.appendChild(draft);
+        draft.focus();
+    });
+
+    await sendPage(page, {
+        ...hostileConversationPage,
+        requestId: 2,
+        displayName: 'Rebound session',
+    });
+
+    assert.equal(
+        await page.locator('[data-conversation-display-name]').innerText(),
+        'Rebound session'
+    );
+    assert.equal(
+        await page.locator('[data-test-local-draft]').inputValue(),
+        'unfinished local draft'
+    );
+    assert.equal(
+        await page.locator('[data-test-local-draft]').evaluate(
+            element => element === document.activeElement
+        ),
+        true
+    );
+});
+
 function assertMessageFillsReadingArea(message, name, messagesBounds) {
     const tolerance = 1;
     assert.ok(
@@ -1261,15 +1325,13 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 filters the current Session outline an
         1
     );
     assert.deepEqual(
-        await page.evaluate(() => window.__webviewState),
+        await page.evaluate(() => window.__webviewState.conversationSidebar),
         {
-            conversationSidebar: {
-                open: true,
-                width: 240,
-                view: 'outline',
-                query: 'deploy',
-                subagentsRunningOnly: false,
-            },
+            open: true,
+            width: 240,
+            view: 'outline',
+            query: 'deploy',
+            subagentsRunningOnly: false,
         }
     );
     await page.locator('[data-outline-search]').fill('');
@@ -1457,6 +1519,65 @@ test('CONVERSATION-OUTLINE-BOOKMARKS-001 settles stars authoritatively, filters 
     );
 });
 
+test('CONVERSATION-SESSION-REBIND-001 renders comments and bookmarks copied to the rebound Session', async t => {
+    const root = await fs.promises.mkdtemp(
+        path.join(os.tmpdir(), 'agent-pivot-conversation-rebind-browser-')
+    );
+    t.after(() => fs.promises.rm(root, { recursive: true, force: true }));
+    const commentStore = new ConversationCommentFileStore(root);
+    const bookmarkStore = new ConversationBookmarkFileStore(root);
+    const previous = {
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'old-root',
+    };
+    const next = { ...previous, sessionId: 'session-host-document' };
+    await commentStore.save(previous, {
+        revision: 5,
+        comments: [{
+            id: 'rebound-comment',
+            messageId: 'input-2:user',
+            interactionId: 'input-2',
+            role: 'user',
+            quote: 'input-2',
+            prefix: '',
+            suffix: '',
+            comment: 'Survives the root rollover.',
+            status: 'open',
+        }],
+    });
+    await bookmarkStore.save(previous, {
+        revision: 4,
+        interactionIds: ['input-2'],
+    });
+    await Promise.all([
+        commentStore.copyForRebind(previous, next),
+        bookmarkStore.copyForRebind(previous, next),
+    ]);
+
+    const { page } = await openHostViewerDocument(t, {
+        initialWebviewState: {
+            conversationCommentsPanel: {
+                open: true,
+                width: 240,
+                view: 'comments',
+            },
+        },
+        commentStore,
+        bookmarkStore,
+    });
+
+    assert.equal(
+        await page.locator('[data-comment-id="rebound-comment"]').count(),
+        1
+    );
+    assert.equal(
+        await page.locator('[data-outline-bookmark-id="input-2"]')
+            .getAttribute('aria-pressed'),
+        'true'
+    );
+});
+
 test('CONVERSATION-OUTLINE-NAVIGATION-001 CONVERSATION-COMMENTS-LAYOUT-001 shares one resizable and responsive Outline or Comments panel', async t => {
     const options = {
         includeStyles: true,
@@ -1489,15 +1610,13 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 CONVERSATION-COMMENTS-LAYOUT-001 share
     await resizer.press('ArrowLeft');
     assert.equal(await resizer.getAttribute('aria-valuenow'), '272');
     assert.deepEqual(
-        await page.evaluate(() => window.__webviewState),
+        await page.evaluate(() => window.__webviewState.conversationSidebar),
         {
-            conversationSidebar: {
-                open: true,
-                width: 272,
-                view: 'outline',
-                query: '',
-                subagentsRunningOnly: false,
-            },
+            open: true,
+            width: 272,
+            view: 'outline',
+            query: '',
+            subagentsRunningOnly: false,
         }
     );
 
@@ -1506,15 +1625,13 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 CONVERSATION-COMMENTS-LAYOUT-001 share
     assert.equal(await panel.isHidden(), true);
     assert.equal(await resizer.isHidden(), true);
     assert.deepEqual(
-        await page.evaluate(() => window.__webviewState),
+        await page.evaluate(() => window.__webviewState.conversationSidebar),
         {
-            conversationSidebar: {
-                open: false,
-                width: 272,
-                view: 'outline',
-                query: '',
-                subagentsRunningOnly: false,
-            },
+            open: false,
+            width: 272,
+            view: 'outline',
+            query: '',
+            subagentsRunningOnly: false,
         }
     );
 

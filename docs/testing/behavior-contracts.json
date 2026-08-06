@@ -1030,7 +1030,7 @@
   {
     "id": "PERSIST-LIFECYCLE-PARSER-001",
     "domain": "persistence",
-    "title": "Lifecycle Parser behavior",
+    "title": "Provider lifecycle signals preserve running progress and terminal outcomes",
     "priority": "P1",
     "status": "automated",
     "owners": [
@@ -1038,6 +1038,7 @@
       "tests/unit/aiSessions/lifecycle.test.js"
     ],
     "evidence": [
+      "src/aiSessions/lifecycle.ts",
       "scripts/run-ai-session-safety-checks.js"
     ]
   },
@@ -3922,15 +3923,21 @@
   {
     "id": "WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001",
     "domain": "webview",
-    "title": "Conversation markers open one bounded sanitized rich Markdown viewer with HTTPS images and Mermaid diagrams",
+    "title": "Conversation markers open and reload restores one bounded sanitized rich Markdown viewer with live updates",
     "priority": "P0",
     "status": "automated",
     "owners": [
+      "tests/integration/dashboard/conversationOpenLatest.test.js",
       "tests/integration/dashboard/conversationViewer.test.js",
       "tests/browser/conversationViewer.test.js"
     ],
     "evidence": [
+      "src/dashboard.ts",
+      "src/aiSessions/conversation/composition.ts",
+      "src/aiSessions/conversation/panelRestoreCoordinator.ts",
       "src/aiSessions/conversation/viewer.ts",
+      "src/aiSessions/conversation/viewerDocument.ts",
+      "src/aiSessions/conversation/viewerRestoreState.ts",
       "src/aiSessions/conversation/markdown.ts",
       "src/webview/conversationViewerScripts.js",
       "media/conversationViewer.scss"
@@ -4221,6 +4228,28 @@
     "evidence": [
       "src/aiSessions/conversation/commentStore.ts",
       "src/aiSessions/conversation/viewer.ts",
+      "src/dashboard.ts"
+    ]
+  },
+  {
+    "id": "CONVERSATION-SESSION-REBIND-001",
+    "domain": "persistence",
+    "title": "AI Conversation copies comments and bookmarks across an explicit provider Session rebind before publishing the new runtime without mixing same-name Sessions or overwriting destination state",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/conversationCommentStore.test.js",
+      "tests/unit/aiSessions/conversationBookmarkStore.test.js",
+      "tests/unit/aiSessions/conversationSessionRebindCoordinator.test.js",
+      "tests/contract/aiSessions/tmuxDiscovery.test.js",
+      "tests/contract/aiSessions/runtimeComposition.test.js",
+      "tests/browser/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/commentStore.ts",
+      "src/aiSessions/conversation/bookmarkStore.ts",
+      "src/aiSessions/conversation/sessionRebindCoordinator.ts",
+      "src/aiSessions/tmuxRuntimeDiscovery.ts",
       "src/dashboard.ts"
     ]
   },

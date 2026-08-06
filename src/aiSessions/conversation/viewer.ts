@@ -27,6 +27,7 @@ import { parseConversationViewerMessage } from './viewerProtocol';
 import type { ConversationSessionSwitchDirection } from './viewerProtocol';
 import type { ConversationViewerTarget } from './viewerTarget';
 export type { ConversationViewerTarget } from './viewerTarget';
+import { truncateGraphemes } from './text';
 import {
     CONVERSATION_LIMITS,
     ConversationAbortController,
@@ -106,12 +107,35 @@ export interface ConversationViewerOptions {
 export interface ConversationViewerApi extends AiSessionDisposable {
     isOpen(): boolean;
     open(target: ConversationViewerTarget): Promise<void>;
+    restore(
+        panel: vscode.WebviewPanel,
+        target: ConversationViewerTarget
+    ): Promise<void>;
     follow(target: ConversationViewerTarget): Promise<boolean>;
+    rebindSession(
+        previous: Pick<ConversationViewerTarget, 'projectId' | 'provider' | 'sessionId'>,
+        next: Pick<ConversationViewerTarget, 'projectId' | 'provider' | 'sessionId'>
+    ): Promise<boolean>;
+    freezeSessionMetadata(
+        target: Pick<ConversationViewerTarget, 'projectId' | 'provider' | 'sessionId'>
+    ): Promise<boolean>;
+    reconcileReboundSession(
+        resolve: (
+            target: Pick<ConversationViewerTarget, 'projectId' | 'provider' | 'sessionId'>
+        ) => Pick<ConversationViewerTarget, 'projectId' | 'provider' | 'sessionId'>
+    ): Promise<boolean>;
     refresh(): Promise<void>;
     refreshPresentation(): Promise<void>;
     reconcileAuthority(
-        resolveAuthority: (target: ConversationViewerTarget) => boolean
+        resolveAuthority: (
+            target: ConversationViewerTarget
+        ) => boolean | ConversationViewerAuthorityMetadata
     ): Promise<void>;
+}
+
+export interface ConversationViewerAuthorityMetadata {
+    displayName: string;
+    duplicateDisplayName: boolean;
 }
 
 interface RetainedConversationPage {
@@ -134,6 +158,7 @@ export interface ConversationViewerPageMessage {
     previousCursor?: string;
     nextCursor?: string;
     stale: boolean;
+    displayName: string;
     subagents: ConversationSubagentEntry[];
     activeSubagent: { id: string; label: string } | null;
 }
@@ -156,6 +181,7 @@ export class ConversationViewer implements ConversationViewerApi {
     private latestPublication?: ConversationViewerPageMessage;
     private panelWasVisible = false;
     private suspended = false;
+    private rebindGeneration = 0;
     private authoritativeLoadInFlight?: Promise<boolean>;
     private authoritativeRefreshPending = false;
     private readonly commentController: ConversationCommentController;
@@ -207,6 +233,19 @@ export class ConversationViewer implements ConversationViewerApi {
         await this.loadTarget(target, true);
     }
 
+    async restore(
+        panel: vscode.WebviewPanel,
+        target: ConversationViewerTarget
+    ): Promise<void> {
+        if (this.panel && this.panel !== panel) {
+            panel.dispose();
+            return;
+        }
+        panel.webview.options = this.webviewOptions();
+        this.attachPanel(panel);
+        await this.loadTarget(target, false);
+    }
+
     async follow(target: ConversationViewerTarget): Promise<boolean> {
         if (!this.panel) {
             return false;
@@ -220,6 +259,95 @@ export class ConversationViewer implements ConversationViewerApi {
             return true;
         }
         return this.loadTarget(target, false);
+    }
+
+    async rebindSession(
+        previous: Pick<ConversationViewerTarget, 'projectId' | 'provider' | 'sessionId'>,
+        next: Pick<ConversationViewerTarget, 'projectId' | 'provider' | 'sessionId'>
+    ): Promise<boolean> {
+        const current = this.target;
+        if (!this.panel || !current
+            || current.projectId !== previous.projectId
+            || current.provider !== previous.provider
+            || current.sessionId !== previous.sessionId
+            || next.projectId !== previous.projectId
+            || next.provider !== previous.provider
+            || next.sessionId === previous.sessionId) {
+            return false;
+        }
+        const rebindGeneration = ++this.rebindGeneration;
+        let outline: ConversationOutline;
+        try {
+            const rebindRead = new ConversationAbortController();
+            outline = await this.options.readOutline(
+                next.provider,
+                next.sessionId,
+                rebindRead.signal
+            );
+        } catch (_error) {
+            return false;
+        }
+        if (rebindGeneration !== this.rebindGeneration
+            || this.target !== current || !this.panel
+            || outline.provider !== next.provider
+            || outline.sessionId !== next.sessionId
+            || !outline.interactions.length) {
+            return false;
+        }
+        const selected = outline.interactions.find(interaction =>
+            interaction.id === current.interactionId
+        ) || outline.interactions[outline.interactions.length - 1];
+        const { subagent: _oldSubagent, ...rootTarget } = current;
+        return this.loadTarget({
+            ...rootTarget,
+            sessionId: next.sessionId,
+            interactionId: selected.id,
+            expectedRevision: outline.sourceRevision,
+        }, false);
+    }
+
+    async freezeSessionMetadata(
+        target: Pick<ConversationViewerTarget, 'projectId' | 'provider' | 'sessionId'>
+    ): Promise<boolean> {
+        const current = this.target;
+        if (!this.panel || !current
+            || current.projectId !== target.projectId
+            || current.provider !== target.provider
+            || current.sessionId !== target.sessionId) {
+            await Promise.all([
+                this.commentController.drainMutations(),
+                this.bookmarkController.drainMutations(),
+            ]);
+            return false;
+        }
+        await Promise.all([
+            this.commentController.freezeMutations(),
+            this.bookmarkController.freezeMutations(),
+        ]);
+        return this.target === current && Boolean(this.panel);
+    }
+
+    async reconcileReboundSession(
+        resolve: (
+            target: Pick<ConversationViewerTarget, 'projectId' | 'provider' | 'sessionId'>
+        ) => Pick<ConversationViewerTarget, 'projectId' | 'provider' | 'sessionId'>
+    ): Promise<boolean> {
+        const current = this.target;
+        if (!this.panel || !current) {
+            return false;
+        }
+        const previous = {
+            projectId: current.projectId,
+            provider: current.provider,
+            sessionId: current.sessionId,
+        };
+        const next = resolve(previous);
+        if (next.projectId === previous.projectId
+            && next.provider === previous.provider
+            && next.sessionId === previous.sessionId) {
+            return false;
+        }
+        return this.rebindSession(previous, next);
     }
 
     private async loadTarget(
@@ -285,19 +413,23 @@ export class ConversationViewer implements ConversationViewerApi {
     }
 
     async reconcileAuthority(
-        resolveAuthority: (target: ConversationViewerTarget) => boolean
+        resolveAuthority: (
+            target: ConversationViewerTarget
+        ) => boolean | ConversationViewerAuthorityMetadata
     ): Promise<void> {
         const target = this.target;
         const panel = this.panel;
         if (!target || !panel) {
             return;
         }
-        let available = false;
+        let authority: boolean | ConversationViewerAuthorityMetadata = false;
         try {
-            available = resolveAuthority({ ...target }) === true;
+            authority = resolveAuthority({ ...target });
         } catch (_error) {
-            available = false;
+            authority = false;
         }
+        const available = authority === true
+            || (Boolean(authority) && typeof authority === 'object');
         if (!available) {
             if (this.suspended) {
                 return;
@@ -326,6 +458,17 @@ export class ConversationViewer implements ConversationViewerApi {
             }
             return;
         }
+        let metadataChanged = false;
+        if (typeof authority === 'object') {
+            const displayName = boundedConversationDisplayName(
+                authority.displayName
+            );
+            metadataChanged = target.displayName !== displayName
+                || target.duplicateDisplayName
+                    !== authority.duplicateDisplayName;
+            target.displayName = displayName;
+            target.duplicateDisplayName = authority.duplicateDisplayName;
+        }
         const wasSuspended = this.suspended;
         if (wasSuspended
             && !this.ensureWatch(this.subscriptionGeneration, true)) {
@@ -333,6 +476,11 @@ export class ConversationViewer implements ConversationViewerApi {
         }
         this.suspended = false;
         await this.refresh();
+        const expectedDisplayName = visibleConversationDisplayName(target);
+        if (metadataChanged
+            && this.latestPublication?.displayName !== expectedDisplayName) {
+            await this.refreshPresentation();
+        }
     }
 
     dispose(): void {
@@ -358,7 +506,10 @@ export class ConversationViewer implements ConversationViewerApi {
         this.latestPublication = undefined;
         this.commentController.reset();
         this.bookmarkController.reset();
-        this.target = { ...target };
+        this.target = {
+            ...target,
+            displayName: boundedConversationDisplayName(target.displayName),
+        };
         this.suspended = false;
         this.subscriptionGeneration += 1;
         this.currentRequestId = 0;
@@ -373,11 +524,23 @@ export class ConversationViewer implements ConversationViewerApi {
             AGENT_PIVOT_CONVERSATION_VIEW_TYPE,
             'AI Conversation',
             vscode.ViewColumn.Active,
-            {
-                enableScripts: true,
-                localResourceRoots: [this.options.mediaUri('')],
-            }
+            this.webviewOptions()
         );
+        this.attachPanel(panel);
+        return panel;
+    }
+
+    private webviewOptions(): vscode.WebviewOptions {
+        return {
+            enableScripts: true,
+            localResourceRoots: [this.options.mediaUri('')],
+        };
+    }
+
+    private attachPanel(panel: vscode.WebviewPanel): void {
+        if (this.panel === panel) {
+            return;
+        }
         this.panel = panel;
         this.panelWasVisible = panel.visible;
         this.messageListener = panel.webview.onDidReceiveMessage(
@@ -410,7 +573,6 @@ export class ConversationViewer implements ConversationViewerApi {
                 }
             }
         });
-        return panel;
     }
 
     private clear(_restoreTarget: ConversationViewerTarget | undefined): void {
@@ -1395,6 +1557,7 @@ export class ConversationViewer implements ConversationViewerApi {
                 ? last?.nextCursor || ''
                 : undefined,
             stale: this.stale,
+            displayName: visibleConversationDisplayName(target),
             subagents: this.subagents.map(entry => ({ ...entry })),
             activeSubagent: target.subagent ? { ...target.subagent } : null,
         };
@@ -1429,6 +1592,30 @@ export class ConversationViewer implements ConversationViewerApi {
             return false;
         }
     }
+}
+
+function boundedConversationDisplayName(value: string): string {
+    const graphemeBounded = truncateGraphemes(String(value || '').trim(), 200)
+        || 'Conversation';
+    if (graphemeBounded.length <= 600) {
+        return graphemeBounded;
+    }
+    let bounded = '';
+    for (const codePoint of Array.from(graphemeBounded)) {
+        if (bounded.length + codePoint.length > 599) {
+            break;
+        }
+        bounded += codePoint;
+    }
+    return `${bounded}…`;
+}
+
+function visibleConversationDisplayName(
+    target: ConversationViewerTarget
+): string {
+    return target.displayName + (target.duplicateDisplayName
+        ? ` · ${target.sessionId.slice(0, 8)}`
+        : '');
 }
 
 function isStaleRevision(error: unknown): error is ConversationError {

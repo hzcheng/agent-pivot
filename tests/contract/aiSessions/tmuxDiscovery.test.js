@@ -303,6 +303,12 @@ test('RUNTIME-TMUX-THREAD-SWITCH-001 SESSION-ALIAS-THREAD-SWITCH-001 rebinds one
             return 'new-root';
         },
     };
+    const rebindOrder = [];
+    const rebindKnown = store.rebindKnown;
+    store.rebindKnown = async (...args) => {
+        rebindOrder.push('runtime-commit');
+        return rebindKnown(...args);
+    };
     const discovery = new TmuxRuntimeDiscovery({
         client: { listWindows: async () => [row] },
         bindingStore: store,
@@ -310,6 +316,7 @@ test('RUNTIME-TMUX-THREAD-SWITCH-001 SESSION-ALIAS-THREAD-SWITCH-001 rebinds one
         markerIsCurrent: () => false,
         nowMs: () => 2000,
         cacheTtlMs: 0,
+        onSessionRebinding: async () => { rebindOrder.push('intent'); },
         onSessionRebound: (previous, next) => reboundEvents.push({ previous, next }),
     });
 
@@ -328,6 +335,7 @@ test('RUNTIME-TMUX-THREAD-SWITCH-001 SESSION-ALIAS-THREAD-SWITCH-001 rebinds one
         event.next.provider,
         event.next.sessionId,
     ]), [['codex', 'old-root', 'codex', 'new-root']]);
+    assert.deepEqual(rebindOrder, ['intent', 'runtime-commit']);
 
     const restarted = new TmuxRuntimeDiscovery({
         client: { listWindows: async () => [row] },
@@ -349,7 +357,7 @@ test('RUNTIME-TMUX-THREAD-SWITCH-001 preserves the durable projection when obser
         windowName: row.windowName,
     };
     let reboundEvents = 0;
-    for (const failure of ['observer', 'stale', 'missing']) {
+    for (const failure of ['observer', 'prepare', 'stale', 'missing']) {
         const store = createSyntheticTmuxStore({
             known: [makeTmuxKnownBinding('old-root', { locator })],
         });
@@ -368,6 +376,11 @@ test('RUNTIME-TMUX-THREAD-SWITCH-001 preserves the durable projection when obser
             markerIsCurrent: () => false,
             nowMs: () => 2000,
             cacheTtlMs: 0,
+            onSessionRebinding: async () => {
+                if (failure === 'prepare') {
+                    throw new Error('controlled durable intent failure');
+                }
+            },
             onSessionRebound: () => { reboundEvents += 1; },
         });
         await discovery.refresh(true);
@@ -380,7 +393,43 @@ test('RUNTIME-TMUX-THREAD-SWITCH-001 preserves the durable projection when obser
     assert.equal(reboundEvents, 0);
 });
 
-test('SESSION-ALIAS-THREAD-SWITCH-001 keeps a committed rebind when the alias hook fails', async () => {
+test('CONVERSATION-SESSION-REBIND-001 waits for Session metadata migration before publishing the rebound runtime', async () => {
+    const row = makeTmuxDiscoveryRow({ sessionId: 'old-root', panePid: 4321 });
+    const locator = {
+        layout: 'project',
+        sessionName: row.sessionName,
+        windowName: row.windowName,
+    };
+    const store = createSyntheticTmuxStore({
+        known: [makeTmuxKnownBinding('old-root', { locator })],
+    });
+    let releaseMigration;
+    const migrationGate = new Promise(resolve => { releaseMigration = resolve; });
+    let migrationEntered = false;
+    let refreshSettled = false;
+    const discovery = new TmuxRuntimeDiscovery({
+        client: { listWindows: async () => [row] },
+        bindingStore: store,
+        codexRootThreadObserver: { observe: async () => 'new-root' },
+        onSessionRebound: async () => {
+            migrationEntered = true;
+            await migrationGate;
+        },
+        markerIsCurrent: () => false,
+        cacheTtlMs: 0,
+    });
+
+    const refresh = discovery.refresh(true).then(() => { refreshSettled = true; });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(migrationEntered, true);
+    assert.equal(refreshSettled, false);
+
+    releaseMigration();
+    await refresh;
+    assert.deepEqual(discovery.getActive().map(runtime => runtime.identity.sessionId), ['new-root']);
+});
+
+test('SESSION-ALIAS-THREAD-SWITCH-001 CONVERSATION-SESSION-REBIND-001 keeps a committed rebind when an asynchronous metadata hook fails', async () => {
     const row = makeTmuxDiscoveryRow({ sessionId: 'old-root', panePid: 4321 });
     const locator = {
         layout: 'project',
@@ -394,7 +443,9 @@ test('SESSION-ALIAS-THREAD-SWITCH-001 keeps a committed rebind when the alias ho
         client: { listWindows: async () => [row] },
         bindingStore: store,
         codexRootThreadObserver: { observe: async () => 'new-root' },
-        onSessionRebound: () => { throw new Error('controlled alias hook failure'); },
+        onSessionRebound: async () => {
+            throw new Error('controlled metadata hook failure');
+        },
         markerIsCurrent: () => false,
         cacheTtlMs: 0,
     });

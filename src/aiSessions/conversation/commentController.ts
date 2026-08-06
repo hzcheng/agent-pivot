@@ -87,6 +87,7 @@ export class ConversationCommentController {
     private comments: ConversationCommentDraft[] = [];
     private revision = 0;
     private operationQueue: Promise<void> = Promise.resolve();
+    private mutationsFrozen = false;
     private readonly settlements =
         new Map<string, ConversationViewerCommentsResultMessage>();
 
@@ -106,9 +107,19 @@ export class ConversationCommentController {
     }
 
     reset(): void {
+        this.mutationsFrozen = false;
         this.comments = [];
         this.revision = 0;
         this.settlements.clear();
+    }
+
+    async freezeMutations(): Promise<void> {
+        this.mutationsFrozen = true;
+        await this.drainMutations();
+    }
+
+    async drainMutations(): Promise<void> {
+        await this.operationQueue;
     }
 
     enqueue(
@@ -205,7 +216,7 @@ export class ConversationCommentController {
             );
             return;
         }
-        if (!requestTargetsViewer(
+        if (this.mutationsFrozen || !requestTargetsViewer(
             request,
             target,
             this.options.getSubscriptionGeneration()
@@ -342,13 +353,19 @@ export class ConversationCommentController {
             revision += 1;
         }
         const snapshot = { revision, comments };
+        const previousSnapshot = this.snapshot;
         await this.persist(target, snapshot);
-        this.commitPersisted(
-            target,
-            generation,
-            request.expectedRevision,
-            snapshot
-        );
+        try {
+            this.commitPersisted(
+                target,
+                generation,
+                request.expectedRevision,
+                snapshot
+            );
+        } catch (error) {
+            await this.persist(target, previousSnapshot);
+            throw error;
+        }
     }
 
     private async sendComments(

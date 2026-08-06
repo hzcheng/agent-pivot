@@ -250,6 +250,7 @@ function createViewer(options = {}) {
         followAdjacentConversation: options.followAdjacentConversation,
         mediaUri: fileName => fakeUri(`file:///extension/media/${fileName}`),
         showThinking: options.showThinking,
+        commentStore: options.commentStore,
         bookmarkStore: options.bookmarkStore,
     });
     return { viewer, panel, watchDisposals, restoredTargets, openedUris };
@@ -267,6 +268,159 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 opens and reuses one viewer in 
         fakeVscode.ViewColumn.Active,
         fakeVscode.ViewColumn.Active,
     ]);
+});
+
+test('CONVERSATION-SESSION-REBIND-001 retargets an open viewer from the exact old Session to the new Session', async () => {
+    const outlineReads = [];
+    const { viewer, panel, watchDisposals } = createViewer({
+        readOutline: async (_provider, sessionId) => {
+            outlineReads.push(sessionId);
+            return outline(
+                sessionId,
+                sessionId === 'old-root'
+                    ? ['old-input']
+                    : ['new-input-a', 'new-input-b']
+            );
+        },
+    });
+    await viewer.open(target('old-root', 'old-input'));
+
+    assert.equal(await viewer.rebindSession(
+        { projectId: 'project-a', provider: 'codex', sessionId: 'old-root' },
+        { projectId: 'project-a', provider: 'codex', sessionId: 'new-root' }
+    ), true);
+
+    assert.deepEqual(outlineReads, ['old-root', 'new-root', 'new-root']);
+    assert.deepEqual(watchDisposals, ['old-root']);
+    assert.equal(panel.createCount, 1);
+    assert.match(panel.webview.html, /new-input-b/);
+    await viewer.reconcileAuthority(() => ({
+        displayName: 'New root display',
+        duplicateDisplayName: false,
+    }));
+    assert.equal(panel.postedMessages.at(-1).displayName, 'New root display');
+});
+
+test('CONVERSATION-SESSION-REBIND-001 keeps an initial rebound load current while display metadata reconciles', async () => {
+    const reboundInitialStarted = deferred();
+    const releaseReboundInitial = deferred();
+    let newRootReads = 0;
+    const { viewer, panel } = createViewer({
+        readOutline: async (_provider, sessionId) => {
+            if (sessionId === 'new-root') {
+                newRootReads += 1;
+                if (newRootReads === 2) {
+                    reboundInitialStarted.resolve();
+                    await releaseReboundInitial.promise;
+                }
+            }
+            return outline(sessionId, [`${sessionId}-input`]);
+        },
+    });
+    await viewer.open(target('old-root', 'old-root-input'));
+
+    const rebind = viewer.rebindSession(
+        { projectId: 'project-a', provider: 'codex', sessionId: 'old-root' },
+        { projectId: 'project-a', provider: 'codex', sessionId: 'new-root' }
+    );
+    await reboundInitialStarted.promise;
+    const reconcile = viewer.reconcileAuthority(() => ({
+        displayName: 'Current root',
+        duplicateDisplayName: false,
+    }));
+    releaseReboundInitial.resolve();
+
+    assert.equal(await rebind, true);
+    await reconcile;
+    assert.match(panel.webview.html, /new-root-input/);
+    assert.match(panel.webview.html, /Current root/);
+    assert.equal(panel.webview.html.includes('history unavailable'), false);
+});
+
+test('CONVERSATION-SESSION-REBIND-001 bounds reconciled display metadata before publishing it', async () => {
+    const { viewer, panel } = createViewer();
+    await viewer.open(target('session-a'));
+
+    await viewer.reconcileAuthority(() => ({
+        displayName: '🧭'.repeat(1_000),
+        duplicateDisplayName: true,
+    }));
+
+    const publication = panel.postedMessages.at(-1);
+    assert.equal(publication.type, 'conversation-viewer-page');
+    assert.ok(publication.displayName.length <= 640);
+    assert.match(publication.displayName, / · session-/);
+});
+
+test('CONVERSATION-SESSION-REBIND-001 lets the newest live rebind win while an older outline read is pending', async () => {
+    const oldRebind = deferred();
+    const { viewer, panel } = createViewer({
+        readOutline: async (_provider, sessionId) => {
+            if (sessionId === 'new-root-a') {
+                await oldRebind.promise;
+            }
+            return outline(sessionId, [`${sessionId}-input`]);
+        },
+    });
+    await viewer.open(target('old-root', 'old-root-input'));
+    const previous = {
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'old-root',
+    };
+    const first = viewer.rebindSession(previous, {
+        ...previous,
+        sessionId: 'new-root-a',
+    });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(await viewer.rebindSession(previous, {
+        ...previous,
+        sessionId: 'new-root-b',
+    }), true);
+    oldRebind.resolve();
+    assert.equal(await first, false);
+    assert.match(panel.webview.html, /new-root-b-input/);
+});
+
+test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 restores a retained panel without revealing it and resumes live updates', async () => {
+    const panel = fakePanel();
+    let onChange;
+    let revision = 1;
+    const { viewer } = createViewer({
+        panel,
+        readOutline: async (_provider, sessionId) => outline(
+            sessionId,
+            ['input-1'],
+            { sourceRevision: `r${revision}` }
+        ),
+        readPage: async request => page(
+            request.sessionId,
+            request.anchorInteractionId,
+            `revision-${revision}`,
+            { sourceRevision: `r${revision}` }
+        ),
+        watch: (_provider, _sessionId, callback) => {
+            onChange = callback;
+            return { dispose() {} };
+        },
+    });
+
+    await viewer.restore(panel, target('session-a', 'input-1'));
+
+    assert.equal(panel.createCount, 0, 'VS Code already owns the retained panel');
+    assert.equal(panel.revealCount, 0, 'restoration must not steal editor focus');
+    assert.equal(panel.webview.options.enableScripts, true);
+    assert.match(panel.webview.html, /revision-1/);
+
+    revision = 2;
+    onChange();
+    await new Promise(resolve => setImmediate(resolve));
+    const refresh = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+    ).at(-1);
+    assert.ok(refresh, 'the restored watcher must publish new transcript data');
+    assert.match(refresh.html, /revision-2/);
+    viewer.dispose();
 });
 
 test('CONVERSATION-FOLLOW-ACTIVE-SESSION-001 follows another Session only when the viewer is open and does not reveal it again', async () => {
@@ -707,6 +861,220 @@ test('CONVERSATION-OUTLINE-BOOKMARKS-001 restores and Host-settles bookmarks wit
             .outline.map(entry => entry.interactionId),
         before
     );
+});
+
+test('CONVERSATION-SESSION-REBIND-001 freezes and drains old-root metadata mutations before copying', async () => {
+    const saveStarted = deferred();
+    const releaseSave = deferred();
+    const saved = [];
+    const { viewer, panel } = createViewer({
+        bookmarkStore: {
+            async load() {
+                return { revision: 0, interactionIds: [] };
+            },
+            async save(storeTarget, snapshot) {
+                saved.push({ storeTarget, snapshot });
+                saveStarted.resolve();
+                await releaseSave.promise;
+            },
+        },
+    });
+    await viewer.open(target('old-root'));
+    const firstMutation = panel.receive({
+        type: 'conversation-viewer-bookmark-mutation',
+        version: 1,
+        requestId: 'before-freeze',
+        subscriptionGeneration: 1,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'old-root',
+        operation: 'set',
+        expectedRevision: 0,
+        payload: { interactionId: 'input-1', bookmarked: true },
+    });
+    await saveStarted.promise;
+
+    let drainSettled = false;
+    const drain = viewer.freezeSessionMetadata({
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'old-root',
+    }).then(result => {
+        drainSettled = true;
+        return result;
+    });
+    await Promise.resolve();
+    assert.equal(drainSettled, false, 'copy barrier must await active saves');
+    const frozenMutation = panel.receive({
+        type: 'conversation-viewer-bookmark-mutation',
+        version: 1,
+        requestId: 'after-freeze',
+        subscriptionGeneration: 1,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'old-root',
+        operation: 'set',
+        expectedRevision: 0,
+        payload: { interactionId: 'input-1', bookmarked: false },
+    });
+    releaseSave.resolve();
+
+    await firstMutation;
+    assert.equal(await drain, true);
+    await frozenMutation;
+    assert.equal(saved.length, 1, 'a frozen mutation must not write old storage');
+    assert.deepEqual(panel.postedMessages.at(-1), {
+        type: 'conversation-viewer-bookmarks-result',
+        version: 1,
+        requestId: 'after-freeze',
+        subscriptionGeneration: 1,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'old-root',
+        operation: 'set',
+        success: false,
+        revision: 1,
+        interactionIds: ['input-1'],
+        error: 'stale',
+    });
+});
+
+test('CONVERSATION-SESSION-REBIND-001 drains an old-root mutation after the viewer has already switched', async () => {
+    const saveStarted = deferred();
+    const releaseSave = deferred();
+    const saved = [];
+    const { viewer, panel } = createViewer({
+        bookmarkStore: {
+            async load() {
+                return { revision: 0, interactionIds: [] };
+            },
+            async save(storeTarget, snapshot) {
+                saved.push({
+                    target: { ...storeTarget },
+                    snapshot: {
+                        revision: snapshot.revision,
+                        interactionIds: [...snapshot.interactionIds],
+                    },
+                });
+                if (saved.length === 1) {
+                    saveStarted.resolve();
+                    await releaseSave.promise;
+                }
+            },
+        },
+    });
+    await viewer.open(target('old-root'));
+    const oldMutation = panel.receive({
+        type: 'conversation-viewer-bookmark-mutation',
+        version: 1,
+        requestId: 'old-pending',
+        subscriptionGeneration: 1,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'old-root',
+        operation: 'set',
+        expectedRevision: 0,
+        payload: { interactionId: 'input-1', bookmarked: true },
+    });
+    await saveStarted.promise;
+    assert.equal(await viewer.follow(target('other-root')), true);
+
+    let drainSettled = false;
+    const drain = viewer.freezeSessionMetadata({
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'old-root',
+    }).then(result => {
+        drainSettled = true;
+        return result;
+    });
+    await Promise.resolve();
+    assert.equal(drainSettled, false);
+    releaseSave.resolve();
+
+    await oldMutation;
+    assert.equal(await drain, false, 'the current target must stay unfrozen');
+    assert.deepEqual(saved, [{
+        target: {
+            projectId: 'project-a',
+            provider: 'codex',
+            sessionId: 'old-root',
+        },
+        snapshot: { revision: 1, interactionIds: ['input-1'] },
+    }, {
+        target: {
+            projectId: 'project-a',
+            provider: 'codex',
+            sessionId: 'old-root',
+        },
+        snapshot: { revision: 0, interactionIds: [] },
+    }], 'the stale old write must finish its rollback before copying');
+});
+
+test('CONVERSATION-SESSION-REBIND-001 rolls back a stale old-root comment before the copy barrier settles', async () => {
+    const saveStarted = deferred();
+    const releaseSave = deferred();
+    const saved = [];
+    const { viewer, panel } = createViewer({
+        commentStore: {
+            async load() {
+                return { revision: 0, comments: [] };
+            },
+            async save(storeTarget, snapshot) {
+                saved.push({
+                    target: { ...storeTarget },
+                    snapshot: {
+                        revision: snapshot.revision,
+                        comments: snapshot.comments.map(comment => ({
+                            ...comment,
+                        })),
+                    },
+                });
+                if (saved.length === 1) {
+                    saveStarted.resolve();
+                    await releaseSave.promise;
+                }
+            },
+        },
+    });
+    await viewer.open(target('old-root'));
+    const oldMutation = panel.receive({
+        type: 'conversation-viewer-comment-mutation',
+        version: 1,
+        requestId: 'old-comment-pending',
+        subscriptionGeneration: 1,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'old-root',
+        operation: 'add',
+        expectedRevision: 0,
+        payload: {
+            scope: 'session',
+            comment: 'Do not migrate a failed comment.',
+        },
+    });
+    await saveStarted.promise;
+    assert.equal(await viewer.follow(target('other-root')), true);
+    const drain = viewer.freezeSessionMetadata({
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'old-root',
+    });
+    releaseSave.resolve();
+
+    await oldMutation;
+    assert.equal(await drain, false);
+    assert.equal(saved.length, 2);
+    assert.equal(saved[0].snapshot.revision, 1);
+    assert.equal(saved[0].snapshot.comments.length, 1);
+    assert.deepEqual(saved[1], {
+        target: {
+            projectId: 'project-a',
+            provider: 'codex',
+            sessionId: 'old-root',
+        },
+        snapshot: { revision: 0, comments: [] },
+    });
 });
 
 test('CONVERSATION-OUTLINE-BOOKMARKS-001 rejects stale or unknown input bookmark intents without persisting', async () => {

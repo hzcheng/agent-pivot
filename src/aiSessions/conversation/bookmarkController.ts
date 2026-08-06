@@ -41,6 +41,7 @@ export class ConversationBookmarkController {
     private interactionIds = new Set<string>();
     private revision = 0;
     private operationQueue: Promise<void> = Promise.resolve();
+    private mutationsFrozen = false;
     private readonly settlements =
         new Map<string, ConversationViewerBookmarksResultMessage>();
 
@@ -56,9 +57,19 @@ export class ConversationBookmarkController {
     }
 
     reset(): void {
+        this.mutationsFrozen = false;
         this.interactionIds.clear();
         this.revision = 0;
         this.settlements.clear();
+    }
+
+    async freezeMutations(): Promise<void> {
+        this.mutationsFrozen = true;
+        await this.drainMutations();
+    }
+
+    async drainMutations(): Promise<void> {
+        await this.operationQueue;
     }
 
     enqueue(
@@ -109,7 +120,7 @@ export class ConversationBookmarkController {
             await this.publishSettlement(settled);
             return;
         }
-        if (!requestTargetsViewer(
+        if (this.mutationsFrozen || !requestTargetsViewer(
             request,
             target,
             this.options.getSubscriptionGeneration()

@@ -125,3 +125,75 @@ test('CONVERSATION-COMMENTS-PERSISTENCE-001 ignores malformed private snapshots 
         { revision: 0, comments: [] }
     );
 });
+
+test('CONVERSATION-SESSION-REBIND-001 copies comments only along an explicit Session rebind', async t => {
+    const root = await fs.promises.mkdtemp(
+        path.join(os.tmpdir(), 'agent-pivot-conversation-comments-rebind-')
+    );
+    t.after(() => fs.promises.rm(root, { recursive: true, force: true }));
+    const store = new ConversationCommentFileStore(root);
+    const previous = target('old-root');
+    const next = target('new-root');
+
+    await store.save(previous, snapshot());
+    assert.equal(await store.copyForRebind(previous, next), 'copied');
+    assert.deepEqual(await store.load(next), snapshot());
+    assert.deepEqual(await store.load(previous), snapshot());
+
+    const destination = {
+        revision: 9,
+        comments: [{
+            ...snapshot().comments[0],
+            id: 'destination-comment',
+            comment: 'Keep destination authority.',
+        }],
+    };
+    await store.save(target('occupied-root'), destination);
+    assert.equal(
+        await store.copyForRebind(previous, target('occupied-root')),
+        'destination-exists'
+    );
+    assert.deepEqual(await store.load(target('occupied-root')), destination);
+
+    await assert.rejects(
+        store.copyForRebind(previous, {
+            ...next,
+            projectId: 'different-project',
+        }),
+        /Invalid conversation comment rebind/
+    );
+
+    await store.save(target('race-source-a'), snapshot());
+    await store.save(target('race-source-b'), {
+        revision: 8,
+        comments: [{
+            ...snapshot().comments[0],
+            id: 'race-winner-b',
+        }],
+    });
+    const raceTarget = target('race-destination');
+    const raceResults = await Promise.all([
+        store.copyForRebind(target('race-source-a'), raceTarget),
+        store.copyForRebind(target('race-source-b'), raceTarget),
+    ]);
+    assert.deepEqual(raceResults.sort(), ['copied', 'destination-exists']);
+    assert.ok([4, 8].includes((await store.load(raceTarget)).revision));
+
+    await store.save(target('corrupt-source'), snapshot());
+    const directory = path.join(root, 'conversation-comments', 'v1');
+    const persistedFiles = await fs.promises.readdir(directory);
+    for (const fileName of persistedFiles) {
+        const filePath = path.join(directory, fileName);
+        const persisted = JSON.parse(await fs.promises.readFile(filePath, 'utf8'));
+        if (persisted.target?.sessionId === 'corrupt-source') {
+            await fs.promises.writeFile(filePath, '{"invalid":true}', 'utf8');
+        }
+    }
+    await assert.rejects(
+        store.copyForRebind(
+            target('corrupt-source'),
+            target('corrupt-destination')
+        ),
+        /Invalid persisted conversation comment snapshot/
+    );
+});

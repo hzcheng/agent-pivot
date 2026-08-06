@@ -30,6 +30,9 @@ export interface ConversationCommentStore {
     ): Promise<void>;
 }
 
+export type ConversationCommentRebindCopyResult =
+    'copied' | 'source-empty' | 'destination-exists';
+
 interface PersistedConversationCommentSnapshot {
     version: 1;
     target: ConversationCommentTarget;
@@ -133,6 +136,94 @@ export class ConversationCommentFileStore implements ConversationCommentStore {
         }
     }
 
+    async copyForRebind(
+        previous: ConversationCommentTarget,
+        next: ConversationCommentTarget
+    ): Promise<ConversationCommentRebindCopyResult> {
+        if (!isValidRebind(previous, next)) {
+            throw new Error('Invalid conversation comment rebind.');
+        }
+        const source = await this.loadForRebind(previous);
+        if (source.comments.length === 0) {
+            return 'source-empty';
+        }
+        return this.saveForRebindIfAbsent(next, source);
+    }
+
+    private async loadForRebind(
+        target: ConversationCommentTarget
+    ): Promise<ConversationCommentSnapshot> {
+        const snapshotPath = this.getSnapshotPath(target);
+        try {
+            const stats = await fs.promises.stat(snapshotPath);
+            if (!stats.isFile() || stats.size > MAX_SNAPSHOT_BYTES) {
+                throw new Error('Invalid persisted conversation comment snapshot.');
+            }
+            const value = JSON.parse(
+                await fs.promises.readFile(snapshotPath, 'utf8')
+            );
+            if (!isPersistedSnapshot(value, target)) {
+                throw new Error('Invalid persisted conversation comment snapshot.');
+            }
+            normalizeLegacyCommentStatuses(value.comments);
+            validateConversationComments(value.comments);
+            return {
+                revision: value.revision,
+                comments: cloneConversationComments(value.comments),
+            };
+        } catch (error) {
+            if (isFileNotFoundError(error)) {
+                return emptySnapshot();
+            }
+            throw new Error('Invalid persisted conversation comment snapshot.');
+        }
+    }
+
+    private async saveForRebindIfAbsent(
+        target: ConversationCommentTarget,
+        snapshot: ConversationCommentSnapshot
+    ): Promise<ConversationCommentRebindCopyResult> {
+        const snapshotPath = this.getSnapshotPath(target);
+        await fs.promises.mkdir(this.directoryPath, {
+            recursive: true,
+            mode: 0o700,
+        });
+        const persisted: PersistedConversationCommentSnapshot = {
+            version: STORE_VERSION,
+            target: { ...target },
+            revision: snapshot.revision,
+            updatedAt: new Date(this.now()).toISOString(),
+            comments: cloneConversationComments(snapshot.comments),
+        };
+        const temporaryPath = `${snapshotPath}.${process.pid}.${
+            randomBytes(8).toString('hex')
+        }.tmp`;
+        try {
+            await fs.promises.writeFile(
+                temporaryPath,
+                JSON.stringify(persisted),
+                { encoding: 'utf8', flag: 'wx', mode: 0o600 }
+            );
+            try {
+                await fs.promises.link(temporaryPath, snapshotPath);
+                return 'copied';
+            } catch (error) {
+                if (isFileExistsError(error)) {
+                    return 'destination-exists';
+                }
+                throw error;
+            }
+        } finally {
+            try {
+                await fs.promises.unlink(temporaryPath);
+            } catch (error) {
+                if (!isFileNotFoundError(error)) {
+                    // Cleanup must not mask the authoritative link result.
+                }
+            }
+        }
+    }
+
     private getSnapshotPath(target: ConversationCommentTarget): string {
         const identity = JSON.stringify([
             target.projectId,
@@ -197,6 +288,17 @@ function isConversationCommentTarget(
         && isBoundedIdentity(value.sessionId);
 }
 
+function isValidRebind(
+    previous: ConversationCommentTarget,
+    next: ConversationCommentTarget
+): boolean {
+    return isConversationCommentTarget(previous)
+        && isConversationCommentTarget(next)
+        && previous.projectId === next.projectId
+        && previous.provider === next.provider
+        && previous.sessionId !== next.sessionId;
+}
+
 function isAiSessionProvider(value: unknown): value is AiSessionProviderId {
     return value === 'codex' || value === 'kimi' || value === 'claude';
 }
@@ -216,4 +318,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isFileNotFoundError(error: unknown): boolean {
     return Boolean(error && (error as NodeJS.ErrnoException).code === 'ENOENT');
+}
+
+function isFileExistsError(error: unknown): boolean {
+    return Boolean(error && (error as NodeJS.ErrnoException).code === 'EEXIST');
 }

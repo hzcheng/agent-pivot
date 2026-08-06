@@ -1,6 +1,7 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
 const Module = require('node:module');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -110,6 +111,8 @@ function createVscode(lifecycle) {
                 ));
                 return trackedResource('provider-registration');
             },
+            registerWebviewPanelSerializer: () =>
+                trackedResource('panel-serializer-registration'),
             onDidChangeActiveTerminal: () => trackedListener('active-terminal-listener'),
             onDidOpenTerminal: callback => {
                 openTerminalCallbacks.push(callback);
@@ -257,6 +260,7 @@ async function main() {
     const restoreAttachTerminalsInvocations = [];
     const affectsConfigurationQueries = [];
     const fallbackResumeStatuses = [];
+    const conversationMetadataRebinds = [];
     let coordinatorInstance;
     let coordinatorGetActiveCalls = 0;
     let coordinatorGetPendingCalls = 0;
@@ -371,6 +375,9 @@ async function main() {
         const { AiSessionAttentionController } = require('../../../out/aiSessions/attentionController');
         const AttentionBridgeClient = require('../../../out/aiSessions/attentionBridgeClient').default;
         const AiSessionAliasController = require('../../../out/aiSessions/aliasController').default;
+        const { ConversationCommentFileStore } = require('../../../out/aiSessions/conversation/commentStore');
+        const { ConversationBookmarkFileStore } = require('../../../out/aiSessions/conversation/bookmarkStore');
+        const { ConversationSessionRebindCoordinator } = require('../../../out/aiSessions/conversation/sessionRebindCoordinator');
         const { DashboardCommandRegistration } = require('../../../out/dashboard/commandRegistration');
         const { DashboardStartupController } = require('../../../out/dashboard/startupController');
         const { ProjectMutationController } = require('../../../out/projects/projectMutationController');
@@ -397,19 +404,27 @@ async function main() {
         patch(AiSessionAliasController.prototype, 'copyForRebind', function (...args) {
             aliasRebinds.push(args);
         });
+        patch(ConversationCommentFileStore.prototype, 'copyForRebind', async function (...args) {
+            conversationMetadataRebinds.push(['comments', ...args]);
+            return 'copied';
+        });
+        patch(ConversationBookmarkFileStore.prototype, 'copyForRebind', async function (...args) {
+            conversationMetadataRebinds.push(['bookmarks', ...args]);
+            return 'copied';
+        });
+        patch(ConversationSessionRebindCoordinator.prototype, 'restore', async function () {});
+        patch(ConversationSessionRebindCoordinator.prototype, 'prepare', async function () {});
+        patch(ConversationSessionRebindCoordinator.prototype, 'commit', async function (previous, next) {
+            await this.options.commentStore.copyForRebind(previous, next);
+            await this.options.bookmarkStore.copyForRebind(previous, next);
+        });
 
         patch(TmuxRuntimeDiscovery.prototype, 'loadPersistedInactive', async function () {
             assert.ok(this instanceof TmuxRuntimeDiscovery);
             assert.ok(this.options.client instanceof TmuxClient);
             assert.ok(this.options.bindingStore instanceof TmuxRuntimeBindingStore);
+            assert.equal(typeof this.options.onSessionRebinding, 'function');
             assert.equal(typeof this.options.onSessionRebound, 'function');
-            if (!simulatedAliasRebind) {
-                simulatedAliasRebind = true;
-                this.options.onSessionRebound(
-                    { provider: 'codex', sessionId: 'old-root' },
-                    { provider: 'codex', sessionId: 'new-root' }
-                );
-            }
             verified.add('client-store-discovery');
             verified.add('thread-switch-alias-wiring');
             if ((mode === 'slow-runtime-restore' || mode === 'blocked-restore-budget')
@@ -426,6 +441,21 @@ async function main() {
                 initialInactiveRestoreRecorded = true;
                 events.push('inactive-restored');
                 inactiveRestoreSettled = true;
+            }
+            if (!simulatedAliasRebind) {
+                simulatedAliasRebind = true;
+                const previous = {
+                    provider: 'codex',
+                    sessionId: 'old-root',
+                    workspaceScopeIdentity: 'workspace-scope-a',
+                };
+                const next = {
+                    provider: 'codex',
+                    sessionId: 'new-root',
+                    workspaceScopeIdentity: 'workspace-scope-a',
+                };
+                await this.options.onSessionRebinding(previous, next);
+                await this.options.onSessionRebound(previous, next);
             }
         });
         patch(TerminalService.prototype, 'restorePersistedTerminals', async function () {
@@ -927,6 +957,12 @@ async function main() {
             registeredCommands: vscode.registeredCommands,
             dashboardCommandRegistrationInvocations,
             aliasRebinds,
+            conversationMetadataRebinds,
+            expectedConversationProjectId: `__currentWorkspace-${crypto
+                .createHash('sha256')
+                .update('workspace-scope-a')
+                .digest('hex')
+                .slice(0, 24)}`,
             attentionShutdownCalls,
             synchronizedGlobalStateKeySets,
             startupDiagnostics,

@@ -3909,6 +3909,24 @@
     ]
   },
   {
+    "id": "CONVERSATION-LOCAL-FILE-LINKS-001",
+    "domain": "webview",
+    "title": "AI Conversation renders absolute local file references as clickable links and opens their exact line in the workspace host",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/integration/dashboard/conversationViewer.test.js",
+      "tests/browser/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/dashboard.ts",
+      "src/aiSessions/conversation/composition.ts",
+      "src/aiSessions/conversation/markdown.ts",
+      "src/aiSessions/conversation/viewer.ts",
+      "src/webview/conversationViewerScripts.js"
+    ]
+  },
+  {
     "id": "CONVERSATION-THINKING-VISIBILITY-001",
     "domain": "webview",
     "title": "Conversation viewers hide provider thinking by default and render it as collapsed entries when enabled",

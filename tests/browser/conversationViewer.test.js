@@ -3470,6 +3470,26 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 sanitizes hostile HTML, posts e
     );
 });
 
+test('CONVERSATION-LOCAL-FILE-LINKS-001 keeps rendered absolute file links clickable through the Webview', async t => {
+    const firstHref = '/home/example/project/src/localStore.ts:17';
+    const secondHref = '/home/example/project/src/localStore.ts:216';
+    const { page } = await openHostViewerDocument(t, {
+        markdown: `[localStore.ts](${firstHref}) expires records and `
+            + `[localStore.ts](${secondHref}) deletes them.`,
+    });
+
+    const links = page.getByRole('link', { name: 'localStore.ts' });
+    assert.equal(await links.count(), 2);
+    assert.equal(await links.nth(0).getAttribute('href'), firstHref);
+    assert.equal(await links.nth(1).getAttribute('href'), secondHref);
+    await links.nth(1).click();
+    assert.deepEqual((await postedMessages(page)).at(-1), {
+        type: 'conversation-viewer-open-link',
+        version: 1,
+        href: secondHref,
+    });
+});
+
 test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 preserves ordered numbering across loose multi-paragraph list items', async t => {
     const { page } = await openHostViewerDocument(t, {
         markdown: [

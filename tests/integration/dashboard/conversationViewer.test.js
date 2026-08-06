@@ -245,6 +245,7 @@ function createViewer(options = {}) {
             openedUris.push(uri.toString());
             return true;
         },
+        openLocalFile: options.openLocalFile,
         insertIntoActiveTerminal: options.insertIntoActiveTerminal,
         followAdjacentConversation: options.followAdjacentConversation,
         mediaUri: fileName => fakeUri(`file:///extension/media/${fileName}`),
@@ -936,6 +937,38 @@ test('CONVERSATION-VIEWER-SECURITY-001 emits a nonce-only CSP and opens only HTT
     }
 
     assert.deepEqual(openedUris, ['https://example.test/safe']);
+});
+
+test('CONVERSATION-LOCAL-FILE-LINKS-001 renders absolute file links and opens their exact line', async () => {
+    const openedFiles = [];
+    const filePath = '/home/example/project/src/localStore.ts';
+    const { viewer, panel } = createViewer({
+        openLocalFile: async targetFile => {
+            openedFiles.push(targetFile);
+        },
+        readPage: async request => ({
+            ...page(request.sessionId, request.anchorInteractionId),
+            messages: [{
+                id: `${request.anchorInteractionId}:assistant`,
+                interactionId: request.anchorInteractionId,
+                role: 'assistant',
+                markdown: `[localStore.ts](${filePath}:17)`,
+            }],
+        }),
+    });
+
+    await viewer.open(target('session-a'));
+
+    assert.match(
+        decodeInitialPublication(panel.webview.html).html,
+        /<a href="\/home\/example\/project\/src\/localStore\.ts:17">localStore\.ts<\/a>/
+    );
+    await panel.receive({
+        type: 'conversation-viewer-open-link',
+        version: 1,
+        href: `${filePath}:17`,
+    });
+    assert.deepEqual(openedFiles, [{ fsPath: filePath, line: 17, column: 1 }]);
 });
 
 test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 routes one exact selection send to the active terminal inserter', async () => {

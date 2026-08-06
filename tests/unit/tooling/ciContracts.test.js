@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
+const yaml = require('js-yaml');
 const {
     validateQualityGateScripts,
     validateReleaseWorkflow,
@@ -28,6 +29,39 @@ const packageScripts = JSON.parse(fs.readFileSync(
     path.resolve(__dirname, '../../../package.json'),
     'utf8'
 )).scripts;
+
+test('RELEASE-VSIX-PACKAGING-001 reusable verification callers grant every read permission required by nested jobs', () => {
+    const requiredPermissions = {
+        contents: 'read',
+        issues: 'read',
+        'pull-requests': 'read',
+    };
+    for (const [label, source] of [
+        ['release', releaseWorkflow],
+        ['scheduled', scheduledWorkflow],
+    ]) {
+        const workflow = yaml.safeLoad(source, { schema: yaml.JSON_SCHEMA });
+        assert.deepEqual(
+            workflow.permissions,
+            requiredPermissions,
+            `${label} workflow must pass the reusable verification workflow its nested read permissions`
+        );
+    }
+});
+
+test('RELEASE-VSIX-PACKAGING-001 rejects either reusable verification caller losing a nested read permission', () => {
+    const releaseWithoutIssues = releaseWorkflow.replace('  issues: read\n', '');
+    assert.throws(
+        () => validateReleaseWorkflow(releaseWithoutIssues),
+        /release workflow permissions must include every nested read permission/
+    );
+
+    const scheduledWithoutPullRequests = scheduledWorkflow.replace('  pull-requests: read\n', '');
+    assert.throws(
+        () => validateScheduledWorkflow(scheduledWithoutPullRequests),
+        /scheduled verification workflow permissions must include every nested read permission/
+    );
+});
 
 test('RELEASE-VSIX-PACKAGING-001 accepts the unquoted GitHub Actions on key', () => {
     assert.doesNotThrow(() => validateVerifyWorkflow(verifyWorkflow));

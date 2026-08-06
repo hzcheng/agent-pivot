@@ -1349,6 +1349,9 @@
       "tests/unit/tooling/packageScripts.test.js"
     ],
     "evidence": [
+      ".github/workflows/release-vsix.yml",
+      ".github/workflows/scheduled-verification.yml",
+      "scripts/lib/ciContracts.js",
       "scripts/run-release-packaging-checks.js",
       "scripts/seed-release-packaging-stale-output.js",
       ".vscodeignore"

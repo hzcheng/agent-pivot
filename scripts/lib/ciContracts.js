@@ -188,8 +188,11 @@ function validateScheduledWorkflow(scheduledWorkflow) {
             },
         },
     }, 'scheduled workflow_dispatch must expose only the bounded Host diagnostic input');
-    assert.deepEqual(workflow.permissions, { contents: 'read' },
-        'GitHub scheduled verification workflow permissions must be exactly contents: read');
+    assert.deepEqual(workflow.permissions, {
+        contents: 'read',
+        issues: 'read',
+        'pull-requests': 'read',
+    }, 'GitHub scheduled verification workflow permissions must include every nested read permission');
     assert.ok(isMapping(workflow.jobs),
         'GitHub scheduled verification workflow jobs must be a mapping');
 
@@ -243,8 +246,11 @@ function validateReleaseWorkflow(releaseWorkflow) {
     const workflow = parseVerifyWorkflow(releaseWorkflow);
     assert.ok(isMapping(workflow.jobs),
         'GitHub release workflow jobs must be a mapping');
-    assert.deepEqual(workflow.permissions, { contents: 'read' },
-        'GitHub release workflow permissions must be exactly contents: read');
+    assert.deepEqual(workflow.permissions, {
+        contents: 'read',
+        issues: 'read',
+        'pull-requests': 'read',
+    }, 'GitHub release workflow permissions must include every nested read permission');
     assert.deepEqual(Object.keys(workflow.jobs).sort(), [
         'release',
         'release-extension-host',

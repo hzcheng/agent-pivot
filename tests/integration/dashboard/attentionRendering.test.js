@@ -4,7 +4,13 @@ const assert = require('node:assert/strict');
 const Module = require('node:module');
 const test = require('node:test');
 const { createFakeVscode } = require('../../helpers/fakeVscode');
+const { makeTempDirectory } = require('../../helpers/tempDirectory');
+const { aggregateAttentionSnapshots } = require('../../../out/aiSessions/attentionAggregate');
 const { getAttentionProjectKey } = require('../../../out/aiSessions/attentionProject');
+const { hydrateWorkspaceAiSessions } = require('../../../out/workspaces/sessionHydration');
+const {
+    LocalStore,
+} = require('../../../extensions/attention-ui-bridge/out/extensions/attention-ui-bridge/src/localStore');
 
 function loadRenderer() {
     const vscode = createFakeVscode({});
@@ -56,8 +62,8 @@ function stewardContent(openProjects) {
                     expanded: true,
                     sessionsByProvider: {
                         codex: project.codexSessions || [],
-                        kimi: [],
-                        claude: [],
+                        kimi: project.kimiSessions || [],
+                        claude: project.claudeSessions || [],
                     },
                     unavailableProviders: [],
                     activeSessions,
@@ -146,6 +152,99 @@ test('ATTENTION-ATTENTION-PROJECT-RENDERING-001 OPEN cards render positive count
     assert.ok(staleRow, 'the stale runtime row is rendered');
     assert.doesNotMatch(staleRow, /data-ai-session-attention|data-session-needs-attention/);
     assert.doesNotMatch(staleHtml, /class="ai-session-attention-count"/);
+});
+
+test('ATTENTION-BRIDGE-STALENESS-001 an acknowledged completion stays absent from the rendered card after 24 hours', async t => {
+    const root = makeTempDirectory(t, 'attention-ack-retention-');
+    const eventId = 'kimi:old-session:completed:stable-event';
+    const acknowledgedAtMs = Date.parse('2026-08-04T15:29:51.606Z');
+    const store = new LocalStore(root, 'a'.repeat(32), 'bridge-process');
+    await store.writeAcknowledgements([eventId], acknowledgedAtMs);
+
+    const acknowledgedEventIds = await store.readAcknowledgements(
+        acknowledgedAtMs + 24 * 60 * 60 * 1000 + 1
+    );
+    const workspacePath = '/work/attention-retention';
+    const aggregate = aggregateAttentionSnapshots([{
+        version: 1,
+        generatedAtMs: acknowledgedAtMs,
+        items: [{
+            projectId: getAttentionProjectKey(workspacePath),
+            sessionKey: 'kimi:old-session',
+            state: 'needsAttention',
+            eventId,
+            reason: 'completed',
+            observedAtMs: acknowledgedAtMs,
+        }],
+        instanceId: 'b'.repeat(32),
+        sequence: 1,
+        heartbeat: 1,
+    }], acknowledgedEventIds, acknowledgedAtMs + 24 * 60 * 60 * 1000 + 1);
+    const workspace = {
+        navigationIdentity: 'navigation:attention-retention',
+        scopeIdentity: 'scope:attention-retention',
+        kind: 'singleFolder',
+        displayName: 'Attention Retention',
+        navigationUri: `file://${workspacePath}`,
+        environment: 'local',
+        roots: [{
+            id: 'root:attention-retention',
+            name: 'attention-retention',
+            uri: `file://${workspacePath}`,
+            hostPath: workspacePath,
+            ordinal: 0,
+        }],
+    };
+    const projected = hydrateWorkspaceAiSessions({
+        workspace,
+        providers: [{ id: 'kimi', label: 'Kimi' }],
+        sessionResults: {
+            kimi: {
+                available: true,
+                sessions: [{ id: 'old-session', name: 'Old Session', cwd: workspacePath }],
+            },
+        },
+        getSessionComparableCwd: (_provider, session) => session.cwd,
+        pinnedSessions: new Set(),
+        aliases: {},
+        activeRuntimes: [{
+            identity: {
+                provider: 'kimi',
+                workspaceScopeIdentity: workspace.scopeIdentity,
+                workspaceNavigationIdentity: workspace.navigationIdentity,
+                workspaceRootHostPaths: [workspacePath],
+                cwd: workspacePath,
+                sessionId: 'old-session',
+            },
+            backend: 'tmux',
+            state: 'active',
+            markerPath: '/tmp/old-session.done',
+            runStartedAtMs: acknowledgedAtMs - 10_000,
+            attached: false,
+            tmux: {
+                layout: 'project',
+                sessionName: 'managed',
+                windowName: 'kimi-old-session',
+            },
+        }],
+        attentionAggregate: aggregate,
+    });
+    const html = stewardContent([{
+        id: 'attention-retention',
+        name: workspace.displayName,
+        color: '#00aacc',
+        kimiSessions: projected.sessionsByProvider.kimi,
+        activeAiSessions: projected.activeSessions,
+    }]);
+
+    assert.deepEqual(aggregate.sessions, [], 'the old owner event remains acknowledged');
+    assert.equal(projected.sessionsByProvider.kimi[0].attention, undefined);
+    const sessionRow = html.match(
+        /<div class="codex-session-row active-ai-session-row"[^>]*data-session-id="old-session"[^>]*>/
+    )?.[0];
+    assert.ok(sessionRow, 'the old active tmux session remains rendered');
+    assert.doesNotMatch(sessionRow, /data-ai-session-attention|data-session-needs-attention/);
+    assert.doesNotMatch(html, /class="ai-session-attention-count"/);
 });
 
 test('OPEN-OTHER-WINDOWS-SUMMARY-001 renders shared attention as a summary without session ownership', () => {

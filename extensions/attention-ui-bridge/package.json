@@ -2,7 +2,7 @@
     "name": "agent-pivot-attention-ui-bridge",
     "displayName": "Agent Pivot Attention UI Bridge",
     "description": "Companion UI-attention bridge for Agent Pivot.",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "publisher": "hzcheng",
     "license": "MIT",
     "categories": ["Other"],

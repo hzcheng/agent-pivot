@@ -152,6 +152,8 @@ import {
 import { DashboardStartupController, settleMigration } from './dashboard/startupController';
 import { getDashboardWebviewOptions } from './dashboard/webviewOptions';
 import OpenWorkspaceBridgeClient from './openWorkspaces/bridgeClient';
+import { EarlyOpenWorkspaceBridge } from './openWorkspaces/earlyBridge';
+import { createOpenWorkspacePublication } from './openWorkspaces/projection';
 import { OpenWorkspaceDashboardController } from './openWorkspaces/dashboardController';
 import { WorkspaceNavigationController } from './openWorkspaces/navigationController';
 import {
@@ -180,6 +182,10 @@ const DASHBOARD_BOOTSTRAP_PHASE_ORDER = [
     'tmux-restore-wait',
     'startup-sequence',
 ];
+// Captured while this module is still being required, so the gap to
+// `activate()` separates our own module load from everything VS Code does
+// before calling us (notably activating the UI-host bridge dependency).
+const DASHBOARD_MODULE_LOADED_AT_MS = performance.now();
 let activeAiSessionAttentionBridgeClient: AttentionBridgeClient | null = null;
 let activeOpenWorkspaceBridgeClient: OpenWorkspaceBridgeClient | null = null;
 
@@ -246,6 +252,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     });
     dashboardDiagnostics.logDashboardDiagnostic({
         event: 'agent-pivot-activation-entered',
+        sinceModuleLoadMs: Math.max(
+            0,
+            Math.round(activationStartedAtMs - DASHBOARD_MODULE_LOADED_AT_MS),
+        ),
     });
 
     let bootstrapController: DashboardBootstrapController | undefined;
@@ -300,6 +310,44 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
     ));
 
+    // Created before bootstrap so its cross-host handshake round trip overlaps
+    // the local dashboard build instead of queueing behind it. The publication
+    // is derived straight from VS Code state; the accurate AI session count
+    // follows on the first real publish once hydration exists.
+    const earlyOpenWorkspaceBridge = new EarlyOpenWorkspaceBridge<OpenWorkspaceBridgeClient>({
+        createClient: handlers => new OpenWorkspaceBridgeClient(
+            createOpenWorkspacePublication(
+                new WorkspaceContextResolver().resolve({
+                    workspaceFile: vscode.workspace.workspaceFile,
+                    workspaceFolders: vscode.workspace.workspaceFolders,
+                    workspaceName: vscode.workspace.name,
+                    remoteName: vscode.env.remoteName,
+                }),
+                0,
+            ),
+            handlers.onAggregate,
+            handlers.onError,
+            {
+                reportDiagnostic: event =>
+                    dashboardDiagnostics.logOpenWorkspaceDiagnostic('Workspace', event),
+                reportBridgeDiagnostic: event =>
+                    dashboardDiagnostics.logOpenWorkspaceDiagnostic('Bridge', event),
+                onStatusChange: handlers.onStatusChange,
+                onPinSnapshot: handlers.onPinSnapshot,
+            },
+        ),
+        logError: (message, error) => dashboardDiagnostics.logError(message, error),
+    });
+    activeOpenWorkspaceBridgeClient = earlyOpenWorkspaceBridge.getClient();
+    context.subscriptions.push({
+        dispose: () => {
+            if (activeOpenWorkspaceBridgeClient === earlyOpenWorkspaceBridge.getClient()) {
+                activeOpenWorkspaceBridgeClient = null;
+            }
+            void earlyOpenWorkspaceBridge.getClient().shutdown();
+        },
+    });
+
     const dashboardCommandRegistration =
         new DashboardCommandRegistration<vscode.Disposable>({
             registerCommand: (command, callback) =>
@@ -325,6 +373,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                     generation,
                     dashboardCommandRegistration,
                     conversationPanelRestore,
+                    earlyOpenWorkspaceBridge,
                 );
                 return options;
             } catch (error) {
@@ -365,6 +414,7 @@ async function initializeDashboard(
     bootstrapGeneration: number,
     dashboardCommandRegistration: DashboardCommandRegistration<vscode.Disposable>,
     conversationPanelRestore: ConversationPanelRestoreCoordinator,
+    earlyOpenWorkspaceBridge: EarlyOpenWorkspaceBridge<OpenWorkspaceBridgeClient>,
 ): Promise<AgentPivotViewProviderOptions> {
     const ownResource = <T extends { dispose(): unknown }>(factory: () => T): T => {
         let resource: T | undefined;
@@ -1640,38 +1690,30 @@ async function initializeDashboard(
         open: cardId => workspaceNavigationController.open(cardId),
         showInformationMessage: message => vscode.window.showInformationMessage(message),
     });
-    openWorkspaceBridgeClient = ownResource(() => new OpenWorkspaceBridgeClient(
-        openWorkspaceController.getPublication(),
-        aggregate => {
+    openWorkspaceBridgeClient = earlyOpenWorkspaceBridge.adopt({
+        onAggregate: aggregate => {
             const statusChanged = openWorkspaceDashboardController.setBridgeStatus('ready');
             if (openWorkspaceDashboardController.setAggregate(aggregate) || statusChanged) {
                 postOpenWorkspacesUpdated();
             }
         },
-        error => logOpenWorkspaceBridgeError(error),
-        {
-            reportDiagnostic: event => logOpenWorkspaceDiagnostic('Workspace', event),
-            reportBridgeDiagnostic: event => logOpenWorkspaceDiagnostic('Bridge', event),
-            onStatusChange: status => {
-                if (openWorkspaceDashboardController.setBridgeStatus(status)) {
-                    postOpenWorkspacesUpdated();
-                }
-            },
-            onPinSnapshot: snapshot => {
-                if (openWorkspaceDashboardController.setPinSnapshot(snapshot)) {
-                    postOpenWorkspacesUpdated();
-                }
-            },
-        }
-    ));
-    resources.own({
-        dispose: () => {
-            if (activeOpenWorkspaceBridgeClient === openWorkspaceBridgeClient) {
-                activeOpenWorkspaceBridgeClient = null;
+        onError: error => logOpenWorkspaceBridgeError(error),
+        onStatusChange: status => {
+            if (openWorkspaceDashboardController.setBridgeStatus(status)) {
+                postOpenWorkspacesUpdated();
+            }
+        },
+        onPinSnapshot: snapshot => {
+            if (openWorkspaceDashboardController.setPinSnapshot(snapshot)) {
+                postOpenWorkspacesUpdated();
             }
         },
     });
-    activeOpenWorkspaceBridgeClient = openWorkspaceBridgeClient;
+    // The client outlives this generation, so a disposed bootstrap only stops
+    // delivery to these handlers; it must not shut the bridge down.
+    resources.own({ dispose: () => earlyOpenWorkspaceBridge.release() });
+    // The publication built before bootstrap carried no AI session count.
+    openWorkspaceController.publish();
     openWorkspacePinController = new OpenWorkspacePinController({
         getNavigationIdentity: cardId =>
             openWorkspaceDashboardController.getPinNavigationIdentity(cardId),

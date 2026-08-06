@@ -189,6 +189,11 @@ test('WEBVIEW-TWO-STAGE-STARTUP-001 production startup diagnostics preserve exac
             }
             normalized = { ...normalized, phases: '<phases>' };
         }
+        if (Object.hasOwn(normalized, 'sinceModuleLoadMs')) {
+            assert.equal(Number.isFinite(normalized.sinceModuleLoadMs), true);
+            assert.ok(normalized.sinceModuleLoadMs >= 0);
+            normalized = { ...normalized, sinceModuleLoadMs: '<sinceModuleLoadMs>' };
+        }
         if (!Object.hasOwn(normalized, 'durationMs')) {
             return normalized;
         }
@@ -199,6 +204,7 @@ test('WEBVIEW-TWO-STAGE-STARTUP-001 production startup diagnostics preserve exac
     assert.deepEqual(normalizedDiagnostics, [
         {
             event: 'agent-pivot-activation-entered',
+            sinceModuleLoadMs: '<sinceModuleLoadMs>',
         },
         {
             event: 'agent-pivot-boot-shell-assigned',

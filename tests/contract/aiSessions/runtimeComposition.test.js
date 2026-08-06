@@ -100,11 +100,14 @@ async function restoreRuntimeHost(composition, terminals, createHydration) {
 }
 
 function runProductionActivation(mode) {
-    const environment = { ...process.env, NODE_V8_COVERAGE: '' };
+    // NODE_V8_COVERAGE is inherited on purpose. This harness is the only thing
+    // that executes src/dashboard.ts, so clearing it (as the tmux smoke harness
+    // deliberately does, to keep instrumentation out of a real-tmux run) made
+    // the largest file in the extension invisible to c8 entirely.
     const result = spawnSync(process.execPath, [
         path.resolve(__dirname, '../../fixtures/aiSessions/runtimeHostActivationHarness.js'),
         mode,
-    ], { encoding: 'utf8', env: environment });
+    ], { encoding: 'utf8', env: process.env });
     assert.equal(result.status, 0, result.stderr || result.stdout);
     return JSON.parse(result.stdout);
 }

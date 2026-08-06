@@ -189,8 +189,11 @@ function validateScheduledWorkflow(workflow) {
             },
         },
     }, 'scheduled workflow_dispatch must expose only the bounded Host diagnostic input');
-    assert.deepStrictEqual(workflow.permissions, { contents: 'read' },
-        'scheduled verification permissions must be exactly contents: read');
+    assert.deepStrictEqual(workflow.permissions, {
+        contents: 'read',
+        issues: 'read',
+        'pull-requests': 'read',
+    }, 'scheduled verification permissions must include every nested read permission');
     assert.ok(isMapping(workflow.jobs), 'scheduled verification jobs must be a mapping');
     assert.deepStrictEqual(Object.keys(workflow.jobs), ['verify', 'scheduled-macos'],
         'scheduled verification must contain only verify and scheduled-macos jobs');
@@ -248,8 +251,11 @@ function validateReleaseWorkflow(workflow) {
     validateReleaseWorkflowSource(yaml.safeDump(workflow));
     assert.ok(isMapping(workflow.on), 'release workflow on must be a mapping');
     assert.ok(isMapping(workflow.jobs), 'release workflow jobs must be a mapping');
-    assert.deepStrictEqual(workflow.permissions, { contents: 'read' },
-        'release workflow top-level permissions must be exactly contents: read');
+    assert.deepStrictEqual(workflow.permissions, {
+        contents: 'read',
+        issues: 'read',
+        'pull-requests': 'read',
+    }, 'release workflow top-level permissions must include every nested read permission');
     assert.strictEqual(containsKey(workflow, 'continue-on-error'), false,
         'release workflow must not define continue-on-error');
     assert.deepStrictEqual(

@@ -2001,14 +2001,15 @@
   {
     "id": "WEBVIEW-WEBVIEW-REFRESH-FOCUS-001",
     "domain": "webview",
-    "title": "Webview Refresh Focus behavior",
+    "title": "Dashboard rendering preserves external input focus and only auto-focuses search when the Webview is active",
     "priority": "P1",
     "status": "automated",
     "owners": [
-      "tests/integration/dashboard/openProjectFlow.test.js"
+      "tests/integration/dashboard/openProjectFlow.test.js",
+      "tests/browser/dashboardFocus.test.js"
     ],
     "evidence": [
-      "scripts/run-open-project-safety-checks.js"
+      "src/webview/webviewFilterScripts.js"
     ]
   },
   {

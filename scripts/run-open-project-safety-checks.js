@@ -3599,8 +3599,10 @@ function runWebviewRefreshFocusChecks() {
         addEventListener: () => undefined,
     };
     const clearSearchElement = { addEventListener: () => undefined };
+    let documentFocused = false;
     const document = {
         body: { classList },
+        hasFocus: () => documentFocused,
         getElementById: id => id === 'filter' ? filterInput : clearSearchElement,
         querySelectorAll: () => [],
     };
@@ -3623,9 +3625,20 @@ function runWebviewRefreshFocusChecks() {
         callback => callback()
     )(true, dashboard);
 
-    assert.strictEqual(focusCalls, 1, 'active-by-default search must focus after initialization');
-    assert.strictEqual(selectCalls, 1, 'active-by-default search must select the current query');
-    assert.strictEqual(blurCalls, 0, 'reloading a visible Webview must not alter editor focus');
+    assert.strictEqual(focusCalls, 0, 'background Webview rendering must preserve editor focus');
+    assert.strictEqual(selectCalls, 0, 'background Webview rendering must not select its search query');
+
+    documentFocused = true;
+    initFiltering(
+        document,
+        window,
+        sessionStorage,
+        callback => callback()
+    )(true, dashboard);
+
+    assert.strictEqual(focusCalls, 1, 'an active Webview must focus default search after initialization');
+    assert.strictEqual(selectCalls, 1, 'an active Webview must select the current query');
+    assert.strictEqual(blurCalls, 0, 'Webview initialization must not blur another focus owner');
 }
 
 async function runDashboardMigrationPublicationChecks() {

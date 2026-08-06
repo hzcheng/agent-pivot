@@ -671,7 +671,7 @@ test('CONVERSATION-TELEMETRY-001 Claude surfaces the latest assistant model and 
         provider: 'claude',
         sessionId,
         model: 'claude-sonnet-4-6',
-        context: { usedTokens: 120047, maxTokens: 200000 },
+        context: { usedTokens: 120047, maxTokens: 1_000_000 },
         rateLimits: [],
     });
 
@@ -696,7 +696,81 @@ test('CONVERSATION-TELEMETRY-001 Claude surfaces the latest assistant model and 
         provider: 'claude',
         sessionId,
         model: 'claude-opus-4-6',
-        context: { usedTokens: 131072, maxTokens: 200000 },
+        context: { usedTokens: 131072, maxTokens: 1_000_000 },
+        rateLimits: [],
+    });
+});
+
+test('CONVERSATION-TELEMETRY-001 Claude uses model-specific context windows', async t => {
+    const source = await createFixture(t);
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+
+    const millionTokenModels = [
+        'claude-opus-4-6',
+        'claude-opus-4-7',
+        'claude-opus-4-8',
+        'claude-sonnet-4-6',
+        'claude-opus-5',
+        'claude-sonnet-5',
+        'claude-fable-5',
+        'claude-mythos-5',
+        'claude-mythos-preview',
+        'us.anthropic.claude-opus-5-v1:0',
+    ];
+    for (const [index, model] of millionTokenModels.entries()) {
+        await fs.promises.appendFile(
+            source.sourcePath,
+            `${JSON.stringify({
+                type: 'assistant',
+                uuid: `telemetry-million-${index}`,
+                message: {
+                    role: 'assistant',
+                    model,
+                    content: [{ type: 'text', text: 'Continuing a long session.' }],
+                    usage: {
+                        input_tokens: 2,
+                        cache_creation_input_tokens: 3873,
+                        cache_read_input_tokens: 352883,
+                        output_tokens: 2026,
+                    },
+                },
+            })}\n`
+        );
+
+        assert.deepEqual(await adapter.readTelemetry(sessionId), {
+            provider: 'claude',
+            sessionId,
+            model,
+            context: { usedTokens: 358784, maxTokens: 1_000_000 },
+            rateLimits: [],
+        });
+    }
+
+    await fs.promises.appendFile(
+        source.sourcePath,
+        `${JSON.stringify({
+            type: 'assistant',
+            uuid: 'telemetry-haiku-4-5',
+            message: {
+                role: 'assistant',
+                model: 'claude-haiku-4-5-20251001',
+                content: [{ type: 'text', text: 'Using a smaller window.' }],
+                usage: {
+                    input_tokens: 3,
+                    cache_creation_input_tokens: 1200,
+                    cache_read_input_tokens: 48000,
+                    output_tokens: 300,
+                },
+            },
+        })}\n`
+    );
+
+    assert.deepEqual(await adapter.readTelemetry(sessionId), {
+        provider: 'claude',
+        sessionId,
+        model: 'claude-haiku-4-5-20251001',
+        context: { usedTokens: 49503, maxTokens: 200_000 },
         rateLimits: [],
     });
 });

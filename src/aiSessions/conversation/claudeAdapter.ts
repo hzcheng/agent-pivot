@@ -67,9 +67,11 @@ export interface ClaudeConversationAdapterOptions {
 
 type ConversationContextUsage = NonNullable<ConversationTelemetry['context']>;
 
-// Claude Code JSONL does not record the context-window size; all current
-// Claude models default to a 200k window.
-const CLAUDE_DEFAULT_MAX_CONTEXT_TOKENS = 200_000;
+// Claude Code JSONL records the resolved model but not its context-window
+// size. Opus and Sonnet moved to a 1M default in 4.6; generation 5 frontier
+// models also use 1M. Older models, including Haiku 4.5, retain 200k.
+const CLAUDE_LEGACY_MAX_CONTEXT_TOKENS = 200_000;
+const CLAUDE_LONG_MAX_CONTEXT_TOKENS = 1_000_000;
 
 const MAX_LISTED_SUBAGENTS = 64;
 const SUBAGENT_TRANSCRIPT_PATTERN = /^agent-([0-9a-z][0-9a-z-]{0,63})\.jsonl$/i;
@@ -169,6 +171,15 @@ function contextUsageTokens(value: unknown): number | undefined {
         0
     );
     return total > 0 ? total : undefined;
+}
+
+function maxContextTokens(model: string | undefined): number {
+    const normalized = model?.trim().toLowerCase() ?? '';
+    if (/(?:^|[.:/])claude-(?:(?:opus-4-(?:6|7|8))|sonnet-4-6|(?:fable|mythos|opus|sonnet)-5|mythos-preview)(?:-|$)/
+        .test(normalized)) {
+        return CLAUDE_LONG_MAX_CONTEXT_TOKENS;
+    }
+    return CLAUDE_LEGACY_MAX_CONTEXT_TOKENS;
 }
 
 function isUserInterrupt(value: unknown): boolean {
@@ -511,7 +522,7 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
                     if (usedTokens) {
                         telemetryContext = {
                             usedTokens,
-                            maxTokens: CLAUDE_DEFAULT_MAX_CONTEXT_TOKENS,
+                            maxTokens: maxContextTokens(telemetryModel),
                         };
                     }
                 }

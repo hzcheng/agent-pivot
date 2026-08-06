@@ -226,13 +226,30 @@ export function renderConversationViewerDocument(
                 class="conversation-outline" data-conversation-outline
                 role="tabpanel" aria-labelledby="conversation-outline-tab">
                 <div class="conversation-outline-toolbar">
-                    <input id="conversation-outline-search" type="search"
-                        data-outline-search placeholder="Search user inputs"
-                        aria-label="Search user inputs">
+                    <label class="conversation-outline-search-field">
+                        <svg viewBox="0 0 16 16" width="14" height="14"
+                            aria-hidden="true" fill="none"
+                            stroke="currentColor" stroke-width="1.35">
+                            <circle cx="6.8" cy="6.8" r="4.1"></circle>
+                            <path d="m9.8 9.8 3.1 3.1"></path>
+                        </svg>
+                        <input id="conversation-outline-search" type="search"
+                            data-outline-search placeholder="Search inputs"
+                            aria-label="Search user inputs">
+                    </label>
                     <button type="button"
                         class="conversation-outline-bookmarks-only"
                         data-outline-bookmarks-only aria-pressed="false"
-                        title="Show bookmarked inputs only">☆ 0</button>
+                        aria-label="Show bookmarked inputs only, 0 bookmarks"
+                        title="Show bookmarked inputs only">
+                        <svg viewBox="0 0 16 16" width="14" height="14"
+                            aria-hidden="true" fill="none"
+                            stroke="currentColor" stroke-width="1.25"
+                            stroke-linejoin="round">
+                            <path d="m8 1.8 1.85 3.76 4.15.6-3 2.92.71 4.13L8 11.26l-3.71 1.95L5 9.08 2 6.16l4.15-.6z"></path>
+                        </svg>
+                        <span data-outline-bookmark-count>0</span>
+                    </button>
                     <span class="conversation-outline-summary"
                         data-outline-summary>No inputs yet</span>
                 </div>

@@ -78,6 +78,9 @@
     var outlineBookmarksOnly = document.querySelector(
         '[data-outline-bookmarks-only]'
     );
+    var outlineBookmarkCount = document.querySelector(
+        '[data-outline-bookmark-count]'
+    );
     var commentsRoot = document.querySelector('[data-conversation-comments]');
     var subagentsRoot = document.querySelector('[data-conversation-subagents]');
     var subagentsList = document.querySelector('[data-subagents-list]');
@@ -224,6 +227,7 @@
         outlineEmpty: outlineEmpty,
         outlinePartial: outlinePartial,
         outlineBookmarksOnly: outlineBookmarksOnly,
+        outlineBookmarkCount: outlineBookmarkCount,
         post: post,
         outlinePanelActive: sidebarController.isOutlineActive,
         persistPanelState: sidebarController.save,

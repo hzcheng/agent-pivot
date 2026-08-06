@@ -14,6 +14,7 @@
         var outlineEmpty = options.outlineEmpty;
         var outlinePartial = options.outlinePartial;
         var outlineBookmarksOnly = options.outlineBookmarksOnly;
+        var outlineBookmarkCount = options.outlineBookmarkCount;
         var post = options.post;
         var outlinePanelActive = options.outlinePanelActive;
         var persistPanelState = options.persistPanelState;
@@ -167,7 +168,6 @@
                         return candidate.interactionId === interactionId;
                     });
                     var inputNumber = entry ? entry.inputNumber : '';
-                    button.textContent = bookmarked ? '★' : '☆';
                     button.classList.toggle('is-bookmarked', bookmarked);
                     button.setAttribute('aria-pressed',
                         bookmarked ? 'true' : 'false');
@@ -181,11 +181,23 @@
                 }
             );
             var count = state.bookmarkIds.size;
-            outlineBookmarksOnly.textContent = (state.bookmarksOnly ? '★ ' : '☆ ')
-                + count;
+            if (outlineBookmarkCount) {
+                outlineBookmarkCount.textContent = String(count);
+            } else {
+                outlineBookmarksOnly.textContent
+                    = (state.bookmarksOnly ? '★ ' : '☆ ') + count;
+            }
             outlineBookmarksOnly.setAttribute(
                 'aria-pressed',
                 state.bookmarksOnly ? 'true' : 'false'
+            );
+            var bookmarkLabel = count + ' bookmark'
+                + (count === 1 ? '' : 's');
+            outlineBookmarksOnly.setAttribute(
+                'aria-label',
+                (state.bookmarksOnly
+                    ? 'Show all inputs, '
+                    : 'Show bookmarked inputs only, ') + bookmarkLabel
             );
         }
 
@@ -207,6 +219,26 @@
             return 'Response complete';
         }
 
+        function createStarIcon() {
+            var namespace = 'http://www.w3.org/2000/svg';
+            var icon = document.createElementNS(namespace, 'svg');
+            icon.setAttribute('viewBox', '0 0 16 16');
+            icon.setAttribute('width', '14');
+            icon.setAttribute('height', '14');
+            icon.setAttribute('aria-hidden', 'true');
+            icon.setAttribute('fill', 'none');
+            icon.setAttribute('stroke', 'currentColor');
+            icon.setAttribute('stroke-width', '1');
+            icon.setAttribute('stroke-linejoin', 'round');
+            var path = document.createElementNS(namespace, 'path');
+            path.setAttribute(
+                'd',
+                'm8 1.8 1.85 3.76 4.15.6-3 2.92.71 4.13L8 11.26l-3.71 1.95L5 9.08 2 6.16l4.15-.6z'
+            );
+            icon.appendChild(path);
+            return icon;
+        }
+
         function buildOutlineList() {
             var fragment = document.createDocumentFragment();
             state.outline.forEach(function (entry) {
@@ -219,6 +251,7 @@
                     'data-outline-bookmark-id',
                     entry.interactionId
                 );
+                bookmark.appendChild(createStarIcon());
                 var button = document.createElement('button');
                 button.type = 'button';
                 button.setAttribute('data-outline-interaction-id',
@@ -245,8 +278,8 @@
                 button.appendChild(number);
                 button.appendChild(preview);
                 button.appendChild(responseState);
-                item.appendChild(bookmark);
                 item.appendChild(button);
+                item.appendChild(bookmark);
                 fragment.appendChild(item);
             });
             outlineList.replaceChildren(fragment);
@@ -271,6 +304,8 @@
                         'data-outline-interaction-id'
                     ) === state.outlineSelectedInteractionId;
                     button.classList.toggle('is-selected', current);
+                    button.closest('.conversation-outline-item')
+                        .classList.toggle('is-selected', current);
                     if (current) {
                         button.setAttribute('aria-current', 'location');
                         selected = button;

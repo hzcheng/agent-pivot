@@ -537,19 +537,27 @@ button {
     display: grid;
     flex: 0 0 auto;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
-    gap: 0.15rem;
-    padding: 0.4rem;
+    gap: 0.25rem;
+    padding: 0.2rem 0.4rem;
     border-bottom: 1px solid var(--vscode-panel-border);
+    background: var(
+        --vscode-sideBarSectionHeader-background,
+        var(--vscode-sideBar-background, var(--vscode-editor-background))
+    );
 
     [role="tab"] {
         display: inline-flex;
         min-width: 0;
+        min-height: 1.5rem;
         align-items: center;
         justify-content: center;
-        padding: 0.3rem 0;
+        padding: 0.1rem 0;
         border-color: transparent;
+        border-radius: 5px;
         color: var(--vscode-descriptionForeground);
         background: transparent;
+        transition: color 120ms ease, background-color 120ms ease,
+            border-color 120ms ease, box-shadow 120ms ease;
 
         svg {
             display: block;
@@ -563,8 +571,12 @@ button {
 
     [role="tab"][aria-selected="true"] {
         color: var(--vscode-editor-foreground);
-        background: var(--vscode-list-activeSelectionBackground);
-        box-shadow: inset 0 -2px 0 var(--vscode-focusBorder);
+        border-color: var(--vscode-panel-border);
+        background: var(
+            --vscode-editorWidget-background,
+            var(--vscode-editor-background)
+        );
+        box-shadow: 0 1px 3px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.16));
     }
 }
 
@@ -578,9 +590,9 @@ button {
 .conversation-outline {
     display: flex;
     flex-direction: column;
-    gap: 0.45rem;
+    gap: 0.5rem;
     overflow: hidden;
-    padding: 0.5rem 0.3rem;
+    padding: 0.6rem 0.5rem 0.35rem;
 }
 
 .conversation-outline[hidden],
@@ -589,32 +601,54 @@ button {
 }
 
 .conversation-outline-toolbar {
-    display: flex;
+    display: grid;
     min-width: 0;
-    gap: 0.35rem;
+    grid-template-columns: minmax(0, 1fr) max-content;
+    gap: 0.35rem 0.4rem;
     align-items: center;
 }
 
 .conversation-outline-summary {
+    grid-column: 1 / -1;
     flex: 0 0 auto;
     overflow: hidden;
-    max-width: 40%;
+    padding: 0 0.15rem;
     color: var(--vscode-descriptionForeground);
-    font-size: 0.72rem;
+    font-size: 0.66rem;
+    font-weight: 600;
+    letter-spacing: 0.055em;
+    line-height: 1.2;
     text-overflow: ellipsis;
+    text-transform: uppercase;
     white-space: nowrap;
 }
 
-.conversation-outline [type="search"] {
-    flex: 1 1 auto;
+.conversation-outline-search-field {
+    position: relative;
+    display: flex;
     min-width: 0;
-    min-height: 1.6rem;
-    padding: 0.25rem 0.45rem;
+    align-items: center;
+    color: var(--vscode-descriptionForeground);
+
+    svg {
+        position: absolute;
+        z-index: 1;
+        left: 0.6rem;
+        pointer-events: none;
+    }
+}
+
+.conversation-outline [type="search"] {
+    width: 100%;
+    min-width: 0;
+    min-height: 2rem;
+    padding: 0.35rem 0.55rem 0.35rem 1.85rem;
     border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
-    border-radius: 4px;
+    border-radius: 6px;
     color: var(--vscode-input-foreground);
     background: var(--vscode-input-background);
     font: inherit;
+    font-size: 0.82rem;
 
     &:focus-visible {
         outline: 1px solid var(--vscode-focusBorder);
@@ -623,14 +657,24 @@ button {
 }
 
 .conversation-outline-bookmarks-only {
-    flex: 0 0 auto;
-    min-height: 1.6rem;
-    padding: 0.15rem 0.45rem;
+    display: inline-flex;
+    min-width: 2rem;
+    min-height: 2rem;
+    gap: 0.25rem;
+    align-items: center;
+    justify-content: center;
+    padding: 0.2rem 0.45rem;
     border-color: var(--vscode-panel-border);
-    border-radius: 999px;
+    border-radius: 6px;
     color: var(--vscode-descriptionForeground);
-    background: transparent;
-    font-size: 0.75rem;
+    background: var(--vscode-editorWidget-background, transparent);
+    font-size: 0.7rem;
+    font-variant-numeric: tabular-nums;
+
+    svg {
+        display: block;
+        flex: 0 0 auto;
+    }
 
     &[aria-pressed="true"] {
         color: var(
@@ -639,6 +683,10 @@ button {
         );
         border-color: currentColor;
         background: var(--vscode-list-hoverBackground);
+
+        svg {
+            fill: currentColor;
+        }
     }
 }
 
@@ -654,15 +702,40 @@ button {
     min-height: 0;
     margin: 0;
     overflow-y: auto;
-    padding: 0;
+    padding: 0 0.15rem 0 0;
     list-style: none;
+    scrollbar-color: var(--vscode-scrollbarSlider-background) transparent;
+    scrollbar-width: thin;
 }
 
 .conversation-outline-item {
     display: grid;
-    grid-template-columns: 1rem minmax(0, 1fr);
+    position: relative;
+    grid-template-columns: minmax(0, 1fr) 1.75rem;
+    gap: 0.1rem;
     align-items: stretch;
-    margin: 0.1rem 0;
+    margin: 0.08rem 0;
+    border-radius: 6px;
+    transition: background-color 100ms ease, box-shadow 100ms ease;
+
+    &:hover {
+        background: var(
+            --vscode-list-hoverBackground,
+            rgba(127, 127, 127, 0.1)
+        );
+    }
+
+    &.is-selected {
+        color: var(
+            --vscode-list-activeSelectionForeground,
+            var(--vscode-editor-foreground)
+        );
+        background: var(
+            --vscode-list-activeSelectionBackground,
+            rgba(127, 127, 127, 0.18)
+        );
+        box-shadow: inset 2px 0 0 var(--vscode-focusBorder);
+    }
 
     &[hidden] {
         display: none;
@@ -672,46 +745,43 @@ button {
         display: grid;
         width: 100%;
         min-width: 0;
-        grid-template-columns: max-content minmax(0, 1fr) max-content;
+        grid-template-columns: minmax(0, 1fr) max-content max-content;
         gap: 0.25rem;
         align-items: start;
-        padding: 0.42rem 0.2rem;
+        padding: 0.5rem 0.15rem 0.5rem 0.2rem;
         border-color: transparent;
-        border-radius: 4px;
-        color: var(--vscode-editor-foreground);
+        border-radius: 6px 0 0 6px;
+        color: inherit;
         background: transparent;
-        line-height: 1.3;
+        line-height: 1.38;
         text-align: left;
 
         &:hover {
-            background: var(--vscode-list-hoverBackground);
+            background: transparent;
         }
 
         &.is-selected {
-            color: var(
-                --vscode-list-activeSelectionForeground,
-                var(--vscode-editor-foreground)
-            );
-            background: var(--vscode-list-activeSelectionBackground);
-            box-shadow: inset 2px 0 0 var(--vscode-focusBorder);
+            background: transparent;
         }
     }
 }
 
 .conversation-outline-bookmark {
-    align-self: stretch;
-    justify-self: center;
-    width: 1.5rem;
-    min-width: 1.5rem;
-    margin: 0 -0.25rem;
-    padding: 0.35rem 0.1rem;
+    display: inline-flex;
+    width: 1.75rem;
+    min-width: 1.75rem;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 0.58rem 0.15rem;
     border-color: transparent;
-    border-radius: 4px;
+    border-radius: 0 6px 6px 0;
     color: var(--vscode-descriptionForeground);
     background: transparent;
-    font-size: 1rem;
-    line-height: 1;
-    text-align: center;
+    transition: color 100ms ease;
+
+    svg {
+        display: block;
+    }
 
     &:hover,
     &:focus-visible,
@@ -720,19 +790,29 @@ button {
             --vscode-charts-yellow,
             var(--vscode-editorWarning-foreground)
         );
-        background: var(--vscode-list-hoverBackground);
+        background: transparent;
+    }
+
+    &.is-bookmarked svg {
+        fill: currentColor;
     }
 }
 
 .conversation-outline-number {
+    grid-column: 2;
+    grid-row: 1;
+    padding-top: 0.08rem;
     color: var(--vscode-descriptionForeground);
-    font-size: 0.7rem;
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-size: 0.6rem;
     font-variant-numeric: tabular-nums;
     text-align: right;
 }
 
 .conversation-outline-preview {
     display: -webkit-box;
+    grid-column: 1;
+    grid-row: 1;
     overflow: hidden;
     overflow-wrap: anywhere;
     -webkit-box-orient: vertical;
@@ -740,9 +820,11 @@ button {
 }
 
 .conversation-outline-state {
-    width: 0.45rem;
-    height: 0.45rem;
-    margin-top: 0.3rem;
+    grid-column: 3;
+    grid-row: 1;
+    width: 0.4rem;
+    height: 0.4rem;
+    margin-top: 0.36rem;
     border: 1px solid var(--vscode-descriptionForeground);
     border-radius: 50%;
 }
@@ -1372,6 +1454,19 @@ button {
     .conversation-comment-composer,
     .conversation-comment {
         border-color: CanvasText;
+    }
+
+    .conversation-outline-bookmarks-only,
+    .conversation-outline-bookmark {
+        color: ButtonText;
+    }
+
+    .conversation-outline-bookmarks-only {
+        border-color: ButtonText;
+    }
+
+    .conversation-outline-item.is-selected {
+        box-shadow: inset 2px 0 0 Highlight;
     }
 }
 

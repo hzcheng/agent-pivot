@@ -6,11 +6,27 @@ import { AGENT_PIVOT_DASHBOARD_VIEW_ID } from '../constants';
 const VISIBLE_VIEW_FAILURE_MESSAGE = 'Unexpected Agent Pivot view failure.';
 const RETRY_BOOTSTRAP_MESSAGE_TYPE = 'retry-agent-pivot-bootstrap';
 const FIRST_PAINT_MESSAGE_TYPE = 'agent-pivot-browser-first-paint';
+const READY_DOCUMENT_MESSAGE_TYPE = 'open-workspaces-renderer-ready';
 const BOOT_MESSAGE_VERSION = 1;
+const READY_DOCUMENT_RECOVERY_MS = 30_000;
+
+interface ReadyDocumentScheduler {
+    setTimeout(callback: () => void, delayMs: number): unknown;
+    clearTimeout(handle: unknown): void;
+}
+
+const DEFAULT_READY_DOCUMENT_SCHEDULER: ReadyDocumentScheduler = {
+    setTimeout: (callback, delayMs) => {
+        const handle = setTimeout(callback, delayMs);
+        handle.unref();
+        return handle;
+    },
+    clearTimeout: handle => clearTimeout(handle as NodeJS.Timeout),
+};
 
 export interface AgentPivotViewProviderOptions {
     getWebviewOptions: () => vscode.WebviewOptions;
-    renderContent: (webview: vscode.Webview) => string;
+    renderContent: (webview: vscode.Webview, documentGeneration: number) => string;
     renderError: (error: unknown) => string;
     onMessage: (message: unknown) => Promise<void>;
     onVisibleChanged: (visible: boolean) => void | Thenable<void> | Promise<void>;
@@ -55,8 +71,17 @@ export class AgentPivotViewProvider implements vscode.WebviewViewProvider {
     private lifecycle: ProviderLifecycle;
     private bootShellAssignedGeneration?: number;
     private completingBootstrapGeneration?: number;
+    private readyDocumentGeneration = 0;
+    private readyDocumentHandshakePending?: number;
+    private readyDocumentRefreshQueued = false;
+    private readyDocumentRecoveryAttempted = false;
+    private readyDocumentRecoveryTimer?: unknown;
 
-    constructor(private readonly configuration: AgentPivotViewProviderConfiguration) {
+    constructor(
+        private readonly configuration: AgentPivotViewProviderConfiguration,
+        private readonly readyDocumentScheduler: ReadyDocumentScheduler =
+            DEFAULT_READY_DOCUMENT_SCHEDULER,
+    ) {
         this.lifecycle = configuration.mode === 'ready'
             ? { kind: 'ready', options: configuration.options }
             : { kind: 'idle' };
@@ -143,6 +168,7 @@ export class AgentPivotViewProvider implements vscode.WebviewViewProvider {
 
     async resolveWebviewView(webviewView: vscode.WebviewView, webviewContext: vscode.WebviewViewResolveContext<unknown>, token: vscode.CancellationToken): Promise<void> {
         const viewGeneration = ++this.viewGeneration;
+        this.resetReadyDocumentDelivery();
         const previousRelease = this.releaseCurrent;
         this.releaseCurrent = undefined;
         this._view = undefined;
@@ -164,6 +190,7 @@ export class AgentPivotViewProvider implements vscode.WebviewViewProvider {
             disposed = true;
             if (this._view === webviewView) {
                 this._view = undefined;
+                this.resetReadyDocumentDelivery();
             }
             if (this.releaseCurrent === release) {
                 this.releaseCurrent = undefined;
@@ -217,6 +244,13 @@ export class AgentPivotViewProvider implements vscode.WebviewViewProvider {
             return;
         }
         if (this.lifecycle.kind === 'ready') {
+            if (this.readyDocumentHandshakePending !== undefined) {
+                this.readyDocumentRefreshQueued = true;
+                // Repeated short retries can keep destroying a slow remote
+                // document, so recovery is delayed and limited to one attempt.
+                this.scheduleReadyDocumentRecovery();
+                return;
+            }
             this.renderReadyContent(this._view, this.lifecycle.options);
             return;
         }
@@ -256,8 +290,29 @@ export class AgentPivotViewProvider implements vscode.WebviewViewProvider {
 
     private async handleMessage(message: unknown, isCurrent: () => boolean): Promise<void> {
         if (this.lifecycle.kind === 'ready') {
+            const readyDocumentMessage = parseReadyDocumentMessage(message);
+            if (isReadyDocumentMessageCandidate(message)
+                && (!readyDocumentMessage
+                    || readyDocumentMessage.documentGeneration
+                        !== this.readyDocumentHandshakePending)) {
+                return;
+            }
+            const readyDocumentHandshake = readyDocumentMessage !== undefined;
+            const refreshQueuedBeforeHandshake = readyDocumentHandshake
+                && this.readyDocumentRefreshQueued;
+            if (readyDocumentHandshake) {
+                this.readyDocumentHandshakePending = undefined;
+                this.readyDocumentRefreshQueued = false;
+                this.readyDocumentRecoveryAttempted = false;
+                this.clearReadyDocumentRecovery();
+            }
             try {
-                await this.lifecycle.options.onMessage(message);
+                await this.lifecycle.options.onMessage(readyDocumentHandshake
+                    ? {
+                        type: READY_DOCUMENT_MESSAGE_TYPE,
+                        version: BOOT_MESSAGE_VERSION,
+                    }
+                    : message);
             } catch (_error) {
                 if (!isCurrent()) {
                     return;
@@ -265,6 +320,13 @@ export class AgentPivotViewProvider implements vscode.WebviewViewProvider {
                 this.lifecycle.options.logError(
                     'Failed to handle an Agent Pivot message.', sanitizedViewFailure()
                 );
+            }
+            if (readyDocumentHandshake
+                && refreshQueuedBeforeHandshake
+                && isCurrent()
+                && this.lifecycle.kind === 'ready'
+                && this.readyDocumentHandshakePending === undefined) {
+                this.refresh();
             }
             return;
         }
@@ -296,13 +358,60 @@ export class AgentPivotViewProvider implements vscode.WebviewViewProvider {
         webviewView: vscode.WebviewView,
         options: AgentPivotViewProviderOptions,
     ): void {
+        this.clearReadyDocumentRecovery();
+        const documentGeneration = ++this.readyDocumentGeneration;
+        this.readyDocumentHandshakePending = documentGeneration;
         try {
-            webviewView.webview.html = options.renderContent(webviewView.webview);
+            webviewView.webview.html = options.renderContent(
+                webviewView.webview,
+                documentGeneration,
+            );
         } catch (_error) {
+            this.readyDocumentHandshakePending = undefined;
             const failure = sanitizedViewFailure();
             options.logError('Failed to render Agent Pivot view.', failure);
             webviewView.webview.html = options.renderError(failure);
         }
+    }
+
+    private scheduleReadyDocumentRecovery(): void {
+        if (this.readyDocumentRecoveryAttempted
+            || this.readyDocumentRecoveryTimer !== undefined
+            || this.readyDocumentHandshakePending === undefined) {
+            return;
+        }
+        const viewGeneration = this.viewGeneration;
+        const documentGeneration = this.readyDocumentHandshakePending;
+        this.readyDocumentRecoveryTimer = this.readyDocumentScheduler.setTimeout(() => {
+            this.readyDocumentRecoveryTimer = undefined;
+            if (viewGeneration !== this.viewGeneration
+                || !this._view
+                || this.lifecycle.kind !== 'ready'
+                || this.readyDocumentHandshakePending !== documentGeneration
+                || !this.readyDocumentRefreshQueued
+                || this.readyDocumentRecoveryAttempted) {
+                return;
+            }
+            this.readyDocumentRecoveryAttempted = true;
+            this.readyDocumentHandshakePending = undefined;
+            this.readyDocumentRefreshQueued = false;
+            this.refresh();
+        }, READY_DOCUMENT_RECOVERY_MS);
+    }
+
+    private clearReadyDocumentRecovery(): void {
+        if (this.readyDocumentRecoveryTimer === undefined) {
+            return;
+        }
+        this.readyDocumentScheduler.clearTimeout(this.readyDocumentRecoveryTimer);
+        this.readyDocumentRecoveryTimer = undefined;
+    }
+
+    private resetReadyDocumentDelivery(): void {
+        this.clearReadyDocumentRecovery();
+        this.readyDocumentHandshakePending = undefined;
+        this.readyDocumentRefreshQueued = false;
+        this.readyDocumentRecoveryAttempted = false;
     }
 
     private renderBootContent(webviewView: vscode.WebviewView, generation: number): void {
@@ -405,6 +514,25 @@ function isFirstPaintMessage(message: unknown, generation: number): boolean {
         && message.type === FIRST_PAINT_MESSAGE_TYPE
         && message.version === BOOT_MESSAGE_VERSION
         && message.generation === generation;
+}
+
+function isReadyDocumentMessageCandidate(message: unknown): boolean {
+    return Boolean(message)
+        && typeof message === 'object'
+        && !Array.isArray(message)
+        && (message as Record<string, unknown>).type === READY_DOCUMENT_MESSAGE_TYPE;
+}
+
+function parseReadyDocumentMessage(message: unknown): {
+    documentGeneration: number;
+} | undefined {
+    if (!isExactMessage(message, ['type', 'version', 'documentGeneration'])
+        || message.type !== READY_DOCUMENT_MESSAGE_TYPE
+        || message.version !== BOOT_MESSAGE_VERSION
+        || !isPositiveSafeInteger(message.documentGeneration)) {
+        return undefined;
+    }
+    return { documentGeneration: message.documentGeneration };
 }
 
 function sanitizedViewFailure(): Error {

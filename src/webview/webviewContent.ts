@@ -62,7 +62,12 @@ export function getStewardContent(
     isSidebar: boolean = false,
     workspaceCards: WorkspaceCardViewModel[] = [],
     otherWindowsStatus: OpenWorkspaceBridgeStatus = 'ready',
+    readyDocumentGeneration: number = 1,
 ): string {
+    var safeReadyDocumentGeneration = Number.isSafeInteger(readyDocumentGeneration)
+        && readyDocumentGeneration > 0
+        ? readyDocumentGeneration
+        : 1;
     var assetRevision = `${WEBVIEW_ASSET_ACTIVATION}-${++webviewAssetRevision}`;
     var stylesPath = getMediaResource(context, webview, 'styles.css', assetRevision);
     var dashboardBundlePath = getMediaResource(
@@ -181,6 +186,9 @@ export function getStewardContent(
         </div>
     </body>
 
+    <script>
+        window.__agentPivotReadyDocumentGeneration = ${safeReadyDocumentGeneration};
+    </script>
     <script src="${dashboardBundlePath}"></script>
 
     <script>

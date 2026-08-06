@@ -1830,6 +1830,7 @@ function createProjectVm({
         window: {
             innerWidth: 1024,
             innerHeight: 768,
+            __agentPivotReadyDocumentGeneration: 7,
             addEventListener: (type, listener) => {
                 windowListeners[type] = listener;
                 initializationEvents.push(`listener:${type}`);
@@ -2275,6 +2276,7 @@ test('OPEN-OPEN-PROJECT-INCREMENTAL-RENDERING-001 announces renderer readiness a
     assert.deepEqual(toPlain(harness.initialMessages[0]), {
         type: 'open-workspaces-renderer-ready',
         version: 1,
+        documentGeneration: 7,
     });
     assert.ok(
         harness.initializationEvents.indexOf('listener:message')

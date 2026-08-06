@@ -1526,7 +1526,7 @@ async function initializeDashboard(
     });
     const providerOptions: AgentPivotViewProviderOptions = {
         getWebviewOptions: () => getDashboardWebviewOptions(context.extensionPath, vscode.Uri.file),
-        renderContent: webview => getStewardContent(
+        renderContent: (webview, documentGeneration) => getStewardContent(
             context,
             webview,
             projectService.getGroups(),
@@ -1534,6 +1534,7 @@ async function initializeDashboard(
             true,
             getOpenWorkspaceCards(),
             openWorkspaceDashboardController.getState().otherWindows.status,
+            documentGeneration,
         ),
         renderError: getErrorContent,
         onMessage: message => messageRequiresStorageMigration(message)

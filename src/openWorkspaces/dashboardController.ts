@@ -53,7 +53,7 @@ export interface OpenWorkspaceDashboardControllerOptions {
 export class OpenWorkspaceDashboardController {
     private aggregate: OpenWorkspaceAggregate | null = null;
     private pinSnapshot: OpenWorkspacePinSnapshot = createOpenWorkspacePinSnapshot([]);
-    private bridgeStatus: OpenWorkspaceBridgeStatus = 'ready';
+    private bridgeStatus: OpenWorkspaceBridgeStatus = 'connecting';
     private navigationWorkspacesById = new Map<string, OpenWorkspaceRecord>();
     private pinNavigationIdentityById = new Map<string, string>();
     private lastPostedSemanticRevision: string | null = null;

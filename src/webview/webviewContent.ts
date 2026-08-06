@@ -302,8 +302,16 @@ export function getOpenWorkspacesGroupContent(
             ? `<div class="open-other-windows-state" role="status">
                 <p>Open-window discovery is temporarily unavailable. Agent Pivot will retry automatically.</p>
             </div>`
-            : '';
-    const otherWindowsCollapsed = otherWindowsStatus === 'ready' && collapsed;
+            : otherWindowsStatus === 'connecting'
+                ? `<div class="open-other-windows-state" role="status" data-other-windows-connecting>
+                    <p>Looking for your other open windows…</p>
+                </div>`
+                : '';
+    // A bridge that never connected must stay visible so its state can be read,
+    // but connecting is a normal startup step and must not fight the user's
+    // collapse preference only to snap shut a few seconds later.
+    const otherWindowsCollapsed = (otherWindowsStatus === 'ready'
+        || otherWindowsStatus === 'connecting') && collapsed;
     return `${currentSection}
 <div class="group steward-section open-other-windows-group ${otherWindowsCollapsed ? 'collapsed' : ''}" data-group-id="${OPEN_WORKSPACES_GROUP_ID}" data-virtual-group data-system-group="${OPEN_WORKSPACES_GROUP_ID}" data-other-windows-status="${otherWindowsStatus}">
     <div class="group-title steward-section-header steward-group-header">
@@ -311,7 +319,7 @@ export function getOpenWorkspacesGroupContent(
             <span class="collapse-icon" title="Open/Collapse Group">${Icons.collapse}</span>
             ${OPEN_WINDOWS_GROUP_NAME}
         </span>
-        <span class="group-title-badge">${otherWindowsStatus === 'update-required' ? 'Update required' : otherWindowsStatus === 'unavailable' ? 'Unavailable' : 'Live'}</span>
+        <span class="group-title-badge">${otherWindowsStatus === 'update-required' ? 'Update required' : otherWindowsStatus === 'unavailable' ? 'Unavailable' : otherWindowsStatus === 'connecting' ? 'Connecting…' : 'Live'}</span>
     </div>
     <div class="group-list">
         <div class="open-workspace-pin-live-region" data-open-workspace-pin-live-region role="status" aria-live="polite" aria-atomic="true"></div>

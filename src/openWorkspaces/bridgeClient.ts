@@ -29,7 +29,17 @@ export const OPEN_WORKSPACE_HANDSHAKE_COMMAND = '_agentPivotOpenWorkspaces.bridg
 export const OPEN_WORKSPACE_AGGREGATE_COMMAND = '_agentPivotOpenWorkspaces.workspace.aggregate';
 export const OPEN_WORKSPACE_DIAGNOSTIC_COMMAND = '_agentPivotOpenWorkspaces.workspace.diagnostic';
 
-export type OpenWorkspaceBridgeStatus = 'ready' | 'unavailable' | 'update-required';
+/**
+ * `connecting` is the pre-handshake state. It exists so the Open Windows
+ * section can say it is still looking instead of rendering an empty list that
+ * looks settled: the handshake alone takes 0.36-3.2s on a remote host, and the
+ * first aggregate another 0.3-2.6s after that.
+ */
+export type OpenWorkspaceBridgeStatus =
+    | 'connecting'
+    | 'ready'
+    | 'unavailable'
+    | 'update-required';
 
 const RETRY_DELAYS_MS = [100, 500, 2_000, 10_000, 30_000];
 const MAX_FORWARDED_DIAGNOSTIC_BYTES = 64 * 1024;

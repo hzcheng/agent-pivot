@@ -1412,7 +1412,7 @@ test('CONVERSATION-COMMENTS-001 accepts and stages a Host-authoritative session-
     await harness.dispose();
 });
 
-test('CONVERSATION-COMMENTS-PERSISTENCE-001 restores Host-owned comments after the Conversation panel is closed and reopened', async () => {
+test('CONVERSATION-COMMENTS-PERSISTENCE-001 CONVERSATION-COMMENTS-ORDERING-001 restores Host-owned comment order after the Conversation panel is closed and reopened', async () => {
     const snapshots = new Map();
     const commentStore = {
         async load(target) {
@@ -1465,6 +1465,60 @@ test('CONVERSATION-COMMENTS-PERSISTENCE-001 restores Host-owned comments after t
         },
     });
     assert.equal(firstPanel.postedMessages.at(-1).success, true);
+    const firstCommentId = firstPanel.postedMessages.at(-1).comments[0].id;
+    await firstPanel.receiveMessage({
+        type: 'conversation-viewer-comment-mutation',
+        version: 1,
+        requestId: 'persist:add:2',
+        subscriptionGeneration: 1,
+        ...target,
+        operation: 'add',
+        expectedRevision: 1,
+        payload: {
+            scope: 'session',
+            comment: 'Keep this Session note second.',
+        },
+    });
+    const addedSecond = firstPanel.postedMessages.at(-1);
+    assert.equal(addedSecond.success, true);
+    const secondCommentId = addedSecond.comments[1].id;
+    await firstPanel.receiveMessage({
+        type: 'conversation-viewer-comment-mutation',
+        version: 1,
+        requestId: 'persist:reorder:3',
+        subscriptionGeneration: 1,
+        ...target,
+        operation: 'reorder',
+        expectedRevision: 2,
+        payload: {
+            orderedCommentIds: [secondCommentId, firstCommentId],
+        },
+    });
+    const reordered = firstPanel.postedMessages.at(-1);
+    assert.equal(reordered.success, true);
+    assert.equal(reordered.revision, 3);
+    assert.deepEqual(
+        reordered.comments.map(comment => comment.id),
+        [secondCommentId, firstCommentId]
+    );
+    await firstPanel.receiveMessage({
+        type: 'conversation-viewer-comment-mutation',
+        version: 1,
+        requestId: 'persist:reorder-invalid:4',
+        subscriptionGeneration: 1,
+        ...target,
+        operation: 'reorder',
+        expectedRevision: 3,
+        payload: { orderedCommentIds: [firstCommentId] },
+    });
+    const rejected = firstPanel.postedMessages.at(-1);
+    assert.equal(rejected.success, false);
+    assert.equal(rejected.error, 'invalid');
+    assert.equal(rejected.revision, 3);
+    assert.deepEqual(
+        rejected.comments.map(comment => comment.id),
+        [secondCommentId, firstCommentId]
+    );
     firstPanel.dispose();
 
     assert.equal(await harness.openActiveConversation(), 'opened');
@@ -1472,22 +1526,26 @@ test('CONVERSATION-COMMENTS-PERSISTENCE-001 restores Host-owned comments after t
     await reopenedPanel.receiveMessage({
         type: 'conversation-viewer-comment-mutation',
         version: 1,
-        requestId: 'persist:update:2',
+        requestId: 'persist:update:5',
         subscriptionGeneration: 3,
         ...target,
         operation: 'update',
-        expectedRevision: 1,
+        expectedRevision: 3,
         payload: {
-            commentId: firstPanel.postedMessages.at(-1).comments[0].id,
+            commentId: firstCommentId,
             comment: 'The restored draft remains editable.',
         },
     });
 
     const restored = reopenedPanel.postedMessages.at(-1);
     assert.equal(restored.success, true);
-    assert.equal(restored.revision, 2);
+    assert.equal(restored.revision, 4);
+    assert.deepEqual(
+        restored.comments.map(comment => comment.id),
+        [secondCommentId, firstCommentId]
+    );
     assert.equal(
-        restored.comments[0].comment,
+        restored.comments[1].comment,
         'The restored draft remains editable.'
     );
     await harness.dispose();

@@ -911,6 +911,7 @@ button {
     margin-left: auto;
 }
 
+.conversation-comment-drag-handle,
 .conversation-comment-icon-button,
 .conversation-icon-button {
     display: inline-grid;
@@ -960,6 +961,15 @@ button {
             color: var(--vscode-button-foreground);
             background: var(--vscode-button-hoverBackground);
         }
+    }
+}
+
+.conversation-comment-drag-handle {
+    flex: 0 0 auto;
+    cursor: grab;
+
+    &:active:not(:disabled) {
+        cursor: grabbing;
     }
 }
 
@@ -1055,7 +1065,31 @@ button {
 }
 
 .conversation-comment {
+    position: relative;
     border-top-width: 2px;
+
+    &.conversation-comment-dragging {
+        opacity: 0.45;
+    }
+
+    &[data-comment-drop-position]::after {
+        position: absolute;
+        right: 0.25rem;
+        left: 0.25rem;
+        height: 2px;
+        border-radius: 999px;
+        background: var(--vscode-focusBorder);
+        content: "";
+        pointer-events: none;
+    }
+
+    &[data-comment-drop-position="before"]::after {
+        top: 1px;
+    }
+
+    &[data-comment-drop-position="after"]::after {
+        bottom: 1px;
+    }
 }
 
 .conversation-comment-composer label {

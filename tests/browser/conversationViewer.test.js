@@ -607,6 +607,7 @@ async function renderHostViewerDocument(options = {}) {
         showThinking: options.showThinking,
         submitPrompt: options.submitPrompt || (async () => {}),
         bookmarkStore: options.bookmarkStore,
+        commentStore: options.commentStore,
     });
     await viewer.open({
         projectId: 'project-a',
@@ -1900,6 +1901,229 @@ test('CONVERSATION-COMMENTS-UI-001 adds a session-wide note without selecting co
     assert.equal(await card.locator('blockquote').count(), 0);
 });
 
+test('CONVERSATION-COMMENTS-ORDERING-001 drags cards into a Host-authoritative order and preserves keyboard focus', async t => {
+    const comments = [{
+        id: 'comment-first',
+        messageId: 'input-comment-order:user',
+        interactionId: 'input-comment-order',
+        role: 'user',
+        quote: 'Alpha',
+        prefix: '',
+        suffix: ' beta gamma.',
+        comment: 'First comment.',
+        status: 'open',
+    }, {
+        id: 'comment-second',
+        scope: 'session',
+        messageId: '',
+        interactionId: '',
+        role: 'user',
+        quote: '',
+        prefix: '',
+        suffix: '',
+        comment: 'Second comment.',
+        status: 'done',
+    }, {
+        id: 'comment-third',
+        scope: 'session',
+        messageId: '',
+        interactionId: '',
+        role: 'user',
+        quote: '',
+        prefix: '',
+        suffix: '',
+        comment: 'Third comment.',
+        status: 'open',
+    }];
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+        viewport: { width: 850, height: 600 },
+        initialWebviewState: {
+            conversationCommentsPanel: {
+                open: true,
+                width: 192,
+                view: 'comments',
+            },
+        },
+        interactionIds: ['input-comment-order'],
+        interactionId: 'input-comment-order',
+        markdown: 'Alpha beta gamma.',
+        pageOverrides: {
+            previousCursor: undefined,
+            nextCursor: undefined,
+            isStart: true,
+            isEnd: true,
+        },
+        commentStore: {
+            async load() {
+                return { revision: 7, comments };
+            },
+            async save() {},
+        },
+    });
+
+    async function settle(request, success, revision, authoritativeComments) {
+        await page.evaluate(({
+            request, success, revision, authoritativeComments,
+        }) => {
+            window.dispatchEvent(new MessageEvent('message', {
+                data: {
+                    type: 'conversation-viewer-comments-result',
+                    version: 1,
+                    requestId: request.requestId,
+                    subscriptionGeneration: request.subscriptionGeneration,
+                    projectId: request.projectId,
+                    provider: request.provider,
+                    sessionId: request.sessionId,
+                    operation: request.operation,
+                    success,
+                    revision,
+                    comments: authoritativeComments,
+                    ...(success ? {} : { error: 'failed' }),
+                },
+            }));
+        }, { request, success, revision, authoritativeComments });
+    }
+
+    const cardIds = () => page.locator('[data-comment-list] [data-comment-id]')
+        .evaluateAll(cards => cards.map(card =>
+            card.getAttribute('data-comment-id')
+        ));
+    assert.deepEqual(await cardIds(), [
+        'comment-first', 'comment-second', 'comment-third',
+    ]);
+    const handles = page.locator('[data-comment-drag-handle]');
+    assert.equal(await handles.count(), 3);
+    assert.deepEqual(
+        await handles.evaluateAll(elements => elements.map(element => ({
+            draggable: element.draggable,
+            label: element.getAttribute('aria-label'),
+            shortcuts: element.getAttribute('aria-keyshortcuts'),
+            size: Math.round(element.getBoundingClientRect().width),
+        }))),
+        [
+            {
+                draggable: true,
+                label: 'Move comment 1',
+                shortcuts: 'Alt+ArrowUp Alt+ArrowDown',
+                size: 22,
+            },
+            {
+                draggable: true,
+                label: 'Move comment 2',
+                shortcuts: 'Alt+ArrowUp Alt+ArrowDown',
+                size: 22,
+            },
+            {
+                draggable: true,
+                label: 'Move comment 3',
+                shortcuts: 'Alt+ArrowUp Alt+ArrowDown',
+                size: 22,
+            },
+        ]
+    );
+    assert.equal(
+        await page.locator('[data-comment-list]').evaluate(element =>
+            element.scrollWidth <= element.clientWidth
+        ),
+        true,
+        'the minimum-width comments panel must not overflow horizontally'
+    );
+
+    await page.locator('[data-comment-id="comment-first"]')
+        .locator('[data-comment-drag-handle]')
+        .dragTo(
+            page.locator('[data-comment-id="comment-third"]')
+                .locator('.conversation-comment-body')
+        );
+    const dragRequest = (await postedMessages(page)).at(-1);
+    assert.equal(dragRequest.type, 'conversation-viewer-comment-mutation');
+    assert.equal(dragRequest.operation, 'reorder');
+    assert.equal(dragRequest.expectedRevision, 7);
+    assert.deepEqual(dragRequest.payload, {
+        orderedCommentIds: [
+            'comment-second', 'comment-third', 'comment-first',
+        ],
+    });
+    assert.deepEqual(
+        await cardIds(),
+        ['comment-first', 'comment-second', 'comment-third'],
+        'dragging must not optimistically commit the visible order'
+    );
+    assert.equal(
+        await page.locator('[data-conversation-comments]')
+            .getAttribute('aria-busy'),
+        'true'
+    );
+
+    const reordered = [comments[1], comments[2], comments[0]];
+    await settle(dragRequest, true, 8, reordered);
+    assert.deepEqual(await cardIds(), [
+        'comment-second', 'comment-third', 'comment-first',
+    ]);
+    assert.equal(
+        await page.locator('[data-conversation-status]').textContent(),
+        'Comment order saved.'
+    );
+    assert.equal(
+        await page.evaluate(() => document.activeElement
+            ?.closest('[data-comment-id]')
+            ?.getAttribute('data-comment-id')),
+        'comment-first',
+        'focus must follow the moved card after authoritative replacement'
+    );
+
+    const movedHandle = page.locator('[data-comment-id="comment-first"]')
+        .locator('[data-comment-drag-handle]');
+    await movedHandle.press('Alt+ArrowUp');
+    const keyboardRequest = (await postedMessages(page)).at(-1);
+    assert.equal(keyboardRequest.operation, 'reorder');
+    assert.deepEqual(keyboardRequest.payload, {
+        orderedCommentIds: [
+            'comment-second', 'comment-first', 'comment-third',
+        ],
+    });
+    await settle(keyboardRequest, false, 8, reordered);
+    assert.deepEqual(await cardIds(), [
+        'comment-second', 'comment-third', 'comment-first',
+    ]);
+    assert.equal(
+        await page.locator('[data-conversation-status]').textContent(),
+        'The comment action failed. Your comments were kept.'
+    );
+    assert.equal(
+        await page.evaluate(() => document.activeElement
+            ?.closest('[data-comment-id]')
+            ?.getAttribute('data-comment-id')),
+        'comment-first'
+    );
+
+    await page.locator('[data-comment-filter="open"]').click();
+    assert.deepEqual(await cardIds(), ['comment-third', 'comment-first']);
+    await page.locator('[data-comment-id="comment-first"]')
+        .locator('[data-comment-drag-handle]')
+        .press('Alt+ArrowUp');
+    const filteredRequest = (await postedMessages(page)).at(-1);
+    assert.equal(filteredRequest.operation, 'reorder');
+    assert.deepEqual(
+        filteredRequest.payload,
+        {
+            orderedCommentIds: [
+                'comment-second', 'comment-first', 'comment-third',
+            ],
+        },
+        'filtered sorting must preserve the hidden done-card slot'
+    );
+    const filteredOrder = [comments[1], comments[0], comments[2]];
+    await settle(filteredRequest, true, 9, filteredOrder);
+    assert.deepEqual(await cardIds(), ['comment-first', 'comment-third']);
+    await page.locator('[data-comment-filter="all"]').click();
+    assert.deepEqual(await cardIds(), [
+        'comment-second', 'comment-first', 'comment-third',
+    ]);
+});
+
 test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 renders ghost session-switch rails that post exact switch intents', async t => {
     const { page } = await openHostViewerDocument(t, {
         includeStyles: true,
@@ -2338,6 +2562,17 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-SUBMIT-002 renders read
         await card.locator('[data-comment-edit]').inputValue(),
         'Add verification steps.',
         'a failed save must preserve the edited draft'
+    );
+    assert.equal(
+        await card.locator('[data-comment-drag-handle]').isDisabled(),
+        true,
+        'a failed edit must keep its drag handle disabled'
+    );
+    assert.equal(
+        await card.locator('[data-comment-drag-handle]').getAttribute(
+            'draggable'
+        ),
+        'false'
     );
     await card.locator('[data-comment-action="cancel-edit"]').click();
     assert.equal(

@@ -41,6 +41,7 @@
             editingComment: null,
             filter: 'all',
             expandedDoneComments: new Set(),
+            draggedCommentId: null,
         };
 
         function readJsonAttribute(name) {
@@ -131,6 +132,7 @@
                 && (value.operation === 'add'
                     || value.operation === 'update'
                     || value.operation === 'delete'
+                    || value.operation === 'reorder'
                     || value.operation === 'clearDone'
                     || value.operation === 'clearAll'
                     || value.operation === 'sendComments'
@@ -280,7 +282,15 @@
             Array.prototype.forEach.call(
                 commentsRoot.querySelectorAll('button, textarea'),
                 function (control) {
-                    control.disabled = pending;
+                    var card = control.matches
+                        && control.matches('[data-comment-drag-handle]')
+                        ? control.closest('[data-comment-id]')
+                        : null;
+                    var editingDragHandle = !!card
+                        && !!state.editingComment
+                        && card.getAttribute('data-comment-id')
+                            === state.editingComment.commentId;
+                    control.disabled = pending || editingDragHandle;
                 }
             );
             Array.prototype.forEach.call(
@@ -295,13 +305,17 @@
             commentsRoot.setAttribute('aria-busy', pending ? 'true' : 'false');
         }
 
-        function postCommentOperation(operation, payload) {
+        function postCommentOperation(operation, payload, focusCommentId) {
             if (!commentUiAvailable
                 || state.pendingCommentRequest
                 || state.pendingLocateRequest) return;
             var requestId = nextCommentRequestId();
             resetClearAllConfirmation();
-            state.pendingCommentRequest = { requestId: requestId, operation: operation };
+            state.pendingCommentRequest = {
+                requestId: requestId,
+                operation: operation,
+                focusCommentId: focusCommentId || null,
+            };
             setCommentPending(true);
             status.textContent = operation === 'sendComments'
                 ? 'Adding comments to session input…'
@@ -310,6 +324,8 @@
                     : operation === 'clearDone'
                         || operation === 'clearAll'
                         ? 'Clearing comments…'
+                        : operation === 'reorder'
+                            ? 'Saving comment order…'
                         : 'Saving comment…';
             post({
                 type: operation === 'sendComments'
@@ -396,6 +412,12 @@
             remove: commentIcon('<path d="M3 6h18"/><path d="M8 6V4h8v2"/>'
                 + '<path d="m19 6-1 14H6L5 6"/>'
                 + '<path d="M10 11v6"/><path d="M14 11v6"/>'),
+            drag: commentIcon('<circle cx="8" cy="7" r="1" fill="currentColor"/>'
+                + '<circle cx="16" cy="7" r="1" fill="currentColor"/>'
+                + '<circle cx="8" cy="12" r="1" fill="currentColor"/>'
+                + '<circle cx="16" cy="12" r="1" fill="currentColor"/>'
+                + '<circle cx="8" cy="17" r="1" fill="currentColor"/>'
+                + '<circle cx="16" cy="17" r="1" fill="currentColor"/>'),
             chevron: commentIcon('<path d="m6 9 6 6 6-6"/>'),
             marker: commentIcon('<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5'
                 + 'a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z"/>'),
@@ -492,6 +514,7 @@
 
         function renderComments() {
             if (!commentUiAvailable) return;
+            clearCommentDragState();
             resetClearAllConfirmation();
             commentList.replaceChildren();
             if (state.editingComment) {
@@ -524,8 +547,28 @@
                     comment.scope === 'session' ? 'session' : 'selection'
                 );
 
+                var editing = !!state.editingComment
+                    && state.editingComment.commentId === comment.id;
+
                 var heading = document.createElement('div');
                 heading.className = 'conversation-comment-heading';
+                var dragHandle = document.createElement('button');
+                dragHandle.type = 'button';
+                dragHandle.className = 'conversation-comment-drag-handle';
+                dragHandle.setAttribute('data-comment-drag-handle', '');
+                dragHandle.setAttribute(
+                    'aria-label',
+                    'Move comment ' + (index + 1)
+                );
+                dragHandle.setAttribute(
+                    'aria-keyshortcuts',
+                    'Alt+ArrowUp Alt+ArrowDown'
+                );
+                dragHandle.title = 'Drag to reorder · Alt+Up/Down';
+                dragHandle.innerHTML = COMMENT_ICONS.drag;
+                dragHandle.draggable = !editing;
+                dragHandle.disabled = editing;
+                heading.appendChild(dragHandle);
                 var statusLabel = document.createElement('span');
                 statusLabel.className = 'conversation-comment-status';
                 statusLabel.setAttribute('data-comment-status-label', '');
@@ -538,8 +581,6 @@
                 heading.appendChild(actions);
                 item.appendChild(heading);
 
-                var editing = !!state.editingComment
-                    && state.editingComment.commentId === comment.id;
                 if (editing) {
                     actions.appendChild(commentIconButton(
                         'update',
@@ -691,6 +732,81 @@
                 // Any re-render during an in-flight request must keep the
                 // disabled pending state instead of reviving controls.
                 setCommentPending(true);
+            }
+        }
+
+        function clearCommentDragState() {
+            state.draggedCommentId = null;
+            Array.prototype.forEach.call(
+                commentList.querySelectorAll(
+                    '.conversation-comment-dragging, [data-comment-drop-position]'
+                ),
+                function (card) {
+                    card.classList.remove('conversation-comment-dragging');
+                    card.removeAttribute('data-comment-drop-position');
+                }
+            );
+        }
+
+        function reorderedCommentIds(sourceId, targetId, placement) {
+            var visibleIds = visibleCommentEntries().map(function (entry) {
+                return entry.comment.id;
+            });
+            var sourceIndex = visibleIds.indexOf(sourceId);
+            if (sourceIndex < 0 || sourceId === targetId) return null;
+            visibleIds.splice(sourceIndex, 1);
+            var targetIndex = visibleIds.indexOf(targetId);
+            if (targetIndex < 0) return null;
+            visibleIds.splice(
+                targetIndex + (placement === 'after' ? 1 : 0),
+                0,
+                sourceId
+            );
+            var originalVisibleIds = visibleCommentEntries().map(
+                function (entry) {
+                    return entry.comment.id;
+                }
+            );
+            var unchanged = visibleIds.every(function (id, index) {
+                return id === originalVisibleIds[index];
+            });
+            if (unchanged) return null;
+            var visibleSet = new Set(originalVisibleIds);
+            var visibleIndex = 0;
+            return state.comments.map(function (comment) {
+                if (!visibleSet.has(comment.id)) return comment.id;
+                var reorderedId = visibleIds[visibleIndex];
+                visibleIndex += 1;
+                return reorderedId;
+            });
+        }
+
+        function postCommentReorder(sourceId, targetId, placement) {
+            var orderedCommentIds = reorderedCommentIds(
+                sourceId,
+                targetId,
+                placement
+            );
+            clearCommentDragState();
+            if (!orderedCommentIds) return false;
+            postCommentOperation(
+                'reorder',
+                { orderedCommentIds: orderedCommentIds },
+                sourceId
+            );
+            return true;
+        }
+
+        function focusCommentDragHandle(commentId) {
+            if (!commentId) return;
+            var card = commentList.querySelector(
+                '[data-comment-id="' + CSS.escape(commentId) + '"]'
+            );
+            var handle = card && card.querySelector(
+                '[data-comment-drag-handle]'
+            );
+            if (handle && !handle.disabled) {
+                handle.focus({ preventScroll: true });
             }
         }
 
@@ -857,6 +973,7 @@
                 return false;
             }
             var operation = state.pendingCommentRequest.operation;
+            var focusCommentId = state.pendingCommentRequest.focusCommentId;
             if (message.success
                 && (operation === 'sendComment'
                     || operation === 'sendComments')) {
@@ -894,10 +1011,13 @@
                             ? 'Sent comments cleared.'
                             : operation === 'clearAll'
                                 ? 'All comments cleared.'
+                                : operation === 'reorder'
+                                    ? 'Comment order saved.'
                                 : 'Comments saved.';
             } else {
                 status.textContent = commentErrorMessage(message.error);
             }
+            focusCommentDragHandle(focusCommentId);
             return true;
         }
 
@@ -1081,6 +1201,110 @@
                     }
                     autosizeCommentInput(target);
                 }
+            });
+            commentList.addEventListener('dragstart', function (event) {
+                var handle = event.target && event.target.closest
+                    ? event.target.closest('[data-comment-drag-handle]')
+                    : null;
+                var item = handle && handle.closest('[data-comment-id]');
+                if (!handle || !item
+                    || state.pendingCommentRequest
+                    || state.pendingLocateRequest
+                    || handle.disabled) {
+                    event.preventDefault();
+                    return;
+                }
+                state.draggedCommentId = item.getAttribute('data-comment-id');
+                item.classList.add('conversation-comment-dragging');
+                if (event.dataTransfer) {
+                    event.dataTransfer.effectAllowed = 'move';
+                    event.dataTransfer.setData(
+                        'text/plain',
+                        state.draggedCommentId
+                    );
+                }
+            });
+            commentList.addEventListener('dragover', function (event) {
+                if (!state.draggedCommentId) return;
+                var item = event.target && event.target.closest
+                    ? event.target.closest('[data-comment-id]')
+                    : null;
+                if (!item || !commentList.contains(item)
+                    || item.getAttribute('data-comment-id')
+                        === state.draggedCommentId) {
+                    return;
+                }
+                event.preventDefault();
+                if (event.dataTransfer) {
+                    event.dataTransfer.dropEffect = 'move';
+                }
+                Array.prototype.forEach.call(
+                    commentList.querySelectorAll('[data-comment-drop-position]'),
+                    function (candidate) {
+                        if (candidate !== item) {
+                            candidate.removeAttribute(
+                                'data-comment-drop-position'
+                            );
+                        }
+                    }
+                );
+                var bounds = item.getBoundingClientRect();
+                item.setAttribute(
+                    'data-comment-drop-position',
+                    event.clientY < bounds.top + bounds.height / 2
+                        ? 'before'
+                        : 'after'
+                );
+            });
+            commentList.addEventListener('drop', function (event) {
+                if (!state.draggedCommentId) return;
+                var item = event.target && event.target.closest
+                    ? event.target.closest('[data-comment-id]')
+                    : null;
+                if (!item || !commentList.contains(item)) {
+                    clearCommentDragState();
+                    return;
+                }
+                event.preventDefault();
+                var sourceId = state.draggedCommentId;
+                var targetId = item.getAttribute('data-comment-id');
+                var placement = item.getAttribute(
+                    'data-comment-drop-position'
+                ) || 'after';
+                postCommentReorder(sourceId, targetId, placement);
+            });
+            commentList.addEventListener('dragend', clearCommentDragState);
+            commentList.addEventListener('keydown', function (event) {
+                if (!event.altKey || event.ctrlKey || event.metaKey
+                    || (event.key !== 'ArrowUp'
+                        && event.key !== 'ArrowDown')
+                    || state.pendingCommentRequest
+                    || state.pendingLocateRequest) {
+                    return;
+                }
+                var handle = event.target && event.target.closest
+                    ? event.target.closest('[data-comment-drag-handle]')
+                    : null;
+                var item = handle && handle.closest('[data-comment-id]');
+                if (!handle || !item || handle.disabled) return;
+                var visibleIds = visibleCommentEntries().map(function (entry) {
+                    return entry.comment.id;
+                });
+                var sourceId = item.getAttribute('data-comment-id');
+                var sourceIndex = visibleIds.indexOf(sourceId);
+                var targetIndex = sourceIndex
+                    + (event.key === 'ArrowUp' ? -1 : 1);
+                if (sourceIndex < 0
+                    || targetIndex < 0
+                    || targetIndex >= visibleIds.length) {
+                    return;
+                }
+                event.preventDefault();
+                postCommentReorder(
+                    sourceId,
+                    visibleIds[targetIndex],
+                    event.key === 'ArrowUp' ? 'before' : 'after'
+                );
             });
             addComment.addEventListener('click', function (event) {
                 var button = event.target && event.target.closest

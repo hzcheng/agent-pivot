@@ -4190,6 +4190,25 @@
     ]
   },
   {
+    "id": "CONVERSATION-COMMENTS-ORDERING-001",
+    "domain": "webview",
+    "title": "AI Conversation comment cards support mouse and keyboard reordering through a correlated Host-authoritative mutation that persists the exact order",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/conversationComments.test.js",
+      "tests/integration/dashboard/conversationRouting.test.js",
+      "tests/browser/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/comments.ts",
+      "src/aiSessions/conversation/commentController.ts",
+      "src/aiSessions/conversation/viewerProtocol.ts",
+      "src/webview/conversationCommentsScripts.js",
+      "media/conversationViewer.scss"
+    ]
+  },
+  {
     "id": "CONVERSATION-COMMENTS-PERSISTENCE-001",
     "domain": "persistence",
     "title": "AI Conversation comments persist in extension-private host storage and survive panel close, reopen, and extension reload lifecycles",

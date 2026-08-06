@@ -214,6 +214,7 @@ export function createDashboardMessageHandlers(
                     : -1,
                 hasOtherWindowsGroup: e.hasOtherWindowsGroup === true,
                 otherWindowsStatus: e.otherWindowsStatus === 'ready'
+                    || e.otherWindowsStatus === 'connecting'
                     || e.otherWindowsStatus === 'unavailable'
                     || e.otherWindowsStatus === 'update-required'
                     ? e.otherWindowsStatus as string

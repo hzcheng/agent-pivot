@@ -1935,10 +1935,14 @@
     "priority": "P1",
     "status": "automated",
     "owners": [
-      "tests/contract/openProjects/bridgeClient.test.js"
+      "tests/contract/openProjects/bridgeClient.test.js",
+      "tests/contract/openProjects/dashboardConnectingStatus.test.js",
+      "tests/integration/dashboard/openWorkspacesConnecting.test.js"
     ],
     "evidence": [
-      "scripts/run-open-project-safety-checks.js"
+      "scripts/run-open-project-safety-checks.js",
+      "src/openWorkspaces/dashboardController.ts",
+      "src/webview/webviewContent.ts"
     ]
   },
   {

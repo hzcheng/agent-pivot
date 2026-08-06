@@ -609,6 +609,7 @@ function applyOpenWorkspacesUpdate(message) {
         || !Number.isSafeInteger(message.navigationWorkspaceCount)
         || message.navigationWorkspaceCount < 0
         || (message.otherWindowsStatus !== 'ready'
+            && message.otherWindowsStatus !== 'connecting'
             && message.otherWindowsStatus !== 'unavailable'
             && message.otherWindowsStatus !== 'update-required')
         || typeof message.html !== 'string'

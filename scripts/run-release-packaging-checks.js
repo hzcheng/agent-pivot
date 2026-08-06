@@ -99,6 +99,7 @@ const EXPECTED_MAIN_ENTRIES = Object.freeze([
     'extension/media/webviewTodoScripts.js',
     'extension/out/openWorkspaces/bridgeClient.js',
     'extension/out/openWorkspaces/dashboardController.js',
+    'extension/out/openWorkspaces/earlyBridge.js',
     'extension/out/openWorkspaces/navigationController.js',
     'extension/out/openWorkspaces/navigationQuickPickController.js',
     'extension/out/openWorkspaces/pinController.js',

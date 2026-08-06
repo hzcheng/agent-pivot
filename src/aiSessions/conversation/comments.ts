@@ -51,7 +51,7 @@ export interface ConversationCommentSessionNote {
 }
 
 export type ConversationCommentOperation =
-    'add' | 'update' | 'delete' | 'clearDone' | 'clearAll'
+    'add' | 'update' | 'delete' | 'reorder' | 'clearDone' | 'clearAll'
     | 'sendComments' | 'sendComment';
 
 export type ConversationCommentClearOperation =
@@ -171,6 +171,34 @@ export function clearConversationComments(
         validateDraft(comment);
         return operation === 'clearAll' ? false : comment.status !== 'done';
     }).map(comment => ({ ...comment }));
+}
+
+export function reorderConversationComments(
+    comments: readonly ConversationCommentDraft[],
+    orderedCommentIds: readonly string[]
+): ConversationCommentDraft[] {
+    validateConversationComments(comments);
+    if (!Array.isArray(orderedCommentIds)
+        || orderedCommentIds.length !== comments.length) {
+        throw new ConversationCommentError('invalid');
+    }
+    const commentsById = new Map(
+        comments.map(comment => [comment.id, comment] as const)
+    );
+    const seen = new Set<string>();
+    const reordered = orderedCommentIds.map(commentId => {
+        if (typeof commentId !== 'string'
+            || seen.has(commentId)
+            || !commentsById.has(commentId)) {
+            throw new ConversationCommentError('invalid');
+        }
+        seen.add(commentId);
+        return { ...commentsById.get(commentId)! };
+    });
+    if (seen.size !== commentsById.size) {
+        throw new ConversationCommentError('invalid');
+    }
+    return reordered;
 }
 
 export function buildConversationCommentsPrompt(

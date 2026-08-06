@@ -61,6 +61,15 @@ test('CONVERSATION-PROTOCOL-VALIDATOR-001 accepts every exact version-1 viewer i
         type: 'conversation-viewer-comment-mutation',
         version: 1,
         ...target,
+        operation: 'reorder',
+        expectedRevision: 2,
+        payload: {
+            orderedCommentIds: ['comment-2', 'comment-1'],
+        },
+    }, {
+        type: 'conversation-viewer-comment-mutation',
+        version: 1,
+        ...target,
         operation: 'clearDone',
         expectedRevision: 2,
         payload: {},

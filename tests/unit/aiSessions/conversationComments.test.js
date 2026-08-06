@@ -9,6 +9,7 @@ const {
     createConversationComment,
     createConversationSessionComment,
     markConversationCommentsDone,
+    reorderConversationComments,
     updateConversationComment,
     validateConversationComments,
 } = require('../../../out/aiSessions/conversation/comments');
@@ -282,6 +283,58 @@ test('CONVERSATION-COMMENTS-BULK-001 clears done or all comments without mutatin
     ['clearSent', 'clearResolved'].forEach(operation => {
         assert.throws(
             () => clearConversationComments(comments, operation),
+            error => error instanceof ConversationCommentError
+                && error.code === 'invalid'
+        );
+    });
+});
+
+test('CONVERSATION-COMMENTS-ORDERING-001 accepts only an exact comment ID permutation without mutating drafts', () => {
+    const comments = [{
+        id: 'comment-a',
+        messageId: 'message-a',
+        interactionId: 'interaction-a',
+        role: 'assistant',
+        quote: 'First quote',
+        prefix: '',
+        suffix: '',
+        comment: 'First question.',
+        status: 'open',
+    }, {
+        id: 'comment-b',
+        scope: 'session',
+        messageId: '',
+        interactionId: '',
+        role: 'user',
+        quote: '',
+        prefix: '',
+        suffix: '',
+        comment: 'Second question.',
+        status: 'open',
+    }];
+
+    const reordered = reorderConversationComments(
+        comments,
+        ['comment-b', 'comment-a']
+    );
+    assert.deepEqual(
+        reordered.map(comment => comment.id),
+        ['comment-b', 'comment-a']
+    );
+    assert.deepEqual(
+        comments.map(comment => comment.id),
+        ['comment-a', 'comment-b']
+    );
+    assert.notEqual(reordered[0], comments[1]);
+
+    [
+        ['comment-a'],
+        ['comment-a', 'comment-a'],
+        ['comment-a', 'comment-missing'],
+        ['comment-a', 7],
+    ].forEach(ids => {
+        assert.throws(
+            () => reorderConversationComments(comments, ids),
             error => error instanceof ConversationCommentError
                 && error.code === 'invalid'
         );

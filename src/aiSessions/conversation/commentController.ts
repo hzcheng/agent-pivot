@@ -16,6 +16,7 @@ import {
     createConversationComment,
     createConversationSessionComment,
     markConversationCommentsDone,
+    reorderConversationComments,
     updateConversationComment,
     validateConversationComments,
 } from './comments';
@@ -294,6 +295,18 @@ export class ConversationCommentController {
                 });
             }
             revision += 1;
+        } else if (request.operation === 'reorder') {
+            const orderedCommentIds = parseReorderPayload(request.payload);
+            const reordered = reorderConversationComments(
+                comments,
+                orderedCommentIds
+            );
+            if (reordered.some(
+                (comment, index) => comment.id !== comments[index]?.id
+            )) {
+                comments = reordered;
+                revision += 1;
+            }
         } else if (request.operation === 'clearDone'
             || request.operation === 'clearAll') {
             if (!hasExactKeys(request.payload as object, [])) {
@@ -578,6 +591,21 @@ function parseExistingCommentPayload(
             ? { comment: value.comment as string }
             : {}),
     };
+}
+
+function parseReorderPayload(payload: unknown): string[] {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+        throw new ConversationCommentError('invalid');
+    }
+    const value = payload as Record<string, unknown>;
+    if (!hasExactKeys(value, ['orderedCommentIds'])
+        || !Array.isArray(value.orderedCommentIds)
+        || value.orderedCommentIds.length
+            > CONVERSATION_COMMENT_LIMITS.maxComments
+        || !value.orderedCommentIds.every(isConversationViewerTargetId)) {
+        throw new ConversationCommentError('invalid');
+    }
+    return [...value.orderedCommentIds];
 }
 
 function toCommentErrorCode(

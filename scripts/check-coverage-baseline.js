@@ -6,6 +6,18 @@ const { writeJsonFileAtomically } = require('./lib/jsonFile');
 
 const COVERAGE_METRICS = ['lines', 'branches', 'functions', 'statements'];
 
+// Files that are only reachable through a subprocess harness, and therefore
+// drop out of the report silently the moment that subprocess stops inheriting
+// NODE_V8_COVERAGE. A percentage baseline cannot catch that: removing a file
+// from the denominator usually makes the totals look better.
+const REQUIRED_INSTRUMENTED_FILES = ['src/dashboard.ts'];
+
+function findUninstrumentedFiles(summary, requiredFiles = REQUIRED_INSTRUMENTED_FILES) {
+    const measured = Object.keys(summary || {}).filter(key => key !== 'total');
+    return requiredFiles.filter(required =>
+        !measured.some(key => key === required || key.endsWith(`/${required}`)));
+}
+
 function roundPercentage(value) {
     return Math.round((value + Number.EPSILON) * 100) / 100;
 }
@@ -57,6 +69,21 @@ function writeCoverageBaseline(baselinePath, current, fileSystem = fs) {
     writeJsonFileAtomically(baselinePath, current, fileSystem);
 }
 
+/**
+ * Returns the failure lines for a coverage run, empty when it passes.
+ *
+ * Kept separate from `main` so every branch is reachable from unit tests
+ * without a real repository layout on disk.
+ */
+function collectCoverageFailures(summary, baseline) {
+    const uninstrumented = findUninstrumentedFiles(summary);
+    if (uninstrumented.length > 0) {
+        return uninstrumented.map(file =>
+            `${file} is missing from the coverage report; its executing process must inherit NODE_V8_COVERAGE`);
+    }
+    return compareCoverageBaseline(baseline, readCoverageTotals(summary));
+}
+
 function main() {
     const root = path.resolve(__dirname, '..');
     const baselinePath = path.join(root, '.ci', 'coverage-baseline.json');
@@ -67,18 +94,18 @@ function main() {
     }
 
     const summaryPath = path.join(root, 'coverage', 'coverage-summary.json');
-    const current = readCoverageTotals(JSON.parse(fs.readFileSync(summaryPath, 'utf8')));
+    const summary = JSON.parse(fs.readFileSync(summaryPath, 'utf8'));
 
     if (isWriteBaseline) {
-        writeCoverageBaseline(baselinePath, current);
+        writeCoverageBaseline(baselinePath, readCoverageTotals(summary));
         return;
     }
 
     const baseline = validateCoverageBaseline(JSON.parse(fs.readFileSync(baselinePath, 'utf8')));
-    const decreases = compareCoverageBaseline(baseline, current);
-    if (decreases.length > 0) {
-        for (const decrease of decreases) {
-            console.error(decrease);
+    const failures = collectCoverageFailures(summary, baseline);
+    if (failures.length > 0) {
+        for (const failure of failures) {
+            console.error(failure);
         }
         process.exitCode = 1;
         return;
@@ -96,8 +123,11 @@ if (require.main === module) {
 }
 
 module.exports = {
+    collectCoverageFailures,
     compareCoverageBaseline,
+    findUninstrumentedFiles,
     readCoverageTotals,
+    REQUIRED_INSTRUMENTED_FILES,
     validateCoverageBaseline,
     writeCoverageBaseline,
 };

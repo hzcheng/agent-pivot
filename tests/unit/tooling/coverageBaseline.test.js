@@ -11,6 +11,9 @@ const {
     readCoverageTotals,
     validateCoverageBaseline,
     writeCoverageBaseline,
+    collectCoverageFailures,
+    findUninstrumentedFiles,
+    REQUIRED_INSTRUMENTED_FILES,
 } = require(checkerPath);
 
 function coverageSummary(metrics) {
@@ -123,4 +126,67 @@ test('COVERAGE-BASELINE-009 prevents CI from writing a coverage baseline', () =>
 
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /cannot write the coverage baseline in CI/);
+});
+
+test('COVERAGE-BASELINE-INSTRUMENTATION-001 rejects a summary missing a file that must stay instrumented', () => {
+    const summary = {
+        total: {},
+        '/repo/src/aiSessions/dashboardController.ts': {},
+    };
+
+    assert.deepEqual(
+        findUninstrumentedFiles(summary, ['src/dashboard.ts', 'src/aiSessions/dashboardController.ts']),
+        ['src/dashboard.ts']
+    );
+});
+
+test('COVERAGE-BASELINE-INSTRUMENTATION-001 accepts a summary that instruments every required file', () => {
+    const summary = {
+        total: {},
+        '/repo/src/dashboard.ts': {},
+        '/repo/other/src/dashboard.ts.map': {},
+    };
+
+    assert.deepEqual(findUninstrumentedFiles(summary, ['src/dashboard.ts']), []);
+});
+
+test('COVERAGE-BASELINE-INSTRUMENTATION-001 keeps src/dashboard.ts on the required instrumentation list', () => {
+    // Only the production activation harness executes this file, and it runs in
+    // a subprocess. When that subprocess stopped inheriting NODE_V8_COVERAGE the
+    // largest file in the extension silently left the report for weeks.
+    assert.ok(REQUIRED_INSTRUMENTED_FILES.includes('src/dashboard.ts'));
+});
+
+test('COVERAGE-BASELINE-INSTRUMENTATION-001 reports the missing file and skips the percentage comparison', () => {
+    const summary = { total: { lines: { pct: 1 }, branches: { pct: 1 }, functions: { pct: 1 }, statements: { pct: 1 } } };
+    const baseline = { lines: 90, branches: 90, functions: 90, statements: 90 };
+
+    // A file dropping out usually *raises* the totals, so the instrumentation
+    // failure has to be reported on its own rather than as a percentage drop.
+    assert.deepEqual(collectCoverageFailures(summary, baseline), [
+        'src/dashboard.ts is missing from the coverage report; '
+        + 'its executing process must inherit NODE_V8_COVERAGE',
+    ]);
+});
+
+test('COVERAGE-BASELINE-INSTRUMENTATION-001 falls through to baseline comparison once every file is instrumented', () => {
+    const summary = {
+        total: { lines: { pct: 50 }, branches: { pct: 95 }, functions: { pct: 95 }, statements: { pct: 95 } },
+        '/repo/src/dashboard.ts': {},
+    };
+    const baseline = { lines: 90, branches: 90, functions: 90, statements: 90 };
+
+    assert.deepEqual(collectCoverageFailures(summary, baseline), [
+        'lines coverage decreased from 90.00% to 50.00%',
+    ]);
+});
+
+test('COVERAGE-BASELINE-INSTRUMENTATION-001 returns no failures for an instrumented run at baseline', () => {
+    const summary = {
+        total: { lines: { pct: 90 }, branches: { pct: 90 }, functions: { pct: 90 }, statements: { pct: 90 } },
+        '/repo/src/dashboard.ts': {},
+    };
+    const baseline = { lines: 90, branches: 90, functions: 90, statements: 90 };
+
+    assert.deepEqual(collectCoverageFailures(summary, baseline), []);
 });

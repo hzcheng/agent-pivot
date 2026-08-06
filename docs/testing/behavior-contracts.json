@@ -3591,6 +3591,20 @@
     ]
   },
   {
+    "id": "COVERAGE-BASELINE-INSTRUMENTATION-001",
+    "domain": "architecture",
+    "title": "Files reachable only through a subprocess harness stay inside the coverage report",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/unit/tooling/coverageBaseline.test.js"
+    ],
+    "evidence": [
+      "scripts/check-coverage-baseline.js",
+      "tests/contract/aiSessions/runtimeComposition.test.js"
+    ]
+  },
+  {
     "id": "COVERAGE-CHANGED-CODE-001",
     "domain": "architecture",
     "title": "Pull requests keep instrumented changed executable lines at or above the reviewed coverage threshold",

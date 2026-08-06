@@ -98,6 +98,86 @@ test('PERSIST-LIFECYCLE-PARSER-001 [kimi] treats subagent progress events as run
     assert.match(signal.token, /^kimi:SubagentEvent:/);
 });
 
+test('PERSIST-LIFECYCLE-PARSER-001 [codex] treats ordinary turn progress as a running lease renewal', () => {
+    const signal = lifecycle.parseCodexLifecycleLines([
+        JSON.stringify({
+            timestamp: '2026-07-24T08:00:00.000Z',
+            type: 'event_msg',
+            payload: { type: 'task_started', turn_id: 'turn-long' },
+        }),
+        JSON.stringify({
+            timestamp: '2026-07-24T08:31:00.000Z',
+            type: 'response_item',
+            payload: {
+                type: 'function_call',
+                name: 'wait',
+                call_id: 'call-still-running',
+            },
+        }),
+    ], runStartedAtMs);
+
+    assert.ok(signal);
+    assert.equal(signal.phase, 'running');
+    assert.equal(signal.executionState, 'running');
+    assert.equal(signal.occurredAtMs, Date.parse('2026-07-24T08:31:00.000Z'));
+    assert.match(signal.token, /^codex:function_call:/);
+});
+
+test('PERSIST-LIFECYCLE-PARSER-001 [codex] does not let unrelated progress answer a pending question', () => {
+    const signal = lifecycle.parseCodexLifecycleLines([
+        JSON.stringify({
+            timestamp: '2026-07-24T08:00:00.000Z',
+            type: 'response_item',
+            payload: {
+                type: 'custom_tool_call',
+                name: 'request_user_input',
+                call_id: 'question-call',
+            },
+        }),
+        JSON.stringify({
+            timestamp: '2026-07-24T08:01:00.000Z',
+            type: 'response_item',
+            payload: {
+                type: 'function_call_output',
+                call_id: 'unrelated-call',
+            },
+        }),
+    ], runStartedAtMs);
+
+    assert.ok(signal);
+    assert.equal(signal.phase, 'needsAttention');
+    assert.equal(signal.reason, 'input-required');
+    assert.equal(signal.executionState, 'stopped');
+});
+
+test('PERSIST-LIFECYCLE-PARSER-001 [codex] ignores delayed progress after a terminal event until a new task starts', () => {
+    const signal = lifecycle.parseCodexLifecycleLines([
+        JSON.stringify({
+            timestamp: '2026-07-24T08:00:00.000Z',
+            type: 'event_msg',
+            payload: { type: 'task_started', turn_id: 'turn-complete' },
+        }),
+        JSON.stringify({
+            timestamp: '2026-07-24T08:01:00.000Z',
+            type: 'event_msg',
+            payload: { type: 'task_complete', turn_id: 'turn-complete' },
+        }),
+        JSON.stringify({
+            timestamp: '2026-07-24T08:02:00.000Z',
+            type: 'response_item',
+            payload: {
+                type: 'custom_tool_call_output',
+                call_id: 'delayed-output',
+            },
+        }),
+    ], runStartedAtMs);
+
+    assert.ok(signal);
+    assert.equal(signal.phase, 'needsAttention');
+    assert.equal(signal.reason, 'completed');
+    assert.equal(signal.executionState, 'stopped');
+});
+
 test('PERSIST-LIFECYCLE-PARSER-001 [kimi] treats a TurnEnd trailing a StepInterrupted as interruption, not completion', () => {
     const signal = lifecycle.parseKimiLifecycleLines([
         JSON.stringify({

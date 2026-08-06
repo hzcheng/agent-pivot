@@ -249,7 +249,7 @@ test('WEBVIEW-TWO-STAGE-STARTUP-001 deferred Direct recovery failure keeps ready
     }
 });
 
-test('RUNTIME-HOST-RUNTIME-COMPOSITION-001 SESSION-ALIAS-THREAD-SWITCH-001 ATTENTION-ACTIVE-UNREGISTER-ON-DEACTIVATE-001 production activation wires lifecycle ownership around deferred recovery', () => {
+test('RUNTIME-HOST-RUNTIME-COMPOSITION-001 SESSION-ALIAS-THREAD-SWITCH-001 CONVERSATION-SESSION-REBIND-001 ATTENTION-ACTIVE-UNREGISTER-ON-DEACTIVATE-001 production activation wires lifecycle ownership around deferred recovery', () => {
     const result = runProductionActivation('success');
     assert.equal(result.failure, null);
     assert.deepEqual(result.events.filter(isRestoreEvent), [
@@ -264,6 +264,26 @@ test('RUNTIME-HOST-RUNTIME-COMPOSITION-001 SESSION-ALIAS-THREAD-SWITCH-001 ATTEN
         'tmux-backend',
     ]);
     assert.deepEqual(result.aliasRebinds, [['codex', 'old-root', 'new-root']]);
+    assert.deepEqual(result.conversationMetadataRebinds, [
+        ['comments', {
+            projectId: result.expectedConversationProjectId,
+            provider: 'codex',
+            sessionId: 'old-root',
+        }, {
+            projectId: result.expectedConversationProjectId,
+            provider: 'codex',
+            sessionId: 'new-root',
+        }],
+        ['bookmarks', {
+            projectId: result.expectedConversationProjectId,
+            provider: 'codex',
+            sessionId: 'old-root',
+        }, {
+            projectId: result.expectedConversationProjectId,
+            provider: 'codex',
+            sessionId: 'new-root',
+        }],
+    ]);
 });
 
 test('RUNTIME-HOST-RUNTIME-COMPOSITION-001 Direct recovery failure preserves independent tmux restore without blocking hydration', () => {

@@ -31,6 +31,9 @@ export interface ConversationBookmarkStore {
     ): Promise<void>;
 }
 
+export type ConversationBookmarkRebindCopyResult =
+    'copied' | 'source-empty' | 'destination-exists';
+
 interface PersistedConversationBookmarkSnapshot
     extends ConversationBookmarkSnapshot {
     version: 1;
@@ -120,6 +123,87 @@ implements ConversationBookmarkStore {
         }
     }
 
+    async copyForRebind(
+        previous: ConversationBookmarkTarget,
+        next: ConversationBookmarkTarget
+    ): Promise<ConversationBookmarkRebindCopyResult> {
+        if (!isValidRebind(previous, next)) {
+            throw new Error('Invalid conversation bookmark rebind.');
+        }
+        const source = await this.loadForRebind(previous);
+        if (source.interactionIds.length === 0) {
+            return 'source-empty';
+        }
+        return this.saveForRebindIfAbsent(next, source);
+    }
+
+    private async loadForRebind(
+        target: ConversationBookmarkTarget
+    ): Promise<ConversationBookmarkSnapshot> {
+        const snapshotPath = this.getSnapshotPath(target);
+        try {
+            const stats = await fs.promises.stat(snapshotPath);
+            if (!stats.isFile() || stats.size > MAX_SNAPSHOT_BYTES) {
+                throw new Error('Invalid persisted conversation bookmark snapshot.');
+            }
+            const value = JSON.parse(
+                await fs.promises.readFile(snapshotPath, 'utf8')
+            );
+            if (!isPersistedSnapshot(value, target)) {
+                throw new Error('Invalid persisted conversation bookmark snapshot.');
+            }
+            return cloneSnapshot(value);
+        } catch (error) {
+            if (isFileNotFoundError(error)) {
+                return emptySnapshot();
+            }
+            throw new Error('Invalid persisted conversation bookmark snapshot.');
+        }
+    }
+
+    private async saveForRebindIfAbsent(
+        target: ConversationBookmarkTarget,
+        snapshot: ConversationBookmarkSnapshot
+    ): Promise<ConversationBookmarkRebindCopyResult> {
+        const snapshotPath = this.getSnapshotPath(target);
+        await fs.promises.mkdir(this.directoryPath, {
+            recursive: true,
+            mode: 0o700,
+        });
+        const persisted: PersistedConversationBookmarkSnapshot = {
+            version: STORE_VERSION,
+            target: { ...target },
+            revision: snapshot.revision,
+            updatedAt: new Date(this.now()).toISOString(),
+            interactionIds: [...snapshot.interactionIds],
+        };
+        const temporaryPath = `${snapshotPath}.${process.pid}.${
+            randomBytes(8).toString('hex')
+        }.tmp`;
+        try {
+            await fs.promises.writeFile(
+                temporaryPath,
+                JSON.stringify(persisted),
+                { encoding: 'utf8', flag: 'wx', mode: 0o600 }
+            );
+            try {
+                await fs.promises.link(temporaryPath, snapshotPath);
+                return 'copied';
+            } catch (error) {
+                if (isFileExistsError(error)) {
+                    return 'destination-exists';
+                }
+                throw error;
+            }
+        } finally {
+            try {
+                await fs.promises.unlink(temporaryPath);
+            } catch (_error) {
+                // Cleanup must not mask the authoritative link result.
+            }
+        }
+    }
+
     private getSnapshotPath(target: ConversationBookmarkTarget): string {
         const identity = JSON.stringify([
             target.projectId,
@@ -185,6 +269,17 @@ function isTarget(value: unknown): value is ConversationBookmarkTarget {
         && isIdentity(value.sessionId);
 }
 
+function isValidRebind(
+    previous: ConversationBookmarkTarget,
+    next: ConversationBookmarkTarget
+): boolean {
+    return isTarget(previous)
+        && isTarget(next)
+        && previous.projectId === next.projectId
+        && previous.provider === next.provider
+        && previous.sessionId !== next.sessionId;
+}
+
 function isIdentity(value: unknown): value is string {
     return typeof value === 'string'
         && value.length > 0
@@ -204,4 +299,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isFileNotFoundError(error: unknown): boolean {
     return Boolean(error && (error as NodeJS.ErrnoException).code === 'ENOENT');
+}
+
+function isFileExistsError(error: unknown): boolean {
+    return Boolean(error && (error as NodeJS.ErrnoException).code === 'EEXIST');
 }

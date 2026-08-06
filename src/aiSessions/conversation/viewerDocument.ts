@@ -107,6 +107,15 @@ export function renderConversationViewerDocument(
             sessionId: target.sessionId,
         })
     )}"`;
+    const restoreTargetAttribute = ` data-conversation-restore-target="${escapeAttribute(
+        JSON.stringify({
+            projectId: target.projectId,
+            provider: target.provider,
+            sessionId: target.sessionId,
+            interactionId: target.interactionId,
+            ...(target.subagent ? { subagentId: target.subagent.id } : {}),
+        })
+    )}"`;
     return `<!doctype html>
 <html lang="en">
 <head>
@@ -123,11 +132,13 @@ export function renderConversationViewerDocument(
 </head>
 <body data-auto-scroll-threshold="${CONVERSATION_LIMITS.autoScrollThresholdPx}"
     data-mermaid-src="${escapeAttribute(mermaid.toString())}"
-    data-subscription-generation="${options.subscriptionGeneration}"${initialPageAttribute}${commentStateAttribute}${bookmarkStateAttribute}${targetAttribute}>
+    data-subscription-generation="${options.subscriptionGeneration}"${initialPageAttribute}${commentStateAttribute}${bookmarkStateAttribute}${targetAttribute}${restoreTargetAttribute}>
     <header class="conversation-header">
         <div class="conversation-identity">
             <strong>${escapeHtml(providerLabel(target.provider))}</strong>
-            <span>${escapeHtml(target.displayName + duplicateId)}</span>
+            <span data-conversation-display-name>${escapeHtml(
+                target.displayName + duplicateId
+            )}</span>
         </div>
         <nav class="conversation-navigation" aria-label="Conversation navigation">
             <button class="conversation-icon-button" type="button"

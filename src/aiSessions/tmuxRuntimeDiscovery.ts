@@ -77,10 +77,14 @@ export interface TmuxRuntimeDiscoveryOptions {
     client: TmuxDiscoveryClient;
     bindingStore: TmuxDiscoveryBindingStore;
     codexRootThreadObserver?: CodexRootThreadObserver;
+    onSessionRebinding?: (
+        previous: AiSessionRuntimeIdentity,
+        next: AiSessionRuntimeIdentity
+    ) => PromiseLike<void> | void;
     onSessionRebound?: (
         previous: AiSessionRuntimeIdentity,
         next: AiSessionRuntimeIdentity
-    ) => void;
+    ) => PromiseLike<void> | void;
     markerIsCurrent: (markerPath: string, runStartedAtMs: number) => boolean | Promise<boolean>;
     nowMs?: () => number;
     cacheTtlMs?: number;
@@ -340,12 +344,12 @@ export class TmuxRuntimeDiscovery {
         }));
     }
 
-    private notifySessionRebound(
+    private async notifySessionRebound(
         previous: AiSessionRuntimeIdentity,
         next: AiSessionRuntimeIdentity
-    ): void {
+    ): Promise<void> {
         try {
-            this.options.onSessionRebound?.(
+            await this.options.onSessionRebound?.(
                 cloneAiSessionRuntimeIdentity(previous),
                 cloneAiSessionRuntimeIdentity(next)
             );
@@ -481,16 +485,26 @@ export class TmuxRuntimeDiscovery {
                     observedSessionId = null;
                 }
                 if (observedSessionId && observedSessionId !== locatorKnown.sessionId) {
-                    const rebound = await this.options.bindingStore.rebindKnown(
-                        locatorKnown, observedSessionId
-                    );
-                    if (rebound === 'rebound') {
-                        const nextIdentity = {
-                            ...projectedIdentity,
-                            sessionId: observedSessionId,
-                        };
-                        this.notifySessionRebound(projectedIdentity, nextIdentity);
-                        projectedIdentity = nextIdentity;
+                    const nextIdentity = {
+                        ...projectedIdentity,
+                        sessionId: observedSessionId,
+                    };
+                    try {
+                        await this.options.onSessionRebinding?.(
+                            cloneAiSessionRuntimeIdentity(projectedIdentity),
+                            cloneAiSessionRuntimeIdentity(nextIdentity)
+                        );
+                    } catch (_error) {
+                        observedSessionId = null;
+                    }
+                    if (observedSessionId) {
+                        const rebound = await this.options.bindingStore.rebindKnown(
+                            locatorKnown, observedSessionId
+                        );
+                        if (rebound === 'rebound') {
+                            await this.notifySessionRebound(projectedIdentity, nextIdentity);
+                            projectedIdentity = nextIdentity;
+                        }
                     }
                 }
             }

@@ -45,8 +45,12 @@ import {
     ConversationViewerTarget,
 } from './viewer';
 import type { ConversationSessionSwitchDirection } from './viewerProtocol';
+import {
+    parseConversationViewerRestoreTarget,
+} from './viewerRestoreState';
 import { ConversationWorktreeResolver } from './worktreeResolver';
 import { readCodexRolloutWorkdir } from '../codexRolloutWorkdir';
+import { encodeSubagentSessionId } from './subagentSessions';
 
 export interface ConversationSessionOpenTarget {
     projectId: string;
@@ -70,6 +74,14 @@ export interface ConversationCapability {
     followActiveConversation(
         target: ConversationSessionOpenTarget
     ): Promise<FollowActiveConversationResult>;
+    restorePanel(panel: vscode.WebviewPanel, state: unknown): Promise<void>;
+    rebindSession(
+        previous: ConversationSessionOpenTarget,
+        next: ConversationSessionOpenTarget
+    ): Promise<boolean>;
+    freezeSessionMetadata(
+        target: ConversationSessionOpenTarget
+    ): Promise<boolean>;
     reconcile(): Promise<void>;
     dispose(): void;
 }
@@ -110,6 +122,9 @@ export interface ConversationCapabilityOptions {
     commentStore?: ConversationCommentStore;
     bookmarkStore?: ConversationBookmarkStore;
     getShowThinking?: () => boolean;
+    resolveReboundTarget?: (
+        target: ConversationSessionOpenTarget
+    ) => ConversationSessionOpenTarget;
 }
 
 interface ConversationCapabilityInternalFactories {
@@ -313,11 +328,54 @@ function createAvailableConversationCapability(
                 ? 'opened'
                 : 'closed';
         },
+        async restorePanel(
+            panel: vscode.WebviewPanel,
+            state: unknown
+        ): Promise<void> {
+            const savedTarget = parseConversationViewerRestoreTarget(state);
+            if (!savedTarget || disposed) {
+                panel.dispose();
+                return;
+            }
+            const intentGeneration = ++viewerIntentGeneration;
+            const reboundTarget = options.resolveReboundTarget?.(savedTarget)
+                || savedTarget;
+            const reboundRootChanged = reboundTarget.projectId
+                !== savedTarget.projectId
+                || reboundTarget.provider !== savedTarget.provider
+                || reboundTarget.sessionId !== savedTarget.sessionId;
+            const resolution = await resolveLatestConversationTarget(
+                options,
+                coordinator,
+                reboundTarget,
+                savedTarget.interactionId,
+                reboundRootChanged ? undefined : savedTarget.subagentId
+            );
+            if (disposed || intentGeneration !== viewerIntentGeneration
+                || !resolution.viewerTarget) {
+                panel.dispose();
+                return;
+            }
+            try {
+                await viewer.restore(panel, resolution.viewerTarget);
+            } catch (_error) {
+                panel.dispose();
+            }
+        },
+        rebindSession: (previous, next) =>
+            viewer.rebindSession(previous, next),
+        freezeSessionMetadata: target =>
+            viewer.freezeSessionMetadata(target),
         async reconcile(): Promise<void> {
             if (disposed) {
                 return;
             }
             try {
+                if (options.resolveReboundTarget) {
+                    await viewer.reconcileReboundSession(
+                        options.resolveReboundTarget
+                    );
+                }
                 await viewer.reconcileAuthority(target => {
                     const authoritativeTarget = resolveExactTarget(
                         options,
@@ -331,7 +389,22 @@ function createAvailableConversationCapability(
                         target.sessionId,
                         authoritativeTarget.executionState === 'stopped'
                     );
-                    return true;
+                    const displayMetadata = authoritativeTarget as
+                        ActiveAiSessionViewModel & {
+                            conversationDisplayName?: string;
+                            duplicateConversationDisplayName?: boolean;
+                        };
+                    const trimmedName = String(
+                        authoritativeTarget.name || ''
+                    ).trim();
+                    return {
+                        displayName: displayMetadata.conversationDisplayName
+                            || (trimmedName
+                                || `${target.provider} conversation`),
+                        duplicateDisplayName:
+                            displayMetadata.duplicateConversationDisplayName
+                                === true,
+                    };
                 });
             } catch (_error) {
                 reportUnavailable(options.onDiagnostic);
@@ -352,7 +425,19 @@ function createUnavailableConversationCapability(): ConversationCapability {
     const viewer: ConversationViewerApi = {
         isOpen: () => false,
         async open() {},
+        async restore(panel) {
+            panel.dispose();
+        },
         async follow() {
+            return false;
+        },
+        async rebindSession() {
+            return false;
+        },
+        async freezeSessionMetadata() {
+            return false;
+        },
+        async reconcileReboundSession() {
             return false;
         },
         async refresh() {},
@@ -369,6 +454,15 @@ function createUnavailableConversationCapability(): ConversationCapability {
         },
         async followActiveConversation(): Promise<FollowActiveConversationResult> {
             return 'unavailable';
+        },
+        async restorePanel(panel: vscode.WebviewPanel): Promise<void> {
+            panel.dispose();
+        },
+        async rebindSession(): Promise<boolean> {
+            return false;
+        },
+        async freezeSessionMetadata(): Promise<boolean> {
+            return false;
         },
         async reconcile(): Promise<void> {},
         dispose(): void {
@@ -485,7 +579,9 @@ async function followAdjacentConversation(
 async function resolveLatestConversationTarget(
     options: ConversationCapabilityOptions,
     coordinator: ConversationCoordinator,
-    target: ConversationSessionOpenTarget
+    target: ConversationSessionOpenTarget,
+    preferredInteractionId?: string,
+    subagentId?: string
 ): Promise<LatestConversationTargetResolution> {
     const authoritativeTarget = resolveExactTarget(options, target);
     if (!authoritativeTarget) {
@@ -496,17 +592,46 @@ async function resolveLatestConversationTarget(
         target.sessionId,
         authoritativeTarget.executionState === 'stopped'
     );
+    let subagent: ConversationViewerTarget['subagent'];
+    let effectiveSessionId = target.sessionId;
+    if (subagentId) {
+        let subagents;
+        try {
+            subagents = await coordinator.readSubagents(
+                target.provider,
+                target.sessionId
+            );
+        } catch (_error) {
+            return { result: 'unavailable' };
+        }
+        const authoritativeSubagent = subagents.find(entry =>
+            entry.id === subagentId
+        );
+        if (!authoritativeSubagent) {
+            return { result: 'unavailable' };
+        }
+        subagent = {
+            id: authoritativeSubagent.id,
+            label: authoritativeSubagent.label,
+        };
+        effectiveSessionId = encodeSubagentSessionId(
+            target.sessionId,
+            authoritativeSubagent.id
+        );
+    }
     let outline;
     try {
         outline = await coordinator.readOutline(
             target.provider,
-            target.sessionId
+            effectiveSessionId
         );
     } catch (_error) {
         return { result: 'unavailable' };
     }
-    const latest = outline.interactions[outline.interactions.length - 1];
-    if (!latest) {
+    const selected = outline.interactions.find(interaction =>
+        interaction.id === preferredInteractionId
+    ) || outline.interactions[outline.interactions.length - 1];
+    if (!selected) {
         return { result: 'empty' };
     }
     const displayMetadata = authoritativeTarget as ActiveAiSessionViewModel & {
@@ -520,12 +645,13 @@ async function resolveLatestConversationTarget(
             projectId: target.projectId,
             provider: target.provider,
             sessionId: target.sessionId,
-            interactionId: latest.id,
+            interactionId: selected.id,
             expectedRevision: outline.sourceRevision,
             displayName: displayMetadata.conversationDisplayName
                 || (trimmedName || `${target.provider} conversation`),
             duplicateDisplayName:
                 displayMetadata.duplicateConversationDisplayName === true,
+            ...(subagent ? { subagent } : {}),
         },
     };
 }

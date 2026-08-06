@@ -90,18 +90,39 @@ function attention(
 
 export function createCodexLifecycleAccumulator(runStartedAtMs: number): AiSessionLifecycleAccumulator {
     let pendingInputCallIds = new Set<string>();
+    let turnRunning = false;
     return createAccumulator(runStartedAtMs, (event, occurredAtMs) => {
         let payload = event?.payload || {};
         if (event?.type === 'event_msg') {
             switch (payload.type) {
                 case 'task_started':
                     pendingInputCallIds.clear();
+                    turnRunning = true;
                     return running('codex', payload.type, occurredAtMs, payload.turn_id);
+                case 'agent_message':
+                    if (!turnRunning || pendingInputCallIds.size) {
+                        return null;
+                    }
+                    return running('codex', payload.type, occurredAtMs, payload.item_id);
+                case 'patch_apply_end':
+                case 'sub_agent_activity':
+                case 'image_generation_end':
+                    if (!turnRunning || pendingInputCallIds.size) {
+                        return null;
+                    }
+                    return running(
+                        'codex',
+                        payload.type,
+                        occurredAtMs,
+                        payload.event_id || payload.call_id
+                    );
                 case 'task_complete':
                     pendingInputCallIds.clear();
+                    turnRunning = false;
                     return attention('codex', payload.type, occurredAtMs, 'completed', payload.turn_id);
                 case 'turn_aborted':
                     pendingInputCallIds.clear();
+                    turnRunning = false;
                     return idle('codex', payload.type, occurredAtMs, payload.turn_id);
                 default:
                     return null;
@@ -111,12 +132,31 @@ export function createCodexLifecycleAccumulator(runStartedAtMs: number): AiSessi
             if (typeof payload.call_id === 'string' && payload.call_id) {
                 pendingInputCallIds.add(payload.call_id);
             }
+            turnRunning = false;
             return attention('codex', 'request_user_input', occurredAtMs, 'input-required', payload.call_id || payload.id);
         }
         if (event?.type === 'response_item' && payload.type === 'custom_tool_call_output'
             && typeof payload.call_id === 'string' && pendingInputCallIds.has(payload.call_id)) {
             pendingInputCallIds.delete(payload.call_id);
+            turnRunning = true;
             return running('codex', payload.type, occurredAtMs, payload.call_id);
+        }
+        if (event?.type === 'response_item'
+            && turnRunning
+            && pendingInputCallIds.size === 0
+            && (payload.type === 'reasoning'
+                || payload.type === 'agent_message'
+                || payload.type === 'custom_tool_call'
+                || payload.type === 'custom_tool_call_output'
+                || payload.type === 'function_call'
+                || payload.type === 'function_call_output'
+                || (payload.type === 'message' && payload.role === 'assistant'))) {
+            return running(
+                'codex',
+                payload.type,
+                occurredAtMs,
+                payload.call_id || payload.id
+            );
         }
         return null;
     });

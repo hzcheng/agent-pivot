@@ -1,7 +1,7 @@
 'use strict';
 import * as vscode from 'vscode';
 import * as childProcess from 'child_process';
-import { randomBytes } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
 import { existsSync } from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -11,6 +11,7 @@ import { getProjectsPanelContent, getStewardContent } from './webview/webviewCon
 import { getSkillsPanelContent } from './webview/webviewSkillContent';
 import {
     AGENT_PIVOT_CONFIG_SECTION,
+    AGENT_PIVOT_CONVERSATION_VIEW_TYPE,
     AGENT_PIVOT_DASHBOARD_VIEW_ID,
     USER_CANCELED,
     RelevantExtensions,
@@ -45,6 +46,10 @@ import {
 import {
     ConversationBookmarkFileStore,
 } from './aiSessions/conversation/bookmarkStore';
+import {
+    ConversationSessionRebindCoordinator,
+    hasCommittedConversationSessionRuntimeRebind,
+} from './aiSessions/conversation/sessionRebindCoordinator';
 import AiSessionWorkspaceStateStore from './aiSessions/workspaceStateStore';
 import ActiveAiSessionTerminalHighlighter from './aiSessions/activeTerminalHighlight';
 import AttentionBridgeClient from './aiSessions/attentionBridgeClient';
@@ -84,6 +89,9 @@ import {
     ConversationCapability,
     createConversationCapability,
 } from './aiSessions/conversation/composition';
+import {
+    ConversationPanelRestoreCoordinator,
+} from './aiSessions/conversation/panelRestoreCoordinator';
 import {
     withConversationDisplayMetadata,
 } from './aiSessions/conversation/displayMetadata';
@@ -282,6 +290,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             },
         ),
     );
+    const conversationPanelRestore = new ConversationPanelRestoreCoordinator();
+    context.subscriptions.push(conversationPanelRestore);
+    context.subscriptions.push(vscode.window.registerWebviewPanelSerializer(
+        AGENT_PIVOT_CONVERSATION_VIEW_TYPE,
+        {
+            deserializeWebviewPanel: (panel, state) =>
+                conversationPanelRestore.restorePanel(panel, state),
+        }
+    ));
 
     const dashboardCommandRegistration =
         new DashboardCommandRegistration<vscode.Disposable>({
@@ -307,6 +324,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                     dashboardDiagnostics,
                     generation,
                     dashboardCommandRegistration,
+                    conversationPanelRestore,
                 );
                 return options;
             } catch (error) {
@@ -328,6 +346,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         },
         fail: generation => {
             dashboardCommandRegistration.discard(generation);
+            conversationPanelRestore.failPending();
             return provider.failBootstrap(generation);
         },
         transfer: resources => resources.transferTo(context.subscriptions),
@@ -345,6 +364,7 @@ async function initializeDashboard(
     dashboardDiagnostics: DashboardDiagnostics,
     bootstrapGeneration: number,
     dashboardCommandRegistration: DashboardCommandRegistration<vscode.Disposable>,
+    conversationPanelRestore: ConversationPanelRestoreCoordinator,
 ): Promise<AgentPivotViewProviderOptions> {
     const ownResource = <T extends { dispose(): unknown }>(factory: () => T): T => {
         let resource: T | undefined;
@@ -680,6 +700,19 @@ async function initializeDashboard(
         logError,
         showSaveError: () => vscode.window.showErrorMessage("Could not save the chat name."),
     });
+    const conversationCommentStore = new ConversationCommentFileStore(
+        context.globalStoragePath
+    );
+    const conversationBookmarkStore = new ConversationBookmarkFileStore(
+        context.globalStoragePath
+    );
+    let followConversationSessionRebind = (
+        _previous: { projectId: string; provider: AiSessionProviderId; sessionId: string },
+        _next: { projectId: string; provider: AiSessionProviderId; sessionId: string }
+    ): Promise<boolean> => Promise.resolve(false);
+    let freezeConversationSessionMetadata = (
+        _target: { projectId: string; provider: AiSessionProviderId; sessionId: string }
+    ): Promise<boolean> => Promise.resolve(false);
     const aiSessionTerminalBindingStore = new AiSessionTerminalBindingStore(context.workspaceState, error =>
         logError('Failed to persist AI session terminal ownership.', error)
     );
@@ -700,6 +733,66 @@ async function initializeDashboard(
             operation
         )
     );
+    const conversationSessionRebindCoordinator =
+        new ConversationSessionRebindCoordinator({
+            globalStoragePath: context.globalStoragePath,
+            commentStore: conversationCommentStore,
+            bookmarkStore: conversationBookmarkStore,
+            isRuntimeRebindCommitted: async (previous, next) =>
+                hasCommittedConversationSessionRuntimeRebind(
+                    (await tmuxRuntimeStore.listKnown()).map(binding => ({
+                        provider: binding.provider,
+                        sessionId: binding.sessionId,
+                        projectId: getCurrentWorkspaceConversationProjectId(
+                            binding.workspaceScopeIdentity
+                        ),
+                    })),
+                    previous,
+                    next
+                ),
+            onResult: (kind, result) => logAiSessionDiagnostic({
+                event: 'conversation-session-rebind-metadata',
+                kind,
+                result,
+            }),
+            onFailure: (kind, error) => logAiSessionRuntimeFailure(
+                `copy-conversation-${kind}-for-rebind`,
+                error
+            ),
+        });
+    const conversationViewerCommentStore = {
+        load: (target: { projectId: string; provider: AiSessionProviderId; sessionId: string }) =>
+            conversationCommentStore.load(
+                conversationSessionRebindCoordinator.resolve(target)
+            ),
+        save: (
+            target: { projectId: string; provider: AiSessionProviderId; sessionId: string },
+            snapshot: Parameters<typeof conversationCommentStore.save>[1]
+        ) => conversationCommentStore.save(
+            conversationSessionRebindCoordinator.resolve(target),
+            snapshot
+        ),
+    };
+    const conversationViewerBookmarkStore = {
+        load: (target: { projectId: string; provider: AiSessionProviderId; sessionId: string }) =>
+            conversationBookmarkStore.load(
+                conversationSessionRebindCoordinator.resolve(target)
+            ),
+        save: (
+            target: { projectId: string; provider: AiSessionProviderId; sessionId: string },
+            snapshot: Parameters<typeof conversationBookmarkStore.save>[1]
+        ) => conversationBookmarkStore.save(
+            conversationSessionRebindCoordinator.resolve(target),
+            snapshot
+        ),
+    };
+    const conversationSessionRebindRestoreTask =
+        conversationSessionRebindCoordinator.restore().catch(error => {
+            logAiSessionRuntimeFailure(
+                'restore-conversation-session-rebinds',
+                error
+            );
+        });
     const tmuxAttachBindingStore = new TmuxAttachBindingStore(context.workspaceState, error => {
         logAiSessionRuntimeFailure('persist-attach-binding', error);
     });
@@ -708,11 +801,77 @@ async function initializeDashboard(
         client: tmuxClient,
         bindingStore: tmuxRuntimeStore,
         codexRootThreadObserver: new ProcCodexRootThreadObserver(),
-        onSessionRebound: (previous, next) => aiSessionAliasController.copyForRebind(
-            previous.provider,
-            previous.sessionId || '',
-            next.sessionId || ''
-        ),
+        onSessionRebinding: async (previous, next) => {
+            const projectId = getCurrentWorkspaceConversationProjectId(
+                previous.workspaceScopeIdentity
+            );
+            if (!projectId || !previous.sessionId || !next.sessionId
+                || previous.provider !== next.provider
+                || previous.workspaceScopeIdentity !== next.workspaceScopeIdentity) {
+                throw new Error('Invalid conversation Session rebind identity.');
+            }
+            await conversationSessionRebindCoordinator.prepare({
+                projectId,
+                provider: previous.provider,
+                sessionId: previous.sessionId,
+            }, {
+                projectId,
+                provider: next.provider,
+                sessionId: next.sessionId,
+            });
+        },
+        onSessionRebound: async (previous, next) => {
+            aiSessionAliasController.copyForRebind(
+                previous.provider,
+                previous.sessionId || '',
+                next.sessionId || ''
+            );
+            const projectId = getCurrentWorkspaceConversationProjectId(
+                previous.workspaceScopeIdentity
+            );
+            if (!projectId || !previous.sessionId || !next.sessionId
+                || previous.provider !== next.provider
+                || previous.workspaceScopeIdentity !== next.workspaceScopeIdentity) {
+                return;
+            }
+            const previousTarget = {
+                projectId,
+                provider: previous.provider,
+                sessionId: previous.sessionId,
+            };
+            const nextTarget = {
+                projectId,
+                provider: next.provider,
+                sessionId: next.sessionId,
+            };
+            await freezeConversationSessionMetadata(previousTarget);
+            try {
+                await conversationSessionRebindCoordinator.commit(
+                    previousTarget,
+                    nextTarget
+                );
+            } catch (error) {
+                logAiSessionRuntimeFailure(
+                    'migrate-conversation-session-rebind',
+                    error
+                );
+            }
+            if (conversationSessionRebindCoordinator.resolve(previousTarget)
+                .sessionId !== nextTarget.sessionId) {
+                return;
+            }
+            try {
+                await followConversationSessionRebind(
+                    previousTarget,
+                    nextTarget
+                );
+            } catch (error) {
+                logAiSessionRuntimeFailure(
+                    'follow-conversation-session-rebind',
+                    error
+                );
+            }
+        },
         markerIsCurrent: isCurrentRuntimeMarker,
     });
     const persistedInactiveRestoreTask = (async (): Promise<void> => {
@@ -1238,12 +1397,10 @@ async function initializeDashboard(
         setTimer: setTimeout,
         clearTimer: clearTimeout,
         onDiagnostic: event => logAiSessionDiagnostic({ ...event }),
-        commentStore: new ConversationCommentFileStore(
-            context.globalStoragePath
-        ),
-        bookmarkStore: new ConversationBookmarkFileStore(
-            context.globalStoragePath
-        ),
+        commentStore: conversationViewerCommentStore,
+        bookmarkStore: conversationViewerBookmarkStore,
+        resolveReboundTarget: target =>
+            conversationSessionRebindCoordinator.resolve(target),
         getShowThinking: () => getAgentPivotConfiguration()
             .get<unknown>('aiConversation.showThinking', false) === true,
         submitPrompt: (viewerTarget, prompt) => submitConversationPrompt({
@@ -1266,6 +1423,18 @@ async function initializeDashboard(
             );
         },
     }));
+    followConversationSessionRebind = (previous, next) =>
+        conversationCapability.rebindSession(previous, next);
+    freezeConversationSessionMetadata = target =>
+        conversationCapability.freezeSessionMetadata(target);
+    resources.own(conversationPanelRestore.connectWhenReady(
+        conversationCapability,
+        Promise.all([
+            directTerminalRestoreOutcomeTask,
+            tmuxRestoreTask,
+            conversationSessionRebindRestoreTask,
+        ])
+    ));
     const conversationHandlers = {
         'open-active-ai-session-conversation': async (e: Record<string, unknown>) => {
             if (e.version !== 1
@@ -2065,4 +2234,20 @@ export async function deactivate(): Promise<void> {
     const openWorkspaceClient = activeOpenWorkspaceBridgeClient;
     activeOpenWorkspaceBridgeClient = null;
     await openWorkspaceClient?.shutdown();
+}
+
+function getCurrentWorkspaceConversationProjectId(
+    workspaceScopeIdentity: unknown
+): string | null {
+    if (typeof workspaceScopeIdentity !== 'string'
+        || workspaceScopeIdentity.length === 0
+        || workspaceScopeIdentity.length > 512
+        || /[\u0000-\u001f\u007f]/.test(workspaceScopeIdentity)) {
+        return null;
+    }
+    const digest = createHash('sha256')
+        .update(workspaceScopeIdentity)
+        .digest('hex')
+        .slice(0, 24);
+    return `__currentWorkspace-${digest}`;
 }

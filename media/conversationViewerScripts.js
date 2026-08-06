@@ -33,6 +33,9 @@
     var working = document.querySelector('[data-conversation-working]');
     var position = document.querySelector('[data-conversation-position]');
     var status = document.querySelector('[data-conversation-status]');
+    var conversationDisplayName = document.querySelector(
+        '[data-conversation-display-name]'
+    );
     var telemetryRoot = document.querySelector('[data-conversation-telemetry]');
     var telemetryModel = document.querySelector('[data-telemetry-model]');
     var telemetryModelValue = document.querySelector(
@@ -119,6 +122,9 @@
         '[data-telemetry-comments]'
     );
     var commentTarget = readJsonAttribute('data-conversation-target');
+    var restoreTarget = readJsonAttribute(
+        'data-conversation-restore-target'
+    );
     var sidebarUiAvailable = !!sidebarToggle
         && !!commentsWorkspace && !!commentsResizer && !!sidebarRoot
         && sidebarTabs.length === 3 && !!outlineRoot
@@ -477,6 +483,55 @@
             && value.sessionId.length > 0;
     }
 
+    function validRestoreTarget(value) {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) {
+            return false;
+        }
+        var keys = Object.keys(value);
+        var hasSubagent = Object.prototype.hasOwnProperty.call(
+            value,
+            'subagentId'
+        );
+        return keys.length === (hasSubagent ? 5 : 4)
+            && typeof value.projectId === 'string'
+            && value.projectId.length > 0
+            && (value.provider === 'codex'
+                || value.provider === 'kimi'
+                || value.provider === 'claude')
+            && typeof value.sessionId === 'string'
+            && value.sessionId.length > 0
+            && typeof value.interactionId === 'string'
+            && value.interactionId.length > 0
+            && (!hasSubagent
+                || (typeof value.subagentId === 'string'
+                    && value.subagentId.length > 0));
+    }
+
+    function saveRestoreTarget(nextTarget) {
+        if (!validRestoreTarget(nextTarget)
+            || !vscodeApi
+            || typeof vscodeApi.setState !== 'function') {
+            return;
+        }
+        restoreTarget = Object.assign({}, nextTarget);
+        try {
+            var saved = typeof vscodeApi.getState === 'function'
+                ? vscodeApi.getState()
+                : null;
+            var next = saved && typeof saved === 'object'
+                && !Array.isArray(saved)
+                ? Object.assign({}, saved)
+                : {};
+            next.conversationViewer = {
+                version: 1,
+                target: Object.assign({}, restoreTarget),
+            };
+            vscodeApi.setState(next);
+        } catch (_error) {
+            // Panel restoration is best-effort local Webview state.
+        }
+    }
+
     function validOutlineEntry(entry) {
         if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
             return false;
@@ -568,6 +623,7 @@
         ];
         var allowedKeys = new Set(requiredKeys.concat([
             'previousCursor', 'nextCursor', 'subagents', 'activeSubagent',
+            'displayName',
         ]));
         if (Object.keys(message).some(function (key) {
             return !allowedKeys.has(key);
@@ -600,6 +656,9 @@
                 || typeof message.nextCursor === 'string')
             && validSubagents(message.subagents)
             && validActiveSubagent(message.activeSubagent)
+            && (message.displayName === undefined
+                || (typeof message.displayName === 'string'
+                    && message.displayName.length <= 640))
             && typeof message.stale === 'boolean';
     }
 
@@ -675,6 +734,15 @@
         state.messageSignatures = nextSignatures;
         state.atLatest = message.atLatest;
         state.initialized = true;
+        var nextRestoreTarget = Object.assign({}, restoreTarget || {}, {
+            interactionId: message.selectedInteractionId,
+        });
+        if (message.activeSubagent) {
+            nextRestoreTarget.subagentId = message.activeSubagent.id;
+        } else {
+            delete nextRestoreTarget.subagentId;
+        }
+        saveRestoreTarget(nextRestoreTarget);
         outlineController.applyOutline(message);
         if (subagentsController) {
             subagentsController.apply(
@@ -683,6 +751,10 @@
             );
         }
         commentsController.updateHighlights();
+        if (conversationDisplayName
+            && typeof message.displayName === 'string') {
+            conversationDisplayName.textContent = message.displayName;
+        }
         updatePosition(message);
         var latestInteraction = message.outline[message.outline.length - 1];
         working.hidden = !message.atLatest
@@ -830,6 +902,7 @@
     });
     window.addEventListener('unload', releaseMermaidObjectUrls);
 
+    saveRestoreTarget(restoreTarget);
     var initialPage = document.body.getAttribute('data-initial-page');
     if (initialPage) {
         document.body.removeAttribute('data-initial-page');

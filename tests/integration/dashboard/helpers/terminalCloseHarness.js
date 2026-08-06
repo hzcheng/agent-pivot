@@ -39,6 +39,7 @@ function createHarnessVscode(listeners, commands) {
                 listeners.viewProvider = provider;
                 return disposable();
             },
+            registerWebviewPanelSerializer: () => disposable(),
             onDidChangeActiveTerminal: callback => { listeners.activeTerminal = callback; return disposable(); },
             onDidOpenTerminal: () => disposable(),
             onDidCloseTerminal: callback => { listeners.closeTerminal = callback; return disposable(); },

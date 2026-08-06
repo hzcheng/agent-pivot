@@ -39,6 +39,7 @@ function createVscode(listeners, commands) {
                 listeners.viewProvider = provider;
                 return disposable();
             },
+            registerWebviewPanelSerializer: () => disposable(),
             onDidChangeActiveTerminal: () => disposable(), onDidOpenTerminal: () => disposable(),
             onDidCloseTerminal: () => disposable(),
             onDidChangeWindowState: () => disposable(), onDidChangeVisibleTextEditors: () => disposable(),

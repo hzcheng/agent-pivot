@@ -224,14 +224,29 @@
                 // The pill doubles as the Comments quick entry; keep it
                 // visible even at zero.
                 telemetryComments.hidden = false;
-                telemetryComments.textContent = state.comments.length > 0
-                    ? 'Comments ' + counts.open + '/' + state.comments.length
-                    : 'Comments 0';
-                telemetryComments.title = counts.open
+                var telemetryCommentValue = telemetryComments.querySelector(
+                    '[data-telemetry-comments-value]'
+                );
+                var visibleCommentCount = state.comments.length > 0
+                    ? counts.open + '/' + state.comments.length
+                    : '0';
+                if (telemetryCommentValue) {
+                    telemetryCommentValue.textContent = visibleCommentCount;
+                } else {
+                    telemetryComments.textContent = visibleCommentCount;
+                }
+                var telemetryCommentLabel = counts.open
                     + ' open of '
                     + state.comments.length
                     + (state.comments.length === 1 ? ' comment' : ' comments')
                     + ' — click to review';
+                telemetryComments.title = telemetryCommentLabel;
+                telemetryComments.setAttribute(
+                    'aria-label', telemetryCommentLabel
+                );
+                telemetryComments.setAttribute(
+                    'data-tooltip', telemetryCommentLabel
+                );
                 if (telemetrySection) {
                     telemetrySection.hidden = false;
                 }

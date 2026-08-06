@@ -124,6 +124,68 @@
             return Math.ceil(remainingHours / 24) + 'd';
         }
 
+        function setTooltip(element, label) {
+            element.title = label;
+            element.setAttribute('aria-label', label);
+            element.setAttribute('data-tooltip', label);
+        }
+
+        function setRingProgress(circle, percent) {
+            var usedPercent = Math.max(0, Math.min(100, percent));
+            circle.setAttribute('stroke-dasharray', '100');
+            circle.setAttribute(
+                'stroke-dashoffset',
+                String(Math.round((100 - usedPercent) * 10) / 10)
+            );
+        }
+
+        function createLimitRing(limit) {
+            var usedPercent = Math.max(0, Math.min(100, limit.usedPercent));
+            var visibleValue = Math.round(usedPercent) + '%';
+            var details = limit.label + ' · ' + visibleValue + ' used';
+            if (limit.resetsAt) {
+                details += ' · resets in ' + compactResetTime(limit.resetsAt);
+            }
+            var meter = document.createElement('div');
+            meter.className = 'conversation-telemetry-usage '
+                + 'conversation-telemetry-limit conversation-telemetry-tooltip';
+            meter.setAttribute('data-telemetry-limit', '');
+            meter.setAttribute('data-telemetry-limit-id', limit.id);
+            meter.setAttribute('role', 'meter');
+            meter.tabIndex = 0;
+            meter.setAttribute('aria-valuemin', '0');
+            meter.setAttribute('aria-valuemax', '100');
+            meter.setAttribute('aria-valuenow', String(usedPercent));
+            setTooltip(meter, details);
+
+            var ring = document.createElement('span');
+            ring.className = 'conversation-telemetry-ring';
+            ring.setAttribute('aria-hidden', 'true');
+            ring.innerHTML = '<svg class="conversation-telemetry-ring-progress"'
+                + ' viewBox="0 0 36 36"><circle'
+                + ' class="conversation-telemetry-ring-track" cx="18" cy="18"'
+                + ' r="15.5" pathLength="100"></circle><circle'
+                + ' class="conversation-telemetry-ring-value"'
+                + ' data-telemetry-limit-progress cx="18" cy="18" r="15.5"'
+                + ' pathLength="100"></circle></svg><svg'
+                + ' class="conversation-telemetry-ring-icon" viewBox="0 0 16 16"'
+                + ' aria-hidden="true" fill="none" stroke="currentColor"'
+                + ' stroke-width="1.35" stroke-linecap="round"'
+                + ' stroke-linejoin="round"><rect x="2.5" y="3.5"'
+                + ' width="11" height="10" rx="2"></rect><path'
+                + ' d="M5 2v3M11 2v3M2.5 6.5h11"></path><path'
+                + ' d="M6.3 9h3.4l-2 3"></path></svg>';
+            setRingProgress(
+                ring.querySelector('[data-telemetry-limit-progress]'),
+                usedPercent
+            );
+            var value = document.createElement('strong');
+            value.setAttribute('data-telemetry-limit-value', '');
+            value.textContent = visibleValue;
+            meter.append(ring, value);
+            return meter;
+        }
+
         function applyTelemetry(message) {
             if (!exactKeys(
                 message,
@@ -154,6 +216,10 @@
             if (!telemetry) {
                 // The quick-entry pills keep the bar visible even without
                 // usage data; only the usage widgets stay hidden.
+                telemetryModel.hidden = true;
+                telemetryWorktree.hidden = true;
+                telemetryContext.hidden = true;
+                telemetryLimits.replaceChildren();
                 telemetryRoot.hidden = false;
                 restoreViewport(
                     readingAnchor,
@@ -163,6 +229,10 @@
             }
             telemetryModel.hidden = !telemetry.model;
             telemetryModelValue.textContent = telemetry.model || '';
+            setTooltip(
+                telemetryModel,
+                telemetry.model ? 'Model · ' + telemetry.model : 'Model'
+            );
             var worktree = telemetry.worktree;
             telemetryWorktree.hidden = !worktree;
             if (worktree) {
@@ -175,11 +245,13 @@
                     'conversation-telemetry-worktree-missing',
                     !!worktree.missing
                 );
-                telemetryWorktree.title = worktree.missing
+                var worktreeTitle = worktree.missing
                     ? 'Worktree path no longer exists: '
-                        + worktree.worktreeRoot
+                        + worktree.worktreeRoot + ' (branch ' + worktree.branch + ')'
                     : 'Working in worktree: ' + worktree.worktreeRoot
+                        + ' (branch ' + worktree.branch + ')'
                         + ' · Click to show changes in Source Control';
+                setTooltip(telemetryWorktree, worktreeTitle);
             }
             telemetryContext.hidden = !telemetry.context;
             if (telemetry.context) {
@@ -188,33 +260,19 @@
                     telemetry.context.usedTokens
                         / telemetry.context.maxTokens * 100
                 ));
-                telemetryContextProgress.max = telemetry.context.maxTokens;
-                telemetryContextProgress.value = telemetry.context.usedTokens;
-                telemetryContextValue.textContent = Math.round(percent) + '% · '
-                    + compactTokens(telemetry.context.usedTokens) + ' / '
-                    + compactTokens(telemetry.context.maxTokens);
+                var visibleContext = Math.round(percent) + '%';
+                var contextDetails = 'Context window · ' + visibleContext
+                    + ' used\n' + compactTokens(telemetry.context.usedTokens)
+                    + ' / ' + compactTokens(telemetry.context.maxTokens)
+                    + ' tokens';
+                setRingProgress(telemetryContextProgress, percent);
+                telemetryContext.setAttribute('aria-valuenow', String(percent));
+                setTooltip(telemetryContext, contextDetails);
+                telemetryContextValue.textContent = visibleContext;
             }
             telemetryLimits.replaceChildren();
             telemetry.rateLimits.forEach(function (limit) {
-                var meter = document.createElement('div');
-                meter.className = 'conversation-telemetry-meter';
-                var label = document.createElement('span');
-                label.textContent = limit.label;
-                var progress = document.createElement('progress');
-                progress.max = 100;
-                progress.value = limit.usedPercent;
-                progress.setAttribute('aria-label', limit.label + ' usage');
-                var value = document.createElement('span');
-                var text = Math.round(100 - limit.usedPercent) + '% left';
-                if (limit.resetsAt) {
-                    text += ' · resets in ' + compactResetTime(limit.resetsAt);
-                    value.title = new Date(
-                        limit.resetsAt * 1000
-                    ).toLocaleString();
-                }
-                value.textContent = text;
-                meter.append(label, progress, value);
-                telemetryLimits.appendChild(meter);
+                telemetryLimits.appendChild(createLimitRing(limit));
             });
             telemetryRoot.hidden = false;
             restoreViewport(readingAnchor, previousScrollTop);

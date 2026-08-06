@@ -134,6 +134,64 @@ const WORKTREE_ICON_SVG = '<svg viewBox="0 0 16 16" width="11" height="11"'
     + '<circle cx="4.5" cy="12.5" r="1.8"/><circle cx="11.5" cy="5.5" r="1.8"/>'
     + '<path d="M4.5 5.3v5.4M11.5 7.3c0 2.4-2.6 2.8-4.7 3"/></svg>';
 
+const MODEL_ICON_SVG = '<svg viewBox="0 0 16 16" aria-hidden="true"'
+    + ' fill="none" stroke="currentColor" stroke-width="1.35"'
+    + ' stroke-linecap="round" stroke-linejoin="round">'
+    + '<rect x="4" y="4" width="8" height="8" rx="2"/>'
+    + '<path d="M6.5 1.8v2.1M9.5 1.8v2.1M6.5 12.1v2.1M9.5 12.1v2.1M1.8 6.5h2.1M12.1 6.5h2.1M1.8 9.5h2.1M12.1 9.5h2.1"/>'
+    + '<path d="m6.5 8 1 1 2-2"/></svg>';
+
+const CONTEXT_ICON_SVG = '<svg class="conversation-telemetry-ring-icon"'
+    + ' viewBox="0 0 16 16" aria-hidden="true" fill="none"'
+    + ' stroke="currentColor" stroke-width="1.45" stroke-linecap="round">'
+    + '<path d="M5.5 3H4a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h1.5M10.5 3H12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1h-1.5"/>'
+    + '<path d="M6.5 6.2 8.3 8l-1.8 1.8"/></svg>';
+
+const LIMIT_ICON_SVG = '<svg class="conversation-telemetry-ring-icon"'
+    + ' viewBox="0 0 16 16" aria-hidden="true" fill="none"'
+    + ' stroke="currentColor" stroke-width="1.35" stroke-linecap="round"'
+    + ' stroke-linejoin="round"><rect x="2.5" y="3.5" width="11"'
+    + ' height="10" rx="2"/><path d="M5 2v3M11 2v3M2.5 6.5h11"/>'
+    + '<path d="M6.3 9h3.4l-2 3"/></svg>';
+
+const POSITION_ICON_SVG = '<svg viewBox="0 0 16 16" aria-hidden="true"'
+    + ' fill="none" stroke="currentColor" stroke-width="1.35"'
+    + ' stroke-linecap="round"><path d="M3 3.5h10M3 8h7M3 12.5h5"/>'
+    + '<circle cx="12.2" cy="11.8" r="1.8"/></svg>';
+
+const COMMENTS_ICON_SVG = '<svg viewBox="0 0 16 16" aria-hidden="true"'
+    + ' fill="none" stroke="currentColor" stroke-width="1.35"'
+    + ' stroke-linejoin="round"><path d="M3.2 3h9.6A1.2 1.2 0 0 1 14 4.2v6.1a1.2 1.2 0 0 1-1.2 1.2H7l-3.4 2v-2H3.2A1.2 1.2 0 0 1 2 10.3V4.2A1.2 1.2 0 0 1 3.2 3Z"/>'
+    + '<path d="M5 6.2h6M5 8.7h4"/></svg>';
+
+const SUBAGENTS_ICON_SVG = '<svg viewBox="0 0 16 16" aria-hidden="true"'
+    + ' fill="none" stroke="currentColor" stroke-width="1.35">'
+    + '<circle cx="8" cy="3" r="1.7"/><circle cx="3.5" cy="12.5" r="1.7"/>'
+    + '<circle cx="12.5" cy="12.5" r="1.7"/><path d="M8 4.7v3M8 7.7 4.5 11M8 7.7l3.5 3.3"/></svg>';
+
+function clampPercent(value: number): number {
+    return Math.max(0, Math.min(100, value));
+}
+
+function renderProgressRing(
+    progressAttribute: string,
+    percent: number,
+    icon: string
+): string {
+    const rounded = Math.round(clampPercent(percent) * 10) / 10;
+    const offset = Math.round((100 - rounded) * 10) / 10;
+    return `<span class="conversation-telemetry-ring" aria-hidden="true">
+        <svg class="conversation-telemetry-ring-progress" viewBox="0 0 36 36">
+            <circle class="conversation-telemetry-ring-track"
+                cx="18" cy="18" r="15.5" pathLength="100"></circle>
+            <circle class="conversation-telemetry-ring-value"
+                ${progressAttribute} cx="18" cy="18" r="15.5"
+                pathLength="100" stroke-dasharray="100"
+                stroke-dashoffset="${offset}"></circle>
+        </svg>${icon}
+    </span>`;
+}
+
 export function renderConversationTelemetry(
     telemetry: ConversationTelemetry | undefined
 ): string {
@@ -144,28 +202,33 @@ export function renderConversationTelemetry(
     const limits = telemetry?.rateLimits || [];
     const context = telemetry?.context;
     const contextPercent = context
-        ? Math.max(0, Math.min(
-            100,
-            context.usedTokens / context.maxTokens * 100
-        ))
+        ? clampPercent(context.usedTokens / context.maxTokens * 100)
         : 0;
+    const contextValue = `${Math.round(contextPercent)}%`;
+    const contextDetails = context
+        ? `Context window · ${contextValue} used\n${formatTokenCount(
+            context.usedTokens
+        )} / ${formatTokenCount(context.maxTokens)} tokens`
+        : 'Context window';
     const limitMarkup = limits.map(limit => {
-        const remaining = Math.max(0, 100 - limit.usedPercent);
+        const usedPercent = clampPercent(limit.usedPercent);
+        const visibleValue = `${Math.round(usedPercent)}%`;
         const reset = limit.resetsAt
             ? ` · resets in ${formatResetTime(limit.resetsAt)}`
             : '';
-        const resetTitle = limit.resetsAt
-            ? ` title="${escapeAttribute(
-                new Date(limit.resetsAt * 1000).toLocaleString()
-            )}"`
-            : '';
-        return `<div class="conversation-telemetry-meter">
-            <span>${escapeHtml(limit.label)}</span>
-            <progress max="100" value="${limit.usedPercent}"
-                aria-label="${escapeAttribute(`${limit.label} usage`)}"></progress>
-            <span${resetTitle}>${escapeHtml(
-                `${Math.round(remaining)}% left${reset}`
-            )}</span>
+        const details = `${limit.label} · ${visibleValue} used${reset}`;
+        return `<div class="conversation-telemetry-usage conversation-telemetry-limit conversation-telemetry-tooltip"
+            data-telemetry-limit data-telemetry-limit-id="${escapeAttribute(limit.id)}"
+            role="meter" tabindex="0" aria-valuemin="0" aria-valuemax="100"
+            aria-valuenow="${usedPercent}" aria-label="${escapeAttribute(details)}"
+            title="${escapeAttribute(details)}"
+            data-tooltip="${escapeAttribute(details)}">
+            ${renderProgressRing(
+                'data-telemetry-limit-progress',
+                usedPercent,
+                LIMIT_ICON_SVG
+            )}
+            <strong data-telemetry-limit-value>${escapeHtml(visibleValue)}</strong>
         </div>`;
     }).join('');
     const worktreeTitle = worktree
@@ -173,58 +236,80 @@ export function renderConversationTelemetry(
             ? `Worktree path no longer exists: ${worktree.worktreeRoot} (branch ${worktree.branch})`
             : `Working in worktree: ${worktree.worktreeRoot} (branch ${worktree.branch}) · Click to show changes in Source Control`
         : '';
+    const modelTitle = telemetry?.model
+        ? `Model · ${telemetry.model}`
+        : 'Model';
     return `<section class="conversation-telemetry"
         data-conversation-telemetry aria-label="Session usage">
+        <div class="conversation-telemetry-model conversation-telemetry-tooltip"
+            data-telemetry-model tabindex="0"
+            aria-label="${escapeAttribute(modelTitle)}"
+            title="${escapeAttribute(modelTitle)}"
+            data-tooltip="${escapeAttribute(modelTitle)}"${hasModel ? '' : ' hidden'}>
+            ${MODEL_ICON_SVG}
+            <strong data-telemetry-model-value>${escapeHtml(
+                telemetry?.model || ''
+            )}</strong>
+        </div>
         <button type="button"
-            class="conversation-telemetry-worktree${worktree?.missing
+            class="conversation-telemetry-worktree conversation-telemetry-tooltip${worktree?.missing
                 ? ' conversation-telemetry-worktree-missing'
                 : ''}"
             data-telemetry-worktree
             data-worktree-root="${escapeAttribute(
                 worktree?.worktreeRoot || ''
             )}"
-            title="${escapeAttribute(worktreeTitle)}"${hasWorktree
+            aria-label="${escapeAttribute(worktreeTitle)}"
+            title="${escapeAttribute(worktreeTitle)}"
+            data-tooltip="${escapeAttribute(worktreeTitle)}"${hasWorktree
                 ? ''
                 : ' hidden'}>
             ${WORKTREE_ICON_SVG}<span data-telemetry-worktree-branch>${escapeHtml(
                 worktree?.branch || ''
             )}</span>
         </button>
-        <div class="conversation-telemetry-model"
-            data-telemetry-model${hasModel ? '' : ' hidden'}>
-            <span>Model</span>
-            <strong data-telemetry-model-value>${escapeHtml(
-                telemetry?.model || ''
-            )}</strong>
-        </div>
-        <div class="conversation-telemetry-meter"
-            data-telemetry-context${hasContext ? '' : ' hidden'}>
-            <span>Context</span>
-            <progress data-telemetry-context-progress
-                max="${context?.maxTokens || 1}"
-                value="${context?.usedTokens || 0}"
-                aria-label="Context window usage"></progress>
-            <span data-telemetry-context-value>${context
-                ? escapeHtml(
-                    `${Math.round(contextPercent)}% · ${formatTokenCount(
-                        context.usedTokens
-                    )} / ${formatTokenCount(context.maxTokens)}`
-                )
-                : ''}</span>
+        <span class="conversation-telemetry-divider" aria-hidden="true"></span>
+        <div class="conversation-telemetry-usage conversation-telemetry-context conversation-telemetry-tooltip"
+            data-telemetry-context role="meter" aria-valuemin="0"
+            tabindex="0" aria-valuemax="100" aria-valuenow="${contextPercent}"
+            aria-label="${escapeAttribute(contextDetails)}"
+            title="${escapeAttribute(contextDetails)}"
+            data-tooltip="${escapeAttribute(contextDetails)}"${hasContext ? '' : ' hidden'}>
+            ${renderProgressRing(
+                'data-telemetry-context-progress',
+                contextPercent,
+                CONTEXT_ICON_SVG
+            )}
+            <strong data-telemetry-context-value>${hasContext
+                ? escapeHtml(contextValue)
+                : ''}</strong>
         </div>
         <div class="conversation-telemetry-limits"
             data-telemetry-limits>${limitMarkup}</div>
+        <span class="conversation-telemetry-spacer" aria-hidden="true"></span>
         <button type="button"
-            class="conversation-telemetry-position"
+            class="conversation-telemetry-position conversation-telemetry-tooltip"
             data-conversation-position
-            title="Jump to the current input in the outline">Input 0 of 0</button>
+            aria-label="Input 0 of 0 — click to open the outline"
+            title="Input 0 of 0 — click to open the outline"
+            data-tooltip="Input 0 of 0 — click to open the outline">
+            ${POSITION_ICON_SVG}<span data-conversation-position-value>0/0</span>
+        </button>
         <button type="button"
-            class="conversation-telemetry-comments"
+            class="conversation-telemetry-comments conversation-telemetry-tooltip"
             data-telemetry-comments
-            title="0 comments — click to review">Comments 0</button>
+            aria-label="0 comments — click to review"
+            title="0 comments — click to review"
+            data-tooltip="0 comments — click to review">
+            ${COMMENTS_ICON_SVG}<span data-telemetry-comments-value>0</span>
+        </button>
         <button type="button"
-            class="conversation-telemetry-subagents"
+            class="conversation-telemetry-subagents conversation-telemetry-tooltip"
             data-telemetry-subagents
-            title="0 running of 0 subagents — click to view">Agents 0/0</button>
+            aria-label="0 running of 0 subagents — click to view"
+            title="0 running of 0 subagents — click to view"
+            data-tooltip="0 running of 0 subagents — click to view">
+            ${SUBAGENTS_ICON_SVG}<span data-telemetry-subagents-value>0/0</span>
+        </button>
     </section>`;
 }

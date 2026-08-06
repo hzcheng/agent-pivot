@@ -127,7 +127,11 @@ test('CONVERSATION-TELEMETRY-CONTROLLER-001 renders escaped model and quota mark
         }],
     });
     assert.match(html, /&lt;unsafe&gt;/);
-    assert.match(html, /25% · 1\.5k \/ 6\.0k/);
-    assert.match(html, /75% left/);
+    assert.match(html, /data-telemetry-context-value>25%/);
+    assert.match(html, /Context window · 25% used\s+1\.5k \/ 6\.0k tokens/);
+    assert.match(html, /Weekly &lt;quota&gt; · 25% used/);
+    assert.match(html, /data-telemetry-limit-value>25%/);
+    assert.doesNotMatch(html, />Model</);
+    assert.doesNotMatch(html, />Context</);
     assert.doesNotMatch(html, /Weekly <quota>/);
 });

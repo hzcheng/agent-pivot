@@ -607,7 +607,16 @@
     function updatePosition(message) {
         var total = message.totalInputs.toLocaleString();
         if (message.partial) total += '+';
-        position.textContent = 'Input ' + message.selectedInput + ' of ' + total;
+        var label = 'Input ' + message.selectedInput + ' of ' + total;
+        var value = position.querySelector('[data-conversation-position-value]');
+        if (value) {
+            value.textContent = message.selectedInput + '/' + total;
+            position.title = label + ' — click to open the outline';
+            position.setAttribute('aria-label', position.title);
+            position.setAttribute('data-tooltip', position.title);
+        } else {
+            position.textContent = label;
+        }
     }
 
     function centerInMessageViewport(element) {

@@ -186,23 +186,32 @@ async function openViewerPage(t, options = {}) {
                     <button type="button" data-action="next">Next</button>
                     <button type="button" data-action="latest">Latest</button>
                 </header>
-                <section data-conversation-telemetry hidden>
+                <section class="conversation-telemetry"
+                    data-conversation-telemetry hidden>
                     <button type="button" class="conversation-telemetry-worktree"
                         data-telemetry-worktree data-worktree-root="" title=""
                         hidden>
                         <span data-telemetry-worktree-branch></span>
                     </button>
-                    <div data-telemetry-model hidden>
-                        <span>Model</span>
+                    <div class="conversation-telemetry-model"
+                        data-telemetry-model hidden>
                         <strong data-telemetry-model-value></strong>
                     </div>
-                    <div data-telemetry-context hidden>
-                        <span>Context</span>
-                        <progress data-telemetry-context-progress
-                            max="1" value="0"></progress>
+                    <div class="conversation-telemetry-usage conversation-telemetry-context"
+                        data-telemetry-context hidden>
+                        <span class="conversation-telemetry-ring"
+                            aria-hidden="true">
+                            <svg class="conversation-telemetry-ring-progress"
+                                viewBox="0 0 36 36">
+                                <circle data-telemetry-context-progress
+                                    cx="18" cy="18" r="15.5"
+                                    pathLength="100"></circle>
+                            </svg>
+                        </span>
                         <span data-telemetry-context-value></span>
                     </div>
-                    <div data-telemetry-limits></div>
+                    <div class="conversation-telemetry-limits"
+                        data-telemetry-limits></div>
                 </section>
                 <div data-conversation-status aria-live="polite"></div>
                 <div data-conversation-scroll tabindex="0"
@@ -335,16 +344,24 @@ test('CONVERSATION-TELEMETRY-001 CONVERSATION-TELEMETRY-CONTROLLER-001 renders c
     );
     assert.equal(
         await page.locator('[data-telemetry-context-value]').textContent(),
-        '25% · 32.0k / 128k'
+        '25%'
     );
-    assert.match(
-        await page.locator('[data-telemetry-limits]').textContent(),
-        /Week.*60% left/
+    assert.equal(
+        await page.locator('[data-telemetry-limit-value]').textContent(),
+        '40%'
     );
     assert.equal(
         await page.locator('[data-telemetry-context-progress]')
-            .getAttribute('max'),
-        '128000'
+            .getAttribute('stroke-dashoffset'),
+        '75'
+    );
+    assert.match(
+        await page.locator('[data-telemetry-context]').getAttribute('title'),
+        /Context window · 25% used.*32\.0k \/ 128k tokens/s
+    );
+    assert.match(
+        await page.locator('[data-telemetry-limit]').getAttribute('title'),
+        /Week · 40% used · resets in/
     );
 
     await sendPage(page, {
@@ -1075,7 +1092,7 @@ test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 lists subagents, opens a transcript
     // The telemetry counter shows running/total and opens the Subagents tab.
     const counter = rebuilt.page.locator('[data-telemetry-subagents]');
     assert.equal(await counter.isVisible(), true);
-    assert.equal(await counter.innerText(), 'Agents 1/2');
+    assert.equal(await counter.innerText(), '1/2');
     assert.match(await counter.getAttribute('title'), /1 running of 2/);
     assert.equal(
         await rebuilt.page.locator('[data-conversation-telemetry]').isVisible(),
@@ -1162,7 +1179,7 @@ test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 lists subagents, opens a transcript
     // The pill doubles as the Subagents quick entry and stays visible at
     // zero instead of disappearing.
     assert.equal(await counter.isVisible(), true);
-    assert.equal(await counter.innerText(), 'Agents 0/0');
+    assert.equal(await counter.innerText(), '0/0');
 });
 
 test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 keeps boundary navigation inert while Latest stays available', async t => {
@@ -1738,7 +1755,7 @@ test('CONVERSATION-COMMENTS-UI-001 send action and telemetry comments pill drive
     const pill = page.locator('[data-telemetry-comments]');
     assert.equal(await toolbarSend.isDisabled(), true);
     assert.equal(await pill.isVisible(), true);
-    assert.equal(await pill.innerText(), 'Comments 0');
+    assert.equal(await pill.innerText(), '0');
 
     await page.locator('[data-sidebar-tab="comments"]').click();
     await page.locator('[data-comment-action="new"]').click();
@@ -1783,7 +1800,7 @@ test('CONVERSATION-COMMENTS-UI-001 send action and telemetry comments pill drive
         'Send 1 open comment to the session input'
     );
     assert.equal(await pill.isVisible(), true);
-    assert.equal(await pill.innerText(), 'Comments 1/1');
+    assert.equal(await pill.innerText(), '1/1');
 
     await page.locator('[data-sidebar-tab="outline"]').click();
     await pill.click();
@@ -2549,7 +2566,7 @@ test('CONVERSATION-COMMENTS-UI-001 filters cards, jumps from message markers, an
     // Telemetry pill reports open/total.
     assert.equal(
         await page.locator('[data-telemetry-comments]').innerText(),
-        'Comments 2/3'
+        '2/3'
     );
 
     // A done card settled outside a send starts collapsed and dimmed.
@@ -2615,7 +2632,7 @@ test('CONVERSATION-COMMENTS-UI-001 filters cards, jumps from message markers, an
     await settle(sendAll, 2, allDone);
     assert.equal(
         await page.locator('[data-telemetry-comments]').innerText(),
-        'Comments 0/3'
+        '0/3'
     );
     await page.locator('[data-comment-filter="open"]').click();
     assert.equal(await page.locator('[data-comment-id]').count(), 0);
@@ -2685,7 +2702,7 @@ test('CONVERSATION-COMMENTS-UI-001 filters cards, jumps from message markers, an
     assert.equal(await page.locator('[data-comment-marker]').count(), 0);
     assert.equal(
         await page.locator('[data-telemetry-comments]').innerText(),
-        'Comments 0'
+        '0'
     );
 });
 
@@ -5543,11 +5560,20 @@ test('CONVERSATION-CHROME-LAYOUT-001 keeps header, telemetry, and the message vi
             sessionId: 'session-host-document',
             model: 'gpt-5.6-sol',
             context: { usedTokens: 32_000, maxTokens: 128_000 },
-            rateLimits: [],
+            worktree: {
+                branch: 'feature/telemetry-rings',
+                worktreeRoot: '/repo/.worktree/telemetry-rings',
+                repoRoot: '/repo',
+            },
+            rateLimits: [{
+                id: 'codex:secondary',
+                label: 'Week',
+                usedPercent: 40,
+            }],
         },
     });
 
-    for (const width of [700, 240]) {
+    for (const width of [700, 400, 360, 320, 281, 240]) {
         await page.setViewportSize({ width, height: 500 });
         const layout = await page.evaluate(() => {
             const header = document.querySelector('.conversation-header');
@@ -5578,6 +5604,9 @@ test('CONVERSATION-CHROME-LAYOUT-001 keeps header, telemetry, and the message vi
                 readerTop: readerBounds.top,
                 readerBottom: readerBounds.bottom,
                 readerScrollable: reader.scrollHeight > reader.clientHeight,
+                telemetryHeight: telemetryBounds.height,
+                telemetryClientWidth: telemetry.clientWidth,
+                telemetryScrollWidth: telemetry.scrollWidth,
                 rootOverflow: getComputedStyle(
                     document.documentElement
                 ).overflowY,
@@ -5598,6 +5627,14 @@ test('CONVERSATION-CHROME-LAYOUT-001 keeps header, telemetry, and the message vi
         assert.ok(layout.readerBottom <= layout.workspaceBottom + 1);
         assert.ok(layout.workspaceBottom <= layout.viewportHeight + 1);
         assert.equal(layout.readerScrollable, true);
+        assert.ok(
+            layout.telemetryHeight <= (width > 360 ? 48 : 42),
+            `telemetry grew vertically at ${width}px`
+        );
+        assert.ok(
+            layout.telemetryScrollWidth <= layout.telemetryClientWidth + 1,
+            `telemetry overflowed horizontally at ${width}px`
+        );
 
         const reader = page.locator('[data-conversation-scroll]');
         await reader.evaluate(element => {
@@ -5610,6 +5647,59 @@ test('CONVERSATION-CHROME-LAYOUT-001 keeps header, telemetry, and the message vi
             document.body.scrollTop,
         ]), [0, 0], `overscroll escaped at ${width}px`);
     }
+
+    await page.setViewportSize({ width: 700, height: 500 });
+    await page.locator('[data-telemetry-context]').hover();
+    const tooltipState = await page.locator(
+        '[data-telemetry-context]'
+    ).evaluate(element => {
+        const style = getComputedStyle(element, '::after');
+        return { content: style.content, visibility: style.visibility };
+    });
+    assert.equal(tooltipState.visibility, 'visible');
+    assert.match(tooltipState.content, /Context window/);
+    assert.deepEqual(
+        await page.locator(
+            '[data-telemetry-context], [data-telemetry-limit]'
+        ).evaluateAll(elements => elements.map(element =>
+            element.getAttribute('tabindex')
+        )),
+        ['0', '0'],
+        'usage details must remain keyboard-focusable after labels become icons'
+    );
+    const orderedLeftEdges = await page.locator([
+        '[data-telemetry-model]',
+        '[data-telemetry-worktree]',
+        '[data-telemetry-context]',
+        '[data-telemetry-limit]',
+        '[data-conversation-position]',
+        '[data-telemetry-comments]',
+        '[data-telemetry-subagents]',
+    ].join(',')).evaluateAll(elements => elements.map(element =>
+        Math.round(element.getBoundingClientRect().left)
+    ));
+    assert.deepEqual(
+        orderedLeftEdges,
+        [...orderedLeftEdges].sort((a, b) => a - b),
+        'telemetry must follow model, branch, usage, then quick-entry order'
+    );
+
+    await page.emulateMedia({ forcedColors: 'active' });
+    const forcedColorStroke = await page.locator(
+        '[data-telemetry-context-progress]'
+    ).evaluate(element => getComputedStyle(element).stroke);
+    assert.notEqual(forcedColorStroke, 'none');
+    assert.notEqual(
+        forcedColorStroke,
+        'rgba(0, 0, 0, 0)',
+        'forced colors must preserve a visible progress-ring stroke'
+    );
+    assert.equal(
+        await page.locator('[data-conversation-position]').evaluate(
+            element => getComputedStyle(element).borderTopStyle
+        ),
+        'solid'
+    );
 });
 
 test('CONVERSATION-LIVE-UPDATE-JOURNEY-001 preserves telemetry, auto-follow, history, and Working through a response lifecycle', async t => {
@@ -5758,7 +5848,7 @@ test('CONVERSATION-NAVIGATION-STATE-001 keeps controls, status, focus, and scrol
     const previous = page.locator('[data-action="previous"]');
     const next = page.locator('[data-action="next"]');
     const latest = page.locator('[data-action="latest"]');
-    assert.equal(await page.locator('[data-conversation-position]').innerText(), 'Input 2 of 3');
+    assert.equal(await page.locator('[data-conversation-position]').innerText(), '2/3');
     assert.equal(await previous.isEnabled(), true);
     assert.equal(await next.isEnabled(), true);
     assert.equal(await latest.isEnabled(), true);
@@ -5782,7 +5872,7 @@ test('CONVERSATION-NAVIGATION-STATE-001 keeps controls, status, focus, and scrol
         nextCursor: 'next-page',
         stale: true,
     });
-    assert.equal(await page.locator('[data-conversation-position]').innerText(), 'Input 1 of 3+');
+    assert.equal(await page.locator('[data-conversation-position]').innerText(), '1/3+');
     assert.equal(await previous.isDisabled(), true);
     assert.equal(await next.isEnabled(), true);
     assert.match(
@@ -5814,7 +5904,7 @@ test('CONVERSATION-NAVIGATION-STATE-001 keeps controls, status, focus, and scrol
         nextCursor: undefined,
         stale: false,
     });
-    assert.equal(await page.locator('[data-conversation-position]').innerText(), 'Input 3 of 3');
+    assert.equal(await page.locator('[data-conversation-position]').innerText(), '3/3');
     assert.equal(await previous.isEnabled(), true);
     assert.equal(await next.isDisabled(), true);
     assert.equal(await page.locator('[data-conversation-status]').innerText(), '');

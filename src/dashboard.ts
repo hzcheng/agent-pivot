@@ -1148,6 +1148,16 @@ async function initializeDashboard(
         publish: message => provider.postMessage(message),
         createPanel: vscode.window.createWebviewPanel,
         openExternal: vscode.env.openExternal,
+        openLocalFile: async targetFile => {
+            const position = new vscode.Position(
+                targetFile.line - 1,
+                targetFile.column - 1
+            );
+            await vscode.window.showTextDocument(
+                vscode.Uri.file(targetFile.fsPath),
+                { selection: new vscode.Range(position, position) }
+            );
+        },
         showWorktreeInSourceControl: (worktreeRoot: string) =>
             showWorktreeInSourceControl(worktreeRoot),
         insertIntoActiveTerminal: async text => {

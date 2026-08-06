@@ -323,15 +323,33 @@
 
     function isHttps(value) {
         try {
-            return new URL(value, document.baseURI).protocol === 'https:';
+            return new URL(value).protocol === 'https:';
         } catch (_error) {
             return false;
         }
     }
 
+    function isAbsoluteFileHref(value) {
+        if (!value || value.length > 4096) return false;
+        var decoded;
+        try {
+            decoded = decodeURIComponent(value);
+        } catch (_error) {
+            return false;
+        }
+        return !/[\u0000-\u001f\u007f]/.test(decoded)
+            && decoded.indexOf('?') === -1
+            && decoded.indexOf('#') === -1
+            && (/^\/(?!\/)/.test(decoded) || /^[A-Za-z]:[\\/]/.test(decoded));
+    }
+
+    function isAllowedLinkHref(value) {
+        return isHttps(value) || isAbsoluteFileHref(value);
+    }
+
     window.DOMPurify.addHook('afterSanitizeAttributes', function (node) {
         if (!node.hasAttribute) return;
-        if (node.hasAttribute('href') && !isHttps(
+        if (node.hasAttribute('href') && !isAllowedLinkHref(
             node.getAttribute('href')
         )) {
             node.removeAttribute('href');
@@ -778,11 +796,7 @@
         if (!link || !messages.contains(link)) return;
         event.preventDefault();
         var href = link.getAttribute('href');
-        try {
-            if (new URL(href, document.baseURI).protocol !== 'https:') return;
-        } catch (_error) {
-            return;
-        }
+        if (!isAllowedLinkHref(href)) return;
         post({
             type: 'conversation-viewer-open-link',
             version: 1,

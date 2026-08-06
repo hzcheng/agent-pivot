@@ -18,7 +18,11 @@ import {
     ConversationOutlineController,
     ConversationViewerOutlineEntry,
 } from './outlineController';
-import { renderConversationMarkdown } from './markdown';
+import {
+    ConversationLocalFileTarget,
+    parseConversationLocalFileLink,
+    renderConversationMarkdown,
+} from './markdown';
 import { parseConversationViewerMessage } from './viewerProtocol';
 import type { ConversationSessionSwitchDirection } from './viewerProtocol';
 import type { ConversationViewerTarget } from './viewerTarget';
@@ -67,6 +71,9 @@ export interface ConversationViewerOptions {
         target: ConversationViewerTarget
     ) => void | PromiseLike<void>;
     openExternal: (uri: vscode.Uri) => Thenable<boolean>;
+    openLocalFile?: (
+        target: ConversationLocalFileTarget
+    ) => PromiseLike<void> | Promise<void> | void;
     mediaUri: (fileName: string) => vscode.Uri;
     showThinking?: () => boolean;
     submitPrompt: (
@@ -634,6 +641,11 @@ export class ConversationViewer implements ConversationViewerApi {
     }
 
     private async openLink(href: string): Promise<void> {
+        const localFile = parseConversationLocalFileLink(href);
+        if (localFile) {
+            await this.options.openLocalFile?.(localFile);
+            return;
+        }
         let parsed: URL;
         try {
             parsed = new URL(href);

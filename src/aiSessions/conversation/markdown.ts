@@ -46,12 +46,56 @@ const markdown = new MarkdownIt({
     highlight: highlightCode,
 });
 
+const MAX_LOCAL_FILE_LINK_LENGTH = 4096;
+const MAX_LOCAL_FILE_POSITION = 10_000_000;
+
+export interface ConversationLocalFileTarget {
+    fsPath: string;
+    line: number;
+    column: number;
+}
+
+export function parseConversationLocalFileLink(
+    value: string
+): ConversationLocalFileTarget | undefined {
+    if (!value || value.length > MAX_LOCAL_FILE_LINK_LENGTH) {
+        return undefined;
+    }
+    let decoded: string;
+    try {
+        decoded = decodeURIComponent(value);
+    } catch (_error) {
+        return undefined;
+    }
+    if (/[\u0000-\u001f\u007f]/.test(decoded)
+        || decoded.includes('?')
+        || decoded.includes('#')) {
+        return undefined;
+    }
+    const position = decoded.match(/:([1-9]\d{0,7})(?::([1-9]\d{0,7}))?$/);
+    const fsPath = position
+        ? decoded.slice(0, position.index)
+        : decoded;
+    if (!(/^\/(?!\/)/.test(fsPath) || /^[A-Za-z]:[\\/]/.test(fsPath))) {
+        return undefined;
+    }
+    const line = position ? Number(position[1]) : 1;
+    const column = position?.[2] ? Number(position[2]) : 1;
+    if (line > MAX_LOCAL_FILE_POSITION || column > MAX_LOCAL_FILE_POSITION) {
+        return undefined;
+    }
+    return { fsPath, line, column };
+}
+
 markdown.validateLink = (url: string): boolean => {
     try {
-        return new URL(url).protocol === 'https:';
+        if (new URL(url).protocol === 'https:') {
+            return true;
+        }
     } catch (_error) {
-        return false;
+        // Absolute filesystem paths are not URL values.
     }
+    return Boolean(parseConversationLocalFileLink(url));
 };
 
 export function renderConversationMarkdown(value: string): string {

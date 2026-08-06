@@ -582,8 +582,9 @@ async function renderHostViewerDocument(options = {}) {
                 userGraphemeCount: id.length,
                 responseState: options.responseStates?.[id] || 'complete',
             })),
-            totalInteractions: interactionIds.length,
-            partial: false,
+            totalInteractions: options.totalInteractions
+                ?? interactionIds.length,
+            partial: options.outlinePartial ?? false,
         }),
         readPage: async () => ({
             provider,
@@ -634,7 +635,13 @@ async function openHostViewerDocument(t, options = {}) {
         viewport: options.viewport || { width: 700, height: 500 },
     });
     t.after(() => page.close());
-    const html = await renderHostViewerDocument(options);
+    const renderedHtml = await renderHostViewerDocument(options);
+    const html = options.transformHostDocument
+        ? options.transformHostDocument(renderedHtml)
+        : renderedHtml;
+    if (options.pageErrors) {
+        page.on('pageerror', error => options.pageErrors.push(error.message));
+    }
     await page.route('https://viewer.test/**', async route => {
         const pathname = new URL(route.request().url()).pathname;
         if (pathname === '/purify.min.js') {
@@ -1399,7 +1406,7 @@ test('CONVERSATION-OUTLINE-BOOKMARKS-001 settles stars authoritatively, filters 
     const interactionIds = ['input-1', 'input-2', 'input-3'];
     const { page } = await openHostViewerDocument(t, {
         includeStyles: true,
-        themeFixture: viewerThemeFixtures[0],
+        themeFixture: viewerThemeFixtures[1],
         viewport: { width: 1050, height: 620 },
         interactionIds,
         interactionId: 'input-2',
@@ -1421,30 +1428,68 @@ test('CONVERSATION-OUTLINE-BOOKMARKS-001 settles stars authoritatively, filters 
 
     await page.locator('[data-action="toggle-sidebar"]').click();
     assert.deepEqual(await orderedIds(), interactionIds);
-    const leftGeometry = await page.evaluate(() => {
+    const outlineLayout = await page.evaluate(() => {
         const outline = document.querySelector('[data-conversation-outline]');
+        const tabs = document.querySelector('.conversation-sidebar-tabs');
+        const search = outline.querySelector('[data-outline-search]');
+        const summary = outline.querySelector('[data-outline-summary]');
+        const selectedItem = outline.querySelector(
+            '[data-outline-interaction-id="input-2"]'
+        ).closest('.conversation-outline-item');
         const star = document.querySelector(
             '[data-outline-bookmark-id="input-1"]'
         );
         const preview = document.querySelector(
             '[data-outline-interaction-id="input-1"]'
         )?.querySelector('.conversation-outline-preview');
+        const outlineRect = outline.getBoundingClientRect();
+        const searchRect = search.getBoundingClientRect();
+        const summaryRect = summary.getBoundingClientRect();
+        const starRect = star.getBoundingClientRect();
+        const previewRect = preview.getBoundingClientRect();
         return {
-            starInset: star.getBoundingClientRect().left
-                - outline.getBoundingClientRect().left,
-            previewInset: preview.getBoundingClientRect().left
-                - outline.getBoundingClientRect().left,
+            tabsHeight: tabs.getBoundingClientRect().height,
+            summaryBelowSearch: summaryRect.top >= searchRect.bottom,
+            previewInset: previewRect.left - outlineRect.left,
+            starInset: starRect.left - outlineRect.left,
+            starOpacity: Number(getComputedStyle(star).opacity),
+            selectedBackground: getComputedStyle(selectedItem).backgroundColor,
         };
     });
     assert.ok(
-        leftGeometry.previewInset <= 48,
-        `outline text should stay compact, got ${leftGeometry.previewInset}px`
+        outlineLayout.tabsHeight >= 28 && outlineLayout.tabsHeight <= 34,
+        `outline tabs should stay compact, got ${outlineLayout.tabsHeight}px`
     );
     assert.ok(
-        leftGeometry.starInset <= 6,
-        `bookmark star should hug the left edge, got ${leftGeometry.starInset}px`
+        outlineLayout.previewInset >= 11
+            && outlineLayout.previewInset <= 15,
+        `outline text inset should stay balanced, got ${outlineLayout.previewInset}px`
+    );
+    assert.ok(
+        outlineLayout.starInset > outlineLayout.previewInset,
+        'bookmark control should occupy a stable trailing column'
+    );
+    assert.equal(
+        outlineLayout.starOpacity,
+        1,
+        'an available bookmark control must keep full theme contrast'
+    );
+    assert.equal(
+        outlineLayout.summaryBelowSearch,
+        true,
+        'the input count should not squeeze the search control'
+    );
+    assert.notEqual(
+        outlineLayout.selectedBackground,
+        'rgba(0, 0, 0, 0)',
+        'the selected surface should cover the complete outline row'
     );
     assert.equal(await inputOneStar.getAttribute('aria-pressed'), 'false');
+    assert.equal(
+        await page.locator('[data-outline-bookmarks-only]')
+            .getAttribute('aria-label'),
+        'Show bookmarked inputs only, 1 bookmark'
+    );
     assert.equal(
         await page.locator(
             '[data-outline-bookmark-id="input-3"]'
@@ -1516,6 +1561,120 @@ test('CONVERSATION-OUTLINE-BOOKMARKS-001 settles stars authoritatively, filters 
             element.getAttribute('data-outline-interaction-id')
         )),
         ['input-1', 'input-3']
+    );
+    assert.equal(
+        await page.locator('[data-outline-bookmarks-only]')
+            .getAttribute('aria-label'),
+        'Show all inputs, 2 bookmarks'
+    );
+});
+
+test('CONVERSATION-OUTLINE-BOOKMARKS-001 keeps the outline usable with previous bookmark markup', async t => {
+    const pageErrors = [];
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+        interactionIds: ['input-1'],
+        interactionId: 'input-1',
+        pageErrors,
+        bookmarkStore: {
+            async load() {
+                return { revision: 1, interactionIds: ['input-1'] };
+            },
+            async save() {},
+        },
+        transformHostDocument(html) {
+            return html.replace(
+                /<button type="button"\s+class="conversation-outline-bookmarks-only"[\s\S]*?<\/button>/,
+                `<button type="button"
+                    class="conversation-outline-bookmarks-only"
+                    data-outline-bookmarks-only aria-pressed="false"
+                    title="Show bookmarked inputs only">☆ 0</button>`
+            );
+        },
+    });
+
+    await page.locator('[data-action="toggle-sidebar"]').click();
+    assert.equal(pageErrors.length, 0);
+    assert.equal(
+        await page.locator('[data-outline-interaction-id]').count(),
+        1
+    );
+    assert.equal(
+        await page.locator('[data-outline-bookmarks-only]')
+            .getAttribute('aria-label'),
+        'Show bookmarked inputs only, 1 bookmark'
+    );
+});
+
+test('CONVERSATION-OUTLINE-BOOKMARKS-001 keeps unbookmarked controls visible in dark and forced-color themes', async t => {
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+        interactionIds: ['input-1'],
+        interactionId: 'input-1',
+    });
+    await page.locator('[data-action="toggle-sidebar"]').click();
+    const bookmark = page.locator('[data-outline-bookmark-id="input-1"]');
+
+    assert.equal(await bookmark.evaluate(element =>
+        Number(getComputedStyle(element).opacity)), 1);
+    assert.equal(
+        await bookmark.evaluate(element => getComputedStyle(element).color),
+        viewerThemeFixtures[0].tokens.descriptionForeground
+    );
+
+    await page.emulateMedia({ forcedColors: 'active' });
+    assert.equal(await bookmark.evaluate(element =>
+        Number(getComputedStyle(element).opacity)), 1);
+    assert.notEqual(
+        await bookmark.evaluate(element => getComputedStyle(element).color),
+        'rgba(0, 0, 0, 0)'
+    );
+});
+
+test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps four-digit input numbers inside compact trailing metadata', async t => {
+    const interactionIds = [
+        'input-1997', 'input-1998', 'input-1999', 'input-2000',
+    ];
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[1],
+        viewport: { width: 1050, height: 620 },
+        interactionIds,
+        interactionId: 'input-2000',
+        totalInteractions: 2000,
+        outlinePartial: true,
+    });
+    await page.locator('[data-action="toggle-sidebar"]').click();
+
+    const layout = await page.locator(
+        '[data-outline-interaction-id="input-2000"]'
+    ).evaluate(button => {
+        const outline = button.closest('[data-conversation-outline]');
+        const number = button.querySelector('.conversation-outline-number');
+        const preview = button.querySelector('.conversation-outline-preview');
+        const numberRange = document.createRange();
+        numberRange.selectNodeContents(number);
+        const buttonRect = button.getBoundingClientRect();
+        const numberTextRect = numberRange.getBoundingClientRect();
+        const previewRect = preview.getBoundingClientRect();
+        return {
+            number: number.textContent,
+            numberInside: numberTextRect.left >= previewRect.right
+                && numberTextRect.right <= buttonRect.right,
+            previewInset: previewRect.left
+                - outline.getBoundingClientRect().left,
+        };
+    });
+    assert.deepEqual(layout, {
+        number: '2000',
+        numberInside: true,
+        previewInset: layout.previewInset,
+    });
+    assert.ok(
+        layout.previewInset >= 11 && layout.previewInset <= 15,
+        `four-digit outline text inset should stay balanced, got ${layout.previewInset}px`
     );
 });
 
@@ -1707,23 +1866,33 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 CONVERSATION-COMMENTS-LAYOUT-001 share
         viewport: { width: 180, height: 600 },
         initialWebviewState: {
             conversationSidebar: {
-                open: true, width: 240, view: 'comments', query: '',
+                open: true, width: 240, view: 'outline', query: '',
             },
         },
     });
     assert.deepEqual(
         await extraNarrow.page.evaluate(() => {
-            const comments = document.querySelector(
+            const sidebar = document.querySelector(
                 '[data-conversation-sidebar]'
             ).getBoundingClientRect();
+            const search = document.querySelector(
+                '[data-outline-search]'
+            ).getBoundingClientRect();
+            const bookmarks = document.querySelector(
+                '[data-outline-bookmarks-only]'
+            ).getBoundingClientRect();
             return {
-                leftVisible: comments.left >= 0,
-                rightVisible: comments.right <= window.innerWidth,
+                leftVisible: sidebar.left >= 0,
+                rightVisible: sidebar.right <= window.innerWidth,
+                controlsFit: search.left >= sidebar.left
+                    && bookmarks.right <= sidebar.right
+                    && search.right < bookmarks.left,
             };
         }),
         {
             leftVisible: true,
             rightVisible: true,
+            controlsFit: true,
         }
     );
 });

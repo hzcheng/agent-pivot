@@ -4458,7 +4458,7 @@
   {
     "id": "CONVERSATION-OUTLINE-BOOKMARKS-001",
     "domain": "webview",
-    "title": "AI Conversation persists current-Session input bookmarks, settles star changes through the Host, keeps stars and text compact, filters favorites on demand, and never reorders the outline",
+    "title": "AI Conversation persists current-Session input bookmarks, settles star changes through the Host, keeps a quiet aligned row grid, filters favorites on demand, and never reorders the outline",
     "priority": "P0",
     "status": "automated",
     "owners": [

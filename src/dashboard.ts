@@ -386,6 +386,50 @@ async function initializeDashboard(
             bootstrapPhaseTimings[phase] = Math.max(0, Date.now() - startedAtMs);
         }
     };
+    let settleStorageMigration: (available: boolean) => void = () => undefined;
+    let storageMigrationSettled = false;
+    const storageMigrationReady = new Promise<boolean>(resolve => {
+        settleStorageMigration = available => {
+            if (storageMigrationSettled) {
+                return;
+            }
+            storageMigrationSettled = true;
+            resolve(available);
+        };
+    });
+    resources.own({ dispose: () => settleStorageMigration(false) });
+    const runAfterStorageMigration = async <T>(run: () => T | PromiseLike<T>): Promise<T> => {
+        const available = await storageMigrationReady;
+        resources.assertActive();
+        if (!available) {
+            throw new Error('Agent Pivot storage migration did not complete.');
+        }
+        return run();
+    };
+    const storageMutationMessageTypes = new Set([
+        'save-current-workspace',
+        'save-project',
+        'add-project',
+        'import-from-other-storage',
+        'reordered-projects',
+        'reordered-favorites',
+        'remove-project',
+        'edit-project',
+        'color-project',
+        'favorite-project',
+        'edit-group',
+        'remove-group',
+        'add-group',
+    ]);
+    const messageRequiresStorageMigration = (message: unknown): boolean => {
+        if (!message || typeof message !== 'object') {
+            return false;
+        }
+        const messageType = (message as { type?: unknown }).type;
+        return typeof messageType === 'string'
+            && (messageType.startsWith('todo-')
+                || storageMutationMessageTypes.has(messageType));
+    };
 
     const colorService = new ColorService(context);
     const projectService = new ProjectService(context, colorService, {
@@ -753,28 +797,29 @@ async function initializeDashboard(
     });
     const directTerminalRestoreTask = timeBootstrapPhase('direct-terminal-restore', () =>
         aiSessionTerminalService.restorePersistedTerminals(vscode.window.terminals));
-    const tmuxRestoreTask = Promise.all([
-        persistedInactiveRestoreTask,
-        directTerminalRestoreTask,
-    ]).then(async (): Promise<'restored' | 'failed' | 'disposed'> => {
-        try {
-            resources.assertActive();
-        } catch (_error) {
-            return 'disposed';
-        }
-        try {
-            await timeBootstrapPhase('tmux-attach-restore', () =>
-                tmuxRuntimeBackend.restoreAttachTerminals(vscode.window.terminals));
-            return 'restored';
-        } catch (error) {
-            logAiSessionRuntimeFailure('restore-attach-terminals', error);
-            return 'failed';
-        }
-    });
+    const directTerminalRestoreOutcomeTask = directTerminalRestoreTask.then(
+        () => ({ outcome: 'restored' as const }),
+        error => ({ outcome: 'failed' as const, error }),
+    );
+    const tmuxRestoreTask = persistedInactiveRestoreTask.then(
+        async (): Promise<'restored' | 'failed' | 'disposed'> => {
+            try {
+                resources.assertActive();
+            } catch (_error) {
+                return 'disposed';
+            }
+            try {
+                await timeBootstrapPhase('tmux-attach-restore', () =>
+                    tmuxRuntimeBackend.restoreAttachTerminals(vscode.window.terminals));
+                return 'restored';
+            } catch (error) {
+                logAiSessionRuntimeFailure('restore-attach-terminals', error);
+                return 'failed';
+            }
+        });
     // Persisted discovery and Direct restoration start concurrently. Runtime
     // recovery is always post-render work: process ID resolution, filesystem
     // scans, and a delayed Extension Host timer must never gate ready HTML.
-    const runtimeRestoreTask = tmuxRestoreTask;
     bootstrapPhaseTimings['tmux-restore-wait'] = 0;
     resources.assertActive();
     logDashboardDiagnostic({
@@ -784,19 +829,11 @@ async function initializeDashboard(
     });
     const publishDeferredRuntimeRestore = (
         outcome: 'restored' | 'failed' | 'disposed',
-        error?: unknown,
     ): void => {
         try {
             resources.assertActive();
         } catch (_error) {
             return;
-        }
-        if (error !== undefined) {
-            logAiSessionRuntimeFailure(
-                'restore-persisted-terminals',
-                error,
-                'vscode',
-            );
         }
         aiSessionAttentionEvent.setDeferredRestoreSettled();
         logDashboardDiagnostic({
@@ -806,9 +843,12 @@ async function initializeDashboard(
         });
         publishDeferredTmuxRestoreIfReady();
     };
-    void runtimeRestoreTask.then(
-        outcome => publishDeferredRuntimeRestore(outcome),
-        error => publishDeferredRuntimeRestore('failed', error),
+    void tmuxRestoreTask.then(
+        publishDeferredRuntimeRestore,
+        error => {
+            logAiSessionRuntimeFailure('restore-attach-terminals', error);
+            publishDeferredRuntimeRestore('failed');
+        },
     );
     const aiSessionPinStore = new AiSessionPinStore(context.globalStoragePath);
     const aiSessionPinController = new AiSessionPinController({
@@ -1123,6 +1163,28 @@ async function initializeDashboard(
         setTimeout: (callback, delayMs) => setTimeout(callback, delayMs),
         clearTimeout: handle => clearTimeout(handle),
     }));
+    void directTerminalRestoreOutcomeTask.then(result => {
+        if (result.outcome === 'restored') {
+            try {
+                resources.assertActive();
+            } catch (_error) {
+                return;
+            }
+            void aiSessionDashboardController.refreshNow(
+                'direct-bootstrap-restore',
+                { fallbackToFullRefresh: false },
+            );
+            return;
+        }
+        try {
+            resources.assertActive();
+        } catch (_error) {
+            return;
+        }
+        logAiSessionRuntimeFailure(
+            'restore-persisted-terminals', result.error, 'vscode'
+        );
+    });
     conversationCapability = ownResource(() => createConversationCapability({
         services: aiSessionServices,
         resolveTarget: (projectId, providerId, sessionId) => {
@@ -1305,18 +1367,20 @@ async function initializeDashboard(
             openWorkspaceDashboardController.getState().otherWindows.status,
         ),
         renderError: getErrorContent,
-        onMessage: dashboardMessageRouter,
+        onMessage: message => messageRequiresStorageMigration(message)
+            ? runAfterStorageMigration(() => dashboardMessageRouter(message))
+            : dashboardMessageRouter(message),
         onVisibleChanged: async visible => {
             projectsPanelController?.invalidatePendingUpdates();
             openWorkspaceDashboardController?.invalidatePendingUpdates();
             setAiSessionWatchersActive(visible);
             activeAiSessionTerminalHighlighter.setVisible(visible);
+            aiSessionAttentionEvent.setDeferredRestoreRefreshReady(visible);
+            publishDeferredTmuxRestoreIfReady();
             if (visible) {
                 void tmuxFocusedRuntimeMonitor.request();
             }
             await dashboardRuntimeController.handleAiSessionViewVisibilityChanged(visible);
-            aiSessionAttentionEvent.setDeferredRestoreRefreshReady(true);
-            publishDeferredTmuxRestoreIfReady();
         },
         onVisiblePrepared: () =>
             aiSessionDashboardController.refreshNow('dashboard-visible', {
@@ -1531,8 +1595,11 @@ async function initializeDashboard(
         migrateDataIfNeeded: async () => {
             const projectMigration = settleMigration(() => projectService.migrateDataIfNeeded());
             const todoMigration = settleMigration(() => todoService.migrateDataIfNeeded());
-            todoPanel.setStorageMigrationReady(todoMigration.then(() => undefined, () => undefined));
+            if (storageMigrationSettled) {
+                todoPanel.setStorageMigrationReady(todoMigration.then(() => undefined));
+            }
             const [projects, todos] = await Promise.all([projectMigration, todoMigration]);
+            settleStorageMigration(true);
             return { projects, todos };
         },
         refreshDashboard: () => provider.refresh(),
@@ -1626,13 +1693,15 @@ async function initializeDashboard(
 
     const commandHandlers = {
         open: () => showAgentPivot(),
-        addProject: () => projectMutationController.addProject(),
-        saveProject: () => savedWorkspaceProjectAdapter.saveCurrentWorkspace(),
-        removeProject: () => projectRemovalController.removeProjectPerCommand(),
-        editProjects: () => projectManualEditController.editProjectsManually(),
-        addGroup: () => groupCommandController.addGroup(),
-        removeGroup: () => groupCommandController.removeGroupPerCommand(),
-        addProjectsFromFolder: () => addProjectsFromFolderController.addProjectsFromFolder(),
+        addProject: () => runAfterStorageMigration(() => projectMutationController.addProject()),
+        saveProject: () => runAfterStorageMigration(() => savedWorkspaceProjectAdapter.saveCurrentWorkspace()),
+        removeProject: () => runAfterStorageMigration(() => projectRemovalController.removeProjectPerCommand()),
+        editProjects: () => runAfterStorageMigration(() => projectManualEditController.editProjectsManually()),
+        addGroup: () => runAfterStorageMigration(() => groupCommandController.addGroup()),
+        removeGroup: () => runAfterStorageMigration(() => groupCommandController.removeGroupPerCommand()),
+        addProjectsFromFolder: () => runAfterStorageMigration(
+            () => addProjectsFromFolderController.addProjectsFromFolder()
+        ),
         addFileToActiveTerminal: () => activeTerminalFileReferenceController.addFileToActiveTerminal(),
         insertPromptToActiveTerminal: () => promptTerminalCommandController.insertPromptToActiveTerminal(),
         migrateSkillsToCentral: () => skillPanel.migrateToCentral(),

@@ -41,7 +41,7 @@ function metadataSequenceResult(args, getValue) {
             const option = command[command.length - 1];
             const key = Object.keys(tmuxLayout.TMUX_METADATA_OPTIONS)
                 .find(name => tmuxLayout.TMUX_METADATA_OPTIONS[name] === option);
-            const value = key && getValue(key);
+            const value = key && getValue(key, command);
             if (value !== undefined) {
                 stdout.push(value);
             }
@@ -1534,9 +1534,9 @@ async function runTmuxClientChecks() {
                     stderr: '',
                 };
             }
-            if (args[0] === 'show-options') {
-                const target = args[args.indexOf('-t') + 1];
-                return metadataSequenceResult(args, key => {
+            if (args.includes('show-options')) {
+                return metadataSequenceResult(args, (key, command) => {
+                    const target = command[command.indexOf('-t') + 1];
                     const value = optionValues[`${target}|${key}`];
                     return value === undefined ? undefined : encodeExpectedTmuxMetadata(value);
                 });
@@ -1625,11 +1625,11 @@ async function runTmuxClientChecks() {
     ]);
     const listingMetadataCalls = metadataCalls.slice();
     assert.strictEqual(
-        listingMetadataCalls.filter(call => call.args[0] === 'show-options').length,
-        3,
-        'one session and two windows must require only three batched metadata reads'
+        listingMetadataCalls.filter(call => call.args.includes('show-options')).length,
+        1,
+        'one session and two windows must require only one batched metadata read'
     );
-    assert.ok(listingMetadataCalls.filter(call => call.args[0] === 'show-options')
+    assert.ok(listingMetadataCalls.filter(call => call.args.includes('show-options'))
         .every(call => call.args.includes(';')),
     'each metadata read must stay inside one tmux command sequence');
     assert.deepStrictEqual(await metadataClient.getSessionOptions('session-a'), {

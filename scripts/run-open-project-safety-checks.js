@@ -3299,7 +3299,9 @@ function runDashboardBridgeLifecycleChecks() {
         'workspace card saves must reuse the complete SavedWorkspaceProjectAdapter flow');
     assert.strictEqual(dashboard.includes("'save-project': async"), false,
         'legacy save-project messages must use the reserved snapshot-based workspace route');
-    assert.ok(dashboard.includes('saveProject: () => savedWorkspaceProjectAdapter.saveCurrentWorkspace()'));
+    assert.ok(dashboard.includes(
+        'saveProject: () => runAfterStorageMigration(() => savedWorkspaceProjectAdapter.saveCurrentWorkspace())'
+    ), 'command-driven workspace saves must wait for storage migration');
     assert.ok(dashboard.includes('await savedWorkspaceProjectAdapter.completePendingWorkspaceSave();'));
     const startupWiring = dashboard.slice(
         dashboard.indexOf('const dashboardStartupController = new DashboardStartupController({'),
@@ -3324,9 +3326,15 @@ function runDashboardBridgeLifecycleChecks() {
         'Save Workspace As must read a fresh resolved snapshot instead of a cached transient card/controller state');
     assert.ok(projectMessageHandlers.includes('await projectMutationController.editProject('));
     assert.ok(projectMessageHandlers.includes('await projectMutationController.editProjectColor('));
-    assert.ok(dashboard.includes('editProjects: () => projectManualEditController.editProjectsManually()'));
-    assert.ok(dashboard.includes('removeProject: () => projectRemovalController.removeProjectPerCommand()'));
-    assert.ok(dashboard.includes('removeGroup: () => groupCommandController.removeGroupPerCommand()'));
+    assert.ok(dashboard.includes(
+        'editProjects: () => runAfterStorageMigration(() => projectManualEditController.editProjectsManually())'
+    ));
+    assert.ok(dashboard.includes(
+        'removeProject: () => runAfterStorageMigration(() => projectRemovalController.removeProjectPerCommand())'
+    ));
+    assert.ok(dashboard.includes(
+        'removeGroup: () => runAfterStorageMigration(() => groupCommandController.removeGroupPerCommand())'
+    ));
     assert.ok(dashboard.includes(
         'postCommandRemoval: () => { void dashboardRuntimeController.revealAgentPivotDashboard(); },'
     ), 'command-driven removal must focus the sidebar without forcing a complete Webview refresh');

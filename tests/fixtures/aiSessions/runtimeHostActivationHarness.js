@@ -238,11 +238,17 @@ async function main() {
     let pendingDirectRestoreEntered = false;
     let releasePendingDirectRestore;
     let pendingTmuxRestoreEntered = false;
+    let tmuxRestoreEnteredBeforeDirectRestoreSettled = false;
     let tmuxRestoreSettled = false;
+    let tmuxRestorePublishedBeforeDirectRestoreSettled = false;
     let releasePendingTmuxRestore;
     let pendingStartupSequenceEntered = false;
     let startupSequenceSettled = false;
     let releasePendingStartupSequence;
+    let projectMutationInvocations = 0;
+    let projectMutationBlockedDuringMigration = false;
+    let readOnlyHydrationPassedDuringMigration = false;
+    let directRestoreRefreshAfterSettlement = false;
     const synchronizedGlobalStateKeySets = [];
     const runtimeStoreRoots = [];
     const capturedRuntimeStores = [];
@@ -367,6 +373,7 @@ async function main() {
         const AiSessionAliasController = require('../../../out/aiSessions/aliasController').default;
         const { DashboardCommandRegistration } = require('../../../out/dashboard/commandRegistration');
         const { DashboardStartupController } = require('../../../out/dashboard/startupController');
+        const { ProjectMutationController } = require('../../../out/projects/projectMutationController');
 
         const originalDashboardRegister = DashboardCommandRegistration.prototype.register;
         patch(DashboardCommandRegistration.prototype, 'register', function (...args) {
@@ -383,6 +390,9 @@ async function main() {
             }
             await originalDashboardStartUp.apply(this, args);
             startupSequenceSettled = true;
+        });
+        patch(ProjectMutationController.prototype, 'addProject', async function () {
+            projectMutationInvocations += 1;
         });
         patch(AiSessionAliasController.prototype, 'copyForRebind', function (...args) {
             aliasRebinds.push(args);
@@ -421,6 +431,7 @@ async function main() {
         patch(TerminalService.prototype, 'restorePersistedTerminals', async function () {
             assert.ok(this instanceof TerminalService);
             if (mode === 'pending' || mode === 'diagnostics'
+                || mode === 'slow-direct-restore'
                 || mode === 'slow-runtime-restore' || mode === 'blocked-restore-budget') {
                 pendingDirectRestoreEntered = true;
                 await new Promise(resolve => {
@@ -473,6 +484,7 @@ async function main() {
             assert.ok(this.dependencies.runtimeStore instanceof TmuxRuntimeBindingStore);
             assert.ok(this.dependencies.attachStore instanceof TmuxAttachBindingStore);
             verified.add('tmux-backend');
+            tmuxRestoreEnteredBeforeDirectRestoreSettled = !directRestoreSettled;
             restoreAttachTerminalsInvocations.push((terminals || []).map(terminal => terminal?.name));
             if (mode === 'tmux-restore-failure') {
                 events.push('tmux-restore-failed');
@@ -540,6 +552,7 @@ async function main() {
                 () => activationSettled,
                 'activation to return while Direct restoration is pending'
             );
+            await waitFor(() => tmuxRestoreSettled, 'tmux restoration to settle');
         }
         await activationFlight;
         if (mode === 'slow-runtime-restore' || mode === 'blocked-restore-budget') {
@@ -575,8 +588,27 @@ async function main() {
             readyBeforeStartupSequenceSettled =
                 vscode.registeredProvider?.lifecycle?.kind === 'ready'
                 && !startupSequenceSettled;
+            const mutationFlight = vscode.bootWebviewMessageCallback?.({
+                type: 'add-project',
+                groupId: null,
+            });
+            const hydrationFlight = vscode.bootWebviewMessageCallback?.({
+                type: 'request-projects-panel',
+                version: 1,
+                requestId: 991,
+            });
+            for (let attempt = 0; attempt < 10; attempt += 1) {
+                await new Promise(resolve => setImmediate(resolve));
+            }
+            projectMutationBlockedDuringMigration = projectMutationInvocations === 0
+                && !startupSequenceSettled;
+            readOnlyHydrationPassedDuringMigration = lifecycle.postedWebviewMessages.some(
+                message => message?.type === 'projects-panel-content'
+                    && message.requestId === 991
+            );
             releasePendingStartupSequence?.();
             await waitFor(() => startupSequenceSettled, 'startup sequence to settle');
+            await Promise.all([mutationFlight, hydrationFlight]);
         }
         if (mode === 'slow-tmux-restore' || mode === 'slow-tmux-restore-dispose') {
             await waitFor(
@@ -638,6 +670,20 @@ async function main() {
             await waitFor(() => vscode.providerRegistrations === 1, 'provider registration');
             await vscode.providerResolution;
             await waitFor(() => vscode.webviewHtmlHistory.length > 0, 'Webview HTML assignment');
+            if (mode === 'pending') {
+                await waitFor(
+                    () => vscode.registeredProvider?.lifecycle?.kind === 'ready',
+                    'ready dashboard while Direct restoration is pending'
+                );
+                for (let attempt = 0; attempt < 100
+                    && !lifecycle.outputLines.some(line =>
+                        line.includes('"reason":"tmux-bootstrap-restore"')); attempt += 1) {
+                    await new Promise(resolve => setImmediate(resolve));
+                }
+                tmuxRestorePublishedBeforeDirectRestoreSettled = !directRestoreSettled
+                    && lifecycle.outputLines.some(line =>
+                        line.includes('"reason":"tmux-bootstrap-restore"'));
+            }
             const generation = vscode.registeredProvider?.lifecycle?.generation;
             if (Number.isSafeInteger(generation) && generation > 0
                 && vscode.bootWebviewMessageCallback) {
@@ -655,6 +701,25 @@ async function main() {
                     () => ['ready', 'failed'].includes(vscode.registeredProvider?.lifecycle?.kind),
                     'dashboard bootstrap completion'
                 );
+            }
+            if (mode === 'slow-direct-restore') {
+                await waitFor(
+                    () => pendingDirectRestoreEntered && tmuxRestoreSettled,
+                    'Direct restoration to remain pending after tmux settlement'
+                );
+                await waitFor(
+                    () => lifecycle.outputLines.some(line =>
+                        line.includes('"reason":"tmux-bootstrap-restore"')),
+                    'tmux restoration refresh before Direct settlement'
+                );
+                releasePendingDirectRestore?.();
+                await waitFor(() => directRestoreSettled, 'Direct restoration to settle');
+                await waitFor(
+                    () => lifecycle.outputLines.some(line =>
+                        line.includes('"reason":"direct-bootstrap-restore"')),
+                    'Direct restoration refresh after settlement'
+                );
+                directRestoreRefreshAfterSettlement = true;
             }
             if (mode === 'slow-runtime-restore') {
                 const refreshDeadline = Date.now() + 1_500;
@@ -810,6 +875,9 @@ async function main() {
             readyBeforeRuntimeRestoresSettled,
             pendingStartupSequenceEntered,
             readyBeforeStartupSequenceSettled,
+            projectMutationBlockedDuringMigration,
+            projectMutationInvocations,
+            readOnlyHydrationPassedDuringMigration,
             pendingOpenRevealedBootShell,
             pendingUnavailableCommandError,
             inFlightListenerDisposedBeforeGateRelease,
@@ -819,11 +887,18 @@ async function main() {
             postDisposeWebviewMessages: lifecycle.postDisposeWebviewMessages,
             lateAttentionClientObserved,
             pendingTmuxRestoreEntered,
+            tmuxRestoreEnteredBeforeDirectRestoreSettled,
+            tmuxRestorePublishedBeforeDirectRestoreSettled,
             readyBeforeTmuxRestoreSettled,
             tmuxRestoreRefreshCount: aiSessionDiagnostics.filter(
                 diagnostic => diagnostic.event === 'ai-session-message-build'
                     && diagnostic.reason === 'tmux-bootstrap-restore'
             ).length,
+            directRestoreRefreshCount: aiSessionDiagnostics.filter(
+                diagnostic => diagnostic.event === 'ai-session-message-build'
+                    && diagnostic.reason === 'direct-bootstrap-restore'
+            ).length,
+            directRestoreRefreshAfterSettlement,
             tmuxRuntimeFailureDiagnostics,
             warningMessages: lifecycle.warningMessages,
             fallbackResumeStatuses,

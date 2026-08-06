@@ -48,7 +48,10 @@ function watchStyles() {
 }
 
 function watchWebviewAssets() {
-    return gulp.watch('src/webview/*.js', copyWebviewAssets);
+    return gulp.watch(
+        'src/webview/*.js',
+        gulp.series(copyWebviewAssets, buildDashboardBundle)
+    );
 }
 
 exports.buildStyles = buildStyles;

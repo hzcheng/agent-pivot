@@ -2256,14 +2256,24 @@ async function runDashboardTodoMigrationSequencingChecks() {
     const runMigrationBody = new AsyncFunction(
         'projectService',
         'todoService',
-        'todoPanel',
         'settleMigration',
+        'settleStorageMigration',
+        'storageMigrationSettled',
+        'todoPanel',
         migrationBody
     );
-    const runMigration = (projectService, todoService, todoStorageMigration) =>
-        runMigrationBody(projectService, todoService, {
-            setStorageMigrationReady: ready => { todoStorageMigration.ready = ready; },
-        }, settleMigration);
+    const runMigration = (projectService, todoService, storageMigration) => {
+        let settleReady;
+        storageMigration.ready = new Promise(resolve => { settleReady = resolve; });
+        return runMigrationBody(
+            projectService,
+            todoService,
+            settleMigration,
+            settleReady,
+            false,
+            { setStorageMigrationReady: () => undefined }
+        );
+    };
     const events = [];
     let resolveProjectMigration;
     const projectMigration = new Promise(resolve => { resolveProjectMigration = resolve; });
@@ -2292,14 +2302,20 @@ async function runDashboardTodoMigrationSequencingChecks() {
         await Promise.resolve();
         assert.deepStrictEqual(events, ['project-started', 'todo-started'],
             'TODO migration must start before the deferred project migration resolves');
-        await todoStorageMigration.ready;
         assert.deepStrictEqual(migratedTodoData, ['migrated'],
-            'the first TODO render gate must wait for migrated destination data');
+            'TODO migration must settle independently while project migration remains pending');
         assert.strictEqual(migrationSettled, false, 'project migration should still be pending');
+        let storageGateSettled = false;
+        todoStorageMigration.ready.then(() => { storageGateSettled = true; });
+        await Promise.resolve();
+        assert.strictEqual(storageGateSettled, false,
+            'dashboard storage mutations must remain gated until every migration settles');
     } finally {
         resolveProjectMigration(false);
         await migration;
     }
+    assert.strictEqual(await todoStorageMigration.ready, true,
+        'the shared storage gate must open after every migration settles');
 
     const todoPanelBody = extractFunctionBody(todoPanelCapabilitySource, 'postTodoPanelContent');
     assert.ok(todoPanelBody.includes('await todoStorageMigration.ready;'),

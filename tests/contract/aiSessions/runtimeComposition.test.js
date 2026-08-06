@@ -122,13 +122,19 @@ function isRestoreEvent(event) {
     return RESTORE_EVENTS.has(event);
 }
 
-test('WEBVIEW-TWO-STAGE-STARTUP-001 production activation adopts ready UI while runtime recovery is pending', () => {
+test('WEBVIEW-TWO-STAGE-STARTUP-001 RUNTIME-BOOTSTRAP-TMUX-RESTORE-DEFERRAL-001 production activation adopts ready UI while runtime recovery is pending', () => {
     const result = runProductionActivation('pending');
     assert.equal(result.failure, null);
     assert.equal(result.providerRegistrations, 1);
     assert.equal(result.pendingDirectRestoreEntered, true);
+    assert.equal(result.tmuxRestoreEnteredBeforeDirectRestoreSettled, true,
+        'tmux discovery must start while Direct terminal process IDs are still pending');
+    assert.equal(result.tmuxRestorePublishedBeforeDirectRestoreSettled, true,
+        'tmux settlement must publish without waiting for Direct terminal process IDs');
     assert.equal(result.activationReturnedBeforeDirectRestoreSettled, true);
     assert.equal(result.bootHtmlAssigned, true);
+    assert.ok(result.readyHtmlAssignments >= 1,
+        'the authoritative dashboard document must render while Direct recovery is pending');
     assert.equal(result.inFlightListenerDisposedBeforeGateRelease, true);
     assert.equal(result.openTerminalListenerDisposals, 1);
     assert.deepEqual(result.lateResourceAcquisitions, []);
@@ -227,7 +233,7 @@ test('WEBVIEW-TWO-STAGE-STARTUP-001 deferred Direct recovery failure keeps ready
     assert.equal(result.bootstrapState, 'ready');
     assert.equal(result.startupDiagnostics.some(diagnostic =>
         diagnostic.event === 'agent-pivot-bootstrap-tmux-restore-settled'
-            && diagnostic.outcome === 'failed'), true);
+            && diagnostic.outcome === 'restored'), true);
     assert.equal(result.startupDiagnostics.some(diagnostic =>
         diagnostic.event === 'agent-pivot-bootstrap-ready'), true);
     const serialized = JSON.stringify(result.startupDiagnostics);
@@ -260,7 +266,7 @@ test('RUNTIME-HOST-RUNTIME-COMPOSITION-001 SESSION-ALIAS-THREAD-SWITCH-001 ATTEN
     assert.deepEqual(result.aliasRebinds, [['codex', 'old-root', 'new-root']]);
 });
 
-test('RUNTIME-HOST-RUNTIME-COMPOSITION-001 Direct recovery failure skips tmux restore without blocking hydration', () => {
+test('RUNTIME-HOST-RUNTIME-COMPOSITION-001 Direct recovery failure preserves independent tmux restore without blocking hydration', () => {
     const result = runProductionActivation('direct-failure');
     assert.equal(result.failure, null);
     assert.equal(result.bootstrapState, 'ready');
@@ -268,12 +274,14 @@ test('RUNTIME-HOST-RUNTIME-COMPOSITION-001 Direct recovery failure skips tmux re
         'inactive-restored',
         'direct-failed',
         'hydration-constructed',
+        'tmux-restored',
     ]);
-    assert.equal(result.events.includes('tmux-restored'), false);
+    assert.equal(result.tmuxRestoreEnteredBeforeDirectRestoreSettled, false);
     assert.equal(result.events.includes('hydration-constructed'), true);
     assert.equal(result.rawDirectFailureExposedInHtml, false);
     assert.deepEqual(result.verified, [
         'client-store-discovery', 'thread-switch-alias-wiring',
+        'tmux-backend',
     ]);
 });
 
@@ -301,6 +309,15 @@ test('RUNTIME-BOOTSTRAP-TMUX-RESTORE-DEFERRAL-001 slow tmux recovery does not bl
             outcome: 'restored',
         },
     ]);
+});
+
+test('RUNTIME-BOOTSTRAP-TMUX-RESTORE-DEFERRAL-001 late Direct recovery publishes its own refresh after tmux', () => {
+    const result = runProductionActivation('slow-direct-restore');
+    assert.equal(result.failure, null);
+    assert.equal(result.pendingDirectRestoreEntered, true);
+    assert.equal(result.tmuxRestoreEnteredBeforeDirectRestoreSettled, true);
+    assert.equal(result.directRestoreRefreshAfterSettlement, true);
+    assert.equal(result.directRestoreRefreshCount, 1);
 });
 
 test('RUNTIME-BOOTSTRAP-TMUX-RESTORE-DEFERRAL-001 slow startup runtime recovery does not block ready rendering', () => {
@@ -338,11 +355,14 @@ test('RUNTIME-BOOTSTRAP-TMUX-RESTORE-DEFERRAL-001 ready rendering does not depen
     assert.equal(result.readyBeforeRuntimeRestoresSettled, true);
 });
 
-test('WEBVIEW-TWO-STAGE-STARTUP-001 ready rendering does not wait for post-ready startup effects', () => {
+test('WEBVIEW-TWO-STAGE-STARTUP-001 ready rendering does not wait for post-ready startup effects while mutations wait for migration', () => {
     const result = runProductionActivation('slow-startup-sequence');
     assert.equal(result.failure, null);
     assert.equal(result.pendingStartupSequenceEntered, true);
     assert.equal(result.readyBeforeStartupSequenceSettled, true);
+    assert.equal(result.projectMutationBlockedDuringMigration, true);
+    assert.equal(result.projectMutationInvocations, 1);
+    assert.equal(result.readOnlyHydrationPassedDuringMigration, true);
 });
 
 test('RUNTIME-BOOTSTRAP-TMUX-RESTORE-DEFERRAL-001 disposed bootstrap ignores late tmux recovery settlement', () => {

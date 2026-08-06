@@ -164,7 +164,6 @@ const NEW_AI_SESSION_REFRESH_DELAYS_MS = [250, 1000, 2500, 5000];
 const AI_SESSION_REFRESH_DEBOUNCE_MS = 3000;
 const AI_SESSION_WATCHER_REFRESH_MIN_INTERVAL_MS = 10000;
 const AI_SESSION_INCREMENTAL_SCAN_MAX_FILES = 2000;
-const AI_SESSION_TMUX_RESTORE_BUDGET_MS = 800;
 const DASHBOARD_BOOTSTRAP_PHASE_ORDER = [
     'skill-scan',
     'tmux-persisted-inactive-restore',
@@ -198,25 +197,6 @@ function resolveAiProviderExecutable(commandName: string): string | null {
         }
     }
     return null;
-}
-
-async function settlesWithinBudget<T>(
-    task: Promise<T>,
-    budgetMs: number
-): Promise<boolean> {
-    let timeout: NodeJS.Timeout | undefined;
-    try {
-        return await Promise.race([
-            task.then(() => true),
-            new Promise<boolean>(resolve => {
-                timeout = setTimeout(() => resolve(false), budgetMs);
-            }),
-        ]);
-    } finally {
-        if (timeout) {
-            clearTimeout(timeout);
-        }
-    }
 }
 
 function runBoundedAiProviderHelp(
@@ -392,6 +372,9 @@ async function initializeDashboard(
     const logOpenWorkspaceDiagnostic = (component: string, event: unknown) => dashboardDiagnostics.logOpenWorkspaceDiagnostic(component, event);
     const logOpenWorkspaceBridgeError = (error: unknown) => dashboardDiagnostics.logOpenWorkspaceBridgeError(error);
     const bootstrapPhaseTimings: Record<string, number> = {};
+    for (const phase of DASHBOARD_BOOTSTRAP_PHASE_ORDER) {
+        bootstrapPhaseTimings[phase] = 0;
+    }
     const timeBootstrapPhase = async <T>(
         phase: string,
         run: () => T | Promise<T>
@@ -768,10 +751,12 @@ async function initializeDashboard(
             }
         },
     });
-    await timeBootstrapPhase('direct-terminal-restore', () =>
+    const directTerminalRestoreTask = timeBootstrapPhase('direct-terminal-restore', () =>
         aiSessionTerminalService.restorePersistedTerminals(vscode.window.terminals));
-    resources.assertActive();
-    const tmuxRestoreTask = persistedInactiveRestoreTask.then(async (): Promise<'restored' | 'failed' | 'disposed'> => {
+    const tmuxRestoreTask = Promise.all([
+        persistedInactiveRestoreTask,
+        directTerminalRestoreTask,
+    ]).then(async (): Promise<'restored' | 'failed' | 'disposed'> => {
         try {
             resources.assertActive();
         } catch (_error) {
@@ -786,30 +771,45 @@ async function initializeDashboard(
             return 'failed';
         }
     });
-    const tmuxRestoreCompleted = await timeBootstrapPhase('tmux-restore-wait', () =>
-        settlesWithinBudget(tmuxRestoreTask, AI_SESSION_TMUX_RESTORE_BUDGET_MS));
+    // Persisted discovery and Direct restoration start concurrently. Runtime
+    // recovery is always post-render work: process ID resolution, filesystem
+    // scans, and a delayed Extension Host timer must never gate ready HTML.
+    const runtimeRestoreTask = tmuxRestoreTask;
+    bootstrapPhaseTimings['tmux-restore-wait'] = 0;
     resources.assertActive();
-    if (!tmuxRestoreCompleted) {
+    logDashboardDiagnostic({
+        event: 'agent-pivot-bootstrap-tmux-restore-deferred',
+        generation: bootstrapGeneration,
+        budgetMs: 0,
+    });
+    const publishDeferredRuntimeRestore = (
+        outcome: 'restored' | 'failed' | 'disposed',
+        error?: unknown,
+    ): void => {
+        try {
+            resources.assertActive();
+        } catch (_error) {
+            return;
+        }
+        if (error !== undefined) {
+            logAiSessionRuntimeFailure(
+                'restore-persisted-terminals',
+                error,
+                'vscode',
+            );
+        }
+        aiSessionAttentionEvent.setDeferredRestoreSettled();
         logDashboardDiagnostic({
-            event: 'agent-pivot-bootstrap-tmux-restore-deferred',
+            event: 'agent-pivot-bootstrap-tmux-restore-settled',
             generation: bootstrapGeneration,
-            budgetMs: AI_SESSION_TMUX_RESTORE_BUDGET_MS,
+            outcome,
         });
-        void tmuxRestoreTask.then(outcome => {
-            try {
-                resources.assertActive();
-            } catch (_error) {
-                return;
-            }
-            aiSessionAttentionEvent.setDeferredRestoreSettled();
-            logDashboardDiagnostic({
-                event: 'agent-pivot-bootstrap-tmux-restore-settled',
-                generation: bootstrapGeneration,
-                outcome,
-            });
-            publishDeferredTmuxRestoreIfReady();
-        });
-    }
+        publishDeferredTmuxRestoreIfReady();
+    };
+    void runtimeRestoreTask.then(
+        outcome => publishDeferredRuntimeRestore(outcome),
+        error => publishDeferredRuntimeRestore('failed', error),
+    );
     const aiSessionPinStore = new AiSessionPinStore(context.globalStoragePath);
     const aiSessionPinController = new AiSessionPinController({
         store: aiSessionPinStore,
@@ -1660,9 +1660,7 @@ async function initializeDashboard(
         dashboardLifecycleController.handleWindowStateChanged(windowState);
     }));
 
-    await timeBootstrapPhase('startup-sequence', () =>
-        dashboardStartupController.startUp());
-    resources.assertActive();
+    bootstrapPhaseTimings['startup-sequence'] = 0;
     const orderedBootstrapPhaseTimings: Record<string, number> = {};
     for (const phase of DASHBOARD_BOOTSTRAP_PHASE_ORDER) {
         if (Object.prototype.hasOwnProperty.call(bootstrapPhaseTimings, phase)) {
@@ -1680,6 +1678,34 @@ async function initializeDashboard(
     resources.own({
         dispose: () => dashboardCommandRegistration.discard(bootstrapGeneration),
     });
+    ownTimer(
+        () => setTimeout(() => {
+            void timeBootstrapPhase('startup-sequence', () =>
+                dashboardStartupController.startUp()).then(
+                () => {
+                    try {
+                        resources.assertActive();
+                    } catch (_error) {
+                        return;
+                    }
+                    logDashboardDiagnostic({
+                        event: 'agent-pivot-post-ready-startup-settled',
+                        generation: bootstrapGeneration,
+                        durationMs: bootstrapPhaseTimings['startup-sequence'],
+                    });
+                },
+                error => {
+                    try {
+                        resources.assertActive();
+                    } catch (_error) {
+                        return;
+                    }
+                    logError('Failed to complete Agent Pivot post-ready startup.', error);
+                },
+            );
+        }, 0),
+        handle => clearTimeout(handle),
+    );
     return providerOptions;
 
     // ~~~~~~~~~~~~~~~~~~~~~~~~~ Functions ~~~~~~~~~~~~~~~~~~~~~~~~~

@@ -45,6 +45,7 @@ const { deleteTodoWithConfirmation, runTodoMutation } = require('../out/todos/ho
 const todoViewModel = require('../out/todos/viewModel');
 const todoWebviewContent = require('../out/todos/webviewContent');
 const { buildWorkspaceDashboardSearchCatalog } = require('../out/webview/dashboardViewModel');
+const { inputPaths: dashboardBundleInputPaths } = require('./build-dashboard-webview-bundle');
 const AsyncFunction = Object.getPrototypeOf(async function () { return undefined; }).constructor;
 
 const root = path.join(__dirname, '..');
@@ -4536,49 +4537,51 @@ function runSourceContractChecks(source) {
     assert.ok(webviewContentSource.includes('class="project-border steward-item-accent"'));
     assert.ok(webviewContentSource.includes('onTodoMounted: (panel, message) =>'));
     assert.ok(webviewContentSource.includes('todos.mount(panel, message.snapshot)'));
-    assert.ok(webviewContentSource.includes("'webviewScrollStateScripts.js'"));
-    assert.ok(webviewContentSource.includes("'webviewSkillPanelScripts.js'"));
-    assert.ok(webviewContentSource.includes("'webviewProjectsPanelScripts.js'"));
+    const dashboardBundleInputs = dashboardBundleInputPaths.join('\n');
+    assert.ok(webviewContentSource.includes("'webviewDashboardBundle.js'"));
+    assert.ok(dashboardBundleInputs.includes('webviewScrollStateScripts.js'));
+    assert.ok(dashboardBundleInputs.includes('webviewSkillPanelScripts.js'));
+    assert.ok(dashboardBundleInputs.includes('webviewProjectsPanelScripts.js'));
     assert.ok(
-        webviewContentSource.indexOf('webviewProjectsPanelScripts.js')
-            < webviewContentSource.indexOf('webviewDashboardScripts.js'),
+        dashboardBundleInputs.indexOf('webviewProjectsPanelScripts.js')
+            < dashboardBundleInputs.indexOf('webviewDashboardScripts.js'),
         'the projects panel capture/restore helpers must load before the Dashboard controller that calls them'
     );
     assert.ok(
-        webviewContentSource.indexOf('webviewDashboardValidationScripts.js') > -1
-            && webviewContentSource.indexOf('webviewDashboardValidationScripts.js')
-                < webviewContentSource.indexOf('webviewDashboardScripts.js')
-            && webviewContentSource.indexOf('webviewDashboardSearchScripts.js') > -1
-            && webviewContentSource.indexOf('webviewDashboardSearchScripts.js')
-                < webviewContentSource.indexOf('webviewDashboardScripts.js')
-            && webviewContentSource.indexOf('webviewDashboardProjectsPanelScripts.js') > -1
-            && webviewContentSource.indexOf('webviewDashboardProjectsPanelScripts.js')
-                < webviewContentSource.indexOf('webviewDashboardScripts.js')
-            && webviewContentSource.indexOf('webviewDashboardTodoPanelScripts.js') > -1
-            && webviewContentSource.indexOf('webviewDashboardTodoPanelScripts.js')
-                < webviewContentSource.indexOf('webviewDashboardScripts.js')
-            && webviewContentSource.indexOf('webviewDashboardAiPanelScripts.js') > -1
-            && webviewContentSource.indexOf('webviewDashboardAiPanelScripts.js')
-                < webviewContentSource.indexOf('webviewDashboardScripts.js'),
+        dashboardBundleInputs.indexOf('webviewDashboardValidationScripts.js') > -1
+            && dashboardBundleInputs.indexOf('webviewDashboardValidationScripts.js')
+                < dashboardBundleInputs.indexOf('webviewDashboardScripts.js')
+            && dashboardBundleInputs.indexOf('webviewDashboardSearchScripts.js') > -1
+            && dashboardBundleInputs.indexOf('webviewDashboardSearchScripts.js')
+                < dashboardBundleInputs.indexOf('webviewDashboardScripts.js')
+            && dashboardBundleInputs.indexOf('webviewDashboardProjectsPanelScripts.js') > -1
+            && dashboardBundleInputs.indexOf('webviewDashboardProjectsPanelScripts.js')
+                < dashboardBundleInputs.indexOf('webviewDashboardScripts.js')
+            && dashboardBundleInputs.indexOf('webviewDashboardTodoPanelScripts.js') > -1
+            && dashboardBundleInputs.indexOf('webviewDashboardTodoPanelScripts.js')
+                < dashboardBundleInputs.indexOf('webviewDashboardScripts.js')
+            && dashboardBundleInputs.indexOf('webviewDashboardAiPanelScripts.js') > -1
+            && dashboardBundleInputs.indexOf('webviewDashboardAiPanelScripts.js')
+                < dashboardBundleInputs.indexOf('webviewDashboardScripts.js'),
         'the Dashboard pure helpers and panel controllers must load before the Dashboard controller that calls them'
     );
     assert.ok(
-        webviewContentSource.indexOf('webviewSkillPanelScripts.js')
-            < webviewContentSource.indexOf('webviewDashboardScripts.js'),
+        dashboardBundleInputs.indexOf('webviewSkillPanelScripts.js')
+            < dashboardBundleInputs.indexOf('webviewDashboardScripts.js'),
         'the skill panel controller must load before the Dashboard controller that wires it'
     );
     assert.ok(
-        webviewContentSource.indexOf('webviewScrollStateScripts.js')
-            < webviewContentSource.indexOf('webviewProjectScripts.js'),
+        dashboardBundleInputs.indexOf('webviewScrollStateScripts.js')
+            < dashboardBundleInputs.indexOf('webviewProjectScripts.js'),
         'semantic scroll state must load before every domain Webview script'
     );
-    assert.ok(webviewContentSource.includes("'webviewTodoRenderScripts.js'"));
+    assert.ok(dashboardBundleInputs.includes('webviewTodoRenderScripts.js'));
     assert.ok(
-        webviewContentSource.indexOf('webviewTodoRenderScripts.js')
-            < webviewContentSource.indexOf('webviewTodoScripts.js'),
+        dashboardBundleInputs.indexOf('webviewTodoRenderScripts.js')
+            < dashboardBundleInputs.indexOf('webviewTodoScripts.js'),
         'the TODO renderer must load before the TODO controller that calls it'
     );
-    assert.ok(webviewContentSource.includes("'webviewTodoScripts.js'"));
+    assert.ok(dashboardBundleInputs.includes('webviewTodoScripts.js'));
     assert.match(
         webviewContentSource,
         /onTodoMounted: \(panel, message\) => \{[\s\S]*?todos\.mount\(panel, message\.snapshot\);[\s\S]*?window\.__agentPivotSyncCollapseButton\(\);[\s\S]*?\}/

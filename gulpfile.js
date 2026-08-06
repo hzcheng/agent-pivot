@@ -7,6 +7,7 @@ const mode = require('gulp-mode')({
 const gulpSass = require('gulp-sass');
 const sass = require('sass');
 const cleanCSS = require('gulp-clean-css');
+const { buildDashboardWebviewBundle } = require('./scripts/build-dashboard-webview-bundle');
 
 const sassTask = gulpSass(sass);
 const browserNodeAssets = [
@@ -37,6 +38,11 @@ function copyWebviewAssets() {
     ]).pipe(gulp.dest('media'));
 }
 
+function buildDashboardBundle(done) {
+    buildDashboardWebviewBundle();
+    done();
+}
+
 function watchStyles() {
     return gulp.watch('media/*.scss', buildStyles);
 }
@@ -50,7 +56,15 @@ exports.watchStyles = watchStyles;
 exports.copyWebviewAssets = copyWebviewAssets;
 exports.watchWebviewAssets = watchWebviewAssets;
 exports.copyNodeAssets = copyNodeAssets;
+exports.buildDashboardBundle = buildDashboardBundle;
 
 exports.default = mode.development()
-    ? gulp.parallel(buildStyles, watchStyles, copyWebviewAssets, watchWebviewAssets, copyNodeAssets)
-    : gulp.parallel(buildStyles, copyWebviewAssets, copyNodeAssets);
+    ? gulp.series(
+        gulp.parallel(buildStyles, copyWebviewAssets, copyNodeAssets),
+        buildDashboardBundle,
+        gulp.parallel(watchStyles, watchWebviewAssets)
+    )
+    : gulp.series(
+        gulp.parallel(buildStyles, copyWebviewAssets, copyNodeAssets),
+        buildDashboardBundle
+    );

@@ -209,7 +209,7 @@ export class AgentPivotViewProvider implements vscode.WebviewViewProvider {
     }
 
     get visible() {
-        return Boolean(this._view?.visible);
+        return this.lifecycle.kind === 'ready' && Boolean(this._view?.visible);
     }
 
     refresh() {

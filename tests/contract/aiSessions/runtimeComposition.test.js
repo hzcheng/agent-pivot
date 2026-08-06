@@ -122,7 +122,7 @@ function isRestoreEvent(event) {
     return RESTORE_EVENTS.has(event);
 }
 
-test('WEBVIEW-TWO-STAGE-STARTUP-001 production activation returns while ordered bootstrap is pending', () => {
+test('WEBVIEW-TWO-STAGE-STARTUP-001 production activation adopts ready UI while runtime recovery is pending', () => {
     const result = runProductionActivation('pending');
     assert.equal(result.failure, null);
     assert.equal(result.providerRegistrations, 1);
@@ -133,13 +133,13 @@ test('WEBVIEW-TWO-STAGE-STARTUP-001 production activation returns while ordered 
     assert.equal(result.openTerminalListenerDisposals, 1);
     assert.deepEqual(result.lateResourceAcquisitions, []);
     assert.deepEqual(result.postDisposePublications, []);
-    assert.equal(result.lateAttentionClientObserved, false);
+    assert.equal(result.lateAttentionClientObserved, true);
 });
 
-test('WEBVIEW-DASHBOARD-COMMAND-AVAILABILITY-001 production activation exposes stable commands while bootstrap is pending', () => {
+test('WEBVIEW-DASHBOARD-COMMAND-AVAILABILITY-001 production activation exposes commands while runtime recovery is pending', () => {
     const result = runProductionActivation('pending');
     assert.equal(result.failure, null);
-    assert.deepEqual(result.registeredCommands, [
+    assert.deepEqual(result.registeredCommands.filter(command => command.startsWith('agentPivot.')), [
         'agentPivot.open',
         'agentPivot.addProject',
         'agentPivot.saveProject',
@@ -154,10 +154,13 @@ test('WEBVIEW-DASHBOARD-COMMAND-AVAILABILITY-001 production activation exposes s
         'agentPivot.changeGlobalSkillsLocation',
         'agentPivot.openCurrentAiSessionConversation',
         'agentPivot.switchToOpenWindow',
+        'agentPivot.notify.setWebhook',
+        'agentPivot.notify.showOutput',
+        'agentPivot.notify.sendTest',
     ]);
     assert.equal(result.dashboardCommandRegistrationInvocations, 1);
     assert.equal(result.pendingOpenRevealedBootShell, true);
-    assert.match(result.pendingUnavailableCommandError, /Agent Pivot is still starting/);
+    assert.equal(result.pendingUnavailableCommandError, null);
 });
 
 test('WEBVIEW-TWO-STAGE-STARTUP-001 production startup diagnostics preserve exact order and bounded fields', () => {
@@ -196,9 +199,9 @@ test('WEBVIEW-TWO-STAGE-STARTUP-001 production startup diagnostics preserve exac
             generation: 1,
         },
         {
-            event: 'agent-pivot-browser-first-paint',
+            event: 'agent-pivot-bootstrap-tmux-restore-deferred',
             generation: 1,
-            durationMs: '<durationMs>',
+            budgetMs: 0,
         },
         {
             event: 'agent-pivot-bootstrap-phases',
@@ -210,17 +213,23 @@ test('WEBVIEW-TWO-STAGE-STARTUP-001 production startup diagnostics preserve exac
             generation: 1,
             durationMs: '<durationMs>',
         },
+        {
+            event: 'agent-pivot-bootstrap-tmux-restore-settled',
+            generation: 1,
+            outcome: 'restored',
+        },
     ]);
 });
 
-test('WEBVIEW-TWO-STAGE-STARTUP-001 production failure diagnostic is exact and privacy-safe', () => {
+test('WEBVIEW-TWO-STAGE-STARTUP-001 deferred Direct recovery failure keeps ready diagnostics privacy-safe', () => {
     const result = runProductionActivation('direct-failure');
     assert.equal(result.failure, null);
-    assert.deepEqual(result.startupDiagnostics.at(-1), {
-        event: 'agent-pivot-bootstrap-failed',
-        generation: 1,
-        category: 'dashboard-bootstrap',
-    });
+    assert.equal(result.bootstrapState, 'ready');
+    assert.equal(result.startupDiagnostics.some(diagnostic =>
+        diagnostic.event === 'agent-pivot-bootstrap-tmux-restore-settled'
+            && diagnostic.outcome === 'failed'), true);
+    assert.equal(result.startupDiagnostics.some(diagnostic =>
+        diagnostic.event === 'agent-pivot-bootstrap-ready'), true);
     const serialized = JSON.stringify(result.startupDiagnostics);
     for (const canary of [
         'PRIVATE_PATH_CANARY',
@@ -234,11 +243,11 @@ test('WEBVIEW-TWO-STAGE-STARTUP-001 production failure diagnostic is exact and p
     }
 });
 
-test('RUNTIME-HOST-RUNTIME-COMPOSITION-001 SESSION-ALIAS-THREAD-SWITCH-001 ATTENTION-ACTIVE-UNREGISTER-ON-DEACTIVATE-001 production activation wires lifecycle ownership and restores before hydration', () => {
+test('RUNTIME-HOST-RUNTIME-COMPOSITION-001 SESSION-ALIAS-THREAD-SWITCH-001 ATTENTION-ACTIVE-UNREGISTER-ON-DEACTIVATE-001 production activation wires lifecycle ownership around deferred recovery', () => {
     const result = runProductionActivation('success');
     assert.equal(result.failure, null);
     assert.deepEqual(result.events.filter(isRestoreEvent), [
-        'inactive-restored', 'direct-restored', 'tmux-restored', 'hydration-constructed',
+        'inactive-restored', 'direct-restored', 'hydration-constructed', 'tmux-restored',
     ]);
     assert.deepEqual(result.events.slice(-2), [
         'attention-shutdown-complete', 'dashboard-deactivated',
@@ -251,16 +260,17 @@ test('RUNTIME-HOST-RUNTIME-COMPOSITION-001 SESSION-ALIAS-THREAD-SWITCH-001 ATTEN
     assert.deepEqual(result.aliasRebinds, [['codex', 'old-root', 'new-root']]);
 });
 
-test('RUNTIME-HOST-RUNTIME-COMPOSITION-001 production activation blocks tmux restore and hydration after Direct failure', () => {
+test('RUNTIME-HOST-RUNTIME-COMPOSITION-001 Direct recovery failure skips tmux restore without blocking hydration', () => {
     const result = runProductionActivation('direct-failure');
     assert.equal(result.failure, null);
-    assert.equal(result.bootstrapState, 'failed');
+    assert.equal(result.bootstrapState, 'ready');
     assert.deepEqual(result.events.filter(isRestoreEvent), [
         'inactive-restored',
         'direct-failed',
+        'hydration-constructed',
     ]);
     assert.equal(result.events.includes('tmux-restored'), false);
-    assert.equal(result.events.includes('hydration-constructed'), false);
+    assert.equal(result.events.includes('hydration-constructed'), true);
     assert.equal(result.rawDirectFailureExposedInHtml, false);
     assert.deepEqual(result.verified, [
         'client-store-discovery', 'thread-switch-alias-wiring',
@@ -283,7 +293,7 @@ test('RUNTIME-BOOTSTRAP-TMUX-RESTORE-DEFERRAL-001 slow tmux recovery does not bl
         {
             event: 'agent-pivot-bootstrap-tmux-restore-deferred',
             generation: 1,
-            budgetMs: 800,
+            budgetMs: 0,
         },
         {
             event: 'agent-pivot-bootstrap-tmux-restore-settled',
@@ -291,6 +301,48 @@ test('RUNTIME-BOOTSTRAP-TMUX-RESTORE-DEFERRAL-001 slow tmux recovery does not bl
             outcome: 'restored',
         },
     ]);
+});
+
+test('RUNTIME-BOOTSTRAP-TMUX-RESTORE-DEFERRAL-001 slow startup runtime recovery does not block ready rendering', () => {
+    const result = runProductionActivation('slow-runtime-restore');
+    assert.equal(result.failure, null);
+    assert.equal(result.pendingInactiveRestoreEntered, true);
+    assert.equal(result.pendingDirectRestoreEntered, true);
+    assert.equal(result.readyBeforeRuntimeRestoresSettled, true);
+    assert.deepEqual(result.events.filter(isRestoreEvent), [
+        'hydration-constructed',
+        'inactive-restored',
+        'direct-restored',
+        'tmux-restored',
+    ]);
+    assert.equal(result.tmuxRestoreRefreshCount, 1);
+    assert.deepEqual(result.tmuxRestoreDiagnostics, [
+        {
+            event: 'agent-pivot-bootstrap-tmux-restore-deferred',
+            generation: 1,
+            budgetMs: 0,
+        },
+        {
+            event: 'agent-pivot-bootstrap-tmux-restore-settled',
+            generation: 1,
+            outcome: 'restored',
+        },
+    ]);
+});
+
+test('RUNTIME-BOOTSTRAP-TMUX-RESTORE-DEFERRAL-001 ready rendering does not depend on the restore budget timer', () => {
+    const result = runProductionActivation('blocked-restore-budget');
+    assert.equal(result.failure, null);
+    assert.equal(result.pendingInactiveRestoreEntered, true);
+    assert.equal(result.pendingDirectRestoreEntered, true);
+    assert.equal(result.readyBeforeRuntimeRestoresSettled, true);
+});
+
+test('WEBVIEW-TWO-STAGE-STARTUP-001 ready rendering does not wait for post-ready startup effects', () => {
+    const result = runProductionActivation('slow-startup-sequence');
+    assert.equal(result.failure, null);
+    assert.equal(result.pendingStartupSequenceEntered, true);
+    assert.equal(result.readyBeforeStartupSequenceSettled, true);
 });
 
 test('RUNTIME-BOOTSTRAP-TMUX-RESTORE-DEFERRAL-001 disposed bootstrap ignores late tmux recovery settlement', () => {
@@ -304,7 +356,7 @@ test('RUNTIME-BOOTSTRAP-TMUX-RESTORE-DEFERRAL-001 disposed bootstrap ignores lat
         {
             event: 'agent-pivot-bootstrap-tmux-restore-deferred',
             generation: 1,
-            budgetMs: 800,
+            budgetMs: 0,
         },
     ]);
 });
@@ -388,8 +440,8 @@ test('RUNTIME-HOST-RUNTIME-COMPOSITION-001 production tmux restore failure stays
     assert.deepEqual(result.events.filter(isRestoreEvent), [
         'inactive-restored',
         'direct-restored',
-        'tmux-restore-failed',
         'hydration-constructed',
+        'tmux-restore-failed',
     ]);
     assert.deepEqual(result.tmuxRuntimeFailureDiagnostics, [
         {

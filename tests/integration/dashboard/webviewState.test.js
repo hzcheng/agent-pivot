@@ -894,39 +894,11 @@ test('WEBVIEW-WEBVIEW-CONTENT-001 renders OPEN PROJECTS TODO and lazy AI tab she
     }
     assert.match(html, /data-session-icon-fx="sharingan-shisui"/);
     assert.match(html, /id="dashboard-search-catalog"/);
-    assert.match(html, /webviewPromptScripts\.js/);
+    assert.match(html, /webviewDashboardBundle\.js/);
     assert.ok(
-        html.indexOf('webviewSkillPanelScripts.js') > -1
-            && html.indexOf('webviewSkillPanelScripts.js') < html.indexOf('webviewDashboardScripts.js'),
-        'Skill panel controller must load before the Dashboard controller that wires it'
+        html.indexOf('webviewDashboardBundle.js') < html.indexOf('window.onload'),
+        'the complete Dashboard runtime must load before the lazy panels can mount'
     );
-    assert.ok(
-        html.indexOf('webviewDashboardValidationScripts.js') > -1
-            && html.indexOf('webviewDashboardValidationScripts.js') < html.indexOf('webviewDashboardScripts.js')
-            && html.indexOf('webviewDashboardSearchScripts.js') > -1
-            && html.indexOf('webviewDashboardSearchScripts.js') < html.indexOf('webviewDashboardScripts.js')
-            && html.indexOf('webviewDashboardProjectsPanelScripts.js') > -1
-            && html.indexOf('webviewDashboardProjectsPanelScripts.js') < html.indexOf('webviewDashboardScripts.js')
-            && html.indexOf('webviewDashboardTodoPanelScripts.js') > -1
-            && html.indexOf('webviewDashboardTodoPanelScripts.js') < html.indexOf('webviewDashboardScripts.js')
-            && html.indexOf('webviewDashboardAiPanelScripts.js') > -1
-            && html.indexOf('webviewDashboardAiPanelScripts.js') < html.indexOf('webviewDashboardScripts.js'),
-        'Dashboard pure helpers and panel controllers must load before the Dashboard controller that calls them'
-    );
-    assert.ok(
-        html.indexOf('webviewPromptProtocolScripts.js') > html.indexOf('webviewDashboardScripts.js')
-            && html.indexOf('webviewPromptProtocolScripts.js') < html.indexOf('webviewPromptScripts.js'),
-        'Prompt protocol helpers must load after the Dashboard lazy loader and before the Prompt controller'
-    );
-    assert.ok(
-        html.indexOf('webviewPromptScripts.js') > html.indexOf('webviewDashboardScripts.js'),
-        'Prompt interactions must install after the Dashboard lazy loader'
-    );
-    assert.ok(
-        html.indexOf('webviewPromptScripts.js') < html.indexOf('window.onload'),
-        'Prompt interactions must install before the lazy AI panel can mount'
-    );
-    assert.match(html, /webviewTodoScripts\.js/);
     assert.match(html, /initTodos\(/);
     assert.equal(html.includes('data-id="hidden"'), false);
     assert.match(html, /data-id="current"/);
@@ -975,38 +947,31 @@ test('WEBVIEW-RESOURCE-RECOVERY-001 gives every rendered document fresh versione
         'a refreshed document must not reuse a possibly failed cached asset URL');
     assert.notEqual(firstRevision[1], reactivatedRevision[1],
         'a new extension activation must not restart asset URLs at a cached revision');
-    for (const asset of [
-        'fitty.min.js',
-        'dragula.min.js',
-        'dom-autoscroller.min.js',
-        'webviewAiSessionViewStateScripts.js',
-        'webviewWorkspaceUpdateScripts.js',
-        'webviewTodoGroupScripts.js',
-        'webviewProjectCollapseScripts.js',
-        'webviewTodoControlScripts.js',
-        'webviewProjectContextMenuScripts.js',
-        'webviewProjectAiUpdateScripts.js',
-        'webviewProjectAiSessionControlsScripts.js',
-        'webviewProjectScripts.js',
-        'webviewSkillPanelScripts.js',
-        'webviewProjectsPanelScripts.js',
-        'webviewDashboardValidationScripts.js',
-        'webviewDashboardSearchScripts.js',
-        'webviewDashboardProjectsPanelScripts.js',
-        'webviewDashboardTodoPanelScripts.js',
-        'webviewDashboardAiPanelScripts.js',
-        'webviewDashboardScripts.js',
-        'webviewPromptProtocolScripts.js',
-        'webviewPromptScripts.js',
-        'webviewTodoRenderScripts.js',
-        'webviewTodoScripts.js',
-        'webviewDnDScripts.js',
-        'webviewFilterScripts.js',
-    ]) {
+    for (const asset of ['webviewDashboardBundle.js']) {
         assert.match(first, new RegExp(
             `file:\\/\\/\\/extension\\/media\\/${asset.replace(/\./g, '\\.')}\\?stewardAssetRevision=${firstRevision[1]}`
         ), `${asset} must share the document asset revision`);
     }
+});
+
+test('WEBVIEW-SINGLE-BOOT-ASSET-001 loads dashboard startup code through one versioned request', () => {
+    const html = webviewModules.content.getStewardContent(
+        { extensionPath: '/extension' },
+        { cspSource: 'test', asWebviewUri: uri => uri.toString() },
+        [],
+        {
+            config: { get: (_key, fallback) => fallback },
+            relevantExtensionsInstalls: { remoteSSH: false, remoteContainers: true },
+            otherStorageHasData: false,
+        },
+        true,
+    );
+    const externalScripts = Array.from(html.matchAll(/<script src="([^"]+)"><\/script>/g));
+
+    assert.equal(externalScripts.length, 1,
+        'remote Webviews must not serialize startup behind many cache-busted resource requests');
+    assert.match(externalScripts[0][1],
+        /\/media\/webviewDashboardBundle\.js\?stewardAssetRevision=/);
 });
 
 test('WEBVIEW-DASHBOARD-UPDATE-MESSAGE-001 SESSION-CONTROLLER-001 preserves OPEN PROJECTS and TODO mounted tab state', () => {

@@ -30,7 +30,8 @@ function assertReleaseResidueContract(paths, vscodeIgnore) {
 test('TEST-PACKAGE-SCRIPTS-001 test-compile removes stale outputs before building root and attention bridge TypeScript', () => {
     assert.equal(
         packageJson.scripts['test-compile'],
-        'node scripts/clean-test-build.js && tsc -p ./ && npm run attention:bridge:compile'
+        'node scripts/clean-test-build.js && node scripts/build-dashboard-webview-bundle.js'
+            + ' && tsc -p ./ && npm run attention:bridge:compile'
     );
     assert.equal(require('node:fs').existsSync(
         path.resolve(__dirname, '../../../scripts/clean-test-build.js')

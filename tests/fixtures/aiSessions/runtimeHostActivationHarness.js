@@ -176,6 +176,15 @@ function createVscode(lifecycle) {
 
 async function main() {
     const mode = process.argv[2] || 'success';
+    const nativeSetTimeout = global.setTimeout;
+    if (mode === 'blocked-restore-budget') {
+        global.setTimeout = (callback, delay, ...args) => {
+            const effectiveDelay = delay === 800 ? 60_000 : delay;
+            const timer = nativeSetTimeout(callback, effectiveDelay, ...args);
+            if (delay === 800) timer.unref();
+            return timer;
+        };
+    }
     const storageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'PRIVATE_PATH_CANARY-'));
     const privacyCanaries = [
         storageRoot,
@@ -222,11 +231,18 @@ async function main() {
     let activationReturnedBeforeDirectRestoreSettled = false;
     let directRestoreSettled = false;
     let initialInactiveRestoreRecorded = false;
+    let pendingInactiveRestoreEntered = false;
+    let inactiveRestoreSettled = false;
+    let releasePendingInactiveRestore;
+    let pendingInactiveRestoreFlight;
     let pendingDirectRestoreEntered = false;
     let releasePendingDirectRestore;
     let pendingTmuxRestoreEntered = false;
     let tmuxRestoreSettled = false;
     let releasePendingTmuxRestore;
+    let pendingStartupSequenceEntered = false;
+    let startupSequenceSettled = false;
+    let releasePendingStartupSequence;
     const synchronizedGlobalStateKeySets = [];
     const runtimeStoreRoots = [];
     const capturedRuntimeStores = [];
@@ -350,11 +366,23 @@ async function main() {
         const AttentionBridgeClient = require('../../../out/aiSessions/attentionBridgeClient').default;
         const AiSessionAliasController = require('../../../out/aiSessions/aliasController').default;
         const { DashboardCommandRegistration } = require('../../../out/dashboard/commandRegistration');
+        const { DashboardStartupController } = require('../../../out/dashboard/startupController');
 
         const originalDashboardRegister = DashboardCommandRegistration.prototype.register;
         patch(DashboardCommandRegistration.prototype, 'register', function (...args) {
             dashboardCommandRegistrationInvocations += 1;
             return originalDashboardRegister.apply(this, args);
+        });
+        const originalDashboardStartUp = DashboardStartupController.prototype.startUp;
+        patch(DashboardStartupController.prototype, 'startUp', async function (...args) {
+            if (mode === 'slow-startup-sequence') {
+                pendingStartupSequenceEntered = true;
+                await new Promise(resolve => {
+                    releasePendingStartupSequence = resolve;
+                });
+            }
+            await originalDashboardStartUp.apply(this, args);
+            startupSequenceSettled = true;
         });
         patch(AiSessionAliasController.prototype, 'copyForRebind', function (...args) {
             aliasRebinds.push(args);
@@ -374,14 +402,26 @@ async function main() {
             }
             verified.add('client-store-discovery');
             verified.add('thread-switch-alias-wiring');
+            if ((mode === 'slow-runtime-restore' || mode === 'blocked-restore-budget')
+                && !initialInactiveRestoreRecorded) {
+                if (!pendingInactiveRestoreFlight) {
+                    pendingInactiveRestoreEntered = true;
+                    pendingInactiveRestoreFlight = new Promise(resolve => {
+                        releasePendingInactiveRestore = resolve;
+                    });
+                }
+                await pendingInactiveRestoreFlight;
+            }
             if (!initialInactiveRestoreRecorded) {
                 initialInactiveRestoreRecorded = true;
                 events.push('inactive-restored');
+                inactiveRestoreSettled = true;
             }
         });
         patch(TerminalService.prototype, 'restorePersistedTerminals', async function () {
             assert.ok(this instanceof TerminalService);
-            if (mode === 'pending' || mode === 'diagnostics') {
+            if (mode === 'pending' || mode === 'diagnostics'
+                || mode === 'slow-runtime-restore' || mode === 'blocked-restore-budget') {
                 pendingDirectRestoreEntered = true;
                 await new Promise(resolve => {
                     releasePendingDirectRestore = resolve;
@@ -489,6 +529,8 @@ async function main() {
         })();
         let dashboardDeactivated = false;
         let readyBeforeTmuxRestoreSettled = false;
+        let readyBeforeRuntimeRestoresSettled = false;
+        let readyBeforeStartupSequenceSettled = false;
         if (mode === 'pending') {
             await waitFor(
                 () => pendingDirectRestoreEntered,
@@ -500,6 +542,42 @@ async function main() {
             );
         }
         await activationFlight;
+        if (mode === 'slow-runtime-restore' || mode === 'blocked-restore-budget') {
+            await waitFor(
+                () => pendingInactiveRestoreEntered && pendingDirectRestoreEntered,
+                'pending startup runtime restorations to begin'
+            );
+            const deadline = Date.now() + 1_500;
+            while (Date.now() < deadline
+                && vscode.registeredProvider?.lifecycle?.kind !== 'ready') {
+                await new Promise(resolve => setTimeout(resolve, 10));
+            }
+            readyBeforeRuntimeRestoresSettled =
+                vscode.registeredProvider?.lifecycle?.kind === 'ready'
+                && !inactiveRestoreSettled
+                && !directRestoreSettled;
+            releasePendingInactiveRestore?.();
+            releasePendingDirectRestore?.();
+            await waitFor(
+                () => inactiveRestoreSettled && directRestoreSettled && tmuxRestoreSettled,
+                'released startup runtime restorations to settle'
+            );
+        }
+        if (mode === 'slow-startup-sequence') {
+            await waitFor(
+                () => pendingStartupSequenceEntered,
+                'pending startup sequence to begin'
+            );
+            for (let attempt = 0; attempt < 100
+                && vscode.registeredProvider?.lifecycle?.kind !== 'ready'; attempt += 1) {
+                await new Promise(resolve => setImmediate(resolve));
+            }
+            readyBeforeStartupSequenceSettled =
+                vscode.registeredProvider?.lifecycle?.kind === 'ready'
+                && !startupSequenceSettled;
+            releasePendingStartupSequence?.();
+            await waitFor(() => startupSequenceSettled, 'startup sequence to settle');
+        }
         if (mode === 'slow-tmux-restore' || mode === 'slow-tmux-restore-dispose') {
             await waitFor(
                 () => pendingTmuxRestoreEntered,
@@ -576,6 +654,20 @@ async function main() {
                 await waitFor(
                     () => ['ready', 'failed'].includes(vscode.registeredProvider?.lifecycle?.kind),
                     'dashboard bootstrap completion'
+                );
+            }
+            if (mode === 'slow-runtime-restore') {
+                const refreshDeadline = Date.now() + 1_500;
+                while (Date.now() < refreshDeadline
+                    && !lifecycle.outputLines.some(line =>
+                        line.includes('"reason":"tmux-bootstrap-restore"'))) {
+                    await new Promise(resolve => setTimeout(resolve, 10));
+                }
+                assert.equal(
+                    lifecycle.outputLines.some(line =>
+                        line.includes('"reason":"tmux-bootstrap-restore"')),
+                    true,
+                    'Timed out waiting for startup runtime restoration refresh'
                 );
             }
             if (mode === 'success') {
@@ -714,6 +806,10 @@ async function main() {
             events,
             failure,
             pendingDirectRestoreEntered,
+            pendingInactiveRestoreEntered,
+            readyBeforeRuntimeRestoresSettled,
+            pendingStartupSequenceEntered,
+            readyBeforeStartupSequenceSettled,
             pendingOpenRevealedBootShell,
             pendingUnavailableCommandError,
             inFlightListenerDisposedBeforeGateRelease,
@@ -767,6 +863,7 @@ async function main() {
                 : {}),
         }));
     } finally {
+        global.setTimeout = nativeSetTimeout;
         disposeContextSubscriptions();
         restores.reverse().forEach(restore => restore());
         Module._load = previousLoad;

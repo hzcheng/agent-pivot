@@ -185,12 +185,35 @@ test('RUNTIME-DASHBOARD-RUNTIME-CONTROLLER-001 publishes exact batch, terminal, 
     ]);
 
     const visibleEffects = [];
+    let nowMs = 1000;
+    const visibilityGate = {};
+    visibilityGate.promise = new Promise(resolve => { visibilityGate.resolve = resolve; });
     const visibility = runtimeHarness({
-        refreshAiSessionRuntimes: async (reason, force) => visibleEffects.push([reason, force]),
+        refreshAiSessionRuntimes: async (reason, force) => {
+            visibleEffects.push([reason, force]);
+            await visibilityGate.promise;
+        },
+        nowMs: () => nowMs,
+        visibilityRefreshMinIntervalMs: 10_000,
     });
     await visibility.controller.handleAiSessionViewVisibilityChanged(false);
+    const firstVisible = visibility.controller.handleAiSessionViewVisibilityChanged(true);
+    const joinedVisible = visibility.controller.handleAiSessionViewVisibilityChanged(true);
+    assert.deepEqual(visibleEffects, [['dashboard-visible', false]],
+        'rapid visible epochs must join one cache-aware runtime refresh');
+    visibilityGate.resolve();
+    await Promise.all([firstVisible, joinedVisible]);
+
+    nowMs += 9_999;
     await visibility.controller.handleAiSessionViewVisibilityChanged(true);
-    assert.deepEqual(visibleEffects, [['dashboard-visible', true]]);
+    assert.equal(visibleEffects.length, 1, 'the visibility refresh cooldown must suppress reopen storms');
+
+    nowMs += 1;
+    await visibility.controller.handleAiSessionViewVisibilityChanged(true);
+    assert.deepEqual(visibleEffects, [
+        ['dashboard-visible', false],
+        ['dashboard-visible', false],
+    ]);
 });
 
 test('RUNTIME-DASHBOARD-RUNTIME-CONTROLLER-001 maps rejected promises and synchronous throws to stable diagnostics', async () => {

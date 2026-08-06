@@ -105,6 +105,7 @@ export class TmuxRuntimeDiscovery {
     private cacheGeneration = 0;
     private inFlight: Promise<void> | null = null;
     private forcedAfterInFlight: Promise<void> | null = null;
+    private persistedInactiveFlight: Promise<void> | null = null;
 
     constructor(private readonly options: TmuxRuntimeDiscoveryOptions) {
         this.nowMs = options.nowMs || (() => Date.now());
@@ -190,12 +191,35 @@ export class TmuxRuntimeDiscovery {
         return this.diagnostics.map(cloneDiagnostic);
     }
 
-    async loadPersistedInactive(): Promise<void> {
+    loadPersistedInactive(): Promise<void> {
         if (!this.options.bindingStore.listInactive) {
-            return;
+            return Promise.resolve();
         }
+        if (this.persistedInactiveFlight) {
+            return this.persistedInactiveFlight;
+        }
+        const load = this.loadPersistedInactiveUncached();
+        let tracked: Promise<void>;
+        tracked = load.then(
+            () => {
+                if (this.persistedInactiveFlight === tracked) {
+                    this.persistedInactiveFlight = null;
+                }
+            },
+            error => {
+                if (this.persistedInactiveFlight === tracked) {
+                    this.persistedInactiveFlight = null;
+                }
+                throw error;
+            },
+        );
+        this.persistedInactiveFlight = tracked;
+        return tracked;
+    }
+
+    private async loadPersistedInactiveUncached(): Promise<void> {
         const generation = this.cacheGeneration;
-        const records = await this.options.bindingStore.listInactive();
+        const records = await this.options.bindingStore.listInactive!();
         if (this.cacheGeneration !== generation) {
             return;
         }

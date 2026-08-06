@@ -3312,8 +3312,8 @@ function runDashboardBridgeLifecycleChecks() {
         'activation must start one migration/pending-completion sequence');
     assert.match(
         dashboard,
-        /await timeBootstrapPhase\('startup-sequence', \(\) =>\s*dashboardStartupController\.startUp\(\)\);/,
-        'activation must await the one ordered migration/pending-completion startup transaction'
+        /ownTimer\(\s*\(\) => setTimeout\(\(\) => \{\s*void timeBootstrapPhase\('startup-sequence', \(\) =>\s*dashboardStartupController\.startUp\(\)\)\.then\(/,
+        'ready adoption must schedule one owned post-ready migration/pending-completion transaction'
     );
     assert.strictEqual(dashboard.includes('void dashboardStartupController.startUp();'), false);
     const saveAdapterWiring = dashboard.slice(

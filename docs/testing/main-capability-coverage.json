@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "131b4c3b22bfaf2e7807a4a1379366db9d4ebc54",
+        "head": "a7613039cd4196cb6f43c022d15eea1483204eaf",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -164,7 +164,8 @@
             "db085481b95fc9b3372c83023343a00640e678e7",
             "d2341beee5e0d318fc847c3ec7c12234e27f19a8",
             "cfa1d431d17fe5b334f34a7f220b8c905d2883de",
-            "67e5c350a0c48974fb444a821143971bcc99e8d5"
+            "67e5c350a0c48974fb444a821143971bcc99e8d5",
+            "13ea7824781c9eeaff4b08ee59e26cd86e9ac835"
         ]
     },
     "capabilities": [
@@ -297,7 +298,10 @@
                 "1cb17856b4e8db7fc94d2f6b4a5479d11f95f7d1",
                 "20f0258e412d2e448840658e67d181b06afb0fdf",
                 "f287d527971ec6a53b99ab20e75dbe73d8e28ec5",
-                "499dc7a3f0d1384adddec85f586fd0c45a48dbd9"
+                "499dc7a3f0d1384adddec85f586fd0c45a48dbd9",
+                "ee825a7244d9a7d5a2aa1acf795434520d6ecfd1",
+                "e393b67fb9f066c94ee38c2f0bfcbb618adc60f2",
+                "a7613039cd4196cb6f43c022d15eea1483204eaf"
             ],
             "behaviors": [
                 "OPEN-OPEN-PROJECT-AUTHORITATIVE-IDENTITY-001",

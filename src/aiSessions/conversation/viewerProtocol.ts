@@ -97,6 +97,12 @@ export interface ConversationViewerSwitchSessionMessage {
     direction: ConversationSessionSwitchDirection;
 }
 
+export interface ConversationViewerFocusMessage {
+    type: 'conversation-viewer-focus';
+    version: 1;
+    focused: boolean;
+}
+
 export interface ConversationViewerOpenSubagentMessage {
     type: 'conversation-viewer-open-subagent';
     version: 1;
@@ -115,6 +121,7 @@ export type ConversationViewerMessage =
     | ConversationViewerOpenWorktreeMessage
     | ConversationViewerSendSelectionMessage
     | ConversationViewerSwitchSessionMessage
+    | ConversationViewerFocusMessage
     | ConversationViewerOpenSubagentMessage
     | ConversationViewerCloseSubagentMessage
     | ConversationViewerCommentMutationMessage
@@ -197,6 +204,13 @@ export function parseConversationViewerMessage(
             return undefined;
         }
         return value as unknown as ConversationViewerSwitchSessionMessage;
+    }
+    if (value.type === 'conversation-viewer-focus') {
+        if (!hasExactKeys(value, ['type', 'version', 'focused'])
+            || typeof value.focused !== 'boolean') {
+            return undefined;
+        }
+        return value as unknown as ConversationViewerFocusMessage;
     }
     if (value.type === 'conversation-viewer-open-subagent') {
         if (!hasExactKeys(value, ['type', 'version', 'subagentId'])

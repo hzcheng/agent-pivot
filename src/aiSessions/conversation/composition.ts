@@ -63,7 +63,7 @@ export type OpenLatestConversationResult =
 export type FollowActiveConversationResult =
     OpenLatestConversationResult | 'closed';
 export type FollowAdjacentConversationResult =
-    FollowActiveConversationResult | 'noAdjacentSession';
+    FollowActiveConversationResult | 'inactive' | 'noAdjacentSession';
 
 export interface ConversationCapability {
     viewer: ConversationViewerApi;
@@ -71,9 +71,15 @@ export interface ConversationCapability {
     openLatestConversation(
         target: ConversationSessionOpenTarget
     ): Promise<OpenLatestConversationResult>;
+    openLatestActiveConversation(
+        target: ConversationSessionOpenTarget
+    ): Promise<OpenLatestConversationResult>;
     followActiveConversation(
         target: ConversationSessionOpenTarget
     ): Promise<FollowActiveConversationResult>;
+    followAdjacentActiveConversation(
+        direction: ConversationSessionSwitchDirection
+    ): Promise<FollowAdjacentConversationResult>;
     restorePanel(panel: vscode.WebviewPanel, state: unknown): Promise<void>;
     rebindSession(
         previous: ConversationSessionOpenTarget,
@@ -118,10 +124,13 @@ export interface ConversationCapabilityOptions {
     ) => PromiseLike<void> | Promise<void>;
     focusSession?: (
         target: ConversationSessionOpenTarget
-    ) => PromiseLike<void> | Promise<void>;
+    ) => boolean | void | PromiseLike<boolean | void>;
     commentStore?: ConversationCommentStore;
     bookmarkStore?: ConversationBookmarkStore;
     getShowThinking?: () => boolean;
+    setConversationFocusContext?: (
+        focused: boolean
+    ) => PromiseLike<void> | Promise<void> | void;
     resolveReboundTarget?: (
         target: ConversationSessionOpenTarget
     ) => ConversationSessionOpenTarget;
@@ -256,6 +265,33 @@ function createAvailableConversationCapability(
     ownership.transfer(codexAdapter);
     ownership.transfer(kimiAdapter);
     ownership.transfer(claudeAdapter);
+    let focusTail: Promise<void> = Promise.resolve();
+    const queueFocus = (
+        operation: () => void | PromiseLike<void>,
+        isCurrent: () => boolean
+    ): Promise<boolean> => {
+        const pending = focusTail.then(async () => {
+            if (!isCurrent()) {
+                return false;
+            }
+            await operation();
+            return true;
+        });
+        focusTail = pending.then(() => undefined, () => undefined);
+        return pending;
+    };
+    const queueTerminalFocus = (
+        target: ConversationSessionOpenTarget,
+        isCurrent: () => boolean
+    ): Promise<boolean> => queueFocus(
+        async () => {
+            const focused = await options.focusSession?.(target);
+            if (focused === false) {
+                throw new Error('AI session terminal focus was rejected');
+            }
+        },
+        isCurrent
+    );
     const viewer = ownership.own(factories.createViewer({
         createPanel: options.createPanel,
         readOutline: coordinator.readOutline.bind(coordinator),
@@ -284,10 +320,22 @@ function createAvailableConversationCapability(
                 viewer,
                 direction,
                 currentTarget,
-                () => intentGeneration === viewerIntentGeneration
+                () => intentGeneration === viewerIntentGeneration,
+                queueTerminalFocus,
+                terminalAuthority
             );
         },
+        setKeyboardFocus: options.setConversationFocusContext,
     }));
+    const queueConversationFocus = (
+        _target: ConversationSessionOpenTarget,
+        isCurrent: () => boolean
+    ): Promise<boolean> => queueFocus(() => {
+        viewer.focus();
+    }, isCurrent);
+    const terminalAuthority: {
+        confirmedTarget?: ConversationViewerTarget;
+    } = {};
     let viewerIntentGeneration = 0;
     let disposed = false;
     return {
@@ -302,6 +350,27 @@ function createAvailableConversationCapability(
                 target,
                 () => intentGeneration === viewerIntentGeneration
             );
+        },
+        async openLatestActiveConversation(
+            target: ConversationSessionOpenTarget
+        ): Promise<OpenLatestConversationResult> {
+            const intentGeneration = ++viewerIntentGeneration;
+            const result = await openLatestConversation(
+                options,
+                coordinator,
+                viewer,
+                target,
+                () => intentGeneration === viewerIntentGeneration
+            );
+            if (result === 'opened') {
+                const currentTarget = viewer.getCurrentTarget();
+                if (currentTarget
+                    && hasSameConversationSession(currentTarget, target)) {
+                    terminalAuthority.confirmedTarget =
+                        cloneConversationViewerTarget(currentTarget);
+                }
+            }
+            return result;
         },
         async followActiveConversation(
             target: ConversationSessionOpenTarget
@@ -324,9 +393,53 @@ function createAvailableConversationCapability(
             if (!viewer.isOpen()) {
                 return 'closed';
             }
-            return await viewer.follow(resolution.viewerTarget)
-                ? 'opened'
-                : 'closed';
+            const followed = await viewer.follow(resolution.viewerTarget);
+            if (followed) {
+                const currentTarget = viewer.getCurrentTarget();
+                terminalAuthority.confirmedTarget =
+                    cloneConversationViewerTarget(
+                        currentTarget
+                            && hasSameConversationSession(
+                                currentTarget,
+                                resolution.viewerTarget
+                            )
+                            ? currentTarget
+                            : resolution.viewerTarget
+                    );
+            }
+            return followed ? 'opened' : 'closed';
+        },
+        async followAdjacentActiveConversation(
+            direction: ConversationSessionSwitchDirection
+        ): Promise<FollowAdjacentConversationResult> {
+            const currentTarget = viewer.getFocusedTarget();
+            if (!currentTarget) {
+                return viewer.isOpen() ? 'inactive' : 'closed';
+            }
+            const intentGeneration = ++viewerIntentGeneration;
+            const isCurrent = () =>
+                intentGeneration === viewerIntentGeneration;
+            try {
+                return await followAdjacentConversation(
+                    options,
+                    coordinator,
+                    viewer,
+                    direction,
+                    currentTarget,
+                    isCurrent,
+                    queueTerminalFocus,
+                    terminalAuthority
+                );
+            } finally {
+                // A terminal focus from an older Webview switch may already
+                // be running. Queue the command's Conversation refocus for
+                // every result, including no-adjacent and failed loads.
+                try {
+                    await queueConversationFocus(currentTarget, isCurrent);
+                } catch (_error) {
+                    // Preserve the authoritative switch result if reveal fails.
+                }
+            }
         },
         async restorePanel(
             panel: vscode.WebviewPanel,
@@ -424,6 +537,10 @@ function createAvailableConversationCapability(
 function createUnavailableConversationCapability(): ConversationCapability {
     const viewer: ConversationViewerApi = {
         isOpen: () => false,
+        focus: () => false,
+        getCurrentTarget: () => undefined,
+        getFocusedTarget: () => undefined,
+        getFocusedSessionTarget: () => undefined,
         async open() {},
         async restore(panel) {
             panel.dispose();
@@ -452,7 +569,13 @@ function createUnavailableConversationCapability(): ConversationCapability {
         async openLatestConversation(): Promise<OpenLatestConversationResult> {
             return 'unavailable';
         },
+        async openLatestActiveConversation(): Promise<OpenLatestConversationResult> {
+            return 'unavailable';
+        },
         async followActiveConversation(): Promise<FollowActiveConversationResult> {
+            return 'unavailable';
+        },
+        async followAdjacentActiveConversation(): Promise<FollowAdjacentConversationResult> {
             return 'unavailable';
         },
         async restorePanel(panel: vscode.WebviewPanel): Promise<void> {
@@ -507,11 +630,29 @@ async function followAdjacentConversation(
     coordinator: ConversationCoordinator,
     viewer: ConversationViewerApi,
     direction: ConversationSessionSwitchDirection,
-    currentTarget: ConversationSessionOpenTarget,
-    isCurrent: () => boolean
+    currentTarget: ConversationViewerTarget,
+    isCurrent: () => boolean,
+    queueTerminalFocus?: (
+        target: ConversationSessionOpenTarget,
+        isCurrent: () => boolean
+    ) => Promise<boolean>,
+    terminalAuthority?: {
+        confirmedTarget?: ConversationViewerTarget;
+    }
 ): Promise<FollowAdjacentConversationResult> {
     if (!viewer.isOpen()) {
         return 'closed';
+    }
+    if (terminalAuthority
+        && (!terminalAuthority.confirmedTarget
+            || hasSameConversationSession(
+                terminalAuthority.confirmedTarget,
+                currentTarget
+            ))) {
+        // Moving between interactions or subagents does not change terminal
+        // authority. Keep the exact visible target fresh for a later rollback.
+        terminalAuthority.confirmedTarget =
+            cloneConversationViewerTarget(currentTarget);
     }
     let sessions: readonly ActiveAiSessionViewModel[];
     try {
@@ -558,22 +699,77 @@ async function followAdjacentConversation(
         return 'closed';
     }
     const followed = await viewer.follow(resolution.viewerTarget);
+    if (!isCurrent()) {
+        return 'superseded';
+    }
     if (!followed) {
         return 'closed';
     }
-    // Keep the visible session terminal/tmux window in sync with the
-    // conversation. Terminal sync is best-effort: a focus failure must not
-    // undo or retry the settled conversation switch.
-    try {
-        await options.focusSession?.({
-            projectId: currentTarget.projectId,
-            provider: adjacent.provider,
-            sessionId: adjacent.sessionId,
-        });
-    } catch (_error) {
-        // The conversation switch has already settled.
+    if (queueTerminalFocus) {
+        // Webview navigation syncs the terminal/tmux window. Command
+        // navigation queues a Conversation reveal behind any terminal focus
+        // already in flight, so AI Conversation remains the final focus owner.
+        try {
+            const terminalFocused = await queueTerminalFocus({
+                projectId: currentTarget.projectId,
+                provider: adjacent.provider,
+                sessionId: adjacent.sessionId,
+            }, isCurrent);
+            if (!terminalFocused) {
+                return 'superseded';
+            }
+            if (terminalAuthority) {
+                terminalAuthority.confirmedTarget =
+                    cloneConversationViewerTarget(resolution.viewerTarget);
+            }
+        } catch (_error) {
+            if (!isCurrent()) {
+                return 'superseded';
+            }
+            // Terminal authority did not move to the requested Session. Best
+            // effort restores the previous terminal and exact Conversation
+            // target so the card and viewer cannot settle on different roots.
+            const rollbackTarget = terminalAuthority?.confirmedTarget
+                || currentTarget;
+            try {
+                await queueTerminalFocus(rollbackTarget, isCurrent);
+            } catch (_rollbackError) {
+                // The authoritative refresh still reflects the observed runtime.
+            }
+            if (!isCurrent()) {
+                return 'superseded';
+            }
+            if (!viewer.isOpen()) {
+                return 'closed';
+            }
+            const restored = await viewer.follow(rollbackTarget);
+            if (!isCurrent()) {
+                return 'superseded';
+            }
+            return restored ? 'unavailable' : 'closed';
+        }
     }
-    return 'opened';
+    return isCurrent() ? 'opened' : 'superseded';
+}
+
+function cloneConversationViewerTarget(
+    target: ConversationViewerTarget
+): ConversationViewerTarget {
+    return {
+        ...target,
+        ...(target.subagent
+            ? { subagent: { ...target.subagent } }
+            : {}),
+    };
+}
+
+function hasSameConversationSession(
+    left: ConversationSessionOpenTarget,
+    right: ConversationSessionOpenTarget
+): boolean {
+    return left.projectId === right.projectId
+        && left.provider === right.provider
+        && left.sessionId === right.sessionId;
 }
 
 async function resolveLatestConversationTarget(

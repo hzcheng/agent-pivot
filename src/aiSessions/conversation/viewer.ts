@@ -86,7 +86,7 @@ export interface ConversationViewerOptions {
             ConversationViewerTarget,
             'projectId' | 'provider' | 'sessionId'
         >
-    ) => PromiseLike<void> | Promise<void>;
+    ) => boolean | void | PromiseLike<boolean | void>;
     commentStore?: ConversationCommentStore;
     bookmarkStore?: ConversationBookmarkStore;
     showWorktreeInSourceControl?: (
@@ -97,15 +97,22 @@ export interface ConversationViewerOptions {
     ) => PromiseLike<void> | Promise<void> | void;
     followAdjacentConversation?: (
         direction: ConversationSessionSwitchDirection,
-        currentTarget: Pick<
-            ConversationViewerTarget,
-            'projectId' | 'provider' | 'sessionId'
-        >
+        currentTarget: ConversationViewerTarget
     ) => PromiseLike<unknown> | Promise<unknown> | void;
+    setKeyboardFocus?: (
+        focused: boolean
+    ) => PromiseLike<void> | Promise<void> | void;
 }
 
 export interface ConversationViewerApi extends AiSessionDisposable {
     isOpen(): boolean;
+    focus(): boolean;
+    getCurrentTarget(): ConversationViewerTarget | undefined;
+    getFocusedTarget(): ConversationViewerTarget | undefined;
+    getFocusedSessionTarget(): Pick<
+        ConversationViewerTarget,
+        'projectId' | 'provider' | 'sessionId'
+    > | undefined;
     open(target: ConversationViewerTarget): Promise<void>;
     restore(
         panel: vscode.WebviewPanel,
@@ -184,6 +191,7 @@ export class ConversationViewer implements ConversationViewerApi {
     private rebindGeneration = 0;
     private authoritativeLoadInFlight?: Promise<boolean>;
     private authoritativeRefreshPending = false;
+    private keyboardFocused = false;
     private readonly commentController: ConversationCommentController;
     private readonly bookmarkController: ConversationBookmarkController;
     private readonly outlineController = new ConversationOutlineController();
@@ -202,7 +210,9 @@ export class ConversationViewer implements ConversationViewerApi {
         this.commentController = new ConversationCommentController({
             commentStore: options.commentStore,
             submitPrompt: options.submitPrompt,
-            focusSession: options.focusSession,
+            focusSession: async target => {
+                await options.focusSession?.(target);
+            },
             getTarget: () => this.target,
             getSubscriptionGeneration: () => this.subscriptionGeneration,
             getPanel: () => this.panel,
@@ -227,6 +237,43 @@ export class ConversationViewer implements ConversationViewerApi {
 
     isOpen(): boolean {
         return Boolean(this.panel);
+    }
+
+    focus(): boolean {
+        const panel = this.panel;
+        if (!panel) {
+            return false;
+        }
+        panel.reveal(panel.viewColumn || vscode.ViewColumn.Active, false);
+        return true;
+    }
+
+    getCurrentTarget(): ConversationViewerTarget | undefined {
+        if (!this.panel || !this.target) {
+            return undefined;
+        }
+        return cloneViewerTarget(this.target);
+    }
+
+    getFocusedTarget(): ConversationViewerTarget | undefined {
+        if (!this.panel?.active || !this.keyboardFocused || !this.target) {
+            return undefined;
+        }
+        return cloneViewerTarget(this.target);
+    }
+
+    getFocusedSessionTarget(): Pick<
+        ConversationViewerTarget,
+        'projectId' | 'provider' | 'sessionId'
+    > | undefined {
+        if (!this.panel?.active || !this.keyboardFocused || !this.target) {
+            return undefined;
+        }
+        return {
+            projectId: this.target.projectId,
+            provider: this.target.provider,
+            sessionId: this.target.sessionId,
+        };
     }
 
     async open(target: ConversationViewerTarget): Promise<void> {
@@ -378,8 +425,7 @@ export class ConversationViewer implements ConversationViewerApi {
         }
         panel.webview.html = this.renderDocument(undefined, 'Loading conversation…');
         this.ensureWatch(generation);
-        await this.loadAuthoritative('initial', true);
-        return true;
+        return this.loadAuthoritative('initial', true);
     }
 
     async refresh(): Promise<void> {
@@ -542,6 +588,7 @@ export class ConversationViewer implements ConversationViewerApi {
             return;
         }
         this.panel = panel;
+        this.publishKeyboardFocus(false, true);
         this.panelWasVisible = panel.visible;
         this.messageListener = panel.webview.onDidReceiveMessage(
             message => this.handleMessage(message)
@@ -552,6 +599,9 @@ export class ConversationViewer implements ConversationViewerApi {
             }
             const becameVisible = !this.panelWasVisible && panel.visible;
             this.panelWasVisible = panel.visible;
+            if (!panel.active) {
+                this.publishKeyboardFocus(false);
+            }
             if (becameVisible) {
                 this.rebuildLatestDocument();
             }
@@ -597,6 +647,7 @@ export class ConversationViewer implements ConversationViewerApi {
         this.commentController.reset();
         this.bookmarkController.reset();
         this.panelWasVisible = false;
+        this.publishKeyboardFocus(false);
         this.suspended = false;
         this.subscriptionGeneration += 1;
         this.currentRequestId = 0;
@@ -604,7 +655,14 @@ export class ConversationViewer implements ConversationViewerApi {
 
     private async handleMessage(message: unknown): Promise<void> {
         const parsed = parseConversationViewerMessage(message);
-        if (!parsed || !this.target || !this.panel) {
+        if (!parsed || !this.panel) {
+            return;
+        }
+        if (parsed.type === 'conversation-viewer-focus') {
+            this.publishKeyboardFocus(parsed.focused && this.panel.active);
+            return;
+        }
+        if (!this.target) {
             return;
         }
         if (parsed.type === 'conversation-viewer-open-link') {
@@ -623,11 +681,10 @@ export class ConversationViewer implements ConversationViewerApi {
         }
         if (parsed.type === 'conversation-viewer-switch-session') {
             const currentTarget = this.target;
-            await this.options.followAdjacentConversation?.(parsed.direction, {
-                projectId: currentTarget.projectId,
-                provider: currentTarget.provider,
-                sessionId: currentTarget.sessionId,
-            });
+            await this.options.followAdjacentConversation?.(
+                parsed.direction,
+                currentTarget
+            );
             return;
         }
         if (parsed.type === 'conversation-viewer-comment-mutation'
@@ -664,6 +721,19 @@ export class ConversationViewer implements ConversationViewerApi {
             return;
         }
         await this.navigateLatest();
+    }
+
+    private publishKeyboardFocus(focused: boolean, force = false): void {
+        if (!force && this.keyboardFocused === focused) {
+            return;
+        }
+        this.keyboardFocused = focused;
+        try {
+            void Promise.resolve(this.options.setKeyboardFocus?.(focused))
+                .catch(() => undefined);
+        } catch (_error) {
+            // Focus context is advisory and must not break the viewer.
+        }
     }
 
     private effectiveSessionId(target: ConversationViewerTarget): string {
@@ -1592,6 +1662,17 @@ export class ConversationViewer implements ConversationViewerApi {
             return false;
         }
     }
+}
+
+function cloneViewerTarget(
+    target: ConversationViewerTarget
+): ConversationViewerTarget {
+    return {
+        ...target,
+        ...(target.subagent
+            ? { subagent: { ...target.subagent } }
+            : {}),
+    };
 }
 
 function boundedConversationDisplayName(value: string): string {

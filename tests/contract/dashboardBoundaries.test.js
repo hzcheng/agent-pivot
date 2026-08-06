@@ -371,7 +371,9 @@ const DASHBOARD_COMMANDS = [
     'agentPivot.removeGroup', 'agentPivot.addProjectsFromFolder',
     'agentPivot.addFileToActiveTerminal', 'agentPivot.insertPromptToActiveTerminal',
     'agentPivot.migrateSkillsToCentral', 'agentPivot.changeGlobalSkillsLocation',
-    'agentPivot.openCurrentAiSessionConversation', 'agentPivot.switchToOpenWindow',
+    'agentPivot.openCurrentAiSessionConversation',
+    'agentPivot.previousActiveSession', 'agentPivot.nextActiveSession',
+    'agentPivot.switchToOpenWindow',
 ];
 
 // Registered directly from initializeDashboard, outside the dashboard command facade.
@@ -388,7 +390,9 @@ test('WEBVIEW-DASHBOARD-COMMAND-REGISTRATION-001 WEBVIEW-DASHBOARD-COMMAND-AVAIL
         'open', 'addProject', 'saveProject', 'removeProject', 'editProjects', 'addGroup', 'removeGroup',
         'addProjectsFromFolder', 'addFileToActiveTerminal', 'insertPromptToActiveTerminal',
         'migrateSkillsToCentral', 'changeGlobalSkillsLocation',
-        'openCurrentAiSessionConversation', 'switchToOpenWindow',
+        'openCurrentAiSessionConversation',
+        'previousActiveSession', 'nextActiveSession',
+        'switchToOpenWindow',
     ];
     const facade = new DashboardCommandRegistration({
         registerCommand: (command, callback) => {
@@ -451,6 +455,51 @@ test('WEBVIEW-DASHBOARD-COMMAND-REGISTRATION-001 contributes the Prompt terminal
     assert.equal(manifest.contributes.keybindings.some(
         keybinding => keybinding.command === 'agentPivot.insertPromptToActiveTerminal'
     ), false);
+});
+
+test('CONVERSATION-ACTIVE-SESSION-NAVIGATION-COMMANDS-001 contributes focused Conversation navigation commands without taking global shortcuts', () => {
+    const manifest = require('../../package.json');
+    const commands = manifest.contributes.commands.filter(command =>
+        command.command === 'agentPivot.previousActiveSession'
+            || command.command === 'agentPivot.nextActiveSession'
+    );
+    assert.deepEqual(commands, [
+        {
+            command: 'agentPivot.previousActiveSession',
+            title: 'Agent Pivot: Previous Active Session',
+            enablement: 'activeWebviewPanelId == agentPivot.aiConversation && agentPivot.aiConversationFocus && !terminalFocus',
+        },
+        {
+            command: 'agentPivot.nextActiveSession',
+            title: 'Agent Pivot: Next Active Session',
+            enablement: 'activeWebviewPanelId == agentPivot.aiConversation && agentPivot.aiConversationFocus && !terminalFocus',
+        },
+    ]);
+    assert.deepEqual(
+        manifest.contributes.keybindings.filter(binding =>
+            commands.some(command => command.command === binding.command)
+        ),
+        []
+    );
+});
+
+test('CONVERSATION-ACTIVE-SESSION-NAVIGATION-COMMANDS-001 marks only an actually focused Open Current selection as terminal-authoritative', () => {
+    const source = fs.readFileSync(
+        path.resolve(__dirname, '../../src/dashboard.ts'),
+        'utf8'
+    );
+    assert.match(
+        source,
+        /const terminalAuthoritative = selected\.focused === true;/
+    );
+    assert.match(
+        source,
+        /sessionId: selected\.sessionId,\s*}, terminalAuthoritative\);/
+    );
+    assert.doesNotMatch(
+        source,
+        /sessionId: selected\.sessionId,\s*}, true\);/
+    );
 });
 
 test('WEBVIEW-DASHBOARD-COMMAND-REGISTRATION-001 production activation installs the exact Dashboard public command surface', () => {

@@ -20,6 +20,8 @@ const PUBLIC_COMMANDS = [
     'agentPivot.migrateSkillsToCentral',
     'agentPivot.changeGlobalSkillsLocation',
     'agentPivot.openCurrentAiSessionConversation',
+    'agentPivot.previousActiveSession',
+    'agentPivot.nextActiveSession',
     'agentPivot.switchToOpenWindow',
 ];
 

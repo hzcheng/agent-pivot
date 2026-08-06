@@ -258,7 +258,7 @@ test('SESSION-AI-SESSION-YOLO-LAZY-001 does not read options or build specs for 
     }
 });
 
-test('SESSION-AI-SESSION-TERMINAL-COMMAND-CONTROLLER-001 ATTENTION-EXPLICIT-SESSION-CLOSE-001 CONVERSATION-FOLLOW-ACTIVE-SESSION-001 reports whether a project-owned terminal was focused', async () => {
+test('SESSION-AI-SESSION-TERMINAL-COMMAND-CONTROLLER-001 ATTENTION-EXPLICIT-SESSION-CLOSE-001 CONVERSATION-FOLLOW-ACTIVE-SESSION-001 CONVERSATION-ACTIVE-SESSION-NAVIGATION-COMMANDS-001 reports whether a project-owned terminal was focused', async () => {
     const effects = [];
     const terminal = { show: () => effects.push('show'), dispose: () => effects.push('dispose') };
     const identity = {

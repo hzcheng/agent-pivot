@@ -1465,13 +1465,18 @@ async function initializeDashboard(
                     resumePrompt
                 ),
         }, viewerTarget, prompt),
-        focusSession: async viewerTarget => {
-            await aiSessionTerminalCommandController.focusActive(
+        focusSession: viewerTarget =>
+            aiSessionTerminalCommandController.focusActive(
                 viewerTarget.projectId,
                 viewerTarget.provider,
                 viewerTarget.sessionId
-            );
-        },
+            ),
+        setConversationFocusContext: focused =>
+            vscode.commands.executeCommand(
+                'setContext',
+                'agentPivot.aiConversationFocus',
+                focused
+            ),
     }));
     followConversationSessionRebind = (previous, next) =>
         conversationCapability.rebindSession(previous, next);
@@ -1920,6 +1925,10 @@ async function initializeDashboard(
         changeGlobalSkillsLocation: () =>
             skillPanel.changeGlobalStoreLocation(),
         openCurrentAiSessionConversation: () => openCurrentAiSessionConversation(),
+        previousActiveSession: () =>
+            followAdjacentActiveConversationWithFeedback('previous'),
+        nextActiveSession: () =>
+            followAdjacentActiveConversationWithFeedback('next'),
         switchToOpenWindow: () => workspaceNavigationQuickPickController.pickAndOpen(),
     };
 
@@ -2095,19 +2104,22 @@ async function initializeDashboard(
         if (!selected?.sessionId) {
             return;
         }
+        const terminalAuthoritative = selected.focused === true;
         await openAiSessionConversationWithFeedback({
             projectId: target.cardId,
             provider: selected.provider,
             sessionId: selected.sessionId,
-        });
+        }, terminalAuthoritative);
     }
 
     async function openAiSessionConversationWithFeedback(target: {
         projectId: string;
         provider: AiSessionProviderId;
         sessionId: string;
-    }): Promise<void> {
-        const result = await conversationCapability.openLatestConversation(target);
+    }, terminalAuthoritative = false): Promise<void> {
+        const result = terminalAuthoritative
+            ? await conversationCapability.openLatestActiveConversation(target)
+            : await conversationCapability.openLatestConversation(target);
         if (result === 'empty') {
             void vscode.window.showInformationMessage(
                 'Agent Pivot: this AI session has no conversation yet.'
@@ -2119,6 +2131,34 @@ async function initializeDashboard(
         } else if (result === 'unavailable') {
             void vscode.window.showWarningMessage(
                 'Agent Pivot: unable to read the AI session conversation.'
+            );
+        }
+    }
+
+    async function followAdjacentActiveConversationWithFeedback(
+        direction: 'previous' | 'next'
+    ): Promise<void> {
+        const result = await conversationCapability
+            .followAdjacentActiveConversation(direction);
+        if (result === 'inactive' || result === 'closed') {
+            void vscode.window.showInformationMessage(
+                'Agent Pivot: focus an AI Conversation editor to switch active sessions.'
+            );
+        } else if (result === 'noAdjacentSession') {
+            void vscode.window.showInformationMessage(
+                'Agent Pivot: no other active AI session is available.'
+            );
+        } else if (result === 'empty') {
+            void vscode.window.showInformationMessage(
+                'Agent Pivot: the adjacent AI session has no conversation yet.'
+            );
+        } else if (result === 'unknownSession') {
+            void vscode.window.showWarningMessage(
+                'Agent Pivot: the adjacent AI session is no longer active.'
+            );
+        } else if (result === 'unavailable') {
+            void vscode.window.showWarningMessage(
+                'Agent Pivot: unable to switch AI Conversation sessions.'
             );
         }
     }

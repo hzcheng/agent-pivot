@@ -1058,6 +1058,11 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 acquires one real document API 
     await page.locator('a[href="https://example.test/safe"]').click();
 
     assert.deepEqual(await postedMessages(page), [
+        {
+            type: 'conversation-viewer-focus',
+            version: 1,
+            focused: true,
+        },
         { type: 'conversation-viewer-previous', version: 1 },
         { type: 'conversation-viewer-next', version: 1 },
         { type: 'conversation-viewer-latest', version: 1 },
@@ -1273,14 +1278,20 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 keeps boundary navigation inert
     assert.equal(await previous.isDisabled(), true);
     assert.equal(await next.isDisabled(), true);
     assert.equal(await latest.isDisabled(), false);
-    assert.deepEqual(await postedMessages(page), []);
+    const initialFocus = [{
+        type: 'conversation-viewer-focus',
+        version: 1,
+        focused: true,
+    }];
+    assert.deepEqual(await postedMessages(page), initialFocus);
 
     await previous.evaluate(element => element.click());
     await next.evaluate(element => element.click());
-    assert.deepEqual(await postedMessages(page), []);
+    assert.deepEqual(await postedMessages(page), initialFocus);
 
     await latest.click();
     assert.deepEqual(await postedMessages(page), [
+        ...initialFocus,
         { type: 'conversation-viewer-latest', version: 1 },
     ]);
 });
@@ -5926,11 +5937,18 @@ test('CONVERSATION-TELEMETRY-001 renders the worktree chip, degrades missing pat
     );
 
     await chip.click();
-    assert.deepEqual(await postedMessages(page), [{
-        type: 'conversation-viewer-open-worktree',
-        version: 1,
-        worktreeRoot: '/repo/.worktree/feat-worktree',
-    }]);
+    assert.deepEqual(await postedMessages(page), [
+        {
+            type: 'conversation-viewer-focus',
+            version: 1,
+            focused: true,
+        },
+        {
+            type: 'conversation-viewer-open-worktree',
+            version: 1,
+            worktreeRoot: '/repo/.worktree/feat-worktree',
+        },
+    ]);
 
     await sendPage(page, {
         type: 'conversation-viewer-telemetry',

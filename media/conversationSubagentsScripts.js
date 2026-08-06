@@ -140,12 +140,26 @@
             // visible even at zero.
             telemetrySubagents.hidden = false;
             telemetrySection.hidden = false;
-            telemetrySubagents.textContent = 'Agents ' + runningCount + '/'
-                + lastSubagents.length;
-            telemetrySubagents.title = runningCount + ' running of '
+            var telemetrySubagentsValue = telemetrySubagents.querySelector(
+                '[data-telemetry-subagents-value]'
+            );
+            var visibleSubagents = runningCount + '/' + lastSubagents.length;
+            if (telemetrySubagentsValue) {
+                telemetrySubagentsValue.textContent = visibleSubagents;
+            } else {
+                telemetrySubagents.textContent = visibleSubagents;
+            }
+            var telemetrySubagentsLabel = runningCount + ' running of '
                 + lastSubagents.length
                 + (lastSubagents.length === 1 ? ' subagent' : ' subagents')
                 + ' — click to view';
+            telemetrySubagents.title = telemetrySubagentsLabel;
+            telemetrySubagents.setAttribute(
+                'aria-label', telemetrySubagentsLabel
+            );
+            telemetrySubagents.setAttribute(
+                'data-tooltip', telemetrySubagentsLabel
+            );
         }
 
         function apply(subagents, activeSubagent) {

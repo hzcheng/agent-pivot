@@ -1,15 +1,20 @@
 .conversation-telemetry {
+    position: relative;
+    z-index: 4;
     display: flex;
     min-width: 0;
+    min-height: 2.75rem;
+    box-sizing: border-box;
     flex: 0 0 auto;
-    flex-wrap: wrap;
-    gap: .25rem .75rem;
+    flex-wrap: nowrap;
+    gap: .45rem;
     align-items: center;
-    padding: .25rem .75rem;
+    padding: .38rem .7rem;
     border-bottom: 1px solid var(--vscode-panel-border);
     color: var(--vscode-descriptionForeground);
     background: var(--vscode-sideBar-background, var(--vscode-editor-background));
-    font-size: .8rem;
+    font-size: .78rem;
+    white-space: nowrap;
 }
 
 .conversation-telemetry[hidden],
@@ -18,68 +23,84 @@
 }
 
 .conversation-telemetry-model,
-.conversation-telemetry-meter {
-    display: flex;
-    min-width: 0;
-    gap: .4rem;
-    align-items: center;
+.conversation-telemetry-worktree,
+.conversation-telemetry-position,
+.conversation-telemetry-subagents,
+.conversation-telemetry-comments {
+    height: 1.75rem;
+    box-sizing: border-box;
+    border: 1px solid color-mix(
+        in srgb,
+        var(--vscode-panel-border) 76%,
+        transparent
+    );
+    border-radius: .55rem;
+    color: var(--vscode-editor-foreground);
+    background: color-mix(
+        in srgb,
+        var(--vscode-editor-foreground) 4%,
+        transparent
+    );
 }
 
-.conversation-telemetry-model strong {
-    max-width: 18rem;
+.conversation-telemetry-model,
+.conversation-telemetry-worktree {
+    display: inline-flex;
+    min-width: 0;
+    flex: 0 1 auto;
+    gap: .35rem;
+    align-items: center;
+    padding: .15rem .48rem;
+}
+
+.conversation-telemetry-model {
+    max-width: 15rem;
+}
+
+.conversation-telemetry-model > svg,
+.conversation-telemetry-worktree > svg {
+    width: .9rem;
+    height: .9rem;
+    flex: 0 0 auto;
+    color: var(
+        --vscode-symbolIcon-methodForeground,
+        var(--vscode-descriptionForeground)
+    );
+}
+
+.conversation-telemetry-model strong,
+.conversation-telemetry-worktree [data-telemetry-worktree-branch] {
+    min-width: 0;
     overflow: hidden;
-    color: var(--vscode-editor-foreground);
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.conversation-telemetry-meter progress {
-    width: 5.5rem;
-    height: .45rem;
-    accent-color: var(--vscode-progressBar-background);
-}
-
-.conversation-telemetry-meter > span:last-child {
-    color: var(--vscode-editor-foreground);
-    white-space: nowrap;
-}
-
-.conversation-telemetry-limits {
-    display: contents;
+.conversation-telemetry-model strong {
+    max-width: 11rem;
+    font-weight: 600;
+    letter-spacing: .01em;
 }
 
 .conversation-telemetry-worktree {
-    display: flex;
-    gap: .3rem;
-    align-items: center;
-    max-width: 16rem;
-    padding: .05rem .45rem;
-    border: 1px solid var(--vscode-panel-border);
-    border-radius: .55rem;
-    color: var(--vscode-editor-foreground);
-    background: transparent;
+    max-width: 13rem;
     font: inherit;
     cursor: pointer;
 }
 
-.conversation-telemetry-worktree:hover {
+.conversation-telemetry-worktree:hover,
+.conversation-telemetry-position:hover,
+.conversation-telemetry-subagents:hover,
+.conversation-telemetry-comments:hover {
     border-color: var(--vscode-focusBorder);
-    background: var(--vscode-toolbar-hoverBackground);
-}
-
-.conversation-telemetry-worktree svg {
-    flex: 0 0 auto;
-    color: var(--vscode-descriptionForeground);
-}
-
-.conversation-telemetry-worktree [data-telemetry-worktree-branch] {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    background: var(
+        --vscode-toolbar-hoverBackground,
+        var(--vscode-list-hoverBackground)
+    );
 }
 
 .conversation-telemetry-worktree-missing {
-    opacity: .6;
+    opacity: .62;
 }
 
 .conversation-telemetry-worktree-missing
@@ -87,23 +108,333 @@
     text-decoration: line-through;
 }
 
+.conversation-telemetry-divider {
+    width: 1px;
+    height: 1.35rem;
+    flex: 0 0 auto;
+    margin: 0 .08rem;
+    background: var(--vscode-panel-border);
+    opacity: .8;
+}
+
+.conversation-telemetry-usage {
+    display: inline-flex;
+    min-width: 0;
+    flex: 0 0 auto;
+    gap: .32rem;
+    align-items: center;
+    color: var(--vscode-editor-foreground);
+}
+
+.conversation-telemetry-usage strong {
+    min-width: 2.25rem;
+    font-size: .76rem;
+    font-variant-numeric: tabular-nums;
+    font-weight: 650;
+    letter-spacing: .01em;
+}
+
+.conversation-telemetry-ring {
+    position: relative;
+    display: inline-grid;
+    width: 1.9rem;
+    height: 1.9rem;
+    flex: 0 0 auto;
+    place-items: center;
+}
+
+.conversation-telemetry-ring-progress {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    transform: rotate(-90deg);
+}
+
+.conversation-telemetry-ring-track,
+.conversation-telemetry-ring-value {
+    fill: none;
+    stroke-width: 2.7;
+}
+
+.conversation-telemetry-ring-track {
+    stroke: var(--vscode-panel-border);
+    opacity: .6;
+}
+
+.conversation-telemetry-ring-value {
+    stroke: var(
+        --vscode-progressBar-background,
+        var(--vscode-focusBorder)
+    );
+    stroke-linecap: round;
+    transition: stroke-dashoffset 180ms ease-out;
+}
+
+.conversation-telemetry-limit .conversation-telemetry-ring-value {
+    stroke: var(
+        --vscode-charts-yellow,
+        var(--vscode-editorWarning-foreground, #c89a40)
+    );
+}
+
+.conversation-telemetry-ring-icon {
+    position: relative;
+    z-index: 1;
+    width: .82rem;
+    height: .82rem;
+    color: var(--vscode-descriptionForeground);
+}
+
+.conversation-telemetry-context .conversation-telemetry-ring-icon {
+    color: var(
+        --vscode-progressBar-background,
+        var(--vscode-focusBorder)
+    );
+}
+
+.conversation-telemetry-limit .conversation-telemetry-ring-icon {
+    color: var(
+        --vscode-charts-yellow,
+        var(--vscode-editorWarning-foreground, #c89a40)
+    );
+}
+
+.conversation-telemetry-limits {
+    display: contents;
+}
+
+.conversation-telemetry-spacer {
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
 .conversation-telemetry-position,
 .conversation-telemetry-subagents,
 .conversation-telemetry-comments {
     display: inline-flex;
+    min-width: 1.75rem;
+    flex: 0 0 auto;
+    gap: .28rem;
     align-items: center;
-    padding: 0 .5rem;
-    border: 1px solid var(--vscode-panel-border);
-    border-radius: 999px;
-    color: var(--vscode-editor-foreground);
-    background: transparent;
+    justify-content: center;
+    padding: .15rem .42rem;
     font: inherit;
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
     cursor: pointer;
 }
 
-.conversation-telemetry-position:hover,
-.conversation-telemetry-subagents:hover,
-.conversation-telemetry-comments:hover {
-    border-color: var(--vscode-focusBorder);
-    background: var(--vscode-list-hoverBackground);
+.conversation-telemetry-position > svg,
+.conversation-telemetry-subagents > svg,
+.conversation-telemetry-comments > svg {
+    width: .92rem;
+    height: .92rem;
+    flex: 0 0 auto;
+    color: var(--vscode-descriptionForeground);
+}
+
+.conversation-telemetry-tooltip {
+    position: relative;
+}
+
+.conversation-telemetry-tooltip::before,
+.conversation-telemetry-tooltip::after {
+    position: absolute;
+    z-index: 20;
+    top: calc(100% + .45rem);
+    visibility: hidden;
+    pointer-events: none;
+    opacity: 0;
+    transform: translateY(-.15rem);
+    transition: opacity 100ms ease-out, transform 100ms ease-out;
+}
+
+.conversation-telemetry-tooltip::before {
+    left: .65rem;
+    width: .5rem;
+    height: .5rem;
+    border-top: 1px solid var(--vscode-panel-border);
+    border-left: 1px solid var(--vscode-panel-border);
+    background: var(
+        --vscode-editorHoverWidget-background,
+        var(--vscode-editor-background)
+    );
+    content: '';
+    transform: translateY(-.25rem) rotate(45deg);
+}
+
+.conversation-telemetry-tooltip::after {
+    left: 0;
+    width: max-content;
+    max-width: min(18rem, calc(100vw - 1rem));
+    box-sizing: border-box;
+    padding: .42rem .58rem;
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: .38rem;
+    color: var(
+        --vscode-editorHoverWidget-foreground,
+        var(--vscode-editor-foreground)
+    );
+    background: var(
+        --vscode-editorHoverWidget-background,
+        var(--vscode-editor-background)
+    );
+    box-shadow: 0 .3rem .9rem color-mix(in srgb, #000 20%, transparent);
+    content: attr(data-tooltip);
+    font-size: .76rem;
+    font-weight: 400;
+    line-height: 1.35;
+    text-align: left;
+    white-space: pre-line;
+}
+
+.conversation-telemetry-position::before,
+.conversation-telemetry-position::after,
+.conversation-telemetry-comments::before,
+.conversation-telemetry-comments::after,
+.conversation-telemetry-subagents::before,
+.conversation-telemetry-subagents::after {
+    right: 0;
+    left: auto;
+}
+
+.conversation-telemetry-position::before,
+.conversation-telemetry-comments::before,
+.conversation-telemetry-subagents::before {
+    right: .65rem;
+}
+
+.conversation-telemetry-tooltip:hover::before,
+.conversation-telemetry-tooltip:hover::after,
+.conversation-telemetry-tooltip:focus-visible::before,
+.conversation-telemetry-tooltip:focus-visible::after {
+    visibility: visible;
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.conversation-telemetry-tooltip:hover::before,
+.conversation-telemetry-tooltip:focus-visible::before {
+    transform: translateY(-.25rem) rotate(45deg);
+}
+
+.conversation-telemetry .conversation-telemetry-tooltip:focus-visible {
+    outline: 1px solid var(--vscode-focusBorder);
+    outline-offset: 1px;
+}
+
+@media (max-width: 520px) {
+    .conversation-telemetry {
+        gap: .3rem;
+        padding-right: .4rem;
+        padding-left: .4rem;
+    }
+
+    .conversation-telemetry-model strong {
+        max-width: 6rem;
+    }
+
+    .conversation-telemetry-worktree
+        [data-telemetry-worktree-branch] {
+        max-width: 5rem;
+    }
+}
+
+@media (max-width: 360px) {
+    .conversation-telemetry {
+        min-height: 2.35rem;
+        gap: .18rem;
+        padding: .25rem;
+    }
+
+    .conversation-telemetry-model,
+    .conversation-telemetry-worktree,
+    .conversation-telemetry-position,
+    .conversation-telemetry-subagents,
+    .conversation-telemetry-comments {
+        height: 1.65rem;
+    }
+
+    .conversation-telemetry-model,
+    .conversation-telemetry-worktree {
+        width: 1.65rem;
+        flex-basis: 1.65rem;
+        justify-content: center;
+        padding: 0;
+    }
+
+    .conversation-telemetry-model strong,
+    .conversation-telemetry-worktree
+        [data-telemetry-worktree-branch],
+    .conversation-telemetry-usage strong {
+        display: none;
+    }
+
+    .conversation-telemetry-divider {
+        margin: 0;
+    }
+
+    .conversation-telemetry-ring {
+        width: 1.65rem;
+        height: 1.65rem;
+    }
+
+    .conversation-telemetry-position,
+    .conversation-telemetry-subagents,
+    .conversation-telemetry-comments {
+        min-width: 1.65rem;
+        gap: .18rem;
+        padding: .1rem .25rem;
+    }
+}
+
+@media (max-width: 320px) {
+    .conversation-telemetry-model {
+        display: none;
+    }
+}
+
+@media (max-width: 220px) {
+    .conversation-telemetry-worktree,
+    .conversation-telemetry-divider {
+        display: none;
+    }
+}
+
+@media (forced-colors: active) {
+    .conversation-telemetry-model,
+    .conversation-telemetry-worktree,
+    .conversation-telemetry-position,
+    .conversation-telemetry-subagents,
+    .conversation-telemetry-comments {
+        border-color: ButtonText;
+        color: ButtonText;
+        background: Canvas;
+    }
+
+    .conversation-telemetry-ring-track {
+        stroke: GrayText;
+        opacity: 1;
+    }
+
+    .conversation-telemetry-ring-value,
+    .conversation-telemetry-limit .conversation-telemetry-ring-value {
+        stroke: Highlight;
+    }
+
+    .conversation-telemetry-ring-icon,
+    .conversation-telemetry-context .conversation-telemetry-ring-icon,
+    .conversation-telemetry-limit .conversation-telemetry-ring-icon {
+        color: ButtonText;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .conversation-telemetry-ring-value,
+    .conversation-telemetry-tooltip::before,
+    .conversation-telemetry-tooltip::after {
+        transition: none;
+    }
 }

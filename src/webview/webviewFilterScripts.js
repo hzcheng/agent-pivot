@@ -45,7 +45,11 @@ function initFiltering(activeByDefault, dashboard) {
     filterWrapper.classList.toggle(hasFilterValueClass, storedFilter.length > 0);
     document.body.classList.add('filtering-active');
     if (activeByDefault && !storedFilter) {
-        requestAnimationFrame(focus);
+        requestAnimationFrame(() => {
+            if (typeof document.hasFocus === 'function' && document.hasFocus()) {
+                focus();
+            }
+        });
     }
 
     return { clear, focus, apply };

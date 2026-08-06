@@ -172,10 +172,11 @@ function createOpenWorkspaceUpdateVm(wrapper, catalogs) {
     return context;
 }
 
-function createFilterVm(input) {
+function createFilterVm(input, { documentFocused = false } = {}) {
     const context = {
         document: {
             body: { classList: createClassList() },
+            hasFocus: () => documentFocused,
             getElementById: id => id === 'filter' ? input : { addEventListener: () => undefined },
             querySelectorAll: () => [],
         },
@@ -441,7 +442,7 @@ test('OPEN-WORKSPACE-PIN-WEBVIEW-001 waits for authoritative markup before chang
     assert.equal(announcements.at(-1), 'Window pinned.');
 });
 
-test('WEBVIEW-WEBVIEW-REFRESH-FOCUS-001 focuses active search on initialization without blurring editor focus', () => {
+test('WEBVIEW-WEBVIEW-REFRESH-FOCUS-001 only focuses default search when the Webview already owns focus', () => {
     const calls = [];
     const input = {
         value: '',
@@ -451,13 +452,19 @@ test('WEBVIEW-WEBVIEW-REFRESH-FOCUS-001 focuses active search on initialization 
         select: () => calls.push('select'),
         addEventListener: () => undefined,
     };
-    const context = createFilterVm(input);
-    assert.equal(typeof context.initFiltering, 'function');
+    const backgroundContext = createFilterVm(input);
+    assert.equal(typeof backgroundContext.initFiltering, 'function');
 
-    context.initFiltering(true, {
+    backgroundContext.initFiltering(true, {
         isSearchActive: () => false,
         setSearchQuery: () => undefined,
     });
+    assert.deepEqual(calls, []);
 
+    const focusedContext = createFilterVm(input, { documentFocused: true });
+    focusedContext.initFiltering(true, {
+        isSearchActive: () => false,
+        setSearchQuery: () => undefined,
+    });
     assert.deepEqual(calls, ['focus', 'select']);
 });

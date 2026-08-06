@@ -1,6 +1,7 @@
 'use strict';
 
 const assert = require('assert');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const {
@@ -325,6 +326,31 @@ async function runLocalStoreChecks() {
         ['event-1', 'event-2'],
         'an acknowledged event must not become unread again only because time passed'
     );
+
+    const capacityRoot = fs.mkdtempSync(path.join(require('os').tmpdir(), 'attention-ack-capacity-'));
+    const capacityDirectory = path.join(capacityRoot, 'acknowledgements');
+    fs.mkdirSync(capacityDirectory, { recursive: true });
+    for (let index = 0; index <= 2000; index++) {
+        const eventId = `capacity-event-${index}`;
+        const fileName = `${crypto.createHash('sha256').update(eventId).digest('hex')}.json`;
+        fs.writeFileSync(
+            path.join(capacityDirectory, fileName),
+            `${JSON.stringify({ eventId, acknowledgedAtMs: index })}\n`,
+            'utf8'
+        );
+    }
+    const capacityStore = new localStore.LocalStore(
+        capacityRoot,
+        validSnapshot.instanceId,
+        validSnapshot.workspaceProcessId
+    );
+    const capacityAcknowledgements = await capacityStore.readAcknowledgements();
+    assert.strictEqual(capacityAcknowledgements.size, 2000);
+    assert.strictEqual(capacityAcknowledgements.has('capacity-event-0'), false);
+    assert.strictEqual(capacityAcknowledgements.has('capacity-event-2000'), true);
+    assert.strictEqual(fs.readdirSync(capacityDirectory).length, 2000);
+    fs.rmSync(capacityRoot, { recursive: true, force: true });
+
     await first.removeOwnSnapshot();
     assert.strictEqual(fs.existsSync(ownPath), false);
     fs.rmSync(root, { recursive: true, force: true });

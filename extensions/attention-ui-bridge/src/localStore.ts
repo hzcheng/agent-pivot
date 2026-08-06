@@ -16,7 +16,6 @@ const INSTANCE_FILE_PATTERN = /^[a-f0-9]{32}\.json$/;
 const ACKNOWLEDGEMENT_FILE_PATTERN = /^[a-f0-9]{64}\.json$/;
 const MAX_ACKNOWLEDGEMENT_BYTES = 4096;
 const MAX_ACKNOWLEDGEMENTS = 2000;
-const MAX_ACKNOWLEDGEMENT_FILENAMES = 10_000;
 
 interface CachedSnapshot {
     snapshot: ProbeSnapshot;
@@ -215,9 +214,7 @@ export class LocalStore {
             if (hasErrorCode(error, 'ENOENT')) return new Set<string>();
             throw error;
         }
-        const candidates = entries
-            .filter(entry => ACKNOWLEDGEMENT_FILE_PATTERN.test(entry.name))
-            .slice(0, MAX_ACKNOWLEDGEMENT_FILENAMES);
+        const candidates = entries.filter(entry => ACKNOWLEDGEMENT_FILE_PATTERN.test(entry.name));
         for (const entry of candidates) {
             const filePath = path.join(this.acknowledgementsDirectory, entry.name);
             try {

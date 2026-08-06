@@ -14,8 +14,9 @@ import {
 
 const INSTANCE_FILE_PATTERN = /^[a-f0-9]{32}\.json$/;
 const ACKNOWLEDGEMENT_FILE_PATTERN = /^[a-f0-9]{64}\.json$/;
-const ACKNOWLEDGEMENT_RETENTION_MS = 24 * 60 * 60 * 1000;
 const MAX_ACKNOWLEDGEMENT_BYTES = 4096;
+const MAX_ACKNOWLEDGEMENTS = 2000;
+const MAX_ACKNOWLEDGEMENT_FILENAMES = 10_000;
 
 interface CachedSnapshot {
     snapshot: ProbeSnapshot;
@@ -195,17 +196,29 @@ export class LocalStore {
         }
     }
 
-    public async readAcknowledgements(nowMs = Date.now()): Promise<Set<string>> {
-        const result = new Set<string>();
+    public async readAcknowledgements(_nowMs = Date.now()): Promise<Set<string>> {
+        // Event ids are causal and stable: the same provider completion can be
+        // republished whenever its owning Extension Host restarts. Expiring an
+        // acknowledgement by wall-clock time therefore makes an old completion
+        // unread again. Keep the newest bounded set until capacity eviction
+        // instead, regardless of how much time has passed.
+        const valid: Array<{
+            eventId: string;
+            acknowledgedAtMs: number;
+            filePath: string;
+            fileName: string;
+        }> = [];
         let entries: fs.Dirent[];
         try {
             entries = await fs.promises.readdir(this.acknowledgementsDirectory, { withFileTypes: true });
         } catch (error) {
-            if (hasErrorCode(error, 'ENOENT')) return result;
+            if (hasErrorCode(error, 'ENOENT')) return new Set<string>();
             throw error;
         }
-        for (const entry of entries.slice(0, 2000)) {
-            if (!ACKNOWLEDGEMENT_FILE_PATTERN.test(entry.name)) continue;
+        const candidates = entries
+            .filter(entry => ACKNOWLEDGEMENT_FILE_PATTERN.test(entry.name))
+            .slice(0, MAX_ACKNOWLEDGEMENT_FILENAMES);
+        for (const entry of candidates) {
             const filePath = path.join(this.acknowledgementsDirectory, entry.name);
             try {
                 const stats = await fs.promises.lstat(filePath);
@@ -213,17 +226,26 @@ export class LocalStore {
                 const value = JSON.parse(await fs.promises.readFile(filePath, 'utf8')) as { eventId?: unknown; acknowledgedAtMs?: unknown };
                 if (typeof value.eventId !== 'string' || value.eventId.length === 0 || value.eventId.length > 1024
                     || typeof value.acknowledgedAtMs !== 'number' || !Number.isFinite(value.acknowledgedAtMs)) continue;
-                if (nowMs - value.acknowledgedAtMs > ACKNOWLEDGEMENT_RETENTION_MS) {
-                    await fs.promises.unlink(filePath);
-                    continue;
-                }
                 const expectedName = `${crypto.createHash('sha256').update(value.eventId).digest('hex')}.json`;
-                if (entry.name === expectedName) result.add(value.eventId);
+                if (entry.name === expectedName) {
+                    valid.push({
+                        eventId: value.eventId,
+                        acknowledgedAtMs: value.acknowledgedAtMs,
+                        filePath,
+                        fileName: entry.name,
+                    });
+                }
             } catch (_error) {
                 // Ignore only the invalid acknowledgement file.
             }
         }
-        return result;
+        valid.sort((left, right) => right.acknowledgedAtMs - left.acknowledgedAtMs
+            || left.fileName.localeCompare(right.fileName));
+        const retained = valid.slice(0, MAX_ACKNOWLEDGEMENTS);
+        await Promise.all(valid.slice(MAX_ACKNOWLEDGEMENTS).map(entry =>
+            fs.promises.unlink(entry.filePath).catch(() => undefined)
+        ));
+        return new Set(retained.map(entry => entry.eventId));
     }
 
     private activeCachedSnapshots(nowMs: number, seen: Set<string>, counters: StoreCounters): StoreScanResult {

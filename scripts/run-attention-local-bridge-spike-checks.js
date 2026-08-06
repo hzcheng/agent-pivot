@@ -318,7 +318,13 @@ async function runLocalStoreChecks() {
     const reloadedStore = new localStore.LocalStore(root, validSnapshot.instanceId, validSnapshot.workspaceProcessId);
     assert.deepStrictEqual(Array.from(await reloadedStore.readAcknowledgements(2_000_001)).sort(), ['event-1', 'event-2']);
     await assert.rejects(first.writeAcknowledgements(['']));
-    assert.deepStrictEqual(Array.from(await reloadedStore.readAcknowledgements(2_000_000 + 24 * 60 * 60 * 1000 + 1)), []);
+    assert.deepStrictEqual(
+        Array.from(await reloadedStore.readAcknowledgements(
+            2_000_000 + 24 * 60 * 60 * 1000 + 1
+        )).sort(),
+        ['event-1', 'event-2'],
+        'an acknowledged event must not become unread again only because time passed'
+    );
     await first.removeOwnSnapshot();
     assert.strictEqual(fs.existsSync(ownPath), false);
     fs.rmSync(root, { recursive: true, force: true });

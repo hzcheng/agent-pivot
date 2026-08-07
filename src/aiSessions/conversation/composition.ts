@@ -348,6 +348,8 @@ function createAvailableConversationCapability(
             );
         },
         setKeyboardFocus: options.setConversationFocusContext,
+        setTimer: options.setTimer,
+        clearTimer: options.clearTimer,
     }));
     const queueConversationFocus = (
         _target: ConversationSessionOpenTarget,

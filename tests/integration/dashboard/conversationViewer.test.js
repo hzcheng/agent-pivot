@@ -251,6 +251,7 @@ function createViewer(options = {}) {
         readPage: options.readPage || (async request =>
             page(request.sessionId, request.anchorInteractionId)),
         readSubagents: options.readSubagents,
+        readTelemetry: options.readTelemetry,
         watch: options.watch || ((_provider, sessionId) => ({
             dispose() {
                 watchDisposals.push(sessionId);
@@ -271,9 +272,68 @@ function createViewer(options = {}) {
         showThinking: options.showThinking,
         commentStore: options.commentStore,
         bookmarkStore: options.bookmarkStore,
+        setTimer: options.setTimer,
+        clearTimer: options.clearTimer,
     });
     return { viewer, panel, watchDisposals, restoredTargets, openedUris };
 }
+
+test('CONVERSATION-TELEMETRY-CONTROLLER-001 refreshes telemetry while the visible conversation is otherwise idle', async () => {
+    const timers = new Map();
+    let nextTimer = 1;
+    let telemetryReads = 0;
+    const { viewer, panel } = createViewer({
+        readTelemetry: async (_provider, sessionId) => ({
+            provider: 'codex',
+            sessionId,
+            context: {
+                usedTokens: ++telemetryReads * 100,
+                maxTokens: 1_000,
+            },
+            rateLimits: [],
+        }),
+        setTimer(callback, delayMs) {
+            const handle = nextTimer++;
+            timers.set(handle, {
+                callback: () => {
+                    timers.delete(handle);
+                    return callback();
+                },
+                delayMs,
+            });
+            return handle;
+        },
+        clearTimer(handle) {
+            timers.delete(handle);
+        },
+    });
+
+    await viewer.open(target('session-idle'));
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(telemetryReads, 1, 'initial publication reads telemetry');
+    const scheduled = Array.from(timers.values()).at(-1);
+    assert.ok(scheduled, 'visible conversation must schedule a telemetry refresh');
+    assert.equal(scheduled.delayMs, 5_000);
+
+    await scheduled.callback();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(telemetryReads, 2);
+    assert.equal(
+        panel.postedMessages.filter(message =>
+            message.type === 'conversation-viewer-telemetry'
+        ).at(-1).telemetry.context.usedTokens,
+        200
+    );
+    assert.equal(timers.size, 1, 'the next visible refresh is scheduled');
+
+    await panel.setVisible(false);
+    assert.equal(timers.size, 0, 'hidden conversations stop telemetry work');
+    await panel.setVisible(true);
+    assert.equal(timers.size, 1, 'showing the conversation resumes telemetry');
+
+    panel.dispose();
+    assert.equal(timers.size, 0, 'disposing the viewer cancels telemetry work');
+});
 
 test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 opens and reuses one viewer in the active editor group', async () => {
     const { viewer, panel } = createViewer();

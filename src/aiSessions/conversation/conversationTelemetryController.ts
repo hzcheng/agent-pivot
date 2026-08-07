@@ -9,9 +9,12 @@ import {
 } from '../../webview/webviewIcons';
 import type { ConversationViewerTarget } from './viewerTarget';
 import {
+    CONVERSATION_LIMITS,
     ConversationAbortSignal,
     ConversationTelemetry,
 } from './types';
+
+type TimerHandle = unknown;
 
 interface ConversationViewerTelemetryMessage {
     type: 'conversation-viewer-telemetry';
@@ -33,10 +36,24 @@ export interface ConversationTelemetryControllerOptions {
     getCurrentRequestId: () => number;
     isSuspended: () => boolean;
     rebuildLatestDocument: () => void;
+    setTimer?: (callback: () => void, delayMs: number) => TimerHandle;
+    clearTimer?: (handle: TimerHandle) => void;
 }
 
 export class ConversationTelemetryController {
     private telemetry?: ConversationTelemetry;
+    private refreshTimer?: TimerHandle;
+    private active?: {
+        target: ConversationViewerTarget;
+        generation: number;
+        sessionId: string;
+    };
+    private refreshInFlight?: {
+        target: ConversationViewerTarget;
+        generation: number;
+        sessionId: string;
+        promise: Promise<void>;
+    };
 
     constructor(
         private readonly options: ConversationTelemetryControllerOptions
@@ -47,13 +64,85 @@ export class ConversationTelemetryController {
     }
 
     reset(): void {
+        this.pause();
         this.telemetry = undefined;
     }
 
-    async refresh(
+    activate(
         target: ConversationViewerTarget,
         generation: number,
         sessionId = target.sessionId
+    ): void {
+        this.pause();
+        this.active = { target, generation, sessionId };
+        if (!this.matchesRefresh(
+            this.refreshInFlight,
+            target,
+            generation,
+            sessionId
+        )) {
+            this.scheduleRefresh();
+        }
+    }
+
+    pause(): void {
+        this.clearRefreshTimer();
+        this.active = undefined;
+    }
+
+    private clearRefreshTimer(): void {
+        if (this.refreshTimer !== undefined) {
+            const clearTimer = this.options.clearTimer || (handle =>
+                clearTimeout(handle as ReturnType<typeof setTimeout>)
+            );
+            clearTimer(this.refreshTimer);
+            this.refreshTimer = undefined;
+        }
+    }
+
+    refresh(
+        target: ConversationViewerTarget,
+        generation: number,
+        sessionId = target.sessionId
+    ): Promise<void> {
+        if (this.matchesRefresh(
+            this.refreshInFlight,
+            target,
+            generation,
+            sessionId
+        )) {
+            return this.refreshInFlight.promise;
+        }
+        if (this.matchesRefresh(
+            this.active,
+            target,
+            generation,
+            sessionId
+        )) {
+            this.clearRefreshTimer();
+        }
+        const promise = this.readAndPublish(target, generation, sessionId);
+        const refresh = { target, generation, sessionId, promise };
+        this.refreshInFlight = refresh;
+        return promise.finally(() => {
+            if (this.refreshInFlight === refresh) {
+                this.refreshInFlight = undefined;
+            }
+            if (this.matchesRefresh(
+                this.active,
+                target,
+                generation,
+                sessionId
+            )) {
+                this.scheduleRefresh();
+            }
+        });
+    }
+
+    private async readAndPublish(
+        target: ConversationViewerTarget,
+        generation: number,
+        sessionId: string
     ): Promise<void> {
         if (!this.options.readTelemetry) {
             return;
@@ -93,6 +182,39 @@ export class ConversationTelemetryController {
             && this.options.getSubscriptionGeneration() === generation) {
             this.options.rebuildLatestDocument();
         }
+    }
+
+    private scheduleRefresh(): void {
+        const active = this.active;
+        const panel = this.options.getPanel();
+        if (!active || !this.options.readTelemetry || !panel?.visible
+            || this.options.isSuspended()) {
+            return;
+        }
+        const setTimer = this.options.setTimer || setTimeout;
+        this.refreshTimer = setTimer(() => {
+            this.refreshTimer = undefined;
+            void this.refresh(
+                active.target,
+                active.generation,
+                active.sessionId
+            );
+        }, CONVERSATION_LIMITS.telemetryRefreshMs);
+    }
+
+    private matchesRefresh(
+        candidate: {
+            target: ConversationViewerTarget;
+            generation: number;
+            sessionId: string;
+        } | undefined,
+        target: ConversationViewerTarget,
+        generation: number,
+        sessionId: string
+    ): boolean {
+        return candidate?.target === target
+            && candidate.generation === generation
+            && candidate.sessionId === sessionId;
     }
 }
 

@@ -58,19 +58,18 @@ import type {
 } from './worktreeResolver';
 
 const MAX_TELEMETRY_PATHS = 16;
-const ABSOLUTE_PATH_PATTERN = /(?<![\w.~=-])\/(?:[\w.@+~-]+\/)*[\w.@+~-]+/g;
+const SHELL_CD_PATTERN = /(?:^|&&|\|\||;|\n)\s*cd(?:\s+--)?\s+(?:"([^"]+)"|'([^']+)'|([^\s;&|]+))/g;
 const MAX_LISTED_SUBAGENTS = 64;
 const SUBAGENT_DIRECTORY_PATTERN = /^[0-9a-z][0-9a-z-]{0,63}$/i;
 const SUBAGENT_RUNNING_FRESHNESS_MS = 5 * 60 * 1000;
 
-function extractAbsolutePaths(value: string): string[] {
+function extractShellWorkingDirectories(value: string): string[] {
     const paths = new Set<string>();
-    const pattern = new RegExp(ABSOLUTE_PATH_PATTERN.source, 'g');
+    const pattern = new RegExp(SHELL_CD_PATTERN.source, 'g');
     let match: RegExpExecArray | null;
     while ((match = pattern.exec(value)) !== null) {
-        const candidate = match[0];
-        if (candidate.length > 1 && candidate.length <= 1024
-            && !candidate.startsWith('/dev/')) {
+        const candidate = match[1] || match[2] || match[3] || '';
+        if (candidate.startsWith('/') && candidate.length <= 1024) {
             paths.add(candidate);
         }
     }
@@ -411,6 +410,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                     split.subagentId,
                     'wire.jsonl'
                 ),
+                cwd: candidate.cwd,
             }
             : candidate;
         const source = await openValidatedConversationSource(
@@ -423,7 +423,9 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
         let interactions: ConversationInteraction[] = [];
         let openInteractionIndex: number | undefined;
         let telemetryContext: ConversationContextUsage | undefined;
-        let telemetryPaths: string[] = [];
+        let telemetryPaths: string[] = effectiveCandidate.cwd
+            ? [effectiveCandidate.cwd]
+            : [];
         try {
             const startOffset = await getConversationReadStart(
                 source,
@@ -595,7 +597,9 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                             );
                             if (typeof args?.command === 'string') {
                                 telemetryPaths.push(
-                                    ...extractAbsolutePaths(args.command)
+                                    ...extractShellWorkingDirectories(
+                                        args.command
+                                    )
                                 );
                                 if (telemetryPaths.length
                                     > MAX_TELEMETRY_PATHS) {

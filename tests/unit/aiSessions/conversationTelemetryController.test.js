@@ -114,6 +114,53 @@ test('CONVERSATION-TELEMETRY-CONTROLLER-001 ignores stale reads and rebuilds onl
     assert.equal(rebuilds, 1);
 });
 
+test('CONVERSATION-TELEMETRY-CONTROLLER-001 schedules the next sample after the current read completes', async () => {
+    const activeTarget = target();
+    const timers = new Map();
+    let nextTimer = 1;
+    let resolveRead;
+    const controller = new ConversationTelemetryController({
+        readTelemetry: () => new Promise(resolve => {
+            resolveRead = resolve;
+        }),
+        getPanel: () => ({
+            visible: true,
+            webview: { postMessage: async () => true },
+        }),
+        getTarget: () => activeTarget,
+        getSubscriptionGeneration: () => 2,
+        getCurrentRequestId: () => 7,
+        isSuspended: () => false,
+        rebuildLatestDocument() {},
+        setTimer(callback, delayMs) {
+            const handle = nextTimer++;
+            timers.set(handle, { callback, delayMs });
+            return handle;
+        },
+        clearTimer(handle) {
+            timers.delete(handle);
+        },
+    });
+
+    const refresh = controller.refresh(activeTarget, 2);
+    controller.activate(activeTarget, 2);
+    assert.equal(
+        timers.size,
+        0,
+        'an in-flight provider read must finish before its cache interval starts'
+    );
+
+    resolveRead({
+        provider: 'codex',
+        sessionId: activeTarget.sessionId,
+        rateLimits: [],
+    });
+    await refresh;
+    assert.equal(timers.size, 1);
+    assert.equal(Array.from(timers.values())[0].delayMs, 5_000);
+    controller.pause();
+});
+
 test('CONVERSATION-TELEMETRY-CONTROLLER-001 renders escaped model and quota markup for initial documents', () => {
     const html = renderConversationTelemetry({
         provider: 'codex',

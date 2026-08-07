@@ -119,6 +119,8 @@ export interface ConversationViewerOptions {
     setKeyboardFocus?: (
         focused: boolean
     ) => PromiseLike<void> | Promise<void> | void;
+    setTimer?: (callback: () => void, delayMs: number) => unknown;
+    clearTimer?: (handle: unknown) => void;
 }
 
 export interface ConversationViewerApi extends AiSessionDisposable {
@@ -239,6 +241,8 @@ export class ConversationViewer implements ConversationViewerApi {
             getCurrentRequestId: () => this.currentRequestId,
             isSuspended: () => this.suspended,
             rebuildLatestDocument: () => this.rebuildLatestDocument(),
+            setTimer: options.setTimer,
+            clearTimer: options.clearTimer,
         });
         this.commentController = new ConversationCommentController({
             commentStore: options.commentStore,
@@ -485,7 +489,20 @@ export class ConversationViewer implements ConversationViewerApi {
             );
         }
         this.ensureWatch(generation);
-        return this.loadAuthoritative('initial', replaceDocument, snapshot);
+        const loaded = await this.loadAuthoritative(
+            'initial',
+            replaceDocument,
+            snapshot
+        );
+        if (loaded && this.target === activeTarget
+            && this.subscriptionGeneration === generation) {
+            this.telemetryController.activate(
+                activeTarget,
+                generation,
+                this.effectiveSessionId(activeTarget)
+            );
+        }
+        return loaded;
     }
 
     async refresh(): Promise<void> {
@@ -559,6 +576,7 @@ export class ConversationViewer implements ConversationViewerApi {
                 return;
             }
             this.suspended = true;
+            this.telemetryController.pause();
             this.authoritativeLoadInFlight = undefined;
             this.authoritativeRefreshPending = false;
             this.abortController?.abort();
@@ -600,6 +618,13 @@ export class ConversationViewer implements ConversationViewerApi {
         }
         this.suspended = false;
         await this.refresh();
+        if (this.target === target && !this.suspended) {
+            this.telemetryController.activate(
+                target,
+                this.subscriptionGeneration,
+                this.effectiveSessionId(target)
+            );
+        }
         const expectedDisplayName = visibleConversationDisplayName(target);
         if (metadataChanged
             && this.latestPublication?.displayName !== expectedDisplayName) {
@@ -679,6 +704,15 @@ export class ConversationViewer implements ConversationViewerApi {
             }
             if (!panel.active) {
                 this.publishKeyboardFocus(false);
+            }
+            if (!panel.visible) {
+                this.telemetryController.pause();
+            } else if (this.target && !this.suspended) {
+                this.telemetryController.activate(
+                    this.target,
+                    this.subscriptionGeneration,
+                    this.effectiveSessionId(this.target)
+                );
             }
         });
         this.panelDisposeListener = panel.onDidDispose(() => {

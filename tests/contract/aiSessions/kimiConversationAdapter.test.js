@@ -656,6 +656,11 @@ test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 real Kimi polling invalidates 
         'wire.jsonl'
     );
     const service = new KimiSessionService();
+    assert.equal(
+        service.resolveConversationSource(liveSessionId).cwd,
+        '/fixtures/other',
+        'the real Kimi work-dir hash must resolve back to its Session cwd'
+    );
     service.changePollIntervalMs = 10;
     const adapter = new KimiConversationAdapter({
         resolveSource: id => service.resolveConversationSource(id),
@@ -874,18 +879,24 @@ test('CONVERSATION-TELEMETRY-001 Kimi surfaces the latest StatusUpdate context w
     });
 });
 
-test('CONVERSATION-TELEMETRY-001 Kimi resolves the worktree from the newest Shell tool paths', async t => {
+test('CONVERSATION-TELEMETRY-001 Kimi resolves the worktree from Shell cwd signals without mistaking referenced files for cwd', async t => {
     const source = await createFixture(t);
     const calls = [];
     const adapter = createAdapter(source, {
         resolveWorktree: async candidate => {
             calls.push(candidate);
-            return candidate === '/repo/.worktree/feat'
+            return candidate.startsWith('/repo/.worktree/feat')
                 ? {
                     branch: 'feat',
-                    worktreeRoot: candidate,
+                    worktreeRoot: '/repo/.worktree/feat',
                     repoRoot: '/repo',
                 }
+                : candidate.startsWith('/repo')
+                    ? {
+                        branch: 'main',
+                        worktreeRoot: '/repo',
+                        repoRoot: '/repo',
+                    }
                 : undefined;
         },
     });
@@ -920,7 +931,7 @@ test('CONVERSATION-TELEMETRY-001 Kimi resolves the worktree from the newest Shel
                     function: {
                         name: 'Shell',
                         arguments: JSON.stringify({
-                            command: 'cd /repo/.worktree/feat && ls /tmp',
+                            command: 'cd /repo/.worktree/feat && cat /repo/README.md && ls /tmp',
                         }),
                     },
                 },
@@ -949,7 +960,49 @@ test('CONVERSATION-TELEMETRY-001 Kimi resolves the worktree from the newest Shel
         worktreeRoot: '/repo/.worktree/feat',
         repoRoot: '/repo',
     });
-    assert.deepEqual(calls.slice(0, 2), ['/tmp', '/repo/.worktree/feat']);
+    assert.deepEqual(calls, ['/repo/.worktree/feat']);
+});
+
+test('CONVERSATION-TELEMETRY-001 Kimi falls back to the Session working directory when no Shell command changes cwd', async t => {
+    const source = await createFixture(t);
+    source.cwd = '/repo/.worktree/session-cwd';
+    const calls = [];
+    const adapter = createAdapter(source, {
+        resolveWorktree: async candidate => {
+            calls.push(candidate);
+            return {
+                branch: 'session-cwd',
+                worktreeRoot: candidate,
+                repoRoot: '/repo',
+            };
+        },
+    });
+    t.after(() => adapter.dispose());
+
+    await fs.promises.appendFile(source.sourcePath, `${JSON.stringify({
+        timestamp: 5000,
+        message: {
+            type: 'ToolCall',
+            payload: {
+                type: 'function',
+                id: 'Shell_cwd_fallback',
+                function: {
+                    name: 'Shell',
+                    arguments: JSON.stringify({
+                        command: 'cat /repo/README.md',
+                    }),
+                },
+            },
+        },
+    })}\n`);
+
+    const telemetry = await adapter.readTelemetry(sessionId);
+    assert.deepEqual(telemetry.worktree, {
+        branch: 'session-cwd',
+        worktreeRoot: '/repo/.worktree/session-cwd',
+        repoRoot: '/repo',
+    });
+    assert.deepEqual(calls, ['/repo/.worktree/session-cwd']);
 });
 
 test('CONVERSATION-TOOL-CALL-VISIBILITY-001 CONVERSATION-PROGRESS-VISIBILITY-001 Kimi treats a tool preamble as progress and preserves the final answer', async t => {

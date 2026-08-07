@@ -2,7 +2,10 @@
 
 import { readJsonlTailLines } from './jsonlTail';
 
-const ROLLOUT_TAIL_BYTES = 256 * 1024;
+// A single assistant/tool result record may itself exceed the former 256 KiB
+// window. Keep enough trailing data to reach the preceding exec record while
+// remaining bounded for very long rollouts.
+const ROLLOUT_TAIL_BYTES = 2 * 1024 * 1024;
 const WORKDIR_PATTERN = /\bworkdir\s*:\s*"([^"]+)"/;
 
 /**

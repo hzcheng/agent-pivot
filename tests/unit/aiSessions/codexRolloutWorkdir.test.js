@@ -51,3 +51,29 @@ test('CONVERSATION-TELEMETRY-001 rollout probe reads the newest exec workdir fro
     );
     assert.equal(readCodexRolloutWorkdir(rolloutPath), undefined);
 });
+
+test('CONVERSATION-TELEMETRY-001 rollout probe keeps the latest workdir across a large trailing record', async t => {
+    const dir = await fs.promises.mkdtemp(
+        path.join(os.tmpdir(), 'steward-codex-rollout-large-tail-')
+    );
+    t.after(() => fs.promises.rm(dir, { recursive: true, force: true }));
+    const rolloutPath = path.join(dir, 'rollout.jsonl');
+    const largeAssistantRecord = JSON.stringify({
+        type: 'response_item',
+        payload: {
+            type: 'message',
+            content: 'x'.repeat(300 * 1024),
+        },
+    });
+
+    await fs.promises.writeFile(rolloutPath, [
+        execLine('/repo/.worktree/telemetry-fix'),
+        largeAssistantRecord,
+        '',
+    ].join('\n'));
+
+    assert.equal(
+        readCodexRolloutWorkdir(rolloutPath),
+        '/repo/.worktree/telemetry-fix'
+    );
+});

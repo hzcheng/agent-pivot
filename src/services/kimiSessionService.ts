@@ -59,8 +59,15 @@ export default class KimiSessionService {
         const kimiHome = this.getKimiHome();
         const sessionDir = kimiHome && this.findSessionDir(kimiHome, sessionId);
         const sourcePath = sessionDir && path.join(sessionDir, 'wire.jsonl');
+        const workDir = sessionDir
+            ? this.findWorkDirForSessionDir(kimiHome, sessionDir)
+            : null;
         return sourcePath && fs.existsSync(sourcePath)
-            ? { providerHome: kimiHome, sourcePath }
+            ? {
+                providerHome: kimiHome,
+                sourcePath,
+                ...(workDir ? { cwd: workDir } : {}),
+            }
             : null;
     }
 
@@ -340,6 +347,16 @@ export default class KimiSessionService {
         }
 
         return null;
+    }
+
+    private findWorkDirForSessionDir(
+        kimiHome: string,
+        sessionDir: string
+    ): string {
+        const workDirHash = path.basename(path.dirname(sessionDir));
+        return this.getWorkDirs(kimiHome).find(workDir =>
+            this.getWorkDirHash(workDir) === workDirHash
+        ) || null;
     }
 
     private readSession(workDir: string, sessionId: string, sessionDir: string): CodexSession {

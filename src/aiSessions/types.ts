@@ -89,6 +89,8 @@ export interface AiSessionDisposable {
 export interface AiSessionConversationSourceCandidate {
     providerHome: string;
     sourcePath: string;
+    /** Provider-authoritative working directory for this Session. */
+    cwd?: string;
 }
 
 /**

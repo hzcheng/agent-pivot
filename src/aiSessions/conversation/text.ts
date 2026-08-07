@@ -225,3 +225,52 @@ export function formatWorkedDuration(durationMs: number): string {
     }
     return `${seconds}s`;
 }
+
+const CLOCK_MONTHS = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+];
+
+export interface ConversationClockTime {
+    /** Same-day `14:05`, older `Aug 6, 09:05`, other years `Dec 31 2025, 23:59`. */
+    label: string;
+    /** Full local timestamp, e.g. `2026-08-07 14:05:33`. */
+    title: string;
+}
+
+function padClockPart(value: number): string {
+    return String(value).padStart(2, '0');
+}
+
+/**
+ * Deterministic 24h clock label for message action rows. `now` is injected
+ * so the same-day decision stays testable.
+ */
+export function formatConversationClockTime(
+    value: number | undefined,
+    now: number
+): ConversationClockTime | undefined {
+    if (value === undefined || !Number.isFinite(value) || value <= 0) {
+        return undefined;
+    }
+    const date = new Date(value);
+    if (!Number.isFinite(date.getTime())) {
+        return undefined;
+    }
+    const time = `${padClockPart(date.getHours())}`
+        + `:${padClockPart(date.getMinutes())}`;
+    const title = `${date.getFullYear()}-${padClockPart(date.getMonth() + 1)}`
+        + `-${padClockPart(date.getDate())} ${time}`
+        + `:${padClockPart(date.getSeconds())}`;
+    const current = new Date(now);
+    if (date.getFullYear() === current.getFullYear()
+        && date.getMonth() === current.getMonth()
+        && date.getDate() === current.getDate()) {
+        return { label: time, title };
+    }
+    const month = CLOCK_MONTHS[date.getMonth()];
+    const year = date.getFullYear() === current.getFullYear()
+        ? ''
+        : ` ${date.getFullYear()}`;
+    return { label: `${month} ${date.getDate()}${year}, ${time}`, title };
+}

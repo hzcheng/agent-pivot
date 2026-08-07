@@ -13,6 +13,9 @@ const {
 const {
     ConversationBookmarkFileStore,
 } = require('../../out/aiSessions/conversation/bookmarkStore');
+const {
+    formatConversationClockTime,
+} = require('../../out/aiSessions/conversation/text');
 
 const purifyScript = fs.readFileSync(
     path.join(__dirname, '../../node_modules/dompurify/dist/purify.min.js'),
@@ -2081,6 +2084,7 @@ test('CONVERSATION-COPY-ACTIONS-001 copies code blocks with a hover control and 
 });
 
 test('CONVERSATION-COPY-ACTIONS-001 copies user inputs and assistant answers through the Host', async t => {
+    const completedAt = Date.now();
     const { page } = await openHostViewerDocument(t, {
         includeStyles: true,
         themeFixture: viewerThemeFixtures[1],
@@ -2112,6 +2116,7 @@ test('CONVERSATION-COPY-ACTIONS-001 copies user inputs and assistant answers thr
             interactionStates: [{
                 interactionId: 'input-1',
                 responseState: 'complete',
+                completedAt,
             }],
         },
     });
@@ -2184,6 +2189,45 @@ test('CONVERSATION-COPY-ACTIONS-001 copies user inputs and assistant answers thr
         await userCopy.locator('svg').count(),
         1,
         'the message copy control renders a real icon glyph'
+    );
+    const answerTime = page.locator(
+        '.conversation-message-assistant .conversation-message-time'
+    );
+    assert.match(
+        await answerTime.textContent(),
+        /^\d{2}:\d{2}$/,
+        'the answer row shows a same-day clock time'
+    );
+    assert.equal(
+        await answerTime.getAttribute('title'),
+        formatConversationClockTime(completedAt, Date.now()).title,
+        'the tooltip carries the full timestamp'
+    );
+    const clockGeometry = await page.evaluate(() => {
+        const row = document.querySelector(
+            '.conversation-message-assistant .conversation-message-actions'
+        );
+        const copy = row.querySelector('.conversation-message-copy')
+            .getBoundingClientRect();
+        const clock = row.querySelector('.conversation-message-time')
+            .getBoundingClientRect();
+        return {
+            rightOfCopy: clock.left >= copy.right - 1,
+            sameRow: Math.abs(
+                (clock.top + clock.bottom) - (copy.top + copy.bottom)
+            ) <= 4,
+        };
+    });
+    assert.deepEqual(clockGeometry, {
+        rightOfCopy: true,
+        sameRow: true,
+    }, 'the clock shares the action row with the copy control');
+    assert.equal(
+        await page.locator(
+            '.conversation-message-user .conversation-message-time'
+        ).count(),
+        0,
+        'the user card row stays clock-free'
     );
 
     await userCopy.click();

@@ -37,9 +37,11 @@ import type {
 import type { ConversationViewerTarget } from './viewerTarget';
 export type { ConversationViewerTarget } from './viewerTarget';
 import {
+    formatConversationClockTime,
     formatWorkedDuration,
     truncateGraphemes,
 } from './text';
+import type { ConversationClockTime } from './text';
 import {
     CONVERSATION_LIMITS,
     ConversationAbortController,
@@ -2224,7 +2226,8 @@ function renderWorklogRow(
 
 function renderMessage(
     message: ConversationMessage,
-    showThinking: boolean
+    showThinking: boolean,
+    clock?: ConversationClockTime
 ): string {
     if (message.role === 'tool') {
         return renderToolMessage(message);
@@ -2248,6 +2251,9 @@ function renderMessage(
     <section class="conversation-message-actions"><button class="conversation-message-copy" title="Copy input"></button></section>
 </article>`;
     }
+    const clockHtml = clock
+        ? `<span class="conversation-message-time" title="${escapeAttribute(clock.title)}">${escapeAttribute(clock.label)}</span>`
+        : '';
     return `<article class="conversation-message conversation-message-${message.role}"
     data-message-id="${escapeAttribute(message.id)}"
     data-conversation-message-id="${escapeAttribute(encodeURIComponent(message.id))}"
@@ -2256,7 +2262,7 @@ function renderMessage(
     <section class="conversation-markdown">${renderConversationMarkdown(
         message.markdown
     )}</section>
-    <section class="conversation-message-actions"><button class="conversation-message-copy" title="Copy response"></button></section>
+    <section class="conversation-message-actions"><button class="conversation-message-copy" title="Copy response"></button>${clockHtml}</section>
 </article>`;
 }
 
@@ -2275,9 +2281,17 @@ function renderMessages(
         }
     });
     return groups.map(group => {
+        const info = interactionInfo.get(group[0].interactionId);
+        const clock = info
+            ? formatConversationClockTime(
+                info.completedAt ?? info.timestamp,
+                Date.now()
+            )
+            : undefined;
         const rendered = group.map(message => renderMessage(
             message,
-            showThinking
+            showThinking,
+            clock
         ));
         const answerIndex = group.findIndex(
             message => message.role === 'assistant'
@@ -2285,7 +2299,6 @@ function renderMessages(
         const firstWorkIndex = group.findIndex(
             message => isWorklogEntry(message, showThinking)
         );
-        const info = interactionInfo.get(group[0].interactionId);
         if (info
             && info.responseState !== 'inProgress'
             && answerIndex >= 0

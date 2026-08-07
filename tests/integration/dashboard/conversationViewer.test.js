@@ -39,6 +39,9 @@ const {
     ConversationError,
 } = require('../../../out/aiSessions/conversation/types');
 const {
+    formatConversationClockTime,
+} = require('../../../out/aiSessions/conversation/text');
+const {
     KimiConversationAdapter,
 } = require('../../../out/aiSessions/conversation/kimiAdapter');
 const {
@@ -3936,6 +3939,62 @@ test('CONVERSATION-COPY-ACTIONS-001 renders code block chrome and message copy c
         html.indexOf('conversation-message-actions', answerActionsIndex + 1),
         -1,
         'exactly one action row per user/assistant article'
+    );
+    assert.equal(
+        html.includes('conversation-message-time'),
+        false,
+        'providers without timing expose no clock on the action row'
+    );
+});
+
+test('CONVERSATION-COPY-ACTIONS-001 clocks the answer action row when the provider exposes timing', async () => {
+    const completedAt = Date.now();
+    const { viewer, panel } = createViewer({
+        readPage: async request => ({
+            ...copyPage(request.sessionId),
+            interactionStates: [{
+                interactionId: 'input-1',
+                responseState: 'complete',
+                completedAt,
+            }],
+        }),
+    });
+
+    await viewer.open(target('session-a', 'input-1'));
+    const html = panel.webview.html;
+    const match = html.match(
+        /conversation-message-time\\&quot; title=\\&quot;([^\\]+?)\\&quot;&gt;(\d{2}:\d{2})/
+    );
+    assert.ok(match, 'the answer action row carries a clock time');
+    assert.equal(
+        match[1],
+        formatConversationClockTime(completedAt, Date.now()).title,
+        'the tooltip carries the full deterministic timestamp'
+    );
+    const copyIndex = html.indexOf('conversation-message-copy');
+    assert.ok(
+        html.indexOf('conversation-message-time') > copyIndex,
+        'the clock sits right of the copy control'
+    );
+});
+
+test('CONVERSATION-COPY-ACTIONS-001 omits the clock when timing overflows the Date range', async () => {
+    const { viewer, panel } = createViewer({
+        readPage: async request => ({
+            ...copyPage(request.sessionId),
+            interactionStates: [{
+                interactionId: 'input-1',
+                responseState: 'complete',
+                completedAt: 1e308,
+            }],
+        }),
+    });
+
+    await viewer.open(target('session-a', 'input-1'));
+    assert.equal(
+        panel.webview.html.includes('conversation-message-time'),
+        false,
+        'finite-but-invalid timestamps render no clock'
     );
 });
 

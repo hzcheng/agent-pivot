@@ -4434,11 +4434,12 @@
   {
     "id": "CONVERSATION-COPY-ACTIONS-001",
     "domain": "webview",
-    "title": "AI Conversation copies fenced code with a hover control and language label, copies user inputs and assistant answers as Host-resolved markdown, and settles every copy through a correlated Host clipboard request without optimistic feedback",
+    "title": "AI Conversation gives answers a Codex-style bottom action row with an SVG copy control and the turn clock time when the provider exposes timing, wraps fenced code in a card whose header strip pairs the language label with an always-visible copy control, and settles every copy through a correlated Host clipboard request without optimistic feedback",
     "priority": "P1",
     "status": "automated",
     "owners": [
       "tests/unit/aiSessions/conversationViewerProtocol.test.js",
+      "tests/unit/aiSessions/conversationText.test.js",
       "tests/integration/dashboard/conversationViewer.test.js",
       "tests/browser/conversationViewer.test.js"
     ],
@@ -4446,6 +4447,7 @@
       "src/aiSessions/conversation/viewerProtocol.ts",
       "src/aiSessions/conversation/viewer.ts",
       "src/aiSessions/conversation/markdown.ts",
+      "src/aiSessions/conversation/text.ts",
       "src/webview/conversationViewerScripts.js",
       "media/conversationViewer.scss"
     ]

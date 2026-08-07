@@ -125,7 +125,7 @@ test('CONVERSATION-TELEMETRY-CONTROLLER-001 renders escaped model and quota mark
             label: 'Weekly <quota>',
             usedPercent: 25,
         }],
-    });
+    }, 'codex');
     assert.match(html, /&lt;unsafe&gt;/);
     assert.match(html, /data-telemetry-context-value>25%/);
     assert.match(html, /Context window · 25% used\s+1\.5k \/ 6\.0k tokens/);
@@ -134,4 +134,26 @@ test('CONVERSATION-TELEMETRY-CONTROLLER-001 renders escaped model and quota mark
     assert.doesNotMatch(html, />Model</);
     assert.doesNotMatch(html, />Context</);
     assert.doesNotMatch(html, /Weekly <quota>/);
+});
+
+test('CONVERSATION-TELEMETRY-CONTROLLER-001 leads the telemetry bar with a provider icon pill', () => {
+    const html = renderConversationTelemetry(undefined, 'kimi');
+    assert.match(html, /data-telemetry-provider/);
+    assert.match(html, /data-provider="kimi"/);
+    assert.match(html, /Provider · Kimi/);
+    assert.match(html, /data-provider-icon="codex"/);
+    assert.match(html, /data-provider-icon="kimi"/);
+    assert.match(html, /data-provider-icon="claude"/);
+    // The pill reuses the dashboard Session card brand logos.
+    assert.match(html, /M22\.2819 9\.8211/);
+    assert.match(html, /M21\.765\.351/);
+    assert.match(html, /m4\.7144 15\.9555/);
+    assert.ok(
+        html.indexOf('data-telemetry-provider')
+            < html.indexOf('data-telemetry-model'),
+        'provider pill must precede the model chip'
+    );
+    const claude = renderConversationTelemetry(undefined, 'claude');
+    assert.match(claude, /data-provider="claude"/);
+    assert.match(claude, /Provider · Claude/);
 });

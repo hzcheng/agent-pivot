@@ -6,6 +6,7 @@
         var subscriptionGeneration = options.subscriptionGeneration;
         var latestRequestId = options.latestRequestId;
         var telemetryRoot = options.telemetryRoot;
+        var telemetryProvider = options.telemetryProvider;
         var telemetryModel = options.telemetryModel;
         var telemetryModelValue = options.telemetryModelValue;
         var telemetryContext = options.telemetryContext;
@@ -124,6 +125,12 @@
             return Math.ceil(remainingHours / 24) + 'd';
         }
 
+        function providerLabel(provider) {
+            if (provider === 'kimi') return 'Kimi';
+            if (provider === 'claude') return 'Claude';
+            return 'Codex';
+        }
+
         function setTooltip(element, label) {
             element.title = label;
             element.setAttribute('aria-label', label);
@@ -203,7 +210,8 @@
                     && (!commentTarget
                         || message.telemetry.provider !== commentTarget.provider
                         || message.telemetry.sessionId !== commentTarget.sessionId))
-                || !telemetryRoot || !telemetryModel || !telemetryModelValue
+                || !telemetryRoot || !telemetryProvider
+                || !telemetryModel || !telemetryModelValue
                 || !telemetryContext || !telemetryContextProgress
                 || !telemetryContextValue || !telemetryLimits
                 || !telemetryWorktree || !telemetryWorktreeBranch) {
@@ -283,6 +291,11 @@
             commentTarget = target;
             subscriptionGeneration = generation;
             state.latestTelemetryRequestId = 0;
+            telemetryProvider.setAttribute('data-provider', target.provider);
+            setTooltip(
+                telemetryProvider,
+                'Provider · ' + providerLabel(target.provider)
+            );
             telemetryModel.hidden = true;
             telemetryWorktree.hidden = true;
             telemetryContext.hidden = true;

@@ -1,6 +1,12 @@
 'use strict';
 
 import * as vscode from 'vscode';
+import type { AiSessionProviderId } from '../../models';
+import {
+    claudeLogo,
+    kimiLogo,
+    openAiLogo,
+} from '../../webview/webviewIcons';
 import type { ConversationViewerTarget } from './viewerTarget';
 import {
     ConversationAbortSignal,
@@ -128,6 +134,23 @@ function formatResetTime(resetsAt: number): string {
     return `${Math.ceil(remainingHours / 24)}d`;
 }
 
+// Brand icons are the Simple Icons (CC0-1.0) logos shared with the
+// dashboard Session cards.
+const PROVIDER_ICON_CODEX_SVG = `<span data-provider-icon="codex"`
+    + ` aria-hidden="true">${openAiLogo}</span>`;
+
+const PROVIDER_ICON_KIMI_SVG = `<span data-provider-icon="kimi"`
+    + ` aria-hidden="true">${kimiLogo}</span>`;
+
+const PROVIDER_ICON_CLAUDE_SVG = `<span data-provider-icon="claude"`
+    + ` aria-hidden="true">${claudeLogo}</span>`;
+
+function providerLabel(provider: AiSessionProviderId): string {
+    return provider === 'kimi'
+        ? 'Kimi'
+        : provider === 'claude' ? 'Claude' : 'Codex';
+}
+
 const WORKTREE_ICON_SVG = '<svg viewBox="0 0 16 16" width="11" height="11"'
     + ' aria-hidden="true" fill="none" stroke="currentColor"'
     + ' stroke-width="1.4"><circle cx="4.5" cy="3.5" r="1.8"/>'
@@ -193,8 +216,10 @@ function renderProgressRing(
 }
 
 export function renderConversationTelemetry(
-    telemetry: ConversationTelemetry | undefined
+    telemetry: ConversationTelemetry | undefined,
+    provider: AiSessionProviderId
 ): string {
+    const providerTitle = `Provider · ${providerLabel(provider)}`;
     const hasContext = Boolean(telemetry?.context);
     const hasModel = Boolean(telemetry?.model);
     const worktree = telemetry?.worktree;
@@ -241,6 +266,14 @@ export function renderConversationTelemetry(
         : 'Model';
     return `<section class="conversation-telemetry"
         data-conversation-telemetry aria-label="Session usage">
+        <div class="conversation-telemetry-provider conversation-telemetry-tooltip"
+            data-telemetry-provider data-provider="${escapeAttribute(provider)}"
+            tabindex="0"
+            aria-label="${escapeAttribute(providerTitle)}"
+            title="${escapeAttribute(providerTitle)}"
+            data-tooltip="${escapeAttribute(providerTitle)}">
+            ${PROVIDER_ICON_CODEX_SVG}${PROVIDER_ICON_KIMI_SVG}${PROVIDER_ICON_CLAUDE_SVG}
+        </div>
         <div class="conversation-telemetry-model conversation-telemetry-tooltip"
             data-telemetry-model tabindex="0"
             aria-label="${escapeAttribute(modelTitle)}"

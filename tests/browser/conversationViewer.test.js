@@ -197,6 +197,9 @@ async function openViewerPage(t, options = {}) {
                 </header>
                 <section class="conversation-telemetry"
                     data-conversation-telemetry hidden>
+                    <div class="conversation-telemetry-provider"
+                        data-telemetry-provider data-provider="codex"
+                        title="Provider · Codex"></div>
                     <button type="button" class="conversation-telemetry-worktree"
                         data-telemetry-worktree data-worktree-root="" title=""
                         hidden>
@@ -359,6 +362,11 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 applies an authoritative cross-
             === window.__retainedConversationMessages,
         provider: document.querySelector('[data-conversation-provider]')
             .textContent,
+        telemetryProvider: document.querySelector('[data-telemetry-provider]')
+            .getAttribute('data-provider'),
+        telemetryProviderTitle: document
+            .querySelector('[data-telemetry-provider]')
+            .getAttribute('title'),
         displayName: document.querySelector('[data-conversation-display-name]')
             .textContent,
         response: document.querySelector('[data-conversation-messages]')
@@ -366,6 +374,8 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 applies an authoritative cross-
     })), {
         retainedRoot: true,
         provider: 'Kimi',
+        telemetryProvider: 'kimi',
+        telemetryProviderTitle: 'Provider · Kimi',
         displayName: 'Kimi Session',
         response: 'Kimi response',
     });
@@ -439,6 +449,15 @@ test('CONVERSATION-TELEMETRY-001 CONVERSATION-TELEMETRY-CONTROLLER-001 renders c
     assert.equal(
         await page.locator('[data-conversation-telemetry]').isVisible(),
         true
+    );
+    assert.equal(
+        await page.locator('[data-telemetry-provider]')
+            .getAttribute('data-provider'),
+        'codex'
+    );
+    assert.equal(
+        await page.locator('[data-telemetry-provider]').getAttribute('title'),
+        'Provider · Codex'
     );
     assert.equal(
         await page.locator('[data-telemetry-model-value]').textContent(),

@@ -40,6 +40,7 @@
         '[data-conversation-provider]'
     );
     var telemetryRoot = document.querySelector('[data-conversation-telemetry]');
+    var telemetryProvider = document.querySelector('[data-telemetry-provider]');
     var telemetryModel = document.querySelector('[data-telemetry-model]');
     var telemetryModelValue = document.querySelector(
         '[data-telemetry-model-value]'
@@ -286,6 +287,7 @@
             return state.latestRequestId;
         },
         telemetryRoot: telemetryRoot,
+        telemetryProvider: telemetryProvider,
         telemetryModel: telemetryModel,
         telemetryModelValue: telemetryModelValue,
         telemetryContext: telemetryContext,

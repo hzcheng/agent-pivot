@@ -4,6 +4,13 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
 
 ## [Unreleased]
 
+### Added
+
+- AI Conversation telemetry bar now leads with the provider's brand icon
+  (the same Simple Icons logos used by the dashboard Session cards) in front
+  of the model and worktree chips, and it follows cross-provider Session
+  switches live.
+
 ## [1.0.4] - 2026-08-06
 
 ### Added

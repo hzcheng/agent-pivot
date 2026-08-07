@@ -766,7 +766,8 @@ test('PRODUCTION-CONVERSATION-LIFECYCLE-001 keeps the exact viewer authority lif
     );
     assert.deepEqual(
         readsAfterStopped.slice(readsBeforeLifecycle),
-        ['read-outline:codex']
+        ['read-outline:codex', 'read-page:codex'],
+        'a lifecycle edge reprojects the loaded turn as well as its outline'
     );
     assert.equal(harness.panels.length, 1);
 

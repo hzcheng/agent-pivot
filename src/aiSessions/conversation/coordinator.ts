@@ -460,6 +460,12 @@ export class ConversationCoordinator implements AiSessionDisposable {
                     active,
                     page.isEnd && index === page.interactionStates.length - 1
                 ),
+                ...(state.timestamp !== undefined
+                    ? { timestamp: state.timestamp }
+                    : {}),
+                ...(state.completedAt !== undefined
+                    ? { completedAt: state.completedAt }
+                    : {}),
             })),
             previousCursor: page.previousCursor === undefined
                 ? undefined
@@ -748,6 +754,12 @@ export class ConversationCoordinator implements AiSessionDisposable {
                 && typeof state.interactionId === 'string'
                 && Boolean(state.interactionId)
                 && isResponseState(state.responseState)
+                && (state.timestamp === undefined
+                    || (typeof state.timestamp === 'number'
+                        && Number.isFinite(state.timestamp)))
+                && (state.completedAt === undefined
+                    || (typeof state.completedAt === 'number'
+                        && Number.isFinite(state.completedAt)))
             ))
             || (page.previousCursor !== undefined
                 && typeof page.previousCursor !== 'string')

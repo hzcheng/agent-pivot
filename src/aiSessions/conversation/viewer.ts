@@ -1169,49 +1169,83 @@ export class ConversationViewer implements ConversationViewerApi {
                 : advanceToLatest
                     ? interactionIds[interactionIds.length - 1]
                     : previousSelectedInteractionId as string;
+            let lifecycleProjectionInteractionId: string | undefined;
             const retainedOutline = this.outlineController.snapshot;
-            if (updateKind === 'refresh'
-                && !this.stale
-                && retainedOutline?.sourceRevision
-                    === outline.sourceRevision) {
+            const retainedRevisionMatches = retainedOutline?.sourceRevision
+                === outline.sourceRevision;
+            if (updateKind === 'refresh' && !this.stale && retainedOutline) {
                 const sameInteractionIds = retainedOutline.interactions.length
                     === outline.interactions.length
                     && outline.interactions.every((interaction, index) =>
                         retainedOutline.interactions[index].id
                             === interaction.id
                     );
-                const lifecycleChanged = sameInteractionIds
-                    && outline.interactions.some((interaction, index) =>
+                const lifecycleChangedInteractionIds = sameInteractionIds
+                    ? outline.interactions.filter((interaction, index) =>
                         retainedOutline.interactions[index].responseState
                             !== interaction.responseState
+                    ).map(interaction => interaction.id)
+                    : [];
+                if (retainedRevisionMatches
+                    && !lifecycleChangedInteractionIds.length) {
+                    void this.telemetryController.refresh(
+                        target,
+                        generation,
+                        this.effectiveSessionId(target)
                     );
-                if (lifecycleChanged
-                    && this.outlineController.replace(
+                    return true;
+                }
+                // Lifecycle projection can change both responseState and the
+                // latest assistant/progress roles. Re-read the bounded page
+                // even though provider content is unchanged so retained HTML
+                // cannot lag behind the authoritative turn state.
+                const loadedInteractionIds = new Set(this.interactionIds());
+                for (let index = lifecycleChangedInteractionIds.length - 1;
+                    index >= 0;
+                    index--) {
+                    const interactionId = lifecycleChangedInteractionIds[index];
+                    if (loadedInteractionIds.has(interactionId)) {
+                        lifecycleProjectionInteractionId = interactionId;
+                        break;
+                    }
+                }
+                if (retainedRevisionMatches
+                    && !lifecycleProjectionInteractionId) {
+                    if (this.outlineController.replace(
                         outline,
                         selectedInteractionId
                     )) {
-                    await this.deliverPublication(this.createPublication(
-                        requestId,
-                        generation,
-                        updateKind
-                    ), replaceDocument);
+                        await this.deliverPublication(this.createPublication(
+                            requestId,
+                            generation,
+                            updateKind
+                        ), replaceDocument);
+                    }
+                    return true;
                 }
-                void this.telemetryController.refresh(
-                    target,
-                    generation,
-                    this.effectiveSessionId(target)
-                );
-                return true;
             }
             let page: ConversationPage;
-            if (snapshot?.page) {
+            let selectedRefreshPage: ConversationPage | undefined;
+            const snapshotCoversLifecycleProjection =
+                !lifecycleProjectionInteractionId
+                || snapshot?.page?.interactionStates.some(state =>
+                    state.interactionId === lifecycleProjectionInteractionId
+                ) === true;
+            if (snapshot?.page && snapshotCoversLifecycleProjection) {
                 page = snapshot.page;
             } else {
+                // A content revision can advance in the same refresh that
+                // completes a retained turn. Keep the selected snapshot page
+                // as well as re-reading the changed turn: the former carries
+                // unrelated content changes, while the latter restores final
+                // assistant roles and worklog collapse state.
+                selectedRefreshPage = snapshot?.page;
                 try {
                     page = await this.options.readPage({
                         provider: target.provider,
                         sessionId: this.effectiveSessionId(target),
-                        anchorInteractionId: selectedInteractionId,
+                        anchorInteractionId: lifecycleProjectionInteractionId
+                            || selectedInteractionId,
                         direction: 'around',
                         expectedRevision: outline.sourceRevision,
                         limit: CONVERSATION_LIMITS.maxPageInteractions,
@@ -1249,10 +1283,18 @@ export class ConversationViewer implements ConversationViewerApi {
                         await this.publishFailure(replaceDocument, updateKind);
                         return false;
                     }
+                    if (lifecycleProjectionInteractionId
+                        && !outline.interactions.some(interaction =>
+                            interaction.id
+                                === lifecycleProjectionInteractionId)) {
+                        lifecycleProjectionInteractionId = undefined;
+                    }
+                    selectedRefreshPage = undefined;
                     page = await this.options.readPage({
                         provider: target.provider,
                         sessionId: this.effectiveSessionId(target),
-                        anchorInteractionId: selectedInteractionId,
+                        anchorInteractionId: lifecycleProjectionInteractionId
+                            || selectedInteractionId,
                         direction: 'around',
                         expectedRevision: outline.sourceRevision,
                         limit: CONVERSATION_LIMITS.maxPageInteractions,
@@ -1268,15 +1310,28 @@ export class ConversationViewer implements ConversationViewerApi {
                 await this.publishFailure(replaceDocument, updateKind);
                 return false;
             }
+            if (selectedRefreshPage
+                && (selectedRefreshPage.provider !== target.provider
+                    || selectedRefreshPage.sessionId
+                        !== this.effectiveSessionId(target)
+                    || selectedRefreshPage.sourceRevision
+                        !== outline.sourceRevision)) {
+                selectedRefreshPage = undefined;
+            }
             if (!this.outlineController.replace(
                 outline,
-                page.anchorInteractionId
+                lifecycleProjectionInteractionId
+                    ? selectedInteractionId
+                    : page.anchorInteractionId
             )) {
                 await this.publishFailure(replaceDocument, updateKind);
                 return false;
             }
             this.stale = false;
             if (updateKind === 'refresh') {
+                if (selectedRefreshPage) {
+                    this.mergeRefreshPage(selectedRefreshPage, outline);
+                }
                 this.mergeRefreshPage(page, outline);
             } else {
                 this.retain(page, 'replace');
@@ -1635,10 +1690,19 @@ export class ConversationViewer implements ConversationViewerApi {
         );
         const loadedIds = new Set<string>();
         const messagesByInteraction = new Map<string, ConversationMessage[]>();
+        const statesByInteraction = new Map<
+            string,
+            ConversationPage['interactionStates'][number]
+        >();
         this.pages.forEach(retained => {
             retained.page.interactionStates.forEach(state => {
                 if (outlineIds.has(state.interactionId)) {
                     loadedIds.add(state.interactionId);
+                    if (!statesByInteraction.has(state.interactionId)) {
+                        statesByInteraction.set(state.interactionId, {
+                            ...state,
+                        });
+                    }
                 }
             });
             retained.page.messages.forEach(message => {
@@ -1659,6 +1723,11 @@ export class ConversationViewer implements ConversationViewerApi {
             loadedIds.add(state.interactionId);
             refreshedIds.add(state.interactionId);
             messagesByInteraction.set(state.interactionId, []);
+            const previous = statesByInteraction.get(state.interactionId);
+            statesByInteraction.set(state.interactionId, {
+                ...previous,
+                ...state,
+            });
         });
         page.messages.forEach(message => {
             if (!refreshedIds.has(message.interactionId)) {
@@ -1674,6 +1743,7 @@ export class ConversationViewer implements ConversationViewerApi {
                 if (!loadedIds.has(interaction.id)) {
                     return retainedPages;
                 }
+                const retainedState = statesByInteraction.get(interaction.id);
                 retainedPages.push({
                     page: {
                         provider: outline.provider,
@@ -1684,6 +1754,12 @@ export class ConversationViewer implements ConversationViewerApi {
                         interactionStates: [{
                             interactionId: interaction.id,
                             responseState: interaction.responseState,
+                            ...(retainedState?.timestamp !== undefined
+                                ? { timestamp: retainedState.timestamp }
+                                : {}),
+                            ...(retainedState?.completedAt !== undefined
+                                ? { completedAt: retainedState.completedAt }
+                                : {}),
                         }],
                         isStart: index === 0,
                         isEnd: index === outline.interactions.length - 1,
@@ -1999,7 +2075,9 @@ function worklogDurationMs(
         return undefined;
     }
     const duration = info.completedAt - info.timestamp;
-    return duration >= 1000 ? duration : undefined;
+    return Number.isFinite(duration) && duration >= 1000
+        ? duration
+        : undefined;
 }
 
 function renderWorklogRow(

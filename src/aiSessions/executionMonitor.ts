@@ -59,7 +59,8 @@ export default class AiSessionExecutionMonitor {
                 }
             } else {
                 const repeatedSignal = input.signal;
-                if (repeatedSignal?.token === entry.lastSignalToken
+                if (repeatedSignal?.token
+                    && repeatedSignal.token === entry.lastSignalToken
                     && repeatedSignal.occurredAtMs === entry.lastOccurredAtMs) {
                     // Incremental provider readers intentionally return their
                     // cached latest signal when no new transcript bytes exist.

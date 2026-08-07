@@ -313,6 +313,10 @@ test('SESSION-AI-SESSION-COMMAND-CONTROLLER-003 rejects unsupported protocols an
 
 test('SESSION-AI-SESSION-EXECUTION-MONITOR-001 ignores duplicate and older events while exposing immutable snapshots', () => {
     let now = 10;
+    const emptyMonitor = new AiSessionExecutionMonitor({ now: () => now });
+    assert.deepEqual(emptyMonitor.evaluate([{ key: 'codex:empty' }]), []);
+    assert.deepEqual(emptyMonitor.getSnapshot()['codex:empty'], { state: 'stopped', stateChangedAt: 10 });
+
     const monitor = new AiSessionExecutionMonitor({ now: () => now });
     const signal = { token: 'one', occurredAtMs: 20, executionState: 'running' };
     assert.deepEqual(monitor.evaluate([{ key: 'codex:a', signal }]), ['codex:a']);

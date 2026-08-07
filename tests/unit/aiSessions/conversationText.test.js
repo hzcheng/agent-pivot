@@ -79,3 +79,45 @@ test('CONVERSATION-WORKLOG-COLLAPSE-001 formats worked durations in compact Engl
     assert.equal(text.formatWorkedDuration(3_780_000), '1h 03m');
     assert.equal(text.formatWorkedDuration(7_320_000), '2h 02m');
 });
+
+test('CONVERSATION-COPY-ACTIONS-001 formats the action row clock time', () => {
+    const now = new Date(2026, 7, 7, 15, 30, 0).getTime();
+    assert.deepEqual(
+        text.formatConversationClockTime(
+            new Date(2026, 7, 7, 14, 5, 33).getTime(),
+            now
+        ),
+        { label: '14:05', title: '2026-08-07 14:05:33' },
+        'same-day turns read as a plain 24h clock time'
+    );
+    assert.deepEqual(
+        text.formatConversationClockTime(
+            new Date(2026, 7, 6, 9, 5, 0).getTime(),
+            now
+        ),
+        { label: 'Aug 6, 09:05', title: '2026-08-06 09:05:00' },
+        'older turns carry the date'
+    );
+    assert.deepEqual(
+        text.formatConversationClockTime(
+            new Date(2025, 11, 31, 23, 59, 0).getTime(),
+            now
+        ),
+        { label: 'Dec 31 2025, 23:59', title: '2025-12-31 23:59:00' },
+        'other years carry the year too'
+    );
+    assert.equal(
+        text.formatConversationClockTime(undefined, now),
+        undefined
+    );
+    assert.equal(
+        text.formatConversationClockTime(Number.NaN, now),
+        undefined
+    );
+    assert.equal(text.formatConversationClockTime(0, now), undefined);
+    assert.equal(
+        text.formatConversationClockTime(1e308, now),
+        undefined,
+        'finite values beyond the Date range still render no clock'
+    );
+});

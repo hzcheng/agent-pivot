@@ -39,6 +39,9 @@ const {
     ConversationError,
 } = require('../../../out/aiSessions/conversation/types');
 const {
+    formatConversationClockTime,
+} = require('../../../out/aiSessions/conversation/text');
+const {
     KimiConversationAdapter,
 } = require('../../../out/aiSessions/conversation/kimiAdapter');
 const {
@@ -266,6 +269,7 @@ function createViewer(options = {}) {
         },
         openLocalFile: options.openLocalFile,
         insertIntoActiveTerminal: options.insertIntoActiveTerminal,
+        writeClipboardText: options.writeClipboardText,
         followAdjacentConversation: options.followAdjacentConversation,
         setKeyboardFocus: options.setKeyboardFocus,
         mediaUri: fileName => fakeUri(`file:///extension/media/${fileName}`),
@@ -3860,4 +3864,224 @@ test('CONVERSATION-MESSAGE-BOOKMARK-001 renders a bookmark toggle inside each us
         -1,
         'work entries and the answer carry no bookmark toggle'
     );
+});
+
+function copyPage(sessionId) {
+    return {
+        ...page(sessionId, 'input-1', 'visible'),
+        messages: [{
+            id: 'input-1:user',
+            interactionId: 'input-1',
+            role: 'user',
+            markdown: 'Add tests for the parser',
+        }, {
+            id: 'input-1:assistant:0',
+            interactionId: 'input-1',
+            role: 'assistant',
+            markdown: 'Like this:\n\n```ts\nconst answer = 42;\n```',
+        }],
+        interactionStates: [{
+            interactionId: 'input-1',
+            responseState: 'complete',
+        }],
+    };
+}
+
+function copyRequest(requestId, payload, overrides = {}) {
+    return {
+        type: 'conversation-viewer-copy',
+        version: 1,
+        requestId,
+        subscriptionGeneration: 1,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+        operation: 'copy',
+        payload,
+        ...overrides,
+    };
+}
+
+test('CONVERSATION-COPY-ACTIONS-001 renders code block chrome and message copy controls', async () => {
+    const { viewer, panel } = createViewer({
+        readPage: async request => copyPage(request.sessionId),
+    });
+
+    await viewer.open(target('session-a', 'input-1'));
+    const html = panel.webview.html;
+    assert.equal(html.includes('conversation-code-block'), true,
+        'fenced code renders inside a copyable block wrapper');
+    assert.equal(html.includes('conversation-code-header'), true,
+        'the block chrome sits on its own header strip');
+    const headerIndex = html.indexOf('conversation-code-header');
+    const langIndex = html.indexOf('conversation-code-lang');
+    const codeCopyIndex = html.indexOf('conversation-code-copy');
+    const codeIndex = html.indexOf('language-ts');
+    assert.ok(headerIndex >= 0 && langIndex > headerIndex
+        && codeCopyIndex > headerIndex && codeIndex > codeCopyIndex,
+        'the header strip carries the label and copy control above the code');
+    const userIndex = html.indexOf('conversation-message-user');
+    const userTextIndex = html.indexOf('Add tests for the parser');
+    const starIndex = html.indexOf('conversation-message-bookmark');
+    const userCornerIndex = html.indexOf('conversation-message-corner');
+    assert.ok(userIndex >= 0 && starIndex > userIndex
+        && userCornerIndex > starIndex && userCornerIndex < userTextIndex,
+        'the user card corner cluster sits with the star above its content');
+    const userCopyIndex = html.indexOf('conversation-message-copy');
+    assert.ok(userCopyIndex > userCornerIndex
+        && userCopyIndex < userTextIndex,
+        'the user copy control lives in the corner cluster');
+    const assistantIndex = html.indexOf('conversation-message-assistant');
+    const answerTextIndex = html.indexOf('Like this:');
+    const answerActionsIndex = html.indexOf(
+        'conversation-message-actions'
+    );
+    assert.ok(assistantIndex >= 0 && answerTextIndex > assistantIndex
+        && answerActionsIndex > answerTextIndex,
+        'the assistant action row sits below its content');
+    assert.equal(
+        html.indexOf('conversation-message-actions', answerActionsIndex + 1),
+        -1,
+        'only the assistant answer carries a bottom action row'
+    );
+    assert.equal(
+        html.includes('conversation-message-time'),
+        false,
+        'providers without timing expose no clock on the action row'
+    );
+});
+
+test('CONVERSATION-COPY-ACTIONS-001 clocks the answer action row when the provider exposes timing', async () => {
+    const timestamp = Date.now() - 120_000;
+    const completedAt = Date.now();
+    const { viewer, panel } = createViewer({
+        readPage: async request => ({
+            ...copyPage(request.sessionId),
+            interactionStates: [{
+                interactionId: 'input-1',
+                responseState: 'complete',
+                timestamp,
+                completedAt,
+            }],
+        }),
+    });
+
+    await viewer.open(target('session-a', 'input-1'));
+    const html = panel.webview.html;
+    const matches = [...html.matchAll(
+        /conversation-message-time\\&quot; title=\\&quot;([^\\]+?)\\&quot;&gt;(\d{2}:\d{2})/g
+    )];
+    assert.equal(matches.length, 2,
+        'the user corner and the answer row both carry a clock');
+    assert.equal(
+        matches[0][1],
+        formatConversationClockTime(timestamp, Date.now()).title,
+        'the user corner clocks the input time'
+    );
+    assert.equal(
+        matches[1][1],
+        formatConversationClockTime(completedAt, Date.now()).title,
+        'the answer row clocks the completion time'
+    );
+    const copyIndex = html.indexOf('conversation-message-copy');
+    const timeIndex = html.indexOf('conversation-message-time');
+    assert.ok(
+        timeIndex >= 0 && timeIndex < copyIndex,
+        'the user clock sits left of the copy control'
+    );
+});
+
+test('CONVERSATION-COPY-ACTIONS-001 omits the clock when timing overflows the Date range', async () => {
+    const { viewer, panel } = createViewer({
+        readPage: async request => ({
+            ...copyPage(request.sessionId),
+            interactionStates: [{
+                interactionId: 'input-1',
+                responseState: 'complete',
+                completedAt: 1e308,
+            }],
+        }),
+    });
+
+    await viewer.open(target('session-a', 'input-1'));
+    assert.equal(
+        panel.webview.html.includes('conversation-message-time'),
+        false,
+        'finite-but-invalid timestamps render no clock'
+    );
+});
+
+test('CONVERSATION-COPY-ACTIONS-001 settles copies through the Host clipboard', async () => {
+    const clips = [];
+    const { viewer, panel } = createViewer({
+        writeClipboardText: async text => {
+            clips.push(text);
+        },
+        readPage: async request => copyPage(request.sessionId),
+    });
+    await viewer.open(target('session-a', 'input-1'));
+
+    await panel.receive(copyRequest('copy-1', {
+        kind: 'message',
+        messageId: 'input-1:assistant:0',
+    }));
+    assert.deepEqual(clips, ['Like this:\n\n```ts\nconst answer = 42;\n```'],
+        'message copies resolve the raw markdown from Host state');
+    assert.deepEqual(panel.postedMessages.at(-1), {
+        type: 'conversation-viewer-copy-result',
+        version: 1,
+        requestId: 'copy-1',
+        success: true,
+    });
+
+    await panel.receive(copyRequest('copy-2', {
+        kind: 'code',
+        text: 'const answer = 42;\n',
+    }));
+    assert.deepEqual(clips.at(-1), 'const answer = 42;\n');
+    assert.deepEqual(panel.postedMessages.at(-1), {
+        type: 'conversation-viewer-copy-result',
+        version: 1,
+        requestId: 'copy-2',
+        success: true,
+    });
+
+    await panel.receive(copyRequest('copy-3', {
+        kind: 'message',
+        messageId: 'input-9:user',
+    }));
+    assert.deepEqual(panel.postedMessages.at(-1), {
+        type: 'conversation-viewer-copy-result',
+        version: 1,
+        requestId: 'copy-3',
+        success: false,
+        error: 'invalid',
+    }, 'unknown messages settle as invalid without touching the clipboard');
+    assert.equal(clips.length, 2);
+
+    await panel.receive(copyRequest('copy-4', {
+        kind: 'code',
+        text: 'stale',
+    }, { subscriptionGeneration: 2 }));
+    assert.deepEqual(panel.postedMessages.at(-1), {
+        type: 'conversation-viewer-copy-result',
+        version: 1,
+        requestId: 'copy-4',
+        success: false,
+        error: 'invalid',
+    }, 'stale generations settle as invalid without touching the clipboard');
+    assert.equal(clips.length, 2);
+
+    await panel.receive(copyRequest('copy-5', {
+        kind: 'message',
+        messageId: 'input-1:user',
+    }, { sessionId: 'session-b' }));
+    assert.deepEqual(panel.postedMessages.at(-1), {
+        type: 'conversation-viewer-copy-result',
+        version: 1,
+        requestId: 'copy-5',
+        success: false,
+        error: 'invalid',
+    }, 'wrong-target copies settle as invalid without touching the clipboard');
+    assert.equal(clips.length, 2);
 });

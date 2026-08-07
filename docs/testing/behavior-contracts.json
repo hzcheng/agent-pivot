@@ -4432,6 +4432,27 @@
     ]
   },
   {
+    "id": "CONVERSATION-COPY-ACTIONS-001",
+    "domain": "webview",
+    "title": "AI Conversation gives answers a Codex-style bottom action row with an SVG copy control and the turn clock time when the provider exposes timing, wraps fenced code in a card whose header strip pairs the language label with an always-visible copy control, and settles every copy through a correlated Host clipboard request without optimistic feedback",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/conversationViewerProtocol.test.js",
+      "tests/unit/aiSessions/conversationText.test.js",
+      "tests/integration/dashboard/conversationViewer.test.js",
+      "tests/browser/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/viewerProtocol.ts",
+      "src/aiSessions/conversation/viewer.ts",
+      "src/aiSessions/conversation/markdown.ts",
+      "src/aiSessions/conversation/text.ts",
+      "src/webview/conversationViewerScripts.js",
+      "media/conversationViewer.scss"
+    ]
+  },
+  {
     "id": "CONVERSATION-LIVE-UPDATE-JOURNEY-001",
     "domain": "webview",
     "title": "A live response preserves telemetry, follows from the end, preserves historical reading position, and transitions Working to complete without a manual new-content control",

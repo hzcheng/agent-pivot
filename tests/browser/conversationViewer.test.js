@@ -13,6 +13,9 @@ const {
 const {
     ConversationBookmarkFileStore,
 } = require('../../out/aiSessions/conversation/bookmarkStore');
+const {
+    formatConversationClockTime,
+} = require('../../out/aiSessions/conversation/text');
 
 const purifyScript = fs.readFileSync(
     path.join(__dirname, '../../node_modules/dompurify/dist/purify.min.js'),
@@ -1925,6 +1928,402 @@ test('CONVERSATION-MESSAGE-BOOKMARK-001 bookmarks an input from its card without
         await page.locator('[data-conversation-status]').textContent(),
         '',
         'removals stay out of the status line too'
+    );
+});
+
+test('CONVERSATION-COPY-ACTIONS-001 copies code blocks with a hover control and language label', async t => {
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+        viewport: { width: 900, height: 560 },
+        interactionIds: ['input-1'],
+        interactionId: 'input-1',
+        pageOverrides: {
+            messages: [{
+                id: 'input-1:user',
+                interactionId: 'input-1',
+                role: 'user',
+                markdown: 'How do I answer?',
+            }, {
+                id: 'input-1:assistant:0',
+                interactionId: 'input-1',
+                role: 'assistant',
+                markdown: 'Like this:\n\n```ts\nconst answer = 42;\n```',
+            }],
+        },
+    });
+    const block = page.locator('.conversation-code-block');
+    const copyButton = block.locator('.conversation-code-copy');
+
+    await block.waitFor();
+    assert.equal(
+        await block.locator('.conversation-code-lang').textContent(),
+        'ts'
+    );
+    assert.equal(
+        await block.locator('pre code').textContent(),
+        'const answer = 42;\n'
+    );
+    assert.equal(
+        await copyButton.textContent(),
+        '',
+        'the code copy control is an icon, not a word'
+    );
+    assert.equal(await copyButton.getAttribute('aria-label'), 'Copy code');
+    assert.equal(
+        await copyButton.locator('svg').count(),
+        1,
+        'the code copy control renders a real icon glyph'
+    );
+    assert.equal(
+        await copyButton.evaluate(element =>
+            getComputedStyle(element).opacity),
+        '1',
+        'the header strip keeps the copy control visible'
+    );
+    const chrome = await page.evaluate(() => {
+        const blockElement = document.querySelector(
+            '.conversation-code-block'
+        );
+        const header = blockElement.querySelector(
+            '.conversation-code-header'
+        );
+        const headerRect = header.getBoundingClientRect();
+        const label = blockElement
+            .querySelector('.conversation-code-lang')
+            .getBoundingClientRect();
+        const button = blockElement
+            .querySelector('.conversation-code-copy')
+            .getBoundingClientRect();
+        const pre = blockElement.querySelector('pre');
+        const preRect = pre.getBoundingClientRect();
+        return {
+            headerAboveCode: headerRect.bottom <= preRect.top + 1,
+            labelInHeader: label.top >= headerRect.top - 1
+                && label.bottom <= headerRect.bottom + 1,
+            buttonInHeader: button.top >= headerRect.top - 1
+                && button.bottom <= headerRect.bottom + 1
+                && button.right <= headerRect.right + 1,
+            nothingOnCode: label.bottom <= preRect.top + 1
+                && button.bottom <= preRect.top + 1,
+            distinctSurface: getComputedStyle(header).backgroundColor
+                !== getComputedStyle(pre).backgroundColor,
+        };
+    });
+    assert.deepEqual(chrome, {
+        headerAboveCode: true,
+        labelInHeader: true,
+        buttonInHeader: true,
+        nothingOnCode: true,
+        distinctSurface: true,
+    }, 'code chrome lives on its own header strip above the code');
+    const initialIcon = await copyButton.evaluate(element =>
+        element.querySelector('svg')?.innerHTML);
+    assert.ok(initialIcon, 'the icon starts as the copy glyph');
+
+    await copyButton.click();
+    const requests = await postedMessages(page);
+    const requestId = requests.at(-1).requestId;
+    assert.match(requestId, /^conversation-copy:[a-z0-9]+:1$/);
+    assert.deepEqual(requests.at(-1), {
+        type: 'conversation-viewer-copy',
+        version: 1,
+        requestId,
+        subscriptionGeneration: 1,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-host-document',
+        operation: 'copy',
+        payload: {
+            kind: 'code',
+            text: 'const answer = 42;\n',
+        },
+    });
+    assert.equal(
+        await copyButton.evaluate(element =>
+            element.classList.contains('is-copied')),
+        false,
+        'the control must not claim success before the settlement'
+    );
+
+    await page.evaluate(id => window.postMessage({
+        type: 'conversation-viewer-copy-result',
+        version: 1,
+        requestId: id,
+        success: true,
+    }, '*'), requestId);
+    await page.waitForFunction(() =>
+        document.querySelector('.conversation-code-copy')
+            ?.classList.contains('is-copied') === true
+    );
+    assert.equal(
+        await copyButton.getAttribute('aria-label'),
+        'Copied',
+        'the settlement announces itself to screen readers'
+    );
+    assert.notEqual(
+        await copyButton.evaluate(element =>
+            element.querySelector('svg')?.innerHTML),
+        initialIcon,
+        'the settlement swaps the copy glyph for a check'
+    );
+    await page.waitForFunction(() =>
+        document.querySelector('.conversation-code-copy')
+            ?.classList.contains('is-copied') === false
+            && document.querySelector('.conversation-code-copy')
+                ?.getAttribute('aria-label') === 'Copy code',
+        undefined,
+        { timeout: 4000 }
+    );
+    assert.equal(
+        await copyButton.evaluate(element =>
+            element.querySelector('svg')?.innerHTML),
+        initialIcon,
+        'the copy glyph returns after the feedback window'
+    );
+});
+
+test('CONVERSATION-COPY-ACTIONS-001 copies user inputs and assistant answers through the Host', async t => {
+    const completedAt = Date.now();
+    const timestamp = completedAt - 120_000;
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[1],
+        viewport: { width: 900, height: 560 },
+        interactionIds: ['input-1'],
+        interactionId: 'input-1',
+        pageOverrides: {
+            messages: [{
+                id: 'input-1:user',
+                interactionId: 'input-1',
+                role: 'user',
+                markdown: 'Add tests for the parser',
+            }, {
+                id: 'input-1:tool:0',
+                interactionId: 'input-1',
+                role: 'tool',
+                markdown: '',
+                tool: {
+                    name: 'Shell',
+                    summary: 'npm test',
+                    detail: '9 passing',
+                },
+            }, {
+                id: 'input-1:assistant:0',
+                interactionId: 'input-1',
+                role: 'assistant',
+                markdown: 'Done, all green.',
+            }],
+            interactionStates: [{
+                interactionId: 'input-1',
+                responseState: 'complete',
+                timestamp,
+                completedAt,
+            }],
+        },
+    });
+    const userCopy = page.locator(
+        '.conversation-message-user .conversation-message-copy'
+    );
+    const answerCopy = page.locator(
+        '.conversation-message-assistant .conversation-message-copy'
+    );
+
+    await userCopy.waitFor();
+    assert.equal(await userCopy.getAttribute('title'), 'Copy input');
+    assert.equal(await userCopy.getAttribute('aria-label'), 'Copy input');
+    assert.equal(await answerCopy.getAttribute('title'), 'Copy response');
+    assert.equal(await answerCopy.getAttribute('aria-label'), 'Copy response');
+    assert.equal(
+        await page.locator('.conversation-message-copy').count(),
+        2,
+        'exactly one copy control per user/assistant article'
+    );
+    assert.equal(
+        await page.locator(
+            '.conversation-message-tool .conversation-message-copy'
+        ).count(),
+        0
+    );
+    assert.equal(
+        await page.locator(
+            '.conversation-message-worklog .conversation-message-copy'
+        ).count(),
+        0
+    );
+    const actionRows = await page.evaluate(() => {
+        const card = document.querySelector('.conversation-message-user');
+        const cardBounds = card.getBoundingClientRect();
+        const star = card.querySelector('.conversation-message-bookmark')
+            .getBoundingClientRect();
+        const corner = card.querySelector('.conversation-message-corner')
+            .getBoundingClientRect();
+        const answer = document.querySelector(
+            '.conversation-message-assistant'
+        );
+        const answerMarkdown = answer.querySelector('.conversation-markdown')
+            .getBoundingClientRect();
+        const answerRow = answer.querySelector(
+            '.conversation-message-actions'
+        ).getBoundingClientRect();
+        const answerCopy = answer.querySelector('.conversation-message-copy')
+            .getBoundingClientRect();
+        return {
+            cornerBesideStar: corner.right <= star.left + 1
+                && Math.abs(
+                    (corner.top + corner.bottom) - (star.top + star.bottom)
+                ) <= 4,
+            cornerInside: corner.top >= cardBounds.top - 1
+                && corner.bottom <= cardBounds.top
+                    + cardBounds.height / 2,
+            cardHasNoRow: !card.querySelector(
+                '.conversation-message-actions'
+            ),
+            answerRowBelow: answerRow.top >= answerMarkdown.bottom - 1,
+            answerRowLeft: answerCopy.left
+                - answer.getBoundingClientRect().left < 48,
+        };
+    });
+    assert.deepEqual(actionRows, {
+        cornerBesideStar: true,
+        cornerInside: true,
+        cardHasNoRow: true,
+        answerRowBelow: true,
+        answerRowLeft: true,
+    }, 'the user card clusters its controls with the star while the answer keeps a bottom row');
+    assert.equal(
+        await userCopy.locator('svg').count(),
+        1,
+        'the message copy control renders a real icon glyph'
+    );
+    const answerTime = page.locator(
+        '.conversation-message-assistant .conversation-message-time'
+    );
+    assert.match(
+        await answerTime.textContent(),
+        /^\d{2}:\d{2}$/,
+        'the answer row shows a same-day clock time'
+    );
+    assert.equal(
+        await answerTime.getAttribute('title'),
+        formatConversationClockTime(completedAt, Date.now()).title,
+        'the tooltip carries the full timestamp'
+    );
+    const clockGeometry = await page.evaluate(() => {
+        const row = document.querySelector(
+            '.conversation-message-assistant .conversation-message-actions'
+        );
+        const copy = row.querySelector('.conversation-message-copy')
+            .getBoundingClientRect();
+        const clock = row.querySelector('.conversation-message-time')
+            .getBoundingClientRect();
+        return {
+            rightOfCopy: clock.left >= copy.right - 1,
+            sameRow: Math.abs(
+                (clock.top + clock.bottom) - (copy.top + copy.bottom)
+            ) <= 4,
+        };
+    });
+    assert.deepEqual(clockGeometry, {
+        rightOfCopy: true,
+        sameRow: true,
+    }, 'the clock shares the action row with the copy control');
+    const userTime = page.locator(
+        '.conversation-message-user .conversation-message-time'
+    );
+    assert.match(
+        await userTime.textContent(),
+        /^\d{2}:\d{2}$/,
+        'the user corner clocks the input time'
+    );
+    assert.equal(
+        await userTime.getAttribute('title'),
+        formatConversationClockTime(timestamp, Date.now()).title,
+        'the user clock tooltip carries the input timestamp'
+    );
+    const cornerOrder = await page.evaluate(() => {
+        const card = document.querySelector('.conversation-message-user');
+        const time = card.querySelector('.conversation-message-time')
+            .getBoundingClientRect();
+        const copy = card.querySelector('.conversation-message-copy')
+            .getBoundingClientRect();
+        const star = card.querySelector('.conversation-message-bookmark')
+            .getBoundingClientRect();
+        return {
+            ordered: time.right <= copy.left + 1
+                && copy.right <= star.left + 1,
+        };
+    });
+    assert.equal(
+        cornerOrder.ordered,
+        true,
+        'the corner reads time, copy, star from left to right'
+    );
+    const corner = page.locator('.conversation-message-corner');
+    assert.equal(
+        await corner.evaluate(element => getComputedStyle(element).opacity),
+        '0',
+        'the corner cluster stays quiet until hover'
+    );
+    await page.hover('.conversation-message-user');
+    await page.waitForFunction(() =>
+        getComputedStyle(document.querySelector(
+            '.conversation-message-corner'
+        )).opacity === '1',
+        'the corner cluster reveals on hover'
+    );
+
+    await userCopy.click();
+    let requests = await postedMessages(page);
+    const requestId = requests.at(-1).requestId;
+    assert.match(requestId, /^conversation-copy:[a-z0-9]+:1$/);
+    assert.deepEqual(requests.at(-1).payload, {
+        kind: 'message',
+        messageId: 'input-1:user',
+    });
+
+    await page.evaluate(id => window.postMessage({
+        type: 'conversation-viewer-copy-result',
+        version: 1,
+        requestId: id,
+        success: false,
+        error: 'failed',
+    }, '*'), requestId);
+    await page.waitForFunction(() =>
+        document.querySelector(
+            '.conversation-message-user .conversation-message-copy'
+        )?.classList.contains('is-failed') === true
+    );
+    assert.equal(
+        await userCopy.getAttribute('aria-label'),
+        'Copy failed'
+    );
+    await page.waitForFunction(() =>
+        document.querySelector(
+            '.conversation-message-user .conversation-message-copy'
+        )?.classList.contains('is-failed') === false
+            && document.querySelector(
+                '.conversation-message-user .conversation-message-copy'
+            )?.getAttribute('aria-label') === 'Copy input',
+        undefined,
+        { timeout: 4000 }
+    );
+    assert.equal(
+        await userCopy.textContent(),
+        '',
+        'the message copy control is an icon, not a word'
+    );
+
+    await answerCopy.click();
+    requests = await postedMessages(page);
+    assert.deepEqual(requests.at(-1).payload, {
+        kind: 'message',
+        messageId: 'input-1:assistant:0',
+    });
+    assert.match(
+        requests.at(-1).requestId,
+        /^conversation-copy:[a-z0-9]+:2$/,
+        'every copy intent gets a fresh request id'
     );
 });
 

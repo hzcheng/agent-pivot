@@ -77,6 +77,26 @@ export interface ConversationViewerBookmarkMutationMessage {
     };
 }
 
+export const CONVERSATION_COPY_MAX_TEXT_LENGTH = 1_000_000;
+
+export interface ConversationViewerCopyMessage {
+    type: 'conversation-viewer-copy';
+    version: 1;
+    requestId: string;
+    subscriptionGeneration: number;
+    projectId: string;
+    provider: AiSessionProviderId;
+    sessionId: string;
+    operation: 'copy';
+    payload: {
+        kind: 'code';
+        text: string;
+    } | {
+        kind: 'message';
+        messageId: string;
+    };
+}
+
 export interface ConversationViewerOpenWorktreeMessage {
     type: 'conversation-viewer-open-worktree';
     version: 1;
@@ -127,7 +147,8 @@ export type ConversationViewerMessage =
     | ConversationViewerCommentMutationMessage
     | ConversationViewerSendCommentsMessage
     | ConversationViewerLocateCommentMessage
-    | ConversationViewerBookmarkMutationMessage;
+    | ConversationViewerBookmarkMutationMessage
+    | ConversationViewerCopyMessage;
 
 const NAVIGATION_MESSAGE_TYPES = new Set([
     'conversation-viewer-previous',
@@ -264,6 +285,36 @@ export function parseConversationViewerMessage(
             return undefined;
         }
         return value as unknown as ConversationViewerBookmarkMutationMessage;
+    }
+    if (value.type === 'conversation-viewer-copy') {
+        if (!hasExactKeys(value, [
+            'type', 'version', 'requestId', 'subscriptionGeneration',
+            'projectId', 'provider', 'sessionId', 'operation', 'payload',
+        ])
+            || !isRequestId(value.requestId)
+            || !isPositiveSafeInteger(value.subscriptionGeneration)
+            || !isConversationViewerTargetId(value.projectId)
+            || !isProvider(value.provider)
+            || !isConversationViewerTargetId(value.sessionId)
+            || value.operation !== 'copy'
+            || !isRecord(value.payload)) {
+            return undefined;
+        }
+        if (value.payload.kind === 'code') {
+            if (!hasExactKeys(value.payload, ['kind', 'text'])
+                || typeof value.payload.text !== 'string'
+                || value.payload.text.length
+                    > CONVERSATION_COPY_MAX_TEXT_LENGTH) {
+                return undefined;
+            }
+            return value as unknown as ConversationViewerCopyMessage;
+        }
+        if (value.payload.kind === 'message'
+            && hasExactKeys(value.payload, ['kind', 'messageId'])
+            && isConversationViewerTargetId(value.payload.messageId)) {
+            return value as unknown as ConversationViewerCopyMessage;
+        }
+        return undefined;
     }
     if ((value.type !== 'conversation-viewer-comment-mutation'
             && value.type !== 'conversation-viewer-send-comments')

@@ -30,13 +30,18 @@ import {
     renderConversationMarkdown,
 } from './markdown';
 import { parseConversationViewerMessage } from './viewerProtocol';
-import type { ConversationSessionSwitchDirection } from './viewerProtocol';
+import type {
+    ConversationSessionSwitchDirection,
+    ConversationViewerCopyMessage,
+} from './viewerProtocol';
 import type { ConversationViewerTarget } from './viewerTarget';
 export type { ConversationViewerTarget } from './viewerTarget';
 import {
+    formatConversationClockTime,
     formatWorkedDuration,
     truncateGraphemes,
 } from './text';
+import type { ConversationClockTime } from './text';
 import {
     CONVERSATION_LIMITS,
     ConversationAbortController,
@@ -110,6 +115,9 @@ export interface ConversationViewerOptions {
         worktreeRoot: string
     ) => PromiseLike<void> | Promise<void> | void;
     insertIntoActiveTerminal?: (
+        text: string
+    ) => PromiseLike<void> | Promise<void> | void;
+    writeClipboardText?: (
         text: string
     ) => PromiseLike<void> | Promise<void> | void;
     followAdjacentConversation?: (
@@ -806,6 +814,10 @@ export class ConversationViewer implements ConversationViewerApi {
             await this.bookmarkController.enqueue(parsed);
             return;
         }
+        if (parsed.type === 'conversation-viewer-copy') {
+            await this.settleCopy(parsed);
+            return;
+        }
         if (parsed.type === 'conversation-viewer-locate-comment') {
             await this.commentController.locate(parsed);
             return;
@@ -831,6 +843,52 @@ export class ConversationViewer implements ConversationViewerApi {
             return;
         }
         await this.navigateLatest();
+    }
+
+    private async settleCopy(
+        message: ConversationViewerCopyMessage
+    ): Promise<void> {
+        const target = this.target;
+        let text: string | undefined;
+        let error: 'invalid' | 'failed' | undefined;
+        if (!target
+            || message.subscriptionGeneration !== this.subscriptionGeneration
+            || message.projectId !== target.projectId
+            || message.provider !== target.provider
+            || message.sessionId !== target.sessionId) {
+            error = 'invalid';
+        } else if (message.payload.kind === 'code') {
+            text = message.payload.text;
+        } else {
+            const messageId = message.payload.messageId;
+            text = this.messages().find(
+                candidate => candidate.id === messageId
+            )?.markdown;
+            if (text === undefined) {
+                error = 'invalid';
+            }
+        }
+        if (!error && text !== undefined) {
+            try {
+                const write = this.options.writeClipboardText
+                    ?? (value => vscode.env.clipboard.writeText(value));
+                await write(text);
+            } catch (_error) {
+                error = 'failed';
+            }
+        }
+        try {
+            await this.panel?.webview.postMessage({
+                type: 'conversation-viewer-copy-result',
+                version: 1,
+                requestId: message.requestId,
+                success: !error,
+                ...(error ? { error } : {}),
+            });
+        } catch (_error) {
+            // The clipboard outcome is already decided; a dead panel needs
+            // no settlement.
+        }
     }
 
     private publishKeyboardFocus(focused: boolean, force = false): void {
@@ -2168,7 +2226,8 @@ function renderWorklogRow(
 
 function renderMessage(
     message: ConversationMessage,
-    showThinking: boolean
+    showThinking: boolean,
+    clock?: ConversationClockTime
 ): string {
     if (message.role === 'tool') {
         return renderToolMessage(message);
@@ -2180,17 +2239,24 @@ function renderMessage(
         return renderProgressMessage(message);
     }
     if (message.role === 'user') {
+        const inputClock = clock
+            ? `<span class="conversation-message-time" title="${escapeAttribute(clock.title)}">${escapeAttribute(clock.label)}</span>`
+            : '';
         return `<article class="conversation-message conversation-message-user"
     data-message-id="${escapeAttribute(message.id)}"
     data-conversation-message-id="${escapeAttribute(encodeURIComponent(message.id))}"
     data-interaction-id="${escapeAttribute(message.interactionId)}">
     <span class="conversation-role">User</span>
     <button class="conversation-message-bookmark" title="Bookmark this input"></button>
+    <section class="conversation-message-corner">${inputClock}<button class="conversation-message-copy" title="Copy input"></button></section>
     <section class="conversation-markdown">${renderConversationMarkdown(
         message.markdown
     )}</section>
 </article>`;
     }
+    const clockHtml = clock
+        ? `<span class="conversation-message-time" title="${escapeAttribute(clock.title)}">${escapeAttribute(clock.label)}</span>`
+        : '';
     return `<article class="conversation-message conversation-message-${message.role}"
     data-message-id="${escapeAttribute(message.id)}"
     data-conversation-message-id="${escapeAttribute(encodeURIComponent(message.id))}"
@@ -2199,6 +2265,7 @@ function renderMessage(
     <section class="conversation-markdown">${renderConversationMarkdown(
         message.markdown
     )}</section>
+    <section class="conversation-message-actions"><button class="conversation-message-copy" title="Copy response"></button>${clockHtml}</section>
 </article>`;
 }
 
@@ -2217,9 +2284,21 @@ function renderMessages(
         }
     });
     return groups.map(group => {
+        const info = interactionInfo.get(group[0].interactionId);
+        const now = Date.now();
+        const inputClock = info
+            ? formatConversationClockTime(info.timestamp, now)
+            : undefined;
+        const answerClock = info
+            ? formatConversationClockTime(
+                info.completedAt ?? info.timestamp,
+                now
+            )
+            : undefined;
         const rendered = group.map(message => renderMessage(
             message,
-            showThinking
+            showThinking,
+            message.role === 'user' ? inputClock : answerClock
         ));
         const answerIndex = group.findIndex(
             message => message.role === 'assistant'
@@ -2227,7 +2306,6 @@ function renderMessages(
         const firstWorkIndex = group.findIndex(
             message => isWorklogEntry(message, showThinking)
         );
-        const info = interactionInfo.get(group[0].interactionId);
         if (info
             && info.responseState !== 'inProgress'
             && answerIndex >= 0

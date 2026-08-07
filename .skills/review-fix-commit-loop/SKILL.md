@@ -111,3 +111,7 @@ Summarize:
   explicit generous `timeout`: background tasks default to about a minute and
   foreground calls cap out around five minutes, so either default kills the
   suite mid-run.
+- After editing `media/*.scss`, grep the compiled `media/*.css` for the new
+  selectors before trusting tests: a replacement anchor like `.foo {` also
+  matches inside a longer selector such as `.bar .foo {`, and Sass happily
+  compiles the mangled nesting.

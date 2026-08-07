@@ -21,6 +21,24 @@ byte-identical in the same commit: browser tests load `src/webview/`, while the
 running extension loads `media/`, so editing only one side fails immediately or
 silently ships stale code.
 
+Register every new Webview script in all of these places, or the package
+silently ships without it while unit checks keep passing:
+
+1. `src/webview/<name>.js` (canonical) plus the byte-identical `media/`
+   copy via gulp `copyWebviewAssets`.
+2. The document builder (e.g. `src/aiSessions/conversation/viewerDocument.ts`):
+   `asWebviewUri` + nonce `<script>` tag ordered before the main script; the
+   integration script-order chain asserts the position.
+3. `.vscodeignore`: re-include `media/<name>.js` alongside its siblings.
+4. `scripts/run-release-packaging-checks.js`: `EXPECTED_MAIN_ENTRIES`.
+5. The browser test harness (`tests/browser/conversationViewer.test.js`):
+   `fs.readFileSync` plus the `page.route` fulfillment for the new basename.
+6. `docs/testing/behavior-contracts.json`: list the file in the owning
+   contract's `evidence`.
+
+Find every consumer by grepping an existing sibling script name (e.g.
+`conversationReconcileScripts`) across the repository.
+
 ## Core Invariants
 
 - Keep persistent state Host-authoritative. Never make optimistic Webview state

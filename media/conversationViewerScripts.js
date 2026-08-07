@@ -904,6 +904,16 @@
         if (telemetryController.apply(event.data)) return;
         applyPage(event.data);
     });
+    function postFocusState() {
+        post({
+            type: 'conversation-viewer-focus',
+            version: 1,
+            focused: document.hasFocus(),
+        });
+    }
+    window.addEventListener('focus', postFocusState);
+    window.addEventListener('blur', postFocusState);
+    postFocusState();
     window.addEventListener('unload', releaseMermaidObjectUrls);
 
     saveRestoreTarget(restoreTarget);

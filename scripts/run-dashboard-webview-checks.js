@@ -3721,6 +3721,8 @@ async function runDashboardCommandRegistrationChecks() {
         'migrateSkillsToCentral',
         'changeGlobalSkillsLocation',
         'openCurrentAiSessionConversation',
+        'previousActiveSession',
+        'nextActiveSession',
         'switchToOpenWindow',
     ];
     const registration = new DashboardCommandRegistration({
@@ -3749,6 +3751,8 @@ async function runDashboardCommandRegistrationChecks() {
         'agentPivot.migrateSkillsToCentral',
         'agentPivot.changeGlobalSkillsLocation',
         'agentPivot.openCurrentAiSessionConversation',
+        'agentPivot.previousActiveSession',
+        'agentPivot.nextActiveSession',
         'agentPivot.switchToOpenWindow',
     ]);
     assert.deepStrictEqual(subscriptions.map(disposable => disposable.command), registered.map(([command]) => command));
@@ -3780,6 +3784,8 @@ async function runDashboardCommandRegistrationChecks() {
         'migrateSkillsToCentral',
         'changeGlobalSkillsLocation',
         'openCurrentAiSessionConversation',
+        'previousActiveSession',
+        'nextActiveSession',
         'switchToOpenWindow',
     ]);
 

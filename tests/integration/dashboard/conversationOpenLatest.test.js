@@ -107,6 +107,7 @@ function createHarness(options = {}) {
     const viewerTargets = [];
     const followedViewerTargets = [];
     const restoredViewerTargets = [];
+    let viewerFocuses = 0;
     let capturedViewerOptions;
     let outlineReads = 0;
     const session = 'session' in options ? options.session : makeSession({
@@ -169,14 +170,41 @@ function createHarness(options = {}) {
             capturedViewerOptions = viewerOptions;
             return {
                 isOpen: () => options.viewerOpen === true,
+                getCurrentTarget: () => (
+                    options.getCurrentViewerTarget?.()
+                    || options.getFocusedViewerTarget?.()
+                    || options.focusedViewerTarget
+                ),
+                getFocusedTarget: () => (
+                    options.getFocusedViewerTarget?.()
+                    || options.focusedViewerTarget
+                )
+                    ? {
+                        interactionId: 'input-a',
+                        expectedRevision: 'native-1',
+                        displayName: 'Focused session',
+                        duplicateDisplayName: false,
+                        ...(options.getFocusedViewerTarget?.()
+                            || options.focusedViewerTarget),
+                    }
+                    : undefined,
+                getFocusedSessionTarget: () => options.focusedViewerTarget,
                 open: async target => {
                     viewerTargets.push(target);
+                    await options.openViewer?.(target);
                 },
                 restore: async (panel, target) => {
                     restoredViewerTargets.push({ panel, target });
                 },
                 follow: async target => {
                     followedViewerTargets.push(target);
+                    return options.followViewer
+                        ? options.followViewer(target)
+                        : true;
+                },
+                focus: () => {
+                    viewerFocuses += 1;
+                    options.focusViewer?.();
                     return true;
                 },
                 rebindSession: async () => false,
@@ -197,6 +225,9 @@ function createHarness(options = {}) {
         },
         get outlineReads() {
             return outlineReads;
+        },
+        get viewerFocuses() {
+            return viewerFocuses;
         },
     };
 }
@@ -609,6 +640,473 @@ test('CONVERSATION-FOLLOW-ACTIVE-SESSION-001 follows the adjacent active session
     harness.capability.dispose();
 });
 
+test('CONVERSATION-ACTIVE-SESSION-NAVIGATION-COMMANDS-001 switches from the focused Conversation target and ignores an unfocused viewer', async () => {
+    const sessions = [
+        makeSession({ key: 'codex:session-a', sessionId: 'session-a' }),
+        makeSession({ key: 'codex:session-b', sessionId: 'session-b' }),
+    ];
+    const currentTarget = {
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    };
+    const focusedSessions = [];
+    const harness = createHarness({
+        viewerOpen: true,
+        focusedViewerTarget: currentTarget,
+        resolveTarget: (_projectId, provider, sessionId) =>
+            sessions.find(session =>
+                session.provider === provider && session.sessionId === sessionId
+            ) || null,
+        resolveActiveTargets: () => sessions,
+        focusSession: async target => {
+            focusedSessions.push(target);
+        },
+    });
+
+    assert.equal(
+        await harness.capability.followAdjacentActiveConversation('next'),
+        'opened'
+    );
+    assert.deepEqual(
+        harness.followedViewerTargets.map(target => target.sessionId),
+        ['session-b']
+    );
+    assert.deepEqual(
+        focusedSessions.map(target => target.sessionId),
+        ['session-b'],
+        'command navigation must activate the target terminal/session'
+    );
+    assert.equal(harness.viewerFocuses, 1);
+    harness.capability.dispose();
+
+    const unfocused = createHarness({ viewerOpen: true });
+    assert.equal(
+        await unfocused.capability.followAdjacentActiveConversation('previous'),
+        'inactive'
+    );
+    assert.equal(unfocused.outlineReads, 0);
+    unfocused.capability.dispose();
+});
+
+test('CONVERSATION-ACTIVE-SESSION-NAVIGATION-COMMANDS-001 rolls a rejected command switch back before restoring Conversation focus', async () => {
+    const sessions = [
+        makeSession({ key: 'codex:session-a', sessionId: 'session-a' }),
+        makeSession({ key: 'codex:session-b', sessionId: 'session-b' }),
+    ];
+    const focusOrder = [];
+    const harness = createHarness({
+        viewerOpen: true,
+        focusedViewerTarget: {
+            projectId: 'project-a',
+            provider: 'codex',
+            sessionId: 'session-a',
+        },
+        resolveTarget: (_projectId, provider, sessionId) =>
+            sessions.find(session =>
+                session.provider === provider && session.sessionId === sessionId
+            ) || null,
+        resolveActiveTargets: () => sessions,
+        focusSession: async target => {
+            focusOrder.push(`terminal:${target.sessionId}`);
+            return target.sessionId === 'session-a';
+        },
+        focusViewer: () => focusOrder.push('conversation'),
+    });
+
+    assert.equal(
+        await harness.capability.followAdjacentActiveConversation('next'),
+        'unavailable'
+    );
+    assert.deepEqual(
+        harness.followedViewerTargets.map(target => target.sessionId),
+        ['session-b', 'session-a']
+    );
+    assert.deepEqual(focusOrder, [
+        'terminal:session-b',
+        'terminal:session-a',
+        'conversation',
+    ]);
+    assert.equal(harness.viewerFocuses, 1);
+    harness.capability.dispose();
+});
+
+test('CONVERSATION-ACTIVE-SESSION-NAVIGATION-COMMANDS-001 rolls consecutive rejected commands back to the last confirmed terminal authority', async () => {
+    const sessions = [
+        makeSession({ key: 'codex:session-a', sessionId: 'session-a' }),
+        makeSession({ key: 'codex:session-b', sessionId: 'session-b' }),
+        makeSession({ key: 'codex:session-c', sessionId: 'session-c' }),
+    ];
+    let currentViewerTarget = {
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    };
+    const slowBFocusStarted = deferred();
+    const releaseSlowBFocus = deferred();
+    const focusOrder = [];
+    const harness = createHarness({
+        viewerOpen: true,
+        getFocusedViewerTarget: () => currentViewerTarget,
+        resolveTarget: (_projectId, provider, sessionId) =>
+            sessions.find(session =>
+                session.provider === provider && session.sessionId === sessionId
+            ) || null,
+        resolveActiveTargets: () => sessions,
+        followViewer: async target => {
+            currentViewerTarget = target;
+            return true;
+        },
+        focusSession: async target => {
+            focusOrder.push(`terminal:${target.sessionId}`);
+            if (target.sessionId === 'session-b') {
+                slowBFocusStarted.resolve();
+                await releaseSlowBFocus.promise;
+                return false;
+            }
+            return target.sessionId === 'session-a';
+        },
+        focusViewer: () => focusOrder.push('conversation'),
+    });
+
+    const first = harness.capability.followAdjacentActiveConversation('next');
+    await slowBFocusStarted.promise;
+    const second = harness.capability.followAdjacentActiveConversation('next');
+    releaseSlowBFocus.resolve();
+
+    assert.equal(await first, 'superseded');
+    assert.equal(await second, 'unavailable');
+    assert.deepEqual(focusOrder, [
+        'terminal:session-b',
+        'terminal:session-c',
+        'terminal:session-a',
+        'conversation',
+    ]);
+    assert.equal(currentViewerTarget.sessionId, 'session-a');
+    assert.equal(harness.viewerFocuses, 1);
+    harness.capability.dispose();
+});
+
+test('CONVERSATION-ACTIVE-SESSION-NAVIGATION-COMMANDS-001 refreshes authority after opening the current terminal Conversation', async () => {
+    const sessions = [
+        makeSession({ key: 'codex:session-a', sessionId: 'session-a' }),
+        makeSession({ key: 'codex:session-b', sessionId: 'session-b' }),
+    ];
+    let currentViewerTarget = {
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    };
+    let rejectB = false;
+    const focusOrder = [];
+    const harness = createHarness({
+        viewerOpen: true,
+        getFocusedViewerTarget: () => currentViewerTarget,
+        getCurrentViewerTarget: () => currentViewerTarget,
+        resolveTarget: (_projectId, provider, sessionId) =>
+            sessions.find(session =>
+                session.provider === provider && session.sessionId === sessionId
+            ) || null,
+        resolveActiveTargets: () => sessions,
+        openViewer: async target => {
+            currentViewerTarget = target;
+        },
+        followViewer: async target => {
+            currentViewerTarget = target;
+            return true;
+        },
+        focusSession: async target => {
+            focusOrder.push(`terminal:${target.sessionId}`);
+            return target.sessionId !== 'session-b' || !rejectB;
+        },
+    });
+
+    assert.equal(
+        await harness.capability.followAdjacentActiveConversation('next'),
+        'opened'
+    );
+    assert.equal(currentViewerTarget.sessionId, 'session-b');
+
+    assert.equal(await harness.capability.openLatestActiveConversation({
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    }), 'opened');
+    rejectB = true;
+
+    assert.equal(
+        await harness.capability.followAdjacentActiveConversation('next'),
+        'unavailable'
+    );
+    assert.equal(currentViewerTarget.sessionId, 'session-a');
+    assert.deepEqual(focusOrder, [
+        'terminal:session-b',
+        'terminal:session-b',
+        'terminal:session-a',
+    ]);
+    harness.capability.dispose();
+});
+
+test('CONVERSATION-ACTIVE-SESSION-NAVIGATION-COMMANDS-001 does not confirm a queued terminal focus skipped after supersession', async () => {
+    const sessions = [
+        makeSession({ key: 'codex:session-a', sessionId: 'session-a' }),
+        makeSession({ key: 'codex:session-b', sessionId: 'session-b' }),
+        makeSession({ key: 'codex:session-c', sessionId: 'session-c' }),
+        makeSession({ key: 'codex:session-d', sessionId: 'session-d' }),
+    ];
+    let currentViewerTarget = {
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    };
+    const slowBFocusStarted = deferred();
+    const releaseSlowBFocus = deferred();
+    const focusOrder = [];
+    const harness = createHarness({
+        viewerOpen: true,
+        getFocusedViewerTarget: () => currentViewerTarget,
+        resolveTarget: (_projectId, provider, sessionId) =>
+            sessions.find(session =>
+                session.provider === provider && session.sessionId === sessionId
+            ) || null,
+        resolveActiveTargets: () => sessions,
+        followViewer: async target => {
+            currentViewerTarget = target;
+            return true;
+        },
+        focusSession: async target => {
+            focusOrder.push(`terminal:${target.sessionId}`);
+            if (target.sessionId === 'session-b') {
+                slowBFocusStarted.resolve();
+                await releaseSlowBFocus.promise;
+                return true;
+            }
+            return target.sessionId !== 'session-d';
+        },
+    });
+
+    const first = harness.capability.followAdjacentActiveConversation('next');
+    await slowBFocusStarted.promise;
+    const second = harness.capability.followAdjacentActiveConversation('next');
+    await new Promise(resolve => setImmediate(resolve));
+    const third = harness.capability.followAdjacentActiveConversation('next');
+    releaseSlowBFocus.resolve();
+
+    assert.equal(await first, 'superseded');
+    assert.equal(await second, 'superseded');
+    assert.equal(await third, 'unavailable');
+    assert.deepEqual(focusOrder, [
+        'terminal:session-b',
+        'terminal:session-d',
+        'terminal:session-b',
+    ]);
+    assert.equal(currentViewerTarget.sessionId, 'session-b');
+    assert.equal(harness.viewerFocuses, 1);
+    harness.capability.dispose();
+});
+
+test('CONVERSATION-ACTIVE-SESSION-NAVIGATION-COMMANDS-001 refreshes the rollback snapshot after in-session interaction navigation', async () => {
+    const sessions = [
+        makeSession({ key: 'codex:session-a', sessionId: 'session-a' }),
+        makeSession({ key: 'codex:session-b', sessionId: 'session-b' }),
+        makeSession({ key: 'codex:session-c', sessionId: 'session-c' }),
+    ];
+    let currentViewerTarget = {
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    };
+    const harness = createHarness({
+        viewerOpen: true,
+        getFocusedViewerTarget: () => currentViewerTarget,
+        resolveTarget: (_projectId, provider, sessionId) =>
+            sessions.find(session =>
+                session.provider === provider && session.sessionId === sessionId
+            ) || null,
+        resolveActiveTargets: () => sessions,
+        followViewer: async target => {
+            currentViewerTarget = target;
+            return true;
+        },
+        focusSession: async target => target.sessionId !== 'session-c',
+    });
+
+    assert.equal(
+        await harness.capability.followAdjacentActiveConversation('next'),
+        'opened'
+    );
+    const inSessionTarget = {
+        ...currentViewerTarget,
+        interactionId: 'input-new',
+        expectedRevision: 'native-new',
+        subagent: { id: 'subagent-new', label: 'Research' },
+    };
+    currentViewerTarget = inSessionTarget;
+
+    assert.equal(
+        await harness.capability.followAdjacentActiveConversation('next'),
+        'unavailable'
+    );
+    assert.deepEqual(currentViewerTarget, inSessionTarget);
+    assert.deepEqual(
+        harness.followedViewerTargets.at(-1),
+        inSessionTarget
+    );
+    harness.capability.dispose();
+});
+
+test('CONVERSATION-ACTIVE-SESSION-NAVIGATION-COMMANDS-001 restores Conversation focus after an older terminal focus has already started', async () => {
+    const sessions = [
+        makeSession({ key: 'codex:session-a', sessionId: 'session-a' }),
+        makeSession({ key: 'codex:session-b', sessionId: 'session-b' }),
+        makeSession({ key: 'codex:session-c', sessionId: 'session-c' }),
+    ];
+    const currentTarget = {
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    };
+    const slowTerminalFocusStarted = deferred();
+    const releaseSlowTerminalFocus = deferred();
+    const focusOrder = [];
+    const harness = createHarness({
+        viewerOpen: true,
+        focusedViewerTarget: currentTarget,
+        resolveTarget: (_projectId, provider, sessionId) =>
+            sessions.find(session =>
+                session.provider === provider && session.sessionId === sessionId
+            ) || null,
+        resolveActiveTargets: () => sessions,
+        focusSession: async target => {
+            focusOrder.push(`terminal:${target.sessionId}:started`);
+            slowTerminalFocusStarted.resolve();
+            await releaseSlowTerminalFocus.promise;
+            focusOrder.push(`terminal:${target.sessionId}:finished`);
+        },
+        focusViewer: () => {
+            focusOrder.push('conversation');
+        },
+    });
+
+    const oldSwitch = harness.viewerOptions.followAdjacentConversation(
+        'next',
+        currentTarget
+    );
+    await slowTerminalFocusStarted.promise;
+    const commandSwitch = harness.capability.followAdjacentActiveConversation(
+        'previous'
+    );
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(focusOrder, ['terminal:session-b:started']);
+
+    releaseSlowTerminalFocus.resolve();
+    assert.equal(await oldSwitch, 'superseded');
+    assert.equal(await commandSwitch, 'opened');
+    assert.deepEqual(focusOrder, [
+        'terminal:session-b:started',
+        'terminal:session-b:finished',
+        'terminal:session-c:started',
+        'terminal:session-c:finished',
+        'conversation',
+    ]);
+    assert.equal(harness.viewerFocuses, 1);
+    harness.capability.dispose();
+});
+
+test('CONVERSATION-ACTIVE-SESSION-NAVIGATION-COMMANDS-001 restores Conversation focus when the commanded viewer follow fails', async () => {
+    const sessions = [
+        makeSession({ key: 'codex:session-a', sessionId: 'session-a' }),
+        makeSession({ key: 'codex:session-b', sessionId: 'session-b' }),
+        makeSession({ key: 'codex:session-c', sessionId: 'session-c' }),
+    ];
+    const currentTarget = {
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    };
+    const slowTerminalFocusStarted = deferred();
+    const releaseSlowTerminalFocus = deferred();
+    const focusOrder = [];
+    const harness = createHarness({
+        viewerOpen: true,
+        focusedViewerTarget: currentTarget,
+        resolveTarget: (_projectId, provider, sessionId) =>
+            sessions.find(session =>
+                session.provider === provider && session.sessionId === sessionId
+            ) || null,
+        resolveActiveTargets: () => sessions,
+        followViewer: async target => target.sessionId !== 'session-c',
+        focusSession: async target => {
+            focusOrder.push(`terminal:${target.sessionId}`);
+            slowTerminalFocusStarted.resolve();
+            await releaseSlowTerminalFocus.promise;
+        },
+        focusViewer: () => focusOrder.push('conversation'),
+    });
+
+    const oldSwitch = harness.viewerOptions.followAdjacentConversation(
+        'next',
+        currentTarget
+    );
+    await slowTerminalFocusStarted.promise;
+    const commandSwitch = harness.capability.followAdjacentActiveConversation(
+        'previous'
+    );
+    releaseSlowTerminalFocus.resolve();
+
+    assert.equal(await oldSwitch, 'superseded');
+    assert.equal(await commandSwitch, 'closed');
+    assert.deepEqual(focusOrder, ['terminal:session-b', 'conversation']);
+    harness.capability.dispose();
+});
+
+test('CONVERSATION-ACTIVE-SESSION-NAVIGATION-COMMANDS-001 restores Conversation focus when no adjacent session remains', async () => {
+    const sessions = [
+        makeSession({ key: 'codex:session-a', sessionId: 'session-a' }),
+        makeSession({ key: 'codex:session-b', sessionId: 'session-b' }),
+    ];
+    let activeSessions = sessions;
+    const currentTarget = {
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    };
+    const slowTerminalFocusStarted = deferred();
+    const releaseSlowTerminalFocus = deferred();
+    const focusOrder = [];
+    const harness = createHarness({
+        viewerOpen: true,
+        focusedViewerTarget: currentTarget,
+        resolveTarget: (_projectId, provider, sessionId) =>
+            sessions.find(session =>
+                session.provider === provider && session.sessionId === sessionId
+            ) || null,
+        resolveActiveTargets: () => activeSessions,
+        focusSession: async target => {
+            focusOrder.push(`terminal:${target.sessionId}`);
+            slowTerminalFocusStarted.resolve();
+            await releaseSlowTerminalFocus.promise;
+        },
+        focusViewer: () => focusOrder.push('conversation'),
+    });
+
+    const oldSwitch = harness.viewerOptions.followAdjacentConversation(
+        'next',
+        currentTarget
+    );
+    await slowTerminalFocusStarted.promise;
+    activeSessions = [sessions[0]];
+    const commandSwitch = harness.capability.followAdjacentActiveConversation(
+        'next'
+    );
+    releaseSlowTerminalFocus.resolve();
+
+    assert.equal(await oldSwitch, 'superseded');
+    assert.equal(await commandSwitch, 'noAdjacentSession');
+    assert.deepEqual(focusOrder, ['terminal:session-b', 'conversation']);
+    harness.capability.dispose();
+});
+
 test('CONVERSATION-FOLLOW-ACTIVE-SESSION-001 skips pending sessions and reports when no adjacent session exists', async () => {
     const sessions = [
         makeSession({ key: 'codex:session-a', sessionId: 'session-a' }),
@@ -715,6 +1213,95 @@ test('CONVERSATION-FOLLOW-ACTIVE-SESSION-001 lets the newest adjacent switch win
     harness.capability.dispose();
 });
 
+test('CONVERSATION-ACTIVE-SESSION-NAVIGATION-COMMANDS-001 prevents a superseded in-viewer switch from restoring the old terminal focus', async () => {
+    const sessions = [
+        makeSession({ key: 'codex:session-a', sessionId: 'session-a' }),
+        makeSession({ key: 'codex:session-b', sessionId: 'session-b' }),
+        makeSession({ key: 'codex:session-c', sessionId: 'session-c' }),
+    ];
+    const slowFollowStarted = deferred();
+    const releaseSlowFollow = deferred();
+    const focusedSessions = [];
+    const harness = createHarness({
+        viewerOpen: true,
+        resolveTarget: (_projectId, provider, sessionId) =>
+            sessions.find(session =>
+                session.provider === provider && session.sessionId === sessionId
+            ) || null,
+        resolveActiveTargets: () => sessions,
+        followViewer: async target => {
+            if (target.sessionId === 'session-b') {
+                slowFollowStarted.resolve();
+                await releaseSlowFollow.promise;
+            }
+            return true;
+        },
+        focusSession: async target => {
+            focusedSessions.push(target);
+        },
+    });
+    const switchSession = harness.viewerOptions.followAdjacentConversation;
+    const currentTarget = {
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    };
+
+    const first = switchSession('next', currentTarget);
+    await slowFollowStarted.promise;
+    assert.equal(await switchSession('previous', currentTarget), 'opened');
+    releaseSlowFollow.resolve();
+    assert.equal(await first, 'superseded');
+    assert.deepEqual(
+        focusedSessions.map(target => target.sessionId),
+        ['session-c']
+    );
+    harness.capability.dispose();
+});
+
+test('CONVERSATION-ACTIVE-SESSION-NAVIGATION-COMMANDS-001 serializes terminal focus so the latest Conversation remains authoritative', async () => {
+    const sessions = [
+        makeSession({ key: 'codex:session-a', sessionId: 'session-a' }),
+        makeSession({ key: 'codex:session-b', sessionId: 'session-b' }),
+        makeSession({ key: 'codex:session-c', sessionId: 'session-c' }),
+    ];
+    const slowFocusStarted = deferred();
+    const releaseSlowFocus = deferred();
+    const completedFocuses = [];
+    const harness = createHarness({
+        viewerOpen: true,
+        resolveTarget: (_projectId, provider, sessionId) =>
+            sessions.find(session =>
+                session.provider === provider && session.sessionId === sessionId
+            ) || null,
+        resolveActiveTargets: () => sessions,
+        focusSession: async target => {
+            if (target.sessionId === 'session-b') {
+                slowFocusStarted.resolve();
+                await releaseSlowFocus.promise;
+            }
+            completedFocuses.push(target.sessionId);
+        },
+    });
+    const switchSession = harness.viewerOptions.followAdjacentConversation;
+    const currentTarget = {
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    };
+
+    const first = switchSession('next', currentTarget);
+    await slowFocusStarted.promise;
+    const second = switchSession('previous', currentTarget);
+    await new Promise(resolve => setImmediate(resolve));
+    releaseSlowFocus.resolve();
+
+    assert.equal(await first, 'superseded');
+    assert.equal(await second, 'opened');
+    assert.deepEqual(completedFocuses, ['session-b', 'session-c']);
+    harness.capability.dispose();
+});
+
 test('CONVERSATION-FOLLOW-ACTIVE-SESSION-001 fails closed when the active list cannot be resolved', async () => {
     const harness = createHarness({
         viewerOpen: true,
@@ -731,11 +1318,12 @@ test('CONVERSATION-FOLLOW-ACTIVE-SESSION-001 fails closed when the active list c
     harness.capability.dispose();
 });
 
-test('CONVERSATION-FOLLOW-ACTIVE-SESSION-001 keeps the switch settled when terminal sync fails', async () => {
+test('CONVERSATION-ACTIVE-SESSION-NAVIGATION-COMMANDS-001 rolls Conversation and terminal authority back when terminal sync fails', async () => {
     const sessions = [
         makeSession({ key: 'codex:session-a', sessionId: 'session-a' }),
         makeSession({ key: 'codex:session-b', sessionId: 'session-b' }),
     ];
+    const focusedSessions = [];
     const harness = createHarness({
         viewerOpen: true,
         resolveTarget: (_projectId, provider, sessionId) =>
@@ -743,17 +1331,24 @@ test('CONVERSATION-FOLLOW-ACTIVE-SESSION-001 keeps the switch settled when termi
                 session.provider === provider && session.sessionId === sessionId
             ) || null,
         resolveActiveTargets: () => sessions,
-        focusSession: async () => {
-            throw new Error('terminal focus failed');
+        focusSession: async target => {
+            focusedSessions.push(target.sessionId);
+            return target.sessionId === 'session-a';
         },
     });
     assert.equal(await harness.viewerOptions.followAdjacentConversation('next', {
         projectId: 'project-a',
         provider: 'codex',
         sessionId: 'session-a',
-    }), 'opened');
+        interactionId: 'input-a',
+        expectedRevision: 'native-1',
+        displayName: 'Session A',
+        duplicateDisplayName: false,
+    }), 'unavailable');
     assert.deepEqual(harness.followedViewerTargets.map(target => target.sessionId), [
         'session-b',
+        'session-a',
     ]);
+    assert.deepEqual(focusedSessions, ['session-b', 'session-a']);
     harness.capability.dispose();
 });

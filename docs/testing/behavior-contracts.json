@@ -4581,6 +4581,26 @@
     ]
   },
   {
+    "id": "CONVERSATION-ACTIVE-SESSION-NAVIGATION-COMMANDS-001",
+    "domain": "session",
+    "title": "Previous and Next Active Session commands synchronize the authoritative active terminal and card while restoring keyboard focus to AI Conversation",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/contract/aiSessions/sessionControllers.test.js",
+      "tests/contract/dashboardBoundaries.test.js",
+      "tests/integration/dashboard/conversationOpenLatest.test.js",
+      "tests/integration/dashboard/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "package.json",
+      "src/dashboard/commandRegistration.ts",
+      "src/dashboard.ts",
+      "src/aiSessions/conversation/composition.ts",
+      "src/aiSessions/conversation/viewer.ts"
+    ]
+  },
+  {
     "id": "SECURITY-AI-SESSION-CONVERSATION-SOURCE-001",
     "domain": "session",
     "title": "Conversation history enforces canonical sources, opaque protocol tokens, and bounded private content",

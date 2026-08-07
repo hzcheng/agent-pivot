@@ -159,9 +159,11 @@ function fakePanel(options = {}) {
         createCount: 0,
         revealCount: 0,
         revealColumns: [],
+        revealPreserveFocus: [],
         postedMessages: [],
         createArguments: undefined,
         visible: true,
+        active: options.active !== false,
         get viewStateListenerCount() {
             return viewStateListeners.size;
         },
@@ -187,9 +189,10 @@ function fakePanel(options = {}) {
                 ));
             },
         },
-        reveal(column) {
+        reveal(column, preserveFocus) {
             panel.revealCount += 1;
             panel.revealColumns.push(column);
+            panel.revealPreserveFocus.push(preserveFocus);
         },
         onDidDispose(listener) {
             disposeListeners.add(listener);
@@ -206,6 +209,12 @@ function fakePanel(options = {}) {
         },
         async setVisible(visible) {
             panel.visible = visible;
+            await Promise.all(Array.from(viewStateListeners).map(listener =>
+                listener({ webviewPanel: panel })
+            ));
+        },
+        async setActive(active) {
+            panel.active = active;
             await Promise.all(Array.from(viewStateListeners).map(listener =>
                 listener({ webviewPanel: panel })
             ));
@@ -248,6 +257,7 @@ function createViewer(options = {}) {
         openLocalFile: options.openLocalFile,
         insertIntoActiveTerminal: options.insertIntoActiveTerminal,
         followAdjacentConversation: options.followAdjacentConversation,
+        setKeyboardFocus: options.setKeyboardFocus,
         mediaUri: fileName => fakeUri(`file:///extension/media/${fileName}`),
         showThinking: options.showThinking,
         commentStore: options.commentStore,
@@ -446,6 +456,79 @@ test('CONVERSATION-FOLLOW-ACTIVE-SESSION-001 follows another Session only when t
     assert.equal(panel.webview.html.includes('visible-session-b'), true);
     assert.equal(panel.webview.html.includes('visible-session-a'), false);
     assert.deepEqual(panel.revealColumns, [fakeVscode.ViewColumn.Active]);
+});
+
+test('CONVERSATION-ACTIVE-SESSION-NAVIGATION-COMMANDS-001 distinguishes the current target from the focused Conversation target', async () => {
+    const focusStates = [];
+    const { viewer, panel } = createViewer({
+        setKeyboardFocus: focused => focusStates.push(focused),
+    });
+    assert.equal(viewer.getCurrentTarget(), undefined);
+    assert.equal(viewer.getFocusedSessionTarget(), undefined);
+
+    await viewer.open(target('session-a', 'input-a'));
+    assert.deepEqual(viewer.getCurrentTarget(), target('session-a', 'input-a'));
+    assert.equal(viewer.getFocusedTarget(), undefined);
+    await panel.receive({
+        type: 'conversation-viewer-focus',
+        version: 1,
+        focused: true,
+    });
+    assert.deepEqual(viewer.getFocusedTarget(), target('session-a', 'input-a'));
+    assert.deepEqual(viewer.getFocusedSessionTarget(), {
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    });
+
+    await panel.receive({
+        type: 'conversation-viewer-focus',
+        version: 1,
+        focused: false,
+    });
+    assert.deepEqual(viewer.getCurrentTarget(), target('session-a', 'input-a'));
+    assert.equal(viewer.getFocusedTarget(), undefined);
+    assert.equal(viewer.getFocusedSessionTarget(), undefined);
+    assert.deepEqual(focusStates, [false, true, false]);
+});
+
+test('CONVERSATION-ACTIVE-SESSION-NAVIGATION-COMMANDS-001 explicitly restores focus to an open Conversation panel', async () => {
+    const { viewer, panel } = createViewer();
+    assert.equal(viewer.focus(), false);
+
+    await viewer.open(target('session-a', 'input-a'));
+    await panel.setActive(false);
+    assert.equal(viewer.focus(), true);
+    assert.deepEqual(panel.revealColumns, [
+        fakeVscode.ViewColumn.Active,
+        fakeVscode.ViewColumn.Active,
+    ]);
+    assert.deepEqual(panel.revealPreserveFocus, [undefined, false]);
+});
+
+test('CONVERSATION-ACTIVE-SESSION-NAVIGATION-COMMANDS-001 reports a superseded in-viewer Session load as not followed', async () => {
+    const slowOutlineStarted = deferred();
+    const releaseSlowOutline = deferred();
+    const { viewer, panel } = createViewer({
+        readOutline: async (_provider, sessionId) => {
+            if (sessionId === 'session-b') {
+                slowOutlineStarted.resolve();
+                await releaseSlowOutline.promise;
+            }
+            return outline(sessionId, [`${sessionId}-input`]);
+        },
+    });
+    await viewer.open(target('session-a', 'session-a-input'));
+
+    const first = viewer.follow(target('session-b', 'session-b-input'));
+    await slowOutlineStarted.promise;
+    assert.equal(
+        await viewer.follow(target('session-c', 'session-c-input')),
+        true
+    );
+    releaseSlowOutline.resolve();
+    assert.equal(await first, false);
+    assert.match(panel.webview.html, /session-c-input/);
 });
 
 test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 opens a subagent transcript in place and returns to the conversation', async () => {
@@ -1391,11 +1474,7 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 routes adjacent session switche
     });
     assert.deepEqual(switches, [{
         direction: 'next',
-        currentTarget: {
-            projectId: 'project-a',
-            provider: 'codex',
-            sessionId: 'session-a',
-        },
+        currentTarget: target('session-a', 'input-1'),
     }]);
 
     for (const message of [

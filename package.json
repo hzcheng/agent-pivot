@@ -99,6 +99,16 @@
                 "title": "Agent Pivot: Open Current AI Session Conversation"
             },
             {
+                "command": "agentPivot.previousActiveSession",
+                "title": "Agent Pivot: Previous Active Session",
+                "enablement": "activeWebviewPanelId == agentPivot.aiConversation && agentPivot.aiConversationFocus && !terminalFocus"
+            },
+            {
+                "command": "agentPivot.nextActiveSession",
+                "title": "Agent Pivot: Next Active Session",
+                "enablement": "activeWebviewPanelId == agentPivot.aiConversation && agentPivot.aiConversationFocus && !terminalFocus"
+            },
+            {
                 "command": "agentPivot.notify.setWebhook",
                 "title": "Agent Pivot: Set Notification Webhook"
             },

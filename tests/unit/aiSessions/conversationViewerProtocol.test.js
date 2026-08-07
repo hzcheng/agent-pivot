@@ -43,6 +43,14 @@ test('CONVERSATION-PROTOCOL-VALIDATOR-001 accepts every exact version-1 viewer i
         version: 1,
         direction: 'next',
     }, {
+        type: 'conversation-viewer-focus',
+        version: 1,
+        focused: true,
+    }, {
+        type: 'conversation-viewer-focus',
+        version: 1,
+        focused: false,
+    }, {
         type: 'conversation-viewer-locate-comment',
         version: 1,
         ...target,
@@ -162,6 +170,17 @@ test('CONVERSATION-PROTOCOL-VALIDATOR-001 rejects malformed, inherited, and over
             type: 'conversation-viewer-switch-session',
             version: 1,
             direction: 'next',
+            extra: true,
+        },
+        {
+            type: 'conversation-viewer-focus',
+            version: 1,
+            focused: 'yes',
+        },
+        {
+            type: 'conversation-viewer-focus',
+            version: 1,
+            focused: true,
             extra: true,
         },
         {

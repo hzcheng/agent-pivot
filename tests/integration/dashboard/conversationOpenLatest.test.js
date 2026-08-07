@@ -924,7 +924,7 @@ test('CONVERSATION-FOLLOW-ACTIVE-SESSION-001 follows the adjacent active session
     harness.capability.dispose();
 });
 
-test('CONVERSATION-ACTIVE-SESSION-NAVIGATION-COMMANDS-001 switches from the focused Conversation target and ignores an unfocused viewer', async () => {
+test('CONVERSATION-ACTIVE-SESSION-NAVIGATION-COMMANDS-001 switches from the current Conversation target even when the viewer is unfocused', async () => {
     const sessions = [
         makeSession({ key: 'codex:session-a', sessionId: 'session-a' }),
         makeSession({ key: 'codex:session-b', sessionId: 'session-b' }),
@@ -964,12 +964,24 @@ test('CONVERSATION-ACTIVE-SESSION-NAVIGATION-COMMANDS-001 switches from the focu
     assert.equal(harness.viewerFocuses, 1);
     harness.capability.dispose();
 
-    const unfocused = createHarness({ viewerOpen: true });
+    const unfocused = createHarness({
+        viewerOpen: true,
+        getCurrentViewerTarget: () => currentTarget,
+        resolveTarget: (_projectId, provider, sessionId) =>
+            sessions.find(session =>
+                session.provider === provider && session.sessionId === sessionId
+            ) || null,
+        resolveActiveTargets: () => sessions,
+    });
     assert.equal(
         await unfocused.capability.followAdjacentActiveConversation('previous'),
-        'inactive'
+        'opened'
     );
-    assert.equal(unfocused.outlineReads, 0);
+    assert.deepEqual(
+        unfocused.followedViewerTargets.map(target => target.sessionId),
+        ['session-b']
+    );
+    assert.equal(unfocused.viewerFocuses, 1);
     unfocused.capability.dispose();
 });
 

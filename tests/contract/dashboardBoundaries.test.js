@@ -457,7 +457,7 @@ test('WEBVIEW-DASHBOARD-COMMAND-REGISTRATION-001 contributes the Prompt terminal
     ), false);
 });
 
-test('CONVERSATION-ACTIVE-SESSION-NAVIGATION-COMMANDS-001 contributes focused Conversation navigation commands without taking global shortcuts', () => {
+test('CONVERSATION-ACTIVE-SESSION-NAVIGATION-COMMANDS-001 contributes globally available Conversation navigation commands without taking global shortcuts', () => {
     const manifest = require('../../package.json');
     const commands = manifest.contributes.commands.filter(command =>
         command.command === 'agentPivot.previousActiveSession'
@@ -467,12 +467,10 @@ test('CONVERSATION-ACTIVE-SESSION-NAVIGATION-COMMANDS-001 contributes focused Co
         {
             command: 'agentPivot.previousActiveSession',
             title: 'Agent Pivot: Previous Active Session',
-            enablement: 'activeWebviewPanelId == agentPivot.aiConversation && agentPivot.aiConversationFocus && !terminalFocus',
         },
         {
             command: 'agentPivot.nextActiveSession',
             title: 'Agent Pivot: Next Active Session',
-            enablement: 'activeWebviewPanelId == agentPivot.aiConversation && agentPivot.aiConversationFocus && !terminalFocus',
         },
     ]);
     assert.deepEqual(

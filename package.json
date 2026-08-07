@@ -100,13 +100,11 @@
             },
             {
                 "command": "agentPivot.previousActiveSession",
-                "title": "Agent Pivot: Previous Active Session",
-                "enablement": "activeWebviewPanelId == agentPivot.aiConversation && agentPivot.aiConversationFocus && !terminalFocus"
+                "title": "Agent Pivot: Previous Active Session"
             },
             {
                 "command": "agentPivot.nextActiveSession",
-                "title": "Agent Pivot: Next Active Session",
-                "enablement": "activeWebviewPanelId == agentPivot.aiConversation && agentPivot.aiConversationFocus && !terminalFocus"
+                "title": "Agent Pivot: Next Active Session"
             },
             {
                 "command": "agentPivot.notify.setWebhook",

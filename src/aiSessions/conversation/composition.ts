@@ -447,7 +447,7 @@ function createAvailableConversationCapability(
         async followAdjacentActiveConversation(
             direction: ConversationSessionSwitchDirection
         ): Promise<FollowAdjacentConversationResult> {
-            const currentTarget = viewer.getFocusedTarget();
+            const currentTarget = viewer.getCurrentTarget();
             if (!currentTarget) {
                 return viewer.isOpen() ? 'inactive' : 'closed';
             }

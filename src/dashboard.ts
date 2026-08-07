@@ -2149,7 +2149,7 @@ async function initializeDashboard(
             .followAdjacentActiveConversation(direction);
         if (result === 'inactive' || result === 'closed') {
             void vscode.window.showInformationMessage(
-                'Agent Pivot: focus an AI Conversation editor to switch active sessions.'
+                'Agent Pivot: open an AI Conversation editor to switch active sessions.'
             );
         } else if (result === 'noAdjacentSession') {
             void vscode.window.showInformationMessage(

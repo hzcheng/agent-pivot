@@ -305,6 +305,69 @@ button {
     gap: 0.55rem;
 }
 
+.conversation-code-block {
+    position: relative;
+
+    > pre {
+        padding-top: 1.9rem;
+    }
+
+    &:hover .conversation-code-copy,
+    &:focus-within .conversation-code-copy {
+        opacity: 1;
+    }
+}
+
+.conversation-code-lang {
+    position: absolute;
+    z-index: 1;
+    top: 0.45rem;
+    left: 0.85rem;
+    color: var(--vscode-descriptionForeground);
+    font-size: 0.72rem;
+    letter-spacing: 0.04em;
+    user-select: none;
+}
+
+.conversation-code-copy {
+    position: absolute;
+    z-index: 1;
+    top: 0.35rem;
+    right: 0.5rem;
+    padding: 0.1rem 0.4rem;
+    border: none;
+    border-radius: 3px;
+    background: transparent;
+    color: var(--vscode-descriptionForeground);
+    font-family: inherit;
+    font-size: 0.72rem;
+    line-height: 1.4;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 120ms ease;
+
+    &:hover {
+        color: var(--vscode-foreground);
+        background: var(--vscode-toolbar-hoverBackground, transparent);
+    }
+
+    &:focus-visible {
+        opacity: 1;
+        outline: 1px solid var(--vscode-focusBorder);
+        outline-offset: 1px;
+    }
+
+    &.is-copied {
+        color: var(--vscode-testing-iconPassed, var(--vscode-foreground));
+        opacity: 1;
+    }
+
+    &.is-failed {
+        color: var(--vscode-errorForeground);
+        opacity: 1;
+    }
+}
+
 .conversation-progress .conversation-markdown {
     min-width: 0;
     flex: 1;
@@ -454,6 +517,58 @@ button {
         cursor: default;
         opacity: 0.6;
     }
+}
+
+.conversation-message-copy {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.625rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 1.5rem;
+    padding: 0 0.4rem;
+    border: none;
+    border-radius: 3px;
+    background: transparent;
+    color: var(--vscode-descriptionForeground);
+    font-family: inherit;
+    font-size: 0.72rem;
+    line-height: 1;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 120ms ease;
+
+    &:hover {
+        color: var(--vscode-foreground);
+        background: var(--vscode-toolbar-hoverBackground, transparent);
+    }
+
+    &:focus-visible {
+        opacity: 1;
+        outline: 1px solid var(--vscode-focusBorder);
+        outline-offset: 1px;
+    }
+
+    &.is-copied {
+        color: var(--vscode-testing-iconPassed, var(--vscode-foreground));
+        opacity: 1;
+    }
+
+    &.is-failed {
+        color: var(--vscode-errorForeground);
+        opacity: 1;
+    }
+}
+
+.conversation-message:hover > .conversation-message-copy,
+.conversation-message:focus-within > .conversation-message-copy {
+    opacity: 1;
+}
+
+/* The user card corner already hosts the bookmark star. */
+.conversation-message-user .conversation-message-copy {
+    right: 2.375rem;
 }
 
 .conversation-tool-call {
@@ -1478,6 +1593,11 @@ button {
         animation: none;
     }
 
+    .conversation-message-copy,
+    .conversation-code-copy {
+        transition: none;
+    }
+
     .conversation-worklog-toggle::before {
         transition: none;
     }
@@ -1564,7 +1684,9 @@ button {
 
     .conversation-outline-bookmarks-only,
     .conversation-outline-bookmark,
-    .conversation-message-bookmark {
+    .conversation-message-bookmark,
+    .conversation-message-copy,
+    .conversation-code-copy {
         color: ButtonText;
     }
 

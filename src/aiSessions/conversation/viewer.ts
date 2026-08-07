@@ -30,7 +30,10 @@ import {
     renderConversationMarkdown,
 } from './markdown';
 import { parseConversationViewerMessage } from './viewerProtocol';
-import type { ConversationSessionSwitchDirection } from './viewerProtocol';
+import type {
+    ConversationSessionSwitchDirection,
+    ConversationViewerCopyMessage,
+} from './viewerProtocol';
 import type { ConversationViewerTarget } from './viewerTarget';
 export type { ConversationViewerTarget } from './viewerTarget';
 import {
@@ -110,6 +113,9 @@ export interface ConversationViewerOptions {
         worktreeRoot: string
     ) => PromiseLike<void> | Promise<void> | void;
     insertIntoActiveTerminal?: (
+        text: string
+    ) => PromiseLike<void> | Promise<void> | void;
+    writeClipboardText?: (
         text: string
     ) => PromiseLike<void> | Promise<void> | void;
     followAdjacentConversation?: (
@@ -806,6 +812,10 @@ export class ConversationViewer implements ConversationViewerApi {
             await this.bookmarkController.enqueue(parsed);
             return;
         }
+        if (parsed.type === 'conversation-viewer-copy') {
+            await this.settleCopy(parsed);
+            return;
+        }
         if (parsed.type === 'conversation-viewer-locate-comment') {
             await this.commentController.locate(parsed);
             return;
@@ -831,6 +841,52 @@ export class ConversationViewer implements ConversationViewerApi {
             return;
         }
         await this.navigateLatest();
+    }
+
+    private async settleCopy(
+        message: ConversationViewerCopyMessage
+    ): Promise<void> {
+        const target = this.target;
+        let text: string | undefined;
+        let error: 'invalid' | 'failed' | undefined;
+        if (!target
+            || message.subscriptionGeneration !== this.subscriptionGeneration
+            || message.projectId !== target.projectId
+            || message.provider !== target.provider
+            || message.sessionId !== target.sessionId) {
+            error = 'invalid';
+        } else if (message.payload.kind === 'code') {
+            text = message.payload.text;
+        } else {
+            const messageId = message.payload.messageId;
+            text = this.messages().find(
+                candidate => candidate.id === messageId
+            )?.markdown;
+            if (text === undefined) {
+                error = 'invalid';
+            }
+        }
+        if (!error && text !== undefined) {
+            try {
+                const write = this.options.writeClipboardText
+                    ?? (value => vscode.env.clipboard.writeText(value));
+                await write(text);
+            } catch (_error) {
+                error = 'failed';
+            }
+        }
+        try {
+            await this.panel?.webview.postMessage({
+                type: 'conversation-viewer-copy-result',
+                version: 1,
+                requestId: message.requestId,
+                success: !error,
+                ...(error ? { error } : {}),
+            });
+        } catch (_error) {
+            // The clipboard outcome is already decided; a dead panel needs
+            // no settlement.
+        }
     }
 
     private publishKeyboardFocus(focused: boolean, force = false): void {
@@ -2186,6 +2242,7 @@ function renderMessage(
     data-interaction-id="${escapeAttribute(message.interactionId)}">
     <span class="conversation-role">User</span>
     <button class="conversation-message-bookmark" title="Bookmark this input"></button>
+    <button class="conversation-message-copy" title="Copy input">Copy</button>
     <section class="conversation-markdown">${renderConversationMarkdown(
         message.markdown
     )}</section>
@@ -2196,6 +2253,7 @@ function renderMessage(
     data-conversation-message-id="${escapeAttribute(encodeURIComponent(message.id))}"
     data-interaction-id="${escapeAttribute(message.interactionId)}">
     <span class="conversation-role">Assistant</span>
+    <button class="conversation-message-copy" title="Copy response">Copy</button>
     <section class="conversation-markdown">${renderConversationMarkdown(
         message.markdown
     )}</section>

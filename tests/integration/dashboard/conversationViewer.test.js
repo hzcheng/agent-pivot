@@ -266,6 +266,7 @@ function createViewer(options = {}) {
         },
         openLocalFile: options.openLocalFile,
         insertIntoActiveTerminal: options.insertIntoActiveTerminal,
+        writeClipboardText: options.writeClipboardText,
         followAdjacentConversation: options.followAdjacentConversation,
         setKeyboardFocus: options.setKeyboardFocus,
         mediaUri: fileName => fakeUri(`file:///extension/media/${fileName}`),
@@ -3860,4 +3861,145 @@ test('CONVERSATION-MESSAGE-BOOKMARK-001 renders a bookmark toggle inside each us
         -1,
         'work entries and the answer carry no bookmark toggle'
     );
+});
+
+function copyPage(sessionId) {
+    return {
+        ...page(sessionId, 'input-1', 'visible'),
+        messages: [{
+            id: 'input-1:user',
+            interactionId: 'input-1',
+            role: 'user',
+            markdown: 'Add tests for the parser',
+        }, {
+            id: 'input-1:assistant:0',
+            interactionId: 'input-1',
+            role: 'assistant',
+            markdown: 'Like this:\n\n```ts\nconst answer = 42;\n```',
+        }],
+        interactionStates: [{
+            interactionId: 'input-1',
+            responseState: 'complete',
+        }],
+    };
+}
+
+function copyRequest(requestId, payload, overrides = {}) {
+    return {
+        type: 'conversation-viewer-copy',
+        version: 1,
+        requestId,
+        subscriptionGeneration: 1,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+        operation: 'copy',
+        payload,
+        ...overrides,
+    };
+}
+
+test('CONVERSATION-COPY-ACTIONS-001 renders code block chrome and message copy controls', async () => {
+    const { viewer, panel } = createViewer({
+        readPage: async request => copyPage(request.sessionId),
+    });
+
+    await viewer.open(target('session-a', 'input-1'));
+    const html = panel.webview.html;
+    assert.equal(html.includes('conversation-code-block'), true,
+        'fenced code renders inside a copyable block wrapper');
+    assert.equal(html.includes('conversation-code-lang'), true,
+        'the block carries its language label');
+    assert.equal(html.includes('conversation-code-copy'), true);
+    const userIndex = html.indexOf('conversation-message-user');
+    const copyIndex = html.indexOf('conversation-message-copy');
+    assert.ok(copyIndex > userIndex,
+        'the user input card carries a copy control');
+    const assistantIndex = html.indexOf('conversation-message-assistant');
+    const secondCopy = html.indexOf(
+        'conversation-message-copy',
+        copyIndex + 1
+    );
+    assert.ok(secondCopy > assistantIndex,
+        'the assistant answer carries a copy control');
+    assert.equal(
+        html.indexOf('conversation-message-copy', secondCopy + 1),
+        -1,
+        'exactly one copy control per user/assistant article'
+    );
+});
+
+test('CONVERSATION-COPY-ACTIONS-001 settles copies through the Host clipboard', async () => {
+    const clips = [];
+    const { viewer, panel } = createViewer({
+        writeClipboardText: async text => {
+            clips.push(text);
+        },
+        readPage: async request => copyPage(request.sessionId),
+    });
+    await viewer.open(target('session-a', 'input-1'));
+
+    await panel.receive(copyRequest('copy-1', {
+        kind: 'message',
+        messageId: 'input-1:assistant:0',
+    }));
+    assert.deepEqual(clips, ['Like this:\n\n```ts\nconst answer = 42;\n```'],
+        'message copies resolve the raw markdown from Host state');
+    assert.deepEqual(panel.postedMessages.at(-1), {
+        type: 'conversation-viewer-copy-result',
+        version: 1,
+        requestId: 'copy-1',
+        success: true,
+    });
+
+    await panel.receive(copyRequest('copy-2', {
+        kind: 'code',
+        text: 'const answer = 42;\n',
+    }));
+    assert.deepEqual(clips.at(-1), 'const answer = 42;\n');
+    assert.deepEqual(panel.postedMessages.at(-1), {
+        type: 'conversation-viewer-copy-result',
+        version: 1,
+        requestId: 'copy-2',
+        success: true,
+    });
+
+    await panel.receive(copyRequest('copy-3', {
+        kind: 'message',
+        messageId: 'input-9:user',
+    }));
+    assert.deepEqual(panel.postedMessages.at(-1), {
+        type: 'conversation-viewer-copy-result',
+        version: 1,
+        requestId: 'copy-3',
+        success: false,
+        error: 'invalid',
+    }, 'unknown messages settle as invalid without touching the clipboard');
+    assert.equal(clips.length, 2);
+
+    await panel.receive(copyRequest('copy-4', {
+        kind: 'code',
+        text: 'stale',
+    }, { subscriptionGeneration: 2 }));
+    assert.deepEqual(panel.postedMessages.at(-1), {
+        type: 'conversation-viewer-copy-result',
+        version: 1,
+        requestId: 'copy-4',
+        success: false,
+        error: 'invalid',
+    }, 'stale generations settle as invalid without touching the clipboard');
+    assert.equal(clips.length, 2);
+
+    await panel.receive(copyRequest('copy-5', {
+        kind: 'message',
+        messageId: 'input-1:user',
+    }, { sessionId: 'session-b' }));
+    assert.deepEqual(panel.postedMessages.at(-1), {
+        type: 'conversation-viewer-copy-result',
+        version: 1,
+        requestId: 'copy-5',
+        success: false,
+        error: 'invalid',
+    }, 'wrong-target copies settle as invalid without touching the clipboard');
+    assert.equal(clips.length, 2);
 });

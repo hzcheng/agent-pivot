@@ -66,6 +66,24 @@ test('CONVERSATION-PROTOCOL-VALIDATOR-001 accepts every exact version-1 viewer i
             bookmarked: true,
         },
     }, {
+        type: 'conversation-viewer-copy',
+        version: 1,
+        ...target,
+        operation: 'copy',
+        payload: {
+            kind: 'code',
+            text: 'const answer = 42;',
+        },
+    }, {
+        type: 'conversation-viewer-copy',
+        version: 1,
+        ...target,
+        operation: 'copy',
+        payload: {
+            kind: 'message',
+            messageId: 'input-1:user',
+        },
+    }, {
         type: 'conversation-viewer-comment-mutation',
         version: 1,
         ...target,
@@ -195,6 +213,46 @@ test('CONVERSATION-PROTOCOL-VALIDATOR-001 rejects malformed, inherited, and over
             },
         },
         {
+            type: 'conversation-viewer-copy',
+            version: 1,
+            ...target,
+            operation: 'copy',
+            payload: {
+                kind: 'code',
+            },
+        },
+        {
+            type: 'conversation-viewer-copy',
+            version: 1,
+            ...target,
+            operation: 'copy',
+            payload: {
+                kind: 'snippet',
+                text: 'x',
+            },
+        },
+        {
+            type: 'conversation-viewer-copy',
+            version: 1,
+            ...target,
+            operation: 'copy',
+            payload: {
+                kind: 'code',
+                text: 'x'.repeat(1_000_001),
+            },
+        },
+        {
+            type: 'conversation-viewer-copy',
+            version: 1,
+            ...target,
+            operation: 'copy',
+            expectedRevision: 2,
+            payload: {
+                kind: 'code',
+                text: 'x',
+            },
+        },
+        {
             type: 'conversation-viewer-comment-mutation',
             version: 1,
             ...target,
@@ -271,4 +329,37 @@ test('CONVERSATION-PROTOCOL-VALIDATOR-001 rejects malformed, inherited, and over
     malformed.forEach(message => {
         assert.equal(parseConversationViewerMessage(message), undefined);
     });
+});
+
+test('CONVERSATION-COPY-ACTIONS-001 validates code and message copy payloads', () => {
+    const codeCopy = {
+        type: 'conversation-viewer-copy',
+        version: 1,
+        ...target,
+        operation: 'copy',
+        payload: {
+            kind: 'code',
+            text: 'const answer = 42;',
+        },
+    };
+    const messageCopy = {
+        type: 'conversation-viewer-copy',
+        version: 1,
+        ...target,
+        operation: 'copy',
+        payload: {
+            kind: 'message',
+            messageId: 'input-1:user',
+        },
+    };
+    assert.deepEqual(parseConversationViewerMessage(codeCopy), codeCopy);
+    assert.deepEqual(parseConversationViewerMessage(messageCopy), messageCopy);
+    assert.equal(parseConversationViewerMessage({
+        ...codeCopy,
+        payload: { kind: 'code', text: 42 },
+    }), undefined);
+    assert.equal(parseConversationViewerMessage({
+        ...messageCopy,
+        payload: { kind: 'message', messageId: '' },
+    }), undefined);
 });

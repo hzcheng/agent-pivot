@@ -39,12 +39,27 @@ function highlightCode(value: string, lang: string): string {
     return `<pre><code class="${className}">${escapeHtml(value)}</code></pre>`;
 }
 
+function renderCodeBlock(value: string, info: string): string {
+    const lang = (info || '').trim().split(/\s+/)[0] || '';
+    const label = lang
+        ? `<span class="conversation-code-lang">${escapeHtml(lang)}</span>`
+        : '';
+    return `<section class="conversation-code-block">${label}`
+        + highlightCode(value, lang)
+        + '<button class="conversation-code-copy" title="Copy code">'
+        + 'Copy</button></section>\n';
+}
+
 const markdown = new MarkdownIt({
     html: false,
     linkify: false,
     breaks: false,
-    highlight: highlightCode,
 });
+
+markdown.renderer.rules.fence = (tokens, index) =>
+    renderCodeBlock(tokens[index].content, tokens[index].info);
+markdown.renderer.rules.code_block = (tokens, index) =>
+    renderCodeBlock(tokens[index].content, '');
 
 const MAX_LOCAL_FILE_LINK_LENGTH = 4096;
 const MAX_LOCAL_FILE_POSITION = 10_000_000;

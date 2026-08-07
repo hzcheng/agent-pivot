@@ -156,6 +156,9 @@
         && !!subagentsRunningOnly && !!closeSubagent
         && !!telemetrySubagents && !!telemetrySection
         && !!window.__agentPivotConversationSubagents;
+    var copyUiAvailable = validCommentTarget(commentTarget);
+    var copyRequestSequence = 0;
+    var copyPending = new Map();
     var state = {
         atLatest: false,
         initialized: false,
@@ -774,6 +777,7 @@
         state.messageIds = [];
         state.messageSignatures = new Map();
         state.worklogExpanded = new Map();
+        copyPending = new Map();
         document.body.setAttribute(
             'data-subscription-generation',
             String(message.subscriptionGeneration)
@@ -886,6 +890,94 @@
         );
     }
 
+    function nextCopyRequestId() {
+        copyRequestSequence += 1;
+        return [
+            'conversation-copy',
+            Date.now().toString(36),
+            copyRequestSequence.toString(36),
+        ].join(':');
+    }
+
+    function postCopyRequest(button, payload) {
+        if (!copyUiAvailable) return;
+        var requestId = nextCopyRequestId();
+        copyPending.set(requestId, button);
+        // A settlement should land long before this; the timer only keeps
+        // the map bounded if a message ever goes missing.
+        window.setTimeout(function () {
+            copyPending.delete(requestId);
+        }, 30000);
+        post({
+            type: 'conversation-viewer-copy',
+            version: 1,
+            requestId: requestId,
+            subscriptionGeneration: state.subscriptionGeneration,
+            projectId: commentTarget.projectId,
+            provider: commentTarget.provider,
+            sessionId: commentTarget.sessionId,
+            operation: 'copy',
+            payload: payload,
+        });
+    }
+
+    function validCopyResult(value) {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) {
+            return false;
+        }
+        var required = ['type', 'version', 'requestId', 'success'];
+        var allowed = new Set(required.concat(['error']));
+        return Object.keys(value).every(function (key) {
+            return allowed.has(key);
+        }) && required.every(function (key) {
+            return Object.prototype.hasOwnProperty.call(value, key);
+        })
+            && value.type === 'conversation-viewer-copy-result'
+            && value.version === 1
+            && typeof value.requestId === 'string'
+            && typeof value.success === 'boolean'
+            && (value.error === undefined
+                || value.error === 'invalid'
+                || value.error === 'failed');
+    }
+
+    function flashCopyResult(button, success) {
+        window.clearTimeout(button.__conversationCopyTimer);
+        button.textContent = success ? 'Copied' : 'Failed';
+        button.classList.toggle('is-copied', success);
+        button.classList.toggle('is-failed', !success);
+        button.__conversationCopyTimer = window.setTimeout(function () {
+            button.textContent = 'Copy';
+            button.classList.remove('is-copied');
+            button.classList.remove('is-failed');
+        }, 1400);
+    }
+
+    function applyCopyResult(message) {
+        if (!validCopyResult(message)) return false;
+        var button = copyPending.get(message.requestId);
+        if (!button) return false;
+        copyPending.delete(message.requestId);
+        flashCopyResult(button, message.success);
+        return true;
+    }
+
+    function applyCopyButtonLabels() {
+        Array.prototype.forEach.call(
+            messages.querySelectorAll(
+                '.conversation-message-copy, .conversation-code-copy'
+            ),
+            function (button) {
+                if (!button.getAttribute('aria-label')) {
+                    button.setAttribute(
+                        'aria-label',
+                        button.title || 'Copy'
+                    );
+                }
+            }
+        );
+    }
+
     function applyPage(message) {
         if (!validPage(message)
             || !applySessionGeneration(message)
@@ -933,6 +1025,7 @@
             }
         );
         applyWorklogStates();
+        applyCopyButtonLabels();
         var nextIds = reconciled.ids;
         var nextSignatures = reconciled.signatures;
         state.messageIds = nextIds;
@@ -1130,6 +1223,32 @@
         outlineController.toggleBookmark(interactionId, 'card');
     });
     messages.addEventListener('click', function (event) {
+        var codeCopy = event.target && event.target.closest
+            ? event.target.closest('.conversation-code-copy')
+            : null;
+        if (codeCopy && messages.contains(codeCopy)) {
+            var block = codeCopy.closest('.conversation-code-block');
+            var code = block ? block.querySelector('pre code') : null;
+            if (!code) return;
+            postCopyRequest(codeCopy, {
+                kind: 'code',
+                text: code.textContent || '',
+            });
+            return;
+        }
+        var messageCopy = event.target && event.target.closest
+            ? event.target.closest('.conversation-message-copy')
+            : null;
+        if (!messageCopy || !messages.contains(messageCopy)) return;
+        var host = messageCopy.closest('[data-message-id]');
+        var messageId = host ? host.getAttribute('data-message-id') : '';
+        if (!messageId) return;
+        postCopyRequest(messageCopy, {
+            kind: 'message',
+            messageId: messageId,
+        });
+    });
+    messages.addEventListener('click', function (event) {
         var link = event.target && event.target.closest
             ? event.target.closest('a[href]')
             : null;
@@ -1154,6 +1273,7 @@
         sidebarController.handleEscape(event);
     });
     window.addEventListener('message', function (event) {
+        if (applyCopyResult(event.data)) return;
         if (outlineController.applyBookmarksResult(event.data)) return;
         if (commentsController.applyCommentsResult(event.data)) return;
         if (commentsController.applyLocateResult(event.data)) return;

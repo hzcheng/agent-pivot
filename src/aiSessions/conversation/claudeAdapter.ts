@@ -534,6 +534,15 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
                 interactions[openInteractionIndex].responseState = state;
                 openInteractionIndex = undefined;
             };
+            const stampActivity = (event: Record<string, unknown>): void => {
+                if (openInteractionIndex === undefined) {
+                    return;
+                }
+                const value = timestampValue(event.timestamp);
+                if (value !== undefined) {
+                    interactions[openInteractionIndex].completedAt = value;
+                }
+            };
             const normalizeRecord = (record: ConversationJsonlRecord): void => {
                 const event = asRecord(record.value);
                 // Subagent transcripts consist entirely of sidechain records;
@@ -571,6 +580,7 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
                     && message?.role === 'user'
                     && openInteractionIndex !== undefined
                     && containsBlock(message.content, 'tool_result')) {
+                    stampActivity(event);
                     contentBlocks(message.content).forEach(block => {
                         if (block.type !== 'tool_result') {
                             return;
@@ -622,6 +632,7 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
                 } else if (event.type === 'assistant'
                     && message?.role === 'assistant'
                     && openInteractionIndex !== undefined) {
+                    stampActivity(event);
                     // Text and tool_use blocks share one ordered stream so
                     // tool entries interleave with text in arrival order.
                     const pushTextPart = (part: string): void => {

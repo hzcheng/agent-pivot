@@ -52,6 +52,8 @@ export interface ConversationInteraction {
     id: string;
     providerTurnId?: string;
     timestamp?: number;
+    /** Last contributing provider event time; the turn's work end marker. */
+    completedAt?: number;
     userMarkdown: string;
     userPreview: string;
     userGraphemeCount: number;
@@ -101,6 +103,8 @@ export interface ConversationPage {
     interactionStates: Array<{
         interactionId: string;
         responseState: ConversationResponseState;
+        timestamp?: number;
+        completedAt?: number;
     }>;
     previousCursor?: string;
     nextCursor?: string;

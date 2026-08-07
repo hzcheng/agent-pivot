@@ -1098,3 +1098,34 @@ test('CONVERSATION-THINKING-VISIBILITY-001 Kimi merges streamed think deltas int
         ]
     );
 });
+
+test('CONVERSATION-WORKLOG-COLLAPSE-001 Kimi stamps completedAt from the last turn event', async t => {
+    const providerHome = await fs.promises.mkdtemp(
+        path.join(os.tmpdir(), 'steward-kimi-worklog-')
+    );
+    t.after(() => fs.promises.rm(providerHome, { recursive: true, force: true }));
+    const sourcePath = path.join(providerHome, 'wire.jsonl');
+    const lines = [
+        { timestamp: 1_784_505_600, message: { type: 'TurnBegin',
+            payload: { id: 'turn-1', user_input: 'Run the tests' } } },
+        { timestamp: 1_784_505_605, message: { type: 'ToolCall',
+            payload: { id: 'call-1', function: {
+                name: 'shell', arguments: '{"command":"npm test"}' } } } },
+        { timestamp: 1_784_505_607, message: { type: 'ToolResult',
+            payload: { tool_call_id: 'call-1', return_value: { output: '9 passing' } } } },
+        { timestamp: 1_784_505_620, message: { type: 'ContentPart',
+            payload: { type: 'text', text: 'All pass.' } } },
+        { timestamp: 1_784_505_625, message: { type: 'TurnEnd', payload: {} } },
+    ];
+    await fs.promises.writeFile(
+        sourcePath,
+        lines.map(line => JSON.stringify(line)).join('\n') + '\n'
+    );
+    const adapter = createAdapter({ providerHome, sourcePath });
+    t.after(() => adapter.dispose());
+
+    const { page } = await readWholeConversation(adapter);
+    assert.equal(page.interactionStates.length, 1);
+    assert.equal(page.interactionStates[0].timestamp, 1_784_505_600_000);
+    assert.equal(page.interactionStates[0].completedAt, 1_784_505_625_000);
+});

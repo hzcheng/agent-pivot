@@ -189,7 +189,12 @@ export function buildConversationPage(
     };
     const blocks = new Map<number, {
         messages: ConversationMessage[];
-        state: { interactionId: string; responseState: ConversationResponseState };
+        state: {
+            interactionId: string;
+            responseState: ConversationResponseState;
+            timestamp?: number;
+            completedAt?: number;
+        };
         serializedBytes: number;
     }>();
     let estimatedBytes = 0;
@@ -200,6 +205,12 @@ export function buildConversationPage(
             state: {
                 interactionId: interaction.id,
                 responseState: interaction.responseState,
+                ...(interaction.timestamp !== undefined
+                    ? { timestamp: interaction.timestamp }
+                    : {}),
+                ...(interaction.completedAt !== undefined
+                    ? { completedAt: interaction.completedAt }
+                    : {}),
             },
             serializedBytes: 0,
         };
@@ -238,6 +249,8 @@ export function buildConversationPage(
         const interactionStates: Array<{
             interactionId: string;
             responseState: ConversationResponseState;
+            timestamp?: number;
+            completedAt?: number;
         }> = [];
         for (let index = start; index < end; index += 1) {
             const block = blocks.get(index)!;

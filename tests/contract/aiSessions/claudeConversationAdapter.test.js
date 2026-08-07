@@ -1242,3 +1242,48 @@ test('CONVERSATION-THINKING-VISIBILITY-001 Claude interleaves thinking blocks wi
         ]
     );
 });
+
+test('CONVERSATION-WORKLOG-COLLAPSE-001 Claude stamps completedAt from the last contributing event', async t => {
+    const providerHome = await fs.promises.mkdtemp(
+        path.join(os.tmpdir(), 'steward-claude-worklog-')
+    );
+    t.after(() => fs.promises.rm(providerHome, { recursive: true, force: true }));
+    const sourcePath = path.join(providerHome, 'session.jsonl');
+    const lines = [
+        { type: 'user', uuid: 'worklog-user-1', timestamp: '2026-08-01T10:00:00.000Z',
+            message: { role: 'user', content: [{ type: 'text', text: 'Run the tests' }] } },
+        { type: 'assistant', uuid: 'worklog-assistant-1', timestamp: '2026-08-01T10:00:40.000Z',
+            message: { role: 'assistant', content: [
+                { type: 'tool_use', id: 'tool-1', name: 'Shell', input: { command: 'npm test' } },
+            ] } },
+        { type: 'user', uuid: 'worklog-tool-result-1', timestamp: '2026-08-01T10:00:50.000Z',
+            message: { role: 'user', content: [
+                { type: 'tool_result', tool_use_id: 'tool-1', content: '9 passing' },
+            ] } },
+        { type: 'assistant', uuid: 'worklog-assistant-2', timestamp: '2026-08-01T10:01:20.000Z',
+            message: { role: 'assistant', content: [{ type: 'text', text: 'All pass.' }] } },
+        { type: 'user', uuid: 'worklog-user-2', timestamp: '2026-08-01T10:05:00.000Z',
+            message: { role: 'user', content: [{ type: 'text', text: 'Thanks' }] } },
+        { type: 'assistant', uuid: 'worklog-assistant-3', timestamp: '2026-08-01T10:05:03.000Z',
+            message: { role: 'assistant', content: [{ type: 'text', text: 'Anytime.' }] } },
+    ];
+    await fs.promises.writeFile(
+        sourcePath,
+        lines.map(line => JSON.stringify(line)).join('\n') + '\n'
+    );
+    const adapter = createAdapter({ providerHome, sourcePath });
+    t.after(() => adapter.dispose());
+
+    const { page } = await readWholeConversation(adapter);
+    assert.equal(page.interactionStates.length, 2);
+    assert.equal(
+        page.interactionStates[0].completedAt,
+        Date.parse('2026-08-01T10:01:20.000Z'),
+        'first turn ends at its last assistant event, not the next user input'
+    );
+    assert.equal(page.interactionStates[0].timestamp, Date.parse('2026-08-01T10:00:00.000Z'));
+    assert.equal(
+        page.interactionStates[1].completedAt,
+        Date.parse('2026-08-01T10:05:03.000Z')
+    );
+});

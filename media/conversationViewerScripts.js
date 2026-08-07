@@ -5,7 +5,7 @@
         'p', 'br', 'pre', 'code', 'blockquote', 'ul', 'ol', 'li',
         'strong', 'em', 'del', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
         'a', 'img', 'hr', 'table', 'thead', 'tbody', 'tr', 'th', 'td',
-        'span', 'section', 'article', 'details', 'summary',
+        'span', 'section', 'article', 'details', 'summary', 'button',
     ];
     var allowedAttributes = [
         'href', 'src', 'alt', 'title', 'class', 'start',
@@ -165,6 +165,7 @@
         )),
         messageIds: [],
         messageSignatures: new Map(),
+        worklogExpanded: new Map(),
         renderGeneration: 0,
     };
     var readingAnchorController =
@@ -771,6 +772,7 @@
         state.initialized = false;
         state.messageIds = [];
         state.messageSignatures = new Map();
+        state.worklogExpanded = new Map();
         document.body.setAttribute(
             'data-subscription-generation',
             String(message.subscriptionGeneration)
@@ -804,6 +806,46 @@
         var elementBounds = element.getBoundingClientRect();
         scroll.scrollTop += elementBounds.top - viewportBounds.top
             - (scroll.clientHeight - elementBounds.height) / 2;
+    }
+
+    function applyWorklogStates() {
+        Array.prototype.forEach.call(
+            messages.querySelectorAll('.conversation-message-worklog'),
+            function (row) {
+                var interactionId = row.getAttribute('data-interaction-id');
+                if (!interactionId) return;
+                var expanded = state.worklogExpanded.get(interactionId) === true;
+                var toggle = row.querySelector('.conversation-worklog-toggle');
+                if (toggle) {
+                    toggle.setAttribute(
+                        'aria-expanded',
+                        expanded ? 'true' : 'false'
+                    );
+                }
+                row.classList.toggle(
+                    'conversation-worklog-expanded',
+                    expanded
+                );
+                // The row heads the work group: entries after it (up to
+                // the next turn) collapse, so the toggle never moves when
+                // expanding.
+                var sibling = row.nextElementSibling;
+                while (sibling
+                    && sibling.getAttribute('data-interaction-id')
+                        === interactionId) {
+                    if (sibling.classList.contains('conversation-message-tool')
+                        || sibling.classList.contains(
+                            'conversation-message-thinking'
+                        )
+                        || sibling.classList.contains(
+                            'conversation-message-progress'
+                        )) {
+                        sibling.hidden = !expanded;
+                    }
+                    sibling = sibling.nextElementSibling;
+                }
+            }
+        );
     }
 
     function applyPage(message) {
@@ -849,6 +891,7 @@
                 image.referrerPolicy = 'no-referrer';
             }
         );
+        applyWorklogStates();
         var nextIds = reconciled.ids;
         var nextSignatures = reconciled.signatures;
         state.messageIds = nextIds;
@@ -995,6 +1038,23 @@
         sidebarController.attach();
         outlineController.attach();
     }
+    messages.addEventListener('click', function (event) {
+        var toggle = event.target && event.target.closest
+            ? event.target.closest('.conversation-worklog-toggle')
+            : null;
+        if (!toggle || !messages.contains(toggle)) return;
+        var row = toggle.closest('.conversation-message-worklog');
+        var interactionId = row
+            ? row.getAttribute('data-interaction-id')
+            : null;
+        if (!interactionId) return;
+        if (state.worklogExpanded.get(interactionId) === true) {
+            state.worklogExpanded.delete(interactionId);
+        } else {
+            state.worklogExpanded.set(interactionId, true);
+        }
+        applyWorklogStates();
+    });
     messages.addEventListener('click', function (event) {
         var link = event.target && event.target.closest
             ? event.target.closest('a[href]')

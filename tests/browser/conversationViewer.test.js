@@ -4541,6 +4541,225 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 strips inline emphasis tags fro
     assert.match(normalizedSvg, />Done</);
 });
 
+test('CONVERSATION-WORKLOG-COLLAPSE-001 collapses completed-turn work behind a Worked-for row that toggles and survives refresh', async t => {
+    const page = await openViewerPage(t, {});
+    const userArticle = `<article class="conversation-message conversation-message-user"
+            data-message-id="input-4:user"
+            data-conversation-message-id="input-4%3Auser"
+            data-interaction-id="input-4">
+        <span class="conversation-role">User</span>
+        <section class="conversation-markdown"><p>Run the tests</p></section>
+    </article>`;
+    const worklogArticle = `<article class="conversation-message conversation-message-worklog"
+            data-message-id="input-4:worklog"
+            data-conversation-message-id="input-4%3Aworklog"
+            data-interaction-id="input-4">
+        <button class="conversation-worklog-toggle"
+            onclick="window.__pwned = true">
+            <span class="conversation-worklog-label">Worked for 1m 20s</span>
+        </button>
+    </article>`;
+    const toolArticle = `<article class="conversation-message conversation-message-tool"
+            data-message-id="input-4:tool:0"
+            data-conversation-message-id="input-4%3Atool%3A0"
+            data-interaction-id="input-4">
+        <details class="conversation-tool-call">
+            <summary><span class="conversation-tool-name">Shell</span> Shell npm test</summary>
+            <pre class="conversation-tool-detail"><code>9 passing</code></pre>
+        </details>
+    </article>`;
+    const assistantArticle = `<article class="conversation-message conversation-message-assistant"
+            data-message-id="input-4:assistant:0"
+            data-conversation-message-id="input-4%3Aassistant%3A0"
+            data-interaction-id="input-4">
+        <span class="conversation-role">Assistant</span>
+        <section class="conversation-markdown"><p>All pass.</p></section>
+    </article>`;
+    // The row heads the work group so expanding reveals entries below the
+    // toggle and the toggle itself never moves under the pointer.
+    const turnHtml = userArticle + worklogArticle + toolArticle
+        + assistantArticle;
+    await sendPage(page, {
+        ...hostileConversationPage,
+        requestId: 60,
+        updateKind: 'initial',
+        html: turnHtml,
+    });
+
+    const tool = page.locator('.conversation-message-tool');
+    const toggle = page.locator('.conversation-worklog-toggle');
+    assert.equal(await toggle.count(), 1, 'button must survive sanitizing');
+    assert.equal(
+        await toggle.evaluate(element => element.hasAttribute('onclick')),
+        false,
+        'event handler attributes must be stripped'
+    );
+    assert.match(await toggle.innerText(), /Worked for 1m 20s/);
+    assert.equal(await tool.isHidden(), true,
+        'completed-turn work starts collapsed');
+    assert.equal(await toggle.getAttribute('aria-expanded'), 'false');
+
+    const toggleYBefore = (await toggle.boundingBox()).y;
+    await toggle.click();
+    assert.equal(await tool.isVisible(), true, 'click expands the worklog');
+    assert.equal(await toggle.getAttribute('aria-expanded'), 'true');
+    assert.equal(
+        (await toggle.boundingBox()).y,
+        toggleYBefore,
+        'expanding reveals entries below the toggle, never moving it'
+    );
+
+    await sendPage(page, {
+        ...hostileConversationPage,
+        requestId: 61,
+        updateKind: 'refresh',
+        html: turnHtml,
+    });
+    assert.equal(
+        await page.locator('.conversation-message-tool').isVisible(),
+        true,
+        'expanded state survives a live refresh'
+    );
+    assert.equal(
+        await page.locator('.conversation-worklog-toggle')
+            .getAttribute('aria-expanded'),
+        'true'
+    );
+});
+
+test('CONVERSATION-WORKLOG-COLLAPSE-001 keeps in-progress work expanded and collapses it when the answer lands', async t => {
+    const page = await openViewerPage(t, {});
+    const liveHtml = `<article class="conversation-message conversation-message-user"
+            data-message-id="input-4:user"
+            data-conversation-message-id="input-4%3Auser"
+            data-interaction-id="input-4">
+        <span class="conversation-role">User</span>
+        <section class="conversation-markdown"><p>Run the tests</p></section>
+    </article>
+    <article class="conversation-message conversation-message-tool"
+            data-message-id="input-4:tool:0"
+            data-conversation-message-id="input-4%3Atool%3A0"
+            data-interaction-id="input-4">
+        <details class="conversation-tool-call">
+            <summary><span class="conversation-tool-name">Shell</span> Shell npm test</summary>
+            <pre class="conversation-tool-detail"><code>running</code></pre>
+        </details>
+    </article>`;
+    await sendPage(page, {
+        ...hostileConversationPage,
+        requestId: 70,
+        updateKind: 'initial',
+        html: liveHtml,
+        outline: [{
+            interactionId: 'input-4',
+            userPreview: 'Run the tests',
+            responseState: 'inProgress',
+        }],
+        atLatest: true,
+    });
+    assert.equal(
+        await page.locator('.conversation-message-tool').isVisible(),
+        true,
+        'in-progress work stays expanded'
+    );
+    assert.equal(
+        await page.locator('.conversation-message-worklog').count(),
+        0,
+        'no row while the turn is live'
+    );
+
+    const doneHtml = liveHtml.replace('running', '9 passing').replace(
+        '<article class="conversation-message conversation-message-tool"',
+        `<article class="conversation-message conversation-message-worklog"
+            data-message-id="input-4:worklog"
+            data-conversation-message-id="input-4%3Aworklog"
+            data-interaction-id="input-4">
+        <button class="conversation-worklog-toggle">
+            <span class="conversation-worklog-label">Worked for 45s</span>
+        </button>
+    </article>
+    <article class="conversation-message conversation-message-tool"`
+    ) + `
+    <article class="conversation-message conversation-message-assistant"
+            data-message-id="input-4:assistant:0"
+            data-conversation-message-id="input-4%3Aassistant%3A0"
+            data-interaction-id="input-4">
+        <span class="conversation-role">Assistant</span>
+        <section class="conversation-markdown"><p>All pass.</p></section>
+    </article>`;
+    await sendPage(page, {
+        ...hostileConversationPage,
+        requestId: 71,
+        updateKind: 'refresh',
+        html: doneHtml,
+        atLatest: true,
+    });
+    assert.equal(
+        await page.locator('.conversation-message-tool').isHidden(),
+        true,
+        'work collapses once the answer lands'
+    );
+    const toggle = page.locator('.conversation-worklog-toggle');
+    assert.match(await toggle.innerText(), /Worked for 45s/);
+    assert.equal(await toggle.getAttribute('aria-expanded'), 'false');
+});
+
+test('CONVERSATION-WORKLOG-COLLAPSE-001 aligns the Worked-for row with the message column', async t => {
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+    });
+    await sendPage(page, {
+        ...hostileConversationPage,
+        requestId: 80,
+        updateKind: 'initial',
+        html: `<article class="conversation-message conversation-message-user"
+            data-message-id="input-4:user"
+            data-conversation-message-id="input-4%3Auser"
+            data-interaction-id="input-4">
+        <span class="conversation-role">User</span>
+        <section class="conversation-markdown"><p>Run the tests</p></section>
+    </article>
+    <article class="conversation-message conversation-message-worklog"
+            data-message-id="input-4:worklog"
+            data-conversation-message-id="input-4%3Aworklog"
+            data-interaction-id="input-4">
+        <button class="conversation-worklog-toggle">
+            <span class="conversation-worklog-label">Worked for 1m 20s</span>
+        </button>
+    </article>
+    <article class="conversation-message conversation-message-tool"
+            data-message-id="input-4:tool:0"
+            data-conversation-message-id="input-4%3Atool%3A0"
+            data-interaction-id="input-4">
+        <details class="conversation-tool-call">
+            <summary><span class="conversation-tool-name">Shell</span> Shell npm test</summary>
+            <pre class="conversation-tool-detail"><code>9 passing</code></pre>
+        </details>
+    </article>
+    <article class="conversation-message conversation-message-assistant"
+            data-message-id="input-4:assistant:0"
+            data-conversation-message-id="input-4%3Aassistant%3A0"
+            data-interaction-id="input-4">
+        <span class="conversation-role">Assistant</span>
+        <section class="conversation-markdown"><p>All pass.</p></section>
+    </article>`,
+    });
+
+    const row = page.locator('.conversation-message-worklog');
+    await row.waitFor();
+    const rowX = Math.round((await row.boundingBox()).x);
+    const assistantX = Math.round(
+        (await page.locator('.conversation-message-assistant').boundingBox()).x
+    );
+    const userX = Math.round(
+        (await page.locator('.conversation-message-user').boundingBox()).x
+    );
+    assert.equal(rowX, assistantX,
+        'the row heads the group at the message column edge, not indented');
+    assert.equal(rowX, userX);
+});
+
 test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 preserves structured text indentation and horizontal scrolling', async t => {
     const page = await openViewerPage(t);
     await page.setViewportSize({ width: 360, height: 500 });

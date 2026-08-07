@@ -197,3 +197,45 @@ test('CONVERSATION-THINKING-VISIBILITY-001 interleaves thinking blocks with tool
     assert.deepEqual(page.messages[1].thinking, { text: 'Let me think.' });
     assert.equal(page.messages[1].markdown, '');
 });
+
+test('CONVERSATION-WORKLOG-COLLAPSE-001 page interaction states carry turn timing', () => {
+    const page = model.buildConversationPage([{
+        id: 'turn-1',
+        timestamp: 1_000,
+        completedAt: 81_000,
+        userMarkdown: 'Run the tests',
+        userPreview: 'Run the tests',
+        userGraphemeCount: 13,
+        assistantMarkdown: ['All pass.'],
+        toolCalls: [{ position: 0, name: 'Shell', summary: 'Shell npm test' }],
+        responseState: 'complete',
+    }], {
+        provider: 'codex',
+        sessionId: 'session',
+        anchorInteractionId: 'turn-1',
+        direction: 'around',
+    }, 'r1');
+    assert.deepEqual(page.interactionStates, [{
+        interactionId: 'turn-1',
+        responseState: 'complete',
+        timestamp: 1_000,
+        completedAt: 81_000,
+    }]);
+    const withoutTiming = model.buildConversationPage([{
+        id: 'turn-2',
+        userMarkdown: 'Hi',
+        userPreview: 'Hi',
+        userGraphemeCount: 2,
+        assistantMarkdown: ['Hello'],
+        responseState: 'complete',
+    }], {
+        provider: 'codex',
+        sessionId: 'session',
+        anchorInteractionId: 'turn-2',
+        direction: 'around',
+    }, 'r1');
+    assert.deepEqual(withoutTiming.interactionStates, [{
+        interactionId: 'turn-2',
+        responseState: 'complete',
+    }]);
+});

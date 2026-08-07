@@ -67,3 +67,15 @@ test('SESSION-AI-SESSION-CONVERSATION-TEXT-002 does not materialize every graphe
     assert.equal(arrayFromCalls, 0);
     assert.equal(segmentCalls, 0);
 });
+
+test('CONVERSATION-WORKLOG-COLLAPSE-001 formats worked durations in compact English', () => {
+    assert.equal(text.formatWorkedDuration(1_000), '1s');
+    assert.equal(text.formatWorkedDuration(45_000), '45s');
+    assert.equal(text.formatWorkedDuration(59_999), '59s');
+    assert.equal(text.formatWorkedDuration(60_000), '1m 00s');
+    assert.equal(text.formatWorkedDuration(80_000), '1m 20s');
+    assert.equal(text.formatWorkedDuration(125_000), '2m 05s');
+    assert.equal(text.formatWorkedDuration(3_600_000), '1h 00m');
+    assert.equal(text.formatWorkedDuration(3_780_000), '1h 03m');
+    assert.equal(text.formatWorkedDuration(7_320_000), '2h 02m');
+});

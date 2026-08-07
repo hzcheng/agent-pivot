@@ -144,6 +144,68 @@ function turnResponseState(value: string): ConversationResponseState {
     return 'unknown';
 }
 
+function epochSecondsToMs(value: unknown): number | undefined {
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+        return undefined;
+    }
+    const milliseconds = Math.floor(value * 1000);
+    return Number.isSafeInteger(milliseconds) ? milliseconds : undefined;
+}
+
+function turnTiming(
+    turn: Record<string, any>
+): Pick<ConversationInteraction, 'timestamp' | 'completedAt'> {
+    const timestamp = epochSecondsToMs(turn.startedAt);
+    if (timestamp === undefined) {
+        return {};
+    }
+    let completedAt: number | undefined;
+    if (typeof turn.durationMs === 'number'
+        && Number.isFinite(turn.durationMs)
+        && turn.durationMs >= 0) {
+        const preciseCompletion = timestamp + Math.floor(turn.durationMs);
+        if (Number.isSafeInteger(preciseCompletion)) {
+            completedAt = preciseCompletion;
+        }
+    }
+    if (completedAt === undefined) {
+        const providerCompletion = epochSecondsToMs(turn.completedAt);
+        if (providerCompletion !== undefined
+            && providerCompletion >= timestamp) {
+            completedAt = providerCompletion;
+        }
+    }
+    return {
+        timestamp,
+        ...(completedAt !== undefined ? { completedAt } : {}),
+    };
+}
+
+function appendTurnTiming(
+    interaction: ConversationInteraction,
+    timing: Pick<ConversationInteraction, 'timestamp' | 'completedAt'>
+): boolean {
+    if (timing.timestamp === undefined || timing.completedAt === undefined) {
+        return false;
+    }
+    const timestamp = interaction.timestamp !== undefined
+        && Number.isSafeInteger(interaction.timestamp)
+        ? interaction.timestamp
+        : timing.timestamp;
+    interaction.timestamp = timestamp;
+    const turnDuration = timing.completedAt - timing.timestamp;
+    const accumulatedDuration = interaction.completedAt !== undefined
+        && interaction.completedAt >= timestamp
+        ? interaction.completedAt - timestamp
+        : 0;
+    const completedAt = timestamp + accumulatedDuration + turnDuration;
+    if (!Number.isSafeInteger(completedAt)) {
+        return false;
+    }
+    interaction.completedAt = completedAt;
+    return true;
+}
+
 function normalizeThreadRead(
     value: unknown,
     sessionId: string,
@@ -164,6 +226,7 @@ function normalizeThreadRead(
     // (the app-server strips it), so seed one from the thread metadata to
     // give the subagent's agentMessages an interaction to attach to.
     let seededDispatchIndex: number | undefined;
+    let seededDispatchTimingComplete = true;
     if (dispatch) {
         interactions.push({
             id: `${sessionId}-dispatch`,
@@ -193,6 +256,8 @@ function normalizeThreadRead(
         if (seededDispatchIndex !== undefined) {
             interactions[seededDispatchIndex].responseState = responseState;
         }
+        const timing = turnTiming(turn);
+        let timingAssigned = false;
         let currentInteractionIndex: number | undefined = seededDispatchIndex;
         for (const rawItem of turn.items) {
             const item = asRecord(rawItem);
@@ -247,6 +312,7 @@ function normalizeThreadRead(
                 interactions.push({
                     id: item.id,
                     providerTurnId: turn.id,
+                    ...(!timingAssigned ? timing : {}),
                     userMarkdown,
                     userPreview: buildUserPreview(userMarkdown),
                     userGraphemeCount: countGraphemes(userMarkdown),
@@ -254,6 +320,7 @@ function normalizeThreadRead(
                     responseState,
                 });
                 currentInteractionIndex = interactions.length - 1;
+                timingAssigned = true;
             } else if (item.type === 'reasoning') {
                 if (currentInteractionIndex === undefined) {
                     continue;
@@ -304,6 +371,20 @@ function normalizeThreadRead(
                 } else {
                     appendConversationAssistantText(interaction, text);
                 }
+            }
+        }
+        if (seededDispatchIndex !== undefined && !timingAssigned) {
+            // A Codex subagent transcript can span several provider turns
+            // while still representing one synthetic dispatch interaction.
+            // Sum active turn durations so the UI reports actual work time,
+            // excluding idle gaps between those turns.
+            if (seededDispatchTimingComplete
+                && !appendTurnTiming(
+                    interactions[seededDispatchIndex],
+                    timing
+                )) {
+                seededDispatchTimingComplete = false;
+                delete interactions[seededDispatchIndex].completedAt;
             }
         }
     }

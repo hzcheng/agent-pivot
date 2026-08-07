@@ -41,6 +41,14 @@ const {
 const {
     KimiConversationAdapter,
 } = require('../../../out/aiSessions/conversation/kimiAdapter');
+const {
+    CodexConversationAdapter,
+} = require('../../../out/aiSessions/conversation/codexAdapter');
+
+const timedCodexFixture = JSON.parse(fs.readFileSync(path.resolve(
+    __dirname,
+    '../../fixtures/conversations/codex/thread-read-timed.json'
+), 'utf8'));
 
 function deferred() {
     let resolve;
@@ -3245,6 +3253,124 @@ test('CONVERSATION-WORKLOG-COLLAPSE-001 publishes a Worked-for row between work 
         && toolIndex > worklogIndex && answerIndex > toolIndex,
         'worklog row heads the work group so expanding never moves the toggle:'
             + ` ${userIndex}/${worklogIndex}/${toolIndex}/${answerIndex}`);
+});
+
+test('CONVERSATION-WORKLOG-COLLAPSE-001 renders Codex app-server duration in the Worked-for row', async t => {
+    const adapter = new CodexConversationAdapter({
+        client: {
+            async request() {
+                return timedCodexFixture;
+            },
+            dispose() {},
+        },
+        watchSessionChanges: () => ({ dispose() {} }),
+        setTimeout: callback => {
+            callback();
+            return 1;
+        },
+        clearTimeout() {},
+        setCacheTimeout: () => 2,
+        clearCacheTimeout() {},
+    });
+    t.after(() => adapter.dispose());
+    const { viewer, panel } = createViewer({
+        readOutline: (_provider, sessionId) => adapter.readOutline(sessionId),
+        readSnapshot: (_provider, sessionId, preferredInteractionId) =>
+            adapter.readSnapshot(sessionId, preferredInteractionId),
+        readPage: request => adapter.readPage(request),
+    });
+
+    await viewer.open(target(
+        timedCodexFixture.thread.id,
+        'user-timed',
+        { expectedRevision: undefined }
+    ));
+
+    assert.equal(panel.webview.html.includes('Worked for 1m 16s'), true);
+});
+
+test('CONVERSATION-WORKLOG-COLLAPSE-001 renders the sum of Codex subagent turn durations', async t => {
+    const rootId = '33333333-3333-4333-8333-333333333333';
+    const childId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const timedTurns = [
+        {
+            id: 'turn-subagent-1',
+            status: 'completed',
+            startedAt: 1_700_000_010,
+            durationMs: 10_000,
+            items: [
+                { id: 'progress-subagent-1', type: 'agentMessage', text: 'First progress', phase: 'commentary' },
+            ],
+        },
+        {
+            id: 'turn-subagent-2',
+            status: 'completed',
+            startedAt: 1_700_000_100,
+            durationMs: 20_000,
+            items: [
+                { id: 'answer-subagent-2', type: 'agentMessage', text: 'Finished' },
+            ],
+        },
+    ];
+    const childFixture = turns => ({
+        thread: {
+            id: childId,
+            parentThreadId: rootId,
+            agentNickname: 'Zeno',
+            createdAt: 1_700_000_000,
+            turns,
+        },
+    });
+    const render = async result => {
+        const adapter = new CodexConversationAdapter({
+            client: {
+                async request() {
+                    return result;
+                },
+                dispose() {},
+            },
+            watchSessionChanges: () => ({ dispose() {} }),
+            setTimeout: callback => {
+                callback();
+                return 1;
+            },
+            clearTimeout() {},
+            setCacheTimeout: () => 2,
+            clearCacheTimeout() {},
+        });
+        t.after(() => adapter.dispose());
+        const { viewer, panel } = createViewer({
+            readOutline: (_provider, sessionId) =>
+                adapter.readOutline(sessionId),
+            readSnapshot: (_provider, sessionId, preferredInteractionId) =>
+                adapter.readSnapshot(sessionId, preferredInteractionId),
+            readPage: request => adapter.readPage(request),
+        });
+        await viewer.open(target(rootId, `${childId}-dispatch`, {
+            expectedRevision: undefined,
+            subagent: { id: childId, label: 'Zeno' },
+        }));
+        return decodeInitialPublication(panel.webview.html).html;
+    };
+
+    const timedHtml = await render(childFixture(timedTurns));
+    assert.equal(timedHtml.includes('Worked for 30s'), true);
+
+    const untimedHtml = await render(childFixture([{
+        id: 'turn-subagent-untimed',
+        status: 'completed',
+        items: [{
+            id: 'progress-subagent-untimed',
+            type: 'agentMessage',
+            text: 'Untimed progress',
+            phase: 'commentary',
+        }],
+    }, timedTurns[1]]));
+    assert.equal(untimedHtml.includes('Worked for 20s'), false);
+    assert.equal(
+        untimedHtml.includes('conversation-worklog-label">Worked</span>'),
+        true
+    );
 });
 
 test('CONVERSATION-WORKLOG-COLLAPSE-001 omits the row while in progress and falls back without timing', async () => {

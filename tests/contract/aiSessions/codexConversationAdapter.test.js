@@ -17,6 +17,10 @@ const fixturePath = path.resolve(
     '../../fixtures/conversations/codex/thread-read.json'
 );
 const fixture = JSON.parse(fs.readFileSync(fixturePath, 'utf8'));
+const timedFixture = JSON.parse(fs.readFileSync(path.resolve(
+    __dirname,
+    '../../fixtures/conversations/codex/thread-read-timed.json'
+), 'utf8'));
 const sessionId = '33333333-3333-4333-8333-333333333333';
 
 function clone(value) {
@@ -118,6 +122,154 @@ async function readWholeConversation(adapter) {
     });
     return { outline, page };
 }
+
+test('CONVERSATION-WORKLOG-COLLAPSE-001 Codex preserves app-server turn timing for the Worked-for row', async t => {
+    const harness = createAdapter(timedFixture);
+    t.after(() => harness.adapter.dispose());
+
+    const { outline, page } = await readWholeConversation(harness.adapter);
+
+    assert.equal(outline.interactions[0].timestamp, 1_786_113_121_000);
+    assert.deepEqual(page.interactionStates[0], {
+        interactionId: 'user-timed',
+        responseState: 'complete',
+        timestamp: 1_786_113_121_000,
+        completedAt: 1_786_113_197_803,
+    });
+});
+
+test('CONVERSATION-WORKLOG-COLLAPSE-001 Codex falls back to completedAt and times only the first visible input in a turn', async t => {
+    const result = clone(timedFixture);
+    const turn = result.thread.turns[0];
+    turn.startedAt = 1_000.125;
+    turn.completedAt = 1_002.75;
+    turn.durationMs = -1;
+    turn.items.splice(1, 0, {
+        id: 'user-timed-second',
+        type: 'userMessage',
+        content: [{ type: 'text', text: 'A second visible input' }],
+    });
+    const harness = createAdapter(result);
+    t.after(() => harness.adapter.dispose());
+
+    const { page } = await readWholeConversation(harness.adapter);
+
+    assert.deepEqual(page.interactionStates, [
+        {
+            interactionId: 'user-timed',
+            responseState: 'complete',
+            timestamp: 1_000_125,
+            completedAt: 1_002_750,
+        },
+        {
+            interactionId: 'user-timed-second',
+            responseState: 'complete',
+        },
+    ]);
+});
+
+test('CONVERSATION-WORKLOG-COLLAPSE-001 Codex sums timed subagent turns into one dispatch duration', async t => {
+    const result = createThreadReadResult(childThreadId, sessionId, {
+        turns: [
+            {
+                id: 'turn-timed-1',
+                status: 'completed',
+                startedAt: 1_700_000_010,
+                completedAt: 1_700_000_020,
+                durationMs: 10_000,
+                items: [{
+                    id: 'agent-timed-1',
+                    type: 'agentMessage',
+                    text: 'First timed result',
+                }],
+            },
+            {
+                id: 'turn-timed-2',
+                status: 'completed',
+                startedAt: 1_700_000_100,
+                completedAt: 1_700_000_120,
+                durationMs: 20_000,
+                items: [{
+                    id: 'agent-timed-2',
+                    type: 'agentMessage',
+                    text: 'Second timed result',
+                }],
+            },
+        ],
+    });
+    const harness = createAdapter(result);
+    t.after(() => harness.adapter.dispose());
+    const encodedId = `${sessionId}#agent:${childThreadId}`;
+
+    const outline = await harness.adapter.readOutline(encodedId);
+    const page = await harness.adapter.readPage({
+        provider: 'codex',
+        sessionId: encodedId,
+        anchorInteractionId: `${childThreadId}-dispatch`,
+        direction: 'around',
+        expectedRevision: outline.sourceRevision,
+    });
+
+    assert.deepEqual(page.interactionStates, [{
+        interactionId: `${childThreadId}-dispatch`,
+        responseState: 'complete',
+        timestamp: 1_700_000_000_000,
+        completedAt: 1_700_000_030_000,
+    }]);
+});
+
+test('CONVERSATION-WORKLOG-COLLAPSE-001 Codex never reports a partial subagent duration as the total', async t => {
+    const timedTurn = {
+        id: 'turn-valid',
+        status: 'completed',
+        startedAt: 1_700_000_100,
+        durationMs: 20_000,
+        items: [{
+            id: 'agent-valid',
+            type: 'agentMessage',
+            text: 'Timed result',
+        }],
+    };
+    const untimedTurn = {
+        id: 'turn-untimed',
+        status: 'completed',
+        items: [{
+            id: 'agent-untimed',
+            type: 'agentMessage',
+            text: 'Untimed result',
+        }],
+    };
+    const cases = [
+        ['untimed then timed', [untimedTurn, timedTurn]],
+        ['timed then untimed', [timedTurn, untimedTurn]],
+        ['overflow', [{
+            ...timedTurn,
+            id: 'turn-overflow',
+            durationMs: Number.MAX_SAFE_INTEGER,
+        }]],
+    ];
+
+    for (const [name, turns] of cases) {
+        await t.test(name, async subtest => {
+            const result = createThreadReadResult(childThreadId, sessionId, {
+                turns: clone(turns),
+            });
+            const harness = createAdapter(result);
+            subtest.after(() => harness.adapter.dispose());
+            const encodedId = `${sessionId}#agent:${childThreadId}`;
+            const outline = await harness.adapter.readOutline(encodedId);
+            const page = await harness.adapter.readPage({
+                provider: 'codex',
+                sessionId: encodedId,
+                anchorInteractionId: `${childThreadId}-dispatch`,
+                direction: 'around',
+                expectedRevision: outline.sourceRevision,
+            });
+
+            assert.equal(page.interactionStates[0].completedAt, undefined);
+        });
+    }
+});
 
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 Codex returns one correlated outline and page from one provider read', async t => {
     const harness = createAdapter();

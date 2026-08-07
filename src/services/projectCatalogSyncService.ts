@@ -257,12 +257,16 @@ export class ProjectCatalogSyncService {
     private nextConfigurationWriteId = 1;
     private pendingSyncDataWrites: PendingConfigurationWrite[] = [];
     private pendingLegacyGroupWrites: PendingConfigurationWrite[] = [];
+    private cachedGroups: Group[] = null;
 
     constructor(private readonly options: ProjectCatalogSyncServiceOptions) {
     }
 
     getGroups(): Group[] {
-        return materializeProjectCatalog(this.readCurrent().document);
+        if (!this.cachedGroups) {
+            this.cachedGroups = materializeProjectCatalog(this.readCurrent().document);
+        }
+        return clone(this.cachedGroups);
     }
 
     reconcile(): Promise<ProjectCatalogMergeResult> {
@@ -307,6 +311,9 @@ export class ProjectCatalogSyncService {
                 this.options.getLegacyGroups(),
                 value => Array.isArray(value)
             ) && local;
+        }
+        if (!local) {
+            this.cachedGroups = null;
         }
         return local;
     }
@@ -478,6 +485,8 @@ export class ProjectCatalogSyncService {
                 conflictProjectIds: current.conflictProjectIds,
             });
         }
+
+        this.cachedGroups = clone(groups);
 
         return {
             document: clone(document),

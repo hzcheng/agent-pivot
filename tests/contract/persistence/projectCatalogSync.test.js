@@ -451,6 +451,44 @@ test('PROJECT-CATALOG-SYNC-CONFLICT-001 persistence reads merged shadow state be
     assert.deepEqual(harness.writes, []);
 });
 
+test('PROJECT-INCREMENTAL-REFRESH-001 reuses the materialized catalog until configuration changes', () => {
+    const groups = makeCatalogGroups();
+    let syncReads = 0;
+    let localReads = 0;
+    let legacyReads = 0;
+    const ProjectCatalogSyncService = loadProjectCatalogSyncService();
+    const service = new ProjectCatalogSyncService({
+        getSyncData: () => {
+            syncReads++;
+            return null;
+        },
+        updateSyncData: async () => undefined,
+        getLegacyGroups: () => {
+            legacyReads++;
+            return clone(groups);
+        },
+        updateLegacyGroups: async () => undefined,
+        getLocalState: () => {
+            localReads++;
+            return null;
+        },
+        updateLocalState: async () => undefined,
+        createActorId: () => 'actor-cache',
+    });
+
+    const first = service.getGroups();
+    first[0].projects[0].name = 'Caller mutation';
+    assert.equal(service.getGroups()[0].projects[0].name, 'Existing');
+    assert.deepEqual([syncReads, localReads, legacyReads], [1, 1, 1]);
+
+    assert.equal(service.consumeConfigurationWriteEcho({
+        syncData: false,
+        legacyGroups: true,
+    }), false);
+    service.getGroups();
+    assert.deepEqual([syncReads, localReads, legacyReads], [2, 2, 3]);
+});
+
 test('PROJECT-CATALOG-SYNC-CONFLICT-001 hardening repairs malformed sync data without logging catalog content', async () => {
     const {
         applyProjectCatalogSnapshot,

@@ -403,6 +403,59 @@ button {
     transform: rotate(45deg);
 }
 
+.conversation-message-bookmark {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.625rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    padding: 0;
+    border: none;
+    border-radius: 3px;
+    background: transparent;
+    color: var(--vscode-descriptionForeground);
+    font-family: inherit;
+    font-size: 0.95rem;
+    line-height: 1;
+    cursor: pointer;
+
+    &::before {
+        content: '\2606';
+    }
+
+    &.is-bookmarked {
+        color: var(
+            --vscode-charts-yellow,
+            var(--vscode-editorWarning-foreground)
+        );
+
+        &::before {
+            content: '\2605';
+        }
+    }
+
+    &:hover {
+        color: var(
+            --vscode-charts-yellow,
+            var(--vscode-editorWarning-foreground)
+        );
+        background: var(--vscode-toolbar-hoverBackground, transparent);
+    }
+
+    &:focus-visible {
+        outline: 1px solid var(--vscode-focusBorder);
+        outline-offset: 1px;
+    }
+
+    &:disabled {
+        cursor: default;
+        opacity: 0.6;
+    }
+}
+
 .conversation-tool-call {
     summary {
         cursor: pointer;
@@ -1510,7 +1563,8 @@ button {
     }
 
     .conversation-outline-bookmarks-only,
-    .conversation-outline-bookmark {
+    .conversation-outline-bookmark,
+    .conversation-message-bookmark {
         color: ButtonText;
     }
 

@@ -233,6 +233,7 @@
         outlinePartial: outlinePartial,
         outlineBookmarksOnly: outlineBookmarksOnly,
         outlineBookmarkCount: outlineBookmarkCount,
+        messagesRoot: messages,
         post: post,
         outlinePanelActive: sidebarController.isOutlineActive,
         persistPanelState: sidebarController.save,
@@ -1054,6 +1055,18 @@
             state.worklogExpanded.set(interactionId, true);
         }
         applyWorklogStates();
+    });
+    messages.addEventListener('click', function (event) {
+        var star = event.target && event.target.closest
+            ? event.target.closest('.conversation-message-bookmark')
+            : null;
+        if (!star || !messages.contains(star)) return;
+        var article = star.closest('[data-interaction-id]');
+        var interactionId = article
+            ? article.getAttribute('data-interaction-id')
+            : '';
+        if (!interactionId) return;
+        outlineController.toggleBookmark(interactionId, 'card');
     });
     messages.addEventListener('click', function (event) {
         var link = event.target && event.target.closest

@@ -22,6 +22,7 @@ import {
     buildVisibleUserInput,
     capToolCallDetail,
     countGraphemes,
+    hasAtMostGraphemes,
     normalizeVisibleText,
     truncateGraphemes,
     VisibleUserInputPart,
@@ -231,7 +232,10 @@ function cloneInteractions(
 
 function visibleMessage(value: string): string {
     const normalized = normalizeVisibleText(value);
-    return countGraphemes(normalized) <= CONVERSATION_LIMITS.maxMessageGraphemes
+    return hasAtMostGraphemes(
+        normalized,
+        CONVERSATION_LIMITS.maxMessageGraphemes
+    )
         ? normalized
         : truncateGraphemes(
             normalized,
@@ -877,7 +881,7 @@ function subagentLabel(meta: SubagentMeta | undefined, id: string): string {
         ? normalizeVisibleText(meta?.description ?? '')
         : '';
     if (description) {
-        return countGraphemes(description) <= 120
+        return hasAtMostGraphemes(description, 120)
             ? description
             : truncateGraphemes(description, 119);
     }

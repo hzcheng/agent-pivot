@@ -125,103 +125,155 @@ export function buildConversationPage(
     const pageAnchorInteractionId = request.direction === 'before'
         ? interactions[end - 1].id
         : interactions[start].id;
-    const messagesForRange = (): ConversationMessage[] => interactions.slice(start, end).reduce(
-        (messages: ConversationMessage[], interaction) => {
-            messages.push({
-                id: `${interaction.id}:user`,
-                interactionId: interaction.id,
-                role: 'user',
-                timestamp: interaction.timestamp,
-                markdown: interaction.userMarkdown,
-            });
-            const toolCalls = interaction.toolCalls || [];
-            const thinkingBlocks = interaction.thinking || [];
-            const pushAnchoredAt = (position: number): void => {
-                toolCalls.forEach((toolCall, toolIndex) => {
-                    if (toolCall.position !== position) {
-                        return;
-                    }
-                    messages.push({
-                        id: `${interaction.id}:tool:${toolIndex}`,
-                        interactionId: interaction.id,
-                        role: 'tool',
-                        timestamp: interaction.timestamp,
-                        markdown: '',
-                        tool: {
-                            name: toolCall.name,
-                            summary: toolCall.summary,
-                            ...(toolCall.detail !== undefined
-                                ? { detail: toolCall.detail }
-                                : {}),
-                        },
-                    });
-                });
-                thinkingBlocks.forEach((block, blockIndex) => {
-                    if (block.position !== position) {
-                        return;
-                    }
-                    messages.push({
-                        id: `${interaction.id}:thinking:${blockIndex}`,
-                        interactionId: interaction.id,
-                        role: 'thinking',
-                        timestamp: interaction.timestamp,
-                        markdown: '',
-                        thinking: { text: block.text },
-                    });
-                });
-            };
-            interaction.assistantMarkdown.forEach((markdown, index) => {
-                pushAnchoredAt(index);
-                const phase = assistantPhase(interaction, index);
-                messages.push({
-                    id: `${interaction.id}:${phase === 'progress'
-                        ? 'progress'
-                        : 'assistant'}:${index}`,
-                    interactionId: interaction.id,
-                    role: phase === 'progress' ? 'progress' : 'assistant',
-                    timestamp: interaction.timestamp,
-                    markdown,
-                });
-            });
-            pushAnchoredAt(interaction.assistantMarkdown.length);
-            return messages;
-        },
-        []
-    );
-    const makePage = (): ConversationPage => ({
-        provider: request.provider,
-        sessionId: request.sessionId,
-        sourceRevision,
-        anchorInteractionId: request.direction === 'around'
-            ? request.anchorInteractionId
-            : pageAnchorInteractionId,
-        messages: messagesForRange(),
-        interactionStates: interactions.slice(start, end).map(interaction => ({
+    const messagesForInteraction = (
+        interaction: ConversationInteraction
+    ): ConversationMessage[] => {
+        const messages: ConversationMessage[] = [{
+            id: `${interaction.id}:user`,
             interactionId: interaction.id,
-            responseState: interaction.responseState,
-        })),
-        previousCursor: start > 0 ? encodeCursor(interactions[start].id, 'before') : undefined,
-        nextCursor: end < interactions.length
-            ? encodeCursor(interactions[end - 1].id, 'after')
-            : undefined,
-        isStart: start === 0,
-        isEnd: end === interactions.length,
-    });
-    let page = makePage();
-    while (Buffer.byteLength(JSON.stringify(page), 'utf8') > CONVERSATION_LIMITS.maxPageBytes
-        && end - start > 1) {
+            role: 'user',
+            timestamp: interaction.timestamp,
+            markdown: interaction.userMarkdown,
+        }];
+        const toolCalls = interaction.toolCalls || [];
+        const thinkingBlocks = interaction.thinking || [];
+        const pushAnchoredAt = (position: number): void => {
+            toolCalls.forEach((toolCall, toolIndex) => {
+                if (toolCall.position !== position) {
+                    return;
+                }
+                messages.push({
+                    id: `${interaction.id}:tool:${toolIndex}`,
+                    interactionId: interaction.id,
+                    role: 'tool',
+                    timestamp: interaction.timestamp,
+                    markdown: '',
+                    tool: {
+                        name: toolCall.name,
+                        summary: toolCall.summary,
+                        ...(toolCall.detail !== undefined
+                            ? { detail: toolCall.detail }
+                            : {}),
+                    },
+                });
+            });
+            thinkingBlocks.forEach((block, blockIndex) => {
+                if (block.position !== position) {
+                    return;
+                }
+                messages.push({
+                    id: `${interaction.id}:thinking:${blockIndex}`,
+                    interactionId: interaction.id,
+                    role: 'thinking',
+                    timestamp: interaction.timestamp,
+                    markdown: '',
+                    thinking: { text: block.text },
+                });
+            });
+        };
+        interaction.assistantMarkdown.forEach((markdown, index) => {
+            pushAnchoredAt(index);
+            const phase = assistantPhase(interaction, index);
+            messages.push({
+                id: `${interaction.id}:${phase === 'progress'
+                    ? 'progress'
+                    : 'assistant'}:${index}`,
+                interactionId: interaction.id,
+                role: phase === 'progress' ? 'progress' : 'assistant',
+                timestamp: interaction.timestamp,
+                markdown,
+            });
+        });
+        pushAnchoredAt(interaction.assistantMarkdown.length);
+        return messages;
+    };
+    const blocks = new Map<number, {
+        messages: ConversationMessage[];
+        state: { interactionId: string; responseState: ConversationResponseState };
+        serializedBytes: number;
+    }>();
+    let estimatedBytes = 0;
+    for (let index = start; index < end; index += 1) {
+        const interaction = interactions[index];
+        const block = {
+            messages: messagesForInteraction(interaction),
+            state: {
+                interactionId: interaction.id,
+                responseState: interaction.responseState,
+            },
+            serializedBytes: 0,
+        };
+        block.serializedBytes = Buffer.byteLength(JSON.stringify({
+            messages: block.messages,
+            state: block.state,
+        }), 'utf8');
+        blocks.set(index, block);
+        estimatedBytes += block.serializedBytes;
+    }
+    const shrinkRange = (): void => {
+        let removedIndex: number;
         if (request.direction === 'before') {
+            removedIndex = start;
             start += 1;
         } else if (request.direction === 'after') {
             end -= 1;
+            removedIndex = end;
         } else if (anchorIndex - start > end - 1 - anchorIndex) {
+            removedIndex = start;
             start += 1;
         } else {
             end -= 1;
+            removedIndex = end;
         }
-        page = makePage();
+        estimatedBytes -= blocks.get(removedIndex)?.serializedBytes || 0;
+    };
+    const PAGE_ENVELOPE_RESERVE_BYTES = 2 * 1024;
+    while (estimatedBytes
+        > CONVERSATION_LIMITS.maxPageBytes - PAGE_ENVELOPE_RESERVE_BYTES
+        && end - start > 1) {
+        shrinkRange();
     }
-    if (Buffer.byteLength(JSON.stringify(page), 'utf8') > CONVERSATION_LIMITS.maxPageBytes) {
+    const makePage = (): ConversationPage => {
+        const messages: ConversationMessage[] = [];
+        const interactionStates: Array<{
+            interactionId: string;
+            responseState: ConversationResponseState;
+        }> = [];
+        for (let index = start; index < end; index += 1) {
+            const block = blocks.get(index)!;
+            for (const message of block.messages) {
+                messages.push(message);
+            }
+            interactionStates.push(block.state);
+        }
+        return {
+            provider: request.provider,
+            sessionId: request.sessionId,
+            sourceRevision,
+            anchorInteractionId: request.direction === 'around'
+                ? request.anchorInteractionId
+                : pageAnchorInteractionId,
+            messages,
+            interactionStates,
+            previousCursor: start > 0
+                ? encodeCursor(interactions[start].id, 'before')
+                : undefined,
+            nextCursor: end < interactions.length
+                ? encodeCursor(interactions[end - 1].id, 'after')
+                : undefined,
+            isStart: start === 0,
+            isEnd: end === interactions.length,
+        };
+    };
+    let page = makePage();
+    let pageBytes = Buffer.byteLength(JSON.stringify(page), 'utf8');
+    while (pageBytes > CONVERSATION_LIMITS.maxPageBytes
+        && end - start > 1) {
+        shrinkRange();
+        page = makePage();
+        pageBytes = Buffer.byteLength(JSON.stringify(page), 'utf8');
+    }
+    if (pageBytes > CONVERSATION_LIMITS.maxPageBytes) {
         throw new ConversationError('tooLarge');
     }
     return page;

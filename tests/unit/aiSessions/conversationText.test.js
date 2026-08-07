@@ -31,3 +31,39 @@ test('SESSION-AI-SESSION-CONVERSATION-TEXT-001 counts and truncates visible inpu
     controller.abort();
     assert.equal(cancelled, 1);
 });
+
+test('SESSION-AI-SESSION-CONVERSATION-TEXT-002 does not materialize every grapheme while enforcing limits', () => {
+    const value = '😀'.repeat(128 * 1024);
+    const originalFrom = Array.from;
+    const segmenterPrototype = Intl.Segmenter?.prototype;
+    const originalSegment = segmenterPrototype?.segment;
+    let arrayFromCalls = 0;
+    let segmentCalls = 0;
+    Array.from = function measuredFrom(...args) {
+        arrayFromCalls += 1;
+        return originalFrom(...args);
+    };
+    if (segmenterPrototype && originalSegment) {
+        segmenterPrototype.segment = function measuredSegment(...args) {
+            segmentCalls += 1;
+            return originalSegment.apply(this, args);
+        };
+    }
+    try {
+        assert.equal(text.countGraphemes(value), 128 * 1024);
+        assert.equal(
+            text.truncateGraphemes(value, 160),
+            `${'😀'.repeat(160)}…`
+        );
+        const ordinary = `${'普通文本'.repeat(64 * 1024)}${'x'.repeat(64 * 1024)}`;
+        assert.equal(text.hasAtMostGraphemes(ordinary, 160), false);
+        assert.equal(text.truncateGraphemes(ordinary, 3), '普通文…');
+    } finally {
+        Array.from = originalFrom;
+        if (segmenterPrototype && originalSegment) {
+            segmenterPrototype.segment = originalSegment;
+        }
+    }
+    assert.equal(arrayFromCalls, 0);
+    assert.equal(segmentCalls, 0);
+});

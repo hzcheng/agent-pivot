@@ -536,6 +536,68 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 times out a hung speculative re
     harness.capability.dispose();
 });
 
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 evicts completed speculative snapshots without requiring another navigation', async () => {
+    const sessions = ['codex', 'kimi'].map((provider, index) => makeSession({
+        key: `${provider}:retained-${index}`,
+        provider,
+        sessionId: `retained-${index}`,
+        name: `${provider} Session`,
+    }));
+    const timers = [];
+    let nowMs = 1_000;
+    const harness = createHarness({
+        enableSnapshots: true,
+        requireSnapshot: true,
+        viewerOpen: true,
+        session: sessions[0],
+        now: () => nowMs,
+        resolveTarget: (_projectId, provider, sessionId) =>
+            sessions.find(session => session.provider === provider
+                && session.sessionId === sessionId) || null,
+        resolveActiveTargets: () => sessions,
+        setTimer: (callback, delayMs) => {
+            const timer = { callback, delayMs, cleared: false };
+            timers.push(timer);
+            if (delayMs === 0) {
+                setImmediate(() => {
+                    if (!timer.cleared) callback();
+                });
+            }
+            return timer;
+        },
+        clearTimer: timer => { timer.cleared = true; },
+    });
+
+    assert.equal(await harness.capability.openLatestConversation({
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'retained-0',
+    }), 'opened');
+    while (!harness.snapshotReadTargets.includes('kimi:retained-1')) {
+        await new Promise(resolve => setImmediate(resolve));
+    }
+    await new Promise(resolve => setImmediate(resolve));
+
+    const completedExpiry = timers.find(timer =>
+        timer.delayMs === 5_000 && !timer.cleared
+    );
+    assert.ok(completedExpiry,
+        'a completed warm snapshot must retain an active expiry timer');
+    nowMs += 5_001;
+    completedExpiry.callback();
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.equal(await harness.capability.followActiveConversation({
+        projectId: 'project-a',
+        provider: 'kimi',
+        sessionId: 'retained-1',
+    }), 'opened');
+    assert.equal(harness.snapshotReadTargets.filter(target =>
+        target === 'kimi:retained-1'
+    ).length, 2, 'an expired speculative snapshot must be read authoritatively');
+    harness.capability.dispose();
+});
+
 test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 dashboard registers a serializer that restores AI Conversation panels', () => {
     const dashboardSource = fs.readFileSync(
         path.join(__dirname, '../../../src/dashboard.ts'),

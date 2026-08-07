@@ -112,7 +112,8 @@ export class CodexAppServerClient implements AiSessionDisposable {
     private initialized = false;
     private disposed = false;
     private nextRequestId = CONVERSATION_LIMITS.minRequestId;
-    private stdoutRemainder = Buffer.alloc(0);
+    private stdoutChunks: Buffer[] = [];
+    private stdoutBytes = 0;
     private readonly pending = new Map<number, PendingRequest>();
     private writeTail: Promise<void> = Promise.resolve();
     private cancelActiveWrite?: (error: Error) => void;
@@ -239,7 +240,7 @@ export class CodexAppServerClient implements AiSessionDisposable {
         }
         this.connecting = undefined;
         this.restartAttempts = [];
-        this.stdoutRemainder = Buffer.alloc(0);
+        this.resetStdoutBuffer();
         this.notificationListeners.clear();
     }
 
@@ -341,7 +342,7 @@ export class CodexAppServerClient implements AiSessionDisposable {
         this.child = child;
         this.childSpawned = false;
         this.initialized = false;
-        this.stdoutRemainder = Buffer.alloc(0);
+        this.resetStdoutBuffer();
         child.stdin.on('error', this.onStdinError);
         child.stdout.on('data', this.onStdoutData);
         child.stderr.on('data', this.onStderrData);
@@ -567,19 +568,38 @@ export class CodexAppServerClient implements AiSessionDisposable {
             }
             return;
         }
-        this.stdoutRemainder = Buffer.concat([this.stdoutRemainder, chunk]);
-        let newline = this.stdoutRemainder.indexOf(0x0a);
-        while (newline >= 0) {
-            if (newline > CONVERSATION_LIMITS.maxCodexResponseBytes) {
-                const error = new ConversationError('tooLarge');
-                this.report('oversized');
-                if (this.child) {
-                    this.releaseChild(this.child, error, true);
+        let offset = 0;
+        while (offset < chunk.length) {
+            const newline = chunk.indexOf(0x0a, offset);
+            if (newline < 0) {
+                const remainder = chunk.subarray(offset);
+                if (this.stdoutBytes + remainder.length
+                    > CONVERSATION_LIMITS.maxCodexResponseBytes) {
+                    this.failOversizedResponse();
+                    return;
+                }
+                if (remainder.length > 0) {
+                    this.stdoutChunks.push(remainder);
+                    this.stdoutBytes += remainder.length;
                 }
                 return;
             }
-            let line = this.stdoutRemainder.subarray(0, newline);
-            this.stdoutRemainder = this.stdoutRemainder.subarray(newline + 1);
+            const segment = chunk.subarray(offset, newline);
+            const lineBytes = this.stdoutBytes + segment.length;
+            if (lineBytes > CONVERSATION_LIMITS.maxCodexResponseBytes) {
+                this.failOversizedResponse();
+                return;
+            }
+            let line: Buffer;
+            if (this.stdoutChunks.length === 0) {
+                line = segment;
+            } else {
+                if (segment.length > 0) {
+                    this.stdoutChunks.push(segment);
+                }
+                line = Buffer.concat(this.stdoutChunks, lineBytes);
+            }
+            this.resetStdoutBuffer();
             if (line.length > 0 && line[line.length - 1] === 0x0d) {
                 line = line.subarray(0, line.length - 1);
             }
@@ -597,15 +617,22 @@ export class CodexAppServerClient implements AiSessionDisposable {
             if (!this.acceptResponse(response)) {
                 return;
             }
-            newline = this.stdoutRemainder.indexOf(0x0a);
+            offset = newline + 1;
         }
-        if (this.stdoutRemainder.length
-            > CONVERSATION_LIMITS.maxCodexResponseBytes) {
-            const error = new ConversationError('tooLarge');
-            this.report('oversized');
-            if (this.child) {
-                this.releaseChild(this.child, error, true);
-            }
+    }
+
+    private resetStdoutBuffer(): void {
+        this.stdoutChunks = [];
+        this.stdoutBytes = 0;
+    }
+
+    private failOversizedResponse(): void {
+        const error = new ConversationError('tooLarge');
+        this.report('oversized');
+        if (this.child) {
+            this.releaseChild(this.child, error, true);
+        } else {
+            this.resetStdoutBuffer();
         }
     }
 
@@ -719,7 +746,7 @@ export class CodexAppServerClient implements AiSessionDisposable {
         this.child = undefined;
         this.childSpawned = false;
         this.initialized = false;
-        this.stdoutRemainder = Buffer.alloc(0);
+        this.resetStdoutBuffer();
         this.serverVersion = undefined;
         if (allowRestart) {
             this.restartRequired = true;

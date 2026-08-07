@@ -81,6 +81,42 @@ test('SESSION-AI-SESSION-CONVERSATION-MODEL-003 removes complete interactions un
     assert.ok(Buffer.byteLength(JSON.stringify(page), 'utf8') <= CONVERSATION_LIMITS.maxPageBytes);
 });
 
+test('SESSION-AI-SESSION-CONVERSATION-MODEL-004 bounds serialization work while shrinking a large page', () => {
+    const interactions = makeInteractions(20).map(interaction => ({
+        ...interaction,
+        userMarkdown: 'u'.repeat(60 * 1024),
+        assistantMarkdown: ['a'.repeat(60 * 1024)],
+    }));
+    const sourceCharacters = interactions.length * 120 * 1024;
+    const originalStringify = JSON.stringify;
+    let serializedCharacters = 0;
+    JSON.stringify = function measuredStringify(...args) {
+        const result = originalStringify(...args);
+        serializedCharacters += result?.length || 0;
+        return result;
+    };
+    let page;
+    try {
+        page = model.buildConversationPage(interactions, {
+            provider: 'codex',
+            sessionId: 'session',
+            anchorInteractionId: 'i-20',
+            direction: 'around',
+            limit: 20,
+        }, 'r1');
+    } finally {
+        JSON.stringify = originalStringify;
+    }
+    assert.ok(
+        serializedCharacters <= sourceCharacters * 3,
+        `serialized ${serializedCharacters} characters for ${sourceCharacters} source characters`
+    );
+    assert.ok(
+        Buffer.byteLength(JSON.stringify(page), 'utf8')
+            <= CONVERSATION_LIMITS.maxPageBytes
+    );
+});
+
 test('CONVERSATION-TOOL-CALL-VISIBILITY-001 CONVERSATION-PROGRESS-VISIBILITY-001 interleaves tool calls with progress and final assistant text by position', () => {
     const interactions = [{
         id: 'i-1',

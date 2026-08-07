@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "b8fed8b7b2daa78a430d72ce54b8010c18b0a696",
+        "head": "a16af0cd6bb96d1d77fdcd07c5c7a641fb8a5520",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -187,7 +187,8 @@
             "3f07358793308564ff9ef5bf1fb978990dbeb705",
             "63b71d86916eb6e30cbf110ffc8988298776bec5",
             "5ab475d61ba350a3fb0ee5570f62ccde9269488d",
-            "4d3c46b4e5d839265fb4d77c56e05e2469518b7f"
+            "4d3c46b4e5d839265fb4d77c56e05e2469518b7f",
+            "9c4f1e6e643f1a123b13b1f61a7ba3769e123dc3"
         ]
     },
     "capabilities": [
@@ -1339,7 +1340,9 @@
                 "f03e05cdb3b84255cda78cdffb46b80f71eb174f",
                 "5b96130cdccf79a415646d2a803e2bfda3099b4f",
                 "f2c20eafa861530201e403d58f2096f205cb330d",
-                "b8fed8b7b2daa78a430d72ce54b8010c18b0a696"
+                "b8fed8b7b2daa78a430d72ce54b8010c18b0a696",
+                "4d70b71fc2d71f7fee79af08a961bb82e7d37d99",
+                "a16af0cd6bb96d1d77fdcd07c5c7a641fb8a5520"
             ],
             "behaviors": [
                 "SESSION-AI-SESSION-CONVERSATION-ADAPTER-001",
@@ -1382,7 +1385,8 @@
                 "CONVERSATION-NAVIGATION-STATE-001",
                 "CONVERSATION-LOCAL-FILE-LINKS-001",
                 "CONVERSATION-COMMENT-QUOTE-LOCATION-001",
-                "CONVERSATION-ACTIVE-SESSION-NAVIGATION-COMMANDS-001"
+                "CONVERSATION-ACTIVE-SESSION-NAVIGATION-COMMANDS-001",
+                "CONVERSATION-FIND-001"
             ],
             "prGates": [
                 "test:ci:linux"

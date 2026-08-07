@@ -152,6 +152,7 @@ export interface ConversationViewerApi extends AiSessionDisposable {
         ) => Pick<ConversationViewerTarget, 'projectId' | 'provider' | 'sessionId'>
     ): Promise<boolean>;
     refresh(): Promise<void>;
+    revalidateLatest?(expectedInteractionId: string): Promise<void>;
     refreshPresentation(): Promise<void>;
     reconcileAuthority(
         resolveAuthority: (
@@ -217,6 +218,8 @@ export class ConversationViewer implements ConversationViewerApi {
     private rebindGeneration = 0;
     private authoritativeLoadInFlight?: Promise<boolean>;
     private authoritativeRefreshPending = false;
+    private authoritativeLatestRefreshPending?: string;
+    private subagentDiscoveryGeneration = 0;
     private keyboardFocused = false;
     private readonly commentController: ConversationCommentController;
     private readonly bookmarkController: ConversationBookmarkController;
@@ -489,6 +492,19 @@ export class ConversationViewer implements ConversationViewerApi {
         await this.loadAuthoritative('refresh', false);
     }
 
+    async revalidateLatest(expectedInteractionId: string): Promise<void> {
+        if (!this.target || !this.panel || this.suspended
+            || this.outlineController.selection !== expectedInteractionId) {
+            return;
+        }
+        await this.loadAuthoritative(
+            'refresh',
+            false,
+            undefined,
+            expectedInteractionId
+        );
+    }
+
     async refreshPresentation(): Promise<void> {
         const pendingLoad = this.authoritativeLoadInFlight;
         if (pendingLoad) {
@@ -593,6 +609,8 @@ export class ConversationViewer implements ConversationViewerApi {
     private replaceTarget(target: ConversationViewerTarget): number {
         this.authoritativeLoadInFlight = undefined;
         this.authoritativeRefreshPending = false;
+        this.authoritativeLatestRefreshPending = undefined;
+        this.subagentDiscoveryGeneration += 1;
         this.abortController?.abort();
         this.abortController = undefined;
         this.watch?.dispose();
@@ -676,6 +694,8 @@ export class ConversationViewer implements ConversationViewerApi {
     private clear(_restoreTarget: ConversationViewerTarget | undefined): void {
         this.authoritativeLoadInFlight = undefined;
         this.authoritativeRefreshPending = false;
+        this.authoritativeLatestRefreshPending = undefined;
+        this.subagentDiscoveryGeneration += 1;
         this.abortController?.abort();
         this.abortController = undefined;
         this.watch?.dispose();
@@ -817,6 +837,8 @@ export class ConversationViewer implements ConversationViewerApi {
         }
         this.authoritativeLoadInFlight = undefined;
         this.authoritativeRefreshPending = false;
+        this.authoritativeLatestRefreshPending = undefined;
+        this.subagentDiscoveryGeneration += 1;
         this.abortController?.abort();
         this.abortController = undefined;
         this.watch?.dispose();
@@ -1030,17 +1052,22 @@ export class ConversationViewer implements ConversationViewerApi {
     private loadAuthoritative(
         updateKind: 'initial' | 'refresh',
         replaceDocument: boolean,
-        snapshot?: ConversationSnapshot
+        snapshot?: ConversationSnapshot,
+        latestIfSelection?: string
     ): Promise<boolean> {
         if (this.authoritativeLoadInFlight) {
             this.authoritativeRefreshPending = true;
+            if (latestIfSelection !== undefined) {
+                this.authoritativeLatestRefreshPending = latestIfSelection;
+            }
             return this.authoritativeLoadInFlight;
         }
         let loadInFlight: Promise<boolean>;
         loadInFlight = this.performAuthoritativeLoad(
             updateKind,
             replaceDocument,
-            snapshot
+            snapshot,
+            latestIfSelection
         ).finally(() => {
             if (this.authoritativeLoadInFlight !== loadInFlight) {
                 return;
@@ -1053,7 +1080,14 @@ export class ConversationViewer implements ConversationViewerApi {
                 return;
             }
             this.authoritativeRefreshPending = false;
-            void this.loadAuthoritative('refresh', false);
+            const pendingLatest = this.authoritativeLatestRefreshPending;
+            this.authoritativeLatestRefreshPending = undefined;
+            void this.loadAuthoritative(
+                'refresh',
+                false,
+                undefined,
+                pendingLatest
+            );
         });
         this.authoritativeLoadInFlight = loadInFlight;
         return loadInFlight;
@@ -1062,7 +1096,8 @@ export class ConversationViewer implements ConversationViewerApi {
     private async performAuthoritativeLoad(
         updateKind: 'initial' | 'refresh',
         replaceDocument: boolean,
-        prefetchedSnapshot?: ConversationSnapshot
+        prefetchedSnapshot?: ConversationSnapshot,
+        latestIfSelection?: string
     ): Promise<boolean> {
         const target = this.target;
         const panel = this.panel;
@@ -1073,13 +1108,20 @@ export class ConversationViewer implements ConversationViewerApi {
         const abortController = new ConversationAbortController();
         this.abortController = abortController;
         const generation = this.subscriptionGeneration;
+        const subagentDiscoveryGeneration =
+            ++this.subagentDiscoveryGeneration;
         const requestId = this.allocateRequestId();
         this.currentRequestId = requestId;
         const previousSelectedInteractionId = this.outlineController.selection;
+        const advanceToLatest = updateKind === 'refresh'
+            && latestIfSelection !== undefined
+            && previousSelectedInteractionId === latestIfSelection;
         try {
             const preferredInteractionId = updateKind === 'initial'
                 ? target.interactionId
-                : previousSelectedInteractionId;
+                : advanceToLatest
+                    ? undefined
+                    : previousSelectedInteractionId;
             let snapshot = prefetchedSnapshot;
             if (!snapshot && this.options.readSnapshot) {
                 snapshot = await this.options.readSnapshot(
@@ -1112,14 +1154,17 @@ export class ConversationViewer implements ConversationViewerApi {
                 return false;
             }
             if (updateKind === 'refresh'
+                && !advanceToLatest
                 && (!previousSelectedInteractionId
                     || !interactionIds.includes(previousSelectedInteractionId))) {
                 await this.publishFailure(replaceDocument, updateKind);
                 return false;
             }
-            const selectedInteractionId = updateKind === 'initial'
+            let selectedInteractionId = updateKind === 'initial'
                 ? target.interactionId
-                : previousSelectedInteractionId as string;
+                : advanceToLatest
+                    ? interactionIds[interactionIds.length - 1]
+                    : previousSelectedInteractionId as string;
             const retainedOutline = this.outlineController.snapshot;
             if (updateKind === 'refresh'
                 && !this.stale
@@ -1189,6 +1234,11 @@ export class ConversationViewer implements ConversationViewerApi {
                         await this.publishFailure(replaceDocument, updateKind);
                         return false;
                     }
+                    if (advanceToLatest) {
+                        selectedInteractionId = outline.interactions[
+                            outline.interactions.length - 1
+                        ].id;
+                    }
                     if (!outline.interactions.some(
                         interaction => interaction.id === selectedInteractionId
                     )) {
@@ -1227,7 +1277,6 @@ export class ConversationViewer implements ConversationViewerApi {
             } else {
                 this.retain(page, 'replace');
             }
-            this.subagents = await this.readSubagentsSafely(target);
             if (!this.canPublish(panel, target, generation, requestId)) {
                 return false;
             }
@@ -1237,6 +1286,12 @@ export class ConversationViewer implements ConversationViewerApi {
                 updateKind
             );
             await this.deliverPublication(publication, replaceDocument);
+            this.refreshSubagentsAfterPublication(
+                panel,
+                target,
+                generation,
+                subagentDiscoveryGeneration
+            );
             void this.telemetryController.refresh(
                 target,
                 generation,
@@ -1257,6 +1312,39 @@ export class ConversationViewer implements ConversationViewerApi {
         }
     }
 
+    private refreshSubagentsAfterPublication(
+        panel: vscode.WebviewPanel,
+        target: ConversationViewerTarget,
+        generation: number,
+        discoveryGeneration: number
+    ): void {
+        if (this.panel !== panel
+            || this.target !== target
+            || this.suspended
+            || this.subscriptionGeneration !== generation
+            || this.subagentDiscoveryGeneration !== discoveryGeneration) {
+            return;
+        }
+        void this.readSubagentsSafely(target).then(async subagents => {
+            if (this.panel !== panel
+                || this.target !== target
+                || this.suspended
+                || this.subscriptionGeneration !== generation
+                || this.subagentDiscoveryGeneration !== discoveryGeneration
+                || sameSubagents(this.subagents, subagents)) {
+                return;
+            }
+            this.subagents = subagents.map(entry => ({ ...entry }));
+            const requestId = this.allocateRequestId();
+            this.currentRequestId = requestId;
+            await this.deliverPublication(this.createPublication(
+                requestId,
+                generation,
+                'refresh'
+            ), false);
+        }).catch(() => undefined);
+    }
+
     private async read(
         request: ConversationPageRequest,
         placement: 'replace' | 'before' | 'after',
@@ -1273,6 +1361,8 @@ export class ConversationViewer implements ConversationViewerApi {
         const abortController = new ConversationAbortController();
         this.abortController = abortController;
         const generation = this.subscriptionGeneration;
+        const subagentDiscoveryGeneration =
+            ++this.subagentDiscoveryGeneration;
         const requestId = this.allocateRequestId();
         this.currentRequestId = requestId;
         const previousOutline = this.outlineController.snapshot;
@@ -1351,6 +1441,12 @@ export class ConversationViewer implements ConversationViewerApi {
                 updateKind
             );
             await this.deliverPublication(publication, replaceDocument);
+            this.refreshSubagentsAfterPublication(
+                panel,
+                target,
+                generation,
+                subagentDiscoveryGeneration
+            );
             return true;
         } catch (_error) {
             if (!this.canPublish(panel, target, generation, requestId)
@@ -1738,6 +1834,22 @@ export class ConversationViewer implements ConversationViewerApi {
             return false;
         }
     }
+}
+
+function sameSubagents(
+    left: readonly ConversationSubagentEntry[],
+    right: readonly ConversationSubagentEntry[]
+): boolean {
+    return left.length === right.length && left.every((entry, index) => {
+        const candidate = right[index];
+        return Boolean(candidate)
+            && entry.id === candidate.id
+            && entry.label === candidate.label
+            && entry.agentType === candidate.agentType
+            && entry.status === candidate.status
+            && entry.createdAt === candidate.createdAt
+            && entry.updatedAt === candidate.updatedAt;
+    });
 }
 
 function cloneViewerTarget(

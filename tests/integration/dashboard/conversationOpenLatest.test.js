@@ -133,6 +133,9 @@ function createHarness(options = {}) {
     let capturedViewerOptions;
     let outlineReads = 0;
     let snapshotReads = 0;
+    const snapshotReadTargets = [];
+    let viewerRefreshes = 0;
+    let currentViewerTarget;
     const session = 'session' in options ? options.session : makeSession({
         conversationDisplayName: options.conversationDisplayName,
         duplicateConversationDisplayName:
@@ -140,8 +143,17 @@ function createHarness(options = {}) {
     });
     const fakeAdapter = provider => () => ({
         ...(options.enableSnapshots ? {
-            async readSnapshot(sessionId, preferredInteractionId) {
+            async readSnapshot(sessionId, preferredInteractionId, signal) {
                 snapshotReads += 1;
+                snapshotReadTargets.push(`${provider}:${sessionId}`);
+                if (options.readSnapshot) {
+                    return options.readSnapshot(
+                        provider,
+                        sessionId,
+                        preferredInteractionId,
+                        signal
+                    );
+                }
                 const interactionIds = options.interactionIds
                     || ['input-a', 'input-b'];
                 const selected = interactionIds.includes(preferredInteractionId)
@@ -197,9 +209,10 @@ function createHarness(options = {}) {
         spawnCodex: () => {
             throw new Error('spawnCodex is not used by openLatestConversation');
         },
-        now: () => Date.now(),
-        setTimer: (callback, delayMs) => setTimeout(callback, delayMs),
-        clearTimer: handle => clearTimeout(handle),
+        now: options.now || (() => Date.now()),
+        setTimer: options.setTimer
+            || ((callback, delayMs) => setTimeout(callback, delayMs)),
+        clearTimer: options.clearTimer || (handle => clearTimeout(handle)),
         onDiagnostic: () => {},
         resolveReboundTarget: options.resolveReboundTarget,
     }, {
@@ -215,6 +228,7 @@ function createHarness(options = {}) {
                     options.getCurrentViewerTarget?.()
                     || options.getFocusedViewerTarget?.()
                     || options.focusedViewerTarget
+                    || currentViewerTarget
                 ),
                 getFocusedTarget: () => (
                     options.getFocusedViewerTarget?.()
@@ -233,6 +247,7 @@ function createHarness(options = {}) {
                 open: async (target, snapshot) => {
                     viewerTargets.push(target);
                     viewerSnapshots.push(snapshot);
+                    currentViewerTarget = target;
                     await options.openViewer?.(target);
                 },
                 restore: async (panel, target) => {
@@ -241,9 +256,14 @@ function createHarness(options = {}) {
                 follow: async (target, snapshot) => {
                     followedViewerTargets.push(target);
                     viewerSnapshots.push(snapshot);
-                    return options.followViewer
+                    const followed = options.followViewer
                         ? options.followViewer(target)
                         : true;
+                    if (await followed) {
+                        currentViewerTarget = target;
+                        return true;
+                    }
+                    return false;
                 },
                 focus: () => {
                     viewerFocuses += 1;
@@ -252,7 +272,8 @@ function createHarness(options = {}) {
                 },
                 rebindSession: async () => false,
                 freezeSessionMetadata: async () => false,
-                refresh: async () => undefined,
+                refresh: async () => { viewerRefreshes += 1; },
+                revalidateLatest: async () => { viewerRefreshes += 1; },
                 reconcileAuthority: async () => undefined,
                 dispose() {},
             };
@@ -272,6 +293,12 @@ function createHarness(options = {}) {
         },
         get snapshotReads() {
             return snapshotReads;
+        },
+        get snapshotReadTargets() {
+            return [...snapshotReadTargets];
+        },
+        get viewerRefreshes() {
+            return viewerRefreshes;
         },
         get viewerFocuses() {
             return viewerFocuses;
@@ -324,6 +351,189 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 opens Codex, Kimi, and Claude w
         assert.equal(harness.viewerSnapshots[0].page.provider, provider);
         harness.capability.dispose();
     }
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 warms adjacent Codex, Kimi, and Claude snapshots and revalidates after instant switching', async () => {
+    const sessions = ['codex', 'kimi', 'claude'].map((provider, index) =>
+        makeSession({
+            key: `${provider}:session-${index}`,
+            provider,
+            sessionId: `session-${index}`,
+            name: `${provider} Session`,
+        })
+    );
+    const harness = createHarness({
+        enableSnapshots: true,
+        requireSnapshot: true,
+        viewerOpen: true,
+        session: sessions[0],
+        resolveTarget: (_projectId, provider, sessionId) =>
+            sessions.find(session => session.provider === provider
+                && session.sessionId === sessionId) || null,
+        resolveActiveTargets: () => sessions,
+    });
+
+    assert.equal(await harness.capability.openLatestConversation({
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-0',
+    }), 'opened');
+    await new Promise(resolve => setTimeout(resolve, 10));
+    assert.deepEqual(harness.snapshotReadTargets.sort(), [
+        'claude:session-2',
+        'codex:session-0',
+        'kimi:session-1',
+    ]);
+
+    assert.equal(await harness.capability.followActiveConversation({
+        projectId: 'project-a',
+        provider: 'kimi',
+        sessionId: 'session-1',
+    }), 'opened');
+    assert.equal(harness.snapshotReadTargets.filter(target =>
+        target === 'kimi:session-1'
+    ).length, 1, 'Kimi switch must consume the warm snapshot');
+
+    assert.equal(await harness.capability.followActiveConversation({
+        projectId: 'project-a',
+        provider: 'claude',
+        sessionId: 'session-2',
+    }), 'opened');
+    assert.equal(harness.snapshotReadTargets.filter(target =>
+        target === 'claude:session-2'
+    ).length, 1, 'Claude switch must consume the warm snapshot');
+    await new Promise(resolve => setTimeout(resolve, 10));
+    assert.equal(harness.viewerRefreshes, 1,
+        'only the latest warm switch may run its authoritative refresh');
+    harness.capability.dispose();
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 shares a slow in-flight warmup instead of starting a duplicate provider read', async () => {
+    const sessions = ['codex', 'kimi'].map((provider, index) => makeSession({
+        key: `${provider}:slow-${index}`,
+        provider,
+        sessionId: `slow-${index}`,
+        name: `${provider} Session`,
+    }));
+    const slowKimiSnapshot = deferred();
+    let now = 1_000;
+    const harness = createHarness({
+        enableSnapshots: true,
+        requireSnapshot: true,
+        viewerOpen: true,
+        session: sessions[0],
+        now: () => now,
+        resolveTarget: (_projectId, provider, sessionId) =>
+            sessions.find(session => session.provider === provider
+                && session.sessionId === sessionId) || null,
+        resolveActiveTargets: () => sessions,
+        readSnapshot: async (provider, sessionId) => {
+            if (provider === 'kimi') {
+                return slowKimiSnapshot.promise;
+            }
+            return {
+                outline: makeOutline(provider, sessionId, ['input-a']),
+                page: makePage(provider, sessionId, 'input-a'),
+            };
+        },
+    });
+
+    assert.equal(await harness.capability.openLatestConversation({
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'slow-0',
+    }), 'opened');
+    while (!harness.snapshotReadTargets.includes('kimi:slow-1')) {
+        await new Promise(resolve => setImmediate(resolve));
+    }
+
+    now += 10_000;
+    const supersededSwitch = harness.capability.followActiveConversation({
+        projectId: 'project-a',
+        provider: 'kimi',
+        sessionId: 'slow-1',
+    });
+    await new Promise(resolve => setImmediate(resolve));
+    const switching = harness.capability.followActiveConversation({
+        projectId: 'project-a',
+        provider: 'kimi',
+        sessionId: 'slow-1',
+    });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(harness.snapshotReadTargets.filter(target =>
+        target === 'kimi:slow-1'
+    ).length, 1, 'rapid intents must share the existing warmup');
+
+    slowKimiSnapshot.resolve({
+        outline: makeOutline('kimi', 'slow-1', ['input-a']),
+        page: makePage('kimi', 'slow-1', 'input-a'),
+    });
+    assert.equal(await supersededSwitch, 'superseded');
+    assert.equal(await switching, 'opened');
+    harness.capability.dispose();
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 times out a hung speculative read before the user switches', async () => {
+    const sessions = ['codex', 'kimi'].map((provider, index) => makeSession({
+        key: `${provider}:hung-${index}`,
+        provider,
+        sessionId: `hung-${index}`,
+        name: `${provider} Session`,
+    }));
+    const timers = [];
+    let kimiReads = 0;
+    const harness = createHarness({
+        enableSnapshots: true,
+        requireSnapshot: true,
+        viewerOpen: true,
+        session: sessions[0],
+        resolveTarget: (_projectId, provider, sessionId) =>
+            sessions.find(session => session.provider === provider
+                && session.sessionId === sessionId) || null,
+        resolveActiveTargets: () => sessions,
+        setTimer: (callback, delayMs) => {
+            const timer = { callback, delayMs, cleared: false };
+            timers.push(timer);
+            if (delayMs === 0) {
+                setImmediate(() => {
+                    if (!timer.cleared) callback();
+                });
+            }
+            return timer;
+        },
+        clearTimer: timer => { timer.cleared = true; },
+        readSnapshot: async (provider, sessionId) => {
+            if (provider === 'kimi' && ++kimiReads === 1) {
+                return new Promise(() => {});
+            }
+            return {
+                outline: makeOutline(provider, sessionId, ['input-a']),
+                page: makePage(provider, sessionId, 'input-a'),
+            };
+        },
+    });
+
+    assert.equal(await harness.capability.openLatestConversation({
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'hung-0',
+    }), 'opened');
+    while (!harness.snapshotReadTargets.includes('kimi:hung-1')) {
+        await new Promise(resolve => setImmediate(resolve));
+    }
+    const warmTimeout = timers.find(timer => timer.delayMs === 5_000);
+    assert.ok(warmTimeout, 'the speculative read must have a hard timeout');
+    warmTimeout.callback();
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.equal(await harness.capability.followActiveConversation({
+        projectId: 'project-a',
+        provider: 'kimi',
+        sessionId: 'hung-1',
+    }), 'opened');
+    assert.equal(kimiReads, 2,
+        'the user switch must retry after the hung warmup is abandoned');
+    harness.capability.dispose();
 });
 
 test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 dashboard registers a serializer that restores AI Conversation panels', () => {

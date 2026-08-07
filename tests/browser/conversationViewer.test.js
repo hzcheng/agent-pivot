@@ -371,6 +371,46 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 applies an authoritative cross-
     });
 });
 
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 adds late subagents without replacing readable Conversation messages', async t => {
+    const { page } = await openHostViewerDocument(t);
+    const html = messageHtml('readable-before-subagents', 2);
+    await sendPage(page, {
+        ...hostileConversationPage,
+        requestId: 50,
+        updateKind: 'initial',
+        html,
+        subagents: [],
+    });
+    await page.locator('[data-message-id="readable-before-subagents-0"]')
+        .evaluate(element => { element.__retainedAfterSubagents = true; });
+
+    await sendPage(page, {
+        ...hostileConversationPage,
+        requestId: 51,
+        updateKind: 'refresh',
+        html,
+        subagents: [{
+            id: 'a11111111',
+            label: 'Late provider worker',
+            status: 'running',
+            updatedAt: 1_780_000_000_000,
+        }],
+    });
+
+    assert.equal(await page.locator(
+        '[data-message-id="readable-before-subagents-0"]'
+    ).evaluate(element => element.__retainedAfterSubagents), true,
+    'a late optional update must retain the readable message DOM');
+    assert.equal(
+        await page.locator('[data-subagent-id="a11111111"]').count(),
+        1
+    );
+    assert.equal(
+        await page.locator('[data-telemetry-subagents]').innerText(),
+        '1/1'
+    );
+});
+
 test('CONVERSATION-TELEMETRY-001 CONVERSATION-TELEMETRY-CONTROLLER-001 renders correlated model, context, and weekly quota updates in place', async t => {
     const page = await openViewerPage(t);
     await sendPage(page, {

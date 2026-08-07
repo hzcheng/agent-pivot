@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "18a6618d6dbd214d0383938fac41f1cb3730f430",
+        "head": "687e3f6959ffce62db59daed3fc785a78a284ed1",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -174,7 +174,8 @@
             "8a4457cce77ac21f1955d50438d223ce4c6cdc7f",
             "5667da2d9f220374e20f77869e29097790f0332d",
             "473e14e3a78c9abd379da9c09cca67fa62ef7753",
-            "4cb24754461b81356412c1d3396493fa9712949e"
+            "4cb24754461b81356412c1d3396493fa9712949e",
+            "84ecb123c7c94fb471278fde3056d9c627bcabbc"
         ]
     },
     "capabilities": [
@@ -770,7 +771,8 @@
                 "1f210dccb8ef768656ebcf513bb7e04b75f83c8d",
                 "b3af83ee68f9eac78dcf7c0f49d6401494b1884c",
                 "16dc36ed5da9f6ba589fb8b748f723056657bcef",
-                "f3e53a32c81c87dc0df919c8f0d3355c37ca69fb"
+                "f3e53a32c81c87dc0df919c8f0d3355c37ca69fb",
+                "687e3f6959ffce62db59daed3fc785a78a284ed1"
             ],
             "behaviors": [
                 "ATTENTION-ACTIVE-UNREGISTER-ON-DEACTIVATE-001",
@@ -784,7 +786,8 @@
                 "ATTENTION-BRIDGE-STALENESS-001",
                 "SESSION-CLAUDE-SESSION-SERVICE-001",
                 "SESSION-CODEX-SESSION-SERVICE-001",
-                "SESSION-FINGERPRINT-HASH-001"
+                "SESSION-FINGERPRINT-HASH-001",
+                "PERSIST-LIFECYCLE-PARSER-001"
             ],
             "prGates": [
                 "test:deterministic:run"

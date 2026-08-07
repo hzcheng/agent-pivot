@@ -1248,7 +1248,7 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 CONVERSATION-OUTLINE-CONTROLLER-001 pu
     assert.equal(requests.length, 2);
 });
 
-test('CONVERSATION-OUTLINE-BOOKMARKS-001 restores and Host-settles bookmarks without changing outline order', async () => {
+test('CONVERSATION-OUTLINE-BOOKMARKS-001 restores and Host-settles bookmarks without changing authoritative outline order', async () => {
     const saved = [];
     const bookmarkStore = {
         async load() {

@@ -297,7 +297,7 @@
 
         function buildOutlineList() {
             var fragment = document.createDocumentFragment();
-            state.outline.forEach(function (entry) {
+            state.outline.slice().reverse().forEach(function (entry) {
                 var item = document.createElement('li');
                 item.className = 'conversation-outline-item';
                 var bookmark = document.createElement('button');

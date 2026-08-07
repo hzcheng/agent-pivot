@@ -1465,6 +1465,22 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 filters the current Session outline an
     assert.equal(await comments.isHidden(), true);
     assert.equal(await sidebarToggle.getAttribute('aria-expanded'), 'true');
     assert.equal(await page.locator('[data-outline-interaction-id]').count(), 4);
+    assert.deepEqual(
+        await page.locator('[data-outline-interaction-id]')
+            .evaluateAll(elements => elements.map(element =>
+                element.getAttribute('data-outline-interaction-id')
+            )),
+        ['input-4', 'input-3', 'input-2', 'input-1'],
+        'the newest input must render at the top of the outline'
+    );
+    assert.deepEqual(
+        await page.locator('.conversation-outline-number')
+            .evaluateAll(elements => elements.map(element =>
+                element.textContent
+            )),
+        ['4', '3', '2', '1'],
+        'newest-first rendering must retain authoritative input numbers'
+    );
     assert.equal(
         await page.locator(
             '[data-outline-interaction-id="input-2"]'
@@ -1501,14 +1517,14 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 filters the current Session outline an
             document.activeElement?.getAttribute(
                 'data-outline-interaction-id'
             )),
-        'input-3'
+        'input-1'
     );
     await page.keyboard.press('Enter');
     let requests = await postedMessages(page);
     assert.deepEqual(requests.at(-1), {
         type: 'conversation-viewer-select-interaction',
         version: 1,
-        interactionId: 'input-3',
+        interactionId: 'input-1',
     });
 
     await page.locator(
@@ -1550,7 +1566,7 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 filters the current Session outline an
     assert.equal(await comments.isHidden(), true);
 });
 
-test('CONVERSATION-OUTLINE-BOOKMARKS-001 settles stars authoritatively, filters favorites, and preserves input order', async t => {
+test('CONVERSATION-OUTLINE-BOOKMARKS-001 settles stars authoritatively, filters favorites, and preserves newest-first input order', async t => {
     const interactionIds = ['input-1', 'input-2', 'input-3'];
     const { page } = await openHostViewerDocument(t, {
         includeStyles: true,
@@ -1575,7 +1591,7 @@ test('CONVERSATION-OUTLINE-BOOKMARKS-001 settles stars authoritatively, filters 
     );
 
     await page.locator('[data-action="toggle-sidebar"]').click();
-    assert.deepEqual(await orderedIds(), interactionIds);
+    assert.deepEqual(await orderedIds(), [...interactionIds].reverse());
     const outlineLayout = await page.evaluate(() => {
         const outline = document.querySelector('[data-conversation-outline]');
         const tabs = document.querySelector('.conversation-sidebar-tabs');
@@ -1700,7 +1716,7 @@ test('CONVERSATION-OUTLINE-BOOKMARKS-001 settles stars authoritatively, filters 
         '',
         'outline star settlements stay out of the status line'
     );
-    assert.deepEqual(await orderedIds(), interactionIds);
+    assert.deepEqual(await orderedIds(), [...interactionIds].reverse());
 
     await page.locator('[data-outline-bookmarks-only]').click();
     assert.equal(
@@ -1713,7 +1729,7 @@ test('CONVERSATION-OUTLINE-BOOKMARKS-001 settles stars authoritatively, filters 
         ).evaluateAll(elements => elements.map(element =>
             element.getAttribute('data-outline-interaction-id')
         )),
-        ['input-1', 'input-3']
+        ['input-3', 'input-1']
     );
     assert.equal(
         await page.locator('[data-outline-bookmarks-only]')

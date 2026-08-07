@@ -1161,14 +1161,29 @@ function assertConversationEmphasisForcedColors(styles) {
     assert.equal(styles.assistantSeparatorWidth, 1);
 }
 
-test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 acquires one real document API and posts every control action', async t => {
+test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 acquires one real document API and delegates HTTPS links only to native Webview navigation', async t => {
     const { page } = await openHostViewerDocument(t);
 
     assert.equal(await page.evaluate(() => window.__acquireCount), 1);
     await page.getByRole('button', { name: 'Previous', exact: true }).click();
     await page.getByRole('button', { name: 'Next', exact: true }).click();
     await page.getByRole('button', { name: 'Latest', exact: true }).click();
-    await page.locator('a[href="https://example.test/safe"]').click();
+    const defaultPreventedBeforeTestGuard = await page.locator(
+        'a[href="https://example.test/safe"]'
+    ).evaluate(link => {
+        let defaultPrevented;
+        document.addEventListener('click', event => {
+            defaultPrevented = event.defaultPrevented;
+            event.preventDefault();
+        }, { once: true });
+        link.click();
+        return defaultPrevented;
+    });
+    assert.equal(
+        defaultPreventedBeforeTestGuard,
+        false,
+        'the Webview must retain the native HTTPS navigation path'
+    );
 
     assert.deepEqual(await postedMessages(page), [
         {
@@ -1179,11 +1194,6 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 acquires one real document API 
         { type: 'conversation-viewer-previous', version: 1 },
         { type: 'conversation-viewer-next', version: 1 },
         { type: 'conversation-viewer-latest', version: 1 },
-        {
-            type: 'conversation-viewer-open-link',
-            version: 1,
-            href: 'https://example.test/safe',
-        },
     ]);
 });
 
@@ -4542,7 +4552,7 @@ test('CONVERSATION-VIEWER-USER-EMPHASIS-001 makes User a full-width Prompt block
     }
 });
 
-test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 sanitizes hostile HTML, posts exact version-1 navigation, and keeps the viewer open on Escape', async t => {
+test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 sanitizes hostile HTML, preserves one native HTTPS path, and keeps the viewer open on Escape', async t => {
     const page = await openViewerPage(t);
     await sendPage(page, hostileConversationPage);
 
@@ -4584,12 +4594,24 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 sanitizes hostile HTML, posts e
         version: 1,
     });
 
-    await page.locator('a[href="https://example.test/safe"]').click();
-    assert.deepEqual((await postedMessages(page)).at(-1), {
-        type: 'conversation-viewer-open-link',
-        version: 1,
-        href: 'https://example.test/safe',
+    const postedBeforeLink = (await postedMessages(page)).length;
+    const defaultPreventedBeforeTestGuard = await page.locator(
+        'a[href="https://example.test/safe"]'
+    ).evaluate(link => {
+        let defaultPrevented;
+        document.addEventListener('click', event => {
+            defaultPrevented = event.defaultPrevented;
+            event.preventDefault();
+        }, { once: true });
+        link.click();
+        return defaultPrevented;
     });
+    assert.equal(defaultPreventedBeforeTestGuard, false);
+    assert.equal(
+        (await postedMessages(page)).length,
+        postedBeforeLink,
+        'sanitized HTTPS links must not also ask the Host to open them'
+    );
 
     const postedBeforeEscape = (await postedMessages(page)).length;
     await page.keyboard.press('Escape');

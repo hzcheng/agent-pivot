@@ -1134,9 +1134,10 @@
             ? event.target.closest('a[href]')
             : null;
         if (!link || !messages.contains(link)) return;
-        event.preventDefault();
         var href = link.getAttribute('href');
-        if (!isAllowedLinkHref(href)) return;
+        if (isHttps(href)) return;
+        event.preventDefault();
+        if (!isAbsoluteFileHref(href)) return;
         post({
             type: 'conversation-viewer-open-link',
             version: 1,

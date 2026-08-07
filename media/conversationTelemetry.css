@@ -22,6 +22,7 @@
     display: none;
 }
 
+.conversation-telemetry-provider,
 .conversation-telemetry-model,
 .conversation-telemetry-worktree,
 .conversation-telemetry-position,
@@ -41,6 +42,39 @@
         var(--vscode-editor-foreground) 4%,
         transparent
     );
+}
+
+.conversation-telemetry-provider {
+    display: inline-flex;
+    width: 1.75rem;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    padding: .15rem;
+}
+
+.conversation-telemetry-provider > [data-provider-icon] {
+    display: none;
+}
+
+.conversation-telemetry-provider[data-provider="codex"]
+    > [data-provider-icon="codex"],
+.conversation-telemetry-provider[data-provider="kimi"]
+    > [data-provider-icon="kimi"],
+.conversation-telemetry-provider[data-provider="claude"]
+    > [data-provider-icon="claude"] {
+    display: inline-flex;
+}
+
+.conversation-telemetry-provider [data-provider-icon] svg {
+    width: .95rem;
+    height: .95rem;
+    fill: currentColor;
+}
+
+/* Matches the dashboard Session card provider colors. */
+.conversation-telemetry-provider[data-provider="claude"] {
+    color: #d97757;
 }
 
 .conversation-telemetry-model,
@@ -332,6 +366,13 @@
         padding-left: .4rem;
     }
 
+    .conversation-telemetry-provider {
+        width: auto;
+        padding: .15rem .05rem;
+        border-color: transparent;
+        background: transparent;
+    }
+
     .conversation-telemetry-model strong {
         max-width: 6rem;
     }
@@ -349,6 +390,7 @@
         padding: .25rem;
     }
 
+    .conversation-telemetry-provider,
     .conversation-telemetry-model,
     .conversation-telemetry-worktree,
     .conversation-telemetry-position,
@@ -391,6 +433,7 @@
 }
 
 @media (max-width: 320px) {
+    .conversation-telemetry-provider,
     .conversation-telemetry-model {
         display: none;
     }
@@ -404,6 +447,7 @@
 }
 
 @media (forced-colors: active) {
+    .conversation-telemetry-provider,
     .conversation-telemetry-model,
     .conversation-telemetry-worktree,
     .conversation-telemetry-position,
@@ -412,6 +456,10 @@
         border-color: ButtonText;
         color: ButtonText;
         background: Canvas;
+    }
+
+    .conversation-telemetry-provider[data-provider] {
+        color: ButtonText;
     }
 
     .conversation-telemetry-ring-track {

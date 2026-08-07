@@ -158,7 +158,10 @@ export function renderConversationViewerDocument(
                 aria-label="Show side panel">${CONVERSATION_NAV_ICON_SIDEBAR}</button>
         </nav>
     </header>
-    ${renderConversationTelemetry(options.telemetrySnapshot)}
+    ${renderConversationTelemetry(
+        options.telemetrySnapshot,
+        options.target.provider
+    )}
     <div class="conversation-status" data-conversation-status aria-live="polite">${escapeHtml(
         initialStatus
     )}</div>

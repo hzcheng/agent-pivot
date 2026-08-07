@@ -4495,7 +4495,7 @@
   {
     "id": "CONVERSATION-TELEMETRY-001",
     "domain": "webview",
-    "title": "AI Conversation shows correlated provider model, current worktree, context-window usage, and quota windows without replacing conversation content or accepting stale Session data",
+    "title": "AI Conversation shows a provider identity icon, correlated provider model, current worktree, context-window usage, and quota windows without replacing conversation content or accepting stale Session data",
     "priority": "P1",
     "status": "automated",
     "owners": [

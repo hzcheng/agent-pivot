@@ -321,3 +321,95 @@ test('PERSIST-LIFECYCLE-PARSER-001 [claude] treats the tool-use interrupt marker
     assert.equal(signal.executionState, 'stopped');
     assert.match(signal.token, /^claude:user_interrupt:/);
 });
+
+test('PERSIST-LIFECYCLE-PARSER-001 [claude] treats a manual compact boundary as stopped', () => {
+    const compacted = lifecycle.parseClaudeLifecycleLines([
+        JSON.stringify({
+            type: 'system',
+            subtype: 'compact_boundary',
+            timestamp: '2026-08-06T06:10:14.521Z',
+            uuid: 'compact-boundary',
+            content: 'Conversation compacted',
+            compactMetadata: { trigger: 'manual' },
+        }),
+        JSON.stringify({
+            type: 'user',
+            timestamp: '2026-08-06T06:10:14.522Z',
+            uuid: 'compact-summary',
+            isCompactSummary: true,
+            message: {
+                role: 'user',
+                content: 'Sanitized compact summary',
+            },
+        }),
+    ], runStartedAtMs);
+
+    assert.ok(compacted);
+    assert.equal(compacted.phase, 'idle');
+    assert.equal(compacted.reason, undefined);
+    assert.equal(compacted.executionState, 'stopped');
+    assert.match(compacted.token, /^claude:compact_boundary:/);
+});
+
+test('PERSIST-LIFECYCLE-PARSER-001 [claude] keeps an automatic compact boundary running', () => {
+    const compactLines = [
+        JSON.stringify({
+            type: 'system',
+            subtype: 'compact_boundary',
+            timestamp: '2026-08-06T06:10:14.521Z',
+            uuid: 'compact-boundary',
+            content: 'Conversation compacted',
+            compactMetadata: { trigger: 'auto' },
+        }),
+        JSON.stringify({
+            type: 'user',
+            timestamp: '2026-08-06T06:10:14.520Z',
+            uuid: 'compact-summary',
+            isCompactSummary: true,
+            message: { role: 'user', content: 'Sanitized compact summary' },
+        }),
+    ];
+    const compacted = lifecycle.parseClaudeLifecycleLines(compactLines, runStartedAtMs);
+
+    assert.ok(compacted);
+    assert.equal(compacted.phase, 'running');
+    assert.equal(compacted.executionState, 'running');
+    assert.match(compacted.token, /^claude:compact_boundary:/);
+
+    const resumed = lifecycle.parseClaudeLifecycleLines([
+        ...compactLines,
+        JSON.stringify({
+            type: 'assistant',
+            timestamp: '2026-08-06T06:10:19.000Z',
+            uuid: 'assistant-after-compact',
+            message: { role: 'assistant', stop_reason: null, content: [] },
+        }),
+    ], runStartedAtMs);
+
+    assert.ok(resumed);
+    assert.equal(resumed.phase, 'running');
+    assert.equal(resumed.executionState, 'running');
+});
+
+test('PERSIST-LIFECYCLE-PARSER-001 [claude] keeps an unknown compact trigger backward-compatible', () => {
+    const signal = lifecycle.parseClaudeLifecycleLines([
+        JSON.stringify({
+            type: 'system',
+            subtype: 'compact_boundary',
+            timestamp: '2026-08-06T06:10:14.521Z',
+            uuid: 'compact-boundary-without-trigger',
+        }),
+        JSON.stringify({
+            type: 'user',
+            timestamp: '2026-08-06T06:10:14.522Z',
+            uuid: 'compact-summary',
+            isCompactSummary: true,
+            message: { role: 'user', content: 'Sanitized compact summary' },
+        }),
+    ], runStartedAtMs);
+
+    assert.ok(signal);
+    assert.equal(signal.phase, 'running');
+    assert.equal(signal.executionState, 'running');
+    assert.match(signal.token, /^claude:compact_boundary:/);
+});

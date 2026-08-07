@@ -28,6 +28,9 @@ const CONVERSATION_NAV_ICON_LATEST = '<svg viewBox="0 0 24 24" fill="none" strok
 const CONVERSATION_NAV_ICON_SIDEBAR = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/></svg>';
 const CONVERSATION_SESSION_NAV_ICON_PREVIOUS = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m17 18-6-6 6-6"/><path d="M7 6v12"/></svg>';
 const CONVERSATION_SESSION_NAV_ICON_NEXT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 18 6-6-6-6"/><path d="M17 6v12"/></svg>';
+const CONVERSATION_FIND_ICON_PREVIOUS = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 15-6-6-6 6"/></svg>';
+const CONVERSATION_FIND_ICON_NEXT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
+const CONVERSATION_FIND_ICON_CLOSE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="M6 6l12 12"/></svg>';
 
 export interface ConversationViewerDocumentOptions {
     panel: vscode.WebviewPanel;
@@ -84,6 +87,9 @@ export function renderConversationViewerDocument(
     );
     const reconcileScript = panel.webview.asWebviewUri(
         options.mediaUri('conversationReconcileScripts.js')
+    );
+    const findScript = panel.webview.asWebviewUri(
+        options.mediaUri('conversationFindScripts.js')
     );
     const script = panel.webview.asWebviewUri(
         options.mediaUri('conversationViewerScripts.js')
@@ -191,6 +197,30 @@ export function renderConversationViewerDocument(
                 type="button" data-session-nav="next"
                 title="Next active session"
                 aria-label="Next active session">${CONVERSATION_SESSION_NAV_ICON_NEXT}</button>
+        </div>
+        <div class="conversation-find" data-conversation-find hidden>
+            <label class="conversation-find-field">
+                <svg viewBox="0 0 16 16" width="13" height="13"
+                    aria-hidden="true" fill="none" stroke="currentColor"
+                    stroke-width="1.35">
+                    <circle cx="6.8" cy="6.8" r="4.1"></circle>
+                    <path d="m9.8 9.8 3.1 3.1"></path>
+                </svg>
+                <input id="conversation-find-input" type="search"
+                    data-find-input placeholder="Find in conversation"
+                    aria-label="Find in conversation" autocomplete="off">
+            </label>
+            <span class="conversation-find-count" data-find-count
+                role="status"></span>
+            <button class="conversation-icon-button" type="button"
+                data-find-previous title="Previous match (Shift+Enter)"
+                aria-label="Previous match (Shift+Enter)">${CONVERSATION_FIND_ICON_PREVIOUS}</button>
+            <button class="conversation-icon-button" type="button"
+                data-find-next title="Next match (Enter)"
+                aria-label="Next match (Enter)">${CONVERSATION_FIND_ICON_NEXT}</button>
+            <button class="conversation-icon-button" type="button"
+                data-find-close title="Close (Escape)"
+                aria-label="Close (Escape)">${CONVERSATION_FIND_ICON_CLOSE}</button>
         </div>
         <div class="conversation-comments-resizer" data-comments-resizer
             role="separator" aria-label="Resize side panel"
@@ -393,6 +423,9 @@ export function renderConversationViewerDocument(
     )}"></script>
     <script nonce="${escapeAttribute(nonce)}" src="${escapeAttribute(
         reconcileScript.toString()
+    )}"></script>
+    <script nonce="${escapeAttribute(nonce)}" src="${escapeAttribute(
+        findScript.toString()
     )}"></script>
     <script nonce="${escapeAttribute(nonce)}" src="${escapeAttribute(
         script.toString()

@@ -1740,6 +1740,9 @@ test('CONVERSATION-VIEWER-SECURITY-001 emits a nonce-only CSP and opens only HTT
     const reconcileControllerIndex = panel.webview.html.indexOf(
         'conversationReconcileScripts.js'
     );
+    const findControllerIndex = panel.webview.html.indexOf(
+        'conversationFindScripts.js'
+    );
     const viewerIndex = panel.webview.html.indexOf(
         'conversationViewerScripts.js'
     );
@@ -1750,7 +1753,8 @@ test('CONVERSATION-VIEWER-SECURITY-001 emits a nonce-only CSP and opens only HTT
     assert.ok(telemetryControllerIndex < commentsControllerIndex);
     assert.ok(commentsControllerIndex < sidebarControllerIndex);
     assert.ok(sidebarControllerIndex < reconcileControllerIndex);
-    assert.ok(reconcileControllerIndex < viewerIndex);
+    assert.ok(reconcileControllerIndex < findControllerIndex);
+    assert.ok(findControllerIndex < viewerIndex);
 
     for (const href of [
         'javascript:alert(1)',
@@ -3948,6 +3952,46 @@ test('CONVERSATION-COPY-ACTIONS-001 renders code block chrome and message copy c
         html.includes('conversation-message-time'),
         false,
         'providers without timing expose no clock on the action row'
+    );
+});
+
+test('CONVERSATION-FIND-001 renders a hidden find bar wired for in-page search', async () => {
+    const { viewer, panel } = createViewer({
+        readPage: async request => copyPage(request.sessionId),
+    });
+
+    await viewer.open(target('session-a', 'input-1'));
+    const html = panel.webview.html;
+    assert.match(
+        html,
+        /<div class="conversation-find" data-conversation-find hidden>/,
+        'the find bar ships hidden until the webview opens it'
+    );
+    const workspaceIndex = html.indexOf('conversation-workspace');
+    const findIndex = html.indexOf('data-conversation-find');
+    const inputIndex = html.indexOf('data-find-input');
+    const countIndex = html.indexOf('data-find-count');
+    const previousIndex = html.indexOf('data-find-previous');
+    const nextIndex = html.indexOf('data-find-next');
+    const closeIndex = html.indexOf('data-find-close');
+    assert.ok(workspaceIndex >= 0 && findIndex > workspaceIndex,
+        'the find bar lives inside the conversation workspace overlay');
+    assert.ok(inputIndex > findIndex && countIndex > inputIndex
+        && previousIndex > countIndex && nextIndex > previousIndex
+        && closeIndex > nextIndex,
+        'the bar pairs the query input and match count with previous, next, and close controls');
+    assert.equal(
+        html.indexOf('data-conversation-find', findIndex + 1),
+        -1,
+        'exactly one find bar renders'
+    );
+    assert.match(html, /type="search"[^>]*data-find-input/);
+    assert.equal(html.includes('Find in conversation'), true);
+    assert.equal(html.includes('Previous match'), true);
+    assert.equal(html.includes('Next match'), true);
+    assert.ok(
+        findIndex < html.indexOf('conversationFindScripts.js'),
+        'the find bar markup ships before its controller script tag'
     );
 });
 

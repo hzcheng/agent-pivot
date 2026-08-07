@@ -51,6 +51,9 @@ export default class KimiSessionService {
     private readonly lifecycleReader = new IncrementalJsonlLifecycleReader();
     private readonly cacheTtlMs = 5000;
     private readonly changePollIntervalMs = 3000;
+    private readonly changeListeners = new Set<{ onDidChange: () => void }>();
+    private changePoll: ReturnType<typeof setInterval> = null;
+    private changeFingerprint: string = null;
 
     resolveConversationSource(sessionId: string): AiSessionConversationSourceCandidate | null {
         const kimiHome = this.getKimiHome();
@@ -183,21 +186,56 @@ export default class KimiSessionService {
     }
 
     watchSessionChanges(onDidChange: () => void): Disposable {
-        let previousFingerprint = this.getSessionFingerprint();
-        let interval = setInterval(() => {
+        let listener = { onDidChange };
+        this.changeListeners.add(listener);
+        this.startChangePoll();
+        let disposed = false;
+
+        return {
+            dispose: () => {
+                if (disposed) {
+                    return;
+                }
+                disposed = true;
+                this.changeListeners.delete(listener);
+                if (this.changeListeners.size === 0) {
+                    this.stopChangePoll();
+                }
+            },
+        };
+    }
+
+    private startChangePoll(): void {
+        if (this.changePoll) {
+            return;
+        }
+
+        this.changeFingerprint = this.getSessionFingerprint();
+        this.changePoll = setInterval(() => {
             let nextFingerprint = this.getSessionFingerprint();
-            if (nextFingerprint === previousFingerprint) {
+            if (nextFingerprint === this.changeFingerprint) {
                 return;
             }
 
-            previousFingerprint = nextFingerprint;
+            this.changeFingerprint = nextFingerprint;
             this.invalidateCache();
-            onDidChange();
+            for (let listener of Array.from(this.changeListeners)) {
+                try {
+                    listener.onDidChange();
+                } catch (_error) {
+                    // One consumer must not prevent the shared poll from
+                    // invalidating every other Kimi conversation subscriber.
+                }
+            }
         }, this.changePollIntervalMs);
+    }
 
-        return {
-            dispose: () => clearInterval(interval),
-        };
+    private stopChangePoll(): void {
+        if (this.changePoll) {
+            clearInterval(this.changePoll);
+        }
+        this.changePoll = null;
+        this.changeFingerprint = null;
     }
 
     private cacheResult(result: KimiSessionReadResult): KimiSessionReadResult {

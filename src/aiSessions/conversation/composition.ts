@@ -846,6 +846,7 @@ const CONVERSATION_SNAPSHOT_WARM_LIMIT = 4;
 
 interface WarmConversationSnapshot {
     completedAt?: number;
+    claimed: boolean;
     abortController: ConversationAbortController;
     promise: Promise<ConversationSnapshot | undefined>;
     timeout?: ReturnType<typeof setTimeout>;
@@ -892,6 +893,11 @@ class ConversationSnapshotWarmup implements AiSessionDisposable {
             this.snapshots.delete(key);
             entry.cancel();
             return undefined;
+        }
+        entry.claimed = true;
+        if (entry.completedAt !== undefined) {
+            this.snapshots.delete(key);
+            entry.cancel();
         }
         return entry.promise;
     }
@@ -1016,6 +1022,26 @@ class ConversationSnapshotWarmup implements AiSessionDisposable {
         );
         let settled = false;
         let entry: WarmConversationSnapshot;
+        const clearEntryTimeout = (): void => {
+            if (entry.timeout === undefined) {
+                return;
+            }
+            this.options.clearTimer(entry.timeout);
+            entry.timeout = undefined;
+        };
+        const scheduleCompletedExpiry = (): void => {
+            let timeoutFiredSynchronously = false;
+            const timeout = this.options.setTimer(() => {
+                timeoutFiredSynchronously = true;
+                entry.timeout = undefined;
+                if (this.snapshots.get(key) === entry) {
+                    this.snapshots.delete(key);
+                }
+            }, CONVERSATION_SNAPSHOT_WARM_TTL_MS);
+            if (!timeoutFiredSynchronously) {
+                entry.timeout = timeout;
+            }
+        };
         const settle = (
             snapshot: ConversationSnapshot | undefined,
             abort: boolean
@@ -1024,15 +1050,19 @@ class ConversationSnapshotWarmup implements AiSessionDisposable {
                 return;
             }
             settled = true;
-            if (entry.timeout !== undefined) {
-                this.options.clearTimer(entry.timeout);
-                entry.timeout = undefined;
-            }
+            clearEntryTimeout();
             if (abort) {
                 abortController.abort();
             }
             if (snapshot) {
                 entry.completedAt = this.options.now();
+                if (entry.claimed) {
+                    if (this.snapshots.get(key) === entry) {
+                        this.snapshots.delete(key);
+                    }
+                } else {
+                    scheduleCompletedExpiry();
+                }
             } else if (this.snapshots.get(key) === entry) {
                 this.snapshots.delete(key);
             }
@@ -1040,8 +1070,14 @@ class ConversationSnapshotWarmup implements AiSessionDisposable {
         };
         entry = {
             abortController,
+            claimed: false,
             promise,
-            cancel: () => settle(undefined, true),
+            cancel: () => {
+                clearEntryTimeout();
+                if (!settled) {
+                    settle(undefined, true);
+                }
+            },
         };
         this.snapshots.set(key, entry);
         let timeoutFiredSynchronously = false;

@@ -44,15 +44,39 @@ function createAdapter(result = fixture, overrides = {}) {
             return 1;
         }),
         clearTimeout: overrides.clearTimeout || (() => undefined),
+        setCacheTimeout: overrides.setCacheTimeout || (() => 2),
+        clearCacheTimeout: overrides.clearCacheTimeout || (() => undefined),
         resolveWorktree: overrides.resolveWorktree,
         readCurrentWorkdir: overrides.readCurrentWorkdir,
         readLifecycleSignal: overrides.readLifecycleSignal,
         listSubagentThreads: overrides.listSubagentThreads,
+        now: overrides.now,
     });
     return {
         adapter,
         requests,
         getClientDisposeCount: () => clientDisposeCount,
+    };
+}
+
+function createLargeThread() {
+    return {
+        thread: {
+            id: sessionId,
+            turns: Array.from({ length: 12 }, (_, index) => ({
+                id: `turn-${index}`,
+                status: 'completed',
+                items: [{
+                    id: `user-${index}`,
+                    type: 'userMessage',
+                    content: [{ type: 'text', text: `request ${index}` }],
+                }, {
+                    id: `agent-${index}`,
+                    type: 'agentMessage',
+                    text: 'x'.repeat(60 * 1024),
+                }],
+            })),
+        },
     };
 }
 
@@ -107,6 +131,114 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 Codex returns one correlated ou
         snapshot.page.anchorInteractionId,
         snapshot.outline.interactions.at(-1).id
     );
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 throttles repeated full reads of a large Codex thread', async t => {
+    const large = createLargeThread();
+    let now = 1_000;
+    const harness = createAdapter(large, { now: () => now });
+    t.after(() => harness.adapter.dispose());
+
+    const first = await harness.adapter.readOutline(sessionId);
+    const cached = await harness.adapter.readOutline(sessionId);
+    assert.equal(cached.sourceRevision, first.sourceRevision);
+    assert.equal(harness.requests.length, 1);
+
+    now += 15_001;
+    await harness.adapter.readOutline(sessionId);
+    assert.equal(harness.requests.length, 2);
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 invalidates a large Codex thread before publishing a provider change', async t => {
+    const large = createLargeThread();
+    let current = large;
+    let providerCallback;
+    const harness = createAdapter(() => current, {
+        watchSessionChanges(callback) {
+            providerCallback = callback;
+            return { dispose() {} };
+        },
+    });
+    t.after(() => harness.adapter.dispose());
+    const subscription = harness.adapter.watch(sessionId, () => undefined);
+    t.after(() => subscription.dispose());
+
+    const first = await harness.adapter.readOutline(sessionId);
+    current = clone(large);
+    current.thread.turns.at(-1).items.at(-1).text =
+        `${'x'.repeat(60 * 1024)} changed`;
+    providerCallback();
+    const updated = await harness.adapter.readOutline(sessionId);
+
+    assert.notEqual(updated.sourceRevision, first.sourceRevision);
+    assert.equal(harness.requests.length, 2);
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 actively releases an unread expired Codex thread', async t => {
+    const large = createLargeThread();
+    let expiryCallback;
+    const harness = createAdapter(large, {
+        setCacheTimeout(callback, delayMs) {
+            assert.equal(delayMs, 15_000);
+            expiryCallback = callback;
+            return 42;
+        },
+    });
+    t.after(() => harness.adapter.dispose());
+
+    await harness.adapter.readOutline(sessionId);
+    assert.equal(harness.adapter.loadedConversationCache.size, 1);
+    expiryCallback();
+    assert.equal(harness.adapter.loadedConversationCache.size, 0);
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 does not cache a large Codex read invalidated while pending', async t => {
+    const large = createLargeThread();
+    let resolveRead;
+    let providerCallback;
+    const harness = createAdapter(large, {
+        client: {
+            request() {
+                return new Promise(resolve => {
+                    resolveRead = resolve;
+                });
+            },
+            dispose() {},
+        },
+        watchSessionChanges(callback) {
+            providerCallback = callback;
+            return { dispose() {} };
+        },
+    });
+    t.after(() => harness.adapter.dispose());
+    const subscription = harness.adapter.watch(sessionId, () => undefined);
+    t.after(() => subscription.dispose());
+
+    const pending = harness.adapter.readOutline(sessionId);
+    providerCallback();
+    resolveRead(large);
+    await pending;
+
+    assert.equal(harness.adapter.loadedConversationCache.size, 0);
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 handles a synchronous Codex cache expiry timer without retaining its handle', async t => {
+    let clearCalls = 0;
+    const harness = createAdapter(createLargeThread(), {
+        setCacheTimeout(callback) {
+            callback();
+            return 42;
+        },
+        clearCacheTimeout() {
+            clearCalls += 1;
+        },
+    });
+    t.after(() => harness.adapter.dispose());
+
+    await harness.adapter.readOutline(sessionId);
+
+    assert.equal(harness.adapter.loadedConversationCache.size, 0);
+    assert.equal(clearCalls, 0);
 });
 
 test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 Codex normalizes only stable visible user and agent items', async t => {

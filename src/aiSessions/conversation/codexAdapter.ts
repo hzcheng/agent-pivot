@@ -17,12 +17,14 @@ import {
     buildVisibleUserInput,
     capToolCallDetail,
     countGraphemes,
+    hasAtMostGraphemes,
     normalizeVisibleText,
     truncateGraphemes,
     VisibleUserInputPart,
 } from './text';
 import {
     CONVERSATION_LIMITS,
+    ConversationAbortError,
     ConversationAbortSignal,
     ConversationError,
     ConversationInteraction,
@@ -62,6 +64,8 @@ export interface CodexConversationAdapterOptions {
     watchSessionChanges(onDidChange: () => void): AiSessionDisposable;
     setTimeout(callback: () => void, delayMs: number): TimerHandle;
     clearTimeout(handle: TimerHandle): void;
+    setCacheTimeout?(callback: () => void, delayMs: number): TimerHandle;
+    clearCacheTimeout?(handle: TimerHandle): void;
     resolveWorktree?: ResolveWorktree;
     readCurrentWorkdir?(sessionId: string): string | undefined;
     readLifecycleSignal?(
@@ -70,14 +74,24 @@ export interface CodexConversationAdapterOptions {
     listSubagentThreads?(
         sessionId: string
     ): AiSessionCodexSubagentThread[] | Promise<AiSessionCodexSubagentThread[]>;
+    now?(): number;
 }
 
 const MAX_LISTED_SUBAGENTS = 64;
 const SUBAGENT_RUNNING_FRESHNESS_MS = 5 * 60 * 1000;
+const LARGE_CONVERSATION_CACHE_CHARS = 512 * 1024;
+const LARGE_CONVERSATION_CACHE_TTL_MS = 15_000;
+const LARGE_CONVERSATION_CACHE_ENTRIES = 2;
 
 interface LoadedConversation {
     interactions: ConversationInteraction[];
     sourceRevision: string;
+}
+
+interface CachedLoadedConversation {
+    value: LoadedConversation;
+    expiresAt: number;
+    expiryTimer?: TimerHandle;
 }
 
 function asRecord(value: unknown): Record<string, any> | undefined {
@@ -95,7 +109,10 @@ function protocolError(): ConversationError {
 
 function visibleMessage(value: string): string {
     const normalized = normalizeVisibleText(value);
-    return countGraphemes(normalized) <= CONVERSATION_LIMITS.maxMessageGraphemes
+    return hasAtMostGraphemes(
+        normalized,
+        CONVERSATION_LIMITS.maxMessageGraphemes
+    )
         ? normalized
         : truncateGraphemes(
             normalized,
@@ -426,6 +443,11 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         string,
         Promise<ConversationTelemetry | undefined>
     >();
+    private readonly loadedConversationCache = new Map<
+        string,
+        CachedLoadedConversation
+    >();
+    private conversationCacheGeneration = 0;
     private disposed = false;
 
     constructor(private readonly options: CodexConversationAdapterOptions) {
@@ -696,6 +718,7 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         this.tokenUsageBySession.clear();
         this.telemetryCache.clear();
         this.telemetryReads.clear();
+        this.invalidateLoadedConversationCache();
         this.subscriptions.clear();
         this.options.client.dispose();
     }
@@ -748,7 +771,97 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         }
     }
 
-    private async load(
+    private load(
+        sessionId: string,
+        signal?: ConversationAbortSignal
+    ): Promise<LoadedConversation> {
+        if (signal?.aborted) {
+            return Promise.reject(new ConversationAbortError());
+        }
+        const cached = this.loadedConversationCache.get(sessionId);
+        if (cached && cached.expiresAt > this.now()) {
+            return Promise.resolve(cached.value);
+        }
+        if (cached) {
+            this.deleteLoadedConversationCacheEntry(sessionId, cached);
+        }
+        const generation = this.conversationCacheGeneration;
+        return this.loadFresh(sessionId, signal).then(value => {
+            if (!this.disposed
+                && generation === this.conversationCacheGeneration
+                && this.isLargeConversation(value)) {
+                const previous = this.loadedConversationCache.get(sessionId);
+                if (previous) {
+                    this.deleteLoadedConversationCacheEntry(sessionId, previous);
+                }
+                const entry: CachedLoadedConversation = {
+                    value,
+                    expiresAt: this.now() + LARGE_CONVERSATION_CACHE_TTL_MS,
+                };
+                this.loadedConversationCache.set(sessionId, entry);
+                this.scheduleLoadedConversationCacheExpiry(sessionId, entry);
+                while (this.loadedConversationCache.size
+                    > LARGE_CONVERSATION_CACHE_ENTRIES) {
+                    const oldest = this.loadedConversationCache.keys().next().value;
+                    if (typeof oldest !== 'string') {
+                        break;
+                    }
+                    const evicted = this.loadedConversationCache.get(oldest);
+                    if (evicted) {
+                        this.deleteLoadedConversationCacheEntry(oldest, evicted);
+                    }
+                }
+            }
+            return value;
+        });
+    }
+
+    private scheduleLoadedConversationCacheExpiry(
+        sessionId: string,
+        entry: CachedLoadedConversation
+    ): void {
+        let firedSynchronously = false;
+        const setTimer = this.options.setCacheTimeout
+            && this.options.clearCacheTimeout
+            ? this.options.setCacheTimeout
+            : this.options.setTimeout;
+        const handle = setTimer(() => {
+            firedSynchronously = true;
+            entry.expiryTimer = undefined;
+            if (this.loadedConversationCache.get(sessionId) === entry) {
+                this.loadedConversationCache.delete(sessionId);
+            }
+        }, LARGE_CONVERSATION_CACHE_TTL_MS);
+        if (!firedSynchronously) {
+            entry.expiryTimer = handle;
+        }
+    }
+
+    private deleteLoadedConversationCacheEntry(
+        sessionId: string,
+        entry: CachedLoadedConversation
+    ): void {
+        if (entry.expiryTimer !== undefined) {
+            const clearTimer = this.options.setCacheTimeout
+                && this.options.clearCacheTimeout
+                ? this.options.clearCacheTimeout
+                : this.options.clearTimeout;
+            clearTimer(entry.expiryTimer);
+            entry.expiryTimer = undefined;
+        }
+        if (this.loadedConversationCache.get(sessionId) === entry) {
+            this.loadedConversationCache.delete(sessionId);
+        }
+    }
+
+    private invalidateLoadedConversationCache(): void {
+        this.conversationCacheGeneration += 1;
+        for (const [sessionId, entry] of this.loadedConversationCache) {
+            this.deleteLoadedConversationCacheEntry(sessionId, entry);
+        }
+    }
+
+    private async loadFresh(
         sessionId: string,
         signal?: ConversationAbortSignal
     ): Promise<LoadedConversation> {
@@ -828,6 +941,39 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         return { interactions, sourceRevision };
     }
 
+    private isLargeConversation(value: LoadedConversation): boolean {
+        let characters = 0;
+        const add = (text: string | undefined): boolean => {
+            characters += text?.length || 0;
+            return characters >= LARGE_CONVERSATION_CACHE_CHARS;
+        };
+        for (const interaction of value.interactions) {
+            if (add(interaction.userMarkdown)) {
+                return true;
+            }
+            for (const markdown of interaction.assistantMarkdown) {
+                if (add(markdown)) {
+                    return true;
+                }
+            }
+            for (const tool of interaction.toolCalls || []) {
+                if (add(tool.summary) || add(tool.detail)) {
+                    return true;
+                }
+            }
+            for (const thinking of interaction.thinking || []) {
+                if (add(thinking.text)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private now(): number {
+        return this.options.now ? this.options.now() : Date.now();
+    }
+
     private ensureProviderWatch(): void {
         if (this.providerWatch) {
             return;
@@ -838,6 +984,7 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
     }
 
     private scheduleInvalidation(): void {
+        this.invalidateLoadedConversationCache();
         if (this.invalidationTimer !== undefined || this.disposed) {
             return;
         }
@@ -894,7 +1041,7 @@ function subagentLabel(
         : base;
     const normalized = normalizeVisibleText(label);
     if (normalized) {
-        return countGraphemes(normalized) <= 120
+        return hasAtMostGraphemes(normalized, 120)
             ? normalized
             : truncateGraphemes(normalized, 119);
     }

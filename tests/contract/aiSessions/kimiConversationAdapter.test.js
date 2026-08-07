@@ -709,6 +709,41 @@ test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 real Kimi polling invalidates 
     );
 });
 
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 shares one Kimi filesystem poll across subscribers', () => {
+    const service = new KimiSessionService();
+    let fingerprintReads = 0;
+    service.getSessionFingerprint = () => `revision-${++fingerprintReads}`;
+
+    const first = service.watchSessionChanges(() => undefined);
+    const second = service.watchSessionChanges(() => undefined);
+    try {
+        assert.equal(fingerprintReads, 1);
+    } finally {
+        first.dispose();
+        second.dispose();
+    }
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 isolates Kimi subscriber failures during a shared poll', () => {
+    const service = new KimiSessionService();
+    let fingerprintReads = 0;
+    service.getSessionFingerprint = () => `revision-${++fingerprintReads}`;
+    let delivered = 0;
+    const failing = service.watchSessionChanges(() => {
+        throw new Error('subscriber failed');
+    });
+    const healthy = service.watchSessionChanges(() => {
+        delivered += 1;
+    });
+    try {
+        assert.doesNotThrow(() => service.changePoll._onTimeout());
+        assert.equal(delivered, 1);
+    } finally {
+        failing.dispose();
+        healthy.dispose();
+    }
+});
+
 test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 real Kimi cap keeps newest 2,000 inputs and marks the outline partial', async t => {
     const source = await createFixture(t);
     const records = [];

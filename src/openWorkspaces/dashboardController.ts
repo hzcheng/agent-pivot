@@ -24,6 +24,8 @@ import {
     validateOpenWorkspacePinSnapshot,
 } from './pinProtocol';
 
+const CARD_PROJECTION_BURST_TTL_MS = 100;
+
 export interface OpenWorkspaceDashboardState {
     otherWindows: { status: OpenWorkspaceBridgeStatus };
 }
@@ -62,6 +64,9 @@ export class OpenWorkspaceDashboardController {
     private updateRequested = false;
     private requestedFallbackToFullRefresh = true;
     private readonly fallbackOpenedAtMs: number;
+    private cachedCards: WorkspaceCardViewModel[] | null = null;
+    private cachedCardsKey: string | null = null;
+    private cachedCardsExpiresAtMs = 0;
 
     constructor(private readonly options: OpenWorkspaceDashboardControllerOptions) {
         this.fallbackOpenedAtMs = this.nowMs();
@@ -70,6 +75,7 @@ export class OpenWorkspaceDashboardController {
     setAggregate(aggregate: OpenWorkspaceAggregate | null): boolean {
         if (aggregate?.semanticRevision === this.aggregate?.semanticRevision) { return false; }
         this.aggregate = aggregate;
+        this.invalidateCardProjection();
         this.navigationWorkspacesById.clear();
         this.pinNavigationIdentityById.clear();
         return true;
@@ -79,12 +85,14 @@ export class OpenWorkspaceDashboardController {
         const normalized = validateOpenWorkspacePinSnapshot(snapshot);
         if (normalized.revision === this.pinSnapshot.revision) { return false; }
         this.pinSnapshot = normalized;
+        this.invalidateCardProjection();
         return true;
     }
 
     setBridgeStatus(status: OpenWorkspaceBridgeStatus): boolean {
         if (status === this.bridgeStatus) { return false; }
         this.bridgeStatus = status;
+        this.invalidateCardProjection();
         if (status !== 'ready') {
             this.aggregate = null;
             this.navigationWorkspacesById.clear();
@@ -109,6 +117,15 @@ export class OpenWorkspaceDashboardController {
         const startedAt = this.nowMs();
         const currentWorkspace = this.options.getCurrentWorkspace();
         const attentionAggregate = this.options.getAttentionAggregate();
+        const cacheKey = this.getCardProjectionCacheKey(
+            currentWorkspace,
+            attentionAggregate,
+        );
+        if (this.cachedCards
+            && cacheKey === this.cachedCardsKey
+            && startedAt < this.cachedCardsExpiresAtMs) {
+            return this.cachedCards;
+        }
         const pinTimes = getOpenWorkspacePinTimes(this.pinSnapshot);
         const ownRegistration = this.aggregate?.registrations.find(
             registration => registration.instanceId === this.options.getBridgeInstanceId()
@@ -175,6 +192,9 @@ export class OpenWorkspaceDashboardController {
             navigationWorkspaceCount: navigationCards.length,
             semanticRevision: this.aggregate?.semanticRevision || null,
         });
+        this.cachedCards = cards;
+        this.cachedCardsKey = cacheKey;
+        this.cachedCardsExpiresAtMs = startedAt + CARD_PROJECTION_BURST_TTL_MS;
         return cards;
     }
 
@@ -258,6 +278,7 @@ export class OpenWorkspaceDashboardController {
     invalidatePendingUpdates(): void {
         this.deliveryGeneration += 1;
         this.lastPostedSemanticRevision = null;
+        this.invalidateCardProjection();
     }
 
     private createCurrentCard(
@@ -347,6 +368,40 @@ export class OpenWorkspaceDashboardController {
             this.options.getGroups(),
             this.options.getTodoSearchItems(),
         ])).digest('hex');
+    }
+
+    private invalidateCardProjection(): void {
+        this.cachedCards = null;
+        this.cachedCardsKey = null;
+        this.cachedCardsExpiresAtMs = 0;
+    }
+
+    private getCardProjectionCacheKey(
+        workspace: OpenWorkspace | null,
+        attentionAggregate: AttentionAggregate | null,
+    ): string {
+        return JSON.stringify([
+            this.bridgeStatus,
+            this.aggregate?.semanticRevision || null,
+            this.pinSnapshot.revision,
+            attentionAggregate?.aggregateRevision || null,
+            workspace ? {
+                navigationIdentity: workspace.navigationIdentity,
+                scopeIdentity: workspace.scopeIdentity,
+                kind: workspace.kind,
+                displayName: workspace.displayName,
+                navigationUri: workspace.navigationUri,
+                environment: workspace.environment,
+                roots: workspace.roots.map(root => [
+                    root.id,
+                    root.name,
+                    root.uri,
+                    root.hostPath,
+                    root.ordinal,
+                ]),
+                saved: this.options.isWorkspaceSavedAsProject(workspace),
+            } : null,
+        ]);
     }
 
     private nowMs(): number {

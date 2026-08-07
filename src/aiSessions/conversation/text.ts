@@ -4,30 +4,112 @@ import { CONVERSATION_LIMITS } from './types';
 
 type Segmenter = { segment(value: string): Iterable<{ segment: string }> };
 
-function graphemes(value: string): string[] {
+let sharedSegmenter: Segmenter | null | undefined;
+const COMPLEX_GRAPHEME_PATTERN = /[\p{M}\p{Cf}\r\u1100-\u11ff\ua960-\ua97f\ud7b0-\ud7ff\u{1f1e6}-\u{1f1ff}\u{1f3fb}-\u{1f3ff}]/u;
+
+function segmenter(): Segmenter | undefined {
+    if (sharedSegmenter !== undefined) {
+        return sharedSegmenter || undefined;
+    }
     const SegmenterCtor = (Intl as unknown as {
         Segmenter?: new (
             locale?: string,
             options?: { granularity: string }
         ) => Segmenter;
     }).Segmenter;
-    if (SegmenterCtor) {
-        return Array.from(
-            new SegmenterCtor(undefined, { granularity: 'grapheme' }).segment(value),
-            item => item.segment
-        );
+    sharedSegmenter = SegmenterCtor
+        ? new SegmenterCtor(undefined, { granularity: 'grapheme' })
+        : null;
+    return sharedSegmenter || undefined;
+}
+
+function* graphemes(value: string): Iterable<string> {
+    const resolved = segmenter();
+    if (resolved) {
+        for (const item of resolved.segment(value)) {
+            yield item.segment;
+        }
+        return;
     }
-    return Array.from(value);
+    yield* value;
+}
+
+function hasComplexGraphemes(value: string): boolean {
+    return COMPLEX_GRAPHEME_PATTERN.test(value);
+}
+
+function countSimpleCodePoints(value: string, stopAfter?: number): number {
+    let count = 0;
+    for (let index = 0; index < value.length;) {
+        const codePoint = value.codePointAt(index)!;
+        index += codePoint > 0xffff ? 2 : 1;
+        count += 1;
+        if (stopAfter !== undefined && count > stopAfter) {
+            return count;
+        }
+    }
+    return count;
+}
+
+function truncateSimpleCodePoints(value: string, limit: number): string {
+    let count = 0;
+    let index = 0;
+    while (index < value.length && count < limit) {
+        const codePoint = value.codePointAt(index)!;
+        index += codePoint > 0xffff ? 2 : 1;
+        count += 1;
+    }
+    return index < value.length ? `${value.slice(0, index)}…` : value;
 }
 
 export function countGraphemes(value: string): number {
-    return graphemes(String(value || '')).length;
+    const source = String(value || '');
+    if (!hasComplexGraphemes(source)) {
+        return countSimpleCodePoints(source);
+    }
+    let count = 0;
+    for (const _part of graphemes(source)) {
+        count += 1;
+    }
+    return count;
+}
+
+export function hasAtMostGraphemes(value: string, limit: number): boolean {
+    const source = String(value || '');
+    const safeLimit = Math.max(0, Math.floor(limit));
+    if (source.length <= safeLimit) {
+        return true;
+    }
+    if (!hasComplexGraphemes(source)) {
+        return countSimpleCodePoints(source, safeLimit) <= safeLimit;
+    }
+    let count = 0;
+    for (const _part of graphemes(source)) {
+        count += 1;
+        if (count > safeLimit) {
+            return false;
+        }
+    }
+    return true;
 }
 
 export function truncateGraphemes(value: string, limit: number): string {
-    const parts = graphemes(String(value || ''));
+    const source = String(value || '');
     const safeLimit = Math.max(0, Math.floor(limit));
-    return parts.length <= safeLimit ? parts.join('') : `${parts.slice(0, safeLimit).join('')}…`;
+    if (source.length <= safeLimit) {
+        return source;
+    }
+    if (!hasComplexGraphemes(source)) {
+        return truncateSimpleCodePoints(source, safeLimit);
+    }
+    const parts: string[] = [];
+    for (const part of graphemes(source)) {
+        if (parts.length >= safeLimit) {
+            return `${parts.join('')}…`;
+        }
+        parts.push(part);
+    }
+    return source;
 }
 
 export function normalizeVisibleText(value: string): string {
@@ -43,7 +125,10 @@ export function normalizeVisibleText(value: string): string {
 
 export function buildUserPreview(value: string): string {
     const normalized = normalizeVisibleText(value);
-    return countGraphemes(normalized) <= CONVERSATION_LIMITS.previewGraphemes
+    return hasAtMostGraphemes(
+        normalized,
+        CONVERSATION_LIMITS.previewGraphemes
+    )
         ? normalized
         : truncateGraphemes(
             normalized,
@@ -69,7 +154,10 @@ export function buildToolCallSummary(
     ).replace(/\n+/g, ' ');
     const base = normalizeVisibleText(name);
     const combined = argument ? `${base} ${argument}` : base;
-    return countGraphemes(combined) <= CONVERSATION_LIMITS.toolCallSummaryGraphemes
+    return hasAtMostGraphemes(
+        combined,
+        CONVERSATION_LIMITS.toolCallSummaryGraphemes
+    )
         ? combined
         : truncateGraphemes(
             combined,
@@ -82,7 +170,10 @@ export function capToolCallDetail(value: string): string | undefined {
     if (!normalized) {
         return undefined;
     }
-    return countGraphemes(normalized) <= CONVERSATION_LIMITS.toolCallDetailGraphemes
+    return hasAtMostGraphemes(
+        normalized,
+        CONVERSATION_LIMITS.toolCallDetailGraphemes
+    )
         ? normalized
         : truncateGraphemes(
             normalized,

@@ -308,6 +308,44 @@ test('SESSION-AI-SESSION-CODEX-APP-SERVER-002 frames Buffer chunks across arbitr
     ]);
 });
 
+test('SESSION-AI-SESSION-CODEX-APP-SERVER-002A keeps fragmented response copying linear', async t => {
+    const harness = createHarness();
+    t.after(() => harness.client.dispose());
+    const request = harness.client.request('thread/read', {
+        threadId: SESSION_ID,
+    });
+    await finishHandshake(harness.child);
+
+    const response = Buffer.from(`${JSON.stringify({
+        id: 2,
+        result: { text: 'x'.repeat(512 * 1024) },
+    })}\n`, 'utf8');
+    const originalConcat = Buffer.concat;
+    let copiedBytes = 0;
+    Buffer.concat = function measuredConcat(list, totalLength) {
+        copiedBytes += totalLength === undefined
+            ? list.reduce((total, bytes) => total + bytes.length, 0)
+            : totalLength;
+        return originalConcat(list, totalLength);
+    };
+    try {
+        for (let offset = 0; offset < response.length; offset += 4 * 1024) {
+            harness.child.stdout.emit(
+                'data',
+                response.subarray(offset, offset + 4 * 1024)
+            );
+        }
+        assert.equal((await request).text.length, 512 * 1024);
+    } finally {
+        Buffer.concat = originalConcat;
+    }
+
+    assert.ok(
+        copiedBytes <= response.length * 3,
+        `expected linear copying, copied ${copiedBytes} bytes for ${response.length}`
+    );
+});
+
 test('SESSION-AI-SESSION-CODEX-APP-SERVER-003 enforces the 16 MiB limit before parsing framed or unterminated lines', async t => {
     for (const terminated of [false, true]) {
         await t.test(terminated ? 'terminated line' : 'unterminated line', async t => {

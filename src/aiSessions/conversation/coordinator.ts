@@ -8,7 +8,7 @@ import {
     applyActiveLifecycleToResponseState,
     applyStoppedLifecycleToResponseState,
 } from './model';
-import { countGraphemes } from './text';
+import { hasAtMostGraphemes } from './text';
 import {
     CONVERSATION_LIMITS,
     ConversationAbortError,
@@ -661,8 +661,10 @@ export class ConversationCoordinator implements AiSessionDisposable {
                     || (typeof interaction.timestamp === 'number'
                         && Number.isFinite(interaction.timestamp)))
                 && typeof interaction.userPreview === 'string'
-                && countGraphemes(interaction.userPreview)
-                    <= CONVERSATION_LIMITS.previewGraphemes
+                && hasAtMostGraphemes(
+                    interaction.userPreview,
+                    CONVERSATION_LIMITS.previewGraphemes
+                )
                 && Number.isSafeInteger(interaction.userGraphemeCount)
                 && interaction.userGraphemeCount >= 0
                 && interaction.userGraphemeCount
@@ -707,26 +709,36 @@ export class ConversationCoordinator implements AiSessionDisposable {
                         && Boolean(message.tool)
                         && typeof message.tool.name === 'string'
                         && Boolean(message.tool.name)
-                        && countGraphemes(message.tool.name)
-                            <= CONVERSATION_LIMITS.toolCallSummaryGraphemes
+                        && hasAtMostGraphemes(
+                            message.tool.name,
+                            CONVERSATION_LIMITS.toolCallSummaryGraphemes
+                        )
                         && typeof message.tool.summary === 'string'
-                        && countGraphemes(message.tool.summary)
-                            <= CONVERSATION_LIMITS.toolCallSummaryGraphemes
+                        && hasAtMostGraphemes(
+                            message.tool.summary,
+                            CONVERSATION_LIMITS.toolCallSummaryGraphemes
+                        )
                         && (message.tool.detail === undefined
                             || (typeof message.tool.detail === 'string'
-                                && countGraphemes(message.tool.detail)
-                                    <= CONVERSATION_LIMITS.toolCallDetailGraphemes)))
+                                && hasAtMostGraphemes(
+                                    message.tool.detail,
+                                    CONVERSATION_LIMITS.toolCallDetailGraphemes
+                                )))
                     || (message.role === 'thinking'
                         && Boolean(message.thinking)
                         && typeof message.thinking.text === 'string'
-                        && countGraphemes(message.thinking.text)
-                            <= CONVERSATION_LIMITS.maxMessageGraphemes))
+                        && hasAtMostGraphemes(
+                            message.thinking.text,
+                            CONVERSATION_LIMITS.maxMessageGraphemes
+                        ))))
                 && (message.timestamp === undefined
                     || (typeof message.timestamp === 'number'
                         && Number.isFinite(message.timestamp)))
                 && typeof message.markdown === 'string'
-                && countGraphemes(message.markdown)
-                    <= CONVERSATION_LIMITS.maxMessageGraphemes
+                && hasAtMostGraphemes(
+                    message.markdown,
+                    CONVERSATION_LIMITS.maxMessageGraphemes
+                )
             ))
             || !isDenseOwnArray(page.interactionStates)
             || !page.interactionStates.length

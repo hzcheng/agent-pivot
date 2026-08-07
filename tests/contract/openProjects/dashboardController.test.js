@@ -137,6 +137,39 @@ test('WEBVIEW-SIDEBAR-VISIBILITY-RETENTION-001 coalesces rapid OPEN revisions be
     assert.deepEqual(posted[1].searchCatalog.savedProjects[0].groupLabels, ['Work 15']);
 });
 
+test('WEBVIEW-SIDEBAR-VISIBILITY-RETENTION-001 reuses one card projection across a burst of sidebar consumers', () => {
+    let nowMs = 5_000;
+    let hydrationCalls = 0;
+    let savedAsProject = false;
+    const controller = new OpenWorkspaceDashboardController(createOptions({
+        isWorkspaceSavedAsProject: () => savedAsProject,
+        getCurrentWorkspaceAiSessions: () => {
+            hydrationCalls += 1;
+            return null;
+        },
+        nowMs: () => nowMs,
+    }));
+
+    const first = controller.getCards();
+    for (let iteration = 0; iteration < 20; iteration += 1) {
+        assert.strictEqual(controller.getCards(), first);
+    }
+    assert.equal(hydrationCalls, 1,
+        'parallel dashboard consumers must share one expensive session projection');
+
+    savedAsProject = true;
+    const savedProjection = controller.getCards();
+    assert.notStrictEqual(savedProjection, first,
+        'a semantic workspace change must invalidate the burst immediately');
+    assert.equal(savedProjection[0].showSaveAction, false);
+    assert.equal(hydrationCalls, 2);
+
+    nowMs += 1_000;
+    assert.notStrictEqual(controller.getCards(), savedProjection,
+        'the burst cache must not become an authoritative long-lived snapshot');
+    assert.equal(hydrationCalls, 3);
+});
+
 test('OPEN-ALL-WINDOWS-LIST-001 orders current and navigation cards together without focus-driven movement', () => {
     const current = makeRecord({ name: 'Current', uri: '/work/current' });
     const oldest = makeRecord({ name: 'Oldest', uri: '/work/oldest' });

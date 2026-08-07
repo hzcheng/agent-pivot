@@ -544,9 +544,28 @@ button {
     }
 }
 
-.conversation-message-user .conversation-message-actions {
-    justify-content: flex-end;
-    margin-top: 0.25rem;
+/* Hover-revealed corner cluster on user cards: input clock + copy,
+   parked left of the always-visible bookmark star. */
+.conversation-message-corner {
+    position: absolute;
+    top: 0.5rem;
+    right: 2.375rem;
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    height: 1.5rem;
+    opacity: 0;
+    transition: opacity 120ms ease;
+
+    &:has(.is-copied),
+    &:has(.is-failed) {
+        opacity: 1;
+    }
+}
+
+.conversation-message-user:hover > .conversation-message-corner,
+.conversation-message-user:focus-within > .conversation-message-corner {
+    opacity: 1;
 }
 
 .conversation-message-time {
@@ -1620,7 +1639,8 @@ button {
         animation: none;
     }
 
-    .conversation-message-actions {
+    .conversation-message-actions,
+    .conversation-message-corner {
         transition: none;
     }
 

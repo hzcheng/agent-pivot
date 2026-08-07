@@ -2239,16 +2239,19 @@ function renderMessage(
         return renderProgressMessage(message);
     }
     if (message.role === 'user') {
+        const inputClock = clock
+            ? `<span class="conversation-message-time" title="${escapeAttribute(clock.title)}">${escapeAttribute(clock.label)}</span>`
+            : '';
         return `<article class="conversation-message conversation-message-user"
     data-message-id="${escapeAttribute(message.id)}"
     data-conversation-message-id="${escapeAttribute(encodeURIComponent(message.id))}"
     data-interaction-id="${escapeAttribute(message.interactionId)}">
     <span class="conversation-role">User</span>
     <button class="conversation-message-bookmark" title="Bookmark this input"></button>
+    <section class="conversation-message-corner">${inputClock}<button class="conversation-message-copy" title="Copy input"></button></section>
     <section class="conversation-markdown">${renderConversationMarkdown(
         message.markdown
     )}</section>
-    <section class="conversation-message-actions"><button class="conversation-message-copy" title="Copy input"></button></section>
 </article>`;
     }
     const clockHtml = clock
@@ -2282,16 +2285,20 @@ function renderMessages(
     });
     return groups.map(group => {
         const info = interactionInfo.get(group[0].interactionId);
-        const clock = info
+        const now = Date.now();
+        const inputClock = info
+            ? formatConversationClockTime(info.timestamp, now)
+            : undefined;
+        const answerClock = info
             ? formatConversationClockTime(
                 info.completedAt ?? info.timestamp,
-                Date.now()
+                now
             )
             : undefined;
         const rendered = group.map(message => renderMessage(
             message,
             showThinking,
-            clock
+            message.role === 'user' ? inputClock : answerClock
         ));
         const answerIndex = group.findIndex(
             message => message.role === 'assistant'

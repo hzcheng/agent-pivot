@@ -2085,6 +2085,7 @@ test('CONVERSATION-COPY-ACTIONS-001 copies code blocks with a hover control and 
 
 test('CONVERSATION-COPY-ACTIONS-001 copies user inputs and assistant answers through the Host', async t => {
     const completedAt = Date.now();
+    const timestamp = completedAt - 120_000;
     const { page } = await openHostViewerDocument(t, {
         includeStyles: true,
         themeFixture: viewerThemeFixtures[1],
@@ -2116,6 +2117,7 @@ test('CONVERSATION-COPY-ACTIONS-001 copies user inputs and assistant answers thr
             interactionStates: [{
                 interactionId: 'input-1',
                 responseState: 'complete',
+                timestamp,
                 completedAt,
             }],
         },
@@ -2152,11 +2154,9 @@ test('CONVERSATION-COPY-ACTIONS-001 copies user inputs and assistant answers thr
     const actionRows = await page.evaluate(() => {
         const card = document.querySelector('.conversation-message-user');
         const cardBounds = card.getBoundingClientRect();
-        const cardMarkdown = card.querySelector('.conversation-markdown')
+        const star = card.querySelector('.conversation-message-bookmark')
             .getBoundingClientRect();
-        const cardRow = card.querySelector('.conversation-message-actions')
-            .getBoundingClientRect();
-        const cardCopy = card.querySelector('.conversation-message-copy')
+        const corner = card.querySelector('.conversation-message-corner')
             .getBoundingClientRect();
         const answer = document.querySelector(
             '.conversation-message-assistant'
@@ -2169,22 +2169,28 @@ test('CONVERSATION-COPY-ACTIONS-001 copies user inputs and assistant answers thr
         const answerCopy = answer.querySelector('.conversation-message-copy')
             .getBoundingClientRect();
         return {
-            cardRowBelow: cardRow.top >= cardMarkdown.bottom - 1,
-            cardRowInside: cardRow.bottom <= cardBounds.bottom + 1,
-            cardRowRight: cardCopy.right <= cardBounds.right - 4
-                && cardCopy.right > cardBounds.right - 48,
+            cornerBesideStar: corner.right <= star.left + 1
+                && Math.abs(
+                    (corner.top + corner.bottom) - (star.top + star.bottom)
+                ) <= 4,
+            cornerInside: corner.top >= cardBounds.top - 1
+                && corner.bottom <= cardBounds.top
+                    + cardBounds.height / 2,
+            cardHasNoRow: !card.querySelector(
+                '.conversation-message-actions'
+            ),
             answerRowBelow: answerRow.top >= answerMarkdown.bottom - 1,
             answerRowLeft: answerCopy.left
                 - answer.getBoundingClientRect().left < 48,
         };
     });
     assert.deepEqual(actionRows, {
-        cardRowBelow: true,
-        cardRowInside: true,
-        cardRowRight: true,
+        cornerBesideStar: true,
+        cornerInside: true,
+        cardHasNoRow: true,
         answerRowBelow: true,
         answerRowLeft: true,
-    }, 'message copy lives on a bottom action row, not the top corner');
+    }, 'the user card clusters its controls with the star while the answer keeps a bottom row');
     assert.equal(
         await userCopy.locator('svg').count(),
         1,
@@ -2222,12 +2228,49 @@ test('CONVERSATION-COPY-ACTIONS-001 copies user inputs and assistant answers thr
         rightOfCopy: true,
         sameRow: true,
     }, 'the clock shares the action row with the copy control');
+    const userTime = page.locator(
+        '.conversation-message-user .conversation-message-time'
+    );
+    assert.match(
+        await userTime.textContent(),
+        /^\d{2}:\d{2}$/,
+        'the user corner clocks the input time'
+    );
     assert.equal(
-        await page.locator(
-            '.conversation-message-user .conversation-message-time'
-        ).count(),
-        0,
-        'the user card row stays clock-free'
+        await userTime.getAttribute('title'),
+        formatConversationClockTime(timestamp, Date.now()).title,
+        'the user clock tooltip carries the input timestamp'
+    );
+    const cornerOrder = await page.evaluate(() => {
+        const card = document.querySelector('.conversation-message-user');
+        const time = card.querySelector('.conversation-message-time')
+            .getBoundingClientRect();
+        const copy = card.querySelector('.conversation-message-copy')
+            .getBoundingClientRect();
+        const star = card.querySelector('.conversation-message-bookmark')
+            .getBoundingClientRect();
+        return {
+            ordered: time.right <= copy.left + 1
+                && copy.right <= star.left + 1,
+        };
+    });
+    assert.equal(
+        cornerOrder.ordered,
+        true,
+        'the corner reads time, copy, star from left to right'
+    );
+    const corner = page.locator('.conversation-message-corner');
+    assert.equal(
+        await corner.evaluate(element => getComputedStyle(element).opacity),
+        '0',
+        'the corner cluster stays quiet until hover'
+    );
+    await page.hover('.conversation-message-user');
+    await page.waitForFunction(() =>
+        getComputedStyle(document.querySelector(
+            '.conversation-message-corner'
+        )).opacity === '1',
+        'the corner cluster reveals on hover'
     );
 
     await userCopy.click();

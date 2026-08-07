@@ -3922,15 +3922,19 @@ test('CONVERSATION-COPY-ACTIONS-001 renders code block chrome and message copy c
         'the header strip carries the label and copy control above the code');
     const userIndex = html.indexOf('conversation-message-user');
     const userTextIndex = html.indexOf('Add tests for the parser');
-    const userActionsIndex = html.indexOf('conversation-message-actions');
-    assert.ok(userIndex >= 0 && userTextIndex > userIndex
-        && userActionsIndex > userTextIndex,
-        'the user card action row sits below its content');
+    const starIndex = html.indexOf('conversation-message-bookmark');
+    const userCornerIndex = html.indexOf('conversation-message-corner');
+    assert.ok(userIndex >= 0 && starIndex > userIndex
+        && userCornerIndex > starIndex && userCornerIndex < userTextIndex,
+        'the user card corner cluster sits with the star above its content');
+    const userCopyIndex = html.indexOf('conversation-message-copy');
+    assert.ok(userCopyIndex > userCornerIndex
+        && userCopyIndex < userTextIndex,
+        'the user copy control lives in the corner cluster');
     const assistantIndex = html.indexOf('conversation-message-assistant');
     const answerTextIndex = html.indexOf('Like this:');
     const answerActionsIndex = html.indexOf(
-        'conversation-message-actions',
-        userActionsIndex + 1
+        'conversation-message-actions'
     );
     assert.ok(assistantIndex >= 0 && answerTextIndex > assistantIndex
         && answerActionsIndex > answerTextIndex,
@@ -3938,7 +3942,7 @@ test('CONVERSATION-COPY-ACTIONS-001 renders code block chrome and message copy c
     assert.equal(
         html.indexOf('conversation-message-actions', answerActionsIndex + 1),
         -1,
-        'exactly one action row per user/assistant article'
+        'only the assistant answer carries a bottom action row'
     );
     assert.equal(
         html.includes('conversation-message-time'),
@@ -3948,6 +3952,7 @@ test('CONVERSATION-COPY-ACTIONS-001 renders code block chrome and message copy c
 });
 
 test('CONVERSATION-COPY-ACTIONS-001 clocks the answer action row when the provider exposes timing', async () => {
+    const timestamp = Date.now() - 120_000;
     const completedAt = Date.now();
     const { viewer, panel } = createViewer({
         readPage: async request => ({
@@ -3955,6 +3960,7 @@ test('CONVERSATION-COPY-ACTIONS-001 clocks the answer action row when the provid
             interactionStates: [{
                 interactionId: 'input-1',
                 responseState: 'complete',
+                timestamp,
                 completedAt,
             }],
         }),
@@ -3962,19 +3968,26 @@ test('CONVERSATION-COPY-ACTIONS-001 clocks the answer action row when the provid
 
     await viewer.open(target('session-a', 'input-1'));
     const html = panel.webview.html;
-    const match = html.match(
-        /conversation-message-time\\&quot; title=\\&quot;([^\\]+?)\\&quot;&gt;(\d{2}:\d{2})/
-    );
-    assert.ok(match, 'the answer action row carries a clock time');
+    const matches = [...html.matchAll(
+        /conversation-message-time\\&quot; title=\\&quot;([^\\]+?)\\&quot;&gt;(\d{2}:\d{2})/g
+    )];
+    assert.equal(matches.length, 2,
+        'the user corner and the answer row both carry a clock');
     assert.equal(
-        match[1],
+        matches[0][1],
+        formatConversationClockTime(timestamp, Date.now()).title,
+        'the user corner clocks the input time'
+    );
+    assert.equal(
+        matches[1][1],
         formatConversationClockTime(completedAt, Date.now()).title,
-        'the tooltip carries the full deterministic timestamp'
+        'the answer row clocks the completion time'
     );
     const copyIndex = html.indexOf('conversation-message-copy');
+    const timeIndex = html.indexOf('conversation-message-time');
     assert.ok(
-        html.indexOf('conversation-message-time') > copyIndex,
-        'the clock sits right of the copy control'
+        timeIndex >= 0 && timeIndex < copyIndex,
+        'the user clock sits left of the copy control'
     );
 });
 

@@ -247,7 +247,16 @@ export function createClaudeLifecycleAccumulator(runStartedAtMs: number): AiSess
         if (event?.type === 'system' && event?.subtype === 'api_error') {
             return attention('claude', 'api_error', occurredAtMs, 'failed');
         }
+        if (event?.type === 'system' && event?.subtype === 'compact_boundary') {
+            if (event?.compactMetadata?.trigger === 'manual') {
+                return idle('claude', event.subtype, occurredAtMs, event.uuid);
+            }
+            return running('claude', event.subtype, occurredAtMs, event.uuid);
+        }
         if (event?.type === 'user') {
+            if (event?.isCompactSummary === true) {
+                return null;
+            }
             if (isClaudeUserInterrupt(event)) {
                 return idle('claude', 'user_interrupt', occurredAtMs, event.uuid);
             }

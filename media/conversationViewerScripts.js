@@ -941,6 +941,49 @@
                 || value.error === 'failed');
     }
 
+    var copyIconNamespace = 'http://www.w3.org/2000/svg';
+
+    function createCopyIconElement(kind) {
+        var icon = document.createElementNS(copyIconNamespace, 'svg');
+        icon.setAttribute('viewBox', '0 0 24 24');
+        icon.setAttribute('width', '14');
+        icon.setAttribute('height', '14');
+        icon.setAttribute('aria-hidden', 'true');
+        icon.setAttribute('fill', 'none');
+        icon.setAttribute('stroke', 'currentColor');
+        icon.setAttribute('stroke-width', '2');
+        icon.setAttribute('stroke-linecap', 'round');
+        icon.setAttribute('stroke-linejoin', 'round');
+        if (kind === 'check' || kind === 'cross') {
+            var glyph = document.createElementNS(copyIconNamespace, 'path');
+            glyph.setAttribute('d', kind === 'check'
+                ? 'M4 12.5l5 5L20 6.5'
+                : 'M6 6l12 12M18 6L6 18');
+            icon.appendChild(glyph);
+            return icon;
+        }
+        var back = document.createElementNS(copyIconNamespace, 'path');
+        back.setAttribute(
+            'd',
+            'M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1'
+        );
+        var front = document.createElementNS(copyIconNamespace, 'rect');
+        front.setAttribute('x', '9');
+        front.setAttribute('y', '9');
+        front.setAttribute('width', '13');
+        front.setAttribute('height', '13');
+        front.setAttribute('rx', '2');
+        icon.appendChild(back);
+        icon.appendChild(front);
+        return icon;
+    }
+
+    function replaceCopyIcon(button, kind) {
+        var current = button.querySelector('svg');
+        if (current) current.remove();
+        button.appendChild(createCopyIconElement(kind));
+    }
+
     function flashCopyResult(button, success) {
         window.clearTimeout(button.__conversationCopyTimer);
         button.classList.toggle('is-copied', success);
@@ -949,10 +992,12 @@
             'aria-label',
             success ? 'Copied' : 'Copy failed'
         );
+        replaceCopyIcon(button, success ? 'check' : 'cross');
         button.__conversationCopyTimer = window.setTimeout(function () {
             button.classList.remove('is-copied');
             button.classList.remove('is-failed');
             button.setAttribute('aria-label', button.title || 'Copy');
+            replaceCopyIcon(button, 'copy');
         }, 1400);
     }
 
@@ -976,6 +1021,9 @@
                         'aria-label',
                         button.title || 'Copy'
                     );
+                }
+                if (!button.querySelector('svg')) {
+                    button.appendChild(createCopyIconElement('copy'));
                 }
             }
         );

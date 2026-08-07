@@ -44,10 +44,12 @@ function renderCodeBlock(value: string, info: string): string {
     const label = lang
         ? `<span class="conversation-code-lang">${escapeHtml(lang)}</span>`
         : '';
-    return `<section class="conversation-code-block">${label}`
-        + highlightCode(value, lang)
+    return `<section class="conversation-code-block">`
+        + `<section class="conversation-code-header">${label}`
         + '<button class="conversation-code-copy" title="Copy code">'
-        + '</button></section>\n';
+        + '</button></section>'
+        + highlightCode(value, lang)
+        + '</section>\n';
 }
 
 const markdown = new MarkdownIt({

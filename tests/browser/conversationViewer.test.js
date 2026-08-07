@@ -1967,39 +1967,56 @@ test('CONVERSATION-COPY-ACTIONS-001 copies code blocks with a hover control and 
         'the code copy control is an icon, not a word'
     );
     assert.equal(await copyButton.getAttribute('aria-label'), 'Copy code');
-    const labelClearance = await page.evaluate(() => {
-        const blockElement = document.querySelector(
-            '.conversation-code-block'
-        );
-        const label = blockElement
-            .querySelector('.conversation-code-lang')
-            .getBoundingClientRect();
-        const pre = blockElement.querySelector('pre');
-        const preStyle = getComputedStyle(pre);
-        const contentTop = pre.getBoundingClientRect().top
-            + parseFloat(preStyle.borderTopWidth)
-            + parseFloat(preStyle.paddingTop);
-        return {
-            clears: label.bottom <= contentTop + 1,
-            paddingTop: parseFloat(preStyle.paddingTop),
-        };
-    });
-    assert.ok(
-        labelClearance.paddingTop >= 24 && labelClearance.clears,
-        'the language label must never overlap the first code line:'
-            + ` ${JSON.stringify(labelClearance)}`
+    assert.equal(
+        await copyButton.locator('svg').count(),
+        1,
+        'the code copy control renders a real icon glyph'
     );
     assert.equal(
         await copyButton.evaluate(element =>
             getComputedStyle(element).opacity),
-        '0',
-        'the code copy control stays quiet until hover'
+        '1',
+        'the header strip keeps the copy control visible'
     );
-    await block.hover();
-    await page.waitForFunction(() =>
-        getComputedStyle(document.querySelector('.conversation-code-copy'))
-            .opacity === '1'
-    );
+    const chrome = await page.evaluate(() => {
+        const blockElement = document.querySelector(
+            '.conversation-code-block'
+        );
+        const header = blockElement.querySelector(
+            '.conversation-code-header'
+        );
+        const headerRect = header.getBoundingClientRect();
+        const label = blockElement
+            .querySelector('.conversation-code-lang')
+            .getBoundingClientRect();
+        const button = blockElement
+            .querySelector('.conversation-code-copy')
+            .getBoundingClientRect();
+        const pre = blockElement.querySelector('pre');
+        const preRect = pre.getBoundingClientRect();
+        return {
+            headerAboveCode: headerRect.bottom <= preRect.top + 1,
+            labelInHeader: label.top >= headerRect.top - 1
+                && label.bottom <= headerRect.bottom + 1,
+            buttonInHeader: button.top >= headerRect.top - 1
+                && button.bottom <= headerRect.bottom + 1
+                && button.right <= headerRect.right + 1,
+            nothingOnCode: label.bottom <= preRect.top + 1
+                && button.bottom <= preRect.top + 1,
+            distinctSurface: getComputedStyle(header).backgroundColor
+                !== getComputedStyle(pre).backgroundColor,
+        };
+    });
+    assert.deepEqual(chrome, {
+        headerAboveCode: true,
+        labelInHeader: true,
+        buttonInHeader: true,
+        nothingOnCode: true,
+        distinctSurface: true,
+    }, 'code chrome lives on its own header strip above the code');
+    const initialIcon = await copyButton.evaluate(element =>
+        element.querySelector('svg')?.innerHTML);
+    assert.ok(initialIcon, 'the icon starts as the copy glyph');
 
     await copyButton.click();
     const requests = await postedMessages(page);
@@ -2041,6 +2058,12 @@ test('CONVERSATION-COPY-ACTIONS-001 copies code blocks with a hover control and 
         'Copied',
         'the settlement announces itself to screen readers'
     );
+    assert.notEqual(
+        await copyButton.evaluate(element =>
+            element.querySelector('svg')?.innerHTML),
+        initialIcon,
+        'the settlement swaps the copy glyph for a check'
+    );
     await page.waitForFunction(() =>
         document.querySelector('.conversation-code-copy')
             ?.classList.contains('is-copied') === false
@@ -2048,6 +2071,12 @@ test('CONVERSATION-COPY-ACTIONS-001 copies code blocks with a hover control and 
                 ?.getAttribute('aria-label') === 'Copy code',
         undefined,
         { timeout: 4000 }
+    );
+    assert.equal(
+        await copyButton.evaluate(element =>
+            element.querySelector('svg')?.innerHTML),
+        initialIcon,
+        'the copy glyph returns after the feedback window'
     );
 });
 
@@ -2115,25 +2144,47 @@ test('CONVERSATION-COPY-ACTIONS-001 copies user inputs and assistant answers thr
         ).count(),
         0
     );
-    const corner = await page.evaluate(() => {
+    const actionRows = await page.evaluate(() => {
         const card = document.querySelector('.conversation-message-user');
-        const copy = card.querySelector('.conversation-message-copy')
-            .getBoundingClientRect();
-        const star = card.querySelector('.conversation-message-bookmark')
-            .getBoundingClientRect();
         const cardBounds = card.getBoundingClientRect();
+        const cardMarkdown = card.querySelector('.conversation-markdown')
+            .getBoundingClientRect();
+        const cardRow = card.querySelector('.conversation-message-actions')
+            .getBoundingClientRect();
+        const cardCopy = card.querySelector('.conversation-message-copy')
+            .getBoundingClientRect();
+        const answer = document.querySelector(
+            '.conversation-message-assistant'
+        );
+        const answerMarkdown = answer.querySelector('.conversation-markdown')
+            .getBoundingClientRect();
+        const answerRow = answer.querySelector(
+            '.conversation-message-actions'
+        ).getBoundingClientRect();
+        const answerCopy = answer.querySelector('.conversation-message-copy')
+            .getBoundingClientRect();
         return {
-            leftOfStar: copy.right <= star.left + 1,
-            sameRow: Math.abs(copy.top - star.top) <= 2,
-            insideCard: copy.top >= cardBounds.top
-                && copy.right <= cardBounds.right,
+            cardRowBelow: cardRow.top >= cardMarkdown.bottom - 1,
+            cardRowInside: cardRow.bottom <= cardBounds.bottom + 1,
+            cardRowRight: cardCopy.right <= cardBounds.right - 4
+                && cardCopy.right > cardBounds.right - 48,
+            answerRowBelow: answerRow.top >= answerMarkdown.bottom - 1,
+            answerRowLeft: answerCopy.left
+                - answer.getBoundingClientRect().left < 48,
         };
     });
-    assert.deepEqual(corner, {
-        leftOfStar: true,
-        sameRow: true,
-        insideCard: true,
-    }, 'the copy control shares the card corner with the bookmark star');
+    assert.deepEqual(actionRows, {
+        cardRowBelow: true,
+        cardRowInside: true,
+        cardRowRight: true,
+        answerRowBelow: true,
+        answerRowLeft: true,
+    }, 'message copy lives on a bottom action row, not the top corner');
+    assert.equal(
+        await userCopy.locator('svg').count(),
+        1,
+        'the message copy control renders a real icon glyph'
+    );
 
     await userCopy.click();
     let requests = await postedMessages(page);

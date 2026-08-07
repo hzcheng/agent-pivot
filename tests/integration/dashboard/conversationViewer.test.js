@@ -3908,24 +3908,34 @@ test('CONVERSATION-COPY-ACTIONS-001 renders code block chrome and message copy c
     const html = panel.webview.html;
     assert.equal(html.includes('conversation-code-block'), true,
         'fenced code renders inside a copyable block wrapper');
-    assert.equal(html.includes('conversation-code-lang'), true,
-        'the block carries its language label');
-    assert.equal(html.includes('conversation-code-copy'), true);
+    assert.equal(html.includes('conversation-code-header'), true,
+        'the block chrome sits on its own header strip');
+    const headerIndex = html.indexOf('conversation-code-header');
+    const langIndex = html.indexOf('conversation-code-lang');
+    const codeCopyIndex = html.indexOf('conversation-code-copy');
+    const codeIndex = html.indexOf('language-ts');
+    assert.ok(headerIndex >= 0 && langIndex > headerIndex
+        && codeCopyIndex > headerIndex && codeIndex > codeCopyIndex,
+        'the header strip carries the label and copy control above the code');
     const userIndex = html.indexOf('conversation-message-user');
-    const copyIndex = html.indexOf('conversation-message-copy');
-    assert.ok(copyIndex > userIndex,
-        'the user input card carries a copy control');
+    const userTextIndex = html.indexOf('Add tests for the parser');
+    const userActionsIndex = html.indexOf('conversation-message-actions');
+    assert.ok(userIndex >= 0 && userTextIndex > userIndex
+        && userActionsIndex > userTextIndex,
+        'the user card action row sits below its content');
     const assistantIndex = html.indexOf('conversation-message-assistant');
-    const secondCopy = html.indexOf(
-        'conversation-message-copy',
-        copyIndex + 1
+    const answerTextIndex = html.indexOf('Like this:');
+    const answerActionsIndex = html.indexOf(
+        'conversation-message-actions',
+        userActionsIndex + 1
     );
-    assert.ok(secondCopy > assistantIndex,
-        'the assistant answer carries a copy control');
+    assert.ok(assistantIndex >= 0 && answerTextIndex > assistantIndex
+        && answerActionsIndex > answerTextIndex,
+        'the assistant action row sits below its content');
     assert.equal(
-        html.indexOf('conversation-message-copy', secondCopy + 1),
+        html.indexOf('conversation-message-actions', answerActionsIndex + 1),
         -1,
-        'exactly one copy control per user/assistant article'
+        'exactly one action row per user/assistant article'
     );
 });
 

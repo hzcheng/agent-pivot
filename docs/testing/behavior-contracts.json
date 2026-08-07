@@ -4588,7 +4588,7 @@
   {
     "id": "CONVERSATION-ACTIVE-SESSION-NAVIGATION-COMMANDS-001",
     "domain": "session",
-    "title": "Previous and Next Active Session commands synchronize the authoritative active terminal and card while restoring keyboard focus to AI Conversation",
+    "title": "Previous and Next Active Session commands remain globally available, synchronize the authoritative active terminal and card, and restore keyboard focus to AI Conversation",
     "priority": "P1",
     "status": "automated",
     "owners": [

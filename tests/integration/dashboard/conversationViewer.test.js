@@ -2911,12 +2911,14 @@ test('CONVERSATION-WORKLOG-COLLAPSE-001 publishes a Worked-for row between work 
     const html = panel.webview.html;
     assert.equal(html.includes('conversation-message-worklog'), true);
     assert.equal(html.includes('Worked for 1m 20s'), true);
-    const toolIndex = html.indexOf('conversation-message-tool');
+    const userIndex = html.indexOf('conversation-message-user');
     const worklogIndex = html.indexOf('conversation-message-worklog');
+    const toolIndex = html.indexOf('conversation-message-tool');
     const answerIndex = html.indexOf('All pass.');
-    assert.ok(toolIndex >= 0 && worklogIndex > toolIndex
-        && answerIndex > worklogIndex,
-        `worklog row must sit between work and answer: ${toolIndex}/${worklogIndex}/${answerIndex}`);
+    assert.ok(userIndex >= 0 && worklogIndex > userIndex
+        && toolIndex > worklogIndex && answerIndex > toolIndex,
+        'worklog row heads the work group so expanding never moves the toggle:'
+            + ` ${userIndex}/${worklogIndex}/${toolIndex}/${answerIndex}`);
 });
 
 test('CONVERSATION-WORKLOG-COLLAPSE-001 omits the row while in progress and falls back without timing', async () => {

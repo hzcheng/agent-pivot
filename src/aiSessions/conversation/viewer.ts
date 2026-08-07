@@ -2064,14 +2064,17 @@ function renderMessages(
         const answerIndex = group.findIndex(
             message => message.role === 'assistant'
         );
+        const firstWorkIndex = group.findIndex(
+            message => isWorklogEntry(message, showThinking)
+        );
         const info = interactionInfo.get(group[0].interactionId);
         if (info
             && info.responseState !== 'inProgress'
-            && answerIndex > 0
-            && group.slice(0, answerIndex).some(
-                message => isWorklogEntry(message, showThinking)
-            )) {
-            rendered.splice(answerIndex, 0, renderWorklogRow(
+            && answerIndex >= 0
+            && firstWorkIndex >= 0) {
+            // The row heads the work group (accordion-style) so expanding
+            // reveals entries below the toggle instead of pushing it down.
+            rendered.splice(firstWorkIndex, 0, renderWorklogRow(
                 group[0].interactionId,
                 worklogDurationMs(info)
             ));

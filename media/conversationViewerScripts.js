@@ -826,9 +826,10 @@
                     'conversation-worklog-expanded',
                     expanded
                 );
-                // Only work entries before the row (i.e. before the final
-                // answer) collapse, mirroring the Codex worked-for divider.
-                var sibling = row.previousElementSibling;
+                // The row heads the work group: entries after it (up to
+                // the next turn) collapse, so the toggle never moves when
+                // expanding.
+                var sibling = row.nextElementSibling;
                 while (sibling
                     && sibling.getAttribute('data-interaction-id')
                         === interactionId) {
@@ -841,7 +842,7 @@
                         )) {
                         sibling.hidden = !expanded;
                     }
-                    sibling = sibling.previousElementSibling;
+                    sibling = sibling.nextElementSibling;
                 }
             }
         );

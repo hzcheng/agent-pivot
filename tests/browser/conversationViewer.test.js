@@ -4543,23 +4543,14 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 strips inline emphasis tags fro
 
 test('CONVERSATION-WORKLOG-COLLAPSE-001 collapses completed-turn work behind a Worked-for row that toggles and survives refresh', async t => {
     const page = await openViewerPage(t, {});
-    const turnHtml = `<article class="conversation-message conversation-message-user"
+    const userArticle = `<article class="conversation-message conversation-message-user"
             data-message-id="input-4:user"
             data-conversation-message-id="input-4%3Auser"
             data-interaction-id="input-4">
         <span class="conversation-role">User</span>
         <section class="conversation-markdown"><p>Run the tests</p></section>
-    </article>
-    <article class="conversation-message conversation-message-tool"
-            data-message-id="input-4:tool:0"
-            data-conversation-message-id="input-4%3Atool%3A0"
-            data-interaction-id="input-4">
-        <details class="conversation-tool-call">
-            <summary><span class="conversation-tool-name">Shell</span> Shell npm test</summary>
-            <pre class="conversation-tool-detail"><code>9 passing</code></pre>
-        </details>
-    </article>
-    <article class="conversation-message conversation-message-worklog"
+    </article>`;
+    const worklogArticle = `<article class="conversation-message conversation-message-worklog"
             data-message-id="input-4:worklog"
             data-conversation-message-id="input-4%3Aworklog"
             data-interaction-id="input-4">
@@ -4567,14 +4558,27 @@ test('CONVERSATION-WORKLOG-COLLAPSE-001 collapses completed-turn work behind a W
             onclick="window.__pwned = true">
             <span class="conversation-worklog-label">Worked for 1m 20s</span>
         </button>
-    </article>
-    <article class="conversation-message conversation-message-assistant"
+    </article>`;
+    const toolArticle = `<article class="conversation-message conversation-message-tool"
+            data-message-id="input-4:tool:0"
+            data-conversation-message-id="input-4%3Atool%3A0"
+            data-interaction-id="input-4">
+        <details class="conversation-tool-call">
+            <summary><span class="conversation-tool-name">Shell</span> Shell npm test</summary>
+            <pre class="conversation-tool-detail"><code>9 passing</code></pre>
+        </details>
+    </article>`;
+    const assistantArticle = `<article class="conversation-message conversation-message-assistant"
             data-message-id="input-4:assistant:0"
             data-conversation-message-id="input-4%3Aassistant%3A0"
             data-interaction-id="input-4">
         <span class="conversation-role">Assistant</span>
         <section class="conversation-markdown"><p>All pass.</p></section>
     </article>`;
+    // The row heads the work group so expanding reveals entries below the
+    // toggle and the toggle itself never moves under the pointer.
+    const turnHtml = userArticle + worklogArticle + toolArticle
+        + assistantArticle;
     await sendPage(page, {
         ...hostileConversationPage,
         requestId: 60,
@@ -4595,9 +4599,15 @@ test('CONVERSATION-WORKLOG-COLLAPSE-001 collapses completed-turn work behind a W
         'completed-turn work starts collapsed');
     assert.equal(await toggle.getAttribute('aria-expanded'), 'false');
 
+    const toggleYBefore = (await toggle.boundingBox()).y;
     await toggle.click();
     assert.equal(await tool.isVisible(), true, 'click expands the worklog');
     assert.equal(await toggle.getAttribute('aria-expanded'), 'true');
+    assert.equal(
+        (await toggle.boundingBox()).y,
+        toggleYBefore,
+        'expanding reveals entries below the toggle, never moving it'
+    );
 
     await sendPage(page, {
         ...hostileConversationPage,
@@ -4658,8 +4668,9 @@ test('CONVERSATION-WORKLOG-COLLAPSE-001 keeps in-progress work expanded and coll
         'no row while the turn is live'
     );
 
-    const doneHtml = liveHtml.replace('running', '9 passing') + `
-    <article class="conversation-message conversation-message-worklog"
+    const doneHtml = liveHtml.replace('running', '9 passing').replace(
+        '<article class="conversation-message conversation-message-tool"',
+        `<article class="conversation-message conversation-message-worklog"
             data-message-id="input-4:worklog"
             data-conversation-message-id="input-4%3Aworklog"
             data-interaction-id="input-4">
@@ -4667,6 +4678,8 @@ test('CONVERSATION-WORKLOG-COLLAPSE-001 keeps in-progress work expanded and coll
             <span class="conversation-worklog-label">Worked for 45s</span>
         </button>
     </article>
+    <article class="conversation-message conversation-message-tool"`
+    ) + `
     <article class="conversation-message conversation-message-assistant"
             data-message-id="input-4:assistant:0"
             data-conversation-message-id="input-4%3Aassistant%3A0"

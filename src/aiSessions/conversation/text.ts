@@ -209,3 +209,19 @@ export function buildVisibleUserInput(
     flushAttachments();
     return normalizeVisibleText(visible.join(' '));
 }
+
+/** Compact English turn-work duration, e.g. `45s`, `1m 20s`, `2h 03m`. */
+export function formatWorkedDuration(durationMs: number): string {
+    const totalSeconds = Math.max(0, Math.floor(durationMs / 1000));
+    const seconds = totalSeconds % 60;
+    const totalMinutes = Math.floor(totalSeconds / 60);
+    const minutes = totalMinutes % 60;
+    const hours = Math.floor(totalMinutes / 60);
+    if (hours > 0) {
+        return `${hours}h ${String(minutes).padStart(2, '0')}m`;
+    }
+    if (totalMinutes > 0) {
+        return `${totalMinutes}m ${String(seconds).padStart(2, '0')}s`;
+    }
+    return `${seconds}s`;
+}

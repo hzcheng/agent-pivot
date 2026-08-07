@@ -520,6 +520,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                         openInteractionIndex = interactions.length - 1;
                     }
                 } else if (event.type === 'ContentPart') {
+                    stampActivity(envelope);
                     const payload = asRecord(event.payload);
                     const thinkText = payload?.type === 'think'
                         ? typeof payload.think === 'string'
@@ -554,6 +555,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                     }
                 } else if (event.type === 'PlanDisplay') {
                     flushThinking();
+                    stampActivity(envelope);
                     const payload = asRecord(event.payload);
                     if (openInteractionIndex !== undefined
                         && typeof payload?.content === 'string') {
@@ -579,6 +581,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                     }
                 } else if (event.type === 'ToolCall') {
                     flushThinking();
+                    stampActivity(envelope);
                     const payload = asRecord(event.payload);
                     const toolFunction = asRecord(payload?.function);
                     const toolName = typeof toolFunction?.name === 'string'
@@ -631,6 +634,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                         );
                     }
                 } else if (event.type === 'ToolResult') {
+                    stampActivity(envelope);
                     const payload = asRecord(event.payload);
                     const returnValue = asRecord(payload?.return_value);
                     toolTracker.finish(
@@ -640,10 +644,12 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                             : undefined
                     );
                 } else if (event.type === 'TurnEnd') {
+                    stampActivity(envelope);
                     finishInteraction('complete');
                 } else if (event.type === 'Interrupt'
                     || event.type === 'TurnInterrupt'
                     || event.type === 'TurnInterrupted') {
+                    stampActivity(envelope);
                     finishInteraction('interrupted');
                 }
             };
@@ -656,6 +662,17 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                 }
                 interactions[openInteractionIndex].responseState = state;
                 openInteractionIndex = undefined;
+            };
+            const stampActivity = (
+                envelope: Record<string, unknown> | undefined
+            ): void => {
+                if (!envelope || openInteractionIndex === undefined) {
+                    return;
+                }
+                const value = timestampValue(envelope.timestamp);
+                if (value !== undefined) {
+                    interactions[openInteractionIndex].completedAt = value;
+                }
             };
 
             let result;

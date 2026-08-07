@@ -33,7 +33,10 @@ import { parseConversationViewerMessage } from './viewerProtocol';
 import type { ConversationSessionSwitchDirection } from './viewerProtocol';
 import type { ConversationViewerTarget } from './viewerTarget';
 export type { ConversationViewerTarget } from './viewerTarget';
-import { truncateGraphemes } from './text';
+import {
+    formatWorkedDuration,
+    truncateGraphemes,
+} from './text';
 import {
     CONVERSATION_LIMITS,
     ConversationAbortController,
@@ -43,6 +46,7 @@ import {
     ConversationOutline,
     ConversationPage,
     ConversationPageRequest,
+    ConversationResponseState,
     ConversationSnapshot,
     ConversationSubagentEntry,
     ConversationTelemetry,
@@ -1768,6 +1772,18 @@ export class ConversationViewer implements ConversationViewerApi {
         const interactionIds = outline.interactions.map(
             interaction => interaction.id
         );
+        const interactionInfo = new Map<string, {
+            responseState: ConversationResponseState;
+            timestamp?: number;
+            completedAt?: number;
+        }>();
+        this.pages.forEach(retained => {
+            retained.page.interactionStates.forEach(state => {
+                if (!interactionInfo.has(state.interactionId)) {
+                    interactionInfo.set(state.interactionId, state);
+                }
+            });
+        });
         const selectedIndex = interactionIds.indexOf(
             projection.selectedInteractionId
         );
@@ -1779,7 +1795,11 @@ export class ConversationViewer implements ConversationViewerApi {
             requestId,
             subscriptionGeneration: generation,
             updateKind,
-            html: renderMessages(this.messages(), this.showThinking()),
+            html: renderMessages(
+                this.messages(),
+                this.showThinking(),
+                interactionInfo
+            ),
             ...projection,
             previousCursor: selectedIndex > 0
                 ? first?.previousCursor || ''
@@ -1957,21 +1977,61 @@ function renderProgressMessage(message: ConversationMessage): string {
 </article>`;
 }
 
-function renderMessages(
-    messages: ConversationMessage[],
+interface ConversationInteractionRenderInfo {
+    responseState: ConversationResponseState;
+    timestamp?: number;
+    completedAt?: number;
+}
+
+function isWorklogEntry(
+    message: ConversationMessage,
+    showThinking: boolean
+): boolean {
+    return message.role === 'tool'
+        || message.role === 'progress'
+        || (message.role === 'thinking' && showThinking);
+}
+
+function worklogDurationMs(
+    info: ConversationInteractionRenderInfo
+): number | undefined {
+    if (info.timestamp === undefined || info.completedAt === undefined) {
+        return undefined;
+    }
+    const duration = info.completedAt - info.timestamp;
+    return duration >= 1000 ? duration : undefined;
+}
+
+function renderWorklogRow(
+    interactionId: string,
+    durationMs?: number
+): string {
+    const label = durationMs !== undefined
+        ? `Worked for ${formatWorkedDuration(durationMs)}`
+        : 'Worked';
+    const id = `${interactionId}:worklog`;
+    return `<article class="conversation-message conversation-message-worklog"
+    data-message-id="${escapeAttribute(id)}"
+    data-conversation-message-id="${escapeAttribute(encodeURIComponent(id))}"
+    data-interaction-id="${escapeAttribute(interactionId)}">
+    <button class="conversation-worklog-toggle"><span class="conversation-worklog-label">${escapeAttribute(label)}</span></button>
+</article>`;
+}
+
+function renderMessage(
+    message: ConversationMessage,
     showThinking: boolean
 ): string {
-    return messages.map(message => {
-        if (message.role === 'tool') {
-            return renderToolMessage(message);
-        }
-        if (message.role === 'thinking') {
-            return showThinking ? renderThinkingMessage(message) : '';
-        }
-        if (message.role === 'progress') {
-            return renderProgressMessage(message);
-        }
-        return `<article class="conversation-message conversation-message-${message.role}"
+    if (message.role === 'tool') {
+        return renderToolMessage(message);
+    }
+    if (message.role === 'thinking') {
+        return showThinking ? renderThinkingMessage(message) : '';
+    }
+    if (message.role === 'progress') {
+        return renderProgressMessage(message);
+    }
+    return `<article class="conversation-message conversation-message-${message.role}"
     data-message-id="${escapeAttribute(message.id)}"
     data-conversation-message-id="${escapeAttribute(encodeURIComponent(message.id))}"
     data-interaction-id="${escapeAttribute(message.interactionId)}">
@@ -1980,5 +2040,42 @@ function renderMessages(
         message.markdown
     )}</section>
 </article>`;
+}
+
+function renderMessages(
+    messages: ConversationMessage[],
+    showThinking: boolean,
+    interactionInfo: Map<string, ConversationInteractionRenderInfo> = new Map()
+): string {
+    const groups: ConversationMessage[][] = [];
+    messages.forEach(message => {
+        const last = groups[groups.length - 1];
+        if (last && last[0].interactionId === message.interactionId) {
+            last.push(message);
+        } else {
+            groups.push([message]);
+        }
+    });
+    return groups.map(group => {
+        const rendered = group.map(message => renderMessage(
+            message,
+            showThinking
+        ));
+        const answerIndex = group.findIndex(
+            message => message.role === 'assistant'
+        );
+        const info = interactionInfo.get(group[0].interactionId);
+        if (info
+            && info.responseState !== 'inProgress'
+            && answerIndex > 0
+            && group.slice(0, answerIndex).some(
+                message => isWorklogEntry(message, showThinking)
+            )) {
+            rendered.splice(answerIndex, 0, renderWorklogRow(
+                group[0].interactionId,
+                worklogDurationMs(info)
+            ));
+        }
+        return rendered.join('');
     }).join('');
 }

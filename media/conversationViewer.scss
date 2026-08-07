@@ -358,6 +358,51 @@ button {
     color: var(--vscode-descriptionForeground);
 }
 
+.conversation-message[hidden] {
+    display: none;
+}
+
+.conversation-message-worklog {
+    margin: 0.375rem 0 0.375rem 1.25rem;
+    font-size: 0.85em;
+}
+
+.conversation-worklog-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.1rem 0.4rem 0.1rem 0;
+    border: none;
+    background: transparent;
+    color: var(--vscode-descriptionForeground);
+    font-family: inherit;
+    font-size: inherit;
+    cursor: pointer;
+
+    &::before {
+        content: '';
+        border: solid currentColor;
+        border-width: 0 1.5px 1.5px 0;
+        padding: 2.5px;
+        transform: rotate(-45deg);
+        transition: transform 120ms ease;
+    }
+
+    &:hover {
+        color: var(--vscode-foreground);
+    }
+
+    &:focus-visible {
+        color: var(--vscode-foreground);
+        outline: 1px solid var(--vscode-focusBorder);
+        outline-offset: 1px;
+    }
+}
+
+.conversation-worklog-expanded .conversation-worklog-toggle::before {
+    transform: rotate(45deg);
+}
+
 .conversation-tool-call {
     summary {
         cursor: pointer;
@@ -1380,6 +1425,10 @@ button {
         animation: none;
     }
 
+    .conversation-worklog-toggle::before {
+        transition: none;
+    }
+
     .conversation-session-nav {
         transition: none;
 
@@ -1391,6 +1440,10 @@ button {
 }
 
 @media (forced-colors: active) {
+    .conversation-worklog-toggle {
+        color: ButtonText;
+    }
+
     .conversation-comment-icon-button.accent,
     .conversation-icon-button.accent {
         border-color: ButtonText;

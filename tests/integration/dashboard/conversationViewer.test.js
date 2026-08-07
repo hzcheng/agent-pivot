@@ -2855,3 +2855,100 @@ test('CONVERSATION-TOOL-CALL-VISIBILITY-001 publishes collapsible tool-call mark
     assert.equal(html.includes('9 passing'), true);
     assert.equal(html.includes('conversation-message-tool'), true);
 });
+
+function worklogPage(sessionId, options = {}) {
+    const state = {
+        interactionId: 'input-1',
+        responseState: options.responseState || 'complete',
+        ...(options.timestamp !== undefined
+            ? { timestamp: options.timestamp } : {}),
+        ...(options.completedAt !== undefined
+            ? { completedAt: options.completedAt } : {}),
+    };
+    const messages = [{
+        id: 'input-1:user',
+        interactionId: 'input-1',
+        role: 'user',
+        markdown: 'Run the tests',
+    }];
+    if (options.withWork !== false) {
+        messages.push({
+            id: 'input-1:tool:0',
+            interactionId: 'input-1',
+            role: 'tool',
+            markdown: '',
+            tool: { name: 'Shell', summary: 'Shell npm test', detail: '9 passing' },
+        });
+    }
+    if (options.withAnswer !== false) {
+        messages.push({
+            id: 'input-1:assistant:0',
+            interactionId: 'input-1',
+            role: 'assistant',
+            markdown: 'All pass.',
+        });
+    }
+    return {
+        ...page(sessionId, 'input-1', 'visible'),
+        messages,
+        interactionStates: [state],
+    };
+}
+
+test('CONVERSATION-WORKLOG-COLLAPSE-001 publishes a Worked-for row between work entries and the answer', async () => {
+    const { viewer, panel } = createViewer({
+        readOutline: async (_provider, sessionId) => outline(
+            sessionId,
+            ['input-1']
+        ),
+        readPage: async request => worklogPage(request.sessionId, {
+            timestamp: 1_000,
+            completedAt: 81_000,
+        }),
+    });
+
+    await viewer.open(target('session-a', 'input-1'));
+    const html = panel.webview.html;
+    assert.equal(html.includes('conversation-message-worklog'), true);
+    assert.equal(html.includes('Worked for 1m 20s'), true);
+    const toolIndex = html.indexOf('conversation-message-tool');
+    const worklogIndex = html.indexOf('conversation-message-worklog');
+    const answerIndex = html.indexOf('All pass.');
+    assert.ok(toolIndex >= 0 && worklogIndex > toolIndex
+        && answerIndex > worklogIndex,
+        `worklog row must sit between work and answer: ${toolIndex}/${worklogIndex}/${answerIndex}`);
+});
+
+test('CONVERSATION-WORKLOG-COLLAPSE-001 omits the row while in progress and falls back without timing', async () => {
+    const { viewer, panel } = createViewer({
+        readOutline: async (_provider, sessionId) => outline(
+            sessionId,
+            ['input-1']
+        ),
+        readPage: async request => worklogPage(request.sessionId, {
+            responseState: 'inProgress',
+            timestamp: 1_000,
+        }),
+    });
+
+    await viewer.open(target('session-a', 'input-1'));
+    assert.equal(
+        panel.webview.html.includes('conversation-message-worklog'),
+        false,
+        'in-progress turns keep their work expanded without a row'
+    );
+
+    const { viewer: fallbackViewer, panel: fallbackPanel } = createViewer({
+        readOutline: async (_provider, sessionId) => outline(
+            sessionId,
+            ['input-1']
+        ),
+        readPage: async request => worklogPage(request.sessionId),
+    });
+    await fallbackViewer.open(target('session-b', 'input-1'));
+    const html = fallbackPanel.webview.html;
+    assert.equal(html.includes('conversation-message-worklog'), true);
+    assert.equal(html.includes('&gt;Worked&lt;/span'), true,
+        'turns without timing fall back to a plain Worked label');
+    assert.equal(html.includes('Worked for'), false);
+});

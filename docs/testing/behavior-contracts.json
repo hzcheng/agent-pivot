@@ -4041,6 +4041,31 @@
     ]
   },
   {
+    "id": "CONVERSATION-WORKLOG-COLLAPSE-001",
+    "domain": "webview",
+    "title": "AI Conversation collapses each completed turn's tool, thinking, and progress entries behind one Worked-for row that toggles in place and keeps its state across live refreshes",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/conversationText.test.js",
+      "tests/unit/aiSessions/conversationModel.test.js",
+      "tests/contract/aiSessions/claudeConversationAdapter.test.js",
+      "tests/contract/aiSessions/kimiConversationAdapter.test.js",
+      "tests/integration/dashboard/conversationViewer.test.js",
+      "tests/browser/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/types.ts",
+      "src/aiSessions/conversation/model.ts",
+      "src/aiSessions/conversation/text.ts",
+      "src/aiSessions/conversation/claudeAdapter.ts",
+      "src/aiSessions/conversation/kimiAdapter.ts",
+      "src/aiSessions/conversation/viewer.ts",
+      "src/webview/conversationViewerScripts.js",
+      "media/conversationViewer.scss"
+    ]
+  },
+  {
     "id": "WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001",
     "domain": "webview",
     "title": "Conversation viewers list session subagents and render their transcripts in place",

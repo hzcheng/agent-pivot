@@ -1671,6 +1671,11 @@ test('CONVERSATION-OUTLINE-BOOKMARKS-001 settles stars authoritatively, filters 
         )?.getAttribute('aria-pressed') === 'true'
     );
     assert.equal(await inputOneStar.getAttribute('aria-pressed'), 'true');
+    assert.equal(
+        await page.locator('[data-conversation-status]').textContent(),
+        '',
+        'outline star settlements stay out of the status line'
+    );
     assert.deepEqual(await orderedIds(), interactionIds);
 
     await page.locator('[data-outline-bookmarks-only]').click();
@@ -1690,6 +1695,226 @@ test('CONVERSATION-OUTLINE-BOOKMARKS-001 settles stars authoritatively, filters 
         await page.locator('[data-outline-bookmarks-only]')
             .getAttribute('aria-label'),
         'Show all inputs, 2 bookmarks'
+    );
+});
+
+test('CONVERSATION-MESSAGE-BOOKMARK-001 bookmarks an input from its card without opening the sidebar', async t => {
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[1],
+        viewport: { width: 1050, height: 620 },
+        interactionIds: ['input-1', 'input-2'],
+        interactionId: 'input-1',
+        pageOverrides: {
+            messages: [{
+                id: 'input-1:user',
+                interactionId: 'input-1',
+                role: 'user',
+                markdown: 'First question',
+            }, {
+                id: 'input-1:assistant:0',
+                interactionId: 'input-1',
+                role: 'assistant',
+                markdown: 'First answer',
+            }, {
+                id: 'input-2:user',
+                interactionId: 'input-2',
+                role: 'user',
+                markdown: 'Second question',
+            }, {
+                id: 'input-2:assistant:0',
+                interactionId: 'input-2',
+                role: 'assistant',
+                markdown: 'Second answer',
+            }],
+        },
+        bookmarkStore: {
+            async load() {
+                return { revision: 3, interactionIds: ['input-2'] };
+            },
+            async save() {},
+        },
+    });
+    const cardStar = page.locator(
+        '.conversation-message-user[data-interaction-id="input-1"]'
+            + ' .conversation-message-bookmark'
+    );
+    const cardTwoStar = page.locator(
+        '.conversation-message-user[data-interaction-id="input-2"]'
+            + ' .conversation-message-bookmark'
+    );
+
+    await cardStar.waitFor();
+    assert.equal(await cardStar.getAttribute('aria-pressed'), 'false');
+    assert.equal(
+        await cardStar.getAttribute('aria-label'),
+        'Bookmark this input'
+    );
+    assert.equal(
+        await cardTwoStar.getAttribute('aria-pressed'),
+        'true',
+        'the initial bookmark snapshot paints the card stars'
+    );
+    assert.equal(
+        await cardTwoStar.getAttribute('aria-label'),
+        'Remove bookmark from this input'
+    );
+    assert.equal(
+        await page.locator('.conversation-message-bookmark').count(),
+        2,
+        'exactly one toggle per user input card'
+    );
+    assert.equal(
+        await page.locator(
+            '.conversation-message-assistant .conversation-message-bookmark'
+        ).count(),
+        0,
+        'answers carry no bookmark toggle'
+    );
+    const starGeometry = await page.evaluate(() => {
+        const card = document.querySelector(
+            '.conversation-message-user[data-interaction-id="input-1"]'
+        );
+        const star = card.querySelector('.conversation-message-bookmark');
+        const cardRect = card.getBoundingClientRect();
+        const starRect = star.getBoundingClientRect();
+        return {
+            insideCard: starRect.top >= cardRect.top
+                && starRect.bottom <= cardRect.top + cardRect.height / 2
+                && starRect.right <= cardRect.right
+                && starRect.left > cardRect.left + cardRect.width / 2,
+            starColor: getComputedStyle(star).color,
+        };
+    });
+    assert.equal(
+        starGeometry.insideCard,
+        true,
+        'the star sits in the top-right corner of the input card'
+    );
+    assert.notEqual(
+        starGeometry.starColor,
+        'rgba(0, 0, 0, 0)',
+        'an available card star must keep theme contrast'
+    );
+
+    await cardStar.click();
+    assert.equal(
+        await cardStar.getAttribute('aria-pressed'),
+        'false',
+        'the card star must not update optimistically'
+    );
+    assert.equal(
+        await cardStar.isDisabled(),
+        true,
+        'the toggle waits for the authoritative settlement'
+    );
+    const requests = await postedMessages(page);
+    const requestId = requests.at(-1).requestId;
+    assert.match(requestId, /^conversation-bookmark:[a-z0-9]+:1$/);
+    assert.deepEqual(requests.at(-1), {
+        type: 'conversation-viewer-bookmark-mutation',
+        version: 1,
+        requestId,
+        subscriptionGeneration: 1,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-host-document',
+        operation: 'set',
+        expectedRevision: 3,
+        payload: {
+            interactionId: 'input-1',
+            bookmarked: true,
+        },
+    });
+    assert.equal(
+        requests.some(message =>
+            message.type === 'conversation-viewer-select-interaction'),
+        false,
+        'starring a card must not navigate'
+    );
+
+    await page.evaluate(settlementRequestId => window.postMessage({
+        type: 'conversation-viewer-bookmarks-result',
+        version: 1,
+        requestId: settlementRequestId,
+        subscriptionGeneration: 1,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-host-document',
+        operation: 'set',
+        success: true,
+        revision: 4,
+        interactionIds: ['input-2', 'input-1'],
+    }, '*'), requestId);
+    await page.waitForFunction(() =>
+        document.querySelector(
+            '.conversation-message-user[data-interaction-id="input-1"]'
+                + ' .conversation-message-bookmark'
+        )?.getAttribute('aria-pressed') === 'true'
+    );
+    assert.equal(
+        await cardStar.getAttribute('aria-label'),
+        'Remove bookmark from this input'
+    );
+    assert.equal(await cardStar.isEnabled(), true);
+    assert.equal(
+        await page.locator('[data-outline-bookmark-id="input-1"]')
+            .getAttribute('aria-pressed'),
+        'true',
+        'card and outline stars share one authoritative state'
+    );
+    assert.equal(
+        await page.locator('[data-conversation-status]').textContent(),
+        '',
+        'a successful star settlement stays out of the status line'
+    );
+    assert.equal(
+        await page.locator('[data-outline-bookmarks-only]')
+            .getAttribute('aria-label'),
+        'Show bookmarked inputs only, 2 bookmarks'
+    );
+    assert.equal(
+        await page.evaluate(() => document.activeElement
+            ?.classList.contains('conversation-message-bookmark')),
+        true,
+        'focus returns to the card star after the settlement'
+    );
+
+    await cardStar.click();
+    const removal = (await postedMessages(page)).at(-1);
+    assert.deepEqual(removal.payload, {
+        interactionId: 'input-1',
+        bookmarked: false,
+    });
+    await page.evaluate(settlementRequestId => window.postMessage({
+        type: 'conversation-viewer-bookmarks-result',
+        version: 1,
+        requestId: settlementRequestId,
+        subscriptionGeneration: 1,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-host-document',
+        operation: 'set',
+        success: true,
+        revision: 5,
+        interactionIds: ['input-2'],
+    }, '*'), removal.requestId);
+    await page.waitForFunction(() =>
+        document.querySelector(
+            '.conversation-message-user[data-interaction-id="input-1"]'
+                + ' .conversation-message-bookmark'
+        )?.getAttribute('aria-pressed') === 'false'
+    );
+    assert.equal(
+        await page.locator('[data-outline-bookmark-id="input-1"]')
+            .getAttribute('aria-pressed'),
+        'false',
+        'removing from the card also clears the outline star'
+    );
+    assert.equal(
+        await page.locator('[data-conversation-status]').textContent(),
+        '',
+        'removals stay out of the status line too'
     );
 });
 

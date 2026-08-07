@@ -4518,6 +4518,23 @@
     ]
   },
   {
+    "id": "CONVERSATION-MESSAGE-BOOKMARK-001",
+    "domain": "webview",
+    "title": "AI Conversation bookmarks an input straight from its message card without opening the outline sidebar, settles the star through the same Host mutation, and keeps card and outline stars in one authoritative state",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/integration/dashboard/conversationViewer.test.js",
+      "tests/browser/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/viewer.ts",
+      "src/webview/conversationOutlineScripts.js",
+      "src/webview/conversationViewerScripts.js",
+      "media/conversationViewer.scss"
+    ]
+  },
+  {
     "id": "CONVERSATION-TELEMETRY-001",
     "domain": "webview",
     "title": "AI Conversation shows a provider identity icon, correlated provider model, current worktree, context-window usage, and quota windows without replacing conversation content or accepting stale Session data",

@@ -2031,11 +2031,23 @@ function renderMessage(
     if (message.role === 'progress') {
         return renderProgressMessage(message);
     }
+    if (message.role === 'user') {
+        return `<article class="conversation-message conversation-message-user"
+    data-message-id="${escapeAttribute(message.id)}"
+    data-conversation-message-id="${escapeAttribute(encodeURIComponent(message.id))}"
+    data-interaction-id="${escapeAttribute(message.interactionId)}">
+    <span class="conversation-role">User</span>
+    <button class="conversation-message-bookmark" title="Bookmark this input"></button>
+    <section class="conversation-markdown">${renderConversationMarkdown(
+        message.markdown
+    )}</section>
+</article>`;
+    }
     return `<article class="conversation-message conversation-message-${message.role}"
     data-message-id="${escapeAttribute(message.id)}"
     data-conversation-message-id="${escapeAttribute(encodeURIComponent(message.id))}"
     data-interaction-id="${escapeAttribute(message.interactionId)}">
-    <span class="conversation-role">${message.role === 'user' ? 'User' : 'Assistant'}</span>
+    <span class="conversation-role">Assistant</span>
     <section class="conversation-markdown">${renderConversationMarkdown(
         message.markdown
     )}</section>

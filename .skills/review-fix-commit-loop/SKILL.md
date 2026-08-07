@@ -107,3 +107,7 @@ Summarize:
 - Judge gate and verification scripts by their own exit code: piping to
   `grep`/`head` masks it (check `$?` directly or use `set -o pipefail`), and
   chain commits after verification steps with `&&`, never `;`.
+- Run long suites such as `npm run test:ci:linux` as a background task with an
+  explicit generous `timeout`: background tasks default to about a minute and
+  foreground calls cap out around five minutes, so either default kills the
+  suite mid-run.

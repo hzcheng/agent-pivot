@@ -15,6 +15,7 @@
         var outlinePartial = options.outlinePartial;
         var outlineBookmarksOnly = options.outlineBookmarksOnly;
         var outlineBookmarkCount = options.outlineBookmarkCount;
+        var messagesRoot = options.messagesRoot;
         var post = options.post;
         var outlinePanelActive = options.outlinePanelActive;
         var persistPanelState = options.persistPanelState;
@@ -103,11 +104,15 @@
             ].join(':');
         }
 
-        function postBookmarkMutation(interactionId, bookmarked) {
+        function postBookmarkMutation(interactionId, bookmarked, origin) {
             if (!bookmarkUiAvailable
                 || state.pendingBookmarkRequest) return;
             var requestId = nextBookmarkRequestId();
-            state.pendingBookmarkRequest = { requestId: requestId, interactionId: interactionId };
+            state.pendingBookmarkRequest = {
+                requestId: requestId,
+                interactionId: interactionId,
+                origin: origin === 'card' ? 'card' : 'outline',
+            };
             renderBookmarkState();
             post({
                 type: 'conversation-viewer-bookmark-mutation',
@@ -138,24 +143,75 @@
                 return false;
             }
             var focusedId = state.pendingBookmarkRequest.interactionId;
+            var pendingOrigin = state.pendingBookmarkRequest.origin;
             state.pendingBookmarkRequest = null;
             state.bookmarkRevision = message.revision;
             state.bookmarkIds = new Set(message.interactionIds);
             renderBookmarkState();
             filterOutline();
-            status.textContent = message.success
-                ? (state.bookmarkIds.has(focusedId)
-                    ? 'Input bookmarked.'
-                    : 'Bookmark removed.')
-                : 'Bookmark could not be updated.';
-            var focused = outlineList.querySelector(
-                '[data-outline-bookmark-id="' + CSS.escape(focusedId) + '"]'
-            );
+            if (message.success) {
+                // The star fill plus the aria-pressed flip on the focused
+                // button are the settlement feedback; keep the status line
+                // for failures so a snap-back never goes unexplained.
+                if (status.textContent === 'Bookmark could not be updated.') {
+                    status.textContent = '';
+                }
+            } else {
+                status.textContent = 'Bookmark could not be updated.';
+            }
+            var focused = pendingOrigin === 'card'
+                ? messageBookmarkButton(focusedId)
+                : null;
+            if (!focused) {
+                focused = outlineList.querySelector(
+                    '[data-outline-bookmark-id="' + CSS.escape(focusedId) + '"]'
+                );
+            }
             if (focused) focused.focus();
             return true;
         }
 
+        function messageBookmarkButton(interactionId) {
+            if (!messagesRoot) return null;
+            var article = messagesRoot.querySelector(
+                '.conversation-message-user[data-interaction-id="'
+                    + CSS.escape(interactionId) + '"]'
+            );
+            return article
+                ? article.querySelector('.conversation-message-bookmark')
+                : null;
+        }
+
+        function renderMessageBookmarks() {
+            if (!messagesRoot) return;
+            Array.prototype.forEach.call(
+                messagesRoot.querySelectorAll('.conversation-message-bookmark'),
+                function (button) {
+                    var article = button.closest
+                        ? button.closest('[data-interaction-id]')
+                        : null;
+                    var interactionId = article
+                        ? article.getAttribute('data-interaction-id')
+                        : '';
+                    var bookmarked = interactionId !== ''
+                        && state.bookmarkIds.has(interactionId);
+                    button.classList.toggle('is-bookmarked', bookmarked);
+                    button.setAttribute(
+                        'aria-pressed',
+                        bookmarked ? 'true' : 'false'
+                    );
+                    var label = bookmarked
+                        ? 'Remove bookmark from this input'
+                        : 'Bookmark this input';
+                    button.setAttribute('aria-label', label);
+                    button.title = label;
+                    button.disabled = !!state.pendingBookmarkRequest;
+                }
+            );
+        }
+
         function renderBookmarkState() {
+            renderMessageBookmarks();
             if (!sidebarUiAvailable) return;
             Array.prototype.forEach.call(
                 outlineList.querySelectorAll('[data-outline-bookmark-id]'),
@@ -417,7 +473,8 @@
                     );
                     postBookmarkMutation(
                         bookmarkId,
-                        !state.bookmarkIds.has(bookmarkId)
+                        !state.bookmarkIds.has(bookmarkId),
+                        'outline'
                     );
                     return;
                 }
@@ -456,6 +513,16 @@
                 visible[index].tabIndex = 0;
                 visible[index].focus();
             });
+        }
+
+        function toggleBookmark(interactionId, origin) {
+            if (typeof interactionId !== 'string'
+                || interactionId === '') return;
+            postBookmarkMutation(
+                interactionId,
+                !state.bookmarkIds.has(interactionId),
+                origin
+            );
         }
 
         function initializeBookmarks() {
@@ -517,6 +584,7 @@
             resetSession: resetSession,
             restoreQuery: restoreQuery,
             size: size,
+            toggleBookmark: toggleBookmark,
         });
     }
 

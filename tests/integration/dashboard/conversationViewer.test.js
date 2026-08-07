@@ -2954,3 +2954,29 @@ test('CONVERSATION-WORKLOG-COLLAPSE-001 omits the row while in progress and fall
         'turns without timing fall back to a plain Worked label');
     assert.equal(html.includes('Worked for'), false);
 });
+
+test('CONVERSATION-MESSAGE-BOOKMARK-001 renders a bookmark toggle inside each user input card only', async () => {
+    const { viewer, panel } = createViewer({
+        readOutline: async (_provider, sessionId) => outline(
+            sessionId,
+            ['input-1']
+        ),
+        readPage: async request => worklogPage(request.sessionId),
+    });
+
+    await viewer.open(target('session-a', 'input-1'));
+    const html = panel.webview.html;
+    const userIndex = html.indexOf('conversation-message-user');
+    const bookmarkIndex = html.indexOf('conversation-message-bookmark');
+    const markdownIndex = html.indexOf('Run the tests');
+    assert.ok(userIndex >= 0 && bookmarkIndex > userIndex
+        && bookmarkIndex < markdownIndex,
+        'the bookmark toggle lives inside the user input card:'
+            + ` ${userIndex}/${bookmarkIndex}/${markdownIndex}`);
+    assert.equal(html.includes('Bookmark this input'), true);
+    assert.equal(
+        html.indexOf('conversation-message-bookmark', bookmarkIndex + 1),
+        -1,
+        'work entries and the answer carry no bookmark toggle'
+    );
+});

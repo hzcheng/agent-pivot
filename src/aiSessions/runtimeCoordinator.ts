@@ -13,6 +13,7 @@ import type {
     AiSessionResumeRuntimeRequest,
     AiSessionRuntimeActionResult,
     AiSessionRuntimeConfiguration,
+    AiSessionRuntimeFocusOptions,
     AiSessionRuntimeIdentity,
     AiSessionRuntimeSnapshot,
 } from './runtimeTypes';
@@ -256,19 +257,23 @@ export class AiSessionRuntimeCoordinator<TTerminal = vscode.Terminal> {
             : [];
     }
 
-    async focus(identity: AiSessionRuntimeIdentity): Promise<void> {
+    async focus(
+        identity: AiSessionRuntimeIdentity,
+        options: AiSessionRuntimeFocusOptions = {}
+    ): Promise<void> {
         const cached = this.matchesForIdentity(identity);
         if (cached.length === 1 && cached[0].state !== 'conflict') {
             if (cached[0].backend === 'vscode') {
                 await this.dependencies.direct.refresh(true);
                 const directMatches = this.matchesInBackend(this.dependencies.direct, identity);
                 if (directMatches.length === 1 && directMatches[0].state !== 'conflict') {
-                    await this.dependencies.direct.focus(cloneRuntime(directMatches[0]));
+                    await this.dependencies.direct.focus(cloneRuntime(directMatches[0]), options);
+                    return;
                 }
-                return;
+                throw new AiSessionRuntimeTargetChangedError();
             }
             try {
-                await this.dependencies.tmux.focus(cloneRuntime(cached[0]));
+                await this.dependencies.tmux.focus(cloneRuntime(cached[0]), options);
                 return;
             } catch (error) {
                 if (!(error instanceof AiSessionRuntimeTargetChangedError)) {
@@ -278,32 +283,23 @@ export class AiSessionRuntimeCoordinator<TTerminal = vscode.Terminal> {
             await this.refreshForHost(true);
             const refreshed = this.matchesForIdentity(identity);
             if (refreshed.length !== 1 || refreshed[0].state === 'conflict') {
-                return;
+                throw new AiSessionRuntimeTargetChangedError();
             }
-            try {
-                await this.backendFor(refreshed[0]).focus(cloneRuntime(refreshed[0]));
-            } catch (error) {
-                if (!(error instanceof AiSessionRuntimeTargetChangedError)) {
-                    throw error;
-                }
-            }
+            await this.backendFor(refreshed[0]).focus(cloneRuntime(refreshed[0]), options);
             return;
         }
         await this.refreshForHost(true);
         const matches = this.matchesForIdentity(identity);
         if (matches.length !== 1 || matches[0].state === 'conflict') {
-            return;
+            throw new AiSessionRuntimeTargetChangedError();
         }
-        try {
-            await this.backendFor(matches[0]).focus(cloneRuntime(matches[0]));
-        } catch (error) {
-            if (!(error instanceof AiSessionRuntimeTargetChangedError)) {
-                throw error;
-            }
-        }
+        await this.backendFor(matches[0]).focus(cloneRuntime(matches[0]), options);
     }
 
-    async focusSelected(selected: AiSessionRuntimeSnapshot<TTerminal>): Promise<boolean> {
+    async focusSelected(
+        selected: AiSessionRuntimeSnapshot<TTerminal>,
+        options: AiSessionRuntimeFocusOptions = {}
+    ): Promise<boolean> {
         const selection = cloneRuntime(selected);
         const refresh = await this.refreshBackends(true);
         this.throwRefreshFailure(refresh);
@@ -314,7 +310,7 @@ export class AiSessionRuntimeCoordinator<TTerminal = vscode.Terminal> {
         if (matches.length !== 1) {
             return false;
         }
-        await backend.focus(cloneRuntime(matches[0]));
+        await backend.focus(cloneRuntime(matches[0]), options);
         return true;
     }
 

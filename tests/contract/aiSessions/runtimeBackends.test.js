@@ -54,6 +54,16 @@ defineRuntimeContract({
     createHarness: createDirectRuntimeHarness,
 });
 
+test('CONVERSATION-ACTIVE-SESSION-NAVIGATION-COMMANDS-001 direct focus can reveal a terminal without stealing keyboard focus', async () => {
+    const harness = createDirectRuntimeHarness();
+    const runtime = await harness.backend.ensureResume(fakeResumeRequest('preserve-direct'));
+
+    await harness.backend.focus(runtime, { preserveFocus: true });
+
+    assert.equal(harness.operations.at(-1).type, 'focus');
+    assert.equal(harness.operations.at(-1).preserveFocus, true);
+});
+
 // RUNTIME-TMUX-BACKEND-001
 for (const layout of ['project', 'session']) {
     defineRuntimeContract({
@@ -75,6 +85,21 @@ for (const layout of ['project', 'session']) {
 
         assert.equal(harness.viewerCount(), viewerCount);
         assert.equal(harness.terminals[0].shown, true);
+    });
+
+    test(`CONVERSATION-ACTIVE-SESSION-NAVIGATION-COMMANDS-001 [tmux ${layout}] focus can select a runtime without stealing keyboard focus`, async () => {
+        const harness = createTmuxRuntimeHarness(layout);
+        const runtime = await harness.backend.ensureResume(
+            fakeResumeRequest(`preserve-focus-${layout}`),
+            layout
+        );
+
+        await harness.backend.focus(runtime, { preserveFocus: true });
+
+        const show = harness.operations.filter(operation =>
+            operation.type === 'show-terminal'
+        ).at(-1);
+        assert.equal(show.preserveFocus, true);
     });
 
     test(`RUNTIME-TMUX-BACKEND-001 [tmux ${layout}] focus after reload recovers the live tmux client when VS Code drops terminal metadata`, async () => {

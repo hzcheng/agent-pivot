@@ -308,6 +308,56 @@ test('SESSION-AI-SESSION-TERMINAL-COMMAND-CONTROLLER-001 ATTENTION-EXPLICIT-SESS
     assert.equal(missing, false);
 });
 
+test('CONVERSATION-ACTIVE-SESSION-NAVIGATION-COMMANDS-001 can synchronize an active runtime without moving keyboard focus to the Terminal view', async () => {
+    const effects = [];
+    const identity = {
+        provider: 'codex',
+        sessionId: 'session-b',
+        workspaceScopeIdentity: 'scope:fixture',
+        workspaceNavigationIdentity: 'navigation:fixture',
+        workspaceRootHostPaths: ['/work'],
+        cwd: '/work',
+    };
+    const runtime = {
+        backend: 'tmux',
+        state: 'active',
+        identity,
+        terminal: { show() {}, dispose() {} },
+        attached: true,
+        stale: false,
+        runStartedAtMs: 1,
+    };
+    const controller = new AiSessionTerminalCommandController({
+        isProviderId: value => value === 'codex',
+        getWorkspaceTarget: () => makeWorkspaceTarget([{ id: 'session-b' }]),
+        showErrorMessage: async () => undefined,
+        getProviderLabel: () => 'Codex',
+        refresh: () => effects.push('refresh'),
+        runtimeCoordinator: {
+            getById: () => runtime,
+            getPending: () => [],
+            focus: async (_identity, options) => effects.push(
+                `focus-runtime:${options?.preserveFocus === true}`
+            ),
+            detach: async () => undefined,
+            terminate: async () => undefined,
+        },
+        confirmRuntimeClose: async () => 'Cancel',
+        announceStatus: async () => undefined,
+        focusTerminalView: async () => effects.push('focus-terminal-view'),
+        onRuntimeCloseStart() {},
+        onRuntimeCloseEnd() {},
+    });
+
+    assert.equal(await controller.focusActive(
+        'p',
+        'codex',
+        'session-b',
+        { revealTerminal: false }
+    ), true);
+    assert.deepEqual(effects, ['focus-runtime:true', 'refresh']);
+});
+
 test('ATTENTION-EXPLICIT-SESSION-CLOSE-001 reports failed detach without a success acknowledgement', async () => {
     const effects = [];
     const identity = {

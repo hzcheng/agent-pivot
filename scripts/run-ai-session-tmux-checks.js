@@ -7943,9 +7943,17 @@ async function runRuntimeCoordinatorChecks() {
             getConfiguration: () => ({ mode: 'tmux', tmuxLayout: 'session', tmuxPath: 'tmux' }),
             chooseTmuxFallback: async () => 'cancel',
         });
-        await guardedActionCoordinator[operation]({
+        const guardedAction = guardedActionCoordinator[operation]({
             provider: 'codex', workspaceScopeIdentity: 'pk', workspaceNavigationIdentity: 'nav-1', workspaceRootHostPaths: ['/work'], cwd: '/work', sessionId: `guarded-${operation}`,
         });
+        if (operation === 'focus') {
+            await assert.rejects(
+                guardedAction,
+                error => error instanceof runtimeTypesModule.AiSessionRuntimeTargetChangedError
+            );
+        } else {
+            await guardedAction;
+        }
         assert.deepStrictEqual(guardedTmux[`${operation}Calls`], [],
             `${operation} must not act on a runtime replaced by a fresh collision`);
         assert.deepStrictEqual(guardedTmux.refreshCalls, [true]);
@@ -8494,7 +8502,10 @@ async function runRuntimeCoordinatorChecks() {
         getConfiguration: () => ({ mode: 'tmux', tmuxLayout: 'project', tmuxPath: 'tmux' }),
         chooseTmuxFallback: async () => 'cancel',
     });
-    await fastPathMissingCoordinator.focus(fakeResumeRequest('missing-after-refresh').identity);
+    await assert.rejects(
+        fastPathMissingCoordinator.focus(fakeResumeRequest('missing-after-refresh').identity),
+        error => error instanceof runtimeTypesModule.AiSessionRuntimeTargetChangedError
+    );
     assert.strictEqual(fastPathMissingTmux.focusAttempts.length, 1,
         'a target removed by reconciliation must not be retried');
     assert.strictEqual(fastPathMissingTmux.focusCalls.length, 0);
@@ -8512,7 +8523,10 @@ async function runRuntimeCoordinatorChecks() {
         getConfiguration: () => ({ mode: 'tmux', tmuxLayout: 'project', tmuxPath: 'tmux' }),
         chooseTmuxFallback: async () => 'cancel',
     });
-    await fastPathDuplicateCoordinator.focus(fakeResumeRequest('duplicate-after-refresh').identity);
+    await assert.rejects(
+        fastPathDuplicateCoordinator.focus(fakeResumeRequest('duplicate-after-refresh').identity),
+        error => error instanceof runtimeTypesModule.AiSessionRuntimeTargetChangedError
+    );
     assert.strictEqual(fastPathDuplicateTmux.focusAttempts.length, 1,
         'a cross-backend duplicate discovered during reconciliation must not be focused');
     assert.strictEqual(fastPathDuplicateTmux.focusCalls.length, 0);
@@ -8529,7 +8543,10 @@ async function runRuntimeCoordinatorChecks() {
         getConfiguration: () => ({ mode: 'tmux', tmuxLayout: 'project', tmuxPath: 'tmux' }),
         chooseTmuxFallback: async () => 'cancel',
     });
-    await fastPathRepeatedCoordinator.focus(fakeResumeRequest('repeated-change').identity);
+    await assert.rejects(
+        fastPathRepeatedCoordinator.focus(fakeResumeRequest('repeated-change').identity),
+        error => error instanceof runtimeTypesModule.AiSessionRuntimeTargetChangedError
+    );
     assert.strictEqual(fastPathRepeatedTmux.focusAttempts.length, 2,
         'a second target change must stop without an unbounded retry loop');
     assert.strictEqual(fastPathRepeatedTmux.focusCalls.length, 0);
@@ -8581,7 +8598,10 @@ async function runRuntimeCoordinatorChecks() {
         identity: { provider: 'codex', workspaceScopeIdentity: 'pk', workspaceNavigationIdentity: 'nav-1', workspaceRootHostPaths: ['/work'], cwd: '/work', pendingId: 'pending-conflict' },
         state: 'pending', createdAt: '2026-07-18T10:00:00.000Z', excludedSessionIds: [],
     });
-    await routed.focus({ provider: 'codex', workspaceScopeIdentity: 'pk', workspaceNavigationIdentity: 'nav-1', workspaceRootHostPaths: ['/work'], cwd: '/work', pendingId: 'pending-conflict' });
+    await assert.rejects(
+        routed.focus({ provider: 'codex', workspaceScopeIdentity: 'pk', workspaceNavigationIdentity: 'nav-1', workspaceRootHostPaths: ['/work'], cwd: '/work', pendingId: 'pending-conflict' }),
+        error => error instanceof runtimeTypesModule.AiSessionRuntimeTargetChangedError
+    );
     assert.strictEqual(routedDirect.focusCalls.length, 0);
     assert.strictEqual(routedTmux.focusCalls.length, 2);
     const promotedPending = await routed.promotePending(

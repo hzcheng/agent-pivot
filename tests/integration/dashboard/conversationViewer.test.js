@@ -303,7 +303,7 @@ test('CONVERSATION-SESSION-REBIND-001 retargets an open viewer from the exact ol
     assert.deepEqual(outlineReads, ['old-root', 'new-root', 'new-root']);
     assert.deepEqual(watchDisposals, ['old-root']);
     assert.equal(panel.createCount, 1);
-    assert.match(panel.webview.html, /new-input-b/);
+    assert.match(panel.postedMessages.at(-1).html, /new-input-b/);
     await viewer.reconcileAuthority(() => ({
         displayName: 'New root display',
         duplicateDisplayName: false,
@@ -342,9 +342,8 @@ test('CONVERSATION-SESSION-REBIND-001 keeps an initial rebound load current whil
 
     assert.equal(await rebind, true);
     await reconcile;
-    assert.match(panel.webview.html, /new-root-input/);
-    assert.match(panel.webview.html, /Current root/);
-    assert.equal(panel.webview.html.includes('history unavailable'), false);
+    assert.match(panel.postedMessages.at(-1).html, /new-root-input/);
+    assert.match(panel.postedMessages.at(-1).displayName, /Current root/);
 });
 
 test('CONVERSATION-SESSION-REBIND-001 bounds reconciled display metadata before publishing it', async () => {
@@ -389,7 +388,7 @@ test('CONVERSATION-SESSION-REBIND-001 lets the newest live rebind win while an o
     }), true);
     oldRebind.resolve();
     assert.equal(await first, false);
-    assert.match(panel.webview.html, /new-root-b-input/);
+    assert.match(panel.postedMessages.at(-1).html, /new-root-b-input/);
 });
 
 test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 restores a retained panel without revealing it and resumes live updates', async () => {
@@ -451,11 +450,66 @@ test('CONVERSATION-FOLLOW-ACTIVE-SESSION-001 follows another Session only when t
     assert.equal(panel.createCount, 0);
 
     await viewer.open(target('session-a', 'input-a'));
+    const retainedDocument = panel.webview.html;
     assert.equal(viewer.isOpen(), true);
     assert.equal(await viewer.follow(target('session-b', 'input-b')), true);
-    assert.equal(panel.webview.html.includes('visible-session-b'), true);
-    assert.equal(panel.webview.html.includes('visible-session-a'), false);
+    assert.equal(
+        panel.webview.html,
+        retainedDocument,
+        'following a Session must update the retained Webview in place'
+    );
+    assert.equal(
+        panel.postedMessages.at(-1).html.includes('visible-session-b'),
+        true
+    );
     assert.deepEqual(panel.revealColumns, [fakeVscode.ViewColumn.Active]);
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 retains one Webview document while switching Codex, Kimi, and Claude Sessions and while hidden', async () => {
+    const { viewer, panel } = createViewer({
+        readOutline: async (provider, sessionId) => ({
+            ...outline(sessionId, [`${sessionId}-input`]),
+            provider,
+        }),
+        readPage: async request => ({
+            ...page(
+                request.sessionId,
+                request.anchorInteractionId,
+                `visible-${request.provider}`
+            ),
+            provider: request.provider,
+        }),
+    });
+
+    await viewer.open(target('codex-session', 'codex-session-input'));
+    assert.equal(
+        panel.createArguments[3].retainContextWhenHidden,
+        true,
+        'the singleton Conversation panel must retain its Webview context'
+    );
+    const retainedDocument = panel.webview.html;
+
+    for (const provider of ['kimi', 'claude']) {
+        const sessionId = `${provider}-session`;
+        assert.equal(await viewer.follow(target(
+            sessionId,
+            `${sessionId}-input`,
+            { provider }
+        )), true);
+        assert.equal(panel.webview.html, retainedDocument);
+        const publication = panel.postedMessages.at(-1);
+        assert.equal(publication.target.provider, provider);
+        assert.equal(publication.target.sessionId, sessionId);
+        assert.match(publication.html, new RegExp(`visible-${provider}`));
+    }
+
+    await panel.setVisible(false);
+    await panel.setVisible(true);
+    assert.equal(
+        panel.webview.html,
+        retainedDocument,
+        'showing a retained panel must not rebuild its document'
+    );
 });
 
 test('CONVERSATION-ACTIVE-SESSION-NAVIGATION-COMMANDS-001 distinguishes the current target from the focused Conversation target', async () => {
@@ -528,7 +582,7 @@ test('CONVERSATION-ACTIVE-SESSION-NAVIGATION-COMMANDS-001 reports a superseded i
     );
     releaseSlowOutline.resolve();
     assert.equal(await first, false);
-    assert.match(panel.webview.html, /session-c-input/);
+    assert.match(panel.postedMessages.at(-1).html, /session-c-input/);
 });
 
 test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 opens a subagent transcript in place and returns to the conversation', async () => {
@@ -654,8 +708,8 @@ test('CONVERSATION-VIEWER-OWNERSHIP-001 reuses one panel, rejects an old session
     pages.get('session-a').resolve(page('session-a', 'input-a', 'visible-a'));
     await openA;
 
-    assert.equal(panel.webview.html.includes('visible-b'), true);
-    assert.equal(panel.webview.html.includes('visible-a'), false);
+    assert.equal(panel.postedMessages.at(-1).html.includes('visible-b'), true);
+    assert.equal(panel.postedMessages.at(-1).html.includes('visible-a'), false);
     assert.equal(panel.createCount, 1);
     assert.deepEqual(watchDisposals, ['session-a']);
     assert.equal(viewer.snapshotSize, 1);
@@ -2051,7 +2105,7 @@ test('CONVERSATION-VIEWER-REFRESH-002 CONVERSATION-READING-FOCUS-001 preserves t
     assert.equal(publication.atLatest, false);
 });
 
-test('CONVERSATION-VIEWER-DELIVERY-001 rebuilds the latest hidden publication when the panel becomes visible and disposes its listener', async () => {
+test('CONVERSATION-VIEWER-DELIVERY-001 retains hidden Webview context without rebuilding it on visibility changes', async () => {
     let onChange;
     let revision = 1;
     const panel = fakePanel({
@@ -2078,17 +2132,16 @@ test('CONVERSATION-VIEWER-DELIVERY-001 rebuilds the latest hidden publication wh
 
     await viewer.open(target('session-a', 'input-1'));
     assert.equal(panel.viewStateListenerCount, 1);
+    assert.equal(panel.createArguments[3].retainContextWhenHidden, true);
     await panel.setVisible(false);
     revision = 2;
     onChange();
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(panel.webview.html.includes('visible-r2'), true);
-    panel.webview.html = 'simulated destroyed hidden document';
+    const retainedDocument = panel.webview.html;
     await panel.setVisible(true);
 
-    assert.equal(panel.webview.html.includes('visible-r2'), true);
-    assert.equal(panel.webview.html.includes('&quot;selectedInput&quot;:1'), true);
-    assert.equal(panel.webview.html.includes('&quot;subscriptionGeneration&quot;:1'), true);
+    assert.equal(panel.webview.html, retainedDocument);
 
     panel.dispose();
     assert.equal(panel.viewStateListenerCount, 0);

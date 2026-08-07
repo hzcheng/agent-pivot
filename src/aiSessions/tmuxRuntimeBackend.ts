@@ -14,6 +14,7 @@ import type {
     AiSessionMaterializedResumeRuntimeRequest,
     AiSessionPendingRuntimeSnapshot,
     AiSessionResumeRuntimeRequest,
+    AiSessionRuntimeFocusOptions,
     AiSessionRuntimeIdentity,
     AiSessionRuntimeSnapshot,
     AiSessionTmuxLayout,
@@ -97,7 +98,7 @@ interface AttachTerminal {
     readonly name: string;
     readonly processId: number | PromiseLike<number | undefined>;
     readonly creationOptions?: Readonly<vscode.TerminalOptions | vscode.ExtensionTerminalOptions>;
-    show(): void;
+    show(preserveFocus?: boolean): void;
     dispose(): void;
 }
 
@@ -357,13 +358,20 @@ implements AiSessionExecutableRuntimeBackend<TTerminal> {
         return this.promotionCapability.promotionTransitionMatches(intent, finalIdentityValue);
     }
 
-    async focus(runtime: AiSessionRuntimeSnapshot<TTerminal>): Promise<void> {
+    async focus(
+        runtime: AiSessionRuntimeSnapshot<TTerminal>,
+        options: AiSessionRuntimeFocusOptions = {}
+    ): Promise<void> {
         if (!runtime || runtime.backend !== 'tmux' || !runtime.tmux) {
             return;
         }
         await this.attachRestoreQueue;
         await this.verifyFocusTarget(runtime);
-        await this.attachAndFocus(runtime, this.getAttachTerminalName(runtime));
+        await this.attachAndFocus(
+            runtime,
+            this.getAttachTerminalName(runtime),
+            options.preserveFocus === true
+        );
     }
 
     private async verifyFocusTarget(runtime: AiSessionRuntimeSnapshot<TTerminal>): Promise<void> {
@@ -1092,7 +1100,8 @@ implements AiSessionExecutableRuntimeBackend<TTerminal> {
 
     private async attachAndFocus<T extends AiSessionRuntimeSnapshot>(
         runtime: T,
-        terminalName: string
+        terminalName: string,
+        preserveFocus: boolean = false
     ): Promise<T & AiSessionRuntimeSnapshot<TTerminal>> {
         if (!runtime.tmux) {
             throw new Error('A tmux runtime must include a locator.');
@@ -1141,7 +1150,7 @@ implements AiSessionExecutableRuntimeBackend<TTerminal> {
                 );
             }
             try {
-                attachTerminal(entry.terminal).show();
+                attachTerminal(entry.terminal).show(preserveFocus);
             } catch (error) {
                 entry.focusEpoch++;
                 this.attaches.delete(key);

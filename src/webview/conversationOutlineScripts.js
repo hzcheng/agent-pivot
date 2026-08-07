@@ -469,6 +469,29 @@
             }
         }
 
+        function resetSession(target, generation, bookmarks) {
+            if (!validBookmarkSnapshot(bookmarks)) {
+                return false;
+            }
+            commentTarget = target;
+            subscriptionGeneration = generation;
+            state.outline = [];
+            state.outlineSelectedInteractionId = '';
+            state.outlineSelectedInput = 0;
+            state.outlineTotalInputs = 0;
+            state.outlinePartial = false;
+            state.bookmarkIds = new Set(bookmarks.interactionIds);
+            state.bookmarkRevision = bookmarks.revision;
+            state.pendingBookmarkRequest = null;
+            if (!sidebarUiAvailable) {
+                return true;
+            }
+            buildOutlineList();
+            renderBookmarkState();
+            filterOutline();
+            return true;
+        }
+
         function restoreQuery(value) {
             if (typeof value !== 'string') return;
             state.outlineQuery = value.slice(0, 4096);
@@ -487,9 +510,11 @@
             applyBookmarksResult: applyBookmarksResult,
             applyOutline: applyOutline,
             attach: attach,
+            canResetSession: validBookmarkSnapshot,
             filter: filterOutline,
             initializeBookmarks: initializeBookmarks,
             query: query,
+            resetSession: resetSession,
             restoreQuery: restoreQuery,
             size: size,
         });

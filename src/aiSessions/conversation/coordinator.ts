@@ -18,6 +18,7 @@ import {
     ConversationPage,
     ConversationPageRequest,
     ConversationProviderAdapter,
+    ConversationSnapshot,
     ConversationSubagentEntry,
     ConversationTelemetry,
     SanitizedConversationDiagnostic,
@@ -114,28 +115,66 @@ export class ConversationCoordinator implements AiSessionDisposable {
                 getAiSessionKey(provider, sessionId),
                 outline.sourceRevision
             );
-            const key = getAiSessionKey(provider, sessionId);
-            return {
+            return this.projectOutline(
+                outline,
                 provider,
                 sessionId,
-                sourceRevision: revision.token,
-                interactions: outline.interactions.map((interaction, index) => ({
-                    id: interaction.id,
-                    providerTurnId: interaction.providerTurnId,
-                    timestamp: interaction.timestamp,
-                    userPreview: interaction.userPreview,
-                    userGraphemeCount: interaction.userGraphemeCount,
-                    responseState: applyActiveLifecycleToResponseState(
-                        applyStoppedLifecycleToResponseState(
-                            interaction.responseState,
-                            this.stoppedSessions.has(key)
-                        ),
-                        this.activeSessions.has(key),
-                        index === outline.interactions.length - 1
+                revision.token
+            );
+        } catch (error) {
+            throw this.toSafeError(provider, error);
+        }
+    }
+
+    async readSnapshot(
+        provider: AiSessionProviderId,
+        sessionId: string,
+        preferredInteractionId?: string,
+        signal?: ConversationAbortSignal
+    ): Promise<ConversationSnapshot> {
+        const adapter = this.getAdapter(provider);
+        const key = getAiSessionKey(provider, sessionId);
+        try {
+            let snapshot: ConversationSnapshot;
+            if (adapter.readSnapshot) {
+                snapshot = await adapter.readSnapshot(
+                    sessionId,
+                    preferredInteractionId,
+                    signal
+                );
+            } else {
+                const outline = await adapter.readOutline(sessionId, signal);
+                snapshot = { outline };
+            }
+            throwIfAborted(signal);
+            this.validateOutline(snapshot.outline, provider, sessionId);
+            if (snapshot.page) {
+                this.validatePage(snapshot.page, provider, sessionId);
+                if (snapshot.page.sourceRevision
+                    !== snapshot.outline.sourceRevision) {
+                    throw new ConversationError('staleRevision');
+                }
+            }
+            const observed = this.observeRevision(
+                key,
+                snapshot.outline.sourceRevision
+            );
+            return {
+                outline: this.projectOutline(
+                    snapshot.outline,
+                    provider,
+                    sessionId,
+                    observed.token
+                ),
+                ...(snapshot.page ? {
+                    page: this.projectPage(
+                        snapshot.page,
+                        provider,
+                        sessionId,
+                        key,
+                        observed
                     ),
-                })),
-                totalInteractions: outline.totalInteractions,
-                partial: outline.partial,
+                } : {}),
             };
         } catch (error) {
             throw this.toSafeError(provider, error);
@@ -207,79 +246,13 @@ export class ConversationCoordinator implements AiSessionDisposable {
             if (revision && observed.nativeRevision !== revision.nativeRevision) {
                 throw new ConversationError('staleRevision');
             }
-            const stopped = this.stoppedSessions.has(key);
-            const active = this.activeSessions.has(key);
-            const activeInferredInteractionId = active
-                && request.provider !== 'codex'
-                && page.isEnd
-                ? page.interactionStates[page.interactionStates.length - 1]
-                    .interactionId
-                : undefined;
-            const result: ConversationPage = {
-                provider: request.provider,
-                sessionId: request.sessionId,
-                sourceRevision: observed.token,
-                anchorInteractionId: page.anchorInteractionId,
-                messages: page.messages.map(message => ({
-                    id: message.id,
-                    interactionId: message.interactionId,
-                    role: message.role === 'assistant'
-                        && message.interactionId === activeInferredInteractionId
-                        ? 'progress'
-                        : message.role,
-                    timestamp: message.timestamp,
-                    markdown: message.markdown,
-                    ...(message.tool
-                        ? {
-                            tool: {
-                                name: message.tool.name,
-                                summary: message.tool.summary,
-                                ...(message.tool.detail !== undefined
-                                    ? { detail: message.tool.detail }
-                                    : {}),
-                            },
-                        }
-                        : {}),
-                    ...(message.thinking
-                        ? { thinking: { text: message.thinking.text } }
-                        : {}),
-                })),
-                interactionStates: page.interactionStates.map((state, index) => ({
-                    interactionId: state.interactionId,
-                    responseState: applyActiveLifecycleToResponseState(
-                        applyStoppedLifecycleToResponseState(
-                            state.responseState,
-                            stopped
-                        ),
-                        active,
-                        page.isEnd && index === page.interactionStates.length - 1
-                    ),
-                })),
-                previousCursor: page.previousCursor === undefined
-                    ? undefined
-                    : this.storeCursor(
-                        key,
-                        observed.token,
-                        page.interactionStates[0].interactionId,
-                        'before'
-                    ),
-                nextCursor: page.nextCursor === undefined
-                    ? undefined
-                    : this.storeCursor(
-                        key,
-                        observed.token,
-                        page.interactionStates[page.interactionStates.length - 1]
-                            .interactionId,
-                        'after'
-                    ),
-                isStart: page.isStart,
-                isEnd: page.isEnd,
-            };
-            if (Buffer.byteLength(JSON.stringify(result), 'utf8')
-                > CONVERSATION_LIMITS.maxPageBytes) {
-                throw new ConversationError('tooLarge');
-            }
-            return result;
+            return this.projectPage(
+                page,
+                request.provider,
+                request.sessionId,
+                key,
+                observed
+            );
         } catch (error) {
             throw this.toSafeError(request.provider, error);
         }
@@ -400,6 +373,119 @@ export class ConversationCoordinator implements AiSessionDisposable {
             throw new ConversationError('unavailable');
         }
         return adapter;
+    }
+
+    private projectOutline(
+        outline: ConversationOutline,
+        provider: AiSessionProviderId,
+        sessionId: string,
+        publicRevision: string
+    ): ConversationOutline {
+        const key = getAiSessionKey(provider, sessionId);
+        return {
+            provider,
+            sessionId,
+            sourceRevision: publicRevision,
+            interactions: outline.interactions.map((interaction, index) => ({
+                id: interaction.id,
+                providerTurnId: interaction.providerTurnId,
+                timestamp: interaction.timestamp,
+                userPreview: interaction.userPreview,
+                userGraphemeCount: interaction.userGraphemeCount,
+                responseState: applyActiveLifecycleToResponseState(
+                    applyStoppedLifecycleToResponseState(
+                        interaction.responseState,
+                        this.stoppedSessions.has(key)
+                    ),
+                    this.activeSessions.has(key),
+                    index === outline.interactions.length - 1
+                ),
+            })),
+            totalInteractions: outline.totalInteractions,
+            partial: outline.partial,
+        };
+    }
+
+    private projectPage(
+        page: ConversationPage,
+        provider: AiSessionProviderId,
+        sessionId: string,
+        key: string,
+        observed: PublicRevision
+    ): ConversationPage {
+        const stopped = this.stoppedSessions.has(key);
+        const active = this.activeSessions.has(key);
+        const activeInferredInteractionId = active
+            && provider !== 'codex'
+            && page.isEnd
+            ? page.interactionStates[page.interactionStates.length - 1]
+                .interactionId
+            : undefined;
+        const result: ConversationPage = {
+            provider,
+            sessionId,
+            sourceRevision: observed.token,
+            anchorInteractionId: page.anchorInteractionId,
+            messages: page.messages.map(message => ({
+                id: message.id,
+                interactionId: message.interactionId,
+                role: message.role === 'assistant'
+                    && message.interactionId === activeInferredInteractionId
+                    ? 'progress'
+                    : message.role,
+                timestamp: message.timestamp,
+                markdown: message.markdown,
+                ...(message.tool
+                    ? {
+                        tool: {
+                            name: message.tool.name,
+                            summary: message.tool.summary,
+                            ...(message.tool.detail !== undefined
+                                ? { detail: message.tool.detail }
+                                : {}),
+                        },
+                    }
+                    : {}),
+                ...(message.thinking
+                    ? { thinking: { text: message.thinking.text } }
+                    : {}),
+            })),
+            interactionStates: page.interactionStates.map((state, index) => ({
+                interactionId: state.interactionId,
+                responseState: applyActiveLifecycleToResponseState(
+                    applyStoppedLifecycleToResponseState(
+                        state.responseState,
+                        stopped
+                    ),
+                    active,
+                    page.isEnd && index === page.interactionStates.length - 1
+                ),
+            })),
+            previousCursor: page.previousCursor === undefined
+                ? undefined
+                : this.storeCursor(
+                    key,
+                    observed.token,
+                    page.interactionStates[0].interactionId,
+                    'before'
+                ),
+            nextCursor: page.nextCursor === undefined
+                ? undefined
+                : this.storeCursor(
+                    key,
+                    observed.token,
+                    page.interactionStates[page.interactionStates.length - 1]
+                        .interactionId,
+                    'after'
+                ),
+            isStart: page.isStart,
+            isEnd: page.isEnd,
+        };
+        if (Buffer.byteLength(JSON.stringify(result), 'utf8')
+            > CONVERSATION_LIMITS.maxPageBytes) {
+            throw new ConversationError('tooLarge');
+        }
+        return result;
     }
 
     private observeRevision(key: string, nativeRevision: string): PublicRevision {

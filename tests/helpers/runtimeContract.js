@@ -107,7 +107,7 @@ function fakeCreateRequest(pendingId, overrides = {}) {
 function createFakeRuntimeBackend(backend, options = {}) {
     const fake = {
         active: [], pending: [], conflicts: [], lifecycleBlockers: [],
-        refreshCalls: [], focusCalls: [], detachCalls: [], terminateCalls: [], promoted: [], closed: [],
+        refreshCalls: [], focusCalls: [], focusOptions: [], detachCalls: [], terminateCalls: [], promoted: [], closed: [],
         launches: [], ensureResumeCalls: 0, ensurePendingCalls: 0,
     };
     fake.refresh = async force => {
@@ -122,7 +122,10 @@ function createFakeRuntimeBackend(backend, options = {}) {
     fake.find = identity => fake.getActive().filter(runtime =>
         runtime.identity.provider === identity.provider
         && runtime.identity.sessionId === identity.sessionId);
-    fake.focus = async runtime => { fake.focusCalls.push(cloneRuntime(runtime)); };
+    fake.focus = async (runtime, focusOptions = {}) => {
+        fake.focusCalls.push(cloneRuntime(runtime));
+        fake.focusOptions.push({ ...focusOptions });
+    };
     fake.detach = async runtime => { fake.detachCalls.push(cloneRuntime(runtime)); };
     fake.terminate = async runtime => { fake.terminateCalls.push(cloneRuntime(runtime)); };
     fake.ensureResume = async (request, layout) => {
@@ -214,7 +217,9 @@ function createDirectRuntimeHarness() {
                 ...entry, excludedSessionIds: [...entry.excludedSessionIds],
             })));
         },
-        focusTerminal: terminal => { operations.push({ type: 'focus', terminal }); },
+        focusTerminal: (terminal, preserveFocus = false) => {
+            operations.push({ type: 'focus', terminal, preserveFocus });
+        },
         closeTerminal: terminal => { operations.push({ type: 'close', terminal }); },
         handleClosedTerminal: terminal => {
             for (let index = tracked.length - 1; index >= 0; index -= 1) {
@@ -573,7 +578,10 @@ function createTmuxRuntimeHarness(layout, options = {}) {
                 processId: Promise.resolve(processId),
                 shown: false,
                 disposed: false,
-                show() { this.shown = true; operations.push({ type: 'show-terminal', terminal: this }); },
+                show(preserveFocus = false) {
+                    this.shown = true;
+                    operations.push({ type: 'show-terminal', terminal: this, preserveFocus });
+                },
                 dispose() { this.disposed = true; operations.push({ type: 'dispose-terminal', terminal: this }); },
             };
             terminals.push(terminal);

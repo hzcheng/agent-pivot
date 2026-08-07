@@ -1608,14 +1608,39 @@
             }
         }
 
+        function resetSession(target, generation, snapshot) {
+            if (!validInitialComments(snapshot)) {
+                return false;
+            }
+            commentTarget = target;
+            subscriptionGeneration = generation;
+            state.comments = snapshot.comments.map(function (comment) {
+                return Object.assign({}, comment);
+            });
+            state.commentRevision = snapshot.revision;
+            state.pendingCommentRequest = null;
+            state.pendingLocateRequest = null;
+            state.editingComment = null;
+            state.expandedDoneComments.clear();
+            if (!commentUiAvailable) {
+                return true;
+            }
+            closeCommentComposer();
+            renderComments();
+            updateCommentHighlights();
+            return true;
+        }
+
         return Object.freeze({
             applyCommentsResult: applyCommentsResult,
             applyLocateResult: applyLocateResult,
             attach: attach,
+            canResetSession: validInitialComments,
             handleEnterShortcut: handleEnterShortcut,
             handleEscape: handleEscape,
             initializeComments: initializeComments,
             openCount: openCommentCount,
+            resetSession: resetSession,
             sendOpenComments: function () {
                 postCommentOperation('sendComments', {});
             },

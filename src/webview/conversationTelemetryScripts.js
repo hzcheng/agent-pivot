@@ -279,8 +279,20 @@
             return true;
         }
 
+        function resetSession(target, generation) {
+            commentTarget = target;
+            subscriptionGeneration = generation;
+            state.latestTelemetryRequestId = 0;
+            telemetryModel.hidden = true;
+            telemetryWorktree.hidden = true;
+            telemetryContext.hidden = true;
+            telemetryLimits.replaceChildren();
+            return true;
+        }
+
         return Object.freeze({
             apply: applyTelemetry,
+            resetSession: resetSession,
         });
     }
 

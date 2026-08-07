@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "c7539a1cff1868ccf4f0ece0c490ae53a3ad6e53",
+        "head": "b1b417e9af95101f0930d3caf9f9e91ed65f8ef9",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -178,7 +178,8 @@
             "84ecb123c7c94fb471278fde3056d9c627bcabbc",
             "b4c6574a148662f815974ef5769f5acbf66a28b4",
             "455777b4a9d308dc3984fa294aca384284bc7f2f",
-            "75f6d6c75d7e1ecf70e44269d7b8e348079c985d"
+            "75f6d6c75d7e1ecf70e44269d7b8e348079c985d",
+            "3d28e38ad2fd8aaa2ca61eae8dfa6c981c9bf749"
         ]
     },
     "capabilities": [
@@ -1317,7 +1318,8 @@
                 "18a6618d6dbd214d0383938fac41f1cb3730f430",
                 "6cbfdebb1449ed82b6b9773cacb363890747b53d",
                 "79f7443527f7f20912771feeb6d2f62dfd943021",
-                "c7539a1cff1868ccf4f0ece0c490ae53a3ad6e53"
+                "c7539a1cff1868ccf4f0ece0c490ae53a3ad6e53",
+                "b1b417e9af95101f0930d3caf9f9e91ed65f8ef9"
             ],
             "behaviors": [
                 "SESSION-AI-SESSION-CONVERSATION-ADAPTER-001",

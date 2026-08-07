@@ -123,6 +123,14 @@
             return loadPromise;
         }
 
+        var INLINE_EMPHASIS_TAG = /<\/?(b|strong|i|em)(?=[\s/>])[^>]*>/gi;
+
+        function sanitizeSource(source) {
+            // Mermaid renders SVG text with htmlLabels disabled, so inline
+            // emphasis tags AI providers emit would show up literally.
+            return source.replace(INLINE_EMPHASIS_TAG, '');
+        }
+
         function alt(source) {
             var summary = source.split(/\r?\n/).map(function (line) {
                 return line.trim();
@@ -179,8 +187,9 @@
         }
 
         function renderDiagram(pre, source, id) {
+            var sanitized = sanitizeSource(source);
             pre.setAttribute('aria-busy', 'true');
-            return Promise.resolve(window.mermaid.render(id, source))
+            return Promise.resolve(window.mermaid.render(id, sanitized))
                 .then(function (result) {
                     if (!pre.isConnected) return;
                     var normalized = normalizeSvg(result.svg);
@@ -201,7 +210,7 @@
                         image.height = normalized.height;
                     }
                     image.src = objectUrl;
-                    image.alt = alt(source);
+                    image.alt = alt(sanitized);
                     image.decoding = 'async';
                     figure.appendChild(image);
                     var decoded = typeof image.decode === 'function'

@@ -4495,6 +4495,33 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 CONVERSATION-VIEWER-RICH-MARKDO
     );
 });
 
+test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 strips inline emphasis tags from Mermaid labels instead of rendering them literally', async t => {
+    const page = await openViewerPage(t, { includeMermaid: true });
+    await sendPage(page, {
+        ...hostileConversationPage,
+        html: `<article data-message-id="emphasis" data-interaction-id="input-4">
+            <section class="conversation-markdown">
+                <pre><code class="language-mermaid">flowchart LR
+                    A[&quot;&lt;b&gt;Deploy&lt;/b&gt; &lt;i&gt;service&lt;/i&gt;&quot;] --&gt; B[Done]</code></pre>
+            </section>
+        </article>`,
+    });
+
+    const diagram = page.locator('.conversation-mermaid-image');
+    await diagram.waitFor();
+    await page.waitForFunction(() => {
+        const image = document.querySelector('.conversation-mermaid-image');
+        return image && image.complete && image.naturalWidth > 0;
+    });
+    const normalizedSvg = await diagram.evaluate(async image =>
+        (await fetch(image.src)).text()
+    );
+    assert.match(normalizedSvg, />Deploy</);
+    assert.match(normalizedSvg, /> service</);
+    assert.doesNotMatch(normalizedSvg, /&lt;\/?(b|i|em|strong)&gt;/i);
+    assert.match(normalizedSvg, />Done</);
+});
+
 test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 preserves structured text indentation and horizontal scrolling', async t => {
     const page = await openViewerPage(t);
     await page.setViewportSize({ width: 360, height: 500 });

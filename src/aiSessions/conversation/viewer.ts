@@ -2242,7 +2242,7 @@ function renderMessage(
     data-interaction-id="${escapeAttribute(message.interactionId)}">
     <span class="conversation-role">User</span>
     <button class="conversation-message-bookmark" title="Bookmark this input"></button>
-    <button class="conversation-message-copy" title="Copy input">Copy</button>
+    <button class="conversation-message-copy" title="Copy input"></button>
     <section class="conversation-markdown">${renderConversationMarkdown(
         message.markdown
     )}</section>
@@ -2253,7 +2253,7 @@ function renderMessage(
     data-conversation-message-id="${escapeAttribute(encodeURIComponent(message.id))}"
     data-interaction-id="${escapeAttribute(message.interactionId)}">
     <span class="conversation-role">Assistant</span>
-    <button class="conversation-message-copy" title="Copy response">Copy</button>
+    <button class="conversation-message-copy" title="Copy response"></button>
     <section class="conversation-markdown">${renderConversationMarkdown(
         message.markdown
     )}</section>

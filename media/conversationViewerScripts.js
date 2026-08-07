@@ -943,13 +943,16 @@
 
     function flashCopyResult(button, success) {
         window.clearTimeout(button.__conversationCopyTimer);
-        button.textContent = success ? 'Copied' : 'Failed';
         button.classList.toggle('is-copied', success);
         button.classList.toggle('is-failed', !success);
+        button.setAttribute(
+            'aria-label',
+            success ? 'Copied' : 'Copy failed'
+        );
         button.__conversationCopyTimer = window.setTimeout(function () {
-            button.textContent = 'Copy';
             button.classList.remove('is-copied');
             button.classList.remove('is-failed');
+            button.setAttribute('aria-label', button.title || 'Copy');
         }, 1400);
     }
 

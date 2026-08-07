@@ -1961,8 +1961,34 @@ test('CONVERSATION-COPY-ACTIONS-001 copies code blocks with a hover control and 
         await block.locator('pre code').textContent(),
         'const answer = 42;\n'
     );
-    assert.equal(await copyButton.textContent(), 'Copy');
+    assert.equal(
+        await copyButton.textContent(),
+        '',
+        'the code copy control is an icon, not a word'
+    );
     assert.equal(await copyButton.getAttribute('aria-label'), 'Copy code');
+    const labelClearance = await page.evaluate(() => {
+        const blockElement = document.querySelector(
+            '.conversation-code-block'
+        );
+        const label = blockElement
+            .querySelector('.conversation-code-lang')
+            .getBoundingClientRect();
+        const pre = blockElement.querySelector('pre');
+        const preStyle = getComputedStyle(pre);
+        const contentTop = pre.getBoundingClientRect().top
+            + parseFloat(preStyle.borderTopWidth)
+            + parseFloat(preStyle.paddingTop);
+        return {
+            clears: label.bottom <= contentTop + 1,
+            paddingTop: parseFloat(preStyle.paddingTop),
+        };
+    });
+    assert.ok(
+        labelClearance.paddingTop >= 24 && labelClearance.clears,
+        'the language label must never overlap the first code line:'
+            + ` ${JSON.stringify(labelClearance)}`
+    );
     assert.equal(
         await copyButton.evaluate(element =>
             getComputedStyle(element).opacity),
@@ -1994,8 +2020,9 @@ test('CONVERSATION-COPY-ACTIONS-001 copies code blocks with a hover control and 
         },
     });
     assert.equal(
-        await copyButton.textContent(),
-        'Copy',
+        await copyButton.evaluate(element =>
+            element.classList.contains('is-copied')),
+        false,
         'the control must not claim success before the settlement'
     );
 
@@ -2006,12 +2033,19 @@ test('CONVERSATION-COPY-ACTIONS-001 copies code blocks with a hover control and 
         success: true,
     }, '*'), requestId);
     await page.waitForFunction(() =>
-        document.querySelector('.conversation-code-copy')?.textContent
-            === 'Copied'
+        document.querySelector('.conversation-code-copy')
+            ?.classList.contains('is-copied') === true
+    );
+    assert.equal(
+        await copyButton.getAttribute('aria-label'),
+        'Copied',
+        'the settlement announces itself to screen readers'
     );
     await page.waitForFunction(() =>
-        document.querySelector('.conversation-code-copy')?.textContent
-            === 'Copy',
+        document.querySelector('.conversation-code-copy')
+            ?.classList.contains('is-copied') === false
+            && document.querySelector('.conversation-code-copy')
+                ?.getAttribute('aria-label') === 'Copy code',
         undefined,
         { timeout: 4000 }
     );
@@ -2120,14 +2154,26 @@ test('CONVERSATION-COPY-ACTIONS-001 copies user inputs and assistant answers thr
     await page.waitForFunction(() =>
         document.querySelector(
             '.conversation-message-user .conversation-message-copy'
-        )?.textContent === 'Failed'
+        )?.classList.contains('is-failed') === true
+    );
+    assert.equal(
+        await userCopy.getAttribute('aria-label'),
+        'Copy failed'
     );
     await page.waitForFunction(() =>
         document.querySelector(
             '.conversation-message-user .conversation-message-copy'
-        )?.textContent === 'Copy',
+        )?.classList.contains('is-failed') === false
+            && document.querySelector(
+                '.conversation-message-user .conversation-message-copy'
+            )?.getAttribute('aria-label') === 'Copy input',
         undefined,
         { timeout: 4000 }
+    );
+    assert.equal(
+        await userCopy.textContent(),
+        '',
+        'the message copy control is an icon, not a word'
     );
 
     await answerCopy.click();

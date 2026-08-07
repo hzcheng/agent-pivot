@@ -47,7 +47,7 @@ function renderCodeBlock(value: string, info: string): string {
     return `<section class="conversation-code-block">${label}`
         + highlightCode(value, lang)
         + '<button class="conversation-code-copy" title="Copy code">'
-        + 'Copy</button></section>\n';
+        + '</button></section>\n';
 }
 
 const markdown = new MarkdownIt({

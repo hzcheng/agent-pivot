@@ -308,14 +308,15 @@ button {
 .conversation-code-block {
     position: relative;
 
-    > pre {
-        padding-top: 1.9rem;
-    }
-
     &:hover .conversation-code-copy,
     &:focus-within .conversation-code-copy {
         opacity: 1;
     }
+}
+
+/* Outspecific .conversation-markdown pre so the header zone survives. */
+.conversation-markdown .conversation-code-block > pre {
+    padding-top: 1.9rem;
 }
 
 .conversation-code-lang {
@@ -327,6 +328,52 @@ button {
     font-size: 0.72rem;
     letter-spacing: 0.04em;
     user-select: none;
+}
+
+/* Icon-only copy affordances: two overlapping squares, swapped for a
+   check/cross glyph while the settlement feedback shows. */
+.conversation-message-copy,
+.conversation-code-copy {
+    &::before,
+    &::after {
+        content: '';
+        position: absolute;
+        width: 0.52rem;
+        height: 0.52rem;
+        border: 1.3px solid currentColor;
+        border-radius: 2px;
+    }
+
+    &::before {
+        transform: translate(0.16rem, -0.16rem);
+    }
+
+    &::after {
+        transform: translate(-0.16rem, 0.16rem);
+    }
+
+    &.is-copied::before,
+    &.is-failed::before {
+        width: auto;
+        height: auto;
+        border: none;
+        transform: none;
+        font-size: 0.9rem;
+        line-height: 1;
+    }
+
+    &.is-copied::before {
+        content: '\2713';
+    }
+
+    &.is-failed::before {
+        content: '\00d7';
+    }
+
+    &.is-copied::after,
+    &.is-failed::after {
+        content: none;
+    }
 }
 
 .conversation-code-copy {

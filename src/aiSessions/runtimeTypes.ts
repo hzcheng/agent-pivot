@@ -280,6 +280,10 @@ export interface AiSessionRuntimeConfiguration {
     tmuxPath: string;
 }
 
+export interface AiSessionRuntimeFocusOptions {
+    preserveFocus?: boolean;
+}
+
 export interface AiSessionRuntimeBackend<TTerminal = unknown> {
     refresh(force?: boolean): Promise<void>;
     getActive(): AiSessionRuntimeSnapshot<TTerminal>[];
@@ -287,7 +291,10 @@ export interface AiSessionRuntimeBackend<TTerminal = unknown> {
     getConflicts?(): AiSessionRuntimeSnapshot<TTerminal>[];
     getLifecycleBlockers?(): AiSessionRuntimeSnapshot<TTerminal>[];
     find(identity: AiSessionRuntimeIdentity): AiSessionRuntimeSnapshot<TTerminal>[];
-    focus(runtime: AiSessionRuntimeSnapshot<TTerminal>): Promise<void>;
+    focus(
+        runtime: AiSessionRuntimeSnapshot<TTerminal>,
+        options?: AiSessionRuntimeFocusOptions
+    ): Promise<void>;
     detach(runtime: AiSessionRuntimeSnapshot<TTerminal>): Promise<void>;
     terminate(runtime: AiSessionRuntimeSnapshot<TTerminal>): Promise<void>;
 }

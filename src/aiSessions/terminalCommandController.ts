@@ -3,6 +3,7 @@
 import type { AiSessionProviderId } from '../models';
 import type {
     AiSessionPendingRuntimeSnapshot,
+    AiSessionRuntimeFocusOptions,
     AiSessionRuntimeIdentity,
     AiSessionRuntimeSnapshot,
 } from './runtimeTypes';
@@ -26,8 +27,11 @@ export interface AiSessionTerminalCommandRuntimeCoordinator<TTerminal> {
         workspaceScopeIdentity: string
     ): AiSessionRuntimeSnapshot<TTerminal>[];
     getPending(): AiSessionPendingRuntimeSnapshot<TTerminal>[];
-    focus(identity: AiSessionRuntimeIdentity): Promise<void>;
-    focusSelected?(runtime: AiSessionRuntimeSnapshot<TTerminal>): Promise<boolean>;
+    focus(identity: AiSessionRuntimeIdentity, options?: AiSessionRuntimeFocusOptions): Promise<void>;
+    focusSelected?(
+        runtime: AiSessionRuntimeSnapshot<TTerminal>,
+        options?: AiSessionRuntimeFocusOptions
+    ): Promise<boolean>;
     detach(identity: AiSessionRuntimeIdentity): Promise<void>;
     terminate(identity: AiSessionRuntimeIdentity): Promise<void>;
 }
@@ -75,6 +79,10 @@ export interface CloseAiSessionTerminalRequest {
     expectedBackend?: 'vscode' | 'tmux';
 }
 
+export interface FocusActiveAiSessionOptions {
+    revealTerminal?: boolean;
+}
+
 export class AiSessionTerminalCommandController<
     TTerminal extends { show(): void; dispose(): void }
 > {
@@ -88,7 +96,8 @@ export class AiSessionTerminalCommandController<
     async focusActive(
         projectId: string,
         providerId: string,
-        sessionId: string
+        sessionId: string,
+        focusOptions: FocusActiveAiSessionOptions = {}
     ): Promise<boolean> {
         if (!sessionId || !this.options.isProviderId(providerId)) {
             return false;
@@ -110,22 +119,29 @@ export class AiSessionTerminalCommandController<
             return this.chooseAndFocusConflict(
                 projectId,
                 candidates,
-                this.options
+                this.options,
+                focusOptions
             );
         }
         if (candidates.length === 1 && hasUnverifiedConflict) {
             return this.focusVerifiedSelection(
                 projectId,
                 candidates[0],
-                this.options
+                this.options,
+                focusOptions
             );
         }
         const runtime = this.getScopedActiveRuntime(projectId, providerId, sessionId, this.options);
         if (runtime) {
             try {
-                await this.options.runtimeCoordinator.focus({ ...runtime.identity });
+                await this.options.runtimeCoordinator.focus(
+                    { ...runtime.identity },
+                    runtimeFocusOptions(focusOptions)
+                );
                 this.options.refresh();
-                await this.options.focusTerminalView?.();
+                if (focusOptions.revealTerminal !== false) {
+                    await this.options.focusTerminalView?.();
+                }
                 return true;
             } catch (error) {
                 await this.handleRuntimeActionFailure(
@@ -141,7 +157,8 @@ export class AiSessionTerminalCommandController<
     private async chooseAndFocusConflict(
         projectId: string,
         candidates: AiSessionRuntimeSnapshot<TTerminal>[],
-        options: AiSessionTerminalCommandRuntimeControllerOptions<TTerminal>
+        options: AiSessionTerminalCommandRuntimeControllerOptions<TTerminal>,
+        focusOptions: FocusActiveAiSessionOptions
     ): Promise<boolean> {
         if (!options.chooseRuntimeConflict || !options.runtimeCoordinator.focusSelected) {
             return false;
@@ -156,16 +173,25 @@ export class AiSessionTerminalCommandController<
         if (!selected) {
             return false;
         }
-        return this.focusVerifiedSelection(projectId, selected, options);
+        return this.focusVerifiedSelection(
+            projectId,
+            selected,
+            options,
+            focusOptions
+        );
     }
 
     private async focusVerifiedSelection(
         projectId: string,
         selected: AiSessionRuntimeSnapshot<TTerminal>,
-        options: AiSessionTerminalCommandRuntimeControllerOptions<TTerminal>
+        options: AiSessionTerminalCommandRuntimeControllerOptions<TTerminal>,
+        focusOptions: FocusActiveAiSessionOptions
     ): Promise<boolean> {
         try {
-            const focused = await options.runtimeCoordinator.focusSelected(cloneRuntime(selected));
+            const focused = await options.runtimeCoordinator.focusSelected(
+                cloneRuntime(selected),
+                runtimeFocusOptions(focusOptions)
+            );
             if (!focused) {
                 options.refresh();
                 await options.announceStatus(
@@ -175,7 +201,9 @@ export class AiSessionTerminalCommandController<
                 return false;
             }
             options.refresh();
-            await options.focusTerminalView?.();
+            if (focusOptions.revealTerminal !== false) {
+                await options.focusTerminalView?.();
+            }
             return true;
         } catch (error) {
             await this.handleRuntimeActionFailure(
@@ -490,6 +518,12 @@ function cloneRuntime<TTerminal>(
         identity: cloneAiSessionRuntimeIdentity(runtime.identity),
         ...(runtime.tmux ? { tmux: { ...runtime.tmux } } : {}),
     };
+}
+
+function runtimeFocusOptions(
+    options: FocusActiveAiSessionOptions
+): AiSessionRuntimeFocusOptions {
+    return { preserveFocus: options.revealTerminal === false };
 }
 
 function clonePendingRuntime<TTerminal>(

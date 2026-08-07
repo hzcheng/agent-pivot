@@ -36,6 +36,7 @@ import {
 import {
     ConversationError,
     ConversationProviderAdapter,
+    ConversationSnapshot,
     SanitizedConversationDiagnostic,
 } from './types';
 import {
@@ -123,6 +124,9 @@ export interface ConversationCapabilityOptions {
         prompt: string
     ) => PromiseLike<void> | Promise<void>;
     focusSession?: (
+        target: ConversationSessionOpenTarget
+    ) => boolean | void | PromiseLike<boolean | void>;
+    syncSession?: (
         target: ConversationSessionOpenTarget
     ) => boolean | void | PromiseLike<boolean | void>;
     commentStore?: ConversationCommentStore;
@@ -285,7 +289,9 @@ function createAvailableConversationCapability(
         isCurrent: () => boolean
     ): Promise<boolean> => queueFocus(
         async () => {
-            const focused = await options.focusSession?.(target);
+            const focused = await (options.syncSession || options.focusSession)?.(
+                target
+            );
             if (focused === false) {
                 throw new Error('AI session terminal focus was rejected');
             }
@@ -294,6 +300,9 @@ function createAvailableConversationCapability(
     );
     const viewer = ownership.own(factories.createViewer({
         createPanel: options.createPanel,
+        readSnapshot: typeof coordinator.readSnapshot === 'function'
+            ? coordinator.readSnapshot.bind(coordinator)
+            : undefined,
         readOutline: coordinator.readOutline.bind(coordinator),
         readPage: coordinator.readPage.bind(coordinator),
         readSubagents: typeof coordinator.readSubagents === 'function'
@@ -393,7 +402,10 @@ function createAvailableConversationCapability(
             if (!viewer.isOpen()) {
                 return 'closed';
             }
-            const followed = await viewer.follow(resolution.viewerTarget);
+            const followed = await viewer.follow(
+                resolution.viewerTarget,
+                resolution.snapshot
+            );
             if (followed) {
                 const currentTarget = viewer.getCurrentTarget();
                 terminalAuthority.confirmedTarget =
@@ -470,7 +482,11 @@ function createAvailableConversationCapability(
                 return;
             }
             try {
-                await viewer.restore(panel, resolution.viewerTarget);
+                await viewer.restore(
+                    panel,
+                    resolution.viewerTarget,
+                    resolution.snapshot
+                );
             } catch (_error) {
                 panel.dispose();
             }
@@ -616,13 +632,14 @@ async function openLatestConversation(
     if (!resolution.viewerTarget) {
         return resolution.result;
     }
-    await viewer.open(resolution.viewerTarget);
+    await viewer.open(resolution.viewerTarget, resolution.snapshot);
     return 'opened';
 }
 
 interface LatestConversationTargetResolution {
     result: OpenLatestConversationResult;
     viewerTarget?: ConversationViewerTarget;
+    snapshot?: ConversationSnapshot;
 }
 
 async function followAdjacentConversation(
@@ -698,7 +715,10 @@ async function followAdjacentConversation(
     if (!viewer.isOpen()) {
         return 'closed';
     }
-    const followed = await viewer.follow(resolution.viewerTarget);
+    const followed = await viewer.follow(
+        resolution.viewerTarget,
+        resolution.snapshot
+    );
     if (!isCurrent()) {
         return 'superseded';
     }
@@ -815,18 +835,28 @@ async function resolveLatestConversationTarget(
             authoritativeSubagent.id
         );
     }
-    let outline;
+    let snapshot: ConversationSnapshot;
     try {
-        outline = await coordinator.readOutline(
-            target.provider,
-            effectiveSessionId
-        );
+        snapshot = typeof coordinator.readSnapshot === 'function'
+            ? await coordinator.readSnapshot(
+                target.provider,
+                effectiveSessionId,
+                preferredInteractionId
+            )
+            : {
+                outline: await coordinator.readOutline(
+                    target.provider,
+                    effectiveSessionId
+                ),
+            };
     } catch (_error) {
         return { result: 'unavailable' };
     }
-    const selected = outline.interactions.find(interaction =>
+    const selected = snapshot.outline.interactions.find(interaction =>
         interaction.id === preferredInteractionId
-    ) || outline.interactions[outline.interactions.length - 1];
+    ) || snapshot.outline.interactions[
+        snapshot.outline.interactions.length - 1
+    ];
     if (!selected) {
         return { result: 'empty' };
     }
@@ -842,13 +872,14 @@ async function resolveLatestConversationTarget(
             provider: target.provider,
             sessionId: target.sessionId,
             interactionId: selected.id,
-            expectedRevision: outline.sourceRevision,
+            expectedRevision: snapshot.outline.sourceRevision,
             displayName: displayMetadata.conversationDisplayName
                 || (trimmedName || `${target.provider} conversation`),
             duplicateDisplayName:
                 displayMetadata.duplicateConversationDisplayName === true,
             ...(subagent ? { subagent } : {}),
         },
+        snapshot,
     };
 }
 

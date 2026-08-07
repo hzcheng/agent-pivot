@@ -95,6 +95,20 @@ async function readWholeConversation(adapter) {
     return { outline, page };
 }
 
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 Codex returns one correlated outline and page from one provider read', async t => {
+    const harness = createAdapter();
+    t.after(() => harness.adapter.dispose());
+
+    const snapshot = await harness.adapter.readSnapshot(sessionId);
+
+    assert.equal(harness.requests.length, 1);
+    assert.equal(snapshot.page.sourceRevision, snapshot.outline.sourceRevision);
+    assert.equal(
+        snapshot.page.anchorInteractionId,
+        snapshot.outline.interactions.at(-1).id
+    );
+});
+
 test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 Codex normalizes only stable visible user and agent items', async t => {
     const harness = createAdapter();
     t.after(() => harness.adapter.dispose());

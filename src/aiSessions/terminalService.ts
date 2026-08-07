@@ -162,8 +162,8 @@ export default class AiSessionTerminalService {
             : {};
     }
 
-    focusTerminal(terminal: vscode.Terminal): void {
-        terminal?.show();
+    focusTerminal(terminal: vscode.Terminal, preserveFocus: boolean = false): void {
+        terminal?.show(preserveFocus);
     }
 
     closeTerminal(terminal: vscode.Terminal): void {

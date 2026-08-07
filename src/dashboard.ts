@@ -1471,6 +1471,13 @@ async function initializeDashboard(
                 viewerTarget.provider,
                 viewerTarget.sessionId
             ),
+        syncSession: viewerTarget =>
+            aiSessionTerminalCommandController.focusActive(
+                viewerTarget.projectId,
+                viewerTarget.provider,
+                viewerTarget.sessionId,
+                { revealTerminal: false }
+            ),
         setConversationFocusContext: focused =>
             vscode.commands.executeCommand(
                 'setContext',

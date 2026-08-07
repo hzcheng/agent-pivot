@@ -108,6 +108,11 @@ export interface ConversationPage {
     isEnd: boolean;
 }
 
+export interface ConversationSnapshot {
+    outline: ConversationOutline;
+    page?: ConversationPage;
+}
+
 export interface ConversationTelemetryWorktree {
     branch: string;
     worktreeRoot: string;
@@ -250,6 +255,11 @@ export interface ConversationSubagentEntry {
 }
 
 export interface ConversationProviderAdapter extends AiSessionDisposable {
+    readSnapshot?(
+        sessionId: string,
+        preferredInteractionId?: string,
+        signal?: ConversationAbortSignal
+    ): Promise<ConversationSnapshot>;
     readOutline(
         sessionId: string,
         signal?: ConversationAbortSignal

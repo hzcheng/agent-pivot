@@ -188,6 +188,7 @@ async function openViewerPage(t, options = {}) {
                 data-subscription-generation="1"
                 data-conversation-target='{"projectId":"project-1","provider":"codex","sessionId":"session-telemetry"}'>
                 <header>
+                    <strong data-conversation-provider>Codex</strong>
                     <span data-conversation-display-name>Original session</span>
                     <span data-conversation-position>Input 0 of 0</span>
                     <button type="button" data-action="previous">Previous</button>
@@ -316,6 +317,59 @@ async function sendPage(page, payload) {
         new MessageEvent('message', { data: message })
     ), payload);
 }
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 applies an authoritative cross-provider Session switch without replacing the Webview shell', async t => {
+    const page = await openViewerPage(t);
+    await sendPage(page, hostileConversationPage);
+    await page.evaluate(() => {
+        window.__retainedConversationMessages = document.querySelector(
+            '[data-conversation-messages]'
+        );
+    });
+
+    await sendPage(page, {
+        ...hostileConversationPage,
+        requestId: 2,
+        subscriptionGeneration: 2,
+        html: '<article data-message-id="kimi-message" '
+            + 'data-interaction-id="kimi-input"><p>Kimi response</p></article>',
+        outline: [{
+            interactionId: 'kimi-input',
+            userPreview: 'Kimi input',
+            responseState: 'complete',
+        }],
+        selectedInteractionId: 'kimi-input',
+        selectedInput: 1,
+        totalInputs: 1,
+        previousCursor: undefined,
+        nextCursor: undefined,
+        target: {
+            projectId: 'project-1',
+            provider: 'kimi',
+            sessionId: 'kimi-session',
+            interactionId: 'kimi-input',
+            displayName: 'Kimi Session',
+        },
+        comments: { revision: 0, comments: [] },
+        bookmarks: { revision: 0, interactionIds: [] },
+    });
+
+    assert.deepEqual(await page.evaluate(() => ({
+        retainedRoot: document.querySelector('[data-conversation-messages]')
+            === window.__retainedConversationMessages,
+        provider: document.querySelector('[data-conversation-provider]')
+            .textContent,
+        displayName: document.querySelector('[data-conversation-display-name]')
+            .textContent,
+        response: document.querySelector('[data-conversation-messages]')
+            .textContent.trim(),
+    })), {
+        retainedRoot: true,
+        provider: 'Kimi',
+        displayName: 'Kimi Session',
+        response: 'Kimi response',
+    });
+});
 
 test('CONVERSATION-TELEMETRY-001 CONVERSATION-TELEMETRY-CONTROLLER-001 renders correlated model, context, and weekly quota updates in place', async t => {
     const page = await openViewerPage(t);
@@ -5847,10 +5901,35 @@ test('CONVERSATION-VIEWER-BROWSER-CORRELATION-001 rejects stale request and subs
         subscriptionGeneration: 2,
         html: messageHtml('generation-2', 1),
     });
+    await sendPage(page, {
+        ...hostileConversationPage,
+        requestId: 7,
+        subscriptionGeneration: 2,
+        html: messageHtml('invalid-generation-2', 1),
+        target: {
+            projectId: 'project-1',
+            provider: 'kimi',
+            sessionId: 'kimi-session',
+            interactionId: 'input-4',
+            displayName: 'Kimi Session',
+        },
+        comments: { revision: 0, comments: [{}] },
+        bookmarks: { revision: 0, interactionIds: [] },
+    });
+    await sendPage(page, {
+        ...hostileConversationPage,
+        requestId: 6,
+        html: messageHtml('request-6', 1),
+    });
 
-    assert.equal(await page.locator('[data-message-id="request-5-0"]').count(), 1);
+    assert.equal(await page.locator('[data-message-id="request-5-0"]').count(), 0);
+    assert.equal(await page.locator('[data-message-id="request-6-0"]').count(), 1);
     assert.equal(await page.locator('[data-message-id="request-4-0"]').count(), 0);
     assert.equal(await page.locator('[data-message-id="generation-2-0"]').count(), 0);
+    assert.equal(await page.locator(
+        '[data-message-id="invalid-generation-2-0"]'
+    ).count(), 0);
+    assert.equal(await page.locator('[data-conversation-provider]').innerText(), 'Codex');
 });
 
 test('CONVERSATION-VIEWER-BROWSER-RACE-001 treats a refresh that wins initial loading as the initial page', async t => {

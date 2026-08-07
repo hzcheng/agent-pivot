@@ -367,9 +367,10 @@ test('RUNTIME-TMUX-FOCUS-FAST-PATH-001 focuses a unique cached tmux target witho
     tmux.active.push(runtime);
     const coordinator = createCoordinator(direct, tmux);
 
-    await coordinator.focus(runtime.identity);
+    await coordinator.focus(runtime.identity, { preserveFocus: true });
 
     assert.equal(tmux.focusCalls.length, 1);
+    assert.deepEqual(tmux.focusOptions, [{ preserveFocus: true }]);
     assert.deepEqual(tmux.refreshCalls, []);
     assert.deepEqual(direct.refreshCalls, []);
 });
@@ -390,7 +391,9 @@ test('RUNTIME-TMUX-FOCUS-FAST-PATH-001 reconciles and retries one changed target
     tmux.focus = async value => {
         tmux.focusCalls.push(value);
         focusAttempts += 1;
-        throw new AiSessionRuntimeTargetChangedError();
+        if (focusAttempts === 1) {
+            throw new AiSessionRuntimeTargetChangedError();
+        }
     };
     const coordinator = createCoordinator(direct, tmux);
 
@@ -399,6 +402,75 @@ test('RUNTIME-TMUX-FOCUS-FAST-PATH-001 reconciles and retries one changed target
     assert.equal(focusAttempts, 2);
     assert.deepEqual(tmux.refreshCalls, [true]);
     assert.deepEqual(direct.refreshCalls, [true]);
+});
+
+test('CONVERSATION-ACTIVE-SESSION-NAVIGATION-COMMANDS-001 rejects direct focus when the runtime disappears during refresh', async () => {
+    const direct = createFakeRuntimeBackend('vscode', {
+        onRefresh: backend => backend.active.splice(0),
+    });
+    const tmux = createFakeRuntimeBackend('tmux');
+    const runtime = fakeRuntime('vscode', 'direct-disappeared');
+    direct.active.push(runtime);
+    const coordinator = createCoordinator(direct, tmux);
+
+    await assert.rejects(
+        coordinator.focus(runtime.identity, { preserveFocus: true }),
+        AiSessionRuntimeTargetChangedError
+    );
+
+    assert.equal(direct.focusCalls.length, 0);
+});
+
+test('CONVERSATION-ACTIVE-SESSION-NAVIGATION-COMMANDS-001 rejects tmux focus when the runtime disappears during reconciliation', async () => {
+    const direct = createFakeRuntimeBackend('vscode');
+    const tmux = createFakeRuntimeBackend('tmux', {
+        onRefresh: backend => backend.active.splice(0),
+    });
+    const runtime = fakeRuntime('tmux', 'tmux-disappeared', {
+        attached: false,
+        tmux: {
+            layout: 'project',
+            sessionName: 'managed',
+            windowName: 'codex-tmux-disappeared',
+        },
+    });
+    tmux.active.push(runtime);
+    tmux.focus = async () => {
+        throw new AiSessionRuntimeTargetChangedError();
+    };
+    const coordinator = createCoordinator(direct, tmux);
+
+    await assert.rejects(
+        coordinator.focus(runtime.identity),
+        AiSessionRuntimeTargetChangedError
+    );
+});
+
+test('CONVERSATION-ACTIVE-SESSION-NAVIGATION-COMMANDS-001 rejects tmux focus after a repeated target change', async () => {
+    const direct = createFakeRuntimeBackend('vscode');
+    const tmux = createFakeRuntimeBackend('tmux');
+    const runtime = fakeRuntime('tmux', 'tmux-changed-twice', {
+        attached: false,
+        tmux: {
+            layout: 'project',
+            sessionName: 'managed',
+            windowName: 'codex-tmux-changed-twice',
+        },
+    });
+    tmux.active.push(runtime);
+    let focusAttempts = 0;
+    tmux.focus = async () => {
+        focusAttempts += 1;
+        throw new AiSessionRuntimeTargetChangedError();
+    };
+    const coordinator = createCoordinator(direct, tmux);
+
+    await assert.rejects(
+        coordinator.focus(runtime.identity),
+        AiSessionRuntimeTargetChangedError
+    );
+
+    assert.equal(focusAttempts, 2);
 });
 
 test('RUNTIME-TMUX-TERMINATE-SESSION-001 routes terminate to the owning backend and skips conflicts', async () => {

@@ -12,6 +12,7 @@ import type {
     AiSessionMaterializedResumeRuntimeRequest,
     AiSessionPendingRuntimeSnapshot,
     AiSessionResumeRuntimeRequest,
+    AiSessionRuntimeFocusOptions,
     AiSessionRuntimeIdentity,
     AiSessionRuntimeSnapshot,
 } from './runtimeTypes';
@@ -81,7 +82,7 @@ interface DirectTerminalService<TTerminal> {
     }): void;
     trackPending(entry: DirectPendingTerminalEntry<TTerminal>): void;
     replacePendingTerminals(entries: DirectPendingTerminalEntry<TTerminal>[]): void;
-    focusTerminal(terminal: TTerminal): void;
+    focusTerminal(terminal: TTerminal, preserveFocus?: boolean): void;
     closeTerminal(terminal: TTerminal): void;
     handleClosedTerminal(terminal: TTerminal): unknown;
 }
@@ -296,9 +297,12 @@ implements AiSessionExecutableRuntimeBackend<TTerminal> {
         })];
     }
 
-    async focus(runtime: AiSessionRuntimeSnapshot<TTerminal>): Promise<void> {
+    async focus(
+        runtime: AiSessionRuntimeSnapshot<TTerminal>,
+        options: AiSessionRuntimeFocusOptions = {}
+    ): Promise<void> {
         if (runtime?.backend === 'vscode' && runtime.terminal) {
-            this.terminalService.focusTerminal(runtime.terminal);
+            this.terminalService.focusTerminal(runtime.terminal, options.preserveFocus === true);
         }
     }
 

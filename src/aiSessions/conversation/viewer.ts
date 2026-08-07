@@ -5,8 +5,14 @@ import * as vscode from 'vscode';
 import { AGENT_PIVOT_CONVERSATION_VIEW_TYPE } from '../../constants';
 import type { AiSessionProviderId } from '../../models';
 import type { AiSessionDisposable } from '../types';
-import type { ConversationCommentStore } from './commentStore';
-import type { ConversationBookmarkStore } from './bookmarkStore';
+import type {
+    ConversationCommentSnapshot,
+    ConversationCommentStore,
+} from './commentStore';
+import type {
+    ConversationBookmarkSnapshot,
+    ConversationBookmarkStore,
+} from './bookmarkStore';
 import { ConversationCommentController } from './commentController';
 import { ConversationBookmarkController } from './bookmarkController';
 import { ConversationTelemetryController } from './conversationTelemetryController';
@@ -37,6 +43,7 @@ import {
     ConversationOutline,
     ConversationPage,
     ConversationPageRequest,
+    ConversationSnapshot,
     ConversationSubagentEntry,
     ConversationTelemetry,
 } from './types';
@@ -44,6 +51,12 @@ import { encodeSubagentSessionId } from './subagentSessions';
 
 export interface ConversationViewerOptions {
     createPanel: typeof vscode.window.createWebviewPanel;
+    readSnapshot?: (
+        provider: AiSessionProviderId,
+        sessionId: string,
+        preferredInteractionId: string | undefined,
+        signal: ConversationAbortSignal
+    ) => Promise<ConversationSnapshot>;
     readOutline: (
         provider: AiSessionProviderId,
         sessionId: string,
@@ -113,12 +126,19 @@ export interface ConversationViewerApi extends AiSessionDisposable {
         ConversationViewerTarget,
         'projectId' | 'provider' | 'sessionId'
     > | undefined;
-    open(target: ConversationViewerTarget): Promise<void>;
+    open(
+        target: ConversationViewerTarget,
+        snapshot?: ConversationSnapshot
+    ): Promise<void>;
     restore(
         panel: vscode.WebviewPanel,
-        target: ConversationViewerTarget
+        target: ConversationViewerTarget,
+        snapshot?: ConversationSnapshot
     ): Promise<void>;
-    follow(target: ConversationViewerTarget): Promise<boolean>;
+    follow(
+        target: ConversationViewerTarget,
+        snapshot?: ConversationSnapshot
+    ): Promise<boolean>;
     rebindSession(
         previous: Pick<ConversationViewerTarget, 'projectId' | 'provider' | 'sessionId'>,
         next: Pick<ConversationViewerTarget, 'projectId' | 'provider' | 'sessionId'>
@@ -168,6 +188,13 @@ export interface ConversationViewerPageMessage {
     displayName: string;
     subagents: ConversationSubagentEntry[];
     activeSubagent: { id: string; label: string } | null;
+    target: Pick<
+        ConversationViewerTarget,
+        'projectId' | 'provider' | 'sessionId' | 'interactionId'
+            | 'displayName' | 'duplicateDisplayName'
+    >;
+    comments: ConversationCommentSnapshot;
+    bookmarks: ConversationBookmarkSnapshot;
 }
 
 export class ConversationViewer implements ConversationViewerApi {
@@ -186,7 +213,6 @@ export class ConversationViewer implements ConversationViewerApi {
     private currentRequestId = 0;
     private stale = false;
     private latestPublication?: ConversationViewerPageMessage;
-    private panelWasVisible = false;
     private suspended = false;
     private rebindGeneration = 0;
     private authoritativeLoadInFlight?: Promise<boolean>;
@@ -276,13 +302,17 @@ export class ConversationViewer implements ConversationViewerApi {
         };
     }
 
-    async open(target: ConversationViewerTarget): Promise<void> {
-        await this.loadTarget(target, true);
+    async open(
+        target: ConversationViewerTarget,
+        snapshot?: ConversationSnapshot
+    ): Promise<void> {
+        await this.loadTarget(target, true, snapshot);
     }
 
     async restore(
         panel: vscode.WebviewPanel,
-        target: ConversationViewerTarget
+        target: ConversationViewerTarget,
+        snapshot?: ConversationSnapshot
     ): Promise<void> {
         if (this.panel && this.panel !== panel) {
             panel.dispose();
@@ -290,10 +320,13 @@ export class ConversationViewer implements ConversationViewerApi {
         }
         panel.webview.options = this.webviewOptions();
         this.attachPanel(panel);
-        await this.loadTarget(target, false);
+        await this.loadTarget(target, false, snapshot, true);
     }
 
-    async follow(target: ConversationViewerTarget): Promise<boolean> {
+    async follow(
+        target: ConversationViewerTarget,
+        snapshot?: ConversationSnapshot
+    ): Promise<boolean> {
         if (!this.panel) {
             return false;
         }
@@ -305,7 +338,7 @@ export class ConversationViewer implements ConversationViewerApi {
             && this.target.sessionId === target.sessionId) {
             return true;
         }
-        return this.loadTarget(target, false);
+        return this.loadTarget(target, false, snapshot);
     }
 
     async rebindSession(
@@ -324,13 +357,24 @@ export class ConversationViewer implements ConversationViewerApi {
         }
         const rebindGeneration = ++this.rebindGeneration;
         let outline: ConversationOutline;
+        let snapshot: ConversationSnapshot | undefined;
         try {
             const rebindRead = new ConversationAbortController();
-            outline = await this.options.readOutline(
-                next.provider,
-                next.sessionId,
-                rebindRead.signal
-            );
+            if (this.options.readSnapshot) {
+                snapshot = await this.options.readSnapshot(
+                    next.provider,
+                    next.sessionId,
+                    current.interactionId,
+                    rebindRead.signal
+                );
+                outline = snapshot.outline;
+            } else {
+                outline = await this.options.readOutline(
+                    next.provider,
+                    next.sessionId,
+                    rebindRead.signal
+                );
+            }
         } catch (_error) {
             return false;
         }
@@ -350,7 +394,7 @@ export class ConversationViewer implements ConversationViewerApi {
             sessionId: next.sessionId,
             interactionId: selected.id,
             expectedRevision: outline.sourceRevision,
-        }, false);
+        }, false, snapshot);
     }
 
     async freezeSessionMetadata(
@@ -399,8 +443,11 @@ export class ConversationViewer implements ConversationViewerApi {
 
     private async loadTarget(
         target: ConversationViewerTarget,
-        reveal: boolean
+        reveal: boolean,
+        snapshot?: ConversationSnapshot,
+        forceDocumentReplacement = false
     ): Promise<boolean> {
+        const hadPanel = Boolean(this.panel);
         const followedPanel = reveal ? undefined : this.panel;
         const generation = this.replaceTarget(target);
         const activeTarget = this.target;
@@ -423,9 +470,15 @@ export class ConversationViewer implements ConversationViewerApi {
         if (reveal) {
             panel.reveal(vscode.ViewColumn.Active);
         }
-        panel.webview.html = this.renderDocument(undefined, 'Loading conversation…');
+        const replaceDocument = forceDocumentReplacement || !hadPanel;
+        if (replaceDocument) {
+            panel.webview.html = this.renderDocument(
+                undefined,
+                'Loading conversation…'
+            );
+        }
         this.ensureWatch(generation);
-        return this.loadAuthoritative('initial', true);
+        return this.loadAuthoritative('initial', replaceDocument, snapshot);
     }
 
     async refresh(): Promise<void> {
@@ -576,10 +629,11 @@ export class ConversationViewer implements ConversationViewerApi {
         return panel;
     }
 
-    private webviewOptions(): vscode.WebviewOptions {
+    private webviewOptions(): vscode.WebviewOptions & vscode.WebviewPanelOptions {
         return {
             enableScripts: true,
             localResourceRoots: [this.options.mediaUri('')],
+            retainContextWhenHidden: true,
         };
     }
 
@@ -589,7 +643,6 @@ export class ConversationViewer implements ConversationViewerApi {
         }
         this.panel = panel;
         this.publishKeyboardFocus(false, true);
-        this.panelWasVisible = panel.visible;
         this.messageListener = panel.webview.onDidReceiveMessage(
             message => this.handleMessage(message)
         );
@@ -597,13 +650,8 @@ export class ConversationViewer implements ConversationViewerApi {
             if (this.panel !== panel || event.webviewPanel !== panel) {
                 return;
             }
-            const becameVisible = !this.panelWasVisible && panel.visible;
-            this.panelWasVisible = panel.visible;
             if (!panel.active) {
                 this.publishKeyboardFocus(false);
-            }
-            if (becameVisible) {
-                this.rebuildLatestDocument();
             }
         });
         this.panelDisposeListener = panel.onDidDispose(() => {
@@ -646,7 +694,6 @@ export class ConversationViewer implements ConversationViewerApi {
         this.latestPublication = undefined;
         this.commentController.reset();
         this.bookmarkController.reset();
-        this.panelWasVisible = false;
         this.publishKeyboardFocus(false);
         this.suspended = false;
         this.subscriptionGeneration += 1;
@@ -982,7 +1029,8 @@ export class ConversationViewer implements ConversationViewerApi {
 
     private loadAuthoritative(
         updateKind: 'initial' | 'refresh',
-        replaceDocument: boolean
+        replaceDocument: boolean,
+        snapshot?: ConversationSnapshot
     ): Promise<boolean> {
         if (this.authoritativeLoadInFlight) {
             this.authoritativeRefreshPending = true;
@@ -991,7 +1039,8 @@ export class ConversationViewer implements ConversationViewerApi {
         let loadInFlight: Promise<boolean>;
         loadInFlight = this.performAuthoritativeLoad(
             updateKind,
-            replaceDocument
+            replaceDocument,
+            snapshot
         ).finally(() => {
             if (this.authoritativeLoadInFlight !== loadInFlight) {
                 return;
@@ -1012,7 +1061,8 @@ export class ConversationViewer implements ConversationViewerApi {
 
     private async performAuthoritativeLoad(
         updateKind: 'initial' | 'refresh',
-        replaceDocument: boolean
+        replaceDocument: boolean,
+        prefetchedSnapshot?: ConversationSnapshot
     ): Promise<boolean> {
         const target = this.target;
         const panel = this.panel;
@@ -1027,7 +1077,19 @@ export class ConversationViewer implements ConversationViewerApi {
         this.currentRequestId = requestId;
         const previousSelectedInteractionId = this.outlineController.selection;
         try {
-            let outline = await this.options.readOutline(
+            const preferredInteractionId = updateKind === 'initial'
+                ? target.interactionId
+                : previousSelectedInteractionId;
+            let snapshot = prefetchedSnapshot;
+            if (!snapshot && this.options.readSnapshot) {
+                snapshot = await this.options.readSnapshot(
+                    target.provider,
+                    this.effectiveSessionId(target),
+                    preferredInteractionId,
+                    abortController.signal
+                );
+            }
+            let outline = snapshot?.outline || await this.options.readOutline(
                 target.provider,
                 this.effectiveSessionId(target),
                 abortController.signal
@@ -1093,51 +1155,55 @@ export class ConversationViewer implements ConversationViewerApi {
                 return true;
             }
             let page: ConversationPage;
-            try {
-                page = await this.options.readPage({
-                    provider: target.provider,
-                    sessionId: this.effectiveSessionId(target),
-                    anchorInteractionId: selectedInteractionId,
-                    direction: 'around',
-                    expectedRevision: outline.sourceRevision,
-                    limit: CONVERSATION_LIMITS.maxPageInteractions,
-                }, abortController.signal);
-            } catch (error) {
-                if (!isStaleRevision(error)) {
-                    throw error;
+            if (snapshot?.page) {
+                page = snapshot.page;
+            } else {
+                try {
+                    page = await this.options.readPage({
+                        provider: target.provider,
+                        sessionId: this.effectiveSessionId(target),
+                        anchorInteractionId: selectedInteractionId,
+                        direction: 'around',
+                        expectedRevision: outline.sourceRevision,
+                        limit: CONVERSATION_LIMITS.maxPageInteractions,
+                    }, abortController.signal);
+                } catch (error) {
+                    if (!isStaleRevision(error)) {
+                        throw error;
+                    }
+                    if (!this.canPublish(panel, target, generation, requestId)
+                        || abortController.signal.aborted) {
+                        return false;
+                    }
+                    outline = await this.options.readOutline(
+                        target.provider,
+                        this.effectiveSessionId(target),
+                        abortController.signal
+                    );
+                    if (!this.canPublish(panel, target, generation, requestId)) {
+                        return false;
+                    }
+                    if (outline.provider !== target.provider
+                        || outline.sessionId !== this.effectiveSessionId(target)
+                        || !outline.interactions.length) {
+                        await this.publishFailure(replaceDocument, updateKind);
+                        return false;
+                    }
+                    if (!outline.interactions.some(
+                        interaction => interaction.id === selectedInteractionId
+                    )) {
+                        await this.publishFailure(replaceDocument, updateKind);
+                        return false;
+                    }
+                    page = await this.options.readPage({
+                        provider: target.provider,
+                        sessionId: this.effectiveSessionId(target),
+                        anchorInteractionId: selectedInteractionId,
+                        direction: 'around',
+                        expectedRevision: outline.sourceRevision,
+                        limit: CONVERSATION_LIMITS.maxPageInteractions,
+                    }, abortController.signal);
                 }
-                if (!this.canPublish(panel, target, generation, requestId)
-                    || abortController.signal.aborted) {
-                    return false;
-                }
-                outline = await this.options.readOutline(
-                    target.provider,
-                    this.effectiveSessionId(target),
-                    abortController.signal
-                );
-                if (!this.canPublish(panel, target, generation, requestId)) {
-                    return false;
-                }
-                if (outline.provider !== target.provider
-                    || outline.sessionId !== this.effectiveSessionId(target)
-                    || !outline.interactions.length) {
-                    await this.publishFailure(replaceDocument, updateKind);
-                    return false;
-                }
-                if (!outline.interactions.some(
-                    interaction => interaction.id === selectedInteractionId
-                )) {
-                    await this.publishFailure(replaceDocument, updateKind);
-                    return false;
-                }
-                page = await this.options.readPage({
-                    provider: target.provider,
-                    sessionId: this.effectiveSessionId(target),
-                    anchorInteractionId: selectedInteractionId,
-                    direction: 'around',
-                    expectedRevision: outline.sourceRevision,
-                    limit: CONVERSATION_LIMITS.maxPageInteractions,
-                }, abortController.signal);
             }
             if (!this.canPublish(panel, target, generation, requestId)) {
                 return false;
@@ -1630,6 +1696,16 @@ export class ConversationViewer implements ConversationViewerApi {
             displayName: visibleConversationDisplayName(target),
             subagents: this.subagents.map(entry => ({ ...entry })),
             activeSubagent: target.subagent ? { ...target.subagent } : null,
+            target: {
+                projectId: target.projectId,
+                provider: target.provider,
+                sessionId: target.sessionId,
+                interactionId: target.interactionId,
+                displayName: target.displayName,
+                duplicateDisplayName: target.duplicateDisplayName,
+            },
+            comments: this.commentController.snapshot,
+            bookmarks: this.bookmarkController.snapshot,
         };
     }
 

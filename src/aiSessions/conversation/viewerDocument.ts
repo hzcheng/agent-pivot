@@ -135,7 +135,9 @@ export function renderConversationViewerDocument(
     data-subscription-generation="${options.subscriptionGeneration}"${initialPageAttribute}${commentStateAttribute}${bookmarkStateAttribute}${targetAttribute}${restoreTargetAttribute}>
     <header class="conversation-header">
         <div class="conversation-identity">
-            <strong>${escapeHtml(providerLabel(target.provider))}</strong>
+            <strong data-conversation-provider>${escapeHtml(
+                providerLabel(target.provider)
+            )}</strong>
             <span data-conversation-display-name>${escapeHtml(
                 target.displayName + duplicateId
             )}</span>

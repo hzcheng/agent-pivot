@@ -31,6 +31,7 @@ import {
     ConversationPageRequest,
     ConversationProviderAdapter,
     ConversationResponseState,
+    ConversationSnapshot,
     ConversationSubagentEntry,
     ConversationTelemetry,
 } from './types';
@@ -431,6 +432,37 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         this.notificationWatch = options.client.watchNotifications?.(
             (method, params) => this.acceptNotification(method, params)
         );
+    }
+
+    async readSnapshot(
+        sessionId: string,
+        preferredInteractionId?: string,
+        signal?: ConversationAbortSignal
+    ): Promise<ConversationSnapshot> {
+        const loaded = await this.load(sessionId, signal);
+        const outline = buildConversationOutline(
+            'codex',
+            sessionId,
+            loaded.sourceRevision,
+            loaded.interactions,
+            false
+        );
+        const selected = outline.interactions.find(interaction =>
+            interaction.id === preferredInteractionId
+        ) || outline.interactions[outline.interactions.length - 1];
+        return {
+            outline,
+            ...(selected ? {
+                page: buildConversationPage(loaded.interactions, {
+                    provider: 'codex',
+                    sessionId,
+                    anchorInteractionId: selected.id,
+                    direction: 'around',
+                    expectedRevision: loaded.sourceRevision,
+                    limit: CONVERSATION_LIMITS.maxPageInteractions,
+                }, loaded.sourceRevision),
+            } : {}),
+        };
     }
 
     async readOutline(

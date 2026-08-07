@@ -4116,6 +4116,11 @@
     "owners": [
       "scripts/run-conversation-performance-checks.js",
       "tests/browser/conversationViewer.test.js",
+      "tests/contract/aiSessions/claudeConversationAdapter.test.js",
+      "tests/contract/aiSessions/codexConversationAdapter.test.js",
+      "tests/contract/aiSessions/kimiConversationAdapter.test.js",
+      "tests/integration/dashboard/conversationOpenLatest.test.js",
+      "tests/integration/dashboard/conversationViewer.test.js",
       "tests/unit/tooling/conversationPerformance.test.js"
     ],
     "evidence": [

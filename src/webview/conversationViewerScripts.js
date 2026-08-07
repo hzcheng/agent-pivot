@@ -36,6 +36,9 @@
     var conversationDisplayName = document.querySelector(
         '[data-conversation-display-name]'
     );
+    var conversationProvider = document.querySelector(
+        '[data-conversation-provider]'
+    );
     var telemetryRoot = document.querySelector('[data-conversation-telemetry]');
     var telemetryModel = document.querySelector('[data-telemetry-model]');
     var telemetryModelValue = document.querySelector(
@@ -616,6 +619,50 @@
             && typeof value.label === 'string';
     }
 
+    function validPageTarget(value) {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) {
+            return false;
+        }
+        var required = [
+            'projectId', 'provider', 'sessionId', 'interactionId', 'displayName',
+        ];
+        var allowed = new Set(required.concat(['duplicateDisplayName']));
+        return Object.keys(value).every(function (key) {
+            return allowed.has(key);
+        }) && required.every(function (key) {
+            return Object.prototype.hasOwnProperty.call(value, key);
+        })
+            && validCommentTarget({
+                projectId: value.projectId,
+                provider: value.provider,
+                sessionId: value.sessionId,
+            })
+            && typeof value.interactionId === 'string'
+            && value.interactionId.length > 0
+            && typeof value.displayName === 'string'
+            && value.displayName.length <= 640
+            && (value.duplicateDisplayName === undefined
+                || typeof value.duplicateDisplayName === 'boolean');
+    }
+
+    function validCommentSnapshot(value) {
+        return value && typeof value === 'object' && !Array.isArray(value)
+            && Object.keys(value).length === 2
+            && Number.isSafeInteger(value.revision) && value.revision >= 0
+            && Array.isArray(value.comments) && value.comments.length <= 20;
+    }
+
+    function validBookmarkSnapshot(value) {
+        return value && typeof value === 'object' && !Array.isArray(value)
+            && Object.keys(value).length === 2
+            && Number.isSafeInteger(value.revision) && value.revision >= 0
+            && Array.isArray(value.interactionIds)
+            && value.interactionIds.length <= 2000
+            && value.interactionIds.every(function (id) {
+                return typeof id === 'string' && id.length > 0;
+            });
+    }
+
     function validPage(message) {
         if (!message || typeof message !== 'object' || Array.isArray(message)) {
             return false;
@@ -627,7 +674,7 @@
         ];
         var allowedKeys = new Set(requiredKeys.concat([
             'previousCursor', 'nextCursor', 'subagents', 'activeSubagent',
-            'displayName',
+            'displayName', 'target', 'comments', 'bookmarks',
         ]));
         if (Object.keys(message).some(function (key) {
             return !allowedKeys.has(key);
@@ -663,7 +710,75 @@
             && (message.displayName === undefined
                 || (typeof message.displayName === 'string'
                     && message.displayName.length <= 640))
+            && (message.target === undefined
+                || validPageTarget(message.target))
+            && (message.comments === undefined
+                || validCommentSnapshot(message.comments))
+            && (message.bookmarks === undefined
+                || validBookmarkSnapshot(message.bookmarks))
             && typeof message.stale === 'boolean';
+    }
+
+    function providerLabel(provider) {
+        if (provider === 'kimi') return 'Kimi';
+        if (provider === 'claude') return 'Claude';
+        return 'Codex';
+    }
+
+    function applySessionGeneration(message) {
+        if (message.subscriptionGeneration === state.subscriptionGeneration) {
+            return true;
+        }
+        if (message.subscriptionGeneration < state.subscriptionGeneration
+            || !validPageTarget(message.target)
+            || !validCommentSnapshot(message.comments)
+            || !validBookmarkSnapshot(message.bookmarks)
+            || !outlineController.canResetSession(message.bookmarks)
+            || !commentsController.canResetSession(message.comments)) {
+            return false;
+        }
+        var nextCommentTarget = {
+            projectId: message.target.projectId,
+            provider: message.target.provider,
+            sessionId: message.target.sessionId,
+        };
+        if (!outlineController.resetSession(
+            nextCommentTarget,
+            message.subscriptionGeneration,
+            message.bookmarks
+        ) || !commentsController.resetSession(
+            nextCommentTarget,
+            message.subscriptionGeneration,
+            message.comments
+        )) {
+            return false;
+        }
+        telemetryController.resetSession(
+            nextCommentTarget,
+            message.subscriptionGeneration
+        );
+        commentTarget = nextCommentTarget;
+        restoreTarget = {
+            projectId: message.target.projectId,
+            provider: message.target.provider,
+            sessionId: message.target.sessionId,
+            interactionId: message.target.interactionId,
+        };
+        state.subscriptionGeneration = message.subscriptionGeneration;
+        state.latestRequestId = 0;
+        state.initialized = false;
+        state.messageIds = [];
+        state.messageSignatures = new Map();
+        document.body.setAttribute(
+            'data-subscription-generation',
+            String(message.subscriptionGeneration)
+        );
+        if (conversationProvider) {
+            conversationProvider.textContent = providerLabel(
+                message.target.provider
+            );
+        }
+        return true;
     }
 
 
@@ -691,7 +806,7 @@
 
     function applyPage(message) {
         if (!validPage(message)
-            || message.subscriptionGeneration !== state.subscriptionGeneration
+            || !applySessionGeneration(message)
             || message.requestId <= state.latestRequestId) {
             return;
         }
@@ -756,8 +871,12 @@
         }
         commentsController.updateHighlights();
         if (conversationDisplayName
-            && typeof message.displayName === 'string') {
-            conversationDisplayName.textContent = message.displayName;
+            && (typeof message.displayName === 'string'
+                || validPageTarget(message.target))) {
+            conversationDisplayName.textContent = typeof message.displayName
+                === 'string'
+                ? message.displayName
+                : message.target.displayName;
         }
         updatePosition(message);
         var latestInteraction = message.outline[message.outline.length - 1];

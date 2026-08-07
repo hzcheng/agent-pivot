@@ -86,6 +86,27 @@ function makeOutline(provider, sessionId, interactionIds) {
     };
 }
 
+function makePage(provider, sessionId, interactionId) {
+    return {
+        provider,
+        sessionId,
+        sourceRevision: 'native-1',
+        anchorInteractionId: interactionId,
+        messages: [{
+            id: `${interactionId}:user`,
+            interactionId,
+            role: 'user',
+            markdown: interactionId,
+        }],
+        interactionStates: [{
+            interactionId,
+            responseState: 'complete',
+        }],
+        isStart: true,
+        isEnd: true,
+    };
+}
+
 function makeSession(overrides = {}) {
     return {
         key: 'codex:session-a',
@@ -105,19 +126,38 @@ function makeSession(overrides = {}) {
 
 function createHarness(options = {}) {
     const viewerTargets = [];
+    const viewerSnapshots = [];
     const followedViewerTargets = [];
     const restoredViewerTargets = [];
     let viewerFocuses = 0;
     let capturedViewerOptions;
     let outlineReads = 0;
+    let snapshotReads = 0;
     const session = 'session' in options ? options.session : makeSession({
         conversationDisplayName: options.conversationDisplayName,
         duplicateConversationDisplayName:
             options.duplicateConversationDisplayName,
     });
     const fakeAdapter = provider => () => ({
+        ...(options.enableSnapshots ? {
+            async readSnapshot(sessionId, preferredInteractionId) {
+                snapshotReads += 1;
+                const interactionIds = options.interactionIds
+                    || ['input-a', 'input-b'];
+                const selected = interactionIds.includes(preferredInteractionId)
+                    ? preferredInteractionId
+                    : interactionIds.at(-1);
+                return {
+                    outline: makeOutline(provider, sessionId, interactionIds),
+                    page: makePage(provider, sessionId, selected),
+                };
+            },
+        } : {}),
         async readOutline(sessionId) {
             outlineReads += 1;
+            if (options.requireSnapshot) {
+                throw new Error('initial Conversation load must use one snapshot');
+            }
             if (options.readOutline) {
                 return options.readOutline(provider, sessionId);
             }
@@ -148,6 +188,7 @@ function createHarness(options = {}) {
         resolveActiveTargets: options.resolveActiveTargets
             || (() => (session ? [session] : [])),
         focusSession: options.focusSession,
+        syncSession: options.syncSession,
         publish: async () => true,
         createPanel: () => {
             throw new Error('createPanel is not used by openLatestConversation');
@@ -189,15 +230,17 @@ function createHarness(options = {}) {
                     }
                     : undefined,
                 getFocusedSessionTarget: () => options.focusedViewerTarget,
-                open: async target => {
+                open: async (target, snapshot) => {
                     viewerTargets.push(target);
+                    viewerSnapshots.push(snapshot);
                     await options.openViewer?.(target);
                 },
                 restore: async (panel, target) => {
                     restoredViewerTargets.push({ panel, target });
                 },
-                follow: async target => {
+                follow: async (target, snapshot) => {
                     followedViewerTargets.push(target);
+                    viewerSnapshots.push(snapshot);
                     return options.followViewer
                         ? options.followViewer(target)
                         : true;
@@ -218,6 +261,7 @@ function createHarness(options = {}) {
     return {
         capability,
         viewerTargets,
+        viewerSnapshots,
         followedViewerTargets,
         restoredViewerTargets,
         get viewerOptions() {
@@ -225,6 +269,9 @@ function createHarness(options = {}) {
         },
         get outlineReads() {
             return outlineReads;
+        },
+        get snapshotReads() {
+            return snapshotReads;
         },
         get viewerFocuses() {
             return viewerFocuses;
@@ -250,6 +297,33 @@ test('CONVERSATION-OPEN-LATEST-001 opens the latest interaction of the resolved 
         duplicateDisplayName: false,
     }]);
     capability.dispose();
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 opens Codex, Kimi, and Claude with one shared provider snapshot each', async () => {
+    for (const provider of ['codex', 'kimi', 'claude']) {
+        const sessionId = `${provider}-session`;
+        const harness = createHarness({
+            enableSnapshots: true,
+            requireSnapshot: true,
+            session: makeSession({
+                key: `${provider}:${sessionId}`,
+                provider,
+                sessionId,
+                name: `${provider} Session`,
+            }),
+        });
+        assert.equal(await harness.capability.openLatestConversation({
+            projectId: 'project-a',
+            provider,
+            sessionId,
+        }), 'opened');
+        assert.equal(harness.snapshotReads, 1, `${provider} snapshot reads`);
+        assert.equal(harness.outlineReads, 0, `${provider} outline re-reads`);
+        assert.equal(harness.viewerSnapshots.length, 1);
+        assert.equal(harness.viewerSnapshots[0].outline.provider, provider);
+        assert.equal(harness.viewerSnapshots[0].page.provider, provider);
+        harness.capability.dispose();
+    }
 });
 
 test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 dashboard registers a serializer that restores AI Conversation panels', () => {
@@ -687,6 +761,42 @@ test('CONVERSATION-ACTIVE-SESSION-NAVIGATION-COMMANDS-001 switches from the focu
     );
     assert.equal(unfocused.outlineReads, 0);
     unfocused.capability.dispose();
+});
+
+test('CONVERSATION-ACTIVE-SESSION-NAVIGATION-COMMANDS-001 synchronizes runtime authority without revealing the Terminal during Conversation navigation', async () => {
+    const sessions = [
+        makeSession({ key: 'codex:session-a', sessionId: 'session-a' }),
+        makeSession({ key: 'kimi:session-b', provider: 'kimi', sessionId: 'session-b' }),
+    ];
+    const revealed = [];
+    const synchronized = [];
+    const harness = createHarness({
+        viewerOpen: true,
+        focusedViewerTarget: {
+            projectId: 'project-a',
+            provider: 'codex',
+            sessionId: 'session-a',
+        },
+        resolveTarget: (_projectId, provider, sessionId) =>
+            sessions.find(session =>
+                session.provider === provider && session.sessionId === sessionId
+            ) || null,
+        resolveActiveTargets: () => sessions,
+        focusSession: async target => revealed.push(target),
+        syncSession: async target => synchronized.push(target),
+    });
+
+    assert.equal(
+        await harness.capability.followAdjacentActiveConversation('next'),
+        'opened'
+    );
+    assert.deepEqual(revealed, []);
+    assert.deepEqual(synchronized.map(target => [
+        target.provider,
+        target.sessionId,
+    ]), [['kimi', 'session-b']]);
+    assert.equal(harness.viewerFocuses, 1);
+    harness.capability.dispose();
 });
 
 test('CONVERSATION-ACTIVE-SESSION-NAVIGATION-COMMANDS-001 rolls a rejected command switch back before restoring Conversation focus', async () => {

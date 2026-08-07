@@ -61,6 +61,20 @@ async function readWholeConversation(adapter) {
     return { outline, page };
 }
 
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 Claude returns one correlated outline and page snapshot', async t => {
+    const source = await createFixture(t);
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+
+    const snapshot = await adapter.readSnapshot(sessionId);
+
+    assert.equal(snapshot.page.sourceRevision, snapshot.outline.sourceRevision);
+    assert.equal(
+        snapshot.page.anchorInteractionId,
+        snapshot.outline.interactions.at(-1).id
+    );
+});
+
 test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 Claude normalizes only top-level visible user and assistant text', async t => {
     const source = await createFixture(t);
     const adapter = createAdapter(source);

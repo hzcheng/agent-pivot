@@ -239,6 +239,7 @@ function createViewer(options = {}) {
         },
         readOutline: options.readOutline || (async (_provider, sessionId) =>
             outline(sessionId, ['input-1'])),
+        readSnapshot: options.readSnapshot,
         readPage: options.readPage || (async request =>
             page(request.sessionId, request.anchorInteractionId)),
         readSubagents: options.readSubagents,
@@ -611,7 +612,9 @@ test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 opens a subagent transcript in plac
     });
 
     await viewer.open(target('session-a', 'input-a'));
-    const initial = decodeInitialPublication(panel.webview.html);
+    await new Promise(resolve => setImmediate(resolve));
+    const initial = panel.postedMessages.at(-1)
+        || decodeInitialPublication(panel.webview.html);
     assert.deepEqual(
         initial.subagents.map(entry => [entry.id, entry.status]),
         [['a11111111', 'running']]
@@ -683,6 +686,257 @@ test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 opens a subagent transcript in plac
         publication.outline.map(entry => entry.interactionId),
         ['input-a', 'input-b']
     );
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 publishes readable content before optional subagent discovery settles for every provider', async () => {
+    for (const provider of ['codex', 'kimi', 'claude']) {
+        const subagents = deferred();
+        let openSettled = false;
+        const sessionId = `${provider}-nonblocking-subagents`;
+        const { viewer, panel } = createViewer({
+            readOutline: async () => ({
+                ...outline(sessionId, ['input-1']),
+                provider,
+            }),
+            readPage: async request => ({
+                ...page(sessionId, request.anchorInteractionId, `${provider}-visible`),
+                provider,
+            }),
+            readSubagents: async () => subagents.promise,
+        });
+
+        const opening = viewer.open(target(sessionId, 'input-1', { provider }))
+            .then(() => { openSettled = true; });
+        await new Promise(resolve => setImmediate(resolve));
+        const settledBeforeSubagents = openSettled;
+        const readableBeforeSubagents = panel.webview.html.includes(
+            `${provider}-visible`
+        ) || panel.postedMessages.some(message =>
+            message.html?.includes(`${provider}-visible`)
+        );
+
+        subagents.resolve([{
+            id: 'a11111111',
+            label: `${provider} worker`,
+            status: 'running',
+        }]);
+        await opening;
+
+        assert.equal(settledBeforeSubagents, true,
+            `${provider} content publication must not await subagents`);
+        assert.equal(readableBeforeSubagents, true,
+            `${provider} readable content must precede subagents`);
+        viewer.dispose();
+    }
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 keeps late subagents after same-session navigation supersedes the page request', async () => {
+    const subagents = deferred();
+    const sessionId = 'navigated-while-discovering';
+    const { viewer, panel } = createViewer({
+        readOutline: async () => outline(
+            sessionId,
+            ['input-1', 'input-2']
+        ),
+        readPage: async request => page(
+            sessionId,
+            request.anchorInteractionId,
+            'readable',
+            {
+                interactionIds: ['input-1', 'input-2'],
+                anchorInteractionId: request.anchorInteractionId,
+            }
+        ),
+        readSubagents: async () => subagents.promise,
+    });
+
+    await viewer.open(target(sessionId, 'input-2'));
+    await panel.receive({
+        type: 'conversation-viewer-previous',
+        version: 1,
+    });
+    assert.equal(panel.postedMessages.at(-1).selectedInteractionId, 'input-1');
+
+    subagents.resolve([{
+        id: 'a11111111',
+        label: 'Late worker',
+        status: 'running',
+    }]);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(
+        panel.postedMessages.at(-1).subagents.map(entry => entry.id),
+        ['a11111111']
+    );
+    assert.equal(panel.postedMessages.at(-1).selectedInteractionId, 'input-1');
+    viewer.dispose();
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 prevents an older subagent result from superseding a newer authoritative refresh', async () => {
+    const sessionId = 'refresh-while-discovering';
+    const refreshedOutline = deferred();
+    const firstSubagents = deferred();
+    const secondSubagents = deferred();
+    let outlineReads = 0;
+    let subagentReads = 0;
+    const { viewer, panel } = createViewer({
+        readOutline: async () => {
+            outlineReads += 1;
+            if (outlineReads === 2) {
+                return refreshedOutline.promise;
+            }
+            return outline(sessionId, ['input-1']);
+        },
+        readPage: async request => page(
+            sessionId,
+            request.anchorInteractionId,
+            request.expectedRevision,
+            { sourceRevision: request.expectedRevision }
+        ),
+        readSubagents: async () => (
+            ++subagentReads === 1
+                ? firstSubagents.promise
+                : secondSubagents.promise
+        ),
+    });
+
+    await viewer.open(target(sessionId, 'input-1'));
+    const refreshing = viewer.refresh();
+    await new Promise(resolve => setImmediate(resolve));
+    firstSubagents.resolve([{
+        id: 'stale-worker',
+        label: 'Stale worker',
+        status: 'running',
+    }]);
+    await new Promise(resolve => setImmediate(resolve));
+    refreshedOutline.resolve(outline(
+        sessionId,
+        ['input-1'],
+        { sourceRevision: 'r2' }
+    ));
+    await refreshing;
+    secondSubagents.resolve([{
+        id: 'current-worker',
+        label: 'Current worker',
+        status: 'running',
+    }]);
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.deepEqual(
+        panel.postedMessages.at(-1).subagents.map(entry => entry.id),
+        ['current-worker']
+    );
+    assert.match(panel.postedMessages.at(-1).html, /r2/);
+    viewer.dispose();
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 prevents an older subagent result from cancelling cross-page navigation', async () => {
+    const sessionId = 'cross-page-while-discovering';
+    const navigationPage = deferred();
+    const firstSubagents = deferred();
+    const secondSubagents = deferred();
+    let pageReads = 0;
+    let subagentReads = 0;
+    const { viewer, panel } = createViewer({
+        readOutline: async () => outline(
+            sessionId,
+            ['input-1', 'input-2']
+        ),
+        readPage: async request => {
+            pageReads += 1;
+            if (pageReads === 2) {
+                return navigationPage.promise;
+            }
+            return page(sessionId, 'input-2', 'initial', {
+                interactionIds: ['input-2'],
+                anchorInteractionId: 'input-2',
+                previousCursor: 'before-input-2',
+            });
+        },
+        readSubagents: async () => (
+            ++subagentReads === 1
+                ? firstSubagents.promise
+                : secondSubagents.promise
+        ),
+    });
+
+    await viewer.open(target(sessionId, 'input-2'));
+    const navigating = panel.receive({
+        type: 'conversation-viewer-previous',
+        version: 1,
+    });
+    await new Promise(resolve => setImmediate(resolve));
+    firstSubagents.resolve([{
+        id: 'stale-worker',
+        label: 'Stale worker',
+        status: 'running',
+    }]);
+    await new Promise(resolve => setImmediate(resolve));
+    navigationPage.resolve(page(sessionId, 'input-1', 'navigated', {
+        interactionIds: ['input-1'],
+        anchorInteractionId: 'input-1',
+        nextCursor: 'after-input-1',
+    }));
+    await navigating;
+    secondSubagents.resolve([{
+        id: 'current-worker',
+        label: 'Current worker',
+        status: 'running',
+    }]);
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.equal(panel.postedMessages.at(-1).selectedInteractionId, 'input-1');
+    assert.match(panel.postedMessages.at(-1).html, /navigated/);
+    assert.deepEqual(
+        panel.postedMessages.at(-1).subagents.map(entry => entry.id),
+        ['current-worker']
+    );
+    viewer.dispose();
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 revalidates a warm latest snapshot without overriding later user navigation', async () => {
+    const sessionId = 'warm-latest';
+    let authoritativeReads = 0;
+    const snapshot = {
+        outline: outline(sessionId, ['input-1', 'input-2']),
+        page: page(sessionId, 'input-2', 'warm', {
+            interactionIds: ['input-1', 'input-2'],
+            anchorInteractionId: 'input-2',
+        }),
+    };
+    const { viewer, panel } = createViewer({
+        readSnapshot: async () => {
+            authoritativeReads += 1;
+            return {
+                outline: outline(
+                    sessionId,
+                    ['input-1', 'input-2', 'input-3'],
+                    { sourceRevision: 'r2' }
+                ),
+                page: page(sessionId, 'input-3', 'authoritative', {
+                    interactionIds: ['input-1', 'input-2', 'input-3'],
+                    anchorInteractionId: 'input-3',
+                    sourceRevision: 'r2',
+                }),
+            };
+        },
+    });
+
+    await viewer.open(target(sessionId, 'input-2'), snapshot);
+    await viewer.revalidateLatest('input-2');
+    assert.equal(panel.postedMessages.at(-1).selectedInteractionId, 'input-3');
+    assert.equal(authoritativeReads, 1);
+
+    await viewer.open(target(sessionId, 'input-2'), snapshot);
+    await panel.receive({
+        type: 'conversation-viewer-previous',
+        version: 1,
+    });
+    assert.equal(panel.postedMessages.at(-1).selectedInteractionId, 'input-1');
+    await viewer.revalidateLatest('input-2');
+    assert.equal(panel.postedMessages.at(-1).selectedInteractionId, 'input-1');
+    assert.equal(authoritativeReads, 1,
+        'manual navigation must cancel the automatic latest revalidation');
+    viewer.dispose();
 });
 
 test('CONVERSATION-VIEWER-OWNERSHIP-001 reuses one panel, rejects an old session generation, and clears sensitive state on disposal', async () => {

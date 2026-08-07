@@ -34,6 +34,7 @@ import {
     KimiConversationAdapterOptions,
 } from './kimiAdapter';
 import {
+    ConversationAbortController,
     ConversationError,
     ConversationProviderAdapter,
     ConversationSnapshot,
@@ -269,6 +270,17 @@ function createAvailableConversationCapability(
     ownership.transfer(codexAdapter);
     ownership.transfer(kimiAdapter);
     ownership.transfer(claudeAdapter);
+    const snapshotWarmup = typeof coordinator.readSnapshot === 'function'
+        && typeof coordinator.setSessionStopped === 'function'
+        ? ownership.own(new ConversationSnapshotWarmup({
+            readSnapshot: coordinator.readSnapshot.bind(coordinator),
+            setSessionStopped: coordinator.setSessionStopped.bind(coordinator),
+            resolveActiveTargets: options.resolveActiveTargets,
+            now: options.now,
+            setTimer: options.setTimer,
+            clearTimer: options.clearTimer,
+        }))
+        : undefined;
     let focusTail: Promise<void> = Promise.resolve();
     const queueFocus = (
         operation: () => void | PromiseLike<void>,
@@ -331,7 +343,8 @@ function createAvailableConversationCapability(
                 currentTarget,
                 () => intentGeneration === viewerIntentGeneration,
                 queueTerminalFocus,
-                terminalAuthority
+                terminalAuthority,
+                snapshotWarmup
             );
         },
         setKeyboardFocus: options.setConversationFocusContext,
@@ -357,7 +370,8 @@ function createAvailableConversationCapability(
                 coordinator,
                 viewer,
                 target,
-                () => intentGeneration === viewerIntentGeneration
+                () => intentGeneration === viewerIntentGeneration,
+                snapshotWarmup
             );
         },
         async openLatestActiveConversation(
@@ -369,7 +383,8 @@ function createAvailableConversationCapability(
                 coordinator,
                 viewer,
                 target,
-                () => intentGeneration === viewerIntentGeneration
+                () => intentGeneration === viewerIntentGeneration,
+                snapshotWarmup
             );
             if (result === 'opened') {
                 const currentTarget = viewer.getCurrentTarget();
@@ -391,7 +406,10 @@ function createAvailableConversationCapability(
             const resolution = await resolveLatestConversationTarget(
                 options,
                 coordinator,
-                target
+                target,
+                undefined,
+                undefined,
+                snapshotWarmup
             );
             if (intentGeneration !== viewerIntentGeneration) {
                 return 'superseded';
@@ -407,6 +425,11 @@ function createAvailableConversationCapability(
                 resolution.snapshot
             );
             if (followed) {
+                snapshotWarmup?.afterLoad(
+                    resolution.viewerTarget,
+                    resolution.prefetchedSnapshot === true,
+                    viewer
+                );
                 const currentTarget = viewer.getCurrentTarget();
                 terminalAuthority.confirmedTarget =
                     cloneConversationViewerTarget(
@@ -440,7 +463,8 @@ function createAvailableConversationCapability(
                     currentTarget,
                     isCurrent,
                     queueTerminalFocus,
-                    terminalAuthority
+                    terminalAuthority,
+                    snapshotWarmup
                 );
             } finally {
                 // A terminal focus from an older Webview switch may already
@@ -474,7 +498,8 @@ function createAvailableConversationCapability(
                 coordinator,
                 reboundTarget,
                 savedTarget.interactionId,
-                reboundRootChanged ? undefined : savedTarget.subagentId
+                reboundRootChanged ? undefined : savedTarget.subagentId,
+                snapshotWarmup
             );
             if (disposed || intentGeneration !== viewerIntentGeneration
                 || !resolution.viewerTarget) {
@@ -486,6 +511,11 @@ function createAvailableConversationCapability(
                     panel,
                     resolution.viewerTarget,
                     resolution.snapshot
+                );
+                snapshotWarmup?.afterLoad(
+                    resolution.viewerTarget,
+                    resolution.prefetchedSnapshot === true,
+                    viewer
                 );
             } catch (_error) {
                 panel.dispose();
@@ -619,12 +649,16 @@ async function openLatestConversation(
     coordinator: ConversationCoordinator,
     viewer: ConversationViewerApi,
     target: ConversationSessionOpenTarget,
-    isCurrent: () => boolean
+    isCurrent: () => boolean,
+    snapshotWarmup?: ConversationSnapshotWarmup
 ): Promise<OpenLatestConversationResult> {
     const resolution = await resolveLatestConversationTarget(
         options,
         coordinator,
-        target
+        target,
+        undefined,
+        undefined,
+        snapshotWarmup
     );
     if (!isCurrent()) {
         return 'superseded';
@@ -633,6 +667,11 @@ async function openLatestConversation(
         return resolution.result;
     }
     await viewer.open(resolution.viewerTarget, resolution.snapshot);
+    snapshotWarmup?.afterLoad(
+        resolution.viewerTarget,
+        resolution.prefetchedSnapshot === true,
+        viewer
+    );
     return 'opened';
 }
 
@@ -640,6 +679,7 @@ interface LatestConversationTargetResolution {
     result: OpenLatestConversationResult;
     viewerTarget?: ConversationViewerTarget;
     snapshot?: ConversationSnapshot;
+    prefetchedSnapshot?: boolean;
 }
 
 async function followAdjacentConversation(
@@ -655,7 +695,8 @@ async function followAdjacentConversation(
     ) => Promise<boolean>,
     terminalAuthority?: {
         confirmedTarget?: ConversationViewerTarget;
-    }
+    },
+    snapshotWarmup?: ConversationSnapshotWarmup
 ): Promise<FollowAdjacentConversationResult> {
     if (!viewer.isOpen()) {
         return 'closed';
@@ -704,7 +745,10 @@ async function followAdjacentConversation(
             projectId: currentTarget.projectId,
             provider: adjacent.provider,
             sessionId: adjacent.sessionId,
-        }
+        },
+        undefined,
+        undefined,
+        snapshotWarmup
     );
     if (!isCurrent()) {
         return 'superseded';
@@ -725,6 +769,11 @@ async function followAdjacentConversation(
     if (!followed) {
         return 'closed';
     }
+    snapshotWarmup?.afterLoad(
+        resolution.viewerTarget,
+        resolution.prefetchedSnapshot === true,
+        viewer
+    );
     if (queueTerminalFocus) {
         // Webview navigation syncs the terminal/tmux window. Command
         // navigation queues a Conversation reveal behind any terminal focus
@@ -792,12 +841,264 @@ function hasSameConversationSession(
         && left.sessionId === right.sessionId;
 }
 
+const CONVERSATION_SNAPSHOT_WARM_TTL_MS = 5_000;
+const CONVERSATION_SNAPSHOT_WARM_LIMIT = 4;
+
+interface WarmConversationSnapshot {
+    completedAt?: number;
+    abortController: ConversationAbortController;
+    promise: Promise<ConversationSnapshot | undefined>;
+    timeout?: ReturnType<typeof setTimeout>;
+    cancel(): void;
+}
+
+class ConversationSnapshotWarmup implements AiSessionDisposable {
+    private readonly snapshots = new Map<string, WarmConversationSnapshot>();
+    private readonly timers = new Set<ReturnType<typeof setTimeout>>();
+    private disposed = false;
+
+    constructor(private readonly options: {
+        readSnapshot(
+            provider: AiSessionProviderId,
+            sessionId: string,
+            preferredInteractionId?: string,
+            signal?: ConversationAbortController['signal']
+        ): Promise<ConversationSnapshot>;
+        setSessionStopped(
+            provider: AiSessionProviderId,
+            sessionId: string,
+            stopped: boolean
+        ): void;
+        resolveActiveTargets?: (
+            projectId: string
+        ) => readonly ActiveAiSessionViewModel[];
+        now(): number;
+        setTimer: typeof setTimeout;
+        clearTimer: typeof clearTimeout;
+    }) {}
+
+    take(
+        provider: AiSessionProviderId,
+        sessionId: string
+    ): Promise<ConversationSnapshot | undefined> | undefined {
+        const key = getWarmSnapshotKey(provider, sessionId);
+        const entry = this.snapshots.get(key);
+        if (!entry) {
+            return undefined;
+        }
+        if (entry.completedAt !== undefined
+            && this.options.now() - entry.completedAt
+                > CONVERSATION_SNAPSHOT_WARM_TTL_MS) {
+            this.snapshots.delete(key);
+            entry.cancel();
+            return undefined;
+        }
+        return entry.promise;
+    }
+
+    isDisposed(): boolean {
+        return this.disposed;
+    }
+
+    afterLoad(
+        target: ConversationViewerTarget,
+        prefetchedSnapshot: boolean,
+        viewer: ConversationViewerApi
+    ): void {
+        if (prefetchedSnapshot) {
+            this.schedule(async () => {
+                const current = viewer.getCurrentTarget();
+                if (current && hasSameConversationSession(current, target)) {
+                    await viewer.revalidateLatest?.(target.interactionId);
+                }
+            });
+        }
+        this.schedule(() => this.prefetchAdjacent(target, viewer));
+    }
+
+    dispose(): void {
+        if (this.disposed) {
+            return;
+        }
+        this.disposed = true;
+        this.timers.forEach(timer => this.options.clearTimer(timer));
+        this.timers.clear();
+        Array.from(this.snapshots.values()).forEach(entry => entry.cancel());
+        this.snapshots.clear();
+    }
+
+    private prefetchAdjacent(
+        target: ConversationViewerTarget,
+        viewer: ConversationViewerApi
+    ): void {
+        const current = viewer.getCurrentTarget();
+        if (!current || !hasSameConversationSession(current, target)
+            || typeof this.options.resolveActiveTargets !== 'function') {
+            return;
+        }
+        let sessions: readonly ActiveAiSessionViewModel[];
+        try {
+            sessions = this.options.resolveActiveTargets(target.projectId);
+        } catch (_error) {
+            return;
+        }
+        const switchable = sessions.filter(available =>
+            Boolean(available)
+                && typeof available.sessionId === 'string'
+                && available.sessionId.length > 0
+        ) as Array<ActiveAiSessionViewModel & { sessionId: string }>;
+        const currentIndex = switchable.findIndex(available =>
+            available.provider === target.provider
+                && available.sessionId === target.sessionId
+        );
+        if (currentIndex === -1 || switchable.length < 2) {
+            return;
+        }
+        const adjacent = new Map<string, ActiveAiSessionViewModel & {
+            sessionId: string;
+        }>();
+        for (const step of [-1, 1]) {
+            const candidate = switchable[
+                (currentIndex + step + switchable.length) % switchable.length
+            ];
+            adjacent.set(
+                getWarmSnapshotKey(candidate.provider, candidate.sessionId),
+                candidate
+            );
+        }
+        adjacent.forEach(candidate => this.prefetch(candidate));
+    }
+
+    private prefetch(
+        target: ActiveAiSessionViewModel & { sessionId: string }
+    ): void {
+        const key = getWarmSnapshotKey(target.provider, target.sessionId);
+        const existing = this.snapshots.get(key);
+        if (existing) {
+            if (existing.completedAt === undefined
+                || this.options.now() - existing.completedAt
+                    <= CONVERSATION_SNAPSHOT_WARM_TTL_MS) {
+                return;
+            }
+            this.snapshots.delete(key);
+            existing.cancel();
+        }
+        while (this.snapshots.size >= CONVERSATION_SNAPSHOT_WARM_LIMIT) {
+            const oldestKey = this.snapshots.keys().next().value;
+            if (typeof oldestKey !== 'string') {
+                break;
+            }
+            this.snapshots.get(oldestKey)?.cancel();
+            this.snapshots.delete(oldestKey);
+        }
+        this.options.setSessionStopped(
+            target.provider,
+            target.sessionId,
+            target.executionState === 'stopped'
+        );
+        const abortController = new ConversationAbortController();
+        let readSnapshot: Promise<ConversationSnapshot>;
+        try {
+            readSnapshot = this.options.readSnapshot(
+                target.provider,
+                target.sessionId,
+                undefined,
+                abortController.signal
+            );
+        } catch (_error) {
+            return;
+        }
+        let resolvePromise: (
+            snapshot: ConversationSnapshot | undefined
+        ) => void = () => undefined;
+        const promise = new Promise<ConversationSnapshot | undefined>(
+            resolve => { resolvePromise = resolve; }
+        );
+        let settled = false;
+        let entry: WarmConversationSnapshot;
+        const settle = (
+            snapshot: ConversationSnapshot | undefined,
+            abort: boolean
+        ): void => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            if (entry.timeout !== undefined) {
+                this.options.clearTimer(entry.timeout);
+                entry.timeout = undefined;
+            }
+            if (abort) {
+                abortController.abort();
+            }
+            if (snapshot) {
+                entry.completedAt = this.options.now();
+            } else if (this.snapshots.get(key) === entry) {
+                this.snapshots.delete(key);
+            }
+            resolvePromise(snapshot);
+        };
+        entry = {
+            abortController,
+            promise,
+            cancel: () => settle(undefined, true),
+        };
+        this.snapshots.set(key, entry);
+        let timeoutFiredSynchronously = false;
+        const timeout = this.options.setTimer(() => {
+            timeoutFiredSynchronously = true;
+            settle(undefined, true);
+        }, CONVERSATION_SNAPSHOT_WARM_TTL_MS);
+        if (!timeoutFiredSynchronously) {
+            entry.timeout = timeout;
+        }
+        void Promise.resolve(readSnapshot).then(
+            snapshot => settle(snapshot, false),
+            () => settle(undefined, false)
+        );
+    }
+
+    private schedule(operation: () => void | PromiseLike<void>): void {
+        if (this.disposed) {
+            return;
+        }
+        let handle: ReturnType<typeof setTimeout> | undefined;
+        let firedSynchronously = false;
+        const callback = (): void => {
+            firedSynchronously = true;
+            if (handle) {
+                this.timers.delete(handle);
+            }
+            if (this.disposed) {
+                return;
+            }
+            try {
+                void Promise.resolve(operation()).catch(() => undefined);
+            } catch (_error) {
+                // Warmup is optional and cannot break authoritative switching.
+            }
+        };
+        handle = this.options.setTimer(callback, 0);
+        if (!firedSynchronously) {
+            this.timers.add(handle);
+        }
+    }
+}
+
+function getWarmSnapshotKey(
+    provider: AiSessionProviderId,
+    sessionId: string
+): string {
+    return `${provider}:${sessionId}`;
+}
+
 async function resolveLatestConversationTarget(
     options: ConversationCapabilityOptions,
     coordinator: ConversationCoordinator,
     target: ConversationSessionOpenTarget,
     preferredInteractionId?: string,
-    subagentId?: string
+    subagentId?: string,
+    snapshotWarmup?: ConversationSnapshotWarmup
 ): Promise<LatestConversationTargetResolution> {
     const authoritativeTarget = resolveExactTarget(options, target);
     if (!authoritativeTarget) {
@@ -836,8 +1137,22 @@ async function resolveLatestConversationTarget(
         );
     }
     let snapshot: ConversationSnapshot;
+    let prefetchedSnapshot = false;
     try {
-        snapshot = typeof coordinator.readSnapshot === 'function'
+        const warmSnapshot = preferredInteractionId === undefined
+            && subagentId === undefined
+            ? snapshotWarmup?.take(target.provider, effectiveSessionId)
+            : undefined;
+        const resolvedWarmSnapshot = warmSnapshot
+            ? await warmSnapshot
+            : undefined;
+        if (warmSnapshot && !resolvedWarmSnapshot
+            && snapshotWarmup?.isDisposed()) {
+            return { result: 'unavailable' };
+        }
+        prefetchedSnapshot = Boolean(resolvedWarmSnapshot);
+        snapshot = resolvedWarmSnapshot || (
+            typeof coordinator.readSnapshot === 'function'
             ? await coordinator.readSnapshot(
                 target.provider,
                 effectiveSessionId,
@@ -848,7 +1163,7 @@ async function resolveLatestConversationTarget(
                     target.provider,
                     effectiveSessionId
                 ),
-            };
+            });
     } catch (_error) {
         return { result: 'unavailable' };
     }
@@ -880,6 +1195,7 @@ async function resolveLatestConversationTarget(
             ...(subagent ? { subagent } : {}),
         },
         snapshot,
+        prefetchedSnapshot,
     };
 }
 

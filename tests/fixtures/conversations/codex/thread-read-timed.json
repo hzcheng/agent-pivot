@@ -1,0 +1,42 @@
+{
+  "thread": {
+    "id": "33333333-3333-4333-8333-333333333333",
+    "turns": [
+      {
+        "id": "turn-timed",
+        "status": "completed",
+        "startedAt": 1786113121,
+        "completedAt": 1786113198,
+        "durationMs": 76803,
+        "error": null,
+        "itemsView": "full",
+        "items": [
+          {
+            "id": "user-timed",
+            "type": "userMessage",
+            "clientId": "fixture-client",
+            "content": [
+              {
+                "type": "text",
+                "text": "Run the timed task"
+              }
+            ]
+          },
+          {
+            "id": "command-timed",
+            "type": "commandExecution",
+            "command": "npm test",
+            "aggregatedOutput": "9 passing",
+            "status": "completed"
+          },
+          {
+            "id": "agent-timed",
+            "type": "agentMessage",
+            "text": "All tests pass.",
+            "phase": "final_answer"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -493,7 +493,12 @@ export class ConversationViewer implements ConversationViewerApi {
         if (!target || !this.panel || this.suspended) {
             return;
         }
-        await this.loadAuthoritative('refresh', false);
+        await this.loadAuthoritative(
+            'refresh',
+            false,
+            undefined,
+            this.outlineController.latestInteractionId()
+        );
     }
 
     async revalidateLatest(expectedInteractionId: string): Promise<void> {
@@ -1084,8 +1089,19 @@ export class ConversationViewer implements ConversationViewerApi {
                 return;
             }
             this.authoritativeRefreshPending = false;
-            const pendingLatest = this.authoritativeLatestRefreshPending;
+            let pendingLatest = this.authoritativeLatestRefreshPending;
             this.authoritativeLatestRefreshPending = undefined;
+            const currentLatest = this.outlineController.latestInteractionId();
+            if (pendingLatest !== undefined
+                && this.outlineController.selection !== pendingLatest
+                && this.outlineController.selection === currentLatest) {
+                // The in-flight refresh followed the former latest input.
+                // Continue from the newly published latest input when another
+                // watcher invalidation was coalesced behind it. A historical
+                // user selection does not satisfy this condition, so it stays
+                // pinned instead of being pulled back to the tail.
+                pendingLatest = currentLatest;
+            }
             void this.loadAuthoritative(
                 'refresh',
                 false,
@@ -1117,13 +1133,13 @@ export class ConversationViewer implements ConversationViewerApi {
         const requestId = this.allocateRequestId();
         this.currentRequestId = requestId;
         const previousSelectedInteractionId = this.outlineController.selection;
-        const advanceToLatest = updateKind === 'refresh'
+        const followLatest = updateKind === 'refresh'
             && latestIfSelection !== undefined
             && previousSelectedInteractionId === latestIfSelection;
         try {
             const preferredInteractionId = updateKind === 'initial'
                 ? target.interactionId
-                : advanceToLatest
+                : followLatest
                     ? undefined
                     : previousSelectedInteractionId;
             let snapshot = prefetchedSnapshot;
@@ -1152,6 +1168,8 @@ export class ConversationViewer implements ConversationViewerApi {
             const interactionIds = outline.interactions.map(
                 interaction => interaction.id
             );
+            let advanceToLatest = followLatest
+                && interactionIds.includes(latestIfSelection as string);
             if (updateKind === 'initial'
                 && !interactionIds.includes(target.interactionId)) {
                 await this.publishFailure(replaceDocument, updateKind);
@@ -1272,10 +1290,28 @@ export class ConversationViewer implements ConversationViewerApi {
                         await this.publishFailure(replaceDocument, updateKind);
                         return false;
                     }
+                    const retryInteractionIds = outline.interactions.map(
+                        interaction => interaction.id
+                    );
+                    advanceToLatest = followLatest
+                        && retryInteractionIds.includes(
+                            latestIfSelection as string
+                        );
+                    if (updateKind === 'refresh'
+                        && !advanceToLatest
+                        && (!previousSelectedInteractionId
+                            || !retryInteractionIds.includes(
+                                previousSelectedInteractionId
+                            ))) {
+                        await this.publishFailure(replaceDocument, updateKind);
+                        return false;
+                    }
                     if (advanceToLatest) {
                         selectedInteractionId = outline.interactions[
                             outline.interactions.length - 1
                         ].id;
+                    } else if (updateKind === 'refresh') {
+                        selectedInteractionId = previousSelectedInteractionId as string;
                     }
                     if (!outline.interactions.some(
                         interaction => interaction.id === selectedInteractionId

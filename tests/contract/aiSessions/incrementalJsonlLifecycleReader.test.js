@@ -7,6 +7,7 @@ const test = require('node:test');
 const { makeTempDirectory } = require('../../helpers/tempDirectory');
 const lifecycle = require('../../../out/aiSessions/lifecycle');
 const IncrementalJsonlLifecycleReader = require('../../../out/aiSessions/incrementalJsonlLifecycleReader').default;
+const AiSessionExecutionMonitor = require('../../../out/aiSessions/executionMonitor').default;
 
 const RUN_STARTED_AT_MS = Date.parse('2026-07-15T00:00:00.000Z');
 
@@ -49,6 +50,46 @@ test('PERSIST-INCREMENTAL-JSONL-LIFECYCLE-READER-001 cold-scans all chunks, appe
         'codex:long', filePath, RUN_STARTED_AT_MS, createAccumulator
     ).executionState, 'stopped');
     assert.equal(readCalls, readsAfterAppend, 'unchanged size must perform no additional reads');
+});
+
+test('PERSIST-INCREMENTAL-JSONL-LIFECYCLE-READER-001 SESSION-AI-SESSION-EXECUTION-MONITOR-001 CONVERSATION-WORKING-INDICATOR-001 distinguishes a quiet readable source from unavailable cached authority', t => {
+    const root = makeTempDirectory(t, 'incremental-reader-authority-');
+    const reader = new IncrementalJsonlLifecycleReader(64);
+    const filePath = path.join(root, 'codex.jsonl');
+    fs.writeFileSync(filePath, `${codexEvent(
+        '2026-07-15T00:00:01.000Z', 'task_started', 'quiet-turn'
+    )}\n`, 'utf8');
+    let now = 0;
+    const monitor = new AiSessionExecutionMonitor({
+        now: () => now,
+        staleRunningTimeoutMs: 1000,
+    });
+    const key = 'codex:quiet-turn';
+    const readSignal = () => reader.read(
+        key,
+        filePath,
+        RUN_STARTED_AT_MS,
+        createAccumulator
+    );
+
+    assert.deepEqual(monitor.evaluate([{ key, signal: readSignal() }]), [key]);
+    now = 1001;
+    assert.deepEqual(monitor.evaluate([{ key, signal: readSignal() }]), []);
+    assert.equal(monitor.getSnapshot()[key].state, 'running');
+
+    const originalStatSync = fs.statSync;
+    fs.statSync = () => { throw new Error('forced stat failure'); };
+    t.after(() => { fs.statSync = originalStatSync; });
+    now = 1500;
+    assert.deepEqual(monitor.evaluate([{ key, signal: readSignal() }]), []);
+    now = 2002;
+    assert.deepEqual(monitor.evaluate([{ key, signal: readSignal() }]), [key]);
+    assert.equal(monitor.getSnapshot()[key].state, 'stopped');
+
+    fs.statSync = originalStatSync;
+    now = 2100;
+    assert.deepEqual(monitor.evaluate([{ key, signal: readSignal() }]), [key]);
+    assert.equal(monitor.getSnapshot()[key].state, 'running');
 });
 
 test('PERSIST-INCREMENTAL-JSONL-LIFECYCLE-READER-001 joins split lines, resumes later input, and survives malformed JSON', t => {
@@ -138,8 +179,11 @@ test('PERSIST-INCREMENTAL-JSONL-LIFECYCLE-READER-001 resets on truncation and is
     ), null, 'a stat failure must not leak a different run');
     assert.equal(reader.read(
         'codex:stat-failure', statFailurePath, RUN_STARTED_AT_MS, createAccumulator
-    ).executionState, 'stopped', 'a stat failure may preserve the exact matching cursor');
+    ), null, 'a stat failure must expose unavailable authority even with an exact cursor');
     fs.statSync = originalStatSync;
+    assert.equal(reader.read(
+        'codex:stat-failure', statFailurePath, RUN_STARTED_AT_MS, createAccumulator
+    ).executionState, 'stopped', 'a recovered source may reuse its exact cursor');
     t.after(() => {
         fs.openSync = originalOpenSync;
         fs.statSync = originalStatSync;

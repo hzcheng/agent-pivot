@@ -35,17 +35,12 @@ export default class IncrementalJsonlLifecycleReader {
         createAccumulator: () => AiSessionLifecycleAccumulator
     ): AiSessionLifecycleSignal | null {
         let previousCursor = this.cursors.get(key);
-        let previousCursorMatchesRequest = previousCursor
-            && previousCursor.filePath === filePath
-            && previousCursor.runStartedAtMs === runStartedAtMs;
-        let previousSignal = previousCursorMatchesRequest ? previousCursor.accumulator.getSignal() : null;
-        let errorCursor = previousCursorMatchesRequest ? previousCursor : null;
         let fd: number = null;
 
         try {
             let stat = fs.statSync(filePath);
             if (!stat.isFile()) {
-                return previousSignal;
+                return null;
             }
 
             let cursor = previousCursor;
@@ -56,7 +51,6 @@ export default class IncrementalJsonlLifecycleReader {
                 || cursor.ino !== stat.ino
                 || cursor.birthtimeMs !== stat.birthtimeMs
                 || stat.size < cursor.offset) {
-                errorCursor = null;
                 cursor = {
                     filePath,
                     runStartedAtMs,
@@ -69,7 +63,6 @@ export default class IncrementalJsonlLifecycleReader {
                     accumulator: createAccumulator(),
                 };
                 this.cursors.set(key, cursor);
-                errorCursor = cursor;
             }
 
             if (cursor.offset >= stat.size) {
@@ -96,7 +89,10 @@ export default class IncrementalJsonlLifecycleReader {
 
             return cursor.accumulator.getSignal();
         } catch (e) {
-            return errorCursor ? errorCursor.accumulator.getSignal() : null;
+            // Keep the cursor for a later recovery, but do not expose its
+            // cached signal as a successful lifecycle observation. Callers
+            // can retain their current state while availability times out.
+            return null;
         } finally {
             if (fd !== null) {
                 try {

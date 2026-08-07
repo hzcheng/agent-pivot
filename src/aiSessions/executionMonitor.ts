@@ -57,12 +57,27 @@ export default class AiSessionExecutionMonitor {
                     entry.stateChangedAt = signal.occurredAtMs;
                     changed.add(input.key);
                 }
+            } else {
+                const repeatedSignal = input.signal;
+                if (repeatedSignal?.token === entry.lastSignalToken
+                    && repeatedSignal.occurredAtMs === entry.lastOccurredAtMs) {
+                    // Incremental provider readers intentionally return their
+                    // cached latest signal when no new transcript bytes exist.
+                    // Seeing that same signal still proves the lifecycle source
+                    // is readable; renew the observation instead of letting a
+                    // long quiet tool call expire a genuinely running session.
+                    entry.lastSignalAtMs = this.now();
+                    if (entry.state !== repeatedSignal.executionState) {
+                        entry.state = repeatedSignal.executionState;
+                        entry.stateChangedAt = this.now();
+                        changed.add(input.key);
+                    }
+                }
             }
 
-            // Backstop: without a fresh transcript signal for the whole stale
-            // window there is no evidence the session is still running. A
-            // missed terminal event (for example an unrecognised interrupt
-            // marker) would otherwise wedge the running state forever.
+            // Backstop only a genuinely unavailable lifecycle source. A
+            // readable cached running signal above remains authoritative even
+            // when the provider has emitted no new transcript bytes.
             if (entry.state === 'running'
                 && this.now() - entry.lastSignalAtMs >= this.staleRunningTimeoutMs) {
                 entry.state = 'stopped';

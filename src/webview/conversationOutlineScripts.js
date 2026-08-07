@@ -149,11 +149,16 @@
             state.bookmarkIds = new Set(message.interactionIds);
             renderBookmarkState();
             filterOutline();
-            status.textContent = message.success
-                ? (state.bookmarkIds.has(focusedId)
-                    ? 'Input bookmarked.'
-                    : 'Bookmark removed.')
-                : 'Bookmark could not be updated.';
+            if (message.success) {
+                // The star fill plus the aria-pressed flip on the focused
+                // button are the settlement feedback; keep the status line
+                // for failures so a snap-back never goes unexplained.
+                if (status.textContent === 'Bookmark could not be updated.') {
+                    status.textContent = '';
+                }
+            } else {
+                status.textContent = 'Bookmark could not be updated.';
+            }
             var focused = pendingOrigin === 'card'
                 ? messageBookmarkButton(focusedId)
                 : null;

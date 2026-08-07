@@ -1671,6 +1671,11 @@ test('CONVERSATION-OUTLINE-BOOKMARKS-001 settles stars authoritatively, filters 
         )?.getAttribute('aria-pressed') === 'true'
     );
     assert.equal(await inputOneStar.getAttribute('aria-pressed'), 'true');
+    assert.equal(
+        await page.locator('[data-conversation-status]').textContent(),
+        '',
+        'outline star settlements stay out of the status line'
+    );
     assert.deepEqual(await orderedIds(), interactionIds);
 
     await page.locator('[data-outline-bookmarks-only]').click();
@@ -1859,6 +1864,11 @@ test('CONVERSATION-MESSAGE-BOOKMARK-001 bookmarks an input from its card without
         'card and outline stars share one authoritative state'
     );
     assert.equal(
+        await page.locator('[data-conversation-status]').textContent(),
+        '',
+        'a successful star settlement stays out of the status line'
+    );
+    assert.equal(
         await page.locator('[data-outline-bookmarks-only]')
             .getAttribute('aria-label'),
         'Show bookmarked inputs only, 2 bookmarks'
@@ -1900,6 +1910,11 @@ test('CONVERSATION-MESSAGE-BOOKMARK-001 bookmarks an input from its card without
             .getAttribute('aria-pressed'),
         'false',
         'removing from the card also clears the outline star'
+    );
+    assert.equal(
+        await page.locator('[data-conversation-status]').textContent(),
+        '',
+        'removals stay out of the status line too'
     );
 });
 

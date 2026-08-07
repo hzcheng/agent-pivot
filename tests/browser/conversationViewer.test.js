@@ -4929,6 +4929,154 @@ test('CONVERSATION-WORKLOG-COLLAPSE-001 keeps in-progress work expanded and coll
     assert.equal(await toggle.getAttribute('aria-expanded'), 'false');
 });
 
+test('CONVERSATION-WORKLOG-COLLAPSE-001 moves focus to the worklog toggle when focused work auto-collapses', async t => {
+    const page = await openViewerPage(t, {});
+    const liveHtml = `<article class="conversation-message conversation-message-user"
+            data-message-id="input-4:user"
+            data-conversation-message-id="input-4%3Auser"
+            data-interaction-id="input-4">
+        <span class="conversation-role">User</span>
+        <section class="conversation-markdown"><p>Run the tests</p></section>
+    </article>
+    <article class="conversation-message conversation-message-tool"
+            data-message-id="input-4:tool:0"
+            data-conversation-message-id="input-4%3Atool%3A0"
+            data-interaction-id="input-4">
+        <div class="conversation-tool-call-static">Running tests</div>
+    </article>`;
+    await sendPage(page, {
+        ...hostileConversationPage,
+        requestId: 75,
+        updateKind: 'initial',
+        html: liveHtml,
+        outline: [{
+            interactionId: 'input-4',
+            userPreview: 'Run the tests',
+            responseState: 'inProgress',
+        }],
+        atLatest: true,
+    });
+    const tool = page.locator('.conversation-message-tool');
+    await tool.evaluate(element => {
+        element.tabIndex = -1;
+        element.focus();
+    });
+    assert.equal(await tool.evaluate(element =>
+        document.activeElement === element), true);
+
+    const doneHtml = liveHtml.replace(
+        '<article class="conversation-message conversation-message-tool"',
+        `<article class="conversation-message conversation-message-worklog"
+            data-message-id="input-4:worklog"
+            data-conversation-message-id="input-4%3Aworklog"
+            data-interaction-id="input-4">
+        <button class="conversation-worklog-toggle">
+            <span class="conversation-worklog-label">Worked for 45s</span>
+        </button>
+    </article>
+    <article class="conversation-message conversation-message-tool"`
+    ) + `
+    <article class="conversation-message conversation-message-assistant"
+            data-message-id="input-4:assistant:0"
+            data-conversation-message-id="input-4%3Aassistant%3A0"
+            data-interaction-id="input-4">
+        <span class="conversation-role">Assistant</span>
+        <section class="conversation-markdown"><p>All pass.</p></section>
+    </article>`;
+    await sendPage(page, {
+        ...hostileConversationPage,
+        requestId: 76,
+        updateKind: 'refresh',
+        html: doneHtml,
+        atLatest: true,
+    });
+
+    assert.equal(await tool.isHidden(), true);
+    assert.equal(
+        await page.locator('.conversation-worklog-toggle').evaluate(element =>
+            document.activeElement === element),
+        true,
+        'focus must remain visible on the control that reveals the hidden work'
+    );
+});
+
+test('CONVERSATION-WORKLOG-COLLAPSE-001 keeps the worklog row at the reading anchor when work auto-collapses', async t => {
+    const page = await openViewerPage(t, {});
+    const filler = Array.from({ length: 40 }, (_item, index) => `
+    <article class="conversation-message conversation-message-tool"
+            data-message-id="input-5:tool:${index}"
+            data-conversation-message-id="input-5%3Atool%3A${index}"
+            data-interaction-id="input-5">
+        <div class="conversation-tool-call-static">Later work ${index}</div>
+    </article>`).join('');
+    const userHtml = `<article class="conversation-message conversation-message-user"
+            data-message-id="input-4:user"
+            data-conversation-message-id="input-4%3Auser"
+            data-interaction-id="input-4">
+        <span class="conversation-role">User</span>
+        <section class="conversation-markdown"><p>Run the tests</p></section>
+    </article>`;
+    const toolHtml = `<article class="conversation-message conversation-message-tool"
+            data-message-id="input-4:tool:0"
+            data-conversation-message-id="input-4%3Atool%3A0"
+            data-interaction-id="input-4">
+        <div class="conversation-tool-call-static">Running tests</div>
+    </article>`;
+    const liveHtml = userHtml + toolHtml + filler;
+    await sendPage(page, {
+        ...hostileConversationPage,
+        requestId: 77,
+        updateKind: 'initial',
+        html: liveHtml,
+        outline: [{
+            interactionId: 'input-4',
+            userPreview: 'Run the tests',
+            responseState: 'inProgress',
+        }],
+        atLatest: false,
+    });
+    const scroll = page.locator('[data-conversation-scroll]');
+    const tool = page.locator('[data-message-id="input-4:tool:0"]');
+    await scroll.evaluate((element, top) => {
+        element.scrollTop += top
+            - element.getBoundingClientRect().top;
+    }, (await tool.boundingBox()).y);
+    const anchoredTop = (await tool.boundingBox()).y;
+
+    const worklogHtml = `<article class="conversation-message conversation-message-worklog"
+            data-message-id="input-4:worklog"
+            data-conversation-message-id="input-4%3Aworklog"
+            data-interaction-id="input-4">
+        <button class="conversation-worklog-toggle">
+            <span class="conversation-worklog-label">Worked for 45s</span>
+        </button>
+    </article>`;
+    const answerHtml = `<article class="conversation-message conversation-message-assistant"
+            data-message-id="input-4:assistant:0"
+            data-conversation-message-id="input-4%3Aassistant%3A0"
+            data-interaction-id="input-4">
+        <span class="conversation-role">Assistant</span>
+        <section class="conversation-markdown"><p>All pass.</p></section>
+    </article>`;
+    await sendPage(page, {
+        ...hostileConversationPage,
+        requestId: 78,
+        updateKind: 'refresh',
+        html: userHtml + worklogHtml
+            + toolHtml.replace('Running tests', 'Tests passed')
+            + answerHtml + filler,
+        atLatest: false,
+    });
+
+    const worklogTop = (await page.locator(
+        '.conversation-message-worklog'
+    ).boundingBox()).y;
+    assert.ok(
+        Math.abs(worklogTop - anchoredTop) <= 2,
+        `collapsed row moved from reading anchor: ${anchoredTop} -> ${worklogTop}`
+    );
+});
+
 test('CONVERSATION-WORKLOG-COLLAPSE-001 aligns the Worked-for row with the message column', async t => {
     const { page } = await openHostViewerDocument(t, {
         includeStyles: true,

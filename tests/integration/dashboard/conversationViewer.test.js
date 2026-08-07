@@ -2053,7 +2053,8 @@ test('CONVERSATION-WORKING-INDICATOR-001 republishes lifecycle state when conten
 
     const publications = panel.postedMessages.filter(message =>
         message.type === 'conversation-viewer-page');
-    assert.equal(pageReads, 1, 'lifecycle-only refresh reuses retained messages');
+    assert.equal(pageReads, 2,
+        'lifecycle-only refresh reprojects response state and message roles');
     assert.equal(publications.length, 1);
     assert.equal(publications[0].outline[0].responseState, 'inProgress');
 });
@@ -2895,6 +2896,74 @@ function worklogPage(sessionId, options = {}) {
     };
 }
 
+function lifecycleProjectionPage(
+    sessionId,
+    sourceRevision,
+    anchorInteractionId,
+    latestState,
+    options = {}
+) {
+    const messages = [];
+    const interactionStates = [];
+    if (options.includeEarlier !== false) {
+        messages.push({
+            id: 'input-1:user',
+            interactionId: 'input-1',
+            role: 'user',
+            markdown: 'Read the earlier turn',
+        });
+        interactionStates.push({
+            interactionId: 'input-1',
+            responseState: 'complete',
+        });
+    }
+    if (options.includeLatest !== false) {
+        messages.push(
+            {
+                id: 'input-2:user',
+                interactionId: 'input-2',
+                role: 'user',
+                markdown: 'Run the tests',
+            },
+            {
+                id: 'input-2:tool:0',
+                interactionId: 'input-2',
+                role: 'tool',
+                markdown: '',
+                tool: { name: 'Shell', summary: 'Shell npm test' },
+            },
+            {
+                id: `input-2:${latestState === 'inProgress'
+                    ? 'progress'
+                    : 'assistant'}:0`,
+                interactionId: 'input-2',
+                role: latestState === 'inProgress'
+                    ? 'progress'
+                    : 'assistant',
+                markdown: latestState === 'inProgress'
+                    ? 'Still running.'
+                    : 'All pass.',
+            }
+        );
+        interactionStates.push({
+            interactionId: 'input-2',
+            responseState: latestState,
+            timestamp: 1_000,
+            completedAt: 81_000,
+        });
+    }
+    return {
+        provider: 'codex',
+        sessionId,
+        sourceRevision,
+        anchorInteractionId,
+        messages,
+        interactionStates,
+        isStart: true,
+        isEnd: true,
+    };
+}
+
 test('CONVERSATION-WORKLOG-COLLAPSE-001 publishes a Worked-for row between work entries and the answer', async () => {
     const { viewer, panel } = createViewer({
         readOutline: async (_provider, sessionId) => outline(
@@ -2953,6 +3022,375 @@ test('CONVERSATION-WORKLOG-COLLAPSE-001 omits the row while in progress and fall
     assert.equal(html.includes('&gt;Worked&lt;/span'), true,
         'turns without timing fall back to a plain Worked label');
     assert.equal(html.includes('Worked for'), false);
+});
+
+test('CONVERSATION-WORKLOG-COLLAPSE-001 collapses on a lifecycle-only completion refresh', async () => {
+    let onChange;
+    let responseState = 'inProgress';
+    let pageReads = 0;
+    const { viewer, panel } = createViewer({
+        watch: (_provider, _sessionId, callback) => {
+            onChange = callback;
+            return { dispose() {} };
+        },
+        readOutline: async (_provider, sessionId) => {
+            const value = outline(sessionId, ['input-1'], {
+                sourceRevision: 'stable-r1',
+            });
+            value.interactions[0].responseState = responseState;
+            return value;
+        },
+        readPage: async request => {
+            pageReads += 1;
+            const value = worklogPage(request.sessionId, {
+                responseState,
+                timestamp: 1_000,
+                completedAt: 81_000,
+            });
+            if (responseState === 'inProgress') {
+                value.messages = value.messages.map(message => ({
+                    ...message,
+                    role: message.role === 'assistant'
+                        ? 'progress'
+                        : message.role,
+                }));
+            }
+            return {
+                ...value,
+                sourceRevision: request.expectedRevision,
+            };
+        },
+    });
+
+    await viewer.open(target('session-a', 'input-1', {
+        expectedRevision: 'stable-r1',
+    }));
+    responseState = 'complete';
+    onChange();
+    await new Promise(resolve => setImmediate(resolve));
+
+    const publication = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page').at(-1);
+    assert.equal(publication.outline[0].responseState, 'complete');
+    assert.equal(pageReads, 2,
+        'completion must reproject progress back to the final answer');
+    assert.equal(
+        publication.html.includes('conversation-message-worklog'),
+        true,
+        'the same lifecycle refresh must collapse retained work'
+    );
+    assert.equal(publication.html.includes('Worked for 1m 20s'), true);
+});
+
+test('CONVERSATION-WORKLOG-COLLAPSE-001 reprojects the changed turn without moving a historical selection', async () => {
+    let onChange;
+    let latestState = 'inProgress';
+    const pageAnchors = [];
+    const { viewer, panel } = createViewer({
+        watch: (_provider, _sessionId, callback) => {
+            onChange = callback;
+            return { dispose() {} };
+        },
+        readOutline: async (_provider, sessionId) => {
+            const value = outline(sessionId, ['input-1', 'input-2'], {
+                sourceRevision: 'stable-r1',
+            });
+            value.interactions[1].responseState = latestState;
+            return value;
+        },
+        readPage: async request => {
+            pageAnchors.push(request.anchorInteractionId);
+            return {
+                provider: 'codex',
+                sessionId: request.sessionId,
+                sourceRevision: request.expectedRevision,
+                anchorInteractionId: request.anchorInteractionId,
+                messages: [
+                    {
+                        id: 'input-1:user',
+                        interactionId: 'input-1',
+                        role: 'user',
+                        markdown: 'Read the earlier turn',
+                    },
+                    {
+                        id: 'input-2:user',
+                        interactionId: 'input-2',
+                        role: 'user',
+                        markdown: 'Run the tests',
+                    },
+                    {
+                        id: 'input-2:tool:0',
+                        interactionId: 'input-2',
+                        role: 'tool',
+                        markdown: '',
+                        tool: { name: 'Shell', summary: 'Shell npm test' },
+                    },
+                    {
+                        id: `input-2:${latestState === 'inProgress'
+                            ? 'progress'
+                            : 'assistant'}:0`,
+                        interactionId: 'input-2',
+                        role: latestState === 'inProgress'
+                            ? 'progress'
+                            : 'assistant',
+                        markdown: latestState === 'inProgress'
+                            ? 'Still running.'
+                            : 'All pass.',
+                    },
+                ],
+                interactionStates: [
+                    {
+                        interactionId: 'input-1',
+                        responseState: 'complete',
+                    },
+                    {
+                        interactionId: 'input-2',
+                        responseState: latestState,
+                        timestamp: 1_000,
+                        completedAt: 81_000,
+                    },
+                ],
+                isStart: true,
+                isEnd: true,
+            };
+        },
+    });
+
+    await viewer.open(target('session-a', 'input-1', {
+        expectedRevision: 'stable-r1',
+    }));
+    latestState = 'complete';
+    onChange();
+    await new Promise(resolve => setImmediate(resolve));
+
+    const publication = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page').at(-1);
+    assert.deepEqual(pageAnchors, ['input-1', 'input-2']);
+    assert.equal(publication.selectedInteractionId, 'input-1');
+    assert.equal(publication.html.includes('conversation-message-worklog'), true);
+});
+
+test('CONVERSATION-WORKLOG-COLLAPSE-001 bypasses a snapshot page that misses the changed turn', async () => {
+    let onChange;
+    let latestState = 'inProgress';
+    let snapshotReads = 0;
+    const pageAnchors = [];
+    const currentOutline = sessionId => {
+        const value = outline(sessionId, ['input-1', 'input-2'], {
+            sourceRevision: 'stable-r1',
+        });
+        value.interactions[1].responseState = latestState;
+        return value;
+    };
+    const { viewer, panel } = createViewer({
+        watch: (_provider, _sessionId, callback) => {
+            onChange = callback;
+            return { dispose() {} };
+        },
+        readSnapshot: async (_provider, sessionId, preferredInteractionId) => {
+            snapshotReads += 1;
+            return {
+                outline: currentOutline(sessionId),
+                page: lifecycleProjectionPage(
+                    sessionId,
+                    'stable-r1',
+                    preferredInteractionId || 'input-1',
+                    latestState,
+                    { includeLatest: snapshotReads === 1 }
+                ),
+            };
+        },
+        readOutline: async (_provider, sessionId) => currentOutline(sessionId),
+        readPage: async request => {
+            pageAnchors.push(request.anchorInteractionId);
+            return lifecycleProjectionPage(
+                request.sessionId,
+                request.expectedRevision,
+                request.anchorInteractionId,
+                latestState,
+                { includeEarlier: false }
+            );
+        },
+    });
+
+    await viewer.open(target('session-a', 'input-1', {
+        expectedRevision: 'stable-r1',
+    }));
+    latestState = 'complete';
+    onChange();
+    await new Promise(resolve => setImmediate(resolve));
+
+    const publication = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page').at(-1);
+    assert.deepEqual(pageAnchors, ['input-2']);
+    assert.equal(publication.selectedInteractionId, 'input-1');
+    assert.equal(publication.html.includes('conversation-message-worklog'), true);
+});
+
+test('CONVERSATION-WORKLOG-COLLAPSE-001 merges a historical snapshot and the completed turn across revisions', async () => {
+    let onChange;
+    let latestState = 'inProgress';
+    let revision = 'r1';
+    let snapshotReads = 0;
+    const pageAnchors = [];
+    const currentOutline = sessionId => {
+        const value = outline(sessionId, ['input-1', 'input-2'], {
+            sourceRevision: revision,
+        });
+        value.interactions[1].responseState = latestState;
+        return value;
+    };
+    const { viewer, panel } = createViewer({
+        watch: (_provider, _sessionId, callback) => {
+            onChange = callback;
+            return { dispose() {} };
+        },
+        readSnapshot: async (_provider, sessionId, preferredInteractionId) => {
+            snapshotReads += 1;
+            const snapshotPage = lifecycleProjectionPage(
+                sessionId,
+                revision,
+                preferredInteractionId || 'input-1',
+                latestState,
+                { includeLatest: snapshotReads === 1 }
+            );
+            if (snapshotReads > 1) {
+                snapshotPage.messages[0].markdown = 'Updated earlier turn';
+            }
+            return {
+                outline: currentOutline(sessionId),
+                page: snapshotPage,
+            };
+        },
+        readOutline: async (_provider, sessionId) => currentOutline(sessionId),
+        readPage: async request => {
+            pageAnchors.push(request.anchorInteractionId);
+            return lifecycleProjectionPage(
+                request.sessionId,
+                request.expectedRevision,
+                request.anchorInteractionId,
+                latestState,
+                { includeEarlier: false }
+            );
+        },
+    });
+
+    await viewer.open(target('session-a', 'input-1', {
+        expectedRevision: 'r1',
+    }));
+    latestState = 'complete';
+    revision = 'r2';
+    onChange();
+    await new Promise(resolve => setImmediate(resolve));
+
+    const publication = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page').at(-1);
+    assert.deepEqual(pageAnchors, ['input-2']);
+    assert.equal(publication.selectedInteractionId, 'input-1');
+    assert.equal(publication.html.includes('Updated earlier turn'), true,
+        'the selected historical page must retain its content refresh');
+    assert.equal(publication.html.includes('conversation-message-worklog'), true,
+        'the retained completed turn must receive its final projection');
+});
+
+test('CONVERSATION-WORKLOG-COLLAPSE-001 retries a stale changed-turn projection without falling back to history', async () => {
+    let onChange;
+    let latestState = 'inProgress';
+    let revision = 'r1';
+    const pageAnchors = [];
+    const currentOutline = sessionId => {
+        const value = outline(sessionId, ['input-1', 'input-2'], {
+            sourceRevision: revision,
+        });
+        value.interactions[1].responseState = latestState;
+        return value;
+    };
+    const { viewer, panel } = createViewer({
+        watch: (_provider, _sessionId, callback) => {
+            onChange = callback;
+            return { dispose() {} };
+        },
+        readOutline: async (_provider, sessionId) => currentOutline(sessionId),
+        readPage: async request => {
+            pageAnchors.push(request.anchorInteractionId);
+            if (request.anchorInteractionId === 'input-2'
+                && request.expectedRevision === 'r1') {
+                revision = 'r2';
+                throw new ConversationError('staleRevision');
+            }
+            return lifecycleProjectionPage(
+                request.sessionId,
+                request.expectedRevision,
+                request.anchorInteractionId,
+                latestState,
+                request.anchorInteractionId === 'input-2'
+                    ? { includeEarlier: false }
+                    : { includeLatest: pageAnchors.length === 1 }
+            );
+        },
+    });
+
+    await viewer.open(target('session-a', 'input-1'));
+    latestState = 'complete';
+    onChange();
+    await new Promise(resolve => setImmediate(resolve));
+
+    const publication = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page').at(-1);
+    assert.deepEqual(pageAnchors, ['input-1', 'input-2', 'input-2']);
+    assert.equal(publication.selectedInteractionId, 'input-1');
+    assert.equal(publication.html.includes('conversation-message-worklog'), true);
+});
+
+test('CONVERSATION-WORKLOG-COLLAPSE-001 keeps timing after a content refresh merge', async () => {
+    let onChange;
+    let revision = 'r1';
+    const { viewer, panel } = createViewer({
+        watch: (_provider, _sessionId, callback) => {
+            onChange = callback;
+            return { dispose() {} };
+        },
+        readOutline: async (_provider, sessionId) => outline(
+            sessionId,
+            ['input-1'],
+            { sourceRevision: revision }
+        ),
+        readPage: async request => ({
+            ...worklogPage(request.sessionId, {
+                timestamp: 1_000,
+                completedAt: 81_000,
+            }),
+            sourceRevision: request.expectedRevision,
+        }),
+    });
+
+    await viewer.open(target('session-a', 'input-1'));
+    revision = 'r2';
+    onChange();
+    await new Promise(resolve => setImmediate(resolve));
+
+    const publication = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page').at(-1);
+    assert.equal(publication.html.includes('Worked for 1m 20s'), true);
+});
+
+test('CONVERSATION-WORKLOG-COLLAPSE-001 falls back safely when finite timestamps overflow', async () => {
+    const { viewer, panel } = createViewer({
+        readOutline: async (_provider, sessionId) => outline(
+            sessionId,
+            ['input-1']
+        ),
+        readPage: async request => worklogPage(request.sessionId, {
+            timestamp: -1e308,
+            completedAt: 1e308,
+        }),
+    });
+
+    await viewer.open(target('session-a', 'input-1'));
+    const html = panel.webview.html;
+    assert.equal(html.includes('&gt;Worked&lt;/span'), true);
+    assert.equal(html.includes('Infinity'), false);
+    assert.equal(html.includes('NaN'), false);
 });
 
 test('CONVERSATION-MESSAGE-BOOKMARK-001 renders a bookmark toggle inside each user input card only', async () => {

@@ -809,6 +809,43 @@
             - (scroll.clientHeight - elementBounds.height) / 2;
     }
 
+    function worklogRowForInteraction(interactionId) {
+        if (!interactionId) return null;
+        return Array.prototype.find.call(
+            messages.querySelectorAll('.conversation-message-worklog'),
+            function (row) {
+                return row.getAttribute('data-interaction-id')
+                    === interactionId;
+            }
+        ) || null;
+    }
+
+    function retargetCollapsedWorklogAnchor(anchor) {
+        if (!anchor || !anchor.element || !anchor.element.closest) {
+            return anchor;
+        }
+        var message = anchor.element.closest(conversationMessageSelector());
+        if (message && !message.isConnected && anchor.messageId) {
+            message = Array.prototype.find.call(
+                messages.querySelectorAll(conversationMessageSelector()),
+                function (candidate) {
+                    return conversationMessageId(candidate)
+                        === anchor.messageId;
+                }
+            ) || null;
+        }
+        if (!message || !message.hidden) return anchor;
+        var row = worklogRowForInteraction(
+            message.getAttribute('data-interaction-id')
+        );
+        if (!row) return anchor;
+        return Object.assign({}, anchor, {
+            element: row,
+            messageId: conversationMessageId(row),
+            blockIndex: -1,
+        });
+    }
+
     function applyWorklogStates() {
         Array.prototype.forEach.call(
             messages.querySelectorAll('.conversation-message-worklog'),
@@ -867,6 +904,9 @@
             : null;
         var focusedMessageId = focusedMessage
             ? conversationMessageId(focusedMessage)
+            : null;
+        var focusedInteractionId = focusedMessage
+            ? focusedMessage.getAttribute('data-interaction-id')
             : null;
         var oldSignatures = state.messageSignatures;
         state.renderGeneration += 1;
@@ -958,6 +998,7 @@
         if (isLiveRefresh
             && focusedMessageId
             && (!focusedMessage.isConnected
+                || focusedMessage.hidden
                 || !focusedMessage.contains(document.activeElement))) {
             var restoredFocus = Array.prototype.find.call(
                 messages.querySelectorAll(conversationMessageSelector()),
@@ -966,9 +1007,19 @@
                         === focusedMessageId;
                 }
             );
-            if (restoredFocus) {
+            if (restoredFocus && !restoredFocus.hidden) {
                 restoredFocus.tabIndex = -1;
                 restoredFocus.focus({ preventScroll: true });
+            } else {
+                var worklogRow = worklogRowForInteraction(
+                    focusedInteractionId
+                );
+                var worklogToggle = worklogRow
+                    ? worklogRow.querySelector('.conversation-worklog-toggle')
+                    : null;
+                if (worklogToggle) {
+                    worklogToggle.focus({ preventScroll: true });
+                }
             }
         }
         renderMermaidDiagrams(renderGeneration);
@@ -992,7 +1043,10 @@
         if (wasFollowingEnd) {
             reconcileController.scrollToEnd();
         } else {
-            restoreReadingPosition(readingAnchor, previousScrollTop);
+            restoreReadingPosition(
+                retargetCollapsedWorklogAnchor(readingAnchor),
+                previousScrollTop
+            );
             reconcileController.trackEnd();
         }
     }

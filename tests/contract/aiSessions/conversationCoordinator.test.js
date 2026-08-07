@@ -379,6 +379,71 @@ test('CONVERSATION-WORKING-INDICATOR-001 projects only the latest interrupted pr
     assert.equal(page.interactionStates[1].responseState, 'inProgress');
 });
 
+test('CONVERSATION-WORKLOG-COLLAPSE-001 preserves turn timing through coordinator projection', async t => {
+    for (const provider of ['codex', 'kimi', 'claude']) {
+        await t.test(provider, async t => {
+            const calls = { codex: 0, kimi: 0, claude: 0 };
+            const adapter = adapterReturning(calls, provider, {
+                readOutline: async sessionId => makeOutline(
+                    provider,
+                    sessionId,
+                    'native-timing',
+                    {
+                        interactions: [{
+                            id: 'input-a',
+                            userPreview: 'Timed turn',
+                            userGraphemeCount: 10,
+                            responseState: 'complete',
+                        }],
+                        totalInteractions: 1,
+                    }
+                ),
+                readPage: async request => makePage(
+                    provider,
+                    request.sessionId,
+                    'native-timing',
+                    {
+                        interactionStates: [{
+                            interactionId: 'input-a',
+                            responseState: 'complete',
+                            timestamp: 1_000,
+                            completedAt: 81_000,
+                        }],
+                        previousCursor: undefined,
+                        nextCursor: undefined,
+                        isStart: true,
+                        isEnd: true,
+                    }
+                ),
+            });
+            const { coordinator } = createCoordinatorHarness({
+                [provider]: adapter,
+            });
+            t.after(() => coordinator.dispose());
+            coordinator.setSessionStopped(provider, 'session-a', true);
+
+            const outline = await coordinator.readOutline(
+                provider,
+                'session-a'
+            );
+            const page = await coordinator.readPage({
+                provider,
+                sessionId: 'session-a',
+                anchorInteractionId: 'input-a',
+                direction: 'around',
+                expectedRevision: outline.sourceRevision,
+            });
+
+            assert.deepEqual(page.interactionStates[0], {
+                interactionId: 'input-a',
+                responseState: 'complete',
+                timestamp: 1_000,
+                completedAt: 81_000,
+            });
+        });
+    }
+});
+
 test('SESSION-CONVERSATION-COORDINATOR-005 releases only the exact opaque watch ownership', async () => {
     const { adapters, clock, coordinator } = createCoordinatorHarness();
     const calls = [];
@@ -769,6 +834,16 @@ test('SESSION-CONVERSATION-COORDINATOR-001 rejects deep outline and page bound v
                 { interactionId: 'input-a', responseState: 'complete' },
                 { interactionId: 'input-a', responseState: 'complete' },
             ],
+        });
+    });
+    await t.test('non-finite interaction timing is rejected', async () => {
+        await rejectPage({
+            interactionStates: [{
+                interactionId: 'input-a',
+                responseState: 'complete',
+                timestamp: Number.NaN,
+                completedAt: Number.POSITIVE_INFINITY,
+            }],
         });
     });
     await t.test('cursor presence must agree with page boundaries', async () => {

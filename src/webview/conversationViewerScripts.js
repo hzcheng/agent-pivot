@@ -966,8 +966,15 @@
         }
         updatePosition(message);
         var latestInteraction = message.outline[message.outline.length - 1];
-        working.hidden = !message.atLatest
-            || !latestInteraction
+        var latestInteractionRendered = latestInteraction
+            && Array.prototype.some.call(
+                messages.querySelectorAll('[data-interaction-id]'),
+                function (candidate) {
+                    return candidate.getAttribute('data-interaction-id')
+                        === latestInteraction.interactionId;
+                }
+            );
+        working.hidden = !latestInteractionRendered
             || latestInteraction.responseState !== 'inProgress';
         previous.disabled = message.previousCursor === undefined;
         next.disabled = message.nextCursor === undefined;

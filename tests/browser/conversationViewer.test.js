@@ -6501,19 +6501,83 @@ test('CONVERSATION-WORKING-INDICATOR-001 shows an animated status only for the l
         ...hostileConversationPage,
         requestId: 2,
         updateKind: 'refresh',
-        outline: [{ ...inProgressOutline[0], responseState: 'complete' }],
+        html: hostileConversationPage.html + `
+            <article data-message-id="message-new-request"
+                data-interaction-id="input-5">
+                <section>New request</section>
+            </article>`,
+        outline: [
+            { ...inProgressOutline[0], responseState: 'complete' },
+            {
+                interactionId: 'input-5',
+                userPreview: 'New request',
+                responseState: 'inProgress',
+            },
+        ],
+        selectedInteractionId: 'input-5',
         atLatest: true,
-        totalInputs: 4,
+        totalInputs: 5,
+    });
+    assert.equal(await working.isVisible(), true,
+        'a newly appended running input must not hide Working');
+
+    await sendPage(page, {
+        ...hostileConversationPage,
+        requestId: 3,
+        updateKind: 'refresh',
+        html: hostileConversationPage.html + `
+            <article data-message-id="message-new-request"
+                data-interaction-id="input-5">
+                <section>New request</section>
+            </article>`,
+        outline: [
+            { ...inProgressOutline[0], responseState: 'complete' },
+            {
+                interactionId: 'input-5',
+                userPreview: 'New request',
+                responseState: 'inProgress',
+            },
+        ],
+        selectedInteractionId: 'input-4',
+        atLatest: false,
+        totalInputs: 5,
+    });
+    assert.equal(await page.locator(
+        '[data-conversation-messages] [data-interaction-id="input-5"]'
+    ).count(), 1, 'the latest running input is rendered in the current page');
+    assert.equal(await working.isVisible(), true,
+        'a rendered latest running input must show Working even before selection follows it');
+
+    await sendPage(page, {
+        ...hostileConversationPage,
+        requestId: 4,
+        updateKind: 'navigation',
+        outline: [
+            { ...inProgressOutline[0], responseState: 'complete' },
+            {
+                interactionId: 'input-5',
+                userPreview: 'New request',
+                responseState: 'inProgress',
+            },
+        ],
+        selectedInteractionId: 'input-4',
+        atLatest: false,
+        totalInputs: 5,
     });
     assert.equal(await working.isHidden(), true);
 
     await sendPage(page, {
         ...hostileConversationPage,
-        requestId: 3,
-        updateKind: 'navigation',
-        outline: inProgressOutline,
-        atLatest: false,
-        totalInputs: 4,
+        requestId: 5,
+        updateKind: 'refresh',
+        outline: [{
+            interactionId: 'input-5',
+            userPreview: 'New request',
+            responseState: 'complete',
+        }],
+        selectedInteractionId: 'input-5',
+        atLatest: true,
+        totalInputs: 5,
     });
     assert.equal(await working.isHidden(), true);
 });

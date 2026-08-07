@@ -93,7 +93,7 @@ function page(
         })),
         interactionStates: interactionIds.map(id => ({
             interactionId: id,
-            responseState: 'complete',
+            responseState: options.responseStates?.[id] || 'complete',
         })),
         previousCursor: options.previousCursor,
         nextCursor: options.nextCursor,
@@ -111,7 +111,7 @@ function outline(sessionId, interactionIds, options = {}) {
             id,
             userPreview: id,
             userGraphemeCount: id.length,
-            responseState: 'complete',
+            responseState: options.responseStates?.[id] || 'complete',
         })),
         totalInteractions: options.totalInteractions || interactionIds.length,
         partial: options.partial || false,
@@ -2117,6 +2117,128 @@ test('CONVERSATION-VIEWER-LOADING-001 coalesces watched invalidations without st
     assert.equal(panel.webview.html.includes('Loading conversation…'), false);
 });
 
+test('CONVERSATION-VIEWER-LOADING-001 CONVERSATION-READING-FOCUS-001 CONVERSATION-WORKING-INDICATOR-001 keeps following newly appended running inputs across coalesced watcher refreshes', async t => {
+    let onChange;
+    let outlineReads = 0;
+    const secondOutline = deferred();
+    const { viewer, panel } = createViewer({
+        watch: (_provider, _sessionId, callback) => {
+            onChange = callback;
+            return { dispose() {} };
+        },
+        readOutline: async (_provider, sessionId) => {
+            outlineReads += 1;
+            if (outlineReads === 1) {
+                return outline(sessionId, ['input-1'], {
+                    sourceRevision: 'r1',
+                    responseStates: { 'input-1': 'inProgress' },
+                });
+            }
+            if (outlineReads === 2) {
+                return secondOutline.promise;
+            }
+            return outline(sessionId, ['input-1', 'input-2', 'input-3'], {
+                sourceRevision: 'r3',
+                responseStates: { 'input-3': 'inProgress' },
+            });
+        },
+        readPage: async request => page(
+            request.sessionId,
+            request.anchorInteractionId,
+            `visible-${request.anchorInteractionId}`,
+            {
+                sourceRevision: request.expectedRevision,
+                responseStates: {
+                    [request.anchorInteractionId]: 'inProgress',
+                },
+            }
+        ),
+    });
+    t.after(() => viewer.dispose());
+
+    await viewer.open(target('session-a', 'input-1'));
+    onChange();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(outlineReads, 2);
+    onChange();
+    secondOutline.resolve(outline('session-a', ['input-1', 'input-2'], {
+        sourceRevision: 'r2',
+        responseStates: { 'input-2': 'inProgress' },
+    }));
+    for (let turn = 0; turn < 4; turn += 1) {
+        await new Promise(resolve => setImmediate(resolve));
+    }
+
+    assert.equal(outlineReads, 3);
+    const publication = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page').at(-1);
+    assert.equal(publication.selectedInteractionId, 'input-3');
+    assert.equal(publication.atLatest, true);
+    assert.equal(publication.outline.at(-1).responseState, 'inProgress');
+});
+
+test('CONVERSATION-VIEWER-LOADING-001 CONVERSATION-READING-FOCUS-001 keeps a historical selection made during coalesced watcher refreshes', async t => {
+    let onChange;
+    let outlineReads = 0;
+    const secondOutline = deferred();
+    const { viewer, panel } = createViewer({
+        watch: (_provider, _sessionId, callback) => {
+            onChange = callback;
+            return { dispose() {} };
+        },
+        readOutline: async (_provider, sessionId) => {
+            outlineReads += 1;
+            if (outlineReads === 1) {
+                return outline(sessionId, ['input-1', 'input-2'], {
+                    sourceRevision: 'r1',
+                });
+            }
+            if (outlineReads === 2) {
+                return secondOutline.promise;
+            }
+            return outline(
+                sessionId,
+                ['input-1', 'input-2', 'input-3', 'input-4'],
+                { sourceRevision: 'r3' }
+            );
+        },
+        readPage: async request => page(
+            request.sessionId,
+            request.anchorInteractionId,
+            `visible-${request.anchorInteractionId}`,
+            {
+                sourceRevision: request.expectedRevision,
+                interactionIds: request.anchorInteractionId === 'input-2'
+                    ? ['input-1', 'input-2']
+                    : [request.anchorInteractionId],
+                anchorInteractionId: request.anchorInteractionId,
+            }
+        ),
+    });
+    t.after(() => viewer.dispose());
+
+    await viewer.open(target('session-a', 'input-2'));
+    onChange();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(outlineReads, 2);
+    onChange();
+    await panel.receive({ type: 'conversation-viewer-previous', version: 1 });
+    secondOutline.resolve(outline(
+        'session-a',
+        ['input-1', 'input-2', 'input-3'],
+        { sourceRevision: 'r2' }
+    ));
+    for (let turn = 0; turn < 4; turn += 1) {
+        await new Promise(resolve => setImmediate(resolve));
+    }
+
+    assert.equal(outlineReads, 3);
+    const publication = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page').at(-1);
+    assert.equal(publication.selectedInteractionId, 'input-1');
+    assert.equal(publication.atLatest, false);
+});
+
 test('CONVERSATION-VIEWER-AUTHORITY-003 suspends exact authority without clearing the snapshot and resumes with a fresh watch/read', async () => {
     let outlineReads = 0;
     let pageReads = 0;
@@ -2324,7 +2446,7 @@ test('CONVERSATION-VIEWER-AUTHORITY-001 fails closed when an initial marker no l
     assert.equal(panel.webview.html.includes('wrong-interaction'), false);
 });
 
-test('CONVERSATION-VIEWER-REFRESH-002 CONVERSATION-READING-FOCUS-001 preserves the selected interaction when a refresh adds a new last input', async () => {
+test('CONVERSATION-VIEWER-REFRESH-002 CONVERSATION-READING-FOCUS-001 CONVERSATION-WORKING-INDICATOR-001 follows a newly appended running input when the previous selection was latest', async () => {
     let onChange;
     let outlineRead = 0;
     const { viewer, panel } = createViewer({
@@ -2337,6 +2459,55 @@ test('CONVERSATION-VIEWER-REFRESH-002 CONVERSATION-READING-FOCUS-001 preserves t
             return outline(
                 sessionId,
                 outlineRead === 1 ? ['input-1'] : ['input-1', 'input-2'],
+                {
+                    sourceRevision: outlineRead === 1 ? 'r1' : 'r2',
+                    responseStates: outlineRead === 1
+                        ? { 'input-1': 'inProgress' }
+                        : { 'input-1': 'complete', 'input-2': 'inProgress' },
+                }
+            );
+        },
+        readPage: async request => page(
+            request.sessionId,
+            request.anchorInteractionId,
+            `visible-${request.anchorInteractionId}`,
+            {
+                sourceRevision: request.expectedRevision,
+                responseStates: {
+                    [request.anchorInteractionId]: 'inProgress',
+                },
+            }
+        ),
+    });
+
+    await viewer.open(target('session-a', 'input-1'));
+    onChange();
+    await new Promise(resolve => setImmediate(resolve));
+
+    const publication = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page').at(-1);
+    assert.equal(publication.selectedInteractionId, 'input-2');
+    assert.equal(publication.selectedInput, 2);
+    assert.equal(publication.totalInputs, 2);
+    assert.equal(publication.atLatest, true);
+    assert.equal(publication.outline.at(-1).responseState, 'inProgress');
+});
+
+test('CONVERSATION-VIEWER-REFRESH-002 CONVERSATION-READING-FOCUS-001 preserves a historical selection when a refresh adds a new last input', async () => {
+    let onChange;
+    let outlineRead = 0;
+    const { viewer, panel } = createViewer({
+        watch: (_provider, _sessionId, callback) => {
+            onChange = callback;
+            return { dispose() {} };
+        },
+        readOutline: async (_provider, sessionId) => {
+            outlineRead += 1;
+            return outline(
+                sessionId,
+                outlineRead === 1
+                    ? ['input-1', 'input-2']
+                    : ['input-1', 'input-2', 'input-3'],
                 { sourceRevision: outlineRead === 1 ? 'r1' : 'r2' }
             );
         },
@@ -2356,8 +2527,45 @@ test('CONVERSATION-VIEWER-REFRESH-002 CONVERSATION-READING-FOCUS-001 preserves t
         message.type === 'conversation-viewer-page').at(-1);
     assert.equal(publication.selectedInteractionId, 'input-1');
     assert.equal(publication.selectedInput, 1);
-    assert.equal(publication.totalInputs, 2);
+    assert.equal(publication.totalInputs, 3);
     assert.equal(publication.atLatest, false);
+});
+
+test('CONVERSATION-VIEWER-REFRESH-002 CONVERSATION-READING-FOCUS-001 CONVERSATION-WORKING-INDICATOR-001 follows a new running input when authority reconciliation arrives before the provider watch', async () => {
+    let revision = 1;
+    const { viewer, panel } = createViewer({
+        readOutline: async (_provider, sessionId) => outline(
+            sessionId,
+            revision === 1 ? ['input-1'] : ['input-1', 'input-2'],
+            {
+                sourceRevision: `r${revision}`,
+                responseStates: revision === 1
+                    ? { 'input-1': 'inProgress' }
+                    : { 'input-1': 'complete', 'input-2': 'inProgress' },
+            }
+        ),
+        readPage: async request => page(
+            request.sessionId,
+            request.anchorInteractionId,
+            `visible-${request.anchorInteractionId}`,
+            {
+                sourceRevision: request.expectedRevision,
+                responseStates: {
+                    [request.anchorInteractionId]: 'inProgress',
+                },
+            }
+        ),
+    });
+
+    await viewer.open(target('session-a', 'input-1'));
+    revision = 2;
+    await viewer.reconcileAuthority(() => true);
+
+    const publication = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page').at(-1);
+    assert.equal(publication.selectedInteractionId, 'input-2');
+    assert.equal(publication.atLatest, true);
+    assert.equal(publication.outline.at(-1).responseState, 'inProgress');
 });
 
 test('CONVERSATION-VIEWER-DELIVERY-001 retains hidden Webview context without rebuilding it on visibility changes', async () => {
@@ -2492,6 +2700,54 @@ test('CONVERSATION-VIEWER-STALE-004 fails an initial stale retry closed when the
     assert.equal(panel.webview.html.includes('must-not-publish-input-2'), false);
 });
 
+test('CONVERSATION-VIEWER-STALE-004 fails a follow-latest refresh retry closed when the prior latest interaction disappears', async () => {
+    let outlineReads = 0;
+    let pageReads = 0;
+    const requests = [];
+    const { viewer, panel } = createViewer({
+        readOutline: async (_provider, sessionId) => {
+            outlineReads += 1;
+            const interactionIds = outlineReads === 1
+                ? ['input-1']
+                : outlineReads === 2
+                    ? ['input-1', 'input-2']
+                    : ['input-2', 'input-3'];
+            return outline(sessionId, interactionIds, {
+                sourceRevision: `r${outlineReads}`,
+            });
+        },
+        readPage: async request => {
+            pageReads += 1;
+            requests.push(request);
+            if (pageReads === 2) {
+                throw new ConversationError('staleRevision');
+            }
+            return page(
+                request.sessionId,
+                request.anchorInteractionId,
+                pageReads === 1 ? 'visible-established' : 'must-not-follow',
+                { sourceRevision: request.expectedRevision }
+            );
+        },
+    });
+
+    await viewer.open(target('session-a', 'input-1'));
+    await viewer.refresh();
+
+    assert.equal(outlineReads, 3);
+    assert.equal(pageReads, 2);
+    assert.deepEqual(
+        requests.map(request => request.anchorInteractionId),
+        ['input-1', 'input-2']
+    );
+    const publication = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page').at(-1);
+    assert.equal(publication.selectedInteractionId, 'input-1');
+    assert.equal(publication.stale, true);
+    assert.equal(publication.html.includes('visible-established'), true);
+    assert.equal(publication.html.includes('must-not-follow'), false);
+});
+
 test('CONVERSATION-VIEWER-STALE-002 recovers expired navigation cursors through one fresh authoritative around read', async () => {
     let outlineReads = 0;
     let pageReads = 0;
@@ -2622,7 +2878,7 @@ test('CONVERSATION-VIEWER-AUTHORITY-002 retains stale content when the establish
     );
 });
 
-test('CONVERSATION-VIEWER-REFRESH-003 CONVERSATION-READING-FOCUS-001 merges a new tail page without advancing the selected interaction', async () => {
+test('CONVERSATION-VIEWER-REFRESH-003 CONVERSATION-READING-FOCUS-001 CONVERSATION-WORKING-INDICATOR-001 merges a new tail page and advances from the prior latest interaction', async () => {
     let onChange;
     let revision = 1;
     const firstIds = Array.from(
@@ -2663,7 +2919,8 @@ test('CONVERSATION-VIEWER-REFRESH-003 CONVERSATION-READING-FOCUS-001 merges a ne
 
     const publication = panel.postedMessages.filter(message =>
         message.type === 'conversation-viewer-page').at(-1);
-    assert.equal(publication.selectedInteractionId, 'input-20');
+    assert.equal(publication.selectedInteractionId, 'input-21');
+    assert.equal(publication.atLatest, true);
     assert.equal(publication.html.includes('data-interaction-id="input-1"'), true);
     assert.equal(publication.html.includes('data-interaction-id="input-21"'), true);
     assert.equal(

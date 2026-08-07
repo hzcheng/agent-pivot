@@ -9229,13 +9229,19 @@ function runIncrementalJsonlLifecycleReaderChecks() {
 
             signal = reader.read('codex:stat-failure', statFailurePath, runStartedAtMs, createAccumulator);
             assert.strictEqual(
-                signal.executionState,
-                'stopped',
-                'a stat failure preserves the cached signal for the matching path and run'
+                signal,
+                null,
+                'a stat failure must expose unavailable authority even with an exact cursor'
             );
         } finally {
             fs.statSync = originalStatSync;
         }
+        signal = reader.read('codex:stat-failure', statFailurePath, runStartedAtMs, createAccumulator);
+        assert.strictEqual(
+            signal.executionState,
+            'stopped',
+            'a recovered source may reuse its exact cursor'
+        );
 
         const nonFileSourcePath = path.join(tempRoot, 'non-file-source.jsonl');
         const nonFilePath = path.join(tempRoot, 'non-file-target');

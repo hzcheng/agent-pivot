@@ -313,6 +313,10 @@ test('SESSION-AI-SESSION-COMMAND-CONTROLLER-003 rejects unsupported protocols an
 
 test('SESSION-AI-SESSION-EXECUTION-MONITOR-001 ignores duplicate and older events while exposing immutable snapshots', () => {
     let now = 10;
+    const emptyMonitor = new AiSessionExecutionMonitor({ now: () => now });
+    assert.deepEqual(emptyMonitor.evaluate([{ key: 'codex:empty' }]), []);
+    assert.deepEqual(emptyMonitor.getSnapshot()['codex:empty'], { state: 'stopped', stateChangedAt: 10 });
+
     const monitor = new AiSessionExecutionMonitor({ now: () => now });
     const signal = { token: 'one', occurredAtMs: 20, executionState: 'running' };
     assert.deepEqual(monitor.evaluate([{ key: 'codex:a', signal }]), ['codex:a']);
@@ -325,40 +329,45 @@ test('SESSION-AI-SESSION-EXECUTION-MONITOR-001 ignores duplicate and older event
     assert.deepEqual(monitor.getSnapshot(), {});
 });
 
-test('SESSION-AI-SESSION-EXECUTION-MONITOR-001 degrades running sessions whose transcript stays silent past the stale timeout', () => {
-    let now = 0;
-    const monitor = new AiSessionExecutionMonitor({ now: () => now, staleRunningTimeoutMs: 1000 });
-    const running = { token: 'run-1', occurredAtMs: 0, executionState: 'running' };
-    assert.deepEqual(monitor.evaluate([{ key: 'claude:a', signal: running }]), ['claude:a']);
-    assert.equal(monitor.getSnapshot()['claude:a'].state, 'running');
+for (const provider of ['codex', 'kimi', 'claude']) {
+    test(`SESSION-AI-SESSION-EXECUTION-MONITOR-001 CONVERSATION-WORKING-INDICATOR-001 [${provider}] keeps a readable running signal alive and degrades only while lifecycle authority is unavailable`, () => {
+        let now = 0;
+        const monitor = new AiSessionExecutionMonitor({ now: () => now, staleRunningTimeoutMs: 1000 });
+        const key = `${provider}:a`;
+        const completedKey = `${provider}:b`;
+        const running = { token: 'run-1', occurredAtMs: 0, executionState: 'running' };
+        assert.deepEqual(monitor.evaluate([{ key, signal: running }]), [key]);
+        assert.equal(monitor.getSnapshot()[key].state, 'running');
 
-    now = 500;
-    assert.deepEqual(monitor.evaluate([{ key: 'claude:a', signal: running }]), []);
-    assert.equal(monitor.getSnapshot()['claude:a'].state, 'running');
+        now = 500;
+        assert.deepEqual(monitor.evaluate([{ key, signal: running }]), []);
+        assert.equal(monitor.getSnapshot()[key].state, 'running');
 
-    now = 1001;
-    assert.deepEqual(monitor.evaluate([{ key: 'claude:a', signal: running }]), ['claude:a']);
-    assert.deepEqual(monitor.getSnapshot()['claude:a'], { state: 'stopped', stateChangedAt: 1001 });
-    assert.deepEqual(monitor.evaluate([{ key: 'claude:a', signal: running }]), []);
+        now = 1001;
+        assert.deepEqual(monitor.evaluate([{ key, signal: running }]), []);
+        assert.deepEqual(monitor.getSnapshot()[key], { state: 'running', stateChangedAt: 0 });
 
-    now = 1500;
-    const resumed = { token: 'run-2', occurredAtMs: 1500, executionState: 'running' };
-    assert.deepEqual(monitor.evaluate([{ key: 'claude:a', signal: resumed }]), ['claude:a']);
-    now = 2000;
-    assert.deepEqual(monitor.evaluate([{ key: 'claude:a', signal: resumed }]), []);
-    assert.equal(monitor.getSnapshot()['claude:a'].state, 'running');
+        now = 1500;
+        assert.deepEqual(monitor.evaluate([{ key }]), []);
+        assert.equal(monitor.getSnapshot()[key].state, 'running');
 
-    now = 2600;
-    assert.deepEqual(monitor.evaluate([{ key: 'claude:a' }]), ['claude:a']);
-    assert.equal(monitor.getSnapshot()['claude:a'].state, 'stopped');
+        now = 2002;
+        assert.deepEqual(monitor.evaluate([{ key }]), [key]);
+        assert.equal(monitor.getSnapshot()[key].state, 'stopped');
 
-    now = 3000;
-    const settled = { token: 'done-1', occurredAtMs: 3000, executionState: 'stopped' };
-    assert.deepEqual(monitor.evaluate([{ key: 'claude:a' }, { key: 'codex:b', signal: settled }]), []);
-    now = 6000;
-    assert.deepEqual(monitor.evaluate([{ key: 'claude:a' }, { key: 'codex:b' }]), []);
-    assert.equal(monitor.getSnapshot()['codex:b'].state, 'stopped');
-});
+        now = 2100;
+        assert.deepEqual(monitor.evaluate([{ key, signal: running }]), [key]);
+        assert.deepEqual(monitor.getSnapshot()[key], { state: 'running', stateChangedAt: 2100 });
+
+        now = 3000;
+        const settled = { token: 'done-1', occurredAtMs: 3000, executionState: 'stopped' };
+        assert.deepEqual(monitor.evaluate([{ key }, { key: completedKey, signal: settled }]), []);
+        now = 6000;
+        assert.deepEqual(monitor.evaluate([{ key }, { key: completedKey }]), [key]);
+        assert.equal(monitor.getSnapshot()[key].state, 'stopped');
+        assert.equal(monitor.getSnapshot()[completedKey].state, 'stopped');
+    });
+}
 
 test('ARCH-AI-SESSION-READ-COORDINATOR-001 reads registered providers with bounded diagnostics and deepest assignments', () => {
     let now = 100;

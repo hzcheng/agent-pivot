@@ -4348,11 +4348,13 @@
   {
     "id": "CONVERSATION-WORKING-INDICATOR-001",
     "domain": "webview",
-    "title": "AI Conversation shows a reduced-motion-safe Working indicator only while the latest response remains in progress",
+    "title": "AI Conversation keeps a reduced-motion-safe Working indicator visible through quiet provider work and newly appended running inputs",
     "priority": "P0",
     "status": "automated",
     "owners": [
       "tests/unit/aiSessions/codexSessionFilePath.test.js",
+      "tests/contract/aiSessions/controllerBoundaries.test.js",
+      "tests/contract/aiSessions/incrementalJsonlLifecycleReader.test.js",
       "tests/contract/aiSessions/codexConversationAdapter.test.js",
       "tests/contract/aiSessions/conversationCoordinator.test.js",
       "tests/integration/dashboard/conversationViewer.test.js",
@@ -4360,6 +4362,8 @@
     ],
     "evidence": [
       "src/services/codexSessionService.ts",
+      "src/aiSessions/executionMonitor.ts",
+      "src/aiSessions/incrementalJsonlLifecycleReader.ts",
       "src/aiSessions/conversation/codexAdapter.ts",
       "src/aiSessions/conversation/composition.ts",
       "src/aiSessions/conversation/viewer.ts",

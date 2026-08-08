@@ -1185,6 +1185,232 @@ test('CONVERSATION-TOOL-CALL-VISIBILITY-001 CONVERSATION-PROGRESS-VISIBILITY-001
     assert.match(tool.detail, /9 passing/);
 });
 
+test('CONVERSATION-PLAN-QUESTION-VISIBILITY-001 Claude replays AskUserQuestion options and settles answers from a later tool_result', async t => {
+    const source = await createFixture(t);
+    await fs.promises.writeFile(source.sourcePath, [
+        {
+            type: 'user',
+            uuid: 'ask-user-1',
+            timestamp: '2025-01-02T03:04:05.000Z',
+            message: { role: 'user', content: 'Ask me things' },
+        },
+        {
+            type: 'assistant',
+            uuid: 'ask-assistant-1',
+            timestamp: '2025-01-02T03:04:06.000Z',
+            message: {
+                role: 'assistant',
+                content: [
+                    {
+                        type: 'tool_use',
+                        id: 'toolu_ask_1',
+                        name: 'AskUserQuestion',
+                        input: {
+                            questions: [
+                                {
+                                    question: 'Pick one',
+                                    header: 'Choice',
+                                    multiSelect: false,
+                                    options: [
+                                        { label: 'A', description: 'first' },
+                                        { label: 'B', description: 'second' },
+                                    ],
+                                },
+                                {
+                                    question: 'Pick many',
+                                    header: 'Multi',
+                                    multiSelect: true,
+                                    options: [
+                                        { label: 'X' },
+                                        { label: 'Y' },
+                                        { label: 'Z' },
+                                    ],
+                                },
+                            ],
+                        },
+                    },
+                ],
+            },
+        },
+    ].map(record => `${JSON.stringify(record)}\n`).join(''));
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+
+    const firstOutline = await adapter.readOutline(sessionId);
+    const first = await adapter.readPage({
+        provider: 'claude',
+        sessionId,
+        anchorInteractionId: firstOutline.interactions[0].id,
+        direction: 'around',
+        expectedRevision: firstOutline.sourceRevision,
+    });
+    assert.deepEqual(
+        first.messages.map(message => message.role),
+        ['user', 'question']
+    );
+    assert.equal(first.messages[1].question.outcome, undefined);
+    assert.deepEqual(first.messages[1].question.questions, [
+        {
+            question: 'Pick one',
+            header: 'Choice',
+            options: [
+                { label: 'A', description: 'first' },
+                { label: 'B', description: 'second' },
+            ],
+            multiSelect: false,
+        },
+        {
+            question: 'Pick many',
+            header: 'Multi',
+            options: [{ label: 'X' }, { label: 'Y' }, { label: 'Z' }],
+            multiSelect: true,
+        },
+    ]);
+
+    await fs.promises.appendFile(source.sourcePath, [
+        {
+            type: 'user',
+            uuid: 'ask-user-2',
+            timestamp: '2025-01-02T03:04:07.000Z',
+            message: {
+                role: 'user',
+                content: [
+                    {
+                        type: 'tool_result',
+                        tool_use_id: 'toolu_ask_1',
+                        content: 'Your questions have been answered: "Pick one"="B", "Pick many"="X, Y". You can now continue with these answers in mind.',
+                    },
+                ],
+            },
+        },
+        {
+            type: 'assistant',
+            uuid: 'ask-assistant-2',
+            timestamp: '2025-01-02T03:04:08.000Z',
+            message: {
+                role: 'assistant',
+                content: [{ type: 'text', text: 'Thanks, continuing.' }],
+            },
+        },
+    ].map(record => `${JSON.stringify(record)}\n`).join(''));
+    const updatedOutline = await adapter.readOutline(sessionId);
+    const second = await adapter.readPage({
+        provider: 'claude',
+        sessionId,
+        anchorInteractionId: updatedOutline.interactions[0].id,
+        direction: 'around',
+        expectedRevision: updatedOutline.sourceRevision,
+    });
+    assert.deepEqual(
+        second.messages.map(message => message.role),
+        ['user', 'question', 'assistant']
+    );
+    assert.deepEqual(second.messages[1].question, {
+        source: 'AskUserQuestion',
+        questions: [
+            {
+                question: 'Pick one',
+                header: 'Choice',
+                options: [
+                    { label: 'A', description: 'first' },
+                    { label: 'B', description: 'second' },
+                ],
+                multiSelect: false,
+                answers: ['B'],
+            },
+            {
+                question: 'Pick many',
+                header: 'Multi',
+                options: [{ label: 'X' }, { label: 'Y' }, { label: 'Z' }],
+                multiSelect: true,
+                answers: ['X', 'Y'],
+            },
+        ],
+        outcome: 'answered',
+    });
+});
+
+test('CONVERSATION-PLAN-QUESTION-VISIBILITY-001 Claude marks a dismissed AskUserQuestion rejected and keeps questionless calls as plain tool entries', async t => {
+    const source = await createFixture(t);
+    await fs.promises.writeFile(source.sourcePath, [
+        {
+            type: 'user',
+            uuid: 'reject-user-1',
+            timestamp: '2025-01-02T03:04:05.000Z',
+            message: { role: 'user', content: 'Ask me things' },
+        },
+        {
+            type: 'assistant',
+            uuid: 'reject-assistant-1',
+            timestamp: '2025-01-02T03:04:06.000Z',
+            message: {
+                role: 'assistant',
+                content: [
+                    {
+                        type: 'tool_use',
+                        id: 'toolu_reject_1',
+                        name: 'AskUserQuestion',
+                        input: {
+                            questions: [{
+                                question: 'Proceed?',
+                                header: 'Confirm',
+                                multiSelect: false,
+                                options: [{ label: 'Yes' }, { label: 'No' }],
+                            }],
+                        },
+                    },
+                    {
+                        type: 'tool_use',
+                        id: 'toolu_plain_1',
+                        name: 'AskUserQuestion',
+                        input: {},
+                    },
+                ],
+            },
+        },
+        {
+            type: 'user',
+            uuid: 'reject-user-2',
+            timestamp: '2025-01-02T03:04:07.000Z',
+            message: {
+                role: 'user',
+                content: [
+                    {
+                        type: 'tool_result',
+                        tool_use_id: 'toolu_reject_1',
+                        content: "The user doesn't want to proceed with this tool use.",
+                    },
+                    {
+                        type: 'tool_result',
+                        tool_use_id: 'toolu_plain_1',
+                        content: 'plain result',
+                    },
+                ],
+            },
+        },
+    ].map(record => `${JSON.stringify(record)}\n`).join(''));
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+
+    const { page } = await readWholeConversation(adapter);
+    assert.deepEqual(
+        page.messages.map(message => message.role),
+        ['user', 'tool', 'question']
+    );
+    assert.equal(page.messages[1].tool.name, 'AskUserQuestion');
+    assert.match(page.messages[1].tool.detail, /plain result/);
+    assert.deepEqual(page.messages[2].question, {
+        source: 'AskUserQuestion',
+        questions: [{
+            question: 'Proceed?',
+            header: 'Confirm',
+            options: [{ label: 'Yes' }, { label: 'No' }],
+            multiSelect: false,
+        }],
+        outcome: 'rejected',
+    });
+});
+
 test('CONVERSATION-THINKING-VISIBILITY-001 Claude interleaves thinking blocks with text in arrival order', async t => {
     const source = await createFixture(t);
     await fs.promises.appendFile(source.sourcePath, [

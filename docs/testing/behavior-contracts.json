@@ -4469,13 +4469,15 @@
     "status": "automated",
     "owners": [
       "tests/unit/aiSessions/conversationModel.test.js",
-      "tests/contract/aiSessions/kimiConversationAdapter.test.js"
+      "tests/contract/aiSessions/kimiConversationAdapter.test.js",
+      "tests/contract/aiSessions/claudeConversationAdapter.test.js"
     ],
     "evidence": [
       "src/aiSessions/conversation/types.ts",
       "src/aiSessions/conversation/model.ts",
       "src/aiSessions/conversation/questions.ts",
-      "src/aiSessions/conversation/kimiAdapter.ts"
+      "src/aiSessions/conversation/kimiAdapter.ts",
+      "src/aiSessions/conversation/claudeAdapter.ts"
     ]
   },
   {

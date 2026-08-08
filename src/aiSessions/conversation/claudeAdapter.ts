@@ -29,6 +29,11 @@ import {
 } from './text';
 import { ToolCallTracker } from './toolCalls';
 import {
+    boundQuestionItems,
+    boundQuestionOptions,
+    splitSettledAnswers,
+} from './questions';
+import {
     CONVERSATION_LIMITS,
     ConversationAbortSignal,
     ConversationError,
@@ -37,6 +42,8 @@ import {
     ConversationPage,
     ConversationPageRequest,
     ConversationProviderAdapter,
+    ConversationQuestionBlock,
+    ConversationQuestionItem,
     ConversationSnapshot,
     ConversationSubagentEntry,
     ConversationTelemetry,
@@ -92,6 +99,8 @@ interface ClaudeConversationIndex extends AiSessionDisposable {
     telemetryCwd?: string;
     telemetryGitBranch?: string;
     toolTracker?: ToolCallTracker;
+    /** tool_use id → question block, for tool_result answer pairing. */
+    questionTracker?: Map<string, ConversationQuestionBlock>;
     revision: number;
     partial: boolean;
 }
@@ -227,6 +236,15 @@ function cloneInteractions(
         ...(interaction.thinking
             ? { thinking: interaction.thinking.slice() }
             : {}),
+        // Shares block objects with the previous load on purpose (same
+        // pattern as toolCalls) so tracker references stay valid across
+        // incremental loads when settlements mutate them.
+        ...(interaction.plans
+            ? { plans: interaction.plans.slice() }
+            : {}),
+        ...(interaction.questions
+            ? { questions: interaction.questions.slice() }
+            : {}),
     }));
 }
 
@@ -241,6 +259,55 @@ function visibleMessage(value: string): string {
             normalized,
             CONVERSATION_LIMITS.maxMessageGraphemes - 1
         );
+}
+
+function claudeQuestionItems(
+    input: Record<string, any> | undefined
+): ConversationQuestionItem[] {
+    const rawQuestions = input?.questions;
+    if (!Array.isArray(rawQuestions)) {
+        return [];
+    }
+    return boundQuestionItems(rawQuestions.map(raw => {
+        const record = asRecord(raw);
+        return {
+            question: typeof record?.question === 'string'
+                ? record.question
+                : '',
+            ...(typeof record?.header === 'string'
+                ? { header: record.header }
+                : {}),
+            options: boundQuestionOptions(record?.options),
+            multiSelect: record?.multiSelect === true,
+        };
+    }));
+}
+
+function settleClaudeQuestion(
+    block: ConversationQuestionBlock,
+    text: string
+): void {
+    if (/doesn't want to proceed|user rejected/i.test(text)) {
+        block.outcome = 'rejected';
+        return;
+    }
+    const answers = new Map<string, string>();
+    const pattern = /"([^"]+)"="([^"]*)"/g;
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(text)) !== null) {
+        if (match[1] !== undefined && match[2] !== undefined) {
+            answers.set(match[1], match[2]);
+        }
+    }
+    if (answers.size) {
+        block.questions = block.questions.map(item => {
+            const value = answers.get(item.question);
+            return value !== undefined
+                ? { ...item, answers: splitSettledAnswers(value, item) }
+                : item;
+        });
+    }
+    block.outcome = 'answered';
 }
 
 export class ClaudeConversationAdapter implements ConversationProviderAdapter {
@@ -525,6 +592,10 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
             // incremental load still pairs with its tool_use.
             const toolTracker = (continuing && previous?.toolTracker)
                 || new ToolCallTracker();
+            // Same persistence rationale as toolTracker: the tool_result
+            // answering a question can land in a later incremental load.
+            const questionTracker = (continuing && previous?.questionTracker)
+                || new Map<string, ConversationQuestionBlock>();
             const finishInteraction = (
                 state: 'complete' | 'interrupted' = 'complete'
             ): void => {
@@ -592,7 +663,15 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
                                     && typeof part.text === 'string')
                                 .map(part => part.text)
                                 .join('\n');
-                        toolTracker.finish(block.tool_use_id, text);
+                        const questionBlock =
+                            typeof block.tool_use_id === 'string'
+                                ? questionTracker.get(block.tool_use_id)
+                                : undefined;
+                        if (questionBlock) {
+                            settleClaudeQuestion(questionBlock, text);
+                        } else {
+                            toolTracker.finish(block.tool_use_id, text);
+                        }
                     });
                 } else if (event.type === 'user'
                     && message?.role === 'user'
@@ -671,6 +750,29 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
                                 return;
                             }
                             const input = asRecord(block.input);
+                            const questionItems =
+                                block.name === 'AskUserQuestion'
+                                    ? claudeQuestionItems(input)
+                                    : [];
+                            const toolUseId = typeof block.id === 'string'
+                                ? block.id
+                                : '';
+                            if (questionItems.length && toolUseId) {
+                                const interaction =
+                                    interactions[openInteractionIndex];
+                                const questionBlock:
+                                    ConversationQuestionBlock = {
+                                        position: interaction
+                                            .assistantMarkdown.length,
+                                        source: 'AskUserQuestion',
+                                        questions: questionItems,
+                                    };
+                                (interaction.questions ||= []).push(
+                                    questionBlock
+                                );
+                                questionTracker.set(toolUseId, questionBlock);
+                                return;
+                            }
                             toolTracker.begin(
                                 interactions[openInteractionIndex],
                                 typeof block.id === 'string'
@@ -745,6 +847,7 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
                 previous.telemetryCwd = telemetryCwd;
                 previous.telemetryGitBranch = telemetryGitBranch;
                 previous.toolTracker = toolTracker;
+                previous.questionTracker = questionTracker;
                 previous.revision = revision;
                 previous.partial = partial;
             } else {
@@ -758,6 +861,7 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
                     telemetryCwd,
                     telemetryGitBranch,
                     toolTracker,
+                    questionTracker,
                     revision,
                     partial,
                     dispose() {},

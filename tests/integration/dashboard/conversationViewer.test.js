@@ -3263,6 +3263,65 @@ test('CONVERSATION-PLAN-QUESTION-VISIBILITY-001 publishes plan and question mark
     assert.equal(html.includes('Approved'), true);
 });
 
+test('CONVERSATION-DIFF-VISIBILITY-001 publishes structured diff markup inside the tool entry', async () => {
+    const { viewer, panel } = createViewer({
+        readOutline: async (_provider, sessionId) => outline(
+            sessionId,
+            ['input-1']
+        ),
+        readPage: async request => ({
+            ...page(request.sessionId, 'input-1', 'visible'),
+            messages: [
+                {
+                    id: 'input-1:user',
+                    interactionId: 'input-1',
+                    role: 'user',
+                    markdown: 'Apply the patch',
+                },
+                {
+                    id: 'input-1:tool:0',
+                    interactionId: 'input-1',
+                    role: 'tool',
+                    markdown: '',
+                    tool: {
+                        name: 'fileChange',
+                        summary: 'fileChange update src/a.ts',
+                        diffs: [{
+                            path: 'src/a.ts',
+                            kind: 'update',
+                            additions: 1,
+                            deletions: 1,
+                            hunks: [{
+                                oldStart: 3,
+                                newStart: 3,
+                                lines: [
+                                    { type: 'del', text: 'const a = 1;' },
+                                    { type: 'add', text: 'const a = 2;' },
+                                ],
+                            }],
+                        }],
+                    },
+                },
+                {
+                    id: 'input-1:assistant:0',
+                    interactionId: 'input-1',
+                    role: 'assistant',
+                    markdown: 'Done.',
+                },
+            ],
+        }),
+    });
+
+    await viewer.open(target('session-a', 'input-1'));
+    const html = panel.webview.html;
+    assert.equal(html.includes('conversation-diff-file'), true);
+    assert.equal(html.includes('src/a.ts'), true);
+    assert.equal(html.includes('conversation-diff-line-add'), true);
+    assert.equal(html.includes('conversation-diff-line-del'), true);
+    assert.equal(html.includes('conversation-diff-totals'), true);
+    assert.equal(html.includes('@@ -3 +3 @@'), true);
+});
+
 function worklogPage(sessionId, options = {}) {
     const state = {
         interactionId: 'input-1',

@@ -4499,13 +4499,24 @@
     "owners": [
       "tests/unit/aiSessions/conversationDiffs.test.js",
       "tests/unit/aiSessions/conversationModel.test.js",
-      "tests/contract/aiSessions/conversationCoordinator.test.js"
+      "tests/contract/aiSessions/conversationCoordinator.test.js",
+      "tests/contract/aiSessions/codexConversationAdapter.test.js",
+      "tests/contract/aiSessions/claudeConversationAdapter.test.js",
+      "tests/contract/aiSessions/kimiConversationAdapter.test.js",
+      "tests/integration/dashboard/conversationViewer.test.js",
+      "tests/browser/conversationViewer.test.js"
     ],
     "evidence": [
       "src/aiSessions/conversation/types.ts",
       "src/aiSessions/conversation/diffs.ts",
       "src/aiSessions/conversation/model.ts",
-      "src/aiSessions/conversation/coordinator.ts"
+      "src/aiSessions/conversation/coordinator.ts",
+      "src/aiSessions/conversation/toolCalls.ts",
+      "src/aiSessions/conversation/codexAdapter.ts",
+      "src/aiSessions/conversation/claudeAdapter.ts",
+      "src/aiSessions/conversation/kimiAdapter.ts",
+      "src/aiSessions/conversation/viewer.ts",
+      "media/conversationViewer.scss"
     ]
   },
   {

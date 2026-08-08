@@ -6548,6 +6548,85 @@ test('CONVERSATION-PLAN-QUESTION-VISIBILITY-001 keeps plan and question cards vi
     assert.equal(await question.isVisible(), true, 'question stays put');
 });
 
+test('CONVERSATION-DIFF-VISIBILITY-001 renders diff cards with sanitized markup inside the collapsible tool entry', async t => {
+    const page = await openViewerPage(t, {});
+    const toolArticle = `<article class="conversation-message conversation-message-tool"
+            data-message-id="input-4:tool:0"
+            data-conversation-message-id="input-4%3Atool%3A0"
+            data-interaction-id="input-4">
+        <details class="conversation-tool-call">
+            <summary><span class="conversation-tool-name">fileChange</span> fileChange update src/a.ts <span class="conversation-diff-totals"><span class="conversation-diff-count-add">+1</span> <span class="conversation-diff-count-del">−1</span></span></summary>
+            <section class="conversation-diff">
+                <section class="conversation-diff-file">
+                    <section class="conversation-diff-file-header">
+                        <span class="conversation-diff-path" onclick="window.__pwned = true">src/a.ts</span>
+                        <span class="conversation-diff-kind conversation-diff-kind-update">update</span>
+                        <span class="conversation-diff-counts"><span class="conversation-diff-count-add">+1</span> <span class="conversation-diff-count-del">−1</span></span>
+                    </section>
+                    <pre class="conversation-diff-hunks"><code><span class="conversation-diff-line conversation-diff-line-hunk">@@ -3 +3 @@</span>
+<span class="conversation-diff-line conversation-diff-line-del">-const a = 1;</span>
+<span class="conversation-diff-line conversation-diff-line-add">+const a = 2;</span></code></pre>
+                </section>
+            </section>
+        </details>
+    </article>`;
+    const turnHtml = `<article class="conversation-message conversation-message-user"
+            data-message-id="input-4:user"
+            data-conversation-message-id="input-4%3Auser"
+            data-interaction-id="input-4">
+        <span class="conversation-role">User</span>
+        <section class="conversation-markdown"><p>Apply the patch</p></section>
+    </article>`
+        + `<article class="conversation-message conversation-message-worklog"
+            data-message-id="input-4:worklog"
+            data-conversation-message-id="input-4%3Aworklog"
+            data-interaction-id="input-4">
+        <button class="conversation-worklog-toggle">
+            <span class="conversation-worklog-label">Worked for 3s</span>
+        </button>
+    </article>`
+        + toolArticle
+        + `<article class="conversation-message conversation-message-assistant"
+            data-message-id="input-4:assistant:0"
+            data-conversation-message-id="input-4%3Aassistant%3A0"
+            data-interaction-id="input-4">
+        <span class="conversation-role">Assistant</span>
+        <section class="conversation-markdown"><p>Done.</p></section>
+    </article>`;
+    await sendPage(page, {
+        ...hostileConversationPage,
+        requestId: 60,
+        updateKind: 'initial',
+        html: turnHtml,
+    });
+
+    const tool = page.locator('.conversation-message-tool');
+    assert.equal(await tool.isHidden(), true, 'tool work starts collapsed');
+    await page.locator('.conversation-worklog-toggle').click();
+    assert.equal(await tool.isVisible(), true, 'expanding reveals the diff entry');
+
+    const path = page.locator('.conversation-diff-path');
+    assert.equal(await path.count(), 1, 'diff path survives sanitizing');
+    assert.equal(
+        await path.evaluate(element => element.hasAttribute('onclick')),
+        false,
+        'event handlers are stripped from diff markup'
+    );
+    const addLine = page.locator('.conversation-diff-line-add');
+    assert.equal(await addLine.count(), 1);
+    // The diff lives inside a closed <details> until the user expands it.
+    const details = page.locator('details.conversation-tool-call');
+    assert.equal(await details.evaluate(element => element.open), false);
+    await page.locator('.conversation-tool-call summary').click();
+    assert.equal(await details.evaluate(element => element.open), true);
+    assert.equal(await addLine.isVisible(), true);
+    assert.match(await addLine.innerText(), /\+const a = 2;/);
+    assert.match(
+        await page.locator('.conversation-diff-line-hunk').innerText(),
+        /@@ -3 \+3 @@/
+    );
+});
+
 test('CONVERSATION-WORKLOG-COLLAPSE-001 keeps in-progress work expanded and collapses it when the answer lands', async t => {
     const page = await openViewerPage(t, {});
     const liveHtml = `<article class="conversation-message conversation-message-user"

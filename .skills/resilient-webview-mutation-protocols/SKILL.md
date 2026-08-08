@@ -39,6 +39,15 @@ silently ships without it while unit checks keep passing:
 Find every consumer by grepping an existing sibling script name (e.g.
 `conversationReconcileScripts`) across the repository.
 
+Dashboard webview scripts are also evaluated in minimal Node VM sandboxes by
+`scripts/run-dashboard-webview-checks.js` (`vm.runInNewContext` with a
+hand-built `document`/`window`): no timers (`setTimeout` is undefined), no
+`MutationObserver`, no `window.requestAnimationFrame` — only a bare global
+`requestAnimationFrame`. Gate every optional global behind a
+`typeof … === 'function'` check and follow the bare `requestAnimationFrame`
+convention used by sibling scripts; an unguarded timer or observer throws
+`ReferenceError` in the VM checks while real browsers stay silent.
+
 ## Core Invariants
 
 - Keep persistent state Host-authoritative. Never make optimistic Webview state

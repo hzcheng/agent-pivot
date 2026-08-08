@@ -27,7 +27,7 @@ export interface SkillPanelView {
 }
 import { sanitizeProjectName } from '../models';
 import { escapeAttribute } from './webviewHtmlEscape';
-import { collapse as collapseIcon, folder as folderIcon, puzzle } from './webviewIcons';
+import { collapse as collapseIcon, edit as editIcon, folder as folderIcon, puzzle } from './webviewIcons';
 import type { SkillCollectionSuggestion } from '../skills/knownCollections';
 
 const AGENTS: SkillAgentId[] = ['kimi', 'claude', 'codex'];
@@ -51,6 +51,28 @@ function cardAgentDots(record: SkillRecord): string {
     return `<span class="skill-agent-dots">${dots}</span>`;
 }
 
+interface SkillWarnInfo {
+    glyphTitle: string;
+}
+
+// One quiet warning glyph on the row; the detail panel lists the specifics.
+function getSkillWarnInfo(record: SkillRecord, view: SkillPanelView, duplicate?: SkillDuplicateGroup): SkillWarnInfo | null {
+    const conflict = Boolean(view.conflicts && view.conflicts.has(record.dirPath));
+    if (conflict) {
+        return { glyphTitle: 'Name conflict: another central skill links the same agent slot' };
+    }
+    if (duplicate && duplicate.drift) {
+        return { glyphTitle: 'Copies of this skill have drifted' };
+    }
+    if (AGENTS.some(agent => record.visibility[agent] === 'shadowed')) {
+        return { glyphTitle: 'Shadowed by another copy for at least one agent' };
+    }
+    if (record.diagnostics.length) {
+        return { glyphTitle: `${record.diagnostics.length} issue${record.diagnostics.length === 1 ? '' : 's'}` };
+    }
+    return null;
+}
+
 function getSkillDetail(record: SkillRecord, view: SkillPanelView, duplicate?: SkillDuplicateGroup): string {
     const rows = AGENTS.map(agent => {
         if (record.central) {
@@ -59,9 +81,13 @@ function getSkillDetail(record: SkillRecord, view: SkillPanelView, duplicate?: S
             const current = (record.central.links[record.scope] || {})[agent] || '';
             const off = current ? '' : ' off';
             const title = current ? `Disable for ${agent} (${current})` : `Enable for ${agent}`;
+            const note = current
+                ? escapeAttribute(current)
+                : 'not linked';
             return `<div class="skill-agent-row"><span class="skill-agent-row-name">${agent}</span>`
                 + `<button type="button" class="skill-ios-toggle${off}" title="${escapeAttribute(title)}"`
-                + ` data-central-toggle="${escapeAttribute(record.dirPath)}" data-central-source="${agent}"></button></div>`;
+                + ` data-central-toggle="${escapeAttribute(record.dirPath)}" data-central-source="${agent}"></button>`
+                + `<span class="skill-agent-note" title="${note}">${note}</span></div>`;
         }
         const visibility = record.visibility[agent];
         const status = visibility === 'active'
@@ -74,7 +100,7 @@ function getSkillDetail(record: SkillRecord, view: SkillPanelView, duplicate?: S
             : visibility === 'active'
                 ? escapeAttribute(record.dirPath)
                 : 'not visible';
-        return `<div class="skill-detail-row"><span class="skill-agent-row-name">${agent}</span>${status}<span class="skill-detail-path">${detail}</span></div>`;
+        return `<div class="skill-agent-row readonly"><span class="skill-agent-row-name">${agent}</span>${status}<span class="skill-agent-note" title="${escapeAttribute(detail)}">${escapeAttribute(detail)}</span></div>`;
     }).join('');
     const driftRows = duplicate && duplicate.drift
         ? `<p class="skill-detail-title">Copies of this skill</p>` + duplicate.copies.map(copy => {
@@ -96,9 +122,8 @@ function getSkillDetail(record: SkillRecord, view: SkillPanelView, duplicate?: S
         return `<p class="skill-detail-note">⚠ ${escapeAttribute(item.message)}${fixButton}</p>`;
     }).join('');
     const dirPath = escapeAttribute(record.dirPath);
-    // The move editor replaces the retired virtual group editor for central records.
     const moveEditor = record.central
-        ? `<div class="skill-move-editor">
+        ? `<div class="skill-move-editor" hidden>
         <input class="skill-move-input" type="text" data-skill-move-folder="${dirPath}" placeholder="Move to folder…">
         <button type="button" class="skill-move-set" data-skill-move-set="${dirPath}">Move</button>
     </div>`
@@ -106,12 +131,36 @@ function getSkillDetail(record: SkillRecord, view: SkillPanelView, duplicate?: S
     const fullDescription = record.description
         ? `<p class="skill-detail-desc">${escapeAttribute(sanitizeProjectName(record.description))}</p>`
         : '';
+    const copyTargets = view.copyTargets ? view.copyTargets.get(getSkillStableKey(record)) : undefined;
+    const copyRow = copyTargets && copyTargets.length
+        ? `<div class="skill-copy-row">Copy to: ${copyTargets.map(target => `<button type="button" class="skill-copy" data-skill-copy="${dirPath}" data-skill-copy-root="${escapeAttribute(target.rootDir)}">${target.source}</button>`).join('')}</div>`
+        : '';
+    const projectLinkCount = record.central
+        ? AGENTS.filter(agent => Boolean(record.central?.links.project?.[agent])).length
+        : 0;
+    const scopeActionButton = !record.central
+        ? ''
+        : record.scope === 'user'
+            ? `<button type="button" class="skill-text-btn skill-scope-action" data-skill-scope-action="${dirPath}"`
+                + ` data-skill-scope-operation="apply-to-project"`
+                + (view.hasWorkspace
+                    ? ` title="Choose which project agents can use this global skill">${projectLinkCount ? `In project · ${projectLinkCount}` : 'Use in project'}`
+                    : ` title="Open a project to apply this global skill" disabled>Open a project`)
+                + `</button>`
+            : `<button type="button" class="skill-text-btn skill-scope-action" data-skill-scope-action="${dirPath}"`
+                + ` data-skill-scope-operation="move-to-global" title="Move this project's source into Global management">Move to Global</button>`;
+    const moveEditButton = record.central
+        ? `<button type="button" class="skill-text-btn" data-skill-move-edit="${dirPath}">Move to folder…</button>`
+        : '';
     return `<div class="skill-detail" hidden>
         ${fullDescription}
-        <p class="skill-detail-title">Effectiveness per agent</p>
-        ${rows}${driftRows}${notes}
+        ${notes}
+        <p class="skill-detail-title">Agents</p>
+        ${rows}${driftRows}${copyRow}
         <div class="skill-detail-actions">
-            <button class="primary" data-skill-open="${escapeAttribute(record.skillFilePath)}">Open SKILL.md</button>
+            <button type="button" class="skill-text-btn primary" data-skill-open="${escapeAttribute(record.skillFilePath)}">Open SKILL.md</button>
+            ${moveEditButton}
+            ${scopeActionButton}
         </div>
         ${moveEditor}
     </div>`;
@@ -121,59 +170,32 @@ function getSkillDiv(record: SkillRecord, view: SkillPanelView): string {
     const duplicate = view.duplicates ? view.duplicates.get(`${record.scope}:${record.name}`) : undefined;
     const name = escapeAttribute(sanitizeProjectName(record.name));
     const description = escapeAttribute(sanitizeProjectName(record.description));
-    // Chips read the record's own-scope effectiveness (its section determines scope).
+    // Dots read the record's own-scope effectiveness (its section determines scope).
     const activeAgents = AGENTS.filter(agent => record.visibility[agent] === 'active').join(' ');
-    const shadowed = AGENTS.some(agent => record.visibility[agent] === 'shadowed');
-    const drift = duplicate && duplicate.drift;
-    const conflict = Boolean(view.conflicts && view.conflicts.has(record.dirPath));
-    const warnChip = conflict
-        ? `<span class="skill-chip warn" data-skill-warn>⚠ name conflict</span>`
-        : drift
-            ? `<span class="skill-chip warn" data-skill-warn>⚠ drift</span>`
-            : shadowed
-                ? `<span class="skill-chip warn" data-skill-warn>⚠ shadowed</span>`
-                : record.diagnostics.length
-                    ? `<span class="skill-chip warn" data-skill-warn>⚠ ${record.diagnostics.length} issue${record.diagnostics.length === 1 ? '' : 's'}</span>`
-                    : '';
-    const copyTargets = view.copyTargets ? view.copyTargets.get(getSkillStableKey(record)) : undefined;
-    const copyRow = copyTargets && copyTargets.length
-        ? `<div class="skill-copy-row">Copy to: ${copyTargets.map(target => `<button type="button" class="skill-copy" data-skill-copy="${escapeAttribute(record.dirPath)}" data-skill-copy-root="${escapeAttribute(target.rootDir)}">${target.source}</button>`).join('')}</div>`
+    const warn = getSkillWarnInfo(record, view, duplicate);
+    const warnGlyph = warn
+        ? `<span class="skill-warn" data-skill-warn title="${escapeAttribute(warn.glyphTitle)}">⚠</span>`
         : '';
-    const chips = cardAgentDots(record) + warnChip;
-    const centralizeButton = record.central
+    const dirPath = escapeAttribute(record.dirPath);
+    const centralizeAction = record.central
         ? ''
-        : `<button type="button" class="skill-centralize" title="Move into the shared store and link from agents" data-skill-centralize="${escapeAttribute(record.dirPath)}">Centralize</button>`;
-    const projectLinkCount = record.central
-        ? AGENTS.filter(agent => Boolean(record.central?.links.project?.[agent])).length
-        : 0;
-    const scopeActionButton = !record.central
-        ? ''
-        : record.scope === 'user'
-            ? `<button type="button" class="skill-scope-action" data-skill-scope-action="${escapeAttribute(record.dirPath)}"`
-                + ` data-skill-scope-operation="apply-to-project"`
-                + (view.hasWorkspace
-                    ? ` title="Choose which project agents can use this global skill">${projectLinkCount ? `In project · ${projectLinkCount}` : 'Use in project'}`
-                    : ` title="Open a project to apply this global skill" disabled>Open a project`)
-                + `</button>`
-            : `<button type="button" class="skill-scope-action" data-skill-scope-action="${escapeAttribute(record.dirPath)}"`
-                + ` data-skill-scope-operation="move-to-global" title="Move this project's source into Global management">Move to Global</button>`;
-    const deleteButton = record.central
-        ? ''
-        : `<button type="button" class="skill-delete" title="Delete this skill permanently" data-skill-delete="${escapeAttribute(record.dirPath)}">Delete</button>`;
+        : `<button type="button" class="skill-hover-centralize" title="Move into the shared store and link from agents" data-skill-centralize="${dirPath}">Centralize</button>`;
     return `
-<div class="project-container" draggable="true" data-skill-scope="${record.scope}">
-    <div class="project steward-item-card skill-card" data-skill-dir="${escapeAttribute(record.dirPath)}" data-skill-agents="${activeAgents}">
-        <div class="project-aura"></div>
-        <div class="project-border steward-item-accent"></div>
-        <div class="fitty-container project-title-row">
-            <span class="project-kind-icon">${puzzle}</span>
-            <h2 class="project-header">${name}</h2>
-        </div>
-        <p class="project-description" title="${description}">${description}</p>
-        <div class="skill-chip-row">${chips}${scopeActionButton}${centralizeButton}${deleteButton}<span class="skill-expand-hint" title="Show details">${collapseIcon}</span></div>
-        ${copyRow}
-        ${getSkillDetail(record, view, duplicate)}
+<div class="skill-row-holder" draggable="true" data-skill-scope="${record.scope}">
+    <div class="skill-row${record.central ? '' : ' unmanaged'}" data-skill-dir="${dirPath}" data-skill-agents="${activeAgents}">
+        <span class="skill-ibox" aria-hidden="true">${puzzle}</span>
+        <span class="skill-meta">
+            <span class="skill-name">${name}${warnGlyph}</span>
+            <span class="skill-desc" title="${description}">${description}</span>
+        </span>
+        <span class="skill-rest">${cardAgentDots(record)}</span>
+        <span class="skill-acts">
+            ${centralizeAction}
+            <button type="button" class="skill-icon-btn" title="Open SKILL.md" data-skill-open="${escapeAttribute(record.skillFilePath)}">${editIcon}</button>
+            <button type="button" class="skill-icon-btn" title="More actions" data-skill-menu="${dirPath}">⋯</button>
+        </span>
     </div>
+    ${getSkillDetail(record, view, duplicate)}
 </div>`;
 }
 
@@ -223,6 +245,7 @@ function renderSourceGroup(group: SkillSourceGroup, view: SkillPanelView): strin
     return `<div class="skill-source-group" data-skill-source="${group.source}">
     <div class="skill-source-header">
         <span class="skill-source-label">${SOURCE_LABELS[group.source]}</span>
+        <span class="skill-source-sep">·</span>
         <span class="skill-source-path" title="${rootDir}">${rootDir}</span>
         <span class="skill-source-count">${group.items.length}</span>
     </div>
@@ -319,11 +342,14 @@ function getCentralStoreRoot(record: SkillRecord): string {
     return root;
 }
 
+const SKILL_FOLDER_HEADER_PX = 24;
+
 function renderFolderNode(
     node: SkillFolderNode,
     storeRoot: string,
     sectionScope: SkillScope,
     view: SkillPanelView,
+    depth = 0,
 ): string {
     // Scope is positional: global-section folders act on user-level agent roots,
     // project-section folders on the current project's agent roots.
@@ -335,18 +361,19 @@ function renderFolderNode(
     const stateAttrs = agentStates.map(({ agent, state }) => ` data-state-${agent}="${state}"`).join('');
     const dots = `<span class="skill-agent-dots">${agentStates.map(({ agent, state }) =>
         agentDot(state, `${agent}: ${state === 'on' ? 'all linked' : state === 'indeterminate' ? 'some linked' : 'off'}`)).join('')}</span>`;
-    return `<div class="skill-folder group steward-section" data-group-id="skill-folder-${sectionScope}-${encodeURIComponent(node.path)}" data-skill-folder="${pathAttr}" data-skill-store="${escapeAttribute(storeRoot)}" data-skill-folder-scope="${sectionScope}">
-    <div class="group-title steward-section-header steward-group-header skill-folder-header">
-        <span class="group-title-text" data-action="collapse">
-            <span class="collapse-icon" title="Open/Collapse Group">${collapseIcon}</span>
-            <span class="skill-collection-icon" aria-hidden="true">${folderIcon}</span>${escapeAttribute(node.name)}
+    // Fixed 24px header rhythm lets nested sticky headers stack with an exact
+    // per-depth offset (top: depth × 24px) inside the scrolling section list.
+    return `<div class="group steward-section skill-folder" data-group-id="skill-folder-${sectionScope}-${encodeURIComponent(node.path)}" data-skill-folder="${pathAttr}" data-skill-store="${escapeAttribute(storeRoot)}" data-skill-folder-scope="${sectionScope}">
+    <div class="group-title skill-folder-header" style="top: ${depth * SKILL_FOLDER_HEADER_PX}px">
+        <span class="group-title-text skill-folder-title" data-action="collapse">
+            <span class="collapse-icon" title="Open/Collapse Group">${collapseIcon}</span><span class="skill-folder-icon" aria-hidden="true">${folderIcon}</span><span class="skill-folder-name">${escapeAttribute(node.name)}</span>
         </span>
         ${dots}
         <span class="group-title-badge">${count}</span>
         <button type="button" class="skill-folder-more" title="Folder actions" data-folder-menu="${pathAttr}" data-folder-scope="${sectionScope}"${stateAttrs}>⋯</button>
     </div>
     <div class="group-list skill-folder-list">
-        ${children.map(child => renderFolderNode(child, storeRoot, sectionScope, view)).join('\n')}
+        ${children.map(child => renderFolderNode(child, storeRoot, sectionScope, view, depth + 1)).join('\n')}
         ${items.map(item => getSkillDiv(item, view)).join('\n')}
     </div>
 </div>`;
@@ -390,20 +417,17 @@ function renderScopeSection(scope: SkillScope, items: SkillRecord[], view: Skill
         .map(record => getSkillDiv(record, view));
     const unmanagedSection = unmanaged.length
         ? `<div class="skill-unmanaged">
-        <div class="skill-unmanaged-header">Unmanaged</div>
+        <div class="skill-unmanaged-header">Not in the shared store</div>
         ${groupBySource(unmanaged).map(group => renderSourceGroup(group, view)).join('\n')}
     </div>`
         : '';
     return `
-<div class="group steward-section" data-group-id="${scope}-skills"${storeRoot ? ` data-skill-store="${escapeAttribute(storeRoot)}"` : ''}>
-    <div class="group-title steward-section-header steward-group-header">
-        <span class="group-title-text" data-action="collapse">
-            <span class="collapse-icon" title="Open/Collapse Group">${collapseIcon}</span>
-            <span class="skill-collection-icon" aria-hidden="true">${folderIcon}</span>${scope === 'user' ? 'global' : 'project'}
-        </span>
+<div class="group steward-section skill-scope-section" data-group-id="${scope}-skills"${storeRoot ? ` data-skill-store="${escapeAttribute(storeRoot)}"` : ''}>
+    <div class="group-title skill-scope-header">
+        <span class="group-title-text skill-scope-title" data-action="collapse">${scope === 'user' ? 'global' : 'project'}</span>
         ${sectionDots}
         <span class="group-title-badge">${items.length}</span>
-        ${storeRoot ? `<button type="button" class="skill-folder-more" title="Section actions" data-section-menu="${scope}" data-folder-scope="${scope}"${sectionStateAttrs}>⋯</button>` : ''}
+        ${storeRoot ? `<button type="button" class="skill-folder-more skill-scope-more" title="Section actions" data-section-menu="${scope}" data-folder-scope="${scope}"${sectionStateAttrs}>⋯</button>` : ''}
     </div>
     <div class="group-list">
         <div class="drop-signal"></div>
@@ -453,8 +477,23 @@ export function getSkillsPanelContent(
         // and render the tree of empty folder nodes.
     }
     const suggestions = (view.suggestions || []).map(renderSuggestion).join('');
-    return `<div class="sticky-groups-wrapper skills-groups-wrapper"><div class="skill-scope-status" data-skill-scope-status role="status" aria-live="polite"></div>${renderFilterRow(view)}${suggestions}${sections
-        .filter(([scope, items]) => items.length || ((view.storeFolders && view.storeFolders[scope as SkillScope]) || []).length)
-        .map(([scope, items]) => renderScopeSection(scope, items, view)).join('\n')}
+    const visibleSections = sections
+        .filter(([scope, items]) => items.length || ((view.storeFolders && view.storeFolders[scope as SkillScope]) || []).length);
+    // Each scope section lives in its own pane so Global and Project scroll
+    // independently; a resizer between panes adjusts the project pane's share.
+    // The split script (webviewSkillPanelScripts.js) sizes the panes to the
+    // viewport; without it the panes flow like plain content (no fixed height).
+    const panes = visibleSections.map(([scope, items], index) => {
+        const resizer = index === 0
+            ? ''
+            : '<div class="skills-pane-resizer" data-skills-pane-resizer role="separator" tabindex="0"'
+                + ' aria-orientation="horizontal" aria-valuemin="0" aria-valuemax="100"'
+                + ' aria-label="Resize the project pane"'
+                + ' title="Drag to resize the project pane"></div>';
+        return `${resizer}<div class="skills-pane" data-skills-pane="${scope}">
+${renderScopeSection(scope, items, view)}
 </div>`;
+    }).join('\n');
+    return `<div class="sticky-groups-wrapper skills-groups-wrapper"><div class="skill-scope-status" data-skill-scope-status role="status" aria-live="polite"></div>${renderFilterRow(view)}${suggestions}<div class="skills-split" data-skills-split>${panes}
+</div></div>`;
 }

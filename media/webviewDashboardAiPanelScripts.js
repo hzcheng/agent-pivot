@@ -155,6 +155,9 @@ function createDashboardAiPanel(injected) {
         drainPendingPromptRefresh();
         applyPendingAiSubtab();
         skillPanel.applySkillAgentFilter();
+        if (typeof skillPanel.layoutSkillsSplit === 'function') {
+            skillPanel.layoutSkillsSplit();
+        }
         if (getPendingSkillReveal()) {
             var revealDir = getPendingSkillReveal();
             setPendingSkillReveal(null);

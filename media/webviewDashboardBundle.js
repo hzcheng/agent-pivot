@@ -3234,6 +3234,13 @@ function initProjects() {
 function initSkillPanel(options) {
     options = options || {};
 
+    function getSkillRowDetail(row) {
+        var holder = row && row.closest ? row.closest('.skill-row-holder') : null;
+        return holder && holder.querySelector
+            ? holder.querySelector(':scope > .skill-detail')
+            : null;
+    }
+
     function revealSkillCard(dirPath) {
         if (!options.aiPanel || typeof options.aiPanel.querySelector !== 'function') {
             return false;
@@ -3242,12 +3249,12 @@ function initSkillPanel(options) {
         if (skillsTab && skillsTab.getAttribute('aria-selected') !== 'true' && typeof skillsTab.click === 'function') {
             skillsTab.click();
         }
-        var cards = options.aiPanel.querySelectorAll('.skill-card[data-skill-dir]');
+        var cards = options.aiPanel.querySelectorAll('.skill-row[data-skill-dir]');
         for (var i = 0; i < cards.length; i++) {
             if (cards[i].getAttribute('data-skill-dir') !== dirPath) {
                 continue;
             }
-            var detail = cards[i].querySelector('.skill-detail');
+            var detail = getSkillRowDetail(cards[i]);
             if (detail) {
                 detail.hidden = false;
                 cards[i].classList.add('skill-detail-open');
@@ -3321,6 +3328,79 @@ function initSkillPanel(options) {
             : (settlement.code === 'cancelled' ? 'Skill action cancelled.' : 'Skill action failed.');
     }
 
+    // Scroll anchors keep each pane's list at its scrolled card/folder across
+    // authoritative HTML replacements (window.__agentPivotScrollState is
+    // optional: fall back to a clamped scrollTop when it is not loaded).
+    var SKILLS_SCROLL_ITEM_SELECTOR = '.skill-row[data-skill-dir], .skill-folder[data-skill-folder]';
+
+    function getSkillsScrollItemKey(el) {
+        var dir = el.getAttribute('data-skill-dir');
+        if (dir) {
+            return 'card:' + dir;
+        }
+        return 'folder:' + (el.getAttribute('data-skill-store') || '')
+            + '|' + (el.getAttribute('data-skill-folder') || '');
+    }
+
+    function getSkillsPaneList(pane) {
+        return pane && pane.querySelector
+            ? pane.querySelector(':scope > .group.steward-section > .group-list')
+            : null;
+    }
+
+    function captureSkillsListScroll(wrapper) {
+        var state = {};
+        if (!wrapper || !wrapper.querySelectorAll) {
+            return state;
+        }
+        var panes = wrapper.querySelectorAll('[data-skills-pane]');
+        for (var i = 0; i < panes.length; i++) {
+            var scope = panes[i].getAttribute('data-skills-pane') || '';
+            var list = getSkillsPaneList(panes[i]);
+            if (!scope || !list) {
+                continue;
+            }
+            if (window.__agentPivotScrollState
+                && typeof window.__agentPivotScrollState.capture === 'function') {
+                state[scope] = {
+                    anchor: window.__agentPivotScrollState.capture(list, {
+                        itemSelector: SKILLS_SCROLL_ITEM_SELECTOR,
+                        getKey: getSkillsScrollItemKey,
+                    }),
+                };
+            } else {
+                state[scope] = { scrollTop: list.scrollTop };
+            }
+        }
+        return state;
+    }
+
+    function restoreSkillsListScroll(wrapper, state) {
+        if (!wrapper || !wrapper.querySelectorAll || !state) {
+            return;
+        }
+        var panes = wrapper.querySelectorAll('[data-skills-pane]');
+        for (var i = 0; i < panes.length; i++) {
+            var scope = panes[i].getAttribute('data-skills-pane') || '';
+            var saved = state[scope];
+            var list = getSkillsPaneList(panes[i]);
+            if (!saved || !list) {
+                continue;
+            }
+            if (saved.anchor && window.__agentPivotScrollState
+                && typeof window.__agentPivotScrollState.restore === 'function'
+                && window.__agentPivotScrollState.restore(list, saved.anchor, {
+                    itemSelector: SKILLS_SCROLL_ITEM_SELECTOR,
+                    getKey: getSkillsScrollItemKey,
+                })) {
+                continue;
+            }
+            var maxScrollTop = Math.max(0, list.scrollHeight - list.clientHeight);
+            var fallback = saved.anchor ? saved.anchor.scrollTop : saved.scrollTop;
+            list.scrollTop = Math.min(Math.max(0, Number(fallback) || 0), maxScrollTop);
+        }
+    }
+
     function replaceSkillsHtml(html, settlement) {
         var skillsWrapper = document.querySelector
             ? document.querySelector('#ai-panel-skills .sticky-groups-wrapper')
@@ -3330,6 +3410,12 @@ function initSkillPanel(options) {
         }
         var collapsedSkillGroups = captureSkillCollapsedGroups(skillsWrapper);
         var expandedSkillCards = captureSkillExpandedCards(skillsWrapper);
+        var listScroll = captureSkillsListScroll(skillsWrapper);
+        // Skill ⋯ menus hold one-shot actions derived from pre-mutation rows;
+        // folder/section menus carry toggle state and get restored instead.
+        if (skillFolderMenu && skillFolderMenu.__identity && skillFolderMenu.__identity.skill) {
+            closeSkillFolderMenu();
+        }
         var folderMenuState = captureSkillFolderMenuState();
         var focused = document.activeElement && document.activeElement.getAttribute
             ? {
@@ -3351,6 +3437,8 @@ function initSkillPanel(options) {
         restoreSkillFolderMenuState(folderMenuState);
         restorePendingSkillScopeActions();
         applySkillAgentFilter();
+        layoutSkillsSplit();
+        restoreSkillsListScroll(nextSkillsWrapper, listScroll);
         announceSkillScopeSettlement(settlement, settledPending);
         if (focused && focused.dirPath) {
             var nextFocused = findSkillScopeActionButton(focused.dirPath, focused.operation);
@@ -3358,6 +3446,17 @@ function initSkillPanel(options) {
                 nextFocused = findSkillScopeActionButton(settlement.resultDirPath, 'apply-to-project');
             }
             if (nextFocused && typeof nextFocused.focus === 'function') {
+                // The target may sit in a collapsed detail (e.g. the record moved
+                // scopes): open it so the focus continuation stays visible.
+                var focusHolder = nextFocused.closest('.skill-row-holder');
+                var focusDetail = focusHolder && focusHolder.querySelector('.skill-detail');
+                if (focusDetail && focusDetail.hidden) {
+                    focusDetail.hidden = false;
+                    var focusRow = focusHolder.querySelector('.skill-row[data-skill-dir]');
+                    if (focusRow) {
+                        focusRow.classList.add('skill-detail-open');
+                    }
+                }
                 nextFocused.focus();
             } else if (settledPending && nextSkillsWrapper && typeof nextSkillsWrapper.focus === 'function') {
                 nextSkillsWrapper.setAttribute('tabindex', '-1');
@@ -3398,14 +3497,14 @@ function initSkillPanel(options) {
         for (var i = 0; i < buttons.length; i++) {
             buttons[i].classList.toggle('is-active', buttons[i].getAttribute('data-skill-filter') === skillAgentFilter);
         }
-        // NOTE: the `hidden` attribute cannot hide .project-container/.group
+        // NOTE: the `hidden` attribute cannot hide .skill-row-holder/.group
         // (author display rules beat the UA [hidden] rule) — use a class.
-        var cards = panel.querySelectorAll('.skill-card[data-skill-dir]');
+        var cards = panel.querySelectorAll('.skill-row[data-skill-dir]');
         for (var c = 0; c < cards.length; c++) {
             var agents = cards[c].getAttribute('data-skill-agents') || '';
             var show = skillAgentFilter === 'all'
                 || (' ' + agents + ' ').indexOf(' ' + skillAgentFilter + ' ') !== -1;
-            var container = cards[c].closest('.project-container') || cards[c];
+            var container = cards[c].closest('.skill-row-holder') || cards[c];
             container.classList.toggle('skill-filter-hidden', !show);
         }
         // Children first (reverse document order) so parent folders see their
@@ -3413,10 +3512,10 @@ function initSkillPanel(options) {
         var sections = panel.querySelectorAll('.group.steward-section, .skill-source-group');
         for (var s = sections.length - 1; s >= 0; s--) {
             var section = sections[s];
-            var sectionCards = section.querySelectorAll('.skill-card[data-skill-dir]');
+            var sectionCards = section.querySelectorAll('.skill-row[data-skill-dir]');
             var sectionVisible = 0;
             for (var sc = 0; sc < sectionCards.length; sc++) {
-                var scContainer = sectionCards[sc].closest('.project-container') || sectionCards[sc];
+                var scContainer = sectionCards[sc].closest('.skill-row-holder') || sectionCards[sc];
                 if (!scContainer.classList.contains('skill-filter-hidden')) {
                     sectionVisible += 1;
                 }
@@ -3610,6 +3709,35 @@ function initSkillPanel(options) {
         skillFolderMenu = menu;
     }
 
+    // Per-skill ⋯ menu: one-shot actions derived from the row's own DOM
+    // (unmanaged rows carry a Centralize hover action, central rows a move
+    // editor), so disk-derived names can never inject markup.
+    function openSkillMenu(button) {
+        closeSkillFolderMenu();
+        var dirPath = button.getAttribute('data-skill-menu') || '';
+        var holder = button.closest('.skill-row-holder');
+        var menu = document.createElement('div');
+        menu.className = 'custom-context-menu skill-folder-menu skill-menu visible';
+        var openButton = holder && holder.querySelector('.skill-acts [data-skill-open]');
+        var openItem = appendMenuAction(menu, 'skill-menu-open', 'Open SKILL.md');
+        openItem.setAttribute('data-skill-open', openButton ? openButton.getAttribute('data-skill-open') || '' : '');
+        if (holder && holder.querySelector('[data-skill-centralize]')) {
+            var centralizeItem = appendMenuAction(menu, 'skill-menu-centralize', 'Centralize');
+            centralizeItem.setAttribute('data-skill-centralize', dirPath);
+            var deleteItem = appendMenuAction(menu, 'skill-menu-delete skill-folder-menu-remove', 'Delete');
+            deleteItem.setAttribute('data-skill-delete', dirPath);
+        }
+        if (holder && holder.querySelector('[data-skill-move-edit]')) {
+            var moveItem = appendMenuAction(menu, 'skill-menu-move', 'Move to folder…');
+            moveItem.setAttribute('data-skill-move-edit', dirPath);
+        }
+        document.body.appendChild(menu);
+        positionSkillFolderMenu(menu, button);
+        menu.__sourceButton = button;
+        menu.__identity = { skill: dirPath };
+        skillFolderMenu = menu;
+    }
+
     // Section (global / project) ⋯ menu: store-level actions.
     function openSkillSectionMenu(button) {
         closeSkillFolderMenu();
@@ -3645,7 +3773,7 @@ function initSkillPanel(options) {
     // look (never an optimistic committed state) and the authoritative
     // skills-updated re-syncs it afterwards. Popup state stays webview-local.
     function captureSkillFolderMenuState() {
-        if (!skillFolderMenu || !skillFolderMenu.__identity) {
+        if (!skillFolderMenu || !skillFolderMenu.__identity || skillFolderMenu.__identity.skill) {
             return null;
         }
         return { identity: skillFolderMenu.__identity };
@@ -3700,7 +3828,7 @@ function initSkillPanel(options) {
     function captureSkillExpandedCards(wrapper) {
         var dirs = [];
         if (wrapper && wrapper.querySelectorAll) {
-            var open = wrapper.querySelectorAll('.skill-card.skill-detail-open');
+            var open = wrapper.querySelectorAll('.skill-row.skill-detail-open');
             for (var i = 0; i < open.length; i++) {
                 dirs.push(open[i].getAttribute('data-skill-dir'));
             }
@@ -3712,17 +3840,326 @@ function initSkillPanel(options) {
         if (!wrapper || !dirs || !dirs.length) {
             return;
         }
-        var cards = wrapper.querySelectorAll('.skill-card[data-skill-dir]');
+        var cards = wrapper.querySelectorAll('.skill-row[data-skill-dir]');
         for (var i = 0; i < cards.length; i++) {
             if (dirs.indexOf(cards[i].getAttribute('data-skill-dir')) === -1) {
                 continue;
             }
-            var detail = cards[i].querySelector('.skill-detail');
+            var detail = getSkillRowDetail(cards[i]);
             if (detail) {
                 detail.hidden = false;
                 cards[i].classList.add('skill-detail-open');
             }
         }
+    }
+
+    // --- Global / Project split panes -------------------------------------
+    // Each scope section lives in a .skills-pane so the two sections scroll
+    // independently; the resizer sizes the project pane. The split container
+    // gets an explicit viewport-fitting height (document offset is scroll
+    // invariant, so one pass is enough and body scroll clamps to ~0). A null
+    // ratio means "auto": the project pane is content-sized up to a CSS cap.
+    var SKILLS_PANE_MIN_PX = 72;
+    var SKILLS_SPLIT_BOTTOM_GAP_PX = 6;
+    var SKILLS_PANE_KEY_STEP_PX = 24;
+    // The dragged project-pane share persists in webview view state (same
+    // pattern as aiSessionTabs) so it survives window reloads.
+    var SKILLS_PANEL_STATE_KEY = 'skillsPanel';
+
+    function readSkillsPanelState() {
+        var api = window.vscode;
+        if (!api || typeof api.getState !== 'function') {
+            return {};
+        }
+        var state = api.getState() || {};
+        var panel = state[SKILLS_PANEL_STATE_KEY];
+        return panel && typeof panel === 'object' && !Array.isArray(panel) ? panel : {};
+    }
+
+    function readPersistedProjectPaneRatio() {
+        var ratio = Number(readSkillsPanelState().projectPaneRatio);
+        return Number.isFinite(ratio) && ratio > 0 && ratio < 1 ? ratio : null;
+    }
+
+    function persistSkillsProjectPaneRatio() {
+        var api = window.vscode;
+        if (!api || typeof api.setState !== 'function') {
+            return;
+        }
+        var state = typeof api.getState === 'function' ? api.getState() || {} : {};
+        var panel = Object.assign({}, readSkillsPanelState());
+        if (skillsProjectPaneRatio === null) {
+            delete panel.projectPaneRatio;
+        } else {
+            panel.projectPaneRatio = skillsProjectPaneRatio;
+        }
+        var patch = {};
+        patch[SKILLS_PANEL_STATE_KEY] = panel;
+        api.setState(Object.assign({}, state, patch));
+    }
+
+    var skillsProjectPaneRatio = readPersistedProjectPaneRatio();
+    var skillsPaneDragState = null;
+    var skillsLayoutScheduled = false;
+
+    function findSkillsSplit() {
+        return document.querySelector
+            ? document.querySelector('#ai-panel-skills [data-skills-split]')
+            : null;
+    }
+
+    function getSkillsPaneParts(split) {
+        var panes = [];
+        var resizers = [];
+        if (!split || !split.children) {
+            return { panes: panes, resizers: resizers };
+        }
+        for (var i = 0; i < split.children.length; i++) {
+            var child = split.children[i];
+            if (!child.getAttribute) {
+                continue;
+            }
+            if (child.hasAttribute('data-skills-pane')) {
+                panes.push(child);
+            } else if (child.hasAttribute('data-skills-pane-resizer')) {
+                resizers.push(child);
+            }
+        }
+        return { panes: panes, resizers: resizers };
+    }
+
+    function getSkillsPaneSection(pane) {
+        return pane.querySelector
+            ? pane.querySelector(':scope > .group.steward-section')
+            : null;
+    }
+
+    // A pane is "sized" (participates in the split) only while its section is
+    // actually visible: collapsed or agent-filtered-out sections collapse their
+    // pane to header height / zero so the other pane gets the space.
+    function isSkillsPaneSized(pane) {
+        var section = getSkillsPaneSection(pane);
+        return Boolean(section)
+            && !section.classList.contains('collapsed')
+            && !section.classList.contains('skill-filter-hidden');
+    }
+
+    // Natural content height of a pane's section: header plus the full list
+    // content (list.scrollHeight reports the content even while constrained).
+    function measureSkillsPaneContentHeight(pane) {
+        var section = getSkillsPaneSection(pane);
+        if (!section || !section.querySelector) {
+            return 0;
+        }
+        var header = section.querySelector(':scope > .group-title');
+        var list = section.querySelector(':scope > .group-list');
+        var height = 4; // grid gap + header border
+        if (header) {
+            height += header.offsetHeight || 0;
+        }
+        if (list) {
+            height += list.scrollHeight || 0;
+        }
+        return height;
+    }
+
+    // Explicit pixel height for the sized project pane: the dragged share when
+    // set, otherwise the content height capped to the auto share of the split.
+    function computeSkillsProjectPaneHeight(projectPane, inner) {
+        var max = Math.max(inner - SKILLS_PANE_MIN_PX, SKILLS_PANE_MIN_PX);
+        var px;
+        if (skillsProjectPaneRatio !== null) {
+            px = Math.round(inner * skillsProjectPaneRatio);
+            px = Math.max(px, SKILLS_PANE_MIN_PX);
+        } else {
+            px = Math.min(measureSkillsPaneContentHeight(projectPane), Math.floor(inner * 0.45));
+        }
+        return Math.min(px, max);
+    }
+
+    function layoutSkillsSplit() {
+        var split = findSkillsSplit();
+        if (!split || typeof split.getBoundingClientRect !== 'function'
+            || !split.getClientRects().length) {
+            return false; // hidden (another tab) — keep the last applied state
+        }
+        var parts = getSkillsPaneParts(split);
+        if (!parts.panes.length) {
+            split.style.height = '';
+            return false;
+        }
+        var rect = split.getBoundingClientRect();
+        var scrollY = window.scrollY || window.pageYOffset || 0;
+        var docTop = rect.top + scrollY;
+        var resizerHeight = 0;
+        for (var r = 0; r < parts.resizers.length; r++) {
+            resizerHeight += parts.resizers[r].getBoundingClientRect().height;
+        }
+        var available = Math.max(
+            window.innerHeight - docTop - SKILLS_SPLIT_BOTTOM_GAP_PX,
+            SKILLS_PANE_MIN_PX * parts.panes.length + resizerHeight
+        );
+        split.style.height = Math.round(available) + 'px';
+
+        var sized = parts.panes.map(isSkillsPaneSized);
+        var sizedCount = sized.filter(Boolean).length;
+        for (var i = 0; i < parts.panes.length; i++) {
+            var pane = parts.panes[i];
+            pane.classList.toggle('skills-pane-sized', sized[i]);
+            // Both sized: the global pane grows around the sized project pane.
+            // Only one sized: that pane takes the whole split.
+            var grow = sized[i] && (sizedCount === 1
+                || pane.getAttribute('data-skills-pane') === 'user');
+            pane.classList.toggle('skills-pane-grow', grow);
+        }
+        var inner = Math.max(available - resizerHeight, SKILLS_PANE_MIN_PX);
+        for (var p = 0; p < parts.panes.length; p++) {
+            var projectPane = parts.panes[p];
+            if (projectPane.getAttribute('data-skills-pane') !== 'project') {
+                continue;
+            }
+            if (sized[p] && sizedCount > 1) {
+                projectPane.style.height = computeSkillsProjectPaneHeight(projectPane, inner) + 'px';
+            } else {
+                projectPane.style.height = '';
+            }
+        }
+        for (var z = 0; z < parts.resizers.length; z++) {
+            var resizer = parts.resizers[z];
+            resizer.hidden = sizedCount < 2;
+            if (sizedCount > 1) {
+                var projectSizedPane = null;
+                for (var q = 0; q < parts.panes.length; q++) {
+                    if (parts.panes[q].getAttribute('data-skills-pane') === 'project') {
+                        projectSizedPane = parts.panes[q];
+                    }
+                }
+                if (projectSizedPane) {
+                    var percent = Math.round(projectSizedPane.getBoundingClientRect().height / inner * 100);
+                    resizer.setAttribute('aria-valuenow', String(Math.min(100, Math.max(0, percent))));
+                }
+            }
+        }
+        return true;
+    }
+
+    function scheduleSkillsLayout() {
+        if (skillsLayoutScheduled) {
+            return;
+        }
+        skillsLayoutScheduled = true;
+        if (typeof requestAnimationFrame === 'function') {
+            requestAnimationFrame(function () {
+                skillsLayoutScheduled = false;
+                layoutSkillsSplit();
+            });
+            return;
+        }
+        skillsLayoutScheduled = false;
+        layoutSkillsSplit();
+    }
+
+    function applySkillsProjectPaneHeight(projectPane, inner, nextPx) {
+        var clamped = Math.min(Math.max(nextPx, SKILLS_PANE_MIN_PX),
+            Math.max(inner - SKILLS_PANE_MIN_PX, SKILLS_PANE_MIN_PX));
+        skillsProjectPaneRatio = clamped / inner;
+        projectPane.style.height = Math.round(clamped) + 'px';
+    }
+
+    function onSkillsPaneResizerPointerDown(event) {
+        var resizer = event.target && event.target.closest
+            ? event.target.closest('[data-skills-pane-resizer]')
+            : null;
+        if (!resizer || (event.button !== 0 && event.button !== undefined)) {
+            return;
+        }
+        var split = resizer.closest('[data-skills-split]');
+        var parts = getSkillsPaneParts(split);
+        var projectPane = null;
+        for (var i = 0; i < parts.panes.length; i++) {
+            if (parts.panes[i].getAttribute('data-skills-pane') === 'project') {
+                projectPane = parts.panes[i];
+            }
+        }
+        if (!projectPane || resizer.hidden) {
+            return;
+        }
+        event.preventDefault();
+        var resizerHeight = resizer.getBoundingClientRect().height;
+        skillsPaneDragState = {
+            pointerId: event.pointerId,
+            startY: event.clientY,
+            startHeight: projectPane.getBoundingClientRect().height,
+            inner: Math.max(split.getBoundingClientRect().height - resizerHeight, SKILLS_PANE_MIN_PX),
+            projectPane: projectPane,
+            resizer: resizer,
+        };
+        resizer.classList.add('skills-pane-resizer-active');
+        if (document.body) {
+            document.body.classList.add('skills-pane-resizing');
+        }
+        if (event.pointerId !== undefined && typeof resizer.setPointerCapture === 'function') {
+            try {
+                resizer.setPointerCapture(event.pointerId);
+            } catch (_error) { /* capture is best-effort */ }
+        }
+    }
+
+    function onSkillsPaneResizerPointerMove(event) {
+        if (!skillsPaneDragState
+            || (skillsPaneDragState.pointerId !== undefined && event.pointerId !== skillsPaneDragState.pointerId)) {
+            return;
+        }
+        // The project pane sits below the resizer: dragging down shrinks it.
+        var next = skillsPaneDragState.startHeight - (event.clientY - skillsPaneDragState.startY);
+        applySkillsProjectPaneHeight(skillsPaneDragState.projectPane, skillsPaneDragState.inner, next);
+        var percent = Math.round(skillsPaneDragState.projectPane.getBoundingClientRect().height
+            / skillsPaneDragState.inner * 100);
+        skillsPaneDragState.resizer.setAttribute('aria-valuenow', String(Math.min(100, Math.max(0, percent))));
+    }
+
+    function onSkillsPaneResizerPointerUp(event) {
+        if (!skillsPaneDragState
+            || (skillsPaneDragState.pointerId !== undefined && event.pointerId !== skillsPaneDragState.pointerId)) {
+            return;
+        }
+        skillsPaneDragState.resizer.classList.remove('skills-pane-resizer-active');
+        if (document.body) {
+            document.body.classList.remove('skills-pane-resizing');
+        }
+        if (event.pointerId !== undefined
+            && typeof skillsPaneDragState.resizer.releasePointerCapture === 'function') {
+            try {
+                skillsPaneDragState.resizer.releasePointerCapture(event.pointerId);
+            } catch (_error) { /* capture is best-effort */ }
+        }
+        skillsPaneDragState = null;
+        persistSkillsProjectPaneRatio();
+        layoutSkillsSplit();
+    }
+
+    function onSkillsPaneResizerKeydown(event) {
+        var resizer = event.target && event.target.closest
+            ? event.target.closest('[data-skills-pane-resizer]')
+            : null;
+        if (!resizer || (event.key !== 'ArrowUp' && event.key !== 'ArrowDown')) {
+            return;
+        }
+        var split = resizer.closest('[data-skills-split]');
+        var projectPane = split && split.querySelector
+            ? split.querySelector('[data-skills-pane="project"]')
+            : null;
+        if (!projectPane || resizer.hidden) {
+            return;
+        }
+        event.preventDefault();
+        var direction = event.key === 'ArrowUp' ? 1 : -1;
+        var inner = Math.max(split.getBoundingClientRect().height
+            - resizer.getBoundingClientRect().height, SKILLS_PANE_MIN_PX);
+        applySkillsProjectPaneHeight(projectPane, inner,
+            projectPane.getBoundingClientRect().height + direction * SKILLS_PANE_KEY_STEP_PX);
+        persistSkillsProjectPaneRatio();
+        layoutSkillsSplit();
     }
 
     var skillDragState = null;
@@ -3757,12 +4194,12 @@ function initSkillPanel(options) {
 
     function onSkillDragStart(event) {
         var container = event.target && event.target.closest
-            ? event.target.closest('.project-container[data-skill-scope]')
+            ? event.target.closest('.skill-row-holder[data-skill-scope]')
             : null;
         if (!container) {
             return;
         }
-        var card = container.querySelector('.skill-card[data-skill-dir]');
+        var card = container.querySelector('.skill-row[data-skill-dir]');
         if (!card) {
             return;
         }
@@ -3770,7 +4207,7 @@ function initSkillPanel(options) {
             dirPath: card.getAttribute('data-skill-dir'),
             scope: container.getAttribute('data-skill-scope'),
         };
-        container.classList.add('skill-card-dragging');
+        container.classList.add('skill-row-dragging');
         if (event.dataTransfer) {
             event.dataTransfer.effectAllowed = 'move';
             event.dataTransfer.setData('text/plain', skillDragState.dirPath);
@@ -3815,7 +4252,7 @@ function initSkillPanel(options) {
 
     function onSkillDragEnd(event) {
         if (skillDragState) {
-            var dragging = document.querySelectorAll('.skill-card-dragging');
+            var dragging = document.querySelectorAll('.skill-row-dragging');
             for (var i = 0; i < dragging.length; i++) {
                 dragging[i].classList.remove('skill-card-dragging');
             }
@@ -3864,6 +4301,17 @@ function initSkillPanel(options) {
             });
             return;
         }
+        var skillMenuButton = event.target && event.target.closest ? event.target.closest('[data-skill-menu]') : null;
+        if (skillMenuButton) {
+            event.preventDefault();
+            event.stopPropagation();
+            if (skillFolderMenu && skillFolderMenu.__sourceButton === skillMenuButton) {
+                closeSkillFolderMenu();
+            } else {
+                openSkillMenu(skillMenuButton);
+            }
+            return;
+        }
         var sectionMenuButton = event.target && event.target.closest ? event.target.closest('[data-section-menu]') : null;
         if (sectionMenuButton) {
             event.preventDefault();
@@ -3903,6 +4351,35 @@ function initSkillPanel(options) {
                 agent: folderToggle.getAttribute('data-folder-agent'),
                 enabled: !folderToggle.classList.contains('off') && !folderToggle.classList.contains('indeterminate'),
             });
+            return;
+        }
+        var moveEdit = event.target && event.target.closest ? event.target.closest('[data-skill-move-edit]') : null;
+        if (moveEdit) {
+            event.preventDefault();
+            event.stopPropagation();
+            closeSkillFolderMenu();
+            // Reveal the row's detail with the move editor open and focused.
+            var moveDir = moveEdit.getAttribute('data-skill-move-edit');
+            var moveRows = document.querySelectorAll ? document.querySelectorAll('.skill-row[data-skill-dir]') : [];
+            for (var mr = 0; mr < moveRows.length; mr++) {
+                if (moveRows[mr].getAttribute('data-skill-dir') !== moveDir) {
+                    continue;
+                }
+                var moveDetail = moveRows[mr].closest('.skill-row-holder').querySelector('.skill-detail');
+                if (moveDetail) {
+                    moveDetail.hidden = false;
+                    moveRows[mr].classList.add('skill-detail-open');
+                    var moveEditor = moveDetail.querySelector('.skill-move-editor');
+                    if (moveEditor) {
+                        moveEditor.hidden = false;
+                        var moveInput = moveEditor.querySelector('[data-skill-move-folder]');
+                        if (moveInput && typeof moveInput.focus === 'function') {
+                            moveInput.focus();
+                        }
+                    }
+                }
+                break;
+            }
             return;
         }
         var moveSet = event.target && event.target.closest ? event.target.closest('[data-skill-move-set]') : null;
@@ -3952,6 +4429,7 @@ function initSkillPanel(options) {
         if (deleteSkill) {
             event.preventDefault();
             event.stopPropagation();
+            closeSkillFolderMenu();
             options.postMessage({ type: 'delete-skill', dirPath: deleteSkill.getAttribute('data-skill-delete') });
             return;
         }
@@ -3986,6 +4464,7 @@ function initSkillPanel(options) {
         if (centralize) {
             event.preventDefault();
             event.stopPropagation();
+            closeSkillFolderMenu();
             options.postMessage({ type: 'centralize-skill', dirPath: centralize.getAttribute('data-skill-centralize') });
             return;
         }
@@ -4044,15 +4523,16 @@ function initSkillPanel(options) {
         if (openButton) {
             event.preventDefault();
             event.stopPropagation();
+            closeSkillFolderMenu();
             options.postMessage({ type: 'open-skill-file', skillFilePath: openButton.getAttribute('data-skill-open') });
             return;
         }
-        var skillCard = event.target && event.target.closest ? event.target.closest('.skill-card[data-skill-dir]') : null;
+        var skillCard = event.target && event.target.closest ? event.target.closest('.skill-row[data-skill-dir]') : null;
         if (skillCard) {
             if (event.target.closest && event.target.closest('.skill-detail')) {
                 return;
             }
-            var detail = skillCard.querySelector('.skill-detail');
+            var detail = getSkillRowDetail(skillCard);
             if (detail) {
                 detail.hidden = !detail.hidden;
                 skillCard.classList.toggle('skill-detail-open', !detail.hidden);
@@ -4069,18 +4549,58 @@ function initSkillPanel(options) {
         document.addEventListener('click', onSkillCardClick);
         document.addEventListener('keydown', onSkillMoveInputKeydown);
         document.addEventListener('keydown', onSkillFolderMenuKeydown);
+        document.addEventListener('keydown', onSkillsPaneResizerKeydown);
         document.addEventListener('dragstart', onSkillDragStart);
         document.addEventListener('dragover', onSkillDragOver);
         document.addEventListener('dragleave', onSkillDragLeave);
         document.addEventListener('drop', onSkillDrop);
         document.addEventListener('dragend', onSkillDragEnd);
+        document.addEventListener('pointerdown', onSkillsPaneResizerPointerDown);
+        document.addEventListener('pointermove', onSkillsPaneResizerPointerMove);
+        document.addEventListener('pointerup', onSkillsPaneResizerPointerUp);
+        document.addEventListener('pointercancel', onSkillsPaneResizerPointerUp);
     }
+
+    if (typeof window.addEventListener === 'function') {
+        window.addEventListener('resize', scheduleSkillsLayout);
+    }
+
+    // Re-layout when pane content visibility changes (collapse, agent filter)
+    // or when an ancestor panel's hidden attribute toggles (tab switches).
+    // Attribute-only: authoritative HTML replacements call layout explicitly.
+    if (typeof MutationObserver === 'function' && document.body) {
+        var skillsSplitObserver = new MutationObserver(function (mutations) {
+            for (var i = 0; i < mutations.length; i++) {
+                var target = mutations[i].target;
+                if (!target || target.nodeType !== 1) {
+                    continue;
+                }
+                if (mutations[i].attributeName === 'hidden') {
+                    scheduleSkillsLayout();
+                    return;
+                }
+                if (mutations[i].attributeName === 'class'
+                    && target.closest
+                    && target.closest('[data-skills-split]')) {
+                    scheduleSkillsLayout();
+                    return;
+                }
+            }
+        });
+        skillsSplitObserver.observe(document.body, {
+            subtree: true,
+            attributes: true,
+            attributeFilter: ['hidden', 'class'],
+        });
+    }
+    scheduleSkillsLayout();
 
     return {
         applySkillAgentFilter,
         captureSkillCollapsedGroups,
         captureSkillExpandedCards,
         captureSkillFolderMenuState,
+        layoutSkillsSplit,
         replaceSkillsHtml,
         restoreSkillCollapsedGroups,
         restoreSkillExpandedCards,
@@ -5075,6 +5595,9 @@ function createDashboardAiPanel(injected) {
         drainPendingPromptRefresh();
         applyPendingAiSubtab();
         skillPanel.applySkillAgentFilter();
+        if (typeof skillPanel.layoutSkillsSplit === 'function') {
+            skillPanel.layoutSkillsSplit();
+        }
         if (getPendingSkillReveal()) {
             var revealDir = getPendingSkillReveal();
             setPendingSkillReveal(null);

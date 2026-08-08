@@ -3993,46 +3993,149 @@ body.steward-sidebar {
         }
     }
 
-    .skill-card {
-        height: auto;
-        min-height: 96px;
+    // Skill rows: quiet list grammar — tinted icon box, two-line meta, agent
+    // dots at rest; actions fade in on hover/focus-within (progressive
+    // disclosure instead of always-visible pill buttons).
+    .skill-row-holder {
+        position: relative;
+        margin: 1px 0;
     }
 
-    .skill-chip-row {
+    .skill-row {
+        position: relative;
         display: flex;
-        flex-wrap: wrap;
-        gap: 4px;
         align-items: center;
-        margin-top: 6px;
+        gap: 8px;
+        padding: 3px 6px;
+        border-radius: 5px;
+        cursor: pointer;
+
+        &:hover,
+        &:focus-within {
+            background: var(--vscode-list-hoverBackground);
+        }
+
+        &:hover .skill-acts,
+        &:focus-within .skill-acts {
+            display: inline-flex;
+        }
+
+        &:hover .skill-rest,
+        &:focus-within .skill-rest {
+            visibility: hidden;
+        }
     }
 
-    .skill-chip {
+    .skill-ibox {
         display: inline-flex;
         align-items: center;
-        gap: 3px;
-        padding: 1px 7px;
-        border: 1px solid transparent;
-        border-radius: 999px;
-        font-size: 9px;
-        line-height: 14px;
-        white-space: nowrap;
+        justify-content: center;
+        flex: none;
+        width: 22px;
+        height: 22px;
+        border-radius: 5px;
+        background: rgba(78, 201, 176, .12);
+        color: #4ec9b0;
 
-        &.scope-user { color: #8ab4f8; background: rgba(55, 148, 255, .14); border-color: rgba(138, 180, 248, .4); }
-        &.scope-project { color: #c9a6f2; background: rgba(180, 130, 255, .13); border-color: rgba(201, 166, 242, .35); }
-        &.agent-kimi { color: #7aa2ff; background: rgba(122, 162, 255, .13); border-color: rgba(122, 162, 255, .4); }
-        &.agent-claude { color: #d97757; background: rgba(217, 119, 87, .13); border-color: rgba(217, 119, 87, .4); }
-        &.agent-codex { color: #4ec9b0; background: rgba(78, 201, 176, .13); border-color: rgba(78, 201, 176, .4); }
-        &.agent-absent { color: #6a6a6a; background: rgba(110, 110, 110, .08); border-color: rgba(110, 110, 110, .25); text-decoration: line-through; }
-        &.warn { color: var(--vscode-editorWarning-foreground, #cca700); background: rgba(204, 167, 0, .12); border-color: rgba(204, 167, 0, .4); cursor: pointer; }
+        svg {
+            width: 11px;
+            height: 11px;
+        }
+
+        .skill-row.unmanaged & {
+            background: rgba(127, 127, 127, .12);
+            color: var(--vscode-descriptionForeground);
+        }
+    }
+
+    .skill-meta {
+        display: flex;
+        flex: 1 1 auto;
+        flex-direction: column;
+        min-width: 0;
+    }
+
+    .skill-name {
+        overflow: hidden;
+        font-size: 12px;
+        font-weight: 500;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .skill-warn {
+        margin-left: 4px;
+        color: var(--vscode-editorWarning-foreground, #cca700);
+        font-size: 10px;
+    }
+
+    .skill-desc {
+        overflow: hidden;
+        color: var(--vscode-descriptionForeground);
+        font-size: 10.5px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .skill-rest {
+        flex: none;
+    }
+
+    .skill-acts {
+        position: absolute;
+        top: 50%;
+        right: 6px;
+        display: none;
+        align-items: center;
+        gap: 2px;
+        transform: translateY(-50%);
+    }
+
+    .skill-icon-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 20px;
+        height: 20px;
+        padding: 0;
+        border: 0;
+        border-radius: 4px;
+        background: transparent;
+        color: var(--vscode-descriptionForeground);
+        cursor: pointer;
+
+        svg {
+            width: 12px;
+            height: 12px;
+        }
+
+        &:hover {
+            background: rgba(127, 127, 127, .18);
+            color: var(--vscode-foreground);
+        }
+    }
+
+    .skill-hover-centralize {
+        padding: 1px 8px;
+        border: 0;
+        border-radius: 4px;
+        background: transparent;
+        color: #4ec9b0;
+        cursor: pointer;
+        font-size: 10.5px;
+        font-weight: 500;
+
+        &:hover {
+            background: rgba(78, 201, 176, .12);
+        }
     }
 
     .skill-detail {
-        margin-top: 6px;
-        padding: 6px 0 2px;
-        border: 0;
-        border-top: 1px solid var(--vscode-panel-border);
-        border-radius: 0;
-        background: transparent;
+        margin: 2px 6px 6px 36px;
+        padding: 8px 10px;
+        border: 1px solid var(--vscode-panel-border);
+        border-radius: 6px;
+        background: rgba(127, 127, 127, .06);
     }
 
     .skill-detail-title {
@@ -4090,22 +4193,37 @@ body.steward-sidebar {
 
     .skill-detail-actions {
         display: flex;
-        gap: 6px;
-        margin-top: 6px;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 6px 12px;
+        margin-top: 8px;
+        padding-top: 7px;
+        border-top: 1px solid var(--vscode-panel-border);
+    }
 
-        button {
-            padding: 3px 10px;
-            border: 0;
-            border-radius: 4px;
-            background: var(--vscode-button-secondaryBackground);
-            color: var(--vscode-button-secondaryForeground);
-            cursor: pointer;
-            font-size: 10px;
+    .skill-text-btn {
+        padding: 0;
+        border: 0;
+        background: transparent;
+        color: var(--vscode-textLink-foreground, #3794ff);
+        cursor: pointer;
+        font-size: 10.5px;
+        white-space: nowrap;
+
+        &:hover:not(:disabled) {
+            text-decoration: underline;
         }
 
-        button.primary {
-            background: var(--vscode-button-background);
-            color: var(--vscode-button-foreground);
+        &:disabled,
+        &[aria-disabled='true'] {
+            cursor: default;
+            opacity: .5;
+        }
+
+        &.pending {
+            cursor: progress;
+            opacity: .72;
+            text-decoration: none;
         }
     }
 
@@ -4115,15 +4233,34 @@ body.steward-sidebar {
         font-size: 11px;
     }
 
+    // Segmented agent filter control.
     .skills-filter-row {
         display: flex;
         flex-wrap: wrap;
         align-items: center;
-        gap: 4px;
+        gap: 2px;
+        width: max-content;
+        max-width: 100%;
         margin: 2px 0 8px 2px;
+        padding: 2px;
+        border-radius: 6px;
+        background: rgba(127, 127, 127, .12);
 
         > button {
+            padding: 2px 10px;
+            border: 0;
+            border-radius: 5px;
+            background: transparent;
+            color: var(--vscode-descriptionForeground);
+            cursor: pointer;
+            font-size: 10.5px;
+            font-weight: 500;
             white-space: nowrap;
+
+            &.is-active {
+                background: rgba(127, 127, 127, .28);
+                color: var(--vscode-foreground);
+            }
         }
     }
 
@@ -4131,49 +4268,19 @@ body.steward-sidebar {
         display: none !important;
     }
 
-    .skill-collection-icon {
-        display: inline-flex;
-        margin-right: 3px;
-        vertical-align: -2px;
-
-        svg {
-            width: 11px;
-            height: 11px;
-        }
+    // Nested folder lists indent per level; the guide line stays transparent
+    // until the folder is hovered, so deep trees read cleanly at rest.
+    .skill-folder > .skill-folder-list {
+        margin-left: 9px;
+        padding-left: 9px;
+        border-left: 1px solid transparent;
     }
 
-    .skills-groups-wrapper > .group.steward-section > .group-list {
-        margin-left: 5px;
-        padding-left: 8px;
-        border-left: 1px solid var(--vscode-panel-border);
+    .skill-folder:hover > .skill-folder-list {
+        border-left-color: var(--vscode-panel-border);
     }
 
-    .skill-collection > .group-list {
-        margin-left: 5px;
-        padding-left: 8px;
-        border-left: 1px solid var(--vscode-panel-border);
-    }
-
-    .skill-group-editor {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        margin-top: 8px;
-    }
-
-    .skill-chip.group {
-        color: #c9a6f2;
-        background: rgba(180, 130, 255, .13);
-        border-color: rgba(201, 166, 242, .35);
-    }
-
-    .skill-chip.central {
-        color: #4ec9b0;
-        background: rgba(78, 201, 176, .13);
-        border-color: rgba(78, 201, 176, .4);
-    }
-
-    // Quiet per-agent status dots (cards + folder/section headers):
+    // Quiet per-agent status dots (rows + folder/section headers):
     // filled teal = active/linked, amber = shadowed, hollow = off,
     // teal ring with light fill = partially linked (folders/sections).
     .skill-agent-dots {
@@ -4210,41 +4317,6 @@ body.steward-sidebar {
         margin: 0 2px;
     }
 
-    .skill-centralize {
-        padding: 1px 7px;
-        border: 1px solid rgba(78, 201, 176, .4);
-        border-radius: 999px;
-        background: transparent;
-        color: #4ec9b0;
-        cursor: pointer;
-        font-size: 9px;
-    }
-
-    .skill-scope-action {
-        padding: 1px 7px;
-        border: 1px solid rgba(138, 180, 248, .45);
-        border-radius: 999px;
-        background: rgba(55, 148, 255, .08);
-        color: #8ab4f8;
-        cursor: pointer;
-        font-size: 9px;
-
-        &:hover:not(:disabled) {
-            background: rgba(55, 148, 255, .16);
-        }
-
-        &:disabled,
-        &[aria-disabled='true'] {
-            cursor: default;
-            opacity: .5;
-        }
-
-        &.pending {
-            border-style: dashed;
-            opacity: .72;
-        }
-    }
-
     .skill-scope-status {
         min-height: 0;
         color: var(--vscode-descriptionForeground);
@@ -4255,29 +4327,53 @@ body.steward-sidebar {
         }
     }
 
-    .skill-delete {
-        padding: 1px 7px;
-        border: 1px solid rgba(244, 71, 71, .4);
-        border-radius: 999px;
-        background: transparent;
-        color: #f44747;
-        cursor: pointer;
-        font-size: 9px;
-
-        &:hover {
-            background: rgba(244, 71, 71, .13);
-        }
-    }
-
     .skill-agent-row {
         display: flex;
         align-items: center;
-        justify-content: space-between;
+        gap: 8px;
         padding: 2px 0;
 
         .skill-agent-row-name {
-            font-size: 11px;
+            flex: none;
+            width: 44px;
+            color: var(--vscode-descriptionForeground);
+            font-size: 10.5px;
         }
+    }
+
+    // Compact switch variant inside the detail panel's agent rows.
+    .skill-detail .skill-ios-toggle {
+        width: 26px;
+        height: 14px;
+
+        &::after {
+            top: 2px;
+            right: 2px;
+            width: 10px;
+            height: 10px;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, .3);
+        }
+
+        &.off::after {
+            right: auto;
+            left: 2px;
+        }
+
+        &.indeterminate::after {
+            right: 8px;
+        }
+    }
+
+    .skill-agent-note {
+        flex: 1 1 auto;
+        min-width: 0;
+        overflow: hidden;
+        color: var(--vscode-descriptionForeground);
+        font-size: 9.5px;
+        text-align: right;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        opacity: .8;
     }
 
     .skill-ios-toggle {
@@ -4314,37 +4410,6 @@ body.steward-sidebar {
         }
     }
 
-    .skill-ungroup {
-        padding: 0 0 0 2px;
-        border: 0;
-        background: transparent;
-        color: inherit;
-        cursor: pointer;
-        font-size: 10px;
-        line-height: 1;
-    }
-
-    .skill-group-input {
-        flex: 1;
-        min-width: 0;
-        padding: 2px 7px;
-        border: 1px solid var(--vscode-input-border, #3c3c3c);
-        border-radius: 4px;
-        background: var(--vscode-input-background);
-        color: var(--vscode-input-foreground);
-        font-size: 10px;
-    }
-
-    .skill-setgroup {
-        padding: 3px 10px;
-        border: 0;
-        border-radius: 4px;
-        background: var(--vscode-button-secondaryBackground);
-        color: var(--vscode-button-secondaryForeground);
-        cursor: pointer;
-        font-size: 10px;
-    }
-
     .skill-fix {
         margin-left: 6px;
         padding: 1px 8px;
@@ -4359,13 +4424,19 @@ body.steward-sidebar {
     .skill-suggestion {
         display: flex;
         align-items: center;
-        gap: 6px;
+        gap: 8px;
         margin: 0 0 8px 2px;
         padding: 5px 8px;
-        border: 1px solid rgba(201, 166, 242, .35);
-        border-radius: 8px;
-        background: rgba(180, 130, 255, .08);
-        font-size: 10px;
+        border-left: 2px solid #4ec9b0;
+        border-radius: 0 5px 5px 0;
+        background: rgba(78, 201, 176, .07);
+        color: var(--vscode-descriptionForeground);
+        font-size: 10.5px;
+
+        strong {
+            color: var(--vscode-foreground);
+            font-weight: 500;
+        }
     }
 
     .skill-suggestion-text {
@@ -4375,13 +4446,17 @@ body.steward-sidebar {
 
     .skill-suggestion-apply {
         flex: none;
-        padding: 2px 9px;
+        padding: 0;
         border: 0;
-        border-radius: 4px;
-        background: var(--vscode-button-background);
-        color: var(--vscode-button-foreground);
+        background: transparent;
+        color: #4ec9b0;
         cursor: pointer;
-        font-size: 9px;
+        font-size: 10.5px;
+        font-weight: 500;
+
+        &:hover {
+            text-decoration: underline;
+        }
     }
 
     .skill-suggestion-dismiss {
@@ -4392,6 +4467,7 @@ body.steward-sidebar {
         color: var(--vscode-descriptionForeground);
         cursor: pointer;
         font-size: 11px;
+        opacity: .7;
     }
 
     .skill-copy-row {
@@ -4430,45 +4506,8 @@ body.steward-sidebar {
         font-size: 9px;
     }
 
-    .skill-expand-hint {
-        display: inline-flex;
-        margin-left: auto;
-        opacity: .6;
-
-        svg {
-            width: 10px;
-            height: 10px;
-        }
-    }
-
-    .skill-detail-open .skill-expand-hint svg {
-        transform: rotate(90deg);
-    }
-
-    .skill-card-dragging {
+    .skill-row-dragging {
         opacity: .5;
-    }
-
-    .skill-collection.skill-drop-target .group-title {
-        outline: 1px dashed var(--vscode-focusBorder, #007fd4);
-        outline-offset: 2px;
-    }
-
-    .skills-filter {
-        padding: 1px 9px;
-        border: 1px solid rgba(110, 110, 110, .35);
-        border-radius: 999px;
-        background: transparent;
-        color: var(--vscode-descriptionForeground);
-        cursor: pointer;
-        font-size: 9px;
-        line-height: 14px;
-
-        &.is-active {
-            background: var(--vscode-button-background);
-            border-color: var(--vscode-button-background);
-            color: var(--vscode-button-foreground);
-        }
     }
 
     .skill-folder-add,
@@ -4523,6 +4562,12 @@ body.steward-sidebar {
         opacity: .75;
         text-overflow: ellipsis;
         white-space: nowrap;
+    }
+
+    .skill-source-sep {
+        color: var(--vscode-descriptionForeground);
+        font-size: 9px;
+        opacity: .5;
     }
 
     .skill-source-count {
@@ -4636,8 +4681,8 @@ body.steward-sidebar {
         text-transform: uppercase;
     }
 
-    // Compact file-tree rhythm: skill cards nest inside the folder guides
-    // like rows in a file explorer instead of floating dashboard tiles.
+    // Skills panel rhythm: list rows under quiet uppercase section labels and
+    // 24px folder headers (the fixed rhythm keeps nested sticky offsets exact).
     .skills-groups-wrapper {
         // Tree nodes (sections and folders are .group) sit nearly flush;
         // the default 12px group gap reads as wasted space inside a tree.
@@ -4659,36 +4704,6 @@ body.steward-sidebar {
             gap: 2px;
         }
 
-        .steward-group-header {
-            padding: 2px 6px;
-            border-radius: 5px;
-            font-size: 13px;
-        }
-
-        .skill-card {
-            align-items: stretch;
-            min-height: 0;
-            margin-bottom: 3px;
-            padding: 4px 8px 4px 12px;
-
-            .project-description {
-                display: block;
-                margin-top: 1px;
-                min-height: 0;
-                overflow: hidden;
-                text-overflow: ellipsis;
-                white-space: nowrap;
-            }
-
-            .skill-chip-row {
-                margin-top: 2px;
-            }
-
-            .skill-detail {
-                margin-top: 4px;
-            }
-        }
-
         .skill-source-group + .skill-source-group {
             margin-top: 6px;
         }
@@ -4699,6 +4714,238 @@ body.steward-sidebar {
 
         .skill-unmanaged {
             margin-top: 6px;
+        }
+    }
+
+    // Scope section headers: a tinted bar (native sidebar section-header
+    // tokens) with a hairline divider, so each pane's boundary reads at a
+    // glance and the label anchors its scrolling list.
+    .skill-scope-header {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-width: 0;
+        margin: 0;
+        padding: 4px 8px;
+        border: 0;
+        border-bottom: 1px solid var(--vscode-sideBarSectionHeader-border, var(--vscode-panel-border));
+        background: var(--vscode-sideBarSectionHeader-background, rgba(127, 127, 127, .14));
+
+        .skill-scope-title {
+            color: var(--vscode-foreground);
+            cursor: pointer;
+            font-size: 10px;
+            font-weight: 600;
+            letter-spacing: .8px;
+            text-transform: uppercase;
+        }
+
+        .group-title-badge {
+            color: var(--vscode-descriptionForeground);
+            font-size: 10px;
+            font-weight: 400;
+            opacity: .75;
+        }
+
+        .skill-scope-more {
+            margin-left: auto;
+        }
+    }
+
+    // Folder headers: one fixed-height row — chevron, folder icon, name, dots,
+    // count, and a quiet ⋯ that brightens on hover/focus.
+    .skill-folder-header {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        box-sizing: border-box;
+        height: 24px;
+        min-width: 0;
+        padding: 0 6px;
+        border-radius: 5px;
+        color: var(--vscode-foreground);
+
+        &:hover {
+            background: var(--vscode-list-hoverBackground);
+        }
+
+        .skill-folder-title {
+            display: inline-flex;
+            align-items: center;
+            flex: 1 1 auto;
+            gap: 5px;
+            min-width: 0;
+            cursor: pointer;
+        }
+
+        .collapse-icon {
+            display: inline-flex;
+            flex: none;
+            color: var(--vscode-descriptionForeground);
+
+            svg {
+                width: 9px;
+                height: 9px;
+            }
+        }
+
+        .skill-folder-icon {
+            display: inline-flex;
+            flex: none;
+            color: var(--vscode-descriptionForeground);
+            opacity: .85;
+
+            svg {
+                width: 11px;
+                height: 11px;
+            }
+        }
+
+        .skill-folder-name {
+            overflow: hidden;
+            font-size: 12px;
+            font-weight: 500;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .group-title-badge {
+            flex: none;
+            margin-left: 6px;
+            color: var(--vscode-descriptionForeground);
+            font-size: 10.5px;
+        }
+    }
+
+    .skill-folder-more {
+        opacity: .35;
+
+        .skill-folder-header:hover &,
+        .skill-scope-header:hover &,
+        &:focus-visible {
+            opacity: 1;
+        }
+    }
+
+    .group.collapsed > .skill-folder-header .skill-agent-dots,
+    .group.collapsed > .skill-folder-header .group-title-badge {
+        opacity: .7;
+    }
+
+    // Global / Project split panes: the section header stays put and only the
+    // section's own .group-list scrolls (same pattern as the Projects tab), so
+    // the two scopes scroll independently without losing their headers. The
+    // skill panel script sets an explicit height on .skills-split, sizes the
+    // project pane, and toggles the pane state classes; without them the panes
+    // flow like plain content (whole page scrolls).
+    .skills-split {
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+    }
+
+    .skills-pane {
+        min-height: 0;
+    }
+
+    .skills-pane.skills-pane-sized {
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    .skills-pane.skills-pane-grow {
+        flex: 1 1 0;
+    }
+
+    // The sized project pane gets an explicit pixel height from the script
+    // (dragged share, or content height capped to the auto share).
+    .skills-pane.skills-pane-sized[data-skills-pane='project']:not(.skills-pane-grow) {
+        flex: 0 0 auto;
+    }
+
+    .skills-pane.skills-pane-sized > .group.steward-section {
+        flex: 1 1 0;
+        min-height: 0;
+        margin-top: 0;
+        grid-template-rows: auto minmax(0, 1fr);
+    }
+
+    .skills-pane.skills-pane-sized > .group.steward-section > .group-list {
+        min-height: 0;
+        overflow-x: hidden;
+        overflow-y: auto;
+    }
+
+    // Folder headers stick to the scrolling list's top edge while their
+    // subtree scrolls; the inline per-depth `top` stacks nested headers like
+    // iOS section indices. The layered background stays opaque without
+    // changing the resting tone: the header's translucent list tint
+    // composited over the editor color.
+    .skills-pane.skills-pane-sized .skill-folder > .group-title.skill-folder-header {
+        position: sticky;
+        z-index: 5;
+        background:
+            linear-gradient(
+                var(--vscode-list-inactiveSelectionBackground, transparent),
+                var(--vscode-list-inactiveSelectionBackground, transparent)
+            ),
+            var(--vscode-editor-background, #1e1e1e);
+    }
+
+    .skills-pane-resizer {
+        position: relative;
+        flex: 0 0 auto;
+        height: 9px;
+        cursor: row-resize;
+
+        // Full-width hairline marks the exact pane boundary; the centered grip
+        // pill sits on top of it.
+        &::before {
+            content: '';
+            position: absolute;
+            top: 4px;
+            right: 0;
+            left: 0;
+            border-top: 1px solid var(--vscode-panel-border);
+        }
+
+        // Centered grip pill: quiet at rest, highlighted on hover/focus/drag.
+        &::after {
+            content: '';
+            position: absolute;
+            top: 3px;
+            left: 50%;
+            width: 44px;
+            height: 3px;
+            border-radius: 2px;
+            background: var(--vscode-scrollbarSlider-background, rgba(127, 127, 127, .5));
+            transform: translateX(-50%);
+        }
+
+        &:hover::before,
+        &:focus-visible::before,
+        &.skills-pane-resizer-active::before {
+            border-top-color: var(--vscode-focusBorder, #007fd4);
+        }
+
+        &:hover::after,
+        &:focus-visible::after,
+        &.skills-pane-resizer-active::after {
+            background: var(--vscode-focusBorder, #007fd4);
+        }
+
+        &:focus-visible {
+            outline: none;
+        }
+    }
+
+    &.skills-pane-resizing {
+        cursor: row-resize;
+        user-select: none;
+
+        * {
+            cursor: row-resize !important;
         }
     }
 
@@ -4730,13 +4977,6 @@ body.steward-sidebar {
         font-size: 10px;
     }
 
-}
-
-body.steward-sidebar .skill-card .project-description {
-    white-space: normal;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
 }
 
 body.steward-sidebar .project .codex-session-row.attention-animate,

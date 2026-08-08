@@ -175,27 +175,28 @@ test('SKILLS-SPLIT-001 global and project lists scroll independently with pinned
             const userList = document.querySelector('[data-skills-pane="user"] > .group.steward-section > .group-list');
             const projectList = document.querySelector('[data-skills-pane="project"] > .group.steward-section > .group-list');
             const userHeader = document.querySelector('[data-skills-pane="user"] .group.steward-section > .group-title');
+            const projectHeader = document.querySelector('[data-skills-pane="project"] .group.steward-section > .group-title');
             const headerTopBefore = userHeader.getBoundingClientRect().top;
+            const projectHeaderTopBefore = projectHeader.getBoundingClientRect().top;
             projectList.scrollTop = 120;
             return {
                 user: userList.scrollTop,
                 project: projectList.scrollTop,
                 headerTopBefore: headerTopBefore,
+                projectHeaderTopBefore: projectHeaderTopBefore,
             };
         });
         assert.equal(scrolled.project, 120, 'project list scrolls');
         assert.equal(scrolled.user, 0, 'global list scroll position is independent');
-        const headerTopAfter = await page.evaluate(() =>
-            document.querySelector('[data-skills-pane="user"] .group.steward-section > .group-title')
-                .getBoundingClientRect().top
-        );
-        assert.equal(headerTopAfter, scrolled.headerTopBefore, 'section header stays put while the list scrolls');
-        const projectScrolled = await page.evaluate(() => {
-            const header = document.querySelector('[data-skills-pane="project"] .group.steward-section > .group-title');
-            return header.getBoundingClientRect().top;
-        });
-        assert.ok(Math.abs(projectScrolled - (await paneGeometry(page)).project.top) <= 1,
-            'project section header stays pinned to its pane top');
+        const headerTopsAfter = await page.evaluate(() => ({
+            user: document.querySelector('[data-skills-pane="user"] .group.steward-section > .group-title')
+                .getBoundingClientRect().top,
+            project: document.querySelector('[data-skills-pane="project"] .group.steward-section > .group-title')
+                .getBoundingClientRect().top,
+        }));
+        assert.equal(headerTopsAfter.user, scrolled.headerTopBefore, 'section header stays put while the list scrolls');
+        assert.equal(headerTopsAfter.project, scrolled.projectHeaderTopBefore,
+            'project section header stays pinned while its own list scrolls');
     } finally {
         await browser.close();
     }
@@ -301,11 +302,11 @@ test('SKILLS-SPLIT-004 pane list scroll positions survive authoritative HTML rep
             const userList = document.querySelector('[data-skills-pane="user"] > .group.steward-section > .group-list');
             const projectList = document.querySelector('[data-skills-pane="project"] > .group.steward-section > .group-list');
             userList.scrollTop = 150;
-            projectList.scrollTop = 260;
+            projectList.scrollTop = 150;
             return { user: userList.scrollTop, project: projectList.scrollTop };
         });
         assert.equal(before.user, 150);
-        assert.equal(before.project, 260);
+        assert.equal(before.project, 150);
 
         const { getSkillsPanelContent } = loadSkillContent();
         const replacement = getSkillsPanelContent(makeSplitRecords(), { hasWorkspace: true });
@@ -318,7 +319,7 @@ test('SKILLS-SPLIT-004 pane list scroll positions survive authoritative HTML rep
         }, { html: replacement });
         assert.ok(Math.abs(after.user - 150) <= 2,
             `global list keeps its scroll anchor (got ${after.user})`);
-        assert.ok(Math.abs(after.project - 260) <= 2,
+        assert.ok(Math.abs(after.project - 150) <= 2,
             `project list keeps its scroll anchor (got ${after.project})`);
     } finally {
         await browser.close();

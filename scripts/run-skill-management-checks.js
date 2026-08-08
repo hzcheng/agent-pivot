@@ -205,26 +205,27 @@ function runSkillRenderingChecks() {
         }),
         makeRecord({ name: 'broken', diagnostics: [{ code: 'lowercase-filename', message: 'x' }, { code: 'missing-name', message: 'y' }] }),
     ]);
-    // tree: two top-level folders (global / project) with collection folders nested inside
-    assert.ok(html.includes('</span>global'), 'top-level global folder');
-    assert.ok(html.includes('</span>project'), 'top-level project folder');
-    assert.ok((html.match(/skill-collection-icon/g) || []).length >= 2, 'folder icons on tree nodes');
-    assert.ok(html.includes('data-skill-delete="/home/dev/.kimi/skills/demo"'), 'unmanaged cards render the Delete action');
+    // tree: two top-level scope sections (global / project) as quiet labels
+    assert.ok(html.includes('skill-scope-title" data-action="collapse">global</span>'), 'global scope label');
+    assert.ok(html.includes('skill-scope-title" data-action="collapse">project</span>'), 'project scope label');
+    assert.ok(!html.includes('skill-collection-icon'), 'collection icons retired from headers');
+    assert.ok(!html.includes('data-skill-delete='), 'Delete lives in the row ⋯ menu, not the static markup');
     assert.ok(!html.includes('data-skill-toggle='), 'master toggle retired');
     assert.ok(html.includes('data-skill-open="/home/dev/.kimi/skills/demo/SKILL.md"'),
         'clean records (no shadowing, no diagnostics) render the Open SKILL.md action');
-    assert.ok(!html.includes('class="skill-chip agent-kimi"'), 'agent chips retired on cards');
-    assert.ok(!html.includes('class="skill-chip agent-absent"'), 'absent chips retired on cards');
-    assert.ok(!html.includes('skill-chip scope-'), 'scope chips retired (section conveys scope)');
-    assert.ok((html.match(/skill-agent-dot /g) || []).length >= 3, 'agent dots render on cards');
+    assert.ok(!html.includes('class="skill-chip agent-kimi"'), 'agent chips retired on rows');
+    assert.ok(!html.includes('class="skill-chip agent-absent"'), 'absent chips retired on rows');
+    assert.ok(!html.includes('skill-chip'), 'chips retired entirely (rows use dots + a warn glyph)');
+    assert.ok((html.match(/skill-agent-dot /g) || []).length >= 3, 'agent dots render on rows');
     assert.ok(html.includes('skill-agent-dot active'), 'active dot renders');
     assert.ok(html.includes('skill-agent-dot shadowed'), 'shadowed dot renders');
     assert.ok(html.includes('skill-detail-desc'), 'expanded detail shows the full description');
     assert.ok(html.includes('⚠ shadowed'));
-    assert.ok(html.includes('⚠ 2 issues'));
+    assert.ok(html.includes('title="2 issues"'), 'diagnostics collapse into the warn glyph tooltip');
+    assert.ok(html.includes('data-skill-warn'), 'warn glyph marks rows with issues');
     assert.ok(!html.includes('skill-card-disabled'), 'disabled card styling retired');
     assert.ok(!html.includes('skill-parked-note'), 'parked note retired');
-    assert.ok(html.includes('Effectiveness per agent'));
+    assert.ok(html.includes('>Agents</p>'), 'detail panel lists per-agent effectiveness');
     assert.ok(html.includes('~/.kimi/skills') === false, 'paths render verbatim, not home-shortened');
     assert.ok(!html.includes('undefined'));
     // scope × source two-level grouping
@@ -237,7 +238,7 @@ function runSkillRenderingChecks() {
     assert.ok(html.indexOf('data-skill-source="kimi"') < html.indexOf('data-skill-source="claude"'),
         'source groups follow kimi > claude order');
     assert.ok(html.includes('<span class="skill-source-count">2</span>'), 'source group shows its skill count');
-    assert.ok(html.indexOf('>broken</h2>') < html.indexOf('>demo</h2>'), 'cards sort by name within a source group');
+    assert.ok(html.indexOf('>broken</span>') < html.indexOf('>demo</span>'), 'rows sort by name within a source group');
     // TODO(T7): finalized in the group-retirement task — virtual collection node, datalist,
     // ungroup and group-editor rendering assertions removed with the folder-tree rendering (Task 5).
     assert.ok(html.includes('draggable="true"'), 'cards stay draggable for folder moves');
@@ -245,9 +246,9 @@ function runSkillRenderingChecks() {
     assert.ok(html.includes('data-skill-fix-code="lowercase-filename"'), 'fixable diagnostics render a Fix button');
     assert.ok(!skillContent.getSkillsPanelContent([makeRecord({ diagnostics: [{ code: 'body-too-long', message: 'x' }] })]).includes('data-skill-fix='),
         'non-fixable diagnostics render no Fix button');
-    // agent filter row + per-card active-agent attributes
-    assert.ok(html.includes('data-action="collapse"'), 'skill groups carry the collapse affordance');
-    assert.ok(html.includes('collapse-icon'));
+    // agent filter row + per-row active-agent attributes
+    assert.ok(html.includes('data-action="collapse"'), 'scope sections carry the collapse affordance');
+    assert.ok(!html.includes('collapse-icon'), 'section labels have no chevron; folders carry it');
     assert.ok(html.includes('data-skill-filter-row'), 'filter row renders');
     assert.ok(html.includes('data-skill-filter="all"'));
     assert.ok(html.includes('data-skill-filter="kimi"'));
@@ -268,8 +269,8 @@ function runSkillRenderingChecks() {
     );
     assert.ok(aiPanelHtml.includes('id="ai-tab-skills"'));
     assert.ok(aiPanelHtml.includes('id="ai-panel-skills"'));
-    assert.ok(aiPanelHtml.includes('data-skill-delete='), 'skills surface embedded in the AI panel');
-    assert.ok(!promptWebviewContent.getAiPanelContent({ prompts: [], selectedPromptId: null, revision: 0 }).includes('data-skill-delete='),
+    assert.ok(aiPanelHtml.includes('data-skill-dir='), 'skills surface embedded in the AI panel');
+    assert.ok(!promptWebviewContent.getAiPanelContent({ prompts: [], selectedPromptId: null, revision: 0 }).includes('data-skill-dir='),
         'placeholder renders without a skills surface');
 
     const tree = skillContent.getSkillsPanelContent([
@@ -388,7 +389,8 @@ function runSkillRenderingChecks() {
         'same-name central records linking the same agent+scope collide');
     assert.strictEqual(computeSkillLinkConflicts([collisionRecords[0]]).size, 0, 'a single record never collides');
     const collisionHtml = skillContent.getSkillsPanelContent(collisionRecords, { conflicts: collisions });
-    assert.strictEqual(collisionHtml.split('⚠ name conflict').length - 1, 2, 'both colliding cards show the conflict chip');
+    assert.strictEqual(collisionHtml.split('title="Name conflict: another central skill links the same agent slot"').length - 1, 2,
+        'both colliding rows show the conflict warn glyph');
     // split panes: each scope section scrolls independently behind a resizer
     assert.ok(html.includes('data-skills-split'), 'scope sections render inside the split container');
     assert.ok(html.includes('data-skills-pane="user"'), 'global section lives in its own pane');
@@ -408,17 +410,22 @@ function runSkillRenderingChecks() {
 function runSkillStyleChecks() {
     const styles = fs.readFileSync(path.join(__dirname, '..', 'media', 'styles.scss'), 'utf8');
     const compiled = fs.readFileSync(path.join(__dirname, '..', 'media', 'styles.css'), 'utf8');
-    assert.ok(styles.includes('.skill-card'));
-    assert.ok(styles.includes('body.steward-sidebar .skill-card'));
-    assert.ok(styles.includes('.skill-delete'), 'delete button styles');
+    assert.ok(styles.includes('.skill-row'), 'row grammar styles');
+    assert.ok(styles.includes('.skill-ibox'), 'row icon box styles');
+    assert.ok(styles.includes('.skill-acts'), 'hover action styles');
+    assert.ok(!styles.includes('.skill-card'), 'card tile styles retired');
+    assert.ok(!styles.includes('.skill-chip'), 'chip styles retired');
+    assert.ok(!styles.includes('.skill-delete'), 'delete pill retired (menu item now)');
     assert.ok(!styles.includes('.skill-parked'), 'parked styles retired');
     assert.ok(!styles.includes('.skill-card-disabled'), 'disabled card styles retired');
-    assert.ok(styles.includes('.skill-chip'));
     assert.ok(styles.includes('.skill-detail'));
+    assert.ok(styles.includes('.skill-text-btn'), 'detail text-button styles');
     assert.ok(styles.includes('.skill-source-header'));
     assert.ok(styles.includes('.skill-filter-hidden'));
     assert.ok(styles.includes('.skill-drop-target'));
     assert.ok(styles.includes('.skill-folder'), 'folder node styles');
+    assert.ok(styles.includes('.skill-folder-header'), 'folder header row styles');
+    assert.ok(styles.includes('.skill-scope-header'), 'scope label styles');
     assert.ok(styles.includes('.skill-folder-more'), 'folder ⋯ button styles');
     assert.ok(styles.includes('.skill-ios-toggle.indeterminate'), 'indeterminate switch styles');
     assert.ok(styles.includes('.skill-folder-menu-item'), 'folder menu item styles');
@@ -426,10 +433,9 @@ function runSkillStyleChecks() {
     assert.ok(compiled.includes('.skill-folder'));
     assert.ok(compiled.includes('.skill-folder-more'));
     assert.ok(compiled.includes('.skill-folder-menu-item'));
-    assert.ok(compiled.includes('.skill-delete'));
+    assert.ok(compiled.includes('.skill-row'));
     assert.ok(!compiled.includes('.skill-parked-duplicates'));
-    assert.ok(compiled.includes('.skills-groups-wrapper .skill-card'), 'compact card rhythm');
-    assert.ok(compiled.includes('.skills-groups-wrapper .group'), 'compact tree node rhythm');
+    assert.ok(compiled.includes('.skills-groups-wrapper .group'), 'tree node rhythm');
     assert.ok(styles.includes('.skills-split'), 'split container styles');
     assert.ok(styles.includes('.skills-pane-resizer'), 'pane resizer styles');
     assert.ok(styles.includes('.skills-pane-grow'), 'growing pane styles');
@@ -446,7 +452,6 @@ function runSkillStyleChecks() {
     assert.ok(compiled.includes('.skill-toggle-pending'), 'pending switch styles');
     assert.ok(compiled.includes('.skill-folder-menu'), 'beautified ⋯ menu styles');
     assert.ok(compiled.includes('.skill-unmanaged'));
-    assert.ok(compiled.includes('.skill-chip'));
     assert.ok(compiled.includes('.skill-source-header'));
     assert.ok(compiled.includes('.skill-filter-hidden'));
     assert.ok(compiled.includes('.skill-drop-target'));
@@ -1265,7 +1270,7 @@ function runSkillSyncChecks() {
             visibility: { kimi: 'absent', claude: 'absent', codex: 'active' },
         }),
     ]);
-    assert.ok(driftHtml.includes('⚠ drift'), 'differing copies get a drift chip');
+    assert.ok(driftHtml.includes('title="Copies of this skill have drifted"'), 'differing copies get the drift warn glyph');
     assert.ok(driftHtml.includes('data-skill-sync="/home/dev/.codex/skills/demo"'), 'sync action renders');
     assert.ok(driftHtml.includes('#aaaaaaa'), 'copies list short fingerprints');
     const noDriftHtml = skillContent.getSkillsPanelContent([
@@ -2089,14 +2094,14 @@ function runSkillCentralChecks() {
     assert.ok(centralHtml.includes('class="skill-ios-toggle off"'), 'unlinked agents render an off switch');
     assert.ok(centralHtml.includes('Disable for kimi (/home/dev/.kimi/skills/shared)'), 'link path moves into the tooltip');
     assert.ok(centralHtml.includes('Enable for claude'));
-    assert.ok(!centralHtml.includes('not linked'), 'no per-agent path rows remain');
-    assert.ok(!centralHtml.includes('data-skill-delete="/home/dev/.skills/shared"'), 'central cards hide the Delete action');
-    assert.ok(!centralHtml.includes('data-skill-centralize="/home/dev/.skills/shared"'), 'central cards are not re-centralizable');
+    assert.ok(centralHtml.includes('skill-agent-note'), 'per-agent link path renders as a quiet note');
+    assert.ok(centralHtml.includes('>not linked<'), 'unlinked agents read as a muted note');
+    assert.ok(!centralHtml.includes('data-skill-delete='), 'Delete lives in the unmanaged row ⋯ menu only');
+    assert.ok(!centralHtml.includes('data-skill-centralize="/home/dev/.skills/shared"'), 'central rows are not re-centralizable');
     assert.ok(centralHtml.includes('data-skill-scope-action="/home/dev/.skills/shared"'));
     assert.ok(centralHtml.includes('data-skill-scope-operation="apply-to-project"'));
     assert.ok(centralHtml.includes('Use in project'));
-    assert.ok(centralHtml.includes('data-skill-centralize="/home/dev/.kimi/skills/demo"'), 'plain skills offer Centralize');
-    assert.ok(centralHtml.includes('data-skill-delete="/home/dev/.kimi/skills/demo"'), 'plain skills offer Delete');
+    assert.ok(centralHtml.includes('data-skill-centralize="/home/dev/.kimi/skills/demo"'), 'plain skills offer Centralize on hover');
 
     // wiring + styles
     const script = [
@@ -2120,10 +2125,9 @@ function runSkillCentralChecks() {
     assert.ok(skillPanel.includes("'skill-scope-action'"));
     const styles = fs.readFileSync(path.join(__dirname, '..', 'media', 'styles.scss'), 'utf8');
     const compiledCss = fs.readFileSync(path.join(__dirname, '..', 'media', 'styles.css'), 'utf8');
-    assert.ok(styles.includes('.skill-chip.central'));
-    assert.ok(styles.includes('.skill-centralize'));
+    assert.ok(styles.includes('.skill-hover-centralize'));
     assert.ok(styles.includes('.skill-ios-toggle'));
-    assert.ok(compiledCss.includes('.skill-centralize'));
+    assert.ok(compiledCss.includes('.skill-hover-centralize'));
     assert.ok(compiledCss.includes('.skill-ios-toggle'));
 }
 

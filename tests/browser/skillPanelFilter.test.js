@@ -125,8 +125,8 @@ function snapshot(page) {
                 && el.getBoundingClientRect().height > 0;
         };
         return {
-            cards: [...document.querySelectorAll('.project-container')].map(el => ({
-                name: el.querySelector('.project-header').textContent,
+            cards: [...document.querySelectorAll('.skill-row-holder')].map(el => ({
+                name: el.querySelector('.skill-name').firstChild.textContent,
                 visible: visible(el),
             })),
             sections: [...document.querySelectorAll('.group.steward-section')].map(el => ({
@@ -196,8 +196,8 @@ test('SKILLS-COLLAPSE-001 skill groups collapse via shared affordance and state 
             titles: [...document.querySelectorAll('.skills-groups-wrapper .group-title-text[data-action="collapse"]')].length,
             icons: [...document.querySelectorAll('.skills-groups-wrapper .collapse-icon')].length,
         }));
-        assert.equal(affordance.titles, 2, 'both scope groups carry the collapse affordance');
-        assert.equal(affordance.icons, 2);
+        assert.equal(affordance.titles, 2, 'both scope sections carry the collapse affordance');
+        assert.equal(affordance.icons, 0, 'chevrons only appear on folder rows (none in this fixture)');
 
         // The shared onInsideGroupClick machinery toggles `.collapsed` on the group;
         // simulate its exact effect and verify the CSS actually collapses the list.

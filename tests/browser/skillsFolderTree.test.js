@@ -151,6 +151,8 @@ test('PERSIST-AI-SKILL-SCOPE-ACTION-001 card scope actions use correlated pendin
         assert.equal(await page.textContent(globalButton), 'Use in project');
         assert.equal(await page.textContent(projectButton), 'Move to Global');
 
+        // Scope actions live in the expandable detail panel now.
+        await page.click('.skill-row[data-skill-dir="/home/dev/.skills/superpowers/alpha"]');
         await page.click(globalButton);
         const afterClick = await page.evaluate(selector => {
             const button = document.querySelector(selector);
@@ -250,6 +252,7 @@ test('PERSIST-AI-SKILL-SCOPE-ACTION-001 card scope actions use correlated pendin
         },
             'matching settlement clears pending only after authoritative HTML replacement');
 
+        await page.click('.skill-row[data-skill-dir="/work/app/.skills/project-only"]');
         await page.click(projectButton);
         const movedRecord = centralRecord({
             name: 'project-only',

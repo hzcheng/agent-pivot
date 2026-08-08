@@ -50,7 +50,11 @@ and transcript only when needed for its session and conversation views.
 
 The AI tab's SKILLS subtab splits Global and Project skills into two panes
 that scroll independently; drag the separator between them (or focus it and
-use the arrow keys) to resize the Project pane. Skills are organized as the
+use the arrow keys) to resize the Project pane. Skills render as a quiet
+list — icon, name, one-line summary, per-agent state dots — with actions
+appearing on hover or in the row's ⋯ menu, and an expandable detail panel
+per skill. Folder headers stay pinned while their lists scroll, stacking by
+depth in deep trees. Skills are organized as the
 on-disk folder tree of the
 shared stores (`~/.skills` globally by default, configurable from Settings or the
 Global section menu; `<project>/.skills` per project) —
@@ -66,9 +70,9 @@ state for partial folders); folders can be created from the section "+" and
 empty folders deleted from their "×". Cards can be filed by drag-and-drop
 or a "Move to folder…" editor — both perform real `mv` operations and keep
 existing links pointed at the skill. Skills still living in agent
-directories appear in an Unmanaged section and can be centralized card by
+directories appear in a "Not in the shared store" section and can be centralized card by
 card or in one shot with the "Agent Pivot: Migrate Skills to Central Store"
-command, and unmanaged cards can also be deleted outright (with
+command, and unmanaged rows can also be deleted outright from their ⋯ menu (with
 confirmation). Centralizing or migrating picks the
 kimi > claude > codex copy as the winner and deletes the other duplicate
 copies. Duplicate copies are

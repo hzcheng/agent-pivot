@@ -575,12 +575,12 @@ function runRealVsixArchiveChecks(mainPackage, bridgePackage) {
             'conversation content disclosure',
         ],
         [
-            'https://github.com/hzcheng/agent-pivot/blob/HEAD/../../LICENSE',
-            'VSCE-rewritten license link',
+            'https://github.com/hzcheng/agent-pivot/blob/main/LICENSE',
+            'absolute license link',
         ],
         [
-            'https://github.com/hzcheng/agent-pivot/blob/HEAD/../../THIRD_PARTY_NOTICES.md',
-            'VSCE-rewritten notices link',
+            'https://github.com/hzcheng/agent-pivot/blob/main/THIRD_PARTY_NOTICES.md',
+            'absolute notices link',
         ],
     ]) {
         assertIncludes(bridgeReadme, needle, `packaged UI Bridge README ${label}`);

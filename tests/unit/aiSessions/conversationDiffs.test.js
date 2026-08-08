@@ -166,14 +166,14 @@ test('CONVERSATION-DIFF-VISIBILITY-001 bounds line text and paths by grapheme li
     const files = parseUnifiedDiff(longLine, 'src/long.ts', 'update');
     assert.equal(
         files[0].hunks[0].lines[0].text.length
-            <= CONVERSATION_LIMITS.diffLineGraphemes + 1,
+            <= CONVERSATION_LIMITS.diffLineGraphemes,
         true
     );
 
     const longPath = 'src/'.repeat(400);
     const file = synthesizeFragmentDiff(longPath, 'update', 'a', 'b');
     assert.equal(
-        file.path.length <= CONVERSATION_LIMITS.diffPathGraphemes + 1,
+        file.path.length <= CONVERSATION_LIMITS.diffPathGraphemes,
         true
     );
 });

@@ -4497,11 +4497,15 @@
     "priority": "P1",
     "status": "automated",
     "owners": [
-      "tests/unit/aiSessions/conversationDiffs.test.js"
+      "tests/unit/aiSessions/conversationDiffs.test.js",
+      "tests/unit/aiSessions/conversationModel.test.js",
+      "tests/contract/aiSessions/conversationCoordinator.test.js"
     ],
     "evidence": [
       "src/aiSessions/conversation/types.ts",
-      "src/aiSessions/conversation/diffs.ts"
+      "src/aiSessions/conversation/diffs.ts",
+      "src/aiSessions/conversation/model.ts",
+      "src/aiSessions/conversation/coordinator.ts"
     ]
   },
   {

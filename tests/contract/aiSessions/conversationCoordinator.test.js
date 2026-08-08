@@ -349,6 +349,110 @@ test('CONVERSATION-PLAN-QUESTION-VISIBILITY-001 rejects malformed plan and quest
     }
 });
 
+test('CONVERSATION-DIFF-VISIBILITY-001 passes tool diffs through validation and rejects malformed diffs', async t => {
+    const diffToolMessage = diffs => ({
+        id: 'input-a:tool:0',
+        interactionId: 'input-a',
+        role: 'tool',
+        markdown: '',
+        tool: {
+            name: 'fileChange',
+            summary: 'fileChange update src/a.ts',
+            diffs,
+        },
+    });
+    const validDiffs = [{
+        path: 'src/a.ts',
+        kind: 'update',
+        additions: 1,
+        deletions: 1,
+        hunks: [{
+            oldStart: 3,
+            newStart: 3,
+            lines: [
+                { type: 'del', text: 'const a = 1;' },
+                { type: 'add', text: 'const a = 2;' },
+            ],
+        }],
+    }];
+    const calls = { codex: 0, kimi: 0, claude: 0 };
+    const codex = adapterReturning(calls, 'codex', {
+        readPage: async request => makePage(
+            'codex',
+            request.sessionId,
+            'native-a',
+            {
+                messages: [
+                    {
+                        id: 'input-a:user',
+                        interactionId: 'input-a',
+                        role: 'user',
+                        markdown: 'Apply the patch',
+                    },
+                    diffToolMessage(validDiffs),
+                ],
+            }
+        ),
+    });
+    const { coordinator } = createCoordinatorHarness({ codex });
+    t.after(() => coordinator.dispose());
+
+    const page = await coordinator.readPage({
+        provider: 'codex',
+        sessionId: 'session-diffs',
+        anchorInteractionId: 'input-a',
+        direction: 'around',
+    });
+    assert.deepEqual(page.messages[1].tool.diffs, validDiffs);
+
+    const malformedDiffs = [
+        [{ path: '', additions: 0, deletions: 0, hunks: [] }],
+        [{
+            path: 'src/a.ts',
+            additions: 1,
+            deletions: 0,
+            hunks: [{ lines: [{ type: 'rewrite', text: 'x' }] }],
+        }],
+        [{
+            path: 'src/a.ts',
+            additions: -1,
+            deletions: 0,
+            hunks: [],
+        }],
+    ];
+    for (const diffs of malformedDiffs) {
+        const badCodex = adapterReturning(calls, 'codex', {
+            readPage: async request => makePage(
+                'codex',
+                request.sessionId,
+                'native-a',
+                {
+                    messages: [
+                        {
+                            id: 'input-a:user',
+                            interactionId: 'input-a',
+                            role: 'user',
+                            markdown: 'Apply the patch',
+                        },
+                        diffToolMessage(diffs),
+                    ],
+                }
+            ),
+        });
+        const harness = createCoordinatorHarness({ codex: badCodex });
+        t.after(() => harness.coordinator.dispose());
+        await assert.rejects(
+            harness.coordinator.readPage({
+                provider: 'codex',
+                sessionId: `session-bad-diffs-${JSON.stringify(diffs[0].path)}-${diffs[0].additions}`,
+                anchorInteractionId: 'input-a',
+                direction: 'around',
+            }),
+            error => error.code === 'unavailable'
+        );
+    }
+});
+
 test('SESSION-CONVERSATION-COORDINATOR-001 isolates adapter failures and removes private details', async t => {
     const calls = { codex: 0, kimi: 0, claude: 0 };
     const coordinator = new ConversationCoordinator({

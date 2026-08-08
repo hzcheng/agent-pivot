@@ -16,6 +16,7 @@ import {
     ConversationAbortError,
     ConversationAbortSignal,
     ConversationError,
+    ConversationFileDiff,
     ConversationMessage,
     ConversationOutline,
     ConversationPage,
@@ -720,13 +721,21 @@ export class ConversationCoordinator implements AiSessionDisposable {
                                     message.tool.detail,
                                     CONVERSATION_LIMITS.toolCallDetailGraphemes
                                 )))
+                        && (message.tool.diffs === undefined
+                            || (isDenseOwnArray(message.tool.diffs)
+                                && message.tool.diffs.length
+                                    <= CONVERSATION_LIMITS.maxDiffsPerToolCall
+                                && message.tool.diffs.every(
+                                    isConversationFileDiff
+                                )))
+                        )
                     || (message.role === 'thinking'
                         && Boolean(message.thinking)
                         && typeof message.thinking.text === 'string'
                         && hasAtMostGraphemes(
                             message.thinking.text,
                             CONVERSATION_LIMITS.maxMessageGraphemes
-                        ))))
+                        )))
                 && (message.timestamp === undefined
                     || (typeof message.timestamp === 'number'
                         && Number.isFinite(message.timestamp)))
@@ -872,6 +881,45 @@ function isDenseOwnArray(value: unknown): value is unknown[] {
 const QUESTION_OUTCOME_SET: ReadonlySet<string> = new Set(
     CONVERSATION_QUESTION_OUTCOMES
 );
+
+function isConversationFileDiff(
+    value: ConversationFileDiff | undefined
+): boolean {
+    return Boolean(value)
+        && typeof value.path === 'string'
+        && Boolean(value.path)
+        && hasAtMostGraphemes(
+            value.path,
+            CONVERSATION_LIMITS.diffPathGraphemes
+        )
+        && (value.kind === undefined
+            || (typeof value.kind === 'string'
+                && hasAtMostGraphemes(value.kind, 100)))
+        && Number.isSafeInteger(value.additions)
+        && value.additions >= 0
+        && Number.isSafeInteger(value.deletions)
+        && value.deletions >= 0
+        && isDenseOwnArray(value.hunks)
+        && value.hunks.every(hunk => Boolean(hunk)
+            && (hunk.oldStart === undefined
+                || (Number.isSafeInteger(hunk.oldStart) && hunk.oldStart >= 0))
+            && (hunk.newStart === undefined
+                || (Number.isSafeInteger(hunk.newStart) && hunk.newStart >= 0))
+            && isDenseOwnArray(hunk.lines)
+            && hunk.lines.length <= CONVERSATION_LIMITS.maxDiffLinesPerFile
+            && hunk.lines.every(line => Boolean(line)
+                && (line.type === 'add'
+                    || line.type === 'del'
+                    || line.type === 'context')
+                && typeof line.text === 'string'
+                && hasAtMostGraphemes(
+                    line.text,
+                    CONVERSATION_LIMITS.diffLineGraphemes
+                ))
+            && (hunk.truncatedLines === undefined
+                || (Number.isSafeInteger(hunk.truncatedLines)
+                    && hunk.truncatedLines >= 0)));
+}
 
 function isConversationPlanPayload(
     plan: ConversationMessage['plan']

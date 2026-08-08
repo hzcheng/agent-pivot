@@ -11,14 +11,14 @@ import { truncateGraphemes } from './text';
 function boundDiffPath(value: string): string {
     return truncateGraphemes(
         value.trim(),
-        CONVERSATION_LIMITS.diffPathGraphemes
+        CONVERSATION_LIMITS.diffPathGraphemes - 1
     );
 }
 
 function boundLineText(value: string): string {
     return truncateGraphemes(
         value,
-        CONVERSATION_LIMITS.diffLineGraphemes
+        CONVERSATION_LIMITS.diffLineGraphemes - 1
     );
 }
 

@@ -785,6 +785,235 @@ test('CONVERSATION-DIFF-VISIBILITY-001 Kimi renders an orphan approval as its ow
     assert.match(settled.tool.detail, /Approval: reject — too risky/);
 });
 
+test('CONVERSATION-DIFF-VISIBILITY-001 Kimi synthesizes diffs from WriteFile and StrReplaceFile arguments', async t => {
+    const source = await createFixture(t);
+    await fs.promises.writeFile(source.sourcePath, [
+        {
+            timestamp: 1000,
+            message: {
+                type: 'TurnBegin',
+                payload: { user_input: 'Edit some files' },
+            },
+        },
+        {
+            timestamp: 1001,
+            message: {
+                type: 'ToolCall',
+                payload: {
+                    id: 'tool_write_1',
+                    function: {
+                        name: 'WriteFile',
+                        arguments: JSON.stringify({
+                            path: '/work/notes.md',
+                            content: '# Notes\n\nfirst line\n',
+                        }),
+                    },
+                },
+            },
+        },
+        {
+            timestamp: 1002,
+            message: {
+                type: 'ToolCall',
+                payload: {
+                    id: 'tool_append_1',
+                    function: {
+                        name: 'WriteFile',
+                        arguments: JSON.stringify({
+                            path: '/work/notes.md',
+                            content: 'appended line\n',
+                            mode: 'append',
+                        }),
+                    },
+                },
+            },
+        },
+        {
+            timestamp: 1003,
+            message: {
+                type: 'ToolCall',
+                payload: {
+                    id: 'tool_edit_1',
+                    function: {
+                        name: 'StrReplaceFile',
+                        arguments: JSON.stringify({
+                            path: '/work/config.toml',
+                            edit: [
+                                { old: 'a = 1', new: 'a = 2' },
+                                { old: 'b = 1', new: 'b = 2' },
+                            ],
+                        }),
+                    },
+                },
+            },
+        },
+        {
+            timestamp: 1004,
+            message: {
+                type: 'ToolCall',
+                payload: {
+                    id: 'tool_edit_2',
+                    function: {
+                        name: 'StrReplaceFile',
+                        arguments: JSON.stringify({
+                            path: '/work/single.toml',
+                            edit: { old: 'x', new: 'y' },
+                        }),
+                    },
+                },
+            },
+        },
+        {
+            timestamp: 1005,
+            message: {
+                type: 'ToolCall',
+                payload: {
+                    id: 'tool_edit_3',
+                    function: {
+                        name: 'StrReplaceFile',
+                        arguments: JSON.stringify({ path: '/work/broken.toml' }),
+                    },
+                },
+            },
+        },
+        {
+            timestamp: 1006,
+            message: { type: 'TurnEnd', payload: {} },
+        },
+    ].map(record => JSON.stringify(record)).join('\n') + '\n');
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+
+    const outline = await adapter.readOutline(sessionId);
+    const page = await adapter.readPage({
+        provider: 'kimi',
+        sessionId,
+        anchorInteractionId: outline.interactions[0].id,
+        direction: 'around',
+        expectedRevision: outline.sourceRevision,
+    });
+    const tools = page.messages.filter(message => message.role === 'tool');
+    assert.equal(tools.length, 5);
+
+    assert.deepEqual(tools[0].tool.diffs, [{
+        path: '/work/notes.md',
+        kind: 'add',
+        additions: 3,
+        deletions: 0,
+        hunks: [{
+            lines: [
+                { type: 'add', text: '# Notes' },
+                { type: 'add', text: '' },
+                { type: 'add', text: 'first line' },
+            ],
+        }],
+    }]);
+    assert.equal(tools[0].tool.detail, undefined);
+
+    assert.equal(tools[1].tool.diffs[0].kind, 'update');
+    assert.deepEqual(tools[1].tool.diffs[0].hunks[0].lines, [
+        { type: 'add', text: 'appended line' },
+    ]);
+
+    assert.equal(tools[2].tool.diffs.length, 1);
+    assert.equal(tools[2].tool.diffs[0].hunks.length, 2);
+    assert.deepEqual(tools[2].tool.diffs[0].hunks[0].lines, [
+        { type: 'del', text: 'a = 1' },
+        { type: 'add', text: 'a = 2' },
+    ]);
+    assert.deepEqual(tools[2].tool.diffs[0].hunks[1].lines, [
+        { type: 'del', text: 'b = 1' },
+        { type: 'add', text: 'b = 2' },
+    ]);
+    assert.equal(tools[2].tool.diffs[0].additions, 2);
+    assert.equal(tools[2].tool.diffs[0].deletions, 2);
+
+    assert.deepEqual(tools[3].tool.diffs[0].hunks[0].lines, [
+        { type: 'del', text: 'x' },
+        { type: 'add', text: 'y' },
+    ]);
+
+    // No usable edit pairs: generic raw-JSON rendering survives.
+    assert.equal(tools[4].tool.diffs, undefined);
+    assert.match(tools[4].tool.detail, /broken\.toml/);
+});
+
+test('CONVERSATION-DIFF-VISIBILITY-001 Kimi approval preview diffs supersede argument-synthesized ones', async t => {
+    const source = await createFixture(t);
+    await fs.promises.writeFile(source.sourcePath, [
+        {
+            timestamp: 1000,
+            message: {
+                type: 'TurnBegin',
+                payload: { user_input: 'Write with approval' },
+            },
+        },
+        {
+            timestamp: 1001,
+            message: {
+                type: 'ToolCall',
+                payload: {
+                    id: 'tool_write_9',
+                    function: {
+                        name: 'WriteFile',
+                        arguments: JSON.stringify({
+                            path: '/work/doc.md',
+                            content: 'from arguments',
+                        }),
+                    },
+                },
+            },
+        },
+        {
+            timestamp: 1002,
+            message: {
+                type: 'ApprovalRequest',
+                payload: {
+                    id: 'approval-9',
+                    tool_call_id: 'tool_write_9',
+                    sender: 'WriteFile',
+                    action: 'edit file',
+                    description: 'Edit /work/doc.md',
+                    display: [{
+                        type: 'diff',
+                        path: '/work/doc.md',
+                        old_text: 'original line',
+                        new_text: 'from approval preview',
+                    }],
+                },
+            },
+        },
+        {
+            timestamp: 1003,
+            message: { type: 'TurnEnd', payload: {} },
+        },
+    ].map(record => JSON.stringify(record)).join('\n') + '\n');
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+
+    const outline = await adapter.readOutline(sessionId);
+    const page = await adapter.readPage({
+        provider: 'kimi',
+        sessionId,
+        anchorInteractionId: outline.interactions[0].id,
+        direction: 'around',
+        expectedRevision: outline.sourceRevision,
+    });
+    const tool = page.messages.find(message => message.role === 'tool');
+    assert.deepEqual(tool.tool.diffs, [{
+        path: '/work/doc.md',
+        kind: 'update',
+        additions: 1,
+        deletions: 1,
+        hunks: [{
+            lines: [
+                { type: 'del', text: 'original line' },
+                { type: 'add', text: 'from approval preview' },
+            ],
+        }],
+    }]);
+});
+
 test('SESSION-AI-SESSION-KIMI-CONVERSATION-002 deduplicates a reread and changes offset identity after source reset', async t => {
     const source = await createFixture(t);
     const adapter = createAdapter(source);

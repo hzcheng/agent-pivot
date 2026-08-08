@@ -49,7 +49,10 @@ export class ToolCallTracker {
         }
     }
 
-    /** Attaches diff payloads to a still-pending call (approval previews). */
+    /**
+     * Replaces a pending call's diffs with authoritative approval-preview
+     * diffs (they supersede argument-synthesized fragments).
+     */
     attachDiffs(key: unknown, diffs: ConversationFileDiff[]): boolean {
         if (typeof key !== 'string' || !diffs.length) {
             return false;
@@ -58,8 +61,7 @@ export class ToolCallTracker {
         if (!call) {
             return false;
         }
-        call.diffs = (call.diffs ? call.diffs.concat(diffs) : diffs.slice())
-            .slice(0, CONVERSATION_LIMITS.maxDiffsPerToolCall);
+        call.diffs = diffs.slice(0, CONVERSATION_LIMITS.maxDiffsPerToolCall);
         return true;
     }
 

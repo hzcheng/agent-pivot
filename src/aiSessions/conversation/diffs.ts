@@ -205,6 +205,41 @@ interface LcsCell {
 }
 
 /**
+ * Synthesizes one fragment hunk per old/new pair (the shape Kimi
+ * StrReplaceFile edit lists carry). All hunks share one bounded file
+ * accumulator, so per-file line caps apply across the whole list.
+ */
+export function synthesizeFragmentDiffs(
+    path: string,
+    kind: string | undefined,
+    pairs: Array<{ oldText: string; newText: string }>
+): ConversationFileDiff {
+    const accumulator = newAccumulator(path, kind);
+    for (const pair of pairs) {
+        const oldLines = splitLines(
+            typeof pair.oldText === 'string' ? pair.oldText : ''
+        );
+        const newLines = splitLines(
+            typeof pair.newText === 'string' ? pair.newText : ''
+        );
+        const hunk: ConversationDiffHunk = { lines: [] };
+        accumulator.file.hunks.push(hunk);
+        if (oldLines.length > CONVERSATION_LIMITS.diffSynthesizeMaxLines
+            || newLines.length > CONVERSATION_LIMITS.diffSynthesizeMaxLines) {
+            for (const line of oldLines) {
+                pushLine(accumulator, hunk, { type: 'del', text: line });
+            }
+            for (const line of newLines) {
+                pushLine(accumulator, hunk, { type: 'add', text: line });
+            }
+            continue;
+        }
+        appendLcsLines(accumulator, hunk, oldLines, newLines);
+    }
+    return accumulator.file;
+}
+
+/**
  * Synthesizes a fragment-level diff from an old/new text pair (the shape
  * Kimi approval previews and Claude Edit inputs carry). Line-level LCS when
  * both sides stay under the synthesis cap; otherwise degrades to a
@@ -216,21 +251,15 @@ export function synthesizeFragmentDiff(
     oldText: string,
     newText: string
 ): ConversationFileDiff {
-    const oldLines = splitLines(typeof oldText === 'string' ? oldText : '');
-    const newLines = splitLines(typeof newText === 'string' ? newText : '');
-    const accumulator = newAccumulator(path, kind);
-    const hunk: ConversationDiffHunk = { lines: [] };
-    accumulator.file.hunks.push(hunk);
-    if (oldLines.length > CONVERSATION_LIMITS.diffSynthesizeMaxLines
-        || newLines.length > CONVERSATION_LIMITS.diffSynthesizeMaxLines) {
-        for (const line of oldLines) {
-            pushLine(accumulator, hunk, { type: 'del', text: line });
-        }
-        for (const line of newLines) {
-            pushLine(accumulator, hunk, { type: 'add', text: line });
-        }
-        return accumulator.file;
-    }
+    return synthesizeFragmentDiffs(path, kind, [{ oldText, newText }]);
+}
+
+function appendLcsLines(
+    accumulator: FileAccumulator,
+    hunk: ConversationDiffHunk,
+    oldLines: string[],
+    newLines: string[]
+): void {
     const width = newLines.length + 1;
     const table: LcsCell[] = new Array(
         (oldLines.length + 1) * width
@@ -280,5 +309,4 @@ export function synthesizeFragmentDiff(
     for (const line of emitted) {
         pushLine(accumulator, hunk, line);
     }
-    return accumulator.file;
 }

@@ -36,7 +36,7 @@ import {
     deriveQuestionSource,
     splitSettledAnswers,
 } from './questions';
-import { synthesizeFragmentDiff } from './diffs';
+import { synthesizeFragmentDiff, synthesizeFragmentDiffs } from './diffs';
 import {
     CONVERSATION_LIMITS,
     ConversationAbortSignal,
@@ -196,6 +196,50 @@ function interactionId(
 }
 
 const KIMI_QUESTION_TOOL_NAMES = new Set(['ExitPlanMode', 'AskUserQuestion']);
+
+/**
+ * Synthesizes fragment diffs from Kimi edit-tool arguments. Shapes probed
+ * from live wire.jsonl records: WriteFile carries path/content (+optional
+ * mode 'append'); StrReplaceFile carries path plus `edit` as one object or
+ * a list of {old, new} pairs. Returns undefined for any other shape so the
+ * caller keeps the generic raw-JSON rendering.
+ */
+function kimiEditToolDiffs(
+    name: string,
+    args: Record<string, any> | undefined
+): ConversationFileDiff[] | undefined {
+    if (!args || typeof args.path !== 'string' || !args.path) {
+        return undefined;
+    }
+    if (name === 'WriteFile' && typeof args.content === 'string') {
+        return [synthesizeFragmentDiff(
+            args.path,
+            args.mode === 'append' ? 'update' : 'add',
+            '',
+            args.content
+        )];
+    }
+    if (name === 'StrReplaceFile') {
+        const rawEdits = Array.isArray(args.edit)
+            ? args.edit
+            : args.edit && typeof args.edit === 'object'
+                ? [args.edit]
+                : [];
+        const pairs: Array<{ oldText: string; newText: string }> = [];
+        for (const rawEdit of rawEdits) {
+            const edit = asRecord(rawEdit);
+            if (typeof edit?.old === 'string'
+                && typeof edit?.new === 'string') {
+                pairs.push({ oldText: edit.old, newText: edit.new });
+            }
+        }
+        if (!pairs.length) {
+            return undefined;
+        }
+        return [synthesizeFragmentDiffs(args.path, 'update', pairs)];
+    }
+    return undefined;
+}
 
 function kimiQuestionItemsFromRecords(
     rawQuestions: unknown
@@ -941,6 +985,10 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                             (interaction.questions ||= []).push(block);
                             questionTracker.set(toolCallId, block);
                         } else {
+                            const editDiffs = kimiEditToolDiffs(
+                                toolFunction.name,
+                                args
+                            );
                             toolTracker.begin(
                                 interactions[openInteractionIndex],
                                 typeof payload?.id === 'string'
@@ -948,11 +996,14 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                                     : undefined,
                                 toolFunction.name,
                                 buildToolCallSummary(toolFunction.name, args),
-                                capToolCallDetail(
-                                    typeof toolFunction.arguments === 'string'
-                                        ? toolFunction.arguments
-                                        : ''
-                                )
+                                editDiffs
+                                    ? undefined
+                                    : capToolCallDetail(
+                                        typeof toolFunction.arguments === 'string'
+                                            ? toolFunction.arguments
+                                            : ''
+                                    ),
+                                editDiffs
                             );
                         }
                     }

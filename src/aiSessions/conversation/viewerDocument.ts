@@ -331,6 +331,8 @@ export function renderConversationViewerDocument(
                             aria-expanded="true">${CONVERSATION_COMMENT_ICON_CHEVRON}</button>
                         <span class="conversation-comments-section-title"
                             role="heading" aria-level="2">Workspace</span>
+                        <span class="conversation-comments-section-count"
+                            data-project-comments-count></span>
                         <button class="conversation-comment-icon-button conversation-comments-section-add"
                             type="button"
                             data-project-comment-action="open-composer"
@@ -410,6 +412,8 @@ export function renderConversationViewerDocument(
                             aria-expanded="true">${CONVERSATION_COMMENT_ICON_CHEVRON}</button>
                         <span class="conversation-comments-section-title"
                             role="heading" aria-level="2">Session</span>
+                        <span class="conversation-comments-section-count"
+                            data-session-comments-count></span>
                         <button class="conversation-comment-icon-button conversation-comments-section-add"
                             type="button" data-comment-action="new"
                             title="Add a note about this Session"

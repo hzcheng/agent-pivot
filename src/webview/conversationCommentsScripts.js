@@ -32,6 +32,8 @@
         var sessionCommentsHeader = options.sessionCommentsHeader;
         var sessionCommentsContent = options.sessionCommentsContent;
         var commentsSectionSash = options.commentsSectionSash;
+        var sessionCommentsCount = options.sessionCommentsCount;
+        var projectCommentsCount = options.projectCommentsCount;
         var commentsBody = commentsRoot
             ? commentsRoot.querySelector('[data-comments-body]')
             : null;
@@ -238,6 +240,14 @@
             }, { open: 0, done: 0 });
         }
 
+        function updateSectionCount(element, counts, noun) {
+            var total = counts.open + counts.done;
+            element.textContent = counts.open + '/' + total;
+            var label = counts.open + ' open of ' + total + ' ' + noun;
+            element.title = label;
+            element.setAttribute('aria-label', label);
+        }
+
         function resetClearAllConfirmation() {
             if (!commentUiAvailable) return;
             state.clearAllConfirmation = false;
@@ -251,6 +261,7 @@
             var counts = commentStatusCounts();
             var pending = !!state.pendingCommentRequest
                 || !!state.pendingLocateRequest;
+            updateSectionCount(sessionCommentsCount, counts, 'comments');
             if (commentCount) {
                 commentCount.textContent = String(state.comments.length);
                 commentCount.setAttribute(
@@ -2407,8 +2418,16 @@
             }
             if (state.projectComments.length > 0 && visible.length === 0) {
                 projectCommentEmpty.hidden = false;
-                projectCommentEmpty.textContent = 'No notes match this tag.';
+                projectCommentEmpty.textContent = 'No notes match this filter.';
             }
+            updateSectionCount(
+                projectCommentsCount,
+                state.projectComments.reduce(function (counts, comment) {
+                    counts[comment.status] += 1;
+                    return counts;
+                }, { open: 0, done: 0 }),
+                'notes'
+            );
             if (state.projectTagEditor) {
                 var editorInput = projectCommentList.querySelector(
                     '[data-project-comment-tag-input]'

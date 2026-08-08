@@ -148,6 +148,12 @@
     var commentsSectionSash = document.querySelector(
         '[data-comments-section-sash]'
     );
+    var projectCommentsCount = document.querySelector(
+        '[data-project-comments-count]'
+    );
+    var sessionCommentsCount = document.querySelector(
+        '[data-session-comments-count]'
+    );
     var projectCommentComposer = document.querySelector(
         '[data-project-comment-composer]'
     );
@@ -196,7 +202,7 @@
     var commentUiAvailable = sidebarUiAvailable
         && !!commentsRoot
         && !!sessionCommentsHeader && !!sessionCommentsContent
-        && !!commentsSectionSash
+        && !!commentsSectionSash && !!sessionCommentsCount
         && !!commentComposer && !!commentSelection && !!commentInput
         && !!commentList && !!commentEmpty && !!commentFilterEmpty
         && !!commentNew
@@ -213,6 +219,7 @@
     var projectCommentUiAvailable = commentUiAvailable
         && !!projectCommentsRoot && !!projectCommentsHeader
         && !!projectCommentsContent && !!projectCommentComposer
+        && !!projectCommentsCount
         && !!projectCommentSource
         && !!projectCommentSourceLabel && !!projectCommentSourceQuote
         && !!projectCommentInput && !!projectCommentDraftTags
@@ -396,9 +403,11 @@
         projectCommentsRoot: projectCommentsRoot,
         projectCommentsHeader: projectCommentsHeader,
         projectCommentsContent: projectCommentsContent,
+        projectCommentsCount: projectCommentsCount,
         sessionCommentsHeader: sessionCommentsHeader,
         sessionCommentsContent: sessionCommentsContent,
         commentsSectionSash: commentsSectionSash,
+        sessionCommentsCount: sessionCommentsCount,
         projectCommentComposer: projectCommentComposer,
         projectCommentSource: projectCommentSource,
         projectCommentSourceLabel: projectCommentSourceLabel,

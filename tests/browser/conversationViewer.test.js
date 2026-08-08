@@ -2886,7 +2886,7 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
         .digest('hex');
     assert.equal(
         sha256(previousViewerScript),
-        'ffb17d5e605121c3f614f17f072c18da7c9c27ea4f8c44c2961ec6b41a75522f',
+        '20fc70db30b3d8686a381889f874669872b2c1fbb8391a6108825c2d2a36580b',
         'the previous Viewer fixture must stay byte-exact'
     );
     assert.equal(
@@ -3600,6 +3600,16 @@ test('PROJECT-COMMENTS-UI-001 captures, tags, filters, and dispatches project no
         'note-2'
     );
 
+    // Group headers carry live open/total counts.
+    assert.equal(
+        await page.locator('[data-project-comments-count]').innerText(),
+        '2/2'
+    );
+    assert.equal(
+        await page.locator('[data-session-comments-count]').innerText(),
+        '0/0'
+    );
+
     // Tag filtering narrows the list and toggles back off.
     await filterChips.nth(3).click();
     assert.equal(await cards.count(), 1);
@@ -3874,6 +3884,10 @@ test('PROJECT-COMMENTS-UI-001 toggles, edits, and deletes notes with source snap
         [{ ...note, status: 'done', doneAt: 2000 }],
         { revision: 2 }
     ));
+    assert.equal(
+        await page.locator('[data-project-comments-count]').innerText(),
+        '0/1'
+    );
     assert.equal(
         await card.getAttribute('data-comment-status'),
         'done'

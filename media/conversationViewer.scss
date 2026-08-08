@@ -1575,6 +1575,12 @@ button {
     margin-left: auto;
 }
 
+.conversation-comments-section-count {
+    flex: 0 0 auto;
+    color: var(--vscode-descriptionForeground);
+    font-size: 0.66rem;
+}
+
 .conversation-comments-section-toggle {
     flex: 0 0 auto;
     margin: -0.15rem 0;

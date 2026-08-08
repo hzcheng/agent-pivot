@@ -188,3 +188,4 @@ not once per provider.
 | Identify targets by label, row index, or bare session ID | Resolve Host identities and use semantic or composite keys |
 | Treat one successful mirrored write as success | Repair from the snapshot, fail the mutation, and refresh |
 | Collapse a partial batch into success or failure | Preserve per-group results and announce bounded totals |
+| Assert on raw tag adjacency (e.g. `>Approved<`) in `panel.webview.html` | The initial publication embeds page HTML entity-escaped (`&gt;`/`&lt;`); assert on entity-safe substrings such as class names or plain text |

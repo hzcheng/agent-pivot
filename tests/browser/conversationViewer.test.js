@@ -2886,7 +2886,7 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
         .digest('hex');
     assert.equal(
         sha256(previousViewerScript),
-        '9bdd3c6cdad7fc465fa80babaa7f5237955265bab604bad1afe71c7916103412',
+        '5e3219fe7319433f3d2d987c7227ad9dfb32aa616796c0d348b7ec838ac679f8',
         'the previous Viewer fixture must stay byte-exact'
     );
     assert.equal(
@@ -3640,6 +3640,57 @@ test('PROJECT-COMMENTS-UI-001 captures, tags, filters, and dispatches project no
             '.conversation-project-comment-status'
         ).innerText(),
         'Open'
+    );
+
+    // Both section headers collapse their group and expand it back.
+    const projectHeader = projectSection.locator(
+        '[data-project-comments-header]'
+    );
+    await projectHeader.locator('.conversation-comments-section-title')
+        .click();
+    assert.equal(
+        await projectSection.locator('[data-project-comments-content]')
+            .isVisible(),
+        false
+    );
+    assert.equal(
+        await projectHeader.locator('[data-comments-section-toggle]')
+            .getAttribute('aria-expanded'),
+        'false'
+    );
+    await projectHeader.locator('[data-comments-section-toggle]').click();
+    assert.equal(
+        await projectSection.locator('[data-project-comments-content]')
+            .isVisible(),
+        true
+    );
+
+    const sessionHeader = page.locator('[data-session-comments-header]');
+    await sessionHeader.locator('.conversation-comments-section-title')
+        .click();
+    assert.equal(
+        await page.locator('[data-session-comments-content]').isVisible(),
+        false
+    );
+    await sessionHeader.locator('[data-comments-section-toggle]').click();
+    assert.equal(
+        await page.locator('[data-session-comments-content]').isVisible(),
+        true
+    );
+
+    // The section + button must not toggle the group.
+    await projectHeader.locator(
+        '[data-project-comment-action="open-composer"]'
+    ).click();
+    assert.equal(
+        await projectSection.locator('[data-project-comments-content]')
+            .isVisible(),
+        true
+    );
+    assert.equal(
+        await projectSection.locator('[data-project-comment-composer]')
+            .isVisible(),
+        true
     );
 });
 
@@ -8924,4 +8975,5 @@ test('CONVERSATION-NAVIGATION-STATE-001 keeps controls, status, focus, and scrol
         'navigation must remain inside the message viewport'
     );
 });
+
 

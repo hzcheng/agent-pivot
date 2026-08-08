@@ -133,6 +133,18 @@
         '[data-telemetry-comments]'
     );
     var projectCommentsRoot = document.querySelector('[data-project-comments]');
+    var projectCommentsHeader = document.querySelector(
+        '[data-project-comments-header]'
+    );
+    var projectCommentsContent = document.querySelector(
+        '[data-project-comments-content]'
+    );
+    var sessionCommentsHeader = document.querySelector(
+        '[data-session-comments-header]'
+    );
+    var sessionCommentsContent = document.querySelector(
+        '[data-session-comments-content]'
+    );
     var projectCommentComposer = document.querySelector(
         '[data-project-comment-composer]'
     );
@@ -183,6 +195,7 @@
         && validCommentTarget(commentTarget);
     var commentUiAvailable = sidebarUiAvailable
         && !!commentsRoot
+        && !!sessionCommentsHeader && !!sessionCommentsContent
         && !!commentComposer && !!commentSelection && !!commentInput
         && !!commentList && !!commentEmpty && !!commentFilterEmpty
         && !!commentNew
@@ -197,7 +210,8 @@
         && !!telemetrySubagents && !!telemetrySection
         && !!window.__agentPivotConversationSubagents;
     var projectCommentUiAvailable = commentUiAvailable
-        && !!projectCommentsRoot && !!projectCommentComposer
+        && !!projectCommentsRoot && !!projectCommentsHeader
+        && !!projectCommentsContent && !!projectCommentComposer
         && !!projectCommentSource
         && !!projectCommentSourceLabel && !!projectCommentSourceQuote
         && !!projectCommentInput && !!projectCommentDraftTags
@@ -379,6 +393,10 @@
         telemetrySection: telemetrySection,
         projectCommentsAvailable: projectCommentUiAvailable,
         projectCommentsRoot: projectCommentsRoot,
+        projectCommentsHeader: projectCommentsHeader,
+        projectCommentsContent: projectCommentsContent,
+        sessionCommentsHeader: sessionCommentsHeader,
+        sessionCommentsContent: sessionCommentsContent,
         projectCommentComposer: projectCommentComposer,
         projectCommentSource: projectCommentSource,
         projectCommentSourceLabel: projectCommentSourceLabel,

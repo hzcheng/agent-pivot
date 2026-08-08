@@ -1510,14 +1510,23 @@ button {
 // ---- Project comments (project-scoped notes) ----
 
 .conversation-comments-section-header {
+    position: sticky;
+    top: -0.25rem;
+    z-index: 2;
     display: flex;
     flex: 0 0 auto;
     min-width: 0;
     gap: 0.4rem;
     align-items: center;
     margin-bottom: 0.1rem;
-    padding: 0.25rem 0.2rem 0.3rem;
+    padding: 0.35rem 0.2rem 0.3rem;
     border-bottom: 1px solid var(--vscode-panel-border);
+    background: var(
+        --vscode-sideBar-background,
+        var(--vscode-editor-background)
+    );
+    cursor: pointer;
+    user-select: none;
 }
 
 .conversation-comments-section-header-session {
@@ -1547,6 +1556,27 @@ button {
 
 .conversation-comments-section-add {
     flex: 0 0 auto;
+}
+
+.conversation-comments-section-toggle {
+    flex: 0 0 auto;
+    margin: -0.15rem 0;
+}
+
+.conversation-comments-section-content {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.conversation-comments-section-content[hidden] {
+    display: none;
+}
+
+.conversation-project-comments
+.conversation-comments-section-content {
+    gap: 0.4rem;
 }
 
 .conversation-comments-section-header-session

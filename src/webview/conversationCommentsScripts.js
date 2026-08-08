@@ -27,6 +27,10 @@
         var post = options.post;
         var projectCommentsAvailable = options.projectCommentsAvailable;
         var projectCommentsRoot = options.projectCommentsRoot;
+        var projectCommentsHeader = options.projectCommentsHeader;
+        var projectCommentsContent = options.projectCommentsContent;
+        var sessionCommentsHeader = options.sessionCommentsHeader;
+        var sessionCommentsContent = options.sessionCommentsContent;
         var projectCommentComposer = options.projectCommentComposer;
         var projectCommentSource = options.projectCommentSource;
         var projectCommentSourceLabel = options.projectCommentSourceLabel;
@@ -66,6 +70,8 @@
             editingProjectComment: null,
             projectTagEditor: null,
             expandedDoneProjectComments: new Set(),
+            projectSectionCollapsed: false,
+            sessionSectionCollapsed: false,
         };
 
         function readJsonAttribute(name) {
@@ -1610,6 +1616,88 @@
             updateProjectComposerControls();
         }
 
+        function readCommentSectionState() {
+            if (!vscodeApi || typeof vscodeApi.getState !== 'function') {
+                return;
+            }
+            try {
+                var saved = vscodeApi.getState();
+                var sections = saved && saved.conversationCommentsSections;
+                if (sections && typeof sections === 'object'
+                    && !Array.isArray(sections)) {
+                    state.projectSectionCollapsed
+                        = sections.project === true;
+                    state.sessionSectionCollapsed
+                        = sections.session === true;
+                }
+            } catch (_error) {
+                // Section state persistence is best-effort.
+            }
+        }
+
+        function saveCommentSectionState() {
+            if (!vscodeApi || typeof vscodeApi.setState !== 'function') {
+                return;
+            }
+            try {
+                var saved = typeof vscodeApi.getState === 'function'
+                    ? vscodeApi.getState()
+                    : null;
+                var next = saved && typeof saved === 'object'
+                    && !Array.isArray(saved)
+                    ? Object.assign({}, saved)
+                    : {};
+                next.conversationCommentsSections = {
+                    project: state.projectSectionCollapsed,
+                    session: state.sessionSectionCollapsed,
+                };
+                vscodeApi.setState(next);
+            } catch (_error) {
+                // Section state persistence is best-effort.
+            }
+        }
+
+        function applySectionToggle(header, content, collapsed) {
+            var toggle = header.querySelector('[data-comments-section-toggle]');
+            if (toggle) {
+                toggle.setAttribute(
+                    'aria-expanded',
+                    collapsed ? 'false' : 'true'
+                );
+                var label = collapsed ? 'Expand section' : 'Collapse section';
+                toggle.title = label;
+                toggle.setAttribute('aria-label', label);
+            }
+            content.hidden = collapsed;
+        }
+
+        function applyCommentSectionState() {
+            applySectionToggle(
+                sessionCommentsHeader,
+                sessionCommentsContent,
+                state.sessionSectionCollapsed
+            );
+            if (projectCommentsAvailable) {
+                applySectionToggle(
+                    projectCommentsHeader,
+                    projectCommentsContent,
+                    state.projectSectionCollapsed
+                );
+            }
+        }
+
+        function toggleSessionSection() {
+            state.sessionSectionCollapsed = !state.sessionSectionCollapsed;
+            applyCommentSectionState();
+            saveCommentSectionState();
+        }
+
+        function toggleProjectSection() {
+            state.projectSectionCollapsed = !state.projectSectionCollapsed;
+            applyCommentSectionState();
+            saveCommentSectionState();
+        }
+
         function openProjectCommentComposer() {
             if (!projectCommentsAvailable
                 || state.pendingProjectCommentRequest) return;
@@ -2347,6 +2435,34 @@
                 }
             });
             if (projectCommentsAvailable) {
+                projectCommentsHeader.addEventListener(
+                    'click',
+                    function (event) {
+                        var actionElement = event.target
+                            && event.target.closest
+                            ? event.target.closest(
+                                '[data-project-comment-action]'
+                            )
+                            : null;
+                        if (actionElement
+                            && projectCommentsHeader.contains(actionElement)) {
+                            return;
+                        }
+                        toggleProjectSection();
+                    }
+                );
+            }
+            sessionCommentsHeader.addEventListener('click', function (event) {
+                var actionElement = event.target && event.target.closest
+                    ? event.target.closest('[data-comment-action]')
+                    : null;
+                if (actionElement
+                    && sessionCommentsHeader.contains(actionElement)) {
+                    return;
+                }
+                toggleSessionSection();
+            });
+            if (projectCommentsAvailable) {
                 projectCommentInput.addEventListener('input', function () {
                     autosizeCommentInput(projectCommentInput);
                     updateProjectComposerControls();
@@ -2645,6 +2761,8 @@
 
         function initializeComments() {
             state.filter = readCommentsFilter();
+            readCommentSectionState();
+            applyCommentSectionState();
             if (projectCommentsAvailable) {
                 state.projectTagFilter = readProjectTagFilter();
                 var initialProjectComments = readJsonAttribute(

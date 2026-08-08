@@ -25,6 +25,7 @@ const CONVERSATION_COMMENT_ICON_ERASER = '<svg viewBox="0 0 24 24" fill="none" s
 const CONVERSATION_COMMENT_ICON_TRASH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="m19 6-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>';
 const CONVERSATION_COMMENT_ICON_BOOKMARK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2Z"/></svg>';
 const CONVERSATION_COMMENT_ICON_PLUS = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg>';
+const CONVERSATION_COMMENT_ICON_CHEVRON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
 const CONVERSATION_NAV_ICON_PREVIOUS = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>';
 const CONVERSATION_NAV_ICON_NEXT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>';
 const CONVERSATION_NAV_ICON_LATEST = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 6 5 5 5-5"/><path d="m7 13 5 5 5-5"/></svg>';
@@ -323,7 +324,13 @@ export function renderConversationViewerDocument(
                 <div class="conversation-comments-body" data-comments-body>
                     <section class="conversation-project-comments"
                         data-project-comments aria-label="Project notes">
-                        <div class="conversation-comments-section-header">
+                        <div class="conversation-comments-section-header"
+                            data-project-comments-header>
+                            <button class="conversation-comment-icon-button conversation-comments-section-toggle"
+                                type="button" data-comments-section-toggle
+                                title="Collapse section"
+                                aria-label="Collapse section"
+                                aria-expanded="true">${CONVERSATION_COMMENT_ICON_CHEVRON}</button>
                             <span class="conversation-comments-section-title"
                                 role="heading" aria-level="2">Project</span>
                             <span class="conversation-comments-section-hint">Shared with every session of this project</span>
@@ -333,6 +340,8 @@ export function renderConversationViewerDocument(
                                 title="Add a project note"
                                 aria-label="Add a project note">${CONVERSATION_COMMENT_ICON_PLUS}</button>
                         </div>
+                        <div class="conversation-comments-section-content"
+                            data-project-comments-content>
                         <div class="conversation-project-comment-composer"
                             data-project-comment-composer hidden>
                             <div class="conversation-project-comment-source"
@@ -377,8 +386,15 @@ export function renderConversationViewerDocument(
                             data-project-comment-empty hidden>
                             No project notes yet.
                         </p>
+                        </div>
                     </section>
-                    <div class="conversation-comments-section-header conversation-comments-section-header-session">
+                    <div class="conversation-comments-section-header conversation-comments-section-header-session"
+                        data-session-comments-header>
+                        <button class="conversation-comment-icon-button conversation-comments-section-toggle"
+                            type="button" data-comments-section-toggle
+                            title="Collapse section"
+                            aria-label="Collapse section"
+                            aria-expanded="true">${CONVERSATION_COMMENT_ICON_CHEVRON}</button>
                         <span class="conversation-comments-section-title"
                             role="heading" aria-level="2">This Session</span>
                         <span class="conversation-comments-section-chip"
@@ -390,6 +406,8 @@ export function renderConversationViewerDocument(
                             title="Add a note about this Session"
                             aria-label="Add a note about this Session">${CONVERSATION_COMMENT_ICON_PLUS}</button>
                     </div>
+                    <div class="conversation-comments-section-content"
+                        data-session-comments-content>
                     <div class="conversation-comment-composer"
                         data-comment-composer hidden>
                         <blockquote data-comment-selection></blockquote>
@@ -416,6 +434,7 @@ export function renderConversationViewerDocument(
                     <p class="conversation-comment-empty" data-comment-empty>
                         Select text to comment on it, or add a Session note.
                     </p>
+                    </div>
                 </div>
                 <div class="conversation-comments-toolbar"
                     data-comments-toolbar role="group" aria-label="Comment actions">

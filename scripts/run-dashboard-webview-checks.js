@@ -3723,6 +3723,7 @@ async function runDashboardCommandRegistrationChecks() {
         'openCurrentAiSessionConversation',
         'previousActiveSession',
         'nextActiveSession',
+        'nextAttentionSession',
         'switchToOpenWindow',
     ];
     const registration = new DashboardCommandRegistration({
@@ -3753,6 +3754,7 @@ async function runDashboardCommandRegistrationChecks() {
         'agentPivot.openCurrentAiSessionConversation',
         'agentPivot.previousActiveSession',
         'agentPivot.nextActiveSession',
+        'agentPivot.nextAttentionSession',
         'agentPivot.switchToOpenWindow',
     ]);
     assert.deepStrictEqual(subscriptions.map(disposable => disposable.command), registered.map(([command]) => command));
@@ -3786,6 +3788,7 @@ async function runDashboardCommandRegistrationChecks() {
         'openCurrentAiSessionConversation',
         'previousActiveSession',
         'nextActiveSession',
+        'nextAttentionSession',
         'switchToOpenWindow',
     ]);
 

@@ -107,6 +107,10 @@
                 "title": "Agent Pivot: Next Active Session"
             },
             {
+                "command": "agentPivot.nextAttentionSession",
+                "title": "Agent Pivot: Next Attention Session"
+            },
+            {
                 "command": "agentPivot.notify.setWebhook",
                 "title": "Agent Pivot: Set Notification Webhook"
             },

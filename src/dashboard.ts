@@ -56,7 +56,23 @@ import {
 import AiSessionWorkspaceStateStore from './aiSessions/workspaceStateStore';
 import ActiveAiSessionTerminalHighlighter from './aiSessions/activeTerminalHighlight';
 import AttentionBridgeClient from './aiSessions/attentionBridgeClient';
-import { getLogicalAttentionSessionKey } from './aiSessions/attentionProject';
+import {
+    getAttentionProjectKey,
+    getAttentionProjectPath,
+    getLogicalAttentionSessionKey,
+} from './aiSessions/attentionProject';
+import { buildAttentionQueue } from './aiSessions/attentionQueue';
+import type {
+    AttentionQueue,
+    AttentionQueueWorkspace,
+    AttentionQueueWorkspaceSession,
+} from './aiSessions/attentionQueue';
+import {
+    createAttentionStatusBarController,
+} from './aiSessions/attentionStatusBarController';
+import {
+    createAttentionQueueJumpHandler,
+} from './dashboard/attentionQueueJump';
 import type { ActiveAiSessionTerminalIdentity } from './aiSessions/activeTerminalHighlight';
 import { getAiSessionKey } from './aiSessions/sessionHelpers';
 import { createAiSessionProviderRegistry } from './aiSessions/providers';
@@ -1268,8 +1284,14 @@ async function initializeDashboard(
                 }));
             }
         },
-        onAttentionAcknowledged: eventIds => notifyDispatcher.cancel(eventIds),
-        onAttentionCancelled: eventIds => notifyDispatcher.cancel(eventIds),
+        onAttentionAcknowledged: eventIds => {
+            notifyDispatcher.cancel(eventIds);
+            attentionStatusBarController.refresh(buildCurrentAttentionQueue());
+        },
+        onAttentionCancelled: eventIds => {
+            notifyDispatcher.cancel(eventIds);
+            attentionStatusBarController.refresh(buildCurrentAttentionQueue());
+        },
         nowMs: () => Date.now(),
     });
     const aiSessionExecutionController = new AiSessionExecutionController({
@@ -1696,6 +1718,91 @@ async function initializeDashboard(
         showWarningMessage: message => vscode.window.showWarningMessage(message),
         refresh: refreshStewardViews,
     });
+    const buildCurrentAttentionQueue = (): AttentionQueue => {
+        const target = getCurrentWorkspaceActionTargetWithoutCardId();
+        let workspace: AttentionQueueWorkspace | null = null;
+        if (target) {
+            const sessions: AttentionQueueWorkspaceSession[] = [];
+            for (const provider of getRegisteredAiSessionProviders()) {
+                for (const session of
+                    target.sessions.sessionsByProvider[provider.id] || []) {
+                    sessions.push({
+                        provider: provider.id,
+                        id: session.id,
+                        name: session.name,
+                        primaryRootId: session.primaryRootId,
+                    });
+                }
+            }
+            workspace = {
+                roots: target.workspace.roots.map(root => ({
+                    id: root.id,
+                    uri: root.uri,
+                })),
+                sessions,
+            };
+        }
+        return buildAttentionQueue({
+            aggregate: aiSessionAttentionController.getEffectiveAggregate(),
+            workspace,
+        });
+    };
+    const attentionStatusBarController = ownResource(() =>
+        createAttentionStatusBarController({
+            isEnabled: () => getAgentPivotConfiguration()
+                .get<boolean>('aiSessionAttention.enabled', true) !== false,
+            command: 'agentPivot.nextAttentionSession',
+            nowMs: () => Date.now(),
+        })
+    );
+    const jumpToNextAttentionSession = createAttentionQueueJumpHandler({
+        buildQueue: buildCurrentAttentionQueue,
+        focusSession: item => {
+            const cardId = getCurrentWorkspaceActionTargetWithoutCardId()?.cardId;
+            return cardId
+                ? aiSessionTerminalCommandController.focusActive(
+                    cardId,
+                    item.provider,
+                    item.sessionId
+                )
+                : Promise.resolve(false);
+        },
+        openConversation: item => {
+            const cardId = getCurrentWorkspaceActionTargetWithoutCardId()?.cardId;
+            return cardId
+                ? openAiSessionConversationWithFeedback({
+                    projectId: cardId,
+                    provider: item.provider,
+                    sessionId: item.sessionId,
+                })
+                : Promise.resolve();
+        },
+        acknowledge: eventIds =>
+            acknowledgeAiSessionAttentionEventIds(eventIds),
+        findNavigationCardId: projectId => {
+            for (const card of openWorkspaceDashboardController.getCards()) {
+                if (card.kind !== 'navigation') {
+                    continue;
+                }
+                const record = openWorkspaceDashboardController
+                    .getNavigationWorkspace(card.id);
+                if (record && record.roots.some(root =>
+                    getAttentionProjectKey(getAttentionProjectPath(root.uri))
+                        === projectId)) {
+                    return card.id;
+                }
+            }
+            return null;
+        },
+        openNavigationCard: cardId =>
+            workspaceNavigationController.open(cardId),
+        showInformationMessage: message =>
+            vscode.window.showInformationMessage(message),
+        showWarningMessage: message =>
+            vscode.window.showWarningMessage(message),
+    });
+    // The first paint happens after bootstrap settles (see the post-ready
+    // startup timer below); earlier reads of the card projection are unsafe.
     const workspaceNavigationQuickPickController = new WorkspaceNavigationQuickPickController({
         getCards: () => openWorkspaceDashboardController.getCards(),
         getRecord: cardId => openWorkspaceDashboardController.getNavigationWorkspace(cardId),
@@ -1944,6 +2051,7 @@ async function initializeDashboard(
             followAdjacentActiveConversationWithFeedback('previous'),
         nextActiveSession: () =>
             followAdjacentActiveConversationWithFeedback('next'),
+        nextAttentionSession: () => jumpToNextAttentionSession(),
         switchToOpenWindow: () => workspaceNavigationQuickPickController.pickAndOpen(),
     };
 
@@ -1993,6 +2101,9 @@ async function initializeDashboard(
                     } catch (_error) {
                         return;
                     }
+                    attentionStatusBarController.refresh(
+                        buildCurrentAttentionQueue()
+                    );
                     logDashboardDiagnostic({
                         event: 'agent-pivot-post-ready-startup-settled',
                         generation: bootstrapGeneration,
@@ -2234,6 +2345,9 @@ async function initializeDashboard(
 
     function scheduleAiSessionRefresh(reason = 'refresh') {
         aiSessionDashboardController.scheduleRefresh(reason);
+        if (reason === 'attention') {
+            attentionStatusBarController.refresh(buildCurrentAttentionQueue());
+        }
     }
 
     function setAiSessionWatchersActive(active: boolean) {

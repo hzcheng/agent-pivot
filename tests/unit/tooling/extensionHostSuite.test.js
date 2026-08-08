@@ -25,6 +25,7 @@ const publicCommands = [
     'agentPivot.openCurrentAiSessionConversation',
     'agentPivot.previousActiveSession',
     'agentPivot.nextActiveSession',
+    'agentPivot.nextAttentionSession',
     'agentPivot.switchToOpenWindow',
 ];
 

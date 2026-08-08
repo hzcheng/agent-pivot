@@ -22,6 +22,7 @@ export interface DashboardCommandHandlers {
     openCurrentAiSessionConversation: DashboardCommandHandler;
     previousActiveSession: DashboardCommandHandler;
     nextActiveSession: DashboardCommandHandler;
+    nextAttentionSession: DashboardCommandHandler;
     switchToOpenWindow: DashboardCommandHandler;
 }
 
@@ -52,6 +53,7 @@ const DASHBOARD_COMMANDS: ReadonlyArray<readonly [string, DashboardCommandName]>
     ['agentPivot.openCurrentAiSessionConversation', 'openCurrentAiSessionConversation'],
     ['agentPivot.previousActiveSession', 'previousActiveSession'],
     ['agentPivot.nextActiveSession', 'nextActiveSession'],
+    ['agentPivot.nextAttentionSession', 'nextAttentionSession'],
     ['agentPivot.switchToOpenWindow', 'switchToOpenWindow'],
 ];
 

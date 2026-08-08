@@ -2,6 +2,16 @@
 
 import type { AiSessionProviderId } from '../../models';
 import {
+    CONVERSATION_COMMENT_MUTATION_OPERATIONS,
+    ConversationCommentMutationOperation,
+    ConversationCommentSendOperation,
+} from './comments';
+import {
+    PROJECT_COMMENT_MUTATION_OPERATIONS,
+    ProjectCommentMutationOperation,
+    ProjectCommentSendOperation,
+} from './projectComments';
+import {
     isAiSessionProvider,
     isBoundedId,
     isRecord,
@@ -35,8 +45,7 @@ export interface ConversationViewerCommentMutationMessage {
     projectId: string;
     provider: AiSessionProviderId;
     sessionId: string;
-    operation: 'add' | 'update' | 'delete' | 'reorder'
-        | 'clearDone' | 'clearAll' | 'addTag' | 'removeTag';
+    operation: ConversationCommentMutationOperation;
     expectedRevision: number;
     payload: unknown;
 }
@@ -53,8 +62,7 @@ export interface ConversationViewerLocateCommentMessage {
 }
 
 export type ConversationViewerProjectCommentOperation =
-    'add' | 'update' | 'delete' | 'setStatus' | 'addTag' | 'removeTag'
-    | 'reorder' | 'clearDone' | 'clearAll';
+    ProjectCommentMutationOperation;
 
 export interface ConversationViewerProjectCommentMutationMessage {
     type: 'conversation-viewer-project-comment-mutation';
@@ -77,7 +85,7 @@ export interface ConversationViewerSendProjectCommentMessage {
     projectId: string;
     provider: AiSessionProviderId;
     sessionId: string;
-    operation: 'sendProjectComment' | 'sendProjectComments';
+    operation: ProjectCommentSendOperation;
     expectedRevision: number;
     payload: unknown;
 }
@@ -90,7 +98,7 @@ export interface ConversationViewerSendCommentsMessage {
     projectId: string;
     provider: AiSessionProviderId;
     sessionId: string;
-    operation: 'sendComments' | 'sendComment';
+    operation: ConversationCommentSendOperation;
     expectedRevision: number;
     payload: Record<string, never> | { commentId: string };
 }
@@ -372,15 +380,10 @@ export function parseConversationViewerMessage(
             return undefined;
         }
         if (value.type === 'conversation-viewer-project-comment-mutation') {
-            if (value.operation !== 'add'
-                && value.operation !== 'update'
-                && value.operation !== 'delete'
-                && value.operation !== 'setStatus'
-                && value.operation !== 'addTag'
-                && value.operation !== 'removeTag'
-                && value.operation !== 'clearDone'
-                && value.operation !== 'clearAll'
-                && value.operation !== 'reorder') {
+            if (!isListedOperation(
+                value.operation,
+                PROJECT_COMMENT_MUTATION_OPERATIONS
+            )) {
                 return undefined;
             }
             return value as unknown as
@@ -403,52 +406,50 @@ export function parseConversationViewerMessage(
         return value as unknown as
             ConversationViewerSendProjectCommentMessage;
     }
-    if ((value.type !== 'conversation-viewer-comment-mutation'
-            && value.type !== 'conversation-viewer-send-comments')
-        || keys.length !== 10
-        || !hasExactKeys(value, [
-            'type', 'version', 'requestId', 'subscriptionGeneration',
-            'projectId', 'provider', 'sessionId', 'operation',
-            'expectedRevision', 'payload',
-        ])
-        || !isRequestId(value.requestId)
-        || !isPositiveSafeInteger(value.subscriptionGeneration)
-        || !isConversationViewerTargetId(value.projectId)
-        || !isAiSessionProvider(value.provider)
-        || !isConversationViewerTargetId(value.sessionId)
-        || !isNonnegativeSafeInteger(value.expectedRevision)
-        || !value.payload
-        || typeof value.payload !== 'object'
-        || Array.isArray(value.payload)) {
-        return undefined;
-    }
-    if (value.type === 'conversation-viewer-comment-mutation') {
-        if (value.operation !== 'add'
-            && value.operation !== 'update'
-            && value.operation !== 'delete'
-            && value.operation !== 'reorder'
-            && value.operation !== 'addTag'
-            && value.operation !== 'removeTag'
-            && value.operation !== 'clearDone'
-            && value.operation !== 'clearAll') {
+    if (value.type === 'conversation-viewer-comment-mutation'
+        || value.type === 'conversation-viewer-send-comments') {
+        if (keys.length !== 10
+            || !hasExactKeys(value, [
+                'type', 'version', 'requestId', 'subscriptionGeneration',
+                'projectId', 'provider', 'sessionId', 'operation',
+                'expectedRevision', 'payload',
+            ])
+            || !isRequestId(value.requestId)
+            || !isPositiveSafeInteger(value.subscriptionGeneration)
+            || !isConversationViewerTargetId(value.projectId)
+            || !isAiSessionProvider(value.provider)
+            || !isConversationViewerTargetId(value.sessionId)
+            || !isNonnegativeSafeInteger(value.expectedRevision)
+            || !value.payload
+            || typeof value.payload !== 'object'
+            || Array.isArray(value.payload)) {
             return undefined;
         }
-        return value as unknown as ConversationViewerCommentMutationMessage;
-    }
-    if (value.operation === 'sendComments') {
-        if (Object.keys(value.payload as object).length !== 0) {
+        if (value.type === 'conversation-viewer-comment-mutation') {
+            if (!isListedOperation(
+                value.operation,
+                CONVERSATION_COMMENT_MUTATION_OPERATIONS
+            )) {
+                return undefined;
+            }
+            return value as unknown as ConversationViewerCommentMutationMessage;
+        }
+        if (value.operation === 'sendComments') {
+            if (Object.keys(value.payload as object).length !== 0) {
+                return undefined;
+            }
+            return value as unknown as ConversationViewerSendCommentsMessage;
+        }
+        if (value.operation !== 'sendComment'
+            || !hasExactKeys(value.payload as object, ['commentId'])
+            || !isConversationViewerTargetId(
+                (value.payload as { commentId: unknown }).commentId
+            )) {
             return undefined;
         }
         return value as unknown as ConversationViewerSendCommentsMessage;
     }
-    if (value.operation !== 'sendComment'
-        || !hasExactKeys(value.payload as object, ['commentId'])
-        || !isConversationViewerTargetId(
-            (value.payload as { commentId: unknown }).commentId
-        )) {
-        return undefined;
-    }
-    return value as unknown as ConversationViewerSendCommentsMessage;
+    return undefined;
 }
 
 export function hasExactKeys(
@@ -464,6 +465,13 @@ export function isConversationViewerTargetId(
     value: unknown
 ): value is string {
     return isBoundedId(value);
+}
+
+function isListedOperation(
+    value: unknown,
+    operations: readonly string[]
+): boolean {
+    return typeof value === 'string' && operations.includes(value);
 }
 
 function hasOwn(value: object, key: string): boolean {

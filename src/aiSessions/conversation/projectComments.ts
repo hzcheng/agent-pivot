@@ -64,10 +64,23 @@ export interface ProjectComment {
     dispatches: ProjectCommentDispatch[];
 }
 
-export type ProjectCommentOperation =
-    'add' | 'update' | 'delete' | 'setStatus' | 'addTag' | 'removeTag'
-    | 'reorder' | 'clearDone' | 'clearAll'
-    | 'sendProjectComment' | 'sendProjectComments';
+export const PROJECT_COMMENT_MUTATION_OPERATIONS = Object.freeze([
+    'add', 'update', 'delete', 'setStatus', 'addTag', 'removeTag',
+    'reorder', 'clearDone', 'clearAll',
+] as const);
+
+export type ProjectCommentMutationOperation =
+    typeof PROJECT_COMMENT_MUTATION_OPERATIONS[number];
+
+export const PROJECT_COMMENT_SEND_OPERATIONS = Object.freeze([
+    'sendProjectComment', 'sendProjectComments',
+] as const);
+
+export type ProjectCommentSendOperation =
+    typeof PROJECT_COMMENT_SEND_OPERATIONS[number];
+
+export type ProjectCommentOperation = ProjectCommentMutationOperation
+    | ProjectCommentSendOperation;
 
 export type ProjectCommentClearOperation = 'clearDone' | 'clearAll';
 

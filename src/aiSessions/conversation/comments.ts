@@ -69,9 +69,23 @@ export interface ConversationCommentSessionNote {
     comment: string;
 }
 
+export const CONVERSATION_COMMENT_MUTATION_OPERATIONS = Object.freeze([
+    'add', 'update', 'delete', 'reorder', 'clearDone', 'clearAll',
+    'addTag', 'removeTag',
+] as const);
+
+export type ConversationCommentMutationOperation =
+    typeof CONVERSATION_COMMENT_MUTATION_OPERATIONS[number];
+
+export const CONVERSATION_COMMENT_SEND_OPERATIONS = Object.freeze([
+    'sendComments', 'sendComment',
+] as const);
+
+export type ConversationCommentSendOperation =
+    typeof CONVERSATION_COMMENT_SEND_OPERATIONS[number];
+
 export type ConversationCommentOperation =
-    'add' | 'update' | 'delete' | 'reorder' | 'clearDone' | 'clearAll'
-    | 'sendComments' | 'sendComment' | 'addTag' | 'removeTag';
+    ConversationCommentMutationOperation | ConversationCommentSendOperation;
 
 export type ConversationCommentClearOperation =
     'clearDone' | 'clearAll';

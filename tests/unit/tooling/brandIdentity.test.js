@@ -96,6 +96,10 @@ function manifests() {
                 type: 'git',
                 url: 'https://github.com/hzcheng/agent-pivot.git',
             },
+            homepage: 'https://github.com/hzcheng/agent-pivot#readme',
+            bugs: {
+                url: 'https://github.com/hzcheng/agent-pivot/issues',
+            },
         },
     };
 }
@@ -225,20 +229,23 @@ test('Sharingan notice retains source, author, license, and non-endorsement', ()
     assert.match(notice, /Their inclusion does not imply endorsement\./);
 });
 
-test('current changelog is clean while historical development bytes are locked', () => {
+test('current changelog is clean while archived development bytes are locked', () => {
     const changelog = read('CHANGELOG.md');
     assert.match(changelog, /^## \[1\.0\.0\] - 2026-07-26$/m);
     const boundary = '## Unpublished Project Steward development history';
-    const boundaryIndex = changelog.indexOf(boundary);
-    assert.notEqual(boundaryIndex, -1);
-    const currentRelease = changelog.slice(0, boundaryIndex);
-    assert.doesNotMatch(currentRelease,
+    assert.equal(changelog.includes(boundary), false,
+        'published changelog must not contain the unpublished pre-release history');
+    assert.doesNotMatch(changelog,
         /Project Steward|project-steward|projectSteward|hzcheng\.project-steward/);
+    const archivedHistory = read('docs/development-history.md');
+    assert.match(archivedHistory, /^# Pre-release development history$/m);
+    assert.ok(archivedHistory.includes(boundary),
+        'archived development history must retain the reviewed historical section');
     assert.equal(
         crypto.createHash('sha256')
-            .update(changelog.slice(boundaryIndex))
+            .update(archivedHistory)
             .digest('hex'),
-        'b9ba0a7c8b2adfff3afe44a18dd7dfd08f061879206124241e60b171ae1092db'
+        '2e762dac9504b55c7361a4db6ca6657f77418b5ed48e5fb117269d5064809af7'
     );
 });
 
@@ -324,6 +331,9 @@ test('manifest pair accepts only the atomic Agent Pivot identity', () => {
         value => { value.bridge.name =
             'project-steward-attention-ui-bridge'; },
         value => { delete value.bridge.icon; },
+        value => { delete value.bridge.homepage; },
+        value => { value.bridge.bugs.url =
+            'https://github.com/Kruemelkatze/vscode-dashboard/issues'; },
     ]) {
         const changed = manifests();
         mutate(changed);
@@ -344,9 +354,22 @@ test('scanner rejects current stale identity and permits only reviewed history',
         '# Changelog\n\n## [1.0.0] - 2026-07-26\n\nAgent Pivot\n\n' +
         '## Unpublished Project Steward development history\n\n' +
         'Project Steward history\n');
+    fs.writeFileSync(path.join(root, 'docs/development-history.md'),
+        '## Unpublished Project Steward development history\n\n' +
+        'Project Steward history\n');
     fs.writeFileSync(path.join(root, 'docs/superpowers/plans/history.md'),
         'project-steward design evidence\n');
     assert.deepEqual(findStaleIdentity(root), [{
+        file: 'CHANGELOG.md',
+        line: 7,
+        token: 'Project Steward',
+        excerpt: '## Unpublished Project Steward development history',
+    }, {
+        file: 'CHANGELOG.md',
+        line: 9,
+        token: 'Project Steward',
+        excerpt: 'Project Steward history',
+    }, {
         file: 'src/current.ts',
         line: 1,
         token: 'projectSteward',
@@ -359,7 +382,7 @@ test('scanner does not hide stale identity in the current changelog section', ()
     fs.writeFileSync(path.join(root, 'CHANGELOG.md'),
         '# Changelog\n\n## [1.0.0] - 2026-07-26\n\nProject Steward\n\n' +
         '## Unpublished Project Steward development history\n');
-    assert.deepEqual(findStaleIdentity(root).map(item => item.line), [5]);
+    assert.deepEqual(findStaleIdentity(root).map(item => item.line), [5, 7]);
 });
 
 test('scanner rejects stale identity in former release reset wording', () => {
@@ -369,7 +392,7 @@ test('scanner rejects stale identity in former release reset wording', () => {
         '- Reset the unpublished extension identity, commands, settings, state, managed\n' +
         '  runtime names, and companion bridge from Project Steward to Agent Pivot.\n\n' +
         '## Unpublished Project Steward development history\n');
-    assert.deepEqual(findStaleIdentity(root).map(item => item.line), [8]);
+    assert.deepEqual(findStaleIdentity(root).map(item => item.line), [8, 10]);
 });
 
 test('scanner rejects inherited marketplace icon bytes by sha256', () => {

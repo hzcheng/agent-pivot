@@ -1619,7 +1619,10 @@ button {
 }
 
 .conversation-comments-body[data-workspace-collapsed="true"]
-.conversation-comments-session-region:not([data-explicit-height]) {
+.conversation-comments-session-region {
+    // With the Workspace group folded away (and the sash hidden), the
+    // Session region takes the whole panel; any sash-dragged height is
+    // suspended until the group expands again.
     flex: 1 1 0;
     max-height: none;
 }

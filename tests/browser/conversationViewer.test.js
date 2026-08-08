@@ -3727,6 +3727,10 @@ test('PROJECT-COMMENTS-UI-001 captures, tags, filters, and dispatches project no
 
     // Both section headers collapse their group and expand it back.
     const sash = page.locator('[data-comments-section-sash]');
+    const sessionRegion = page.locator('[data-session-comments-content]');
+    const sessionHeightBeforeCollapse = await sessionRegion.evaluate(
+        element => element.getBoundingClientRect().height
+    );
     await projectHeader.locator('.conversation-comments-section-title')
         .click();
     assert.equal(
@@ -3735,6 +3739,15 @@ test('PROJECT-COMMENTS-UI-001 captures, tags, filters, and dispatches project no
         false
     );
     assert.equal(await sash.isVisible(), false);
+    // With the Workspace group folded away, the Session region fills the
+    // whole panel instead of keeping its previous share.
+    const sessionHeightCollapsed = await sessionRegion.evaluate(
+        element => element.getBoundingClientRect().height
+    );
+    assert.ok(
+        sessionHeightCollapsed > sessionHeightBeforeCollapse + 100,
+        'the Session region must fill the panel when Workspace is collapsed'
+    );
     assert.equal(
         await projectHeader.locator('[data-comments-section-toggle]')
             .getAttribute('aria-expanded'),
@@ -3785,7 +3798,6 @@ test('PROJECT-COMMENTS-UI-001 captures, tags, filters, and dispatches project no
     );
 
     // The sash between the groups resizes the Session region on drag.
-    const sessionRegion = page.locator('[data-session-comments-content]');
     const heightBefore = await sessionRegion.evaluate(element =>
         element.getBoundingClientRect().height
     );
@@ -3802,6 +3814,19 @@ test('PROJECT-COMMENTS-UI-001 captures, tags, filters, and dispatches project no
     assert.ok(
         heightAfter > heightBefore,
         'dragging the sash up must grow the Session region'
+    );
+
+    // An explicit sash-dragged height must not pin the Session region when
+    // the Workspace group collapses: the region still fills the panel.
+    await projectHeader.locator('.conversation-comments-section-title')
+        .click();
+    const heightCollapsedAfterDrag = await sessionRegion.evaluate(
+        element => element.getBoundingClientRect().height
+    );
+    assert.ok(
+        heightCollapsedAfterDrag > heightAfter,
+        'a collapsed Workspace group lets the Session region fill the panel'
+            + ' even after a manual sash drag'
     );
 });
 

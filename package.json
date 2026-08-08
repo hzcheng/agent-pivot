@@ -132,6 +132,11 @@
                 "command": "agentPivot.open",
                 "key": "ctrl+f1",
                 "mac": "cmd+f1"
+            },
+            {
+                "command": "agentPivot.nextAttentionSession",
+                "key": "ctrl+alt+a",
+                "mac": "cmd+alt+a"
             }
         ],
         "configuration": {

@@ -483,7 +483,7 @@ test('CONVERSATION-ACTIVE-SESSION-NAVIGATION-COMMANDS-001 contributes globally a
     );
 });
 
-test('ATTENTION-STATUS-BAR-QUEUE-001 contributes the next-attention command without a default keybinding', () => {
+test('ATTENTION-STATUS-BAR-QUEUE-001 contributes the next-attention command with exactly one global keybinding', () => {
     const manifest = require('../../package.json');
     assert.deepEqual(
         manifest.contributes.commands.filter(
@@ -494,9 +494,16 @@ test('ATTENTION-STATUS-BAR-QUEUE-001 contributes the next-attention command with
             title: 'Agent Pivot: Next Attention Session',
         }]
     );
-    assert.equal(manifest.contributes.keybindings.some(
-        keybinding => keybinding.command === 'agentPivot.nextAttentionSession'
-    ), false);
+    assert.deepEqual(
+        manifest.contributes.keybindings.filter(
+            keybinding => keybinding.command === 'agentPivot.nextAttentionSession'
+        ),
+        [{
+            command: 'agentPivot.nextAttentionSession',
+            key: 'ctrl+alt+a',
+            mac: 'cmd+alt+a',
+        }]
+    );
 });
 
 test('CONVERSATION-ACTIVE-SESSION-NAVIGATION-COMMANDS-001 marks only an actually focused Open Current selection as terminal-authoritative', () => {

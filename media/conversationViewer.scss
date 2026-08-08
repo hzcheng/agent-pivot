@@ -2628,6 +2628,34 @@ button.conversation-comment-status-chip {
     }
 }
 
+.conversation-follow-notice {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.15rem 0.75rem;
+    border-bottom: 1px solid var(--vscode-panel-border);
+    border-left: 3px solid var(--vscode-editorWarning-foreground,
+        var(--vscode-terminal-ansiYellow, #dcdcaa));
+    background: var(--vscode-list-inactiveSelectionBackground, transparent);
+    font-size: 0.85em;
+
+    &[hidden] {
+        display: none;
+    }
+
+    [data-conversation-notice-text] {
+        overflow: hidden;
+        min-width: 0;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    button {
+        margin-left: auto;
+        flex: 0 0 auto;
+    }
+}
+
 /* Comment affordances belong to the main session, not subagent transcripts. */
 body[data-viewing-subagent="true"] .conversation-add-comment,
 body[data-viewing-subagent="true"] [data-action="send-comments"],

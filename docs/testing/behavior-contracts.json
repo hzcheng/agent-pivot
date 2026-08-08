@@ -4588,6 +4588,26 @@
     ]
   },
   {
+    "id": "CONVERSATION-FOLLOW-FEEDBACK-001",
+    "domain": "webview",
+    "title": "AI Conversation follow failures never stay silent: an empty, unreadable, or inactive session surfaces a dismissible in-panel notice without replacing the rendered conversation, a card click whose terminal can no longer be focused raises a warning toast, and every failure emits a sanitized conversation-follow diagnostic while opened, closed, and superseded follows stay notice-free",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/integration/dashboard/conversationOpenLatest.test.js",
+      "tests/contract/dashboard/messageHandlers.test.js",
+      "tests/browser/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/composition.ts",
+      "src/aiSessions/conversation/viewer.ts",
+      "src/aiSessions/conversation/viewerDocument.ts",
+      "src/webview/conversationViewerScripts.js",
+      "src/dashboard/messageHandlers.ts",
+      "src/dashboard.ts"
+    ]
+  },
+  {
     "id": "CONVERSATION-LIVE-UPDATE-JOURNEY-001",
     "domain": "webview",
     "title": "A live response preserves telemetry, follows from the end, preserves historical reading position, and transitions Working to complete without a manual new-content control",

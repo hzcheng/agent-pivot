@@ -1562,6 +1562,7 @@ async function initializeDashboard(
             'workbench.extensions.action.showExtensionsWithIds',
             ['hzcheng.agent-pivot-attention-ui-bridge'],
         ),
+        showWarningMessage: message => vscode.window.showWarningMessage(message),
     });
 
     const dashboardMessageRouter = createDashboardMessageRouter({

@@ -129,6 +129,7 @@ function createHarness(options = {}) {
     const viewerSnapshots = [];
     const followedViewerTargets = [];
     const restoredViewerTargets = [];
+    const viewerNotices = [];
     let viewerFocuses = 0;
     let capturedViewerOptions;
     let outlineReads = 0;
@@ -213,7 +214,7 @@ function createHarness(options = {}) {
         setTimer: options.setTimer
             || ((callback, delayMs) => setTimeout(callback, delayMs)),
         clearTimer: options.clearTimer || (handle => clearTimeout(handle)),
-        onDiagnostic: () => {},
+        onDiagnostic: options.onDiagnostic || (() => {}),
         resolveReboundTarget: options.resolveReboundTarget,
     }, {
         createCodexClient: options.createCodexClient || (() => ({ dispose() {} })),
@@ -270,6 +271,10 @@ function createHarness(options = {}) {
                     options.focusViewer?.();
                     return true;
                 },
+                showNotice: text => {
+                    viewerNotices.push(text);
+                    return true;
+                },
                 rebindSession: async () => false,
                 freezeSessionMetadata: async () => false,
                 refresh: async () => { viewerRefreshes += 1; },
@@ -285,6 +290,7 @@ function createHarness(options = {}) {
         viewerSnapshots,
         followedViewerTargets,
         restoredViewerTargets,
+        viewerNotices,
         get viewerOptions() {
             return capturedViewerOptions;
         },
@@ -916,6 +922,131 @@ test('CONVERSATION-FOLLOW-ACTIVE-SESSION-001 lets the newest Session follow inte
         ['session-b']
     );
     harness.capability.dispose();
+});
+
+test('CONVERSATION-FOLLOW-FEEDBACK-001 surfaces an in-panel notice and sanitized diagnostic when a follow finds no conversation', async () => {
+    const diagnostics = [];
+    const harness = createHarness({
+        viewerOpen: true,
+        interactionIds: [],
+        onDiagnostic: event => diagnostics.push(event),
+    });
+    const result = await harness.capability.followActiveConversation({
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    });
+    assert.equal(result, 'empty');
+    assert.deepEqual(harness.followedViewerTargets, []);
+    assert.deepEqual(harness.viewerNotices, [
+        'This AI session has no conversation yet.',
+    ]);
+    assert.deepEqual(diagnostics, [{
+        event: 'conversation-follow',
+        category: 'empty',
+        provider: 'codex',
+    }]);
+    harness.capability.dispose();
+});
+
+test('CONVERSATION-FOLLOW-FEEDBACK-001 surfaces a retry hint notice when a follow cannot read the conversation', async () => {
+    const diagnostics = [];
+    const harness = createHarness({
+        viewerOpen: true,
+        readOutlineError: new Error('boom'),
+        onDiagnostic: event => diagnostics.push(event),
+    });
+    const result = await harness.capability.followActiveConversation({
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    });
+    assert.equal(result, 'unavailable');
+    assert.deepEqual(harness.viewerNotices, [
+        'Unable to read the AI session conversation. Click the session again to retry.',
+    ]);
+    assert.deepEqual(diagnostics.at(-1), {
+        event: 'conversation-follow',
+        category: 'unavailable',
+        provider: 'codex',
+    });
+    for (const event of diagnostics) {
+        assert.deepEqual(Object.keys(event).sort(), [
+            'category', 'event', 'provider',
+        ], 'follow diagnostics must stay sanitized');
+    }
+    harness.capability.dispose();
+});
+
+test('CONVERSATION-FOLLOW-FEEDBACK-001 surfaces a notice when the followed session is no longer active', async () => {
+    const diagnostics = [];
+    const harness = createHarness({
+        viewerOpen: true,
+        session: null,
+        onDiagnostic: event => diagnostics.push(event),
+    });
+    const result = await harness.capability.followActiveConversation({
+        projectId: 'project-a',
+        provider: 'claude',
+        sessionId: 'session-a',
+    });
+    assert.equal(result, 'unknownSession');
+    assert.deepEqual(harness.viewerNotices, [
+        'This AI session is no longer active.',
+    ]);
+    assert.deepEqual(diagnostics, [{
+        event: 'conversation-follow',
+        category: 'unknownSession',
+        provider: 'claude',
+    }]);
+    harness.capability.dispose();
+});
+
+test('CONVERSATION-FOLLOW-FEEDBACK-001 keeps opened, closed, and superseded follows notice-free', async () => {
+    const slowOutline = deferred();
+    const diagnostics = [];
+    const harness = createHarness({
+        viewerOpen: true,
+        onDiagnostic: event => diagnostics.push(event),
+        resolveTarget: (_projectId, provider, sessionId) => makeSession({
+            key: `${provider}:${sessionId}`,
+            provider,
+            sessionId,
+            name: sessionId,
+        }),
+        readOutline: (provider, sessionId) => sessionId === 'session-a'
+            ? slowOutline.promise
+            : makeOutline(provider, sessionId, ['input-b']),
+    });
+    const first = harness.capability.followActiveConversation({
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(await harness.capability.followActiveConversation({
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-b',
+    }), 'opened');
+    slowOutline.resolve(makeOutline('codex', 'session-a', ['input-a']));
+    assert.equal(await first, 'superseded');
+
+    const closedHarness = createHarness({
+        viewerOpen: false,
+        onDiagnostic: event => diagnostics.push(event),
+    });
+    assert.equal(await closedHarness.capability.followActiveConversation({
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-c',
+    }), 'closed');
+
+    assert.deepEqual(harness.viewerNotices, []);
+    assert.deepEqual(closedHarness.viewerNotices, []);
+    assert.deepEqual(diagnostics, []);
+    harness.capability.dispose();
+    closedHarness.capability.dispose();
 });
 
 test('CONVERSATION-FOLLOW-ACTIVE-SESSION-001 follows the adjacent active session in dashboard order', async () => {

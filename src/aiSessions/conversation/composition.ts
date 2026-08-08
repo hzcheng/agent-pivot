@@ -421,7 +421,15 @@ function createAvailableConversationCapability(
             if (intentGeneration !== viewerIntentGeneration) {
                 return 'superseded';
             }
-            if (!resolution.viewerTarget) {
+            if (resolution.result !== 'opened') {
+                reportFollowFailure(
+                    options.onDiagnostic,
+                    target.provider,
+                    resolution.result
+                );
+                viewer.showNotice(
+                    conversationFollowNoticeText(resolution.result)
+                );
                 return resolution.result;
             }
             if (!viewer.isOpen()) {
@@ -591,6 +599,7 @@ function createUnavailableConversationCapability(): ConversationCapability {
     const viewer: ConversationViewerApi = {
         isOpen: () => false,
         focus: () => false,
+        showNotice: () => false,
         getCurrentTarget: () => undefined,
         getFocusedTarget: () => undefined,
         getFocusedSessionTarget: () => undefined,
@@ -682,12 +691,19 @@ async function openLatestConversation(
     return 'opened';
 }
 
-interface LatestConversationTargetResolution {
-    result: OpenLatestConversationResult;
-    viewerTarget?: ConversationViewerTarget;
-    snapshot?: ConversationSnapshot;
-    prefetchedSnapshot?: boolean;
-}
+type LatestConversationTargetResolution =
+    | {
+        result: 'opened';
+        viewerTarget: ConversationViewerTarget;
+        snapshot: ConversationSnapshot;
+        prefetchedSnapshot: boolean;
+    }
+    | {
+        result: 'unavailable' | 'empty' | 'unknownSession';
+        viewerTarget?: undefined;
+        snapshot?: undefined;
+        prefetchedSnapshot?: undefined;
+    };
 
 async function followAdjacentConversation(
     options: ConversationCapabilityOptions,
@@ -1342,6 +1358,35 @@ function reportUnavailable(
         onDiagnostic({
             event: 'conversation-read',
             category: 'unavailable',
+        });
+    } catch (_error) {
+        // Optional diagnostics never block Dashboard activation.
+    }
+}
+
+function conversationFollowNoticeText(
+    result: 'empty' | 'unavailable' | 'unknownSession'
+): string {
+    if (result === 'empty') {
+        return 'This AI session has no conversation yet.';
+    }
+    if (result === 'unknownSession') {
+        return 'This AI session is no longer active.';
+    }
+    return 'Unable to read the AI session conversation.'
+        + ' Click the session again to retry.';
+}
+
+function reportFollowFailure(
+    onDiagnostic: ConversationCapabilityOptions['onDiagnostic'],
+    provider: AiSessionProviderId,
+    result: 'empty' | 'unavailable' | 'unknownSession'
+): void {
+    try {
+        onDiagnostic({
+            event: 'conversation-follow',
+            category: result,
+            provider,
         });
     } catch (_error) {
         // Optional diagnostics never block Dashboard activation.

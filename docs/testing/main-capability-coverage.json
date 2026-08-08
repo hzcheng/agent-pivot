@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "c7bf0efc7972f6b7ebf55888c2353f9cef162e76",
+        "head": "e39d410b1108687c831625d421ee91b0571aeed4",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -205,7 +205,10 @@
             "ce97bacfc893c73b5a9a96f93b0c08059f3fdfe0",
             "d95b4d49718186b52ccc518d24cca6e69b89c7f0",
             "27f8dd8b45cfb45f5af56d9eb0075f124b9998b5",
-            "e6ba1a9d2f63ed31e1661c5149d616794917763e"
+            "e6ba1a9d2f63ed31e1661c5149d616794917763e",
+            "2ce7a7af019d282760c493c8fad6132dd384749e",
+            "4485a481c37e1ffb4e0bdb1c90a5d2f3345d35b9",
+            "7d090329a20a7f4be0c39b136d97ed6db791e29d"
         ]
     },
     "capabilities": [
@@ -496,12 +499,17 @@
                 "f02a330a5e451f82609faf8275f8a87f0ec70846",
                 "63a69455d0c2a950c6a92116eb9bd0bb186d5b8c",
                 "28665b86b56f6962760f7cde8e5670b842852b39",
-                "d86e7fc76bbb6163faedbb95f59a57bd02fa6635"
+                "d86e7fc76bbb6163faedbb95f59a57bd02fa6635",
+                "d48593ecb3f6b5f1bbb1c9cbeb81c793d2c0e19c",
+                "77ea054df480d4ac53c5240f96883b95dedd622b",
+                "7c0c01b089003aa101897fc27da835a60a35d03d",
+                "e39d410b1108687c831625d421ee91b0571aeed4"
             ],
             "behaviors": [
                 "ATTENTION-ATTENTION-PROJECTION-001",
                 "ATTENTION-LOGICAL-SESSION-CARD-COUNT-001",
-                "ATTENTION-ATTENTION-PROJECT-RENDERING-001"
+                "ATTENTION-ATTENTION-PROJECT-RENDERING-001",
+                "ATTENTION-STATUS-BAR-QUEUE-001"
             ],
             "prGates": [
                 "test:deterministic:run"
@@ -1418,7 +1426,8 @@
                 "726f206a1b5ea8be24b6f85293e11bf9509df578",
                 "1291f7f81814caf7ad14935c53b49e144fdd8e1d",
                 "96d19ea4aaf1d2ff39610559a885394354c92ac8",
-                "c7bf0efc7972f6b7ebf55888c2353f9cef162e76"
+                "c7bf0efc7972f6b7ebf55888c2353f9cef162e76",
+                "58d8ce053961e9897b25bb389e66e04ff46b4a9a"
             ],
             "behaviors": [
                 "SESSION-AI-SESSION-CONVERSATION-ADAPTER-001",
@@ -1464,7 +1473,8 @@
                 "CONVERSATION-ACTIVE-SESSION-NAVIGATION-COMMANDS-001",
                 "CONVERSATION-FIND-001",
                 "CONVERSATION-PLAN-QUESTION-VISIBILITY-001",
-                "CONVERSATION-DIFF-VISIBILITY-001"
+                "CONVERSATION-DIFF-VISIBILITY-001",
+                "CONVERSATION-FOLLOW-FEEDBACK-001"
             ],
             "prGates": [
                 "test:ci:linux"

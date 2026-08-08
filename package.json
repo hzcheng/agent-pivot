@@ -107,6 +107,10 @@
                 "title": "Agent Pivot: Next Active Session"
             },
             {
+                "command": "agentPivot.nextAttentionSession",
+                "title": "Agent Pivot: Next Attention Session"
+            },
+            {
                 "command": "agentPivot.notify.setWebhook",
                 "title": "Agent Pivot: Set Notification Webhook"
             },
@@ -128,6 +132,11 @@
                 "command": "agentPivot.open",
                 "key": "ctrl+f1",
                 "mac": "cmd+f1"
+            },
+            {
+                "command": "agentPivot.nextAttentionSession",
+                "key": "ctrl+alt+a",
+                "mac": "cmd+alt+a"
             }
         ],
         "configuration": {

@@ -93,6 +93,11 @@
     var subagentBannerLabel = document.querySelector(
         '[data-subagent-banner-label]'
     );
+    var followNotice = document.querySelector('[data-conversation-notice]');
+    var followNoticeText = document.querySelector(
+        '[data-conversation-notice-text]'
+    );
+    var followNoticeClose = document.querySelector('[data-notice-close]');
     var subagentsRunningOnly = document.querySelector(
         '[data-subagents-running-only]'
     );
@@ -846,6 +851,36 @@
         return 'Codex';
     }
 
+    var FOLLOW_NOTICE_MAX_LENGTH = 640;
+
+    function validFollowNotice(message) {
+        return !!message
+            && Object.keys(message).length === 2
+            && typeof message.text === 'string'
+            && message.text.length > 0
+            && message.text.length <= FOLLOW_NOTICE_MAX_LENGTH;
+    }
+
+    function hideFollowNotice() {
+        if (followNotice) {
+            followNotice.hidden = true;
+        }
+    }
+
+    function applyFollowNotice(message) {
+        if (!message || message.type !== 'conversation-viewer-notice') {
+            return false;
+        }
+        if (!validFollowNotice(message)) {
+            return true;
+        }
+        if (followNotice && followNoticeText) {
+            followNoticeText.textContent = message.text;
+            followNotice.hidden = false;
+        }
+        return true;
+    }
+
     function applySessionGeneration(message) {
         if (message.subscriptionGeneration === state.subscriptionGeneration) {
             return true;
@@ -1221,6 +1256,7 @@
         }
         commentsController.updateHighlights();
         if (findController) findController.refresh();
+        hideFollowNotice();
         if (conversationDisplayName
             && (typeof message.displayName === 'string'
                 || validPageTarget(message.target))) {
@@ -1457,8 +1493,12 @@
         }
         if (commentsController.applyLocateResult(event.data)) return;
         if (telemetryController.apply(event.data)) return;
+        if (applyFollowNotice(event.data)) return;
         applyPage(event.data);
     });
+    if (followNoticeClose) {
+        followNoticeClose.addEventListener('click', hideFollowNotice);
+    }
     function postFocusState() {
         post({
             type: 'conversation-viewer-focus',

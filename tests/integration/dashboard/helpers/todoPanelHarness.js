@@ -30,11 +30,16 @@ function createVscode(listeners, commands) {
     const uri = value => ({ scheme: 'file', fsPath: value, path: value, toString: () => value });
     return {
         ConfigurationTarget: { Global: 1, Workspace: 2 }, ExtensionMode: { Test: 3 }, ViewColumn: { One: 1 },
+        StatusBarAlignment: { Left: 1, Right: 2 },
         Uri: { file: uri, parse: uri, joinPath: (base, ...parts) => uri(path.join(base.fsPath, ...parts)) },
         window: {
             terminals: [], activeTerminal: null, activeTextEditor: undefined, visibleTextEditors: [],
             createOutputChannel: () => ({ appendLine: () => undefined, dispose: () => undefined }),
             createTerminal: () => ({ name: 'fixture', show: () => undefined, dispose: () => undefined, sendText: () => undefined }),
+            createStatusBarItem: () => ({
+                text: '', tooltip: undefined, command: undefined,
+                show: () => undefined, hide: () => undefined, dispose: () => undefined,
+            }),
             registerWebviewViewProvider: (_id, provider) => {
                 listeners.viewProvider = provider;
                 return disposable();

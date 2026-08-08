@@ -93,6 +93,7 @@ function createVscode(lifecycle) {
         get providerResolution() { return providerResolution; },
         get registeredProvider() { return registeredProvider; },
         ConfigurationTarget: { Global: 1, Workspace: 2 }, ExtensionMode: { Test: 3 }, ViewColumn: { One: 1 },
+        StatusBarAlignment: { Left: 1, Right: 2 },
         Uri: { file: uri, parse: uri, joinPath: (base, ...parts) => uri(path.join(base.fsPath, ...parts)) },
         window: {
             terminals: [], activeTerminal: null, activeTextEditor: undefined, visibleTextEditors: [],
@@ -126,6 +127,23 @@ function createVscode(lifecycle) {
             onDidChangeWindowState: () => trackedListener('window-state-listener'),
             onDidChangeVisibleTextEditors: () => trackedListener('visible-editors-listener'),
             onDidChangeActiveTextEditor: () => trackedListener('active-editor-listener'),
+            createStatusBarItem: (alignment, priority) => {
+                const item = {
+                    alignment,
+                    priority,
+                    text: '',
+                    tooltip: undefined,
+                    command: undefined,
+                    showCalls: 0,
+                    hideCalls: 0,
+                    show() { item.showCalls += 1; },
+                    hide() { item.hideCalls += 1; },
+                    dispose() { item.disposed = true; },
+                    disposed: false,
+                };
+                lifecycle.statusBarItems.push(item);
+                return item;
+            },
             showErrorMessage: async () => undefined,
             showWarningMessage: async (message, ...rest) => {
                 const [first, ...items] = rest;
@@ -208,6 +226,7 @@ async function main() {
         postDisposeWebviewMessages: [],
         postedWebviewMessages: [],
         warningMessages: [],
+        statusBarItems: [],
     };
     const vscode = createVscode(lifecycle);
     if (mode === 'workspace-hydration') {
@@ -931,6 +950,14 @@ async function main() {
             directRestoreRefreshAfterSettlement,
             tmuxRuntimeFailureDiagnostics,
             warningMessages: lifecycle.warningMessages,
+            statusBarItems: lifecycle.statusBarItems.map(item => ({
+                alignment: item.alignment,
+                command: item.command,
+                text: item.text,
+                showCalls: item.showCalls,
+                hideCalls: item.hideCalls,
+                disposed: item.disposed,
+            })),
             fallbackResumeStatuses,
             runtimeConfigurationSequence,
             affectsConfigurationQueries,

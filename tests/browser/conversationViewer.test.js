@@ -1400,6 +1400,83 @@ test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 lists subagents, opens a transcript
     assert.equal(await counter.innerText(), '0/0');
 });
 
+test('CONVERSATION-FOLLOW-FEEDBACK-001 shows a dismissible follow notice and clears it on the next page', async t => {
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+    });
+    const banner = page.locator('[data-conversation-notice]');
+    const bannerDisplay = () => banner.evaluate(
+        element => getComputedStyle(element).display
+    );
+
+    assert.equal(
+        await bannerDisplay(),
+        'none',
+        'the follow notice starts hidden'
+    );
+
+    await sendPage(page, {
+        type: 'conversation-viewer-notice',
+        text: 'This AI session has no conversation yet.',
+    });
+    assert.notEqual(
+        await bannerDisplay(),
+        'none',
+        'a follow notice reveals the banner without replacing the page'
+    );
+    assert.equal(
+        await page.locator('[data-conversation-notice-text]').innerText(),
+        'This AI session has no conversation yet.'
+    );
+    assert.notEqual(
+        await page.locator('[data-message-id]').count(),
+        0,
+        'the current conversation stays rendered below the banner'
+    );
+
+    // Malformed notices are dropped without touching the visible banner.
+    await sendPage(page, { type: 'conversation-viewer-notice', text: 42 });
+    await sendPage(page, { type: 'conversation-viewer-notice' });
+    await sendPage(page, {
+        type: 'conversation-viewer-notice',
+        text: 'x'.repeat(2000),
+    });
+    assert.equal(
+        await page.locator('[data-conversation-notice-text]').innerText(),
+        'This AI session has no conversation yet.'
+    );
+
+    // The next applied page auto-clears the banner.
+    await sendPage(page, {
+        ...hostileConversationPage,
+        requestId: 60,
+        updateKind: 'refresh',
+        html: messageHtml('after-notice', 2),
+    });
+    assert.equal(await bannerDisplay(), 'none');
+    assert.equal(
+        await page.locator('[data-message-id="after-notice-0"]').count(),
+        1
+    );
+
+    // A later notice can be dismissed through the close button.
+    await sendPage(page, {
+        type: 'conversation-viewer-notice',
+        text: 'Unable to read the AI session conversation. Click the session again to retry.',
+    });
+    assert.notEqual(await bannerDisplay(), 'none');
+    await page.locator('[data-notice-close]').click();
+    assert.equal(await bannerDisplay(), 'none');
+    assert.deepEqual(
+        (await postedMessages(page)).filter(
+            message => message.type !== 'conversation-viewer-focus'
+        ),
+        [],
+        'notice interactions never post messages back to the host'
+    );
+});
+
 test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 keeps boundary navigation inert while Latest stays available', async t => {
     const { page } = await openHostViewerDocument(t, {
         interactionIds: ['input-only'],
@@ -2886,7 +2963,7 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
         .digest('hex');
     assert.equal(
         sha256(previousViewerScript),
-        'b720b9daf3136e44c4709650aa6908e2296d605b3d7fdfcc643fa7df455db578',
+        '9033d91105cd0f01abbf26831b5d459f279f3b8be8d68bf68577835f9bb92117',
         'the previous Viewer fixture must stay byte-exact'
     );
     assert.equal(

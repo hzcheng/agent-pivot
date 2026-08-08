@@ -753,6 +753,25 @@
     ]
   },
   {
+    "id": "ATTENTION-STATUS-BAR-QUEUE-001",
+    "domain": "attention",
+    "title": "A right-aligned status bar entry surfaces the cross-window attention count with a per-session tooltip and drains the queue oldest-first on click: local sessions focus their terminal, open their conversation, and acknowledge only after both succeed, unfocusable sessions warn and stay unread, remote sessions switch to the owning window without acknowledging, and the entry hides while the queue is empty or attention is disabled",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/contract/aiSessions/attentionStatusBar.test.js",
+      "tests/contract/dashboardBoundaries.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/attentionQueue.ts",
+      "src/aiSessions/attentionStatusBarController.ts",
+      "src/dashboard/attentionQueueJump.ts",
+      "src/dashboard.ts",
+      "src/dashboard/commandRegistration.ts",
+      "package.json"
+    ]
+  },
+  {
     "id": "WEBVIEW-FAVORITE-DND-001",
     "domain": "webview",
     "title": "Favorite Dnd behavior",
@@ -4585,6 +4604,26 @@
       "src/webview/conversationFindScripts.js",
       "src/webview/conversationViewerScripts.js",
       "media/conversationViewer.scss"
+    ]
+  },
+  {
+    "id": "CONVERSATION-FOLLOW-FEEDBACK-001",
+    "domain": "webview",
+    "title": "AI Conversation follow failures never stay silent: an empty, unreadable, or inactive session surfaces a dismissible in-panel notice without replacing the rendered conversation, a card click whose terminal can no longer be focused raises a warning toast, and every failure emits a sanitized conversation-follow diagnostic while opened, closed, and superseded follows stay notice-free",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/integration/dashboard/conversationOpenLatest.test.js",
+      "tests/contract/dashboard/messageHandlers.test.js",
+      "tests/browser/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/composition.ts",
+      "src/aiSessions/conversation/viewer.ts",
+      "src/aiSessions/conversation/viewerDocument.ts",
+      "src/webview/conversationViewerScripts.js",
+      "src/dashboard/messageHandlers.ts",
+      "src/dashboard.ts"
     ]
   },
   {

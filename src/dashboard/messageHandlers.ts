@@ -34,6 +34,7 @@ export interface DashboardMessageHandlersOptions {
     postAiSessionAttentionState: () => void;
     showAgentPivotSettings: () => Promise<void>;
     showBridgeExtension: () => Thenable<unknown>;
+    showWarningMessage: (message: string) => void;
 }
 
 /**
@@ -67,6 +68,7 @@ export function createDashboardMessageHandlers(
     const postAiSessionAttentionState = options.postAiSessionAttentionState;
     const showAgentPivotSettings = options.showAgentPivotSettings;
     const showBridgeExtension = options.showBridgeExtension;
+    const showWarningMessage = options.showWarningMessage;
 
     return {
         'request-projects-panel': async e => {
@@ -131,6 +133,10 @@ export function createDashboardMessageHandlers(
             if (focused) {
                 await conversationCapability.followActiveConversation(
                     target
+                );
+            } else {
+                showWarningMessage(
+                    'Agent Pivot: the selected AI session is no longer active.'
                 );
             }
         },

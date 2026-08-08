@@ -183,6 +183,13 @@ export function renderConversationViewerDocument(
         Viewing subagent <strong data-subagent-banner-label></strong>
         <button type="button" data-action="close-subagent">Back to conversation</button>
     </div>
+    <div class="conversation-follow-notice" data-conversation-notice
+        role="status" hidden>
+        <span data-conversation-notice-text></span>
+        <button class="conversation-icon-button" type="button"
+            data-notice-close title="Dismiss"
+            aria-label="Dismiss">${CONVERSATION_FIND_ICON_CLOSE}</button>
+    </div>
     <div class="conversation-workspace" data-comments-open="false">
         <main class="conversation-scroll" data-conversation-scroll tabindex="0">
             <div class="conversation-messages" data-conversation-messages></div>

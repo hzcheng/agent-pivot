@@ -68,6 +68,7 @@ function createFixture(overrides = {}) {
         onOpenWorkspacesRendererReady: () => calls.push(['openWorkspacesRendererReady']),
         showAgentPivotSettings: async () => { calls.push(['showSettings']); },
         showBridgeExtension: async () => { calls.push(['showBridgeExtension']); },
+        showWarningMessage: message => calls.push(['showWarningMessage', message]),
     });
     return { handlers, calls, posted };
 }
@@ -254,6 +255,28 @@ test('SESSION-AI-SESSION-TERMINAL-COMMAND-CONTROLLER-001 delegates focus and clo
         projectId: 'p1', providerId: 'codex', sessionId: 's2',
         pendingCreatedAt: undefined, expectedBackend: 'tmux',
     }], 'detach keeps the tmux backend marker');
+});
+
+test('CONVERSATION-FOLLOW-FEEDBACK-001 warns when the clicked session can no longer be focused', async () => {
+    const { handlers, calls } = createFixture({ focused: false });
+
+    await handlers['focus-ai-session-terminal']({
+        projectId: 'p1', provider: 'codex', sessionId: 's1',
+    });
+
+    assert.deepEqual(
+        calls.filter(call => call[0] === 'showWarningMessage'),
+        [[
+            'showWarningMessage',
+            'Agent Pivot: the selected AI session is no longer active.',
+        ]],
+        'a failed focus must not stay silent'
+    );
+    assert.equal(
+        calls.filter(call => call[0] === 'followActiveConversation').length,
+        0,
+        'no conversation follows an unfocused terminal'
+    );
 });
 
 test('RUNTIME-TMUX-TERMINATE-SESSION-001 routes the stop message with the tmux backend marker', async () => {

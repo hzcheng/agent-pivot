@@ -164,6 +164,7 @@ test('WEBVIEW-DASHBOARD-COMMAND-AVAILABILITY-001 production activation exposes c
         'agentPivot.openCurrentAiSessionConversation',
         'agentPivot.previousActiveSession',
         'agentPivot.nextActiveSession',
+        'agentPivot.nextAttentionSession',
         'agentPivot.switchToOpenWindow',
         'agentPivot.notify.setWebhook',
         'agentPivot.notify.showOutput',

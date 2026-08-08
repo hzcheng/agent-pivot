@@ -143,6 +143,7 @@ export interface ConversationViewerOptions {
 export interface ConversationViewerApi extends AiSessionDisposable {
     isOpen(): boolean;
     focus(): boolean;
+    showNotice(text: string): boolean;
     getCurrentTarget(): ConversationViewerTarget | undefined;
     getFocusedTarget(): ConversationViewerTarget | undefined;
     getFocusedSessionTarget(): Pick<
@@ -312,6 +313,22 @@ export class ConversationViewer implements ConversationViewerApi {
             return false;
         }
         panel.reveal(panel.viewColumn || vscode.ViewColumn.Active, false);
+        return true;
+    }
+
+    showNotice(text: string): boolean {
+        const panel = this.panel;
+        if (!panel) {
+            return false;
+        }
+        try {
+            void Promise.resolve(panel.webview.postMessage({
+                type: 'conversation-viewer-notice',
+                text,
+            })).catch(() => undefined);
+        } catch (_error) {
+            return false;
+        }
         return true;
     }
 

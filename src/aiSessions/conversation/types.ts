@@ -280,10 +280,11 @@ export interface ConversationResponseEnvelope<T> {
 
 export interface SanitizedConversationDiagnostic {
     event: 'conversation-source' | 'conversation-read'
-        | 'codex-conversation-app-server';
+        | 'codex-conversation-app-server' | 'conversation-follow';
     provider?: AiSessionProviderId;
     category: 'spawn' | 'timeout' | 'protocol' | 'oversized' | 'exit'
-        | 'unavailable' | 'malformed' | 'partial';
+        | 'unavailable' | 'malformed' | 'partial'
+        | 'empty' | 'unknownSession';
     count?: number;
     durationMs?: number;
     version?: string;

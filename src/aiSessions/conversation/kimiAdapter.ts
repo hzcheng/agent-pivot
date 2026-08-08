@@ -31,6 +31,12 @@ import {
 } from './text';
 import { ToolCallTracker } from './toolCalls';
 import {
+    boundQuestionItems,
+    boundQuestionOptions,
+    deriveQuestionSource,
+    splitSettledAnswers,
+} from './questions';
+import {
     CONVERSATION_LIMITS,
     ConversationAbortSignal,
     ConversationError,
@@ -39,6 +45,9 @@ import {
     ConversationPage,
     ConversationPageRequest,
     ConversationProviderAdapter,
+    ConversationQuestionBlock,
+    ConversationQuestionItem,
+    ConversationQuestionOutcome,
     ConversationResponseState,
     ConversationSnapshot,
     ConversationSubagentEntry,
@@ -99,6 +108,8 @@ interface KimiConversationIndex extends AiSessionDisposable {
     telemetryContext?: ConversationContextUsage;
     telemetryPaths: string[];
     toolTracker?: ToolCallTracker;
+    /** tool_call_id → question block, for QuestionRequest/ToolResult pairing. */
+    questionTracker?: Map<string, ConversationQuestionBlock>;
     pendingThinking?: { position: number; text: string } | null;
     revision: number;
     partial: boolean;
@@ -144,6 +155,15 @@ function cloneInteractions(
         ...(interaction.thinking
             ? { thinking: interaction.thinking.slice() }
             : {}),
+        // Shares block objects with the previous load on purpose (same
+        // pattern as toolCalls) so tracker references stay valid across
+        // incremental loads when settlements mutate them.
+        ...(interaction.plans
+            ? { plans: interaction.plans.slice() }
+            : {}),
+        ...(interaction.questions
+            ? { questions: interaction.questions.slice() }
+            : {}),
     }));
 }
 
@@ -169,6 +189,118 @@ function interactionId(
         .update(`${sessionId}\u0000${offset}\u0000${String(timestamp ?? '')}`)
         .digest('hex')
         .slice(0, 32)}`;
+}
+
+const KIMI_QUESTION_TOOL_NAMES = new Set(['ExitPlanMode', 'AskUserQuestion']);
+
+function kimiQuestionItemsFromRecords(
+    rawQuestions: unknown
+): ConversationQuestionItem[] {
+    if (!Array.isArray(rawQuestions)) {
+        return [];
+    }
+    return boundQuestionItems(rawQuestions.map(raw => {
+        const record = asRecord(raw);
+        return {
+            question: typeof record?.question === 'string'
+                ? record.question
+                : '',
+            ...(typeof record?.header === 'string'
+                ? { header: record.header }
+                : {}),
+            options: boundQuestionOptions(record?.options),
+            multiSelect: record?.multi_select === true,
+            ...(typeof record?.other_label === 'string'
+                ? { otherLabel: record.other_label }
+                : {}),
+        };
+    }));
+}
+
+function kimiQuestionItemsFromToolArguments(
+    name: string,
+    args: Record<string, any> | undefined
+): ConversationQuestionItem[] {
+    if (!args) {
+        return [];
+    }
+    if (Array.isArray(args.questions)) {
+        return kimiQuestionItemsFromRecords(args.questions);
+    }
+    if (name === 'ExitPlanMode' && Array.isArray(args.options)) {
+        return boundQuestionItems([{
+            question: 'Approve this plan',
+            options: boundQuestionOptions(args.options),
+            multiSelect: false,
+        }]);
+    }
+    return [];
+}
+
+function classifyKimiQuestionOutcome(
+    output: string
+): ConversationQuestionOutcome {
+    if (/\bplan approved\b/i.test(output)) {
+        return 'approved';
+    }
+    if (/\brevise\b/i.test(output)) {
+        return 'revised';
+    }
+    if (/\bdismiss/i.test(output)) {
+        return 'dismissed';
+    }
+    if (/\breject/i.test(output)) {
+        return 'rejected';
+    }
+    return 'answered';
+}
+
+function extractKimiSelectedApproach(output: string): string | undefined {
+    const match = /Selected approach:\s*"([^"]+)"/.exec(output);
+    return match?.[1];
+}
+
+function applyKimiQuestionSettlement(
+    block: ConversationQuestionBlock,
+    output: string | undefined
+): void {
+    if (output === undefined) {
+        return;
+    }
+    if (block.source === 'AskUserQuestion') {
+        let parsed: Record<string, any> | undefined;
+        try {
+            parsed = asRecord(JSON.parse(output));
+        } catch (_error) {
+            parsed = undefined;
+        }
+        const answers = asRecord(parsed?.answers);
+        if (answers) {
+            block.questions = block.questions.map(item => {
+                const value = answers[item.question];
+                return typeof value === 'string'
+                    ? { ...item, answers: splitSettledAnswers(value, item) }
+                    : item;
+            });
+        }
+        block.outcome = 'answered';
+        return;
+    }
+    block.outcome = classifyKimiQuestionOutcome(output);
+    if (block.outcome === 'approved' && block.questions.length) {
+        const approach = extractKimiSelectedApproach(output);
+        if (approach) {
+            block.questions = block.questions.map((item, index) => index === 0
+                ? {
+                    ...item,
+                    answers: [truncateGraphemes(
+                        approach,
+                        CONVERSATION_LIMITS.questionAnswerGraphemes
+                    )],
+                }
+                : item);
+        }
+    }
 }
 
 export class KimiConversationAdapter implements ConversationProviderAdapter {
@@ -446,6 +578,10 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
             // incremental load still pairs with its ToolCall.
             const toolTracker = (continuing && previous?.toolTracker)
                 || new ToolCallTracker();
+            // Same persistence rationale as toolTracker: a QuestionRequest
+            // or ToolResult can land in a later incremental load.
+            const questionTracker = (continuing && previous?.questionTracker)
+                || new Map<string, ConversationQuestionBlock>();
             // Consecutive think deltas merge into one block per run.
             let pendingThinking: { position: number; text: string } | null =
                 (continuing && previous?.pendingThinking) || null;
@@ -563,11 +699,73 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                         && typeof payload?.content === 'string') {
                         const content = visibleMessage(payload.content);
                         if (content) {
-                            appendConversationAssistantText(
-                                interactions[openInteractionIndex],
-                                content,
-                                'progress'
-                            );
+                            const interaction =
+                                interactions[openInteractionIndex];
+                            (interaction.plans ||= []).push({
+                                position: interaction.assistantMarkdown.length,
+                                markdown: content,
+                                ...(typeof payload.file_path === 'string'
+                                    && payload.file_path
+                                    ? {
+                                        filePath: truncateGraphemes(
+                                            payload.file_path,
+                                            CONVERSATION_LIMITS
+                                                .planFilePathGraphemes
+                                        ),
+                                    }
+                                    : {}),
+                            });
+                        }
+                    }
+                } else if (event.type === 'QuestionRequest') {
+                    flushThinking();
+                    stampActivity(envelope);
+                    const payload = asRecord(event.payload);
+                    if (openInteractionIndex !== undefined) {
+                        const toolCallId =
+                            typeof payload?.tool_call_id === 'string'
+                                ? payload.tool_call_id
+                                : '';
+                        const items = kimiQuestionItemsFromRecords(
+                            payload?.questions
+                        );
+                        if (items.length) {
+                            const existing = toolCallId
+                                ? questionTracker.get(toolCallId)
+                                : undefined;
+                            if (existing) {
+                                const settled = new Map<string, string[]>();
+                                for (const oldItem of existing.questions) {
+                                    if (oldItem.answers) {
+                                        settled.set(
+                                            oldItem.question,
+                                            oldItem.answers
+                                        );
+                                    }
+                                }
+                                existing.questions = items.map(item => {
+                                    const answers = settled.get(item.question);
+                                    return answers
+                                        ? { ...item, answers }
+                                        : item;
+                                });
+                            } else {
+                                const interaction =
+                                    interactions[openInteractionIndex];
+                                const block: ConversationQuestionBlock = {
+                                    position: interaction
+                                        .assistantMarkdown.length,
+                                    source: deriveQuestionSource(
+                                        toolCallId || undefined,
+                                        'QuestionRequest'
+                                    ),
+                                    questions: items,
+                                };
+                                (interaction.questions ||= []).push(block);
+                                if (toolCallId) {
+                                    questionTracker.set(toolCallId, block);
+                                }
+                            }
                         }
                     }
                 } else if (event.type === 'StatusUpdate') {
@@ -623,30 +821,64 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                         } catch (_error) {
                             args = undefined;
                         }
-                        toolTracker.begin(
-                            interactions[openInteractionIndex],
-                            typeof payload?.id === 'string'
-                                ? payload.id
-                                : undefined,
-                            toolFunction.name,
-                            buildToolCallSummary(toolFunction.name, args),
-                            capToolCallDetail(
-                                typeof toolFunction.arguments === 'string'
-                                    ? toolFunction.arguments
-                                    : ''
+                        const toolCallId = typeof payload?.id === 'string'
+                            ? payload.id
+                            : '';
+                        const questionItems = KIMI_QUESTION_TOOL_NAMES.has(
+                            toolFunction.name
+                        )
+                            ? kimiQuestionItemsFromToolArguments(
+                                toolFunction.name,
+                                args
                             )
-                        );
+                            : [];
+                        if (questionItems.length && toolCallId) {
+                            const interaction =
+                                interactions[openInteractionIndex];
+                            const block: ConversationQuestionBlock = {
+                                position: interaction.assistantMarkdown.length,
+                                source: truncateGraphemes(
+                                    toolFunction.name,
+                                    CONVERSATION_LIMITS.questionSourceGraphemes
+                                ),
+                                questions: questionItems,
+                            };
+                            (interaction.questions ||= []).push(block);
+                            questionTracker.set(toolCallId, block);
+                        } else {
+                            toolTracker.begin(
+                                interactions[openInteractionIndex],
+                                typeof payload?.id === 'string'
+                                    ? payload.id
+                                    : undefined,
+                                toolFunction.name,
+                                buildToolCallSummary(toolFunction.name, args),
+                                capToolCallDetail(
+                                    typeof toolFunction.arguments === 'string'
+                                        ? toolFunction.arguments
+                                        : ''
+                                )
+                            );
+                        }
                     }
                 } else if (event.type === 'ToolResult') {
                     stampActivity(envelope);
                     const payload = asRecord(event.payload);
                     const returnValue = asRecord(payload?.return_value);
-                    toolTracker.finish(
-                        payload?.tool_call_id,
-                        typeof returnValue?.output === 'string'
-                            ? returnValue.output
-                            : undefined
-                    );
+                    const output = typeof returnValue?.output === 'string'
+                        ? returnValue.output
+                        : undefined;
+                    const toolCallId = typeof payload?.tool_call_id === 'string'
+                        ? payload.tool_call_id
+                        : undefined;
+                    const questionBlock = toolCallId
+                        ? questionTracker.get(toolCallId)
+                        : undefined;
+                    if (questionBlock) {
+                        applyKimiQuestionSettlement(questionBlock, output);
+                    } else {
+                        toolTracker.finish(payload?.tool_call_id, output);
+                    }
                 } else if (event.type === 'TurnEnd') {
                     stampActivity(envelope);
                     finishInteraction('complete');
@@ -730,6 +962,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                 previous.telemetryContext = telemetryContext;
                 previous.telemetryPaths = telemetryPaths;
                 previous.toolTracker = toolTracker;
+                previous.questionTracker = questionTracker;
                 previous.pendingThinking = pendingThinking;
                 previous.revision = revision;
                 previous.partial = partial;
@@ -742,6 +975,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                     telemetryContext,
                     telemetryPaths,
                     toolTracker,
+                    questionTracker,
                     pendingThinking,
                     revision,
                     partial,

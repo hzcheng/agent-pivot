@@ -140,6 +140,38 @@ export function buildConversationPage(
         const planBlocks = interaction.plans || [];
         const questionBlocks = interaction.questions || [];
         const pushAnchoredAt = (position: number): void => {
+            toolCalls.forEach((toolCall, toolIndex) => {
+                if (toolCall.position !== position) {
+                    return;
+                }
+                messages.push({
+                    id: `${interaction.id}:tool:${toolIndex}`,
+                    interactionId: interaction.id,
+                    role: 'tool',
+                    timestamp: interaction.timestamp,
+                    markdown: '',
+                    tool: {
+                        name: toolCall.name,
+                        summary: toolCall.summary,
+                        ...(toolCall.detail !== undefined
+                            ? { detail: toolCall.detail }
+                            : {}),
+                    },
+                });
+            });
+            thinkingBlocks.forEach((block, blockIndex) => {
+                if (block.position !== position) {
+                    return;
+                }
+                messages.push({
+                    id: `${interaction.id}:thinking:${blockIndex}`,
+                    interactionId: interaction.id,
+                    role: 'thinking',
+                    timestamp: interaction.timestamp,
+                    markdown: '',
+                    thinking: { text: block.text },
+                });
+            });
             planBlocks.forEach((block, blockIndex) => {
                 if (block.position !== position) {
                     return;
@@ -193,38 +225,6 @@ export function buildConversationPage(
                             ? { outcome: block.outcome }
                             : {}),
                     },
-                });
-            });
-            toolCalls.forEach((toolCall, toolIndex) => {
-                if (toolCall.position !== position) {
-                    return;
-                }
-                messages.push({
-                    id: `${interaction.id}:tool:${toolIndex}`,
-                    interactionId: interaction.id,
-                    role: 'tool',
-                    timestamp: interaction.timestamp,
-                    markdown: '',
-                    tool: {
-                        name: toolCall.name,
-                        summary: toolCall.summary,
-                        ...(toolCall.detail !== undefined
-                            ? { detail: toolCall.detail }
-                            : {}),
-                    },
-                });
-            });
-            thinkingBlocks.forEach((block, blockIndex) => {
-                if (block.position !== position) {
-                    return;
-                }
-                messages.push({
-                    id: `${interaction.id}:thinking:${blockIndex}`,
-                    interactionId: interaction.id,
-                    role: 'thinking',
-                    timestamp: interaction.timestamp,
-                    markdown: '',
-                    thinking: { text: block.text },
                 });
             });
         };

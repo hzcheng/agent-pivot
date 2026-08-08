@@ -1867,6 +1867,10 @@ button {
 
 .conversation-project-comment-composer {
     min-width: 0;
+    // Never flex-shrink: when the Workspace group fills up, the card list
+    // scrolls inside the group region instead of crushing the composer into
+    // a clipped sliver (same protection as .conversation-comment-composer).
+    flex: 0 0 auto;
     padding: 0.45rem 0.5rem;
     overflow: hidden;
     border: 1px solid var(--vscode-panel-border);

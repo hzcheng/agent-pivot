@@ -51,7 +51,6 @@
         var conversationMessageSelector = options.messageSelector;
         var conversationMessageId = options.messageId;
         var setSidebarView = options.setSidebarView;
-        var updateToggle = options.updateToggle;
         var state = {
             comments: [],
             commentRevision: 0,
@@ -227,12 +226,6 @@
                 && (value.error === undefined || value.error === 'stale');
         }
 
-        function openCommentCount() {
-            return state.comments.filter(function (comment) {
-                return comment.status === 'open';
-            }).length;
-        }
-
         function commentStatusCounts() {
             return state.comments.reduce(function (counts, comment) {
                 counts[comment.status] += 1;
@@ -333,7 +326,7 @@
         function setCommentPending(pending) {
             if (!commentUiAvailable) return;
             Array.prototype.forEach.call(
-                commentsRoot.querySelectorAll('button, textarea'),
+                commentsRoot.querySelectorAll('button, textarea, input'),
                 function (control) {
                     if (projectCommentsRoot
                         && projectCommentsRoot.contains(control)) {
@@ -801,7 +794,6 @@
                 );
                 commentList.appendChild(item);
             });
-            updateToggle();
             commentEmpty.hidden = state.comments.length > 0;
             if (state.sessionTagEditor) {
                 var sessionTagInput = commentList.querySelector(
@@ -1587,68 +1579,6 @@
             return tag.length > 0
                 && Array.from(tag).length <= 24
                 && !/[\u0000-\u001f\u007f]/.test(tag);
-        }
-
-        function projectCommentFilterEquals(a, b) {
-            if (a === null || b === null) {
-                return a === b;
-            }
-            return a.type === b.type && a.value === b.value;
-        }
-
-        function visibleProjectComments() {
-            var ordered = orderedProjectComments();
-            if (!state.commentsPanelFilter) return ordered;
-            return ordered.filter(commentMatchesPanelFilter);
-        }
-
-        function projectTagColorKey(tag) {
-            var hash = 0;
-            var text = tag.toLowerCase();
-            for (var index = 0; index < text.length; index += 1) {
-                hash = (hash * 31 + text.charCodeAt(index)) >>> 0;
-            }
-            return hash % PROJECT_TAG_COLOR_COUNT;
-        }
-
-        function normalizeProjectTag(value) {
-            return typeof value === 'string'
-                ? value.replace(/\s+/g, ' ').trim()
-                : '';
-        }
-
-        function validProjectTag(tag) {
-            return tag.length > 0
-                && Array.from(tag).length <= 24
-                && !/[\u0000-\u001f\u007f]/.test(tag);
-        }
-
-        function readProjectTagFilter() {
-            if (!vscodeApi || typeof vscodeApi.getState !== 'function') {
-                return null;
-            }
-            try {
-                var saved = vscodeApi.getState();
-                var filter = saved
-                    && saved.conversationProjectCommentsTagFilter;
-                if (!filter || typeof filter !== 'object'
-                    || Array.isArray(filter)) {
-                    return null;
-                }
-                if (filter.type === 'status'
-                    && (filter.value === 'open'
-                        || filter.value === 'done')) {
-                    return { type: 'status', value: filter.value };
-                }
-                if (filter.type === 'tag'
-                    && typeof filter.value === 'string'
-                    && filter.value) {
-                    return { type: 'tag', value: filter.value };
-                }
-                return null;
-            } catch (_error) {
-                return null;
-            }
         }
 
         function nextProjectCommentRequestId() {
@@ -2541,6 +2471,11 @@
             }
             updateProjectComposerControls();
             updateWorkspaceHeaderControls();
+            if (state.pendingProjectCommentRequest) {
+                // Any re-render during an in-flight request must keep the
+                // disabled pending state instead of reviving controls.
+                setProjectCommentPending(true);
+            }
         }
 
         function focusProjectCommentDragHandle(commentId) {
@@ -3511,6 +3446,7 @@
                         .map(cloneProjectComment);
                     renderProjectComments();
                 } else {
+                    renderProjectComments();
                     projectCommentEmpty.hidden = false;
                     projectCommentEmpty.textContent =
                         'Project notes are unavailable.';
@@ -3543,6 +3479,7 @@
             state.pendingCommentRequest = null;
             state.pendingLocateRequest = null;
             state.editingComment = null;
+            state.sessionTagEditor = null;
             state.expandedDoneComments.clear();
             if (projectCommentsAvailable) {
                 state.projectComments = projectSnapshot.comments.map(
@@ -3575,11 +3512,7 @@
             handleEnterShortcut: handleEnterShortcut,
             handleEscape: handleEscape,
             initializeComments: initializeComments,
-            openCount: openCommentCount,
             resetSession: resetSession,
-            sendOpenComments: function () {
-                postCommentOperation('sendComments', {});
-            },
             updateHighlights: updateCommentHighlights,
         });
     }

@@ -189,3 +189,4 @@ not once per provider.
 | Treat one successful mirrored write as success | Repair from the snapshot, fail the mutation, and refresh |
 | Collapse a partial batch into success or failure | Preserve per-group results and announce bounded totals |
 | Assert on raw tag adjacency (e.g. `>Approved<`) in `panel.webview.html` | The initial publication embeds page HTML entity-escaped (`&gt;`/`&lt;`); assert on entity-safe substrings such as class names or plain text |
+| Extend a conversation page message shape without auditing every protocol hop | Enumerate all role/payload whitelists — the coordinator runtime validator, the coordinator page transform, and the viewer publication copy — route copies through `copyConversationMessage`, and add a coordinator-level owner test so a missing hop fails CI instead of the user |

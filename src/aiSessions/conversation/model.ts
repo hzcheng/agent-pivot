@@ -51,6 +51,76 @@ export function applyStoppedLifecycleToResponseState(
     return stopped && state === 'inProgress' ? 'interrupted' : state;
 }
 
+/**
+ * Single deep-copy boundary for page messages. Every hop that re-emits a
+ * message (coordinator transform, viewer publication) must go through this
+ * so a new payload field cannot be silently dropped by one whitelist.
+ */
+export function copyConversationMessage(
+    message: ConversationMessage
+): ConversationMessage {
+    return {
+        id: message.id,
+        interactionId: message.interactionId,
+        role: message.role,
+        timestamp: message.timestamp,
+        markdown: message.markdown,
+        ...(message.tool
+            ? {
+                tool: {
+                    name: message.tool.name,
+                    summary: message.tool.summary,
+                    ...(message.tool.detail !== undefined
+                        ? { detail: message.tool.detail }
+                        : {}),
+                },
+            }
+            : {}),
+        ...(message.thinking
+            ? { thinking: { text: message.thinking.text } }
+            : {}),
+        ...(message.plan
+            ? {
+                plan: {
+                    markdown: message.plan.markdown,
+                    ...(message.plan.filePath !== undefined
+                        ? { filePath: message.plan.filePath }
+                        : {}),
+                },
+            }
+            : {}),
+        ...(message.question
+            ? {
+                question: {
+                    source: message.question.source,
+                    questions: message.question.questions.map(item => ({
+                        question: item.question,
+                        ...(item.header !== undefined
+                            ? { header: item.header }
+                            : {}),
+                        options: item.options.map(option => ({
+                            label: option.label,
+                            ...(option.description !== undefined
+                                ? { description: option.description }
+                                : {}),
+                        })),
+                        multiSelect: item.multiSelect,
+                        ...(item.otherLabel !== undefined
+                            ? { otherLabel: item.otherLabel }
+                            : {}),
+                        ...(item.answers !== undefined
+                            ? { answers: [...item.answers] }
+                            : {}),
+                    })),
+                    ...(message.question.outcome !== undefined
+                        ? { outcome: message.question.outcome }
+                        : {}),
+                },
+            }
+            : {}),
+    };
+}
+
 export function applyActiveLifecycleToResponseState(
     state: ConversationResponseState,
     active: boolean,

@@ -120,7 +120,11 @@ export function createConversationComment(
         id,
         messageId: message.id,
         interactionId: message.interactionId,
-        role: message.role === 'progress' ? 'assistant' : message.role,
+        role: message.role === 'progress'
+            || message.role === 'plan'
+            || message.role === 'question'
+            ? 'assistant'
+            : message.role,
         quote: requireBoundedText(
             selection.quote,
             CONVERSATION_COMMENT_LIMITS.maxQuoteGraphemes

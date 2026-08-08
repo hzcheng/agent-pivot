@@ -47,6 +47,7 @@ import {
     truncateGraphemes,
 } from './text';
 import type { ConversationClockTime } from './text';
+import { copyConversationMessage } from './model';
 import {
     CONVERSATION_LIMITS,
     ConversationAbortController,
@@ -2149,66 +2150,7 @@ function isStaleRevision(error: unknown): error is ConversationError {
 }
 
 function copyMessage(message: ConversationMessage): ConversationMessage {
-    return {
-        id: message.id,
-        interactionId: message.interactionId,
-        role: message.role,
-        timestamp: message.timestamp,
-        markdown: message.markdown,
-        ...(message.tool
-            ? {
-                tool: {
-                    name: message.tool.name,
-                    summary: message.tool.summary,
-                    ...(message.tool.detail !== undefined
-                        ? { detail: message.tool.detail }
-                        : {}),
-                },
-            }
-            : {}),
-        ...(message.thinking
-            ? { thinking: { text: message.thinking.text } }
-            : {}),
-        ...(message.plan
-            ? {
-                plan: {
-                    markdown: message.plan.markdown,
-                    ...(message.plan.filePath !== undefined
-                        ? { filePath: message.plan.filePath }
-                        : {}),
-                },
-            }
-            : {}),
-        ...(message.question
-            ? {
-                question: {
-                    source: message.question.source,
-                    questions: message.question.questions.map(item => ({
-                        question: item.question,
-                        ...(item.header !== undefined
-                            ? { header: item.header }
-                            : {}),
-                        options: item.options.map(option => ({
-                            label: option.label,
-                            ...(option.description !== undefined
-                                ? { description: option.description }
-                                : {}),
-                        })),
-                        multiSelect: item.multiSelect,
-                        ...(item.otherLabel !== undefined
-                            ? { otherLabel: item.otherLabel }
-                            : {}),
-                        ...(item.answers !== undefined
-                            ? { answers: [...item.answers] }
-                            : {}),
-                    })),
-                    ...(message.question.outcome !== undefined
-                        ? { outcome: message.question.outcome }
-                        : {}),
-                },
-            }
-            : {}),
-    };
+    return copyConversationMessage(message);
 }
 
 function renderToolMessage(message: ConversationMessage): string {

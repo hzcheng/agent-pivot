@@ -78,8 +78,17 @@ export interface ConversationQuestionItem {
     answers?: string[];
 }
 
+export const CONVERSATION_QUESTION_OUTCOMES = Object.freeze([
+    'approved',
+    'revised',
+    'rejected',
+    'answered',
+    'dismissed',
+    'pending',
+] as const);
+
 export type ConversationQuestionOutcome =
-    'approved' | 'revised' | 'rejected' | 'answered' | 'dismissed' | 'pending';
+    typeof CONVERSATION_QUESTION_OUTCOMES[number];
 
 export interface ConversationQuestionBlock {
     /** Assistant text chunks already emitted when the question arrived. */

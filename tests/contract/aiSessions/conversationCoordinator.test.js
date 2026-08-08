@@ -207,6 +207,148 @@ function createCoordinatorHarness(adapterOverrides = {}) {
     return { adapters, calls, clock, coordinator, diagnostics };
 }
 
+test('CONVERSATION-PLAN-QUESTION-VISIBILITY-001 passes plan and question page messages through validation', async t => {
+    const messages = [
+        {
+            id: 'input-a:user',
+            interactionId: 'input-a',
+            role: 'user',
+            markdown: 'Visible prompt',
+        },
+        {
+            id: 'input-a:plan:0',
+            interactionId: 'input-a',
+            role: 'plan',
+            markdown: '',
+            plan: {
+                markdown: '# Rollout plan',
+                filePath: '/plans/rollout.md',
+            },
+        },
+        {
+            id: 'input-a:question:0',
+            interactionId: 'input-a',
+            role: 'question',
+            markdown: '',
+            question: {
+                source: 'ExitPlanMode',
+                questions: [{
+                    question: 'Approve this plan',
+                    header: 'Plan',
+                    options: [
+                        { label: 'Go', description: 'right now' },
+                        { label: 'Stop' },
+                    ],
+                    multiSelect: false,
+                    otherLabel: 'Revise',
+                    answers: ['Go'],
+                }],
+                outcome: 'approved',
+            },
+        },
+    ];
+    const calls = { codex: 0, kimi: 0, claude: 0 };
+    const codex = adapterReturning(calls, 'codex', {
+        readPage: async request => makePage(
+            'codex',
+            request.sessionId,
+            'native-a',
+            { messages }
+        ),
+    });
+    const { coordinator } = createCoordinatorHarness({ codex });
+    t.after(() => coordinator.dispose());
+
+    const page = await coordinator.readPage({
+        provider: 'codex',
+        sessionId: 'session-plan-question',
+        anchorInteractionId: 'input-a',
+        direction: 'around',
+    });
+    assert.deepEqual(
+        page.messages.map(message => message.role),
+        ['user', 'plan', 'question']
+    );
+    assert.deepEqual(page.messages[1].plan, {
+        markdown: '# Rollout plan',
+        filePath: '/plans/rollout.md',
+    });
+    assert.deepEqual(page.messages[2].question.questions[0].answers, ['Go']);
+});
+
+test('CONVERSATION-PLAN-QUESTION-VISIBILITY-001 rejects malformed plan and question page payloads', async t => {
+    const calls = { codex: 0, kimi: 0, claude: 0 };
+    const malformed = [
+        {
+            id: 'input-a:plan:0',
+            interactionId: 'input-a',
+            role: 'plan',
+            markdown: '',
+            plan: { markdown: 42 },
+        },
+        {
+            id: 'input-a:question:0',
+            interactionId: 'input-a',
+            role: 'question',
+            markdown: '',
+            question: {
+                source: 'AskUserQuestion',
+                questions: [{
+                    question: 'Pick one',
+                    options: 'not-an-array',
+                    multiSelect: false,
+                }],
+            },
+        },
+        {
+            id: 'input-a:question:1',
+            interactionId: 'input-a',
+            role: 'question',
+            markdown: '',
+            question: {
+                source: 'ExitPlanMode',
+                questions: [{
+                    question: 'Approve?',
+                    options: [{ label: 'Go' }],
+                    multiSelect: false,
+                }],
+                outcome: 'surprised',
+            },
+        },
+    ];
+    for (const message of malformed) {
+        const codex = adapterReturning(calls, 'codex', {
+            readPage: async request => makePage(
+                'codex',
+                request.sessionId,
+                'native-a',
+                {
+                    messages: [
+                        {
+                            id: 'input-a:user',
+                            interactionId: 'input-a',
+                            role: 'user',
+                            markdown: 'Visible prompt',
+                        },
+                        message,
+                    ],
+                }
+            ),
+        });
+        const { coordinator } = createCoordinatorHarness({ codex });
+        t.after(() => coordinator.dispose());
+        await assert.rejects(
+            coordinator.readPage({
+                provider: 'codex',
+                sessionId: `session-malformed-${message.id}`,
+                anchorInteractionId: 'input-a',
+                direction: 'around',
+            }),
+            error => error.code === 'unavailable'
+        );
+    }
+});
+
 test('SESSION-CONVERSATION-COORDINATOR-001 isolates adapter failures and removes private details', async t => {
     const calls = { codex: 0, kimi: 0, claude: 0 };
     const coordinator = new ConversationCoordinator({

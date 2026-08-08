@@ -7,13 +7,16 @@ import type { AiSessionDisposable } from '../types';
 import {
     applyActiveLifecycleToResponseState,
     applyStoppedLifecycleToResponseState,
+    copyConversationMessage,
 } from './model';
 import { hasAtMostGraphemes } from './text';
 import {
     CONVERSATION_LIMITS,
+    CONVERSATION_QUESTION_OUTCOMES,
     ConversationAbortError,
     ConversationAbortSignal,
     ConversationError,
+    ConversationMessage,
     ConversationOutline,
     ConversationPage,
     ConversationPageRequest,
@@ -427,28 +430,11 @@ export class ConversationCoordinator implements AiSessionDisposable {
             sourceRevision: observed.token,
             anchorInteractionId: page.anchorInteractionId,
             messages: page.messages.map(message => ({
-                id: message.id,
-                interactionId: message.interactionId,
+                ...copyConversationMessage(message),
                 role: message.role === 'assistant'
                     && message.interactionId === activeInferredInteractionId
                     ? 'progress'
                     : message.role,
-                timestamp: message.timestamp,
-                markdown: message.markdown,
-                ...(message.tool
-                    ? {
-                        tool: {
-                            name: message.tool.name,
-                            summary: message.tool.summary,
-                            ...(message.tool.detail !== undefined
-                                ? { detail: message.tool.detail }
-                                : {}),
-                        },
-                    }
-                    : {}),
-                ...(message.thinking
-                    ? { thinking: { text: message.thinking.text } }
-                    : {}),
             })),
             interactionStates: page.interactionStates.map((state, index) => ({
                 interactionId: state.interactionId,
@@ -711,6 +697,10 @@ export class ConversationCoordinator implements AiSessionDisposable {
                 && Boolean(message.interactionId)
                 && (message.role === 'user' || message.role === 'assistant'
                     || message.role === 'progress'
+                    || (message.role === 'plan'
+                        && isConversationPlanPayload(message.plan))
+                    || (message.role === 'question'
+                        && isConversationQuestionPayload(message.question))
                     || (message.role === 'tool'
                         && Boolean(message.tool)
                         && typeof message.tool.name === 'string'
@@ -877,6 +867,90 @@ function isDenseOwnArray(value: unknown): value is unknown[] {
         }
     }
     return true;
+}
+
+const QUESTION_OUTCOME_SET: ReadonlySet<string> = new Set(
+    CONVERSATION_QUESTION_OUTCOMES
+);
+
+function isConversationPlanPayload(
+    plan: ConversationMessage['plan']
+): boolean {
+    return Boolean(plan)
+        && typeof plan.markdown === 'string'
+        && hasAtMostGraphemes(
+            plan.markdown,
+            CONVERSATION_LIMITS.maxMessageGraphemes
+        )
+        && (plan.filePath === undefined
+            || (typeof plan.filePath === 'string'
+                && hasAtMostGraphemes(
+                    plan.filePath,
+                    CONVERSATION_LIMITS.planFilePathGraphemes
+                )));
+}
+
+function isConversationQuestionPayload(
+    question: ConversationMessage['question']
+): boolean {
+    return Boolean(question)
+        && typeof question.source === 'string'
+        && Boolean(question.source)
+        && hasAtMostGraphemes(
+            question.source,
+            CONVERSATION_LIMITS.questionSourceGraphemes
+        )
+        && isDenseOwnArray(question.questions)
+        && question.questions.length > 0
+        && question.questions.length
+            <= CONVERSATION_LIMITS.maxQuestionsPerBlock
+        && question.questions.every(item => Boolean(item)
+            && typeof item.question === 'string'
+            && Boolean(item.question)
+            && hasAtMostGraphemes(
+                item.question,
+                CONVERSATION_LIMITS.questionTextGraphemes
+            )
+            && (item.header === undefined
+                || (typeof item.header === 'string'
+                    && hasAtMostGraphemes(
+                        item.header,
+                        CONVERSATION_LIMITS.questionHeaderGraphemes
+                    )))
+            && isDenseOwnArray(item.options)
+            && item.options.length <= CONVERSATION_LIMITS.maxQuestionOptions
+            && item.options.every(option => Boolean(option)
+                && typeof option.label === 'string'
+                && Boolean(option.label)
+                && hasAtMostGraphemes(
+                    option.label,
+                    CONVERSATION_LIMITS.questionOptionLabelGraphemes
+                )
+                && (option.description === undefined
+                    || (typeof option.description === 'string'
+                        && hasAtMostGraphemes(
+                            option.description,
+                            CONVERSATION_LIMITS
+                                .questionOptionDescriptionGraphemes
+                        ))))
+            && typeof item.multiSelect === 'boolean'
+            && (item.otherLabel === undefined
+                || (typeof item.otherLabel === 'string'
+                    && hasAtMostGraphemes(
+                        item.otherLabel,
+                        CONVERSATION_LIMITS.questionOptionLabelGraphemes
+                    )))
+            && (item.answers === undefined
+                || (isDenseOwnArray(item.answers)
+                    && item.answers.every(answer =>
+                        typeof answer === 'string'
+                        && Boolean(answer)
+                        && hasAtMostGraphemes(
+                            answer,
+                            CONVERSATION_LIMITS.questionAnswerGraphemes
+                        )))))
+        && (question.outcome === undefined
+            || QUESTION_OUTCOME_SET.has(question.outcome));
 }
 
 function hasUniqueValues(values: readonly string[]): boolean {

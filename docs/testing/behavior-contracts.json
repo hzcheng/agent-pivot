@@ -4472,6 +4472,8 @@
       "tests/contract/aiSessions/kimiConversationAdapter.test.js",
       "tests/contract/aiSessions/claudeConversationAdapter.test.js",
       "tests/contract/aiSessions/codexConversationAdapter.test.js",
+      "tests/contract/aiSessions/conversationCoordinator.test.js",
+      "tests/unit/aiSessions/conversationComments.test.js",
       "tests/integration/dashboard/conversationViewer.test.js",
       "tests/browser/conversationViewer.test.js"
     ],
@@ -4482,6 +4484,8 @@
       "src/aiSessions/conversation/kimiAdapter.ts",
       "src/aiSessions/conversation/claudeAdapter.ts",
       "src/aiSessions/conversation/codexAdapter.ts",
+      "src/aiSessions/conversation/coordinator.ts",
+      "src/aiSessions/conversation/comments.ts",
       "src/aiSessions/conversation/viewer.ts",
       "media/conversationViewer.scss"
     ]

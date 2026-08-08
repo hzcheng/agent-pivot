@@ -424,7 +424,7 @@
         {
             "id": "MAIN-WORKSPACE-WEBVIEW",
             "title": "Workspace card webview behavior",
-            "requirement": "Workspace cards retain their markup, layout, click targets, responsive containment, and running-state animations, including character-specific Sharingan running indicators.",
+            "requirement": "Workspace cards retain their markup, layout, click targets, responsive containment, and running-state animations, including user-supplied custom running indicators.",
             "commits": [
                 "d97793431d296cb625d6fd93bceb1fb27c502465",
                 "e96db2c7fa49c33e1237a50e821dec95b71fdd4d",
@@ -460,10 +460,8 @@
             "behaviors": [
                 "WEBVIEW-CURRENT-WORKSPACE-RENDERING-001",
                 "WEBVIEW-SHARED-CARD-STATE-001",
-                "SHARINGAN-RUNNING-ANIMATION-001",
-                "SHARINGAN-ASSET-INTEGRITY-001",
-                "SHARINGAN-ASSET-INTEGRITY-002",
-                "SHARINGAN-ASSET-ATTRIBUTION-001",
+                "CUSTOM-RUNNING-IMAGE-001",
+                "CUSTOM-RUNNING-IMAGE-RESOLVER-001",
                 "WEBVIEW-AI-SESSION-LIST-SCROLL-001"
             ],
             "prGates": [

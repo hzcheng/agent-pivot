@@ -2689,7 +2689,7 @@ body.steward-sidebar {
             }
         }
 
-        &[data-session-fx^="sharingan-"] .project-kind-icon {
+        &[data-session-fx="custom"] .project-kind-icon {
             position: relative;
             background: transparent;
             border-color: transparent;
@@ -2699,39 +2699,16 @@ body.steward-sidebar {
                 position: absolute;
                 inset: 0;
                 z-index: 1;
+                background-image: var(--agent-pivot-running-card-image, none);
                 background-position: center;
                 background-repeat: no-repeat;
                 background-size: 100% 100%;
-                animation: steward-session-running-sharingan 1.8s linear infinite;
+                animation: steward-session-running-custom-image 1.8s linear infinite;
                 pointer-events: none;
             }
         }
 
-        &[data-session-fx="sharingan-itachi"] .project-kind-icon::after {
-            background-image: url("sharingan/mangekyou-sharingan-itachi.svg");
-        }
-
-        &[data-session-fx="sharingan-obito-kakashi"] .project-kind-icon::after {
-            background-image: url("sharingan/mangekyou-sharingan-obito-kakashi.svg");
-        }
-
-        &[data-session-fx="sharingan-sasuke"] .project-kind-icon::after {
-            background-image: url("sharingan/mangekyou-sharingan-sasuke.svg");
-        }
-
-        &[data-session-fx="sharingan-shisui"] .project-kind-icon::after {
-            background-image: url("sharingan/mangekyou-sharingan-shisui.svg");
-        }
-
-        &[data-session-fx="sharingan-madara"] .project-kind-icon::after {
-            background-image: url("sharingan/mangekyou-sharingan-madara.svg");
-        }
-
-        &[data-session-fx="sharingan-madara-eternal"] .project-kind-icon::after {
-            background-image: url("sharingan/mangekyou-sharingan-madara-eternal.svg");
-        }
-
-        &[data-session-fx^="sharingan-"]:hover .project-kind-icon {
+        &[data-session-fx="custom"]:hover .project-kind-icon {
             color: var(--steward-foreground);
             background: transparent;
             border-color: transparent;
@@ -3607,43 +3584,20 @@ body.steward-sidebar {
             }
         }
 
-        .active-ai-session-row[data-execution-state="running"][data-session-icon-fx^="sharingan-"] .codex-session-icon {
+        .active-ai-session-row[data-execution-state="running"][data-session-icon-fx="custom"] .codex-session-icon {
 
             &::after {
                 content: "";
                 position: absolute;
                 inset: 0;
                 border-radius: 50%;
+                background-image: var(--agent-pivot-running-icon-image, none);
                 background-position: center;
                 background-repeat: no-repeat;
                 background-size: 100% 100%;
-                animation: steward-session-running-sharingan 1.8s linear infinite;
+                animation: steward-session-running-custom-image 1.8s linear infinite;
                 pointer-events: none;
             }
-        }
-
-        .active-ai-session-row[data-execution-state="running"][data-session-icon-fx="sharingan-itachi"] .codex-session-icon::after {
-            background-image: url("sharingan/mangekyou-sharingan-itachi.svg");
-        }
-
-        .active-ai-session-row[data-execution-state="running"][data-session-icon-fx="sharingan-obito-kakashi"] .codex-session-icon::after {
-            background-image: url("sharingan/mangekyou-sharingan-obito-kakashi.svg");
-        }
-
-        .active-ai-session-row[data-execution-state="running"][data-session-icon-fx="sharingan-sasuke"] .codex-session-icon::after {
-            background-image: url("sharingan/mangekyou-sharingan-sasuke.svg");
-        }
-
-        .active-ai-session-row[data-execution-state="running"][data-session-icon-fx="sharingan-shisui"] .codex-session-icon::after {
-            background-image: url("sharingan/mangekyou-sharingan-shisui.svg");
-        }
-
-        .active-ai-session-row[data-execution-state="running"][data-session-icon-fx="sharingan-madara"] .codex-session-icon::after {
-            background-image: url("sharingan/mangekyou-sharingan-madara.svg");
-        }
-
-        .active-ai-session-row[data-execution-state="running"][data-session-icon-fx="sharingan-madara-eternal"] .codex-session-icon::after {
-            background-image: url("sharingan/mangekyou-sharingan-madara-eternal.svg");
         }
 
         .codex-session-pin,
@@ -5038,7 +4992,7 @@ body.steward-sidebar .project .project-codex-badge.attention-animate {
     }
 }
 
-@keyframes steward-session-running-sharingan {
+@keyframes steward-session-running-custom-image {
     to {
         transform: rotate(1turn);
     }
@@ -5203,10 +5157,10 @@ body.steward-sidebar .project .ai-session-attention-indicator {
     .project-session-fx::after,
     .project.session-running[data-session-fx="breath"],
     .project.session-running[data-session-fx="halo"] .project-kind-icon::before,
-    .project.session-running[data-session-fx^="sharingan-"] .project-kind-icon::after,
+    .project.session-running[data-session-fx="custom"] .project-kind-icon::after,
     .active-ai-session-row[data-execution-state="running"][data-session-icon-fx="current"] .codex-session-icon::before,
     .active-ai-session-row[data-execution-state="running"][data-session-icon-fx="halo"] .codex-session-icon::before,
-    .active-ai-session-row[data-execution-state="running"][data-session-icon-fx^="sharingan-"] .codex-session-icon::after {
+    .active-ai-session-row[data-execution-state="running"][data-session-icon-fx="custom"] .codex-session-icon::after {
         animation: none !important;
         transition: none !important;
     }

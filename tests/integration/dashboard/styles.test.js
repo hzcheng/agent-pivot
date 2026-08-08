@@ -40,7 +40,7 @@ function validateReducedMotion(source) {
     const sessionMotion = extractBlock(source, '@media (prefers-reduced-motion: reduce)', 1);
     for (const value of [
         '.ai-session-attention-indicator',
-        '.project.session-running[data-session-fx^="sharingan-"] .project-kind-icon::after',
+        '.project.session-running[data-session-fx="custom"] .project-kind-icon::after',
         'animation: none !important',
         'transition: none !important',
     ]) {
@@ -177,78 +177,58 @@ function assertDeclarations(rule, id, declarations) {
     }
 }
 
-const sharinganAssets = [
-    ['sharingan-itachi', 'sharingan/mangekyou-sharingan-itachi.svg'],
-    ['sharingan-obito-kakashi', 'sharingan/mangekyou-sharingan-obito-kakashi.svg'],
-    ['sharingan-sasuke', 'sharingan/mangekyou-sharingan-sasuke.svg'],
-    ['sharingan-shisui', 'sharingan/mangekyou-sharingan-shisui.svg'],
-    ['sharingan-madara', 'sharingan/mangekyou-sharingan-madara.svg'],
-    ['sharingan-madara-eternal', 'sharingan/mangekyou-sharingan-madara-eternal.svg'],
-];
-
-function findSharinganRule(source, mode) {
+function findCustomImageRule(source, suffix, requiredDeclaration) {
     const matches = cssRules(source).filter(rule => rule.selectors.some(selector =>
         (
-            selector.includes(`[data-session-fx="${mode}"]`)
-            || selector.includes(`[data-session-fx=${mode}]`)
-        )
-        && selector.endsWith('.project-kind-icon::after')));
-    assert.equal(matches.length, 1,
-        `SHARINGAN-RUNNING-ANIMATION-001 expected one rule for ${mode}`);
-    return matches[0];
-}
-
-function findSharinganSharedRule(source, suffix, requiredDeclaration) {
-    const matches = cssRules(source).filter(rule => rule.selectors.some(selector =>
-        (
-            selector.includes('[data-session-fx^="sharingan-"]')
-            || selector.includes('[data-session-fx^=sharingan-]')
+            selector.includes('[data-session-fx="custom"]')
+            || selector.includes('[data-session-fx=custom]')
         )
         && selector.endsWith(suffix))
         && (!requiredDeclaration || rule.body.includes(requiredDeclaration)));
     assert.equal(matches.length, 1,
-        `SHARINGAN-RUNNING-ANIMATION-001 expected one shared rule for ${suffix}`);
+        `CUSTOM-RUNNING-IMAGE-001 expected one rule for ${suffix}`);
     return matches[0];
 }
 
-function validateSharinganAnimations(source) {
-    for (const [mode, asset] of sharinganAssets) {
-        assertDeclarations(findSharinganRule(source, mode),
-            'SHARINGAN-RUNNING-ANIMATION-001', [`background-image: url("${asset}")`]);
-    }
-    assertDeclarations(findSharinganSharedRule(source, '.project-kind-icon::after', 'position: absolute'),
-        'SHARINGAN-RUNNING-ANIMATION-001', [
+function validateCustomImageAnimation(source) {
+    const id = 'CUSTOM-RUNNING-IMAGE-001';
+    assertDeclarations(findCustomImageRule(source, '.project-kind-icon::after', 'position: absolute'),
+        id, [
             'position: absolute',
             'inset: 0',
+            'background-image: var(--agent-pivot-running-card-image, none)',
             'background-position: center',
             'background-repeat: no-repeat',
             'background-size: 100% 100%',
-            'animation: steward-session-running-sharingan 1.8s linear infinite',
+            'animation: steward-session-running-custom-image 1.8s linear infinite',
             'pointer-events: none',
         ]);
-    assertDeclarations(findSharinganSharedRule(source, ':hover .project-kind-icon', 'background: transparent'),
-        'SHARINGAN-RUNNING-ANIMATION-001', [
+    assertDeclarations(findCustomImageRule(source, ':hover .project-kind-icon', 'background: transparent'),
+        id, [
             'color: var(--steward-foreground)',
             'background: transparent',
             'border-color: transparent',
         ]);
     assert.equal(cssRules(source).some(rule => rule.selectors.some(selector =>
         (
-            selector.includes('[data-session-fx^="sharingan-"]')
-            || selector.includes('[data-session-fx^=sharingan-]')
+            selector.includes('[data-session-fx="custom"]')
+            || selector.includes('[data-session-fx=custom]')
         )
         && selector.endsWith('.project-kind-icon svg'))), false,
-    'SHARINGAN-RUNNING-ANIMATION-001 must retain the ordinary SVG fallback');
-    assert.ok(source.includes('@keyframes steward-session-running-sharingan'));
+    `${id} must retain the ordinary SVG fallback`);
+    assert.ok(source.includes('@keyframes steward-session-running-custom-image'),
+        `${id} must keep the shared rotation keyframes`);
+    assert.equal(source.toLowerCase().includes('sharingan'), false,
+        `${id} must not retain bundled third-party artwork references`);
 }
 
 const activeSessionIconSelector = 'body.steward-sidebar .project .active-ai-session-row .codex-session-icon';
 const activeCurrentIconSelector = 'body.steward-sidebar .project .active-ai-session-row[data-execution-state=running][data-session-icon-fx=current] .codex-session-icon::before';
 const activeHaloIconSelector = 'body.steward-sidebar .project .active-ai-session-row[data-execution-state=running][data-session-icon-fx=halo] .codex-session-icon::before';
-const activeSharinganIconSelector = 'body.steward-sidebar .project .active-ai-session-row[data-execution-state=running][data-session-icon-fx^=sharingan-] .codex-session-icon::after';
+const activeCustomIconSelector = 'body.steward-sidebar .project .active-ai-session-row[data-execution-state=running][data-session-icon-fx=custom] .codex-session-icon::after';
 const activeCurrentIconMotionSelector = '.active-ai-session-row[data-execution-state=running][data-session-icon-fx=current] .codex-session-icon::before';
 const activeHaloIconMotionSelector = '.active-ai-session-row[data-execution-state=running][data-session-icon-fx=halo] .codex-session-icon::before';
-const activeSharinganIconMotionSelector = '.active-ai-session-row[data-execution-state=running][data-session-icon-fx^=sharingan-] .codex-session-icon::after';
+const activeCustomIconMotionSelector = '.active-ai-session-row[data-execution-state=running][data-session-icon-fx=custom] .codex-session-icon::after';
 
 function validateActiveSessionIconAnimation(source) {
     const id = 'ACTIVE-SESSION-ICON-ANIMATION-001';
@@ -273,19 +253,16 @@ function validateActiveSessionIconAnimation(source) {
         ['content: ""', 'position: absolute', 'inset: -1px', 'border-radius: 50%',
             'conic-gradient(', 'radial-gradient(', 'filter: drop-shadow(',
             'animation: steward-session-icon-spin 2.6s linear infinite', 'pointer-events: none']);
-    assertDeclarations(ruleForSelector(source, activeSharinganIconSelector), id,
+    assertDeclarations(ruleForSelector(source, activeCustomIconSelector), id,
         ['position: absolute', 'inset: 0', 'background-size: 100% 100%', 'border-radius: 50%',
-            'animation: steward-session-running-sharingan 1.8s linear infinite', 'pointer-events: none']);
-    for (const [mode, asset] of sharinganAssets) {
-        const selector = `body.steward-sidebar .project .active-ai-session-row[data-execution-state=running][data-session-icon-fx=${mode}] .codex-session-icon::after`;
-        assertDeclarations(ruleForSelector(source, selector), id, [`background-image: url("${asset}")`]);
-    }
+            'background-image: var(--agent-pivot-running-icon-image, none)',
+            'animation: steward-session-running-custom-image 1.8s linear infinite', 'pointer-events: none']);
     assert.equal(cssRules(source).some(rule => rule.selectors.some(selector =>
         selector.includes('[data-session-icon-fx=none]') && /::(?:before|after)$/.test(selector))), false,
     `${id} none must not create an animated pseudo-element`);
     assert.equal(cssRules(source).some(rule => rule.selectors.some(selector =>
-        selector.includes('sharingan-') && selector.includes('.codex-session-icon svg'))), false,
-    `${id} Sharingan must retain the terminal SVG`);
+        selector.includes('[data-session-icon-fx=custom]') && selector.includes('.codex-session-icon svg'))), false,
+    `${id} custom image must retain the terminal SVG`);
     assert.equal(cssRules(source).some(rule => rule.selectors.some(selector =>
         selector.includes('[data-session-icon-fx') && !selector.includes('.active-ai-session-row'))), false,
     `${id} icon effects must not target History rows`);
@@ -293,7 +270,7 @@ function validateActiveSessionIconAnimation(source) {
     for (const selector of [
         activeCurrentIconMotionSelector,
         activeHaloIconMotionSelector,
-        activeSharinganIconMotionSelector,
+        activeCustomIconMotionSelector,
     ]) {
         assertDeclarations(ruleForSelector(reducedMotion, selector), id,
             ['animation: none !important', 'transition: none !important']);
@@ -495,15 +472,15 @@ test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-003 styles the menu, rows, and forc
         /WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-003/);
 });
 
-test('SHARINGAN-RUNNING-ANIMATION-001 maps and rotates each authentic eye', () => {
-    validateSharinganAnimations(compiledStyles);
-    assert.throws(() => validateSharinganAnimations(compileStyles(styles.replace(
-        'animation: steward-session-running-sharingan 1.8s linear infinite;',
+test('CUSTOM-RUNNING-IMAGE-001 renders user-supplied artwork through CSS variables', () => {
+    validateCustomImageAnimation(compiledStyles);
+    assert.throws(() => validateCustomImageAnimation(compileStyles(styles.replace(
+        'animation: steward-session-running-custom-image 1.8s linear infinite;',
         'animation: none;'
-    ))), /SHARINGAN-RUNNING-ANIMATION-001/);
+    ))), /CUSTOM-RUNNING-IMAGE-001/);
 });
 
-test('ACTIVE-SESSION-ICON-ANIMATION-001 scopes all nine Active Session icon modes', () => {
+test('ACTIVE-SESSION-ICON-ANIMATION-001 scopes every Active Session icon mode', () => {
     validateActiveSessionIconAnimation(compiledStyles);
     assert.throws(() => validateActiveSessionIconAnimation(compileStyles(styles.replace(
         'width: 26px;\n            height: 26px;\n            border: 1px solid var(--vscode-panel-border);\n            border-radius: 50%;',
@@ -515,11 +492,11 @@ test('ACTIVE-SESSION-ICON-ANIMATION-001 scopes all nine Active Session icon mode
     ))), /ACTIVE-SESSION-ICON-ANIMATION-001/);
     const currentReducedMotionSelector = '    .active-ai-session-row[data-execution-state="running"][data-session-icon-fx="current"] .codex-session-icon::before,\n';
     const haloReducedMotionSelector = '    .active-ai-session-row[data-execution-state="running"][data-session-icon-fx="halo"] .codex-session-icon::before,\n';
-    const sharinganReducedMotionSelector = '    .active-ai-session-row[data-execution-state="running"][data-session-icon-fx^="sharingan-"] .codex-session-icon::after {\n';
+    const customReducedMotionSelector = '    .active-ai-session-row[data-execution-state="running"][data-session-icon-fx="custom"] .codex-session-icon::after {\n';
     for (const mutatedStyles of [
         styles.replace(currentReducedMotionSelector, ''),
         styles.replace(haloReducedMotionSelector, ''),
-        styles.replace(`${haloReducedMotionSelector}${sharinganReducedMotionSelector}`,
+        styles.replace(`${haloReducedMotionSelector}${customReducedMotionSelector}`,
             `${haloReducedMotionSelector.slice(0, -2)} {\n`),
     ]) {
         assert.notEqual(mutatedStyles, styles, 'controlled reduced-motion mutation must alter the SCSS');

@@ -304,14 +304,9 @@
                         "sweep",
                         "orbit",
                         "halo",
-                        "sharingan-itachi",
-                        "sharingan-obito-kakashi",
-                        "sharingan-sasuke",
-                        "sharingan-shisui",
-                        "sharingan-madara",
-                        "sharingan-madara-eternal",
                         "ripple",
                         "breath",
+                        "custom",
                         "none"
                     ],
                     "enumDescriptions": [
@@ -319,47 +314,44 @@
                         "A diagonal light beam sweeps across the card periodically.",
                         "A glowing dot with a comet tail orbits along the card edge.",
                         "A rotating glowing halo surrounds the project kind icon.",
-                        "Itachi Uchiha's Mangekyo Sharingan replaces and rotates over the project kind icon.",
-                        "Obito Uchiha and Kakashi Hatake's Mangekyo Sharingan replaces and rotates over the project kind icon.",
-                        "Sasuke Uchiha's Mangekyo Sharingan replaces and rotates over the project kind icon.",
-                        "Shisui Uchiha's Mangekyo Sharingan replaces and rotates over the project kind icon.",
-                        "Madara Uchiha's Mangekyo Sharingan replaces and rotates over the project kind icon.",
-                        "Madara Uchiha's Eternal Mangekyo Sharingan replaces and rotates over the project kind icon.",
                         "Sonar ripples expand from the project kind icon.",
                         "The whole card glow breathes softly.",
+                        "Your own image (agentPivot.aiSessionRunningCardCustomImage) replaces and rotates over the project kind icon.",
                         "No animation; only a static tinted border."
                     ],
                     "default": "current",
                     "scope": "machine",
                     "description": "Animation shown on a workspace card while one or more AI sessions are executing. OTHER WINDOWS uses only its existing aggregate running state and does not expose provider or session identities."
                 },
+                "agentPivot.aiSessionRunningCardCustomImage": {
+                    "type": "string",
+                    "default": "",
+                    "scope": "machine",
+                    "markdownDescription": "Local image file (absolute path or starting with `~`; SVG, PNG, GIF, WebP, or JPEG up to 256 KB) shown when `agentPivot.aiSessionRunningCardAnimation` is `custom`. The file never leaves your machine. Changes to this setting apply immediately; after replacing the file in place, run `Developer: Reload Window` to pick up the new bytes."
+                },
                 "agentPivot.aiSessionRunningIconAnimation": {
                     "type": "string",
                     "enum": [
                         "current",
                         "halo",
-                        "sharingan-itachi",
-                        "sharingan-obito-kakashi",
-                        "sharingan-sasuke",
-                        "sharingan-shisui",
-                        "sharingan-madara",
-                        "sharingan-madara-eternal",
+                        "custom",
                         "none"
                     ],
                     "enumDescriptions": [
                         "A rotating blue border surrounds the running Active Session terminal icon.",
                         "A bright rotating halo surrounds the running Active Session terminal icon.",
-                        "Itachi Uchiha's Mangekyo Sharingan replaces and rotates over the running Active Session icon.",
-                        "Obito Uchiha and Kakashi Hatake's Mangekyo Sharingan replaces and rotates over the running Active Session icon.",
-                        "Sasuke Uchiha's Mangekyo Sharingan replaces and rotates over the running Active Session icon.",
-                        "Shisui Uchiha's Mangekyo Sharingan replaces and rotates over the running Active Session icon.",
-                        "Madara Uchiha's Mangekyo Sharingan replaces and rotates over the running Active Session icon.",
-                        "Madara Uchiha's Eternal Mangekyo Sharingan replaces and rotates over the running Active Session icon.",
+                        "Your own image (agentPivot.aiSessionRunningIconCustomImage) replaces and rotates over the running Active Session icon.",
                         "No animation; show the ordinary circular terminal icon."
                     ],
                     "default": "current",
                     "scope": "machine",
                     "description": "Animation shown on the icon of an Active Session row while that session is executing."
+                },
+                "agentPivot.aiSessionRunningIconCustomImage": {
+                    "type": "string",
+                    "default": "",
+                    "scope": "machine",
+                    "markdownDescription": "Local image file (absolute path or starting with `~`; SVG, PNG, GIF, WebP, or JPEG up to 256 KB) shown when `agentPivot.aiSessionRunningIconAnimation` is `custom`. The file never leaves your machine. Changes to this setting apply immediately; after replacing the file in place, run `Developer: Reload Window` to pick up the new bytes."
                 },
                 "agentPivot.maxVisibleTodosPerGroup": {
                     "type": "number",

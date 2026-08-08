@@ -310,20 +310,22 @@ own network, telemetry, retention, and account behavior. VS Code, Settings
 Sync, GitHub, remote hosts, tmux, and commands or CSS chosen by the user also
 operate under their own configuration and terms.
 
-## Optional artwork
+## Custom running animation artwork
 
-Agent Pivot includes optional Mangekyō Sharingan running animations. The
-bundled SVG files, creator credit, source links, modification status, and CC
-BY-SA 3.0 terms are documented in
-[Third-Party Notices](THIRD_PARTY_NOTICES.md). Selecting another animation or
-`none` avoids displaying this artwork.
+Agent Pivot does not bundle third-party artwork. The `custom` running
+animation slots display an image you supply from your own machine: point
+`agentPivot.aiSessionRunningCardCustomImage` and/or
+`agentPivot.aiSessionRunningIconCustomImage` at a local SVG, PNG, GIF, WebP,
+or JPEG file (up to 256 KB). The file is read locally and never leaves your
+machine, and you are responsible for having the rights to use the image you
+choose.
 
 ## Attribution
 
 Agent Pivot began as a fork of Kruemelkatze/vscode-dashboard and retains the upstream MIT attribution.
 
 The upstream copyright and MIT license terms remain in [LICENSE](LICENSE).
-Notices for bundled JavaScript and optional artwork are in
+Notices for bundled JavaScript libraries are in
 [Third-Party Notices](THIRD_PARTY_NOTICES.md).
 
 ## License

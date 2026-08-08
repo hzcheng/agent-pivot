@@ -773,13 +773,13 @@ test('ACTIVE-SESSION-ICON-ANIMATION-001 renders effects only for running Active 
         `<div class="codex-session-row active-ai-session-row"[^>]*data-session-id="${sessionId}"[^>]*>`
     ))[0];
 
-    const itachi = webviewModules.content.getAiSessionsDiv(surface, {
-        runningIconAnimation: 'sharingan-itachi',
+    const custom = webviewModules.content.getAiSessionsDiv(surface, {
+        runningIconAnimation: 'custom',
     });
-    assert.match(getRow(itachi, 'running'), /data-session-icon-fx="sharingan-itachi"/);
-    assert.doesNotMatch(getRow(itachi, 'starting'), /data-session-icon-fx/);
-    assert.doesNotMatch(getRow(itachi, 'stopped'), /data-session-icon-fx/);
-    const historyRow = itachi.match(/<div class="codex-session-row"[^>]*data-session-id="history"[^>]*>/)[0];
+    assert.match(getRow(custom, 'running'), /data-session-icon-fx="custom"/);
+    assert.doesNotMatch(getRow(custom, 'starting'), /data-session-icon-fx/);
+    assert.doesNotMatch(getRow(custom, 'stopped'), /data-session-icon-fx/);
+    const historyRow = custom.match(/<div class="codex-session-row"[^>]*data-session-id="history"[^>]*>/)[0];
     assert.doesNotMatch(historyRow, /data-session-icon-fx|active-ai-session-row/);
 
     const invalid = webviewModules.content.getAiSessionsDiv(surface, {
@@ -790,6 +790,73 @@ test('ACTIVE-SESSION-ICON-ANIMATION-001 renders effects only for running Active 
         runningIconAnimation: 'none',
     });
     assert.match(getRow(none, 'running'), /data-session-icon-fx="none"/);
+});
+
+test('CUSTOM-RUNNING-IMAGE-001 full render injects user artwork as CSS variables', () => {
+    const os = require('node:os');
+    const {
+        clearRunningAnimationImageCache,
+    } = require('../../../out/webview/runningAnimationImages');
+    clearRunningAnimationImageCache();
+    const tinySvg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4 4"><rect width="4" height="4"/></svg>';
+    const imagePath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'custom-fx-')), 'mark.svg');
+    fs.writeFileSync(imagePath, tinySvg);
+    const expectedDataUri = `data:image/svg+xml;base64,${Buffer.from(tinySvg).toString('base64')}`;
+
+    const renderWith = configValues => webviewModules.content.getStewardContent(
+        { extensionPath: '/extension' },
+        { cspSource: 'test', asWebviewUri: uri => uri.toString() },
+        [{ id: 'saved', groupName: 'Saved', projects: [{ id: 'hidden', name: 'Hidden', path: '/hidden' }] }],
+        {
+            config: {
+                get: (key, fallback) => Object.prototype.hasOwnProperty.call(configValues, key)
+                    ? configValues[key]
+                    : fallback,
+            },
+            relevantExtensionsInstalls: { remoteSSH: false, remoteContainers: false },
+            otherStorageHasData: false,
+            todoSearchItems: makeCatalog().todos,
+        },
+        true,
+        [makeWorkspaceCard({
+            aiSessions: {
+                activeProvider: 'codex', expanded: true, sessionsByProvider: { codex: [] },
+                activeSessions: [{
+                    key: 'codex:full-render', provider: 'codex', sessionId: 'full-render', name: 'Full render',
+                    executionState: 'running', backend: 'vscode', attached: true,
+                }],
+            },
+        })],
+        'ready',
+    );
+
+    const customHtml = renderWith({
+        aiSessionRunningCardAnimation: 'custom',
+        aiSessionRunningCardCustomImage: imagePath,
+        aiSessionRunningIconAnimation: 'custom',
+        aiSessionRunningIconCustomImage: imagePath,
+    });
+    assert.match(customHtml, /data-session-fx="custom"/,
+        'a running workspace card must use the custom effect when the image resolves');
+    assert.match(customHtml, /data-session-icon-fx="custom"/,
+        'a running Active Session row must use the custom effect when the image resolves');
+    assert.ok(customHtml.includes(`--agent-pivot-running-card-image: url("${expectedDataUri}")`),
+        'the card image must be injected as a data URI CSS variable');
+    assert.ok(customHtml.includes(`--agent-pivot-running-icon-image: url("${expectedDataUri}")`),
+        'the icon image must be injected as a data URI CSS variable');
+
+    const fallbackHtml = renderWith({
+        aiSessionRunningCardAnimation: 'custom',
+        aiSessionRunningCardCustomImage: '/definitely/missing.svg',
+        aiSessionRunningIconAnimation: 'custom',
+        aiSessionRunningIconCustomImage: '',
+    });
+    assert.match(fallbackHtml, /data-session-fx="current"/,
+        'custom without a readable image must fall back to the current animation');
+    assert.ok(!fallbackHtml.includes('--agent-pivot-running-card-image'),
+        'no image variable may be emitted when the image cannot be resolved');
+    assert.ok(!fallbackHtml.includes('data-session-icon-fx="custom"'),
+        'custom without a readable icon image must fall back to the current animation');
 });
 
 test('RUNTIME-TMUX-WEBVIEW-EXPERIENCE-001 renders semantic tmux, direct, stale, attached, and conflict controls', () => {
@@ -844,7 +911,7 @@ test('WEBVIEW-FAVORITE-RENDERING-001 renders favorites in explicit order before 
 test('WEBVIEW-WEBVIEW-CONTENT-001 renders OPEN PROJECTS TODO and lazy AI tab shells', () => {
     const config = {
         get: (key, fallback) => key === 'aiSessionRunningIconAnimation'
-            ? 'sharingan-shisui'
+            ? 'halo'
             : fallback,
     };
     const runningCard = makeWorkspaceCard({
@@ -892,7 +959,7 @@ test('WEBVIEW-WEBVIEW-CONTENT-001 renders OPEN PROJECTS TODO and lazy AI tab she
             )
         );
     }
-    assert.match(html, /data-session-icon-fx="sharingan-shisui"/);
+    assert.match(html, /data-session-icon-fx="halo"/);
     const cspMatch = html.match(/Content-Security-Policy"\s+content="([^"]+)"/);
     assert.ok(cspMatch, 'dashboard document must declare a Content Security Policy');
     const csp = cspMatch[1];

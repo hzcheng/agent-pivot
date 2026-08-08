@@ -30,6 +30,12 @@ import {
     getWorkspaceAiSessionSurface,
     normalizeRunningCardAnimation,
 } from './webviewAiSessionContent';
+import {
+    getEffectiveRunningCardAnimation,
+    getEffectiveRunningIconAnimation,
+    readRunningAnimationImages,
+    RunningAnimationImages,
+} from './runningAnimationImages';
 import * as Icons from './webviewIcons';
 import type { OpenWorkspaceBridgeStatus } from '../openWorkspaces/bridgeClient';
 import { removeWorkspaceWindowDecorations } from '../workspaces/contextResolver';
@@ -83,12 +89,13 @@ export function getStewardContent(
     var searchCatalog = serializeDashboardSearchCatalog(
         buildWorkspaceDashboardSearchCatalog(groups, workspaceCards, infos.todoSearchItems || [], infos.skills || [])
     );
+    var runningAnimationImages = readRunningAnimationImages(infos.config);
     var openWorkspacesContent = getOpenWorkspacesGroupContent(
         workspaceCards,
         infos.openWorkspacesGroupCollapsed,
         otherWindowsStatus,
-        infos.config.get<string>('aiSessionRunningCardAnimation', 'current'),
-        infos.config.get<string>('aiSessionRunningIconAnimation', 'current'),
+        getEffectiveRunningCardAnimation(infos.config),
+        getEffectiveRunningIconAnimation(infos.config),
     );
 
     return `
@@ -110,7 +117,7 @@ export function getStewardContent(
             ${customCss}
         </style>
         <title>Agent Pivot</title>
-        ${getCustomStyle(infos.config)}
+        ${getCustomStyle(infos.config, runningAnimationImages)}
     </head>
     <body class="preload ${isSidebar ? 'steward-sidebar' : ''} ${!groups.length ? 'steward-empty' : ''} ${allGroupsCollapsed ? 'steward-all-collapsed' : ''}">
         <main class="dashboard-style-loading" data-dashboard-style-loading aria-busy="true" aria-label="Loading Agent Pivot">
@@ -886,7 +893,7 @@ function colorDefaults() {
     return `html { \n${colors}\n}`;
 }
 
-function getCustomStyle(config: vscode.WorkspaceConfiguration) {
+function getCustomStyle(config: vscode.WorkspaceConfiguration, runningImages: RunningAnimationImages = {}) {
     var {
         customProjectCardBackground,
         customProjectNameColor,
@@ -915,6 +922,14 @@ function getCustomStyle(config: vscode.WorkspaceConfiguration) {
             : ''
         }
         --steward-ai-session-list-max-height: ${getAiSessionListMaxHeight(config)}px;
+        ${runningImages.card
+            ? `--agent-pivot-running-card-image: url("${runningImages.card}");`
+            : ''
+        }
+        ${runningImages.icon
+            ? `--agent-pivot-running-icon-image: url("${runningImages.icon}");`
+            : ''
+        }
     }
 </style>`;
 }

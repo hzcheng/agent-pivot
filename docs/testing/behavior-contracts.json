@@ -3668,62 +3668,33 @@
     "manualReason": "Requires real operating-system sleep and remote transport interruption outside deterministic CI control."
   },
   {
-    "id": "SHARINGAN-RUNNING-ANIMATION-001",
+    "id": "CUSTOM-RUNNING-IMAGE-001",
     "domain": "webview",
-    "title": "Running workspace cards render character-specific Sharingan animation",
+    "title": "Running workspace cards and Active Session rows render user-supplied custom image animations",
     "priority": "P1",
     "status": "automated",
     "owners": [
-      "tests/integration/dashboard/styles.test.js"
+      "tests/integration/dashboard/styles.test.js",
+      "tests/integration/dashboard/webviewState.test.js"
     ],
     "evidence": [
       "src/webview/webviewContent.ts",
+      "src/webview/webviewAiSessionContent.ts",
       "media/styles.scss",
       "media/styles.css"
     ]
   },
   {
-    "id": "SHARINGAN-ASSET-INTEGRITY-001",
-    "domain": "release",
-    "title": "Bundled Sharingan SVG assets retain reviewed source bytes",
+    "id": "CUSTOM-RUNNING-IMAGE-RESOLVER-001",
+    "domain": "webview",
+    "title": "Custom running animation images resolve from local paths with type, size, and readability guards",
     "priority": "P1",
     "status": "automated",
     "owners": [
-      "tests/unit/tooling/sharinganAssets.test.js"
+      "tests/unit/webview/runningAnimationImages.test.js"
     ],
     "evidence": [
-      "media/sharingan/mangekyou-sharingan-itachi.svg",
-      "media/sharingan/mangekyou-sharingan-madara-eternal.svg",
-      "media/sharingan/mangekyou-sharingan-madara.svg",
-      "media/sharingan/mangekyou-sharingan-obito-kakashi.svg",
-      "media/sharingan/mangekyou-sharingan-sasuke.svg",
-      "media/sharingan/mangekyou-sharingan-shisui.svg"
-    ]
-  },
-  {
-    "id": "SHARINGAN-ASSET-INTEGRITY-002",
-    "domain": "release",
-    "title": "Sharingan SVG byte preservation stays scoped to those assets",
-    "priority": "P1",
-    "status": "automated",
-    "owners": [
-      "tests/unit/tooling/sharinganAssets.test.js"
-    ],
-    "evidence": [
-      ".gitattributes"
-    ]
-  },
-  {
-    "id": "SHARINGAN-ASSET-ATTRIBUTION-001",
-    "domain": "release",
-    "title": "Bundled Sharingan SVG assets retain third-party attribution",
-    "priority": "P1",
-    "status": "automated",
-    "owners": [
-      "tests/unit/tooling/sharinganAssets.test.js"
-    ],
-    "evidence": [
-      "THIRD_PARTY_NOTICES.md"
+      "src/webview/runningAnimationImages.ts"
     ]
   },
   {

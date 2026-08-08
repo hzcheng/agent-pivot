@@ -13,42 +13,15 @@ import type {
 } from '../aiSessions/types';
 import { projectAiSessionHistory } from '../aiSessions/historyProjection';
 import { escapeAttribute } from './webviewHtmlEscape';
+import {
+    normalizeRunningCardAnimation,
+    normalizeRunningIconAnimation,
+} from './runningAnimationImages';
 
-const AI_SESSION_RUNNING_CARD_ANIMATIONS = new Set([
-    'current',
-    'sweep',
-    'orbit',
-    'halo',
-    'sharingan-itachi',
-    'sharingan-obito-kakashi',
-    'sharingan-sasuke',
-    'sharingan-shisui',
-    'sharingan-madara',
-    'sharingan-madara-eternal',
-    'ripple',
-    'breath',
-    'none',
-]);
-
-const AI_SESSION_RUNNING_ICON_ANIMATIONS = new Set([
-    'current',
-    'halo',
-    'sharingan-itachi',
-    'sharingan-obito-kakashi',
-    'sharingan-sasuke',
-    'sharingan-shisui',
-    'sharingan-madara',
-    'sharingan-madara-eternal',
-    'none',
-]);
-
-export function normalizeRunningCardAnimation(value: string | undefined): string {
-    return value && AI_SESSION_RUNNING_CARD_ANIMATIONS.has(value) ? value : 'current';
-}
-
-function normalizeRunningIconAnimation(value: string | undefined): string {
-    return value && AI_SESSION_RUNNING_ICON_ANIMATIONS.has(value) ? value : 'current';
-}
+export {
+    normalizeRunningCardAnimation,
+    normalizeRunningIconAnimation,
+} from './runningAnimationImages';
 
 export interface AiSessionRenderOptions {
     showRootChips?: boolean;

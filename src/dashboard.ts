@@ -8,6 +8,10 @@ import * as path from 'path';
 import { performance } from 'perf_hooks';
 import { Project, ProjectRemoteType, StewardInfos, ReopenStewardReason, AiSessionProviderId, isAiSessionProviderId } from './models';
 import { getProjectsPanelContent, getStewardContent } from './webview/webviewContent';
+import {
+    getEffectiveRunningCardAnimation,
+    getEffectiveRunningIconAnimation,
+} from './webview/runningAnimationImages';
 import { getSkillsPanelContent } from './webview/webviewSkillContent';
 import {
     AGENT_PIVOT_CONFIG_SECTION,
@@ -1377,10 +1381,8 @@ async function initializeDashboard(
         getTodoSearchItems: () => todoService.getSearchItems(),
         getSkillRecords: () => skillPanel.getRecords(),
         getCards: getOpenWorkspaceCards,
-        getRunningCardAnimation: () => getAgentPivotConfiguration()
-            .get<string>('aiSessionRunningCardAnimation', 'current'),
-        getRunningIconAnimation: () => getAgentPivotConfiguration()
-            .get<string>('aiSessionRunningIconAnimation', 'current'),
+        getRunningCardAnimation: () => getEffectiveRunningCardAnimation(getAgentPivotConfiguration()),
+        getRunningIconAnimation: () => getEffectiveRunningIconAnimation(getAgentPivotConfiguration()),
         nextSequence: () => ++aiSessionUpdateSequence,
         postMessage: message => provider.postMessage(message),
         refresh: refreshStewardViews,
@@ -1700,10 +1702,8 @@ async function initializeDashboard(
         getTodoSearchItems: () => todoService.getSearchItems(),
         getSkillRecords: () => skillPanel.getRecords(),
         getCollapsed: () => Boolean(groupCollapseController.getOpenWorkspacesCollapsed()),
-        getRunningCardAnimation: () => getAgentPivotConfiguration()
-            .get<string>('aiSessionRunningCardAnimation', 'current'),
-        getRunningIconAnimation: () => getAgentPivotConfiguration()
-            .get<string>('aiSessionRunningIconAnimation', 'current'),
+        getRunningCardAnimation: () => getEffectiveRunningCardAnimation(getAgentPivotConfiguration()),
+        getRunningIconAnimation: () => getEffectiveRunningIconAnimation(getAgentPivotConfiguration()),
         getAttentionAggregate: () => aiSessionAttentionController.getEffectiveAggregate(),
         getBridgeInstanceId: () => openWorkspaceBridgeClient.instanceId,
         postMessage: message => provider.postMessage(message),

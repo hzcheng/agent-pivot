@@ -16,6 +16,8 @@ const NON_TODO_DASHBOARD_CONFIGURATION_SECTIONS = [
     'aiSessionTmuxPath',
     'aiSessionRunningCardAnimation',
     'aiSessionRunningIconAnimation',
+    'aiSessionRunningCardCustomImage',
+    'aiSessionRunningIconCustomImage',
     'skills.globalStorePath',
     'maxVisibleTodosPerGroup',
     'maxVisibleProjectsPerGroup',

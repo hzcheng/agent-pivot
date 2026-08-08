@@ -123,7 +123,7 @@ Summarize:
 - Adding a Dashboard command or an activation-time `vscode` API (e.g.
   `createStatusBarItem`) fails activation-harness and integration tests with
   opaque `waitFor` timeouts far from the cause: bootstrap errors are swallowed
-  into the `[Dashboard] agent-pivot-bootstrap-failed` output-channel line, so
+  into the `[Agent Pivot] agent-pivot-bootstrap-failed` output-channel line, so
   read that line first. Update every inline fake `vscode` surface
   (`tests/fixtures/aiSessions/runtimeHostActivationHarness.js`,
   `tests/integration/dashboard/helpers/terminalCloseHarness.js`,

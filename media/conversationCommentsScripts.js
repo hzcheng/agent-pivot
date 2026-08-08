@@ -152,6 +152,7 @@
             requestSequence: stateField('commentRequestSequence'),
             pendingRequest: stateField('pendingCommentRequest'),
             editing: stateField('editingComment'),
+            clearAllConfirmation: stateField('clearAllConfirmation'),
             requestIdPrefix: 'conversation-comment',
             statusPrefix: '',
             isValidResult: buildResultValidator({
@@ -190,7 +191,6 @@
             },
             afterSettle: null,
             render: renderComments,
-            setPending: setCommentPending,
             focusDragHandle: focusCommentDragHandle,
             settledStatus: function (operation) {
                 return operation === 'sendComments'
@@ -214,6 +214,49 @@
                 unavailable: 'This session is unavailable and the comments were not added.',
                 failed: 'The comment action failed. Your comments were kept.',
             },
+            pendingRoots: [
+                commentsFilterBar,
+                projectCommentsHeader,
+                sessionCommentsHeader,
+                sessionCommentsContent,
+            ].filter(Boolean),
+            popover: addComment,
+            busyRoot: commentsRoot,
+            heldDisabled: function (control) {
+                var card = control.matches
+                    && control.matches('[data-comment-drag-handle]')
+                    ? control.closest('[data-comment-id]')
+                    : null;
+                return !!card
+                    && !!state.editingComment
+                    && card.getAttribute('data-comment-id')
+                        === state.editingComment.commentId;
+            },
+            onPendingCleared: function () {
+                updateCommentControls();
+                if (projectCommentsAvailable) {
+                    updateWorkspaceHeaderControls();
+                }
+            },
+            gateOnLocate: true,
+            sendOperations: ['sendComments', 'sendComment'],
+            sendMessageType: 'conversation-viewer-send-comments',
+            mutationMessageType: 'conversation-viewer-comment-mutation',
+            pendingStatus: function (operation) {
+                return operation === 'sendComments'
+                    ? 'Adding comments to session input…'
+                    : operation === 'sendComment'
+                        ? 'Adding comment to session input…'
+                        : operation === 'clearDone'
+                            || operation === 'clearAll'
+                            ? 'Clearing comments…'
+                            : operation === 'reorder'
+                                ? 'Saving comment order…'
+                                : 'Saving comment…';
+            },
+            clearAllScope: sessionCommentsHeader,
+            clearAllSelector: '[data-comment-action="clearAll"]',
+            clearAllLabel: 'Clear all comments',
         };
 
         var projectStack = {
@@ -223,6 +266,7 @@
             requestSequence: stateField('projectCommentRequestSequence'),
             pendingRequest: stateField('pendingProjectCommentRequest'),
             editing: stateField('editingProjectComment'),
+            clearAllConfirmation: stateField('projectClearAllConfirmation'),
             requestIdPrefix: 'project-comment',
             statusPrefix: 'Workspace: ',
             isValidResult: buildResultValidator({
@@ -237,7 +281,6 @@
             noteSentComments: null,
             afterSettle: updateCommentControls,
             render: renderProjectComments,
-            setPending: setProjectCommentPending,
             focusDragHandle: focusProjectCommentDragHandle,
             settledStatus: function (operation) {
                 return operation === 'sendProjectComment'
@@ -263,6 +306,29 @@
                 unavailable: 'This session is unavailable and the note was not added.',
                 failed: 'The project note action failed. Your notes were kept.',
             },
+            pendingRoots: [projectCommentsRoot, projectCommentsHeader]
+                .filter(Boolean),
+            popover: null,
+            busyRoot: projectCommentsRoot,
+            heldDisabled: function () {
+                return false;
+            },
+            onPendingCleared: function () {
+                updateProjectComposerControls();
+                updateWorkspaceHeaderControls();
+            },
+            gateOnLocate: false,
+            sendOperations: ['sendProjectComment', 'sendProjectComments'],
+            sendMessageType: 'conversation-viewer-send-project-comment',
+            mutationMessageType: 'conversation-viewer-project-comment-mutation',
+            pendingStatus: function (operation) {
+                return operation === 'sendProjectComment'
+                    ? 'Adding note to session input…'
+                    : 'Saving project note…';
+            },
+            clearAllScope: projectCommentsHeader,
+            clearAllSelector: '[data-project-comment-action="clear-all"]',
+            clearAllLabel: 'Clear all notes',
         };
 
         function readJsonAttribute(name) {
@@ -380,12 +446,17 @@
             element.setAttribute('aria-label', label);
         }
 
-        function resetClearAllConfirmation() {
-            if (!commentUiAvailable) return;
-            state.clearAllConfirmation = false;
-            commentClearAll.removeAttribute('data-confirming');
-            commentClearAll.title = 'Clear all comments';
-            commentClearAll.setAttribute('aria-label', 'Clear all comments');
+        function resetStackClearAllConfirmation(stack) {
+            if (!stack.available) return;
+            stack.clearAllConfirmation.set(false);
+            var clearAll = stack.clearAllScope.querySelector(
+                stack.clearAllSelector
+            );
+            if (clearAll) {
+                clearAll.removeAttribute('data-confirming');
+                clearAll.title = stack.clearAllLabel;
+                clearAll.setAttribute('aria-label', stack.clearAllLabel);
+            }
         }
 
         function updateCommentControls() {
@@ -443,69 +514,51 @@
             commentClearAll.disabled = state.comments.length === 0 || pending;
         }
 
-        function setCommentPending(pending) {
-            if (!commentUiAvailable) return;
-            Array.prototype.forEach.call(
-                commentsRoot.querySelectorAll('button, textarea, input'),
-                function (control) {
-                    if (projectCommentsRoot
-                        && projectCommentsRoot.contains(control)) {
-                        // The project section has its own pending gate.
-                        return;
+        function setStackPending(stack, pending) {
+            if (!stack.available) return;
+            stack.pendingRoots.forEach(function (root) {
+                Array.prototype.forEach.call(
+                    root.querySelectorAll('button, textarea, input'),
+                    function (control) {
+                        control.disabled = pending
+                            || stack.heldDisabled(control);
                     }
-                    var card = control.matches
-                        && control.matches('[data-comment-drag-handle]')
-                        ? control.closest('[data-comment-id]')
-                        : null;
-                    var editingDragHandle = !!card
-                        && !!state.editingComment
-                        && card.getAttribute('data-comment-id')
-                            === state.editingComment.commentId;
-                    control.disabled = pending || editingDragHandle;
-                }
-            );
-            Array.prototype.forEach.call(
-                addComment.querySelectorAll('button'),
-                function (control) {
-                    control.disabled = pending;
-                }
-            );
-            if (!pending) {
-                updateCommentControls();
-                if (projectCommentsAvailable) {
-                    updateWorkspaceHeaderControls();
-                }
+                );
+            });
+            if (stack.popover) {
+                Array.prototype.forEach.call(
+                    stack.popover.querySelectorAll('button'),
+                    function (control) {
+                        control.disabled = pending;
+                    }
+                );
             }
-            commentsRoot.setAttribute('aria-busy', pending ? 'true' : 'false');
+            if (!pending) {
+                stack.onPendingCleared();
+            }
+            stack.busyRoot.setAttribute(
+                'aria-busy',
+                pending ? 'true' : 'false'
+            );
         }
 
-        function postCommentOperation(operation, payload, focusCommentId) {
-            if (!commentUiAvailable
-                || state.pendingCommentRequest
-                || state.pendingLocateRequest) return;
-            var requestId = nextStackRequestId(sessionStack);
-            resetClearAllConfirmation();
-            state.pendingCommentRequest = {
+        function postStackOperation(stack, operation, payload, focusCommentId) {
+            if (!stack.available
+                || stack.pendingRequest.get()
+                || (stack.gateOnLocate && state.pendingLocateRequest)) return;
+            var requestId = nextStackRequestId(stack);
+            resetStackClearAllConfirmation(stack);
+            stack.pendingRequest.set({
                 requestId: requestId,
                 operation: operation,
                 focusCommentId: focusCommentId || null,
-            };
-            setCommentPending(true);
-            status.textContent = operation === 'sendComments'
-                ? 'Adding comments to session input…'
-                : operation === 'sendComment'
-                    ? 'Adding comment to session input…'
-                    : operation === 'clearDone'
-                        || operation === 'clearAll'
-                        ? 'Clearing comments…'
-                        : operation === 'reorder'
-                            ? 'Saving comment order…'
-                        : 'Saving comment…';
+            });
+            setStackPending(stack, true);
+            status.textContent = stack.pendingStatus(operation);
             post({
-                type: operation === 'sendComments'
-                    || operation === 'sendComment'
-                    ? 'conversation-viewer-send-comments'
-                    : 'conversation-viewer-comment-mutation',
+                type: stack.sendOperations.indexOf(operation) >= 0
+                    ? stack.sendMessageType
+                    : stack.mutationMessageType,
                 version: 1,
                 requestId: requestId,
                 subscriptionGeneration: subscriptionGeneration,
@@ -513,7 +566,7 @@
                 provider: commentTarget.provider,
                 sessionId: commentTarget.sessionId,
                 operation: operation,
-                expectedRevision: state.commentRevision,
+                expectedRevision: stack.revision.get(),
                 payload: payload,
             });
         }
@@ -560,7 +613,7 @@
                 requestId: requestId,
                 commentId: comment.id,
             };
-            setCommentPending(true);
+            setStackPending(sessionStack, true);
             status.textContent = 'Loading the commented message…';
             post({
                 type: 'conversation-viewer-locate-comment',
@@ -713,7 +766,7 @@
         function renderComments() {
             if (!commentUiAvailable) return;
             clearCommentDragState();
-            resetClearAllConfirmation();
+            resetStackClearAllConfirmation(sessionStack);
             commentList.replaceChildren();
             if (state.editingComment) {
                 var editingTarget = state.comments.find(function (candidate) {
@@ -945,7 +998,7 @@
             if (state.pendingCommentRequest || state.pendingLocateRequest) {
                 // Any re-render during an in-flight request must keep the
                 // disabled pending state instead of reviving controls.
-                setCommentPending(true);
+                setStackPending(sessionStack, true);
             }
         }
 
@@ -1003,7 +1056,8 @@
             );
             clearCommentDragState();
             if (!orderedCommentIds) return false;
-            postCommentOperation(
+            postStackOperation(
+                sessionStack,
                 'reorder',
                 { orderedCommentIds: orderedCommentIds },
                 sourceId
@@ -1270,7 +1324,7 @@
             }
             stack.render();
             stack.pendingRequest.set(null);
-            stack.setPending(false);
+            setStackPending(stack, false);
             if (message.success) {
                 status.textContent = stack.statusPrefix
                     + stack.settledStatus(operation);
@@ -1305,7 +1359,7 @@
                 return candidate.id === message.commentId;
             });
             state.pendingLocateRequest = null;
-            setCommentPending(false);
+            setStackPending(sessionStack, false);
             if (message.success && comment && locateComment(comment)) {
                 status.textContent = 'Comment source located.';
             } else {
@@ -1641,30 +1695,6 @@
                 && !/[\u0000-\u001f\u007f]/.test(tag);
         }
 
-        function setProjectCommentPending(pending) {
-            if (!projectCommentsAvailable) return;
-            Array.prototype.forEach.call(
-                projectCommentsRoot.querySelectorAll('button, textarea, input'),
-                function (control) {
-                    control.disabled = pending;
-                }
-            );
-            Array.prototype.forEach.call(
-                projectCommentsHeader.querySelectorAll('button'),
-                function (control) {
-                    control.disabled = pending;
-                }
-            );
-            if (!pending) {
-                updateProjectComposerControls();
-                updateWorkspaceHeaderControls();
-            }
-            projectCommentsRoot.setAttribute(
-                'aria-busy',
-                pending ? 'true' : 'false'
-            );
-        }
-
         function updateWorkspaceHeaderControls() {
             if (!projectCommentsAvailable) return;
             var counts = { open: 0, done: 0 };
@@ -1692,19 +1722,6 @@
             sendAll.setAttribute('aria-label', sendLabel);
             clearDone.disabled = pending || counts.done === 0;
             clearAll.disabled = pending || state.projectComments.length === 0;
-        }
-
-        function resetProjectClearAllConfirmation() {
-            if (!projectCommentsAvailable) return;
-            state.projectClearAllConfirmation = false;
-            var clearAll = projectCommentsHeader.querySelector(
-                '[data-project-comment-action="clear-all"]'
-            );
-            if (clearAll) {
-                clearAll.removeAttribute('data-confirming');
-                clearAll.title = 'Clear all notes';
-                clearAll.setAttribute('aria-label', 'Clear all notes');
-            }
         }
 
         function updateProjectComposerControls() {
@@ -2077,37 +2094,6 @@
             openProjectCommentComposer();
         }
 
-        function postProjectCommentOperation(operation, payload, focusCommentId) {
-            if (!projectCommentsAvailable
-                || state.pendingProjectCommentRequest) return;
-            var requestId = nextStackRequestId(projectStack);
-            resetProjectClearAllConfirmation();
-            state.pendingProjectCommentRequest = {
-                requestId: requestId,
-                operation: operation,
-                focusCommentId: focusCommentId || null,
-            };
-            setProjectCommentPending(true);
-            status.textContent = operation === 'sendProjectComment'
-                ? 'Adding note to session input…'
-                : 'Saving project note…';
-            post({
-                type: operation === 'sendProjectComment'
-                    || operation === 'sendProjectComments'
-                    ? 'conversation-viewer-send-project-comment'
-                    : 'conversation-viewer-project-comment-mutation',
-                version: 1,
-                requestId: requestId,
-                subscriptionGeneration: subscriptionGeneration,
-                projectId: commentTarget.projectId,
-                provider: commentTarget.provider,
-                sessionId: commentTarget.sessionId,
-                operation: operation,
-                expectedRevision: state.projectCommentRevision,
-                payload: payload,
-            });
-        }
-
         function addProjectCommentFromComposer() {
             var text = projectCommentInput.value.trim();
             if (!text) {
@@ -2126,7 +2112,7 @@
                 );
             }
             closeProjectCommentComposer();
-            postProjectCommentOperation('add', payload);
+            postStackOperation(projectStack, 'add', payload);
         }
 
         function projectTagElement(comment, tag, removable) {
@@ -2473,7 +2459,7 @@
         function renderProjectComments() {
             if (!projectCommentsAvailable) return;
             clearProjectCommentDragState();
-            resetProjectClearAllConfirmation();
+            resetStackClearAllConfirmation(projectStack);
             renderCommentsFilterBar();
             projectCommentList.replaceChildren();
             var visible = visibleProjectComments();
@@ -2515,7 +2501,7 @@
             if (state.pendingProjectCommentRequest) {
                 // Any re-render during an in-flight request must keep the
                 // disabled pending state instead of reviving controls.
-                setProjectCommentPending(true);
+                setStackPending(projectStack, true);
             }
         }
 
@@ -2587,7 +2573,8 @@
             );
             clearProjectCommentDragState();
             if (!orderedCommentIds) return false;
-            postProjectCommentOperation(
+            postStackOperation(
+                projectStack,
                 'reorder',
                 { orderedCommentIds: orderedCommentIds },
                 sourceId
@@ -2778,7 +2765,7 @@
                 }
                 var action = button.getAttribute('data-comment-action');
                 if (action !== 'clearAll' && state.clearAllConfirmation) {
-                    resetClearAllConfirmation();
+                    resetStackClearAllConfirmation(sessionStack);
                 }
                 if (action === 'new') {
                     openSessionCommentComposer();
@@ -2801,7 +2788,7 @@
                         { comment: text }
                     );
                     closeCommentComposer();
-                    postCommentOperation('add', payload);
+                    postStackOperation(sessionStack, 'add', payload);
                     return;
                 }
                 if (action === 'filter') {
@@ -2826,11 +2813,11 @@
                     return;
                 }
                 if (action === 'send') {
-                    postCommentOperation('sendComments', {});
+                    postStackOperation(sessionStack, 'sendComments', {});
                     return;
                 }
                 if (action === 'clearDone') {
-                    postCommentOperation('clearDone', {});
+                    postStackOperation(sessionStack, 'clearDone', {});
                     return;
                 }
                 if (action === 'clearAll') {
@@ -2847,7 +2834,7 @@
                             'Select Clear all again to remove every comment.';
                         return;
                     }
-                    postCommentOperation('clearAll', {});
+                    postStackOperation(sessionStack, 'clearAll', {});
                     return;
                 }
                 var item = button.closest('[data-comment-id]');
@@ -2865,7 +2852,7 @@
                     return;
                 }
                 if (action === 'remove-tag') {
-                    postCommentOperation('removeTag', {
+                    postStackOperation(sessionStack, 'removeTag', {
                         commentId: comment.id,
                         tag: button.getAttribute('data-tag') || '',
                     });
@@ -2881,7 +2868,8 @@
                     return;
                 }
                 if (action === 'send-comment') {
-                    postCommentOperation(
+                    postStackOperation(
+                        sessionStack,
                         'sendComment',
                         { commentId: comment.id }
                     );
@@ -2906,7 +2894,7 @@
                     return;
                 }
                 if (action === 'delete') {
-                    postCommentOperation('delete', { commentId: comment.id });
+                    postStackOperation(sessionStack, 'delete', { commentId: comment.id });
                     return;
                 }
                 if (action === 'update') {
@@ -2917,7 +2905,7 @@
                         if (edit) edit.focus();
                         return;
                     }
-                    postCommentOperation('update', {
+                    postStackOperation(sessionStack, 'update', {
                         commentId: comment.id,
                         comment: updated,
                     });
@@ -2941,14 +2929,15 @@
                             if (headerAction === 'open-composer') {
                                 openProjectCommentComposer();
                             } else if (headerAction === 'send-all') {
-                                resetProjectClearAllConfirmation();
-                                postProjectCommentOperation(
+                                resetStackClearAllConfirmation(projectStack);
+                                postStackOperation(
+                                    projectStack,
                                     'sendProjectComments',
                                     {}
                                 );
                             } else if (headerAction === 'clear-done') {
-                                resetProjectClearAllConfirmation();
-                                postProjectCommentOperation('clearDone', {});
+                                resetStackClearAllConfirmation(projectStack);
+                                postStackOperation(projectStack, 'clearDone', {});
                             } else if (headerAction === 'clear-all') {
                                 if (state.pendingProjectCommentRequest) {
                                     return;
@@ -2968,8 +2957,9 @@
                                     status.textContent = 'Select Clear all'
                                         + ' again to remove every note.';
                                 } else {
-                                    resetProjectClearAllConfirmation();
-                                    postProjectCommentOperation(
+                                    resetStackClearAllConfirmation(projectStack);
+                                    postStackOperation(
+                                        projectStack,
                                         'clearAll',
                                         {}
                                     );
@@ -3075,7 +3065,7 @@
                         return;
                     }
                     if (action === 'toggle-status') {
-                        postProjectCommentOperation('setStatus', {
+                        postStackOperation(projectStack, 'setStatus', {
                             commentId: comment.id,
                             status: comment.status === 'open'
                                 ? 'done'
@@ -3084,7 +3074,7 @@
                         return;
                     }
                     if (action === 'send') {
-                        postProjectCommentOperation('sendProjectComment', {
+                        postStackOperation(projectStack, 'sendProjectComment', {
                             commentId: comment.id,
                         });
                         return;
@@ -3114,14 +3104,14 @@
                             if (editor) editor.focus();
                             return;
                         }
-                        postProjectCommentOperation('update', {
+                        postStackOperation(projectStack, 'update', {
                             commentId: comment.id,
                             text: text,
                         });
                         return;
                     }
                     if (action === 'delete') {
-                        postProjectCommentOperation('delete', {
+                        postStackOperation(projectStack, 'delete', {
                             commentId: comment.id,
                         });
                         return;
@@ -3135,7 +3125,7 @@
                         return;
                     }
                     if (action === 'remove-tag') {
-                        postProjectCommentOperation('removeTag', {
+                        postStackOperation(projectStack, 'removeTag', {
                             commentId: comment.id,
                             tag: button.getAttribute('data-tag') || '',
                         });
@@ -3274,7 +3264,7 @@
                         state.projectTagEditor = null;
                         var tag = normalizeProjectTag(editor.draft);
                         if (tag) {
-                            postProjectCommentOperation('addTag', {
+                            postStackOperation(projectStack, 'addTag', {
                                 commentId: editor.commentId,
                                 tag: tag,
                             });
@@ -3296,7 +3286,7 @@
                     state.sessionTagEditor = null;
                     var sessionTag = normalizeProjectTag(sessionEditor.draft);
                     if (sessionTag) {
-                        postCommentOperation('addTag', {
+                        postStackOperation(sessionStack, 'addTag', {
                             commentId: sessionEditor.commentId,
                             tag: sessionTag,
                         });
@@ -3356,7 +3346,7 @@
             if (projectCommentsAvailable
                 && state.projectClearAllConfirmation) {
                 event.preventDefault();
-                resetProjectClearAllConfirmation();
+                resetStackClearAllConfirmation(projectStack);
                 status.textContent = 'Clear all cancelled.';
                 return true;
             }
@@ -3403,7 +3393,7 @@
             }
             if (commentUiAvailable && state.clearAllConfirmation) {
                 event.preventDefault();
-                resetClearAllConfirmation();
+                resetStackClearAllConfirmation(sessionStack);
                 status.textContent = 'Clear all cancelled.';
                 commentClearAll.focus();
                 return true;

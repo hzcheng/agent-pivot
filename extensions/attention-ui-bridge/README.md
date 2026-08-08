@@ -14,5 +14,5 @@ The bridge does not record conversation content, prompts, or responses.
 
 Agent Pivot began as a fork of Kruemelkatze/vscode-dashboard and retains the upstream MIT attribution.
 
-See the repository [LICENSE](../../LICENSE) and
-[Third-Party Notices](../../THIRD_PARTY_NOTICES.md).
+See the repository [LICENSE](https://github.com/hzcheng/agent-pivot/blob/main/LICENSE) and
+[Third-Party Notices](https://github.com/hzcheng/agent-pivot/blob/main/THIRD_PARTY_NOTICES.md).

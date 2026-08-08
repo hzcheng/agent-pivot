@@ -104,6 +104,11 @@ Summarize:
 - Do not bury review fixes inside unrelated feature commits unless the user requested squashing.
 - Do not trust subagent output blindly; inspect the actual diff and rerun evidence-producing commands.
 - Do not treat a pre-commit behavior-contract pass as proof of commit-level audit currency.
+- Before moving, renaming, or deleting repository content, grep `scripts/` and
+  `tests/` for strings anchored to that content (changelog entries, README
+  phrases, shipped file paths) and update every anchored reader in the same
+  commit; content-anchor checks fail only when their own suite runs, not at
+  edit time.
 - Judge gate and verification scripts by their own exit code: piping to
   `grep`/`head` masks it (check `$?` directly or use `set -o pipefail`), and
   chain commits after verification steps with `&&`, never `;`.
@@ -118,7 +123,7 @@ Summarize:
 - Adding a Dashboard command or an activation-time `vscode` API (e.g.
   `createStatusBarItem`) fails activation-harness and integration tests with
   opaque `waitFor` timeouts far from the cause: bootstrap errors are swallowed
-  into the `[Dashboard] agent-pivot-bootstrap-failed` output-channel line, so
+  into the `[Agent Pivot] agent-pivot-bootstrap-failed` output-channel line, so
   read that line first. Update every inline fake `vscode` surface
   (`tests/fixtures/aiSessions/runtimeHostActivationHarness.js`,
   `tests/integration/dashboard/helpers/terminalCloseHarness.js`,

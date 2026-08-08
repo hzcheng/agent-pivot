@@ -376,11 +376,10 @@ function assertNoForbiddenLegacyIdentity(source, label) {
     }
 }
 
-function currentChangelogSection(source) {
-    const historicalBoundary = source.indexOf(HISTORICAL_CHANGELOG_BOUNDARY);
-    assert.notStrictEqual(historicalBoundary, -1,
-        'packaged CHANGELOG must retain the reviewed historical identity boundary');
-    return source.slice(0, historicalBoundary);
+function publishedChangelog(source) {
+    assert.strictEqual(source.includes(HISTORICAL_CHANGELOG_BOUNDARY), false,
+        'packaged CHANGELOG must not contain the unpublished pre-release history boundary');
+    return source;
 }
 
 function readVsixIdentity(entries, label) {
@@ -448,6 +447,9 @@ function runRealVsixArchiveChecks(mainPackage, bridgePackage) {
         for (const forbiddenPrefix of [
             'extension/coverage/',
             'extension/.codex/',
+            'extension/.worktree/',
+            'extension/artifacts/',
+            'extension/node_modules/',
             'extension/tests/',
             'extension/.ci/',
             'extension/.superpowers/',
@@ -532,6 +534,13 @@ function runRealVsixArchiveChecks(mainPackage, bridgePackage) {
     const bridgeBundle = bridgeEntries.get('extension/dist/extension.js').toString('utf8');
     const mainReadme = mainEntries.get('extension/readme.md').toString('utf8');
     const bridgeReadme = bridgeEntries.get('extension/readme.md').toString('utf8');
+    for (const [readme, readmeLabel] of [
+        [mainReadme, 'packaged main README'],
+        [bridgeReadme, 'packaged UI Bridge README'],
+    ]) {
+        assertNotIncludes(readme, '](..',
+            `${readmeLabel} must not contain parent-relative links that break on the Marketplace`);
+    }
     for (const [needle, label] of [
         ['# Agent Pivot', 'current product heading'],
         ['## Privacy and local data', 'privacy heading'],
@@ -566,12 +575,12 @@ function runRealVsixArchiveChecks(mainPackage, bridgePackage) {
             'conversation content disclosure',
         ],
         [
-            'https://github.com/hzcheng/agent-pivot/blob/HEAD/../../LICENSE',
-            'VSCE-rewritten license link',
+            'https://github.com/hzcheng/agent-pivot/blob/main/LICENSE',
+            'absolute license link',
         ],
         [
-            'https://github.com/hzcheng/agent-pivot/blob/HEAD/../../THIRD_PARTY_NOTICES.md',
-            'VSCE-rewritten notices link',
+            'https://github.com/hzcheng/agent-pivot/blob/main/THIRD_PARTY_NOTICES.md',
+            'absolute notices link',
         ],
     ]) {
         assertIncludes(bridgeReadme, needle, `packaged UI Bridge README ${label}`);
@@ -590,10 +599,10 @@ function runRealVsixArchiveChecks(mainPackage, bridgePackage) {
         [mainEntries.get('extension/package.json').toString('utf8'), 'packaged main manifest'],
         [mainReadme, 'packaged main README'],
         [
-            currentChangelogSection(
+            publishedChangelog(
                 mainEntries.get('extension/changelog.md').toString('utf8'),
             ),
-            'packaged current CHANGELOG section',
+            'packaged CHANGELOG',
         ],
         [mainBundle, 'packaged main bundle'],
         [bridgeEntries.get('extension/package.json').toString('utf8'), 'packaged UI Bridge manifest'],
@@ -939,6 +948,10 @@ function run() {
     const mainIgnore = readText('.vscodeignore');
     const bridgeIgnore = readText('extensions/attention-ui-bridge/.vscodeignore');
     assertIncludes(mainIgnore, 'spikes/**', 'main VSIX ignore rules');
+    assertIncludes(mainIgnore, '.worktree/**', 'main VSIX ignore rules');
+    assertIncludes(mainIgnore, 'artifacts/**', 'main VSIX ignore rules');
+    assertIncludes(mainIgnore, '*.vsix', 'main VSIX ignore rules');
+    assertIncludes(mainIgnore, 'coverage/**', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '.superpowers/**', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '.github/**', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, 'docs/**', 'main VSIX ignore rules');

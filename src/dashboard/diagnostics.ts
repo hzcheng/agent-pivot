@@ -43,7 +43,7 @@ export default class DashboardDiagnostics {
     }
 
     logDashboardDiagnostic(event: Record<string, unknown>) {
-        this.options.outputChannel.appendLine(`[Dashboard] ${JSON.stringify({
+        this.options.outputChannel.appendLine(`[Agent Pivot] ${JSON.stringify({
             loggedAt: this.now().toISOString(),
             ...event,
         })}`);

@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "710fc3d55d5221efd9b54119d578acbee5bce268",
+        "head": "6a8a277c9a61a30d1200b67bed75c66ade8819ad",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -209,7 +209,8 @@
             "2ce7a7af019d282760c493c8fad6132dd384749e",
             "4485a481c37e1ffb4e0bdb1c90a5d2f3345d35b9",
             "7d090329a20a7f4be0c39b136d97ed6db791e29d",
-            "64d6790871e820ef61fa93712cbde016a0a49f78"
+            "64d6790871e820ef61fa93712cbde016a0a49f78",
+            "5348ef6c217420e10150822131825f8abcdf5aa0"
         ]
     },
     "capabilities": [
@@ -633,7 +634,17 @@
                 "de9edffbf61d702fb616f2d21a44b39051338973",
                 "a2008ccbea072221e551fded2cc7ef02f8a96ff3",
                 "f7c9e8784b25e5487a482c0799a0bb4d25434f1b",
-                "a407a441bc95df0f24353d5acd80e70a49bfe3b3"
+                "a407a441bc95df0f24353d5acd80e70a49bfe3b3",
+                "293f7b73f047d1546821d1ada313cbba2eddd8e4",
+                "5d503ff23ee0c3a5411c72318f91d47b8083e878",
+                "e2c297df73a8153dcc7040a5b4e5a2d2600c65b7",
+                "a00d978b11603a326f8b192b028d5ae4865491f4",
+                "e335e5da9dd2534e3a87381919872befb474a4b1",
+                "98f4b045ec18443675238d578e19c5655458cf5f",
+                "b543c8a0cd382a7c27f75884d0c052f7ec66017c",
+                "494b642991deff266711535360d90b206be0bc65",
+                "99721ef4650fc87fa1612a869f21aa8c30ec9988",
+                "6a8a277c9a61a30d1200b67bed75c66ade8819ad"
             ],
             "behaviors": [
                 "RELEASE-VSIX-PACKAGING-001",
@@ -1012,7 +1023,8 @@
                 "fa980dcae7aaf4187dde798fffe7c19b2a4d31a1",
                 "98b73a4dc087b0c0a71554036bb988b00226abe6",
                 "6f22284edc8b8e3b4e71dcf8abb5b46569164abc",
-                "94c139ff153d9c39e809814de35605d62b44e363"
+                "94c139ff153d9c39e809814de35605d62b44e363",
+                "1432fa2bd99d405c9660ecabc7fb93e4d78525a9"
             ],
             "behaviors": [
                 "RUNTIME-BOOTSTRAP-TMUX-RESTORE-DEFERRAL-001",

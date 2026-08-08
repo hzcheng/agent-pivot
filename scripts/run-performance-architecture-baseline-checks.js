@@ -167,7 +167,7 @@ assert.ok(dashboard.includes('new DashboardDiagnostics({'));
 assert.ok(!dashboard.includes('function logDashboardDiagnostic('));
 assert.ok(!dashboard.includes('function logAiSessionDiagnostic('));
 assert.ok(!dashboard.includes('function logOpenWorkspaceDiagnostic('));
-assert.ok(dashboardDiagnostics.includes('[Dashboard]'));
+assert.ok(dashboardDiagnostics.includes('[Agent Pivot]'));
 assert.ok(!dashboard.includes('AI_SESSION_PROVIDER_IDS'));
 assert.ok(!terminalService.includes('AI_SESSION_PROVIDER_IDS'));
 assert.ok(dashboard.includes('const aiSessionProviders = aiSessionProviderRegistry.providers();'));

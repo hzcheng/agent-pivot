@@ -69,6 +69,7 @@ export function getStewardContent(
         ? readyDocumentGeneration
         : 1;
     var assetRevision = `${WEBVIEW_ASSET_ACTIVATION}-${++webviewAssetRevision}`;
+    var contentNonce = randomBytes(16).toString('base64');
     var stylesPath = getMediaResource(context, webview, 'styles.css', assetRevision);
     var dashboardBundlePath = getMediaResource(
         context,
@@ -97,13 +98,12 @@ export function getStewardContent(
         <meta charset="UTF-8">
         <meta
             http-equiv="Content-Security-Policy"
-            content="default-src 'none'; img-src * data:; script-src ${webview.cspSource
-        } 'unsafe-inline'; style-src ${webview.cspSource} 'unsafe-inline';"
+            content="default-src 'none'; img-src ${webview.cspSource} data: https:; script-src ${webview.cspSource
+        } 'nonce-${contentNonce}'; style-src ${webview.cspSource} 'unsafe-inline';"
         />
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <style>${criticalStartupStyle()}</style>
-        <link rel="stylesheet" type="text/css" href="${stylesPath}"
-            onload="document.documentElement.classList.remove('dashboard-styles-pending')">
+        <link rel="stylesheet" type="text/css" id="agent-pivot-styles" href="${stylesPath}">
         <style>${colorDefaults()}</style>
         <style>
             /* Custom CSS from configuration */
@@ -142,7 +142,7 @@ export function getStewardContent(
                     ${Icons.settings}
                 </button>
             </div>
-            <div class="dashboard-tab-list" role="tablist" aria-label="Dashboard views">
+            <div class="dashboard-tab-list" role="tablist" aria-label="Agent Pivot views">
                 <button type="button" id="dashboard-tab-open-button" class="dashboard-tab-button active" role="tab" aria-selected="true" aria-controls="dashboard-tab-open" tabindex="0" data-dashboard-tab="open" aria-label="Open" title="Open">
                     <span class="dashboard-tab-icon" aria-hidden="true">${Icons.openNewWindow}</span>
                     <span class="dashboard-tab-label">OPEN</span>
@@ -186,12 +186,34 @@ export function getStewardContent(
         </div>
     </body>
 
-    <script>
+    <script nonce="${contentNonce}">
         window.__agentPivotReadyDocumentGeneration = ${safeReadyDocumentGeneration};
+        (function() {
+            function revealWhenStylesReady() {
+                document.documentElement.classList.remove('dashboard-styles-pending');
+            }
+            var stylesLink = document.getElementById('agent-pivot-styles');
+            if (!stylesLink) {
+                revealWhenStylesReady();
+                return;
+            }
+            var stylesReady = false;
+            try {
+                stylesReady = !!stylesLink.sheet;
+            } catch (_error) {
+                stylesReady = false;
+            }
+            if (stylesReady) {
+                revealWhenStylesReady();
+                return;
+            }
+            stylesLink.addEventListener('load', revealWhenStylesReady);
+            stylesLink.addEventListener('error', revealWhenStylesReady);
+        })();
     </script>
     <script src="${dashboardBundlePath}"></script>
 
-    <script>
+    <script nonce="${contentNonce}">
         (function() {
             window.vscode = acquireVsCodeApi();
 

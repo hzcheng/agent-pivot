@@ -43,6 +43,7 @@ const IDENTITY_SCAN_TARGETS = Object.freeze([
 const HISTORICAL_IDENTITY_ALLOWLIST = Object.freeze([
     /^LICENSE$/,
     /^extensions\/attention-ui-bridge\/LICENSE$/,
+    /^docs\/development-history\.md$/,
     /^docs\/superpowers\/(?:specs|plans|reports)\//,
 ]);
 
@@ -59,6 +60,9 @@ const STALE_IDENTITY_TOKENS = Object.freeze([
     'projectSteward',
     'PROJECT_STEWARD',
     'hzcheng.project-steward',
+    'the Dashboard',
+    'Dashboard views',
+    '[Dashboard]',
 ]);
 const INHERITED_ICON_SHA256 = Object.freeze([
     '7c937a29143bc743a99bdbcbfdc5d1add2fb73436fd3adbfb713595e692a454b',
@@ -126,6 +130,10 @@ function validateManifestPair(mainManifest, bridgeManifest) {
         `Bridge manifest categories are invalid: ${formatValue(bridgeManifest.categories)}`);
     assert.equal(bridgeManifest.repository?.url, BRAND_IDENTITY.repositoryUrl,
         `Bridge manifest repository URL is invalid: ${formatValue(bridgeManifest.repository?.url)}`);
+    assert.equal(bridgeManifest.homepage, 'https://github.com/hzcheng/agent-pivot#readme',
+        `Bridge manifest homepage is invalid: ${formatValue(bridgeManifest.homepage)}`);
+    assert.equal(bridgeManifest.bugs?.url, 'https://github.com/hzcheng/agent-pivot/issues',
+        `Bridge manifest bugs URL is invalid: ${formatValue(bridgeManifest.bugs?.url)}`);
     assert.deepEqual(bridgeManifest.contributes?.commands ?? [], [],
         `Bridge manifest commands are invalid: ${formatValue(bridgeManifest.contributes?.commands)}`);
 
@@ -220,16 +228,10 @@ function findStaleIdentity(root) {
             continue;
         }
         const lines = fs.readFileSync(path.join(root, relativePath), 'utf8').split(/\r?\n/);
-        const changelogHistoryStart = relativePath === 'CHANGELOG.md'
-            ? lines.findIndex(line => line === '## Unpublished Project Steward development history') + 1
-            : 0;
         for (const [index, line] of lines.entries()) {
             if ((relativePath === 'README.md'
                 || relativePath === 'extensions/attention-ui-bridge/README.md')
                 && line === APPROVED_FORK_ATTRIBUTION) {
-                continue;
-            }
-            if (changelogHistoryStart > 0 && index + 1 >= changelogHistoryStart) {
                 continue;
             }
             for (const token of STALE_IDENTITY_TOKENS) {

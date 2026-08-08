@@ -8,6 +8,7 @@ AGENTS.md
 .github/**
 .ci/**
 .superpowers/**
+.worktree/**
 docs/**
 docs/superpowers/**
 tests/**
@@ -24,7 +25,6 @@ gulpfile.js
 tsconfig.json
 vsc-extension-quickstart.md
 tslint.json
-DemoProjects.json
 media/*.scss
 media/brand/**
 !media/webviewScrollStateScripts.js
@@ -66,6 +66,9 @@ media/brand/**
 webpack.config.json
 *.gif
 node_modules/**
+artifacts/**
+*.vsix
+.gitattributes
 spikes/**
 extensions/**
 shared/**

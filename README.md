@@ -221,7 +221,7 @@ logs a `status=...` line per sink — then inspect the delivery log with
 - `agentPivot.notify.debounceMs` batches rapid stops, and once more than
   `agentPivot.notify.rateLimitPerMin` notifications would go out in a minute,
   the overflow merges into one summary message,
-- dismissing the attention red dot in the Dashboard cancels the pending
+- dismissing the attention red dot in the Agent Pivot view cancels the pending
   notification for that event, and an already-sent event never repeats.
 
 ## Requirements

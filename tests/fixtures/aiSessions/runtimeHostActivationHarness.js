@@ -886,8 +886,8 @@ async function main() {
             html => !html.includes('agent-pivot-boot-shell')
         ).length;
         const dashboardDiagnostics = lifecycle.outputLines
-            .filter(line => line.startsWith('[Dashboard] '))
-            .map(line => JSON.parse(line.slice('[Dashboard] '.length)))
+            .filter(line => line.startsWith('[Agent Pivot] '))
+            .map(line => JSON.parse(line.slice('[Agent Pivot] '.length)))
             .map(({ loggedAt: _loggedAt, ...event }) => event);
         const startupDiagnosticEvents = new Set([
             'agent-pivot-activation-entered',

@@ -4570,7 +4570,7 @@ function runSourceContractChecks(source) {
     assert.ok(
         dashboardBundleInputs.indexOf('webviewProjectsPanelScripts.js')
             < dashboardBundleInputs.indexOf('webviewDashboardScripts.js'),
-        'the projects panel capture/restore helpers must load before the Dashboard controller that calls them'
+        'the projects panel capture/restore helpers must load before the dashboard controller that calls them'
     );
     assert.ok(
         dashboardBundleInputs.indexOf('webviewDashboardValidationScripts.js') > -1
@@ -4588,12 +4588,12 @@ function runSourceContractChecks(source) {
             && dashboardBundleInputs.indexOf('webviewDashboardAiPanelScripts.js') > -1
             && dashboardBundleInputs.indexOf('webviewDashboardAiPanelScripts.js')
                 < dashboardBundleInputs.indexOf('webviewDashboardScripts.js'),
-        'the Dashboard pure helpers and panel controllers must load before the Dashboard controller that calls them'
+        'the dashboard pure helpers and panel controllers must load before the dashboard controller that calls them'
     );
     assert.ok(
         dashboardBundleInputs.indexOf('webviewSkillPanelScripts.js')
             < dashboardBundleInputs.indexOf('webviewDashboardScripts.js'),
-        'the skill panel controller must load before the Dashboard controller that wires it'
+        'the skill panel controller must load before the dashboard controller that wires it'
     );
     assert.ok(
         dashboardBundleInputs.indexOf('webviewScrollStateScripts.js')
@@ -5246,7 +5246,8 @@ function runSourceContractChecks(source) {
         'Escape handling must detect the active TODO edit form');
     assert.ok(projectSource.includes("setTodoEditing(editForm.getAttribute('data-todo-id'), false)"),
         'Escape must cancel the active TODO edit form');
-    const changelog = fs.readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8');
+    const changelog = fs.readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8')
+        + fs.readFileSync(path.join(root, 'docs', 'development-history.md'), 'utf8');
     assert.ok(changelog.includes('Add a global `TODO` Dashboard tab'));
     assert.strictEqual((source.match(/type: 'request-projects-panel'/g) || []).length, 1);
     assert.strictEqual((source.match(/type: 'request-todo-panel'/g) || []).length, 1);

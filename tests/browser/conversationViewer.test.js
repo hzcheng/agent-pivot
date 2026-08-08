@@ -774,7 +774,7 @@ async function openHostViewerDocument(t, options = {}) {
         if (pathname === '/conversationViewerScripts.js') {
             await route.fulfill({
                 contentType: 'text/javascript',
-                body: viewerScript,
+                body: options.viewerScriptSource || viewerScript,
             });
             return;
         }
@@ -1483,9 +1483,9 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 filters the current Session outline an
     );
     const outlineSort = page.locator('[data-outline-sort]');
     assert.equal(
-        await page.locator('[data-outline-summary]').count(),
-        0,
-        'the redundant input-count row should not render'
+        await page.locator('[data-outline-summary]').isHidden(),
+        true,
+        'the compatibility summary anchor must not render a count row'
     );
     assert.equal(await outlineSort.getAttribute('data-order'), 'newest');
     assert.equal(
@@ -2789,6 +2789,75 @@ test('CONVERSATION-OUTLINE-BOOKMARKS-001 keeps the outline usable with previous 
             .getAttribute('aria-label'),
         'Show bookmarked inputs only, 1 bookmark'
     );
+});
+
+test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable across adjacent document and script generations', async t => {
+    async function assertPanelViews(page, label) {
+        await page.locator('[data-action="toggle-sidebar"]').click();
+        assert.equal(
+            await page.locator('[data-conversation-sidebar]').isVisible(),
+            true,
+            `${label}: the side panel should open`
+        );
+        assert.equal(
+            await page.locator('[data-conversation-outline]').isVisible(),
+            true,
+            `${label}: Outline should remain available`
+        );
+        await page.locator('[data-sidebar-tab="comments"]').click();
+        assert.equal(
+            await page.locator('[data-conversation-comments]').isVisible(),
+            true,
+            `${label}: Comments should remain available`
+        );
+        await page.locator('[data-sidebar-tab="subagents"]').click();
+        assert.equal(
+            await page.locator('[data-conversation-subagents]').isVisible(),
+            true,
+            `${label}: Subagents should remain available`
+        );
+    }
+
+    const currentScriptWithPreviousSummaryGuard = viewerScript
+        .replace(
+            "    var outlineRoot = document.querySelector('[data-conversation-outline]');\n",
+            "    var outlineRoot = document.querySelector('[data-conversation-outline]');\n"
+                + "    var outlineSummary = document.querySelector('[data-outline-summary]');\n"
+        )
+        .replace(
+            '        && !!outlineSearch\n',
+            '        && !!outlineSummary && !!outlineSearch\n'
+        );
+    assert.notEqual(
+        currentScriptWithPreviousSummaryGuard,
+        viewerScript,
+        'the previous-generation summary guard fixture must be active'
+    );
+
+    const previousScriptErrors = [];
+    const previousScript = await openHostViewerDocument(t, {
+        interactionIds: ['input-1'],
+        interactionId: 'input-1',
+        pageErrors: previousScriptErrors,
+        viewerScriptSource: currentScriptWithPreviousSummaryGuard,
+    });
+    await assertPanelViews(previousScript.page, 'previous script');
+    assert.deepEqual(previousScriptErrors, []);
+
+    const previousDocumentErrors = [];
+    const previousDocument = await openHostViewerDocument(t, {
+        interactionIds: ['input-1'],
+        interactionId: 'input-1',
+        pageErrors: previousDocumentErrors,
+        transformHostDocument(html) {
+            return html.replace(
+                /\s*<button type="button"\s+class="conversation-outline-sort"[\s\S]*?<\/button>/,
+                ''
+            );
+        },
+    });
+    await assertPanelViews(previousDocument.page, 'previous document');
+    assert.deepEqual(previousDocumentErrors, []);
 });
 
 test('CONVERSATION-OUTLINE-BOOKMARKS-001 keeps unbookmarked controls visible in dark and forced-color themes', async t => {

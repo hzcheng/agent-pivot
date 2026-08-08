@@ -142,7 +142,7 @@
         && sidebarTabs.length === 3 && !!outlineRoot
         && !!outlineSearch
         && !!outlineList && !!outlineEmpty && !!outlinePartial
-        && !!outlineBookmarksOnly && !!outlineSort;
+        && !!outlineBookmarksOnly;
     var bookmarkUiAvailable = sidebarUiAvailable
         && validCommentTarget(commentTarget);
     var commentUiAvailable = sidebarUiAvailable

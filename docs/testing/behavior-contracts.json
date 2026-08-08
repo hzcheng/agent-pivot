@@ -4515,7 +4515,7 @@
   {
     "id": "CONVERSATION-OUTLINE-NAVIGATION-001",
     "domain": "webview",
-    "title": "AI Conversation presents a searchable current-Session user-input outline, defaults to newest-first, switches order locally, and navigates pointer or keyboard selections to the exact Host-authoritative interaction",
+    "title": "AI Conversation keeps every side-panel view available across adjacent document and script generations while presenting a searchable, locally sortable current-Session input outline with exact navigation",
     "priority": "P0",
     "status": "automated",
     "owners": [
@@ -4523,6 +4523,7 @@
       "tests/browser/conversationViewer.test.js"
     ],
     "evidence": [
+      "src/aiSessions/conversation/viewerDocument.ts",
       "src/aiSessions/conversation/viewer.ts",
       "src/webview/conversationOutlineScripts.js",
       "src/webview/conversationViewerScripts.js",

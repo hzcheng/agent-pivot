@@ -296,6 +296,7 @@
         }
 
         function renderSortState() {
+            if (!outlineSort) return;
             var order = state.newestFirst ? 'newest' : 'oldest';
             var label = state.newestFirst
                 ? 'Show oldest inputs first'
@@ -467,12 +468,14 @@
                 renderBookmarkState();
                 filterOutline();
             });
-            outlineSort.addEventListener('click', function () {
-                state.newestFirst = !state.newestFirst;
-                renderSortState();
-                buildOutlineList();
-                filterOutline();
-            });
+            if (outlineSort) {
+                outlineSort.addEventListener('click', function () {
+                    state.newestFirst = !state.newestFirst;
+                    renderSortState();
+                    buildOutlineList();
+                    filterOutline();
+                });
+            }
             outlineList.addEventListener('click', function (event) {
                 var bookmark = event.target.closest
                     ? event.target.closest('[data-outline-bookmark-id]')

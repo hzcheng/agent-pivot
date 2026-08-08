@@ -298,6 +298,7 @@ export function renderConversationViewerDocument(
                             <path d="M11.5 2.5v10M9.5 10.5l2 2 2-2"></path>
                         </svg>
                     </button>
+                    <span data-outline-summary hidden aria-hidden="true"></span>
                 </div>
                 <p class="conversation-outline-partial"
                     data-outline-partial hidden>

@@ -16,6 +16,11 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
   (the same Simple Icons logos used by the dashboard Session cards) in front
   of the model and worktree chips, and it follows cross-provider Session
   switches live.
+- New `agentPivot.aiSessionRunningCardCustomImage` and
+  `agentPivot.aiSessionRunningIconCustomImage` settings plus a `custom`
+  choice in both running-animation settings: display your own local image
+  (SVG, PNG, GIF, WebP, or JPEG up to 256 KB) as the rotating running
+  indicator. The file is read locally and never uploaded.
 
 ### Fixed
 
@@ -25,6 +30,13 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
 - Workspace note status messages are now prefixed (`Workspace: ...`), so a
   note operation and a Session comment operation running at the same time
   no longer overwrite each other's status text.
+
+### Removed
+
+- Removed the bundled anime artwork running-animation options (third-party
+  intellectual property) from the running-animation settings. Configurations
+  that still reference them fall back to the default `current` animation;
+  use the new `custom` slots with your own image instead.
 
 ## [1.0.4] - 2026-08-06
 

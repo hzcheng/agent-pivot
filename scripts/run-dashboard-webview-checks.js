@@ -385,13 +385,13 @@ function runDashboardUpdateMessageChecks() {
         sequence: 7,
         generatedAt: '2026-07-17T00:00:00.000Z',
         todoSearchItems,
-        runningCardAnimation: 'sharingan-itachi',
-        runningIconAnimation: 'sharingan-itachi',
+        runningCardAnimation: 'custom',
+        runningIconAnimation: 'halo',
     });
     const workspaceMessage = dashboardUpdateMessages.buildWorkspaceUpdatedMessage({
         card: workspaceCard,
-        runningCardAnimation: 'sharingan-madara',
-        runningIconAnimation: 'sharingan-sasuke',
+        runningCardAnimation: 'ripple',
+        runningIconAnimation: 'custom',
     });
     const navigationCard = {
         ...makeWorkspaceCardFixture(2),
@@ -411,8 +411,8 @@ function runDashboardUpdateMessageChecks() {
         semanticRevision: 'b'.repeat(64),
         otherWindowsStatus: 'ready',
         todoSearchItems,
-        runningCardAnimation: 'sharingan-madara-eternal',
-        runningIconAnimation: 'sharingan-obito-kakashi',
+        runningCardAnimation: 'breath',
+        runningIconAnimation: 'custom',
     });
     const workspaceSearchCatalog = buildWorkspaceDashboardSearchCatalog([], [workspaceCard], todoSearchItems);
 
@@ -423,9 +423,9 @@ function runDashboardUpdateMessageChecks() {
     assert.strictEqual(aiMessage.searchCatalog.version, 2);
     assert.deepStrictEqual(aiMessage.searchCatalog.openWorkspaces.map(item => item.current), [true]);
     assert.ok(aiMessage.html.includes('data-current-workspace'));
-    assert.ok(aiMessage.html.includes('data-session-icon-fx="sharingan-itachi"'),
+    assert.ok(aiMessage.html.includes('data-session-icon-fx="halo"'),
         'AI session incremental updates must use the configured running icon animation');
-    assert.ok(aiMessage.html.includes('data-session-fx="sharingan-itachi"'),
+    assert.ok(aiMessage.html.includes('data-session-fx="custom"'),
         'AI session incremental updates must preserve the independent running card animation');
     assert.strictEqual(workspaceMessage.type, 'workspace-updated');
     assert.strictEqual(workspaceMessage.version, 2);
@@ -435,9 +435,9 @@ function runDashboardUpdateMessageChecks() {
     assert.deepStrictEqual(workspaceSearchCatalog.todos, todoSearchItems);
     assert.strictEqual(workspaceMessage.currentWorkspaceCount, 1);
     assert.ok(workspaceMessage.html.includes('data-workspace-scope-identity="scope-dashboard"'));
-    assert.ok(workspaceMessage.html.includes('data-session-icon-fx="sharingan-sasuke"'),
+    assert.ok(workspaceMessage.html.includes('data-session-icon-fx="custom"'),
         'workspace incremental updates must use the configured running icon animation');
-    assert.ok(workspaceMessage.html.includes('data-session-fx="sharingan-madara"'),
+    assert.ok(workspaceMessage.html.includes('data-session-fx="ripple"'),
         'workspace incremental updates must preserve the independent running card animation');
     const emptyWorkspaceMessage = dashboardUpdateMessages.buildWorkspaceUpdatedMessage({ card: null });
     assert.strictEqual(emptyWorkspaceMessage.currentWorkspaceCount, 0);
@@ -454,9 +454,9 @@ function runDashboardUpdateMessageChecks() {
     );
     assert.ok(openWorkspacesMessage.html.includes('OPEN WINDOWS'));
     assert.strictEqual(openWorkspacesMessage.html.includes('OTHER WINDOWS'), false);
-    assert.ok(openWorkspacesMessage.html.includes('data-session-icon-fx="sharingan-obito-kakashi"'),
+    assert.ok(openWorkspacesMessage.html.includes('data-session-icon-fx="custom"'),
         'open-workspace incremental updates must use the configured running icon animation');
-    assert.ok(openWorkspacesMessage.html.includes('data-session-fx="sharingan-madara-eternal"'),
+    assert.ok(openWorkspacesMessage.html.includes('data-session-fx="breath"'),
         'open-workspace incremental updates must preserve the independent running card animation');
 }
 
@@ -605,14 +605,9 @@ function runWorkspaceCardRenderingChecks() {
         'sweep',
         'orbit',
         'halo',
-        'sharingan-itachi',
-        'sharingan-obito-kakashi',
-        'sharingan-sasuke',
-        'sharingan-shisui',
-        'sharingan-madara',
-        'sharingan-madara-eternal',
         'ripple',
         'breath',
+        'custom',
     ]) {
         const animationHtml = webviewContent.getCurrentWorkspaceGroupContent(runningCard, false, animation);
         assert.ok(animationHtml.includes(`data-session-fx="${animation}"`),
@@ -737,7 +732,7 @@ function runWorkspaceCardRenderingChecks() {
         [makeWorkspaceCardFixture(3), navigationCard],
         false,
         'ready',
-        'sharingan-shisui',
+        'custom',
     );
     const navigationOpeningTag = workspaceHtml.match(
         /<div class="workspace-card[^>]*data-workspace-card-kind="navigation"[^>]*>/
@@ -767,7 +762,7 @@ function runWorkspaceCardRenderingChecks() {
     assert.ok(otherWindowsHtml.includes('style="--project-color: #abcdef;"'));
     assert.ok(otherWindowsHtml.includes('class="project-border steward-item-accent" style="background: #abcdef;"'));
     assert.ok(otherWindowsHtml.includes('class="workspace-card project steward-item-card session-running"'));
-    assert.ok(otherWindowsHtml.includes('data-session-fx="sharingan-shisui"'));
+    assert.ok(otherWindowsHtml.includes('data-session-fx="custom"'));
     assert.ok(otherWindowsHtml.includes('title="Workspace — 2 active sessions running"'));
     assert.ok(otherWindowsHtml.includes('<span class="ai-session-active-count" aria-label="2 active AI sessions">●2</span>'));
     assert.ok(otherWindowsHtml.includes('<h2 class="project-header">App</h2>'));

@@ -5060,7 +5060,7 @@ function runWebviewContentChecks() {
                 backend: 'vscode', attached: true,
             },
         ],
-    }, { runningIconAnimation: 'sharingan-madara-eternal' });
+    }, { runningIconAnimation: 'custom' });
     assert.ok(sessionTabsHtml.includes('class="ai-session-module-header"'));
     assert.ok(sessionTabsHtml.includes('data-action="create-ai-session"'));
     assert.ok(!sessionTabsHtml.includes('data-action="create-ai-session" data-provider='));
@@ -5139,7 +5139,7 @@ function runWebviewContentChecks() {
         row.includes('data-execution-state="stopped"') || row.includes('data-execution-state="starting"')
     );
     assert.strictEqual(runningRows.length, 2, 'the fixture must render two running Active Session rows');
-    assert.ok(runningRows.every(row => row.includes('data-session-icon-fx="sharingan-madara-eternal"')),
+    assert.ok(runningRows.every(row => row.includes('data-session-icon-fx="custom"')),
         'running Active Session rows must expose the configured icon effect');
     assert.ok(stoppedOrStartingRows.every(row => !row.includes('data-session-icon-fx')),
         'stopped and starting Active Session rows must not expose an icon effect');
@@ -5496,7 +5496,7 @@ function runWebviewContentChecks() {
         'steward-session-running-sweep',
         'steward-session-running-orbit',
         'steward-session-running-halo',
-        'steward-session-running-sharingan',
+        'steward-session-running-custom-image',
         'steward-session-running-ripple',
         'steward-session-running-breath',
     ]) {
@@ -5510,16 +5510,16 @@ function runWebviewContentChecks() {
     const reducedMotionStyles = styles.slice(styles.indexOf('@media (prefers-reduced-motion: reduce)'));
     assert.ok(reducedMotionStyles.includes('.project-session-fx'));
     assert.ok(reducedMotionStyles.includes('.project.session-running[data-session-fx="breath"]'));
-    assert.ok(reducedMotionStyles.includes('data-session-fx^="sharingan-"'));
+    assert.ok(reducedMotionStyles.includes('data-session-fx="custom"'));
     assert.ok(reducedMotionStyles.includes('animation: none !important'));
     assert.ok(styles.includes('.active-ai-session-row[data-execution-state="running"][data-session-icon-fx="current"] .codex-session-icon'));
     assert.ok(styles.includes('.active-ai-session-row[data-execution-state="running"][data-session-icon-fx="halo"] .codex-session-icon'));
-    assert.ok(styles.includes('.active-ai-session-row[data-execution-state="running"][data-session-icon-fx^="sharingan-"] .codex-session-icon'));
+    assert.ok(styles.includes('.active-ai-session-row[data-execution-state="running"][data-session-icon-fx="custom"] .codex-session-icon'));
     assert.ok(!styles.includes('.codex-session-row[data-execution-state="running"] .codex-session-icon'));
     assert.ok(styles.includes('@keyframes steward-session-icon-spin'));
     assert.ok(compiledStyles.includes('.active-ai-session-row[data-execution-state=running][data-session-icon-fx=current] .codex-session-icon::before'));
     assert.ok(compiledStyles.includes('.active-ai-session-row[data-execution-state=running][data-session-icon-fx=halo] .codex-session-icon::before'));
-    assert.ok(compiledStyles.includes('.active-ai-session-row[data-execution-state=running][data-session-icon-fx^=sharingan-] .codex-session-icon::after'));
+    assert.ok(compiledStyles.includes('.active-ai-session-row[data-execution-state=running][data-session-icon-fx=custom] .codex-session-icon::after'));
     assert.ok(compiledStyles.includes('@keyframes steward-session-icon-spin'));
     assert.ok(styles.includes('[data-ai-session-managing]'));
     assert.ok(styles.includes('grid-template-columns: minmax(0, 1fr) 24px;'));
@@ -5549,23 +5549,16 @@ function runWebviewContentChecks() {
         'sweep',
         'orbit',
         'halo',
-        'sharingan-itachi',
-        'sharingan-obito-kakashi',
-        'sharingan-sasuke',
-        'sharingan-shisui',
-        'sharingan-madara',
-        'sharingan-madara-eternal',
         'ripple',
         'breath',
+        'custom',
         'none',
     ]);
-    assert.deepStrictEqual(runningAnimation.enumDescriptions.slice(4, 10), [
-        "Itachi Uchiha's Mangekyo Sharingan replaces and rotates over the project kind icon.",
-        "Obito Uchiha and Kakashi Hatake's Mangekyo Sharingan replaces and rotates over the project kind icon.",
-        "Sasuke Uchiha's Mangekyo Sharingan replaces and rotates over the project kind icon.",
-        "Shisui Uchiha's Mangekyo Sharingan replaces and rotates over the project kind icon.",
-        "Madara Uchiha's Mangekyo Sharingan replaces and rotates over the project kind icon.",
-        "Madara Uchiha's Eternal Mangekyo Sharingan replaces and rotates over the project kind icon.",
+    assert.deepStrictEqual(runningAnimation.enumDescriptions.slice(4, 8), [
+        'Sonar ripples expand from the project kind icon.',
+        'The whole card glow breathes softly.',
+        'Your own image (agentPivot.aiSessionRunningCardCustomImage) replaces and rotates over the project kind icon.',
+        'No animation; only a static tinted border.',
     ]);
     assert.strictEqual(
         runningAnimation.description,
@@ -5579,17 +5572,22 @@ function runWebviewContentChecks() {
     assert.deepStrictEqual(runningIconAnimation.enum, [
         'current',
         'halo',
-        'sharingan-itachi',
-        'sharingan-obito-kakashi',
-        'sharingan-sasuke',
-        'sharingan-shisui',
-        'sharingan-madara',
-        'sharingan-madara-eternal',
+        'custom',
         'none',
     ]);
     assert.strictEqual(runningIconAnimation.default, 'current');
     assert.strictEqual(runningIconAnimation.scope, 'machine');
-    assert.strictEqual(runningIconAnimation.enumDescriptions.length, 9);
+    assert.strictEqual(runningIconAnimation.enumDescriptions.length, 4);
+    for (const imageSetting of [
+        'agentPivot.aiSessionRunningCardCustomImage',
+        'agentPivot.aiSessionRunningIconCustomImage',
+    ]) {
+        const imageProperty = packageJson.contributes.configuration.properties[imageSetting];
+        assert.ok(imageProperty, `${imageSetting} must be declared`);
+        assert.strictEqual(imageProperty.type, 'string');
+        assert.strictEqual(imageProperty.scope, 'machine');
+        assert.strictEqual(imageProperty.default, '');
+    }
     assert.ok(!fs.existsSync(path.join(__dirname, '..', 'src', 'aiSessions', 'projectHydrationController.ts')));
     assert.ok(!fs.existsSync(path.join(__dirname, '..', 'src', 'aiSessions', 'projectHydration.ts')));
     assert.ok(!fs.existsSync(path.join(__dirname, '..', 'src', 'aiSessions', 'activeSessionProjection.ts')));
@@ -5738,7 +5736,7 @@ function runTmuxSmokeHarnessSafetyChecks() {
 
 function runCurrentWorkspaceRenderingChecks() {
     const config = {
-        get: (key, defaultValue) => key === 'aiSessionRunningCardAnimation' ? 'sharingan-madara' : defaultValue,
+        get: (key, defaultValue) => key === 'aiSessionRunningCardAnimation' ? 'orbit' : defaultValue,
         displayProjectPath: false,
         searchIsActiveByDefault: false,
         showAddGroupButtonTile: false,
@@ -5850,7 +5848,7 @@ function runCurrentWorkspaceRenderingChecks() {
     assert.ok(currentOpenListTag);
     assert.ok(currentDetailTag.includes('data-workspace-card-kind="current"'));
     assert.ok(currentDetailTag.includes('session-running'));
-    assert.ok(currentDetailTag.includes('data-session-fx="sharingan-madara"'),
+    assert.ok(currentDetailTag.includes('data-session-fx="orbit"'),
         'the full Webview render must use the configured running animation');
     assert.ok(currentOpenListTag.includes('data-open-workspace-list-card'));
     assert.ok(currentOpenListTag.includes('data-has-pin-action'));
@@ -7961,8 +7959,8 @@ async function runAiSessionDashboardUnchangedMessageSkipChecks() {
     const messages = [];
     const diagnostics = [];
     let sessionName = 'Codex One';
-    let runningCardAnimation = 'sharingan-itachi';
-    let runningIconAnimation = 'sharingan-madara';
+    let runningCardAnimation = 'custom';
+    let runningIconAnimation = 'halo';
     const workspace = () => ({
         id: 'workspace-a',
         kind: 'current',
@@ -8025,17 +8023,17 @@ async function runAiSessionDashboardUnchangedMessageSkipChecks() {
     await controller.refreshNow('watcher');
     await controller.refreshNow('watcher');
     assert.strictEqual(messages.length, 1, 'unchanged watcher messages should not be posted twice');
-    assert.ok(messages[0].html.includes('data-session-fx="sharingan-itachi"'),
+    assert.ok(messages[0].html.includes('data-session-fx="custom"'),
         'AI session controller updates must preserve the independent running card animation');
-    assert.ok(messages[0].html.includes('data-session-icon-fx="sharingan-madara"'),
+    assert.ok(messages[0].html.includes('data-session-icon-fx="halo"'),
         'AI session controller updates must use the configured running icon animation');
     assert.strictEqual(diagnostics.some(event => event.event === 'ai-session-message-skip' && event.reason === 'watcher'), true);
 
-    runningIconAnimation = 'sharingan-madara-eternal';
+    runningIconAnimation = 'custom';
     await controller.refreshNow('watcher');
     assert.strictEqual(messages.length, 2,
         'changing only the running icon animation must not be suppressed by incremental message dedupe');
-    assert.ok(messages[1].html.includes('data-session-icon-fx="sharingan-madara-eternal"'));
+    assert.ok(messages[1].html.includes('data-session-icon-fx="custom"'));
 
     sessionName = 'Codex Two';
     await controller.refreshNow('watcher');

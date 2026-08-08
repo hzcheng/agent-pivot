@@ -2078,8 +2078,8 @@ async function runOpenWorkspaceHardeningChecks() {
     const posted = [];
     const refreshes = [];
     let deliveryResult = true;
-    let runningCardAnimation = 'sharingan-shisui';
-    let runningIconAnimation = 'sharingan-madara';
+    let runningCardAnimation = 'custom';
+    let runningIconAnimation = 'halo';
     const dashboard = new OpenWorkspaceDashboardController({
         getCurrentWorkspace: () => current,
         isWorkspaceSavedAsProject: () => true,
@@ -2144,16 +2144,16 @@ async function runOpenWorkspaceHardeningChecks() {
     await flush();
     assert.strictEqual(posted.length, 1, 'identical semantic workspace updates must be suppressed');
     assert.strictEqual(posted[0].otherWindowsStatus, 'update-required');
-    assert.ok(posted[0].html.includes('data-session-fx="sharingan-shisui"'),
+    assert.ok(posted[0].html.includes('data-session-fx="custom"'),
         'open-workspace controller updates must preserve the independent running card animation');
-    assert.ok(posted[0].html.includes('data-session-icon-fx="sharingan-madara"'),
+    assert.ok(posted[0].html.includes('data-session-icon-fx="halo"'),
         'open-workspace controller updates must use the configured running icon animation');
-    runningIconAnimation = 'sharingan-madara-eternal';
+    runningIconAnimation = 'custom';
     dashboard.postUpdated();
     await flush();
     assert.strictEqual(posted.length, 2,
         'changing only the running icon animation must not be suppressed as an unchanged workspace update');
-    assert.ok(posted[1].html.includes('data-session-icon-fx="sharingan-madara-eternal"'));
+    assert.ok(posted[1].html.includes('data-session-icon-fx="custom"'));
     deliveryResult = false;
     dashboard.setBridgeStatus('unavailable');
     dashboard.postUpdated();

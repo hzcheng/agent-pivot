@@ -204,31 +204,6 @@ test('third-party notices preserve authoritative installed license artifacts', (
     );
 });
 
-test('Sharingan notice retains source, author, license, and non-endorsement', () => {
-    const notice = markdownSection(
-        read('THIRD_PARTY_NOTICES.md'),
-        'Sharingan loading animation — CC BY-SA 3.0 — retained source/author attribution'
-    );
-    assert.match(notice, /authored by\s+ShounenSuki/);
-    assert.match(notice, /sourced from Narutopedia through Wikimedia Commons/);
-    assert.match(notice,
-        /https:\/\/creativecommons\.org\/licenses\/by-sa\/3\.0\//);
-    for (const source of [
-        'Mangekyou_Sharingan_Itachi.svg',
-        'Mangekyou_Sharingan_Madara_\\(Eternal\\).svg',
-        'Mangekyou_Sharingan_Madara.svg',
-        'Mangekyou_Sharingan_Kakashi.svg',
-        'Mangekyou_Sharingan_Sasuke.svg',
-        'Mangekyou_Sharingan_Shisui.svg',
-    ]) {
-        assert.match(notice, new RegExp(
-            `https://commons\\.wikimedia\\.org/wiki/File:${source}`
-        ));
-    }
-    assert.match(notice, /The files are distributed without modification\./);
-    assert.match(notice, /Their inclusion does not imply endorsement\./);
-});
-
 test('current changelog is clean while archived development bytes are locked', () => {
     const changelog = read('CHANGELOG.md');
     assert.match(changelog, /^## \[1\.0\.0\] - 2026-07-26$/m);
@@ -289,7 +264,6 @@ test('marketplace notices name every required dependency', () => {
         'dragula 3.7.3',
         'fitty 2.3.5',
         'DOMPurify 3.4.12',
-        'Sharingan loading animation',
     ]) {
         assert.match(read('THIRD_PARTY_NOTICES.md'), new RegExp(dependency));
     }

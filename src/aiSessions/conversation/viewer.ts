@@ -2163,20 +2163,22 @@ function renderConversationDiffFile(
     const hunks = diff.hunks.map(hunk => {
         const header = hunk.oldStart !== undefined
             && hunk.newStart !== undefined
-            ? `<span class="conversation-diff-line conversation-diff-line-hunk">@@ -${hunk.oldStart} +${hunk.newStart} @@</span>\n`
+            ? `<span class="conversation-diff-line conversation-diff-line-hunk">@@ -${hunk.oldStart} +${hunk.newStart} @@</span>`
             : '';
+        // Block-level spans stack on their own; newline text nodes inside
+        // the <pre> would render as extra blank lines.
         const lines = hunk.lines.map(line =>
             `<span class="conversation-diff-line conversation-diff-line-${line.type}">${line.type === 'add'
                 ? '+'
                 : line.type === 'del'
                     ? '-'
                     : ' '}${escapeAttribute(line.text)}</span>`
-        ).join('\n');
+        ).join('');
         const truncated = hunk.truncatedLines
-            ? `\n<span class="conversation-diff-line conversation-diff-line-truncated">… ${hunk.truncatedLines} more lines</span>`
+            ? `<span class="conversation-diff-line conversation-diff-line-truncated">… ${hunk.truncatedLines} more lines</span>`
             : '';
         return `${header}${lines}${truncated}`;
-    }).join('\n');
+    }).join('');
     return `<section class="conversation-diff-file">
         <section class="conversation-diff-file-header"><span class="conversation-diff-path" title="${escapeAttribute(diff.path)}">${escapeAttribute(diff.path)}</span>${kind}<span class="conversation-diff-counts"><span class="conversation-diff-count-add">+${diff.additions}</span> <span class="conversation-diff-count-del">−${diff.deletions}</span></span></section>
         ${hunks

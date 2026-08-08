@@ -6564,9 +6564,7 @@ test('CONVERSATION-DIFF-VISIBILITY-001 renders diff cards with sanitized markup 
                         <span class="conversation-diff-kind conversation-diff-kind-update">update</span>
                         <span class="conversation-diff-counts"><span class="conversation-diff-count-add">+1</span> <span class="conversation-diff-count-del">−1</span></span>
                     </section>
-                    <pre class="conversation-diff-hunks"><code><span class="conversation-diff-line conversation-diff-line-hunk">@@ -3 +3 @@</span>
-<span class="conversation-diff-line conversation-diff-line-del">-const a = 1;</span>
-<span class="conversation-diff-line conversation-diff-line-add">+const a = 2;</span></code></pre>
+                    <pre class="conversation-diff-hunks"><code><span class="conversation-diff-line conversation-diff-line-hunk">@@ -3 +3 @@</span><span class="conversation-diff-line conversation-diff-line-del">-const a = 1;</span><span class="conversation-diff-line conversation-diff-line-add">+const a = 2;</span></code></pre>
                 </section>
             </section>
         </details>
@@ -6662,6 +6660,13 @@ test('CONVERSATION-DIFF-VISIBILITY-001 renders diff cards with sanitized markup 
         addStyle.background,
         delStyle.background,
         'add and del lines use different backgrounds'
+    );
+    const preText = await page.locator('.conversation-diff-hunks code')
+        .evaluate(element => element.textContent);
+    assert.equal(
+        /\n/.test(preText),
+        false,
+        'block diff lines must not carry newline text nodes (blank lines)'
     );
 });
 

@@ -3320,6 +3320,11 @@ test('CONVERSATION-DIFF-VISIBILITY-001 publishes structured diff markup inside t
     assert.equal(html.includes('conversation-diff-line-del'), true);
     assert.equal(html.includes('conversation-diff-totals'), true);
     assert.equal(html.includes('@@ -3 +3 @@'), true);
+    assert.equal(
+        html.includes('</span>\n<span class="conversation-diff-line'),
+        false,
+        'block diff lines must not be separated by newline text nodes'
+    );
 });
 
 function worklogPage(sessionId, options = {}) {

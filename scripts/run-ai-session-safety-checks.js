@@ -5472,7 +5472,10 @@ function runWebviewContentChecks() {
     assert.ok(styles.includes('[data-execution-state="starting"] .ai-session-execution-status'));
     assert.ok(styles.includes('color: var(--vscode-descriptionForeground);'));
     assert.ok(styles.includes('[data-session-focused]'));
-    assert.ok(styles.includes('[data-session-needs-attention]'));
+    // Attention rows must stay highlight-free so the focused row remains
+    // visually distinct; the corner dot is the only attention signal.
+    assert.ok(!styles.includes('[data-session-needs-attention]'));
+    assert.ok(styles.includes('.ai-session-attention-indicator'));
     assert.ok(!styles.includes('[data-session-status='));
     assert.ok(compiledStyles.includes('.ai-session-execution-status'));
     assert.ok(compiledStyles.includes('.ai-session-execution-dot'));
@@ -5482,7 +5485,8 @@ function runWebviewContentChecks() {
     assert.ok(compiledStyles.includes('[data-execution-state=starting] .ai-session-execution-status'));
     assert.ok(compiledStyles.includes('var(--vscode-descriptionForeground)'));
     assert.ok(compiledStyles.includes('[data-session-focused]'));
-    assert.ok(compiledStyles.includes('[data-session-needs-attention]'));
+    assert.ok(!compiledStyles.includes('[data-session-needs-attention]'));
+    assert.ok(compiledStyles.includes('.ai-session-attention-indicator'));
     assert.ok(!compiledStyles.includes('[data-session-status='));
     assert.ok(styles.includes('[data-session-pending]'));
     assert.ok(styles.includes('@media (max-width: 280px)'));

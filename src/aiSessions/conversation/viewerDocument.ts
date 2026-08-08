@@ -341,6 +341,21 @@ export function renderConversationViewerDocument(
                             data-project-comment-action="open-composer"
                             title="Add a workspace note"
                             aria-label="Add a workspace note">${CONVERSATION_COMMENT_ICON_PLUS}</button>
+                        <button class="conversation-comment-icon-button"
+                            type="button"
+                            data-project-comment-action="send-all" disabled
+                            title="Send open notes to the session input"
+                            aria-label="Send open notes to the session input">${CONVERSATION_COMMENT_ICON_SEND}</button>
+                        <button class="conversation-comment-icon-button"
+                            type="button"
+                            data-project-comment-action="clear-done" disabled
+                            title="Clear done notes"
+                            aria-label="Clear done notes">${CONVERSATION_COMMENT_ICON_ERASER}</button>
+                        <button class="conversation-comment-icon-button danger conversation-comments-clear-all"
+                            type="button"
+                            data-project-comment-action="clear-all" disabled
+                            title="Clear all notes"
+                            aria-label="Clear all notes">${CONVERSATION_COMMENT_ICON_TRASH}</button>
                     </div>
                     <section class="conversation-project-comments"
                         data-project-comments
@@ -417,6 +432,18 @@ export function renderConversationViewerDocument(
                             type="button" data-comment-action="new"
                             title="Add a note about this Session"
                             aria-label="Add a note about this Session">${CONVERSATION_COMMENT_ICON_PLUS}</button>
+                        <button class="conversation-comment-icon-button"
+                            type="button" data-comment-action="send" disabled
+                            title="Send open comments to the session input"
+                            aria-label="Send open comments to the session input">${CONVERSATION_COMMENT_ICON_SEND}</button>
+                        <button class="conversation-comment-icon-button" type="button"
+                            data-comment-action="clearDone" disabled
+                            title="Clear done comments"
+                            aria-label="Clear done comments">${CONVERSATION_COMMENT_ICON_ERASER}</button>
+                        <button class="conversation-comment-icon-button danger conversation-comments-clear-all"
+                            type="button" data-comment-action="clearAll" disabled
+                            title="Clear all comments"
+                            aria-label="Clear all comments">${CONVERSATION_COMMENT_ICON_TRASH}</button>
                     </div>
                     <div class="conversation-comments-section-content conversation-comments-session-region"
                         data-session-comments-content>
@@ -446,23 +473,6 @@ export function renderConversationViewerDocument(
                     <p class="conversation-comment-empty" data-comment-empty>
                         Select text to comment on it, or add a Session note.
                     </p>
-                    </div>
-                </div>
-                <div class="conversation-comments-toolbar"
-                    data-comments-toolbar role="group" aria-label="Comment actions">
-                    <div class="conversation-comments-toolbar-actions">
-                        <button class="conversation-comment-icon-button"
-                            type="button" data-comment-action="send" disabled
-                            title="Send open comments to the session input"
-                            aria-label="Send open comments to the session input">${CONVERSATION_COMMENT_ICON_SEND}</button>
-                        <button class="conversation-comment-icon-button" type="button"
-                            data-comment-action="clearDone" disabled
-                            title="Clear done comments"
-                            aria-label="Clear done comments">${CONVERSATION_COMMENT_ICON_ERASER}</button>
-                        <button class="conversation-comment-icon-button danger conversation-comments-clear-all"
-                            type="button" data-comment-action="clearAll" disabled
-                            title="Clear all comments"
-                            aria-label="Clear all comments">${CONVERSATION_COMMENT_ICON_TRASH}</button>
                     </div>
                 </div>
             </section>

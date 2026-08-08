@@ -50,7 +50,7 @@ export interface ConversationViewerLocateCommentMessage {
 
 export type ConversationViewerProjectCommentOperation =
     'add' | 'update' | 'delete' | 'setStatus' | 'addTag' | 'removeTag'
-    | 'reorder';
+    | 'reorder' | 'clearDone' | 'clearAll';
 
 export interface ConversationViewerProjectCommentMutationMessage {
     type: 'conversation-viewer-project-comment-mutation';
@@ -73,7 +73,7 @@ export interface ConversationViewerSendProjectCommentMessage {
     projectId: string;
     provider: AiSessionProviderId;
     sessionId: string;
-    operation: 'sendProjectComment';
+    operation: 'sendProjectComment' | 'sendProjectComments';
     expectedRevision: number;
     payload: unknown;
 }
@@ -374,11 +374,20 @@ export function parseConversationViewerMessage(
                 && value.operation !== 'setStatus'
                 && value.operation !== 'addTag'
                 && value.operation !== 'removeTag'
+                && value.operation !== 'clearDone'
+                && value.operation !== 'clearAll'
                 && value.operation !== 'reorder') {
                 return undefined;
             }
             return value as unknown as
                 ConversationViewerProjectCommentMutationMessage;
+        }
+        if (value.operation === 'sendProjectComments') {
+            if (Object.keys(value.payload as object).length !== 0) {
+                return undefined;
+            }
+            return value as unknown as
+                ConversationViewerSendProjectCommentMessage;
         }
         if (value.operation !== 'sendProjectComment'
             || !hasExactKeys(value.payload as object, ['commentId'])

@@ -78,6 +78,7 @@
             sessionSectionCollapsed: false,
             draggedProjectCommentId: null,
             sessionTagEditor: null,
+            projectClearAllConfirmation: false,
         };
 
         function readJsonAttribute(name) {
@@ -358,6 +359,9 @@
             );
             if (!pending) {
                 updateCommentControls();
+                if (projectCommentsAvailable) {
+                    updateWorkspaceHeaderControls();
+                }
             }
             commentsRoot.setAttribute('aria-busy', pending ? 'true' : 'false');
         }
@@ -1341,7 +1345,7 @@
         var PROJECT_TAG_COLOR_COUNT = 6;
         var PROJECT_COMMENT_OPERATIONS = [
             'add', 'update', 'delete', 'setStatus', 'addTag', 'removeTag',
-            'reorder',
+            'reorder', 'clearDone', 'clearAll',
         ];
 
         function providerLabel(provider) {
@@ -1512,7 +1516,8 @@
                     || value.provider === 'claude')
                 && typeof value.sessionId === 'string'
                 && (PROJECT_COMMENT_OPERATIONS.indexOf(value.operation) >= 0
-                    || value.operation === 'sendProjectComment')
+                    || value.operation === 'sendProjectComment'
+                    || value.operation === 'sendProjectComments')
                 && typeof value.success === 'boolean'
                 && Number.isSafeInteger(value.revision)
                 && value.revision >= 0
@@ -1673,13 +1678,62 @@
                     control.disabled = pending;
                 }
             );
+            Array.prototype.forEach.call(
+                projectCommentsHeader.querySelectorAll('button'),
+                function (control) {
+                    control.disabled = pending;
+                }
+            );
             if (!pending) {
                 updateProjectComposerControls();
+                updateWorkspaceHeaderControls();
             }
             projectCommentsRoot.setAttribute(
                 'aria-busy',
                 pending ? 'true' : 'false'
             );
+        }
+
+        function updateWorkspaceHeaderControls() {
+            if (!projectCommentsAvailable) return;
+            var counts = { open: 0, done: 0 };
+            state.projectComments.forEach(function (comment) {
+                counts[comment.status] += 1;
+            });
+            var pending = !!state.pendingProjectCommentRequest;
+            var openComposer = projectCommentsHeader.querySelector(
+                '[data-project-comment-action="open-composer"]'
+            );
+            var sendAll = projectCommentsHeader.querySelector(
+                '[data-project-comment-action="send-all"]'
+            );
+            var clearDone = projectCommentsHeader.querySelector(
+                '[data-project-comment-action="clear-done"]'
+            );
+            var clearAll = projectCommentsHeader.querySelector(
+                '[data-project-comment-action="clear-all"]'
+            );
+            openComposer.disabled = pending;
+            var sendLabel = 'Send ' + counts.open + ' open note'
+                + (counts.open === 1 ? '' : 's') + ' to the session input';
+            sendAll.disabled = pending || counts.open === 0;
+            sendAll.title = sendLabel;
+            sendAll.setAttribute('aria-label', sendLabel);
+            clearDone.disabled = pending || counts.done === 0;
+            clearAll.disabled = pending || state.projectComments.length === 0;
+        }
+
+        function resetProjectClearAllConfirmation() {
+            if (!projectCommentsAvailable) return;
+            state.projectClearAllConfirmation = false;
+            var clearAll = projectCommentsHeader.querySelector(
+                '[data-project-comment-action="clear-all"]'
+            );
+            if (clearAll) {
+                clearAll.removeAttribute('data-confirming');
+                clearAll.title = 'Clear all notes';
+                clearAll.setAttribute('aria-label', 'Clear all notes');
+            }
         }
 
         function updateProjectComposerControls() {
@@ -2056,6 +2110,7 @@
             if (!projectCommentsAvailable
                 || state.pendingProjectCommentRequest) return;
             var requestId = nextProjectCommentRequestId();
+            resetProjectClearAllConfirmation();
             state.pendingProjectCommentRequest = {
                 requestId: requestId,
                 operation: operation,
@@ -2067,6 +2122,7 @@
                 : 'Saving project note…';
             post({
                 type: operation === 'sendProjectComment'
+                    || operation === 'sendProjectComments'
                     ? 'conversation-viewer-send-project-comment'
                     : 'conversation-viewer-project-comment-mutation',
                 version: 1,
@@ -2446,6 +2502,7 @@
         function renderProjectComments() {
             if (!projectCommentsAvailable) return;
             clearProjectCommentDragState();
+            resetProjectClearAllConfirmation();
             renderCommentsFilterBar();
             projectCommentList.replaceChildren();
             var visible = visibleProjectComments();
@@ -2483,6 +2540,7 @@
                 }
             }
             updateProjectComposerControls();
+            updateWorkspaceHeaderControls();
         }
 
         function focusProjectCommentDragHandle(commentId) {
@@ -2590,11 +2648,18 @@
                 status.textContent = operation === 'sendProjectComment'
                     ? 'Note added to session input.'
                         + ' Review and press Enter to send.'
-                    : operation === 'delete'
-                        ? 'Project note deleted.'
-                        : operation === 'reorder'
-                            ? 'Note order saved.'
-                        : 'Project note saved.';
+                    : operation === 'sendProjectComments'
+                        ? 'Notes added to session input.'
+                            + ' Review and press Enter to send.'
+                        : operation === 'delete'
+                            ? 'Project note deleted.'
+                            : operation === 'clearDone'
+                                ? 'Done notes cleared.'
+                                : operation === 'clearAll'
+                                    ? 'All notes cleared.'
+                                : operation === 'reorder'
+                                    ? 'Note order saved.'
+                                    : 'Project note saved.';
             } else {
                 status.textContent = projectCommentErrorMessage(message.error);
             }
@@ -2939,10 +3004,45 @@
                             : null;
                         if (actionElement
                             && projectCommentsHeader.contains(actionElement)) {
-                            if (actionElement.getAttribute(
+                            var headerAction = actionElement.getAttribute(
                                 'data-project-comment-action'
-                            ) === 'open-composer') {
+                            );
+                            if (headerAction === 'open-composer') {
                                 openProjectCommentComposer();
+                            } else if (headerAction === 'send-all') {
+                                resetProjectClearAllConfirmation();
+                                postProjectCommentOperation(
+                                    'sendProjectComments',
+                                    {}
+                                );
+                            } else if (headerAction === 'clear-done') {
+                                resetProjectClearAllConfirmation();
+                                postProjectCommentOperation('clearDone', {});
+                            } else if (headerAction === 'clear-all') {
+                                if (state.pendingProjectCommentRequest) {
+                                    return;
+                                }
+                                if (!state.projectClearAllConfirmation) {
+                                    state.projectClearAllConfirmation = true;
+                                    actionElement.setAttribute(
+                                        'data-confirming',
+                                        'true'
+                                    );
+                                    actionElement.title =
+                                        'Click again to confirm clear all';
+                                    actionElement.setAttribute(
+                                        'aria-label',
+                                        'Confirm clearing all notes'
+                                    );
+                                    status.textContent = 'Select Clear all'
+                                        + ' again to remove every note.';
+                                } else {
+                                    resetProjectClearAllConfirmation();
+                                    postProjectCommentOperation(
+                                        'clearAll',
+                                        {}
+                                    );
+                                }
                             }
                             return;
                         }
@@ -3322,6 +3422,13 @@
         }
 
         function handleEscape(event) {
+            if (projectCommentsAvailable
+                && state.projectClearAllConfirmation) {
+                event.preventDefault();
+                resetProjectClearAllConfirmation();
+                status.textContent = 'Clear all cancelled.';
+                return true;
+            }
             if (projectCommentsAvailable
                 && state.projectDraftTagInputOpen) {
                 event.preventDefault();

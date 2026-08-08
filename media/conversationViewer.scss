@@ -1161,38 +1161,6 @@ button {
     }
 }
 
-.conversation-comments-toolbar {
-    display: flex;
-    flex: 0 0 auto;
-    min-width: 0;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.25rem;
-    padding: 0.3rem 0.5rem;
-    border-top: 1px solid var(--vscode-panel-border);
-    background: var(
-        --vscode-sideBar-background,
-        var(--vscode-editor-background)
-    );
-}
-
-.conversation-comments-filter,
-.conversation-comments-toolbar-actions {
-    display: flex;
-    min-width: 0;
-    gap: 2px;
-    align-items: center;
-}
-
-.conversation-comments-filter-button[aria-pressed="true"] {
-    color: var(--vscode-foreground);
-    border-color: var(--vscode-panel-border);
-    background: var(
-        --vscode-toolbar-hoverBackground,
-        var(--vscode-list-hoverBackground)
-    );
-}
-
 .conversation-comments-clear-all {
     &[data-confirming="true"] {
         color: var(--vscode-inputValidation-errorForeground);
@@ -1562,12 +1530,21 @@ button {
 }
 
 .conversation-comments-section-title {
-    flex: 0 0 auto;
+    flex: 0 1 auto;
+    overflow: hidden;
+    min-width: 0;
     color: var(--vscode-foreground);
     font-size: 0.72rem;
     font-weight: 700;
     letter-spacing: 0.06em;
+    text-overflow: ellipsis;
     text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.conversation-comments-section-header
+.conversation-comment-icon-button {
+    flex: 0 0 auto;
 }
 
 .conversation-comments-section-add {

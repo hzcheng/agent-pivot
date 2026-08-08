@@ -241,6 +241,76 @@ test('PROJECT-COMMENTS-CONTROLLER-001 dispatches a note into the current session
     assert.equal(saved.at(-1).snapshot.comments[0].dispatches.length, 1);
 });
 
+test('PROJECT-COMMENTS-CONTROLLER-001 sweeps done notes and clears all through header actions', async () => {
+    const { controller } = createHarness();
+    await controller.enqueue(mutation('req-add-1', 'add', {
+        text: 'keep me',
+    }, 0));
+    await controller.enqueue(mutation('req-add-2', 'add', {
+        text: 'done note',
+    }, 1));
+    const doneId = controller.snapshot.comments[0].id;
+    await controller.enqueue(mutation('req-done', 'setStatus', {
+        commentId: doneId,
+        status: 'done',
+    }, 2));
+
+    await controller.enqueue(mutation('req-clear-done', 'clearDone', {}, 3));
+    assert.deepEqual(
+        controller.snapshot.comments.map(comment => comment.text),
+        ['keep me']
+    );
+    assert.equal(controller.snapshot.revision, 4);
+
+    // Nothing left to clear: no revision bump, still a successful settle.
+    await controller.enqueue(mutation('req-clear-done-2', 'clearDone', {}, 4));
+    assert.equal(controller.snapshot.revision, 4);
+
+    await controller.enqueue(mutation('req-clear-all', 'clearAll', {}, 4));
+    assert.equal(controller.snapshot.comments.length, 0);
+    assert.equal(controller.snapshot.revision, 5);
+});
+
+test('PROJECT-COMMENTS-CONTROLLER-001 sends every open note as one batch prompt', async () => {
+    const { controller, submitted } = createHarness();
+    await controller.enqueue(mutation('req-add-1', 'add', {
+        text: 'first note',
+        tags: ['bug'],
+    }, 0));
+    await controller.enqueue(mutation('req-add-2', 'add', {
+        text: 'second note',
+    }, 1));
+
+    await controller.enqueue({
+        type: 'conversation-viewer-send-project-comment',
+        version: 1,
+        requestId: 'req-send-all',
+        subscriptionGeneration: 7,
+        ...TARGET,
+        operation: 'sendProjectComments',
+        expectedRevision: 2,
+        payload: {},
+    });
+
+    assert.equal(submitted.length, 1);
+    assert.match(submitted[0].prompt, /请处理下面这些项目笔记/);
+    // Newest notes lead the batch, matching the panel order.
+    assert.match(submitted[0].prompt, /\[项目笔记 1\]\nsecond note/);
+    assert.match(
+        submitted[0].prompt,
+        /\[项目笔记 2\]（标签：bug）\nfirst note/
+    );
+
+    const snapshot = controller.snapshot;
+    assert.equal(snapshot.revision, 3);
+    // Every open note records the dispatch and stays open.
+    snapshot.comments.forEach(comment => {
+        assert.equal(comment.status, 'open');
+        assert.equal(comment.dispatches.length, 1);
+        assert.equal(comment.dispatches[0].sessionId, 'session-a');
+    });
+});
+
 test('PROJECT-COMMENTS-CONTROLLER-001 rolls back the dispatch record when staging fails', async () => {
     const { controller, posted } = createHarness({
         submitPrompt: async () => {

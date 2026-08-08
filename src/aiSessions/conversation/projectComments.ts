@@ -46,7 +46,10 @@ export interface ProjectComment {
 
 export type ProjectCommentOperation =
     'add' | 'update' | 'delete' | 'setStatus' | 'addTag' | 'removeTag'
-    | 'reorder' | 'sendProjectComment';
+    | 'reorder' | 'clearDone' | 'clearAll'
+    | 'sendProjectComment' | 'sendProjectComments';
+
+export type ProjectCommentClearOperation = 'clearDone' | 'clearAll';
 
 export class ProjectCommentError extends Error {
     constructor(
@@ -195,6 +198,60 @@ export function recordProjectCommentDispatch(
     const dispatches = [...comment.dispatches, { ...dispatch }]
         .slice(-PROJECT_COMMENT_LIMITS.maxDispatchesPerComment);
     return { ...comment, dispatches };
+}
+
+export function clearProjectComments(
+    comments: readonly ProjectComment[],
+    operation: ProjectCommentClearOperation
+): ProjectComment[] {
+    if (!Array.isArray(comments)
+        || (operation !== 'clearDone' && operation !== 'clearAll')) {
+        throw new ProjectCommentError('invalid');
+    }
+    return comments.filter(comment => {
+        validateProjectComment(comment);
+        return operation === 'clearAll' ? false : comment.status !== 'done';
+    }).map(comment => ({
+        ...comment,
+        tags: [...comment.tags],
+        dispatches: comment.dispatches.map(dispatch => ({ ...dispatch })),
+    }));
+}
+
+export function buildProjectCommentsPrompt(
+    comments: readonly ProjectComment[]
+): string {
+    if (!Array.isArray(comments)
+        || comments.length < 1
+        || comments.length > PROJECT_COMMENT_LIMITS.maxComments) {
+        throw new ProjectCommentError('invalid');
+    }
+    const sections = comments.map((comment, index) => {
+        validateProjectComment(comment);
+        const header = comment.tags.length
+            ? `[项目笔记 ${index + 1}]（标签：${comment.tags.join('、')}）`
+            : `[项目笔记 ${index + 1}]`;
+        const lines = [header, comment.text];
+        if (comment.source) {
+            const sourceLines = [
+                `出处（来自 ${comment.source.provider} session 的记录）：`,
+            ];
+            if (comment.source.quote) {
+                sourceLines.push(fencedQuote(comment.source.quote));
+            }
+            lines.push(sourceLines.join('\n'));
+        }
+        return lines.join('\n');
+    });
+    const prompt = [
+        '请处理下面这些项目笔记。请逐项回应，保留笔记编号；如果笔记要求修改代码，请直接检查当前工作区并完成相应修改与验证。',
+        '',
+        ...sections,
+    ].join('\n\n');
+    if (graphemeLength(prompt) > PROJECT_COMMENT_LIMITS.maxPromptGraphemes) {
+        throw new ProjectCommentError('tooLarge');
+    }
+    return prompt;
 }
 
 export function buildProjectCommentPrompt(

@@ -5,6 +5,8 @@ import * as vscode from 'vscode';
 import {
     addProjectCommentTag,
     buildProjectCommentPrompt,
+    buildProjectCommentsPrompt,
+    clearProjectComments,
     cloneProjectComments,
     collectProjectCommentTagVocabulary,
     createProjectComment,
@@ -37,7 +39,8 @@ interface ConversationViewerProjectCommentsResultMessage {
     provider: ConversationViewerTarget['provider'];
     sessionId: string;
     operation: ConversationViewerProjectCommentMutationMessage['operation']
-        | 'sendProjectComment';
+        | 'sendProjectComment'
+        | 'sendProjectComments';
     success: boolean;
     revision: number;
     comments: ProjectComment[];
@@ -172,7 +175,9 @@ export class ProjectCommentController {
                 await this.sendProjectComment(
                     target,
                     this.options.getSubscriptionGeneration(),
-                    parseCommentIdPayload(request.payload).commentId
+                    request.operation === 'sendProjectComment'
+                        ? parseCommentIdPayload(request.payload).commentId
+                        : undefined
                 );
             } else {
                 await this.mutateComments(
@@ -242,6 +247,19 @@ export class ProjectCommentController {
                 (comment, index) => comment.id !== comments[index]?.id
             )) {
                 comments = reordered;
+                changed = true;
+            }
+        } else if (request.operation === 'clearDone'
+            || request.operation === 'clearAll') {
+            if (!hasExactKeys(request.payload as object, [])) {
+                throw new ProjectCommentError('invalid');
+            }
+            const remainingComments = clearProjectComments(
+                comments,
+                request.operation
+            );
+            if (remainingComments.length !== comments.length) {
+                comments = remainingComments;
                 changed = true;
             }
         } else if (request.operation === 'delete') {
@@ -332,20 +350,27 @@ export class ProjectCommentController {
     private async sendProjectComment(
         target: ConversationViewerTarget,
         generation: number,
-        commentId: string
+        commentId?: string
     ): Promise<void> {
-        const comment = this.comments.find(
-            candidate => candidate.id === commentId
+        const openComments = this.comments.filter(
+            comment => comment.status === 'open'
         );
-        if (!comment) {
+        const targetComments = commentId
+            ? openComments.filter(comment => comment.id === commentId)
+            : openComments;
+        if (commentId && targetComments.length !== 1) {
+            // The card no longer exists or is no longer open.
             throw new ProjectCommentError('stale');
         }
-        const prompt = buildProjectCommentPrompt(comment);
+        const prompt = commentId
+            ? buildProjectCommentPrompt(targetComments[0])
+            : buildProjectCommentsPrompt(targetComments);
         const previousSnapshot = this.snapshot;
+        const sentIds = new Set(targetComments.map(comment => comment.id));
         const sentSnapshot = {
             revision: this.revision + 1,
             comments: this.comments.map(candidate =>
-                candidate.id === commentId
+                sentIds.has(candidate.id)
                     ? recordProjectCommentDispatch(candidate, {
                         provider: target.provider,
                         sessionId: target.sessionId,

@@ -3368,7 +3368,7 @@ test('CONVERSATION-COMMENTS-UI-001 send action and telemetry comments pill drive
     );
 
     const toolbarSend = page.locator(
-        '[data-comments-toolbar] [data-comment-action="send"]'
+        '[data-session-comments-header] [data-comment-action="send"]'
     );
     const pill = page.locator('[data-telemetry-comments]');
     assert.equal(await toolbarSend.isDisabled(), true);
@@ -3724,7 +3724,42 @@ test('PROJECT-COMMENTS-UI-001 captures, tags, filters, and dispatches project no
         'note-2'
     );
 
-    // Both section headers collapse their group and expand it back.
+    // The Workspace header sends every open note with one click.
+    await projectHeader.locator(
+        '[data-project-comment-action="send-all"]'
+    ).click();
+    const sendAllRequest = (await postedMessages(page)).at(-1);
+    assert.equal(
+        sendAllRequest.type,
+        'conversation-viewer-send-project-comment'
+    );
+    assert.equal(sendAllRequest.operation, 'sendProjectComments');
+    assert.deepEqual(sendAllRequest.payload, {});
+    await sendPage(page, projectCommentSettlement(
+        sendAllRequest,
+        [
+            {
+                ...noteTwo,
+                dispatches: [{
+                    provider: 'codex',
+                    sessionId: 'session-host-document',
+                    at: 4000,
+                }],
+            },
+            {
+                ...dispatchedNoteOne,
+                dispatches: [
+                    ...dispatchedNoteOne.dispatches,
+                    {
+                        provider: 'codex',
+                        sessionId: 'session-host-document',
+                        at: 4000,
+                    },
+                ],
+            },
+        ],
+        { revision: 6 }
+    ));
     const sash = page.locator('[data-comments-section-sash]');
     const sessionRegion = page.locator('[data-session-comments-content]');
     const sessionHeightBeforeCollapse = await sessionRegion.evaluate(
@@ -4005,6 +4040,91 @@ test('PROJECT-COMMENTS-UI-001 toggles, edits, and deletes notes with source snap
         await projectSection.locator('[data-project-comment-empty]')
             .isVisible(),
         true
+    );
+
+    // The Workspace header sweeps done notes with clear-done.
+    const workspaceHeader = page.locator('[data-project-comments-header]');
+    await workspaceHeader.locator(
+        '[data-project-comment-action="open-composer"]'
+    ).click();
+    await projectSection.locator('[data-project-comment-input]')
+        .fill('会被清扫的已完成笔记');
+    await projectSection.locator('[data-project-comment-action="add"]')
+        .click();
+    const readdRequest = (await postedMessages(page)).at(-1);
+    const doneNote = {
+        id: 'note-2',
+        text: '会被清扫的已完成笔记',
+        tags: [],
+        status: 'done',
+        createdAt: 3000,
+        doneAt: 4000,
+        dispatches: [],
+    };
+    await sendPage(page, projectCommentSettlement(
+        readdRequest,
+        [doneNote],
+        { revision: 8 }
+    ));
+    await workspaceHeader.locator(
+        '[data-project-comment-action="clear-done"]'
+    ).click();
+    const clearDoneRequest = (await postedMessages(page)).at(-1);
+    assert.equal(clearDoneRequest.operation, 'clearDone');
+    assert.deepEqual(clearDoneRequest.payload, {});
+    await sendPage(page, projectCommentSettlement(
+        clearDoneRequest,
+        [],
+        { revision: 9 }
+    ));
+    assert.equal(
+        await projectSection.locator('[data-project-comment-id]').count(),
+        0
+    );
+
+    // Clear-all on the Workspace header asks for a confirming second click.
+    await workspaceHeader.locator(
+        '[data-project-comment-action="open-composer"]'
+    ).click();
+    await projectSection.locator('[data-project-comment-input]')
+        .fill('等着被清空的笔记');
+    await projectSection.locator('[data-project-comment-action="add"]')
+        .click();
+    const readdSecond = (await postedMessages(page)).at(-1);
+    await sendPage(page, projectCommentSettlement(
+        readdSecond,
+        [{
+            id: 'note-3',
+            text: '等着被清空的笔记',
+            tags: [],
+            status: 'open',
+            createdAt: 5000,
+            dispatches: [],
+        }],
+        { revision: 10 }
+    ));
+    const clearAll = workspaceHeader.locator(
+        '[data-project-comment-action="clear-all"]'
+    );
+    await clearAll.click();
+    assert.equal(await clearAll.getAttribute('data-confirming'), 'true');
+    assert.equal(
+        (await postedMessages(page)).at(-1).requestId,
+        readdSecond.requestId,
+        'the first clear-all click must not post a mutation'
+    );
+    await clearAll.click();
+    const clearAllRequest = (await postedMessages(page)).at(-1);
+    assert.equal(clearAllRequest.operation, 'clearAll');
+    assert.deepEqual(clearAllRequest.payload, {});
+    await sendPage(page, projectCommentSettlement(
+        clearAllRequest,
+        [],
+        { revision: 11 }
+    ));
+    assert.equal(
+        await projectSection.locator('[data-project-comment-id]').count(),
+        0
     );
 });
 
@@ -5206,10 +5326,10 @@ test('CONVERSATION-COMMENTS-UI-001 filters cards, jumps from message markers, an
     const card = page.locator('[data-comment-id="comment-1"]');
     const doneCard = page.locator('[data-comment-id="comment-2"]');
 
-    // The toolbar is a single row of three icon buttons: filtering moved
-    // to the panel-wide filter bar, leaving send/clear actions.
-    const toolbar = page.locator('[data-comments-toolbar]');
-    assert.equal(await toolbar.locator('[data-comment-action]').count(), 3);
+    // The group actions live in the Session header as one row of three
+    // icon buttons: send, clear done, clear all.
+    const toolbar = page.locator('[data-session-comments-header]');
+    assert.equal(await toolbar.locator('[data-comment-action]').count(), 4);
     assert.deepEqual(
         (await toolbar.locator('[data-comment-action]').evaluateAll(buttons =>
             Array.from(new Set(buttons.map(button =>
@@ -5217,14 +5337,7 @@ test('CONVERSATION-COMMENTS-UI-001 filters cards, jumps from message markers, an
             )))
         )).length,
         1,
-        'toolbar buttons must share a single row'
-    );
-    const toolbarHeight = await toolbar.evaluate(element =>
-        element.getBoundingClientRect().height
-    );
-    assert.ok(
-        toolbarHeight <= 64,
-        `comment toolbar height ${toolbarHeight}px must remain compact`
+        'session header buttons must share a single row'
     );
 
     // The send action is a bare icon: no count badge, one uniform size.
@@ -5306,7 +5419,9 @@ test('CONVERSATION-COMMENTS-UI-001 filters cards, jumps from message markers, an
 
     // Sending every open comment empties the open filter with a hint.
     await page.locator('[data-comment-filter="all"]').click();
-    await page.locator('[data-comments-toolbar] [data-comment-action="send"]')
+    await page.locator(
+        '[data-session-comments-header] [data-comment-action="send"]'
+    )
         .click();
     const sendAll = (await postedMessages(page)).at(-1);
     assert.equal(sendAll.operation, 'sendComments');
@@ -5589,18 +5704,11 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-BULK-001 CONVERSATION-C
         '2/2',
         'the telemetry pill carries the open/total counts'
     );
-    const commentToolbar = page.locator('[data-comments-toolbar]');
+    const commentToolbar = page.locator('[data-session-comments-header]');
     assert.equal(await commentToolbar.count(), 1);
     assert.equal(
         await commentToolbar.locator('[data-comment-action]').count(),
-        3
-    );
-    const commentToolbarHeight = await commentToolbar.evaluate(element =>
-        element.getBoundingClientRect().height
-    );
-    assert.ok(
-        commentToolbarHeight <= 64,
-        `comment toolbar height ${commentToolbarHeight}px must remain compact`
+        4
     );
     assert.deepEqual(
         await page.locator('[data-comment-id]').evaluateAll(cards =>
@@ -9284,5 +9392,6 @@ test('CONVERSATION-COMMENTS-UI-001 PROJECT-COMMENTS-UI-001 unifies status and ta
         tag: 'convention',
     });
 });
+
 
 

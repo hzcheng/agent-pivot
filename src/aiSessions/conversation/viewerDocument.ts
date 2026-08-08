@@ -338,9 +338,9 @@ export function renderConversationViewerDocument(
                             aria-label="Add a workspace note">${CONVERSATION_COMMENT_ICON_PLUS}</button>
                     </div>
                     <section class="conversation-project-comments"
-                        data-project-comments aria-label="Project notes">
-                        <div class="conversation-comments-section-content"
-                            data-project-comments-content>
+                        data-project-comments
+                        data-project-comments-content
+                        aria-label="Workspace notes">
                         <div class="conversation-project-comment-composer"
                             data-project-comment-composer hidden>
                             <div class="conversation-project-comment-source"
@@ -394,8 +394,13 @@ export function renderConversationViewerDocument(
                             data-project-comment-empty hidden>
                             No workspace notes yet.
                         </p>
-                        </div>
                     </section>
+                    <div class="conversation-comments-section-sash"
+                        data-comments-section-sash role="separator"
+                        aria-orientation="horizontal"
+                        aria-label="Resize the Session section"
+                        aria-valuemin="15" aria-valuemax="70"
+                        aria-valuenow="45" tabindex="0"></div>
                     <div class="conversation-comments-section-header conversation-comments-section-header-session"
                         data-session-comments-header>
                         <button class="conversation-comment-icon-button conversation-comments-section-toggle"
@@ -410,7 +415,7 @@ export function renderConversationViewerDocument(
                             title="Add a note about this Session"
                             aria-label="Add a note about this Session">${CONVERSATION_COMMENT_ICON_PLUS}</button>
                     </div>
-                    <div class="conversation-comments-section-content"
+                    <div class="conversation-comments-section-content conversation-comments-session-region"
                         data-session-comments-content>
                     <div class="conversation-comment-composer"
                         data-comment-composer hidden>

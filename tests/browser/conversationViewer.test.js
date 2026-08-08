@@ -2886,7 +2886,7 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
         .digest('hex');
     assert.equal(
         sha256(previousViewerScript),
-        '55deabeef15028403d1fa36bef88d58080c14f8bbd2fcd4b1155bc6cf4990861',
+        'ffb17d5e605121c3f614f17f072c18da7c9c27ea4f8c44c2961ec6b41a75522f',
         'the previous Viewer fixture must stay byte-exact'
     );
     assert.equal(
@@ -3716,13 +3716,15 @@ test('PROJECT-COMMENTS-UI-001 captures, tags, filters, and dispatches project no
     );
 
     // Both section headers collapse their group and expand it back.
+    const sash = page.locator('[data-comments-section-sash]');
     await projectHeader.locator('.conversation-comments-section-title')
         .click();
     assert.equal(
-        await projectSection.locator('[data-project-comments-content]')
+        await page.locator('[data-project-comments-content]')
             .isVisible(),
         false
     );
+    assert.equal(await sash.isVisible(), false);
     assert.equal(
         await projectHeader.locator('[data-comments-section-toggle]')
             .getAttribute('aria-expanded'),
@@ -3730,10 +3732,11 @@ test('PROJECT-COMMENTS-UI-001 captures, tags, filters, and dispatches project no
     );
     await projectHeader.locator('[data-comments-section-toggle]').click();
     assert.equal(
-        await projectSection.locator('[data-project-comments-content]')
+        await page.locator('[data-project-comments-content]')
             .isVisible(),
         true
     );
+    assert.equal(await sash.isVisible(), true);
 
     const sessionHeader = page.locator('[data-session-comments-header]');
     await sessionHeader.locator('.conversation-comments-section-title')
@@ -3753,7 +3756,7 @@ test('PROJECT-COMMENTS-UI-001 captures, tags, filters, and dispatches project no
     await projectHeader.locator('.conversation-comments-section-title')
         .click();
     assert.equal(
-        await projectSection.locator('[data-project-comments-content]')
+        await page.locator('[data-project-comments-content]')
             .isVisible(),
         false
     );
@@ -3761,7 +3764,7 @@ test('PROJECT-COMMENTS-UI-001 captures, tags, filters, and dispatches project no
         '[data-project-comment-action="open-composer"]'
     ).click();
     assert.equal(
-        await projectSection.locator('[data-project-comments-content]')
+        await page.locator('[data-project-comments-content]')
             .isVisible(),
         true
     );
@@ -3769,6 +3772,26 @@ test('PROJECT-COMMENTS-UI-001 captures, tags, filters, and dispatches project no
         await projectSection.locator('[data-project-comment-composer]')
             .isVisible(),
         true
+    );
+
+    // The sash between the groups resizes the Session region on drag.
+    const sessionRegion = page.locator('[data-session-comments-content]');
+    const heightBefore = await sessionRegion.evaluate(element =>
+        element.getBoundingClientRect().height
+    );
+    const sashBox = await sash.boundingBox();
+    const sashCenterX = sashBox.x + sashBox.width / 2;
+    const sashCenterY = sashBox.y + sashBox.height / 2;
+    await page.mouse.move(sashCenterX, sashCenterY);
+    await page.mouse.down();
+    await page.mouse.move(sashCenterX, sashCenterY - 80, { steps: 5 });
+    await page.mouse.up();
+    const heightAfter = await sessionRegion.evaluate(element =>
+        element.getBoundingClientRect().height
+    );
+    assert.ok(
+        heightAfter > heightBefore,
+        'dragging the sash up must grow the Session region'
     );
 });
 
@@ -9087,5 +9110,6 @@ test('TMP repro add flow from closed sidebar', async t => {
     console.log('TMP last request:', JSON.stringify(requests.at(-1)));
     console.log('TMP pageErrors:', JSON.stringify(pageErrors));
 });
+
 
 

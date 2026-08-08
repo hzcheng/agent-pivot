@@ -31,6 +31,10 @@
         var projectCommentsContent = options.projectCommentsContent;
         var sessionCommentsHeader = options.sessionCommentsHeader;
         var sessionCommentsContent = options.sessionCommentsContent;
+        var commentsSectionSash = options.commentsSectionSash;
+        var commentsBody = commentsRoot
+            ? commentsRoot.querySelector('[data-comments-body]')
+            : null;
         var projectCommentComposer = options.projectCommentComposer;
         var projectCommentSource = options.projectCommentSource;
         var projectCommentSourceLabel = options.projectCommentSourceLabel;
@@ -1684,12 +1688,156 @@
                     state.projectSectionCollapsed
                 );
             }
+            if (commentsSectionSash) {
+                commentsSectionSash.hidden = state.projectSectionCollapsed
+                    || state.sessionSectionCollapsed;
+            }
+            if (commentsBody) {
+                commentsBody.setAttribute(
+                    'data-workspace-collapsed',
+                    state.projectSectionCollapsed ? 'true' : 'false'
+                );
+            }
         }
 
         function toggleSessionSection() {
             state.sessionSectionCollapsed = !state.sessionSectionCollapsed;
             applyCommentSectionState();
             saveCommentSectionState();
+        }
+
+        var SESSION_REGION_MIN_HEIGHT = 56;
+
+        function clampSessionRegionHeight(height) {
+            var bodyHeight = commentsBody
+                ? commentsBody.getBoundingClientRect().height
+                : 0;
+            var max = bodyHeight > 0 ? bodyHeight * 0.7 : height;
+            return Math.max(
+                SESSION_REGION_MIN_HEIGHT,
+                Math.min(Math.round(height), Math.round(max))
+            );
+        }
+
+        function setSessionRegionHeight(height, persist) {
+            if (!commentUiAvailable) return;
+            sessionCommentsContent.style.height = height + 'px';
+            sessionCommentsContent.style.maxHeight = 'none';
+            sessionCommentsContent.setAttribute('data-explicit-height', '');
+            var bodyHeight = commentsBody.getBoundingClientRect().height;
+            if (bodyHeight > 0) {
+                commentsSectionSash.setAttribute(
+                    'aria-valuenow',
+                    String(Math.round((height / bodyHeight) * 100))
+                );
+            }
+            if (persist) {
+                saveSessionRegionHeight(height);
+            }
+        }
+
+        function resetSessionRegionHeight() {
+            if (!commentUiAvailable) return;
+            sessionCommentsContent.style.height = '';
+            sessionCommentsContent.style.maxHeight = '';
+            sessionCommentsContent.removeAttribute('data-explicit-height');
+            commentsSectionSash.setAttribute('aria-valuenow', '45');
+            saveSessionRegionHeight(null);
+        }
+
+        function saveSessionRegionHeight(height) {
+            if (!vscodeApi || typeof vscodeApi.setState !== 'function') {
+                return;
+            }
+            try {
+                var saved = typeof vscodeApi.getState === 'function'
+                    ? vscodeApi.getState()
+                    : null;
+                var next = saved && typeof saved === 'object'
+                    && !Array.isArray(saved)
+                    ? Object.assign({}, saved)
+                    : {};
+                next.conversationCommentsSessionRegionHeight =
+                    Number.isFinite(height) ? height : null;
+                vscodeApi.setState(next);
+            } catch (_error) {
+                // Region height persistence is best-effort.
+            }
+        }
+
+        function restoreSessionRegionHeight() {
+            if (!commentUiAvailable) return;
+            try {
+                var saved = vscodeApi && typeof vscodeApi.getState === 'function'
+                    ? vscodeApi.getState()
+                    : null;
+                var height = saved
+                    && saved.conversationCommentsSessionRegionHeight;
+                if (Number.isFinite(height)) {
+                    setSessionRegionHeight(
+                        clampSessionRegionHeight(height),
+                        false
+                    );
+                }
+            } catch (_error) {
+                // Region height persistence is best-effort.
+            }
+        }
+
+        function attachCommentsSectionSash() {
+            if (!commentUiAvailable) return;
+            var sashPointerId = null;
+            commentsSectionSash.addEventListener('pointerdown', function (event) {
+                if (event.button !== 0) return;
+                sashPointerId = event.pointerId;
+                commentsSectionSash.setPointerCapture(event.pointerId);
+                event.preventDefault();
+            });
+            commentsSectionSash.addEventListener('pointermove', function (event) {
+                if (event.pointerId !== sashPointerId) return;
+                var bounds = commentsBody.getBoundingClientRect();
+                setSessionRegionHeight(
+                    clampSessionRegionHeight(bounds.bottom - event.clientY),
+                    false
+                );
+            });
+            function finishSashResize(event) {
+                if (event.pointerId !== sashPointerId) return;
+                sashPointerId = null;
+                saveSessionRegionHeight(
+                    sessionCommentsContent.getBoundingClientRect().height
+                );
+            }
+            commentsSectionSash.addEventListener('pointerup', finishSashResize);
+            commentsSectionSash.addEventListener(
+                'pointercancel',
+                finishSashResize
+            );
+            commentsSectionSash.addEventListener('dblclick', function () {
+                resetSessionRegionHeight();
+            });
+            commentsSectionSash.addEventListener('keydown', function (event) {
+                var current = sessionCommentsContent
+                    .getBoundingClientRect().height;
+                var bodyHeight = commentsBody.getBoundingClientRect().height;
+                var nextHeight;
+                if (event.key === 'ArrowUp') {
+                    nextHeight = current - 16;
+                } else if (event.key === 'ArrowDown') {
+                    nextHeight = current + 16;
+                } else if (event.key === 'Home') {
+                    nextHeight = SESSION_REGION_MIN_HEIGHT;
+                } else if (event.key === 'End') {
+                    nextHeight = bodyHeight * 0.7;
+                } else {
+                    return;
+                }
+                event.preventDefault();
+                setSessionRegionHeight(
+                    clampSessionRegionHeight(nextHeight),
+                    true
+                );
+            });
         }
 
         function toggleProjectSection() {
@@ -2264,6 +2412,7 @@
 
         function attach() {
             if (!commentUiAvailable) return;
+            attachCommentsSectionSash();
             messages.addEventListener('mouseup', function () {
                 window.setTimeout(captureCommentSelection, 0);
             });
@@ -3003,6 +3152,7 @@
             state.filter = readCommentsFilter();
             readCommentSectionState();
             applyCommentSectionState();
+            restoreSessionRegionHeight();
             if (projectCommentsAvailable) {
                 state.projectTagFilter = readProjectTagFilter();
                 var initialProjectComments = readJsonAttribute(

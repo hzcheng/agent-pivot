@@ -1,6 +1,8 @@
 'use strict';
 
 import * as childProcess from 'child_process';
+import { createHash } from 'crypto';
+import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { AGENT_PIVOT_DASHBOARD_VIEW_ID } from '../../constants';
@@ -1316,7 +1318,21 @@ function getConversationMediaUri(fileName: string): vscode.Uri {
     const mediaRoot = path.basename(__dirname) === 'conversation'
         ? path.resolve(__dirname, '..', '..', '..', 'media')
         : path.resolve(__dirname, '..', 'media');
-    return vscode.Uri.file(path.join(mediaRoot, fileName));
+    const filePath = path.join(mediaRoot, fileName);
+    const uri = vscode.Uri.file(filePath);
+    // In-place installs reuse the same extension version directory, so a
+    // bare asWebviewUri is byte-stable across builds and the webview may
+    // serve a stale cached stylesheet/script. A content fingerprint makes
+    // every build's media URI unique.
+    try {
+        const digest = createHash('sha256')
+            .update(fs.readFileSync(filePath))
+            .digest('hex')
+            .slice(0, 12);
+        return uri.with({ query: `v=${digest}` });
+    } catch (_error) {
+        return uri;
+    }
 }
 
 function reportUnavailable(

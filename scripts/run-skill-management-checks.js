@@ -433,11 +433,12 @@ function runSkillStyleChecks() {
     assert.ok(styles.includes('.skills-split'), 'split container styles');
     assert.ok(styles.includes('.skills-pane-resizer'), 'pane resizer styles');
     assert.ok(styles.includes('.skills-pane-grow'), 'growing pane styles');
-    assert.ok(styles.includes('.skills-pane-manual'), 'dragged project pane styles');
+    assert.ok(styles.includes('.skills-pane-sized > .group.steward-section > .group-list'),
+        'only the section list scrolls, the section header stays put');
     assert.ok(compiled.includes('.skills-split'));
     assert.ok(compiled.includes('.skills-pane-resizer'));
     assert.ok(compiled.includes('.skills-pane-grow'));
-    assert.ok(compiled.includes('.skills-pane-manual'));
+    assert.ok(compiled.includes('.skills-pane-sized'));
     assert.ok(compiled.includes('.skill-ios-toggle.indeterminate'));
     assert.ok(compiled.includes('.skill-toggle-pending'), 'pending switch styles');
     assert.ok(compiled.includes('.skill-folder-menu'), 'beautified ⋯ menu styles');

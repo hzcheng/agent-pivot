@@ -4702,10 +4702,12 @@ body.steward-sidebar {
         }
     }
 
-    // Global / Project split panes: each pane scrolls independently and the
-    // resizer between them sizes the project pane. The skill panel script sets
-    // an explicit height on .skills-split and toggles the pane state classes;
-    // without them the panes flow like plain content (whole page scrolls).
+    // Global / Project split panes: the section header stays put and only the
+    // section's own .group-list scrolls (same pattern as the Projects tab), so
+    // the two scopes scroll independently without losing their headers. The
+    // skill panel script sets an explicit height on .skills-split, sizes the
+    // project pane, and toggles the pane state classes; without them the panes
+    // flow like plain content (whole page scrolls).
     .skills-split {
         display: flex;
         flex-direction: column;
@@ -4714,25 +4716,35 @@ body.steward-sidebar {
 
     .skills-pane {
         min-height: 0;
-        overflow-x: hidden;
-        overflow-y: auto;
+    }
+
+    .skills-pane.skills-pane-sized {
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
     }
 
     .skills-pane.skills-pane-grow {
         flex: 1 1 0;
-        max-height: none;
     }
 
-    // Default project share before any drag: content-sized, capped so the
-    // global pane always keeps the majority of the split.
-    .skills-pane.skills-pane-sized[data-skills-pane='project']:not(.skills-pane-grow):not(.skills-pane-manual) {
-        flex: 0 1 auto;
-        max-height: 45%;
-    }
-
-    .skills-pane.skills-pane-manual[data-skills-pane='project'] {
+    // The sized project pane gets an explicit pixel height from the script
+    // (dragged share, or content height capped to the auto share).
+    .skills-pane.skills-pane-sized[data-skills-pane='project']:not(.skills-pane-grow) {
         flex: 0 0 auto;
-        max-height: none;
+    }
+
+    .skills-pane.skills-pane-sized > .group.steward-section {
+        flex: 1 1 0;
+        min-height: 0;
+        margin-top: 0;
+        grid-template-rows: auto minmax(0, 1fr);
+    }
+
+    .skills-pane.skills-pane-sized > .group.steward-section > .group-list {
+        min-height: 0;
+        overflow-x: hidden;
+        overflow-y: auto;
     }
 
     .skills-pane-resizer {

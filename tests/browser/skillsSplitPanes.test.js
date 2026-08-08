@@ -121,17 +121,22 @@ function paneGeometry(page) {
                 clientHeight: el.clientHeight,
             };
         };
+        // Only the section list scrolls; the section header stays put.
+        const userList = userPane.querySelector(':scope > .group.steward-section > .group-list');
+        const projectList = projectPane.querySelector(':scope > .group.steward-section > .group-list');
         return {
             split: measure(split),
             user: measure(userPane),
             project: measure(projectPane),
+            userList: measure(userList),
+            projectList: measure(projectList),
             resizerHidden: resizer ? resizer.hidden : null,
             bodyScrollable: document.documentElement.scrollHeight > window.innerHeight + 2,
         };
     });
 }
 
-test('SKILLS-SPLIT-001 global and project panes scroll independently inside a viewport-fitting split', async () => {
+test('SKILLS-SPLIT-001 global and project lists scroll independently with pinned section headers', async () => {
     const browser = await chromium.launch();
     try {
         const page = await openSkillsPage(browser);
@@ -146,17 +151,34 @@ test('SKILLS-SPLIT-001 global and project panes scroll independently inside a vi
         assert.equal(geometry.bodyScrollable, false, 'whole page no longer scrolls');
         assert.ok(geometry.project.height <= geometry.split.height * 0.45 + 2,
             `untouched project pane stays within the auto cap (got ${geometry.project.height})`);
-        assert.ok(geometry.user.scrollHeight > geometry.user.clientHeight, 'global pane overflows');
-        assert.ok(geometry.project.scrollHeight > geometry.project.clientHeight, 'project pane overflows');
+        assert.ok(geometry.userList.scrollHeight > geometry.userList.clientHeight, 'global list overflows');
+        assert.ok(geometry.projectList.scrollHeight > geometry.projectList.clientHeight, 'project list overflows');
 
         const scrolled = await page.evaluate(() => {
-            const userPane = document.querySelector('[data-skills-pane="user"]');
-            const projectPane = document.querySelector('[data-skills-pane="project"]');
-            projectPane.scrollTop = 120;
-            return { user: userPane.scrollTop, project: projectPane.scrollTop };
+            const userList = document.querySelector('[data-skills-pane="user"] > .group.steward-section > .group-list');
+            const projectList = document.querySelector('[data-skills-pane="project"] > .group.steward-section > .group-list');
+            const userHeader = document.querySelector('[data-skills-pane="user"] .group.steward-section > .group-title');
+            const headerTopBefore = userHeader.getBoundingClientRect().top;
+            projectList.scrollTop = 120;
+            return {
+                user: userList.scrollTop,
+                project: projectList.scrollTop,
+                headerTopBefore: headerTopBefore,
+            };
         });
-        assert.equal(scrolled.project, 120, 'project pane scrolls');
-        assert.equal(scrolled.user, 0, 'global pane scroll position is independent');
+        assert.equal(scrolled.project, 120, 'project list scrolls');
+        assert.equal(scrolled.user, 0, 'global list scroll position is independent');
+        const headerTopAfter = await page.evaluate(() =>
+            document.querySelector('[data-skills-pane="user"] .group.steward-section > .group-title')
+                .getBoundingClientRect().top
+        );
+        assert.equal(headerTopAfter, scrolled.headerTopBefore, 'section header stays put while the list scrolls');
+        const projectScrolled = await page.evaluate(() => {
+            const header = document.querySelector('[data-skills-pane="project"] .group.steward-section > .group-title');
+            return header.getBoundingClientRect().top;
+        });
+        assert.ok(Math.abs(projectScrolled - (await paneGeometry(page)).project.top) <= 1,
+            'project section header stays pinned to its pane top');
     } finally {
         await browser.close();
     }
@@ -184,10 +206,10 @@ test('SKILLS-SPLIT-002 dragging the resizer sizes the project pane and the share
             'global pane yields the space the project pane gains');
         assert.ok(Math.abs(after.split.height - before.split.height) <= 2, 'split height stays put');
         const draggedState = await page.evaluate(() => ({
-            manual: document.querySelector('[data-skills-pane="project"]').classList.contains('skills-pane-manual'),
+            inlineHeight: document.querySelector('[data-skills-pane="project"]').style.height,
             ariaNow: document.querySelector('[data-skills-pane-resizer]').getAttribute('aria-valuenow'),
         }));
-        assert.equal(draggedState.manual, true, 'dragged project pane switches to manual sizing');
+        assert.ok(/^[0-9.]+px$/.test(draggedState.inlineHeight), 'dragged project pane gets an explicit height');
         assert.ok(Number(draggedState.ariaNow) > 0 && Number(draggedState.ariaNow) < 100,
             'separator announces the project share');
 

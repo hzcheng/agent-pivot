@@ -3781,6 +3781,39 @@ function initSkillPanel(options) {
             && !section.classList.contains('skill-filter-hidden');
     }
 
+    // Natural content height of a pane's section: header plus the full list
+    // content (list.scrollHeight reports the content even while constrained).
+    function measureSkillsPaneContentHeight(pane) {
+        var section = getSkillsPaneSection(pane);
+        if (!section || !section.querySelector) {
+            return 0;
+        }
+        var header = section.querySelector(':scope > .group-title');
+        var list = section.querySelector(':scope > .group-list');
+        var height = 4; // grid gap + header border
+        if (header) {
+            height += header.offsetHeight || 0;
+        }
+        if (list) {
+            height += list.scrollHeight || 0;
+        }
+        return height;
+    }
+
+    // Explicit pixel height for the sized project pane: the dragged share when
+    // set, otherwise the content height capped to the auto share of the split.
+    function computeSkillsProjectPaneHeight(projectPane, inner) {
+        var max = Math.max(inner - SKILLS_PANE_MIN_PX, SKILLS_PANE_MIN_PX);
+        var px;
+        if (skillsProjectPaneRatio !== null) {
+            px = Math.round(inner * skillsProjectPaneRatio);
+            px = Math.max(px, SKILLS_PANE_MIN_PX);
+        } else {
+            px = Math.min(measureSkillsPaneContentHeight(projectPane), Math.floor(inner * 0.45));
+        }
+        return Math.min(px, max);
+    }
+
     function layoutSkillsSplit() {
         var split = findSkillsSplit();
         if (!split || typeof split.getBoundingClientRect !== 'function'
@@ -3822,12 +3855,8 @@ function initSkillPanel(options) {
             if (projectPane.getAttribute('data-skills-pane') !== 'project') {
                 continue;
             }
-            var manual = skillsProjectPaneRatio !== null && sized[p] && sizedCount > 1;
-            projectPane.classList.toggle('skills-pane-manual', manual);
-            if (manual) {
-                var px = Math.round(inner * skillsProjectPaneRatio);
-                px = Math.min(Math.max(px, SKILLS_PANE_MIN_PX), Math.max(inner - SKILLS_PANE_MIN_PX, SKILLS_PANE_MIN_PX));
-                projectPane.style.height = px + 'px';
+            if (sized[p] && sizedCount > 1) {
+                projectPane.style.height = computeSkillsProjectPaneHeight(projectPane, inner) + 'px';
             } else {
                 projectPane.style.height = '';
             }
@@ -3871,7 +3900,6 @@ function initSkillPanel(options) {
         var clamped = Math.min(Math.max(nextPx, SKILLS_PANE_MIN_PX),
             Math.max(inner - SKILLS_PANE_MIN_PX, SKILLS_PANE_MIN_PX));
         skillsProjectPaneRatio = clamped / inner;
-        projectPane.classList.add('skills-pane-manual');
         projectPane.style.height = Math.round(clamped) + 'px';
     }
 

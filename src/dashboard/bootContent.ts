@@ -1,3 +1,5 @@
+import { randomBytes } from 'crypto';
+
 export type DashboardBootDocumentState =
     | { kind: 'booting'; generation: number }
     | { kind: 'failed'; generation: number };
@@ -50,6 +52,7 @@ export function getDashboardBootContent(
     state: DashboardBootDocumentState,
 ): string {
     const isBooting = state.kind === 'booting';
+    const nonce = randomBytes(16).toString('base64');
     const bodyContent = isBooting
         ? bootShellContent()
         : `<section class="agent-pivot-boot-failure" aria-labelledby="agent-pivot-boot-failure-title">
@@ -62,7 +65,7 @@ export function getDashboardBootContent(
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src ${webview.cspSource} 'unsafe-inline';">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src ${webview.cspSource} 'nonce-${nonce}';">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Agent Pivot</title>
     <style>
@@ -87,7 +90,7 @@ export function getDashboardBootContent(
     <main class="agent-pivot-boot-shell"${isBooting ? ' aria-busy="true"' : ''}>
         ${bodyContent}
     </main>
-    <script>${bootScript(state)}</script>
+    <script nonce="${nonce}">${bootScript(state)}</script>
 </body>
 </html>`;
 }

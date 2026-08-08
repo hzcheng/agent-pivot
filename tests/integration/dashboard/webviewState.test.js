@@ -893,6 +893,27 @@ test('WEBVIEW-WEBVIEW-CONTENT-001 renders OPEN PROJECTS TODO and lazy AI tab she
         );
     }
     assert.match(html, /data-session-icon-fx="sharingan-shisui"/);
+    const cspMatch = html.match(/Content-Security-Policy"\s+content="([^"]+)"/);
+    assert.ok(cspMatch, 'dashboard document must declare a Content Security Policy');
+    const csp = cspMatch[1];
+    assert.match(csp, /default-src 'none'/);
+    assert.doesNotMatch(csp, /img-src \*/, 'dashboard CSP must not allow arbitrary image sources');
+    assert.match(csp, /img-src test data: https:/);
+    const scriptSrc = csp.match(/script-src ([^;]+)/)[1];
+    assert.doesNotMatch(scriptSrc, /unsafe-inline/,
+        'dashboard CSP script-src must not allow inline scripts');
+    const nonceMatch = scriptSrc.match(/'nonce-([^']+)'/);
+    assert.ok(nonceMatch, 'dashboard CSP script-src must be nonce-scoped');
+    const scriptTags = html.match(/<script\b[^>]*>/g) || [];
+    for (const tag of scriptTags) {
+        if (tag.includes('type="application/json"') || tag.includes('src=')) {
+            continue;
+        }
+        assert.ok(tag.includes(`nonce="${nonceMatch[1]}"`),
+            `inline script tag must carry the CSP nonce: ${tag}`);
+    }
+    assert.doesNotMatch(html, /\son(?:load|click|error|input|change)=/,
+        'dashboard document must not use inline event handlers');
     assert.match(html, /id="dashboard-search-catalog"/);
     assert.match(html, /webviewDashboardBundle\.js/);
     assert.ok(

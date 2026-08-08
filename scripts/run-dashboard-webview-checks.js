@@ -5246,7 +5246,8 @@ function runSourceContractChecks(source) {
         'Escape handling must detect the active TODO edit form');
     assert.ok(projectSource.includes("setTodoEditing(editForm.getAttribute('data-todo-id'), false)"),
         'Escape must cancel the active TODO edit form');
-    const changelog = fs.readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8');
+    const changelog = fs.readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8')
+        + fs.readFileSync(path.join(root, 'docs', 'development-history.md'), 'utf8');
     assert.ok(changelog.includes('Add a global `TODO` Dashboard tab'));
     assert.strictEqual((source.match(/type: 'request-projects-panel'/g) || []).length, 1);
     assert.strictEqual((source.match(/type: 'request-todo-panel'/g) || []).length, 1);

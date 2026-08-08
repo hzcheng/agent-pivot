@@ -4464,6 +4464,20 @@
     ]
   },
   {
+    "id": "CONVERSATION-PLAN-QUESTION-VISIBILITY-001",
+    "domain": "webview",
+    "title": "Conversation viewers render provider plan-mode plans and interactive question prompts with the user's settled answers as always-visible read-only entries",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/conversationModel.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/types.ts",
+      "src/aiSessions/conversation/model.ts"
+    ]
+  },
+  {
     "id": "CONVERSATION-PROVIDER-PARITY-001",
     "domain": "webview",
     "title": "Codex, Claude, and Kimi share the same default progress, hidden-thinking, collapsed-tool, and live Working presentation",

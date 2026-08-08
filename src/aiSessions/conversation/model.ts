@@ -137,7 +137,64 @@ export function buildConversationPage(
         }];
         const toolCalls = interaction.toolCalls || [];
         const thinkingBlocks = interaction.thinking || [];
+        const planBlocks = interaction.plans || [];
+        const questionBlocks = interaction.questions || [];
         const pushAnchoredAt = (position: number): void => {
+            planBlocks.forEach((block, blockIndex) => {
+                if (block.position !== position) {
+                    return;
+                }
+                messages.push({
+                    id: `${interaction.id}:plan:${blockIndex}`,
+                    interactionId: interaction.id,
+                    role: 'plan',
+                    timestamp: interaction.timestamp,
+                    markdown: '',
+                    plan: {
+                        markdown: block.markdown,
+                        ...(block.filePath !== undefined
+                            ? { filePath: block.filePath }
+                            : {}),
+                    },
+                });
+            });
+            questionBlocks.forEach((block, blockIndex) => {
+                if (block.position !== position) {
+                    return;
+                }
+                messages.push({
+                    id: `${interaction.id}:question:${blockIndex}`,
+                    interactionId: interaction.id,
+                    role: 'question',
+                    timestamp: interaction.timestamp,
+                    markdown: '',
+                    question: {
+                        source: block.source,
+                        questions: block.questions.map(item => ({
+                            question: item.question,
+                            ...(item.header !== undefined
+                                ? { header: item.header }
+                                : {}),
+                            options: item.options.map(option => ({
+                                label: option.label,
+                                ...(option.description !== undefined
+                                    ? { description: option.description }
+                                    : {}),
+                            })),
+                            multiSelect: item.multiSelect,
+                            ...(item.otherLabel !== undefined
+                                ? { otherLabel: item.otherLabel }
+                                : {}),
+                            ...(item.answers !== undefined
+                                ? { answers: [...item.answers] }
+                                : {}),
+                        })),
+                        ...(block.outcome !== undefined
+                            ? { outcome: block.outcome }
+                            : {}),
+                    },
+                });
+            });
             toolCalls.forEach((toolCall, toolIndex) => {
                 if (toolCall.position !== position) {
                     return;

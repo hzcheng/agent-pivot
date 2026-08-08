@@ -285,8 +285,20 @@ export function renderConversationViewerDocument(
                         </svg>
                         <span data-outline-bookmark-count>0</span>
                     </button>
-                    <span class="conversation-outline-summary"
-                        data-outline-summary>No inputs yet</span>
+                    <button type="button"
+                        class="conversation-outline-sort"
+                        data-outline-sort data-order="newest"
+                        aria-label="Show oldest inputs first"
+                        title="Show oldest inputs first">
+                        <svg viewBox="0 0 16 16" width="14" height="14"
+                            aria-hidden="true" fill="none"
+                            stroke="currentColor" stroke-width="1.25"
+                            stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M2.5 3.5h6M2.5 7.5h4M2.5 11.5h2"></path>
+                            <path d="M11.5 2.5v10M9.5 10.5l2 2 2-2"></path>
+                        </svg>
+                    </button>
+                    <span data-outline-summary hidden aria-hidden="true"></span>
                 </div>
                 <p class="conversation-outline-partial"
                     data-outline-partial hidden>

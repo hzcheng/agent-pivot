@@ -4515,7 +4515,7 @@
   {
     "id": "CONVERSATION-OUTLINE-NAVIGATION-001",
     "domain": "webview",
-    "title": "AI Conversation presents a searchable current-Session user-input outline and navigates pointer or keyboard selections to the exact Host-authoritative interaction",
+    "title": "AI Conversation keeps every side-panel view available across adjacent document and script generations while presenting a searchable, locally sortable current-Session input outline with exact navigation",
     "priority": "P0",
     "status": "automated",
     "owners": [
@@ -4523,7 +4523,9 @@
       "tests/browser/conversationViewer.test.js"
     ],
     "evidence": [
+      "src/aiSessions/conversation/viewerDocument.ts",
       "src/aiSessions/conversation/viewer.ts",
+      "src/webview/conversationOutlineScripts.js",
       "src/webview/conversationViewerScripts.js",
       "media/conversationViewer.scss"
     ]
@@ -4546,7 +4548,7 @@
   {
     "id": "CONVERSATION-OUTLINE-BOOKMARKS-001",
     "domain": "webview",
-    "title": "AI Conversation persists current-Session input bookmarks, settles star changes through the Host, keeps a quiet aligned row grid, filters favorites on demand, and never reorders the outline",
+    "title": "AI Conversation persists current-Session input bookmarks, settles star changes through the Host, keeps a quiet aligned row grid, and filters favorites without changing the selected display order",
     "priority": "P0",
     "status": "automated",
     "owners": [
@@ -4557,6 +4559,7 @@
     "evidence": [
       "src/aiSessions/conversation/bookmarkStore.ts",
       "src/aiSessions/conversation/viewer.ts",
+      "src/webview/conversationOutlineScripts.js",
       "src/webview/conversationViewerScripts.js",
       "media/conversationViewer.scss"
     ]

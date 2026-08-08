@@ -7,14 +7,13 @@
         var commentTarget = options.target;
         var subscriptionGeneration = options.subscriptionGeneration;
         var status = options.status;
-        var outlineCount = options.outlineCount;
-        var outlineSummary = options.outlineSummary;
         var outlineSearch = options.outlineSearch;
         var outlineList = options.outlineList;
         var outlineEmpty = options.outlineEmpty;
         var outlinePartial = options.outlinePartial;
         var outlineBookmarksOnly = options.outlineBookmarksOnly;
         var outlineBookmarkCount = options.outlineBookmarkCount;
+        var outlineSort = options.outlineSort;
         var messagesRoot = options.messagesRoot;
         var post = options.post;
         var outlinePanelActive = options.outlinePanelActive;
@@ -32,6 +31,7 @@
             bookmarkRequestSequence: 0,
             pendingBookmarkRequest: null,
             bookmarksOnly: false,
+            newestFirst: true,
         };
 
         function readJsonAttribute(name) {
@@ -295,9 +295,23 @@
             return icon;
         }
 
+        function renderSortState() {
+            if (!outlineSort) return;
+            var order = state.newestFirst ? 'newest' : 'oldest';
+            var label = state.newestFirst
+                ? 'Show oldest inputs first'
+                : 'Show newest inputs first';
+            outlineSort.setAttribute('data-order', order);
+            outlineSort.setAttribute('aria-label', label);
+            outlineSort.title = label;
+        }
+
         function buildOutlineList() {
             var fragment = document.createDocumentFragment();
-            state.outline.forEach(function (entry) {
+            var entries = state.newestFirst
+                ? state.outline.slice().reverse()
+                : state.outline;
+            entries.forEach(function (entry) {
                 var item = document.createElement('li');
                 item.className = 'conversation-outline-item';
                 var bookmark = document.createElement('button');
@@ -434,16 +448,6 @@
             state.outlineTotalInputs = message.totalInputs;
             state.outlinePartial = message.partial;
             if (changed) buildOutlineList();
-            if (outlineCount) {
-                outlineCount.textContent = String(message.outline.length);
-                outlineCount.setAttribute(
-                    'aria-label',
-                    message.outline.length + ' inputs'
-                );
-            }
-            outlineSummary.textContent = message.partial
-                ? message.outline.length.toLocaleString() + '+ latest inputs'
-                : message.outline.length.toLocaleString() + ' inputs';
             outlinePartial.hidden = !message.partial;
             filterOutline();
             renderBookmarkState();
@@ -453,6 +457,7 @@
 
         function attach() {
             if (!sidebarUiAvailable) return;
+            renderSortState();
             outlineSearch.addEventListener('input', function () {
                 state.outlineQuery = outlineSearch.value;
                 filterOutline();
@@ -463,6 +468,14 @@
                 renderBookmarkState();
                 filterOutline();
             });
+            if (outlineSort) {
+                outlineSort.addEventListener('click', function () {
+                    state.newestFirst = !state.newestFirst;
+                    renderSortState();
+                    buildOutlineList();
+                    filterOutline();
+                });
+            }
             outlineList.addEventListener('click', function (event) {
                 var bookmark = event.target.closest
                     ? event.target.closest('[data-outline-bookmark-id]')

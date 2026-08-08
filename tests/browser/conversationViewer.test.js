@@ -1,6 +1,7 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const Module = require('node:module');
 const os = require('node:os');
@@ -774,7 +775,7 @@ async function openHostViewerDocument(t, options = {}) {
         if (pathname === '/conversationViewerScripts.js') {
             await route.fulfill({
                 contentType: 'text/javascript',
-                body: viewerScript,
+                body: options.viewerScriptSource || viewerScript,
             });
             return;
         }
@@ -795,7 +796,8 @@ async function openHostViewerDocument(t, options = {}) {
         if (pathname === '/conversationOutlineScripts.js') {
             await route.fulfill({
                 contentType: 'text/javascript',
-                body: conversationOutlineScript,
+                body: options.outlineScriptSource
+                    || conversationOutlineScript,
             });
             return;
         }
@@ -1465,6 +1467,56 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 filters the current Session outline an
     assert.equal(await comments.isHidden(), true);
     assert.equal(await sidebarToggle.getAttribute('aria-expanded'), 'true');
     assert.equal(await page.locator('[data-outline-interaction-id]').count(), 4);
+    assert.deepEqual(
+        await page.locator('[data-outline-interaction-id]')
+            .evaluateAll(elements => elements.map(element =>
+                element.getAttribute('data-outline-interaction-id')
+            )),
+        ['input-4', 'input-3', 'input-2', 'input-1'],
+        'the newest input must render at the top of the outline'
+    );
+    assert.deepEqual(
+        await page.locator('.conversation-outline-number')
+            .evaluateAll(elements => elements.map(element =>
+                element.textContent
+            )),
+        ['4', '3', '2', '1'],
+        'newest-first rendering must retain authoritative input numbers'
+    );
+    const outlineSort = page.locator('[data-outline-sort]');
+    assert.equal(
+        await page.locator('[data-outline-summary]').isHidden(),
+        true,
+        'the compatibility summary anchor must not render a count row'
+    );
+    assert.equal(await outlineSort.getAttribute('data-order'), 'newest');
+    assert.equal(
+        await outlineSort.getAttribute('aria-label'),
+        'Show oldest inputs first'
+    );
+    await outlineSort.click();
+    assert.deepEqual(
+        await page.locator('[data-outline-interaction-id]')
+            .evaluateAll(elements => elements.map(element =>
+                element.getAttribute('data-outline-interaction-id')
+            )),
+        ['input-1', 'input-2', 'input-3', 'input-4'],
+        'the sort control should switch the outline to oldest-first'
+    );
+    assert.deepEqual(
+        await page.locator('.conversation-outline-number')
+            .evaluateAll(elements => elements.map(element =>
+                element.textContent
+            )),
+        ['1', '2', '3', '4'],
+        'oldest-first rendering must retain authoritative input numbers'
+    );
+    assert.equal(await outlineSort.getAttribute('data-order'), 'oldest');
+    assert.equal(
+        await outlineSort.getAttribute('aria-label'),
+        'Show newest inputs first'
+    );
+    await outlineSort.click();
     assert.equal(
         await page.locator(
             '[data-outline-interaction-id="input-2"]'
@@ -1501,14 +1553,14 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 filters the current Session outline an
             document.activeElement?.getAttribute(
                 'data-outline-interaction-id'
             )),
-        'input-3'
+        'input-1'
     );
     await page.keyboard.press('Enter');
     let requests = await postedMessages(page);
     assert.deepEqual(requests.at(-1), {
         type: 'conversation-viewer-select-interaction',
         version: 1,
-        interactionId: 'input-3',
+        interactionId: 'input-1',
     });
 
     await page.locator(
@@ -1550,7 +1602,7 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 filters the current Session outline an
     assert.equal(await comments.isHidden(), true);
 });
 
-test('CONVERSATION-OUTLINE-BOOKMARKS-001 settles stars authoritatively, filters favorites, and preserves input order', async t => {
+test('CONVERSATION-OUTLINE-BOOKMARKS-001 settles stars authoritatively, filters favorites, and preserves newest-first input order', async t => {
     const interactionIds = ['input-1', 'input-2', 'input-3'];
     const { page } = await openHostViewerDocument(t, {
         includeStyles: true,
@@ -1575,12 +1627,12 @@ test('CONVERSATION-OUTLINE-BOOKMARKS-001 settles stars authoritatively, filters 
     );
 
     await page.locator('[data-action="toggle-sidebar"]').click();
-    assert.deepEqual(await orderedIds(), interactionIds);
+    assert.deepEqual(await orderedIds(), [...interactionIds].reverse());
     const outlineLayout = await page.evaluate(() => {
         const outline = document.querySelector('[data-conversation-outline]');
         const tabs = document.querySelector('.conversation-sidebar-tabs');
         const search = outline.querySelector('[data-outline-search]');
-        const summary = outline.querySelector('[data-outline-summary]');
+        const sort = outline.querySelector('[data-outline-sort]');
         const selectedItem = outline.querySelector(
             '[data-outline-interaction-id="input-2"]'
         ).closest('.conversation-outline-item');
@@ -1592,12 +1644,13 @@ test('CONVERSATION-OUTLINE-BOOKMARKS-001 settles stars authoritatively, filters 
         )?.querySelector('.conversation-outline-preview');
         const outlineRect = outline.getBoundingClientRect();
         const searchRect = search.getBoundingClientRect();
-        const summaryRect = summary.getBoundingClientRect();
+        const sortRect = sort.getBoundingClientRect();
         const starRect = star.getBoundingClientRect();
         const previewRect = preview.getBoundingClientRect();
         return {
             tabsHeight: tabs.getBoundingClientRect().height,
-            summaryBelowSearch: summaryRect.top >= searchRect.bottom,
+            sortAlignedWithSearch:
+                Math.abs(sortRect.top - searchRect.top) < 1,
             previewInset: previewRect.left - outlineRect.left,
             starInset: starRect.left - outlineRect.left,
             starOpacity: Number(getComputedStyle(star).opacity),
@@ -1623,9 +1676,9 @@ test('CONVERSATION-OUTLINE-BOOKMARKS-001 settles stars authoritatively, filters 
         'an available bookmark control must keep full theme contrast'
     );
     assert.equal(
-        outlineLayout.summaryBelowSearch,
+        outlineLayout.sortAlignedWithSearch,
         true,
-        'the input count should not squeeze the search control'
+        'search, bookmark filter, and sort should share one compact row'
     );
     assert.notEqual(
         outlineLayout.selectedBackground,
@@ -1700,7 +1753,7 @@ test('CONVERSATION-OUTLINE-BOOKMARKS-001 settles stars authoritatively, filters 
         '',
         'outline star settlements stay out of the status line'
     );
-    assert.deepEqual(await orderedIds(), interactionIds);
+    assert.deepEqual(await orderedIds(), [...interactionIds].reverse());
 
     await page.locator('[data-outline-bookmarks-only]').click();
     assert.equal(
@@ -1713,7 +1766,7 @@ test('CONVERSATION-OUTLINE-BOOKMARKS-001 settles stars authoritatively, filters 
         ).evaluateAll(elements => elements.map(element =>
             element.getAttribute('data-outline-interaction-id')
         )),
-        ['input-1', 'input-3']
+        ['input-3', 'input-1']
     );
     assert.equal(
         await page.locator('[data-outline-bookmarks-only]')
@@ -2740,6 +2793,145 @@ test('CONVERSATION-OUTLINE-BOOKMARKS-001 keeps the outline usable with previous 
     );
 });
 
+test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable across adjacent document and script generations', async t => {
+    async function assertPanelViews(page, label) {
+        await page.locator('[data-action="toggle-sidebar"]').click();
+        assert.equal(
+            await page.locator('[data-conversation-sidebar]').isVisible(),
+            true,
+            `${label}: the side panel should open`
+        );
+        assert.equal(
+            await page.locator('[data-conversation-outline]').isVisible(),
+            true,
+            `${label}: Outline should remain available`
+        );
+        await page.locator('[data-sidebar-tab="comments"]').click();
+        assert.equal(
+            await page.locator('[data-conversation-comments]').isVisible(),
+            true,
+            `${label}: Comments should remain available`
+        );
+        await page.locator('[data-sidebar-tab="subagents"]').click();
+        assert.equal(
+            await page.locator('[data-conversation-subagents]').isVisible(),
+            true,
+            `${label}: Subagents should remain available`
+        );
+    }
+
+    const previousViewerScript = viewerScript
+        .replace(
+            "    var outlineRoot = document.querySelector('[data-conversation-outline]');\n",
+            "    var outlineRoot = document.querySelector('[data-conversation-outline]');\n"
+                + "    var outlineCount = document.querySelector('[data-outline-count]');\n"
+                + "    var outlineSummary = document.querySelector('[data-outline-summary]');\n"
+        )
+        .replace(
+            "    var outlineSort = document.querySelector('[data-outline-sort]');\n",
+            ''
+        )
+        .replace(
+            '        && !!outlineSearch\n',
+            '        && !!outlineSummary && !!outlineSearch\n'
+        )
+        .replace(
+            '        outlineSearch: outlineSearch,\n',
+            '        outlineCount: outlineCount,\n'
+                + '        outlineSummary: outlineSummary,\n'
+                + '        outlineSearch: outlineSearch,\n'
+        )
+        .replace(
+            '        outlineSort: outlineSort,\n',
+            ''
+        );
+    const previousOutlineScript = conversationOutlineScript
+        .replace(
+            '        var outlineSearch = options.outlineSearch;\n',
+            '        var outlineCount = options.outlineCount;\n'
+                + '        var outlineSummary = options.outlineSummary;\n'
+                + '        var outlineSearch = options.outlineSearch;\n'
+        )
+        .replace('        var outlineSort = options.outlineSort;\n', '')
+        .replace('            newestFirst: true,\n', '')
+        .replace(
+            /\n        function renderSortState\(\) \{[\s\S]*?\n        \}\n\n        function buildOutlineList\(\) \{\n            var fragment = document.createDocumentFragment\(\);\n            var entries = state.newestFirst\n                \? state.outline.slice\(\).reverse\(\)\n                : state.outline;\n            entries.forEach\(function \(entry\) \{/,
+            '\n        function buildOutlineList() {\n'
+                + '            var fragment = document.createDocumentFragment();\n'
+                + '            state.outline.forEach(function (entry) {'
+        )
+        .replace(
+            '            outlinePartial.hidden = !message.partial;\n',
+            '            if (outlineCount) {\n'
+                + '                outlineCount.textContent = String(message.outline.length);\n'
+                + '                outlineCount.setAttribute(\n'
+                + "                    'aria-label',\n"
+                + "                    message.outline.length + ' inputs'\n"
+                + '                );\n'
+                + '            }\n'
+                + '            outlineSummary.textContent = message.partial\n'
+                + "                ? message.outline.length.toLocaleString() + '+ latest inputs'\n"
+                + "                : message.outline.length.toLocaleString() + ' inputs';\n"
+                + '            outlinePartial.hidden = !message.partial;\n'
+        )
+        .replace('            renderSortState();\n', '')
+        .replace(
+            /            if \(outlineSort\) \{\n                outlineSort.addEventListener\('click', function \(\) \{\n                    state.newestFirst = !state.newestFirst;\n                    renderSortState\(\);\n                    buildOutlineList\(\);\n                    filterOutline\(\);\n                \}\);\n            \}\n/,
+            ''
+        );
+    const sha256 = source => crypto.createHash('sha256')
+        .update(source)
+        .digest('hex');
+    assert.equal(
+        sha256(previousViewerScript),
+        '9bdd3c6cdad7fc465fa80babaa7f5237955265bab604bad1afe71c7916103412',
+        'the previous Viewer fixture must stay byte-exact'
+    );
+    assert.equal(
+        sha256(previousOutlineScript),
+        'ce8a54a5657c344b37d709fece61cf05af18cc4e2ab55c1e418b386b46e127b3',
+        'the previous Outline fixture must stay byte-exact'
+    );
+
+    const previousScriptErrors = [];
+    const previousScript = await openHostViewerDocument(t, {
+        interactionIds: ['input-1'],
+        interactionId: 'input-1',
+        pageErrors: previousScriptErrors,
+        viewerScriptSource: previousViewerScript,
+        outlineScriptSource: previousOutlineScript,
+    });
+    await assertPanelViews(previousScript.page, 'previous scripts');
+    assert.deepEqual(previousScriptErrors, []);
+
+    const previousDocumentErrors = [];
+    const previousDocument = await openHostViewerDocument(t, {
+        interactionIds: ['input-1'],
+        interactionId: 'input-1',
+        pageErrors: previousDocumentErrors,
+        transformHostDocument(html) {
+            return html.replace(
+                /                    <button type="button"\s+                        class="conversation-outline-sort"[\s\S]*?                    <span data-outline-summary hidden aria-hidden="true"><\/span>/,
+                '                    <span class="conversation-outline-summary"\n'
+                    + '                        data-outline-summary>No inputs yet</span>'
+            );
+        },
+    });
+    assert.equal(
+        await previousDocument.page.locator('[data-outline-sort]').count(),
+        0,
+        'the previous document fixture must not expose the sort control'
+    );
+    assert.equal(
+        await previousDocument.page.locator('[data-outline-summary]')
+            .getAttribute('class'),
+        'conversation-outline-summary',
+        'the previous document fixture must expose its visible summary marker'
+    );
+    await assertPanelViews(previousDocument.page, 'previous document');
+    assert.deepEqual(previousDocumentErrors, []);
+});
+
 test('CONVERSATION-OUTLINE-BOOKMARKS-001 keeps unbookmarked controls visible in dark and forced-color themes', async t => {
     const { page } = await openHostViewerDocument(t, {
         includeStyles: true,
@@ -3014,12 +3206,16 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 CONVERSATION-COMMENTS-LAYOUT-001 share
             const bookmarks = document.querySelector(
                 '[data-outline-bookmarks-only]'
             ).getBoundingClientRect();
+            const sort = document.querySelector(
+                '[data-outline-sort]'
+            ).getBoundingClientRect();
             return {
                 leftVisible: sidebar.left >= 0,
                 rightVisible: sidebar.right <= window.innerWidth,
                 controlsFit: search.left >= sidebar.left
-                    && bookmarks.right <= sidebar.right
-                    && search.right < bookmarks.left,
+                    && sort.right <= sidebar.right
+                    && search.right < bookmarks.left
+                    && bookmarks.right < sort.left,
             };
         }),
         {

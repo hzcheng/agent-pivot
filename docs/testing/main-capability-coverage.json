@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "d2b9b3ad677d546a781265603fad088101616133",
+        "head": "8470896ecde82f785aca2a3d7a162469d877bc59",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -212,7 +212,8 @@
             "64d6790871e820ef61fa93712cbde016a0a49f78",
             "5348ef6c217420e10150822131825f8abcdf5aa0",
             "cacb7f7ae16ff0f11d795ffc48bf15723719a718",
-            "bf0633a753faa53f9e4fef4367f79c3d6298ae4b"
+            "bf0633a753faa53f9e4fef4367f79c3d6298ae4b",
+            "faad172f4700a6bc0620533b7b4f45a51f95bfd9"
         ]
     },
     "capabilities": [
@@ -1127,7 +1128,8 @@
                 "24df1dbeadcd4b8f8ba28f7b35ee40469bee0a86",
                 "a9ab1f23959547152581dd031c131a9ff21acc82",
                 "09932f96ba19f74b57eb2ddffa482b182d32fee5",
-                "c79183114269860b29eec03d0d316899072b16b9"
+                "c79183114269860b29eec03d0d316899072b16b9",
+                "0b06155e7043d14ece0d17ca682d09c6c0d8bdcb"
             ],
             "behaviors": [
                 "ARCH-CI-QUALITY-GATE-001",
@@ -1646,8 +1648,17 @@
             "id": "MAIN-RUNNING-SESSION-NAVIGATION",
             "title": "Cross-window next running AI session navigation",
             "requirement": "The Next Running Session command cycles AI sessions whose execution state is running, one jump per invocation, through a stable local-first queue with a resilient cursor: local jumps focus the session terminal and open its conversation, remote jumps hand a one-shot focus request through the Open Windows bridge mailbox so the owning window lands directly on a running session, and the hand-off degrades to a plain window switch when the bridge predates the mailbox channel.",
-            "commits": [],
-            "behaviors": [],
+            "commits": [
+                "6d4d3091c40b6d10e36fcff4b1884e8e81655860",
+                "8470896ecde82f785aca2a3d7a162469d877bc59"
+            ],
+            "behaviors": [
+                "AI-SESSION-NEXT-RUNNING-COMMAND-001",
+                "OPEN-WORKSPACE-RUNNING-FOCUS-PROTOCOL-001",
+                "OPEN-WORKSPACE-RUNNING-FOCUS-STORE-001",
+                "OPEN-WORKSPACE-RUNNING-FOCUS-COORDINATOR-001",
+                "OPEN-WORKSPACE-RUNNING-FOCUS-CLIENT-001"
+            ],
             "prGates": [
                 "test:deterministic:run"
             ],

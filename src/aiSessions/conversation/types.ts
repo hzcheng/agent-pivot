@@ -25,6 +25,11 @@ export const CONVERSATION_LIMITS = Object.freeze({
     questionAnswerGraphemes: 2_000,
     questionSourceGraphemes: 100,
     planFilePathGraphemes: 1_000,
+    maxDiffsPerToolCall: 8,
+    maxDiffLinesPerFile: 400,
+    diffLineGraphemes: 500,
+    diffPathGraphemes: 1_000,
+    diffSynthesizeMaxLines: 400,
     maxViewerInteractions: 100,
     maxViewerBytes: 4 * 1024 * 1024,
     maxCodexResponseBytes: 16 * 1024 * 1024,
@@ -47,6 +52,29 @@ export interface ConversationToolCall {
     name: string;
     summary: string;
     detail?: string;
+    diffs?: ConversationFileDiff[];
+}
+
+export interface ConversationDiffLine {
+    type: 'add' | 'del' | 'context';
+    text: string;
+}
+
+export interface ConversationDiffHunk {
+    /** Present when parsed from a unified diff; absent for edit fragments. */
+    oldStart?: number;
+    newStart?: number;
+    lines: ConversationDiffLine[];
+    truncatedLines?: number;
+}
+
+export interface ConversationFileDiff {
+    path: string;
+    /** 'add' | 'update' | 'delete' or the provider's raw change kind. */
+    kind?: string;
+    additions: number;
+    deletions: number;
+    hunks: ConversationDiffHunk[];
 }
 
 export interface ConversationThinkingBlock {

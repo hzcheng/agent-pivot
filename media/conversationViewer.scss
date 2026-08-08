@@ -800,6 +800,115 @@ button {
     white-space: nowrap;
 }
 
+.conversation-diff {
+    margin-top: 0.35rem;
+}
+
+.conversation-diff-file {
+    overflow: hidden;
+    margin-top: 0.35rem;
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 4px;
+}
+
+.conversation-diff-file-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.2rem 0.5rem;
+    border-bottom: 1px solid var(--vscode-panel-border);
+    background: var(--vscode-editor-background);
+    font-size: 0.8rem;
+}
+
+.conversation-diff-path {
+    overflow: hidden;
+    font-family: var(--vscode-editor-font-family, monospace);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.conversation-diff-kind {
+    flex: 0 0 auto;
+    padding: 0 0.3rem;
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 4px;
+    color: var(--vscode-descriptionForeground);
+    font-size: 0.7rem;
+    user-select: none;
+}
+
+.conversation-diff-counts {
+    flex: 0 0 auto;
+    margin-left: auto;
+    font-size: 0.75rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.conversation-diff-count-add {
+    color: var(--vscode-testing-iconPassed, var(--vscode-foreground));
+}
+
+.conversation-diff-count-del {
+    color: var(--vscode-errorForeground);
+}
+
+.conversation-diff-totals {
+    font-size: 0.78rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.conversation-diff-hunks {
+    margin: 0;
+    padding: 0.3rem 0;
+    overflow-x: auto;
+    color: var(--vscode-editor-foreground);
+    font-size: 0.82rem;
+    line-height: 1.45;
+}
+
+.conversation-diff-line {
+    display: block;
+    padding: 0 0.6rem 0 0.35rem;
+    border-left: 3px solid transparent;
+    white-space: pre;
+}
+
+.conversation-diff-line-add {
+    border-left-color: var(--vscode-gitDecoration-addedResourceForeground, #2ea043);
+    background: var(--vscode-diffEditor-insertedLineBackground, rgba(46, 160, 67, 0.25));
+    color: var(--vscode-gitDecoration-addedResourceForeground, #3fb950);
+}
+
+.conversation-diff-line-del {
+    border-left-color: var(--vscode-gitDecoration-deletedResourceForeground, #da3633);
+    background: var(--vscode-diffEditor-removedLineBackground, rgba(248, 81, 73, 0.25));
+    color: var(--vscode-gitDecoration-deletedResourceForeground, #f85149);
+}
+
+.conversation-diff-line-context {
+    color: var(--vscode-descriptionForeground);
+}
+
+.conversation-diff-line-hunk,
+.conversation-diff-line-truncated {
+    color: var(--vscode-descriptionForeground);
+    font-style: italic;
+}
+
+.conversation-diff-kind-add {
+    border-color: var(--vscode-gitDecoration-addedResourceForeground, #2ea043);
+    color: var(--vscode-gitDecoration-addedResourceForeground, #3fb950);
+}
+
+.conversation-diff-kind-delete {
+    border-color: var(--vscode-gitDecoration-deletedResourceForeground, #da3633);
+    color: var(--vscode-gitDecoration-deletedResourceForeground, #f85149);
+}
+
+
 .conversation-tool-name {
     font-weight: 600;
     color: var(--vscode-foreground);

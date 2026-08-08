@@ -53,6 +53,7 @@ import {
     ConversationAbortController,
     ConversationAbortSignal,
     ConversationError,
+    ConversationFileDiff,
     ConversationMessage,
     ConversationOutline,
     ConversationPage,
@@ -2153,14 +2154,72 @@ function copyMessage(message: ConversationMessage): ConversationMessage {
     return copyConversationMessage(message);
 }
 
+function renderConversationDiffFile(
+    diff: ConversationFileDiff
+): string {
+    const kind = diff.kind
+        ? `<span class="conversation-diff-kind conversation-diff-kind-${escapeAttribute(diff.kind)}">${escapeAttribute(diff.kind)}</span>`
+        : '';
+    const hunks = diff.hunks.map(hunk => {
+        const header = hunk.oldStart !== undefined
+            && hunk.newStart !== undefined
+            ? `<span class="conversation-diff-line conversation-diff-line-hunk">@@ -${hunk.oldStart} +${hunk.newStart} @@</span>`
+            : '';
+        // Block-level spans stack on their own; newline text nodes inside
+        // the <pre> would render as extra blank lines.
+        const lines = hunk.lines.map(line =>
+            `<span class="conversation-diff-line conversation-diff-line-${line.type}">${line.type === 'add'
+                ? '+'
+                : line.type === 'del'
+                    ? '-'
+                    : ' '}${escapeAttribute(line.text)}</span>`
+        ).join('');
+        const truncated = hunk.truncatedLines
+            ? `<span class="conversation-diff-line conversation-diff-line-truncated">… ${hunk.truncatedLines} more lines</span>`
+            : '';
+        return `${header}${lines}${truncated}`;
+    }).join('');
+    return `<section class="conversation-diff-file">
+        <section class="conversation-diff-file-header"><span class="conversation-diff-path" title="${escapeAttribute(diff.path)}">${escapeAttribute(diff.path)}</span>${kind}<span class="conversation-diff-counts"><span class="conversation-diff-count-add">+${diff.additions}</span> <span class="conversation-diff-count-del">−${diff.deletions}</span></span></section>
+        ${hunks
+            ? `<pre class="conversation-diff-hunks"><code>${hunks}</code></pre>`
+            : ''}
+    </section>`;
+}
+
+function renderConversationDiffs(diffs: ConversationFileDiff[]): string {
+    return `<section class="conversation-diff">${diffs.map(
+        renderConversationDiffFile
+    ).join('')}</section>`;
+}
+
 function renderToolMessage(message: ConversationMessage): string {
     const tool = message.tool;
     const summary = tool ? escapeAttribute(tool.summary) : '';
     const name = tool ? escapeAttribute(tool.name) : '';
-    const body = tool?.detail
-        ? `<details class="conversation-tool-call"><summary><span class="conversation-tool-name">${name}</span> ${summary}</summary>
-<pre class="conversation-tool-detail"><code>${escapeAttribute(tool.detail)}</code></pre></details>`
-        : `<div class="conversation-tool-call conversation-tool-call-static"><span class="conversation-tool-name">${name}</span> ${summary}</div>`;
+    const diffs = tool?.diffs;
+    const totals = diffs?.length
+        ? diffs.reduce(
+            (acc, diff) => ({
+                additions: acc.additions + diff.additions,
+                deletions: acc.deletions + diff.deletions,
+            }),
+            { additions: 0, deletions: 0 }
+        )
+        : undefined;
+    const totalsBadge = totals && (totals.additions || totals.deletions)
+        ? ` <span class="conversation-diff-totals"><span class="conversation-diff-count-add">+${totals.additions}</span> <span class="conversation-diff-count-del">−${totals.deletions}</span></span>`
+        : '';
+    const diffsHtml = diffs?.length
+        ? renderConversationDiffs(diffs)
+        : '';
+    const detailHtml = tool?.detail
+        ? `<pre class="conversation-tool-detail"><code>${escapeAttribute(tool.detail)}</code></pre>`
+        : '';
+    const body = tool && (tool.detail || diffsHtml)
+        ? `<details class="conversation-tool-call"><summary><span class="conversation-tool-name">${name}</span> ${summary}${totalsBadge}</summary>
+${diffsHtml}${detailHtml}</details>`
+        : `<div class="conversation-tool-call conversation-tool-call-static"><span class="conversation-tool-name">${name}</span> ${summary}${totalsBadge}</div>`;
     return `<article class="conversation-message conversation-message-tool"
     data-message-id="${escapeAttribute(message.id)}"
     data-conversation-message-id="${escapeAttribute(encodeURIComponent(message.id))}"

@@ -5,6 +5,7 @@ import {
     CONVERSATION_LIMITS,
     ConversationError,
     ConversationAssistantPhase,
+    ConversationFileDiff,
     ConversationInteraction,
     ConversationMessage,
     ConversationOutline,
@@ -52,6 +53,36 @@ export function applyStoppedLifecycleToResponseState(
 }
 
 /**
+ * Deep-copies bounded file diffs. Shared by the page builder and the
+ * message copy boundary so diffs survive every protocol hop.
+ */
+export function copyConversationDiffs(
+    diffs: readonly ConversationFileDiff[]
+): ConversationFileDiff[] {
+    return diffs.map(diff => ({
+        path: diff.path,
+        ...(diff.kind !== undefined ? { kind: diff.kind } : {}),
+        additions: diff.additions,
+        deletions: diff.deletions,
+        hunks: diff.hunks.map(hunk => ({
+            ...(hunk.oldStart !== undefined
+                ? { oldStart: hunk.oldStart }
+                : {}),
+            ...(hunk.newStart !== undefined
+                ? { newStart: hunk.newStart }
+                : {}),
+            lines: hunk.lines.map(line => ({
+                type: line.type,
+                text: line.text,
+            })),
+            ...(hunk.truncatedLines !== undefined
+                ? { truncatedLines: hunk.truncatedLines }
+                : {}),
+        })),
+    }));
+}
+
+/**
  * Single deep-copy boundary for page messages. Every hop that re-emits a
  * message (coordinator transform, viewer publication) must go through this
  * so a new payload field cannot be silently dropped by one whitelist.
@@ -72,6 +103,9 @@ export function copyConversationMessage(
                     summary: message.tool.summary,
                     ...(message.tool.detail !== undefined
                         ? { detail: message.tool.detail }
+                        : {}),
+                    ...(message.tool.diffs
+                        ? { diffs: copyConversationDiffs(message.tool.diffs) }
                         : {}),
                 },
             }
@@ -225,6 +259,9 @@ export function buildConversationPage(
                         summary: toolCall.summary,
                         ...(toolCall.detail !== undefined
                             ? { detail: toolCall.detail }
+                            : {}),
+                        ...(toolCall.diffs
+                            ? { diffs: copyConversationDiffs(toolCall.diffs) }
                             : {}),
                     },
                 });

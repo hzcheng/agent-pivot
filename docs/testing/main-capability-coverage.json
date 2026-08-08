@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "d86e7fc76bbb6163faedbb95f59a57bd02fa6635",
+        "head": "c7bf0efc7972f6b7ebf55888c2353f9cef162e76",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -203,7 +203,9 @@
             "ef0cf7543f8fdca9b484985ffbcce8921693c205",
             "c5d2e2ab1f985b87da4e9c7cd031347fa160bb3f",
             "ce97bacfc893c73b5a9a96f93b0c08059f3fdfe0",
-            "d95b4d49718186b52ccc518d24cca6e69b89c7f0"
+            "d95b4d49718186b52ccc518d24cca6e69b89c7f0",
+            "27f8dd8b45cfb45f5af56d9eb0075f124b9998b5",
+            "e6ba1a9d2f63ed31e1661c5149d616794917763e"
         ]
     },
     "capabilities": [
@@ -1405,7 +1407,18 @@
                 "26d8c74895b30479a0f748e3faf256d5561f74ef",
                 "7bfdafd37a03ad6c4b73a3ddbb8a10a6a3f75cac",
                 "9a1445e005cb69b4f2e24c5531ed87c830317d87",
-                "0c81031bb8fcd5adba3fc5f451e16770af8fe7ae"
+                "0c81031bb8fcd5adba3fc5f451e16770af8fe7ae",
+                "9f32782347dbc21fa73c1dc9b4a23c9c221e6cb5",
+                "0a6e29d143d95627ba5828baa49fb4c9fdb02f71",
+                "b8ce1b2472cbeefa559b49f3dd290c6408efdecb",
+                "41d4ada68df1e6ea170100329d5d05596ea9219a",
+                "462da3820033076aba549f4adcf4328a42c7bc23",
+                "444d9d9f082cfb45b8f9e622c0ecd9075d9109a9",
+                "388bcd636e88480fa1f976a4a2e06154bc3638a7",
+                "726f206a1b5ea8be24b6f85293e11bf9509df578",
+                "1291f7f81814caf7ad14935c53b49e144fdd8e1d",
+                "96d19ea4aaf1d2ff39610559a885394354c92ac8",
+                "c7bf0efc7972f6b7ebf55888c2353f9cef162e76"
             ],
             "behaviors": [
                 "SESSION-AI-SESSION-CONVERSATION-ADAPTER-001",
@@ -1450,7 +1463,8 @@
                 "CONVERSATION-COMMENT-QUOTE-LOCATION-001",
                 "CONVERSATION-ACTIVE-SESSION-NAVIGATION-COMMANDS-001",
                 "CONVERSATION-FIND-001",
-                "CONVERSATION-PLAN-QUESTION-VISIBILITY-001"
+                "CONVERSATION-PLAN-QUESTION-VISIBILITY-001",
+                "CONVERSATION-DIFF-VISIBILITY-001"
             ],
             "prGates": [
                 "test:ci:linux"

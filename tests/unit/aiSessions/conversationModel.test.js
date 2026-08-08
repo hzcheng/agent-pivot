@@ -263,6 +263,63 @@ test('CONVERSATION-PLAN-QUESTION-VISIBILITY-001 omits optional plan and question
     });
 });
 
+test('CONVERSATION-DIFF-VISIBILITY-001 carries tool call diffs onto page messages', () => {
+    const interactions = [{
+        id: 'i-1',
+        userMarkdown: 'Apply the patch',
+        userPreview: 'Apply the patch',
+        userGraphemeCount: 16,
+        assistantMarkdown: ['Done.'],
+        toolCalls: [{
+            position: 0,
+            name: 'fileChange',
+            summary: 'fileChange update src/a.ts',
+            diffs: [{
+                path: 'src/a.ts',
+                kind: 'update',
+                additions: 1,
+                deletions: 1,
+                hunks: [{
+                    oldStart: 3,
+                    newStart: 3,
+                    lines: [
+                        { type: 'del', text: 'const a = 1;' },
+                        { type: 'add', text: 'const a = 2;' },
+                    ],
+                }],
+            }],
+        }],
+        responseState: 'complete',
+    }];
+    const page = model.buildConversationPage(interactions, {
+        provider: 'codex',
+        sessionId: 'session',
+        anchorInteractionId: 'i-1',
+        direction: 'around',
+    }, 'r1');
+    const tool = page.messages.find(message => message.role === 'tool');
+    assert.deepEqual(tool.tool.diffs, [{
+        path: 'src/a.ts',
+        kind: 'update',
+        additions: 1,
+        deletions: 1,
+        hunks: [{
+            oldStart: 3,
+            newStart: 3,
+            lines: [
+                { type: 'del', text: 'const a = 1;' },
+                { type: 'add', text: 'const a = 2;' },
+            ],
+        }],
+    }]);
+    // The page carries a deep copy, not the adapter's mutable entry.
+    interactions[0].toolCalls[0].diffs[0].hunks[0].lines[0].text = 'mutated';
+    assert.equal(
+        page.messages[1].tool.diffs[0].hunks[0].lines[0].text,
+        'const a = 1;'
+    );
+});
+
 test('CONVERSATION-THINKING-VISIBILITY-001 interleaves thinking blocks with tool calls and assistant text by position', () => {
     const interactions = [{
         id: 'i-1',

@@ -250,6 +250,24 @@ export class OpenWorkspaceCoordinator {
         return target;
     }
 
+    public async isNavigationWinner(navigationIdentity: string): Promise<boolean> {
+        if (this.disposed || this.store === undefined || this.boundInstanceId === undefined) {
+            return false;
+        }
+        if (typeof navigationIdentity !== 'string'
+            || !/^[a-f0-9]{64}$/.test(navigationIdentity)) {
+            return false;
+        }
+        const observedAtMs = validateTimestamp(this.dependencies.now());
+        const scan = await this.store.scan(observedAtMs);
+        const winner = scan.registrations
+            .filter(registration =>
+                registration.workspace?.navigationIdentity === navigationIdentity
+            )
+            .sort(compareRegistrationPriority)[0];
+        return winner?.instanceId === this.boundInstanceId;
+    }
+
     public dispose(): void {
         void this.shutdown();
     }

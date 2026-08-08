@@ -3,11 +3,13 @@
 import type { OpenWorkspaceAggregate } from './protocol';
 import type { OpenWorkspaceBridgeStatus } from './bridgeClient';
 import type { OpenWorkspacePinSnapshot } from './pinProtocol';
+import type { OpenWorkspaceRunningFocusRequest } from './runningFocusProtocol';
 
 export interface OpenWorkspaceBridgeHandlers {
     onAggregate: (aggregate: OpenWorkspaceAggregate) => unknown;
     onStatusChange: (status: OpenWorkspaceBridgeStatus) => void;
     onPinSnapshot: (snapshot: OpenWorkspacePinSnapshot) => unknown;
+    onRunningFocusRequest: (request: OpenWorkspaceRunningFocusRequest) => unknown;
     onError: (error: unknown) => void;
 }
 
@@ -55,6 +57,17 @@ export class EarlyOpenWorkspaceBridge<TClient> {
                 'pin snapshot',
                 handlers => handlers.onPinSnapshot(snapshot),
                 () => { this.pendingPinSnapshot = snapshot; },
+            ),
+            // A focus hand-off is an action trigger, not state: replaying it
+            // after adoption would jump seconds after the moment passed, so a
+            // pre-adoption request is logged and dropped like an error.
+            onRunningFocusRequest: request => this.deliver(
+                'running focus request',
+                handlers => handlers.onRunningFocusRequest(request),
+                () => this.options.logError(
+                    'Agent Pivot open workspace bridge delivered a running focus request before adoption.',
+                    new Error('running focus request dropped before adoption'),
+                ),
             ),
             // Errors are diagnostics about a moment that has passed. Replaying
             // them later would report a stale outage as a fresh one.

@@ -7,6 +7,7 @@ import { resolveBridgeStorageRoot } from './bridgeStorageRoot';
 import { LocalStore } from './localStore';
 import { OpenWorkspaceCoordinator } from './openWorkspaceCoordinator';
 import { OpenWorkspacePinCoordinator } from './openWorkspacePinCoordinator';
+import { OpenWorkspaceRunningFocusCoordinator } from './openWorkspaceRunningFocusCoordinator';
 import {
     AuthoritativeOpenWorkspaceUri,
     replaceOpenWorkspacePublicationUris,
@@ -30,6 +31,10 @@ import {
     OPEN_WORKSPACE_PIN_SET_COMMAND,
     OPEN_WORKSPACE_PIN_SNAPSHOT_COMMAND,
 } from '../../../src/openWorkspaces/pinProtocol';
+import {
+    OPEN_WORKSPACE_RUNNING_FOCUS_DELIVER_COMMAND,
+    OPEN_WORKSPACE_RUNNING_FOCUS_REQUEST_COMMAND,
+} from '../../../src/openWorkspaces/runningFocusProtocol';
 import {
     SAVED_PROJECT_NAVIGATE_COMMAND,
     SAVED_PROJECT_NAVIGATION_PROTOCOL_VERSION,
@@ -127,6 +132,26 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         reportError: error => {
             outputChannel.appendLine(
                 `[OpenWorkspacePins] ${error instanceof Error ? error.message : String(error)}`,
+            );
+        },
+    });
+    const openWorkspaceRunningFocusCoordinator = new OpenWorkspaceRunningFocusCoordinator(bridgeRoot, {
+        now: () => Date.now(),
+        setInterval: (callback, intervalMs) => setInterval(callback, intervalMs),
+        clearInterval: handle => clearInterval(handle as NodeJS.Timeout),
+        createWatcher: (directory, onDidChange) => {
+            fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+            return fs.watch(directory, onDidChange);
+        },
+        deliverRequest: request => vscode.commands.executeCommand(
+            OPEN_WORKSPACE_RUNNING_FOCUS_DELIVER_COMMAND,
+            request,
+        ),
+        isNavigationWinner: navigationIdentity =>
+            openWorkspaceCoordinator.isNavigationWinner(navigationIdentity),
+        reportError: error => {
+            outputChannel.appendLine(
+                `[OpenWorkspaceRunningFocus] ${error instanceof Error ? error.message : String(error)}`,
             );
         },
     });
@@ -275,6 +300,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         OPEN_WORKSPACE_PIN_SET_COMMAND,
         (raw: unknown) => openWorkspacePinCoordinator.setPinned(raw),
     );
+    const openWorkspaceRequestRunningFocusDisposable = vscode.commands.registerCommand(
+        OPEN_WORKSPACE_RUNNING_FOCUS_REQUEST_COMMAND,
+        (raw: unknown) => openWorkspaceRunningFocusCoordinator.submit(raw),
+    );
     const openWorkspaceNavigateDisposable = vscode.commands.registerCommand(
         OPEN_WORKSPACE_NAVIGATE_COMMAND,
         async (raw: unknown) => {
@@ -381,6 +410,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         openWorkspacePublishDisposable,
         openWorkspaceUnregisterDisposable,
         openWorkspaceSetPinDisposable,
+        openWorkspaceRequestRunningFocusDisposable,
         openWorkspaceNavigateDisposable,
         savedProjectNavigateDisposable,
         statusDisposable,
@@ -389,6 +419,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         scanRegistration,
         openWorkspaceCoordinator,
         openWorkspacePinCoordinator,
+        openWorkspaceRunningFocusCoordinator,
         {
             dispose: () => {
                 if (scanTimer !== null) {

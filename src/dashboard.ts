@@ -80,6 +80,12 @@ import type {
 import {
     createAttentionQueueJumpHandler,
 } from './dashboard/attentionQueueJump';
+import {
+    createRunningSessionJumpHandler,
+} from './dashboard/runningSessionJump';
+import {
+    buildRunningSessionQueue,
+} from './aiSessions/runningQueue';
 import type { ActiveAiSessionTerminalIdentity } from './aiSessions/activeTerminalHighlight';
 import { getAiSessionKey } from './aiSessions/sessionHelpers';
 import { createAiSessionProviderRegistry } from './aiSessions/providers';
@@ -360,6 +366,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                     dashboardDiagnostics.logOpenWorkspaceDiagnostic('Bridge', event),
                 onStatusChange: handlers.onStatusChange,
                 onPinSnapshot: handlers.onPinSnapshot,
+                onRunningFocusRequest: handlers.onRunningFocusRequest,
             },
         ),
         logError: (message, error) => dashboardDiagnostics.logError(message, error),
@@ -1802,6 +1809,56 @@ async function initializeDashboard(
         showWarningMessage: message =>
             vscode.window.showWarningMessage(message),
     });
+    const runningSessionJumpHandler = createRunningSessionJumpHandler({
+        buildQueue: () => buildRunningSessionQueue({
+            localSessions: (getCurrentWorkspaceActionTargetWithoutCardId()
+                ?.sessions.activeSessions || [])
+                .filter(session => session.executionState === 'running'
+                    && Boolean(session.sessionId))
+                .map(session => ({
+                    provider: session.provider,
+                    sessionId: session.sessionId as string,
+                    name: session.name,
+                })),
+            remoteWindows: openWorkspaceDashboardController.getCards()
+                .filter(card => card.kind === 'navigation'
+                    && card.runningSessionCount > 0)
+                .map(card => ({
+                    cardId: card.id,
+                    navigationIdentity: card.navigationIdentity,
+                    displayName: card.name,
+                    runningSessionCount: card.runningSessionCount,
+                })),
+        }),
+        focusSession: item => {
+            const cardId = getCurrentWorkspaceActionTargetWithoutCardId()?.cardId;
+            return cardId
+                ? aiSessionTerminalCommandController.focusActive(
+                    cardId,
+                    item.provider,
+                    item.sessionId
+                )
+                : Promise.resolve(false);
+        },
+        openConversation: item => {
+            const cardId = getCurrentWorkspaceActionTargetWithoutCardId()?.cardId;
+            return cardId
+                ? openAiSessionConversationWithFeedback({
+                    projectId: cardId,
+                    provider: item.provider,
+                    sessionId: item.sessionId,
+                })
+                : Promise.resolve();
+        },
+        requestRemoteFocus: item =>
+            openWorkspaceBridgeClient.requestRunningFocus(item.navigationIdentity),
+        openNavigationCard: cardId =>
+            workspaceNavigationController.open(cardId),
+        showInformationMessage: message =>
+            vscode.window.showInformationMessage(message),
+        showWarningMessage: message =>
+            vscode.window.showWarningMessage(message),
+    });
     // The first paint happens after bootstrap settles (see the post-ready
     // startup timer below); earlier reads of the card projection are unsafe.
     const workspaceNavigationQuickPickController = new WorkspaceNavigationQuickPickController({
@@ -1836,6 +1893,8 @@ async function initializeDashboard(
                 postOpenWorkspacesUpdated();
             }
         },
+        onRunningFocusRequest: () =>
+            runningSessionJumpHandler.jumpToNextLocalRunningSession(),
     });
     // The client outlives this generation, so a disposed bootstrap only stops
     // delivery to these handlers; it must not shut the bridge down.
@@ -2053,6 +2112,8 @@ async function initializeDashboard(
         nextActiveSession: () =>
             followAdjacentActiveConversationWithFeedback('next'),
         nextAttentionSession: () => jumpToNextAttentionSession(),
+        nextRunningSession: () =>
+            runningSessionJumpHandler.jumpToNextRunningSession(),
         switchToOpenWindow: () => workspaceNavigationQuickPickController.pickAndOpen(),
     };
 

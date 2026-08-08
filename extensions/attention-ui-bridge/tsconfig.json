@@ -17,6 +17,7 @@
         "../../src/aiSessions/tmuxCreationLock.ts",
         "../../src/openWorkspaces/pinProtocol.ts",
         "../../src/openWorkspaces/protocol.ts",
+        "../../src/openWorkspaces/runningFocusProtocol.ts",
         "../../src/workspaces/types.ts",
         "../../shared/attention-bridge/**/*.ts"
     ]

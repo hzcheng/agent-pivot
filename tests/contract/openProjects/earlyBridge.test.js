@@ -8,15 +8,19 @@ const {
 
 function makeBridge() {
     const created = [];
+    const errors = [];
     const bridge = new EarlyOpenWorkspaceBridge({
         createClient: handlers => {
             const client = { handlers, id: created.length + 1 };
             created.push(client);
             return client;
         },
-        logError: () => undefined,
+        logError: (message, error) => errors.push([
+            message,
+            error instanceof Error ? error.message : String(error),
+        ]),
     });
-    return { bridge, created };
+    return { bridge, created, errors };
 }
 
 function makeHandlers(log) {
@@ -24,6 +28,7 @@ function makeHandlers(log) {
         onAggregate: aggregate => log.push(['aggregate', aggregate]),
         onStatusChange: status => log.push(['status', status]),
         onPinSnapshot: snapshot => log.push(['pin', snapshot]),
+        onRunningFocusRequest: request => log.push(['running-focus', request]),
         onError: error => log.push(['error', error]),
     };
 }
@@ -52,6 +57,22 @@ test('OPEN-DASHBOARD-BRIDGE-LIFECYCLE-001 replays the latest pre-adoption state 
         ['pin', { revision: 1 }],
         ['aggregate', { semanticRevision: 'b' }],
     ]);
+});
+
+test('OPEN-DASHBOARD-BRIDGE-LIFECYCLE-001 drops pre-adoption running focus requests and forwards live ones', () => {
+    const { bridge, created, errors } = makeBridge();
+    const log = [];
+
+    created[0].handlers.onRunningFocusRequest({ requestId: 'early' });
+    assert.deepEqual(log, []);
+    assert.deepEqual(errors, [[
+        'Agent Pivot open workspace bridge delivered a running focus request before adoption.',
+        'running focus request dropped before adoption',
+    ]]);
+
+    bridge.adopt(makeHandlers(log));
+    created[0].handlers.onRunningFocusRequest({ requestId: 'live' });
+    assert.deepEqual(log, [['running-focus', { requestId: 'live' }]]);
 });
 
 test('OPEN-DASHBOARD-BRIDGE-LIFECYCLE-001 forwards live callbacks straight to the adopted handlers', () => {

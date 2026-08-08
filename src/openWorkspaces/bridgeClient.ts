@@ -22,6 +22,14 @@ import {
     validateOpenWorkspacePinSetOutcome,
     validateOpenWorkspacePinSnapshot,
 } from './pinProtocol';
+import {
+    createOpenWorkspaceRunningFocusRequest,
+    OPEN_WORKSPACE_RUNNING_FOCUS_DELIVER_COMMAND,
+    OPEN_WORKSPACE_RUNNING_FOCUS_REQUEST_COMMAND,
+    OpenWorkspaceRunningFocusRequest,
+    validateOpenWorkspaceRunningFocusOutcome,
+    validateOpenWorkspaceRunningFocusRequest,
+} from './runningFocusProtocol';
 
 export const OPEN_WORKSPACE_PUBLISH_COMMAND = '_agentPivotOpenWorkspaces.bridge.publish';
 export const OPEN_WORKSPACE_UNREGISTER_COMMAND = '_agentPivotOpenWorkspaces.bridge.unregister';
@@ -43,6 +51,7 @@ export type OpenWorkspaceBridgeStatus =
 
 const RETRY_DELAYS_MS = [100, 500, 2_000, 10_000, 30_000];
 const MAX_FORWARDED_DIAGNOSTIC_BYTES = 64 * 1024;
+const MAX_REMEMBERED_RUNNING_FOCUS_REQUESTS = 100;
 
 interface DisposableLike {
     dispose(): void;
@@ -69,6 +78,7 @@ export interface OpenWorkspaceBridgeClientDependencies {
     reportBridgeDiagnostic?: (event: unknown) => void;
     onStatusChange?: (status: OpenWorkspaceBridgeStatus) => void;
     onPinSnapshot?: (snapshot: OpenWorkspacePinSnapshot) => unknown;
+    onRunningFocusRequest?: (request: OpenWorkspaceRunningFocusRequest) => unknown;
 }
 
 export interface OpenWorkspaceClientDiagnosticEvent {
@@ -171,8 +181,13 @@ export default class OpenWorkspaceBridgeClient implements vscode.Disposable {
     private readonly reportBridgeDiagnostic: (event: unknown) => void;
     private readonly onStatusChange: (status: OpenWorkspaceBridgeStatus) => void;
     private readonly onPinSnapshot: (snapshot: OpenWorkspacePinSnapshot) => unknown;
+    private readonly onRunningFocusRequest: (
+        request: OpenWorkspaceRunningFocusRequest
+    ) => unknown;
+    private readonly deliveredRunningFocusRequestIds = new Set<string>();
     private readonly aggregateRegistration: DisposableLike;
     private readonly pinSnapshotRegistration: DisposableLike;
+    private readonly runningFocusRegistration: DisposableLike;
     private readonly diagnosticRegistration: DisposableLike;
     private readonly heartbeatHandle: unknown;
 
@@ -202,8 +217,10 @@ export default class OpenWorkspaceBridgeClient implements vscode.Disposable {
         this.reportBridgeDiagnostic = dependencies.reportBridgeDiagnostic || (() => undefined);
         this.onStatusChange = dependencies.onStatusChange || (() => undefined);
         this.onPinSnapshot = dependencies.onPinSnapshot || (() => undefined);
+        this.onRunningFocusRequest = dependencies.onRunningFocusRequest || (() => undefined);
         let aggregateRegistration: DisposableLike | undefined;
         let pinSnapshotRegistration: DisposableLike | undefined;
+        let runningFocusRegistration: DisposableLike | undefined;
         let diagnosticRegistration: DisposableLike | undefined;
         let heartbeatHandle: unknown;
         let heartbeatStarted = false;
@@ -215,6 +232,10 @@ export default class OpenWorkspaceBridgeClient implements vscode.Disposable {
             pinSnapshotRegistration = registerCommand(
                 OPEN_WORKSPACE_PIN_SNAPSHOT_COMMAND,
                 raw => this.receivePinSnapshot(raw),
+            );
+            runningFocusRegistration = registerCommand(
+                OPEN_WORKSPACE_RUNNING_FOCUS_DELIVER_COMMAND,
+                raw => this.receiveRunningFocusRequest(raw),
             );
             diagnosticRegistration = registerCommand(
                 OPEN_WORKSPACE_DIAGNOSTIC_COMMAND,
@@ -247,6 +268,11 @@ export default class OpenWorkspaceBridgeClient implements vscode.Disposable {
                 // Continue releasing earlier constructor acquisitions.
             }
             try {
+                runningFocusRegistration?.dispose();
+            } catch (_disposeError) {
+                // Continue releasing earlier constructor acquisitions.
+            }
+            try {
                 pinSnapshotRegistration?.dispose();
             } catch (_disposeError) {
                 // Continue releasing earlier constructor acquisitions.
@@ -260,6 +286,7 @@ export default class OpenWorkspaceBridgeClient implements vscode.Disposable {
         }
         this.aggregateRegistration = aggregateRegistration;
         this.pinSnapshotRegistration = pinSnapshotRegistration;
+        this.runningFocusRegistration = runningFocusRegistration;
         this.diagnosticRegistration = diagnosticRegistration;
         this.heartbeatHandle = heartbeatHandle;
         this.emitDiagnostic({ event: 'activate', workspaceCount: this.latestWorkspace ? 1 : 0 });
@@ -344,6 +371,75 @@ export default class OpenWorkspaceBridgeClient implements vscode.Disposable {
         return outcome;
     }
 
+    async receiveRunningFocusRequest(raw: unknown): Promise<void> {
+        if (this.disposed) { return; }
+        let request: OpenWorkspaceRunningFocusRequest;
+        try {
+            request = validateOpenWorkspaceRunningFocusRequest(raw);
+        } catch (error) {
+            // A malformed request can never become deliverable on retry, so it
+            // is acknowledged here and the bridge consumes its mailbox file.
+            try {
+                this.onError(error);
+            } catch (_reportError) {
+                // Diagnostics must never change delivery behavior.
+            }
+            return;
+        }
+        if (this.deliveredRunningFocusRequestIds.has(request.requestId)) { return; }
+        if (this.deliveredRunningFocusRequestIds.size >= MAX_REMEMBERED_RUNNING_FOCUS_REQUESTS) {
+            const oldest = this.deliveredRunningFocusRequestIds.values().next();
+            if (!oldest.done) { this.deliveredRunningFocusRequestIds.delete(oldest.value); }
+        }
+        this.deliveredRunningFocusRequestIds.add(request.requestId);
+        try {
+            await this.onRunningFocusRequest(request);
+        } catch (error) {
+            // The jump was attempted; a retry would repeat a user-visible
+            // focus change, so failures are reported but still acknowledged.
+            try {
+                this.onError(error);
+            } catch (_reportError) {
+                // Diagnostics must never change delivery behavior.
+            }
+        }
+    }
+
+    /**
+     * Hands a running-session focus request to the window owning
+     * `targetNavigationIdentity`. Returns false when the hand-off channel is
+     * unavailable (older bridge, broken handshake) so the caller can degrade
+     * to a plain window switch.
+     */
+    async requestRunningFocus(targetNavigationIdentity: string): Promise<boolean> {
+        if (this.disposed || !await this.ensureHandshake() || this.disposed) {
+            return false;
+        }
+        let request: OpenWorkspaceRunningFocusRequest;
+        try {
+            request = createOpenWorkspaceRunningFocusRequest({
+                requestId: crypto.randomBytes(16).toString('hex'),
+                targetNavigationIdentity,
+                nowMs: this.safeNow(),
+            });
+        } catch (error) {
+            this.onError(error);
+            return false;
+        }
+        try {
+            const outcome = validateOpenWorkspaceRunningFocusOutcome(
+                await this.executeCommand(OPEN_WORKSPACE_RUNNING_FOCUS_REQUEST_COMMAND, request),
+            );
+            return outcome.requestId === request.requestId
+                && outcome.targetNavigationIdentity === request.targetNavigationIdentity;
+        } catch (error) {
+            if (!this.disposed) {
+                this.onError(error);
+            }
+            return false;
+        }
+    }
+
     dispose(): void {
         void this.shutdown();
     }
@@ -354,6 +450,7 @@ export default class OpenWorkspaceBridgeClient implements vscode.Disposable {
         this.recoveryAcknowledgementRequired = false;
         this.aggregateRegistration.dispose();
         this.pinSnapshotRegistration.dispose();
+        this.runningFocusRegistration.dispose();
         this.diagnosticRegistration.dispose();
         this.clearInterval(this.heartbeatHandle);
         if (this.retryTimer !== null) { this.cancelTimeout(this.retryTimer); }

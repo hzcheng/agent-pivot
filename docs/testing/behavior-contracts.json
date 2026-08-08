@@ -772,6 +772,86 @@
     ]
   },
   {
+    "id": "AI-SESSION-NEXT-RUNNING-COMMAND-001",
+    "domain": "session",
+    "title": "The Next Running Session command cycles running AI sessions one jump per invocation with a stable local-first queue and a resilient cursor: local jumps focus the session terminal and open its conversation, sessions that ended mid-cycle are skipped with a warning, remote jumps hand a focus request through the Open Windows bridge mailbox so the owning window lands directly on a running session, the hand-off degrades to a plain window switch when the bridge predates the mailbox channel, and the command is contributed without a default keybinding",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/contract/aiSessions/runningSessionJump.test.js",
+      "tests/contract/dashboardBoundaries.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/runningQueue.ts",
+      "src/dashboard/runningSessionJump.ts",
+      "src/openWorkspaces/runningFocusProtocol.ts",
+      "src/openWorkspaces/bridgeClient.ts",
+      "src/openWorkspaces/earlyBridge.ts",
+      "extensions/attention-ui-bridge/src/openWorkspaceRunningFocusStore.ts",
+      "extensions/attention-ui-bridge/src/openWorkspaceRunningFocusCoordinator.ts",
+      "extensions/attention-ui-bridge/src/openWorkspaceCoordinator.ts",
+      "extensions/attention-ui-bridge/src/extension.ts",
+      "src/dashboard.ts",
+      "src/dashboard/commandRegistration.ts",
+      "package.json"
+    ]
+  },
+  {
+    "id": "OPEN-WORKSPACE-RUNNING-FOCUS-PROTOCOL-001",
+    "domain": "open-project",
+    "title": "Running focus hand-off requests are strictly validated one-shot mailbox records with bounded leases and correlated outcomes",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/contract/openProjects/runningFocus.test.js"
+    ],
+    "evidence": [
+      "src/openWorkspaces/runningFocusProtocol.ts"
+    ]
+  },
+  {
+    "id": "OPEN-WORKSPACE-RUNNING-FOCUS-STORE-001",
+    "domain": "persistence",
+    "title": "The running focus mailbox stores one atomically renamed file per request, sweeps expired leases on scan, ignores malformed files, and caps pending requests",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/contract/openProjects/runningFocus.test.js"
+    ],
+    "evidence": [
+      "extensions/attention-ui-bridge/src/openWorkspaceRunningFocusStore.ts"
+    ]
+  },
+  {
+    "id": "OPEN-WORKSPACE-RUNNING-FOCUS-COORDINATOR-001",
+    "domain": "open-project",
+    "title": "The bridge running focus coordinator delivers mailbox requests only from the navigation-winning window, consumes them after delivery, retries failed deliveries until the lease sweeps them, and rejects malformed submissions",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/contract/openProjects/runningFocus.test.js"
+    ],
+    "evidence": [
+      "extensions/attention-ui-bridge/src/openWorkspaceRunningFocusCoordinator.ts",
+      "extensions/attention-ui-bridge/src/openWorkspaceCoordinator.ts",
+      "extensions/attention-ui-bridge/src/extension.ts"
+    ]
+  },
+  {
+    "id": "OPEN-WORKSPACE-RUNNING-FOCUS-CLIENT-001",
+    "domain": "open-project",
+    "title": "The main-extension bridge client sends correlated running focus requests, degrades to false when the hand-off channel is unavailable, and delivers received requests exactly once while acknowledging malformed payloads",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/contract/openProjects/bridgeClient.test.js"
+    ],
+    "evidence": [
+      "src/openWorkspaces/bridgeClient.ts",
+      "src/openWorkspaces/earlyBridge.ts"
+    ]
+  },
+  {
     "id": "WEBVIEW-FAVORITE-DND-001",
     "domain": "webview",
     "title": "Favorite Dnd behavior",

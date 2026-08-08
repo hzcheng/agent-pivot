@@ -1,0 +1,262 @@
+'use strict';
+
+const assert = require('node:assert/strict');
+const test = require('node:test');
+
+const {
+    buildRunningSessionQueue,
+    getNextRunningSessionQueueItem,
+} = require('../../../out/aiSessions/runningQueue');
+const {
+    createRunningSessionJumpHandler,
+} = require('../../../out/dashboard/runningSessionJump');
+
+const WINDOW_A = 'a'.repeat(64);
+const WINDOW_B = 'b'.repeat(64);
+
+function local(provider, sessionId, name) {
+    return { provider, sessionId, name };
+}
+
+function remote(navigationIdentity, runningSessionCount = 1, cardId) {
+    return {
+        cardId: cardId || `card-${navigationIdentity.slice(0, 8)}`,
+        navigationIdentity,
+        displayName: `Window ${navigationIdentity.slice(0, 4)}`,
+        runningSessionCount,
+    };
+}
+
+function makeJumpOptions(overrides = {}) {
+    const calls = [];
+    const options = {
+        buildQueue: () => overrides.queue || { items: [], localCount: 0, remoteCount: 0, total: 0 },
+        focusSession: item => {
+            calls.push(['focus', item.provider, item.sessionId]);
+            return Promise.resolve(overrides.focusResult !== false);
+        },
+        openConversation: item => {
+            calls.push(['open', item.provider, item.sessionId]);
+            return Promise.resolve();
+        },
+        requestRemoteFocus: item => {
+            calls.push(['request', item.navigationIdentity]);
+            if (overrides.requestThrows) {
+                return Promise.reject(new Error('command is not registered'));
+            }
+            return Promise.resolve(overrides.requestResult !== false);
+        },
+        openNavigationCard: cardId => {
+            calls.push(['navigate', cardId]);
+            return Promise.resolve();
+        },
+        showInformationMessage: message => calls.push(['info', message]),
+        showWarningMessage: message => calls.push(['warn', message]),
+    };
+    return { calls, options };
+}
+
+test('AI-SESSION-NEXT-RUNNING-COMMAND-001 builds a stable local-first running queue', () => {
+    const queue = buildRunningSessionQueue({
+        localSessions: [
+            local('kimi', 'k2', 'Second'),
+            local('codex', 'c1', 'First'),
+            local('codex', 'c1', 'Duplicate'),
+            local('claude', ''),
+            { provider: 'other', sessionId: 'x' },
+            null,
+        ],
+        remoteWindows: [
+            remote(WINDOW_B, 2),
+            remote(WINDOW_A),
+            remote(WINDOW_A),
+            remote('c'.repeat(64), 0),
+            { cardId: '', navigationIdentity: '', runningSessionCount: 3 },
+        ],
+    });
+
+    assert.deepEqual(queue.items.map(item => item.key), [
+        'session:codex:c1',
+        'session:kimi:k2',
+        `window:${WINDOW_A}`,
+        `window:${WINDOW_B}`,
+    ]);
+    assert.deepEqual(
+        queue.items.map(item => item.kind),
+        ['local', 'local', 'remote', 'remote'],
+    );
+    assert.equal(queue.items[0].sessionName, 'First');
+    assert.equal(queue.items[2].cardId, `card-${'a'.repeat(8)}`);
+    assert.equal(queue.localCount, 2);
+    assert.equal(queue.remoteCount, 2);
+    assert.equal(queue.total, 4);
+});
+
+test('AI-SESSION-NEXT-RUNNING-COMMAND-001 advances the cursor with wrap-around and resets a vanished cursor', () => {
+    const queue = buildRunningSessionQueue({
+        localSessions: [local('codex', 'c1'), local('kimi', 'k1')],
+        remoteWindows: [remote(WINDOW_A)],
+    });
+    const items = queue.items;
+
+    assert.equal(getNextRunningSessionQueueItem(items, null).key, 'session:codex:c1');
+    assert.equal(
+        getNextRunningSessionQueueItem(items, 'session:codex:c1').key,
+        'session:kimi:k1',
+    );
+    assert.equal(
+        getNextRunningSessionQueueItem(items, `window:${WINDOW_A}`).key,
+        'session:codex:c1',
+    );
+    assert.equal(
+        getNextRunningSessionQueueItem(items, 'session:codex:gone').key,
+        'session:codex:c1',
+    );
+    assert.equal(getNextRunningSessionQueueItem([], null), null);
+});
+
+test('AI-SESSION-NEXT-RUNNING-COMMAND-001 cycles local sessions with focus and conversation per jump', async () => {
+    const queue = buildRunningSessionQueue({
+        localSessions: [local('codex', 'c1'), local('kimi', 'k1')],
+        remoteWindows: [],
+    });
+    const { calls, options } = makeJumpOptions({ queue });
+    const handler = createRunningSessionJumpHandler(options);
+
+    await handler.jumpToNextRunningSession();
+    await handler.jumpToNextRunningSession();
+    await handler.jumpToNextRunningSession();
+
+    assert.deepEqual(calls, [
+        ['focus', 'codex', 'c1'],
+        ['open', 'codex', 'c1'],
+        ['focus', 'kimi', 'k1'],
+        ['open', 'kimi', 'k1'],
+        ['focus', 'codex', 'c1'],
+        ['open', 'codex', 'c1'],
+    ]);
+});
+
+test('AI-SESSION-NEXT-RUNNING-COMMAND-001 skips a session that died mid-cycle instead of trapping the cursor', async () => {
+    const { calls, options } = makeJumpOptions({
+        queue: buildRunningSessionQueue({
+            localSessions: [local('codex', 'c1'), local('kimi', 'k1')],
+            remoteWindows: [],
+        }),
+        focusResult: false,
+    });
+    const handler = createRunningSessionJumpHandler(options);
+
+    await handler.jumpToNextRunningSession();
+    await handler.jumpToNextRunningSession();
+
+    assert.deepEqual(calls, [
+        ['focus', 'codex', 'c1'],
+        ['warn', 'Agent Pivot: the selected AI session is no longer active.'],
+        ['focus', 'kimi', 'k1'],
+        ['warn', 'Agent Pivot: the selected AI session is no longer active.'],
+    ]);
+});
+
+test('AI-SESSION-NEXT-RUNNING-COMMAND-001 hands off and switches windows for remote running sessions', async () => {
+    const { calls, options } = makeJumpOptions({
+        queue: buildRunningSessionQueue({
+            localSessions: [local('codex', 'c1')],
+            remoteWindows: [remote(WINDOW_A, 2)],
+        }),
+    });
+    const handler = createRunningSessionJumpHandler(options);
+
+    await handler.jumpToNextRunningSession();
+    await handler.jumpToNextRunningSession();
+    await handler.jumpToNextRunningSession();
+
+    assert.deepEqual(calls, [
+        ['focus', 'codex', 'c1'],
+        ['open', 'codex', 'c1'],
+        ['request', WINDOW_A],
+        ['navigate', `card-${'a'.repeat(8)}`],
+        ['focus', 'codex', 'c1'],
+        ['open', 'codex', 'c1'],
+    ]);
+});
+
+test('AI-SESSION-NEXT-RUNNING-COMMAND-001 degrades to a plain window switch when the hand-off channel is missing', async () => {
+    for (const overrides of [{ requestResult: false }, { requestThrows: true }]) {
+        const { calls, options } = makeJumpOptions({
+            ...overrides,
+            queue: buildRunningSessionQueue({
+                localSessions: [],
+                remoteWindows: [remote(WINDOW_A)],
+            }),
+        });
+        const handler = createRunningSessionJumpHandler(options);
+
+        await handler.jumpToNextRunningSession();
+
+        assert.deepEqual(calls, [
+            ['request', WINDOW_A],
+            ['navigate', `card-${'a'.repeat(8)}`],
+            ['info', 'Agent Pivot: switched to Window aaaa;'
+                + ' run Next Running Session again to focus a session there.'],
+        ]);
+    }
+});
+
+test('AI-SESSION-NEXT-RUNNING-COMMAND-001 reports an empty queue and an empty local scope distinctly', async () => {
+    const empty = makeJumpOptions({});
+    await createRunningSessionJumpHandler(empty.options).jumpToNextRunningSession();
+    assert.deepEqual(empty.calls, [['info', 'Agent Pivot: no running AI sessions.']]);
+
+    const remoteOnly = makeJumpOptions({
+        queue: buildRunningSessionQueue({
+            localSessions: [],
+            remoteWindows: [remote(WINDOW_A)],
+        }),
+    });
+    await createRunningSessionJumpHandler(remoteOnly.options).jumpToNextLocalRunningSession();
+    assert.deepEqual(remoteOnly.calls, [
+        ['info', 'Agent Pivot: no running AI sessions in this window.'],
+    ]);
+});
+
+test('AI-SESSION-NEXT-RUNNING-COMMAND-001 routes a focus hand-off to a local jump without leaving the window', async () => {
+    const { calls, options } = makeJumpOptions({
+        queue: buildRunningSessionQueue({
+            localSessions: [local('codex', 'c1'), local('kimi', 'k1')],
+            remoteWindows: [remote(WINDOW_A)],
+        }),
+    });
+    const handler = createRunningSessionJumpHandler(options);
+
+    await handler.jumpToNextLocalRunningSession();
+    await handler.jumpToNextLocalRunningSession();
+
+    assert.deepEqual(calls, [
+        ['focus', 'codex', 'c1'],
+        ['open', 'codex', 'c1'],
+        ['focus', 'kimi', 'k1'],
+        ['open', 'kimi', 'k1'],
+    ]);
+});
+
+test('AI-SESSION-NEXT-RUNNING-COMMAND-001 restarts at the head when the cursor session stopped', async () => {
+    let sessions = [local('codex', 'c1'), local('kimi', 'k1')];
+    const { calls, options } = makeJumpOptions({});
+    options.buildQueue = () => buildRunningSessionQueue({
+        localSessions: sessions,
+        remoteWindows: [],
+    });
+    const handler = createRunningSessionJumpHandler(options);
+
+    await handler.jumpToNextRunningSession();
+    sessions = [local('kimi', 'k1')];
+    await handler.jumpToNextRunningSession();
+
+    assert.deepEqual(calls, [
+        ['focus', 'codex', 'c1'],
+        ['open', 'codex', 'c1'],
+        ['focus', 'kimi', 'k1'],
+        ['open', 'kimi', 'k1'],
+    ]);
+});

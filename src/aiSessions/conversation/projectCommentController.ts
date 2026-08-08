@@ -21,6 +21,8 @@ import {
     updateProjectCommentText,
     validateProjectComments,
 } from './projectComments';
+import type { CommentErrorCode } from './commentPrimitives';
+import { CommentError } from './commentPrimitives';
 import type { ProjectCommentSnapshot, ProjectCommentStore } from './projectCommentStore';
 import type { ConversationViewerTarget } from './viewerTarget';
 import {
@@ -393,17 +395,13 @@ export class ProjectCommentController {
             ));
         } catch (error) {
             await this.persist(target, previousSnapshot);
-            if (error instanceof ProjectCommentError) {
-                throw error;
-            }
             // submitPrompt surfaces submission.ts failures as
-            // ConversationCommentError; preserve those user-actionable codes.
-            const code = (error as { code?: unknown })?.code;
-            if (code === 'unavailable' || code === 'busy'
-                || code === 'conflict') {
-                throw new ProjectCommentError(code);
-            }
-            throw new ProjectCommentError('failed');
+            // ConversationCommentError; both stacks' error classes share the
+            // CommentError base, so user-actionable codes survive the
+            // cross-stack hop.
+            throw error instanceof CommentError
+                ? new ProjectCommentError(error.code)
+                : new ProjectCommentError('failed');
         }
         if (this.options.getTarget() !== target) {
             throw new ProjectCommentError('stale');
@@ -642,8 +640,8 @@ function parseTagPayload(
 
 function toProjectCommentErrorCode(
     error: unknown
-): ProjectCommentError['code'] {
-    return error instanceof ProjectCommentError
+): CommentErrorCode {
+    return error instanceof CommentError
         ? error.code
         : 'failed';
 }

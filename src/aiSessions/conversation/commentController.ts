@@ -22,6 +22,8 @@ import {
     updateConversationComment,
     validateConversationComments,
 } from './comments';
+import type { CommentErrorCode } from './commentPrimitives';
+import { CommentError } from './commentPrimitives';
 import type {
     ConversationCommentSnapshot,
     ConversationCommentStore,
@@ -665,8 +667,8 @@ function parseReorderPayload(payload: unknown): string[] {
 
 function toCommentErrorCode(
     error: unknown
-): ConversationCommentError['code'] {
-    return error instanceof ConversationCommentError
+): CommentErrorCode {
+    return error instanceof CommentError
         ? error.code
         : 'failed';
 }

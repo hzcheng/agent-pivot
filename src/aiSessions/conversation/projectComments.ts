@@ -1,10 +1,30 @@
 'use strict';
 
 import type { AiSessionProviderId } from '../../models';
+import {
+    assertValidCommentTags,
+    clearCommentsByStatus,
+    CommentError,
+    CommentStatus,
+    COMMENT_MAX_ID_LENGTH,
+    createCommentValidators,
+    fencedQuote,
+    graphemeLength,
+    hasCommentTag,
+    isAiSessionProvider,
+    isBoundedId,
+    isOptionalTimestamp,
+    isRecord,
+    isTimestamp,
+    normalizeCommentTags,
+    reorderCommentsByIds,
+    withCommentTag,
+    withoutCommentTag,
+} from './commentPrimitives';
 
 export const PROJECT_COMMENT_LIMITS = Object.freeze({
     maxComments: 50,
-    maxIdLength: 512,
+    maxIdLength: COMMENT_MAX_ID_LENGTH,
     maxTextGraphemes: 4_000,
     maxQuoteGraphemes: 4_000,
     maxTagsPerComment: 5,
@@ -30,7 +50,7 @@ export interface ProjectCommentDispatch {
     at: number;
 }
 
-export type ProjectCommentStatus = 'open' | 'done';
+export type ProjectCommentStatus = CommentStatus;
 
 export interface ProjectComment {
     id: string;
@@ -51,15 +71,18 @@ export type ProjectCommentOperation =
 
 export type ProjectCommentClearOperation = 'clearDone' | 'clearAll';
 
-export class ProjectCommentError extends Error {
-    constructor(
-        readonly code: 'invalid' | 'stale' | 'limit' | 'tooLarge'
-            | 'unavailable' | 'busy' | 'conflict' | 'failed'
-    ) {
+export class ProjectCommentError extends CommentError {
+    constructor(code: CommentError['code']) {
         super(code);
         this.name = 'ProjectCommentError';
     }
 }
+
+const projectCommentFail = (code: CommentError['code']) =>
+    new ProjectCommentError(code);
+const commentValidators = createCommentValidators(projectCommentFail);
+const requireBoundedText = commentValidators.requireBoundedText;
+const requireTimestamp = commentValidators.requireTimestamp;
 
 export interface ProjectCommentDraftInput {
     text: unknown;
@@ -132,13 +155,15 @@ export function addProjectCommentTag(
     tag: unknown
 ): ProjectComment {
     const normalized = normalizeProjectCommentTags([tag]);
-    if (hasTag(comment.tags, normalized[0])) {
-        return { ...comment };
-    }
-    if (comment.tags.length >= PROJECT_COMMENT_LIMITS.maxTagsPerComment) {
-        throw new ProjectCommentError('limit');
-    }
-    return { ...comment, tags: [...comment.tags, normalized[0]] };
+    return {
+        ...comment,
+        tags: withCommentTag(
+            comment.tags,
+            normalized[0],
+            PROJECT_COMMENT_LIMITS.maxTagsPerComment,
+            projectCommentFail
+        ),
+    };
 }
 
 export function removeProjectCommentTag(
@@ -148,44 +173,22 @@ export function removeProjectCommentTag(
     if (typeof tag !== 'string') {
         throw new ProjectCommentError('invalid');
     }
-    if (!hasTag(comment.tags, tag)) {
+    if (!hasCommentTag(comment.tags, tag.trim())) {
         return { ...comment };
     }
-    const needle = tag.trim().toLowerCase();
-    return {
-        ...comment,
-        tags: comment.tags.filter(
-            candidate => candidate.toLowerCase() !== needle
-        ),
-    };
+    return { ...comment, tags: withoutCommentTag(comment.tags, tag) };
 }
 
 export function reorderProjectComments(
     comments: readonly ProjectComment[],
     orderedCommentIds: readonly string[]
 ): ProjectComment[] {
-    validateProjectComments(comments);
-    if (!Array.isArray(orderedCommentIds)
-        || orderedCommentIds.length !== comments.length) {
-        throw new ProjectCommentError('invalid');
-    }
-    const commentsById = new Map(
-        comments.map(comment => [comment.id, comment] as const)
-    );
-    const seen = new Set<string>();
-    const reordered = orderedCommentIds.map(commentId => {
-        if (typeof commentId !== 'string'
-            || seen.has(commentId)
-            || !commentsById.has(commentId)) {
-            throw new ProjectCommentError('invalid');
-        }
-        seen.add(commentId);
-        return { ...commentsById.get(commentId)! };
+    return reorderCommentsByIds({
+        comments,
+        orderedCommentIds,
+        validate: validateProjectComments,
+        fail: projectCommentFail,
     });
-    if (seen.size !== commentsById.size) {
-        throw new ProjectCommentError('invalid');
-    }
-    return reordered;
 }
 
 export function recordProjectCommentDispatch(
@@ -204,18 +207,17 @@ export function clearProjectComments(
     comments: readonly ProjectComment[],
     operation: ProjectCommentClearOperation
 ): ProjectComment[] {
-    if (!Array.isArray(comments)
-        || (operation !== 'clearDone' && operation !== 'clearAll')) {
-        throw new ProjectCommentError('invalid');
-    }
-    return comments.filter(comment => {
-        validateProjectComment(comment);
-        return operation === 'clearAll' ? false : comment.status !== 'done';
-    }).map(comment => ({
-        ...comment,
-        tags: [...comment.tags],
-        dispatches: comment.dispatches.map(dispatch => ({ ...dispatch })),
-    }));
+    return clearCommentsByStatus({
+        comments,
+        operation,
+        validateKept: validateProjectComment,
+        clone: comment => ({
+            ...comment,
+            tags: [...comment.tags],
+            dispatches: comment.dispatches.map(dispatch => ({ ...dispatch })),
+        }),
+        fail: projectCommentFail,
+    });
 }
 
 export function buildProjectCommentsPrompt(
@@ -338,21 +340,18 @@ export function validateProjectComment(comment: ProjectComment): void {
         || !isOptionalTimestamp(comment.updatedAt)
         || !isOptionalTimestamp(comment.doneAt)
         || (comment.status === 'done' && comment.doneAt === undefined)
-        || !Array.isArray(comment.tags)
-        || comment.tags.length > PROJECT_COMMENT_LIMITS.maxTagsPerComment
         || !Array.isArray(comment.dispatches)
         || comment.dispatches.length
             > PROJECT_COMMENT_LIMITS.maxDispatchesPerComment) {
         throw new ProjectCommentError('invalid');
     }
     requireBoundedText(comment.text, PROJECT_COMMENT_LIMITS.maxTextGraphemes);
-    const seenTags = new Set<string>();
-    comment.tags.forEach(tag => {
-        if (!isBoundedTag(tag) || seenTags.has(tag.toLowerCase())) {
-            throw new ProjectCommentError('invalid');
-        }
-        seenTags.add(tag.toLowerCase());
-    });
+    assertValidCommentTags(
+        comment.tags,
+        PROJECT_COMMENT_LIMITS.maxTagsPerComment,
+        PROJECT_COMMENT_LIMITS.maxTagGraphemes,
+        projectCommentFail
+    );
     if (comment.source !== undefined) {
         validateProjectCommentSource(comment.source);
     }
@@ -364,55 +363,34 @@ export function validateProjectComment(comment: ProjectComment): void {
 }
 
 export function normalizeProjectCommentTags(value: unknown): string[] {
-    if (!Array.isArray(value)
-        || value.length > PROJECT_COMMENT_LIMITS.maxTagsPerComment) {
-        throw new ProjectCommentError('invalid');
-    }
     // Case-insensitive duplicates collapse onto the first occurrence, which
     // keeps its original casing.
-    const seen = new Set<string>();
-    const normalized: string[] = [];
-    value.forEach(candidate => {
-        if (typeof candidate !== 'string') {
-            throw new ProjectCommentError('invalid');
-        }
-        const tag = candidate.replace(/\s+/g, ' ').trim();
-        if (!isBoundedTag(tag)) {
-            throw new ProjectCommentError('invalid');
-        }
-        const key = tag.toLowerCase();
-        if (!seen.has(key)) {
-            seen.add(key);
-            normalized.push(tag);
-        }
-    });
-    return normalized;
-}
-
-function hasTag(tags: readonly string[], tag: string): boolean {
-    const needle = tag.toLowerCase();
-    return tags.some(candidate => candidate.toLowerCase() === needle);
+    return normalizeCommentTags(
+        value,
+        PROJECT_COMMENT_LIMITS.maxTagsPerComment,
+        PROJECT_COMMENT_LIMITS.maxTagGraphemes,
+        projectCommentFail
+    );
 }
 
 function parseProjectCommentSource(value: unknown): ProjectCommentSource {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    if (!isRecord(value)) {
         throw new ProjectCommentError('invalid');
     }
-    const candidate = value as Record<string, unknown>;
-    const keys = Object.keys(candidate);
-    const hasQuote = candidate.quote !== undefined;
+    const keys = Object.keys(value);
+    const hasQuote = value.quote !== undefined;
     if (keys.length !== (hasQuote ? 3 : 2)
-        || !isAiSessionProvider(candidate.provider)
-        || !isBoundedId(candidate.sessionId)) {
+        || !isAiSessionProvider(value.provider)
+        || !isBoundedId(value.sessionId)) {
         throw new ProjectCommentError('invalid');
     }
     const source: ProjectCommentSource = {
-        provider: candidate.provider,
-        sessionId: candidate.sessionId,
+        provider: value.provider,
+        sessionId: value.sessionId,
     };
     if (hasQuote) {
         source.quote = requireBoundedText(
-            candidate.quote,
+            value.quote,
             PROJECT_COMMENT_LIMITS.maxQuoteGraphemes
         );
     }
@@ -426,74 +404,11 @@ function validateProjectCommentSource(source: ProjectCommentSource): void {
 function isProjectCommentDispatch(
     value: unknown
 ): value is ProjectCommentDispatch {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    if (!isRecord(value)) {
         return false;
     }
-    const candidate = value as Record<string, unknown>;
-    return Object.keys(candidate).length === 3
-        && isAiSessionProvider(candidate.provider)
-        && isBoundedId(candidate.sessionId)
-        && isTimestamp(candidate.at);
-}
-
-function isAiSessionProvider(
-    value: unknown
-): value is AiSessionProviderId {
-    return value === 'codex' || value === 'kimi' || value === 'claude';
-}
-
-function isBoundedTag(value: unknown): value is string {
-    return typeof value === 'string'
-        && value.length > 0
-        && graphemeLength(value) <= PROJECT_COMMENT_LIMITS.maxTagGraphemes
-        && !/[\u0000-\u001f\u007f]/.test(value);
-}
-
-function requireBoundedText(value: unknown, max: number): string {
-    if (typeof value !== 'string') {
-        throw new ProjectCommentError('invalid');
-    }
-    const normalized = value.replace(/\r\n?/g, '\n').trim();
-    if (!normalized || graphemeLength(normalized) > max) {
-        throw new ProjectCommentError('invalid');
-    }
-    return normalized;
-}
-
-function isTimestamp(value: unknown): value is number {
-    return typeof value === 'number'
-        && Number.isSafeInteger(value)
-        && value >= 0;
-}
-
-function requireTimestamp(value: unknown): number {
-    if (!isTimestamp(value)) {
-        throw new ProjectCommentError('invalid');
-    }
-    return value;
-}
-
-function isOptionalTimestamp(value: unknown): boolean {
-    return value === undefined || isTimestamp(value);
-}
-
-function graphemeLength(value: string): number {
-    return Array.from(value).length;
-}
-
-function isBoundedId(value: unknown): value is string {
-    return typeof value === 'string'
-        && value.length > 0
-        && value.length <= PROJECT_COMMENT_LIMITS.maxIdLength
-        && !/[\u0000-\u001f\u007f]/.test(value);
-}
-
-function fencedQuote(value: string): string {
-    const matches = value.match(/`+/g) || [];
-    const fenceLength = matches.reduce(
-        (length, match) => Math.max(length, match.length + 1),
-        3
-    );
-    const fence = '`'.repeat(fenceLength);
-    return `${fence}text\n${value}\n${fence}`;
+    return Object.keys(value).length === 3
+        && isAiSessionProvider(value.provider)
+        && isBoundedId(value.sessionId)
+        && isTimestamp(value.at);
 }

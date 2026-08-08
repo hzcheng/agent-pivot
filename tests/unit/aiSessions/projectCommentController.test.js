@@ -3,6 +3,9 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const {
+    ConversationCommentError,
+} = require('../../../out/aiSessions/conversation/comments');
+const {
     ProjectCommentController,
 } = require('../../../out/aiSessions/conversation/projectCommentController');
 
@@ -314,9 +317,7 @@ test('PROJECT-COMMENTS-CONTROLLER-001 sends every open note as one batch prompt'
 test('PROJECT-COMMENTS-CONTROLLER-001 rolls back the dispatch record when staging fails', async () => {
     const { controller, posted } = createHarness({
         submitPrompt: async () => {
-            const error = new Error('busy');
-            error.code = 'busy';
-            throw error;
+            throw new ConversationCommentError('busy');
         },
     });
     await controller.enqueue(mutation('req-add', 'add', {

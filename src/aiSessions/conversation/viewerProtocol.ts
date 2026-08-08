@@ -1,7 +1,11 @@
 'use strict';
 
 import type { AiSessionProviderId } from '../../models';
-import { CONVERSATION_COMMENT_LIMITS } from './comments';
+import {
+    isAiSessionProvider,
+    isBoundedId,
+    isRecord,
+} from './commentPrimitives';
 import { isSubagentId } from './subagentSessions';
 
 export interface ConversationViewerNavigationMessage {
@@ -288,7 +292,7 @@ export function parseConversationViewerMessage(
             || !isRequestId(value.requestId)
             || !isPositiveSafeInteger(value.subscriptionGeneration)
             || !isConversationViewerTargetId(value.projectId)
-            || !isProvider(value.provider)
+            || !isAiSessionProvider(value.provider)
             || !isConversationViewerTargetId(value.sessionId)
             || !isConversationViewerTargetId(value.commentId)) {
             return undefined;
@@ -304,7 +308,7 @@ export function parseConversationViewerMessage(
             || !isRequestId(value.requestId)
             || !isPositiveSafeInteger(value.subscriptionGeneration)
             || !isConversationViewerTargetId(value.projectId)
-            || !isProvider(value.provider)
+            || !isAiSessionProvider(value.provider)
             || !isConversationViewerTargetId(value.sessionId)
             || value.operation !== 'set'
             || !isNonnegativeSafeInteger(value.expectedRevision)
@@ -326,7 +330,7 @@ export function parseConversationViewerMessage(
             || !isRequestId(value.requestId)
             || !isPositiveSafeInteger(value.subscriptionGeneration)
             || !isConversationViewerTargetId(value.projectId)
-            || !isProvider(value.provider)
+            || !isAiSessionProvider(value.provider)
             || !isConversationViewerTargetId(value.sessionId)
             || value.operation !== 'copy'
             || !isRecord(value.payload)) {
@@ -359,7 +363,7 @@ export function parseConversationViewerMessage(
             || !isRequestId(value.requestId)
             || !isPositiveSafeInteger(value.subscriptionGeneration)
             || !isConversationViewerTargetId(value.projectId)
-            || !isProvider(value.provider)
+            || !isAiSessionProvider(value.provider)
             || !isConversationViewerTargetId(value.sessionId)
             || !isNonnegativeSafeInteger(value.expectedRevision)
             || !value.payload
@@ -410,7 +414,7 @@ export function parseConversationViewerMessage(
         || !isRequestId(value.requestId)
         || !isPositiveSafeInteger(value.subscriptionGeneration)
         || !isConversationViewerTargetId(value.projectId)
-        || !isProvider(value.provider)
+        || !isAiSessionProvider(value.provider)
         || !isConversationViewerTargetId(value.sessionId)
         || !isNonnegativeSafeInteger(value.expectedRevision)
         || !value.payload
@@ -459,20 +463,11 @@ export function hasExactKeys(
 export function isConversationViewerTargetId(
     value: unknown
 ): value is string {
-    return typeof value === 'string'
-        && value.length > 0
-        && value.length <= CONVERSATION_COMMENT_LIMITS.maxIdLength
-        && !/[\u0000-\u001f\u007f]/.test(value);
+    return isBoundedId(value);
 }
 
 function hasOwn(value: object, key: string): boolean {
     return Object.prototype.hasOwnProperty.call(value, key);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return Boolean(value)
-        && typeof value === 'object'
-        && !Array.isArray(value);
 }
 
 function isRequestId(value: unknown): value is string {
@@ -480,10 +475,6 @@ function isRequestId(value: unknown): value is string {
         && value.length > 0
         && value.length <= 128
         && /^[A-Za-z0-9._:-]+$/.test(value);
-}
-
-function isProvider(value: unknown): value is AiSessionProviderId {
-    return value === 'codex' || value === 'kimi' || value === 'claude';
 }
 
 function isPositiveSafeInteger(value: unknown): value is number {

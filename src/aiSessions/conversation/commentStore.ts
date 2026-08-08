@@ -5,6 +5,11 @@ import * as fs from 'fs';
 import * as path from 'path';
 import type { AiSessionProviderId } from '../../models';
 import {
+    isAiSessionProvider,
+    isBoundedId,
+    isRecord,
+} from './commentPrimitives';
+import {
     cloneConversationComments,
     ConversationCommentDraft,
     ConversationCommentTarget,
@@ -75,10 +80,9 @@ export class ConversationCommentFileStore implements ConversationCommentStore {
                 revision: value.revision,
                 comments: cloneConversationComments(value.comments),
             };
-        } catch (error) {
-            if (isFileNotFoundError(error)) {
-                return emptySnapshot();
-            }
+        } catch {
+            // Missing or corrupt snapshots degrade to an empty list; the
+            // controller simply starts from a clean revision.
             return emptySnapshot();
         }
     }
@@ -283,9 +287,9 @@ function isConversationCommentTarget(
     if (!isRecord(value)) {
         return false;
     }
-    return isBoundedIdentity(value.projectId)
+    return isBoundedId(value.projectId)
         && isAiSessionProvider(value.provider)
-        && isBoundedIdentity(value.sessionId);
+        && isBoundedId(value.sessionId);
 }
 
 function isValidRebind(
@@ -297,23 +301,6 @@ function isValidRebind(
         && previous.projectId === next.projectId
         && previous.provider === next.provider
         && previous.sessionId !== next.sessionId;
-}
-
-function isAiSessionProvider(value: unknown): value is AiSessionProviderId {
-    return value === 'codex' || value === 'kimi' || value === 'claude';
-}
-
-function isBoundedIdentity(value: unknown): value is string {
-    return typeof value === 'string'
-        && value.length > 0
-        && value.length <= 512
-        && !/[\u0000-\u001f\u007f]/.test(value);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return Boolean(value)
-        && typeof value === 'object'
-        && !Array.isArray(value);
 }
 
 function isFileNotFoundError(error: unknown): boolean {

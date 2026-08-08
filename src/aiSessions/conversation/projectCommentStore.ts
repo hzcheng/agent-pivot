@@ -4,6 +4,10 @@ import { createHash, randomBytes } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import {
+    isBoundedId,
+    isRecord,
+} from './commentPrimitives';
+import {
     cloneProjectComments,
     ProjectComment,
     ProjectCommentTarget,
@@ -164,20 +168,7 @@ function isPersistedSnapshot(
 function isProjectCommentTarget(
     value: unknown
 ): value is ProjectCommentTarget {
-    return isRecord(value) && isBoundedIdentity(value.projectId);
-}
-
-function isBoundedIdentity(value: unknown): value is string {
-    return typeof value === 'string'
-        && value.length > 0
-        && value.length <= 512
-        && !/[\u0000-\u001f\u007f]/.test(value);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return Boolean(value)
-        && typeof value === 'object'
-        && !Array.isArray(value);
+    return isRecord(value) && isBoundedId(value.projectId);
 }
 
 function isFileNotFoundError(error: unknown): boolean {

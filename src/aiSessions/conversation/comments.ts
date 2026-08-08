@@ -2,10 +2,26 @@
 
 import type { AiSessionProviderId } from '../../models';
 import type { ConversationMessage } from './types';
+import {
+    assertValidCommentTags,
+    clearCommentsByStatus,
+    CommentError,
+    CommentStatus,
+    COMMENT_MAX_ID_LENGTH,
+    createCommentValidators,
+    fencedQuote,
+    graphemeLength,
+    hasCommentTag,
+    isBoundedId,
+    isOptionalTimestamp,
+    reorderCommentsByIds,
+    withCommentTag,
+    withoutCommentTag,
+} from './commentPrimitives';
 
 export const CONVERSATION_COMMENT_LIMITS = Object.freeze({
     maxComments: 20,
-    maxIdLength: 512,
+    maxIdLength: COMMENT_MAX_ID_LENGTH,
     maxQuoteGraphemes: 4_000,
     maxContextGraphemes: 240,
     maxCommentGraphemes: 4_000,
@@ -36,7 +52,7 @@ export interface ConversationCommentDraft {
     sentAt?: number;
 }
 
-export type ConversationCommentStatus = 'open' | 'done';
+export type ConversationCommentStatus = CommentStatus;
 
 export interface ConversationCommentSelection {
     scope: 'selection';
@@ -60,15 +76,19 @@ export type ConversationCommentOperation =
 export type ConversationCommentClearOperation =
     'clearDone' | 'clearAll';
 
-export class ConversationCommentError extends Error {
-    constructor(
-        readonly code: 'invalid' | 'stale' | 'limit' | 'tooLarge'
-            | 'unavailable' | 'busy' | 'conflict' | 'failed'
-    ) {
+export class ConversationCommentError extends CommentError {
+    constructor(code: CommentError['code']) {
         super(code);
         this.name = 'ConversationCommentError';
     }
 }
+
+const commentValidators = createCommentValidators(
+    code => new ConversationCommentError(code)
+);
+const requireBoundedText = commentValidators.requireBoundedText;
+const optionalBoundedText = commentValidators.optionalBoundedText;
+const normalizeCommentTag = commentValidators.normalizeTag;
 
 export function createConversationComment(
     id: string,
@@ -166,58 +186,45 @@ export function clearConversationComments(
     comments: readonly ConversationCommentDraft[],
     operation: ConversationCommentClearOperation
 ): ConversationCommentDraft[] {
-    if (!Array.isArray(comments)
-        || (operation !== 'clearDone' && operation !== 'clearAll')) {
-        throw new ConversationCommentError('invalid');
-    }
-    return comments.filter(comment => {
-        validateDraft(comment);
-        return operation === 'clearAll' ? false : comment.status !== 'done';
-    }).map(comment => ({ ...comment }));
+    return clearCommentsByStatus({
+        comments,
+        operation,
+        validateKept: validateDraft,
+        clone: comment => ({ ...comment }),
+        fail: code => new ConversationCommentError(code),
+    });
 }
 
 export function reorderConversationComments(
     comments: readonly ConversationCommentDraft[],
     orderedCommentIds: readonly string[]
 ): ConversationCommentDraft[] {
-    validateConversationComments(comments);
-    if (!Array.isArray(orderedCommentIds)
-        || orderedCommentIds.length !== comments.length) {
-        throw new ConversationCommentError('invalid');
-    }
-    const commentsById = new Map(
-        comments.map(comment => [comment.id, comment] as const)
-    );
-    const seen = new Set<string>();
-    const reordered = orderedCommentIds.map(commentId => {
-        if (typeof commentId !== 'string'
-            || seen.has(commentId)
-            || !commentsById.has(commentId)) {
-            throw new ConversationCommentError('invalid');
-        }
-        seen.add(commentId);
-        return { ...commentsById.get(commentId)! };
+    return reorderCommentsByIds({
+        comments,
+        orderedCommentIds,
+        validate: validateConversationComments,
+        fail: code => new ConversationCommentError(code),
     });
-    if (seen.size !== commentsById.size) {
-        throw new ConversationCommentError('invalid');
-    }
-    return reordered;
 }
 
 export function addConversationCommentTag(
     draft: ConversationCommentDraft,
     tag: unknown
 ): ConversationCommentDraft {
-    const normalized = normalizeConversationCommentTag(tag);
+    const normalized = normalizeCommentTag(
+        tag,
+        CONVERSATION_COMMENT_LIMITS.maxTagGraphemes
+    );
     const tags = draft.tags ?? [];
-    if (tags.some(candidate => candidate.toLowerCase()
-        === normalized.toLowerCase())) {
-        return { ...draft };
-    }
-    if (tags.length >= CONVERSATION_COMMENT_LIMITS.maxTagsPerComment) {
-        throw new ConversationCommentError('limit');
-    }
-    return { ...draft, tags: [...tags, normalized] };
+    return {
+        ...draft,
+        tags: withCommentTag(
+            tags,
+            normalized,
+            CONVERSATION_COMMENT_LIMITS.maxTagsPerComment,
+            code => new ConversationCommentError(code)
+        ),
+    };
 }
 
 export function removeConversationCommentTag(
@@ -228,48 +235,10 @@ export function removeConversationCommentTag(
         throw new ConversationCommentError('invalid');
     }
     const tags = draft.tags ?? [];
-    const needle = tag.trim().toLowerCase();
-    if (!tags.some(candidate => candidate.toLowerCase() === needle)) {
+    if (!hasCommentTag(tags, tag.trim())) {
         return { ...draft };
     }
-    return {
-        ...draft,
-        tags: tags.filter(
-            candidate => candidate.toLowerCase() !== needle
-        ),
-    };
-}
-
-function normalizeConversationCommentTag(value: unknown): string {
-    if (typeof value !== 'string') {
-        throw new ConversationCommentError('invalid');
-    }
-    const normalized = value.replace(/\s+/g, ' ').trim();
-    if (!normalized
-        || graphemeLength(normalized)
-            > CONVERSATION_COMMENT_LIMITS.maxTagGraphemes
-        || /[\u0000-\u001f\u007f]/.test(normalized)) {
-        throw new ConversationCommentError('invalid');
-    }
-    return normalized;
-}
-
-function validateDraftTags(tags: string[] | undefined): void {
-    if (tags === undefined) {
-        return;
-    }
-    if (!Array.isArray(tags)
-        || tags.length > CONVERSATION_COMMENT_LIMITS.maxTagsPerComment) {
-        throw new ConversationCommentError('invalid');
-    }
-    const seen = new Set<string>();
-    tags.forEach(tag => {
-        normalizeConversationCommentTag(tag);
-        if (seen.has(tag.toLowerCase())) {
-            throw new ConversationCommentError('invalid');
-        }
-        seen.add(tag.toLowerCase());
-    });
+    return { ...draft, tags: withoutCommentTag(tags, tag) };
 }
 
 export function buildConversationCommentsPrompt(
@@ -391,52 +360,14 @@ function validateDraft(draft: ConversationCommentDraft): void {
     );
 }
 
-function requireBoundedText(value: unknown, max: number): string {
-    if (typeof value !== 'string') {
-        throw new ConversationCommentError('invalid');
+function validateDraftTags(tags: string[] | undefined): void {
+    if (tags === undefined) {
+        return;
     }
-    const normalized = value.replace(/\r\n?/g, '\n').trim();
-    if (!normalized || graphemeLength(normalized) > max) {
-        throw new ConversationCommentError('invalid');
-    }
-    return normalized;
-}
-
-function optionalBoundedText(value: unknown, max: number): string {
-    if (typeof value !== 'string') {
-        throw new ConversationCommentError('invalid');
-    }
-    const normalized = value.replace(/\r\n?/g, '\n');
-    if (graphemeLength(normalized) > max) {
-        throw new ConversationCommentError('invalid');
-    }
-    return normalized;
-}
-
-function isOptionalTimestamp(value: unknown): boolean {
-    return value === undefined
-        || (typeof value === 'number'
-            && Number.isSafeInteger(value)
-            && value >= 0);
-}
-
-function graphemeLength(value: string): number {
-    return Array.from(value).length;
-}
-
-function isBoundedId(value: unknown): value is string {
-    return typeof value === 'string'
-        && value.length > 0
-        && value.length <= CONVERSATION_COMMENT_LIMITS.maxIdLength
-        && !/[\u0000-\u001f\u007f]/.test(value);
-}
-
-function fencedQuote(value: string): string {
-    const matches = value.match(/`+/g) || [];
-    const fenceLength = matches.reduce(
-        (length, match) => Math.max(length, match.length + 1),
-        3
+    assertValidCommentTags(
+        tags,
+        CONVERSATION_COMMENT_LIMITS.maxTagsPerComment,
+        CONVERSATION_COMMENT_LIMITS.maxTagGraphemes,
+        code => new ConversationCommentError(code)
     );
-    const fence = '`'.repeat(fenceLength);
-    return `${fence}text\n${value}\n${fence}`;
 }

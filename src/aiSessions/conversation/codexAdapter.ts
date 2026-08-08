@@ -669,11 +669,13 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         this.telemetryReads.set(sessionId, read);
         try {
             const value = await read;
-            this.makeRoomForTelemetrySession(sessionId);
-            this.telemetryCache.set(sessionId, {
-                readAt: Date.now(),
-                value,
-            });
+            if (!this.disposed) {
+                this.makeRoomForTelemetrySession(sessionId);
+                this.telemetryCache.set(sessionId, {
+                    readAt: Date.now(),
+                    value,
+                });
+            }
             return value;
         } finally {
             if (this.telemetryReads.get(sessionId) === read) {

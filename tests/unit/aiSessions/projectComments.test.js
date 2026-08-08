@@ -5,14 +5,19 @@ const test = require('node:test');
 const {
     addProjectCommentTag,
     buildProjectCommentPrompt,
+    buildProjectCommentsPrompt,
+    clearProjectComments,
+    cloneProjectComments,
     collectProjectCommentTagVocabulary,
     createProjectComment,
+    normalizeProjectCommentTags,
     PROJECT_COMMENT_LIMITS,
     recordProjectCommentDispatch,
     removeProjectCommentTag,
     reorderProjectComments,
     setProjectCommentStatus,
     updateProjectCommentText,
+    validateProjectComment,
     validateProjectComments,
 } = require('../../../out/aiSessions/conversation/projectComments');
 
@@ -187,6 +192,127 @@ test('PROJECT-COMMENTS-001 builds the dispatch prompt with tag and source branch
     }));
     assert.match(sourceWithoutQuote, /出处（来自 kimi session 的记录）：/);
     assert.doesNotMatch(sourceWithoutQuote, /```/);
+});
+
+test('PROJECT-COMMENTS-001 builds the batch prompt with numbered headers, tags, and source blocks', () => {
+    const prompt = buildProjectCommentsPrompt([
+        makeComment({ id: 'note-1', text: 'First note.', tags: ['bug'] }),
+        makeComment({
+            id: 'note-2',
+            text: 'Second note.',
+            tags: [],
+            source: {
+                provider: 'kimi',
+                sessionId: 'session-9',
+                quote: 'quoted output',
+            },
+        }),
+    ]);
+    assert.match(prompt, /请处理下面这些项目笔记/);
+    assert.match(prompt, /请逐项回应/);
+    assert.match(prompt, /\[项目笔记 1\]（标签：bug）\nFirst note\./);
+    assert.match(prompt, /\[项目笔记 2\]\nSecond note\./);
+    assert.match(
+        prompt,
+        /出处（来自 kimi session 的记录）：\n```text\nquoted output\n```/
+    );
+
+    assert.throws(
+        () => buildProjectCommentsPrompt([]),
+        /invalid/
+    );
+});
+
+test('PROJECT-COMMENTS-001 clears done or all notes with deep-copied survivors', () => {
+    const comments = [
+        makeComment({
+            id: 'note-open',
+            dispatches: [{ provider: 'codex', sessionId: 'session-a', at: 1 }],
+        }),
+        makeComment({ id: 'note-done', status: 'done', doneAt: 2000 }),
+    ];
+
+    const kept = clearProjectComments(comments, 'clearDone');
+    assert.deepEqual(kept.map(comment => comment.id), ['note-open']);
+    assert.deepEqual(
+        comments.map(comment => comment.id),
+        ['note-open', 'note-done']
+    );
+
+    kept[0].tags.push('mutated');
+    kept[0].dispatches[0].sessionId = 'mutated';
+    assert.deepEqual(comments[0].tags, ['bug']);
+    assert.equal(comments[0].dispatches[0].sessionId, 'session-a');
+
+    assert.deepEqual(clearProjectComments(comments, 'clearAll'), []);
+    assert.throws(
+        () => clearProjectComments(comments, 'clearSent'),
+        /invalid/
+    );
+});
+
+test('PROJECT-COMMENTS-001 clones notes with deep-copied tags, source, and dispatches', () => {
+    const original = [makeComment({
+        source: { provider: 'codex', sessionId: 'session-a', quote: 'q' },
+        dispatches: [{ provider: 'kimi', sessionId: 'session-b', at: 5 }],
+    })];
+
+    const cloned = cloneProjectComments(original);
+    assert.deepEqual(cloned, original);
+    assert.notEqual(cloned[0], original[0]);
+    assert.notEqual(cloned[0].tags, original[0].tags);
+    assert.notEqual(cloned[0].source, original[0].source);
+    assert.notEqual(cloned[0].dispatches, original[0].dispatches);
+    assert.notEqual(cloned[0].dispatches[0], original[0].dispatches[0]);
+
+    cloned[0].tags.push('mutated');
+    cloned[0].source.quote = 'mutated';
+    cloned[0].dispatches[0].sessionId = 'mutated';
+    assert.deepEqual(original[0].tags, ['bug']);
+    assert.equal(original[0].source.quote, 'q');
+    assert.equal(original[0].dispatches[0].sessionId, 'session-b');
+});
+
+test('PROJECT-COMMENTS-001 validates single notes with status timestamps and dispatch shape', () => {
+    validateProjectComment(makeComment());
+    validateProjectComment(makeComment({ status: 'done', doneAt: 2000 }));
+
+    assert.throws(
+        () => validateProjectComment(makeComment({ status: 'done' })),
+        /invalid/
+    );
+    assert.throws(
+        () => validateProjectComment(makeComment({
+            dispatches: [{ provider: 'gpt', sessionId: 'session-a', at: 1 }],
+        })),
+        /invalid/
+    );
+    assert.throws(
+        () => validateProjectComment(makeComment({
+            dispatches: [{ provider: 'codex', sessionId: 'session-a' }],
+        })),
+        /invalid/
+    );
+});
+
+test('PROJECT-COMMENTS-001 normalizes tag input with whitespace collapse and first-casing dedupe', () => {
+    assert.deepEqual(
+        normalizeProjectCommentTags(['  Two   Words ', 'two words']),
+        ['Two Words']
+    );
+    assert.deepEqual(
+        normalizeProjectCommentTags(['bug', 'BUG', 'Bug']),
+        ['bug']
+    );
+    assert.deepEqual(normalizeProjectCommentTags([]), []);
+    assert.throws(
+        () => normalizeProjectCommentTags(['a', 'b', 'c', 'd', 'e', 'f']),
+        /invalid/
+    );
+    assert.throws(
+        () => normalizeProjectCommentTags(['   ']),
+        /invalid/
+    );
 });
 
 test('PROJECT-COMMENTS-001 reorders notes only through a full permutation', () => {

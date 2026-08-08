@@ -74,15 +74,37 @@ const MAX_LISTED_SUBAGENTS = 64;
 const SUBAGENT_DIRECTORY_PATTERN = /^[0-9a-z][0-9a-z-]{0,63}$/i;
 const SUBAGENT_RUNNING_FRESHNESS_MS = 5 * 60 * 1000;
 
-function extractShellWorkingDirectories(value: string): string[] {
+function extractShellWorkingDirectories(
+    value: string,
+    baseCwd?: string
+): string[] {
     const paths = new Set<string>();
     const pattern = new RegExp(SHELL_CD_PATTERN.source, 'g');
     let match: RegExpExecArray | null;
+    // The Shell tool runs every command with cwd = session work_dir, so a
+    // relative cd resolves against the session directory; within one
+    // command, each resolved cd becomes the base for the next.
+    let base = baseCwd;
     while ((match = pattern.exec(value)) !== null) {
         const candidate = match[1] || match[2] || match[3] || '';
-        if (candidate.startsWith('/') && candidate.length <= 1024) {
-            paths.add(candidate);
+        if (!candidate
+            || candidate.startsWith('~')
+            || candidate.includes('$')) {
+            continue;
         }
+        let resolved: string;
+        if (candidate.startsWith('/')) {
+            resolved = candidate;
+        } else if (base) {
+            resolved = path.resolve(base, candidate);
+        } else {
+            continue;
+        }
+        if (resolved.length > 1024) {
+            continue;
+        }
+        paths.add(resolved);
+        base = resolved;
     }
     return Array.from(paths);
 }
@@ -935,7 +957,8 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                             if (typeof args?.command === 'string') {
                                 telemetryPaths.push(
                                     ...extractShellWorkingDirectories(
-                                        args.command
+                                        args.command,
+                                        effectiveCandidate.cwd
                                     )
                                 );
                                 if (telemetryPaths.length

@@ -1754,6 +1754,79 @@ test('CONVERSATION-TELEMETRY-001 Kimi resolves the worktree from Shell cwd signa
     assert.deepEqual(calls, ['/repo/.worktree/feat']);
 });
 
+test('CONVERSATION-TELEMETRY-001 Kimi resolves relative Shell cd targets against the session working directory', async t => {
+    const source = await createFixture(t);
+    source.cwd = '/repo';
+    const calls = [];
+    const adapter = createAdapter(source, {
+        resolveWorktree: async candidate => {
+            calls.push(candidate);
+            return candidate === '/repo/.worktree/feat-x'
+                ? {
+                    branch: 'feat-x',
+                    worktreeRoot: candidate,
+                    repoRoot: '/repo',
+                }
+                : candidate === '/repo'
+                    ? {
+                        branch: 'main',
+                        worktreeRoot: '/repo',
+                        repoRoot: '/repo',
+                    }
+                    : undefined;
+        },
+    });
+    t.after(() => adapter.dispose());
+
+    await fs.promises.appendFile(source.sourcePath, [
+        JSON.stringify({
+            timestamp: 5000,
+            message: {
+                type: 'ToolCall',
+                payload: {
+                    type: 'function',
+                    id: 'Shell_rel_1',
+                    function: {
+                        name: 'Shell',
+                        arguments: JSON.stringify({
+                            command: 'cd .worktree/feat-x && npm test',
+                        }),
+                    },
+                },
+            },
+        }),
+        JSON.stringify({
+            timestamp: 6000,
+            message: {
+                type: 'ToolCall',
+                payload: {
+                    type: 'function',
+                    id: 'Shell_rel_2',
+                    function: {
+                        name: 'Shell',
+                        arguments: JSON.stringify({
+                            // Unresolvable forms must not corrupt the base.
+                            command: 'cd ~ && cd "$SOME_DIR" && cd .worktree/feat-y',
+                        }),
+                    },
+                },
+            },
+        }),
+        '',
+    ].join('\n'));
+
+    const telemetry = await adapter.readTelemetry(sessionId);
+    assert.equal(
+        telemetry.worktree?.branch,
+        'feat-x',
+        'the newest resolvable relative-cd worktree wins'
+    );
+    assert.deepEqual(calls.filter(candidate => candidate.includes('feat')), [
+        '/repo/.worktree/feat-y',
+        '/repo/.worktree/feat-x',
+    ]);
+});
+
 test('CONVERSATION-TELEMETRY-001 Kimi falls back to the Session working directory when no Shell command changes cwd', async t => {
     const source = await createFixture(t);
     source.cwd = '/repo/.worktree/session-cwd';

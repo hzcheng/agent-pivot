@@ -27,7 +27,9 @@ const publicCommands = [
     'agentPivot.nextActiveSession',
     'agentPivot.nextAttentionSession',
     'agentPivot.nextRunningSession',
-    'agentPivot.switchToOpenWindow',
+    'agentPivot.switchToAiSession',
+    'agentPivot.toggleLastAiSession',
+    'agentPivot.switchToOpenWindow'
 ];
 
 function loadSuite(vscode) {

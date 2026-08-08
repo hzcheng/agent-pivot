@@ -23,7 +23,9 @@ const PUBLIC_COMMANDS = [
     'agentPivot.previousActiveSession',
     'agentPivot.nextActiveSession',
     'agentPivot.nextRunningSession',
-    'agentPivot.switchToOpenWindow',
+    'agentPivot.switchToAiSession',
+    'agentPivot.toggleLastAiSession',
+    'agentPivot.switchToOpenWindow'
 ];
 
 async function verifyExtensionHostLifecycle() {

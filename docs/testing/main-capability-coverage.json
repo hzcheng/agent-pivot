@@ -1673,6 +1673,18 @@
             ],
             "scheduledJobs": [],
             "realEnvironmentRequired": false
+        },
+        {
+            "id": "MAIN-AI-SESSION-QUICK-SWITCH",
+            "title": "AI session quick switch and MRU toggle",
+            "requirement": "The Switch to AI Session picker lists every live local session most-recently-focused first plus one entry per other window with running sessions, jumping locally with terminal focus and conversation open or handing off through the focus mailbox with plain-navigation degradation, and Toggle Last AI Session alternates the two most recently focused local sessions from a terminal-focus-fed MRU that prunes dead sessions.",
+            "commits": [],
+            "behaviors": [],
+            "prGates": [
+                "test:deterministic:run"
+            ],
+            "scheduledJobs": [],
+            "realEnvironmentRequired": false
         }
     ]
 }

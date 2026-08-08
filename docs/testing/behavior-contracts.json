@@ -797,6 +797,24 @@
     ]
   },
   {
+    "id": "AI-SESSION-QUICK-SWITCH-COMMANDS-001",
+    "domain": "session",
+    "title": "The Switch to AI Session picker lists every live local session most-recently-focused first plus one entry per other window with running sessions, jumping locally with terminal focus and conversation open or handing off through the focus mailbox with plain-navigation degradation, while Toggle Last AI Session alternates the two most recently focused local sessions from a terminal-focus-fed MRU that prunes dead sessions, and both commands are contributed without default keybindings",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/contract/aiSessions/sessionQuickSwitch.test.js",
+      "tests/contract/dashboardBoundaries.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/sessionMru.ts",
+      "src/dashboard/sessionQuickSwitch.ts",
+      "src/dashboard.ts",
+      "src/dashboard/commandRegistration.ts",
+      "package.json"
+    ]
+  },
+  {
     "id": "OPEN-WORKSPACE-RUNNING-FOCUS-PROTOCOL-001",
     "domain": "open-project",
     "title": "Running focus hand-off requests are strictly validated one-shot mailbox records with bounded leases and correlated outcomes",

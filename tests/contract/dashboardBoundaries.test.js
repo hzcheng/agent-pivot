@@ -375,6 +375,8 @@ const DASHBOARD_COMMANDS = [
     'agentPivot.previousActiveSession', 'agentPivot.nextActiveSession',
     'agentPivot.nextAttentionSession',
     'agentPivot.nextRunningSession',
+    'agentPivot.switchToAiSession',
+    'agentPivot.toggleLastAiSession',
     'agentPivot.switchToOpenWindow',
 ];
 
@@ -396,6 +398,8 @@ test('WEBVIEW-DASHBOARD-COMMAND-REGISTRATION-001 WEBVIEW-DASHBOARD-COMMAND-AVAIL
         'previousActiveSession', 'nextActiveSession',
         'nextAttentionSession',
         'nextRunningSession',
+        'switchToAiSession',
+        'toggleLastAiSession',
         'switchToOpenWindow',
     ];
     const facade = new DashboardCommandRegistration({
@@ -522,6 +526,30 @@ test('AI-SESSION-NEXT-RUNNING-COMMAND-001 contributes the next-running command w
     assert.deepEqual(
         manifest.contributes.keybindings.filter(
             keybinding => keybinding.command === 'agentPivot.nextRunningSession'
+        ),
+        []
+    );
+});
+
+test('AI-SESSION-QUICK-SWITCH-COMMANDS-001 contributes the session switch and toggle commands without default keybindings', () => {
+    const manifest = require('../../package.json');
+    const commands = manifest.contributes.commands.filter(command =>
+        command.command === 'agentPivot.switchToAiSession'
+            || command.command === 'agentPivot.toggleLastAiSession'
+    );
+    assert.deepEqual(commands, [
+        {
+            command: 'agentPivot.switchToAiSession',
+            title: 'Agent Pivot: Switch to AI Session',
+        },
+        {
+            command: 'agentPivot.toggleLastAiSession',
+            title: 'Agent Pivot: Toggle Last AI Session',
+        },
+    ]);
+    assert.deepEqual(
+        manifest.contributes.keybindings.filter(binding =>
+            commands.some(command => command.command === binding.command)
         ),
         []
     );

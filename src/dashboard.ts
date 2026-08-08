@@ -84,6 +84,12 @@ import {
     createRunningSessionJumpHandler,
 } from './dashboard/runningSessionJump';
 import {
+    createAiSessionQuickSwitchHandlers,
+} from './dashboard/sessionQuickSwitch';
+import {
+    createAiSessionMruTracker,
+} from './aiSessions/sessionMru';
+import {
     buildRunningSessionQueue,
 } from './aiSessions/runningQueue';
 import type { ActiveAiSessionTerminalIdentity } from './aiSessions/activeTerminalHighlight';
@@ -1809,6 +1815,34 @@ async function initializeDashboard(
         showWarningMessage: message =>
             vscode.window.showWarningMessage(message),
     });
+    const focusAiSessionForJump = (target: {
+        provider: AiSessionProviderId;
+        sessionId: string;
+    }): Promise<boolean> => {
+        const cardId = getCurrentWorkspaceActionTargetWithoutCardId()?.cardId;
+        return cardId
+            ? aiSessionTerminalCommandController.focusActive(
+                cardId,
+                target.provider,
+                target.sessionId
+            )
+            : Promise.resolve(false);
+    };
+    const openAiSessionConversationForJump = (target: {
+        provider: AiSessionProviderId;
+        sessionId: string;
+    }): Promise<void> => {
+        const cardId = getCurrentWorkspaceActionTargetWithoutCardId()?.cardId;
+        return cardId
+            ? openAiSessionConversationWithFeedback({
+                projectId: cardId,
+                provider: target.provider,
+                sessionId: target.sessionId,
+            })
+            : Promise.resolve();
+    };
+    const requestRemoteAiSessionFocus = (navigationIdentity: string): Promise<boolean> =>
+        openWorkspaceBridgeClient.requestRunningFocus(navigationIdentity);
     const runningSessionJumpHandler = createRunningSessionJumpHandler({
         buildQueue: () => buildRunningSessionQueue({
             localSessions: (getCurrentWorkspaceActionTargetWithoutCardId()
@@ -1830,28 +1864,53 @@ async function initializeDashboard(
                     runningSessionCount: card.runningSessionCount,
                 })),
         }),
-        focusSession: item => {
-            const cardId = getCurrentWorkspaceActionTargetWithoutCardId()?.cardId;
-            return cardId
-                ? aiSessionTerminalCommandController.focusActive(
-                    cardId,
-                    item.provider,
-                    item.sessionId
-                )
-                : Promise.resolve(false);
-        },
-        openConversation: item => {
-            const cardId = getCurrentWorkspaceActionTargetWithoutCardId()?.cardId;
-            return cardId
-                ? openAiSessionConversationWithFeedback({
-                    projectId: cardId,
-                    provider: item.provider,
-                    sessionId: item.sessionId,
-                })
-                : Promise.resolve();
-        },
+        focusSession: focusAiSessionForJump,
+        openConversation: openAiSessionConversationForJump,
         requestRemoteFocus: item =>
-            openWorkspaceBridgeClient.requestRunningFocus(item.navigationIdentity),
+            requestRemoteAiSessionFocus(item.navigationIdentity),
+        openNavigationCard: cardId =>
+            workspaceNavigationController.open(cardId),
+        showInformationMessage: message =>
+            vscode.window.showInformationMessage(message),
+        showWarningMessage: message =>
+            vscode.window.showWarningMessage(message),
+    });
+    // Every jump path focuses a terminal, so this single listener keeps the
+    // MRU truthful for command jumps and manual terminal clicks alike.
+    const aiSessionMru = createAiSessionMruTracker({ now: () => Date.now() });
+    ownResource(() => vscode.window.onDidChangeActiveTerminal(() => {
+        const identity = getFocusedAiSessionRuntimeIdentity();
+        if (identity?.sessionId) {
+            aiSessionMru.record(identity.provider, identity.sessionId);
+        }
+    }));
+    const aiSessionQuickSwitchHandlers = createAiSessionQuickSwitchHandlers({
+        getLocalSessions: () => getCurrentWorkspaceActionTargetWithoutCardId()
+            ?.sessions.activeSessions || [],
+        getRemoteWindows: () => openWorkspaceDashboardController.getCards()
+            .filter(card => card.kind === 'navigation'
+                && card.runningSessionCount > 0)
+            .map(card => ({
+                cardId: card.id,
+                navigationIdentity: card.navigationIdentity,
+                displayName: card.name,
+                runningSessionCount: card.runningSessionCount,
+            })),
+        getFocusedSessionKey: () => {
+            const identity = getFocusedAiSessionRuntimeIdentity();
+            return identity?.sessionId
+                ? getAiSessionKey(identity.provider, identity.sessionId)
+                : null;
+        },
+        mru: aiSessionMru,
+        showPick: async (items, placeHolder) => vscode.window.showQuickPick([...items], {
+            placeHolder,
+            matchOnDescription: true,
+        }),
+        focusSession: focusAiSessionForJump,
+        openConversation: openAiSessionConversationForJump,
+        requestRemoteFocus: target =>
+            requestRemoteAiSessionFocus(target.navigationIdentity),
         openNavigationCard: cardId =>
             workspaceNavigationController.open(cardId),
         showInformationMessage: message =>
@@ -2114,6 +2173,10 @@ async function initializeDashboard(
         nextAttentionSession: () => jumpToNextAttentionSession(),
         nextRunningSession: () =>
             runningSessionJumpHandler.jumpToNextRunningSession(),
+        switchToAiSession: () =>
+            aiSessionQuickSwitchHandlers.switchToAiSession(),
+        toggleLastAiSession: () =>
+            aiSessionQuickSwitchHandlers.toggleLastAiSession(),
         switchToOpenWindow: () => workspaceNavigationQuickPickController.pickAndOpen(),
     };
 

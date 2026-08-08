@@ -24,6 +24,8 @@ export interface DashboardCommandHandlers {
     nextActiveSession: DashboardCommandHandler;
     nextAttentionSession: DashboardCommandHandler;
     nextRunningSession: DashboardCommandHandler;
+    switchToAiSession: DashboardCommandHandler;
+    toggleLastAiSession: DashboardCommandHandler;
     switchToOpenWindow: DashboardCommandHandler;
 }
 
@@ -56,6 +58,8 @@ const DASHBOARD_COMMANDS: ReadonlyArray<readonly [string, DashboardCommandName]>
     ['agentPivot.nextActiveSession', 'nextActiveSession'],
     ['agentPivot.nextAttentionSession', 'nextAttentionSession'],
     ['agentPivot.nextRunningSession', 'nextRunningSession'],
+    ['agentPivot.switchToAiSession', 'switchToAiSession'],
+    ['agentPivot.toggleLastAiSession', 'toggleLastAiSession'],
     ['agentPivot.switchToOpenWindow', 'switchToOpenWindow'],
 ];
 

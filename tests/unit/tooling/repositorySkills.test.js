@@ -122,6 +122,18 @@ test('ARCH-REPOSITORY-SKILL-GUIDANCE-001 installs dependencies inside fresh work
     ]);
 });
 
+test('ARCH-REPOSITORY-SKILL-GUIDANCE-001 syncs exact command and packaging registries on surface changes', () => {
+    const skill = readSkill('.skills/registering-extension-commands/SKILL.md');
+
+    assertSkillMentions(skill, [
+        ['sibling probe over memory', /sibling entry instead of trusting[\s\S]*memory[\s\S]*grep -rln/i],
+        ['command registry sync points', /commandRegistration\.ts[\s\S]*dashboardBoundaries\.test\.js[\s\S]*run-dashboard-webview-checks\.js/i],
+        ['reviewed VSIX list sync', /out\/openWorkspaces[\s\S]*run-release-packaging-checks\.js/i],
+        ['bridge tsconfig include list', /attention-ui-bridge[\s\S]*tsconfig\.json[\s\S]*include/i],
+        ['real exit codes', /pipefail[\s\S]*never pipe[\s\S]*tail/i],
+    ]);
+});
+
 
 test('ARCH-REPOSITORY-SKILL-GUIDANCE-001 verifies provider adapters against real on-disk data', () => {
     const skill = readSkill('.skills/developing-provider-conversation-adapters/SKILL.md');

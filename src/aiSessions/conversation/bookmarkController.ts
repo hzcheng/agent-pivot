@@ -1,66 +1,52 @@
 'use strict';
 
-import * as vscode from 'vscode';
 import {
     ConversationBookmarkSnapshot,
     ConversationBookmarkStore,
+    ConversationBookmarkTarget,
     isConversationBookmarkSnapshot,
     MAX_CONVERSATION_BOOKMARKS,
 } from './bookmarkStore';
+import type { CommentErrorCode } from './commentPrimitives';
+import { CommentError } from './commentPrimitives';
+import {
+    QueuedMutationController,
+    QueuedMutationControllerOptions,
+    QueuedMutationResultBase,
+} from './queuedMutationController';
 import type { ConversationOutline } from './types';
 import type { ConversationViewerTarget } from './viewerTarget';
 import type {
     ConversationViewerBookmarkMutationMessage,
 } from './viewerProtocol';
 
-interface ConversationViewerBookmarksResultMessage {
+interface ConversationViewerBookmarksResultMessage
+    extends QueuedMutationResultBase {
     type: 'conversation-viewer-bookmarks-result';
-    version: 1;
-    requestId: string;
-    subscriptionGeneration: number;
-    projectId: string;
-    provider: ConversationViewerTarget['provider'];
-    sessionId: string;
     operation: 'set';
-    success: boolean;
-    revision: number;
     interactionIds: string[];
     error?: 'invalid' | 'stale' | 'failed' | 'limit';
 }
 
-export interface ConversationBookmarkControllerOptions {
+export interface ConversationBookmarkControllerOptions
+    extends QueuedMutationControllerOptions {
     bookmarkStore?: ConversationBookmarkStore;
-    getTarget: () => ConversationViewerTarget | undefined;
-    getSubscriptionGeneration: () => number;
-    getPanel: () => vscode.WebviewPanel | undefined;
     getOutline: () => ConversationOutline | undefined;
-    rebuildLatestDocument: () => void;
 }
 
-export class ConversationBookmarkController {
+export class ConversationBookmarkController extends QueuedMutationController<
+    ConversationBookmarkTarget,
+    ConversationBookmarkSnapshot,
+    ConversationViewerBookmarkMutationMessage,
+    ConversationViewerBookmarksResultMessage
+> {
+    protected readonly options: ConversationBookmarkControllerOptions;
     private interactionIds = new Set<string>();
-    private revision = 0;
-    private operationQueue: Promise<void> = Promise.resolve();
     private mutationsFrozen = false;
-    private readonly settlements =
-        new Map<string, ConversationViewerBookmarksResultMessage>();
 
-    constructor(
-        private readonly options: ConversationBookmarkControllerOptions
-    ) {}
-
-    get snapshot(): ConversationBookmarkSnapshot {
-        return {
-            revision: this.revision,
-            interactionIds: [...this.interactionIds],
-        };
-    }
-
-    reset(): void {
-        this.mutationsFrozen = false;
-        this.interactionIds.clear();
-        this.revision = 0;
-        this.settlements.clear();
+    constructor(options: ConversationBookmarkControllerOptions) {
+        super(options);
+        this.options = options;
     }
 
     async freezeMutations(): Promise<void> {
@@ -68,72 +54,61 @@ export class ConversationBookmarkController {
         await this.drainMutations();
     }
 
-    async drainMutations(): Promise<void> {
-        await this.operationQueue;
+    protected isMutationsFrozen(): boolean {
+        return this.mutationsFrozen;
     }
 
-    enqueue(
-        request: ConversationViewerBookmarkMutationMessage
-    ): Promise<void> {
-        const operation = () => this.handleOperation(request);
-        const queued = this.operationQueue.then(operation, operation);
-        this.operationQueue = queued.catch(() => undefined);
-        return queued;
+    protected readonly resultType: 'conversation-viewer-bookmarks-result'
+        = 'conversation-viewer-bookmarks-result';
+
+    protected getStore(): ConversationBookmarkStore | undefined {
+        return this.options.bookmarkStore;
     }
 
-    async restore(
-        target: ConversationViewerTarget,
-        generation: number
-    ): Promise<void> {
-        if (!this.options.bookmarkStore) {
-            return;
-        }
-        let snapshot: ConversationBookmarkSnapshot;
-        try {
-            snapshot = await this.options.bookmarkStore.load(
-                toBookmarkTarget(target)
-            );
-            if (!isConversationBookmarkSnapshot(snapshot)) {
-                return;
-            }
-        } catch (_error) {
-            return;
-        }
-        if (this.options.getTarget() !== target
-            || this.options.getSubscriptionGeneration() !== generation) {
-            return;
-        }
+    protected toStoreTarget(
+        target: ConversationViewerTarget
+    ): ConversationBookmarkTarget {
+        return {
+            projectId: target.projectId,
+            provider: target.provider,
+            sessionId: target.sessionId,
+        };
+    }
+
+    protected makeError(code: CommentErrorCode): CommentError {
+        return new CommentError(code);
+    }
+
+    protected statePayload(): object {
+        return { interactionIds: [...this.interactionIds] };
+    }
+
+    protected validateRestoredSnapshot(
+        snapshot: ConversationBookmarkSnapshot
+    ): boolean {
+        return isConversationBookmarkSnapshot(snapshot);
+    }
+
+    protected applyRestoredSnapshot(
+        snapshot: ConversationBookmarkSnapshot
+    ): void {
         this.interactionIds = new Set(snapshot.interactionIds);
-        this.revision = snapshot.revision;
     }
 
-    private async handleOperation(
-        request: ConversationViewerBookmarkMutationMessage
+    protected clearState(): void {
+        this.interactionIds.clear();
+        this.mutationsFrozen = false;
+    }
+
+    protected async performRequest(
+        request: ConversationViewerBookmarkMutationMessage,
+        target: ConversationViewerTarget
     ): Promise<void> {
-        const target = this.options.getTarget();
-        if (!target || !this.options.getPanel()) {
-            return;
-        }
-        const settlementKey = getSettlementKey(request);
-        const settled = this.settlements.get(settlementKey);
-        if (settled) {
-            await this.publishSettlement(settled);
-            return;
-        }
-        if (this.mutationsFrozen || !requestTargetsViewer(
-            request,
-            target,
-            this.options.getSubscriptionGeneration()
-        ) || request.expectedRevision !== this.revision) {
-            await this.settleRequest(request, false, 'stale');
-            return;
-        }
         const interactionExists = this.options.getOutline()?.interactions.some(
             interaction => interaction.id === request.payload.interactionId
         ) === true;
         if (!interactionExists) {
-            await this.settleRequest(request, false, 'stale');
-            return;
+            throw new CommentError('stale');
         }
         const next = new Set(this.interactionIds);
         if (request.payload.bookmarked) {
@@ -142,133 +117,32 @@ export class ConversationBookmarkController {
             next.delete(request.payload.interactionId);
         }
         if (next.size > MAX_CONVERSATION_BOOKMARKS) {
-            await this.settleRequest(request, false, 'limit');
-            return;
+            throw new CommentError('limit');
         }
         const changed = next.size !== this.interactionIds.size
             || [...next].some(id => !this.interactionIds.has(id));
+        if (!changed) {
+            // A redundant toggle settles successfully without touching the
+            // persisted snapshot.
+            return;
+        }
         const snapshot = {
-            revision: this.revision + (changed ? 1 : 0),
+            revision: this.revision + 1,
             interactionIds: [...next],
         };
         const previousSnapshot = this.snapshot;
+        await this.persist(target, snapshot);
         try {
-            await this.persist(target, snapshot);
-            if (this.options.getTarget() !== target
-                || this.options.getSubscriptionGeneration()
-                    !== request.subscriptionGeneration
-                || this.revision !== request.expectedRevision) {
-                await this.persist(target, previousSnapshot);
-                throw new Error('stale');
-            }
-            this.interactionIds = next;
-            this.revision = snapshot.revision;
-            await this.settleRequest(request, true);
-        } catch (error) {
-            await this.settleRequest(
-                request,
-                false,
-                error instanceof Error && error.message === 'stale'
-                    ? 'stale'
-                    : 'failed'
+            this.assertUnchanged(
+                target,
+                request.subscriptionGeneration,
+                request.expectedRevision
             );
+        } catch (error) {
+            await this.persist(target, previousSnapshot);
+            throw error;
         }
+        this.interactionIds = next;
+        this.revision = snapshot.revision;
     }
-
-    private async persist(
-        target: ConversationViewerTarget,
-        snapshot: ConversationBookmarkSnapshot
-    ): Promise<void> {
-        if (!this.options.bookmarkStore) {
-            return;
-        }
-        await this.options.bookmarkStore.save(
-            toBookmarkTarget(target),
-            snapshot
-        );
-    }
-
-    private async settleRequest(
-        request: ConversationViewerBookmarkMutationMessage,
-        success: boolean,
-        error?: ConversationViewerBookmarksResultMessage['error']
-    ): Promise<void> {
-        const settlement: ConversationViewerBookmarksResultMessage = {
-            type: 'conversation-viewer-bookmarks-result',
-            version: 1,
-            requestId: request.requestId,
-            subscriptionGeneration: request.subscriptionGeneration,
-            projectId: request.projectId,
-            provider: request.provider,
-            sessionId: request.sessionId,
-            operation: 'set',
-            success,
-            revision: this.revision,
-            interactionIds: [...this.interactionIds],
-            ...(error ? { error } : {}),
-        };
-        this.settlements.set(getSettlementKey(request), settlement);
-        while (this.settlements.size > 100) {
-            const oldest = this.settlements.keys().next().value;
-            if (typeof oldest !== 'string') {
-                break;
-            }
-            this.settlements.delete(oldest);
-        }
-        await this.publishSettlement(settlement);
-    }
-
-    private async publishSettlement(
-        settlement: ConversationViewerBookmarksResultMessage
-    ): Promise<void> {
-        const panel = this.options.getPanel();
-        if (!panel) {
-            return;
-        }
-        let delivered = false;
-        try {
-            delivered = await panel.webview.postMessage(settlement);
-        } catch (_error) {
-            delivered = false;
-        }
-        if (!delivered && this.options.getPanel() === panel) {
-            this.options.rebuildLatestDocument();
-        }
-    }
-}
-
-function toBookmarkTarget(
-    target: ConversationViewerTarget
-): Pick<
-    ConversationViewerTarget,
-    'projectId' | 'provider' | 'sessionId'
-> {
-    return {
-        projectId: target.projectId,
-        provider: target.provider,
-        sessionId: target.sessionId,
-    };
-}
-
-function requestTargetsViewer(
-    request: ConversationViewerBookmarkMutationMessage,
-    target: ConversationViewerTarget,
-    subscriptionGeneration: number
-): boolean {
-    return request.subscriptionGeneration === subscriptionGeneration
-        && request.projectId === target.projectId
-        && request.provider === target.provider
-        && request.sessionId === target.sessionId;
-}
-
-function getSettlementKey(
-    request: ConversationViewerBookmarkMutationMessage
-): string {
-    return [
-        request.subscriptionGeneration,
-        request.projectId,
-        request.provider,
-        request.sessionId,
-        request.requestId,
-    ].join('\u0000');
 }

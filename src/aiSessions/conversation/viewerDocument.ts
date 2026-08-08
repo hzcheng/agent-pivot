@@ -322,10 +322,8 @@ export function renderConversationViewerDocument(
                 role="tabpanel" aria-labelledby="conversation-comments-tab"
                 hidden>
                 <div class="conversation-comments-body" data-comments-body>
-                    <section class="conversation-project-comments"
-                        data-project-comments aria-label="Project notes">
-                        <div class="conversation-comments-section-header"
-                            data-project-comments-header>
+                    <div class="conversation-comments-section-header"
+                        data-project-comments-header>
                             <button class="conversation-comment-icon-button conversation-comments-section-toggle"
                                 type="button" data-comments-section-toggle
                                 title="Collapse section"
@@ -340,6 +338,8 @@ export function renderConversationViewerDocument(
                                 title="Add a project note"
                                 aria-label="Add a project note">${CONVERSATION_COMMENT_ICON_PLUS}</button>
                         </div>
+                    <section class="conversation-project-comments"
+                        data-project-comments aria-label="Project notes">
                         <div class="conversation-comments-section-content"
                             data-project-comments-content>
                         <div class="conversation-project-comment-composer"
@@ -355,10 +355,11 @@ export function renderConversationViewerDocument(
                                     aria-label="Detach the quoted source">${CONVERSATION_COMMENT_ICON_X}</button>
                                 <blockquote data-project-comment-source-quote></blockquote>
                             </div>
-                            <textarea data-project-comment-input rows="2"
+                            <label for="conversation-project-comment-input">Project note</label>
+                            <textarea id="conversation-project-comment-input"
+                                data-project-comment-input rows="2"
                                 maxlength="${CONVERSATION_COMMENT_LIMITS.maxCommentGraphemes}"
                                 aria-keyshortcuts="Control+Enter Meta+Enter"
-                                aria-label="Add a project note"
                                 placeholder="Jot down a bug, idea, or todo…"></textarea>
                             <div class="conversation-project-comment-composer-row">
                                 <span class="conversation-project-comment-draft-tags"
@@ -367,13 +368,21 @@ export function renderConversationViewerDocument(
                                     type="button"
                                     data-project-comment-action="add-draft-tag"
                                     title="Add tag"
-                                    aria-label="Add tag">+ Tag</button>
+                                    aria-label="Add tag">+</button>
                                 <span class="conversation-project-comment-composer-spacer"></span>
-                                <button type="button"
-                                    data-project-comment-action="add"
-                                    title="Add project note (Ctrl+Enter or Cmd+Enter)"
-                                    aria-label="Add project note (Ctrl+Enter or Cmd+Enter)"
-                                    disabled>Add</button>
+                                <div class="conversation-comment-actions">
+                                    <button class="conversation-comment-icon-button"
+                                        type="button"
+                                        data-project-comment-action="cancel-add"
+                                        title="Cancel (Esc)"
+                                        aria-label="Cancel (Esc)">${CONVERSATION_COMMENT_ICON_X}</button>
+                                    <button class="conversation-comment-icon-button"
+                                        type="button"
+                                        data-project-comment-action="add"
+                                        title="Add project note (Ctrl+Enter or Cmd+Enter)"
+                                        aria-label="Add project note (Ctrl+Enter or Cmd+Enter)"
+                                        disabled>${CONVERSATION_COMMENT_ICON_CHECK}</button>
+                                </div>
                             </div>
                         </div>
                         <div class="conversation-project-comment-tag-filter"

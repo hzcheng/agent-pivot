@@ -2446,6 +2446,11 @@
                             : null;
                         if (actionElement
                             && projectCommentsHeader.contains(actionElement)) {
+                            if (actionElement.getAttribute(
+                                'data-project-comment-action'
+                            ) === 'open-composer') {
+                                openProjectCommentComposer();
+                            }
                             return;
                         }
                         toggleProjectSection();
@@ -2493,6 +2498,11 @@
                     );
                     if (action === 'open-composer') {
                         openProjectCommentComposer();
+                        return;
+                    }
+                    if (action === 'cancel-add') {
+                        closeProjectCommentComposer();
+                        status.textContent = 'Project note cancelled.';
                         return;
                     }
                     if (action === 'add') {

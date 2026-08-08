@@ -1512,14 +1512,16 @@ button {
 .conversation-comments-section-header {
     position: sticky;
     top: -0.25rem;
-    z-index: 2;
+    z-index: 3;
     display: flex;
     flex: 0 0 auto;
+    box-sizing: border-box;
     min-width: 0;
+    height: 1.75rem;
     gap: 0.4rem;
     align-items: center;
     margin-bottom: 0.1rem;
-    padding: 0.35rem 0.2rem 0.3rem;
+    padding: 0 0.2rem;
     border-bottom: 1px solid var(--vscode-panel-border);
     background: var(
         --vscode-sideBar-background,
@@ -1530,8 +1532,11 @@ button {
 }
 
 .conversation-comments-section-header-session {
+    // Parks directly beneath the always-pinned Project header, so both
+    // group headers stay visible no matter how far the panel scrolls.
+    top: 1.5rem;
+    z-index: 2;
     margin-top: 0.7rem;
-    padding-top: 0.6rem;
     border-top: 2px solid var(--vscode-panel-border);
 }
 
@@ -1609,6 +1614,13 @@ button {
     border-radius: 6px;
     background: var(--vscode-editor-background);
 
+    label {
+        display: block;
+        margin-bottom: 0.25rem;
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+
     textarea {
         display: block;
         min-width: 0;
@@ -1637,9 +1649,10 @@ button {
     flex-wrap: wrap;
     margin-top: 0.35rem;
 
-    [data-project-comment-action="add"] {
-        padding: 0.15rem 0.6rem;
-        font-size: 0.75rem;
+    .conversation-comment-actions {
+        display: flex;
+        gap: 2px;
+        align-items: center;
     }
 }
 

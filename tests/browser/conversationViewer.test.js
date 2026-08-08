@@ -3475,11 +3475,12 @@ test('PROJECT-COMMENTS-UI-001 captures, tags, filters, and dispatches project no
 
     await page.locator('[data-sidebar-tab="comments"]').click();
     const projectSection = page.locator('[data-project-comments]');
+    const projectHeader = page.locator('[data-project-comments-header]');
     assert.equal(await projectSection.isVisible(), true);
     assert.equal(
-        await projectSection.locator(
+        await projectHeader.locator(
             '.conversation-comments-section-title'
-        ).first().innerText(),
+        ).innerText(),
         'PROJECT'
     );
     assert.equal(
@@ -3490,7 +3491,7 @@ test('PROJECT-COMMENTS-UI-001 captures, tags, filters, and dispatches project no
     // The composer stays tucked away until the section's + button opens it.
     const composer = projectSection.locator('[data-project-comment-composer]');
     assert.equal(await composer.isVisible(), false);
-    await projectSection.locator(
+    await projectHeader.locator(
         '[data-project-comment-action="open-composer"]'
     ).click();
     assert.equal(await composer.isVisible(), true);
@@ -3564,7 +3565,7 @@ test('PROJECT-COMMENTS-UI-001 captures, tags, filters, and dispatches project no
     );
 
     // A second, untagged note lands on top (newest first).
-    await projectSection.locator(
+    await projectHeader.locator(
         '[data-project-comment-action="open-composer"]'
     ).click();
     await input.fill('支持一键 spawn 新 session');
@@ -3643,9 +3644,6 @@ test('PROJECT-COMMENTS-UI-001 captures, tags, filters, and dispatches project no
     );
 
     // Both section headers collapse their group and expand it back.
-    const projectHeader = projectSection.locator(
-        '[data-project-comments-header]'
-    );
     await projectHeader.locator('.conversation-comments-section-title')
         .click();
     assert.equal(
@@ -3718,9 +3716,9 @@ test('PROJECT-COMMENTS-UI-001 toggles, edits, and deletes notes with source snap
     });
 
     const projectSection = page.locator('[data-project-comments]');
-    await projectSection.locator(
-        '[data-project-comment-action="open-composer"]'
-    ).click();
+    await page.locator('[data-project-comments-header]')
+        .locator('[data-project-comment-action="open-composer"]')
+        .click();
     const input = projectSection.locator('[data-project-comment-input]');
     await input.fill('浏览器测试要跑全量');
     await projectSection.locator(
@@ -8975,5 +8973,6 @@ test('CONVERSATION-NAVIGATION-STATE-001 keeps controls, status, focus, and scrol
         'navigation must remain inside the message viewport'
     );
 });
+
 
 

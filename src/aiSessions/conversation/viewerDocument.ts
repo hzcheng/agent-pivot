@@ -324,20 +324,19 @@ export function renderConversationViewerDocument(
                 <div class="conversation-comments-body" data-comments-body>
                     <div class="conversation-comments-section-header"
                         data-project-comments-header>
-                            <button class="conversation-comment-icon-button conversation-comments-section-toggle"
-                                type="button" data-comments-section-toggle
-                                title="Collapse section"
-                                aria-label="Collapse section"
-                                aria-expanded="true">${CONVERSATION_COMMENT_ICON_CHEVRON}</button>
-                            <span class="conversation-comments-section-title"
-                                role="heading" aria-level="2">Project</span>
-                            <span class="conversation-comments-section-hint">Shared with every session of this project</span>
-                            <button class="conversation-comment-icon-button conversation-comments-section-add"
-                                type="button"
-                                data-project-comment-action="open-composer"
-                                title="Add a project note"
-                                aria-label="Add a project note">${CONVERSATION_COMMENT_ICON_PLUS}</button>
-                        </div>
+                        <button class="conversation-comment-icon-button conversation-comments-section-toggle"
+                            type="button" data-comments-section-toggle
+                            title="Collapse section"
+                            aria-label="Collapse section"
+                            aria-expanded="true">${CONVERSATION_COMMENT_ICON_CHEVRON}</button>
+                        <span class="conversation-comments-section-title"
+                            role="heading" aria-level="2">Workspace</span>
+                        <button class="conversation-comment-icon-button conversation-comments-section-add"
+                            type="button"
+                            data-project-comment-action="open-composer"
+                            title="Add a workspace note"
+                            aria-label="Add a workspace note">${CONVERSATION_COMMENT_ICON_PLUS}</button>
+                    </div>
                     <section class="conversation-project-comments"
                         data-project-comments aria-label="Project notes">
                         <div class="conversation-comments-section-content"
@@ -355,7 +354,7 @@ export function renderConversationViewerDocument(
                                     aria-label="Detach the quoted source">${CONVERSATION_COMMENT_ICON_X}</button>
                                 <blockquote data-project-comment-source-quote></blockquote>
                             </div>
-                            <label for="conversation-project-comment-input">Project note</label>
+                            <label for="conversation-project-comment-input">Workspace note</label>
                             <textarea id="conversation-project-comment-input"
                                 data-project-comment-input rows="2"
                                 maxlength="${CONVERSATION_COMMENT_LIMITS.maxCommentGraphemes}"
@@ -393,7 +392,7 @@ export function renderConversationViewerDocument(
                             data-project-comment-list></div>
                         <p class="conversation-project-comment-empty"
                             data-project-comment-empty hidden>
-                            No project notes yet.
+                            No workspace notes yet.
                         </p>
                         </div>
                     </section>
@@ -406,10 +405,6 @@ export function renderConversationViewerDocument(
                             aria-expanded="true">${CONVERSATION_COMMENT_ICON_CHEVRON}</button>
                         <span class="conversation-comments-section-title"
                             role="heading" aria-level="2">This Session</span>
-                        <span class="conversation-comments-section-chip"
-                            data-session-comments-provider>${escapeHtml(
-                                providerLabel(target.provider)
-                            )}</span>
                         <button class="conversation-comment-icon-button conversation-comments-section-add"
                             type="button" data-comment-action="new"
                             title="Add a note about this Session"

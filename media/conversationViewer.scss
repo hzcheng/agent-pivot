@@ -1532,7 +1532,7 @@ button {
 }
 
 .conversation-comments-section-header-session {
-    // Parks directly beneath the always-pinned Project header, so both
+    // Parks directly beneath the always-pinned Workspace header, so both
     // group headers stay visible no matter how far the panel scrolls.
     top: 1.5rem;
     z-index: 2;
@@ -1549,18 +1549,9 @@ button {
     text-transform: uppercase;
 }
 
-.conversation-comments-section-hint {
-    overflow: hidden;
-    margin-left: auto;
-    color: var(--vscode-descriptionForeground);
-    font-size: 0.66rem;
-    text-align: right;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
 .conversation-comments-section-add {
     flex: 0 0 auto;
+    margin-left: auto;
 }
 
 .conversation-comments-section-toggle {
@@ -1582,20 +1573,6 @@ button {
 .conversation-project-comments
 .conversation-comments-section-content {
     gap: 0.4rem;
-}
-
-.conversation-comments-section-header-session
-.conversation-comments-section-chip {
-    margin-right: auto;
-}
-
-.conversation-comments-section-chip {
-    flex: 0 0 auto;
-    padding: 0 0.4rem;
-    border-radius: 999px;
-    color: var(--vscode-badge-foreground);
-    background: var(--vscode-badge-background);
-    font-size: 0.64rem;
 }
 
 .conversation-project-comments {

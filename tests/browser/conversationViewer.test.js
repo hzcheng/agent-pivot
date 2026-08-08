@@ -2886,7 +2886,7 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
         .digest('hex');
     assert.equal(
         sha256(previousViewerScript),
-        '5e3219fe7319433f3d2d987c7227ad9dfb32aa616796c0d348b7ec838ac679f8',
+        '55deabeef15028403d1fa36bef88d58080c14f8bbd2fcd4b1155bc6cf4990861',
         'the previous Viewer fixture must stay byte-exact'
     );
     assert.equal(
@@ -3481,11 +3481,11 @@ test('PROJECT-COMMENTS-UI-001 captures, tags, filters, and dispatches project no
         await projectHeader.locator(
             '.conversation-comments-section-title'
         ).innerText(),
-        'PROJECT'
+        'WORKSPACE'
     );
     assert.equal(
-        await page.locator('[data-session-comments-provider]').innerText(),
-        'Codex'
+        await page.locator('[data-session-comments-provider]').count(),
+        0
     );
 
     // The composer stays tucked away until the section's + button opens it.
@@ -3676,7 +3676,15 @@ test('PROJECT-COMMENTS-UI-001 captures, tags, filters, and dispatches project no
         true
     );
 
-    // The section + button must not toggle the group.
+    // The section + button must not toggle the group, and pressing it
+    // while the group is collapsed must unfold it first.
+    await projectHeader.locator('.conversation-comments-section-title')
+        .click();
+    assert.equal(
+        await projectSection.locator('[data-project-comments-content]')
+            .isVisible(),
+        false
+    );
     await projectHeader.locator(
         '[data-project-comment-action="open-composer"]'
     ).click();
@@ -8976,3 +8984,34 @@ test('CONVERSATION-NAVIGATION-STATE-001 keeps controls, status, focus, and scrol
 
 
 
+
+test('TMP repro add flow from closed sidebar', async t => {
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+        interactionIds: ['input-repro'],
+        interactionId: 'input-repro',
+        pageOverrides: {
+            previousCursor: undefined,
+            nextCursor: undefined,
+            isStart: true,
+            isEnd: true,
+        },
+    });
+    const pageErrors = [];
+    page.on('pageerror', error => pageErrors.push(error.message));
+    await page.locator('[data-action="toggle-sidebar"]').click();
+    await page.locator('[data-sidebar-tab="comments"]').click();
+    await page.locator('[data-project-comments-header]')
+        .locator('[data-project-comment-action="open-composer"]').click();
+    console.log('TMP composer visible:',
+        await page.locator('[data-project-comment-composer]').isVisible());
+    await page.locator('[data-project-comment-input]').fill('测试笔记');
+    console.log('TMP add disabled:',
+        await page.locator('[data-project-comment-action="add"]')
+            .isDisabled());
+    await page.locator('[data-project-comment-action="add"]').click();
+    const requests = await postedMessages(page);
+    console.log('TMP last request:', JSON.stringify(requests.at(-1)));
+    console.log('TMP pageErrors:', JSON.stringify(pageErrors));
+});

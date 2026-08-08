@@ -42,7 +42,6 @@
         var projectCommentTagFilter = options.projectCommentTagFilter;
         var projectCommentList = options.projectCommentList;
         var projectCommentEmpty = options.projectCommentEmpty;
-        var sessionCommentsProvider = options.sessionCommentsProvider;
         var conversationMessageSelector = options.messageSelector;
         var conversationMessageId = options.messageId;
         var setSidebarView = options.setSidebarView;
@@ -1248,6 +1247,7 @@
         function openCommentComposer() {
             if (!state.selectedCommentText) return;
             setSidebarView('comments', true, true);
+            expandSessionSection();
             addComment.hidden = true;
             commentSelection.textContent = state.selectedCommentText.quote;
             commentComposer.setAttribute('data-comment-composer-scope', 'selection');
@@ -1261,6 +1261,7 @@
                 || state.pendingCommentRequest
                 || state.pendingLocateRequest) return;
             setSidebarView('comments', true, true);
+            expandSessionSection();
             addComment.hidden = true;
             state.selectedCommentText = { scope: 'session' };
             commentSelection.textContent = 'Session note';
@@ -1698,9 +1699,27 @@
             saveCommentSectionState();
         }
 
+        function expandSessionSection() {
+            if (!state.sessionSectionCollapsed) return;
+            state.sessionSectionCollapsed = false;
+            applyCommentSectionState();
+            saveCommentSectionState();
+        }
+
+        function expandProjectSection() {
+            if (!projectCommentsAvailable
+                || !state.projectSectionCollapsed) return;
+            state.projectSectionCollapsed = false;
+            applyCommentSectionState();
+            saveCommentSectionState();
+        }
+
         function openProjectCommentComposer() {
             if (!projectCommentsAvailable
                 || state.pendingProjectCommentRequest) return;
+            // Opening the composer from a collapsed section must unfold the
+            // group first, or the composer surfaces inside hidden content.
+            expandProjectSection();
             projectCommentComposer.hidden = false;
             updateProjectComposerControls();
             projectCommentInput.focus();
@@ -2083,7 +2102,7 @@
             });
             projectCommentEmpty.hidden = state.projectComments.length > 0;
             if (!projectCommentEmpty.hidden) {
-                projectCommentEmpty.textContent = 'No project notes yet.';
+                projectCommentEmpty.textContent = 'No workspace notes yet.';
             }
             if (state.projectComments.length > 0 && visible.length === 0) {
                 projectCommentEmpty.hidden = false;
@@ -2827,11 +2846,6 @@
                 state.editingProjectComment = null;
                 state.projectTagEditor = null;
                 state.expandedDoneProjectComments.clear();
-                if (sessionCommentsProvider) {
-                    sessionCommentsProvider.textContent = providerLabel(
-                        target.provider
-                    );
-                }
                 closeProjectCommentComposer();
                 renderProjectComments();
             }

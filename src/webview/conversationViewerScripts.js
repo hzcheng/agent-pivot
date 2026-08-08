@@ -178,9 +178,6 @@
     var projectCommentEmpty = document.querySelector(
         '[data-project-comment-empty]'
     );
-    var sessionCommentsProvider = document.querySelector(
-        '[data-session-comments-provider]'
-    );
     var commentTarget = readJsonAttribute('data-conversation-target');
     var restoreTarget = readJsonAttribute(
         'data-conversation-restore-target'
@@ -217,7 +214,7 @@
         && !!projectCommentInput && !!projectCommentDraftTags
         && !!projectCommentAddTag && !!projectCommentAdd
         && !!projectCommentTagFilter && !!projectCommentList
-        && !!projectCommentEmpty && !!sessionCommentsProvider;
+        && !!projectCommentEmpty;
     var copyUiAvailable = validCommentTarget(commentTarget);
     var findUiAvailable = !!findRoot && !!findInput && !!findCount
         && !!findPrevious && !!findNext && !!findClose;
@@ -408,7 +405,6 @@
         projectCommentTagFilter: projectCommentTagFilter,
         projectCommentList: projectCommentList,
         projectCommentEmpty: projectCommentEmpty,
-        sessionCommentsProvider: sessionCommentsProvider,
         post: post,
         messageSelector: conversationMessageSelector,
         messageId: conversationMessageId,

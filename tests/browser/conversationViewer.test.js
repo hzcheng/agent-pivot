@@ -362,6 +362,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 applies an authoritative cross-
             displayName: 'Kimi Session',
         },
         comments: { revision: 0, comments: [] },
+        projectComments: { revision: 0, comments: [] },
         bookmarks: { revision: 0, interactionIds: [] },
     });
 
@@ -3431,6 +3432,380 @@ test('CONVERSATION-COMMENTS-UI-001 send action and telemetry comments pill drive
     assert.equal(sendRequest.operation, 'sendComments');
 });
 
+function projectCommentSettlement(request, comments, overrides = {}) {
+    return {
+        type: 'conversation-viewer-project-comments-result',
+        version: 1,
+        requestId: request.requestId,
+        subscriptionGeneration: request.subscriptionGeneration,
+        projectId: request.projectId,
+        provider: request.provider,
+        sessionId: request.sessionId,
+        operation: request.operation,
+        success: true,
+        revision: 1,
+        comments,
+        ...overrides,
+    };
+}
+
+test('PROJECT-COMMENTS-UI-001 captures, tags, filters, and dispatches project notes', async t => {
+    const interactionId = 'input-project-notes';
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+        interactionIds: [interactionId],
+        interactionId,
+        initialWebviewState: {
+            conversationSidebar: {
+                open: true,
+                width: 280,
+                view: 'outline',
+                query: '',
+            },
+        },
+        pageOverrides: {
+            previousCursor: undefined,
+            nextCursor: undefined,
+            isStart: true,
+            isEnd: true,
+        },
+    });
+
+    await page.locator('[data-sidebar-tab="comments"]').click();
+    const projectSection = page.locator('[data-project-comments]');
+    assert.equal(await projectSection.isVisible(), true);
+    assert.equal(
+        await projectSection.locator(
+            '.conversation-comments-section-title'
+        ).first().innerText(),
+        'PROJECT'
+    );
+    assert.equal(
+        await page.locator('[data-session-comments-provider]').innerText(),
+        'Codex'
+    );
+
+    // Quick capture with a draft tag, submitted via Ctrl+Enter.
+    const input = projectSection.locator('[data-project-comment-input]');
+    const addButton = projectSection.locator(
+        '[data-project-comment-action="add"]'
+    );
+    assert.equal(await addButton.isDisabled(), true);
+    await input.fill('遥测条在窄窗口下横向溢出');
+    assert.equal(await addButton.isDisabled(), false);
+    await projectSection.locator(
+        '[data-project-comment-action="add-draft-tag"]'
+    ).click();
+    const draftTagInput = projectSection.locator(
+        '[data-project-comment-draft-tag-input]'
+    );
+    await draftTagInput.fill('bug');
+    await draftTagInput.press('Enter');
+    assert.equal(
+        await projectSection.locator(
+            '[data-project-comment-draft-tags] .conversation-project-comment-tag'
+        ).innerText(),
+        'bug\n×'
+    );
+    await input.press('Control+Enter');
+    const addRequest = (await postedMessages(page)).at(-1);
+    assert.equal(
+        addRequest.type,
+        'conversation-viewer-project-comment-mutation'
+    );
+    assert.equal(addRequest.operation, 'add');
+    assert.equal(addRequest.expectedRevision, 0);
+    assert.deepEqual(addRequest.payload, {
+        text: '遥测条在窄窗口下横向溢出',
+        tags: ['bug'],
+    });
+
+    const noteOne = {
+        id: 'note-1',
+        text: '遥测条在窄窗口下横向溢出',
+        tags: ['bug'],
+        status: 'open',
+        createdAt: 1000,
+        dispatches: [],
+    };
+    await sendPage(page, projectCommentSettlement(addRequest, [noteOne]));
+    const cards = projectSection.locator('[data-project-comment-id]');
+    assert.equal(await cards.count(), 1);
+    assert.equal(
+        await cards.first().locator(
+            '.conversation-project-comment-tag'
+        ).first().innerText(),
+        'bug\n×'
+    );
+    assert.equal(
+        await cards.first().locator(
+            '.conversation-project-comment-status'
+        ).innerText(),
+        'Open'
+    );
+    assert.equal(await input.inputValue(), '');
+    assert.equal(
+        await page.locator('[data-comment-summary]').innerText(),
+        '1 project note'
+    );
+    const filterChips = projectSection.locator(
+        '[data-project-comment-tag-filter] button'
+    );
+    assert.deepEqual(
+        await filterChips.allInnerTexts(),
+        ['All · 1', 'bug · 1']
+    );
+
+    // A second, untagged note lands on top (newest first).
+    await input.fill('支持一键 spawn 新 session');
+    await addButton.click();
+    const addSecond = (await postedMessages(page)).at(-1);
+    const noteTwo = {
+        id: 'note-2',
+        text: '支持一键 spawn 新 session',
+        tags: [],
+        status: 'open',
+        createdAt: 2000,
+        dispatches: [],
+    };
+    await sendPage(
+        page,
+        projectCommentSettlement(addSecond, [noteOne, noteTwo], {
+            revision: 2,
+        })
+    );
+    assert.equal(await cards.count(), 2);
+    assert.equal(
+        await cards.first().getAttribute('data-project-comment-id'),
+        'note-2'
+    );
+
+    // Tag filtering narrows the list and toggles back off.
+    await filterChips.nth(1).click();
+    assert.equal(await cards.count(), 1);
+    assert.equal(
+        await cards.first().getAttribute('data-project-comment-id'),
+        'note-1'
+    );
+    await filterChips.first().click();
+    assert.equal(await cards.count(), 2);
+
+    // Sending dispatches to the current session and keeps the note open.
+    await projectSection.locator(
+        '[data-project-comment-id="note-1"]'
+    ).locator('[data-project-comment-action="send"]').click();
+    const sendRequest = (await postedMessages(page)).at(-1);
+    assert.equal(
+        sendRequest.type,
+        'conversation-viewer-send-project-comment'
+    );
+    assert.equal(sendRequest.operation, 'sendProjectComment');
+    assert.deepEqual(sendRequest.payload, { commentId: 'note-1' });
+    await sendPage(page, projectCommentSettlement(
+        sendRequest,
+        [
+            {
+                ...noteOne,
+                dispatches: [{
+                    provider: 'codex',
+                    sessionId: 'session-host-document',
+                    at: 3000,
+                }],
+            },
+            noteTwo,
+        ],
+        { revision: 3 }
+    ));
+    const dispatchedCard = projectSection.locator(
+        '[data-project-comment-id="note-1"]'
+    );
+    assert.match(
+        await dispatchedCard.locator(
+            '.conversation-project-comment-dispatch'
+        ).innerText(),
+        /Sent to Codex/
+    );
+    assert.equal(
+        await dispatchedCard.locator(
+            '.conversation-project-comment-status'
+        ).innerText(),
+        'Open'
+    );
+});
+
+test('PROJECT-COMMENTS-UI-001 toggles, edits, and deletes notes with source snapshots', async t => {
+    const interactionId = 'input-project-notes-manage';
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+        interactionIds: [interactionId],
+        interactionId,
+        initialWebviewState: {
+            conversationSidebar: {
+                open: true,
+                width: 280,
+                view: 'comments',
+                query: '',
+            },
+        },
+        pageOverrides: {
+            previousCursor: undefined,
+            nextCursor: undefined,
+            isStart: true,
+            isEnd: true,
+        },
+    });
+
+    const projectSection = page.locator('[data-project-comments]');
+    const input = projectSection.locator('[data-project-comment-input]');
+    await input.fill('浏览器测试要跑全量');
+    await projectSection.locator(
+        '[data-project-comment-action="add"]'
+    ).click();
+    const addRequest = (await postedMessages(page)).at(-1);
+    const note = {
+        id: 'note-1',
+        text: '浏览器测试要跑全量',
+        tags: ['optimize'],
+        status: 'open',
+        createdAt: 1000,
+        source: {
+            provider: 'kimi',
+            sessionId: 'session-source',
+            quote: '292 > 281 at 281px',
+        },
+        dispatches: [],
+    };
+    await sendPage(page, projectCommentSettlement(addRequest, [note]));
+
+    // The source snapshot renders as display-only provenance.
+    const card = projectSection.locator('[data-project-comment-id="note-1"]');
+    assert.equal(
+        await card.locator('.conversation-comment-quote-label').innerText(),
+        'FROM KIMI SESSION'
+    );
+    assert.equal(
+        await card.locator('.conversation-comment-quote blockquote')
+            .innerText(),
+        '292 > 281 at 281px'
+    );
+    assert.equal(
+        await card.locator(
+            '[data-project-comment-action="locate"]'
+        ).count(),
+        0
+    );
+
+    // The status pill toggles done and the card collapses.
+    await card.locator('.conversation-project-comment-status').click();
+    const doneRequest = (await postedMessages(page)).at(-1);
+    assert.equal(doneRequest.operation, 'setStatus');
+    assert.deepEqual(doneRequest.payload, {
+        commentId: 'note-1',
+        status: 'done',
+    });
+    await sendPage(page, projectCommentSettlement(
+        doneRequest,
+        [{ ...note, status: 'done', doneAt: 2000 }],
+        { revision: 2 }
+    ));
+    assert.equal(
+        await card.getAttribute('data-comment-status'),
+        'done'
+    );
+    assert.equal(
+        await card.locator(
+            '.conversation-comment-collapsed-body'
+        ).innerText(),
+        '浏览器测试要跑全量'
+    );
+
+    // Reopen, then edit the text in place.
+    await card.locator('.conversation-project-comment-status').click();
+    const reopenRequest = (await postedMessages(page)).at(-1);
+    await sendPage(page, projectCommentSettlement(
+        reopenRequest,
+        [note],
+        { revision: 3 }
+    ));
+    await card.locator('[data-project-comment-action="edit"]').click();
+    const editor = card.locator('[data-project-comment-edit]');
+    await editor.fill('浏览器测试要跑全量（含 CSS 回归）');
+    await editor.press('Control+Enter');
+    const updateRequest = (await postedMessages(page)).at(-1);
+    assert.equal(updateRequest.operation, 'update');
+    assert.deepEqual(updateRequest.payload, {
+        commentId: 'note-1',
+        text: '浏览器测试要跑全量（含 CSS 回归）',
+    });
+    await sendPage(page, projectCommentSettlement(
+        updateRequest,
+        [{ ...note, text: '浏览器测试要跑全量（含 CSS 回归）' }],
+        { revision: 4 }
+    ));
+    assert.equal(
+        await card.locator('.conversation-comment-body').innerText(),
+        '浏览器测试要跑全量（含 CSS 回归）'
+    );
+
+    // Card-level tag editing posts addTag/removeTag mutations.
+    await card.locator(
+        '[data-project-comment-action="open-tag-editor"]'
+    ).click();
+    const tagInput = card.locator('[data-project-comment-tag-input]');
+    await tagInput.fill('ci');
+    await tagInput.press('Enter');
+    const tagRequest = (await postedMessages(page)).at(-1);
+    assert.equal(tagRequest.operation, 'addTag');
+    assert.deepEqual(tagRequest.payload, {
+        commentId: 'note-1',
+        tag: 'ci',
+    });
+    await sendPage(page, projectCommentSettlement(
+        tagRequest,
+        [{ ...note, tags: ['optimize', 'ci'] }],
+        { revision: 5 }
+    ));
+    assert.deepEqual(
+        await card.locator('.conversation-project-comment-tag')
+            .allInnerTexts(),
+        ['optimize\n×', 'ci\n×']
+    );
+    await card.locator(
+        '[data-project-comment-action="remove-tag"]'
+    ).first().click();
+    const removeTagRequest = (await postedMessages(page)).at(-1);
+    assert.deepEqual(removeTagRequest.payload, {
+        commentId: 'note-1',
+        tag: 'optimize',
+    });
+
+    // Delete returns the section to its empty state.
+    await sendPage(page, projectCommentSettlement(
+        removeTagRequest,
+        [note],
+        { revision: 6 }
+    ));
+    await card.locator('[data-project-comment-action="delete"]').click();
+    const deleteRequest = (await postedMessages(page)).at(-1);
+    assert.deepEqual(deleteRequest.payload, { commentId: 'note-1' });
+    await sendPage(page, projectCommentSettlement(
+        deleteRequest,
+        [],
+        { revision: 7 }
+    ));
+    assert.equal(
+        await projectSection.locator('[data-project-comment-id]').count(),
+        0
+    );
+    assert.equal(
+        await projectSection.locator('[data-project-comment-empty]')
+            .isVisible(),
+        true
+    );
+});
+
 test('CONVERSATION-COMMENTS-UI-001 adds a session-wide note without selecting conversation text', async t => {
     const interactionId = 'input-session-note';
     const { page } = await openHostViewerDocument(t, {
@@ -3553,7 +3928,7 @@ test('CONVERSATION-COMMENTS-ORDERING-001 drags cards into a Host-authoritative o
     const { page } = await openHostViewerDocument(t, {
         includeStyles: true,
         themeFixture: viewerThemeFixtures[0],
-        viewport: { width: 850, height: 600 },
+        viewport: { width: 850, height: 800 },
         initialWebviewState: {
             conversationCommentsPanel: {
                 open: true,
@@ -3916,7 +4291,8 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-SUBMIT-002 renders read
     });
     await selectBeta();
 
-    // The selection bubble offers two icon actions: comment and send.
+    // The selection bubble offers three icon actions: comment, save as
+    // project note, and send.
     const selectionBubble = page.locator('[data-add-comment]');
     assert.equal(await selectionBubble.isVisible(), true);
     assert.deepEqual(
@@ -3929,11 +4305,13 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-SUBMIT-002 renders read
         ),
         [
             { action: 'comment', iconOnly: true },
+            { action: 'project', iconOnly: true },
             { action: 'send', iconOnly: true },
         ],
         'selection bubble actions must be icon-only buttons'
     );
-    // The send action is the bubble's accent chip; comment stays a ghost.
+    // The send action is the bubble's accent chip; comment and project stay
+    // ghosts.
     assert.deepEqual(
         await selectionBubble.locator('button').evaluateAll(buttons =>
             buttons.map(button => {
@@ -3948,6 +4326,11 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-SUBMIT-002 renders read
         [
             {
                 action: 'comment',
+                background: 'rgba(0, 0, 0, 0)',
+                color: 'rgb(160, 160, 160)',
+            },
+            {
+                action: 'project',
                 background: 'rgba(0, 0, 0, 0)',
                 color: 'rgb(160, 160, 160)',
             },

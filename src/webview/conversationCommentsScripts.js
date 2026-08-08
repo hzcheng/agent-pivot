@@ -26,6 +26,19 @@
         var commentClearAll = options.commentClearAll;
         var vscodeApi = options.vscodeApi;
         var post = options.post;
+        var projectCommentsAvailable = options.projectCommentsAvailable;
+        var projectCommentsRoot = options.projectCommentsRoot;
+        var projectCommentSource = options.projectCommentSource;
+        var projectCommentSourceLabel = options.projectCommentSourceLabel;
+        var projectCommentSourceQuote = options.projectCommentSourceQuote;
+        var projectCommentInput = options.projectCommentInput;
+        var projectCommentDraftTags = options.projectCommentDraftTags;
+        var projectCommentAddTag = options.projectCommentAddTag;
+        var projectCommentAdd = options.projectCommentAdd;
+        var projectCommentTagFilter = options.projectCommentTagFilter;
+        var projectCommentList = options.projectCommentList;
+        var projectCommentEmpty = options.projectCommentEmpty;
+        var sessionCommentsProvider = options.sessionCommentsProvider;
         var conversationMessageSelector = options.messageSelector;
         var conversationMessageId = options.messageId;
         var setSidebarView = options.setSidebarView;
@@ -42,6 +55,17 @@
             filter: 'all',
             expandedDoneComments: new Set(),
             draggedCommentId: null,
+            projectComments: [],
+            projectCommentRevision: 0,
+            projectCommentRequestSequence: 0,
+            pendingProjectCommentRequest: null,
+            projectTagFilter: null,
+            projectDraftTags: [],
+            projectDraftTagInputOpen: false,
+            projectPendingSource: null,
+            editingProjectComment: null,
+            projectTagEditor: null,
+            expandedDoneProjectComments: new Set(),
         };
 
         function readJsonAttribute(name) {
@@ -205,6 +229,14 @@
             var pending = !!state.pendingCommentRequest
                 || !!state.pendingLocateRequest;
             var summary = [];
+            if (projectCommentsAvailable && state.projectComments.length) {
+                summary.push(
+                    state.projectComments.length
+                        + (state.projectComments.length === 1
+                            ? ' project note'
+                            : ' project notes')
+                );
+            }
             if (counts.open) summary.push(counts.open + ' open');
             if (counts.done) summary.push(counts.done + ' done');
             commentSummary.textContent = summary.length
@@ -283,6 +315,11 @@
             Array.prototype.forEach.call(
                 commentsRoot.querySelectorAll('button, textarea'),
                 function (control) {
+                    if (projectCommentsRoot
+                        && projectCommentsRoot.contains(control)) {
+                        // The project section has its own pending gate.
+                        return;
+                    }
                     var card = control.matches
                         && control.matches('[data-comment-drag-handle]')
                         ? control.closest('[data-comment-id]')
@@ -1249,6 +1286,774 @@
             addComment.hidden = true;
         }
 
+        var PROJECT_TAG_COLOR_COUNT = 6;
+        var PROJECT_COMMENT_OPERATIONS = [
+            'add', 'update', 'delete', 'setStatus', 'addTag', 'removeTag',
+        ];
+
+        function providerLabel(provider) {
+            if (provider === 'kimi') return 'Kimi';
+            if (provider === 'claude') return 'Claude';
+            return 'Codex';
+        }
+
+        function validProjectCommentSource(value) {
+            if (!value || typeof value !== 'object' || Array.isArray(value)) {
+                return false;
+            }
+            var keys = Object.keys(value);
+            return (keys.length === 2 || keys.length === 3)
+                && (value.provider === 'codex' || value.provider === 'kimi'
+                    || value.provider === 'claude')
+                && typeof value.sessionId === 'string'
+                && value.sessionId.length > 0
+                && (keys.length === 2 || (typeof value.quote === 'string'
+                    && value.quote.trim().length > 0));
+        }
+
+        function validProjectCommentDispatch(value) {
+            return value && typeof value === 'object' && !Array.isArray(value)
+                && Object.keys(value).length === 3
+                && (value.provider === 'codex' || value.provider === 'kimi'
+                    || value.provider === 'claude')
+                && typeof value.sessionId === 'string'
+                && value.sessionId.length > 0
+                && Number.isSafeInteger(value.at) && value.at >= 0;
+        }
+
+        function validProjectComment(value) {
+            if (!value || typeof value !== 'object' || Array.isArray(value)) {
+                return false;
+            }
+            var required = [
+                'id', 'text', 'tags', 'status', 'createdAt', 'dispatches',
+            ];
+            var allowed = required.concat(['updatedAt', 'doneAt', 'source']);
+            return Object.keys(value).every(function (key) {
+                return allowed.indexOf(key) >= 0;
+            }) && required.every(function (key) {
+                return Object.prototype.hasOwnProperty.call(value, key);
+            })
+                && typeof value.id === 'string' && value.id.length > 0
+                && typeof value.text === 'string'
+                && value.text.trim().length > 0
+                && Array.isArray(value.tags) && value.tags.length <= 5
+                && value.tags.every(function (tag) {
+                    return typeof tag === 'string' && tag.trim().length > 0
+                        && Array.from(tag).length <= 24;
+                })
+                && (value.status === 'open' || value.status === 'done')
+                && Number.isSafeInteger(value.createdAt)
+                && value.createdAt >= 0
+                && (value.updatedAt === undefined
+                    || (Number.isSafeInteger(value.updatedAt)
+                        && value.updatedAt >= 0))
+                && (value.doneAt === undefined
+                    || (Number.isSafeInteger(value.doneAt)
+                        && value.doneAt >= 0))
+                && (value.source === undefined
+                    || validProjectCommentSource(value.source))
+                && Array.isArray(value.dispatches)
+                && value.dispatches.length <= 20
+                && value.dispatches.every(validProjectCommentDispatch);
+        }
+
+        function validInitialProjectComments(value) {
+            return value && typeof value === 'object' && !Array.isArray(value)
+                && Object.keys(value).length === 2
+                && Number.isSafeInteger(value.revision)
+                && value.revision >= 0
+                && Array.isArray(value.comments)
+                && value.comments.length <= 50
+                && value.comments.every(validProjectComment);
+        }
+
+        function validProjectCommentsResult(value) {
+            if (!value || typeof value !== 'object' || Array.isArray(value)) {
+                return false;
+            }
+            var required = [
+                'type', 'version', 'requestId', 'subscriptionGeneration',
+                'projectId', 'provider', 'sessionId', 'operation', 'success',
+                'revision', 'comments',
+            ];
+            var allowed = new Set(required.concat(['error']));
+            return Object.keys(value).every(function (key) {
+                return allowed.has(key);
+            }) && required.every(function (key) {
+                return Object.prototype.hasOwnProperty.call(value, key);
+            })
+                && value.type === 'conversation-viewer-project-comments-result'
+                && value.version === 1
+                && typeof value.requestId === 'string'
+                && Number.isSafeInteger(value.subscriptionGeneration)
+                && typeof value.projectId === 'string'
+                && (value.provider === 'codex'
+                    || value.provider === 'kimi'
+                    || value.provider === 'claude')
+                && typeof value.sessionId === 'string'
+                && (PROJECT_COMMENT_OPERATIONS.indexOf(value.operation) >= 0
+                    || value.operation === 'sendProjectComment')
+                && typeof value.success === 'boolean'
+                && Number.isSafeInteger(value.revision)
+                && value.revision >= 0
+                && Array.isArray(value.comments)
+                && value.comments.length <= 50
+                && value.comments.every(validProjectComment)
+                && (value.error === undefined || [
+                    'invalid', 'stale', 'limit', 'tooLarge',
+                    'unavailable', 'busy', 'conflict', 'failed',
+                ].includes(value.error));
+        }
+
+        function cloneProjectComment(comment) {
+            return Object.assign({}, comment, {
+                tags: comment.tags.slice(),
+                dispatches: comment.dispatches.map(function (dispatch) {
+                    return Object.assign({}, dispatch);
+                }),
+            });
+        }
+
+        function sortedProjectComments() {
+            return state.projectComments.slice().sort(function (a, b) {
+                if (b.createdAt !== a.createdAt) {
+                    return b.createdAt - a.createdAt;
+                }
+                return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+            });
+        }
+
+        function projectTagMatches(tag, filter) {
+            return tag.toLowerCase() === filter;
+        }
+
+        function projectCommentHasTag(comment, filter) {
+            return comment.tags.some(function (tag) {
+                return projectTagMatches(tag, filter);
+            });
+        }
+
+        function visibleProjectComments() {
+            var sorted = sortedProjectComments();
+            if (!state.projectTagFilter) return sorted;
+            return sorted.filter(function (comment) {
+                return projectCommentHasTag(comment, state.projectTagFilter);
+            });
+        }
+
+        function projectTagColorKey(tag) {
+            var hash = 0;
+            var text = tag.toLowerCase();
+            for (var index = 0; index < text.length; index += 1) {
+                hash = (hash * 31 + text.charCodeAt(index)) >>> 0;
+            }
+            return hash % PROJECT_TAG_COLOR_COUNT;
+        }
+
+        function normalizeProjectTag(value) {
+            return typeof value === 'string'
+                ? value.replace(/\s+/g, ' ').trim()
+                : '';
+        }
+
+        function validProjectTag(tag) {
+            return tag.length > 0
+                && Array.from(tag).length <= 24
+                && !/[\u0000-\u001f\u007f]/.test(tag);
+        }
+
+        function readProjectTagFilter() {
+            if (!vscodeApi || typeof vscodeApi.getState !== 'function') {
+                return null;
+            }
+            try {
+                var saved = vscodeApi.getState();
+                var filter = saved
+                    && saved.conversationProjectCommentsTagFilter;
+                return typeof filter === 'string' && filter
+                    ? filter
+                    : null;
+            } catch (_error) {
+                return null;
+            }
+        }
+
+        function saveProjectTagFilter() {
+            if (!vscodeApi || typeof vscodeApi.setState !== 'function') {
+                return;
+            }
+            try {
+                var saved = typeof vscodeApi.getState === 'function'
+                    ? vscodeApi.getState()
+                    : null;
+                var next = saved && typeof saved === 'object'
+                    && !Array.isArray(saved)
+                    ? Object.assign({}, saved)
+                    : {};
+                next.conversationProjectCommentsTagFilter
+                    = state.projectTagFilter;
+                vscodeApi.setState(next);
+            } catch (_error) {
+                // Filter persistence is best-effort local Webview state.
+            }
+        }
+
+        function nextProjectCommentRequestId() {
+            state.projectCommentRequestSequence += 1;
+            return [
+                'project-comment',
+                Date.now().toString(36),
+                state.projectCommentRequestSequence.toString(36),
+            ].join(':');
+        }
+
+        function projectCommentErrorMessage(error) {
+            if (error === 'stale') return 'Project notes changed. Review the latest notes and try again.';
+            if (error === 'limit') return 'The project note limit was reached (50 notes, 5 tags per note, or 20 distinct tags).';
+            if (error === 'tooLarge') return 'The project note is too large to send.';
+            if (error === 'busy') return 'Wait for the current AI response to finish, then send again.';
+            if (error === 'conflict') return 'Multiple runtimes match this session. Resolve the conflict first.';
+            if (error === 'unavailable') return 'This session is unavailable and the note was not added.';
+            return 'The project note action failed. Your notes were kept.';
+        }
+
+        function setProjectCommentPending(pending) {
+            if (!projectCommentsAvailable) return;
+            Array.prototype.forEach.call(
+                projectCommentsRoot.querySelectorAll('button, textarea, input'),
+                function (control) {
+                    control.disabled = pending;
+                }
+            );
+            if (!pending) {
+                updateProjectComposerControls();
+            }
+            projectCommentsRoot.setAttribute(
+                'aria-busy',
+                pending ? 'true' : 'false'
+            );
+        }
+
+        function updateProjectComposerControls() {
+            if (!projectCommentsAvailable) return;
+            var pending = !!state.pendingProjectCommentRequest;
+            var text = projectCommentInput.value.trim();
+            projectCommentAdd.disabled = pending || !text;
+            projectCommentAddTag.disabled = pending
+                || state.projectDraftTags.length >= 5;
+        }
+
+        function renderProjectDraftTags() {
+            if (!projectCommentsAvailable) return;
+            projectCommentDraftTags.replaceChildren();
+            state.projectDraftTags.forEach(function (tag) {
+                var chip = document.createElement('span');
+                chip.className = 'conversation-project-comment-tag';
+                chip.setAttribute(
+                    'data-tag-color',
+                    String(projectTagColorKey(tag))
+                );
+                chip.appendChild(document.createTextNode(tag));
+                var remove = document.createElement('button');
+                remove.type = 'button';
+                remove.setAttribute('data-project-comment-action', 'remove-draft-tag');
+                remove.setAttribute('data-tag', tag);
+                remove.title = 'Remove tag ' + tag;
+                remove.setAttribute('aria-label', 'Remove tag ' + tag);
+                remove.textContent = '\u00d7';
+                chip.appendChild(remove);
+                projectCommentDraftTags.appendChild(chip);
+            });
+            if (state.projectDraftTagInputOpen) {
+                var input = document.createElement('input');
+                input.type = 'text';
+                input.maxLength = 48;
+                input.className = 'conversation-project-comment-tag-input';
+                input.setAttribute('data-project-comment-draft-tag-input', '');
+                input.setAttribute('aria-label', 'New tag');
+                input.placeholder = 'tag';
+                projectCommentDraftTags.appendChild(input);
+                input.focus();
+            }
+            updateProjectComposerControls();
+        }
+
+        function closeProjectDraftTagInput() {
+            if (!state.projectDraftTagInputOpen) return;
+            state.projectDraftTagInputOpen = false;
+            renderProjectDraftTags();
+        }
+
+        function commitProjectDraftTag(value) {
+            var tag = normalizeProjectTag(value);
+            state.projectDraftTagInputOpen = false;
+            if (tag && validProjectTag(tag)) {
+                var exists = state.projectDraftTags.some(function (candidate) {
+                    return candidate.toLowerCase() === tag.toLowerCase();
+                });
+                if (!exists && state.projectDraftTags.length < 5) {
+                    state.projectDraftTags.push(tag);
+                }
+            }
+            renderProjectDraftTags();
+        }
+
+        function updateProjectSourcePreview() {
+            if (!projectCommentsAvailable) return;
+            var source = state.projectPendingSource;
+            projectCommentSource.hidden = !source;
+            if (!source) {
+                projectCommentSourceQuote.textContent = '';
+                return;
+            }
+            projectCommentSourceLabel.textContent = 'From '
+                + providerLabel(source.provider) + ' session';
+            projectCommentSourceQuote.textContent = source.quote || '';
+        }
+
+        function resetProjectComposer() {
+            if (!projectCommentsAvailable) return;
+            projectCommentInput.value = '';
+            projectCommentInput.style.height = '';
+            state.projectDraftTags = [];
+            state.projectDraftTagInputOpen = false;
+            state.projectPendingSource = null;
+            renderProjectDraftTags();
+            updateProjectSourcePreview();
+            updateProjectComposerControls();
+        }
+
+        function saveSelectionAsProjectNote() {
+            if (!projectCommentsAvailable
+                || !state.selectedCommentText
+                || state.selectedCommentText.scope === 'session'
+                || state.pendingProjectCommentRequest) {
+                return;
+            }
+            state.projectPendingSource = {
+                provider: commentTarget.provider,
+                sessionId: commentTarget.sessionId,
+                quote: state.selectedCommentText.quote,
+            };
+            state.selectedCommentText = null;
+            addComment.hidden = true;
+            var selection = window.getSelection();
+            if (selection) {
+                selection.removeAllRanges();
+            }
+            setSidebarView('comments', true, true);
+            updateProjectSourcePreview();
+            projectCommentInput.focus();
+        }
+
+        function postProjectCommentOperation(operation, payload) {
+            if (!projectCommentsAvailable
+                || state.pendingProjectCommentRequest) return;
+            var requestId = nextProjectCommentRequestId();
+            state.pendingProjectCommentRequest = {
+                requestId: requestId,
+                operation: operation,
+            };
+            setProjectCommentPending(true);
+            status.textContent = operation === 'sendProjectComment'
+                ? 'Adding note to session input…'
+                : 'Saving project note…';
+            post({
+                type: operation === 'sendProjectComment'
+                    ? 'conversation-viewer-send-project-comment'
+                    : 'conversation-viewer-project-comment-mutation',
+                version: 1,
+                requestId: requestId,
+                subscriptionGeneration: subscriptionGeneration,
+                projectId: commentTarget.projectId,
+                provider: commentTarget.provider,
+                sessionId: commentTarget.sessionId,
+                operation: operation,
+                expectedRevision: state.projectCommentRevision,
+                payload: payload,
+            });
+        }
+
+        function addProjectCommentFromComposer() {
+            var text = projectCommentInput.value.trim();
+            if (!text) {
+                status.textContent = 'Enter a note before adding it.';
+                projectCommentInput.focus();
+                return;
+            }
+            var payload = {
+                text: text,
+                tags: state.projectDraftTags.slice(),
+            };
+            if (state.projectPendingSource) {
+                payload.source = Object.assign(
+                    {},
+                    state.projectPendingSource
+                );
+            }
+            resetProjectComposer();
+            postProjectCommentOperation('add', payload);
+        }
+
+        function projectTagElement(comment, tag, removable) {
+            var chip = document.createElement('span');
+            chip.className = 'conversation-project-comment-tag';
+            chip.setAttribute(
+                'data-tag-color',
+                String(projectTagColorKey(tag))
+            );
+            chip.appendChild(document.createTextNode(tag));
+            if (removable) {
+                var remove = document.createElement('button');
+                remove.type = 'button';
+                remove.setAttribute(
+                    'data-project-comment-action',
+                    'remove-tag'
+                );
+                remove.setAttribute('data-tag', tag);
+                remove.title = 'Remove tag ' + tag;
+                remove.setAttribute('aria-label', 'Remove tag ' + tag);
+                remove.textContent = '\u00d7';
+                chip.appendChild(remove);
+            }
+            return chip;
+        }
+
+        function buildProjectCommentCard(comment, index) {
+            var item = document.createElement('article');
+            item.className = 'conversation-comment conversation-project-comment';
+            item.setAttribute('data-project-comment-id', comment.id);
+            item.setAttribute('data-comment-status', comment.status);
+
+            var editing = !!state.editingProjectComment
+                && state.editingProjectComment.commentId === comment.id;
+
+            var heading = document.createElement('div');
+            heading.className = 'conversation-comment-heading';
+            var tags = document.createElement('span');
+            tags.className = 'conversation-project-comment-tags';
+            comment.tags.forEach(function (tag) {
+                tags.appendChild(projectTagElement(comment, tag, true));
+            });
+            if (state.projectTagEditor
+                && state.projectTagEditor.commentId === comment.id) {
+                var tagInput = document.createElement('input');
+                tagInput.type = 'text';
+                tagInput.maxLength = 48;
+                tagInput.className = 'conversation-project-comment-tag-input';
+                tagInput.setAttribute('data-project-comment-tag-input', '');
+                tagInput.setAttribute('aria-label', 'New tag');
+                tagInput.placeholder = 'tag';
+                tagInput.value = state.projectTagEditor.draft;
+                tags.appendChild(tagInput);
+            } else if (comment.tags.length < 5) {
+                var addTag = document.createElement('button');
+                addTag.type = 'button';
+                addTag.className = 'conversation-project-comment-tag-add';
+                addTag.setAttribute(
+                    'data-project-comment-action',
+                    'open-tag-editor'
+                );
+                addTag.title = 'Add tag';
+                addTag.setAttribute('aria-label', 'Add tag');
+                addTag.textContent = '+';
+                tags.appendChild(addTag);
+            }
+            heading.appendChild(tags);
+            var statusToggle = document.createElement('button');
+            statusToggle.type = 'button';
+            statusToggle.className = 'conversation-comment-status'
+                + ' conversation-project-comment-status';
+            statusToggle.setAttribute(
+                'data-project-comment-action',
+                'toggle-status'
+            );
+            statusToggle.textContent = comment.status === 'open'
+                ? 'Open'
+                : 'Done';
+            statusToggle.title = comment.status === 'open'
+                ? 'Mark done'
+                : 'Reopen';
+            statusToggle.setAttribute('aria-label', statusToggle.title);
+            heading.appendChild(statusToggle);
+            var actions = document.createElement('div');
+            actions.className = 'conversation-comment-actions';
+            heading.appendChild(actions);
+            item.appendChild(heading);
+
+            function projectIconButton(action, icon, label, modifier) {
+                var button = commentIconButton(action, icon, label, modifier);
+                button.setAttribute('data-project-comment-action', action);
+                button.removeAttribute('data-comment-action');
+                return button;
+            }
+
+            if (editing) {
+                actions.appendChild(projectIconButton(
+                    'update',
+                    COMMENT_ICONS.save,
+                    'Save note (Ctrl+Enter or Cmd+Enter)'
+                ));
+                actions.appendChild(projectIconButton(
+                    'cancel-edit',
+                    COMMENT_ICONS.cancel,
+                    'Discard changes (Esc)'
+                ));
+                var input = document.createElement('textarea');
+                input.rows = 1;
+                input.maxLength = 4000;
+                input.value = state.editingProjectComment.draft;
+                input.setAttribute('aria-label', 'Project note ' + (index + 1));
+                input.setAttribute(
+                    'aria-keyshortcuts',
+                    'Control+Enter Meta+Enter'
+                );
+                input.setAttribute('data-project-comment-edit', '');
+                var hint = document.createElement('div');
+                hint.className = 'conversation-comment-edit-hint';
+                hint.textContent = 'Ctrl+Enter to save · Esc to cancel';
+                item.append(input, hint);
+                window.setTimeout(function () {
+                    autosizeCommentInput(input);
+                    input.focus();
+                    input.setSelectionRange(
+                        input.value.length,
+                        input.value.length
+                    );
+                }, 0);
+                return item;
+            }
+
+            var expanded = comment.status !== 'done'
+                || state.expandedDoneProjectComments.has(comment.id);
+            if (comment.status === 'done' && !expanded) {
+                item.classList.add('conversation-comment-done-collapsed');
+                var expand = projectIconButton(
+                    'toggle-done',
+                    COMMENT_ICONS.chevron,
+                    'Expand note'
+                );
+                expand.setAttribute('aria-expanded', 'false');
+                actions.appendChild(expand);
+                actions.appendChild(projectIconButton(
+                    'delete',
+                    COMMENT_ICONS.remove,
+                    'Delete note',
+                    'danger'
+                ));
+                var collapsedBody = document.createElement('div');
+                collapsedBody.className =
+                    'conversation-comment-collapsed-body';
+                collapsedBody.setAttribute(
+                    'data-project-comment-action',
+                    'toggle-done'
+                );
+                collapsedBody.textContent = comment.text;
+                item.appendChild(collapsedBody);
+                return item;
+            }
+
+            if (comment.status === 'done') {
+                var collapse = projectIconButton(
+                    'toggle-done',
+                    COMMENT_ICONS.chevron,
+                    'Collapse note'
+                );
+                collapse.setAttribute('aria-expanded', 'true');
+                actions.appendChild(collapse);
+            }
+            actions.appendChild(projectIconButton(
+                'send',
+                COMMENT_ICONS.send,
+                'Send this note to the session input'
+            ));
+            actions.appendChild(projectIconButton(
+                'edit',
+                COMMENT_ICONS.edit,
+                'Edit note'
+            ));
+            actions.appendChild(projectIconButton(
+                'delete',
+                COMMENT_ICONS.remove,
+                'Delete note',
+                'danger'
+            ));
+
+            var body = document.createElement('div');
+            body.className = 'conversation-comment-body';
+            body.textContent = comment.text;
+            item.appendChild(body);
+            if (comment.source) {
+                var quoteGroup = document.createElement('div');
+                quoteGroup.className = 'conversation-comment-quote';
+                var quoteLabel = document.createElement('span');
+                quoteLabel.className = 'conversation-comment-quote-label';
+                quoteLabel.textContent = 'From '
+                    + providerLabel(comment.source.provider) + ' session';
+                quoteGroup.appendChild(quoteLabel);
+                if (comment.source.quote) {
+                    var quote = document.createElement('blockquote');
+                    quote.textContent = comment.source.quote;
+                    quoteGroup.appendChild(quote);
+                }
+                item.appendChild(quoteGroup);
+            }
+            var meta = document.createElement('div');
+            meta.className = 'conversation-comment-meta';
+            var metaLabel = document.createElement('span');
+            metaLabel.textContent = '#' + (index + 1);
+            meta.appendChild(metaLabel);
+            var timeText = formatCommentTime(comment.createdAt);
+            if (timeText) {
+                var time = document.createElement('span');
+                time.className = 'conversation-comment-time';
+                time.textContent = timeText;
+                meta.appendChild(time);
+            }
+            if (comment.dispatches.length) {
+                var lastDispatch = comment.dispatches[
+                    comment.dispatches.length - 1
+                ];
+                var dispatch = document.createElement('span');
+                dispatch.className = 'conversation-project-comment-dispatch';
+                dispatch.textContent = '\u2192 Sent to '
+                    + providerLabel(lastDispatch.provider)
+                    + ' · ' + formatCommentTime(lastDispatch.at);
+                meta.appendChild(dispatch);
+            }
+            item.appendChild(meta);
+            return item;
+        }
+
+        function renderProjectTagFilter() {
+            if (!projectCommentsAvailable) return;
+            var vocabulary = [];
+            var counts = new Map();
+            sortedProjectComments().forEach(function (comment) {
+                comment.tags.forEach(function (tag) {
+                    var key = tag.toLowerCase();
+                    if (!counts.has(key)) {
+                        counts.set(key, 0);
+                        vocabulary.push(tag);
+                    }
+                    counts.set(key, counts.get(key) + 1);
+                });
+            });
+            if (state.projectTagFilter && !counts.has(state.projectTagFilter)) {
+                state.projectTagFilter = null;
+                saveProjectTagFilter();
+            }
+            projectCommentTagFilter.replaceChildren();
+            projectCommentTagFilter.hidden = vocabulary.length === 0;
+            if (!vocabulary.length) return;
+            var all = document.createElement('button');
+            all.type = 'button';
+            all.className = 'conversation-project-comment-filter-chip';
+            all.setAttribute('data-project-comment-action', 'filter-tag');
+            all.setAttribute('data-tag', '');
+            all.setAttribute(
+                'aria-pressed',
+                state.projectTagFilter === null ? 'true' : 'false'
+            );
+            all.textContent = 'All · ' + state.projectComments.length;
+            projectCommentTagFilter.appendChild(all);
+            vocabulary.forEach(function (tag) {
+                var key = tag.toLowerCase();
+                var chip = document.createElement('button');
+                chip.type = 'button';
+                chip.className = 'conversation-project-comment-filter-chip';
+                chip.setAttribute('data-project-comment-action', 'filter-tag');
+                chip.setAttribute('data-tag', tag);
+                chip.setAttribute(
+                    'aria-pressed',
+                    state.projectTagFilter === key ? 'true' : 'false'
+                );
+                var dot = document.createElement('span');
+                dot.className = 'conversation-project-comment-filter-dot';
+                dot.setAttribute(
+                    'data-tag-color',
+                    String(projectTagColorKey(tag))
+                );
+                chip.appendChild(dot);
+                chip.appendChild(document.createTextNode(
+                    tag + ' · ' + counts.get(key)
+                ));
+                projectCommentTagFilter.appendChild(chip);
+            });
+        }
+
+        function renderProjectComments() {
+            if (!projectCommentsAvailable) return;
+            renderProjectTagFilter();
+            projectCommentList.replaceChildren();
+            var visible = visibleProjectComments();
+            visible.forEach(function (comment, index) {
+                projectCommentList.appendChild(
+                    buildProjectCommentCard(comment, index)
+                );
+            });
+            projectCommentEmpty.hidden = state.projectComments.length > 0;
+            if (!projectCommentEmpty.hidden) {
+                projectCommentEmpty.textContent = 'No project notes yet.'
+                    + ' Jot down a bug, idea, or todo above.';
+            }
+            if (state.projectComments.length > 0 && visible.length === 0) {
+                projectCommentEmpty.hidden = false;
+                projectCommentEmpty.textContent = 'No notes match this tag.';
+            }
+            if (state.projectTagEditor) {
+                var editorInput = projectCommentList.querySelector(
+                    '[data-project-comment-tag-input]'
+                );
+                if (editorInput) {
+                    editorInput.focus();
+                    editorInput.setSelectionRange(
+                        editorInput.value.length,
+                        editorInput.value.length
+                    );
+                }
+            }
+            updateProjectComposerControls();
+        }
+
+        function applyProjectCommentsResult(message) {
+            if (!projectCommentsAvailable
+                || !validProjectCommentsResult(message)
+                || message.subscriptionGeneration !== subscriptionGeneration
+                || message.projectId !== commentTarget.projectId
+                || message.provider !== commentTarget.provider
+                || message.sessionId !== commentTarget.sessionId
+                || !state.pendingProjectCommentRequest
+                || message.requestId
+                    !== state.pendingProjectCommentRequest.requestId
+                || message.operation
+                    !== state.pendingProjectCommentRequest.operation) {
+                return false;
+            }
+            var operation = state.pendingProjectCommentRequest.operation;
+            state.projectCommentRevision = message.revision;
+            state.projectComments = message.comments.map(cloneProjectComment);
+            if (message.success && operation === 'update') {
+                state.editingProjectComment = null;
+            }
+            renderProjectComments();
+            state.pendingProjectCommentRequest = null;
+            setProjectCommentPending(false);
+            if (message.success) {
+                status.textContent = operation === 'sendProjectComment'
+                    ? 'Note added to session input.'
+                        + ' Review and press Enter to send.'
+                    : operation === 'delete'
+                        ? 'Project note deleted.'
+                        : 'Project note saved.';
+            } else {
+                status.textContent = projectCommentErrorMessage(message.error);
+            }
+            updateCommentControls();
+            return true;
+        }
+
         function attach() {
             if (!commentUiAvailable) return;
             messages.addEventListener('mouseup', function () {
@@ -1405,6 +2210,11 @@
                     sendSelectionToTerminal();
                     return;
                 }
+                if (button.getAttribute('data-comment-selection-action')
+                    === 'project') {
+                    saveSelectionAsProjectNote();
+                    return;
+                }
                 openCommentComposer();
             });
             commentsRoot.addEventListener('click', function (event) {
@@ -1537,9 +2347,196 @@
                     });
                 }
             });
+            if (projectCommentsAvailable) {
+                projectCommentInput.addEventListener('input', function () {
+                    autosizeCommentInput(projectCommentInput);
+                    updateProjectComposerControls();
+                });
+                projectCommentsRoot.addEventListener('input', function (event) {
+                    var target = event.target;
+                    if (!target || !target.matches) return;
+                    if (target.matches('[data-project-comment-edit]')) {
+                        if (state.editingProjectComment) {
+                            state.editingProjectComment.draft = target.value;
+                        }
+                        autosizeCommentInput(target);
+                    } else if (target.matches('[data-project-comment-tag-input]')
+                        && state.projectTagEditor) {
+                        state.projectTagEditor.draft = target.value;
+                    }
+                });
+                projectCommentsRoot.addEventListener('click', function (event) {
+                    var button = event.target && event.target.closest
+                        ? event.target.closest('[data-project-comment-action]')
+                        : null;
+                    if (!button || !projectCommentsRoot.contains(button)
+                        || state.pendingProjectCommentRequest) {
+                        return;
+                    }
+                    var action = button.getAttribute(
+                        'data-project-comment-action'
+                    );
+                    if (action === 'add') {
+                        addProjectCommentFromComposer();
+                        return;
+                    }
+                    if (action === 'add-draft-tag') {
+                        state.projectDraftTagInputOpen = true;
+                        renderProjectDraftTags();
+                        return;
+                    }
+                    if (action === 'remove-draft-tag') {
+                        var draftTag = button.getAttribute('data-tag');
+                        state.projectDraftTags = state.projectDraftTags.filter(
+                            function (candidate) {
+                                return candidate !== draftTag;
+                            }
+                        );
+                        renderProjectDraftTags();
+                        return;
+                    }
+                    if (action === 'clear-source') {
+                        state.projectPendingSource = null;
+                        updateProjectSourcePreview();
+                        return;
+                    }
+                    if (action === 'filter-tag') {
+                        var filterTag = button.getAttribute('data-tag');
+                        var nextFilter = filterTag
+                            ? filterTag.toLowerCase()
+                            : null;
+                        state.projectTagFilter =
+                            state.projectTagFilter === nextFilter
+                                ? null
+                                : nextFilter;
+                        saveProjectTagFilter();
+                        renderProjectComments();
+                        return;
+                    }
+                    var card = button.closest('[data-project-comment-id]');
+                    var commentId = card && card.getAttribute(
+                        'data-project-comment-id'
+                    );
+                    var comment = state.projectComments.find(
+                        function (candidate) {
+                            return candidate.id === commentId;
+                        }
+                    );
+                    if (!card || !comment) return;
+                    if (action === 'toggle-done') {
+                        if (state.expandedDoneProjectComments.has(comment.id)) {
+                            state.expandedDoneProjectComments.delete(
+                                comment.id
+                            );
+                        } else {
+                            state.expandedDoneProjectComments.add(comment.id);
+                        }
+                        renderProjectComments();
+                        return;
+                    }
+                    if (action === 'toggle-status') {
+                        postProjectCommentOperation('setStatus', {
+                            commentId: comment.id,
+                            status: comment.status === 'open'
+                                ? 'done'
+                                : 'open',
+                        });
+                        return;
+                    }
+                    if (action === 'send') {
+                        postProjectCommentOperation('sendProjectComment', {
+                            commentId: comment.id,
+                        });
+                        return;
+                    }
+                    if (action === 'edit') {
+                        state.editingProjectComment = {
+                            commentId: comment.id,
+                            draft: comment.text,
+                        };
+                        renderProjectComments();
+                        return;
+                    }
+                    if (action === 'cancel-edit') {
+                        state.editingProjectComment = null;
+                        renderProjectComments();
+                        status.textContent = 'Edit cancelled.';
+                        return;
+                    }
+                    if (action === 'update') {
+                        var editor = card.querySelector(
+                            '[data-project-comment-edit]'
+                        );
+                        var text = editor ? editor.value.trim() : '';
+                        if (!text) {
+                            status.textContent =
+                                'A project note cannot be empty.';
+                            if (editor) editor.focus();
+                            return;
+                        }
+                        postProjectCommentOperation('update', {
+                            commentId: comment.id,
+                            text: text,
+                        });
+                        return;
+                    }
+                    if (action === 'delete') {
+                        postProjectCommentOperation('delete', {
+                            commentId: comment.id,
+                        });
+                        return;
+                    }
+                    if (action === 'open-tag-editor') {
+                        state.projectTagEditor = {
+                            commentId: comment.id,
+                            draft: '',
+                        };
+                        renderProjectComments();
+                        return;
+                    }
+                    if (action === 'remove-tag') {
+                        postProjectCommentOperation('removeTag', {
+                            commentId: comment.id,
+                            tag: button.getAttribute('data-tag') || '',
+                        });
+                    }
+                });
+            }
         }
 
         function handleEnterShortcut(event) {
+            var eventTarget = event.target;
+            if (projectCommentsAvailable && eventTarget && eventTarget.matches) {
+                if (eventTarget.matches('[data-project-comment-draft-tag-input]')) {
+                    if (event.key === 'Enter' && !event.ctrlKey
+                        && !event.metaKey && !event.altKey) {
+                        event.preventDefault();
+                        commitProjectDraftTag(eventTarget.value);
+                        return true;
+                    }
+                    return false;
+                }
+                if (eventTarget.matches('[data-project-comment-tag-input]')) {
+                    if (event.key === 'Enter' && !event.ctrlKey
+                        && !event.metaKey && !event.altKey
+                        && state.projectTagEditor) {
+                        event.preventDefault();
+                        var editor = state.projectTagEditor;
+                        state.projectTagEditor = null;
+                        var tag = normalizeProjectTag(editor.draft);
+                        if (tag) {
+                            postProjectCommentOperation('addTag', {
+                                commentId: editor.commentId,
+                                tag: tag,
+                            });
+                        } else {
+                            renderProjectComments();
+                        }
+                        return true;
+                    }
+                    return false;
+                }
+            }
             if (!commentUiAvailable
                 || event.key !== 'Enter'
                 || (!event.ctrlKey && !event.metaKey)
@@ -1547,6 +2544,23 @@
                 return false;
             }
             var target = event.target;
+            if (projectCommentsAvailable && target === projectCommentInput) {
+                event.preventDefault();
+                addProjectCommentFromComposer();
+                return true;
+            }
+            if (projectCommentsAvailable && target
+                && target.matches?.('[data-project-comment-edit]')) {
+                var projectCard = target.closest('[data-project-comment-id]');
+                var projectSave = projectCard?.querySelector(
+                    '[data-project-comment-action="update"]'
+                );
+                if (projectSave) {
+                    event.preventDefault();
+                    projectSave.click();
+                    return true;
+                }
+            }
             if (target === commentInput && !commentComposer.hidden) {
                 event.preventDefault();
                 commentComposer.querySelector(
@@ -1569,6 +2583,29 @@
         }
 
         function handleEscape(event) {
+            if (projectCommentsAvailable
+                && state.projectDraftTagInputOpen) {
+                event.preventDefault();
+                closeProjectDraftTagInput();
+                return true;
+            }
+            if (projectCommentsAvailable && state.projectTagEditor) {
+                event.preventDefault();
+                if (!state.pendingProjectCommentRequest) {
+                    state.projectTagEditor = null;
+                    renderProjectComments();
+                }
+                return true;
+            }
+            if (projectCommentsAvailable && state.editingProjectComment) {
+                event.preventDefault();
+                if (!state.pendingProjectCommentRequest) {
+                    state.editingProjectComment = null;
+                    renderProjectComments();
+                    status.textContent = 'Edit cancelled.';
+                }
+                return true;
+            }
             if (commentUiAvailable && state.clearAllConfirmation) {
                 event.preventDefault();
                 resetClearAllConfirmation();
@@ -1596,6 +2633,23 @@
 
         function initializeComments() {
             state.filter = readCommentsFilter();
+            if (projectCommentsAvailable) {
+                state.projectTagFilter = readProjectTagFilter();
+                var initialProjectComments = readJsonAttribute(
+                    'data-initial-project-comments'
+                );
+                if (validInitialProjectComments(initialProjectComments)) {
+                    state.projectCommentRevision
+                        = initialProjectComments.revision;
+                    state.projectComments = initialProjectComments.comments
+                        .map(cloneProjectComment);
+                    renderProjectComments();
+                } else {
+                    projectCommentEmpty.hidden = false;
+                    projectCommentEmpty.textContent =
+                        'Project notes are unavailable.';
+                }
+            }
             var initialComments = readJsonAttribute('data-initial-comments');
             if (validInitialComments(initialComments)) {
                 state.commentRevision = initialComments.revision;
@@ -1608,8 +2662,10 @@
             }
         }
 
-        function resetSession(target, generation, snapshot) {
-            if (!validInitialComments(snapshot)) {
+        function resetSession(target, generation, snapshot, projectSnapshot) {
+            if (!validInitialComments(snapshot)
+                || (projectCommentsAvailable
+                    && !validInitialProjectComments(projectSnapshot))) {
                 return false;
             }
             commentTarget = target;
@@ -1622,6 +2678,23 @@
             state.pendingLocateRequest = null;
             state.editingComment = null;
             state.expandedDoneComments.clear();
+            if (projectCommentsAvailable) {
+                state.projectComments = projectSnapshot.comments.map(
+                    cloneProjectComment
+                );
+                state.projectCommentRevision = projectSnapshot.revision;
+                state.pendingProjectCommentRequest = null;
+                state.editingProjectComment = null;
+                state.projectTagEditor = null;
+                state.expandedDoneProjectComments.clear();
+                if (sessionCommentsProvider) {
+                    sessionCommentsProvider.textContent = providerLabel(
+                        target.provider
+                    );
+                }
+                resetProjectComposer();
+                renderProjectComments();
+            }
             if (!commentUiAvailable) {
                 return true;
             }
@@ -1634,7 +2707,9 @@
         return Object.freeze({
             applyCommentsResult: applyCommentsResult,
             applyLocateResult: applyLocateResult,
+            applyProjectCommentsResult: applyProjectCommentsResult,
             attach: attach,
+            canResetProjectComments: validInitialProjectComments,
             canResetSession: validInitialComments,
             handleEnterShortcut: handleEnterShortcut,
             handleEscape: handleEscape,

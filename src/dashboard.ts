@@ -44,6 +44,9 @@ import {
     ConversationCommentFileStore,
 } from './aiSessions/conversation/commentStore';
 import {
+    ProjectCommentFileStore,
+} from './aiSessions/conversation/projectCommentStore';
+import {
     ConversationBookmarkFileStore,
 } from './aiSessions/conversation/bookmarkStore';
 import {
@@ -753,6 +756,9 @@ async function initializeDashboard(
     const conversationCommentStore = new ConversationCommentFileStore(
         context.globalStoragePath
     );
+    const projectCommentStore = new ProjectCommentFileStore(
+        context.globalStoragePath
+    );
     const conversationBookmarkStore = new ConversationBookmarkFileStore(
         context.globalStoragePath
     );
@@ -1448,6 +1454,7 @@ async function initializeDashboard(
         clearTimer: clearTimeout,
         onDiagnostic: event => logAiSessionDiagnostic({ ...event }),
         commentStore: conversationViewerCommentStore,
+        projectCommentStore,
         bookmarkStore: conversationViewerBookmarkStore,
         resolveReboundTarget: target =>
             conversationSessionRebindCoordinator.resolve(target),

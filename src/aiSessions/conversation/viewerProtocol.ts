@@ -48,6 +48,35 @@ export interface ConversationViewerLocateCommentMessage {
     commentId: string;
 }
 
+export type ConversationViewerProjectCommentOperation =
+    'add' | 'update' | 'delete' | 'setStatus' | 'addTag' | 'removeTag';
+
+export interface ConversationViewerProjectCommentMutationMessage {
+    type: 'conversation-viewer-project-comment-mutation';
+    version: 1;
+    requestId: string;
+    subscriptionGeneration: number;
+    projectId: string;
+    provider: AiSessionProviderId;
+    sessionId: string;
+    operation: ConversationViewerProjectCommentOperation;
+    expectedRevision: number;
+    payload: unknown;
+}
+
+export interface ConversationViewerSendProjectCommentMessage {
+    type: 'conversation-viewer-send-project-comment';
+    version: 1;
+    requestId: string;
+    subscriptionGeneration: number;
+    projectId: string;
+    provider: AiSessionProviderId;
+    sessionId: string;
+    operation: 'sendProjectComment';
+    expectedRevision: number;
+    payload: unknown;
+}
+
 export interface ConversationViewerSendCommentsMessage {
     type: 'conversation-viewer-send-comments';
     version: 1;
@@ -147,6 +176,8 @@ export type ConversationViewerMessage =
     | ConversationViewerCommentMutationMessage
     | ConversationViewerSendCommentsMessage
     | ConversationViewerLocateCommentMessage
+    | ConversationViewerProjectCommentMutationMessage
+    | ConversationViewerSendProjectCommentMessage
     | ConversationViewerBookmarkMutationMessage
     | ConversationViewerCopyMessage;
 
@@ -315,6 +346,47 @@ export function parseConversationViewerMessage(
             return value as unknown as ConversationViewerCopyMessage;
         }
         return undefined;
+    }
+    if (value.type === 'conversation-viewer-project-comment-mutation'
+        || value.type === 'conversation-viewer-send-project-comment') {
+        if (keys.length !== 10
+            || !hasExactKeys(value, [
+                'type', 'version', 'requestId', 'subscriptionGeneration',
+                'projectId', 'provider', 'sessionId', 'operation',
+                'expectedRevision', 'payload',
+            ])
+            || !isRequestId(value.requestId)
+            || !isPositiveSafeInteger(value.subscriptionGeneration)
+            || !isConversationViewerTargetId(value.projectId)
+            || !isProvider(value.provider)
+            || !isConversationViewerTargetId(value.sessionId)
+            || !isNonnegativeSafeInteger(value.expectedRevision)
+            || !value.payload
+            || typeof value.payload !== 'object'
+            || Array.isArray(value.payload)) {
+            return undefined;
+        }
+        if (value.type === 'conversation-viewer-project-comment-mutation') {
+            if (value.operation !== 'add'
+                && value.operation !== 'update'
+                && value.operation !== 'delete'
+                && value.operation !== 'setStatus'
+                && value.operation !== 'addTag'
+                && value.operation !== 'removeTag') {
+                return undefined;
+            }
+            return value as unknown as
+                ConversationViewerProjectCommentMutationMessage;
+        }
+        if (value.operation !== 'sendProjectComment'
+            || !hasExactKeys(value.payload as object, ['commentId'])
+            || !isConversationViewerTargetId(
+                (value.payload as { commentId: unknown }).commentId
+            )) {
+            return undefined;
+        }
+        return value as unknown as
+            ConversationViewerSendProjectCommentMessage;
     }
     if ((value.type !== 'conversation-viewer-comment-mutation'
             && value.type !== 'conversation-viewer-send-comments')

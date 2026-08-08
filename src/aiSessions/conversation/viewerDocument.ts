@@ -5,6 +5,7 @@ import * as vscode from 'vscode';
 import type { AiSessionProviderId } from '../../models';
 import { CONVERSATION_COMMENT_LIMITS } from './comments';
 import type { ConversationCommentSnapshot } from './commentStore';
+import type { ProjectCommentSnapshot } from './projectCommentStore';
 import type { ConversationBookmarkSnapshot } from './bookmarkStore';
 import { renderConversationTelemetry } from './conversationTelemetryController';
 import {
@@ -22,6 +23,7 @@ const CONVERSATION_COMMENT_ICON_X = '<svg viewBox="0 0 24 24" fill="none" stroke
 const CONVERSATION_COMMENT_ICON_SEND = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4Z"/></svg>';
 const CONVERSATION_COMMENT_ICON_ERASER = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></svg>';
 const CONVERSATION_COMMENT_ICON_TRASH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="m19 6-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>';
+const CONVERSATION_COMMENT_ICON_BOOKMARK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2Z"/></svg>';
 const CONVERSATION_NAV_ICON_PREVIOUS = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>';
 const CONVERSATION_NAV_ICON_NEXT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>';
 const CONVERSATION_NAV_ICON_LATEST = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 6 5 5 5-5"/><path d="m7 13 5 5 5-5"/></svg>';
@@ -37,6 +39,7 @@ export interface ConversationViewerDocumentOptions {
     target: ConversationViewerTarget;
     mediaUri: (fileName: string) => vscode.Uri;
     commentSnapshot: ConversationCommentSnapshot;
+    projectCommentSnapshot: ProjectCommentSnapshot;
     bookmarkSnapshot: ConversationBookmarkSnapshot;
     telemetrySnapshot: ConversationTelemetry | undefined;
     subscriptionGeneration: number;
@@ -103,6 +106,9 @@ export function renderConversationViewerDocument(
     const commentStateAttribute = ` data-initial-comments="${escapeAttribute(
         JSON.stringify(options.commentSnapshot)
     )}"`;
+    const projectCommentStateAttribute = ` data-initial-project-comments="${escapeAttribute(
+        JSON.stringify(options.projectCommentSnapshot)
+    )}"`;
     const bookmarkStateAttribute = ` data-initial-bookmarks="${escapeAttribute(
         JSON.stringify(options.bookmarkSnapshot)
     )}"`;
@@ -138,7 +144,7 @@ export function renderConversationViewerDocument(
 </head>
 <body data-auto-scroll-threshold="${CONVERSATION_LIMITS.autoScrollThresholdPx}"
     data-mermaid-src="${escapeAttribute(mermaid.toString())}"
-    data-subscription-generation="${options.subscriptionGeneration}"${initialPageAttribute}${commentStateAttribute}${bookmarkStateAttribute}${targetAttribute}${restoreTargetAttribute}>
+    data-subscription-generation="${options.subscriptionGeneration}"${initialPageAttribute}${commentStateAttribute}${projectCommentStateAttribute}${bookmarkStateAttribute}${targetAttribute}${restoreTargetAttribute}>
     <header class="conversation-header">
         <div class="conversation-identity">
             <strong data-conversation-provider>${escapeHtml(
@@ -320,6 +326,66 @@ export function renderConversationViewerDocument(
                         data-comment-summary>No comments yet</span>
                 </div>
                 <div class="conversation-comments-body" data-comments-body>
+                    <section class="conversation-project-comments"
+                        data-project-comments aria-label="Project notes">
+                        <div class="conversation-comments-section-header">
+                            <span class="conversation-comments-section-title"
+                                role="heading" aria-level="2">Project</span>
+                            <span class="conversation-comments-section-hint">Shared with every session of this project</span>
+                        </div>
+                        <div class="conversation-project-comment-composer"
+                            data-project-comment-composer>
+                            <div class="conversation-project-comment-source"
+                                data-project-comment-source hidden>
+                                <span class="conversation-project-comment-source-label"
+                                    data-project-comment-source-label></span>
+                                <button class="conversation-comment-icon-button"
+                                    type="button"
+                                    data-project-comment-action="clear-source"
+                                    title="Detach the quoted source"
+                                    aria-label="Detach the quoted source">${CONVERSATION_COMMENT_ICON_X}</button>
+                                <blockquote data-project-comment-source-quote></blockquote>
+                            </div>
+                            <textarea data-project-comment-input rows="2"
+                                maxlength="${CONVERSATION_COMMENT_LIMITS.maxCommentGraphemes}"
+                                aria-keyshortcuts="Control+Enter Meta+Enter"
+                                aria-label="Add a project note"
+                                placeholder="Jot down a bug, idea, or todo…"></textarea>
+                            <div class="conversation-project-comment-composer-row">
+                                <span class="conversation-project-comment-draft-tags"
+                                    data-project-comment-draft-tags></span>
+                                <button class="conversation-project-comment-tag-add"
+                                    type="button"
+                                    data-project-comment-action="add-draft-tag"
+                                    title="Add tag"
+                                    aria-label="Add tag">+ Tag</button>
+                                <span class="conversation-project-comment-composer-spacer"></span>
+                                <button type="button"
+                                    data-project-comment-action="add"
+                                    title="Add project note (Ctrl+Enter or Cmd+Enter)"
+                                    aria-label="Add project note (Ctrl+Enter or Cmd+Enter)"
+                                    disabled>Add</button>
+                            </div>
+                        </div>
+                        <div class="conversation-project-comment-tag-filter"
+                            data-project-comment-tag-filter role="group"
+                            aria-label="Filter project notes by tag"
+                            hidden></div>
+                        <div class="conversation-comment-list conversation-project-comment-list"
+                            data-project-comment-list></div>
+                        <p class="conversation-project-comment-empty"
+                            data-project-comment-empty hidden>
+                            No project notes yet. Jot down a bug, idea, or todo above.
+                        </p>
+                    </section>
+                    <div class="conversation-comments-section-header">
+                        <span class="conversation-comments-section-title"
+                            role="heading" aria-level="2">This Session</span>
+                        <span class="conversation-comments-section-chip"
+                            data-session-comments-provider>${escapeHtml(
+                                providerLabel(target.provider)
+                            )}</span>
+                    </div>
                     <div class="conversation-comment-composer"
                         data-comment-composer hidden>
                         <blockquote data-comment-selection></blockquote>
@@ -404,6 +470,10 @@ export function renderConversationViewerDocument(
         <button class="conversation-comment-icon-button" type="button"
             data-comment-selection-action="comment" title="Add comment"
             aria-label="Add comment">${CONVERSATION_COMMENT_ICON_COMMENT}</button>
+        <button class="conversation-comment-icon-button" type="button"
+            data-comment-selection-action="project"
+            title="Save selection as a project note"
+            aria-label="Save selection as a project note">${CONVERSATION_COMMENT_ICON_BOOKMARK}</button>
         <button class="conversation-comment-icon-button accent" type="button"
             data-comment-selection-action="send"
             title="Send selection to the active terminal"

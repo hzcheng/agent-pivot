@@ -301,12 +301,15 @@ test('SKILLS-SPLIT-004 pane list scroll positions survive authoritative HTML rep
         const before = await page.evaluate(() => {
             const userList = document.querySelector('[data-skills-pane="user"] > .group.steward-section > .group-list');
             const projectList = document.querySelector('[data-skills-pane="project"] > .group.steward-section > .group-list');
-            userList.scrollTop = 150;
-            projectList.scrollTop = 150;
-            return { user: userList.scrollTop, project: projectList.scrollTop };
+            const scrollTo = list => {
+                const max = list.scrollHeight - list.clientHeight;
+                list.scrollTop = Math.max(40, Math.floor(max * 0.6));
+                return list.scrollTop;
+            };
+            return { user: scrollTo(userList), project: scrollTo(projectList) };
         });
-        assert.equal(before.user, 150);
-        assert.equal(before.project, 150);
+        assert.ok(before.user >= 40, `global list actually scrolled (got ${before.user})`);
+        assert.ok(before.project >= 40, `project list actually scrolled (got ${before.project})`);
 
         const { getSkillsPanelContent } = loadSkillContent();
         const replacement = getSkillsPanelContent(makeSplitRecords(), { hasWorkspace: true });
@@ -317,10 +320,10 @@ test('SKILLS-SPLIT-004 pane list scroll positions survive authoritative HTML rep
                 project: document.querySelector('[data-skills-pane="project"] > .group.steward-section > .group-list').scrollTop,
             };
         }, { html: replacement });
-        assert.ok(Math.abs(after.user - 150) <= 2,
-            `global list keeps its scroll anchor (got ${after.user})`);
-        assert.ok(Math.abs(after.project - 150) <= 2,
-            `project list keeps its scroll anchor (got ${after.project})`);
+        assert.ok(Math.abs(after.user - before.user) <= 2,
+            `global list keeps its scroll anchor (${before.user} -> ${after.user})`);
+        assert.ok(Math.abs(after.project - before.project) <= 2,
+            `project list keeps its scroll anchor (${before.project} -> ${after.project})`);
     } finally {
         await browser.close();
     }

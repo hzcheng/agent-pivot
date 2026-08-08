@@ -4717,17 +4717,22 @@ body.steward-sidebar {
         }
     }
 
-    // Scope section headers: quiet uppercase label, plain-text count, and a
-    // low-key ⋯ that brightens on hover.
+    // Scope section headers: a tinted bar (native sidebar section-header
+    // tokens) with a hairline divider, so each pane's boundary reads at a
+    // glance and the label anchors its scrolling list.
     .skill-scope-header {
         display: flex;
         align-items: center;
         gap: 6px;
         min-width: 0;
-        margin: 10px 2px 4px;
+        margin: 0;
+        padding: 4px 8px;
+        border: 0;
+        border-bottom: 1px solid var(--vscode-sideBarSectionHeader-border, var(--vscode-panel-border));
+        background: var(--vscode-sideBarSectionHeader-background, rgba(127, 127, 127, .14));
 
         .skill-scope-title {
-            color: var(--vscode-descriptionForeground);
+            color: var(--vscode-foreground);
             cursor: pointer;
             font-size: 10px;
             font-weight: 600;
@@ -4894,6 +4899,17 @@ body.steward-sidebar {
         height: 9px;
         cursor: row-resize;
 
+        // Full-width hairline marks the exact pane boundary; the centered grip
+        // pill sits on top of it.
+        &::before {
+            content: '';
+            position: absolute;
+            top: 4px;
+            right: 0;
+            left: 0;
+            border-top: 1px solid var(--vscode-panel-border);
+        }
+
         // Centered grip pill: quiet at rest, highlighted on hover/focus/drag.
         &::after {
             content: '';
@@ -4903,8 +4919,14 @@ body.steward-sidebar {
             width: 44px;
             height: 3px;
             border-radius: 2px;
-            background: var(--vscode-scrollbarSlider-background, rgba(127, 127, 127, .35));
+            background: var(--vscode-scrollbarSlider-background, rgba(127, 127, 127, .5));
             transform: translateX(-50%);
+        }
+
+        &:hover::before,
+        &:focus-visible::before,
+        &.skills-pane-resizer-active::before {
+            border-top-color: var(--vscode-focusBorder, #007fd4);
         }
 
         &:hover::after,

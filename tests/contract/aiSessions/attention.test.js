@@ -458,6 +458,68 @@ test('ATTENTION-SINGLE-RUN-COMPLETION-DEDUP-001 does not reopen an acknowledged 
     assert.equal(controller.getLocalSnapshot()['codex:session'].state, 'acknowledged');
 });
 
+test('ATTENTION-STATUS-BAR-QUEUE-001 effective-aggregate change notifications observe settled state', async () => {
+    const workspace = {
+        navigationIdentity: 'navigation:fixture', scopeIdentity: 'scope:fixture',
+        kind: 'singleFolder', displayName: 'Fixture', navigationUri: 'file:///fixtures/project',
+        environment: 'local', roots: [{
+            id: 'root:fixture', name: 'Fixture', uri: 'file:///fixtures/project',
+            hostPath: '/fixtures/project', ordinal: 0,
+        }],
+    };
+    const workspaceSessions = {
+        sessionsByProvider: {
+            codex: [{ id: 'session', primaryRootId: 'root:fixture' }],
+            kimi: [],
+            claude: [],
+        },
+    };
+    const completionSignal = {
+        token: 'codex:task_complete:950:turn',
+        phase: 'needsAttention',
+        reason: 'completed',
+        executionState: 'stopped',
+        occurredAtMs: 950,
+    };
+    const observed = [];
+    const controller = new AiSessionAttentionController({
+        isEnabled: () => true,
+        getWorkspaceTarget: () => ({
+            cardId: 'workspace:fixture',
+            workspace,
+            sessions: workspaceSessions,
+        }),
+        getProviders: () => [{
+            id: 'codex',
+            service: {
+                getLifecycleSignals: () => ({ session: completionSignal }),
+            },
+        }],
+        getRuntimeById: () => ({ state: 'active', runStartedAtMs: 900 }),
+        publish: async () => true,
+        scheduleRefresh: () => undefined,
+        nowMs: () => 1000,
+        onEffectiveAggregateChanged: () => {
+            observed.push(controller.getEffectiveAggregate().sessions
+                .map(session => session.eventIds.slice()));
+        },
+    });
+
+    await controller.evaluate();
+    assert.equal(observed.length, 1,
+        'a new attention event must fire the effective-aggregate notification');
+    assert.equal(observed[0].length, 1,
+        'the notification must observe the new session already inside the aggregate');
+    const eventId = observed[0][0][0];
+    assert.ok(eventId, 'the observed session carries its event id');
+
+    controller.acknowledge([eventId]);
+    assert.equal(observed.length, 2,
+        'acknowledgement must fire the effective-aggregate notification');
+    assert.deepEqual(observed[1], [],
+        'the acknowledged event must already be filtered out of the aggregate');
+});
+
 test('ATTENTION-SINGLE-RUN-COMPLETION-DEDUP-001 keeps an acknowledged Kimi completion quiet when exit scopes the runtime key', async () => {
     const workspace = {
         navigationIdentity: 'navigation:fixture', scopeIdentity: 'scope:fixture',

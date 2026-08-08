@@ -70,6 +70,9 @@ import type {
 import {
     createAttentionStatusBarController,
 } from './aiSessions/attentionStatusBarController';
+import type {
+    AttentionStatusBarController,
+} from './aiSessions/attentionStatusBarController';
 import {
     createAttentionQueueJumpHandler,
 } from './dashboard/attentionQueueJump';
@@ -1256,6 +1259,7 @@ async function initializeDashboard(
         }
         return null;
     };
+    let attentionStatusBarController: AttentionStatusBarController | undefined;
     const aiSessionAttentionController = new AiSessionAttentionController<AiSessionRuntimeSnapshot<vscode.Terminal>>({
         isEnabled: () => getAgentPivotConfiguration().get<boolean>('aiSessionAttention.enabled', true) !== false,
         getWorkspaceIdentity: () => getCurrentOpenWorkspace()?.scopeIdentity || null,
@@ -1284,13 +1288,10 @@ async function initializeDashboard(
                 }));
             }
         },
-        onAttentionAcknowledged: eventIds => {
-            notifyDispatcher.cancel(eventIds);
-            attentionStatusBarController.refresh(buildCurrentAttentionQueue());
-        },
-        onAttentionCancelled: eventIds => {
-            notifyDispatcher.cancel(eventIds);
-            attentionStatusBarController.refresh(buildCurrentAttentionQueue());
+        onAttentionAcknowledged: eventIds => notifyDispatcher.cancel(eventIds),
+        onAttentionCancelled: eventIds => notifyDispatcher.cancel(eventIds),
+        onEffectiveAggregateChanged: () => {
+            attentionStatusBarController?.refresh(buildCurrentAttentionQueue());
         },
         nowMs: () => Date.now(),
     });
@@ -1747,7 +1748,7 @@ async function initializeDashboard(
             workspace,
         });
     };
-    const attentionStatusBarController = ownResource(() =>
+    attentionStatusBarController = ownResource(() =>
         createAttentionStatusBarController({
             isEnabled: () => getAgentPivotConfiguration()
                 .get<boolean>('aiSessionAttention.enabled', true) !== false,
@@ -2345,9 +2346,6 @@ async function initializeDashboard(
 
     function scheduleAiSessionRefresh(reason = 'refresh') {
         aiSessionDashboardController.scheduleRefresh(reason);
-        if (reason === 'attention') {
-            attentionStatusBarController.refresh(buildCurrentAttentionQueue());
-        }
     }
 
     function setAiSessionWatchersActive(active: boolean) {

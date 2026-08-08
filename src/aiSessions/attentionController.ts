@@ -50,6 +50,12 @@ export interface AiSessionAttentionControllerOptions<TRuntime extends AiSessionA
     onAttentionEvents?: (events: AiSessionAttentionEvent[]) => void;
     onAttentionAcknowledged?: (eventIds: string[]) => void;
     onAttentionCancelled?: (eventIds: string[]) => void;
+    /**
+     * Fires only after every mutation that can change `getEffectiveAggregate()`
+     * has fully settled (local items republished, acknowledgement applied,
+     * remote aggregate swapped), so observers always read the settled state.
+     */
+    onEffectiveAggregateChanged?: () => void;
 }
 
 export interface AiSessionAttentionEvaluation {
@@ -98,6 +104,7 @@ export class AiSessionAttentionController<TRuntime extends AiSessionAttentionRun
             const published = await this.options.publish([], true);
             this.recordPublishResult(published);
             this.options.scheduleRefresh('attention');
+            this.emitEffectiveAggregateChanged();
             return {
                 enabled: false,
                 published,
@@ -171,6 +178,7 @@ export class AiSessionAttentionController<TRuntime extends AiSessionAttentionRun
         this.localItems = localResult.items;
         const published = await this.options.publish(this.localItems);
         this.recordPublishResult(published);
+        this.emitEffectiveAggregateChanged();
         return {
             enabled: true,
             published,
@@ -200,6 +208,15 @@ export class AiSessionAttentionController<TRuntime extends AiSessionAttentionRun
         }
         const result = this.buildLocalItems(this.getWorkspaceTargetSnapshot(), this.options.getProviders());
         this.localItems = result.items;
+        this.emitEffectiveAggregateChanged();
+    }
+
+    private emitEffectiveAggregateChanged(): void {
+        try {
+            this.options.onEffectiveAggregateChanged?.();
+        } catch (_error) {
+            // 状态栏等观察者不得影响 attention 主流程。
+        }
     }
 
     invalidateWorkspaceTarget(): void {
@@ -214,6 +231,7 @@ export class AiSessionAttentionController<TRuntime extends AiSessionAttentionRun
         }
 
         this.remoteAggregate = aggregate;
+        this.emitEffectiveAggregateChanged();
         return true;
     }
 

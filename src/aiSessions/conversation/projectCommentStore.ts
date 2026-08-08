@@ -8,7 +8,7 @@ import {
 } from './projectComments';
 import {
     CommentSnapshot,
-    CommentSnapshotFileStore,
+    KeyedSnapshotFileStore,
 } from './snapshotFileStore';
 import {
     isBoundedId,
@@ -28,7 +28,11 @@ export interface ProjectCommentStore {
 }
 
 export class ProjectCommentFileStore
-    extends CommentSnapshotFileStore<ProjectCommentTarget, ProjectComment>
+    extends KeyedSnapshotFileStore<
+        ProjectCommentTarget,
+        ProjectComment,
+        ProjectCommentSnapshot
+    >
     implements ProjectCommentStore {
 
     constructor(
@@ -40,11 +44,15 @@ export class ProjectCommentFileStore
             targetsMatch: (persisted, target) =>
                 persisted.projectId === target.projectId,
             digestIdentity: target => [target.projectId],
-            validateComments: validateProjectComments,
-            cloneComments: cloneProjectComments,
+            payloadKey: 'comments',
+            itemsOf: snapshot => snapshot.comments,
+            buildSnapshot: (revision, comments) => ({ revision, comments }),
+            validateItems: validateProjectComments,
+            cloneItems: cloneProjectComments,
             invalidSnapshotMessage: 'Invalid project comment snapshot.',
             invalidPersistedMessage:
                 'Invalid persisted project comment snapshot.',
+            maxSnapshotBytes: 2 * 1024 * 1024,
         }, now);
     }
 }

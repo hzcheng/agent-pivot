@@ -10,6 +10,7 @@ const {
     PROJECT_COMMENT_LIMITS,
     recordProjectCommentDispatch,
     removeProjectCommentTag,
+    reorderProjectComments,
     setProjectCommentStatus,
     updateProjectCommentText,
     validateProjectComments,
@@ -186,6 +187,42 @@ test('PROJECT-COMMENTS-001 builds the dispatch prompt with tag and source branch
     }));
     assert.match(sourceWithoutQuote, /出处（来自 kimi session 的记录）：/);
     assert.doesNotMatch(sourceWithoutQuote, /```/);
+});
+
+test('PROJECT-COMMENTS-001 reorders notes only through a full permutation', () => {
+    const comments = [
+        makeComment(),
+        makeComment({ id: 'note-b', text: 'Second.' }),
+        makeComment({ id: 'note-c', text: 'Third.' }),
+    ];
+    const reordered = reorderProjectComments(comments, [
+        'note-c', 'note-a', 'note-b',
+    ]);
+    assert.deepEqual(
+        reordered.map(comment => comment.id),
+        ['note-c', 'note-a', 'note-b']
+    );
+    assert.deepEqual(
+        comments.map(comment => comment.id),
+        ['note-a', 'note-b', 'note-c']
+    );
+
+    assert.throws(
+        () => reorderProjectComments(comments, ['note-a', 'note-b']),
+        /invalid/
+    );
+    assert.throws(
+        () => reorderProjectComments(comments, [
+            'note-a', 'note-b', 'note-c', 'note-a',
+        ]),
+        /invalid/
+    );
+    assert.throws(
+        () => reorderProjectComments(comments, [
+            'note-a', 'note-b', 'missing',
+        ]),
+        /invalid/
+    );
 });
 
 test('PROJECT-COMMENTS-001 enforces note count, unique ids, and the distinct tag vocabulary', () => {

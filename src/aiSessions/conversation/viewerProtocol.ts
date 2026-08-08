@@ -49,7 +49,8 @@ export interface ConversationViewerLocateCommentMessage {
 }
 
 export type ConversationViewerProjectCommentOperation =
-    'add' | 'update' | 'delete' | 'setStatus' | 'addTag' | 'removeTag';
+    'add' | 'update' | 'delete' | 'setStatus' | 'addTag' | 'removeTag'
+    | 'reorder';
 
 export interface ConversationViewerProjectCommentMutationMessage {
     type: 'conversation-viewer-project-comment-mutation';
@@ -372,7 +373,8 @@ export function parseConversationViewerMessage(
                 && value.operation !== 'delete'
                 && value.operation !== 'setStatus'
                 && value.operation !== 'addTag'
-                && value.operation !== 'removeTag') {
+                && value.operation !== 'removeTag'
+                && value.operation !== 'reorder') {
                 return undefined;
             }
             return value as unknown as

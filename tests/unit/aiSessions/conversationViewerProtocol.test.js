@@ -135,6 +135,13 @@ test('CONVERSATION-PROTOCOL-VALIDATOR-001 accepts every exact version-1 viewer i
         expectedRevision: 3,
         payload: { commentId: 'note-1', tag: 'ux' },
     }, {
+        type: 'conversation-viewer-project-comment-mutation',
+        version: 1,
+        ...target,
+        operation: 'reorder',
+        expectedRevision: 3,
+        payload: { orderedCommentIds: ['note-2', 'note-1'] },
+    }, {
         type: 'conversation-viewer-send-project-comment',
         version: 1,
         ...target,
@@ -359,14 +366,6 @@ test('CONVERSATION-PROTOCOL-VALIDATOR-001 rejects malformed, inherited, and over
             operation: 'sendProjectComment',
             expectedRevision: 2,
             payload: { commentId: 'note-1' },
-        },
-        {
-            type: 'conversation-viewer-project-comment-mutation',
-            version: 1,
-            ...target,
-            operation: 'reorder',
-            expectedRevision: 2,
-            payload: {},
         },
         {
             type: 'conversation-viewer-project-comment-mutation',

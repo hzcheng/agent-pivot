@@ -14,6 +14,7 @@ import {
     ProjectCommentTarget,
     recordProjectCommentDispatch,
     removeProjectCommentTag,
+    reorderProjectComments,
     setProjectCommentStatus,
     updateProjectCommentText,
     validateProjectComments,
@@ -227,8 +228,22 @@ export class ProjectCommentController {
                 this.now()
             );
             this.assertTagVocabularyBudget(comments, comment.tags);
-            comments.push(comment);
+            // New notes land at the top; the array order is the display
+            // order once manual reordering enters the picture.
+            comments.unshift(comment);
             changed = true;
+        } else if (request.operation === 'reorder') {
+            const orderedCommentIds = parseReorderPayload(request.payload);
+            const reordered = reorderProjectComments(
+                comments,
+                orderedCommentIds
+            );
+            if (reordered.some(
+                (comment, index) => comment.id !== comments[index]?.id
+            )) {
+                comments = reordered;
+                changed = true;
+            }
         } else if (request.operation === 'delete') {
             const payload = parseCommentIdPayload(request.payload);
             const index = comments.findIndex(
@@ -512,6 +527,20 @@ function parseMutationCommentId(
         return parseTagPayload(request.payload).commentId;
     }
     return parseCommentIdPayload(request.payload).commentId;
+}
+
+function parseReorderPayload(payload: unknown): string[] {
+    if (!isRecord(payload)
+        || !hasExactKeys(payload, ['orderedCommentIds'])
+        || !Array.isArray(payload.orderedCommentIds)
+        || payload.orderedCommentIds.length
+            > PROJECT_COMMENT_LIMITS.maxComments
+        || !payload.orderedCommentIds.every(
+            isConversationViewerTargetId
+        )) {
+        throw new ProjectCommentError('invalid');
+    }
+    return [...payload.orderedCommentIds];
 }
 
 function parseCommentIdPayload(payload: unknown): { commentId: string } {

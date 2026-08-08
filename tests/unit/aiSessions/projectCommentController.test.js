@@ -127,6 +127,43 @@ test('PROJECT-COMMENTS-CONTROLLER-001 applies mutations host-side with revision 
     assert.equal(controller.snapshot.comments.length, 1);
 });
 
+test('PROJECT-COMMENTS-CONTROLLER-001 keeps newest notes on top and persists manual reorder', async () => {
+    const { controller } = createHarness();
+    await controller.enqueue(mutation('req-add-1', 'add', {
+        text: 'first',
+    }, 0));
+    await controller.enqueue(mutation('req-add-2', 'add', {
+        text: 'second',
+    }, 1));
+    assert.deepEqual(
+        controller.snapshot.comments.map(comment => comment.text),
+        ['second', 'first']
+    );
+    const secondId = controller.snapshot.comments[0].id;
+    const firstId = controller.snapshot.comments[1].id;
+
+    await controller.enqueue(mutation('req-reorder', 'reorder', {
+        orderedCommentIds: [firstId, secondId],
+    }, 2));
+    assert.deepEqual(
+        controller.snapshot.comments.map(comment => comment.text),
+        ['first', 'second']
+    );
+    assert.equal(controller.snapshot.revision, 3);
+
+    // A no-op reorder settles successfully without bumping the revision.
+    await controller.enqueue(mutation('req-reorder-same', 'reorder', {
+        orderedCommentIds: [firstId, secondId],
+    }, 3));
+    assert.equal(controller.snapshot.revision, 3);
+
+    // Malformed permutations are rejected.
+    await controller.enqueue(mutation('req-reorder-bad', 'reorder', {
+        orderedCommentIds: [firstId],
+    }, 3));
+    assert.equal(controller.snapshot.revision, 3);
+});
+
 test('PROJECT-COMMENTS-CONTROLLER-001 restores the project snapshot for any session of the project', async () => {
     const stored = {
         revision: 5,

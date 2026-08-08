@@ -3455,6 +3455,7 @@ test('PROJECT-COMMENTS-UI-001 captures, tags, filters, and dispatches project no
     const { page } = await openHostViewerDocument(t, {
         includeStyles: true,
         themeFixture: viewerThemeFixtures[0],
+        viewport: { width: 700, height: 860 },
         interactionIds: [interactionId],
         interactionId,
         initialWebviewState: {
@@ -3589,7 +3590,7 @@ test('PROJECT-COMMENTS-UI-001 captures, tags, filters, and dispatches project no
     };
     await sendPage(
         page,
-        projectCommentSettlement(addSecond, [noteOne, noteTwo], {
+        projectCommentSettlement(addSecond, [noteTwo, noteOne], {
             revision: 2,
         })
     );
@@ -3623,6 +3624,7 @@ test('PROJECT-COMMENTS-UI-001 captures, tags, filters, and dispatches project no
     await sendPage(page, projectCommentSettlement(
         sendRequest,
         [
+            noteTwo,
             {
                 ...noteOne,
                 dispatches: [{
@@ -3631,7 +3633,6 @@ test('PROJECT-COMMENTS-UI-001 captures, tags, filters, and dispatches project no
                     at: 3000,
                 }],
             },
-            noteTwo,
         ],
         { revision: 3 }
     ));
@@ -3649,6 +3650,69 @@ test('PROJECT-COMMENTS-UI-001 captures, tags, filters, and dispatches project no
             '.conversation-project-comment-status'
         ).innerText(),
         'Open'
+    );
+
+    const dispatchedNoteOne = {
+        ...noteOne,
+        dispatches: [{
+            provider: 'codex',
+            sessionId: 'session-host-document',
+            at: 3000,
+        }],
+    };
+
+    // Workspace cards reorder by drag, persisting through the Host. The
+    // drop lands on the lower half of the target body so it counts as an
+    // 'after' placement.
+    const noteOneBody = projectSection
+        .locator('[data-project-comment-id="note-1"]')
+        .locator('.conversation-comment-body');
+    const noteOneBodyBox = await noteOneBody.boundingBox();
+    await projectSection.locator('[data-project-comment-id="note-2"]')
+        .locator('[data-project-comment-drag-handle]')
+        .dragTo(noteOneBody, {
+            targetPosition: {
+                x: Math.floor(noteOneBodyBox.width / 2),
+                y: Math.max(1, Math.floor(noteOneBodyBox.height) - 1),
+            },
+        });
+    const reorderRequest = (await postedMessages(page)).at(-1);
+    assert.equal(
+        reorderRequest.type,
+        'conversation-viewer-project-comment-mutation'
+    );
+    assert.equal(reorderRequest.operation, 'reorder');
+    assert.deepEqual(reorderRequest.payload, {
+        orderedCommentIds: ['note-1', 'note-2'],
+    });
+    await sendPage(page, projectCommentSettlement(
+        reorderRequest,
+        [dispatchedNoteOne, noteTwo],
+        { revision: 4 }
+    ));
+    assert.equal(
+        await cards.first().getAttribute('data-project-comment-id'),
+        'note-1'
+    );
+
+    // Alt+ArrowDown on the drag handle moves a card down one position.
+    await projectSection.locator('[data-project-comment-id="note-1"]')
+        .locator('[data-project-comment-drag-handle]')
+        .focus();
+    await page.keyboard.press('Alt+ArrowDown');
+    const keyboardReorder = (await postedMessages(page)).at(-1);
+    assert.equal(keyboardReorder.operation, 'reorder');
+    assert.deepEqual(keyboardReorder.payload, {
+        orderedCommentIds: ['note-2', 'note-1'],
+    });
+    await sendPage(page, projectCommentSettlement(
+        keyboardReorder,
+        [noteTwo, dispatchedNoteOne],
+        { revision: 5 }
+    ));
+    assert.equal(
+        await cards.first().getAttribute('data-project-comment-id'),
+        'note-2'
     );
 
     // Both section headers collapse their group and expand it back.
@@ -9023,4 +9087,5 @@ test('TMP repro add flow from closed sidebar', async t => {
     console.log('TMP last request:', JSON.stringify(requests.at(-1)));
     console.log('TMP pageErrors:', JSON.stringify(pageErrors));
 });
+
 

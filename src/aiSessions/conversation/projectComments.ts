@@ -46,7 +46,7 @@ export interface ProjectComment {
 
 export type ProjectCommentOperation =
     'add' | 'update' | 'delete' | 'setStatus' | 'addTag' | 'removeTag'
-    | 'sendProjectComment';
+    | 'reorder' | 'sendProjectComment';
 
 export class ProjectCommentError extends Error {
     constructor(
@@ -155,6 +155,34 @@ export function removeProjectCommentTag(
             candidate => candidate.toLowerCase() !== needle
         ),
     };
+}
+
+export function reorderProjectComments(
+    comments: readonly ProjectComment[],
+    orderedCommentIds: readonly string[]
+): ProjectComment[] {
+    validateProjectComments(comments);
+    if (!Array.isArray(orderedCommentIds)
+        || orderedCommentIds.length !== comments.length) {
+        throw new ProjectCommentError('invalid');
+    }
+    const commentsById = new Map(
+        comments.map(comment => [comment.id, comment] as const)
+    );
+    const seen = new Set<string>();
+    const reordered = orderedCommentIds.map(commentId => {
+        if (typeof commentId !== 'string'
+            || seen.has(commentId)
+            || !commentsById.has(commentId)) {
+            throw new ProjectCommentError('invalid');
+        }
+        seen.add(commentId);
+        return { ...commentsById.get(commentId)! };
+    });
+    if (seen.size !== commentsById.size) {
+        throw new ProjectCommentError('invalid');
+    }
+    return reordered;
 }
 
 export function recordProjectCommentDispatch(

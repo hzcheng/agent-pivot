@@ -71,6 +71,7 @@
             expandedDoneProjectComments: new Set(),
             projectSectionCollapsed: false,
             sessionSectionCollapsed: false,
+            draggedProjectCommentId: null,
         };
 
         function readJsonAttribute(name) {
@@ -1282,6 +1283,7 @@
         var PROJECT_TAG_COLOR_COUNT = 6;
         var PROJECT_COMMENT_OPERATIONS = [
             'add', 'update', 'delete', 'setStatus', 'addTag', 'removeTag',
+            'reorder',
         ];
 
         function providerLabel(provider) {
@@ -1408,13 +1410,10 @@
             });
         }
 
-        function sortedProjectComments() {
-            return state.projectComments.slice().sort(function (a, b) {
-                if (b.createdAt !== a.createdAt) {
-                    return b.createdAt - a.createdAt;
-                }
-                return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-            });
+        function orderedProjectComments() {
+            // The array order is the display order: new notes land on top,
+            // manual reordering is persisted by the Host.
+            return state.projectComments.slice();
         }
 
         function projectTagMatches(tag, filter) {
@@ -1428,9 +1427,9 @@
         }
 
         function visibleProjectComments() {
-            var sorted = sortedProjectComments();
-            if (!state.projectTagFilter) return sorted;
-            return sorted.filter(function (comment) {
+            var ordered = orderedProjectComments();
+            if (!state.projectTagFilter) return ordered;
+            return ordered.filter(function (comment) {
                 return projectCommentHasTag(comment, state.projectTagFilter);
             });
         }
@@ -1754,13 +1753,14 @@
             openProjectCommentComposer();
         }
 
-        function postProjectCommentOperation(operation, payload) {
+        function postProjectCommentOperation(operation, payload, focusCommentId) {
             if (!projectCommentsAvailable
                 || state.pendingProjectCommentRequest) return;
             var requestId = nextProjectCommentRequestId();
             state.pendingProjectCommentRequest = {
                 requestId: requestId,
                 operation: operation,
+                focusCommentId: focusCommentId || null,
             };
             setProjectCommentPending(true);
             status.textContent = operation === 'sendProjectComment'
@@ -1871,6 +1871,20 @@
 
             var heading = document.createElement('div');
             heading.className = 'conversation-comment-heading';
+            var dragHandle = document.createElement('button');
+            dragHandle.type = 'button';
+            dragHandle.className = 'conversation-comment-drag-handle';
+            dragHandle.setAttribute('data-project-comment-drag-handle', '');
+            dragHandle.setAttribute('aria-label', 'Move note ' + (index + 1));
+            dragHandle.setAttribute(
+                'aria-keyshortcuts',
+                'Alt+ArrowUp Alt+ArrowDown'
+            );
+            dragHandle.title = 'Drag to reorder · Alt+Up/Down';
+            dragHandle.innerHTML = COMMENT_ICONS.drag;
+            dragHandle.draggable = !editing;
+            dragHandle.disabled = editing;
+            heading.appendChild(dragHandle);
             var statusToggle = document.createElement('button');
             statusToggle.type = 'button';
             statusToggle.className = 'conversation-comment-status'
@@ -2043,7 +2057,7 @@
             if (!projectCommentsAvailable) return;
             var vocabulary = [];
             var counts = new Map();
-            sortedProjectComments().forEach(function (comment) {
+            orderedProjectComments().forEach(function (comment) {
                 comment.tags.forEach(function (tag) {
                     var key = tag.toLowerCase();
                     if (!counts.has(key)) {
@@ -2098,6 +2112,7 @@
 
         function renderProjectComments() {
             if (!projectCommentsAvailable) return;
+            clearProjectCommentDragState();
             renderProjectTagFilter();
             projectCommentList.replaceChildren();
             var visible = visibleProjectComments();
@@ -2129,6 +2144,82 @@
             updateProjectComposerControls();
         }
 
+        function focusProjectCommentDragHandle(commentId) {
+            if (!commentId || !projectCommentsAvailable) return;
+            var card = projectCommentList.querySelector(
+                '[data-project-comment-id="' + CSS.escape(commentId) + '"]'
+            );
+            var handle = card && card.querySelector(
+                '[data-project-comment-drag-handle]'
+            );
+            if (handle && !handle.disabled) {
+                handle.focus({ preventScroll: true });
+            }
+        }
+
+        function clearProjectCommentDragState() {
+            state.draggedProjectCommentId = null;
+            if (!projectCommentsAvailable) return;
+            Array.prototype.forEach.call(
+                projectCommentList.querySelectorAll(
+                    '.conversation-comment-dragging, [data-comment-drop-position]'
+                ),
+                function (card) {
+                    card.classList.remove('conversation-comment-dragging');
+                    card.removeAttribute('data-comment-drop-position');
+                }
+            );
+        }
+
+        function reorderedProjectCommentIds(sourceId, targetId, placement) {
+            var visibleIds = visibleProjectComments().map(function (comment) {
+                return comment.id;
+            });
+            var sourceIndex = visibleIds.indexOf(sourceId);
+            if (sourceIndex < 0 || sourceId === targetId) return null;
+            visibleIds.splice(sourceIndex, 1);
+            var targetIndex = visibleIds.indexOf(targetId);
+            if (targetIndex < 0) return null;
+            visibleIds.splice(
+                targetIndex + (placement === 'after' ? 1 : 0),
+                0,
+                sourceId
+            );
+            var originalVisibleIds = visibleProjectComments().map(
+                function (comment) {
+                    return comment.id;
+                }
+            );
+            var unchanged = visibleIds.every(function (id, index) {
+                return id === originalVisibleIds[index];
+            });
+            if (unchanged) return null;
+            var visibleSet = new Set(originalVisibleIds);
+            var visibleIndex = 0;
+            return state.projectComments.map(function (comment) {
+                if (!visibleSet.has(comment.id)) return comment.id;
+                var reorderedId = visibleIds[visibleIndex];
+                visibleIndex += 1;
+                return reorderedId;
+            });
+        }
+
+        function postProjectCommentReorder(sourceId, targetId, placement) {
+            var orderedCommentIds = reorderedProjectCommentIds(
+                sourceId,
+                targetId,
+                placement
+            );
+            clearProjectCommentDragState();
+            if (!orderedCommentIds) return false;
+            postProjectCommentOperation(
+                'reorder',
+                { orderedCommentIds: orderedCommentIds },
+                sourceId
+            );
+            return true;
+        }
+
         function applyProjectCommentsResult(message) {
             if (!projectCommentsAvailable
                 || !validProjectCommentsResult(message)
@@ -2144,6 +2235,8 @@
                 return false;
             }
             var operation = state.pendingProjectCommentRequest.operation;
+            var focusCommentId
+                = state.pendingProjectCommentRequest.focusCommentId;
             state.projectCommentRevision = message.revision;
             state.projectComments = message.comments.map(cloneProjectComment);
             if (message.success && operation === 'update') {
@@ -2158,11 +2251,14 @@
                         + ' Review and press Enter to send.'
                     : operation === 'delete'
                         ? 'Project note deleted.'
+                        : operation === 'reorder'
+                            ? 'Note order saved.'
                         : 'Project note saved.';
             } else {
                 status.textContent = projectCommentErrorMessage(message.error);
             }
             updateCommentControls();
+            focusProjectCommentDragHandle(focusCommentId);
             return true;
         }
 
@@ -2654,6 +2750,115 @@
                             tag: button.getAttribute('data-tag') || '',
                         });
                     }
+                });
+                projectCommentList.addEventListener('dragstart', function (event) {
+                    var handle = event.target && event.target.closest
+                        ? event.target.closest('[data-project-comment-drag-handle]')
+                        : null;
+                    var item = handle && handle.closest('[data-project-comment-id]');
+                    if (!handle || !item
+                        || state.pendingProjectCommentRequest
+                        || handle.disabled) {
+                        event.preventDefault();
+                        return;
+                    }
+                    state.draggedProjectCommentId = item.getAttribute(
+                        'data-project-comment-id'
+                    );
+                    item.classList.add('conversation-comment-dragging');
+                    if (event.dataTransfer) {
+                        event.dataTransfer.effectAllowed = 'move';
+                        event.dataTransfer.setData(
+                            'text/plain',
+                            state.draggedProjectCommentId
+                        );
+                    }
+                });
+                projectCommentList.addEventListener('dragover', function (event) {
+                    if (!state.draggedProjectCommentId) return;
+                    var item = event.target && event.target.closest
+                        ? event.target.closest('[data-project-comment-id]')
+                        : null;
+                    if (!item || !projectCommentList.contains(item)
+                        || item.getAttribute('data-project-comment-id')
+                            === state.draggedProjectCommentId) {
+                        return;
+                    }
+                    event.preventDefault();
+                    if (event.dataTransfer) {
+                        event.dataTransfer.dropEffect = 'move';
+                    }
+                    Array.prototype.forEach.call(
+                        projectCommentList.querySelectorAll('[data-comment-drop-position]'),
+                        function (candidate) {
+                            if (candidate !== item) {
+                                candidate.removeAttribute(
+                                    'data-comment-drop-position'
+                                );
+                            }
+                        }
+                    );
+                    var bounds = item.getBoundingClientRect();
+                    item.setAttribute(
+                        'data-comment-drop-position',
+                        event.clientY < bounds.top + bounds.height / 2
+                            ? 'before'
+                            : 'after'
+                    );
+                });
+                projectCommentList.addEventListener('drop', function (event) {
+                    if (!state.draggedProjectCommentId) return;
+                    var item = event.target && event.target.closest
+                        ? event.target.closest('[data-project-comment-id]')
+                        : null;
+                    if (!item || !projectCommentList.contains(item)) {
+                        clearProjectCommentDragState();
+                        return;
+                    }
+                    event.preventDefault();
+                    var sourceId = state.draggedProjectCommentId;
+                    var targetId = item.getAttribute('data-project-comment-id');
+                    var placement = item.getAttribute(
+                        'data-comment-drop-position'
+                    ) || 'after';
+                    postProjectCommentReorder(sourceId, targetId, placement);
+                });
+                projectCommentList.addEventListener(
+                    'dragend',
+                    clearProjectCommentDragState
+                );
+                projectCommentList.addEventListener('keydown', function (event) {
+                    if (!event.altKey || event.ctrlKey || event.metaKey
+                        || (event.key !== 'ArrowUp'
+                            && event.key !== 'ArrowDown')
+                        || state.pendingProjectCommentRequest) {
+                        return;
+                    }
+                    var handle = event.target && event.target.closest
+                        ? event.target.closest('[data-project-comment-drag-handle]')
+                        : null;
+                    var item = handle && handle.closest('[data-project-comment-id]');
+                    if (!handle || !item || handle.disabled) return;
+                    var visibleIds = visibleProjectComments().map(
+                        function (comment) {
+                            return comment.id;
+                        }
+                    );
+                    var sourceId = item.getAttribute('data-project-comment-id');
+                    var sourceIndex = visibleIds.indexOf(sourceId);
+                    var targetIndex = sourceIndex
+                        + (event.key === 'ArrowUp' ? -1 : 1);
+                    if (sourceIndex < 0
+                        || targetIndex < 0
+                        || targetIndex >= visibleIds.length) {
+                        return;
+                    }
+                    event.preventDefault();
+                    postProjectCommentReorder(
+                        sourceId,
+                        visibleIds[targetIndex],
+                        event.key === 'ArrowUp' ? 'before' : 'after'
+                    );
                 });
             }
         }

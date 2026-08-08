@@ -2886,7 +2886,7 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
         .digest('hex');
     assert.equal(
         sha256(previousViewerScript),
-        '20fc70db30b3d8686a381889f874669872b2c1fbb8391a6108825c2d2a36580b',
+        'b720b9daf3136e44c4709650aa6908e2296d605b3d7fdfcc643fa7df455db578',
         'the previous Viewer fixture must stay byte-exact'
     );
     assert.equal(
@@ -3565,8 +3565,8 @@ test('PROJECT-COMMENTS-UI-001 captures, tags, filters, and dispatches project no
     );
     assert.equal(await input.inputValue(), '');
     assert.equal(await composer.isVisible(), false);
-    const filterChips = projectSection.locator(
-        '[data-project-comment-tag-filter] button'
+    const filterChips = page.locator(
+        '[data-comments-filter-bar] button'
     );
     assert.deepEqual(
         await filterChips.allInnerTexts(),
@@ -3674,16 +3674,15 @@ test('PROJECT-COMMENTS-UI-001 captures, tags, filters, and dispatches project no
     // Workspace cards reorder by drag, persisting through the Host. The
     // drop lands on the lower half of the target body so it counts as an
     // 'after' placement.
-    const noteOneBody = projectSection
-        .locator('[data-project-comment-id="note-1"]')
-        .locator('.conversation-comment-body');
-    const noteOneBodyBox = await noteOneBody.boundingBox();
+    const noteOneCard = projectSection
+        .locator('[data-project-comment-id="note-1"]');
+    const noteOneCardBox = await noteOneCard.boundingBox();
     await projectSection.locator('[data-project-comment-id="note-2"]')
         .locator('[data-project-comment-drag-handle]')
-        .dragTo(noteOneBody, {
+        .dragTo(noteOneCard, {
             targetPosition: {
-                x: Math.floor(noteOneBodyBox.width / 2),
-                y: Math.max(1, Math.floor(noteOneBodyBox.height) - 1),
+                x: Math.floor(noteOneCardBox.width / 2),
+                y: Math.max(1, Math.floor(noteOneCardBox.height) - 6),
             },
         });
     const reorderRequest = (await postedMessages(page)).at(-1);
@@ -5207,9 +5206,10 @@ test('CONVERSATION-COMMENTS-UI-001 filters cards, jumps from message markers, an
     const card = page.locator('[data-comment-id="comment-1"]');
     const doneCard = page.locator('[data-comment-id="comment-2"]');
 
-    // The toolbar is a single row of six icon buttons.
+    // The toolbar is a single row of three icon buttons: filtering moved
+    // to the panel-wide filter bar, leaving send/clear actions.
     const toolbar = page.locator('[data-comments-toolbar]');
-    assert.equal(await toolbar.locator('[data-comment-action]').count(), 6);
+    assert.equal(await toolbar.locator('[data-comment-action]').count(), 3);
     assert.deepEqual(
         (await toolbar.locator('[data-comment-action]').evaluateAll(buttons =>
             Array.from(new Set(buttons.map(button =>
@@ -5278,11 +5278,11 @@ test('CONVERSATION-COMMENTS-UI-001 filters cards, jumps from message markers, an
             .getAttribute('aria-pressed'),
         'true'
     );
-    assert.equal(
+    assert.deepEqual(
         await page.evaluate(() =>
-            window.__webviewState.conversationCommentsFilter
+            window.__webviewState.conversationCommentsPanelFilter
         ),
-        'done'
+        { type: 'status', value: 'done' }
     );
     await page.locator('[data-comment-filter="open"]').click();
     assert.equal(await page.locator('[data-comment-id]').count(), 2);
@@ -5593,7 +5593,7 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-BULK-001 CONVERSATION-C
     assert.equal(await commentToolbar.count(), 1);
     assert.equal(
         await commentToolbar.locator('[data-comment-action]').count(),
-        6
+        3
     );
     const commentToolbarHeight = await commentToolbar.evaluate(element =>
         element.getBoundingClientRect().height
@@ -5825,7 +5825,9 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-BULK-001 CONVERSATION-C
 
     assert.equal(await page.locator('[data-comment-id]').count(), 2);
     assert.deepEqual(
-        await page.locator('[data-comment-status-chip]').allTextContents(),
+        await page.locator(
+            '[data-comment-id] [data-comment-status-chip]'
+        ).allTextContents(),
         ['Done', 'Done']
     );
     assert.equal(
@@ -5875,7 +5877,9 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-BULK-001 CONVERSATION-C
     comments.splice(1, 1);
     await settle(clearDone, 5, comments);
     assert.deepEqual(
-        await page.locator('[data-comment-status-chip]').allTextContents(),
+        await page.locator(
+            '[data-comment-id] [data-comment-status-chip]'
+        ).allTextContents(),
         ['Open']
     );
 
@@ -9280,4 +9284,5 @@ test('CONVERSATION-COMMENTS-UI-001 PROJECT-COMMENTS-UI-001 unifies status and ta
         tag: 'convention',
     });
 });
+
 

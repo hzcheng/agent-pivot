@@ -321,6 +321,9 @@ export function renderConversationViewerDocument(
                 class="conversation-comments" data-conversation-comments
                 role="tabpanel" aria-labelledby="conversation-comments-tab"
                 hidden>
+                <div class="conversation-comments-filter-bar"
+                    data-comments-filter-bar role="group"
+                    aria-label="Filter comments and notes" hidden></div>
                 <div class="conversation-comments-body" data-comments-body>
                     <div class="conversation-comments-section-header"
                         data-project-comments-header>
@@ -386,10 +389,6 @@ export function renderConversationViewerDocument(
                                 </div>
                             </div>
                         </div>
-                        <div class="conversation-project-comment-tag-filter"
-                            data-project-comment-tag-filter role="group"
-                            aria-label="Filter project notes by tag"
-                            hidden></div>
                         <div class="conversation-comment-list conversation-project-comment-list"
                             data-project-comment-list></div>
                         <p class="conversation-project-comment-empty"
@@ -451,21 +450,6 @@ export function renderConversationViewerDocument(
                 </div>
                 <div class="conversation-comments-toolbar"
                     data-comments-toolbar role="group" aria-label="Comment actions">
-                    <div class="conversation-comments-filter" role="group"
-                        aria-label="Filter comments">
-                        <button class="conversation-comment-icon-button conversation-comments-filter-button"
-                            type="button" data-comment-action="filter" data-comment-filter="all"
-                            title="All comments" aria-label="All comments"
-                            aria-pressed="true">${CONVERSATION_COMMENT_ICON_LIST}</button>
-                        <button class="conversation-comment-icon-button conversation-comments-filter-button"
-                            type="button" data-comment-action="filter" data-comment-filter="open"
-                            title="Open only" aria-label="Open only"
-                            aria-pressed="false">${CONVERSATION_COMMENT_ICON_DOT}</button>
-                        <button class="conversation-comment-icon-button conversation-comments-filter-button"
-                            type="button" data-comment-action="filter" data-comment-filter="done"
-                            title="Done only" aria-label="Done only"
-                            aria-pressed="false">${CONVERSATION_COMMENT_ICON_CHECK}</button>
-                    </div>
                     <div class="conversation-comments-toolbar-actions">
                         <button class="conversation-comment-icon-button"
                             type="button" data-comment-action="send" disabled

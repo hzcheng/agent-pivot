@@ -45,7 +45,7 @@
         var projectCommentDraftTags = options.projectCommentDraftTags;
         var projectCommentAddTag = options.projectCommentAddTag;
         var projectCommentAdd = options.projectCommentAdd;
-        var projectCommentTagFilter = options.projectCommentTagFilter;
+        var commentsFilterBar = options.commentsFilterBar;
         var projectCommentList = options.projectCommentList;
         var projectCommentEmpty = options.projectCommentEmpty;
         var conversationMessageSelector = options.messageSelector;
@@ -61,14 +61,13 @@
             clearAllConfirmation: false,
             selectedCommentText: null,
             editingComment: null,
-            filter: 'all',
             expandedDoneComments: new Set(),
             draggedCommentId: null,
+            commentsPanelFilter: null,
             projectComments: [],
             projectCommentRevision: 0,
             projectCommentRequestSequence: 0,
             pendingProjectCommentRequest: null,
-            projectTagFilter: null,
             projectDraftTags: [],
             projectDraftTagInputOpen: false,
             projectPendingSource: null,
@@ -522,22 +521,34 @@
             return Math.floor(elapsed / 86400000) + 'd ago';
         }
 
-        function readCommentsFilter() {
+        function readCommentsPanelFilter() {
             if (!vscodeApi || typeof vscodeApi.getState !== 'function') {
-                return 'all';
+                return null;
             }
             try {
                 var saved = vscodeApi.getState();
-                var filter = saved && saved.conversationCommentsFilter;
-                return filter === 'open' || filter === 'done'
-                    ? filter
-                    : 'all';
+                var filter = saved && saved.conversationCommentsPanelFilter;
+                if (!filter || typeof filter !== 'object'
+                    || Array.isArray(filter)) {
+                    return null;
+                }
+                if (filter.type === 'status'
+                    && (filter.value === 'open'
+                        || filter.value === 'done')) {
+                    return { type: 'status', value: filter.value };
+                }
+                if (filter.type === 'tag'
+                    && typeof filter.value === 'string'
+                    && filter.value) {
+                    return { type: 'tag', value: filter.value };
+                }
+                return null;
             } catch (_error) {
-                return 'all';
+                return null;
             }
         }
 
-        function saveCommentsFilter() {
+        function saveCommentsPanelFilter() {
             if (!vscodeApi || typeof vscodeApi.setState !== 'function') {
                 return;
             }
@@ -549,7 +560,8 @@
                     && !Array.isArray(saved)
                     ? Object.assign({}, saved)
                     : {};
-                next.conversationCommentsFilter = state.filter;
+                next.conversationCommentsPanelFilter
+                    = state.commentsPanelFilter;
                 vscodeApi.setState(next);
             } catch (_error) {
                 // Filter persistence is best-effort local Webview state.
@@ -557,16 +569,18 @@
         }
 
         function updateFilterButtons() {
-            Array.prototype.forEach.call(
-                commentsRoot.querySelectorAll('[data-comment-filter]'),
-                function (button) {
-                    button.setAttribute(
-                        'aria-pressed',
-                        button.getAttribute('data-comment-filter')
-                            === state.filter ? 'true' : 'false'
-                    );
-                }
-            );
+            renderCommentsFilterBar();
+        }
+
+        function commentMatchesPanelFilter(comment) {
+            var filter = state.commentsPanelFilter;
+            if (!filter) return true;
+            if (filter.type === 'status') {
+                return comment.status === filter.value;
+            }
+            return (comment.tags || []).some(function (tag) {
+                return tag.toLowerCase() === filter.value;
+            });
         }
 
         function visibleCommentEntries() {
@@ -575,8 +589,7 @@
                     return { comment: comment, index: index };
                 })
                 .filter(function (entry) {
-                    return state.filter === 'all'
-                        || entry.comment.status === state.filter;
+                    return commentMatchesPanelFilter(entry.comment);
                 });
         }
 
@@ -803,9 +816,12 @@
                     && entries.length === 0;
                 commentFilterEmpty.hidden = !filteredOut;
                 commentFilterEmpty.textContent = filteredOut
-                    ? state.filter === 'open'
-                        ? 'No open comments.'
-                        : 'No done comments.'
+                    ? state.commentsPanelFilter
+                        && state.commentsPanelFilter.type === 'status'
+                        ? state.commentsPanelFilter.value === 'open'
+                            ? 'No open comments.'
+                            : 'No done comments.'
+                        : 'No comments match this filter.'
                     : '';
             }
             updateCommentControls();
@@ -903,9 +919,9 @@
                 state.expandedDoneComments.add(commentId);
                 needsRender = true;
             }
-            if (state.filter !== 'all' && comment.status !== state.filter) {
-                state.filter = 'all';
-                saveCommentsFilter();
+            if (!commentMatchesPanelFilter(comment)) {
+                state.commentsPanelFilter = null;
+                saveCommentsPanelFilter();
                 needsRender = true;
             }
             if (needsRender) {
@@ -1543,14 +1559,42 @@
 
         function visibleProjectComments() {
             var ordered = orderedProjectComments();
-            var filter = state.projectTagFilter;
-            if (!filter) return ordered;
-            return ordered.filter(function (comment) {
-                if (filter.type === 'status') {
-                    return comment.status === filter.value;
-                }
-                return projectCommentHasTag(comment, filter.value);
-            });
+            if (!state.commentsPanelFilter) return ordered;
+            return ordered.filter(commentMatchesPanelFilter);
+        }
+
+        function projectTagColorKey(tag) {
+            var hash = 0;
+            var text = tag.toLowerCase();
+            for (var index = 0; index < text.length; index += 1) {
+                hash = (hash * 31 + text.charCodeAt(index)) >>> 0;
+            }
+            return hash % PROJECT_TAG_COLOR_COUNT;
+        }
+
+        function normalizeProjectTag(value) {
+            return typeof value === 'string'
+                ? value.replace(/\s+/g, ' ').trim()
+                : '';
+        }
+
+        function validProjectTag(tag) {
+            return tag.length > 0
+                && Array.from(tag).length <= 24
+                && !/[\u0000-\u001f\u007f]/.test(tag);
+        }
+
+        function projectCommentFilterEquals(a, b) {
+            if (a === null || b === null) {
+                return a === b;
+            }
+            return a.type === b.type && a.value === b.value;
+        }
+
+        function visibleProjectComments() {
+            var ordered = orderedProjectComments();
+            if (!state.commentsPanelFilter) return ordered;
+            return ordered.filter(commentMatchesPanelFilter);
         }
 
         function projectTagColorKey(tag) {
@@ -1599,26 +1643,6 @@
                 return null;
             } catch (_error) {
                 return null;
-            }
-        }
-
-        function saveProjectTagFilter() {
-            if (!vscodeApi || typeof vscodeApi.setState !== 'function') {
-                return;
-            }
-            try {
-                var saved = typeof vscodeApi.getState === 'function'
-                    ? vscodeApi.getState()
-                    : null;
-                var next = saved && typeof saved === 'object'
-                    && !Array.isArray(saved)
-                    ? Object.assign({}, saved)
-                    : {};
-                next.conversationProjectCommentsTagFilter
-                    = state.projectTagFilter;
-                vscodeApi.setState(next);
-            } catch (_error) {
-                // Filter persistence is best-effort local Webview state.
             }
         }
 
@@ -2315,19 +2339,20 @@
             return item;
         }
 
-        function renderProjectTagFilter() {
-            if (!projectCommentsAvailable) return;
+        function renderCommentsFilterBar() {
+            if (!commentUiAvailable) return;
             var vocabulary = [];
             var counts = new Map();
             var openCount = 0;
             var doneCount = 0;
-            orderedProjectComments().forEach(function (comment) {
+            var totalCount = state.comments.length;
+            state.comments.forEach(function (comment) {
                 if (comment.status === 'open') {
                     openCount += 1;
                 } else {
                     doneCount += 1;
                 }
-                comment.tags.forEach(function (tag) {
+                (comment.tags || []).forEach(function (tag) {
                     var key = tag.toLowerCase();
                     if (!counts.has(key)) {
                         counts.set(key, 0);
@@ -2336,22 +2361,39 @@
                     counts.set(key, counts.get(key) + 1);
                 });
             });
-            if (state.projectTagFilter
-                && state.projectTagFilter.type === 'tag'
-                && !counts.has(state.projectTagFilter.value)) {
-                state.projectTagFilter = null;
-                saveProjectTagFilter();
+            if (projectCommentsAvailable) {
+                totalCount += state.projectComments.length;
+                state.projectComments.forEach(function (comment) {
+                    if (comment.status === 'open') {
+                        openCount += 1;
+                    } else {
+                        doneCount += 1;
+                    }
+                    comment.tags.forEach(function (tag) {
+                        var key = tag.toLowerCase();
+                        if (!counts.has(key)) {
+                            counts.set(key, 0);
+                            vocabulary.push(tag);
+                        }
+                        counts.set(key, counts.get(key) + 1);
+                    });
+                });
             }
-            projectCommentTagFilter.replaceChildren();
-            projectCommentTagFilter.hidden
-                = state.projectComments.length === 0;
-            if (!state.projectComments.length) return;
+            if (state.commentsPanelFilter
+                && state.commentsPanelFilter.type === 'tag'
+                && !counts.has(state.commentsPanelFilter.value)) {
+                state.commentsPanelFilter = null;
+                saveCommentsPanelFilter();
+            }
+            commentsFilterBar.replaceChildren();
+            commentsFilterBar.hidden = totalCount === 0;
+            if (!totalCount) return;
 
             function filterChip(label, pressed, attributes) {
                 var chip = document.createElement('button');
                 chip.type = 'button';
-                chip.className = 'conversation-project-comment-filter-chip';
-                chip.setAttribute('data-project-comment-action', 'filter-tag');
+                chip.className = 'conversation-comments-filter-chip';
+                chip.setAttribute('data-comment-action', 'filter');
                 Object.keys(attributes).forEach(function (name) {
                     chip.setAttribute(name, attributes[name]);
                 });
@@ -2360,15 +2402,15 @@
                     pressed ? 'true' : 'false'
                 );
                 chip.appendChild(document.createTextNode(label));
-                projectCommentTagFilter.appendChild(chip);
+                commentsFilterBar.appendChild(chip);
                 return chip;
             }
 
-            var filter = state.projectTagFilter;
+            var filter = state.commentsPanelFilter;
             filterChip(
-                'All · ' + state.projectComments.length,
+                'All · ' + totalCount,
                 filter === null,
-                { 'data-tag': '' }
+                { 'data-comment-filter': 'all' }
             );
             ['open', 'done'].forEach(function (status) {
                 var chip = filterChip(
@@ -2376,10 +2418,10 @@
                         + (status === 'open' ? openCount : doneCount),
                     !!filter && filter.type === 'status'
                         && filter.value === status,
-                    { 'data-status-filter': status }
+                    { 'data-comment-filter': status }
                 );
                 var dot = document.createElement('span');
-                dot.className = 'conversation-project-comment-filter-dot';
+                dot.className = 'conversation-comments-filter-dot';
                 dot.setAttribute('data-comment-status-chip', status);
                 chip.insertBefore(dot, chip.firstChild);
             });
@@ -2392,7 +2434,7 @@
                     { 'data-tag': tag }
                 );
                 var dot = document.createElement('span');
-                dot.className = 'conversation-project-comment-filter-dot';
+                dot.className = 'conversation-comments-filter-dot';
                 dot.setAttribute(
                     'data-tag-color',
                     String(projectTagColorKey(tag))
@@ -2404,7 +2446,7 @@
         function renderProjectComments() {
             if (!projectCommentsAvailable) return;
             clearProjectCommentDragState();
-            renderProjectTagFilter();
+            renderCommentsFilterBar();
             projectCommentList.replaceChildren();
             var visible = visibleProjectComments();
             visible.forEach(function (comment, index) {
@@ -2767,13 +2809,24 @@
                     return;
                 }
                 if (action === 'filter') {
-                    var filter = button.getAttribute('data-comment-filter');
-                    if (filter === 'all' || filter === 'open'
-                        || filter === 'done') {
-                        state.filter = filter;
-                        saveCommentsFilter();
-                        renderComments();
-                    }
+                    var statusValue = button.getAttribute(
+                        'data-comment-filter'
+                    );
+                    var tagValue = button.getAttribute('data-tag');
+                    var nextFilter = tagValue
+                        ? { type: 'tag', value: tagValue.toLowerCase() }
+                        : statusValue === 'open' || statusValue === 'done'
+                            ? { type: 'status', value: statusValue }
+                            : null;
+                    state.commentsPanelFilter = projectCommentFilterEquals(
+                        state.commentsPanelFilter,
+                        nextFilter
+                    )
+                        ? null
+                        : nextFilter;
+                    saveCommentsPanelFilter();
+                    renderComments();
+                    renderProjectComments();
                     return;
                 }
                 if (action === 'send') {
@@ -2967,26 +3020,6 @@
                     if (action === 'clear-source') {
                         state.projectPendingSource = null;
                         updateProjectSourcePreview();
-                        return;
-                    }
-                    if (action === 'filter-tag') {
-                        var statusValue = button.getAttribute(
-                            'data-status-filter'
-                        );
-                        var tagValue = button.getAttribute('data-tag');
-                        var nextFilter = statusValue
-                            ? { type: 'status', value: statusValue }
-                            : tagValue
-                                ? { type: 'tag', value: tagValue.toLowerCase() }
-                                : null;
-                        state.projectTagFilter = projectCommentFilterEquals(
-                            state.projectTagFilter,
-                            nextFilter
-                        )
-                            ? null
-                            : nextFilter;
-                        saveProjectTagFilter();
-                        renderProjectComments();
                         return;
                     }
                     var card = button.closest('[data-project-comment-id]');
@@ -3356,12 +3389,11 @@
         }
 
         function initializeComments() {
-            state.filter = readCommentsFilter();
+            state.commentsPanelFilter = readCommentsPanelFilter();
             readCommentSectionState();
             applyCommentSectionState();
             restoreSessionRegionHeight();
             if (projectCommentsAvailable) {
-                state.projectTagFilter = readProjectTagFilter();
                 var initialProjectComments = readJsonAttribute(
                     'data-initial-project-comments'
                 );

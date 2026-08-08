@@ -178,8 +178,8 @@
     var projectCommentAdd = document.querySelector(
         '[data-project-comment-action="add"]'
     );
-    var projectCommentTagFilter = document.querySelector(
-        '[data-project-comment-tag-filter]'
+    var commentsFilterBar = document.querySelector(
+        '[data-comments-filter-bar]'
     );
     var projectCommentList = document.querySelector(
         '[data-project-comment-list]'
@@ -203,6 +203,7 @@
         && !!commentsRoot
         && !!sessionCommentsHeader && !!sessionCommentsContent
         && !!commentsSectionSash && !!sessionCommentsCount
+        && !!commentsFilterBar
         && !!commentComposer && !!commentSelection && !!commentInput
         && !!commentList && !!commentEmpty && !!commentFilterEmpty
         && !!commentNew
@@ -224,7 +225,7 @@
         && !!projectCommentSourceLabel && !!projectCommentSourceQuote
         && !!projectCommentInput && !!projectCommentDraftTags
         && !!projectCommentAddTag && !!projectCommentAdd
-        && !!projectCommentTagFilter && !!projectCommentList
+        && !!projectCommentList
         && !!projectCommentEmpty;
     var copyUiAvailable = validCommentTarget(commentTarget);
     var findUiAvailable = !!findRoot && !!findInput && !!findCount
@@ -416,7 +417,7 @@
         projectCommentDraftTags: projectCommentDraftTags,
         projectCommentAddTag: projectCommentAddTag,
         projectCommentAdd: projectCommentAdd,
-        projectCommentTagFilter: projectCommentTagFilter,
+        commentsFilterBar: commentsFilterBar,
         projectCommentList: projectCommentList,
         projectCommentEmpty: projectCommentEmpty,
         post: post,

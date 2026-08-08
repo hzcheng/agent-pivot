@@ -1729,11 +1729,11 @@ button.conversation-comment-status-chip {
     }
 }
 
-.conversation-project-comment-filter-dot[data-comment-status-chip="open"] {
+.conversation-comments-filter-dot[data-comment-status-chip="open"] {
     --tag-color: var(--vscode-editorWarning-foreground, #cca700);
 }
 
-.conversation-project-comment-filter-dot[data-comment-status-chip="done"] {
+.conversation-comments-filter-dot[data-comment-status-chip="done"] {
     --tag-color: var(--vscode-charts-green, #89d185);
 }
 
@@ -1808,14 +1808,22 @@ button.conversation-comment-status-chip {
     }
 }
 
-.conversation-project-comment-tag-filter {
+.conversation-comments-filter-bar {
     display: flex;
+    flex: 0 0 auto;
     min-width: 0;
     gap: 0.25rem;
+    align-items: center;
     flex-wrap: wrap;
+    padding: 0.25rem 0.5rem;
+    border-bottom: 1px solid var(--vscode-panel-border);
 }
 
-.conversation-project-comment-filter-chip {
+.conversation-comments-filter-bar[hidden] {
+    display: none;
+}
+
+.conversation-comments-filter-chip {
     display: inline-flex;
     gap: 0.28rem;
     align-items: center;
@@ -1839,7 +1847,7 @@ button.conversation-comment-status-chip {
     }
 }
 
-.conversation-project-comment-filter-dot {
+.conversation-comments-filter-dot {
     --tag-color: var(--vscode-charts-blue, #569cd6);
 
     width: 7px;
@@ -1916,14 +1924,14 @@ button.conversation-comment-status-chip {
 
 @media (forced-colors: active) {
     .conversation-project-comment-tag,
-    .conversation-project-comment-filter-chip,
-    .conversation-project-comment-filter-dot {
+    .conversation-comments-filter-chip,
+    .conversation-comments-filter-dot {
         color: ButtonText;
         border-color: ButtonText;
         background: ButtonFace;
     }
 
-    .conversation-project-comment-filter-dot {
+    .conversation-comments-filter-dot {
         background: ButtonText;
     }
 

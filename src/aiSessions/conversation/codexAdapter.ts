@@ -82,6 +82,7 @@ const SUBAGENT_RUNNING_FRESHNESS_MS = 5 * 60 * 1000;
 const LARGE_CONVERSATION_CACHE_CHARS = 512 * 1024;
 const LARGE_CONVERSATION_CACHE_TTL_MS = 15_000;
 const LARGE_CONVERSATION_CACHE_ENTRIES = 2;
+const TOKEN_USAGE_NOTIFICATION_WAIT_MS = 250;
 
 interface LoadedConversation {
     interactions: ConversationInteraction[];
@@ -452,10 +453,18 @@ function rateLimitLabel(durationMins: number | undefined): string {
 
 function normalizeRateLimits(value: unknown): ConversationTelemetry['rateLimits'] {
     const result = asRecord(value);
+    const canonical = asRecord(result?.rateLimits);
     const byId = asRecord(result?.rateLimitsByLimitId);
-    const snapshots = byId
+    const byIdEntries = byId
         ? Object.entries(byId).slice(0, 16)
-        : [['codex', result?.rateLimits]];
+        : [];
+    const canonicalById = byIdEntries.find(([fallbackId, rawSnapshot]) => {
+        const snapshot = asRecord(rawSnapshot);
+        return fallbackId === 'codex' || snapshot?.limitId === 'codex';
+    });
+    const snapshots = canonical
+        ? [['codex', canonical] as [string, unknown]]
+        : canonicalById ? [canonicalById] : byIdEntries;
     const limits: ConversationTelemetry['rateLimits'] = [];
     const seen = new Set<string>();
     for (const [fallbackId, rawSnapshot] of snapshots) {
@@ -524,6 +533,7 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         string,
         Promise<ConversationTelemetry | undefined>
     >();
+    private readonly tokenUsageWaiters = new Map<string, Set<() => void>>();
     private readonly loadedConversationCache = new Map<
         string,
         CachedLoadedConversation
@@ -659,11 +669,13 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         this.telemetryReads.set(sessionId, read);
         try {
             const value = await read;
-            this.makeRoomForTelemetrySession(sessionId);
-            this.telemetryCache.set(sessionId, {
-                readAt: Date.now(),
-                value,
-            });
+            if (!this.disposed) {
+                this.makeRoomForTelemetrySession(sessionId);
+                this.telemetryCache.set(sessionId, {
+                    readAt: Date.now(),
+                    value,
+                });
+            }
             return value;
         } finally {
             if (this.telemetryReads.get(sessionId) === read) {
@@ -676,24 +688,39 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         sessionId: string,
         signal?: ConversationAbortSignal
     ): Promise<ConversationTelemetry | undefined> {
-        const [resumeResult, limitsResult] = await Promise.all([
-            this.options.client.request(
-                'thread/resume',
-                { threadId: sessionId },
-                signal
-            ).then(
-                value => ({ fulfilled: true as const, value }),
-                () => ({ fulfilled: false as const })
-            ),
-            this.options.client.request(
-                'account/rateLimits/read',
-                undefined,
-                signal
-            ).then(
-                value => ({ fulfilled: true as const, value }),
-                () => ({ fulfilled: false as const })
-            ),
-        ]);
+        const contextBeforeRead = this.tokenUsageBySession.get(sessionId);
+        const tokenUsageWaiter = this.createTokenUsageWaiter(sessionId);
+        let resumeResult: { fulfilled: true; value: unknown }
+            | { fulfilled: false };
+        let limitsResult: { fulfilled: true; value: unknown }
+            | { fulfilled: false };
+        try {
+            [resumeResult, limitsResult] = await Promise.all([
+                this.options.client.request(
+                    'thread/resume',
+                    { threadId: sessionId },
+                    signal
+                ).then(
+                    value => ({ fulfilled: true as const, value }),
+                    () => ({ fulfilled: false as const })
+                ),
+                this.options.client.request(
+                    'account/rateLimits/read',
+                    undefined,
+                    signal
+                ).then(
+                    value => ({ fulfilled: true as const, value }),
+                    () => ({ fulfilled: false as const })
+                ),
+            ]);
+            if (resumeResult.fulfilled
+                && this.tokenUsageBySession.get(sessionId)
+                === contextBeforeRead) {
+                await this.waitForTokenUsageOrTimeout(tokenUsageWaiter.promise);
+            }
+        } finally {
+            tokenUsageWaiter.dispose();
+        }
         const telemetry: ConversationTelemetry = {
             provider: 'codex',
             sessionId,
@@ -796,6 +823,10 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         this.providerWatch?.dispose();
         this.providerWatch = undefined;
         this.notificationWatch?.dispose();
+        this.tokenUsageWaiters.forEach(waiters => {
+            waiters.forEach(resolve => resolve());
+        });
+        this.tokenUsageWaiters.clear();
         this.tokenUsageBySession.clear();
         this.telemetryCache.clear();
         this.telemetryReads.clear();
@@ -826,10 +857,70 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         };
         this.makeRoomForTelemetrySession(params.threadId);
         this.tokenUsageBySession.set(params.threadId, context);
+        const waiters = this.tokenUsageWaiters.get(params.threadId);
+        if (waiters) {
+            this.tokenUsageWaiters.delete(params.threadId);
+            waiters.forEach(resolve => resolve());
+        }
         const cached = this.telemetryCache.get(params.threadId);
         if (cached?.value) {
             cached.value.context = { ...context };
         }
+    }
+
+    private createTokenUsageWaiter(sessionId: string): {
+        promise: Promise<void>;
+        dispose(): void;
+    } {
+        let resolvePromise = (): void => undefined;
+        const promise = new Promise<void>(resolve => {
+            resolvePromise = resolve;
+        });
+        let waiters = this.tokenUsageWaiters.get(sessionId);
+        if (!waiters) {
+            waiters = new Set();
+            this.tokenUsageWaiters.set(sessionId, waiters);
+        }
+        waiters.add(resolvePromise);
+        return {
+            promise,
+            dispose: () => {
+                const current = this.tokenUsageWaiters.get(sessionId);
+                current?.delete(resolvePromise);
+                if (!current?.size) {
+                    this.tokenUsageWaiters.delete(sessionId);
+                }
+            },
+        };
+    }
+
+    private waitForTokenUsageOrTimeout(notification: Promise<void>): Promise<void> {
+        return new Promise(resolve => {
+            let settled = false;
+            let timeoutHandle: TimerHandle | undefined;
+            const finish = (): void => {
+                if (settled) {
+                    return;
+                }
+                settled = true;
+                if (timeoutHandle !== undefined) {
+                    this.options.clearTimeout(timeoutHandle);
+                    timeoutHandle = undefined;
+                }
+                resolve();
+            };
+            notification.then(finish);
+            let timeoutFiredSynchronously = false;
+            const handle = this.options.setTimeout(() => {
+                timeoutFiredSynchronously = true;
+                finish();
+            }, TOKEN_USAGE_NOTIFICATION_WAIT_MS);
+            if (!timeoutFiredSynchronously && !settled) {
+                timeoutHandle = handle;
+            } else {
+                this.options.clearTimeout(handle);
+            }
+        });
     }
 
     private makeRoomForTelemetrySession(sessionId: string): void {

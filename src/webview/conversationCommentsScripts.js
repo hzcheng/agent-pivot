@@ -153,8 +153,12 @@
             pendingRequest: stateField('pendingCommentRequest'),
             editing: stateField('editingComment'),
             clearAllConfirmation: stateField('clearAllConfirmation'),
+            tagEditor: stateField('sessionTagEditor'),
             requestIdPrefix: 'conversation-comment',
             statusPrefix: '',
+            actionAttribute: 'data-comment-action',
+            tagInputAttribute: 'data-comment-tag-input',
+            statusToggleAction: null,
             isValidResult: buildResultValidator({
                 type: 'conversation-viewer-comments-result',
                 operations: [
@@ -267,8 +271,12 @@
             pendingRequest: stateField('pendingProjectCommentRequest'),
             editing: stateField('editingProjectComment'),
             clearAllConfirmation: stateField('projectClearAllConfirmation'),
+            tagEditor: stateField('projectTagEditor'),
             requestIdPrefix: 'project-comment',
             statusPrefix: 'Workspace: ',
+            actionAttribute: 'data-project-comment-action',
+            tagInputAttribute: 'data-project-comment-tag-input',
+            statusToggleAction: 'toggle-status',
             isValidResult: buildResultValidator({
                 type: 'conversation-viewer-project-comments-result',
                 operations: PROJECT_COMMENT_OPERATIONS.concat([
@@ -660,12 +668,18 @@
                 + 'a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z"/>'),
         };
 
-        function commentIconButton(action, icon, label, modifier) {
+        function commentIconButton(
+            actionAttribute,
+            action,
+            icon,
+            label,
+            modifier
+        ) {
             var button = document.createElement('button');
             button.type = 'button';
             button.className = 'conversation-comment-icon-button'
                 + (modifier ? ' ' + modifier : '');
-            button.setAttribute('data-comment-action', action);
+            button.setAttribute(actionAttribute, action);
             button.title = label;
             button.setAttribute('aria-label', label);
             button.innerHTML = icon;
@@ -827,11 +841,13 @@
 
                 if (editing) {
                     actions.appendChild(commentIconButton(
+                        'data-comment-action',
                         'update',
                         COMMENT_ICONS.save,
                         'Save comment (Ctrl+Enter or Cmd+Enter)'
                     ));
                     actions.appendChild(commentIconButton(
+                        'data-comment-action',
                         'cancel-edit',
                         COMMENT_ICONS.cancel,
                         'Discard changes (Esc)'
@@ -851,7 +867,7 @@
                     hint.textContent = 'Ctrl+Enter to save · Esc to cancel';
                     item.append(input, hint);
                     item.appendChild(
-                        buildSessionCommentTagsRow(comment, index)
+                        buildCommentTagsRow(sessionStack, comment)
                     );
                     commentList.appendChild(item);
                     autosizeCommentInput(input);
@@ -868,6 +884,7 @@
                 if (comment.status === 'done' && !expanded) {
                     item.classList.add('conversation-comment-done-collapsed');
                     var expand = commentIconButton(
+                        'data-comment-action',
                         'toggle-done',
                         COMMENT_ICONS.chevron,
                         'Expand comment'
@@ -884,7 +901,7 @@
                     collapsedBody.textContent = comment.comment;
                     item.appendChild(collapsedBody);
                     item.appendChild(
-                        buildSessionCommentTagsRow(comment, index)
+                        buildCommentTagsRow(sessionStack, comment)
                     );
                     commentList.appendChild(item);
                     return;
@@ -892,6 +909,7 @@
 
                 if (comment.status === 'done') {
                     var collapse = commentIconButton(
+                        'data-comment-action',
                         'toggle-done',
                         COMMENT_ICONS.chevron,
                         'Collapse comment'
@@ -901,6 +919,7 @@
                 }
                 if (comment.status === 'open') {
                     actions.appendChild(commentIconButton(
+                        'data-comment-action',
                         'send-comment',
                         COMMENT_ICONS.send,
                         'Send this comment to the session'
@@ -908,17 +927,20 @@
                 }
                 if (comment.scope !== 'session') {
                     actions.appendChild(commentIconButton(
+                        'data-comment-action',
                         'locate',
                         COMMENT_ICONS.locate,
                         'Show commented text'
                     ));
                 }
                 actions.appendChild(commentIconButton(
+                    'data-comment-action',
                     'edit-comment',
                     COMMENT_ICONS.edit,
                     'Edit comment'
                 ));
                 actions.appendChild(commentIconButton(
+                    'data-comment-action',
                     'delete',
                     COMMENT_ICONS.remove,
                     'Delete comment',
@@ -963,7 +985,7 @@
                 }
                 item.appendChild(meta);
                 item.appendChild(
-                    buildSessionCommentTagsRow(comment, index)
+                    buildCommentTagsRow(sessionStack, comment)
                 );
                 commentList.appendChild(item);
             });
@@ -1518,45 +1540,55 @@
             return chip;
         }
 
-        function buildSessionCommentTagsRow(comment, index) {
-            var row = document.createElement('div');
-            row.className = 'conversation-comment-tags-row';
-            row.appendChild(buildCommentStatusChip(comment.status, null));
-            var tags = comment.tags || [];
-            tags.forEach(function (tag) {
-                var chip = document.createElement('span');
-                chip.className = 'conversation-project-comment-tag';
-                chip.setAttribute(
-                    'data-tag-color',
-                    String(projectTagColorKey(tag))
-                );
-                chip.appendChild(document.createTextNode(tag));
+        function buildTagChip(tag, actionAttribute, removeAction) {
+            var chip = document.createElement('span');
+            chip.className = 'conversation-project-comment-tag';
+            chip.setAttribute(
+                'data-tag-color',
+                String(projectTagColorKey(tag))
+            );
+            chip.appendChild(document.createTextNode(tag));
+            if (removeAction) {
                 var remove = document.createElement('button');
                 remove.type = 'button';
-                remove.setAttribute('data-comment-action', 'remove-tag');
+                remove.setAttribute(actionAttribute, removeAction);
                 remove.setAttribute('data-tag', tag);
                 remove.title = 'Remove tag ' + tag;
                 remove.setAttribute('aria-label', 'Remove tag ' + tag);
                 remove.textContent = '\u00d7';
                 chip.appendChild(remove);
-                row.appendChild(chip);
+            }
+            return chip;
+        }
+
+        function buildCommentTagsRow(stack, comment) {
+            var row = document.createElement('div');
+            row.className = 'conversation-comment-tags-row';
+            row.appendChild(
+                buildCommentStatusChip(comment.status, stack.statusToggleAction)
+            );
+            var tags = comment.tags || [];
+            tags.forEach(function (tag) {
+                row.appendChild(
+                    buildTagChip(tag, stack.actionAttribute, 'remove-tag')
+                );
             });
-            if (state.sessionTagEditor
-                && state.sessionTagEditor.commentId === comment.id) {
+            var tagEditor = stack.tagEditor.get();
+            if (tagEditor && tagEditor.commentId === comment.id) {
                 var tagInput = document.createElement('input');
                 tagInput.type = 'text';
                 tagInput.maxLength = 48;
                 tagInput.className = 'conversation-project-comment-tag-input';
-                tagInput.setAttribute('data-comment-tag-input', '');
+                tagInput.setAttribute(stack.tagInputAttribute, '');
                 tagInput.setAttribute('aria-label', 'New tag');
                 tagInput.placeholder = 'tag';
-                tagInput.value = state.sessionTagEditor.draft;
+                tagInput.value = tagEditor.draft;
                 row.appendChild(tagInput);
             } else if (tags.length < 5) {
                 var addTag = document.createElement('button');
                 addTag.type = 'button';
                 addTag.className = 'conversation-project-comment-tag-add';
-                addTag.setAttribute('data-comment-action', 'open-tag-editor');
+                addTag.setAttribute(stack.actionAttribute, 'open-tag-editor');
                 addTag.title = 'Add tag';
                 addTag.setAttribute('aria-label', 'Add tag');
                 addTag.textContent = '+';
@@ -1737,22 +1769,11 @@
             if (!projectCommentsAvailable) return;
             projectCommentDraftTags.replaceChildren();
             state.projectDraftTags.forEach(function (tag) {
-                var chip = document.createElement('span');
-                chip.className = 'conversation-project-comment-tag';
-                chip.setAttribute(
-                    'data-tag-color',
-                    String(projectTagColorKey(tag))
-                );
-                chip.appendChild(document.createTextNode(tag));
-                var remove = document.createElement('button');
-                remove.type = 'button';
-                remove.setAttribute('data-project-comment-action', 'remove-draft-tag');
-                remove.setAttribute('data-tag', tag);
-                remove.title = 'Remove tag ' + tag;
-                remove.setAttribute('aria-label', 'Remove tag ' + tag);
-                remove.textContent = '\u00d7';
-                chip.appendChild(remove);
-                projectCommentDraftTags.appendChild(chip);
+                projectCommentDraftTags.appendChild(buildTagChip(
+                    tag,
+                    'data-project-comment-action',
+                    'remove-draft-tag'
+                ));
             });
             if (state.projectDraftTagInputOpen) {
                 var input = document.createElement('input');
@@ -2115,66 +2136,6 @@
             postStackOperation(projectStack, 'add', payload);
         }
 
-        function projectTagElement(comment, tag, removable) {
-            var chip = document.createElement('span');
-            chip.className = 'conversation-project-comment-tag';
-            chip.setAttribute(
-                'data-tag-color',
-                String(projectTagColorKey(tag))
-            );
-            chip.appendChild(document.createTextNode(tag));
-            if (removable) {
-                var remove = document.createElement('button');
-                remove.type = 'button';
-                remove.setAttribute(
-                    'data-project-comment-action',
-                    'remove-tag'
-                );
-                remove.setAttribute('data-tag', tag);
-                remove.title = 'Remove tag ' + tag;
-                remove.setAttribute('aria-label', 'Remove tag ' + tag);
-                remove.textContent = '\u00d7';
-                chip.appendChild(remove);
-            }
-            return chip;
-        }
-
-        function buildProjectCommentTagsRow(comment) {
-            var row = document.createElement('div');
-            row.className = 'conversation-comment-tags-row';
-            row.appendChild(
-                buildCommentStatusChip(comment.status, 'toggle-status')
-            );
-            comment.tags.forEach(function (tag) {
-                row.appendChild(projectTagElement(comment, tag, true));
-            });
-            if (state.projectTagEditor
-                && state.projectTagEditor.commentId === comment.id) {
-                var tagInput = document.createElement('input');
-                tagInput.type = 'text';
-                tagInput.maxLength = 48;
-                tagInput.className = 'conversation-project-comment-tag-input';
-                tagInput.setAttribute('data-project-comment-tag-input', '');
-                tagInput.setAttribute('aria-label', 'New tag');
-                tagInput.placeholder = 'tag';
-                tagInput.value = state.projectTagEditor.draft;
-                row.appendChild(tagInput);
-            } else if (comment.tags.length < 5) {
-                var addTag = document.createElement('button');
-                addTag.type = 'button';
-                addTag.className = 'conversation-project-comment-tag-add';
-                addTag.setAttribute(
-                    'data-project-comment-action',
-                    'open-tag-editor'
-                );
-                addTag.title = 'Add tag';
-                addTag.setAttribute('aria-label', 'Add tag');
-                addTag.textContent = '+';
-                row.appendChild(addTag);
-            }
-            return row;
-        }
-
         function buildProjectCommentCard(comment, index) {
             var item = document.createElement('article');
             item.className = 'conversation-comment conversation-project-comment';
@@ -2206,10 +2167,13 @@
             item.appendChild(heading);
 
             function projectIconButton(action, icon, label, modifier) {
-                var button = commentIconButton(action, icon, label, modifier);
-                button.setAttribute('data-project-comment-action', action);
-                button.removeAttribute('data-comment-action');
-                return button;
+                return commentIconButton(
+                    'data-project-comment-action',
+                    action,
+                    icon,
+                    label,
+                    modifier
+                );
             }
 
             if (editing) {
@@ -2237,7 +2201,7 @@
                 hint.className = 'conversation-comment-edit-hint';
                 hint.textContent = 'Ctrl+Enter to save · Esc to cancel';
                 item.append(input, hint);
-                item.appendChild(buildProjectCommentTagsRow(comment));
+                item.appendChild(buildCommentTagsRow(projectStack, comment));
                 window.setTimeout(function () {
                     autosizeCommentInput(input);
                     input.focus();
@@ -2275,7 +2239,7 @@
                 );
                 collapsedBody.textContent = comment.text;
                 item.appendChild(collapsedBody);
-                item.appendChild(buildProjectCommentTagsRow(comment));
+                item.appendChild(buildCommentTagsRow(projectStack, comment));
                 return item;
             }
 
@@ -2348,7 +2312,7 @@
                 meta.appendChild(dispatch);
             }
             item.appendChild(meta);
-            item.appendChild(buildProjectCommentTagsRow(comment));
+            item.appendChild(buildCommentTagsRow(projectStack, comment));
             return item;
         }
 

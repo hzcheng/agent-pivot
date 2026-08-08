@@ -275,6 +275,16 @@ button {
     background: var(--vscode-editor-findMatchHighlightBackground);
 }
 
+::highlight(conversation-find) {
+    color: inherit;
+    background: var(--vscode-editor-findMatchHighlightBackground);
+}
+
+::highlight(conversation-find-current) {
+    color: inherit;
+    background: var(--vscode-editor-findMatchBackground);
+}
+
 .conversation-message-user {
     margin: 1rem 0 1.25rem;
     padding: 0.875rem 1rem 1rem;
@@ -1631,6 +1641,89 @@ button {
     to {
         opacity: 1;
         transform: translateY(0);
+    }
+}
+
+.conversation-find {
+    position: relative;
+    z-index: 3;
+    grid-column: 1;
+    grid-row: 1;
+    align-self: start;
+    justify-self: end;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    margin: 0.5rem 0.75rem 0 0;
+    padding: 2px;
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 7px;
+    background: var(
+        --vscode-editorWidget-background,
+        var(--vscode-editor-background)
+    );
+    box-shadow: 0 4px 16px var(--vscode-widget-shadow, transparent);
+
+    &[hidden] {
+        display: none;
+    }
+}
+
+.conversation-find-field {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0 0.35rem;
+    border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+    border-radius: 5px;
+    color: var(--vscode-descriptionForeground);
+    background: var(--vscode-input-background);
+
+    svg {
+        flex: 0 0 auto;
+        pointer-events: none;
+    }
+
+    input {
+        width: 10rem;
+        padding: 0.15rem 0;
+        border: 0;
+        color: var(--vscode-input-foreground, var(--vscode-editor-foreground));
+        background: transparent;
+        font: inherit;
+        font-size: 0.82rem;
+        outline: none;
+    }
+
+    &:focus-within {
+        border-color: var(--vscode-focusBorder);
+    }
+}
+
+.conversation-find-no-results .conversation-find-field {
+    border-color: var(
+        --vscode-inputValidation-errorBorder,
+        var(--vscode-errorForeground)
+    );
+}
+
+.conversation-find-count {
+    min-width: 3.25rem;
+    padding: 0 0.25rem;
+    color: var(--vscode-descriptionForeground);
+    font-size: 0.75rem;
+    text-align: center;
+    white-space: nowrap;
+
+    &:empty {
+        min-width: 0;
+        padding: 0;
+    }
+}
+
+@media (max-width: 480px) {
+    .conversation-find-field input {
+        width: 6rem;
     }
 }
 

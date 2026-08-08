@@ -4453,6 +4453,23 @@
     ]
   },
   {
+    "id": "CONVERSATION-FIND-001",
+    "domain": "webview",
+    "title": "AI Conversation provides a Ctrl/Cmd+F find bar that case-insensitively matches a plain-text query across the visible conversation text, paints all matches through CSS custom highlights with a distinct current match scrolled into view, steps through matches with wrap-around via Enter, Shift+Enter, and the previous/next controls while announcing the match position, flags queries without matches, caps runaway result sets at 999+, and reapplies the query after every authoritative page refresh",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/integration/dashboard/conversationViewer.test.js",
+      "tests/browser/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/viewerDocument.ts",
+      "src/webview/conversationFindScripts.js",
+      "src/webview/conversationViewerScripts.js",
+      "media/conversationViewer.scss"
+    ]
+  },
+  {
     "id": "CONVERSATION-LIVE-UPDATE-JOURNEY-001",
     "domain": "webview",
     "title": "A live response preserves telemetry, follows from the end, preserves historical reading position, and transitions Working to complete without a manual new-content control",

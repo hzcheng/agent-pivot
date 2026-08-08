@@ -64,6 +64,10 @@ const conversationSubagentsScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/conversationSubagentsScripts.js'),
     'utf8'
 );
+const conversationFindScript = fs.readFileSync(
+    path.join(__dirname, '../../src/webview/conversationFindScripts.js'),
+    'utf8'
+);
 const viewerCss = fs.readFileSync(
     path.join(__dirname, '../../media/conversationViewer.css'),
     'utf8'
@@ -827,6 +831,13 @@ async function openHostViewerDocument(t, options = {}) {
             await route.fulfill({
                 contentType: 'text/javascript',
                 body: conversationSubagentsScript,
+            });
+            return;
+        }
+        if (pathname === '/conversationFindScripts.js') {
+            await route.fulfill({
+                contentType: 'text/javascript',
+                body: conversationFindScript,
             });
             return;
         }
@@ -2325,6 +2336,370 @@ test('CONVERSATION-COPY-ACTIONS-001 copies user inputs and assistant answers thr
         /^conversation-copy:[a-z0-9]+:2$/,
         'every copy intent gets a fresh request id'
     );
+});
+
+function findFixtureOverrides() {
+    return {
+        messages: [{
+            id: 'input-1:user',
+            interactionId: 'input-1',
+            role: 'user',
+            markdown: 'Add tests for the parser',
+        }, {
+            id: 'input-1:assistant:0',
+            interactionId: 'input-1',
+            role: 'assistant',
+            markdown: 'I added `parser` tests and updated the parser module.',
+        }],
+        interactionStates: [{
+            interactionId: 'input-1',
+            responseState: 'complete',
+        }],
+    };
+}
+
+function currentFindMatch(page) {
+    return page.evaluate(() => {
+        const highlight = CSS.highlights.get('conversation-find-current');
+        const range = highlight && highlight.size
+            ? highlight.values().next().value
+            : null;
+        if (!range) return null;
+        return {
+            text: range.startContainer.textContent,
+            start: range.startOffset,
+            end: range.endOffset,
+        };
+    });
+}
+
+test('CONVERSATION-FIND-001 opens with Ctrl+F, highlights case-insensitive matches, and closes with Escape', async t => {
+    const { page } = await openHostViewerDocument(t, {
+        interactionIds: ['input-1'],
+        interactionId: 'input-1',
+        pageOverrides: findFixtureOverrides(),
+    });
+    const findBar = page.locator('[data-conversation-find]');
+    await findBar.waitFor({ state: 'attached' });
+    assert.equal(await findBar.isHidden(), true, 'the find bar starts hidden');
+
+    await page.keyboard.press('Control+f');
+    assert.equal(await findBar.isVisible(), true, 'Ctrl+F opens the find bar');
+    const input = page.locator('[data-find-input]');
+    assert.equal(
+        await input.evaluate(element => document.activeElement === element),
+        true,
+        'opening the find bar focuses the query input'
+    );
+
+    await input.fill('PARSER');
+    assert.equal(
+        await page.locator('[data-find-count]').textContent(),
+        '1 of 3',
+        'the query matches case-insensitively across messages'
+    );
+    assert.deepEqual(await page.evaluate(() => ({
+        all: CSS.highlights.get('conversation-find')?.size ?? 0,
+        current: CSS.highlights.get('conversation-find-current')?.size ?? 0,
+    })), { all: 3, current: 1 },
+        'every match paints with one distinct current match');
+    assert.deepEqual(await currentFindMatch(page), {
+        text: 'Add tests for the parser',
+        start: 18,
+        end: 24,
+    }, 'the first match starts the navigation');
+
+    await input.fill('parser tests');
+    assert.equal(
+        await page.locator('[data-find-count]').textContent(),
+        '1 of 1',
+        'a phrase match spans an inline code boundary'
+    );
+
+    await page.keyboard.press('Escape');
+    assert.equal(await findBar.isHidden(), true, 'Escape closes the find bar');
+    assert.deepEqual(await page.evaluate(() => ({
+        all: CSS.highlights.has('conversation-find'),
+        current: CSS.highlights.has('conversation-find-current'),
+    })), { all: false, current: false },
+        'closing clears every find highlight');
+
+    await page.keyboard.press('Control+f');
+    assert.equal(await input.inputValue(), 'parser tests',
+        'reopening keeps the previous query');
+    assert.deepEqual(
+        await input.evaluate(element => [
+            element.selectionStart,
+            element.selectionEnd,
+        ]),
+        [0, 'parser tests'.length],
+        'reopening selects the previous query for replacement'
+    );
+});
+
+test('CONVERSATION-FIND-001 steps through matches with Enter, Shift+Enter, and the bar controls', async t => {
+    const { page } = await openHostViewerDocument(t, {
+        interactionIds: ['input-1'],
+        interactionId: 'input-1',
+        pageOverrides: findFixtureOverrides(),
+    });
+    await page.keyboard.press('Control+f');
+    const input = page.locator('[data-find-input]');
+    const count = page.locator('[data-find-count]');
+    await input.fill('parser');
+    assert.equal(await count.textContent(), '1 of 3');
+
+    await input.press('Enter');
+    assert.equal(await count.textContent(), '2 of 3');
+    assert.deepEqual(await currentFindMatch(page), {
+        text: 'parser',
+        start: 0,
+        end: 6,
+    }, 'Enter advances to the match inside the inline code');
+
+    await input.press('Enter');
+    assert.equal(await count.textContent(), '3 of 3');
+    const third = await currentFindMatch(page);
+    assert.equal(third.text, ' tests and updated the parser module.');
+    assert.equal(third.start, 23);
+
+    await input.press('Enter');
+    assert.equal(await count.textContent(), '1 of 3',
+        'Enter wraps around to the first match');
+
+    await input.press('Shift+Enter');
+    assert.equal(await count.textContent(), '3 of 3',
+        'Shift+Enter steps backwards with wrap-around');
+
+    await page.locator('[data-find-next]').click();
+    assert.equal(await count.textContent(), '1 of 3',
+        'the next control advances with wrap-around');
+    await page.locator('[data-find-previous]').click();
+    assert.equal(await count.textContent(), '3 of 3',
+        'the previous control steps back with wrap-around');
+
+    await page.locator('[data-conversation-scroll]').focus();
+    await page.keyboard.press('Enter');
+    assert.equal(await count.textContent(), '3 of 3',
+        'Enter outside the query input never steals navigation');
+});
+
+test('CONVERSATION-FIND-001 scrolls the current match into view', async t => {
+    const interactionIds = Array.from(
+        { length: 10 },
+        (_unused, index) => `input-${index + 1}`
+    );
+    const messages = [];
+    interactionIds.forEach((id, index) => {
+        messages.push({
+            id: `${id}:user`,
+            interactionId: id,
+            role: 'user',
+            markdown: `Filler question ${index + 1} keeps the conversation tall enough to scroll.`,
+        });
+        messages.push({
+            id: `${id}:assistant:0`,
+            interactionId: id,
+            role: 'assistant',
+            markdown: index === interactionIds.length - 1
+                ? 'The needle surfaces only at the very end of this conversation.'
+                : `Filler answer ${index + 1} adds even more vertical space to the conversation.`,
+        });
+    });
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+        interactionIds,
+        interactionId: 'input-10',
+        pageOverrides: {
+            messages,
+            interactionStates: interactionIds.map(id => ({
+                interactionId: id,
+                responseState: 'complete',
+            })),
+        },
+    });
+    await page.evaluate(() => {
+        document.querySelector('[data-conversation-scroll]').scrollTop = 0;
+    });
+
+    await page.keyboard.press('Control+f');
+    await page.locator('[data-find-input]').fill('needle');
+    const metrics = await page.evaluate(() => {
+        const scroll = document.querySelector('[data-conversation-scroll]');
+        const highlight = CSS.highlights.get('conversation-find-current');
+        const range = highlight ? highlight.values().next().value : null;
+        const bounds = range ? range.getBoundingClientRect() : null;
+        const view = scroll.getBoundingClientRect();
+        return {
+            scrollTop: scroll.scrollTop,
+            visible: !!bounds && bounds.top >= view.top
+                && bounds.bottom <= view.bottom,
+        };
+    });
+    assert.ok(metrics.scrollTop > 0,
+        'a match below the fold scrolls the conversation');
+    assert.equal(metrics.visible, true,
+        'the current match lands inside the viewport');
+});
+
+test('CONVERSATION-FIND-001 flags queries without matches and caps runaway result sets', async t => {
+    const { page } = await openHostViewerDocument(t, {
+        interactionIds: ['input-1'],
+        interactionId: 'input-1',
+        pageOverrides: {
+            messages: [{
+                id: 'input-1:user',
+                interactionId: 'input-1',
+                role: 'user',
+                markdown: 'a'.repeat(2100),
+            }],
+            interactionStates: [{
+                interactionId: 'input-1',
+                responseState: 'complete',
+            }],
+        },
+    });
+    const findBar = page.locator('[data-conversation-find]');
+    await page.keyboard.press('Control+f');
+    const input = page.locator('[data-find-input]');
+    const count = page.locator('[data-find-count]');
+
+    await input.fill('zz');
+    assert.equal(await count.textContent(), 'No results');
+    assert.equal(
+        await findBar.evaluate(
+            element => element.classList.contains('conversation-find-no-results')
+        ),
+        true,
+        'a query without matches flags the find bar'
+    );
+    assert.equal(
+        await page.evaluate(() => CSS.highlights.has('conversation-find')),
+        false,
+        'a query without matches paints nothing'
+    );
+
+    await input.fill('aa');
+    assert.equal(await count.textContent(), '1 of 999+',
+        'runaway result sets stop at the announced cap');
+    assert.equal(
+        await findBar.evaluate(
+            element => element.classList.contains('conversation-find-no-results')
+        ),
+        false,
+        'matches clear the no-results flag'
+    );
+});
+
+test('CONVERSATION-FIND-001 reapplies the query after authoritative page refreshes', async t => {
+    const { page } = await openHostViewerDocument(t, {
+        interactionIds: ['input-1'],
+        interactionId: 'input-1',
+        pageOverrides: findFixtureOverrides(),
+    });
+    await page.keyboard.press('Control+f');
+    await page.locator('[data-find-input]').fill('parser');
+    assert.equal(
+        await page.locator('[data-find-count]').textContent(),
+        '1 of 3'
+    );
+
+    await sendPage(page, {
+        type: 'conversation-viewer-page',
+        version: 1,
+        requestId: 100,
+        subscriptionGeneration: 1,
+        updateKind: 'refresh',
+        html: `<article data-conversation-message-id="${
+            encodeURIComponent('input-1:user')
+        }" data-interaction-id="input-1">
+            <section class="conversation-markdown">
+                <p>Add tests for the parser</p>
+            </section>
+        </article>
+        <article data-conversation-message-id="${
+            encodeURIComponent('input-1:assistant:0')
+        }" data-interaction-id="input-1">
+            <section class="conversation-markdown">
+                <p>I added <code>parser</code> tests and updated the parser module.</p>
+            </section>
+        </article>
+        <article data-conversation-message-id="${
+            encodeURIComponent('input-1:assistant:1')
+        }" data-interaction-id="input-1">
+            <section class="conversation-markdown">
+                <p>Another parser pass.</p>
+            </section>
+        </article>`,
+        outline: [{
+            interactionId: 'input-1',
+            userPreview: 'Add tests for the parser',
+            responseState: 'complete',
+        }],
+        selectedInteractionId: 'input-1',
+        selectedInput: 1,
+        totalInputs: 1,
+        partial: false,
+        atLatest: true,
+        stale: false,
+        subagents: [],
+        activeSubagent: null,
+    });
+    await page.waitForFunction(() =>
+        document.querySelector('[data-find-count]')?.textContent === '1 of 4');
+    assert.deepEqual(await page.evaluate(() => ({
+        all: CSS.highlights.get('conversation-find')?.size ?? 0,
+        current: CSS.highlights.get('conversation-find-current')?.size ?? 0,
+    })), { all: 4, current: 1 },
+        'the refreshed page repaints every match and keeps the position');
+});
+
+test('CONVERSATION-FIND-001 anchors the find bar to the top-right of the conversation viewport', async t => {
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+        interactionIds: ['input-1'],
+        interactionId: 'input-1',
+        pageOverrides: findFixtureOverrides(),
+    });
+    await page.keyboard.press('Control+f');
+    await page.locator('[data-find-input]').waitFor();
+    const geometry = await page.evaluate(() => {
+        const toRect = element => {
+            const rect = element.getBoundingClientRect();
+            return {
+                top: rect.top,
+                right: rect.right,
+                bottom: rect.bottom,
+                left: rect.left,
+                width: rect.width,
+            };
+        };
+        const bar = document.querySelector('[data-conversation-find]');
+        const barRect = bar.getBoundingClientRect();
+        const hit = document.elementFromPoint(
+            barRect.left + barRect.width / 2,
+            barRect.top + barRect.height / 2
+        );
+        return {
+            bar: toRect(bar),
+            header: toRect(document.querySelector('.conversation-header')),
+            scroll: toRect(
+                document.querySelector('[data-conversation-scroll]')
+            ),
+            overlaysContent: !!hit && bar.contains(hit),
+        };
+    });
+    assert.ok(geometry.bar.top >= geometry.header.bottom - 1,
+        `the find bar clears the header: ${JSON.stringify(geometry)}`);
+    assert.ok(geometry.bar.right <= geometry.scroll.right + 1
+        && geometry.bar.right >= geometry.scroll.right - 40,
+        `the find bar hugs the right edge of the viewport: ${JSON.stringify(geometry)}`);
+    assert.ok(geometry.bar.left > geometry.scroll.left + geometry.scroll.width / 2,
+        `the find bar sits in the right half: ${JSON.stringify(geometry)}`);
+    assert.equal(geometry.overlaysContent, true,
+        'the find bar floats above the conversation content');
 });
 
 test('CONVERSATION-OUTLINE-BOOKMARKS-001 keeps the outline usable with previous bookmark markup', async t => {

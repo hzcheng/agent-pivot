@@ -125,6 +125,12 @@
         '[data-comment-action="clearAll"]'
     );
     var addComment = document.querySelector('[data-add-comment]');
+    var findRoot = document.querySelector('[data-conversation-find]');
+    var findInput = document.querySelector('[data-find-input]');
+    var findCount = document.querySelector('[data-find-count]');
+    var findPrevious = document.querySelector('[data-find-previous]');
+    var findNext = document.querySelector('[data-find-next]');
+    var findClose = document.querySelector('[data-find-close]');
     var telemetryComments = document.querySelector(
         '[data-telemetry-comments]'
     );
@@ -157,6 +163,8 @@
         && !!telemetrySubagents && !!telemetrySection
         && !!window.__agentPivotConversationSubagents;
     var copyUiAvailable = validCommentTarget(commentTarget);
+    var findUiAvailable = !!findRoot && !!findInput && !!findCount
+        && !!findPrevious && !!findNext && !!findClose;
     var copyRequestSequence = 0;
     var copyPending = new Map();
     var state = {
@@ -335,6 +343,19 @@
         setSidebarView: sidebarController.setView,
         updateToggle: sidebarController.updateToggle,
     });
+    var findController = window.__agentPivotConversationFind
+        ? window.__agentPivotConversationFind.create({
+            available: findUiAvailable,
+            root: findRoot,
+            input: findInput,
+            count: findCount,
+            previous: findPrevious,
+            next: findNext,
+            close: findClose,
+            messages: messages,
+            scroll: scroll,
+        })
+        : null;
 
     if (!scroll || !messages || !working || !position || !status
         || !previous || !next || !latest || !window.DOMPurify) {
@@ -1100,6 +1121,7 @@
             );
         }
         commentsController.updateHighlights();
+        if (findController) findController.refresh();
         if (conversationDisplayName
             && (typeof message.displayName === 'string'
                 || validPageTarget(message.target))) {
@@ -1314,10 +1336,14 @@
             href: href,
         });
     });
+    if (findController) {
+        findController.attach();
+    }
     if (commentUiAvailable) {
         commentsController.attach();
     }
     document.addEventListener('keydown', function (event) {
+        if (findController && findController.handleKeydown(event)) return;
         if (commentsController.handleEnterShortcut(event)) return;
         if (event.key !== 'Escape') return;
         if (commentsController.handleEscape(event)) return;

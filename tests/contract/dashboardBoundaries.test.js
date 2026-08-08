@@ -374,6 +374,7 @@ const DASHBOARD_COMMANDS = [
     'agentPivot.openCurrentAiSessionConversation',
     'agentPivot.previousActiveSession', 'agentPivot.nextActiveSession',
     'agentPivot.nextAttentionSession',
+    'agentPivot.nextRunningSession',
     'agentPivot.switchToOpenWindow',
 ];
 
@@ -394,6 +395,7 @@ test('WEBVIEW-DASHBOARD-COMMAND-REGISTRATION-001 WEBVIEW-DASHBOARD-COMMAND-AVAIL
         'openCurrentAiSessionConversation',
         'previousActiveSession', 'nextActiveSession',
         'nextAttentionSession',
+        'nextRunningSession',
         'switchToOpenWindow',
     ];
     const facade = new DashboardCommandRegistration({
@@ -503,6 +505,25 @@ test('ATTENTION-STATUS-BAR-QUEUE-001 contributes the next-attention command with
             key: 'ctrl+alt+a',
             mac: 'cmd+alt+a',
         }]
+    );
+});
+
+test('AI-SESSION-NEXT-RUNNING-COMMAND-001 contributes the next-running command without a default keybinding', () => {
+    const manifest = require('../../package.json');
+    assert.deepEqual(
+        manifest.contributes.commands.filter(
+            command => command.command === 'agentPivot.nextRunningSession'
+        ),
+        [{
+            command: 'agentPivot.nextRunningSession',
+            title: 'Agent Pivot: Next Running Session',
+        }]
+    );
+    assert.deepEqual(
+        manifest.contributes.keybindings.filter(
+            keybinding => keybinding.command === 'agentPivot.nextRunningSession'
+        ),
+        []
     );
 });
 

@@ -22,6 +22,7 @@ const PUBLIC_COMMANDS = [
     'agentPivot.openCurrentAiSessionConversation',
     'agentPivot.previousActiveSession',
     'agentPivot.nextActiveSession',
+    'agentPivot.nextRunningSession',
     'agentPivot.switchToOpenWindow',
 ];
 

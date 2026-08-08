@@ -111,6 +111,10 @@
                 "title": "Agent Pivot: Next Attention Session"
             },
             {
+                "command": "agentPivot.nextRunningSession",
+                "title": "Agent Pivot: Next Running Session"
+            },
+            {
                 "command": "agentPivot.notify.setWebhook",
                 "title": "Agent Pivot: Set Notification Webhook"
             },

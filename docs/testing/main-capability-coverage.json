@@ -1641,6 +1641,18 @@
             ],
             "scheduledJobs": [],
             "realEnvironmentRequired": false
+        },
+        {
+            "id": "MAIN-RUNNING-SESSION-NAVIGATION",
+            "title": "Cross-window next running AI session navigation",
+            "requirement": "The Next Running Session command cycles AI sessions whose execution state is running, one jump per invocation, through a stable local-first queue with a resilient cursor: local jumps focus the session terminal and open its conversation, remote jumps hand a one-shot focus request through the Open Windows bridge mailbox so the owning window lands directly on a running session, and the hand-off degrades to a plain window switch when the bridge predates the mailbox channel.",
+            "commits": [],
+            "behaviors": [],
+            "prGates": [
+                "test:deterministic:run"
+            ],
+            "scheduledJobs": [],
+            "realEnvironmentRequired": false
         }
     ]
 }

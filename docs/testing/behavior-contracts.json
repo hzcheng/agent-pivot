@@ -4614,11 +4614,13 @@
     "priority": "P0",
     "status": "automated",
     "owners": [
+      "tests/unit/aiSessions/conversationBookmarkController.test.js",
       "tests/unit/aiSessions/conversationBookmarkStore.test.js",
       "tests/integration/dashboard/conversationViewer.test.js",
       "tests/browser/conversationViewer.test.js"
     ],
     "evidence": [
+      "src/aiSessions/conversation/bookmarkController.ts",
       "src/aiSessions/conversation/bookmarkStore.ts",
       "src/aiSessions/conversation/viewer.ts",
       "src/webview/conversationOutlineScripts.js",

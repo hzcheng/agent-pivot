@@ -115,3 +115,14 @@ Summarize:
   selectors before trusting tests: a replacement anchor like `.foo {` also
   matches inside a longer selector such as `.bar .foo {`, and Sass happily
   compiles the mangled nesting.
+- Adding a Dashboard command or an activation-time `vscode` API (e.g.
+  `createStatusBarItem`) fails activation-harness and integration tests with
+  opaque `waitFor` timeouts far from the cause: bootstrap errors are swallowed
+  into the `[Dashboard] agent-pivot-bootstrap-failed` output-channel line, so
+  read that line first. Update every inline fake `vscode` surface
+  (`tests/fixtures/aiSessions/runtimeHostActivationHarness.js`,
+  `tests/integration/dashboard/helpers/terminalCloseHarness.js`,
+  `todoPanelHarness.js`) and every hardcoded command list
+  (`dashboardBoundaries.test.js` twice, `runtimeComposition.test.js`,
+  `extensionHostSuite.test.js`, `run-dashboard-webview-checks.js`) alongside
+  `DASHBOARD_COMMANDS` and `package.json`.

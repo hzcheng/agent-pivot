@@ -195,7 +195,15 @@
             },
             afterSettle: null,
             render: renderComments,
-            focusDragHandle: focusCommentDragHandle,
+            list: commentList,
+            idAttribute: 'data-comment-id',
+            dragHandleAttribute: 'data-comment-drag-handle',
+            draggedId: stateField('draggedCommentId'),
+            visibleIds: function () {
+                return visibleCommentEntries().map(function (entry) {
+                    return entry.comment.id;
+                });
+            },
             settledStatus: function (operation) {
                 return operation === 'sendComments'
                     ? 'Comments added to session input. Review and press Enter to send.'
@@ -289,7 +297,15 @@
             noteSentComments: null,
             afterSettle: updateCommentControls,
             render: renderProjectComments,
-            focusDragHandle: focusProjectCommentDragHandle,
+            list: projectCommentList,
+            idAttribute: 'data-project-comment-id',
+            dragHandleAttribute: 'data-project-comment-drag-handle',
+            draggedId: stateField('draggedProjectCommentId'),
+            visibleIds: function () {
+                return visibleProjectComments().map(function (comment) {
+                    return comment.id;
+                });
+            },
             settledStatus: function (operation) {
                 return operation === 'sendProjectComment'
                     ? 'Note added to session input. Review and press Enter to send.'
@@ -779,7 +795,7 @@
 
         function renderComments() {
             if (!commentUiAvailable) return;
-            clearCommentDragState();
+            clearStackDragState(sessionStack);
             resetStackClearAllConfirmation(sessionStack);
             commentList.replaceChildren();
             if (state.editingComment) {
@@ -1024,10 +1040,11 @@
             }
         }
 
-        function clearCommentDragState() {
-            state.draggedCommentId = null;
+        function clearStackDragState(stack) {
+            stack.draggedId.set(null);
+            if (!stack.available) return;
             Array.prototype.forEach.call(
-                commentList.querySelectorAll(
+                stack.list.querySelectorAll(
                     '.conversation-comment-dragging, [data-comment-drop-position]'
                 ),
                 function (card) {
@@ -1037,10 +1054,8 @@
             );
         }
 
-        function reorderedCommentIds(sourceId, targetId, placement) {
-            var visibleIds = visibleCommentEntries().map(function (entry) {
-                return entry.comment.id;
-            });
+        function reorderedStackCommentIds(stack, sourceId, targetId, placement) {
+            var visibleIds = stack.visibleIds();
             var sourceIndex = visibleIds.indexOf(sourceId);
             if (sourceIndex < 0 || sourceId === targetId) return null;
             visibleIds.splice(sourceIndex, 1);
@@ -1051,18 +1066,14 @@
                 0,
                 sourceId
             );
-            var originalVisibleIds = visibleCommentEntries().map(
-                function (entry) {
-                    return entry.comment.id;
-                }
-            );
+            var originalVisibleIds = stack.visibleIds();
             var unchanged = visibleIds.every(function (id, index) {
                 return id === originalVisibleIds[index];
             });
             if (unchanged) return null;
             var visibleSet = new Set(originalVisibleIds);
             var visibleIndex = 0;
-            return state.comments.map(function (comment) {
+            return stack.comments.get().map(function (comment) {
                 if (!visibleSet.has(comment.id)) return comment.id;
                 var reorderedId = visibleIds[visibleIndex];
                 visibleIndex += 1;
@@ -1070,16 +1081,17 @@
             });
         }
 
-        function postCommentReorder(sourceId, targetId, placement) {
-            var orderedCommentIds = reorderedCommentIds(
+        function postStackReorder(stack, sourceId, targetId, placement) {
+            var orderedCommentIds = reorderedStackCommentIds(
+                stack,
                 sourceId,
                 targetId,
                 placement
             );
-            clearCommentDragState();
+            clearStackDragState(stack);
             if (!orderedCommentIds) return false;
             postStackOperation(
-                sessionStack,
+                stack,
                 'reorder',
                 { orderedCommentIds: orderedCommentIds },
                 sourceId
@@ -1087,13 +1099,13 @@
             return true;
         }
 
-        function focusCommentDragHandle(commentId) {
-            if (!commentId) return;
-            var card = commentList.querySelector(
-                '[data-comment-id="' + CSS.escape(commentId) + '"]'
+        function focusStackDragHandle(stack, commentId) {
+            if (!commentId || !stack.available) return;
+            var card = stack.list.querySelector(
+                '[' + stack.idAttribute + '="' + CSS.escape(commentId) + '"]'
             );
             var handle = card && card.querySelector(
-                '[data-comment-drag-handle]'
+                '[' + stack.dragHandleAttribute + ']'
             );
             if (handle && !handle.disabled) {
                 handle.focus({ preventScroll: true });
@@ -1357,7 +1369,7 @@
             if (stack.afterSettle) {
                 stack.afterSettle();
             }
-            stack.focusDragHandle(focusCommentId);
+            focusStackDragHandle(stack, focusCommentId);
             return true;
         }
 
@@ -2422,7 +2434,7 @@
 
         function renderProjectComments() {
             if (!projectCommentsAvailable) return;
-            clearProjectCommentDragState();
+            clearStackDragState(projectStack);
             resetStackClearAllConfirmation(projectStack);
             renderCommentsFilterBar();
             projectCommentList.replaceChildren();
@@ -2469,85 +2481,116 @@
             }
         }
 
-        function focusProjectCommentDragHandle(commentId) {
-            if (!commentId || !projectCommentsAvailable) return;
-            var card = projectCommentList.querySelector(
-                '[data-project-comment-id="' + CSS.escape(commentId) + '"]'
-            );
-            var handle = card && card.querySelector(
-                '[data-project-comment-drag-handle]'
-            );
-            if (handle && !handle.disabled) {
-                handle.focus({ preventScroll: true });
-            }
-        }
-
-        function clearProjectCommentDragState() {
-            state.draggedProjectCommentId = null;
-            if (!projectCommentsAvailable) return;
-            Array.prototype.forEach.call(
-                projectCommentList.querySelectorAll(
-                    '.conversation-comment-dragging, [data-comment-drop-position]'
-                ),
-                function (card) {
-                    card.classList.remove('conversation-comment-dragging');
-                    card.removeAttribute('data-comment-drop-position');
-                }
-            );
-        }
-
-        function reorderedProjectCommentIds(sourceId, targetId, placement) {
-            var visibleIds = visibleProjectComments().map(function (comment) {
-                return comment.id;
-            });
-            var sourceIndex = visibleIds.indexOf(sourceId);
-            if (sourceIndex < 0 || sourceId === targetId) return null;
-            visibleIds.splice(sourceIndex, 1);
-            var targetIndex = visibleIds.indexOf(targetId);
-            if (targetIndex < 0) return null;
-            visibleIds.splice(
-                targetIndex + (placement === 'after' ? 1 : 0),
-                0,
-                sourceId
-            );
-            var originalVisibleIds = visibleProjectComments().map(
-                function (comment) {
-                    return comment.id;
-                }
-            );
-            var unchanged = visibleIds.every(function (id, index) {
-                return id === originalVisibleIds[index];
-            });
-            if (unchanged) return null;
-            var visibleSet = new Set(originalVisibleIds);
-            var visibleIndex = 0;
-            return state.projectComments.map(function (comment) {
-                if (!visibleSet.has(comment.id)) return comment.id;
-                var reorderedId = visibleIds[visibleIndex];
-                visibleIndex += 1;
-                return reorderedId;
-            });
-        }
-
-        function postProjectCommentReorder(sourceId, targetId, placement) {
-            var orderedCommentIds = reorderedProjectCommentIds(
-                sourceId,
-                targetId,
-                placement
-            );
-            clearProjectCommentDragState();
-            if (!orderedCommentIds) return false;
-            postStackOperation(
-                projectStack,
-                'reorder',
-                { orderedCommentIds: orderedCommentIds },
-                sourceId
-            );
-            return true;
-        }
-
         function applyProjectCommentsResult(message) {
             return settleCommentsResult(projectStack, message);
+        }
+
+        function attachStackDragAndDrop(stack) {
+            stack.list.addEventListener('dragstart', function (event) {
+                var handle = event.target && event.target.closest
+                    ? event.target.closest('[' + stack.dragHandleAttribute + ']')
+                    : null;
+                var item = handle && handle.closest('[' + stack.idAttribute + ']');
+                if (!handle || !item
+                    || stack.pendingRequest.get()
+                    || (stack.gateOnLocate && state.pendingLocateRequest)
+                    || handle.disabled) {
+                    event.preventDefault();
+                    return;
+                }
+                stack.draggedId.set(item.getAttribute(stack.idAttribute));
+                item.classList.add('conversation-comment-dragging');
+                if (event.dataTransfer) {
+                    event.dataTransfer.effectAllowed = 'move';
+                    event.dataTransfer.setData(
+                        'text/plain',
+                        stack.draggedId.get()
+                    );
+                }
+            });
+            stack.list.addEventListener('dragover', function (event) {
+                if (!stack.draggedId.get()) return;
+                var item = event.target && event.target.closest
+                    ? event.target.closest('[' + stack.idAttribute + ']')
+                    : null;
+                if (!item || !stack.list.contains(item)
+                    || item.getAttribute(stack.idAttribute)
+                        === stack.draggedId.get()) {
+                    return;
+                }
+                event.preventDefault();
+                if (event.dataTransfer) {
+                    event.dataTransfer.dropEffect = 'move';
+                }
+                Array.prototype.forEach.call(
+                    stack.list.querySelectorAll('[data-comment-drop-position]'),
+                    function (candidate) {
+                        if (candidate !== item) {
+                            candidate.removeAttribute(
+                                'data-comment-drop-position'
+                            );
+                        }
+                    }
+                );
+                var bounds = item.getBoundingClientRect();
+                item.setAttribute(
+                    'data-comment-drop-position',
+                    event.clientY < bounds.top + bounds.height / 2
+                        ? 'before'
+                        : 'after'
+                );
+            });
+            stack.list.addEventListener('drop', function (event) {
+                if (!stack.draggedId.get()) return;
+                var item = event.target && event.target.closest
+                    ? event.target.closest('[' + stack.idAttribute + ']')
+                    : null;
+                if (!item || !stack.list.contains(item)) {
+                    clearStackDragState(stack);
+                    return;
+                }
+                event.preventDefault();
+                var sourceId = stack.draggedId.get();
+                var targetId = item.getAttribute(stack.idAttribute);
+                var placement = item.getAttribute(
+                    'data-comment-drop-position'
+                ) || 'after';
+                postStackReorder(stack, sourceId, targetId, placement);
+            });
+            stack.list.addEventListener('dragend', function () {
+                clearStackDragState(stack);
+            });
+            stack.list.addEventListener('keydown', function (event) {
+                if (!event.altKey || event.ctrlKey || event.metaKey
+                    || (event.key !== 'ArrowUp'
+                        && event.key !== 'ArrowDown')
+                    || stack.pendingRequest.get()
+                    || (stack.gateOnLocate && state.pendingLocateRequest)) {
+                    return;
+                }
+                var handle = event.target && event.target.closest
+                    ? event.target.closest('[' + stack.dragHandleAttribute + ']')
+                    : null;
+                var item = handle && handle.closest('[' + stack.idAttribute + ']');
+                if (!handle || !item || handle.disabled) return;
+                var visibleIds = stack.visibleIds();
+                var sourceId = item.getAttribute(stack.idAttribute);
+                var sourceIndex = visibleIds.indexOf(sourceId);
+                var targetIndex = sourceIndex
+                    + (event.key === 'ArrowUp' ? -1 : 1);
+                if (sourceIndex < 0
+                    || targetIndex < 0
+                    || targetIndex >= visibleIds.length) {
+                    return;
+                }
+                event.preventDefault();
+                postStackReorder(
+                    stack,
+                    sourceId,
+                    visibleIds[targetIndex],
+                    event.key === 'ArrowUp' ? 'before' : 'after'
+                );
+            });
         }
 
         function attach() {
@@ -2597,110 +2640,7 @@
                     state.sessionTagEditor.draft = target.value;
                 }
             });
-            commentList.addEventListener('dragstart', function (event) {
-                var handle = event.target && event.target.closest
-                    ? event.target.closest('[data-comment-drag-handle]')
-                    : null;
-                var item = handle && handle.closest('[data-comment-id]');
-                if (!handle || !item
-                    || state.pendingCommentRequest
-                    || state.pendingLocateRequest
-                    || handle.disabled) {
-                    event.preventDefault();
-                    return;
-                }
-                state.draggedCommentId = item.getAttribute('data-comment-id');
-                item.classList.add('conversation-comment-dragging');
-                if (event.dataTransfer) {
-                    event.dataTransfer.effectAllowed = 'move';
-                    event.dataTransfer.setData(
-                        'text/plain',
-                        state.draggedCommentId
-                    );
-                }
-            });
-            commentList.addEventListener('dragover', function (event) {
-                if (!state.draggedCommentId) return;
-                var item = event.target && event.target.closest
-                    ? event.target.closest('[data-comment-id]')
-                    : null;
-                if (!item || !commentList.contains(item)
-                    || item.getAttribute('data-comment-id')
-                        === state.draggedCommentId) {
-                    return;
-                }
-                event.preventDefault();
-                if (event.dataTransfer) {
-                    event.dataTransfer.dropEffect = 'move';
-                }
-                Array.prototype.forEach.call(
-                    commentList.querySelectorAll('[data-comment-drop-position]'),
-                    function (candidate) {
-                        if (candidate !== item) {
-                            candidate.removeAttribute(
-                                'data-comment-drop-position'
-                            );
-                        }
-                    }
-                );
-                var bounds = item.getBoundingClientRect();
-                item.setAttribute(
-                    'data-comment-drop-position',
-                    event.clientY < bounds.top + bounds.height / 2
-                        ? 'before'
-                        : 'after'
-                );
-            });
-            commentList.addEventListener('drop', function (event) {
-                if (!state.draggedCommentId) return;
-                var item = event.target && event.target.closest
-                    ? event.target.closest('[data-comment-id]')
-                    : null;
-                if (!item || !commentList.contains(item)) {
-                    clearCommentDragState();
-                    return;
-                }
-                event.preventDefault();
-                var sourceId = state.draggedCommentId;
-                var targetId = item.getAttribute('data-comment-id');
-                var placement = item.getAttribute(
-                    'data-comment-drop-position'
-                ) || 'after';
-                postCommentReorder(sourceId, targetId, placement);
-            });
-            commentList.addEventListener('dragend', clearCommentDragState);
-            commentList.addEventListener('keydown', function (event) {
-                if (!event.altKey || event.ctrlKey || event.metaKey
-                    || (event.key !== 'ArrowUp'
-                        && event.key !== 'ArrowDown')
-                    || state.pendingCommentRequest
-                    || state.pendingLocateRequest) {
-                    return;
-                }
-                var handle = event.target && event.target.closest
-                    ? event.target.closest('[data-comment-drag-handle]')
-                    : null;
-                var item = handle && handle.closest('[data-comment-id]');
-                if (!handle || !item || handle.disabled) return;
-                var visibleIds = visibleCommentEntries().map(function (entry) {
-                    return entry.comment.id;
-                });
-                var sourceId = item.getAttribute('data-comment-id');
-                var sourceIndex = visibleIds.indexOf(sourceId);
-                var targetIndex = sourceIndex
-                    + (event.key === 'ArrowUp' ? -1 : 1);
-                if (sourceIndex < 0
-                    || targetIndex < 0
-                    || targetIndex >= visibleIds.length) {
-                    return;
-                }
-                event.preventDefault();
-                postCommentReorder(
-                    sourceId,
-                    visibleIds[targetIndex],
-                    event.key === 'ArrowUp' ? 'before' : 'after'
-                );
-            });
+            attachStackDragAndDrop(sessionStack);
             addComment.addEventListener('click', function (event) {
                 var button = event.target && event.target.closest
                     ? event.target.closest('[data-comment-selection-action]')
@@ -3095,115 +3035,7 @@
                         });
                     }
                 });
-                projectCommentList.addEventListener('dragstart', function (event) {
-                    var handle = event.target && event.target.closest
-                        ? event.target.closest('[data-project-comment-drag-handle]')
-                        : null;
-                    var item = handle && handle.closest('[data-project-comment-id]');
-                    if (!handle || !item
-                        || state.pendingProjectCommentRequest
-                        || handle.disabled) {
-                        event.preventDefault();
-                        return;
-                    }
-                    state.draggedProjectCommentId = item.getAttribute(
-                        'data-project-comment-id'
-                    );
-                    item.classList.add('conversation-comment-dragging');
-                    if (event.dataTransfer) {
-                        event.dataTransfer.effectAllowed = 'move';
-                        event.dataTransfer.setData(
-                            'text/plain',
-                            state.draggedProjectCommentId
-                        );
-                    }
-                });
-                projectCommentList.addEventListener('dragover', function (event) {
-                    if (!state.draggedProjectCommentId) return;
-                    var item = event.target && event.target.closest
-                        ? event.target.closest('[data-project-comment-id]')
-                        : null;
-                    if (!item || !projectCommentList.contains(item)
-                        || item.getAttribute('data-project-comment-id')
-                            === state.draggedProjectCommentId) {
-                        return;
-                    }
-                    event.preventDefault();
-                    if (event.dataTransfer) {
-                        event.dataTransfer.dropEffect = 'move';
-                    }
-                    Array.prototype.forEach.call(
-                        projectCommentList.querySelectorAll('[data-comment-drop-position]'),
-                        function (candidate) {
-                            if (candidate !== item) {
-                                candidate.removeAttribute(
-                                    'data-comment-drop-position'
-                                );
-                            }
-                        }
-                    );
-                    var bounds = item.getBoundingClientRect();
-                    item.setAttribute(
-                        'data-comment-drop-position',
-                        event.clientY < bounds.top + bounds.height / 2
-                            ? 'before'
-                            : 'after'
-                    );
-                });
-                projectCommentList.addEventListener('drop', function (event) {
-                    if (!state.draggedProjectCommentId) return;
-                    var item = event.target && event.target.closest
-                        ? event.target.closest('[data-project-comment-id]')
-                        : null;
-                    if (!item || !projectCommentList.contains(item)) {
-                        clearProjectCommentDragState();
-                        return;
-                    }
-                    event.preventDefault();
-                    var sourceId = state.draggedProjectCommentId;
-                    var targetId = item.getAttribute('data-project-comment-id');
-                    var placement = item.getAttribute(
-                        'data-comment-drop-position'
-                    ) || 'after';
-                    postProjectCommentReorder(sourceId, targetId, placement);
-                });
-                projectCommentList.addEventListener(
-                    'dragend',
-                    clearProjectCommentDragState
-                );
-                projectCommentList.addEventListener('keydown', function (event) {
-                    if (!event.altKey || event.ctrlKey || event.metaKey
-                        || (event.key !== 'ArrowUp'
-                            && event.key !== 'ArrowDown')
-                        || state.pendingProjectCommentRequest) {
-                        return;
-                    }
-                    var handle = event.target && event.target.closest
-                        ? event.target.closest('[data-project-comment-drag-handle]')
-                        : null;
-                    var item = handle && handle.closest('[data-project-comment-id]');
-                    if (!handle || !item || handle.disabled) return;
-                    var visibleIds = visibleProjectComments().map(
-                        function (comment) {
-                            return comment.id;
-                        }
-                    );
-                    var sourceId = item.getAttribute('data-project-comment-id');
-                    var sourceIndex = visibleIds.indexOf(sourceId);
-                    var targetIndex = sourceIndex
-                        + (event.key === 'ArrowUp' ? -1 : 1);
-                    if (sourceIndex < 0
-                        || targetIndex < 0
-                        || targetIndex >= visibleIds.length) {
-                        return;
-                    }
-                    event.preventDefault();
-                    postProjectCommentReorder(
-                        sourceId,
-                        visibleIds[targetIndex],
-                        event.key === 'ArrowUp' ? 'before' : 'after'
-                    );
-                });
+                attachStackDragAndDrop(projectStack);
             }
         }
 

@@ -2,9 +2,11 @@
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
+const {
+    makeTempDirectory,
+} = require('../../helpers/tempDirectory');
 const {
     ProjectCommentFileStore,
 } = require('../../../out/aiSessions/conversation/projectCommentStore');
@@ -41,10 +43,7 @@ function snapshot() {
 }
 
 test('PROJECT-COMMENTS-PERSISTENCE-001 stores isolated, validated snapshots per project and removes empty projects', async t => {
-    const root = await fs.promises.mkdtemp(
-        path.join(os.tmpdir(), 'agent-pivot-project-comments-')
-    );
-    t.after(() => fs.promises.rm(root, { recursive: true, force: true }));
+    const root = makeTempDirectory(t, 'agent-pivot-project-comments-');
     const store = new ProjectCommentFileStore(
         root,
         () => Date.parse('2026-08-08T00:00:00.000Z')
@@ -73,10 +72,10 @@ test('PROJECT-COMMENTS-PERSISTENCE-001 stores isolated, validated snapshots per 
 });
 
 test('PROJECT-COMMENTS-PERSISTENCE-001 ignores malformed snapshots without blocking the viewer', async t => {
-    const root = await fs.promises.mkdtemp(
-        path.join(os.tmpdir(), 'agent-pivot-project-comments-corrupt-')
+    const root = makeTempDirectory(
+        t,
+        'agent-pivot-project-comments-corrupt-'
     );
-    t.after(() => fs.promises.rm(root, { recursive: true, force: true }));
     const store = new ProjectCommentFileStore(root);
     await store.save({ projectId: 'project-a' }, snapshot());
     const directory = path.join(root, 'project-comments', 'v1');
@@ -121,10 +120,10 @@ test('PROJECT-COMMENTS-PERSISTENCE-001 ignores malformed snapshots without block
 });
 
 test('PROJECT-COMMENTS-PERSISTENCE-001 rejects invalid saves instead of writing them', async t => {
-    const root = await fs.promises.mkdtemp(
-        path.join(os.tmpdir(), 'agent-pivot-project-comments-invalid-')
+    const root = makeTempDirectory(
+        t,
+        'agent-pivot-project-comments-invalid-'
     );
-    t.after(() => fs.promises.rm(root, { recursive: true, force: true }));
     const store = new ProjectCommentFileStore(root);
 
     await assert.rejects(

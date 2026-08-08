@@ -560,6 +560,97 @@ test('CONVERSATION-TELEMETRY-001 reads model, context, and quota windows from st
     });
 });
 
+test('CONVERSATION-TELEMETRY-001 prefers the canonical Codex quota over same-window named limits', async t => {
+    const canonical = {
+        limitId: 'codex',
+        primary: {
+            usedPercent: 73,
+            windowDurationMins: 10_080,
+            resetsAt: 2_000_000_000,
+        },
+        secondary: null,
+    };
+    const harness = createAdapter(fixture, {
+        client: {
+            async request(method) {
+                if (method === 'thread/resume') {
+                    return { model: 'gpt-5.6-sol' };
+                }
+                assert.equal(method, 'account/rateLimits/read');
+                return {
+                    rateLimits: canonical,
+                    rateLimitsByLimitId: {
+                        codex_bengalfox: {
+                            limitId: 'codex_bengalfox',
+                            limitName: 'GPT-5.3-Codex-Spark',
+                            primary: {
+                                usedPercent: 0,
+                                windowDurationMins: 10_080,
+                                resetsAt: 2_100_000_000,
+                            },
+                            secondary: null,
+                        },
+                        codex: canonical,
+                    },
+                };
+            },
+            dispose() {},
+        },
+    });
+    t.after(() => harness.adapter.dispose());
+
+    const telemetry = await harness.adapter.readTelemetry(sessionId);
+
+    assert.deepEqual(telemetry.rateLimits, [{
+        id: 'codex:primary',
+        label: 'Week',
+        usedPercent: 73,
+        windowDurationMins: 10_080,
+        resetsAt: 2_000_000_000,
+    }]);
+});
+
+test('CONVERSATION-TELEMETRY-001 waits for token usage emitted after the resume response', async t => {
+    let notificationListener;
+    const harness = createAdapter(fixture, {
+        client: {
+            watchNotifications(listener) {
+                notificationListener = listener;
+                return { dispose() {} };
+            },
+            async request(method) {
+                if (method === 'thread/resume') {
+                    setImmediate(() => {
+                        notificationListener('thread/tokenUsage/updated', {
+                            threadId: sessionId,
+                            turnId: 'turn-delayed-telemetry',
+                            tokenUsage: {
+                                total: { totalTokens: 96_000 },
+                                last: { totalTokens: 48_000 },
+                                modelContextWindow: 128_000,
+                            },
+                        });
+                    });
+                    return { model: 'gpt-5.6-sol' };
+                }
+                assert.equal(method, 'account/rateLimits/read');
+                return { rateLimits: null, rateLimitsByLimitId: null };
+            },
+            dispose() {},
+        },
+        setTimeout: (callback, delayMs) => setTimeout(callback, delayMs),
+        clearTimeout: handle => clearTimeout(handle),
+    });
+    t.after(() => harness.adapter.dispose());
+
+    const telemetry = await harness.adapter.readTelemetry(sessionId);
+
+    assert.deepEqual(telemetry.context, {
+        usedTokens: 48_000,
+        maxTokens: 128_000,
+    });
+});
+
 test('SESSION-AI-SESSION-CODEX-CONVERSATION-002 starts one interaction per userMessage and attaches agents only to the latest qualifying input', async t => {
     const native = {
         thread: {

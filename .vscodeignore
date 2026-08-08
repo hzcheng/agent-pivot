@@ -25,7 +25,6 @@ gulpfile.js
 tsconfig.json
 vsc-extension-quickstart.md
 tslint.json
-DemoProjects.json
 media/*.scss
 media/brand/**
 !media/webviewScrollStateScripts.js

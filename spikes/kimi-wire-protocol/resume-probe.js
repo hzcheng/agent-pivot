@@ -1,6 +1,6 @@
 const { spawn } = require('child_process');
 const sessionId = process.argv[2];
-const child = spawn('kimi', ['--wire', '--resume', sessionId, '--work-dir', '/home/hzcheng/projects/repos/vscode-dashboard'], { stdio: ['pipe', 'pipe', 'pipe'] });
+const child = spawn('kimi', ['--wire', '--resume', sessionId, '--work-dir', process.cwd()], { stdio: ['pipe', 'pipe', 'pipe'] });
 let buffer = '';
 child.stdout.on('data', d => {
     buffer += d.toString();

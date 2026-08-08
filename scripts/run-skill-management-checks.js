@@ -389,6 +389,20 @@ function runSkillRenderingChecks() {
     assert.strictEqual(computeSkillLinkConflicts([collisionRecords[0]]).size, 0, 'a single record never collides');
     const collisionHtml = skillContent.getSkillsPanelContent(collisionRecords, { conflicts: collisions });
     assert.strictEqual(collisionHtml.split('⚠ name conflict').length - 1, 2, 'both colliding cards show the conflict chip');
+    // split panes: each scope section scrolls independently behind a resizer
+    assert.ok(html.includes('data-skills-split'), 'scope sections render inside the split container');
+    assert.ok(html.includes('data-skills-pane="user"'), 'global section lives in its own pane');
+    assert.ok(html.includes('data-skills-pane="project"'), 'project section lives in its own pane');
+    assert.ok(html.includes('data-skills-pane-resizer'), 'pane resizer renders between the panes');
+    assert.ok(html.includes('role="separator"'), 'resizer is an accessible separator');
+    assert.ok(html.indexOf('data-skills-pane="user"') < html.indexOf('data-skills-pane-resizer')
+        && html.indexOf('data-skills-pane-resizer') < html.indexOf('data-skills-pane="project"'),
+        'resizer sits between the global and project panes');
+    const singleScopeHtml = skillContent.getSkillsPanelContent([makeRecord()]);
+    assert.ok(singleScopeHtml.includes('data-skills-pane="user"'), 'a single scope still renders a pane');
+    assert.ok(!singleScopeHtml.includes('data-skills-pane-resizer'), 'no resizer with a single pane');
+    const emptySkillsHtml = skillContent.getSkillsPanelContent([]);
+    assert.ok(!emptySkillsHtml.includes('data-skills-split'), 'empty state keeps the plain layout');
 }
 
 function runSkillStyleChecks() {
@@ -416,6 +430,14 @@ function runSkillStyleChecks() {
     assert.ok(!compiled.includes('.skill-parked-duplicates'));
     assert.ok(compiled.includes('.skills-groups-wrapper .skill-card'), 'compact card rhythm');
     assert.ok(compiled.includes('.skills-groups-wrapper .group'), 'compact tree node rhythm');
+    assert.ok(styles.includes('.skills-split'), 'split container styles');
+    assert.ok(styles.includes('.skills-pane-resizer'), 'pane resizer styles');
+    assert.ok(styles.includes('.skills-pane-grow'), 'growing pane styles');
+    assert.ok(styles.includes('.skills-pane-manual'), 'dragged project pane styles');
+    assert.ok(compiled.includes('.skills-split'));
+    assert.ok(compiled.includes('.skills-pane-resizer'));
+    assert.ok(compiled.includes('.skills-pane-grow'));
+    assert.ok(compiled.includes('.skills-pane-manual'));
     assert.ok(compiled.includes('.skill-ios-toggle.indeterminate'));
     assert.ok(compiled.includes('.skill-toggle-pending'), 'pending switch styles');
     assert.ok(compiled.includes('.skill-folder-menu'), 'beautified ⋯ menu styles');
@@ -484,6 +506,14 @@ function runSkillWebviewScriptChecks() {
     assert.ok(!script.includes('data-skill-toggle'), 'toggle markup wiring retired');
     assert.ok(!script.includes('data-skill-parked-toggle'), 'parked disclosure wiring retired');
     assert.ok(script.includes('skill-detail-open'), 'card click expands the detail panel');
+    assert.ok(script.includes('layoutSkillsSplit'), 'split pane layout wiring present');
+    assert.ok(script.includes('data-skills-pane-resizer'), 'pane resizer wiring present');
+    assert.ok(script.includes('onSkillsPaneResizerPointerDown'), 'resizer pointer drag wiring present');
+    assert.ok(script.includes('onSkillsPaneResizerKeydown'), 'resizer keyboard wiring present');
+    const aiPanelScript = fs.readFileSync(
+        path.join(__dirname, '..', 'media', 'webviewDashboardAiPanelScripts.js'), 'utf8'
+    );
+    assert.ok(aiPanelScript.includes('layoutSkillsSplit'), 'AI panel mount lays out the split panes');
 }
 
 function runSkillControllerChecks() {

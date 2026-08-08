@@ -4142,7 +4142,7 @@ body.steward-sidebar {
         }
     }
 
-    .skills-groups-wrapper > .group.steward-section > .group-list {
+    .skills-groups-wrapper .skills-pane > .group.steward-section > .group-list {
         margin-left: 5px;
         padding-left: 8px;
         border-left: 1px solid var(--vscode-panel-border);
@@ -4699,6 +4699,78 @@ body.steward-sidebar {
 
         .skill-unmanaged {
             margin-top: 6px;
+        }
+    }
+
+    // Global / Project split panes: each pane scrolls independently and the
+    // resizer between them sizes the project pane. The skill panel script sets
+    // an explicit height on .skills-split and toggles the pane state classes;
+    // without them the panes flow like plain content (whole page scrolls).
+    .skills-split {
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+    }
+
+    .skills-pane {
+        min-height: 0;
+        overflow-x: hidden;
+        overflow-y: auto;
+    }
+
+    .skills-pane.skills-pane-grow {
+        flex: 1 1 0;
+        max-height: none;
+    }
+
+    // Default project share before any drag: content-sized, capped so the
+    // global pane always keeps the majority of the split.
+    .skills-pane.skills-pane-sized[data-skills-pane='project']:not(.skills-pane-grow):not(.skills-pane-manual) {
+        flex: 0 1 auto;
+        max-height: 45%;
+    }
+
+    .skills-pane.skills-pane-manual[data-skills-pane='project'] {
+        flex: 0 0 auto;
+        max-height: none;
+    }
+
+    .skills-pane-resizer {
+        position: relative;
+        flex: 0 0 auto;
+        height: 9px;
+        cursor: row-resize;
+
+        // Centered grip pill: quiet at rest, highlighted on hover/focus/drag.
+        &::after {
+            content: '';
+            position: absolute;
+            top: 3px;
+            left: 50%;
+            width: 44px;
+            height: 3px;
+            border-radius: 2px;
+            background: var(--vscode-scrollbarSlider-background, rgba(127, 127, 127, .35));
+            transform: translateX(-50%);
+        }
+
+        &:hover::after,
+        &:focus-visible::after,
+        &.skills-pane-resizer-active::after {
+            background: var(--vscode-focusBorder, #007fd4);
+        }
+
+        &:focus-visible {
+            outline: none;
+        }
+    }
+
+    &.skills-pane-resizing {
+        cursor: row-resize;
+        user-select: none;
+
+        * {
+            cursor: row-resize !important;
         }
     }
 

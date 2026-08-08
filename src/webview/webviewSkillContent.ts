@@ -453,8 +453,23 @@ export function getSkillsPanelContent(
         // and render the tree of empty folder nodes.
     }
     const suggestions = (view.suggestions || []).map(renderSuggestion).join('');
-    return `<div class="sticky-groups-wrapper skills-groups-wrapper"><div class="skill-scope-status" data-skill-scope-status role="status" aria-live="polite"></div>${renderFilterRow(view)}${suggestions}${sections
-        .filter(([scope, items]) => items.length || ((view.storeFolders && view.storeFolders[scope as SkillScope]) || []).length)
-        .map(([scope, items]) => renderScopeSection(scope, items, view)).join('\n')}
+    const visibleSections = sections
+        .filter(([scope, items]) => items.length || ((view.storeFolders && view.storeFolders[scope as SkillScope]) || []).length);
+    // Each scope section lives in its own pane so Global and Project scroll
+    // independently; a resizer between panes adjusts the project pane's share.
+    // The split script (webviewSkillPanelScripts.js) sizes the panes to the
+    // viewport; without it the panes flow like plain content (no fixed height).
+    const panes = visibleSections.map(([scope, items], index) => {
+        const resizer = index === 0
+            ? ''
+            : '<div class="skills-pane-resizer" data-skills-pane-resizer role="separator" tabindex="0"'
+                + ' aria-orientation="horizontal" aria-valuemin="0" aria-valuemax="100"'
+                + ' aria-label="Resize the project pane"'
+                + ' title="Drag to resize the project pane"></div>';
+        return `${resizer}<div class="skills-pane" data-skills-pane="${scope}">
+${renderScopeSection(scope, items, view)}
 </div>`;
+    }).join('\n');
+    return `<div class="sticky-groups-wrapper skills-groups-wrapper"><div class="skill-scope-status" data-skill-scope-status role="status" aria-live="polite"></div>${renderFilterRow(view)}${suggestions}<div class="skills-split" data-skills-split>${panes}
+</div></div>`;
 }

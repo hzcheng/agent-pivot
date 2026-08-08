@@ -29,6 +29,7 @@ test('ARCH-REPOSITORY-SKILL-GUIDANCE-001 keeps Host-owned Webview mutations corr
         ['mirrored persistence repair', /mirrored persistence[\s\S]*repair/i],
         ['composite identity', /composite (?:identity|key)/i],
         ['partial results', /partial results?/i],
+        ['VM sandbox global guards', /vm\.runInNewContext[\s\S]*typeof/i],
     ]);
 });
 

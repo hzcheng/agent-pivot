@@ -48,7 +48,10 @@ outline item opens the matching provider transcript in a read-only editor and
 navigates to that input. Agent Pivot reads the provider-local session metadata
 and transcript only when needed for its session and conversation views.
 
-The AI tab's SKILLS subtab organizes skills as the on-disk folder tree of the
+The AI tab's SKILLS subtab splits Global and Project skills into two panes
+that scroll independently; drag the separator between them (or focus it and
+use the arrow keys) to resize the Project pane. Skills are organized as the
+on-disk folder tree of the
 shared stores (`~/.skills` globally by default, configurable from Settings or the
 Global section menu; `<project>/.skills` per project) —
 folders are real directories you can also manage with shell or git, never

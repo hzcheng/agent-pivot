@@ -393,7 +393,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 handles a synchronous Codex cac
     assert.equal(clearCalls, 0);
 });
 
-test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 Codex normalizes only stable visible user and agent items', async t => {
+test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 CONVERSATION-PLAN-QUESTION-VISIBILITY-001 Codex normalizes only stable visible user and agent items', async t => {
     const harness = createAdapter();
     t.after(() => harness.adapter.dispose());
     const { outline, page } = await readWholeConversation(harness.adapter);
@@ -436,7 +436,18 @@ test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 Codex normalizes only stable v
         page.messages.filter(message =>
             message.interactionId === 'user-item-1'
         ).map(message => message.role),
-        ['user', 'thinking', 'progress', 'tool', 'tool']
+        ['user', 'thinking', 'progress', 'tool', 'tool', 'plan']
+    );
+    assert.deepEqual(
+        page.messages.filter(message => message.role === 'plan')
+            .map(message => [
+                message.interactionId,
+                message.plan.markdown,
+            ]),
+        [[
+            'user-item-1',
+            '1. Inspect the request\n2. Choose a safe response',
+        ]]
     );
     assert.equal(JSON.stringify(page).includes('raw-reasoning-secret'), false);
     assert.equal(

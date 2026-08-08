@@ -16,6 +16,15 @@ export const CONVERSATION_LIMITS = Object.freeze({
     maxMessageGraphemes: 64_000,
     toolCallSummaryGraphemes: 160,
     toolCallDetailGraphemes: 4_000,
+    maxQuestionsPerBlock: 8,
+    maxQuestionOptions: 8,
+    questionTextGraphemes: 2_000,
+    questionHeaderGraphemes: 100,
+    questionOptionLabelGraphemes: 500,
+    questionOptionDescriptionGraphemes: 2_000,
+    questionAnswerGraphemes: 2_000,
+    questionSourceGraphemes: 100,
+    planFilePathGraphemes: 1_000,
     maxViewerInteractions: 100,
     maxViewerBytes: 4 * 1024 * 1024,
     maxCodexResponseBytes: 16 * 1024 * 1024,
@@ -46,6 +55,50 @@ export interface ConversationThinkingBlock {
     text: string;
 }
 
+export interface ConversationPlanBlock {
+    /** Assistant text chunks already emitted when the plan arrived. */
+    position: number;
+    markdown: string;
+    filePath?: string;
+}
+
+export interface ConversationQuestionOption {
+    label: string;
+    description?: string;
+}
+
+export interface ConversationQuestionItem {
+    question: string;
+    header?: string;
+    options: ConversationQuestionOption[];
+    multiSelect: boolean;
+    /** Free-text affordance label when the prompt offered one. */
+    otherLabel?: string;
+    /** Option labels or free text the user settled on; read-only replay. */
+    answers?: string[];
+}
+
+export const CONVERSATION_QUESTION_OUTCOMES = Object.freeze([
+    'approved',
+    'revised',
+    'rejected',
+    'answered',
+    'dismissed',
+    'pending',
+] as const);
+
+export type ConversationQuestionOutcome =
+    typeof CONVERSATION_QUESTION_OUTCOMES[number];
+
+export interface ConversationQuestionBlock {
+    /** Assistant text chunks already emitted when the question arrived. */
+    position: number;
+    /** Originating tool/event name, e.g. 'ExitPlanMode' | 'AskUserQuestion'. */
+    source: string;
+    questions: ConversationQuestionItem[];
+    outcome?: ConversationQuestionOutcome;
+}
+
 export type ConversationAssistantPhase = 'progress' | 'answer';
 
 export interface ConversationInteraction {
@@ -61,6 +114,8 @@ export interface ConversationInteraction {
     assistantPhases?: ConversationAssistantPhase[];
     toolCalls?: ConversationToolCall[];
     thinking?: ConversationThinkingBlock[];
+    plans?: ConversationPlanBlock[];
+    questions?: ConversationQuestionBlock[];
     responseState: ConversationResponseState;
 }
 
@@ -87,11 +142,14 @@ export interface ConversationPageRequest {
 export interface ConversationMessage {
     id: string;
     interactionId: string;
-    role: 'user' | 'assistant' | 'progress' | 'tool' | 'thinking';
+    role: 'user' | 'assistant' | 'progress' | 'tool' | 'thinking'
+        | 'plan' | 'question';
     timestamp?: number;
     markdown: string;
     tool?: Omit<ConversationToolCall, 'position'>;
     thinking?: Omit<ConversationThinkingBlock, 'position'>;
+    plan?: Omit<ConversationPlanBlock, 'position'>;
+    question?: Omit<ConversationQuestionBlock, 'position'>;
 }
 
 export interface ConversationPage {

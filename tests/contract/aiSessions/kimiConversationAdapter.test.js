@@ -139,7 +139,7 @@ test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 Kimi normalizes only visible t
     assert.equal(new Set(appended.interactions.map(item => item.id)).size, 4);
 });
 
-test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 CONVERSATION-PROGRESS-VISIBILITY-001 Kimi surfaces PlanDisplay markdown as progress', async t => {
+test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 CONVERSATION-PLAN-QUESTION-VISIBILITY-001 Kimi surfaces PlanDisplay markdown as plan blocks', async t => {
     const source = await createFixture(t);
     await fs.promises.writeFile(source.sourcePath, [
         {
@@ -153,7 +153,10 @@ test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 CONVERSATION-PROGRESS-VISIBILI
             timestamp: 1001,
             message: {
                 type: 'PlanDisplay',
-                payload: { content: '# Rollout Plan\n\n## v1 steps' },
+                payload: {
+                    content: '# Rollout Plan\n\n## v1 steps',
+                    file_path: '/home/user/.kimi/plans/rollout.md',
+                },
             },
         },
         {
@@ -216,15 +219,400 @@ test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 CONVERSATION-PROGRESS-VISIBILI
         expectedRevision: outline.sourceRevision,
     });
     assert.deepEqual(
-        page.messages.map(message => [message.role, message.markdown]),
-        [
-            ['user', 'Draft a rollout plan'],
-            ['progress', '# Rollout Plan\n\n## v1 steps'],
-            ['assistant', 'I revised the plan.'],
-            ['progress', '# Rollout Plan\n\n## v2 steps'],
-            ['user', 'Ignore malformed plan payloads'],
-        ]
+        page.messages.map(message => message.role),
+        ['user', 'plan', 'assistant', 'plan', 'user']
     );
+    assert.deepEqual(page.messages[1].plan, {
+        markdown: '# Rollout Plan\n\n## v1 steps',
+        filePath: '/home/user/.kimi/plans/rollout.md',
+    });
+    assert.deepEqual(page.messages[3].plan, {
+        markdown: '# Rollout Plan\n\n## v2 steps',
+    });
+});
+
+test('CONVERSATION-PLAN-QUESTION-VISIBILITY-001 Kimi replays ExitPlanMode plan approval with the settled option', async t => {
+    const source = await createFixture(t);
+    await fs.promises.writeFile(source.sourcePath, [
+        {
+            timestamp: 1000,
+            message: {
+                type: 'TurnBegin',
+                payload: { user_input: 'Refactor the parser' },
+            },
+        },
+        {
+            timestamp: 1001,
+            message: {
+                type: 'ToolCall',
+                payload: {
+                    id: 'ExitPlanMode_7',
+                    function: {
+                        name: 'ExitPlanMode',
+                        arguments: JSON.stringify({
+                            options: [
+                                { label: 'OptionA' },
+                                { label: 'OptionB' },
+                            ],
+                        }),
+                    },
+                },
+            },
+        },
+        {
+            timestamp: 1002,
+            message: {
+                type: 'PlanDisplay',
+                payload: { content: '# Parser Refactor Plan' },
+            },
+        },
+        {
+            timestamp: 1003,
+            message: {
+                type: 'QuestionRequest',
+                payload: {
+                    id: 'req-1',
+                    tool_call_id: 'ExitPlanMode_7',
+                    questions: [{
+                        question: 'Approve this plan',
+                        header: 'Plan',
+                        options: [
+                            { label: 'OptionA', description: 'All at once' },
+                            { label: 'OptionB', description: 'Staged' },
+                        ],
+                        multi_select: false,
+                        other_label: 'Revise',
+                        other_description: 'Stay in plan mode',
+                    }],
+                },
+            },
+        },
+        {
+            timestamp: 1004,
+            message: {
+                type: 'ToolResult',
+                payload: {
+                    tool_call_id: 'ExitPlanMode_7',
+                    return_value: {
+                        is_error: false,
+                        output: 'Plan approved by user. Selected approach: "OptionA"\nPlan mode deactivated.',
+                    },
+                },
+            },
+        },
+        {
+            timestamp: 1005,
+            message: { type: 'TurnEnd', payload: {} },
+        },
+    ].map(record => JSON.stringify(record)).join('\n') + '\n');
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+
+    const outline = await adapter.readOutline(sessionId);
+    const page = await adapter.readPage({
+        provider: 'kimi',
+        sessionId,
+        anchorInteractionId: outline.interactions[0].id,
+        direction: 'around',
+        expectedRevision: outline.sourceRevision,
+    });
+    assert.deepEqual(
+        page.messages.map(message => message.role),
+        ['user', 'plan', 'question']
+    );
+    assert.deepEqual(page.messages[1].plan, {
+        markdown: '# Parser Refactor Plan',
+    });
+    assert.deepEqual(page.messages[2].question, {
+        source: 'ExitPlanMode',
+        questions: [{
+            question: 'Approve this plan',
+            header: 'Plan',
+            options: [
+                { label: 'OptionA', description: 'All at once' },
+                { label: 'OptionB', description: 'Staged' },
+            ],
+            multiSelect: false,
+            otherLabel: 'Revise',
+            answers: ['OptionA'],
+        }],
+        outcome: 'approved',
+    });
+});
+
+test('CONVERSATION-PLAN-QUESTION-VISIBILITY-001 Kimi replays AskUserQuestion answers including multi-select splits', async t => {
+    const source = await createFixture(t);
+    await fs.promises.writeFile(source.sourcePath, [
+        {
+            timestamp: 1000,
+            message: {
+                type: 'TurnBegin',
+                payload: { user_input: 'Ask me things' },
+            },
+        },
+        {
+            timestamp: 1001,
+            message: {
+                type: 'QuestionRequest',
+                payload: {
+                    id: 'req-2',
+                    tool_call_id: 'AskUserQuestion_3',
+                    questions: [
+                        {
+                            question: 'Pick one',
+                            header: 'Choice',
+                            options: [{ label: 'A' }, { label: 'B' }],
+                            multi_select: false,
+                        },
+                        {
+                            question: 'Pick many',
+                            header: '',
+                            options: [{ label: 'X' }, { label: 'Y' }, { label: 'Z' }],
+                            multi_select: true,
+                        },
+                    ],
+                },
+            },
+        },
+        {
+            timestamp: 1002,
+            message: {
+                type: 'ToolResult',
+                payload: {
+                    tool_call_id: 'AskUserQuestion_3',
+                    return_value: {
+                        is_error: false,
+                        output: JSON.stringify({
+                            answers: {
+                                'Pick one': 'B',
+                                'Pick many': 'X, Y',
+                            },
+                        }),
+                    },
+                },
+            },
+        },
+        {
+            timestamp: 1003,
+            message: { type: 'TurnEnd', payload: {} },
+        },
+    ].map(record => JSON.stringify(record)).join('\n') + '\n');
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+
+    const outline = await adapter.readOutline(sessionId);
+    const page = await adapter.readPage({
+        provider: 'kimi',
+        sessionId,
+        anchorInteractionId: outline.interactions[0].id,
+        direction: 'around',
+        expectedRevision: outline.sourceRevision,
+    });
+    assert.deepEqual(
+        page.messages.map(message => message.role),
+        ['user', 'question']
+    );
+    assert.deepEqual(page.messages[1].question, {
+        source: 'AskUserQuestion',
+        questions: [
+            {
+                question: 'Pick one',
+                header: 'Choice',
+                options: [{ label: 'A' }, { label: 'B' }],
+                multiSelect: false,
+                answers: ['B'],
+            },
+            {
+                question: 'Pick many',
+                options: [{ label: 'X' }, { label: 'Y' }, { label: 'Z' }],
+                multiSelect: true,
+                answers: ['X', 'Y'],
+            },
+        ],
+        outcome: 'answered',
+    });
+});
+
+test('CONVERSATION-PLAN-QUESTION-VISIBILITY-001 Kimi settles a question when the ToolResult lands in a later incremental load', async t => {
+    const source = await createFixture(t);
+    await fs.promises.writeFile(source.sourcePath, [
+        {
+            timestamp: 1000,
+            message: {
+                type: 'TurnBegin',
+                payload: { user_input: 'Refactor the parser' },
+            },
+        },
+        {
+            timestamp: 1001,
+            message: {
+                type: 'ToolCall',
+                payload: {
+                    id: 'ExitPlanMode_9',
+                    function: {
+                        name: 'ExitPlanMode',
+                        arguments: JSON.stringify({
+                            options: [{ label: 'OptionA' }, { label: 'OptionB' }],
+                        }),
+                    },
+                },
+            },
+        },
+    ].map(record => JSON.stringify(record)).join('\n') + '\n');
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+
+    const outline = await adapter.readOutline(sessionId);
+    const first = await adapter.readPage({
+        provider: 'kimi',
+        sessionId,
+        anchorInteractionId: outline.interactions[0].id,
+        direction: 'around',
+        expectedRevision: outline.sourceRevision,
+    });
+    assert.deepEqual(
+        first.messages.map(message => message.role),
+        ['user', 'question']
+    );
+    assert.equal(first.messages[1].question.outcome, undefined);
+    assert.deepEqual(first.messages[1].question.questions, [{
+        question: 'Approve this plan',
+        options: [{ label: 'OptionA' }, { label: 'OptionB' }],
+        multiSelect: false,
+    }]);
+
+    await fs.promises.appendFile(source.sourcePath, [
+        {
+            timestamp: 1002,
+            message: {
+                type: 'ToolResult',
+                payload: {
+                    tool_call_id: 'ExitPlanMode_9',
+                    return_value: {
+                        is_error: false,
+                        output: 'User wants to revise the plan: narrow the scope.',
+                    },
+                },
+            },
+        },
+        {
+            timestamp: 1003,
+            message: { type: 'TurnEnd', payload: {} },
+        },
+    ].map(record => JSON.stringify(record)).join('\n') + '\n');
+    const updated = await adapter.readOutline(sessionId);
+    const second = await adapter.readPage({
+        provider: 'kimi',
+        sessionId,
+        anchorInteractionId: updated.interactions[0].id,
+        direction: 'around',
+        expectedRevision: updated.sourceRevision,
+    });
+    assert.deepEqual(
+        second.messages.map(message => message.role),
+        ['user', 'question']
+    );
+    assert.equal(second.messages[1].question.outcome, 'revised');
+    assert.equal(
+        second.messages[1].question.questions[0].answers,
+        undefined
+    );
+});
+
+test('CONVERSATION-PLAN-QUESTION-VISIBILITY-001 Kimi keeps a generic tool call when arguments carry no question data and drops orphan QuestionRequests', async t => {
+    const source = await createFixture(t);
+    await fs.promises.writeFile(source.sourcePath, [
+        {
+            timestamp: 1000,
+            message: {
+                type: 'QuestionRequest',
+                payload: {
+                    id: 'req-orphan',
+                    tool_call_id: 'AskUserQuestion_1',
+                    questions: [{
+                        question: 'Orphan question',
+                        options: [{ label: 'A' }],
+                        multi_select: false,
+                    }],
+                },
+            },
+        },
+        {
+            timestamp: 1001,
+            message: {
+                type: 'TurnBegin',
+                payload: { user_input: 'Plan something' },
+            },
+        },
+        {
+            timestamp: 1002,
+            message: {
+                type: 'ToolCall',
+                payload: {
+                    id: 'ExitPlanMode_11',
+                    function: { name: 'ExitPlanMode', arguments: '{}' },
+                },
+            },
+        },
+        {
+            timestamp: 1003,
+            message: {
+                type: 'QuestionRequest',
+                payload: {
+                    id: 'req-3',
+                    tool_call_id: 'ExitPlanMode_11',
+                    questions: [{
+                        question: 'Approve this plan',
+                        options: [{ label: 'Go' }, { label: 'Stop' }],
+                        multi_select: false,
+                    }],
+                },
+            },
+        },
+        {
+            timestamp: 1004,
+            message: {
+                type: 'ToolResult',
+                payload: {
+                    tool_call_id: 'ExitPlanMode_11',
+                    return_value: {
+                        is_error: false,
+                        output: 'User dismissed without choosing an option.',
+                    },
+                },
+            },
+        },
+        {
+            timestamp: 1005,
+            message: { type: 'TurnEnd', payload: {} },
+        },
+    ].map(record => JSON.stringify(record)).join('\n') + '\n');
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+
+    const outline = await adapter.readOutline(sessionId);
+    assert.equal(outline.interactions.length, 1);
+    const page = await adapter.readPage({
+        provider: 'kimi',
+        sessionId,
+        anchorInteractionId: outline.interactions[0].id,
+        direction: 'around',
+        expectedRevision: outline.sourceRevision,
+    });
+    assert.deepEqual(
+        page.messages.map(message => message.role),
+        ['user', 'tool', 'question']
+    );
+    assert.equal(page.messages[1].tool.name, 'ExitPlanMode');
+    assert.deepEqual(page.messages[2].question, {
+        source: 'ExitPlanMode',
+        questions: [{
+            question: 'Approve this plan',
+            options: [{ label: 'Go' }, { label: 'Stop' }],
+            multiSelect: false,
+        }],
+        outcome: 'dismissed',
+    });
 });
 
 test('SESSION-AI-SESSION-KIMI-CONVERSATION-002 deduplicates a reread and changes offset identity after source reset', async t => {
@@ -458,9 +846,13 @@ test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 Kimi reads a subagent transcript as
         [
             ['user', 'Explore the parser and report back'],
             ['thinking', ''],
-            ['progress', '# Subagent Plan\n\n- inspect files'],
+            ['plan', ''],
             ['assistant', 'The parser normalizes visible text.'],
         ]
+    );
+    assert.equal(
+        page.messages[2].plan.markdown,
+        '# Subagent Plan\n\n- inspect files'
     );
     assert.deepEqual(
         page.messages.filter(message => message.role === 'thinking')

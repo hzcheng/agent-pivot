@@ -6441,6 +6441,113 @@ test('CONVERSATION-WORKLOG-COLLAPSE-001 collapses completed-turn work behind a W
     );
 });
 
+test('CONVERSATION-PLAN-QUESTION-VISIBILITY-001 keeps plan and question cards visible when completed-turn work collapses', async t => {
+    const page = await openViewerPage(t, {});
+    const turnHtml = `<article class="conversation-message conversation-message-user"
+            data-message-id="input-4:user"
+            data-conversation-message-id="input-4%3Auser"
+            data-interaction-id="input-4">
+        <span class="conversation-role">User</span>
+        <section class="conversation-markdown"><p>Refactor the parser</p></section>
+    </article>`
+        + `<article class="conversation-message conversation-message-worklog"
+            data-message-id="input-4:worklog"
+            data-conversation-message-id="input-4%3Aworklog"
+            data-interaction-id="input-4">
+        <button class="conversation-worklog-toggle">
+            <span class="conversation-worklog-label">Worked for 12s</span>
+        </button>
+    </article>`
+        + `<article class="conversation-message conversation-message-tool"
+            data-message-id="input-4:tool:0"
+            data-conversation-message-id="input-4%3Atool%3A0"
+            data-interaction-id="input-4">
+        <details class="conversation-tool-call">
+            <summary><span class="conversation-tool-name">Shell</span> Shell ls</summary>
+            <pre class="conversation-tool-detail"><code>out</code></pre>
+        </details>
+    </article>`
+        + `<article class="conversation-message conversation-message-plan"
+            data-message-id="input-4:plan:0"
+            data-conversation-message-id="input-4%3Aplan%3A0"
+            data-interaction-id="input-4">
+        <section class="conversation-plan">
+            <section class="conversation-plan-header">
+                <span class="conversation-plan-label">Plan</span>
+                <span class="conversation-plan-path">/plans/rollout.md</span>
+            </section>
+            <section class="conversation-markdown"><h1>Rollout Plan</h1></section>
+        </section>
+    </article>`
+        + `<article class="conversation-message conversation-message-question"
+            data-message-id="input-4:question:0"
+            data-conversation-message-id="input-4%3Aquestion%3A0"
+            data-interaction-id="input-4">
+        <section class="conversation-question">
+            <section class="conversation-question-top">
+                <span class="conversation-question-source">Plan approval</span>
+                <span class="conversation-question-outcome conversation-question-outcome-approved">Approved</span>
+            </section>
+            <section class="conversation-question-item">
+                <section class="conversation-question-title">
+                    <span class="conversation-question-header">Plan</span>
+                    <span class="conversation-question-text">Approve this plan</span>
+                </section>
+                <ul class="conversation-question-options">
+                    <li class="conversation-question-option conversation-question-option-selected">
+                        <span class="conversation-question-option-check">\u2713</span>
+                        <span class="conversation-question-option-label">Full refactor</span>
+                    </li>
+                    <li class="conversation-question-option">
+                        <span class="conversation-question-option-check"></span>
+                        <span class="conversation-question-option-label">Reject</span>
+                    </li>
+                </ul>
+            </section>
+        </section>
+    </article>`
+        + `<article class="conversation-message conversation-message-assistant"
+            data-message-id="input-4:assistant:0"
+            data-conversation-message-id="input-4%3Aassistant%3A0"
+            data-interaction-id="input-4">
+        <span class="conversation-role">Assistant</span>
+        <section class="conversation-markdown"><p>On it.</p></section>
+    </article>`;
+    await sendPage(page, {
+        ...hostileConversationPage,
+        requestId: 60,
+        updateKind: 'initial',
+        html: turnHtml,
+    });
+
+    assert.equal(
+        await page.locator('.conversation-message-tool').isHidden(),
+        true,
+        'completed-turn tool work starts collapsed'
+    );
+    const plan = page.locator('.conversation-message-plan');
+    const question = page.locator('.conversation-message-question');
+    assert.equal(await plan.isVisible(), true, 'plan stays visible');
+    assert.equal(await question.isVisible(), true, 'question stays visible');
+    assert.match(await plan.innerText(), /Rollout Plan/);
+    assert.match(await question.innerText(), /Approve this plan/);
+    assert.match(await question.innerText(), /Approved/);
+    assert.equal(
+        await page.locator('.conversation-question-option-selected').count(),
+        1,
+        'the settled option survives sanitizing'
+    );
+
+    await page.locator('.conversation-worklog-toggle').click();
+    assert.equal(
+        await page.locator('.conversation-message-tool').isVisible(),
+        true,
+        'expanding the worklog reveals tool work'
+    );
+    assert.equal(await plan.isVisible(), true, 'plan stays put');
+    assert.equal(await question.isVisible(), true, 'question stays put');
+});
+
 test('CONVERSATION-WORKLOG-COLLAPSE-001 keeps in-progress work expanded and collapses it when the answer lands', async t => {
     const page = await openViewerPage(t, {});
     const liveHtml = `<article class="conversation-message conversation-message-user"

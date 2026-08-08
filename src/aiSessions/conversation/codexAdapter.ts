@@ -351,6 +351,21 @@ function normalizeThreadRead(
                     position: interaction.assistantMarkdown.length,
                     ...tool,
                 });
+            } else if (item.type === 'plan') {
+                if (currentInteractionIndex === undefined) {
+                    continue;
+                }
+                const planText = typeof item.text === 'string'
+                    ? visibleMessage(item.text)
+                    : '';
+                if (!planText) {
+                    continue;
+                }
+                const interaction = interactions[currentInteractionIndex];
+                (interaction.plans ||= []).push({
+                    position: interaction.assistantMarkdown.length,
+                    markdown: planText,
+                });
             } else if (item.type === 'agentMessage') {
                 if (typeof item.text !== 'string') {
                     throw protocolError();

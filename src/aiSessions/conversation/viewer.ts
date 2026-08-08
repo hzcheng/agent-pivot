@@ -47,6 +47,7 @@ import {
     truncateGraphemes,
 } from './text';
 import type { ConversationClockTime } from './text';
+import { copyConversationMessage } from './model';
 import {
     CONVERSATION_LIMITS,
     ConversationAbortController,
@@ -56,6 +57,7 @@ import {
     ConversationOutline,
     ConversationPage,
     ConversationPageRequest,
+    ConversationQuestionItem,
     ConversationResponseState,
     ConversationSnapshot,
     ConversationSubagentEntry,
@@ -2148,27 +2150,7 @@ function isStaleRevision(error: unknown): error is ConversationError {
 }
 
 function copyMessage(message: ConversationMessage): ConversationMessage {
-    return {
-        id: message.id,
-        interactionId: message.interactionId,
-        role: message.role,
-        timestamp: message.timestamp,
-        markdown: message.markdown,
-        ...(message.tool
-            ? {
-                tool: {
-                    name: message.tool.name,
-                    summary: message.tool.summary,
-                    ...(message.tool.detail !== undefined
-                        ? { detail: message.tool.detail }
-                        : {}),
-                },
-            }
-            : {}),
-        ...(message.thinking
-            ? { thinking: { text: message.thinking.text } }
-            : {}),
-    };
+    return copyConversationMessage(message);
 }
 
 function renderToolMessage(message: ConversationMessage): string {
@@ -2209,6 +2191,115 @@ function renderProgressMessage(message: ConversationMessage): string {
         <section class="conversation-markdown">${renderConversationMarkdown(
         message.markdown
     )}</section>
+    </section>
+</article>`;
+}
+
+function renderPlanMessage(message: ConversationMessage): string {
+    const plan = message.plan;
+    const filePath = plan?.filePath
+        ? `<span class="conversation-plan-path" title="${escapeAttribute(plan.filePath)}">${escapeAttribute(plan.filePath)}</span>`
+        : '';
+    return `<article class="conversation-message conversation-message-plan"
+    data-message-id="${escapeAttribute(message.id)}"
+    data-conversation-message-id="${escapeAttribute(encodeURIComponent(message.id))}"
+    data-interaction-id="${escapeAttribute(message.interactionId)}">
+    <section class="conversation-plan">
+        <section class="conversation-plan-header"><span class="conversation-plan-label">Plan</span>${filePath}</section>
+        <section class="conversation-markdown">${renderConversationMarkdown(
+        plan?.markdown || ''
+    )}</section>
+    </section>
+</article>`;
+}
+
+const QUESTION_OUTCOME_LABELS: Record<string, string> = {
+    approved: 'Approved',
+    revised: 'Revision requested',
+    rejected: 'Rejected',
+    answered: 'Answered',
+    dismissed: 'Dismissed',
+    pending: 'Pending',
+};
+
+function questionSourceLabel(source: string): string {
+    if (source === 'ExitPlanMode') {
+        return 'Plan approval';
+    }
+    if (source === 'AskUserQuestion') {
+        return 'Question';
+    }
+    return source || 'Question';
+}
+
+function renderQuestionOption(
+    option: { label: string; description?: string },
+    selected: boolean
+): string {
+    const description = option.description
+        ? `<span class="conversation-question-option-description">${escapeAttribute(option.description)}</span>`
+        : '';
+    return `<li class="conversation-question-option${selected
+        ? ' conversation-question-option-selected'
+        : ''}"><span class="conversation-question-option-check">${selected
+        ? '\u2713'
+        : ''}</span><span class="conversation-question-option-label">${escapeAttribute(option.label)}</span>${description}</li>`;
+}
+
+function renderQuestionItem(
+    item: Omit<ConversationQuestionItem, 'answers'>
+        & { answers?: string[] }
+): string {
+    const answers = item.answers || [];
+    const header = item.header
+        ? `<span class="conversation-question-header">${escapeAttribute(item.header)}</span>`
+        : '';
+    const options = item.options.length
+        ? `<ul class="conversation-question-options">${item.options
+            .map(option => renderQuestionOption(
+                option,
+                answers.includes(option.label)
+            ))
+            .join('')}</ul>`
+        : '';
+    const freeAnswers = answers.filter(answer =>
+        !item.options.some(option => option.label === answer));
+    const freeText = freeAnswers.length
+        ? `<section class="conversation-question-free-answer">${item.otherLabel
+            ? `${escapeAttribute(item.otherLabel)}: `
+            : 'Answer: '}${escapeAttribute(freeAnswers.join(', '))}</section>`
+        : '';
+    const otherPrompt = !freeAnswers.length && item.otherLabel
+        ? `<section class="conversation-question-other-hint">${escapeAttribute(item.otherLabel)} option was available</section>`
+        : '';
+    return `<section class="conversation-question-item">
+        <section class="conversation-question-title">${header}<span class="conversation-question-text">${escapeAttribute(item.question)}</span>${item.multiSelect
+            ? '<span class="conversation-question-multi">multi-select</span>'
+            : ''}</section>
+        ${options}${freeText}${otherPrompt}
+    </section>`;
+}
+
+function renderQuestionMessage(message: ConversationMessage): string {
+    const question = message.question;
+    if (!question) {
+        return '';
+    }
+    const outcome = question.outcome
+        ? `<span class="conversation-question-outcome conversation-question-outcome-${escapeAttribute(question.outcome)}">${escapeAttribute(
+            QUESTION_OUTCOME_LABELS[question.outcome] || question.outcome
+        )}</span>`
+        : '';
+    const items = question.questions
+        .map(item => renderQuestionItem(item))
+        .join('');
+    return `<article class="conversation-message conversation-message-question"
+    data-message-id="${escapeAttribute(message.id)}"
+    data-conversation-message-id="${escapeAttribute(encodeURIComponent(message.id))}"
+    data-interaction-id="${escapeAttribute(message.interactionId)}">
+    <section class="conversation-question">
+        <section class="conversation-question-top"><span class="conversation-question-source">${escapeAttribute(questionSourceLabel(question.source))}</span>${outcome}</section>
+        ${items}
     </section>
 </article>`;
 }
@@ -2269,6 +2360,12 @@ function renderMessage(
     }
     if (message.role === 'progress') {
         return renderProgressMessage(message);
+    }
+    if (message.role === 'plan') {
+        return renderPlanMessage(message);
+    }
+    if (message.role === 'question') {
+        return renderQuestionMessage(message);
     }
     if (message.role === 'user') {
         const inputClock = clock

@@ -157,6 +157,28 @@ test('CONVERSATION-PROGRESS-VISIBILITY-001 treats selected progress text as assi
     );
 });
 
+test('CONVERSATION-PLAN-QUESTION-VISIBILITY-001 treats selected plan and question text as assistant-authored feedback', () => {
+    for (const role of ['plan', 'question']) {
+        const draft = createConversationComment(`comment-${role}`, {
+            messageId: `message-${role}`,
+            interactionId: 'interaction-a',
+            quote: 'Approve this plan.',
+            prefix: '',
+            suffix: '',
+            comment: 'Explain this step.',
+        }, {
+            id: `message-${role}`,
+            interactionId: 'interaction-a',
+            role,
+            markdown: '',
+        });
+        assert.equal(draft.role, 'assistant');
+        assert.doesNotThrow(
+            () => markConversationCommentsDone([draft], 1_700_000_000_000)
+        );
+    }
+});
+
 test('CONVERSATION-COMMENTS-001 creates a session-wide note without a selected message', () => {
     const draft = createConversationSessionComment(
         'comment-session',

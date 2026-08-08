@@ -159,6 +159,110 @@ test('CONVERSATION-TOOL-CALL-VISIBILITY-001 CONVERSATION-PROGRESS-VISIBILITY-001
     assert.equal(page.messages[1].markdown, '');
 });
 
+test('CONVERSATION-PLAN-QUESTION-VISIBILITY-001 interleaves plan and question blocks with assistant text by position', () => {
+    const interactions = [{
+        id: 'i-1',
+        providerTurnId: 'turn-1',
+        timestamp: 1,
+        userMarkdown: 'Ship it',
+        userPreview: 'Ship it',
+        userGraphemeCount: 8,
+        assistantMarkdown: ['first chunk', 'second chunk'],
+        plans: [
+            { position: 1, markdown: '# Plan\n\n1. step', filePath: '/tmp/plan.md' },
+        ],
+        questions: [{
+            position: 2,
+            source: 'ExitPlanMode',
+            questions: [{
+                question: 'Approve this plan',
+                header: 'Plan',
+                options: [
+                    { label: 'Full refactor', description: 'All at once' },
+                    { label: 'Reject' },
+                ],
+                multiSelect: false,
+                otherLabel: 'Revise',
+                answers: ['Full refactor'],
+            }],
+            outcome: 'approved',
+        }],
+        responseState: 'complete',
+    }];
+    const page = model.buildConversationPage(interactions, {
+        provider: 'kimi',
+        sessionId: 'session',
+        anchorInteractionId: 'i-1',
+        direction: 'around',
+    }, 'r1');
+    assert.deepEqual(
+        page.messages.map(message => [message.role, message.id]),
+        [
+            ['user', 'i-1:user'],
+            ['assistant', 'i-1:assistant:0'],
+            ['plan', 'i-1:plan:0'],
+            ['assistant', 'i-1:assistant:1'],
+            ['question', 'i-1:question:0'],
+        ]
+    );
+    assert.deepEqual(page.messages[2].plan, {
+        markdown: '# Plan\n\n1. step',
+        filePath: '/tmp/plan.md',
+    });
+    assert.equal(page.messages[2].markdown, '');
+    assert.deepEqual(page.messages[4].question, {
+        source: 'ExitPlanMode',
+        questions: [{
+            question: 'Approve this plan',
+            header: 'Plan',
+            options: [
+                { label: 'Full refactor', description: 'All at once' },
+                { label: 'Reject' },
+            ],
+            multiSelect: false,
+            otherLabel: 'Revise',
+            answers: ['Full refactor'],
+        }],
+        outcome: 'approved',
+    });
+});
+
+test('CONVERSATION-PLAN-QUESTION-VISIBILITY-001 omits optional plan and question fields when absent', () => {
+    const interactions = [{
+        id: 'i-1',
+        userMarkdown: 'Ship it',
+        userPreview: 'Ship it',
+        userGraphemeCount: 8,
+        assistantMarkdown: [],
+        plans: [{ position: 0, markdown: '# Plan' }],
+        questions: [{
+            position: 0,
+            source: 'AskUserQuestion',
+            questions: [{
+                question: 'Pick one',
+                options: [{ label: 'A' }],
+                multiSelect: true,
+            }],
+        }],
+        responseState: 'inProgress',
+    }];
+    const page = model.buildConversationPage(interactions, {
+        provider: 'kimi',
+        sessionId: 'session',
+        anchorInteractionId: 'i-1',
+        direction: 'around',
+    }, 'r1');
+    assert.deepEqual(page.messages[1].plan, { markdown: '# Plan' });
+    assert.deepEqual(page.messages[2].question, {
+        source: 'AskUserQuestion',
+        questions: [{
+            question: 'Pick one',
+            options: [{ label: 'A' }],
+            multiSelect: true,
+        }],
+    });
+});
+
 test('CONVERSATION-THINKING-VISIBILITY-001 interleaves thinking blocks with tool calls and assistant text by position', () => {
     const interactions = [{
         id: 'i-1',

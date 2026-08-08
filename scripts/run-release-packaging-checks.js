@@ -448,6 +448,9 @@ function runRealVsixArchiveChecks(mainPackage, bridgePackage) {
         for (const forbiddenPrefix of [
             'extension/coverage/',
             'extension/.codex/',
+            'extension/.worktree/',
+            'extension/artifacts/',
+            'extension/node_modules/',
             'extension/tests/',
             'extension/.ci/',
             'extension/.superpowers/',
@@ -939,6 +942,10 @@ function run() {
     const mainIgnore = readText('.vscodeignore');
     const bridgeIgnore = readText('extensions/attention-ui-bridge/.vscodeignore');
     assertIncludes(mainIgnore, 'spikes/**', 'main VSIX ignore rules');
+    assertIncludes(mainIgnore, '.worktree/**', 'main VSIX ignore rules');
+    assertIncludes(mainIgnore, 'artifacts/**', 'main VSIX ignore rules');
+    assertIncludes(mainIgnore, '*.vsix', 'main VSIX ignore rules');
+    assertIncludes(mainIgnore, 'coverage/**', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '.superpowers/**', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '.github/**', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, 'docs/**', 'main VSIX ignore rules');

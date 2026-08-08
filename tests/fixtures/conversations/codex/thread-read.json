@@ -79,7 +79,7 @@
           {
             "id": "plan-item-1",
             "type": "plan",
-            "text": "plan-secret"
+            "text": "1. Inspect the request\n2. Choose a safe response"
           },
           {
             "id": "hook-item-1",

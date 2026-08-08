@@ -3190,6 +3190,79 @@ test('CONVERSATION-TOOL-CALL-VISIBILITY-001 publishes collapsible tool-call mark
     assert.equal(html.includes('conversation-message-tool'), true);
 });
 
+test('CONVERSATION-PLAN-QUESTION-VISIBILITY-001 publishes plan and question markup with the settled answers', async () => {
+    const { viewer, panel } = createViewer({
+        readOutline: async (_provider, sessionId) => outline(
+            sessionId,
+            ['input-1']
+        ),
+        readPage: async request => ({
+            ...page(request.sessionId, 'input-1', 'visible'),
+            messages: [
+                {
+                    id: 'input-1:user',
+                    interactionId: 'input-1',
+                    role: 'user',
+                    markdown: 'Refactor the parser',
+                },
+                {
+                    id: 'input-1:plan:0',
+                    interactionId: 'input-1',
+                    role: 'plan',
+                    markdown: '',
+                    plan: {
+                        markdown: '# Rollout Plan\n\n1. step',
+                        filePath: '/home/user/.kimi/plans/rollout.md',
+                    },
+                },
+                {
+                    id: 'input-1:question:0',
+                    interactionId: 'input-1',
+                    role: 'question',
+                    markdown: '',
+                    question: {
+                        source: 'ExitPlanMode',
+                        questions: [{
+                            question: 'Approve this plan',
+                            header: 'Plan',
+                            options: [
+                                { label: 'Full refactor', description: 'All at once' },
+                                { label: 'Reject' },
+                            ],
+                            multiSelect: false,
+                            otherLabel: 'Revise',
+                            answers: ['Full refactor'],
+                        }],
+                        outcome: 'approved',
+                    },
+                },
+                {
+                    id: 'input-1:assistant:0',
+                    interactionId: 'input-1',
+                    role: 'assistant',
+                    markdown: 'On it.',
+                },
+            ],
+        }),
+    });
+
+    await viewer.open(target('session-a', 'input-1'));
+    const html = panel.webview.html;
+    assert.equal(html.includes('conversation-message-plan'), true);
+    assert.equal(html.includes('conversation-plan-label'), true);
+    assert.equal(html.includes('Rollout Plan'), true);
+    assert.equal(html.includes('rollout.md'), true);
+    assert.equal(html.includes('conversation-message-question'), true);
+    assert.equal(html.includes('Plan approval'), true);
+    assert.equal(html.includes('Approve this plan'), true);
+    assert.equal(html.includes('Full refactor'), true);
+    assert.equal(
+        html.includes('conversation-question-option-selected'),
+        true
+    );
+    assert.equal(html.includes('Approved'), true);
+});
+
 function worklogPage(sessionId, options = {}) {
     const state = {
         interactionId: 'input-1',

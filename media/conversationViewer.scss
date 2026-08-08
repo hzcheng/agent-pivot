@@ -413,6 +413,156 @@ button {
     background: var(--vscode-progressBar-background, currentColor);
 }
 
+.conversation-message-plan,
+.conversation-message-question {
+    margin: 0.375rem 0;
+}
+
+.conversation-plan,
+.conversation-question {
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 6px;
+    background: var(--vscode-editor-background);
+}
+
+.conversation-plan {
+    border-left: 3px solid var(--vscode-charts-blue, var(--vscode-button-background));
+}
+
+.conversation-question {
+    border-left: 3px solid var(--vscode-charts-yellow, var(--vscode-button-background));
+}
+
+.conversation-plan-header,
+.conversation-question-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-bottom: 0.35rem;
+}
+
+.conversation-plan-label,
+.conversation-question-source {
+    flex: 0 0 auto;
+    padding: 0.05rem 0.45rem;
+    border-radius: 999px;
+    background: var(--vscode-badge-background);
+    color: var(--vscode-badge-foreground);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    user-select: none;
+}
+
+.conversation-plan-path {
+    overflow: hidden;
+    color: var(--vscode-descriptionForeground);
+    font-size: 0.75rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.conversation-question-outcome {
+    flex: 0 0 auto;
+    color: var(--vscode-descriptionForeground);
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.conversation-question-outcome-approved,
+.conversation-question-outcome-answered {
+    color: var(--vscode-testing-iconPassed, var(--vscode-foreground));
+}
+
+.conversation-question-outcome-revised {
+    color: var(--vscode-testing-iconQueued, var(--vscode-charts-yellow, var(--vscode-foreground)));
+}
+
+.conversation-question-outcome-rejected,
+.conversation-question-outcome-dismissed {
+    color: var(--vscode-errorForeground);
+}
+
+.conversation-question-item + .conversation-question-item {
+    margin-top: 0.55rem;
+    padding-top: 0.45rem;
+    border-top: 1px solid var(--vscode-panel-border);
+}
+
+.conversation-question-title {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.4rem;
+    font-weight: 600;
+}
+
+.conversation-question-header {
+    padding: 0 0.35rem;
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 4px;
+    color: var(--vscode-descriptionForeground);
+    font-size: 0.72rem;
+    font-weight: 600;
+    user-select: none;
+}
+
+.conversation-question-multi {
+    color: var(--vscode-descriptionForeground);
+    font-size: 0.72rem;
+    font-weight: 400;
+}
+
+.conversation-question-options {
+    margin: 0.3rem 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.conversation-question-option {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.4rem;
+    padding: 0.12rem 0;
+    color: var(--vscode-descriptionForeground);
+}
+
+.conversation-question-option-check {
+    flex: 0 0 1rem;
+    color: var(--vscode-testing-iconPassed, var(--vscode-foreground));
+    font-weight: 700;
+    text-align: center;
+}
+
+.conversation-question-option-selected {
+    color: var(--vscode-foreground);
+    font-weight: 600;
+}
+
+.conversation-question-option-description {
+    flex-basis: 100%;
+    margin-left: 1.4rem;
+    font-size: 0.85em;
+    font-weight: 400;
+}
+
+.conversation-question-free-answer {
+    margin-top: 0.3rem;
+    color: var(--vscode-foreground);
+    font-weight: 600;
+}
+
+.conversation-question-other-hint {
+    margin-top: 0.3rem;
+    color: var(--vscode-descriptionForeground);
+    font-size: 0.8rem;
+    font-style: italic;
+}
+
 .conversation-role {
     display: block;
     margin-bottom: 0.5rem;

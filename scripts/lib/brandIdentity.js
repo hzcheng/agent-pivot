@@ -59,6 +59,9 @@ const STALE_IDENTITY_TOKENS = Object.freeze([
     'projectSteward',
     'PROJECT_STEWARD',
     'hzcheng.project-steward',
+    'the Dashboard',
+    'Dashboard views',
+    '[Dashboard]',
 ]);
 const INHERITED_ICON_SHA256 = Object.freeze([
     '7c937a29143bc743a99bdbcbfdc5d1add2fb73436fd3adbfb713595e692a454b',

@@ -41,8 +41,8 @@ Record policy: copy this document for an execution, fill every environment field
 
 ## NOTIFY-DELIVERY-004 — dismissing the red dot cancels the push
 
-- Prerequisites: notifications enabled per NOTIFY-DELIVERY-001; the Dashboard shows an attention red dot for a session that just stopped.
-- Steps: start a real Claude session that runs longer than one minute; when it stops and the red dot appears, dismiss the red dot in the Dashboard within the debounce window (`agentPivot.notify.debounceMs`, default 5 seconds); wait at least one more minute.
+- Prerequisites: notifications enabled per NOTIFY-DELIVERY-001; the Agent Pivot view shows an attention red dot for a session that just stopped.
+- Steps: start a real Claude session that runs longer than one minute; when it stops and the red dot appears, dismiss the red dot in the Agent Pivot view within the debounce window (`agentPivot.notify.debounceMs`, default 5 seconds); wait at least one more minute.
 - Expected results: no notification arrives on the phone for that event; the same event is not pushed later.
 - Environment: OS/version = `UNRECORDED`; VS Code/version = `UNRECORDED`; extension versions = `UNRECORDED`.
 - Execution date/result: `NOT RUN` (replace with ISO date and `PASS` or `FAIL`).

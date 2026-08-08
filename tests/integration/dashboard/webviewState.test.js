@@ -876,7 +876,7 @@ test('WEBVIEW-WEBVIEW-CONTENT-001 renders OPEN PROJECTS TODO and lazy AI tab she
     }
     assert.match(html, /data-dashboard-tab="ai"/);
     assert.match(html, /id="dashboard-panel-ai"/);
-    assert.match(html, /class="dashboard-tab-list" role="tablist" aria-label="Dashboard views"/);
+    assert.match(html, /class="dashboard-tab-list" role="tablist" aria-label="Agent Pivot views"/);
     for (const [tab, label] of [
         ['open', 'Open'],
         ['projects', 'Projects'],

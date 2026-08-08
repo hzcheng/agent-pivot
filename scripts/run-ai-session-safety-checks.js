@@ -850,7 +850,7 @@ function runDashboardDiagnosticsChecks() {
         assert.strictEqual(lines[0], 'Failed action.');
         assert.ok(lines[1].includes('Boom'));
         assert.strictEqual(lines[2], '[AiSessions] {"event":"scan","count":1}');
-        assert.strictEqual(lines[3], '[Dashboard] {"loggedAt":"2026-07-16T12:00:00.000Z","event":"refresh"}');
+        assert.strictEqual(lines[3], '[Agent Pivot] {"loggedAt":"2026-07-16T12:00:00.000Z","event":"refresh"}');
         assert.strictEqual(lines[4], '[OpenWorkspaces][Workspace] {"event":"snapshot"}');
 
         const diagnosticPath = path.join(tempRoot, 'open-workspace-diagnostics.jsonl');

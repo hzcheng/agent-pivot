@@ -142,7 +142,7 @@ export function getStewardContent(
                     ${Icons.settings}
                 </button>
             </div>
-            <div class="dashboard-tab-list" role="tablist" aria-label="Dashboard views">
+            <div class="dashboard-tab-list" role="tablist" aria-label="Agent Pivot views">
                 <button type="button" id="dashboard-tab-open-button" class="dashboard-tab-button active" role="tab" aria-selected="true" aria-controls="dashboard-tab-open" tabindex="0" data-dashboard-tab="open" aria-label="Open" title="Open">
                     <span class="dashboard-tab-icon" aria-hidden="true">${Icons.openNewWindow}</span>
                     <span class="dashboard-tab-label">OPEN</span>

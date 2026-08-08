@@ -6916,7 +6916,7 @@ function tabName(tab) {
             return false;
         }
         if (!window.vscode || typeof window.vscode.postMessage !== 'function') {
-            announce('Could not send the Prompt change. Reload the Dashboard and try again.');
+            announce('Could not send the Prompt change. Reload the Agent Pivot view and try again.');
             return false;
         }
 
@@ -6951,7 +6951,7 @@ function tabName(tab) {
         } catch (_error) {
             state.pending.delete(key);
             setMutationLock(false);
-            announce('Could not send the Prompt change. Reload the Dashboard and try again.');
+            announce('Could not send the Prompt change. Reload the Agent Pivot view and try again.');
             return false;
         }
         return message.requestId;
@@ -6968,7 +6968,7 @@ function tabName(tab) {
             return false;
         }
         if (!window.vscode || typeof window.vscode.postMessage !== 'function') {
-            announce('Could not send the Prompt. Reload the Dashboard and try again.');
+            announce('Could not send the Prompt. Reload the Agent Pivot view and try again.');
             return false;
         }
 
@@ -6992,7 +6992,7 @@ function tabName(tab) {
         } catch (_error) {
             state.pendingInserts.delete(key);
             setInsertPending(control, false);
-            announce('Could not send the Prompt. Reload the Dashboard and try again.');
+            announce('Could not send the Prompt. Reload the Agent Pivot view and try again.');
             return false;
         }
         return message.requestId;
@@ -7424,7 +7424,7 @@ function tabName(tab) {
         if (promptIds.length === 0
             || promptIds.some(function (promptId) { return !promptId; })
             || new Set(promptIds).size !== promptIds.length) {
-            announce('Could not save Prompt order. Reload the Dashboard and try again.');
+            announce('Could not save Prompt order. Reload the Agent Pivot view and try again.');
             return;
         }
         dispatch('reorder', { promptIds: promptIds });

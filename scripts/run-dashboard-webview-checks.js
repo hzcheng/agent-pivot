@@ -4570,7 +4570,7 @@ function runSourceContractChecks(source) {
     assert.ok(
         dashboardBundleInputs.indexOf('webviewProjectsPanelScripts.js')
             < dashboardBundleInputs.indexOf('webviewDashboardScripts.js'),
-        'the projects panel capture/restore helpers must load before the Dashboard controller that calls them'
+        'the projects panel capture/restore helpers must load before the dashboard controller that calls them'
     );
     assert.ok(
         dashboardBundleInputs.indexOf('webviewDashboardValidationScripts.js') > -1
@@ -4588,12 +4588,12 @@ function runSourceContractChecks(source) {
             && dashboardBundleInputs.indexOf('webviewDashboardAiPanelScripts.js') > -1
             && dashboardBundleInputs.indexOf('webviewDashboardAiPanelScripts.js')
                 < dashboardBundleInputs.indexOf('webviewDashboardScripts.js'),
-        'the Dashboard pure helpers and panel controllers must load before the Dashboard controller that calls them'
+        'the dashboard pure helpers and panel controllers must load before the dashboard controller that calls them'
     );
     assert.ok(
         dashboardBundleInputs.indexOf('webviewSkillPanelScripts.js')
             < dashboardBundleInputs.indexOf('webviewDashboardScripts.js'),
-        'the skill panel controller must load before the Dashboard controller that wires it'
+        'the skill panel controller must load before the dashboard controller that wires it'
     );
     assert.ok(
         dashboardBundleInputs.indexOf('webviewScrollStateScripts.js')

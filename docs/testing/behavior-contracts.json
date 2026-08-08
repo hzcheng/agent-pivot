@@ -2412,7 +2412,7 @@
   {
     "id": "TODO-COMPLETION-INCREMENTAL-001",
     "domain": "todo",
-    "title": "Todo completion patches one card without reloading the Dashboard or list surface",
+    "title": "Todo completion patches one card without reloading the dashboard or list surface",
     "priority": "P0",
     "status": "automated",
     "owners": [
@@ -3459,7 +3459,7 @@
   {
     "id": "PROJECT-INCREMENTAL-REFRESH-001",
     "domain": "project",
-    "title": "Projects mutations preserve the Dashboard and update only the necessary project surface",
+    "title": "Projects mutations preserve the dashboard and update only the necessary project surface",
     "priority": "P0",
     "status": "automated",
     "owners": [

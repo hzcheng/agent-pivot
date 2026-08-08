@@ -3394,23 +3394,7 @@ test('CONVERSATION-COMMENTS-UI-001 send action and telemetry comments pill drive
         comment: 'Check the rollout constraint.',
         status: 'open',
     };
-    await page.evaluate(({ request, comment }) => {
-        window.dispatchEvent(new MessageEvent('message', {
-            data: {
-                type: 'conversation-viewer-comments-result',
-                version: 1,
-                requestId: request.requestId,
-                subscriptionGeneration: request.subscriptionGeneration,
-                projectId: request.projectId,
-                provider: request.provider,
-                sessionId: request.sessionId,
-                operation: request.operation,
-                success: true,
-                revision: 1,
-                comments: [comment],
-            },
-        }));
-    }, { request: addRequest, comment });
+    await sendPage(page, commentSettlement(addRequest, [comment]));
 
     assert.equal(await toolbarSend.isDisabled(), false);
     assert.equal(
@@ -3432,6 +3416,23 @@ test('CONVERSATION-COMMENTS-UI-001 send action and telemetry comments pill drive
     assert.equal(sendRequest.type, 'conversation-viewer-send-comments');
     assert.equal(sendRequest.operation, 'sendComments');
 });
+
+function commentSettlement(request, comments, overrides = {}) {
+    return {
+        type: 'conversation-viewer-comments-result',
+        version: 1,
+        requestId: request.requestId,
+        subscriptionGeneration: request.subscriptionGeneration,
+        projectId: request.projectId,
+        provider: request.provider,
+        sessionId: request.sessionId,
+        operation: request.operation,
+        success: true,
+        revision: 1,
+        comments,
+        ...overrides,
+    };
+}
 
 function projectCommentSettlement(request, comments, overrides = {}) {
     return {
@@ -4182,23 +4183,7 @@ test('CONVERSATION-COMMENTS-UI-001 adds a session-wide note without selecting co
         comment: 'Remember the rollout constraint.',
         status: 'open',
     };
-    await page.evaluate(({ request, comment }) => {
-        window.dispatchEvent(new MessageEvent('message', {
-            data: {
-                type: 'conversation-viewer-comments-result',
-                version: 1,
-                requestId: request.requestId,
-                subscriptionGeneration: request.subscriptionGeneration,
-                projectId: request.projectId,
-                provider: request.provider,
-                sessionId: request.sessionId,
-                operation: request.operation,
-                success: true,
-                revision: 1,
-                comments: [comment],
-            },
-        }));
-    }, { request, comment });
+    await sendPage(page, commentSettlement(request, [comment]));
 
     const card = page.locator('[data-comment-id="session-note-1"]');
     assert.equal(await card.getAttribute('data-comment-scope'), 'session');
@@ -4276,26 +4261,14 @@ test('CONVERSATION-COMMENTS-ORDERING-001 drags cards into a Host-authoritative o
     });
 
     async function settle(request, success, revision, authoritativeComments) {
-        await page.evaluate(({
-            request, success, revision, authoritativeComments,
-        }) => {
-            window.dispatchEvent(new MessageEvent('message', {
-                data: {
-                    type: 'conversation-viewer-comments-result',
-                    version: 1,
-                    requestId: request.requestId,
-                    subscriptionGeneration: request.subscriptionGeneration,
-                    projectId: request.projectId,
-                    provider: request.provider,
-                    sessionId: request.sessionId,
-                    operation: request.operation,
-                    success,
-                    revision,
-                    comments: authoritativeComments,
-                    ...(success ? {} : { error: 'failed' }),
-                },
-            }));
-        }, { request, success, revision, authoritativeComments });
+        await sendPage(page, commentSettlement(
+            request,
+            authoritativeComments,
+            {
+                revision,
+                ...(success ? {} : { success: false, error: 'failed' }),
+            }
+        ));
     }
 
     const cardIds = () => page.locator('[data-comment-list] [data-comment-id]')
@@ -4580,23 +4553,9 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-SUBMIT-002 renders read
     });
 
     async function settle(request, revision, comments) {
-        await page.evaluate(({ request, revision, comments }) => {
-            window.dispatchEvent(new MessageEvent('message', {
-                data: {
-                    type: 'conversation-viewer-comments-result',
-                    version: 1,
-                    requestId: request.requestId,
-                    subscriptionGeneration: request.subscriptionGeneration,
-                    projectId: request.projectId,
-                    provider: request.provider,
-                    sessionId: request.sessionId,
-                    operation: request.operation,
-                    success: true,
-                    revision,
-                    comments,
-                },
-            }));
-        }, { request, revision, comments });
+        await sendPage(page, commentSettlement(request, comments, {
+            revision,
+        }));
     }
 
     function cardActions(cardLocator) {
@@ -4863,24 +4822,11 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-SUBMIT-002 renders read
     );
     const failedUpdate = (await postedMessages(page)).at(-1);
     assert.equal(failedUpdate.operation, 'update');
-    await page.evaluate(({ request, comments }) => {
-        window.dispatchEvent(new MessageEvent('message', {
-            data: {
-                type: 'conversation-viewer-comments-result',
-                version: 1,
-                requestId: request.requestId,
-                subscriptionGeneration: request.subscriptionGeneration,
-                projectId: request.projectId,
-                provider: request.provider,
-                sessionId: request.sessionId,
-                operation: request.operation,
-                success: false,
-                revision: 2,
-                comments,
-                error: 'failed',
-            },
-        }));
-    }, { request: failedUpdate, comments });
+    await sendPage(page, commentSettlement(failedUpdate, comments, {
+        success: false,
+        revision: 2,
+        error: 'failed',
+    }));
     assert.equal(
         await page.locator('[data-conversation-status]').textContent(),
         'The comment action failed. Your comments were kept.'
@@ -5154,46 +5100,17 @@ test('CONVERSATION-COMMENT-QUOTE-LOCATION-001 preserves and locates a quote span
         role: 'user',
         status: 'open',
     };
-    await page.evaluate(({ request, comment }) => {
-        window.dispatchEvent(new MessageEvent('message', {
-            data: {
-                type: 'conversation-viewer-comments-result',
-                version: 1,
-                requestId: request.requestId,
-                subscriptionGeneration: request.subscriptionGeneration,
-                projectId: request.projectId,
-                provider: request.provider,
-                sessionId: request.sessionId,
-                operation: request.operation,
-                success: true,
-                revision: 1,
-                comments: [{ ...comment, quote: '   ' }],
-            },
-        }));
-    }, { request: addRequest, comment });
+    await sendPage(page, commentSettlement(
+        addRequest,
+        [{ ...comment, quote: '   ' }]
+    ));
     assert.equal(
         await page.locator('[data-conversation-comments]')
             .getAttribute('aria-busy'),
         'true',
         'a whitespace-only quote settlement must be rejected'
     );
-    await page.evaluate(({ request, comment }) => {
-        window.dispatchEvent(new MessageEvent('message', {
-            data: {
-                type: 'conversation-viewer-comments-result',
-                version: 1,
-                requestId: request.requestId,
-                subscriptionGeneration: request.subscriptionGeneration,
-                projectId: request.projectId,
-                provider: request.provider,
-                sessionId: request.sessionId,
-                operation: request.operation,
-                success: true,
-                revision: 1,
-                comments: [comment],
-            },
-        }));
-    }, { request: addRequest, comment });
+    await sendPage(page, commentSettlement(addRequest, [comment]));
 
     await page.locator('[data-comment-id="comment-block-quote-location"]')
         .locator('[data-comment-action="locate"]').click();
@@ -5249,23 +5166,10 @@ test('CONVERSATION-COMMENTS-UI-001 filters cards, jumps from message markers, an
     });
 
     async function settle(request, revision, comments, operation) {
-        await page.evaluate(({ request, revision, comments, operation }) => {
-            window.dispatchEvent(new MessageEvent('message', {
-                data: {
-                    type: 'conversation-viewer-comments-result',
-                    version: 1,
-                    requestId: request.requestId,
-                    subscriptionGeneration: request.subscriptionGeneration,
-                    projectId: request.projectId,
-                    provider: request.provider,
-                    sessionId: request.sessionId,
-                    operation: operation || request.operation,
-                    success: true,
-                    revision,
-                    comments,
-                },
-            }));
-        }, { request, revision, comments, operation });
+        await sendPage(page, commentSettlement(request, comments, {
+            revision,
+            ...(operation ? { operation } : {}),
+        }));
     }
 
     await page.locator('.conversation-markdown').evaluate(element => {
@@ -5592,23 +5496,9 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-BULK-001 CONVERSATION-C
     }
 
     async function settle(request, revision, comments) {
-        await page.evaluate(({ request, revision, comments }) => {
-            window.dispatchEvent(new MessageEvent('message', {
-                data: {
-                    type: 'conversation-viewer-comments-result',
-                    version: 1,
-                    requestId: request.requestId,
-                    subscriptionGeneration: request.subscriptionGeneration,
-                    projectId: request.projectId,
-                    provider: request.provider,
-                    sessionId: request.sessionId,
-                    operation: request.operation,
-                    success: true,
-                    revision,
-                    comments,
-                },
-            }));
-        }, { request, revision, comments });
+        await sendPage(page, commentSettlement(request, comments, {
+            revision,
+        }));
     }
 
     async function settleLocate(request, success = true) {
@@ -9348,35 +9238,19 @@ test('CONVERSATION-COMMENTS-UI-001 PROJECT-COMMENTS-UI-001 unifies status and ta
         commentId: 'comment-1',
         tag: 'convention',
     });
-    await page.evaluate(({ request }) => {
-        window.dispatchEvent(new MessageEvent('message', {
-            data: {
-                type: 'conversation-viewer-comments-result',
-                version: 1,
-                requestId: request.requestId,
-                subscriptionGeneration: request.subscriptionGeneration,
-                projectId: request.projectId,
-                provider: request.provider,
-                sessionId: request.sessionId,
-                operation: request.operation,
-                success: true,
-                revision: 2,
-                comments: [{
-                    id: 'comment-1',
-                    scope: 'session',
-                    messageId: '',
-                    interactionId: '',
-                    role: 'user',
-                    quote: '',
-                    prefix: '',
-                    suffix: '',
-                    comment: '只改 CSS，别动 TS。',
-                    status: 'open',
-                    tags: ['convention'],
-                }],
-            },
-        }));
-    }, { request: tagRequest });
+    await sendPage(page, commentSettlement(tagRequest, [{
+        id: 'comment-1',
+        scope: 'session',
+        messageId: '',
+        interactionId: '',
+        role: 'user',
+        quote: '',
+        prefix: '',
+        suffix: '',
+        comment: '只改 CSS，别动 TS。',
+        status: 'open',
+        tags: ['convention'],
+    }], { revision: 2 }));
     assert.deepEqual(
         await tagsRow.locator('.conversation-project-comment-tag')
             .allInnerTexts(),

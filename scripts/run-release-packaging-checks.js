@@ -534,6 +534,13 @@ function runRealVsixArchiveChecks(mainPackage, bridgePackage) {
     const bridgeBundle = bridgeEntries.get('extension/dist/extension.js').toString('utf8');
     const mainReadme = mainEntries.get('extension/readme.md').toString('utf8');
     const bridgeReadme = bridgeEntries.get('extension/readme.md').toString('utf8');
+    for (const [readme, readmeLabel] of [
+        [mainReadme, 'packaged main README'],
+        [bridgeReadme, 'packaged UI Bridge README'],
+    ]) {
+        assertNotIncludes(readme, '](..',
+            `${readmeLabel} must not contain parent-relative links that break on the Marketplace`);
+    }
     for (const [needle, label] of [
         ['# Agent Pivot', 'current product heading'],
         ['## Privacy and local data', 'privacy heading'],

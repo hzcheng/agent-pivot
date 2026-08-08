@@ -130,6 +130,10 @@ function validateManifestPair(mainManifest, bridgeManifest) {
         `Bridge manifest categories are invalid: ${formatValue(bridgeManifest.categories)}`);
     assert.equal(bridgeManifest.repository?.url, BRAND_IDENTITY.repositoryUrl,
         `Bridge manifest repository URL is invalid: ${formatValue(bridgeManifest.repository?.url)}`);
+    assert.equal(bridgeManifest.homepage, 'https://github.com/hzcheng/agent-pivot#readme',
+        `Bridge manifest homepage is invalid: ${formatValue(bridgeManifest.homepage)}`);
+    assert.equal(bridgeManifest.bugs?.url, 'https://github.com/hzcheng/agent-pivot/issues',
+        `Bridge manifest bugs URL is invalid: ${formatValue(bridgeManifest.bugs?.url)}`);
     assert.deepEqual(bridgeManifest.contributes?.commands ?? [], [],
         `Bridge manifest commands are invalid: ${formatValue(bridgeManifest.contributes?.commands)}`);
 

@@ -376,11 +376,10 @@ function assertNoForbiddenLegacyIdentity(source, label) {
     }
 }
 
-function currentChangelogSection(source) {
-    const historicalBoundary = source.indexOf(HISTORICAL_CHANGELOG_BOUNDARY);
-    assert.notStrictEqual(historicalBoundary, -1,
-        'packaged CHANGELOG must retain the reviewed historical identity boundary');
-    return source.slice(0, historicalBoundary);
+function publishedChangelog(source) {
+    assert.strictEqual(source.includes(HISTORICAL_CHANGELOG_BOUNDARY), false,
+        'packaged CHANGELOG must not contain the unpublished pre-release history boundary');
+    return source;
 }
 
 function readVsixIdentity(entries, label) {
@@ -593,10 +592,10 @@ function runRealVsixArchiveChecks(mainPackage, bridgePackage) {
         [mainEntries.get('extension/package.json').toString('utf8'), 'packaged main manifest'],
         [mainReadme, 'packaged main README'],
         [
-            currentChangelogSection(
+            publishedChangelog(
                 mainEntries.get('extension/changelog.md').toString('utf8'),
             ),
-            'packaged current CHANGELOG section',
+            'packaged CHANGELOG',
         ],
         [mainBundle, 'packaged main bundle'],
         [bridgeEntries.get('extension/package.json').toString('utf8'), 'packaged UI Bridge manifest'],

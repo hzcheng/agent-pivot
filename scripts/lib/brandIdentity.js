@@ -43,6 +43,7 @@ const IDENTITY_SCAN_TARGETS = Object.freeze([
 const HISTORICAL_IDENTITY_ALLOWLIST = Object.freeze([
     /^LICENSE$/,
     /^extensions\/attention-ui-bridge\/LICENSE$/,
+    /^docs\/development-history\.md$/,
     /^docs\/superpowers\/(?:specs|plans|reports)\//,
 ]);
 
@@ -223,16 +224,10 @@ function findStaleIdentity(root) {
             continue;
         }
         const lines = fs.readFileSync(path.join(root, relativePath), 'utf8').split(/\r?\n/);
-        const changelogHistoryStart = relativePath === 'CHANGELOG.md'
-            ? lines.findIndex(line => line === '## Unpublished Project Steward development history') + 1
-            : 0;
         for (const [index, line] of lines.entries()) {
             if ((relativePath === 'README.md'
                 || relativePath === 'extensions/attention-ui-bridge/README.md')
                 && line === APPROVED_FORK_ATTRIBUTION) {
-                continue;
-            }
-            if (changelogHistoryStart > 0 && index + 1 >= changelogHistoryStart) {
                 continue;
             }
             for (const token of STALE_IDENTITY_TOKENS) {

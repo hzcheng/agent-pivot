@@ -4491,6 +4491,20 @@
     ]
   },
   {
+    "id": "CONVERSATION-DIFF-VISIBILITY-001",
+    "domain": "webview",
+    "title": "Conversation viewers render provider file changes as structured per-file diffs with kind badges, line-level add/del/context coloring, and explicit truncation",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/conversationDiffs.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/types.ts",
+      "src/aiSessions/conversation/diffs.ts"
+    ]
+  },
+  {
     "id": "CONVERSATION-PROVIDER-PARITY-001",
     "domain": "webview",
     "title": "Codex, Claude, and Kimi share the same default progress, hidden-thinking, collapsed-tool, and live Working presentation",

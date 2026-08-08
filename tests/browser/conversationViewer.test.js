@@ -1481,6 +1481,40 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 filters the current Session outline an
         ['4', '3', '2', '1'],
         'newest-first rendering must retain authoritative input numbers'
     );
+    const outlineSort = page.locator('[data-outline-sort]');
+    assert.equal(
+        await page.locator('[data-outline-summary]').count(),
+        0,
+        'the redundant input-count row should not render'
+    );
+    assert.equal(await outlineSort.getAttribute('data-order'), 'newest');
+    assert.equal(
+        await outlineSort.getAttribute('aria-label'),
+        'Show oldest inputs first'
+    );
+    await outlineSort.click();
+    assert.deepEqual(
+        await page.locator('[data-outline-interaction-id]')
+            .evaluateAll(elements => elements.map(element =>
+                element.getAttribute('data-outline-interaction-id')
+            )),
+        ['input-1', 'input-2', 'input-3', 'input-4'],
+        'the sort control should switch the outline to oldest-first'
+    );
+    assert.deepEqual(
+        await page.locator('.conversation-outline-number')
+            .evaluateAll(elements => elements.map(element =>
+                element.textContent
+            )),
+        ['1', '2', '3', '4'],
+        'oldest-first rendering must retain authoritative input numbers'
+    );
+    assert.equal(await outlineSort.getAttribute('data-order'), 'oldest');
+    assert.equal(
+        await outlineSort.getAttribute('aria-label'),
+        'Show newest inputs first'
+    );
+    await outlineSort.click();
     assert.equal(
         await page.locator(
             '[data-outline-interaction-id="input-2"]'
@@ -1596,7 +1630,7 @@ test('CONVERSATION-OUTLINE-BOOKMARKS-001 settles stars authoritatively, filters 
         const outline = document.querySelector('[data-conversation-outline]');
         const tabs = document.querySelector('.conversation-sidebar-tabs');
         const search = outline.querySelector('[data-outline-search]');
-        const summary = outline.querySelector('[data-outline-summary]');
+        const sort = outline.querySelector('[data-outline-sort]');
         const selectedItem = outline.querySelector(
             '[data-outline-interaction-id="input-2"]'
         ).closest('.conversation-outline-item');
@@ -1608,12 +1642,13 @@ test('CONVERSATION-OUTLINE-BOOKMARKS-001 settles stars authoritatively, filters 
         )?.querySelector('.conversation-outline-preview');
         const outlineRect = outline.getBoundingClientRect();
         const searchRect = search.getBoundingClientRect();
-        const summaryRect = summary.getBoundingClientRect();
+        const sortRect = sort.getBoundingClientRect();
         const starRect = star.getBoundingClientRect();
         const previewRect = preview.getBoundingClientRect();
         return {
             tabsHeight: tabs.getBoundingClientRect().height,
-            summaryBelowSearch: summaryRect.top >= searchRect.bottom,
+            sortAlignedWithSearch:
+                Math.abs(sortRect.top - searchRect.top) < 1,
             previewInset: previewRect.left - outlineRect.left,
             starInset: starRect.left - outlineRect.left,
             starOpacity: Number(getComputedStyle(star).opacity),
@@ -1639,9 +1674,9 @@ test('CONVERSATION-OUTLINE-BOOKMARKS-001 settles stars authoritatively, filters 
         'an available bookmark control must keep full theme contrast'
     );
     assert.equal(
-        outlineLayout.summaryBelowSearch,
+        outlineLayout.sortAlignedWithSearch,
         true,
-        'the input count should not squeeze the search control'
+        'search, bookmark filter, and sort should share one compact row'
     );
     assert.notEqual(
         outlineLayout.selectedBackground,
@@ -3030,12 +3065,16 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 CONVERSATION-COMMENTS-LAYOUT-001 share
             const bookmarks = document.querySelector(
                 '[data-outline-bookmarks-only]'
             ).getBoundingClientRect();
+            const sort = document.querySelector(
+                '[data-outline-sort]'
+            ).getBoundingClientRect();
             return {
                 leftVisible: sidebar.left >= 0,
                 rightVisible: sidebar.right <= window.innerWidth,
                 controlsFit: search.left >= sidebar.left
-                    && bookmarks.right <= sidebar.right
-                    && search.right < bookmarks.left,
+                    && sort.right <= sidebar.right
+                    && search.right < bookmarks.left
+                    && bookmarks.right < sort.left,
             };
         }),
         {

@@ -73,8 +73,6 @@
         document.querySelectorAll('[data-sidebar-tab]')
     );
     var outlineRoot = document.querySelector('[data-conversation-outline]');
-    var outlineCount = document.querySelector('[data-outline-count]');
-    var outlineSummary = document.querySelector('[data-outline-summary]');
     var outlineSearch = document.querySelector('[data-outline-search]');
     var outlineList = document.querySelector('[data-outline-list]');
     var outlineEmpty = document.querySelector('[data-outline-empty]');
@@ -82,6 +80,7 @@
     var outlineBookmarksOnly = document.querySelector(
         '[data-outline-bookmarks-only]'
     );
+    var outlineSort = document.querySelector('[data-outline-sort]');
     var outlineBookmarkCount = document.querySelector(
         '[data-outline-bookmark-count]'
     );
@@ -141,9 +140,9 @@
     var sidebarUiAvailable = !!sidebarToggle
         && !!commentsWorkspace && !!commentsResizer && !!sidebarRoot
         && sidebarTabs.length === 3 && !!outlineRoot
-        && !!outlineSummary && !!outlineSearch
+        && !!outlineSearch
         && !!outlineList && !!outlineEmpty && !!outlinePartial
-        && !!outlineBookmarksOnly;
+        && !!outlineBookmarksOnly && !!outlineSort;
     var bookmarkUiAvailable = sidebarUiAvailable
         && validCommentTarget(commentTarget);
     var commentUiAvailable = sidebarUiAvailable
@@ -236,14 +235,13 @@
         target: commentTarget,
         subscriptionGeneration: state.subscriptionGeneration,
         status: status,
-        outlineCount: outlineCount,
-        outlineSummary: outlineSummary,
         outlineSearch: outlineSearch,
         outlineList: outlineList,
         outlineEmpty: outlineEmpty,
         outlinePartial: outlinePartial,
         outlineBookmarksOnly: outlineBookmarksOnly,
         outlineBookmarkCount: outlineBookmarkCount,
+        outlineSort: outlineSort,
         messagesRoot: messages,
         post: post,
         outlinePanelActive: sidebarController.isOutlineActive,

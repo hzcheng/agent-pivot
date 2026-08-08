@@ -872,24 +872,9 @@ button {
 .conversation-outline-toolbar {
     display: grid;
     min-width: 0;
-    grid-template-columns: minmax(0, 1fr) max-content;
+    grid-template-columns: minmax(0, 1fr) max-content max-content;
     gap: 0.35rem 0.4rem;
     align-items: center;
-}
-
-.conversation-outline-summary {
-    grid-column: 1 / -1;
-    flex: 0 0 auto;
-    overflow: hidden;
-    padding: 0 0.15rem;
-    color: var(--vscode-descriptionForeground);
-    font-size: 0.66rem;
-    font-weight: 600;
-    letter-spacing: 0.055em;
-    line-height: 1.2;
-    text-overflow: ellipsis;
-    text-transform: uppercase;
-    white-space: nowrap;
 }
 
 .conversation-outline-search-field {
@@ -925,7 +910,8 @@ button {
     }
 }
 
-.conversation-outline-bookmarks-only {
+.conversation-outline-bookmarks-only,
+.conversation-outline-sort {
     display: inline-flex;
     min-width: 2rem;
     min-height: 2rem;
@@ -944,19 +930,23 @@ button {
         display: block;
         flex: 0 0 auto;
     }
+}
 
-    &[aria-pressed="true"] {
-        color: var(
-            --vscode-charts-yellow,
-            var(--vscode-editorWarning-foreground)
-        );
-        border-color: currentColor;
-        background: var(--vscode-list-hoverBackground);
+.conversation-outline-bookmarks-only[aria-pressed="true"] {
+    color: var(
+        --vscode-charts-yellow,
+        var(--vscode-editorWarning-foreground)
+    );
+    border-color: currentColor;
+    background: var(--vscode-list-hoverBackground);
 
-        svg {
-            fill: currentColor;
-        }
+    svg {
+        fill: currentColor;
     }
+}
+
+.conversation-outline-sort[data-order="oldest"] svg {
+    transform: rotate(180deg);
 }
 
 .conversation-outline-partial {
@@ -1821,6 +1811,7 @@ button {
         border-color: CanvasText;
     }
 
+    .conversation-outline-sort,
     .conversation-outline-bookmarks-only,
     .conversation-outline-bookmark,
     .conversation-message-bookmark,
@@ -1829,6 +1820,7 @@ button {
         color: ButtonText;
     }
 
+    .conversation-outline-sort,
     .conversation-outline-bookmarks-only {
         border-color: ButtonText;
     }

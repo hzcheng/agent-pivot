@@ -80,6 +80,191 @@
             projectClearAllConfirmation: false,
         };
 
+        function stateField(key) {
+            return {
+                get: function () { return state[key]; },
+                set: function (value) { state[key] = value; },
+            };
+        }
+
+        function buildResultValidator(spec) {
+            return function (value) {
+                if (!value || typeof value !== 'object' || Array.isArray(value)) {
+                    return false;
+                }
+                var required = [
+                    'type', 'version', 'requestId', 'subscriptionGeneration',
+                    'projectId', 'provider', 'sessionId', 'operation', 'success',
+                    'revision', 'comments',
+                ];
+                var allowed = new Set(required.concat(['error']));
+                return Object.keys(value).every(function (key) {
+                    return allowed.has(key);
+                }) && required.every(function (key) {
+                    return Object.prototype.hasOwnProperty.call(value, key);
+                })
+                    && value.type === spec.type
+                    && value.version === 1
+                    && typeof value.requestId === 'string'
+                    && Number.isSafeInteger(value.subscriptionGeneration)
+                    && typeof value.projectId === 'string'
+                    && (value.provider === 'codex'
+                        || value.provider === 'kimi'
+                        || value.provider === 'claude')
+                    && typeof value.sessionId === 'string'
+                    && spec.operations.indexOf(value.operation) >= 0
+                    && typeof value.success === 'boolean'
+                    && Number.isSafeInteger(value.revision)
+                    && value.revision >= 0
+                    && Array.isArray(value.comments)
+                    && value.comments.length <= spec.maxComments
+                    && value.comments.every(spec.isValidItem)
+                    && (value.error === undefined || [
+                        'invalid', 'stale', 'limit', 'tooLarge',
+                        'unavailable', 'busy', 'conflict', 'failed',
+                    ].includes(value.error));
+            };
+        }
+
+        function nextStackRequestId(stack) {
+            var sequence = stack.requestSequence.get() + 1;
+            stack.requestSequence.set(sequence);
+            return [
+                stack.requestIdPrefix,
+                Date.now().toString(36),
+                sequence.toString(36),
+            ].join(':');
+        }
+
+        function stackErrorMessage(stack, error) {
+            return stack.errorMessages[error] || stack.errorMessages.failed;
+        }
+
+        var PROJECT_COMMENT_OPERATIONS = [
+            'add', 'update', 'delete', 'setStatus', 'addTag', 'removeTag',
+            'reorder', 'clearDone', 'clearAll',
+        ];
+
+        var sessionStack = {
+            available: commentUiAvailable,
+            comments: stateField('comments'),
+            revision: stateField('commentRevision'),
+            requestSequence: stateField('commentRequestSequence'),
+            pendingRequest: stateField('pendingCommentRequest'),
+            editing: stateField('editingComment'),
+            requestIdPrefix: 'conversation-comment',
+            statusPrefix: '',
+            isValidResult: buildResultValidator({
+                type: 'conversation-viewer-comments-result',
+                operations: [
+                    'add', 'update', 'delete', 'reorder', 'addTag',
+                    'removeTag', 'clearDone', 'clearAll', 'sendComments',
+                    'sendComment',
+                ],
+                isValidItem: validComment,
+                maxComments: 20,
+            }),
+            cloneItem: function (comment) {
+                return Object.assign({}, comment);
+            },
+            noteSentComments: function (message) {
+                // Keep freshly sent cards expanded once so a card does not
+                // appear to vanish right after sending.
+                if (!message.success
+                    || (message.operation !== 'sendComment'
+                        && message.operation !== 'sendComments')) {
+                    return;
+                }
+                var previouslyOpen = new Set();
+                state.comments.forEach(function (comment) {
+                    if (comment.status === 'open') {
+                        previouslyOpen.add(comment.id);
+                    }
+                });
+                message.comments.forEach(function (comment) {
+                    if (comment.status === 'done'
+                        && previouslyOpen.has(comment.id)) {
+                        state.expandedDoneComments.add(comment.id);
+                    }
+                });
+            },
+            afterSettle: null,
+            render: renderComments,
+            setPending: setCommentPending,
+            focusDragHandle: focusCommentDragHandle,
+            settledStatus: function (operation) {
+                return operation === 'sendComments'
+                    ? 'Comments added to session input. Review and press Enter to send.'
+                    : operation === 'sendComment'
+                        ? 'Comment added to session input. Review and press Enter to send.'
+                        : operation === 'clearDone'
+                            ? 'Sent comments cleared.'
+                            : operation === 'clearAll'
+                                ? 'All comments cleared.'
+                                : operation === 'reorder'
+                                    ? 'Comment order saved.'
+                                    : 'Comments saved.';
+            },
+            errorMessages: {
+                stale: 'Comments changed. Review the latest draft and try again.',
+                limit: 'A maximum of 20 comments can be added at once.',
+                tooLarge: 'The combined comments are too large to send.',
+                busy: 'Wait for the current AI response to finish, then send again.',
+                conflict: 'Multiple runtimes match this session. Resolve the conflict first.',
+                unavailable: 'This session is unavailable and the comments were not added.',
+                failed: 'The comment action failed. Your comments were kept.',
+            },
+        };
+
+        var projectStack = {
+            available: projectCommentsAvailable,
+            comments: stateField('projectComments'),
+            revision: stateField('projectCommentRevision'),
+            requestSequence: stateField('projectCommentRequestSequence'),
+            pendingRequest: stateField('pendingProjectCommentRequest'),
+            editing: stateField('editingProjectComment'),
+            requestIdPrefix: 'project-comment',
+            statusPrefix: 'Workspace: ',
+            isValidResult: buildResultValidator({
+                type: 'conversation-viewer-project-comments-result',
+                operations: PROJECT_COMMENT_OPERATIONS.concat([
+                    'sendProjectComment', 'sendProjectComments',
+                ]),
+                isValidItem: validProjectComment,
+                maxComments: 50,
+            }),
+            cloneItem: cloneProjectComment,
+            noteSentComments: null,
+            afterSettle: updateCommentControls,
+            render: renderProjectComments,
+            setPending: setProjectCommentPending,
+            focusDragHandle: focusProjectCommentDragHandle,
+            settledStatus: function (operation) {
+                return operation === 'sendProjectComment'
+                    ? 'Note added to session input. Review and press Enter to send.'
+                    : operation === 'sendProjectComments'
+                        ? 'Notes added to session input. Review and press Enter to send.'
+                        : operation === 'delete'
+                            ? 'Project note deleted.'
+                            : operation === 'clearDone'
+                                ? 'Done notes cleared.'
+                                : operation === 'clearAll'
+                                    ? 'All notes cleared.'
+                                    : operation === 'reorder'
+                                        ? 'Note order saved.'
+                                        : 'Project note saved.';
+            },
+            errorMessages: {
+                stale: 'Project notes changed. Review the latest notes and try again.',
+                limit: 'The project note limit was reached (50 notes, 5 tags per note, or 20 distinct tags).',
+                tooLarge: 'The project note is too large to send.',
+                busy: 'Wait for the current AI response to finish, then send again.',
+                conflict: 'Multiple runtimes match this session. Resolve the conflict first.',
+                unavailable: 'This session is unavailable and the note was not added.',
+                failed: 'The project note action failed. Your notes were kept.',
+            },
+        };
+
         function readJsonAttribute(name) {
             var value = document.body.getAttribute(name);
             if (!value) return null;
@@ -150,52 +335,6 @@
                 && Array.isArray(value.comments)
                 && value.comments.length <= 20
                 && value.comments.every(validComment);
-        }
-
-        function validCommentsResult(value) {
-            if (!value || typeof value !== 'object' || Array.isArray(value)) {
-                return false;
-            }
-            var required = [
-                'type', 'version', 'requestId', 'subscriptionGeneration',
-                'projectId', 'provider', 'sessionId', 'operation', 'success',
-                'revision', 'comments',
-            ];
-            var allowed = new Set(required.concat(['error']));
-            return Object.keys(value).every(function (key) {
-                return allowed.has(key);
-            }) && required.every(function (key) {
-                return Object.prototype.hasOwnProperty.call(value, key);
-            })
-                && value.type === 'conversation-viewer-comments-result'
-                && value.version === 1
-                && typeof value.requestId === 'string'
-                && Number.isSafeInteger(value.subscriptionGeneration)
-                && typeof value.projectId === 'string'
-                && (value.provider === 'codex'
-                    || value.provider === 'kimi'
-                    || value.provider === 'claude')
-                && typeof value.sessionId === 'string'
-                && (value.operation === 'add'
-                    || value.operation === 'update'
-                    || value.operation === 'delete'
-                    || value.operation === 'reorder'
-                    || value.operation === 'addTag'
-                    || value.operation === 'removeTag'
-                    || value.operation === 'clearDone'
-                    || value.operation === 'clearAll'
-                    || value.operation === 'sendComments'
-                    || value.operation === 'sendComment')
-                && typeof value.success === 'boolean'
-                && Number.isSafeInteger(value.revision)
-                && value.revision >= 0
-                && Array.isArray(value.comments)
-                && value.comments.length <= 20
-                && value.comments.every(validComment)
-                && (value.error === undefined || [
-                    'invalid', 'stale', 'limit', 'tooLarge',
-                    'unavailable', 'busy', 'conflict', 'failed',
-                ].includes(value.error));
         }
 
         function validLocateResult(value) {
@@ -304,25 +443,6 @@
             commentClearAll.disabled = state.comments.length === 0 || pending;
         }
 
-        function nextCommentRequestId() {
-            state.commentRequestSequence += 1;
-            return [
-                'conversation-comment',
-                Date.now().toString(36),
-                state.commentRequestSequence.toString(36),
-            ].join(':');
-        }
-
-        function commentErrorMessage(error) {
-            if (error === 'stale') return 'Comments changed. Review the latest draft and try again.';
-            if (error === 'limit') return 'A maximum of 20 comments can be added at once.';
-            if (error === 'tooLarge') return 'The combined comments are too large to send.';
-            if (error === 'busy') return 'Wait for the current AI response to finish, then send again.';
-            if (error === 'conflict') return 'Multiple runtimes match this session. Resolve the conflict first.';
-            if (error === 'unavailable') return 'This session is unavailable and the comments were not added.';
-            return 'The comment action failed. Your comments were kept.';
-        }
-
         function setCommentPending(pending) {
             if (!commentUiAvailable) return;
             Array.prototype.forEach.call(
@@ -363,7 +483,7 @@
             if (!commentUiAvailable
                 || state.pendingCommentRequest
                 || state.pendingLocateRequest) return;
-            var requestId = nextCommentRequestId();
+            var requestId = nextStackRequestId(sessionStack);
             resetClearAllConfirmation();
             state.pendingCommentRequest = {
                 requestId: requestId,
@@ -435,7 +555,7 @@
                 return;
             }
             if (state.pendingLocateRequest || state.pendingCommentRequest) return;
-            var requestId = nextCommentRequestId();
+            var requestId = nextStackRequestId(sessionStack);
             state.pendingLocateRequest = {
                 requestId: requestId,
                 commentId: comment.id,
@@ -1125,65 +1245,48 @@
             }
         }
 
-        function applyCommentsResult(message) {
-            if (!commentUiAvailable
-                || !validCommentsResult(message)
+        function settleCommentsResult(stack, message) {
+            var pendingRequest = stack.pendingRequest.get();
+            if (!stack.available
+                || !stack.isValidResult(message)
                 || message.subscriptionGeneration !== subscriptionGeneration
                 || message.projectId !== commentTarget.projectId
                 || message.provider !== commentTarget.provider
                 || message.sessionId !== commentTarget.sessionId
-                || !state.pendingCommentRequest
-                || message.requestId !== state.pendingCommentRequest.requestId
-                || message.operation !== state.pendingCommentRequest.operation) {
+                || !pendingRequest
+                || message.requestId !== pendingRequest.requestId
+                || message.operation !== pendingRequest.operation) {
                 return false;
             }
-            var operation = state.pendingCommentRequest.operation;
-            var focusCommentId = state.pendingCommentRequest.focusCommentId;
-            if (message.success
-                && (operation === 'sendComment'
-                    || operation === 'sendComments')) {
-                // Keep freshly sent cards expanded once so a card does not
-                // appear to vanish right after sending.
-                var previouslyOpen = new Set();
-                state.comments.forEach(function (comment) {
-                    if (comment.status === 'open') {
-                        previouslyOpen.add(comment.id);
-                    }
-                });
-                message.comments.forEach(function (comment) {
-                    if (comment.status === 'done'
-                        && previouslyOpen.has(comment.id)) {
-                        state.expandedDoneComments.add(comment.id);
-                    }
-                });
+            var operation = pendingRequest.operation;
+            var focusCommentId = pendingRequest.focusCommentId;
+            if (stack.noteSentComments) {
+                stack.noteSentComments(message);
             }
-            state.commentRevision = message.revision;
-            state.comments = message.comments.map(function (comment) {
-                return Object.assign({}, comment);
-            });
+            stack.revision.set(message.revision);
+            stack.comments.set(message.comments.map(stack.cloneItem));
             if (message.success && message.operation === 'update') {
-                state.editingComment = null;
+                stack.editing.set(null);
             }
-            renderComments();
-            state.pendingCommentRequest = null;
-            setCommentPending(false);
+            stack.render();
+            stack.pendingRequest.set(null);
+            stack.setPending(false);
             if (message.success) {
-                status.textContent = operation === 'sendComments'
-                    ? 'Comments added to session input. Review and press Enter to send.'
-                    : operation === 'sendComment'
-                        ? 'Comment added to session input. Review and press Enter to send.'
-                        : operation === 'clearDone'
-                            ? 'Sent comments cleared.'
-                            : operation === 'clearAll'
-                                ? 'All comments cleared.'
-                                : operation === 'reorder'
-                                    ? 'Comment order saved.'
-                                : 'Comments saved.';
+                status.textContent = stack.statusPrefix
+                    + stack.settledStatus(operation);
             } else {
-                status.textContent = commentErrorMessage(message.error);
+                status.textContent = stack.statusPrefix
+                    + stackErrorMessage(stack, message.error);
             }
-            focusCommentDragHandle(focusCommentId);
+            if (stack.afterSettle) {
+                stack.afterSettle();
+            }
+            stack.focusDragHandle(focusCommentId);
             return true;
+        }
+
+        function applyCommentsResult(message) {
+            return settleCommentsResult(sessionStack, message);
         }
 
         function applyLocateResult(message) {
@@ -1335,10 +1438,6 @@
         }
 
         var PROJECT_TAG_COLOR_COUNT = 6;
-        var PROJECT_COMMENT_OPERATIONS = [
-            'add', 'update', 'delete', 'setStatus', 'addTag', 'removeTag',
-            'reorder', 'clearDone', 'clearAll',
-        ];
 
         function providerLabel(provider) {
             if (provider === 'kimi') return 'Kimi';
@@ -1483,45 +1582,6 @@
                 && value.comments.every(validProjectComment);
         }
 
-        function validProjectCommentsResult(value) {
-            if (!value || typeof value !== 'object' || Array.isArray(value)) {
-                return false;
-            }
-            var required = [
-                'type', 'version', 'requestId', 'subscriptionGeneration',
-                'projectId', 'provider', 'sessionId', 'operation', 'success',
-                'revision', 'comments',
-            ];
-            var allowed = new Set(required.concat(['error']));
-            return Object.keys(value).every(function (key) {
-                return allowed.has(key);
-            }) && required.every(function (key) {
-                return Object.prototype.hasOwnProperty.call(value, key);
-            })
-                && value.type === 'conversation-viewer-project-comments-result'
-                && value.version === 1
-                && typeof value.requestId === 'string'
-                && Number.isSafeInteger(value.subscriptionGeneration)
-                && typeof value.projectId === 'string'
-                && (value.provider === 'codex'
-                    || value.provider === 'kimi'
-                    || value.provider === 'claude')
-                && typeof value.sessionId === 'string'
-                && (PROJECT_COMMENT_OPERATIONS.indexOf(value.operation) >= 0
-                    || value.operation === 'sendProjectComment'
-                    || value.operation === 'sendProjectComments')
-                && typeof value.success === 'boolean'
-                && Number.isSafeInteger(value.revision)
-                && value.revision >= 0
-                && Array.isArray(value.comments)
-                && value.comments.length <= 50
-                && value.comments.every(validProjectComment)
-                && (value.error === undefined || [
-                    'invalid', 'stale', 'limit', 'tooLarge',
-                    'unavailable', 'busy', 'conflict', 'failed',
-                ].includes(value.error));
-        }
-
         function cloneProjectComment(comment) {
             return Object.assign({}, comment, {
                 tags: comment.tags.slice(),
@@ -1579,25 +1639,6 @@
             return tag.length > 0
                 && Array.from(tag).length <= 24
                 && !/[\u0000-\u001f\u007f]/.test(tag);
-        }
-
-        function nextProjectCommentRequestId() {
-            state.projectCommentRequestSequence += 1;
-            return [
-                'project-comment',
-                Date.now().toString(36),
-                state.projectCommentRequestSequence.toString(36),
-            ].join(':');
-        }
-
-        function projectCommentErrorMessage(error) {
-            if (error === 'stale') return 'Project notes changed. Review the latest notes and try again.';
-            if (error === 'limit') return 'The project note limit was reached (50 notes, 5 tags per note, or 20 distinct tags).';
-            if (error === 'tooLarge') return 'The project note is too large to send.';
-            if (error === 'busy') return 'Wait for the current AI response to finish, then send again.';
-            if (error === 'conflict') return 'Multiple runtimes match this session. Resolve the conflict first.';
-            if (error === 'unavailable') return 'This session is unavailable and the note was not added.';
-            return 'The project note action failed. Your notes were kept.';
         }
 
         function setProjectCommentPending(pending) {
@@ -2039,7 +2080,7 @@
         function postProjectCommentOperation(operation, payload, focusCommentId) {
             if (!projectCommentsAvailable
                 || state.pendingProjectCommentRequest) return;
-            var requestId = nextProjectCommentRequestId();
+            var requestId = nextStackRequestId(projectStack);
             resetProjectClearAllConfirmation();
             state.pendingProjectCommentRequest = {
                 requestId: requestId,
@@ -2555,52 +2596,7 @@
         }
 
         function applyProjectCommentsResult(message) {
-            if (!projectCommentsAvailable
-                || !validProjectCommentsResult(message)
-                || message.subscriptionGeneration !== subscriptionGeneration
-                || message.projectId !== commentTarget.projectId
-                || message.provider !== commentTarget.provider
-                || message.sessionId !== commentTarget.sessionId
-                || !state.pendingProjectCommentRequest
-                || message.requestId
-                    !== state.pendingProjectCommentRequest.requestId
-                || message.operation
-                    !== state.pendingProjectCommentRequest.operation) {
-                return false;
-            }
-            var operation = state.pendingProjectCommentRequest.operation;
-            var focusCommentId
-                = state.pendingProjectCommentRequest.focusCommentId;
-            state.projectCommentRevision = message.revision;
-            state.projectComments = message.comments.map(cloneProjectComment);
-            if (message.success && operation === 'update') {
-                state.editingProjectComment = null;
-            }
-            renderProjectComments();
-            state.pendingProjectCommentRequest = null;
-            setProjectCommentPending(false);
-            if (message.success) {
-                status.textContent = operation === 'sendProjectComment'
-                    ? 'Note added to session input.'
-                        + ' Review and press Enter to send.'
-                    : operation === 'sendProjectComments'
-                        ? 'Notes added to session input.'
-                            + ' Review and press Enter to send.'
-                        : operation === 'delete'
-                            ? 'Project note deleted.'
-                            : operation === 'clearDone'
-                                ? 'Done notes cleared.'
-                                : operation === 'clearAll'
-                                    ? 'All notes cleared.'
-                                : operation === 'reorder'
-                                    ? 'Note order saved.'
-                                    : 'Project note saved.';
-            } else {
-                status.textContent = projectCommentErrorMessage(message.error);
-            }
-            updateCommentControls();
-            focusProjectCommentDragHandle(focusCommentId);
-            return true;
+            return settleCommentsResult(projectStack, message);
         }
 
         function attach() {

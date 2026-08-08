@@ -4838,7 +4838,8 @@
     "owners": [
       "tests/browser/skillsFolderTree.test.js",
       "tests/browser/skillPanelFilter.test.js",
-      "tests/browser/skillsSplitPanes.test.js"
+      "tests/browser/skillsSplitPanes.test.js",
+      "tests/contract/skills/webviewSkillContent.test.js"
     ],
     "evidence": [
       "src/webview/webviewSkillContent.ts",

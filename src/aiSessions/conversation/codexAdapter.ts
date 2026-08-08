@@ -22,11 +22,13 @@ import {
     truncateGraphemes,
     VisibleUserInputPart,
 } from './text';
+import { parseUnifiedDiff } from './diffs';
 import {
     CONVERSATION_LIMITS,
     ConversationAbortError,
     ConversationAbortSignal,
     ConversationError,
+    ConversationFileDiff,
     ConversationInteraction,
     ConversationOutline,
     ConversationPage,
@@ -432,25 +434,82 @@ function normalizeToolItem(
         };
     }
     if (item.type === 'fileChange') {
-        const changes = Array.isArray(item.changes)
-            ? item.changes.map(asRecord).filter(Boolean)
+        const rawChanges = Array.isArray(item.changes)
+            ? item.changes
             : [];
-        const first = changes[0];
-        const changePath = typeof first?.path === 'string' ? first.path : '';
-        const kindRecord = asRecord(first?.kind);
-        const kind = typeof first?.kind === 'string'
-            ? first.kind
-            : typeof kindRecord?.type === 'string'
-                ? kindRecord.type
-                : '';
-        const label = `${kind ? `${kind} ` : ''}${changePath}`.trim();
-        const detail = capToolCallDetail(
-            typeof first?.diff === 'string' ? first.diff : ''
-        );
+        const entries = rawChanges
+            .map(asRecord)
+            .filter(Boolean)
+            .map(change => {
+                const kindRecord = asRecord(change.kind);
+                return {
+                    path: typeof change.path === 'string' ? change.path : '',
+                    kind: typeof change.kind === 'string'
+                        ? change.kind
+                        : typeof kindRecord?.type === 'string'
+                            ? kindRecord.type
+                            : '',
+                    diff: typeof change.diff === 'string' && change.diff
+                        ? change.diff
+                        : undefined,
+                };
+            });
+        const first = entries[0];
+        const label = `${first?.kind ? `${first.kind} ` : ''}${first?.path || ''}`.trim();
+        const extraCount = Math.max(0, rawChanges.length - 1);
+        const summary = buildToolCallSummary('fileChange', {
+            path: extraCount > 0
+                ? `${label} (+${extraCount} more)`
+                : label,
+        });
+        const diffs: ConversationFileDiff[] = [];
+        let rawDetail = '';
+        for (const entry of entries.slice(
+            0,
+            CONVERSATION_LIMITS.maxDiffsPerToolCall
+        )) {
+            if (!entry.path) {
+                continue;
+            }
+            if (!entry.diff) {
+                // No diff payload: still surface the file row itself.
+                diffs.push({
+                    path: truncateGraphemes(
+                        entry.path.trim(),
+                        CONVERSATION_LIMITS.diffPathGraphemes - 1
+                    ),
+                    ...(entry.kind ? { kind: entry.kind } : {}),
+                    additions: 0,
+                    deletions: 0,
+                    hunks: [],
+                });
+                continue;
+            }
+            const parsed = parseUnifiedDiff(
+                entry.diff,
+                entry.path,
+                entry.kind || undefined
+            );
+            if (!parsed.length) {
+                // Unparseable diff text stays visible as raw detail.
+                rawDetail = rawDetail || entry.diff;
+                continue;
+            }
+            for (const file of parsed) {
+                if (diffs.length >= CONVERSATION_LIMITS.maxDiffsPerToolCall) {
+                    break;
+                }
+                if (!file.kind && entry.kind) {
+                    file.kind = entry.kind;
+                }
+                diffs.push(file);
+            }
+        }
         return {
             name: 'fileChange',
-            summary: buildToolCallSummary('fileChange', { path: label }),
-            ...(detail ? { detail } : {}),
+            summary,
+            ...(rawDetail ? { detail: capToolCallDetail(rawDetail) } : {}),
+            ...(diffs.length ? { diffs } : {}),
         };
     }
     return undefined;

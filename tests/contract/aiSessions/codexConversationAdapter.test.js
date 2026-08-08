@@ -500,6 +500,74 @@ test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 CONVERSATION-PLAN-QUESTION-VIS
     assert.equal(outline.sourceRevision, page.sourceRevision);
 });
 
+test('CONVERSATION-DIFF-VISIBILITY-001 Codex renders every changed file with parsed diffs and keeps unparseable payloads raw', async t => {
+    const result = {
+        thread: {
+            id: sessionId,
+            turns: [{
+                id: 'turn-1',
+                status: 'completed',
+                items: [
+                    {
+                        id: 'user-1',
+                        type: 'userMessage',
+                        content: [{ type: 'text', text: 'apply the patch' }],
+                    },
+                    {
+                        id: 'file-1',
+                        type: 'fileChange',
+                        changes: [
+                            {
+                                path: 'src/a.ts',
+                                kind: 'update',
+                                diff: '--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1,2 +1,2 @@\n-old\n+new\n context',
+                            },
+                            { path: 'src/b.ts', kind: { type: 'add' } },
+                            { path: 'src/c.ts', kind: 'update', diff: 'not a diff at all' },
+                        ],
+                    },
+                    { id: 'agent-1', type: 'agentMessage', text: 'Applied.' },
+                ],
+            }],
+        },
+    };
+    const harness = createAdapter(result);
+    t.after(() => harness.adapter.dispose());
+
+    const { page } = await readWholeConversation(harness.adapter);
+    const tool = page.messages.find(message => message.role === 'tool');
+    assert.equal(tool.tool.name, 'fileChange');
+    assert.equal(
+        tool.tool.summary,
+        'fileChange update src/a.ts (+2 more)'
+    );
+    assert.deepEqual(tool.tool.diffs, [
+        {
+            path: 'src/a.ts',
+            kind: 'update',
+            additions: 1,
+            deletions: 1,
+            hunks: [{
+                oldStart: 1,
+                newStart: 1,
+                lines: [
+                    { type: 'del', text: 'old' },
+                    { type: 'add', text: 'new' },
+                    { type: 'context', text: 'context' },
+                ],
+            }],
+        },
+        {
+            path: 'src/b.ts',
+            kind: 'add',
+            additions: 0,
+            deletions: 0,
+            hunks: [],
+        },
+    ]);
+    assert.equal(tool.tool.detail, 'not a diff at all');
+});
+
 test('CONVERSATION-TELEMETRY-001 reads model, context, and quota windows from structured Codex protocol data', async t => {
     let notificationListener;
     const harness = createAdapter(fixture, {

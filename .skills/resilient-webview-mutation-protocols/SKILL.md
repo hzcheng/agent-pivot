@@ -39,6 +39,13 @@ silently ships without it while unit checks keep passing:
 Find every consumer by grepping an existing sibling script name (e.g.
 `conversationReconcileScripts`) across the repository.
 
+Styles follow the same generated-copy pattern: edit `media/styles.scss` and
+regenerate the tracked, minified `media/styles.css` with
+`npx gulp buildStyles` in the same commit. `test-compile` does not rebuild
+it, and `scripts/run-ai-session-safety-checks.js` asserts selectors against
+both the scss source and the compiled css, so a stale regeneration fails
+there first.
+
 Dashboard webview scripts are also evaluated in minimal Node VM sandboxes by
 `scripts/run-dashboard-webview-checks.js` (`vm.runInNewContext` with a
 hand-built `document`/`window`): no timers (`setTimeout` is undefined), no

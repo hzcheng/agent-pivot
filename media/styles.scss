@@ -3453,31 +3453,6 @@ body.steward-sidebar {
             font-weight: 600;
         }
 
-        .codex-session-row[data-session-needs-attention] {
-            border-color: var(--vscode-inputValidation-errorBorder, var(--vscode-errorForeground));
-            color: var(--vscode-errorForeground);
-            box-shadow: inset 0 0 0 1px var(--vscode-inputValidation-errorBorder, var(--vscode-errorForeground));
-
-            &::after {
-                content: '';
-                position: absolute;
-                inset: 0;
-                background: var(--vscode-errorForeground);
-                opacity: .1;
-                pointer-events: none;
-            }
-
-            &::before {
-                width: 3px;
-                background: var(--vscode-errorForeground);
-                opacity: 1;
-            }
-
-            .codex-session-name {
-                color: var(--vscode-errorForeground);
-            }
-        }
-
         .ai-session-execution-status {
             display: inline-flex;
             align-items: center;

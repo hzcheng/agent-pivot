@@ -3942,6 +3942,107 @@ test('PROJECT-COMMENTS-UI-001 captures, tags, filters, and dispatches project no
     );
 });
 
+test('PROJECT-COMMENTS-UI-001 keeps the workspace composer fully visible when the group is full', async t => {
+    const interactionId = 'input-project-notes-full-group';
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+        viewport: { width: 700, height: 860 },
+        interactionIds: [interactionId],
+        interactionId,
+        initialWebviewState: {
+            conversationSidebar: {
+                open: true,
+                width: 280,
+                view: 'outline',
+                query: '',
+            },
+        },
+        pageOverrides: {
+            previousCursor: undefined,
+            nextCursor: undefined,
+            isStart: true,
+            isEnd: true,
+        },
+    });
+
+    await page.locator('[data-sidebar-tab="comments"]').click();
+    const projectSection = page.locator('[data-project-comments]');
+    const projectHeader = page.locator('[data-project-comments-header]');
+
+    // Capture one note so the Host settlement can seed a group whose card
+    // list is taller than the region the group is allowed to occupy.
+    await projectHeader.locator(
+        '[data-project-comment-action="open-composer"]'
+    ).click();
+    const input = projectSection.locator('[data-project-comment-input]');
+    await input.fill('seed');
+    await input.press('Control+Enter');
+    const addRequest = (await postedMessages(page)).at(-1);
+    const notes = Array.from({ length: 16 }, (_, index) => ({
+        id: `note-${index + 1}`,
+        text: `Workspace note ${index + 1} with enough text to wrap onto a second line inside the narrow sidebar`,
+        tags: [],
+        status: 'open',
+        createdAt: 1000 + index,
+        dispatches: [],
+    }));
+    await sendPage(page, projectCommentSettlement(addRequest, notes));
+    assert.equal(
+        await projectSection.locator('[data-project-comment-id]').count(),
+        16
+    );
+
+    // Reopening the composer in the full group must keep its whole form
+    // (label, textarea, actions row) rendered at full height at the top of
+    // the group; the overflowing card list scrolls underneath it instead of
+    // flex-shrinking the composer into a clipped sliver.
+    await projectHeader.locator(
+        '[data-project-comment-action="open-composer"]'
+    ).click();
+    assert.deepEqual(
+        await page.evaluate(() => {
+            const section = document.querySelector(
+                '[data-project-comments-content]'
+            );
+            const composer = document.querySelector(
+                '[data-project-comment-composer]'
+            );
+            const actions = composer.querySelector(
+                '.conversation-comment-actions'
+            );
+            const firstCard = document.querySelector(
+                '[data-project-comment-id]'
+            );
+            const sectionBounds = section.getBoundingClientRect();
+            const composerBounds = composer.getBoundingClientRect();
+            const actionsBounds = actions.getBoundingClientRect();
+            const firstCardBounds = firstCard.getBoundingClientRect();
+            return {
+                groupOverflows:
+                    section.scrollHeight > section.clientHeight,
+                contentUnclipped:
+                    composer.scrollHeight <= composer.clientHeight,
+                actionsContained:
+                    actionsBounds.top >= composerBounds.top
+                    && actionsBounds.bottom <= composerBounds.bottom,
+                composerInsideGroup:
+                    composerBounds.top >= sectionBounds.top
+                    && composerBounds.bottom <= sectionBounds.bottom,
+                clearOfFirstCard:
+                    composerBounds.bottom <= firstCardBounds.top,
+            };
+        }),
+        {
+            groupOverflows: true,
+            contentUnclipped: true,
+            actionsContained: true,
+            composerInsideGroup: true,
+            clearOfFirstCard: true,
+        }
+    );
+});
+
 test('PROJECT-COMMENTS-UI-001 toggles, edits, and deletes notes with source snapshots', async t => {
     const interactionId = 'input-project-notes-manage';
     const { page } = await openHostViewerDocument(t, {

@@ -1,13 +1,14 @@
 'use strict';
 
-import { createHash, randomBytes } from 'crypto';
-import * as fs from 'fs';
-import * as path from 'path';
 import type { AiSessionProviderId } from '../../models';
+import {
+    isAiSessionProvider,
+    isBoundedId,
+    isRecord,
+} from './commentPrimitives';
+import { KeyedSnapshotFileStore } from './snapshotFileStore';
 
-const STORE_VERSION = 1;
-const STORE_DIRECTORY = path.join('conversation-bookmarks', 'v1');
-const MAX_SNAPSHOT_BYTES = 256 * 1024;
+const STORE_DIRECTORY = ['conversation-bookmarks', 'v1'].join('/');
 export const MAX_CONVERSATION_BOOKMARKS = 2000;
 
 export interface ConversationBookmarkTarget {
@@ -34,93 +35,43 @@ export interface ConversationBookmarkStore {
 export type ConversationBookmarkRebindCopyResult =
     'copied' | 'source-empty' | 'destination-exists';
 
-interface PersistedConversationBookmarkSnapshot
-    extends ConversationBookmarkSnapshot {
-    version: 1;
-    target: ConversationBookmarkTarget;
-    updatedAt: string;
-}
-
 export class ConversationBookmarkFileStore
-implements ConversationBookmarkStore {
-    private readonly directoryPath: string;
+    extends KeyedSnapshotFileStore<
+        ConversationBookmarkTarget,
+        string,
+        ConversationBookmarkSnapshot
+    >
+    implements ConversationBookmarkStore {
 
     constructor(
         globalStoragePath: string,
-        private readonly now: () => number = () => Date.now()
+        now: () => number = () => Date.now()
     ) {
-        this.directoryPath = path.join(globalStoragePath, STORE_DIRECTORY);
-    }
-
-    async load(
-        target: ConversationBookmarkTarget
-    ): Promise<ConversationBookmarkSnapshot> {
-        if (!isTarget(target)) {
-            return emptySnapshot();
-        }
-        const snapshotPath = this.getSnapshotPath(target);
-        try {
-            const stats = await fs.promises.stat(snapshotPath);
-            if (!stats.isFile() || stats.size > MAX_SNAPSHOT_BYTES) {
-                return emptySnapshot();
-            }
-            const value = JSON.parse(
-                await fs.promises.readFile(snapshotPath, 'utf8')
-            );
-            return isPersistedSnapshot(value, target)
-                ? cloneSnapshot(value)
-                : emptySnapshot();
-        } catch (_error) {
-            return emptySnapshot();
-        }
-    }
-
-    async save(
-        target: ConversationBookmarkTarget,
-        snapshot: ConversationBookmarkSnapshot
-    ): Promise<void> {
-        if (!isTarget(target) || !isSnapshot(snapshot)) {
-            throw new Error('Invalid conversation bookmark snapshot.');
-        }
-        const snapshotPath = this.getSnapshotPath(target);
-        if (snapshot.interactionIds.length === 0) {
-            try {
-                await fs.promises.unlink(snapshotPath);
-            } catch (error) {
-                if (!isFileNotFoundError(error)) {
-                    throw error;
-                }
-            }
-            return;
-        }
-        await fs.promises.mkdir(this.directoryPath, {
-            recursive: true,
-            mode: 0o700,
-        });
-        const persisted: PersistedConversationBookmarkSnapshot = {
-            version: STORE_VERSION,
-            target: { ...target },
-            revision: snapshot.revision,
-            updatedAt: new Date(this.now()).toISOString(),
-            interactionIds: [...snapshot.interactionIds],
-        };
-        const temporaryPath = `${snapshotPath}.${process.pid}.${
-            randomBytes(8).toString('hex')
-        }.tmp`;
-        try {
-            await fs.promises.writeFile(
-                temporaryPath,
-                JSON.stringify(persisted),
-                { encoding: 'utf8', flag: 'wx', mode: 0o600 }
-            );
-            await fs.promises.rename(temporaryPath, snapshotPath);
-        } finally {
-            try {
-                await fs.promises.unlink(temporaryPath);
-            } catch (_error) {
-                // Temporary cleanup must not mask the authoritative result.
-            }
-        }
+        super(globalStoragePath, STORE_DIRECTORY, {
+            isValidTarget: isTarget,
+            targetsMatch: (persisted, target) =>
+                persisted.projectId === target.projectId
+                && persisted.provider === target.provider
+                && persisted.sessionId === target.sessionId,
+            digestIdentity: target => [
+                target.projectId,
+                target.provider,
+                target.sessionId,
+            ],
+            payloadKey: 'interactionIds',
+            itemsOf: snapshot => snapshot.interactionIds,
+            buildSnapshot: (revision, interactionIds) => ({
+                revision,
+                interactionIds,
+            }),
+            validateItems: validateInteractionIds,
+            cloneItems: interactionIds => [...interactionIds],
+            invalidSnapshotMessage:
+                'Invalid conversation bookmark snapshot.',
+            invalidPersistedMessage:
+                'Invalid persisted conversation bookmark snapshot.',
+            maxSnapshotBytes: 256 * 1024,
+        }, now);
     }
 
     async copyForRebind(
@@ -130,143 +81,41 @@ implements ConversationBookmarkStore {
         if (!isValidRebind(previous, next)) {
             throw new Error('Invalid conversation bookmark rebind.');
         }
-        const source = await this.loadForRebind(previous);
+        const source = await this.loadStrict(previous);
         if (source.interactionIds.length === 0) {
             return 'source-empty';
         }
-        return this.saveForRebindIfAbsent(next, source);
-    }
-
-    private async loadForRebind(
-        target: ConversationBookmarkTarget
-    ): Promise<ConversationBookmarkSnapshot> {
-        const snapshotPath = this.getSnapshotPath(target);
-        try {
-            const stats = await fs.promises.stat(snapshotPath);
-            if (!stats.isFile() || stats.size > MAX_SNAPSHOT_BYTES) {
-                throw new Error('Invalid persisted conversation bookmark snapshot.');
-            }
-            const value = JSON.parse(
-                await fs.promises.readFile(snapshotPath, 'utf8')
-            );
-            if (!isPersistedSnapshot(value, target)) {
-                throw new Error('Invalid persisted conversation bookmark snapshot.');
-            }
-            return cloneSnapshot(value);
-        } catch (error) {
-            if (isFileNotFoundError(error)) {
-                return emptySnapshot();
-            }
-            throw new Error('Invalid persisted conversation bookmark snapshot.');
-        }
-    }
-
-    private async saveForRebindIfAbsent(
-        target: ConversationBookmarkTarget,
-        snapshot: ConversationBookmarkSnapshot
-    ): Promise<ConversationBookmarkRebindCopyResult> {
-        const snapshotPath = this.getSnapshotPath(target);
-        await fs.promises.mkdir(this.directoryPath, {
-            recursive: true,
-            mode: 0o700,
-        });
-        const persisted: PersistedConversationBookmarkSnapshot = {
-            version: STORE_VERSION,
-            target: { ...target },
-            revision: snapshot.revision,
-            updatedAt: new Date(this.now()).toISOString(),
-            interactionIds: [...snapshot.interactionIds],
-        };
-        const temporaryPath = `${snapshotPath}.${process.pid}.${
-            randomBytes(8).toString('hex')
-        }.tmp`;
-        try {
-            await fs.promises.writeFile(
-                temporaryPath,
-                JSON.stringify(persisted),
-                { encoding: 'utf8', flag: 'wx', mode: 0o600 }
-            );
-            try {
-                await fs.promises.link(temporaryPath, snapshotPath);
-                return 'copied';
-            } catch (error) {
-                if (isFileExistsError(error)) {
-                    return 'destination-exists';
-                }
-                throw error;
-            }
-        } finally {
-            try {
-                await fs.promises.unlink(temporaryPath);
-            } catch (_error) {
-                // Cleanup must not mask the authoritative link result.
-            }
-        }
-    }
-
-    private getSnapshotPath(target: ConversationBookmarkTarget): string {
-        const identity = JSON.stringify([
-            target.projectId,
-            target.provider,
-            target.sessionId,
-        ]);
-        const digest = createHash('sha256').update(identity).digest('hex');
-        return path.join(this.directoryPath, `${digest}.json`);
+        return this.saveIfAbsent(next, source);
     }
 }
 
 export function isConversationBookmarkSnapshot(
     value: unknown
 ): value is ConversationBookmarkSnapshot {
-    return isSnapshot(value);
+    return isRecord(value)
+        && Number.isSafeInteger(value.revision)
+        && (value.revision as number) >= 0
+        && Array.isArray(value.interactionIds)
+        && isValidInteractionIds(value.interactionIds);
 }
 
-function emptySnapshot(): ConversationBookmarkSnapshot {
-    return { revision: 0, interactionIds: [] };
-}
-
-function cloneSnapshot(
-    snapshot: ConversationBookmarkSnapshot
-): ConversationBookmarkSnapshot {
-    return {
-        revision: snapshot.revision,
-        interactionIds: [...snapshot.interactionIds],
-    };
-}
-
-function isSnapshot(value: unknown): value is ConversationBookmarkSnapshot {
-    if (!isRecord(value)
-        || !Number.isSafeInteger(value.revision)
-        || (value.revision as number) < 0
-        || !Array.isArray(value.interactionIds)
-        || value.interactionIds.length > MAX_CONVERSATION_BOOKMARKS
-        || !value.interactionIds.every(isIdentity)) {
-        return false;
+function validateInteractionIds(items: string[]): void {
+    if (!isValidInteractionIds(items)) {
+        throw new Error('Invalid conversation bookmark snapshot.');
     }
-    return new Set(value.interactionIds).size === value.interactionIds.length;
 }
 
-function isPersistedSnapshot(
-    value: unknown,
-    target: ConversationBookmarkTarget
-): value is PersistedConversationBookmarkSnapshot {
-    if (!isRecord(value)
-        || value.version !== STORE_VERSION
-        || typeof value.updatedAt !== 'string'
-        || !isTarget(value.target)
-        || !isSnapshot(value)) {
-        return false;
-    }
-    return value.target.projectId === target.projectId
-        && value.target.provider === target.provider
-        && value.target.sessionId === target.sessionId;
+function isValidInteractionIds(items: unknown[]): boolean {
+    return items.length <= MAX_CONVERSATION_BOOKMARKS
+        && items.every(item => isBoundedId(item))
+        && new Set(items).size === items.length;
 }
 
 function isTarget(value: unknown): value is ConversationBookmarkTarget {
     return isRecord(value)
-        && isIdentity(value.projectId)
-        && isProvider(value.provider)
-        && isIdentity(value.sessionId);
+        && isBoundedId(value.projectId)
+        && isAiSessionProvider(value.provider)
+        && isBoundedId(value.sessionId);
 }
 
 function isValidRebind(
@@ -278,29 +127,4 @@ function isValidRebind(
         && previous.projectId === next.projectId
         && previous.provider === next.provider
         && previous.sessionId !== next.sessionId;
-}
-
-function isIdentity(value: unknown): value is string {
-    return typeof value === 'string'
-        && value.length > 0
-        && value.length <= 512
-        && !/[\u0000-\u001f\u007f]/.test(value);
-}
-
-function isProvider(value: unknown): value is AiSessionProviderId {
-    return value === 'codex' || value === 'kimi' || value === 'claude';
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return Boolean(value)
-        && typeof value === 'object'
-        && !Array.isArray(value);
-}
-
-function isFileNotFoundError(error: unknown): boolean {
-    return Boolean(error && (error as NodeJS.ErrnoException).code === 'ENOENT');
-}
-
-function isFileExistsError(error: unknown): boolean {
-    return Boolean(error && (error as NodeJS.ErrnoException).code === 'EEXIST');
 }

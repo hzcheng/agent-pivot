@@ -8,7 +8,7 @@ import {
 } from './comments';
 import {
     CommentSnapshot,
-    CommentSnapshotFileStore,
+    KeyedSnapshotFileStore,
 } from './snapshotFileStore';
 import {
     isAiSessionProvider,
@@ -35,9 +35,10 @@ export type ConversationCommentRebindCopyResult =
     'copied' | 'source-empty' | 'destination-exists';
 
 export class ConversationCommentFileStore
-    extends CommentSnapshotFileStore<
+    extends KeyedSnapshotFileStore<
         ConversationCommentTarget,
-        ConversationCommentDraft
+        ConversationCommentDraft,
+        ConversationCommentSnapshot
     >
     implements ConversationCommentStore {
 
@@ -56,13 +57,17 @@ export class ConversationCommentFileStore
                 target.provider,
                 target.sessionId,
             ],
-            validateComments: validateConversationComments,
-            cloneComments: cloneConversationComments,
-            normalizeLegacyComments: normalizeLegacyCommentStatuses,
+            payloadKey: 'comments',
+            itemsOf: snapshot => snapshot.comments,
+            buildSnapshot: (revision, comments) => ({ revision, comments }),
+            validateItems: validateConversationComments,
+            cloneItems: cloneConversationComments,
+            normalizeLegacyItems: normalizeLegacyCommentStatuses,
             invalidSnapshotMessage:
                 'Invalid conversation comment snapshot.',
             invalidPersistedMessage:
                 'Invalid persisted conversation comment snapshot.',
+            maxSnapshotBytes: 2 * 1024 * 1024,
         }, now);
     }
 

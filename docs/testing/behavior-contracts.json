@@ -4177,6 +4177,7 @@
     "priority": "P0",
     "status": "automated",
     "owners": [
+      "tests/unit/aiSessions/conversationCommentController.test.js",
       "tests/unit/aiSessions/conversationComments.test.js",
       "tests/integration/dashboard/conversationRouting.test.js"
     ],
@@ -4192,6 +4193,7 @@
     "priority": "P0",
     "status": "automated",
     "owners": [
+      "tests/unit/aiSessions/conversationCommentController.test.js",
       "tests/unit/aiSessions/conversationSubmission.test.js"
     ],
     "evidence": [
@@ -4208,6 +4210,7 @@
     "priority": "P0",
     "status": "automated",
     "owners": [
+      "tests/unit/aiSessions/conversationCommentController.test.js",
       "tests/integration/dashboard/conversationRouting.test.js",
       "tests/browser/conversationViewer.test.js"
     ],
@@ -4287,6 +4290,7 @@
     "priority": "P0",
     "status": "automated",
     "owners": [
+      "tests/unit/aiSessions/conversationCommentController.test.js",
       "tests/unit/aiSessions/conversationCommentStore.test.js",
       "tests/integration/dashboard/conversationRouting.test.js"
     ],

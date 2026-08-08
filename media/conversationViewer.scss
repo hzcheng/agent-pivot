@@ -1673,7 +1673,7 @@ button {
 }
 
 .conversation-project-comment-draft-tags,
-.conversation-project-comment-tags-row {
+.conversation-comment-tags-row {
     display: flex;
     min-width: 0;
     gap: 0.25rem;
@@ -1681,12 +1681,51 @@ button {
     flex-wrap: wrap;
 }
 
-.conversation-project-comment-tags-row {
+.conversation-comment-tags-row {
     margin-top: 0.4rem;
 }
 
-.conversation-project-comment-tags-row:empty {
+.conversation-comment-tags-row:empty {
     display: none;
+}
+
+.conversation-comment-status-chip {
+    --status-chip-color: var(--vscode-editorWarning-foreground, #cca700);
+
+    display: inline-flex;
+    align-items: center;
+    padding: 0 0.42rem;
+    border: 1px solid color-mix(
+        in srgb,
+        var(--status-chip-color) 45%,
+        transparent
+    );
+    border-radius: 999px;
+    color: var(--status-chip-color);
+    background: color-mix(in srgb, var(--status-chip-color) 12%, transparent);
+    font-size: 0.66rem;
+    font-weight: 600;
+    line-height: 1.5;
+
+    &[data-comment-status-chip="done"] {
+        --status-chip-color: var(--vscode-charts-green, #89d185);
+    }
+}
+
+button.conversation-comment-status-chip {
+    cursor: pointer;
+
+    &:hover {
+        filter: brightness(1.2);
+    }
+}
+
+.conversation-project-comment-filter-dot[data-comment-status-chip="open"] {
+    --tag-color: var(--vscode-editorWarning-foreground, #cca700);
+}
+
+.conversation-project-comment-filter-dot[data-comment-status-chip="done"] {
+    --tag-color: var(--vscode-charts-green, #89d185);
 }
 
 .conversation-project-comment-tag {

@@ -32,7 +32,7 @@ export interface ConversationViewerCommentMutationMessage {
     provider: AiSessionProviderId;
     sessionId: string;
     operation: 'add' | 'update' | 'delete' | 'reorder'
-        | 'clearDone' | 'clearAll';
+        | 'clearDone' | 'clearAll' | 'addTag' | 'removeTag';
     expectedRevision: number;
     payload: unknown;
 }
@@ -414,6 +414,8 @@ export function parseConversationViewerMessage(
             && value.operation !== 'update'
             && value.operation !== 'delete'
             && value.operation !== 'reorder'
+            && value.operation !== 'addTag'
+            && value.operation !== 'removeTag'
             && value.operation !== 'clearDone'
             && value.operation !== 'clearAll') {
             return undefined;

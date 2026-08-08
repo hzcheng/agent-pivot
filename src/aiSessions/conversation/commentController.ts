@@ -3,6 +3,7 @@
 import { randomBytes } from 'crypto';
 import * as vscode from 'vscode';
 import {
+    addConversationCommentTag,
     buildConversationCommentsPrompt,
     clearConversationComments,
     cloneConversationComments,
@@ -16,6 +17,7 @@ import {
     createConversationComment,
     createConversationSessionComment,
     markConversationCommentsDone,
+    removeConversationCommentTag,
     reorderConversationComments,
     updateConversationComment,
     validateConversationComments,
@@ -331,6 +333,22 @@ export class ConversationCommentController {
                 comments = remainingComments;
                 revision += 1;
             }
+        } else if (request.operation === 'addTag'
+            || request.operation === 'removeTag') {
+            const payload = parseCommentTagPayload(request.payload);
+            const index = comments.findIndex(
+                comment => comment.id === payload.commentId
+            );
+            if (index < 0) {
+                throw new ConversationCommentError('stale');
+            }
+            const next = request.operation === 'addTag'
+                ? addConversationCommentTag(comments[index], payload.tag)
+                : removeConversationCommentTag(comments[index], payload.tag);
+            if (JSON.stringify(next) !== JSON.stringify(comments[index])) {
+                comments[index] = next;
+                revision += 1;
+            }
         } else {
             const payload = parseExistingCommentPayload(
                 request.operation,
@@ -351,6 +369,11 @@ export class ConversationCommentController {
                 );
             }
             revision += 1;
+        }
+        if (revision === this.revision) {
+            // A no-op mutation (e.g. adding a duplicate tag) still settles
+            // successfully, just without touching the persisted snapshot.
+            return;
         }
         const snapshot = { revision, comments };
         const previousSnapshot = this.snapshot;
@@ -608,6 +631,21 @@ function parseExistingCommentPayload(
             ? { comment: value.comment as string }
             : {}),
     };
+}
+
+function parseCommentTagPayload(
+    payload: unknown
+): { commentId: string; tag: string } {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+        throw new ConversationCommentError('invalid');
+    }
+    const value = payload as Record<string, unknown>;
+    if (!hasExactKeys(value, ['commentId', 'tag'])
+        || !isConversationViewerTargetId(value.commentId)
+        || typeof value.tag !== 'string') {
+        throw new ConversationCommentError('invalid');
+    }
+    return { commentId: value.commentId, tag: value.tag };
 }
 
 function parseReorderPayload(payload: unknown): string[] {

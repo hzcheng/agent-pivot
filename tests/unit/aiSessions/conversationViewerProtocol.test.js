@@ -100,6 +100,20 @@ test('CONVERSATION-PROTOCOL-VALIDATOR-001 accepts every exact version-1 viewer i
         expectedRevision: 2,
         payload: {},
     }, {
+        type: 'conversation-viewer-comment-mutation',
+        version: 1,
+        ...target,
+        operation: 'addTag',
+        expectedRevision: 2,
+        payload: { commentId: 'comment-1', tag: 'ux' },
+    }, {
+        type: 'conversation-viewer-comment-mutation',
+        version: 1,
+        ...target,
+        operation: 'removeTag',
+        expectedRevision: 2,
+        payload: { commentId: 'comment-1', tag: 'ux' },
+    }, {
         type: 'conversation-viewer-send-comments',
         version: 1,
         ...target,

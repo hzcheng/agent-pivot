@@ -76,6 +76,7 @@
             projectSectionCollapsed: false,
             sessionSectionCollapsed: false,
             draggedProjectCommentId: null,
+            sessionTagEditor: null,
         };
 
         function readJsonAttribute(name) {
@@ -97,7 +98,9 @@
                 'id', 'messageId', 'interactionId', 'role',
                 'quote', 'prefix', 'suffix', 'comment', 'status',
             ];
-            var allowed = required.concat(['scope', 'createdAt', 'sentAt']);
+            var allowed = required.concat(
+                ['scope', 'createdAt', 'sentAt', 'tags']
+            );
             var hasSessionScope = value.scope === 'session';
             return Object.keys(value).every(function (key) {
                 return allowed.indexOf(key) >= 0;
@@ -122,6 +125,14 @@
                         && value.suffix === ''))
                 && (hasSessionScope || value.quote.trim().length > 0)
                 && (value.status === 'open' || value.status === 'done')
+                && (value.tags === undefined
+                    || (Array.isArray(value.tags)
+                        && value.tags.length <= 5
+                        && value.tags.every(function (tag) {
+                            return typeof tag === 'string'
+                                && tag.trim().length > 0
+                                && Array.from(tag).length <= 24;
+                        })))
                 && (value.createdAt === undefined
                     || (Number.isSafeInteger(value.createdAt)
                         && value.createdAt >= 0))
@@ -168,6 +179,8 @@
                     || value.operation === 'update'
                     || value.operation === 'delete'
                     || value.operation === 'reorder'
+                    || value.operation === 'addTag'
+                    || value.operation === 'removeTag'
                     || value.operation === 'clearDone'
                     || value.operation === 'clearAll'
                     || value.operation === 'sendComments'
@@ -613,13 +626,6 @@
                 dragHandle.draggable = !editing;
                 dragHandle.disabled = editing;
                 heading.appendChild(dragHandle);
-                var statusLabel = document.createElement('span');
-                statusLabel.className = 'conversation-comment-status';
-                statusLabel.setAttribute('data-comment-status-label', '');
-                statusLabel.textContent = comment.status === 'open'
-                    ? 'Open'
-                    : 'Done';
-                heading.appendChild(statusLabel);
                 var actions = document.createElement('div');
                 actions.className = 'conversation-comment-actions';
                 heading.appendChild(actions);
@@ -650,6 +656,9 @@
                     hint.className = 'conversation-comment-edit-hint';
                     hint.textContent = 'Ctrl+Enter to save · Esc to cancel';
                     item.append(input, hint);
+                    item.appendChild(
+                        buildSessionCommentTagsRow(comment, index)
+                    );
                     commentList.appendChild(item);
                     autosizeCommentInput(input);
                     input.focus();
@@ -680,6 +689,9 @@
                     );
                     collapsedBody.textContent = comment.comment;
                     item.appendChild(collapsedBody);
+                    item.appendChild(
+                        buildSessionCommentTagsRow(comment, index)
+                    );
                     commentList.appendChild(item);
                     return;
                 }
@@ -756,10 +768,25 @@
                     meta.appendChild(time);
                 }
                 item.appendChild(meta);
+                item.appendChild(
+                    buildSessionCommentTagsRow(comment, index)
+                );
                 commentList.appendChild(item);
             });
             updateToggle();
             commentEmpty.hidden = state.comments.length > 0;
+            if (state.sessionTagEditor) {
+                var sessionTagInput = commentList.querySelector(
+                    '[data-comment-tag-input]'
+                );
+                if (sessionTagInput) {
+                    sessionTagInput.focus();
+                    sessionTagInput.setSelectionRange(
+                        sessionTagInput.value.length,
+                        sessionTagInput.value.length
+                    );
+                }
+            }
             if (commentFilterEmpty) {
                 var filteredOut = state.comments.length > 0
                     && entries.length === 0;
@@ -1296,6 +1323,72 @@
             return 'Codex';
         }
 
+        function buildCommentStatusChip(status, toggleAction) {
+            var chip = document.createElement(
+                toggleAction ? 'button' : 'span'
+            );
+            chip.className = 'conversation-comment-status-chip';
+            chip.setAttribute('data-comment-status-chip', status);
+            chip.textContent = status === 'open' ? 'Open' : 'Done';
+            if (toggleAction) {
+                chip.type = 'button';
+                chip.setAttribute(
+                    'data-project-comment-action',
+                    toggleAction
+                );
+                chip.title = status === 'open' ? 'Mark done' : 'Reopen';
+                chip.setAttribute('aria-label', chip.title);
+            }
+            return chip;
+        }
+
+        function buildSessionCommentTagsRow(comment, index) {
+            var row = document.createElement('div');
+            row.className = 'conversation-comment-tags-row';
+            row.appendChild(buildCommentStatusChip(comment.status, null));
+            var tags = comment.tags || [];
+            tags.forEach(function (tag) {
+                var chip = document.createElement('span');
+                chip.className = 'conversation-project-comment-tag';
+                chip.setAttribute(
+                    'data-tag-color',
+                    String(projectTagColorKey(tag))
+                );
+                chip.appendChild(document.createTextNode(tag));
+                var remove = document.createElement('button');
+                remove.type = 'button';
+                remove.setAttribute('data-comment-action', 'remove-tag');
+                remove.setAttribute('data-tag', tag);
+                remove.title = 'Remove tag ' + tag;
+                remove.setAttribute('aria-label', 'Remove tag ' + tag);
+                remove.textContent = '\u00d7';
+                chip.appendChild(remove);
+                row.appendChild(chip);
+            });
+            if (state.sessionTagEditor
+                && state.sessionTagEditor.commentId === comment.id) {
+                var tagInput = document.createElement('input');
+                tagInput.type = 'text';
+                tagInput.maxLength = 48;
+                tagInput.className = 'conversation-project-comment-tag-input';
+                tagInput.setAttribute('data-comment-tag-input', '');
+                tagInput.setAttribute('aria-label', 'New tag');
+                tagInput.placeholder = 'tag';
+                tagInput.value = state.sessionTagEditor.draft;
+                row.appendChild(tagInput);
+            } else if (tags.length < 5) {
+                var addTag = document.createElement('button');
+                addTag.type = 'button';
+                addTag.className = 'conversation-project-comment-tag-add';
+                addTag.setAttribute('data-comment-action', 'open-tag-editor');
+                addTag.title = 'Add tag';
+                addTag.setAttribute('aria-label', 'Add tag');
+                addTag.textContent = '+';
+                row.appendChild(addTag);
+            }
+            return row;
+        }
+
         function validProjectCommentSource(value) {
             if (!value || typeof value !== 'object' || Array.isArray(value)) {
                 return false;
@@ -1430,11 +1523,22 @@
             });
         }
 
+        function projectCommentFilterEquals(a, b) {
+            if (a === null || b === null) {
+                return a === b;
+            }
+            return a.type === b.type && a.value === b.value;
+        }
+
         function visibleProjectComments() {
             var ordered = orderedProjectComments();
-            if (!state.projectTagFilter) return ordered;
+            var filter = state.projectTagFilter;
+            if (!filter) return ordered;
             return ordered.filter(function (comment) {
-                return projectCommentHasTag(comment, state.projectTagFilter);
+                if (filter.type === 'status') {
+                    return comment.status === filter.value;
+                }
+                return projectCommentHasTag(comment, filter.value);
             });
         }
 
@@ -1467,9 +1571,21 @@
                 var saved = vscodeApi.getState();
                 var filter = saved
                     && saved.conversationProjectCommentsTagFilter;
-                return typeof filter === 'string' && filter
-                    ? filter
-                    : null;
+                if (!filter || typeof filter !== 'object'
+                    || Array.isArray(filter)) {
+                    return null;
+                }
+                if (filter.type === 'status'
+                    && (filter.value === 'open'
+                        || filter.value === 'done')) {
+                    return { type: 'status', value: filter.value };
+                }
+                if (filter.type === 'tag'
+                    && typeof filter.value === 'string'
+                    && filter.value) {
+                    return { type: 'tag', value: filter.value };
+                }
+                return null;
             } catch (_error) {
                 return null;
             }
@@ -1977,7 +2093,10 @@
 
         function buildProjectCommentTagsRow(comment) {
             var row = document.createElement('div');
-            row.className = 'conversation-project-comment-tags-row';
+            row.className = 'conversation-comment-tags-row';
+            row.appendChild(
+                buildCommentStatusChip(comment.status, 'toggle-status')
+            );
             comment.tags.forEach(function (tag) {
                 row.appendChild(projectTagElement(comment, tag, true));
             });
@@ -2033,22 +2152,6 @@
             dragHandle.draggable = !editing;
             dragHandle.disabled = editing;
             heading.appendChild(dragHandle);
-            var statusToggle = document.createElement('button');
-            statusToggle.type = 'button';
-            statusToggle.className = 'conversation-comment-status'
-                + ' conversation-project-comment-status';
-            statusToggle.setAttribute(
-                'data-project-comment-action',
-                'toggle-status'
-            );
-            statusToggle.textContent = comment.status === 'open'
-                ? 'Open'
-                : 'Done';
-            statusToggle.title = comment.status === 'open'
-                ? 'Mark done'
-                : 'Reopen';
-            statusToggle.setAttribute('aria-label', statusToggle.title);
-            heading.appendChild(statusToggle);
             var actions = document.createElement('div');
             actions.className = 'conversation-comment-actions';
             heading.appendChild(actions);
@@ -2205,7 +2308,14 @@
             if (!projectCommentsAvailable) return;
             var vocabulary = [];
             var counts = new Map();
+            var openCount = 0;
+            var doneCount = 0;
             orderedProjectComments().forEach(function (comment) {
+                if (comment.status === 'open') {
+                    openCount += 1;
+                } else {
+                    doneCount += 1;
+                }
                 comment.tags.forEach(function (tag) {
                     var key = tag.toLowerCase();
                     if (!counts.has(key)) {
@@ -2215,34 +2325,60 @@
                     counts.set(key, counts.get(key) + 1);
                 });
             });
-            if (state.projectTagFilter && !counts.has(state.projectTagFilter)) {
+            if (state.projectTagFilter
+                && state.projectTagFilter.type === 'tag'
+                && !counts.has(state.projectTagFilter.value)) {
                 state.projectTagFilter = null;
                 saveProjectTagFilter();
             }
             projectCommentTagFilter.replaceChildren();
-            projectCommentTagFilter.hidden = vocabulary.length === 0;
-            if (!vocabulary.length) return;
-            var all = document.createElement('button');
-            all.type = 'button';
-            all.className = 'conversation-project-comment-filter-chip';
-            all.setAttribute('data-project-comment-action', 'filter-tag');
-            all.setAttribute('data-tag', '');
-            all.setAttribute(
-                'aria-pressed',
-                state.projectTagFilter === null ? 'true' : 'false'
-            );
-            all.textContent = 'All · ' + state.projectComments.length;
-            projectCommentTagFilter.appendChild(all);
-            vocabulary.forEach(function (tag) {
-                var key = tag.toLowerCase();
+            projectCommentTagFilter.hidden
+                = state.projectComments.length === 0;
+            if (!state.projectComments.length) return;
+
+            function filterChip(label, pressed, attributes) {
                 var chip = document.createElement('button');
                 chip.type = 'button';
                 chip.className = 'conversation-project-comment-filter-chip';
                 chip.setAttribute('data-project-comment-action', 'filter-tag');
-                chip.setAttribute('data-tag', tag);
+                Object.keys(attributes).forEach(function (name) {
+                    chip.setAttribute(name, attributes[name]);
+                });
                 chip.setAttribute(
                     'aria-pressed',
-                    state.projectTagFilter === key ? 'true' : 'false'
+                    pressed ? 'true' : 'false'
+                );
+                chip.appendChild(document.createTextNode(label));
+                projectCommentTagFilter.appendChild(chip);
+                return chip;
+            }
+
+            var filter = state.projectTagFilter;
+            filterChip(
+                'All · ' + state.projectComments.length,
+                filter === null,
+                { 'data-tag': '' }
+            );
+            ['open', 'done'].forEach(function (status) {
+                var chip = filterChip(
+                    (status === 'open' ? 'Open' : 'Done') + ' · '
+                        + (status === 'open' ? openCount : doneCount),
+                    !!filter && filter.type === 'status'
+                        && filter.value === status,
+                    { 'data-status-filter': status }
+                );
+                var dot = document.createElement('span');
+                dot.className = 'conversation-project-comment-filter-dot';
+                dot.setAttribute('data-comment-status-chip', status);
+                chip.insertBefore(dot, chip.firstChild);
+            });
+            vocabulary.forEach(function (tag) {
+                var key = tag.toLowerCase();
+                var chip = filterChip(
+                    tag + ' · ' + counts.get(key),
+                    !!filter && filter.type === 'tag'
+                        && filter.value === key,
+                    { 'data-tag': tag }
                 );
                 var dot = document.createElement('span');
                 dot.className = 'conversation-project-comment-filter-dot';
@@ -2250,11 +2386,7 @@
                     'data-tag-color',
                     String(projectTagColorKey(tag))
                 );
-                chip.appendChild(dot);
-                chip.appendChild(document.createTextNode(
-                    tag + ' · ' + counts.get(key)
-                ));
-                projectCommentTagFilter.appendChild(chip);
+                chip.insertBefore(dot, chip.firstChild);
             });
         }
 
@@ -2451,6 +2583,10 @@
                         state.editingComment.draft = target.value;
                     }
                     autosizeCommentInput(target);
+                } else if (target && target.matches
+                    && target.matches('[data-comment-tag-input]')
+                    && state.sessionTagEditor) {
+                    state.sessionTagEditor.draft = target.value;
                 }
             });
             commentList.addEventListener('dragstart', function (event) {
@@ -2652,6 +2788,21 @@
                     return candidate.id === commentId;
                 });
                 if (!item || !comment) return;
+                if (action === 'open-tag-editor') {
+                    state.sessionTagEditor = {
+                        commentId: comment.id,
+                        draft: '',
+                    };
+                    renderComments();
+                    return;
+                }
+                if (action === 'remove-tag') {
+                    postCommentOperation('removeTag', {
+                        commentId: comment.id,
+                        tag: button.getAttribute('data-tag') || '',
+                    });
+                    return;
+                }
                 if (action === 'toggle-done') {
                     if (state.expandedDoneComments.has(comment.id)) {
                         state.expandedDoneComments.delete(comment.id);
@@ -2800,14 +2951,21 @@
                         return;
                     }
                     if (action === 'filter-tag') {
-                        var filterTag = button.getAttribute('data-tag');
-                        var nextFilter = filterTag
-                            ? filterTag.toLowerCase()
-                            : null;
-                        state.projectTagFilter =
-                            state.projectTagFilter === nextFilter
-                                ? null
-                                : nextFilter;
+                        var statusValue = button.getAttribute(
+                            'data-status-filter'
+                        );
+                        var tagValue = button.getAttribute('data-tag');
+                        var nextFilter = statusValue
+                            ? { type: 'status', value: statusValue }
+                            : tagValue
+                                ? { type: 'tag', value: tagValue.toLowerCase() }
+                                : null;
+                        state.projectTagFilter = projectCommentFilterEquals(
+                            state.projectTagFilter,
+                            nextFilter
+                        )
+                            ? null
+                            : nextFilter;
                         saveProjectTagFilter();
                         renderProjectComments();
                         return;
@@ -3045,6 +3203,27 @@
                     return false;
                 }
             }
+            if (eventTarget && eventTarget.matches
+                && eventTarget.matches('[data-comment-tag-input]')) {
+                if (event.key === 'Enter' && !event.ctrlKey
+                    && !event.metaKey && !event.altKey
+                    && state.sessionTagEditor) {
+                    event.preventDefault();
+                    var sessionEditor = state.sessionTagEditor;
+                    state.sessionTagEditor = null;
+                    var sessionTag = normalizeProjectTag(sessionEditor.draft);
+                    if (sessionTag) {
+                        postCommentOperation('addTag', {
+                            commentId: sessionEditor.commentId,
+                            tag: sessionTag,
+                        });
+                    } else {
+                        renderComments();
+                    }
+                    return true;
+                }
+                return false;
+            }
             if (!commentUiAvailable
                 || event.key !== 'Enter'
                 || (!event.ctrlKey && !event.metaKey)
@@ -3111,6 +3290,15 @@
                 if (!state.pendingProjectCommentRequest) {
                     state.projectTagEditor = null;
                     renderProjectComments();
+                }
+                return true;
+            }
+            if (commentUiAvailable && state.sessionTagEditor) {
+                event.preventDefault();
+                if (!state.pendingCommentRequest
+                    && !state.pendingLocateRequest) {
+                    state.sessionTagEditor = null;
+                    renderComments();
                 }
                 return true;
             }

@@ -3549,17 +3549,17 @@ test('PROJECT-COMMENTS-UI-001 captures, tags, filters, and dispatches project no
         ).first().innerText(),
         'bug\n×'
     );
-    // Tags live on their own row at the bottom of the card, keeping the
-    // heading row to status + icon actions like Session cards.
+    // Tags and the status chip live on their own row at the bottom of the
+    // card, keeping the heading row to the drag handle + icon actions.
     assert.equal(
         await cards.first().evaluate(element =>
             element.lastElementChild.className
         ),
-        'conversation-project-comment-tags-row'
+        'conversation-comment-tags-row'
     );
     assert.equal(
         await cards.first().locator(
-            '.conversation-project-comment-status'
+            '[data-project-comment-action="toggle-status"]'
         ).innerText(),
         'Open'
     );
@@ -3570,7 +3570,7 @@ test('PROJECT-COMMENTS-UI-001 captures, tags, filters, and dispatches project no
     );
     assert.deepEqual(
         await filterChips.allInnerTexts(),
-        ['All · 1', 'bug · 1']
+        ['All · 1', 'Open · 1', 'Done · 0', 'bug · 1']
     );
 
     // A second, untagged note lands on top (newest first).
@@ -3601,7 +3601,7 @@ test('PROJECT-COMMENTS-UI-001 captures, tags, filters, and dispatches project no
     );
 
     // Tag filtering narrows the list and toggles back off.
-    await filterChips.nth(1).click();
+    await filterChips.nth(3).click();
     assert.equal(await cards.count(), 1);
     assert.equal(
         await cards.first().getAttribute('data-project-comment-id'),
@@ -3647,7 +3647,7 @@ test('PROJECT-COMMENTS-UI-001 captures, tags, filters, and dispatches project no
     );
     assert.equal(
         await dispatchedCard.locator(
-            '.conversation-project-comment-status'
+            '[data-project-comment-action="toggle-status"]'
         ).innerText(),
         'Open'
     );
@@ -3862,7 +3862,7 @@ test('PROJECT-COMMENTS-UI-001 toggles, edits, and deletes notes with source snap
     );
 
     // The status pill toggles done and the card collapses.
-    await card.locator('.conversation-project-comment-status').click();
+    await card.locator('[data-project-comment-action="toggle-status"]').click();
     const doneRequest = (await postedMessages(page)).at(-1);
     assert.equal(doneRequest.operation, 'setStatus');
     assert.deepEqual(doneRequest.payload, {
@@ -3886,7 +3886,7 @@ test('PROJECT-COMMENTS-UI-001 toggles, edits, and deletes notes with source snap
     );
 
     // Reopen, then edit the text in place.
-    await card.locator('.conversation-project-comment-status').click();
+    await card.locator('[data-project-comment-action="toggle-status"]').click();
     const reopenRequest = (await postedMessages(page)).at(-1);
     await sendPage(page, projectCommentSettlement(
         reopenRequest,
@@ -4092,7 +4092,7 @@ test('CONVERSATION-COMMENTS-ORDERING-001 drags cards into a Host-authoritative o
     const { page } = await openHostViewerDocument(t, {
         includeStyles: true,
         themeFixture: viewerThemeFixtures[0],
-        viewport: { width: 850, height: 800 },
+        viewport: { width: 850, height: 1000 },
         initialWebviewState: {
             conversationCommentsPanel: {
                 open: true,
@@ -4185,11 +4185,18 @@ test('CONVERSATION-COMMENTS-ORDERING-001 drags cards into a Host-authoritative o
         'the minimum-width comments panel must not overflow horizontally'
     );
 
+    const thirdCard = page.locator('[data-comment-id="comment-third"]');
+    const thirdCardBox = await thirdCard.boundingBox();
     await page.locator('[data-comment-id="comment-first"]')
         .locator('[data-comment-drag-handle]')
         .dragTo(
-            page.locator('[data-comment-id="comment-third"]')
-                .locator('.conversation-comment-body')
+            thirdCard,
+            {
+                targetPosition: {
+                    x: Math.floor(thirdCardBox.width / 2),
+                    y: Math.max(1, Math.floor(thirdCardBox.height) - 6),
+                },
+            }
         );
     const dragRequest = (await postedMessages(page)).at(-1);
     assert.equal(dragRequest.type, 'conversation-viewer-comment-mutation');
@@ -4762,7 +4769,7 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-SUBMIT-002 renders read
     // A freshly sent card flips to Done, stays expanded once, and drops
     // the send action while keeping edit (which reopens it) and delete.
     assert.equal(
-        await card.locator('[data-comment-status-label]').textContent(),
+        await card.locator('[data-comment-status-chip]').textContent(),
         'Done'
     );
     assert.deepEqual(await cardActions(card), [
@@ -4812,7 +4819,7 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-SUBMIT-002 renders read
     delete comments[0].sentAt;
     await settle(reopenUpdate, 4, comments);
     assert.equal(
-        await card.locator('[data-comment-status-label]').textContent(),
+        await card.locator('[data-comment-status-chip]').textContent(),
         'Open'
     );
     assert.deepEqual(await cardActions(card), [
@@ -5779,7 +5786,7 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-BULK-001 CONVERSATION-C
 
     assert.equal(await page.locator('[data-comment-id]').count(), 2);
     assert.deepEqual(
-        await page.locator('[data-comment-status-label]').allTextContents(),
+        await page.locator('[data-comment-status-chip]').allTextContents(),
         ['Done', 'Done']
     );
     assert.equal(
@@ -5829,7 +5836,7 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-BULK-001 CONVERSATION-C
     comments.splice(1, 1);
     await settle(clearDone, 5, comments);
     assert.deepEqual(
-        await page.locator('[data-comment-status-label]').allTextContents(),
+        await page.locator('[data-comment-status-chip]').allTextContents(),
         ['Open']
     );
 
@@ -9113,4 +9120,125 @@ test('TMP repro add flow from closed sidebar', async t => {
 
 
 
+
+
+test('CONVERSATION-COMMENTS-UI-001 PROJECT-COMMENTS-UI-001 unifies status and tag chips across both card groups', async t => {
+    const sessionComment = {
+        id: 'comment-1',
+        scope: 'session',
+        messageId: '',
+        interactionId: '',
+        role: 'user',
+        quote: '',
+        prefix: '',
+        suffix: '',
+        comment: '只改 CSS，别动 TS。',
+        status: 'open',
+    };
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+        viewport: { width: 850, height: 800 },
+        initialWebviewState: {
+            conversationSidebar: {
+                open: true,
+                width: 280,
+                view: 'comments',
+                query: '',
+            },
+        },
+        interactionIds: ['input-unified'],
+        interactionId: 'input-unified',
+        pageOverrides: {
+            previousCursor: undefined,
+            nextCursor: undefined,
+            isStart: true,
+            isEnd: true,
+        },
+        commentStore: {
+            load: async () => ({ revision: 1, comments: [sessionComment] }),
+            save: async () => {},
+        },
+    });
+
+    await page.locator('[data-sidebar-tab="comments"]').click();
+    const card = page.locator('[data-comment-id="comment-1"]');
+
+    // Session cards carry the same bottom tags row: a display-only status
+    // chip plus an add-tag affordance, and no heading status pill.
+    const tagsRow = card.locator('.conversation-comment-tags-row');
+    assert.equal(
+        await tagsRow.locator('[data-comment-status-chip]').innerText(),
+        'Open'
+    );
+    assert.equal(
+        await tagsRow.locator('[data-comment-status-chip]')
+            .evaluate(element => element.tagName),
+        'SPAN'
+    );
+    assert.equal(
+        await card.locator('.conversation-comment-heading')
+            .locator('.conversation-comment-status').count(),
+        0
+    );
+
+    // Adding a tag goes through the Host-authoritative mutation protocol.
+    await tagsRow.locator('[data-comment-action="open-tag-editor"]').click();
+    const tagInput = card.locator('[data-comment-tag-input]');
+    await tagInput.fill('convention');
+    await tagInput.press('Enter');
+    const tagRequest = (await postedMessages(page)).at(-1);
+    assert.equal(
+        tagRequest.type,
+        'conversation-viewer-comment-mutation'
+    );
+    assert.equal(tagRequest.operation, 'addTag');
+    assert.deepEqual(tagRequest.payload, {
+        commentId: 'comment-1',
+        tag: 'convention',
+    });
+    await page.evaluate(({ request }) => {
+        window.dispatchEvent(new MessageEvent('message', {
+            data: {
+                type: 'conversation-viewer-comments-result',
+                version: 1,
+                requestId: request.requestId,
+                subscriptionGeneration: request.subscriptionGeneration,
+                projectId: request.projectId,
+                provider: request.provider,
+                sessionId: request.sessionId,
+                operation: request.operation,
+                success: true,
+                revision: 2,
+                comments: [{
+                    id: 'comment-1',
+                    scope: 'session',
+                    messageId: '',
+                    interactionId: '',
+                    role: 'user',
+                    quote: '',
+                    prefix: '',
+                    suffix: '',
+                    comment: '只改 CSS，别动 TS。',
+                    status: 'open',
+                    tags: ['convention'],
+                }],
+            },
+        }));
+    }, { request: tagRequest });
+    assert.deepEqual(
+        await tagsRow.locator('.conversation-project-comment-tag')
+            .allInnerTexts(),
+        ['convention\n×']
+    );
+
+    // Removing it posts the paired mutation.
+    await tagsRow.locator('[data-comment-action="remove-tag"]').click();
+    const removeRequest = (await postedMessages(page)).at(-1);
+    assert.equal(removeRequest.operation, 'removeTag');
+    assert.deepEqual(removeRequest.payload, {
+        commentId: 'comment-1',
+        tag: 'convention',
+    });
+});
 

@@ -3,12 +3,14 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const {
+    addConversationCommentTag,
     buildConversationCommentsPrompt,
     clearConversationComments,
     ConversationCommentError,
     createConversationComment,
     createConversationSessionComment,
     markConversationCommentsDone,
+    removeConversationCommentTag,
     reorderConversationComments,
     updateConversationComment,
     validateConversationComments,
@@ -19,6 +21,49 @@ const message = Object.freeze({
     interactionId: 'interaction-a',
     role: 'assistant',
     markdown: 'The original response.',
+});
+
+test('CONVERSATION-COMMENTS-001 adds and removes bounded tags on comment drafts', () => {
+    const draft = createConversationSessionComment(
+        'comment-tags',
+        'Remember this.'
+    );
+    assert.equal(draft.tags, undefined);
+
+    const tagged = addConversationCommentTag(draft, ' Convention ');
+    assert.deepEqual(tagged.tags, ['Convention']);
+    assert.equal(draft.tags, undefined);
+
+    const duplicate = addConversationCommentTag(tagged, 'convention');
+    assert.deepEqual(duplicate.tags, ['Convention']);
+
+    validateConversationComments([tagged]);
+    assert.throws(
+        () => validateConversationComments([
+            { ...tagged, tags: ['a', 'A'] },
+        ]),
+        /invalid/
+    );
+    assert.throws(
+        () => validateConversationComments([
+            { ...tagged, tags: ['ok', '  '] },
+        ]),
+        /invalid/
+    );
+
+    let full = tagged;
+    ['b', 'c', 'd', 'e'].forEach(tag => {
+        full = addConversationCommentTag(full, tag);
+    });
+    assert.throws(
+        () => addConversationCommentTag(full, 'overflow'),
+        /limit/
+    );
+
+    const removed = removeConversationCommentTag(full, 'CONVENTION');
+    assert.deepEqual(removed.tags, ['b', 'c', 'd', 'e']);
+    const noop = removeConversationCommentTag(full, 'missing');
+    assert.deepEqual(noop.tags, full.tags);
 });
 
 test('CONVERSATION-COMMENTS-001 creates bounded host-authoritative drafts and open/done states', () => {

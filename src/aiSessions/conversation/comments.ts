@@ -10,6 +10,8 @@ export const CONVERSATION_COMMENT_LIMITS = Object.freeze({
     maxContextGraphemes: 240,
     maxCommentGraphemes: 4_000,
     maxPromptGraphemes: 32_000,
+    maxTagsPerComment: 5,
+    maxTagGraphemes: 24,
 });
 
 export interface ConversationCommentTarget {
@@ -29,6 +31,7 @@ export interface ConversationCommentDraft {
     suffix: string;
     comment: string;
     status: ConversationCommentStatus;
+    tags?: string[];
     createdAt?: number;
     sentAt?: number;
 }
@@ -52,7 +55,7 @@ export interface ConversationCommentSessionNote {
 
 export type ConversationCommentOperation =
     'add' | 'update' | 'delete' | 'reorder' | 'clearDone' | 'clearAll'
-    | 'sendComments' | 'sendComment';
+    | 'sendComments' | 'sendComment' | 'addTag' | 'removeTag';
 
 export type ConversationCommentClearOperation =
     'clearDone' | 'clearAll';
@@ -201,6 +204,74 @@ export function reorderConversationComments(
     return reordered;
 }
 
+export function addConversationCommentTag(
+    draft: ConversationCommentDraft,
+    tag: unknown
+): ConversationCommentDraft {
+    const normalized = normalizeConversationCommentTag(tag);
+    const tags = draft.tags ?? [];
+    if (tags.some(candidate => candidate.toLowerCase()
+        === normalized.toLowerCase())) {
+        return { ...draft };
+    }
+    if (tags.length >= CONVERSATION_COMMENT_LIMITS.maxTagsPerComment) {
+        throw new ConversationCommentError('limit');
+    }
+    return { ...draft, tags: [...tags, normalized] };
+}
+
+export function removeConversationCommentTag(
+    draft: ConversationCommentDraft,
+    tag: unknown
+): ConversationCommentDraft {
+    if (typeof tag !== 'string') {
+        throw new ConversationCommentError('invalid');
+    }
+    const tags = draft.tags ?? [];
+    const needle = tag.trim().toLowerCase();
+    if (!tags.some(candidate => candidate.toLowerCase() === needle)) {
+        return { ...draft };
+    }
+    return {
+        ...draft,
+        tags: tags.filter(
+            candidate => candidate.toLowerCase() !== needle
+        ),
+    };
+}
+
+function normalizeConversationCommentTag(value: unknown): string {
+    if (typeof value !== 'string') {
+        throw new ConversationCommentError('invalid');
+    }
+    const normalized = value.replace(/\s+/g, ' ').trim();
+    if (!normalized
+        || graphemeLength(normalized)
+            > CONVERSATION_COMMENT_LIMITS.maxTagGraphemes
+        || /[\u0000-\u001f\u007f]/.test(normalized)) {
+        throw new ConversationCommentError('invalid');
+    }
+    return normalized;
+}
+
+function validateDraftTags(tags: string[] | undefined): void {
+    if (tags === undefined) {
+        return;
+    }
+    if (!Array.isArray(tags)
+        || tags.length > CONVERSATION_COMMENT_LIMITS.maxTagsPerComment) {
+        throw new ConversationCommentError('invalid');
+    }
+    const seen = new Set<string>();
+    tags.forEach(tag => {
+        normalizeConversationCommentTag(tag);
+        if (seen.has(tag.toLowerCase())) {
+            throw new ConversationCommentError('invalid');
+        }
+        seen.add(tag.toLowerCase());
+    });
+}
+
 export function buildConversationCommentsPrompt(
     comments: readonly ConversationCommentDraft[]
 ): string {
@@ -250,7 +321,10 @@ export function buildConversationCommentsPrompt(
 export function cloneConversationComments(
     comments: readonly ConversationCommentDraft[]
 ): ConversationCommentDraft[] {
-    return comments.map(comment => ({ ...comment }));
+    return comments.map(comment => ({
+        ...comment,
+        ...(comment.tags ? { tags: [...comment.tags] } : {}),
+    }));
 }
 
 export function validateConversationComments(
@@ -278,6 +352,7 @@ function validateDraft(draft: ConversationCommentDraft): void {
         || !isOptionalTimestamp(draft.sentAt)) {
         throw new ConversationCommentError('invalid');
     }
+    validateDraftTags(draft.tags);
     if (draft.scope === 'session') {
         if (draft.messageId !== ''
             || draft.interactionId !== ''

@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "76a4676e2dbd4bb001489dd8c1ac9918f961ae99",
+        "head": "84daa1256b925387cc57a8d3af4c04c016ad3c5c",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -193,7 +193,10 @@
             "5f49acdf8bbca37dcb2acc5f223ce3cd1d8485b6",
             "ab3234b0a38f7bd5ad6baa9af74acd316465449e",
             "6552649d2adfe96f30ffce43510ef56c50e47f52",
-            "36b4b47320ebcf735f851fcfc7cc49e9ee92db4c"
+            "36b4b47320ebcf735f851fcfc7cc49e9ee92db4c",
+            "6583e3d30a357c053969e4d5f56a2c9b230cacd2",
+            "760884b37442addbbe8d80594f6774de6a7319f2",
+            "42ef83d63ba1a6d647c7f2381cb4757f328181de"
         ]
     },
     "capabilities": [
@@ -1353,7 +1356,36 @@
                 "f57b50cc3c0bbc2ae34feb59f3bbd8960a7245e8",
                 "2ddbacf5903347ed17dd51c1cc6134a86d9b57c5",
                 "60d65d94d3421e5f5f76486d32739322a4377276",
-                "76a4676e2dbd4bb001489dd8c1ac9918f961ae99"
+                "76a4676e2dbd4bb001489dd8c1ac9918f961ae99",
+                "7de96a7a0202dff6b7d74326cea5508e28ed062b",
+                "6cd9f13bd4be7393f77a9337bd67522709ee4813",
+                "57c0e246c8d5d8d0ddaf460a78aaf017fde42b2a",
+                "09baf009eeb71d18b9b9fdc403f56088f404f796",
+                "d9db5b1679c599f003b0728153560820e0ebae8f",
+                "60cc1804ec4a9c3e1fdc55dc00464dcfc82dcc29",
+                "a59921f42cf820685d9c45aab5667f6b24fa03ab",
+                "d432f58b58e2982871cea30c1da958ee37d68913",
+                "e16f4b0f1b9458318c5703d5c8c2596ffc2dd2b9",
+                "b028fdf4b793fd1df02b46a6eb391428b7d1f85a",
+                "1c9fd78d4c9e48a80636006a5055e177db20bcfa",
+                "31d28a5e8558d9a71d3ad6881cfa21cd527d020e",
+                "f202683a9bf61c48811defac9eb10466d40bb7bc",
+                "4460daba550074e5a342280a4203cce1c44e6acc",
+                "d4e70841a94c88acb97edf952bd3ab4f46d8a44c",
+                "b38082c80260e5c02b4618774390d451eeea3d0c",
+                "f20dd01c87bb7af602d4127006fa94c0ce3620db",
+                "e1744043f60b8bd4fbe6e49f3e99168b85a84067",
+                "ee7455ac7e99c27d3d1ad018b3b8d06cf8702196",
+                "01ab217e4e6584c54851368ac6f82072f59f30d3",
+                "4644b390e98263d1b6ecd25b7130deeca69fc240",
+                "a0b1a60eba9da33b0bbf8377c4ebc3f73ee67581",
+                "3aa0e8e870fd5543c802eb60a00df3fdc7cf151d",
+                "7f51a55c197f142b8fd4ff6bff18526a797d2393",
+                "38d88eb04dfce1cc390aebd89a6fde5bea3ffc02",
+                "5ed14daa6020e63af6fc1df2fed6aac3966ef8ba",
+                "89242f82aac8c208a1106bb5ba1202c857fcf123",
+                "1d78d7e8bc5873187fc2e7ad7141115fb4fd401f",
+                "84daa1256b925387cc57a8d3af4c04c016ad3c5c"
             ],
             "behaviors": [
                 "SESSION-AI-SESSION-CONVERSATION-ADAPTER-001",

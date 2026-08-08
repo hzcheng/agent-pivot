@@ -5,6 +5,7 @@ import * as vscode from 'vscode';
 import type { AiSessionProviderId } from '../../models';
 import { CONVERSATION_COMMENT_LIMITS } from './comments';
 import type { ConversationCommentSnapshot } from './commentStore';
+import type { ProjectCommentSnapshot } from './projectCommentStore';
 import type { ConversationBookmarkSnapshot } from './bookmarkStore';
 import { renderConversationTelemetry } from './conversationTelemetryController';
 import {
@@ -22,6 +23,9 @@ const CONVERSATION_COMMENT_ICON_X = '<svg viewBox="0 0 24 24" fill="none" stroke
 const CONVERSATION_COMMENT_ICON_SEND = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4Z"/></svg>';
 const CONVERSATION_COMMENT_ICON_ERASER = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></svg>';
 const CONVERSATION_COMMENT_ICON_TRASH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="m19 6-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>';
+const CONVERSATION_COMMENT_ICON_BOOKMARK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2Z"/></svg>';
+const CONVERSATION_COMMENT_ICON_PLUS = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg>';
+const CONVERSATION_COMMENT_ICON_CHEVRON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
 const CONVERSATION_NAV_ICON_PREVIOUS = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>';
 const CONVERSATION_NAV_ICON_NEXT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>';
 const CONVERSATION_NAV_ICON_LATEST = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 6 5 5 5-5"/><path d="m7 13 5 5 5-5"/></svg>';
@@ -37,6 +41,7 @@ export interface ConversationViewerDocumentOptions {
     target: ConversationViewerTarget;
     mediaUri: (fileName: string) => vscode.Uri;
     commentSnapshot: ConversationCommentSnapshot;
+    projectCommentSnapshot: ProjectCommentSnapshot;
     bookmarkSnapshot: ConversationBookmarkSnapshot;
     telemetrySnapshot: ConversationTelemetry | undefined;
     subscriptionGeneration: number;
@@ -103,6 +108,9 @@ export function renderConversationViewerDocument(
     const commentStateAttribute = ` data-initial-comments="${escapeAttribute(
         JSON.stringify(options.commentSnapshot)
     )}"`;
+    const projectCommentStateAttribute = ` data-initial-project-comments="${escapeAttribute(
+        JSON.stringify(options.projectCommentSnapshot)
+    )}"`;
     const bookmarkStateAttribute = ` data-initial-bookmarks="${escapeAttribute(
         JSON.stringify(options.bookmarkSnapshot)
     )}"`;
@@ -138,7 +146,7 @@ export function renderConversationViewerDocument(
 </head>
 <body data-auto-scroll-threshold="${CONVERSATION_LIMITS.autoScrollThresholdPx}"
     data-mermaid-src="${escapeAttribute(mermaid.toString())}"
-    data-subscription-generation="${options.subscriptionGeneration}"${initialPageAttribute}${commentStateAttribute}${bookmarkStateAttribute}${targetAttribute}${restoreTargetAttribute}>
+    data-subscription-generation="${options.subscriptionGeneration}"${initialPageAttribute}${commentStateAttribute}${projectCommentStateAttribute}${bookmarkStateAttribute}${targetAttribute}${restoreTargetAttribute}>
     <header class="conversation-header">
         <div class="conversation-identity">
             <strong data-conversation-provider>${escapeHtml(
@@ -313,13 +321,132 @@ export function renderConversationViewerDocument(
                 class="conversation-comments" data-conversation-comments
                 role="tabpanel" aria-labelledby="conversation-comments-tab"
                 hidden>
-                <div class="conversation-comments-panelbar">
-                    <button type="button" data-comment-action="new"
-                        title="Add a note about this Session">+ Note</button>
-                    <span class="conversation-comments-summary"
-                        data-comment-summary>No comments yet</span>
-                </div>
+                <div class="conversation-comments-filter-bar"
+                    data-comments-filter-bar role="group"
+                    aria-label="Filter comments and notes" hidden></div>
                 <div class="conversation-comments-body" data-comments-body>
+                    <div class="conversation-comments-section-header"
+                        data-project-comments-header>
+                        <button class="conversation-comment-icon-button conversation-comments-section-toggle"
+                            type="button" data-comments-section-toggle
+                            title="Collapse section"
+                            aria-label="Collapse section"
+                            aria-expanded="true">${CONVERSATION_COMMENT_ICON_CHEVRON}</button>
+                        <span class="conversation-comments-section-title"
+                            role="heading" aria-level="2">Workspace</span>
+                        <span class="conversation-comments-section-count"
+                            data-project-comments-count></span>
+                        <button class="conversation-comment-icon-button conversation-comments-section-add"
+                            type="button"
+                            data-project-comment-action="open-composer"
+                            title="Add a workspace note"
+                            aria-label="Add a workspace note">${CONVERSATION_COMMENT_ICON_PLUS}</button>
+                        <button class="conversation-comment-icon-button"
+                            type="button"
+                            data-project-comment-action="send-all" disabled
+                            title="Send open notes to the session input"
+                            aria-label="Send open notes to the session input">${CONVERSATION_COMMENT_ICON_SEND}</button>
+                        <button class="conversation-comment-icon-button"
+                            type="button"
+                            data-project-comment-action="clear-done" disabled
+                            title="Clear done notes"
+                            aria-label="Clear done notes">${CONVERSATION_COMMENT_ICON_ERASER}</button>
+                        <button class="conversation-comment-icon-button danger conversation-comments-clear-all"
+                            type="button"
+                            data-project-comment-action="clear-all" disabled
+                            title="Clear all notes"
+                            aria-label="Clear all notes">${CONVERSATION_COMMENT_ICON_TRASH}</button>
+                    </div>
+                    <section class="conversation-project-comments"
+                        data-project-comments
+                        data-project-comments-content
+                        aria-label="Workspace notes">
+                        <div class="conversation-project-comment-composer"
+                            data-project-comment-composer hidden>
+                            <div class="conversation-project-comment-source"
+                                data-project-comment-source hidden>
+                                <span class="conversation-project-comment-source-label"
+                                    data-project-comment-source-label></span>
+                                <button class="conversation-comment-icon-button"
+                                    type="button"
+                                    data-project-comment-action="clear-source"
+                                    title="Detach the quoted source"
+                                    aria-label="Detach the quoted source">${CONVERSATION_COMMENT_ICON_X}</button>
+                                <blockquote data-project-comment-source-quote></blockquote>
+                            </div>
+                            <label for="conversation-project-comment-input">Workspace note</label>
+                            <textarea id="conversation-project-comment-input"
+                                data-project-comment-input rows="2"
+                                maxlength="${CONVERSATION_COMMENT_LIMITS.maxCommentGraphemes}"
+                                aria-keyshortcuts="Control+Enter Meta+Enter"
+                                placeholder="Jot down a bug, idea, or todo…"></textarea>
+                            <div class="conversation-project-comment-composer-row">
+                                <span class="conversation-project-comment-draft-tags"
+                                    data-project-comment-draft-tags></span>
+                                <button class="conversation-project-comment-tag-add"
+                                    type="button"
+                                    data-project-comment-action="add-draft-tag"
+                                    title="Add tag"
+                                    aria-label="Add tag">+</button>
+                                <span class="conversation-project-comment-composer-spacer"></span>
+                                <div class="conversation-comment-actions">
+                                    <button class="conversation-comment-icon-button"
+                                        type="button"
+                                        data-project-comment-action="cancel-add"
+                                        title="Cancel (Esc)"
+                                        aria-label="Cancel (Esc)">${CONVERSATION_COMMENT_ICON_X}</button>
+                                    <button class="conversation-comment-icon-button"
+                                        type="button"
+                                        data-project-comment-action="add"
+                                        title="Add project note (Ctrl+Enter or Cmd+Enter)"
+                                        aria-label="Add project note (Ctrl+Enter or Cmd+Enter)"
+                                        disabled>${CONVERSATION_COMMENT_ICON_CHECK}</button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="conversation-comment-list conversation-project-comment-list"
+                            data-project-comment-list></div>
+                        <p class="conversation-project-comment-empty"
+                            data-project-comment-empty hidden>
+                            No workspace notes yet.
+                        </p>
+                    </section>
+                    <div class="conversation-comments-section-sash"
+                        data-comments-section-sash role="separator"
+                        aria-orientation="horizontal"
+                        aria-label="Resize the Session section"
+                        aria-valuemin="15" aria-valuemax="70"
+                        aria-valuenow="45" tabindex="0"></div>
+                    <div class="conversation-comments-section-header conversation-comments-section-header-session"
+                        data-session-comments-header>
+                        <button class="conversation-comment-icon-button conversation-comments-section-toggle"
+                            type="button" data-comments-section-toggle
+                            title="Collapse section"
+                            aria-label="Collapse section"
+                            aria-expanded="true">${CONVERSATION_COMMENT_ICON_CHEVRON}</button>
+                        <span class="conversation-comments-section-title"
+                            role="heading" aria-level="2">Session</span>
+                        <span class="conversation-comments-section-count"
+                            data-session-comments-count></span>
+                        <button class="conversation-comment-icon-button conversation-comments-section-add"
+                            type="button" data-comment-action="new"
+                            title="Add a note about this Session"
+                            aria-label="Add a note about this Session">${CONVERSATION_COMMENT_ICON_PLUS}</button>
+                        <button class="conversation-comment-icon-button"
+                            type="button" data-comment-action="send" disabled
+                            title="Send open comments to the session input"
+                            aria-label="Send open comments to the session input">${CONVERSATION_COMMENT_ICON_SEND}</button>
+                        <button class="conversation-comment-icon-button" type="button"
+                            data-comment-action="clearDone" disabled
+                            title="Clear done comments"
+                            aria-label="Clear done comments">${CONVERSATION_COMMENT_ICON_ERASER}</button>
+                        <button class="conversation-comment-icon-button danger conversation-comments-clear-all"
+                            type="button" data-comment-action="clearAll" disabled
+                            title="Clear all comments"
+                            aria-label="Clear all comments">${CONVERSATION_COMMENT_ICON_TRASH}</button>
+                    </div>
+                    <div class="conversation-comments-section-content conversation-comments-session-region"
+                        data-session-comments-content>
                     <div class="conversation-comment-composer"
                         data-comment-composer hidden>
                         <blockquote data-comment-selection></blockquote>
@@ -346,37 +473,6 @@ export function renderConversationViewerDocument(
                     <p class="conversation-comment-empty" data-comment-empty>
                         Select text to comment on it, or add a Session note.
                     </p>
-                </div>
-                <div class="conversation-comments-toolbar"
-                    data-comments-toolbar role="group" aria-label="Comment actions">
-                    <div class="conversation-comments-filter" role="group"
-                        aria-label="Filter comments">
-                        <button class="conversation-comment-icon-button conversation-comments-filter-button"
-                            type="button" data-comment-action="filter" data-comment-filter="all"
-                            title="All comments" aria-label="All comments"
-                            aria-pressed="true">${CONVERSATION_COMMENT_ICON_LIST}</button>
-                        <button class="conversation-comment-icon-button conversation-comments-filter-button"
-                            type="button" data-comment-action="filter" data-comment-filter="open"
-                            title="Open only" aria-label="Open only"
-                            aria-pressed="false">${CONVERSATION_COMMENT_ICON_DOT}</button>
-                        <button class="conversation-comment-icon-button conversation-comments-filter-button"
-                            type="button" data-comment-action="filter" data-comment-filter="done"
-                            title="Done only" aria-label="Done only"
-                            aria-pressed="false">${CONVERSATION_COMMENT_ICON_CHECK}</button>
-                    </div>
-                    <div class="conversation-comments-toolbar-actions">
-                        <button class="conversation-comment-icon-button"
-                            type="button" data-comment-action="send" disabled
-                            title="Send open comments to the session input"
-                            aria-label="Send open comments to the session input">${CONVERSATION_COMMENT_ICON_SEND}</button>
-                        <button class="conversation-comment-icon-button" type="button"
-                            data-comment-action="clearDone" disabled
-                            title="Clear done comments"
-                            aria-label="Clear done comments">${CONVERSATION_COMMENT_ICON_ERASER}</button>
-                        <button class="conversation-comment-icon-button danger conversation-comments-clear-all"
-                            type="button" data-comment-action="clearAll" disabled
-                            title="Clear all comments"
-                            aria-label="Clear all comments">${CONVERSATION_COMMENT_ICON_TRASH}</button>
                     </div>
                 </div>
             </section>
@@ -404,6 +500,10 @@ export function renderConversationViewerDocument(
         <button class="conversation-comment-icon-button" type="button"
             data-comment-selection-action="comment" title="Add comment"
             aria-label="Add comment">${CONVERSATION_COMMENT_ICON_COMMENT}</button>
+        <button class="conversation-comment-icon-button" type="button"
+            data-comment-selection-action="project"
+            title="Save selection as a project note"
+            aria-label="Save selection as a project note">${CONVERSATION_COMMENT_ICON_BOOKMARK}</button>
         <button class="conversation-comment-icon-button accent" type="button"
             data-comment-selection-action="send"
             title="Send selection to the active terminal"

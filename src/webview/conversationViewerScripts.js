@@ -106,7 +106,6 @@
         '[data-action="close-subagent"]'
     );
     var commentCount = document.querySelector('[data-comment-count]');
-    var commentSummary = document.querySelector('[data-comment-summary]');
     var commentComposer = document.querySelector('[data-comment-composer]');
     var commentSelection = document.querySelector('[data-comment-selection]');
     var commentInput = document.querySelector('[data-comment-input]');
@@ -133,6 +132,61 @@
     var telemetryComments = document.querySelector(
         '[data-telemetry-comments]'
     );
+    var projectCommentsRoot = document.querySelector('[data-project-comments]');
+    var projectCommentsHeader = document.querySelector(
+        '[data-project-comments-header]'
+    );
+    var projectCommentsContent = document.querySelector(
+        '[data-project-comments-content]'
+    );
+    var sessionCommentsHeader = document.querySelector(
+        '[data-session-comments-header]'
+    );
+    var sessionCommentsContent = document.querySelector(
+        '[data-session-comments-content]'
+    );
+    var commentsSectionSash = document.querySelector(
+        '[data-comments-section-sash]'
+    );
+    var projectCommentsCount = document.querySelector(
+        '[data-project-comments-count]'
+    );
+    var sessionCommentsCount = document.querySelector(
+        '[data-session-comments-count]'
+    );
+    var projectCommentComposer = document.querySelector(
+        '[data-project-comment-composer]'
+    );
+    var projectCommentSource = document.querySelector(
+        '[data-project-comment-source]'
+    );
+    var projectCommentSourceLabel = document.querySelector(
+        '[data-project-comment-source-label]'
+    );
+    var projectCommentSourceQuote = document.querySelector(
+        '[data-project-comment-source-quote]'
+    );
+    var projectCommentInput = document.querySelector(
+        '[data-project-comment-input]'
+    );
+    var projectCommentDraftTags = document.querySelector(
+        '[data-project-comment-draft-tags]'
+    );
+    var projectCommentAddTag = document.querySelector(
+        '[data-project-comment-action="add-draft-tag"]'
+    );
+    var projectCommentAdd = document.querySelector(
+        '[data-project-comment-action="add"]'
+    );
+    var commentsFilterBar = document.querySelector(
+        '[data-comments-filter-bar]'
+    );
+    var projectCommentList = document.querySelector(
+        '[data-project-comment-list]'
+    );
+    var projectCommentEmpty = document.querySelector(
+        '[data-project-comment-empty]'
+    );
     var commentTarget = readJsonAttribute('data-conversation-target');
     var restoreTarget = readJsonAttribute(
         'data-conversation-restore-target'
@@ -147,7 +201,9 @@
         && validCommentTarget(commentTarget);
     var commentUiAvailable = sidebarUiAvailable
         && !!commentsRoot
-        && !!commentSummary
+        && !!sessionCommentsHeader && !!sessionCommentsContent
+        && !!commentsSectionSash && !!sessionCommentsCount
+        && !!commentsFilterBar
         && !!commentComposer && !!commentSelection && !!commentInput
         && !!commentList && !!commentEmpty && !!commentFilterEmpty
         && !!commentNew
@@ -161,6 +217,16 @@
         && !!subagentsRunningOnly && !!closeSubagent
         && !!telemetrySubagents && !!telemetrySection
         && !!window.__agentPivotConversationSubagents;
+    var projectCommentUiAvailable = commentUiAvailable
+        && !!projectCommentsRoot && !!projectCommentsHeader
+        && !!projectCommentsContent && !!projectCommentComposer
+        && !!projectCommentsCount
+        && !!projectCommentSource
+        && !!projectCommentSourceLabel && !!projectCommentSourceQuote
+        && !!projectCommentInput && !!projectCommentDraftTags
+        && !!projectCommentAddTag && !!projectCommentAdd
+        && !!projectCommentList
+        && !!projectCommentEmpty;
     var copyUiAvailable = validCommentTarget(commentTarget);
     var findUiAvailable = !!findRoot && !!findInput && !!findCount
         && !!findPrevious && !!findNext && !!findClose;
@@ -321,7 +387,6 @@
         addComment: addComment,
         commentsRoot: commentsRoot,
         commentCount: commentCount,
-        commentSummary: commentSummary,
         commentComposer: commentComposer,
         commentSelection: commentSelection,
         commentInput: commentInput,
@@ -335,6 +400,26 @@
         vscodeApi: vscodeApi,
         telemetryComments: telemetryComments,
         telemetrySection: telemetrySection,
+        projectCommentsAvailable: projectCommentUiAvailable,
+        projectCommentsRoot: projectCommentsRoot,
+        projectCommentsHeader: projectCommentsHeader,
+        projectCommentsContent: projectCommentsContent,
+        projectCommentsCount: projectCommentsCount,
+        sessionCommentsHeader: sessionCommentsHeader,
+        sessionCommentsContent: sessionCommentsContent,
+        commentsSectionSash: commentsSectionSash,
+        sessionCommentsCount: sessionCommentsCount,
+        projectCommentComposer: projectCommentComposer,
+        projectCommentSource: projectCommentSource,
+        projectCommentSourceLabel: projectCommentSourceLabel,
+        projectCommentSourceQuote: projectCommentSourceQuote,
+        projectCommentInput: projectCommentInput,
+        projectCommentDraftTags: projectCommentDraftTags,
+        projectCommentAddTag: projectCommentAddTag,
+        projectCommentAdd: projectCommentAdd,
+        commentsFilterBar: commentsFilterBar,
+        projectCommentList: projectCommentList,
+        projectCommentEmpty: projectCommentEmpty,
         post: post,
         messageSelector: conversationMessageSelector,
         messageId: conversationMessageId,
@@ -678,6 +763,13 @@
             && Array.isArray(value.comments) && value.comments.length <= 20;
     }
 
+    function validProjectCommentSnapshot(value) {
+        return value && typeof value === 'object' && !Array.isArray(value)
+            && Object.keys(value).length === 2
+            && Number.isSafeInteger(value.revision) && value.revision >= 0
+            && Array.isArray(value.comments) && value.comments.length <= 50;
+    }
+
     function validBookmarkSnapshot(value) {
         return value && typeof value === 'object' && !Array.isArray(value)
             && Object.keys(value).length === 2
@@ -700,7 +792,8 @@
         ];
         var allowedKeys = new Set(requiredKeys.concat([
             'previousCursor', 'nextCursor', 'subagents', 'activeSubagent',
-            'displayName', 'target', 'comments', 'bookmarks',
+            'displayName', 'target', 'comments', 'projectComments',
+            'bookmarks',
         ]));
         if (Object.keys(message).some(function (key) {
             return !allowedKeys.has(key);
@@ -740,6 +833,8 @@
                 || validPageTarget(message.target))
             && (message.comments === undefined
                 || validCommentSnapshot(message.comments))
+            && (message.projectComments === undefined
+                || validProjectCommentSnapshot(message.projectComments))
             && (message.bookmarks === undefined
                 || validBookmarkSnapshot(message.bookmarks))
             && typeof message.stale === 'boolean';
@@ -758,9 +853,14 @@
         if (message.subscriptionGeneration < state.subscriptionGeneration
             || !validPageTarget(message.target)
             || !validCommentSnapshot(message.comments)
+            || !validProjectCommentSnapshot(message.projectComments)
             || !validBookmarkSnapshot(message.bookmarks)
             || !outlineController.canResetSession(message.bookmarks)
-            || !commentsController.canResetSession(message.comments)) {
+            || !commentsController.canResetSession(message.comments)
+            || (projectCommentUiAvailable
+                && !commentsController.canResetProjectComments(
+                    message.projectComments
+                ))) {
             return false;
         }
         var nextCommentTarget = {
@@ -775,7 +875,8 @@
         ) || !commentsController.resetSession(
             nextCommentTarget,
             message.subscriptionGeneration,
-            message.comments
+            message.comments,
+            message.projectComments
         )) {
             return false;
         }
@@ -1351,6 +1452,9 @@
         if (applyCopyResult(event.data)) return;
         if (outlineController.applyBookmarksResult(event.data)) return;
         if (commentsController.applyCommentsResult(event.data)) return;
+        if (commentsController.applyProjectCommentsResult(event.data)) {
+            return;
+        }
         if (commentsController.applyLocateResult(event.data)) return;
         if (telemetryController.apply(event.data)) return;
         applyPage(event.data);

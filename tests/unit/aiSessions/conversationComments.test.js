@@ -3,12 +3,15 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const {
+    addConversationCommentTag,
     buildConversationCommentsPrompt,
     clearConversationComments,
+    cloneConversationComments,
     ConversationCommentError,
     createConversationComment,
     createConversationSessionComment,
     markConversationCommentsDone,
+    removeConversationCommentTag,
     reorderConversationComments,
     updateConversationComment,
     validateConversationComments,
@@ -19,6 +22,49 @@ const message = Object.freeze({
     interactionId: 'interaction-a',
     role: 'assistant',
     markdown: 'The original response.',
+});
+
+test('CONVERSATION-COMMENTS-001 adds and removes bounded tags on comment drafts', () => {
+    const draft = createConversationSessionComment(
+        'comment-tags',
+        'Remember this.'
+    );
+    assert.equal(draft.tags, undefined);
+
+    const tagged = addConversationCommentTag(draft, ' Convention ');
+    assert.deepEqual(tagged.tags, ['Convention']);
+    assert.equal(draft.tags, undefined);
+
+    const duplicate = addConversationCommentTag(tagged, 'convention');
+    assert.deepEqual(duplicate.tags, ['Convention']);
+
+    validateConversationComments([tagged]);
+    assert.throws(
+        () => validateConversationComments([
+            { ...tagged, tags: ['a', 'A'] },
+        ]),
+        /invalid/
+    );
+    assert.throws(
+        () => validateConversationComments([
+            { ...tagged, tags: ['ok', '  '] },
+        ]),
+        /invalid/
+    );
+
+    let full = tagged;
+    ['b', 'c', 'd', 'e'].forEach(tag => {
+        full = addConversationCommentTag(full, tag);
+    });
+    assert.throws(
+        () => addConversationCommentTag(full, 'overflow'),
+        /limit/
+    );
+
+    const removed = removeConversationCommentTag(full, 'CONVENTION');
+    assert.deepEqual(removed.tags, ['b', 'c', 'd', 'e']);
+    const noop = removeConversationCommentTag(full, 'missing');
+    assert.deepEqual(noop.tags, full.tags);
 });
 
 test('CONVERSATION-COMMENTS-001 creates bounded host-authoritative drafts and open/done states', () => {
@@ -134,6 +180,36 @@ test('CONVERSATION-COMMENTS-001 creates a session-wide note without a selected m
     assert.match(prompt, /范围：当前 Session/);
     assert.match(prompt, /Remember this decision\./);
     assert.doesNotMatch(prompt, /选中原文|对话角色/);
+});
+
+test('CONVERSATION-COMMENTS-001 clones drafts with deep-copied tag arrays', () => {
+    const tagged = addConversationCommentTag(
+        createConversationSessionComment('comment-tagged', 'Keep me.'),
+        'Convention'
+    );
+    const original = [tagged, {
+        id: 'comment-plain',
+        messageId: 'message-a',
+        interactionId: 'interaction-a',
+        role: 'assistant',
+        quote: 'Original answer',
+        prefix: '',
+        suffix: '',
+        comment: 'Untagged.',
+        status: 'open',
+    }];
+
+    const cloned = cloneConversationComments(original);
+    assert.deepEqual(cloned, original);
+    assert.notEqual(cloned, original);
+    assert.notEqual(cloned[0], original[0]);
+    assert.notEqual(cloned[0].tags, original[0].tags);
+    assert.equal('tags' in cloned[1], false);
+
+    cloned[0].tags.push('mutated');
+    cloned[0].comment = 'mutated';
+    assert.deepEqual(original[0].tags, ['Convention']);
+    assert.equal(original[0].comment, 'Keep me.');
 });
 
 test('CONVERSATION-COMMENTS-002 builds one numbered prompt and expands quote fences safely', () => {

@@ -14,6 +14,11 @@ import type {
     ConversationBookmarkStore,
 } from './bookmarkStore';
 import { ConversationCommentController } from './commentController';
+import { ProjectCommentController } from './projectCommentController';
+import type {
+    ProjectCommentSnapshot,
+    ProjectCommentStore,
+} from './projectCommentStore';
 import { ConversationBookmarkController } from './bookmarkController';
 import { ConversationTelemetryController } from './conversationTelemetryController';
 import {
@@ -110,6 +115,7 @@ export interface ConversationViewerOptions {
         >
     ) => boolean | void | PromiseLike<boolean | void>;
     commentStore?: ConversationCommentStore;
+    projectCommentStore?: ProjectCommentStore;
     bookmarkStore?: ConversationBookmarkStore;
     showWorktreeInSourceControl?: (
         worktreeRoot: string
@@ -209,6 +215,7 @@ export interface ConversationViewerPageMessage {
             | 'displayName' | 'duplicateDisplayName'
     >;
     comments: ConversationCommentSnapshot;
+    projectComments: ProjectCommentSnapshot;
     bookmarks: ConversationBookmarkSnapshot;
 }
 
@@ -236,6 +243,7 @@ export class ConversationViewer implements ConversationViewerApi {
     private subagentDiscoveryGeneration = 0;
     private keyboardFocused = false;
     private readonly commentController: ConversationCommentController;
+    private readonly projectCommentController: ProjectCommentController;
     private readonly bookmarkController: ConversationBookmarkController;
     private readonly outlineController = new ConversationOutlineController();
     private readonly telemetryController: ConversationTelemetryController;
@@ -264,6 +272,17 @@ export class ConversationViewer implements ConversationViewerApi {
             getMessages: () => this.messages(),
             navigateToInteraction: interactionId =>
                 this.navigateToInteraction(interactionId),
+            rebuildLatestDocument: () => this.rebuildLatestDocument(),
+        });
+        this.projectCommentController = new ProjectCommentController({
+            projectCommentStore: options.projectCommentStore,
+            submitPrompt: options.submitPrompt,
+            focusSession: async target => {
+                await options.focusSession?.(target);
+            },
+            getTarget: () => this.target,
+            getSubscriptionGeneration: () => this.subscriptionGeneration,
+            getPanel: () => this.panel,
             rebuildLatestDocument: () => this.rebuildLatestDocument(),
         });
         this.bookmarkController = new ConversationBookmarkController({
@@ -426,6 +445,7 @@ export class ConversationViewer implements ConversationViewerApi {
             || current.sessionId !== target.sessionId) {
             await Promise.all([
                 this.commentController.drainMutations(),
+                this.projectCommentController.drainMutations(),
                 this.bookmarkController.drainMutations(),
             ]);
             return false;
@@ -475,6 +495,7 @@ export class ConversationViewer implements ConversationViewerApi {
         }
         await Promise.all([
             this.commentController.restore(activeTarget, generation),
+            this.projectCommentController.restore(activeTarget, generation),
             this.bookmarkController.restore(activeTarget, generation),
         ]);
         if (this.target !== activeTarget
@@ -664,6 +685,7 @@ export class ConversationViewer implements ConversationViewerApi {
         this.telemetryController.reset();
         this.latestPublication = undefined;
         this.commentController.reset();
+        this.projectCommentController.reset();
         this.bookmarkController.reset();
         this.target = {
             ...target,
@@ -764,6 +786,7 @@ export class ConversationViewer implements ConversationViewerApi {
         this.telemetryController.reset();
         this.latestPublication = undefined;
         this.commentController.reset();
+        this.projectCommentController.reset();
         this.bookmarkController.reset();
         this.publishKeyboardFocus(false);
         this.suspended = false;
@@ -808,6 +831,11 @@ export class ConversationViewer implements ConversationViewerApi {
         if (parsed.type === 'conversation-viewer-comment-mutation'
             || parsed.type === 'conversation-viewer-send-comments') {
             await this.commentController.enqueue(parsed);
+            return;
+        }
+        if (parsed.type === 'conversation-viewer-project-comment-mutation'
+            || parsed.type === 'conversation-viewer-send-project-comment') {
+            await this.projectCommentController.enqueue(parsed);
             return;
         }
         if (parsed.type === 'conversation-viewer-bookmark-mutation') {
@@ -950,6 +978,7 @@ export class ConversationViewer implements ConversationViewerApi {
         this.telemetryController.reset();
         this.latestPublication = undefined;
         this.commentController.reset();
+        this.projectCommentController.reset();
         this.bookmarkController.reset();
         this.target = { ...target };
         this.suspended = false;
@@ -958,6 +987,7 @@ export class ConversationViewer implements ConversationViewerApi {
         const activeTarget = this.target;
         await Promise.all([
             this.commentController.restore(activeTarget, generation),
+            this.projectCommentController.restore(activeTarget, generation),
             this.bookmarkController.restore(activeTarget, generation),
         ]);
         if (this.target !== activeTarget
@@ -2025,6 +2055,7 @@ export class ConversationViewer implements ConversationViewerApi {
                 duplicateDisplayName: target.duplicateDisplayName,
             },
             comments: this.commentController.snapshot,
+            projectComments: this.projectCommentController.snapshot,
             bookmarks: this.bookmarkController.snapshot,
         };
     }
@@ -2043,6 +2074,7 @@ export class ConversationViewer implements ConversationViewerApi {
             target,
             mediaUri: this.options.mediaUri,
             commentSnapshot: this.commentController.snapshot,
+            projectCommentSnapshot: this.projectCommentController.snapshot,
             bookmarkSnapshot: this.bookmarkController.snapshot,
             telemetrySnapshot: this.telemetryController.snapshot,
             subscriptionGeneration: this.subscriptionGeneration,

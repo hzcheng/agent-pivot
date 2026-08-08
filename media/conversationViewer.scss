@@ -1127,9 +1127,9 @@ button {
     min-height: 0;
     flex: 1 1 auto;
     flex-direction: column;
-    gap: 0.5rem;
-    overflow-y: auto;
-    padding: 0.25rem 0.5rem 0.5rem;
+    gap: 0.25rem;
+    overflow: hidden;
+    padding: 0.15rem 0.5rem 0.5rem;
 }
 
 .conversation-comments-resizer {
@@ -1159,66 +1159,6 @@ button {
     &:focus-visible {
         outline: none;
     }
-}
-
-.conversation-comments-panelbar {
-    display: flex;
-    flex: 0 0 auto;
-    min-width: 0;
-    gap: 0.5rem;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0.4rem 0.5rem 0.25rem;
-
-    [data-comment-action="new"] {
-        min-width: 0;
-        padding: 0.18rem 0.45rem;
-        border-color: var(--vscode-button-secondaryBackground);
-        color: var(--vscode-button-secondaryForeground);
-        background: var(--vscode-button-secondaryBackground);
-        font-size: 0.75rem;
-        white-space: nowrap;
-    }
-}
-
-.conversation-comments-summary {
-    overflow: hidden;
-    color: var(--vscode-descriptionForeground);
-    font-size: 0.78rem;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.conversation-comments-toolbar {
-    display: flex;
-    flex: 0 0 auto;
-    min-width: 0;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.25rem;
-    padding: 0.3rem 0.5rem;
-    border-top: 1px solid var(--vscode-panel-border);
-    background: var(
-        --vscode-sideBar-background,
-        var(--vscode-editor-background)
-    );
-}
-
-.conversation-comments-filter,
-.conversation-comments-toolbar-actions {
-    display: flex;
-    min-width: 0;
-    gap: 2px;
-    align-items: center;
-}
-
-.conversation-comments-filter-button[aria-pressed="true"] {
-    color: var(--vscode-foreground);
-    border-color: var(--vscode-panel-border);
-    background: var(
-        --vscode-toolbar-hoverBackground,
-        var(--vscode-list-hoverBackground)
-    );
 }
 
 .conversation-comments-clear-all {
@@ -1533,6 +1473,450 @@ button {
     color: var(--vscode-descriptionForeground);
     font-size: 0.72rem;
     text-align: center;
+}
+
+// ---- Project comments (project-scoped notes) ----
+
+.conversation-comments-section-header {
+    display: flex;
+    flex: 0 0 auto;
+    box-sizing: border-box;
+    min-width: 0;
+    margin: 0 -0.5rem;
+    gap: 0.3rem;
+    align-items: center;
+    padding: 0.2rem 0.5rem;
+    background: var(--vscode-panelSectionHeader-background, var(--vscode-editorGroupHeader-tabsBackground));
+    border-bottom: 1px solid var(--vscode-panel-border);
+    cursor: pointer;
+    user-select: none;
+}
+
+.conversation-comments-section-header-session {
+    border-top: 2px solid var(--vscode-panel-border);
+}
+
+.conversation-comments-section-sash {
+    position: relative;
+    flex: 0 0 auto;
+    height: 0.35rem;
+    cursor: row-resize;
+    touch-action: none;
+
+    &::after {
+        position: absolute;
+        top: calc(50% - 0.5px);
+        right: 0;
+        left: 0;
+        height: 1px;
+        background: var(--vscode-panel-border);
+        content: "";
+    }
+
+    &:hover::after,
+    &:focus-visible::after {
+        top: calc(50% - 1px);
+        height: 2px;
+        background: var(--vscode-focusBorder);
+    }
+
+    &:focus-visible {
+        outline: none;
+    }
+}
+
+.conversation-comments-section-sash[hidden],
+.conversation-project-comments[hidden],
+.conversation-comments-session-region[hidden] {
+    display: none;
+}
+
+.conversation-comments-section-title {
+    flex: 0 1 auto;
+    overflow: hidden;
+    min-width: 0;
+    color: var(--vscode-foreground);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-overflow: ellipsis;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.conversation-comments-section-header
+.conversation-comment-icon-button {
+    flex: 0 0 auto;
+}
+
+.conversation-comments-section-add {
+    flex: 0 0 auto;
+    margin-left: auto;
+}
+
+.conversation-comments-section-count {
+    flex: 0 0 auto;
+    color: var(--vscode-descriptionForeground);
+    font-size: 0.66rem;
+}
+
+.conversation-comments-section-toggle {
+    flex: 0 0 auto;
+    margin: -0.15rem 0;
+}
+
+.conversation-comments-section-content {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.conversation-comments-section-content[hidden] {
+    display: none;
+}
+
+.conversation-project-comments
+.conversation-comments-section-content {
+    gap: 0.4rem;
+}
+
+.conversation-project-comments {
+    display: flex;
+    min-width: 0;
+    min-height: 2.5rem;
+    flex: 1 1 0;
+    flex-direction: column;
+    gap: 0.4rem;
+    overflow-y: auto;
+}
+
+.conversation-comments-session-region {
+    flex: 0 0 auto;
+    max-height: 45%;
+    overflow-y: auto;
+}
+
+.conversation-comments-body[data-workspace-collapsed="true"]
+.conversation-comments-session-region {
+    // With the Workspace group folded away (and the sash hidden), the
+    // Session region takes the whole panel; any sash-dragged height is
+    // suspended until the group expands again.
+    flex: 1 1 0;
+    max-height: none;
+}
+
+.conversation-project-comment-composer {
+    min-width: 0;
+    padding: 0.45rem 0.5rem;
+    overflow: hidden;
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 6px;
+    background: var(--vscode-editor-background);
+
+    label {
+        display: block;
+        margin-bottom: 0.25rem;
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+
+    textarea {
+        display: block;
+        min-width: 0;
+        width: 100%;
+        padding: 0.3rem 0.45rem;
+        border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+        border-radius: 4px;
+        color: var(--vscode-input-foreground);
+        background: var(--vscode-input-background);
+        font: inherit;
+        line-height: 1.35;
+        resize: none;
+
+        &:focus-visible {
+            outline: 1px solid var(--vscode-focusBorder);
+            outline-offset: -1px;
+        }
+    }
+}
+
+.conversation-project-comment-composer-row {
+    display: flex;
+    min-width: 0;
+    gap: 0.3rem;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-top: 0.35rem;
+
+    .conversation-comment-actions {
+        display: flex;
+        gap: 2px;
+        align-items: center;
+    }
+}
+
+.conversation-project-comment-composer-spacer {
+    flex: 1 1 auto;
+}
+
+.conversation-project-comment-draft-tags,
+.conversation-comment-tags-row {
+    display: flex;
+    min-width: 0;
+    gap: 0.25rem;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.conversation-comment-tags-row {
+    margin-top: 0.4rem;
+}
+
+.conversation-comment-tags-row:empty {
+    display: none;
+}
+
+.conversation-comment-status-chip {
+    --status-chip-color: var(--vscode-editorWarning-foreground, #cca700);
+
+    display: inline-flex;
+    align-items: center;
+    padding: 0 0.42rem;
+    border: 1px solid color-mix(
+        in srgb,
+        var(--status-chip-color) 45%,
+        transparent
+    );
+    border-radius: 999px;
+    color: var(--status-chip-color);
+    background: color-mix(in srgb, var(--status-chip-color) 12%, transparent);
+    font-size: 0.66rem;
+    font-weight: 600;
+    line-height: 1.5;
+
+    &[data-comment-status-chip="done"] {
+        --status-chip-color: var(--vscode-charts-green, #89d185);
+    }
+}
+
+button.conversation-comment-status-chip {
+    cursor: pointer;
+
+    &:hover {
+        filter: brightness(1.2);
+    }
+}
+
+.conversation-comments-filter-dot[data-comment-status-chip="open"] {
+    --tag-color: var(--vscode-editorWarning-foreground, #cca700);
+}
+
+.conversation-comments-filter-dot[data-comment-status-chip="done"] {
+    --tag-color: var(--vscode-charts-green, #89d185);
+}
+
+.conversation-project-comment-tag {
+    --tag-color: var(--vscode-charts-blue, #569cd6);
+
+    display: inline-flex;
+    gap: 0.2rem;
+    align-items: center;
+    padding: 0 0.4rem;
+    border: 1px solid color-mix(in srgb, var(--tag-color) 45%, transparent);
+    border-radius: 999px;
+    color: var(--tag-color);
+    background: color-mix(in srgb, var(--tag-color) 12%, transparent);
+    font-size: 0.66rem;
+    line-height: 1.5;
+
+    &[data-tag-color="1"] { --tag-color: var(--vscode-charts-red, #f48771); }
+    &[data-tag-color="2"] { --tag-color: var(--vscode-charts-purple, #c586c0); }
+    &[data-tag-color="3"] { --tag-color: #4ec9b0; }
+    &[data-tag-color="4"] { --tag-color: var(--vscode-charts-yellow, #dcdcaa); }
+    &[data-tag-color="5"] { --tag-color: var(--vscode-charts-green, #89d185); }
+
+    button {
+        margin: 0 -0.1rem 0 0;
+        padding: 0;
+        border: 0;
+        color: inherit;
+        background: none;
+        font-size: 0.75rem;
+        line-height: 1;
+        cursor: pointer;
+        opacity: 0.55;
+
+        &:hover {
+            background: none;
+            opacity: 1;
+        }
+    }
+}
+
+.conversation-project-comment-tag-add {
+    padding: 0 0.4rem;
+    border: 1px dashed var(--vscode-panel-border);
+    border-radius: 999px;
+    color: var(--vscode-descriptionForeground);
+    background: none;
+    font-size: 0.66rem;
+    line-height: 1.5;
+    cursor: pointer;
+
+    &:hover {
+        color: var(--vscode-foreground);
+        background: var(--vscode-list-hoverBackground);
+    }
+}
+
+.conversation-project-comment-tag-input {
+    width: 6.5rem;
+    padding: 0 0.35rem;
+    border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+    border-radius: 999px;
+    color: var(--vscode-input-foreground);
+    background: var(--vscode-input-background);
+    font: inherit;
+    font-size: 0.66rem;
+    line-height: 1.5;
+
+    &:focus-visible {
+        outline: 1px solid var(--vscode-focusBorder);
+        outline-offset: -1px;
+    }
+}
+
+.conversation-comments-filter-bar {
+    display: flex;
+    flex: 0 0 auto;
+    min-width: 0;
+    gap: 0.25rem;
+    align-items: center;
+    flex-wrap: wrap;
+    padding: 0.25rem 0.5rem;
+    border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+.conversation-comments-filter-bar[hidden] {
+    display: none;
+}
+
+.conversation-comments-filter-chip {
+    display: inline-flex;
+    gap: 0.28rem;
+    align-items: center;
+    padding: 0.05rem 0.5rem;
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 999px;
+    color: var(--vscode-descriptionForeground);
+    background: transparent;
+    font-size: 0.7rem;
+    cursor: pointer;
+
+    &:hover {
+        color: var(--vscode-foreground);
+        background: var(--vscode-list-hoverBackground);
+    }
+
+    &[aria-pressed="true"] {
+        color: var(--vscode-foreground);
+        border-color: var(--vscode-focusBorder);
+        background: color-mix(in srgb, var(--vscode-focusBorder) 12%, transparent);
+    }
+}
+
+.conversation-comments-filter-dot {
+    --tag-color: var(--vscode-charts-blue, #569cd6);
+
+    width: 7px;
+    height: 7px;
+    flex: 0 0 auto;
+    border-radius: 50%;
+    background: var(--tag-color);
+
+    &[data-tag-color="1"] { --tag-color: var(--vscode-charts-red, #f48771); }
+    &[data-tag-color="2"] { --tag-color: var(--vscode-charts-purple, #c586c0); }
+    &[data-tag-color="3"] { --tag-color: #4ec9b0; }
+    &[data-tag-color="4"] { --tag-color: var(--vscode-charts-yellow, #dcdcaa); }
+    &[data-tag-color="5"] { --tag-color: var(--vscode-charts-green, #89d185); }
+}
+
+.conversation-project-comment-status {
+    border: 0;
+    cursor: pointer;
+
+    &:hover {
+        filter: brightness(1.2);
+    }
+}
+
+.conversation-project-comment-dispatch {
+    overflow: hidden;
+    color: var(--vscode-charts-green, #4ec9b0);
+    font-size: 0.7rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.conversation-project-comment-source {
+    margin: 0 0 0.4rem;
+    padding: 0.35rem 0.45rem;
+    border-radius: 4px;
+    background: var(--vscode-textBlockQuote-background, var(--vscode-input-background));
+
+    blockquote {
+        max-height: 4rem;
+        margin: 0.15rem 0 0;
+        overflow: auto;
+        padding: 0 0 0 0.45rem;
+        border-left: 2px solid var(--vscode-editorWarning-foreground);
+        color: var(--vscode-descriptionForeground);
+        background: transparent;
+        font-size: 0.78rem;
+        line-height: 1.3;
+        white-space: pre-wrap;
+    }
+}
+
+.conversation-project-comment-source-label {
+    display: inline-block;
+    margin-right: 0.35rem;
+    color: var(--vscode-descriptionForeground);
+    font-size: 0.66rem;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+}
+
+.conversation-project-comment-source [data-project-comment-action="clear-source"] {
+    float: right;
+}
+
+.conversation-project-comment-empty {
+    margin: 0.3rem 0;
+    padding: 0.4rem 0.5rem;
+    color: var(--vscode-descriptionForeground);
+    font-size: 0.72rem;
+    line-height: 1.45;
+}
+
+@media (forced-colors: active) {
+    .conversation-project-comment-tag,
+    .conversation-comments-filter-chip,
+    .conversation-comments-filter-dot {
+        color: ButtonText;
+        border-color: ButtonText;
+        background: ButtonFace;
+    }
+
+    .conversation-comments-filter-dot {
+        background: ButtonText;
+    }
+
+    .conversation-project-comment-dispatch {
+        color: ButtonText;
+    }
 }
 
 .conversation-comment-done-collapsed {

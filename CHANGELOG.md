@@ -6,10 +6,25 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
 
 ### Added
 
+- AI Conversation Comments now open with a Workspace section above the
+  Session list: quick-capture notes with free-form tags, tag filtering, and
+  one-click dispatch into the current Session's input. Project notes are
+  shared by every Session of the project, keep their dispatch history, and
+  stay open until you mark them done; selected conversation text can be
+  saved straight into a project note as a source snapshot.
 - AI Conversation telemetry bar now leads with the provider's brand icon
   (the same Simple Icons logos used by the dashboard Session cards) in front
   of the model and worktree chips, and it follows cross-provider Session
   switches live.
+
+### Fixed
+
+- The Comments panel's Workspace and Session group headers now render as
+  full-width background bands, so the two groups are easy to tell apart at
+  a glance.
+- Workspace note status messages are now prefixed (`Workspace: ...`), so a
+  note operation and a Session comment operation running at the same time
+  no longer overwrite each other's status text.
 
 ## [1.0.4] - 2026-08-06
 

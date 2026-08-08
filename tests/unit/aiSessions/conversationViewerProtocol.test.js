@@ -100,6 +100,20 @@ test('CONVERSATION-PROTOCOL-VALIDATOR-001 accepts every exact version-1 viewer i
         expectedRevision: 2,
         payload: {},
     }, {
+        type: 'conversation-viewer-comment-mutation',
+        version: 1,
+        ...target,
+        operation: 'addTag',
+        expectedRevision: 2,
+        payload: { commentId: 'comment-1', tag: 'ux' },
+    }, {
+        type: 'conversation-viewer-comment-mutation',
+        version: 1,
+        ...target,
+        operation: 'removeTag',
+        expectedRevision: 2,
+        payload: { commentId: 'comment-1', tag: 'ux' },
+    }, {
         type: 'conversation-viewer-send-comments',
         version: 1,
         ...target,
@@ -113,6 +127,41 @@ test('CONVERSATION-PROTOCOL-VALIDATOR-001 accepts every exact version-1 viewer i
         operation: 'sendComment',
         expectedRevision: 2,
         payload: { commentId: 'comment-1' },
+    }, {
+        type: 'conversation-viewer-project-comment-mutation',
+        version: 1,
+        ...target,
+        operation: 'add',
+        expectedRevision: 0,
+        payload: { text: 'note', tags: ['bug'] },
+    }, {
+        type: 'conversation-viewer-project-comment-mutation',
+        version: 1,
+        ...target,
+        operation: 'setStatus',
+        expectedRevision: 3,
+        payload: { commentId: 'note-1', status: 'done' },
+    }, {
+        type: 'conversation-viewer-project-comment-mutation',
+        version: 1,
+        ...target,
+        operation: 'addTag',
+        expectedRevision: 3,
+        payload: { commentId: 'note-1', tag: 'ux' },
+    }, {
+        type: 'conversation-viewer-project-comment-mutation',
+        version: 1,
+        ...target,
+        operation: 'reorder',
+        expectedRevision: 3,
+        payload: { orderedCommentIds: ['note-2', 'note-1'] },
+    }, {
+        type: 'conversation-viewer-send-project-comment',
+        version: 1,
+        ...target,
+        operation: 'sendProjectComment',
+        expectedRevision: 3,
+        payload: { commentId: 'note-1' },
     }];
 
     assert.deepEqual(
@@ -323,6 +372,39 @@ test('CONVERSATION-PROTOCOL-VALIDATOR-001 rejects malformed, inherited, and over
             operation: 'sendComment',
             expectedRevision: 2,
             payload: { commentId: 'comment-1', submit: true },
+        },
+        {
+            type: 'conversation-viewer-project-comment-mutation',
+            version: 1,
+            ...target,
+            operation: 'sendProjectComment',
+            expectedRevision: 2,
+            payload: { commentId: 'note-1' },
+        },
+        {
+            type: 'conversation-viewer-project-comment-mutation',
+            version: 1,
+            ...target,
+            operation: 'add',
+            expectedRevision: 2,
+            payload: { text: 'note' },
+            extra: true,
+        },
+        {
+            type: 'conversation-viewer-send-project-comment',
+            version: 1,
+            ...target,
+            operation: 'sendProjectComment',
+            expectedRevision: 2,
+            payload: {},
+        },
+        {
+            type: 'conversation-viewer-send-project-comment',
+            version: 1,
+            ...target,
+            operation: 'sendProjectComment',
+            expectedRevision: 2,
+            payload: { commentId: 'note-1', submit: true },
         },
     ];
 

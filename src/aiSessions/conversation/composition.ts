@@ -24,6 +24,7 @@ import {
     CodexAppServerClientOptions,
 } from './codexAppServerClient';
 import type { ConversationCommentStore } from './commentStore';
+import type { ProjectCommentStore } from './projectCommentStore';
 import type { ConversationBookmarkStore } from './bookmarkStore';
 import {
     ConversationCoordinator,
@@ -131,6 +132,7 @@ export interface ConversationCapabilityOptions {
         target: ConversationSessionOpenTarget
     ) => boolean | void | PromiseLike<boolean | void>;
     commentStore?: ConversationCommentStore;
+    projectCommentStore?: ProjectCommentStore;
     bookmarkStore?: ConversationBookmarkStore;
     getShowThinking?: () => boolean;
     setConversationFocusContext?: (
@@ -330,6 +332,7 @@ function createAvailableConversationCapability(
         submitPrompt: options.submitPrompt,
         focusSession: options.focusSession,
         commentStore: options.commentStore,
+        projectCommentStore: options.projectCommentStore,
         bookmarkStore: options.bookmarkStore,
         showWorktreeInSourceControl: options.showWorktreeInSourceControl,
         insertIntoActiveTerminal: options.insertIntoActiveTerminal,

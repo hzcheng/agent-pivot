@@ -362,6 +362,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 applies an authoritative cross-
             displayName: 'Kimi Session',
         },
         comments: { revision: 0, comments: [] },
+        projectComments: { revision: 0, comments: [] },
         bookmarks: { revision: 0, interactionIds: [] },
     });
 
@@ -738,6 +739,7 @@ async function renderHostViewerDocument(options = {}) {
         submitPrompt: options.submitPrompt || (async () => {}),
         bookmarkStore: options.bookmarkStore,
         commentStore: options.commentStore,
+        projectCommentStore: options.projectCommentStore,
     });
     await viewer.open({
         projectId: 'project-a',
@@ -2884,7 +2886,7 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
         .digest('hex');
     assert.equal(
         sha256(previousViewerScript),
-        '9bdd3c6cdad7fc465fa80babaa7f5237955265bab604bad1afe71c7916103412',
+        'b720b9daf3136e44c4709650aa6908e2296d605b3d7fdfcc643fa7df455db578',
         'the previous Viewer fixture must stay byte-exact'
     );
     assert.equal(
@@ -3366,7 +3368,7 @@ test('CONVERSATION-COMMENTS-UI-001 send action and telemetry comments pill drive
     );
 
     const toolbarSend = page.locator(
-        '[data-comments-toolbar] [data-comment-action="send"]'
+        '[data-session-comments-header] [data-comment-action="send"]'
     );
     const pill = page.locator('[data-telemetry-comments]');
     assert.equal(await toolbarSend.isDisabled(), true);
@@ -3392,23 +3394,7 @@ test('CONVERSATION-COMMENTS-UI-001 send action and telemetry comments pill drive
         comment: 'Check the rollout constraint.',
         status: 'open',
     };
-    await page.evaluate(({ request, comment }) => {
-        window.dispatchEvent(new MessageEvent('message', {
-            data: {
-                type: 'conversation-viewer-comments-result',
-                version: 1,
-                requestId: request.requestId,
-                subscriptionGeneration: request.subscriptionGeneration,
-                projectId: request.projectId,
-                provider: request.provider,
-                sessionId: request.sessionId,
-                operation: request.operation,
-                success: true,
-                revision: 1,
-                comments: [comment],
-            },
-        }));
-    }, { request: addRequest, comment });
+    await sendPage(page, commentSettlement(addRequest, [comment]));
 
     assert.equal(await toolbarSend.isDisabled(), false);
     assert.equal(
@@ -3429,6 +3415,718 @@ test('CONVERSATION-COMMENTS-UI-001 send action and telemetry comments pill drive
     const sendRequest = (await postedMessages(page)).at(-1);
     assert.equal(sendRequest.type, 'conversation-viewer-send-comments');
     assert.equal(sendRequest.operation, 'sendComments');
+});
+
+function commentSettlement(request, comments, overrides = {}) {
+    return {
+        type: 'conversation-viewer-comments-result',
+        version: 1,
+        requestId: request.requestId,
+        subscriptionGeneration: request.subscriptionGeneration,
+        projectId: request.projectId,
+        provider: request.provider,
+        sessionId: request.sessionId,
+        operation: request.operation,
+        success: true,
+        revision: 1,
+        comments,
+        ...overrides,
+    };
+}
+
+function projectCommentSettlement(request, comments, overrides = {}) {
+    return {
+        type: 'conversation-viewer-project-comments-result',
+        version: 1,
+        requestId: request.requestId,
+        subscriptionGeneration: request.subscriptionGeneration,
+        projectId: request.projectId,
+        provider: request.provider,
+        sessionId: request.sessionId,
+        operation: request.operation,
+        success: true,
+        revision: 1,
+        comments,
+        ...overrides,
+    };
+}
+
+test('PROJECT-COMMENTS-UI-001 captures, tags, filters, and dispatches project notes', async t => {
+    const interactionId = 'input-project-notes';
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+        viewport: { width: 700, height: 860 },
+        interactionIds: [interactionId],
+        interactionId,
+        initialWebviewState: {
+            conversationSidebar: {
+                open: true,
+                width: 280,
+                view: 'outline',
+                query: '',
+            },
+        },
+        pageOverrides: {
+            previousCursor: undefined,
+            nextCursor: undefined,
+            isStart: true,
+            isEnd: true,
+        },
+    });
+
+    await page.locator('[data-sidebar-tab="comments"]').click();
+    const projectSection = page.locator('[data-project-comments]');
+    const projectHeader = page.locator('[data-project-comments-header]');
+    assert.equal(await projectSection.isVisible(), true);
+    assert.equal(
+        await projectHeader.locator(
+            '.conversation-comments-section-title'
+        ).innerText(),
+        'WORKSPACE'
+    );
+    assert.equal(
+        await page.locator('[data-session-comments-provider]').count(),
+        0
+    );
+
+    // The composer stays tucked away until the section's + button opens it.
+    const composer = projectSection.locator('[data-project-comment-composer]');
+    assert.equal(await composer.isVisible(), false);
+    await projectHeader.locator(
+        '[data-project-comment-action="open-composer"]'
+    ).click();
+    assert.equal(await composer.isVisible(), true);
+
+    // Quick capture with a draft tag, submitted via Ctrl+Enter.
+    const input = projectSection.locator('[data-project-comment-input]');
+    const addButton = projectSection.locator(
+        '[data-project-comment-action="add"]'
+    );
+    assert.equal(await addButton.isDisabled(), true);
+    await input.fill('遥测条在窄窗口下横向溢出');
+    assert.equal(await addButton.isDisabled(), false);
+    await projectSection.locator(
+        '[data-project-comment-action="add-draft-tag"]'
+    ).click();
+    const draftTagInput = projectSection.locator(
+        '[data-project-comment-draft-tag-input]'
+    );
+    await draftTagInput.fill('bug');
+    await draftTagInput.press('Enter');
+    assert.equal(
+        await projectSection.locator(
+            '[data-project-comment-draft-tags] .conversation-project-comment-tag'
+        ).innerText(),
+        'bug\n×'
+    );
+    await input.press('Control+Enter');
+    const addRequest = (await postedMessages(page)).at(-1);
+    assert.equal(
+        addRequest.type,
+        'conversation-viewer-project-comment-mutation'
+    );
+    assert.equal(addRequest.operation, 'add');
+    assert.equal(addRequest.expectedRevision, 0);
+    assert.deepEqual(addRequest.payload, {
+        text: '遥测条在窄窗口下横向溢出',
+        tags: ['bug'],
+    });
+
+    const noteOne = {
+        id: 'note-1',
+        text: '遥测条在窄窗口下横向溢出',
+        tags: ['bug'],
+        status: 'open',
+        createdAt: 1000,
+        dispatches: [],
+    };
+    await sendPage(page, projectCommentSettlement(addRequest, [noteOne]));
+    const cards = projectSection.locator('[data-project-comment-id]');
+    assert.equal(await cards.count(), 1);
+    assert.equal(
+        await cards.first().locator(
+            '.conversation-project-comment-tag'
+        ).first().innerText(),
+        'bug\n×'
+    );
+    // Tags and the status chip live on their own row at the bottom of the
+    // card, keeping the heading row to the drag handle + icon actions.
+    assert.equal(
+        await cards.first().evaluate(element =>
+            element.lastElementChild.className
+        ),
+        'conversation-comment-tags-row'
+    );
+    assert.equal(
+        await cards.first().locator(
+            '[data-project-comment-action="toggle-status"]'
+        ).innerText(),
+        'Open'
+    );
+    assert.equal(await input.inputValue(), '');
+    assert.equal(await composer.isVisible(), false);
+    const filterChips = page.locator(
+        '[data-comments-filter-bar] button'
+    );
+    assert.deepEqual(
+        await filterChips.allInnerTexts(),
+        ['All · 1', 'Open · 1', 'Done · 0', 'bug · 1']
+    );
+
+    // A second, untagged note lands on top (newest first).
+    await projectHeader.locator(
+        '[data-project-comment-action="open-composer"]'
+    ).click();
+    await input.fill('支持一键 spawn 新 session');
+    await addButton.click();
+    const addSecond = (await postedMessages(page)).at(-1);
+    const noteTwo = {
+        id: 'note-2',
+        text: '支持一键 spawn 新 session',
+        tags: [],
+        status: 'open',
+        createdAt: 2000,
+        dispatches: [],
+    };
+    await sendPage(
+        page,
+        projectCommentSettlement(addSecond, [noteTwo, noteOne], {
+            revision: 2,
+        })
+    );
+    assert.equal(await cards.count(), 2);
+    assert.equal(
+        await cards.first().getAttribute('data-project-comment-id'),
+        'note-2'
+    );
+
+    // Group headers carry live open/total counts.
+    assert.equal(
+        await page.locator('[data-project-comments-count]').innerText(),
+        '2/2'
+    );
+    assert.equal(
+        await page.locator('[data-session-comments-count]').innerText(),
+        '0/0'
+    );
+
+    // Tag filtering narrows the list and toggles back off.
+    await filterChips.nth(3).click();
+    assert.equal(await cards.count(), 1);
+    assert.equal(
+        await cards.first().getAttribute('data-project-comment-id'),
+        'note-1'
+    );
+    await filterChips.first().click();
+    assert.equal(await cards.count(), 2);
+
+    // Sending dispatches to the current session and keeps the note open.
+    await projectSection.locator(
+        '[data-project-comment-id="note-1"]'
+    ).locator('[data-project-comment-action="send"]').click();
+    const sendRequest = (await postedMessages(page)).at(-1);
+    assert.equal(
+        sendRequest.type,
+        'conversation-viewer-send-project-comment'
+    );
+    assert.equal(sendRequest.operation, 'sendProjectComment');
+    assert.deepEqual(sendRequest.payload, { commentId: 'note-1' });
+    await sendPage(page, projectCommentSettlement(
+        sendRequest,
+        [
+            noteTwo,
+            {
+                ...noteOne,
+                dispatches: [{
+                    provider: 'codex',
+                    sessionId: 'session-host-document',
+                    at: 3000,
+                }],
+            },
+        ],
+        { revision: 3 }
+    ));
+    const dispatchedCard = projectSection.locator(
+        '[data-project-comment-id="note-1"]'
+    );
+    assert.match(
+        await dispatchedCard.locator(
+            '.conversation-project-comment-dispatch'
+        ).innerText(),
+        /Sent to Codex/
+    );
+    assert.equal(
+        await dispatchedCard.locator(
+            '[data-project-comment-action="toggle-status"]'
+        ).innerText(),
+        'Open'
+    );
+
+    const dispatchedNoteOne = {
+        ...noteOne,
+        dispatches: [{
+            provider: 'codex',
+            sessionId: 'session-host-document',
+            at: 3000,
+        }],
+    };
+
+    // Workspace cards reorder by drag, persisting through the Host. The
+    // drop lands on the lower half of the target body so it counts as an
+    // 'after' placement.
+    const noteOneCard = projectSection
+        .locator('[data-project-comment-id="note-1"]');
+    const noteOneCardBox = await noteOneCard.boundingBox();
+    await projectSection.locator('[data-project-comment-id="note-2"]')
+        .locator('[data-project-comment-drag-handle]')
+        .dragTo(noteOneCard, {
+            targetPosition: {
+                x: Math.floor(noteOneCardBox.width / 2),
+                y: Math.max(1, Math.floor(noteOneCardBox.height) - 6),
+            },
+        });
+    const reorderRequest = (await postedMessages(page)).at(-1);
+    assert.equal(
+        reorderRequest.type,
+        'conversation-viewer-project-comment-mutation'
+    );
+    assert.equal(reorderRequest.operation, 'reorder');
+    assert.deepEqual(reorderRequest.payload, {
+        orderedCommentIds: ['note-1', 'note-2'],
+    });
+    await sendPage(page, projectCommentSettlement(
+        reorderRequest,
+        [dispatchedNoteOne, noteTwo],
+        { revision: 4 }
+    ));
+    assert.equal(
+        await cards.first().getAttribute('data-project-comment-id'),
+        'note-1'
+    );
+
+    // Alt+ArrowDown on the drag handle moves a card down one position.
+    await projectSection.locator('[data-project-comment-id="note-1"]')
+        .locator('[data-project-comment-drag-handle]')
+        .focus();
+    await page.keyboard.press('Alt+ArrowDown');
+    const keyboardReorder = (await postedMessages(page)).at(-1);
+    assert.equal(keyboardReorder.operation, 'reorder');
+    assert.deepEqual(keyboardReorder.payload, {
+        orderedCommentIds: ['note-2', 'note-1'],
+    });
+    await sendPage(page, projectCommentSettlement(
+        keyboardReorder,
+        [noteTwo, dispatchedNoteOne],
+        { revision: 5 }
+    ));
+    assert.equal(
+        await cards.first().getAttribute('data-project-comment-id'),
+        'note-2'
+    );
+
+    // The Workspace header sends every open note with one click.
+    await projectHeader.locator(
+        '[data-project-comment-action="send-all"]'
+    ).click();
+    const sendAllRequest = (await postedMessages(page)).at(-1);
+    assert.equal(
+        sendAllRequest.type,
+        'conversation-viewer-send-project-comment'
+    );
+    assert.equal(sendAllRequest.operation, 'sendProjectComments');
+    assert.deepEqual(sendAllRequest.payload, {});
+    await sendPage(page, projectCommentSettlement(
+        sendAllRequest,
+        [
+            {
+                ...noteTwo,
+                dispatches: [{
+                    provider: 'codex',
+                    sessionId: 'session-host-document',
+                    at: 4000,
+                }],
+            },
+            {
+                ...dispatchedNoteOne,
+                dispatches: [
+                    ...dispatchedNoteOne.dispatches,
+                    {
+                        provider: 'codex',
+                        sessionId: 'session-host-document',
+                        at: 4000,
+                    },
+                ],
+            },
+        ],
+        { revision: 6 }
+    ));
+    const sash = page.locator('[data-comments-section-sash]');
+    const sessionRegion = page.locator('[data-session-comments-content]');
+    const sessionHeightBeforeCollapse = await sessionRegion.evaluate(
+        element => element.getBoundingClientRect().height
+    );
+    await projectHeader.locator('.conversation-comments-section-title')
+        .click();
+    assert.equal(
+        await page.locator('[data-project-comments-content]')
+            .isVisible(),
+        false
+    );
+    assert.equal(await sash.isVisible(), false);
+    // With the Workspace group folded away, the Session region fills the
+    // whole panel instead of keeping its previous share.
+    const sessionHeightCollapsed = await sessionRegion.evaluate(
+        element => element.getBoundingClientRect().height
+    );
+    assert.ok(
+        sessionHeightCollapsed > sessionHeightBeforeCollapse + 100,
+        'the Session region must fill the panel when Workspace is collapsed'
+    );
+    assert.equal(
+        await projectHeader.locator('[data-comments-section-toggle]')
+            .getAttribute('aria-expanded'),
+        'false'
+    );
+    await projectHeader.locator('[data-comments-section-toggle]').click();
+    assert.equal(
+        await page.locator('[data-project-comments-content]')
+            .isVisible(),
+        true
+    );
+    assert.equal(await sash.isVisible(), true);
+
+    const sessionHeader = page.locator('[data-session-comments-header]');
+    await sessionHeader.locator('.conversation-comments-section-title')
+        .click();
+    assert.equal(
+        await page.locator('[data-session-comments-content]').isVisible(),
+        false
+    );
+    await sessionHeader.locator('[data-comments-section-toggle]').click();
+    assert.equal(
+        await page.locator('[data-session-comments-content]').isVisible(),
+        true
+    );
+
+    // The section + button must not toggle the group, and pressing it
+    // while the group is collapsed must unfold it first.
+    await projectHeader.locator('.conversation-comments-section-title')
+        .click();
+    assert.equal(
+        await page.locator('[data-project-comments-content]')
+            .isVisible(),
+        false
+    );
+    await projectHeader.locator(
+        '[data-project-comment-action="open-composer"]'
+    ).click();
+    assert.equal(
+        await page.locator('[data-project-comments-content]')
+            .isVisible(),
+        true
+    );
+    assert.equal(
+        await projectSection.locator('[data-project-comment-composer]')
+            .isVisible(),
+        true
+    );
+
+    // The sash between the groups resizes the Session region on drag.
+    const heightBefore = await sessionRegion.evaluate(element =>
+        element.getBoundingClientRect().height
+    );
+    const sashBox = await sash.boundingBox();
+    const sashCenterX = sashBox.x + sashBox.width / 2;
+    const sashCenterY = sashBox.y + sashBox.height / 2;
+    await page.mouse.move(sashCenterX, sashCenterY);
+    await page.mouse.down();
+    await page.mouse.move(sashCenterX, sashCenterY - 80, { steps: 5 });
+    await page.mouse.up();
+    const heightAfter = await sessionRegion.evaluate(element =>
+        element.getBoundingClientRect().height
+    );
+    assert.ok(
+        heightAfter > heightBefore,
+        'dragging the sash up must grow the Session region'
+    );
+
+    // An explicit sash-dragged height must not pin the Session region when
+    // the Workspace group collapses: the region still fills the panel.
+    await projectHeader.locator('.conversation-comments-section-title')
+        .click();
+    const heightCollapsedAfterDrag = await sessionRegion.evaluate(
+        element => element.getBoundingClientRect().height
+    );
+    assert.ok(
+        heightCollapsedAfterDrag > heightAfter,
+        'a collapsed Workspace group lets the Session region fill the panel'
+            + ' even after a manual sash drag'
+    );
+});
+
+test('PROJECT-COMMENTS-UI-001 toggles, edits, and deletes notes with source snapshots', async t => {
+    const interactionId = 'input-project-notes-manage';
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+        interactionIds: [interactionId],
+        interactionId,
+        initialWebviewState: {
+            conversationSidebar: {
+                open: true,
+                width: 280,
+                view: 'comments',
+                query: '',
+            },
+        },
+        pageOverrides: {
+            previousCursor: undefined,
+            nextCursor: undefined,
+            isStart: true,
+            isEnd: true,
+        },
+    });
+
+    const projectSection = page.locator('[data-project-comments]');
+    await page.locator('[data-project-comments-header]')
+        .locator('[data-project-comment-action="open-composer"]')
+        .click();
+    const input = projectSection.locator('[data-project-comment-input]');
+    await input.fill('浏览器测试要跑全量');
+    await projectSection.locator(
+        '[data-project-comment-action="add"]'
+    ).click();
+    const addRequest = (await postedMessages(page)).at(-1);
+    const note = {
+        id: 'note-1',
+        text: '浏览器测试要跑全量',
+        tags: ['optimize'],
+        status: 'open',
+        createdAt: 1000,
+        source: {
+            provider: 'kimi',
+            sessionId: 'session-source',
+            quote: '292 > 281 at 281px',
+        },
+        dispatches: [],
+    };
+    await sendPage(page, projectCommentSettlement(addRequest, [note]));
+
+    // The source snapshot renders as display-only provenance.
+    const card = projectSection.locator('[data-project-comment-id="note-1"]');
+    assert.equal(
+        await card.locator('.conversation-comment-quote-label').innerText(),
+        'FROM KIMI SESSION'
+    );
+    assert.equal(
+        await card.locator('.conversation-comment-quote blockquote')
+            .innerText(),
+        '292 > 281 at 281px'
+    );
+    assert.equal(
+        await card.locator(
+            '[data-project-comment-action="locate"]'
+        ).count(),
+        0
+    );
+
+    // The status pill toggles done and the card collapses.
+    await card.locator('[data-project-comment-action="toggle-status"]').click();
+    const doneRequest = (await postedMessages(page)).at(-1);
+    assert.equal(doneRequest.operation, 'setStatus');
+    assert.deepEqual(doneRequest.payload, {
+        commentId: 'note-1',
+        status: 'done',
+    });
+    await sendPage(page, projectCommentSettlement(
+        doneRequest,
+        [{ ...note, status: 'done', doneAt: 2000 }],
+        { revision: 2 }
+    ));
+    assert.equal(
+        await page.locator('[data-project-comments-count]').innerText(),
+        '0/1'
+    );
+    assert.equal(
+        await card.getAttribute('data-comment-status'),
+        'done'
+    );
+    assert.equal(
+        await card.locator(
+            '.conversation-comment-collapsed-body'
+        ).innerText(),
+        '浏览器测试要跑全量'
+    );
+
+    // Reopen, then edit the text in place.
+    await card.locator('[data-project-comment-action="toggle-status"]').click();
+    const reopenRequest = (await postedMessages(page)).at(-1);
+    await sendPage(page, projectCommentSettlement(
+        reopenRequest,
+        [note],
+        { revision: 3 }
+    ));
+    await card.locator('[data-project-comment-action="edit"]').click();
+    const editor = card.locator('[data-project-comment-edit]');
+    await editor.fill('浏览器测试要跑全量（含 CSS 回归）');
+    await editor.press('Control+Enter');
+    const updateRequest = (await postedMessages(page)).at(-1);
+    assert.equal(updateRequest.operation, 'update');
+    assert.deepEqual(updateRequest.payload, {
+        commentId: 'note-1',
+        text: '浏览器测试要跑全量（含 CSS 回归）',
+    });
+    await sendPage(page, projectCommentSettlement(
+        updateRequest,
+        [{ ...note, text: '浏览器测试要跑全量（含 CSS 回归）' }],
+        { revision: 4 }
+    ));
+    assert.equal(
+        await card.locator('.conversation-comment-body').innerText(),
+        '浏览器测试要跑全量（含 CSS 回归）'
+    );
+
+    // Card-level tag editing posts addTag/removeTag mutations.
+    await card.locator(
+        '[data-project-comment-action="open-tag-editor"]'
+    ).click();
+    const tagInput = card.locator('[data-project-comment-tag-input]');
+    await tagInput.fill('ci');
+    await tagInput.press('Enter');
+    const tagRequest = (await postedMessages(page)).at(-1);
+    assert.equal(tagRequest.operation, 'addTag');
+    assert.deepEqual(tagRequest.payload, {
+        commentId: 'note-1',
+        tag: 'ci',
+    });
+    await sendPage(page, projectCommentSettlement(
+        tagRequest,
+        [{ ...note, tags: ['optimize', 'ci'] }],
+        { revision: 5 }
+    ));
+    assert.deepEqual(
+        await card.locator('.conversation-project-comment-tag')
+            .allInnerTexts(),
+        ['optimize\n×', 'ci\n×']
+    );
+    await card.locator(
+        '[data-project-comment-action="remove-tag"]'
+    ).first().click();
+    const removeTagRequest = (await postedMessages(page)).at(-1);
+    assert.deepEqual(removeTagRequest.payload, {
+        commentId: 'note-1',
+        tag: 'optimize',
+    });
+
+    // Delete returns the section to its empty state.
+    await sendPage(page, projectCommentSettlement(
+        removeTagRequest,
+        [note],
+        { revision: 6 }
+    ));
+    await card.locator('[data-project-comment-action="delete"]').click();
+    const deleteRequest = (await postedMessages(page)).at(-1);
+    assert.deepEqual(deleteRequest.payload, { commentId: 'note-1' });
+    await sendPage(page, projectCommentSettlement(
+        deleteRequest,
+        [],
+        { revision: 7 }
+    ));
+    assert.equal(
+        await projectSection.locator('[data-project-comment-id]').count(),
+        0
+    );
+    assert.equal(
+        await projectSection.locator('[data-project-comment-empty]')
+            .isVisible(),
+        true
+    );
+
+    // The Workspace header sweeps done notes with clear-done.
+    const workspaceHeader = page.locator('[data-project-comments-header]');
+    await workspaceHeader.locator(
+        '[data-project-comment-action="open-composer"]'
+    ).click();
+    await projectSection.locator('[data-project-comment-input]')
+        .fill('会被清扫的已完成笔记');
+    await projectSection.locator('[data-project-comment-action="add"]')
+        .click();
+    const readdRequest = (await postedMessages(page)).at(-1);
+    const doneNote = {
+        id: 'note-2',
+        text: '会被清扫的已完成笔记',
+        tags: [],
+        status: 'done',
+        createdAt: 3000,
+        doneAt: 4000,
+        dispatches: [],
+    };
+    await sendPage(page, projectCommentSettlement(
+        readdRequest,
+        [doneNote],
+        { revision: 8 }
+    ));
+    await workspaceHeader.locator(
+        '[data-project-comment-action="clear-done"]'
+    ).click();
+    const clearDoneRequest = (await postedMessages(page)).at(-1);
+    assert.equal(clearDoneRequest.operation, 'clearDone');
+    assert.deepEqual(clearDoneRequest.payload, {});
+    await sendPage(page, projectCommentSettlement(
+        clearDoneRequest,
+        [],
+        { revision: 9 }
+    ));
+    assert.equal(
+        await projectSection.locator('[data-project-comment-id]').count(),
+        0
+    );
+
+    // Clear-all on the Workspace header asks for a confirming second click.
+    await workspaceHeader.locator(
+        '[data-project-comment-action="open-composer"]'
+    ).click();
+    await projectSection.locator('[data-project-comment-input]')
+        .fill('等着被清空的笔记');
+    await projectSection.locator('[data-project-comment-action="add"]')
+        .click();
+    const readdSecond = (await postedMessages(page)).at(-1);
+    await sendPage(page, projectCommentSettlement(
+        readdSecond,
+        [{
+            id: 'note-3',
+            text: '等着被清空的笔记',
+            tags: [],
+            status: 'open',
+            createdAt: 5000,
+            dispatches: [],
+        }],
+        { revision: 10 }
+    ));
+    const clearAll = workspaceHeader.locator(
+        '[data-project-comment-action="clear-all"]'
+    );
+    await clearAll.click();
+    assert.equal(await clearAll.getAttribute('data-confirming'), 'true');
+    assert.equal(
+        (await postedMessages(page)).at(-1).requestId,
+        readdSecond.requestId,
+        'the first clear-all click must not post a mutation'
+    );
+    await clearAll.click();
+    const clearAllRequest = (await postedMessages(page)).at(-1);
+    assert.equal(clearAllRequest.operation, 'clearAll');
+    assert.deepEqual(clearAllRequest.payload, {});
+    await sendPage(page, projectCommentSettlement(
+        clearAllRequest,
+        [],
+        { revision: 11 }
+    ));
+    assert.equal(
+        await projectSection.locator('[data-project-comment-id]').count(),
+        0
+    );
 });
 
 test('CONVERSATION-COMMENTS-UI-001 adds a session-wide note without selecting conversation text', async t => {
@@ -3485,23 +4183,7 @@ test('CONVERSATION-COMMENTS-UI-001 adds a session-wide note without selecting co
         comment: 'Remember the rollout constraint.',
         status: 'open',
     };
-    await page.evaluate(({ request, comment }) => {
-        window.dispatchEvent(new MessageEvent('message', {
-            data: {
-                type: 'conversation-viewer-comments-result',
-                version: 1,
-                requestId: request.requestId,
-                subscriptionGeneration: request.subscriptionGeneration,
-                projectId: request.projectId,
-                provider: request.provider,
-                sessionId: request.sessionId,
-                operation: request.operation,
-                success: true,
-                revision: 1,
-                comments: [comment],
-            },
-        }));
-    }, { request, comment });
+    await sendPage(page, commentSettlement(request, [comment]));
 
     const card = page.locator('[data-comment-id="session-note-1"]');
     assert.equal(await card.getAttribute('data-comment-scope'), 'session');
@@ -3553,7 +4235,7 @@ test('CONVERSATION-COMMENTS-ORDERING-001 drags cards into a Host-authoritative o
     const { page } = await openHostViewerDocument(t, {
         includeStyles: true,
         themeFixture: viewerThemeFixtures[0],
-        viewport: { width: 850, height: 600 },
+        viewport: { width: 850, height: 1000 },
         initialWebviewState: {
             conversationCommentsPanel: {
                 open: true,
@@ -3579,26 +4261,14 @@ test('CONVERSATION-COMMENTS-ORDERING-001 drags cards into a Host-authoritative o
     });
 
     async function settle(request, success, revision, authoritativeComments) {
-        await page.evaluate(({
-            request, success, revision, authoritativeComments,
-        }) => {
-            window.dispatchEvent(new MessageEvent('message', {
-                data: {
-                    type: 'conversation-viewer-comments-result',
-                    version: 1,
-                    requestId: request.requestId,
-                    subscriptionGeneration: request.subscriptionGeneration,
-                    projectId: request.projectId,
-                    provider: request.provider,
-                    sessionId: request.sessionId,
-                    operation: request.operation,
-                    success,
-                    revision,
-                    comments: authoritativeComments,
-                    ...(success ? {} : { error: 'failed' }),
-                },
-            }));
-        }, { request, success, revision, authoritativeComments });
+        await sendPage(page, commentSettlement(
+            request,
+            authoritativeComments,
+            {
+                revision,
+                ...(success ? {} : { success: false, error: 'failed' }),
+            }
+        ));
     }
 
     const cardIds = () => page.locator('[data-comment-list] [data-comment-id]')
@@ -3646,11 +4316,18 @@ test('CONVERSATION-COMMENTS-ORDERING-001 drags cards into a Host-authoritative o
         'the minimum-width comments panel must not overflow horizontally'
     );
 
+    const thirdCard = page.locator('[data-comment-id="comment-third"]');
+    const thirdCardBox = await thirdCard.boundingBox();
     await page.locator('[data-comment-id="comment-first"]')
         .locator('[data-comment-drag-handle]')
         .dragTo(
-            page.locator('[data-comment-id="comment-third"]')
-                .locator('.conversation-comment-body')
+            thirdCard,
+            {
+                targetPosition: {
+                    x: Math.floor(thirdCardBox.width / 2),
+                    y: Math.max(1, Math.floor(thirdCardBox.height) - 6),
+                },
+            }
         );
     const dragRequest = (await postedMessages(page)).at(-1);
     assert.equal(dragRequest.type, 'conversation-viewer-comment-mutation');
@@ -3876,23 +4553,9 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-SUBMIT-002 renders read
     });
 
     async function settle(request, revision, comments) {
-        await page.evaluate(({ request, revision, comments }) => {
-            window.dispatchEvent(new MessageEvent('message', {
-                data: {
-                    type: 'conversation-viewer-comments-result',
-                    version: 1,
-                    requestId: request.requestId,
-                    subscriptionGeneration: request.subscriptionGeneration,
-                    projectId: request.projectId,
-                    provider: request.provider,
-                    sessionId: request.sessionId,
-                    operation: request.operation,
-                    success: true,
-                    revision,
-                    comments,
-                },
-            }));
-        }, { request, revision, comments });
+        await sendPage(page, commentSettlement(request, comments, {
+            revision,
+        }));
     }
 
     function cardActions(cardLocator) {
@@ -3916,7 +4579,8 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-SUBMIT-002 renders read
     });
     await selectBeta();
 
-    // The selection bubble offers two icon actions: comment and send.
+    // The selection bubble offers three icon actions: comment, save as
+    // project note, and send.
     const selectionBubble = page.locator('[data-add-comment]');
     assert.equal(await selectionBubble.isVisible(), true);
     assert.deepEqual(
@@ -3929,11 +4593,13 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-SUBMIT-002 renders read
         ),
         [
             { action: 'comment', iconOnly: true },
+            { action: 'project', iconOnly: true },
             { action: 'send', iconOnly: true },
         ],
         'selection bubble actions must be icon-only buttons'
     );
-    // The send action is the bubble's accent chip; comment stays a ghost.
+    // The send action is the bubble's accent chip; comment and project stay
+    // ghosts.
     assert.deepEqual(
         await selectionBubble.locator('button').evaluateAll(buttons =>
             buttons.map(button => {
@@ -3948,6 +4614,11 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-SUBMIT-002 renders read
         [
             {
                 action: 'comment',
+                background: 'rgba(0, 0, 0, 0)',
+                color: 'rgb(160, 160, 160)',
+            },
+            {
+                action: 'project',
                 background: 'rgba(0, 0, 0, 0)',
                 color: 'rgb(160, 160, 160)',
             },
@@ -4151,24 +4822,11 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-SUBMIT-002 renders read
     );
     const failedUpdate = (await postedMessages(page)).at(-1);
     assert.equal(failedUpdate.operation, 'update');
-    await page.evaluate(({ request, comments }) => {
-        window.dispatchEvent(new MessageEvent('message', {
-            data: {
-                type: 'conversation-viewer-comments-result',
-                version: 1,
-                requestId: request.requestId,
-                subscriptionGeneration: request.subscriptionGeneration,
-                projectId: request.projectId,
-                provider: request.provider,
-                sessionId: request.sessionId,
-                operation: request.operation,
-                success: false,
-                revision: 2,
-                comments,
-                error: 'failed',
-            },
-        }));
-    }, { request: failedUpdate, comments });
+    await sendPage(page, commentSettlement(failedUpdate, comments, {
+        success: false,
+        revision: 2,
+        error: 'failed',
+    }));
     assert.equal(
         await page.locator('[data-conversation-status]').textContent(),
         'The comment action failed. Your comments were kept.'
@@ -4215,7 +4873,7 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-SUBMIT-002 renders read
     // A freshly sent card flips to Done, stays expanded once, and drops
     // the send action while keeping edit (which reopens it) and delete.
     assert.equal(
-        await card.locator('[data-comment-status-label]').textContent(),
+        await card.locator('[data-comment-status-chip]').textContent(),
         'Done'
     );
     assert.deepEqual(await cardActions(card), [
@@ -4265,7 +4923,7 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-SUBMIT-002 renders read
     delete comments[0].sentAt;
     await settle(reopenUpdate, 4, comments);
     assert.equal(
-        await card.locator('[data-comment-status-label]').textContent(),
+        await card.locator('[data-comment-status-chip]').textContent(),
         'Open'
     );
     assert.deepEqual(await cardActions(card), [
@@ -4442,46 +5100,17 @@ test('CONVERSATION-COMMENT-QUOTE-LOCATION-001 preserves and locates a quote span
         role: 'user',
         status: 'open',
     };
-    await page.evaluate(({ request, comment }) => {
-        window.dispatchEvent(new MessageEvent('message', {
-            data: {
-                type: 'conversation-viewer-comments-result',
-                version: 1,
-                requestId: request.requestId,
-                subscriptionGeneration: request.subscriptionGeneration,
-                projectId: request.projectId,
-                provider: request.provider,
-                sessionId: request.sessionId,
-                operation: request.operation,
-                success: true,
-                revision: 1,
-                comments: [{ ...comment, quote: '   ' }],
-            },
-        }));
-    }, { request: addRequest, comment });
+    await sendPage(page, commentSettlement(
+        addRequest,
+        [{ ...comment, quote: '   ' }]
+    ));
     assert.equal(
         await page.locator('[data-conversation-comments]')
             .getAttribute('aria-busy'),
         'true',
         'a whitespace-only quote settlement must be rejected'
     );
-    await page.evaluate(({ request, comment }) => {
-        window.dispatchEvent(new MessageEvent('message', {
-            data: {
-                type: 'conversation-viewer-comments-result',
-                version: 1,
-                requestId: request.requestId,
-                subscriptionGeneration: request.subscriptionGeneration,
-                projectId: request.projectId,
-                provider: request.provider,
-                sessionId: request.sessionId,
-                operation: request.operation,
-                success: true,
-                revision: 1,
-                comments: [comment],
-            },
-        }));
-    }, { request: addRequest, comment });
+    await sendPage(page, commentSettlement(addRequest, [comment]));
 
     await page.locator('[data-comment-id="comment-block-quote-location"]')
         .locator('[data-comment-action="locate"]').click();
@@ -4537,23 +5166,10 @@ test('CONVERSATION-COMMENTS-UI-001 filters cards, jumps from message markers, an
     });
 
     async function settle(request, revision, comments, operation) {
-        await page.evaluate(({ request, revision, comments, operation }) => {
-            window.dispatchEvent(new MessageEvent('message', {
-                data: {
-                    type: 'conversation-viewer-comments-result',
-                    version: 1,
-                    requestId: request.requestId,
-                    subscriptionGeneration: request.subscriptionGeneration,
-                    projectId: request.projectId,
-                    provider: request.provider,
-                    sessionId: request.sessionId,
-                    operation: operation || request.operation,
-                    success: true,
-                    revision,
-                    comments,
-                },
-            }));
-        }, { request, revision, comments, operation });
+        await sendPage(page, commentSettlement(request, comments, {
+            revision,
+            ...(operation ? { operation } : {}),
+        }));
     }
 
     await page.locator('.conversation-markdown').evaluate(element => {
@@ -4614,9 +5230,10 @@ test('CONVERSATION-COMMENTS-UI-001 filters cards, jumps from message markers, an
     const card = page.locator('[data-comment-id="comment-1"]');
     const doneCard = page.locator('[data-comment-id="comment-2"]');
 
-    // The toolbar is a single row of six icon buttons.
-    const toolbar = page.locator('[data-comments-toolbar]');
-    assert.equal(await toolbar.locator('[data-comment-action]').count(), 6);
+    // The group actions live in the Session header as one row of three
+    // icon buttons: send, clear done, clear all.
+    const toolbar = page.locator('[data-session-comments-header]');
+    assert.equal(await toolbar.locator('[data-comment-action]').count(), 4);
     assert.deepEqual(
         (await toolbar.locator('[data-comment-action]').evaluateAll(buttons =>
             Array.from(new Set(buttons.map(button =>
@@ -4624,14 +5241,7 @@ test('CONVERSATION-COMMENTS-UI-001 filters cards, jumps from message markers, an
             )))
         )).length,
         1,
-        'toolbar buttons must share a single row'
-    );
-    const toolbarHeight = await toolbar.evaluate(element =>
-        element.getBoundingClientRect().height
-    );
-    assert.ok(
-        toolbarHeight <= 64,
-        `comment toolbar height ${toolbarHeight}px must remain compact`
+        'session header buttons must share a single row'
     );
 
     // The send action is a bare icon: no count badge, one uniform size.
@@ -4685,11 +5295,11 @@ test('CONVERSATION-COMMENTS-UI-001 filters cards, jumps from message markers, an
             .getAttribute('aria-pressed'),
         'true'
     );
-    assert.equal(
+    assert.deepEqual(
         await page.evaluate(() =>
-            window.__webviewState.conversationCommentsFilter
+            window.__webviewState.conversationCommentsPanelFilter
         ),
-        'done'
+        { type: 'status', value: 'done' }
     );
     await page.locator('[data-comment-filter="open"]').click();
     assert.equal(await page.locator('[data-comment-id]').count(), 2);
@@ -4713,7 +5323,9 @@ test('CONVERSATION-COMMENTS-UI-001 filters cards, jumps from message markers, an
 
     // Sending every open comment empties the open filter with a hint.
     await page.locator('[data-comment-filter="all"]').click();
-    await page.locator('[data-comments-toolbar] [data-comment-action="send"]')
+    await page.locator(
+        '[data-session-comments-header] [data-comment-action="send"]'
+    )
         .click();
     const sendAll = (await postedMessages(page)).at(-1);
     assert.equal(sendAll.operation, 'sendComments');
@@ -4884,23 +5496,9 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-BULK-001 CONVERSATION-C
     }
 
     async function settle(request, revision, comments) {
-        await page.evaluate(({ request, revision, comments }) => {
-            window.dispatchEvent(new MessageEvent('message', {
-                data: {
-                    type: 'conversation-viewer-comments-result',
-                    version: 1,
-                    requestId: request.requestId,
-                    subscriptionGeneration: request.subscriptionGeneration,
-                    projectId: request.projectId,
-                    provider: request.provider,
-                    sessionId: request.sessionId,
-                    operation: request.operation,
-                    success: true,
-                    revision,
-                    comments,
-                },
-            }));
-        }, { request, revision, comments });
+        await sendPage(page, commentSettlement(request, comments, {
+            revision,
+        }));
     }
 
     async function settleLocate(request, success = true) {
@@ -4989,24 +5587,18 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-BULK-001 CONVERSATION-C
     assert.equal(
         await page.locator('[data-comment-count]').count(),
         0,
-        'the redundant count badge stays removed; the summary carries counts'
+        'the redundant count badge stays removed'
     );
     assert.equal(
-        await page.locator('[data-comment-summary]').textContent(),
-        '2 open'
+        await page.locator('[data-telemetry-comments]').innerText(),
+        '2/2',
+        'the telemetry pill carries the open/total counts'
     );
-    const commentToolbar = page.locator('[data-comments-toolbar]');
+    const commentToolbar = page.locator('[data-session-comments-header]');
     assert.equal(await commentToolbar.count(), 1);
     assert.equal(
         await commentToolbar.locator('[data-comment-action]').count(),
-        6
-    );
-    const commentToolbarHeight = await commentToolbar.evaluate(element =>
-        element.getBoundingClientRect().height
-    );
-    assert.ok(
-        commentToolbarHeight <= 64,
-        `comment toolbar height ${commentToolbarHeight}px must remain compact`
+        4
     );
     assert.deepEqual(
         await page.locator('[data-comment-id]').evaluateAll(cards =>
@@ -5231,7 +5823,9 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-BULK-001 CONVERSATION-C
 
     assert.equal(await page.locator('[data-comment-id]').count(), 2);
     assert.deepEqual(
-        await page.locator('[data-comment-status-label]').allTextContents(),
+        await page.locator(
+            '[data-comment-id] [data-comment-status-chip]'
+        ).allTextContents(),
         ['Done', 'Done']
     );
     assert.equal(
@@ -5262,9 +5856,10 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-BULK-001 CONVERSATION-C
             .getAttribute('data-comment-status'),
         'open'
     );
-    assert.ok(
-        (await page.locator('[data-comment-summary]').textContent())
-            .includes('1 open')
+    assert.equal(
+        await page.locator('[data-telemetry-comments]').innerText(),
+        '1/2',
+        'the telemetry pill reflects the reopened comment'
     );
     assert.equal(
         await page.locator('[data-comment-action="send"]').isEnabled(),
@@ -5280,7 +5875,9 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-BULK-001 CONVERSATION-C
     comments.splice(1, 1);
     await settle(clearDone, 5, comments);
     assert.deepEqual(
-        await page.locator('[data-comment-status-label]').allTextContents(),
+        await page.locator(
+            '[data-comment-id] [data-comment-status-chip]'
+        ).allTextContents(),
         ['Open']
     );
 
@@ -8527,3 +9124,148 @@ test('CONVERSATION-NAVIGATION-STATE-001 keeps controls, status, focus, and scrol
         'navigation must remain inside the message viewport'
     );
 });
+
+
+
+
+test('TMP repro add flow from closed sidebar', async t => {
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+        interactionIds: ['input-repro'],
+        interactionId: 'input-repro',
+        pageOverrides: {
+            previousCursor: undefined,
+            nextCursor: undefined,
+            isStart: true,
+            isEnd: true,
+        },
+    });
+    const pageErrors = [];
+    page.on('pageerror', error => pageErrors.push(error.message));
+    await page.locator('[data-action="toggle-sidebar"]').click();
+    await page.locator('[data-sidebar-tab="comments"]').click();
+    await page.locator('[data-project-comments-header]')
+        .locator('[data-project-comment-action="open-composer"]').click();
+    console.log('TMP composer visible:',
+        await page.locator('[data-project-comment-composer]').isVisible());
+    await page.locator('[data-project-comment-input]').fill('测试笔记');
+    console.log('TMP add disabled:',
+        await page.locator('[data-project-comment-action="add"]')
+            .isDisabled());
+    await page.locator('[data-project-comment-action="add"]').click();
+    const requests = await postedMessages(page);
+    console.log('TMP last request:', JSON.stringify(requests.at(-1)));
+    console.log('TMP pageErrors:', JSON.stringify(pageErrors));
+});
+
+
+
+
+
+test('CONVERSATION-COMMENTS-UI-001 PROJECT-COMMENTS-UI-001 unifies status and tag chips across both card groups', async t => {
+    const sessionComment = {
+        id: 'comment-1',
+        scope: 'session',
+        messageId: '',
+        interactionId: '',
+        role: 'user',
+        quote: '',
+        prefix: '',
+        suffix: '',
+        comment: '只改 CSS，别动 TS。',
+        status: 'open',
+    };
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+        viewport: { width: 850, height: 800 },
+        initialWebviewState: {
+            conversationSidebar: {
+                open: true,
+                width: 280,
+                view: 'comments',
+                query: '',
+            },
+        },
+        interactionIds: ['input-unified'],
+        interactionId: 'input-unified',
+        pageOverrides: {
+            previousCursor: undefined,
+            nextCursor: undefined,
+            isStart: true,
+            isEnd: true,
+        },
+        commentStore: {
+            load: async () => ({ revision: 1, comments: [sessionComment] }),
+            save: async () => {},
+        },
+    });
+
+    await page.locator('[data-sidebar-tab="comments"]').click();
+    const card = page.locator('[data-comment-id="comment-1"]');
+
+    // Session cards carry the same bottom tags row: a display-only status
+    // chip plus an add-tag affordance, and no heading status pill.
+    const tagsRow = card.locator('.conversation-comment-tags-row');
+    assert.equal(
+        await tagsRow.locator('[data-comment-status-chip]').innerText(),
+        'Open'
+    );
+    assert.equal(
+        await tagsRow.locator('[data-comment-status-chip]')
+            .evaluate(element => element.tagName),
+        'SPAN'
+    );
+    assert.equal(
+        await card.locator('.conversation-comment-heading')
+            .locator('.conversation-comment-status').count(),
+        0
+    );
+
+    // Adding a tag goes through the Host-authoritative mutation protocol.
+    await tagsRow.locator('[data-comment-action="open-tag-editor"]').click();
+    const tagInput = card.locator('[data-comment-tag-input]');
+    await tagInput.fill('convention');
+    await tagInput.press('Enter');
+    const tagRequest = (await postedMessages(page)).at(-1);
+    assert.equal(
+        tagRequest.type,
+        'conversation-viewer-comment-mutation'
+    );
+    assert.equal(tagRequest.operation, 'addTag');
+    assert.deepEqual(tagRequest.payload, {
+        commentId: 'comment-1',
+        tag: 'convention',
+    });
+    await sendPage(page, commentSettlement(tagRequest, [{
+        id: 'comment-1',
+        scope: 'session',
+        messageId: '',
+        interactionId: '',
+        role: 'user',
+        quote: '',
+        prefix: '',
+        suffix: '',
+        comment: '只改 CSS，别动 TS。',
+        status: 'open',
+        tags: ['convention'],
+    }], { revision: 2 }));
+    assert.deepEqual(
+        await tagsRow.locator('.conversation-project-comment-tag')
+            .allInnerTexts(),
+        ['convention\n×']
+    );
+
+    // Removing it posts the paired mutation.
+    await tagsRow.locator('[data-comment-action="remove-tag"]').click();
+    const removeRequest = (await postedMessages(page)).at(-1);
+    assert.equal(removeRequest.operation, 'removeTag');
+    assert.deepEqual(removeRequest.payload, {
+        commentId: 'comment-1',
+        tag: 'convention',
+    });
+});
+
+
+

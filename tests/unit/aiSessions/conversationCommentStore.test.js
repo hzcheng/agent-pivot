@@ -6,6 +6,9 @@ const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 const {
+    makeTempDirectory,
+} = require('../../helpers/tempDirectory');
+const {
     ConversationCommentFileStore,
 } = require('../../../out/aiSessions/conversation/commentStore');
 
@@ -46,10 +49,10 @@ function snapshot() {
 }
 
 test('CONVERSATION-COMMENTS-PERSISTENCE-001 stores isolated, validated snapshots and removes empty sessions', async t => {
-    const root = await fs.promises.mkdtemp(
-        path.join(os.tmpdir(), 'agent-pivot-conversation-comments-')
+    const root = makeTempDirectory(
+        t,
+        'agent-pivot-conversation-comments-'
     );
-    t.after(() => fs.promises.rm(root, { recursive: true, force: true }));
     const store = new ConversationCommentFileStore(
         root,
         () => Date.parse('2026-07-31T00:00:00.000Z')
@@ -77,10 +80,10 @@ test('CONVERSATION-COMMENTS-PERSISTENCE-001 stores isolated, validated snapshots
 });
 
 test('CONVERSATION-COMMENTS-PERSISTENCE-001 normalizes legacy sent and resolved statuses to done on load', async t => {
-    const root = await fs.promises.mkdtemp(
-        path.join(os.tmpdir(), 'agent-pivot-conversation-comments-legacy-')
+    const root = makeTempDirectory(
+        t,
+        'agent-pivot-conversation-comments-legacy-'
     );
-    t.after(() => fs.promises.rm(root, { recursive: true, force: true }));
     const store = new ConversationCommentFileStore(root);
     await store.save(target(), snapshot());
     const directory = path.join(root, 'conversation-comments', 'v1');
@@ -106,10 +109,10 @@ test('CONVERSATION-COMMENTS-PERSISTENCE-001 normalizes legacy sent and resolved 
 });
 
 test('CONVERSATION-COMMENTS-PERSISTENCE-001 ignores malformed private snapshots without blocking Conversation', async t => {
-    const root = await fs.promises.mkdtemp(
-        path.join(os.tmpdir(), 'agent-pivot-conversation-comments-corrupt-')
+    const root = makeTempDirectory(
+        t,
+        'agent-pivot-conversation-comments-corrupt-'
     );
-    t.after(() => fs.promises.rm(root, { recursive: true, force: true }));
     const store = new ConversationCommentFileStore(root);
     await store.save(target(), snapshot());
     const directory = path.join(root, 'conversation-comments', 'v1');

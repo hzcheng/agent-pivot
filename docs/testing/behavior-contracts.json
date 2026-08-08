@@ -4177,6 +4177,7 @@
     "priority": "P0",
     "status": "automated",
     "owners": [
+      "tests/unit/aiSessions/conversationCommentController.test.js",
       "tests/unit/aiSessions/conversationComments.test.js",
       "tests/integration/dashboard/conversationRouting.test.js"
     ],
@@ -4192,6 +4193,7 @@
     "priority": "P0",
     "status": "automated",
     "owners": [
+      "tests/unit/aiSessions/conversationCommentController.test.js",
       "tests/unit/aiSessions/conversationSubmission.test.js"
     ],
     "evidence": [
@@ -4208,6 +4210,7 @@
     "priority": "P0",
     "status": "automated",
     "owners": [
+      "tests/unit/aiSessions/conversationCommentController.test.js",
       "tests/integration/dashboard/conversationRouting.test.js",
       "tests/browser/conversationViewer.test.js"
     ],
@@ -4287,6 +4290,7 @@
     "priority": "P0",
     "status": "automated",
     "owners": [
+      "tests/unit/aiSessions/conversationCommentController.test.js",
       "tests/unit/aiSessions/conversationCommentStore.test.js",
       "tests/integration/dashboard/conversationRouting.test.js"
     ],
@@ -4294,6 +4298,64 @@
       "src/aiSessions/conversation/commentStore.ts",
       "src/aiSessions/conversation/viewer.ts",
       "src/dashboard.ts"
+    ]
+  },
+  {
+    "id": "PROJECT-COMMENTS-001",
+    "domain": "session",
+    "title": "Project notes stay bounded and normalized with case-insensitive tag dedupe, manual done toggles, append-only dispatch history, and a branch-aware dispatch prompt",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/projectComments.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/projectComments.ts"
+    ]
+  },
+  {
+    "id": "PROJECT-COMMENTS-CONTROLLER-001",
+    "domain": "session",
+    "title": "Project note mutations stay Host-authoritative with optimistic revisions, idempotent settlements, and dispatch records that survive sends but roll back on staging failure",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/projectCommentController.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/projectCommentController.ts",
+      "src/aiSessions/conversation/projectComments.ts",
+      "src/aiSessions/conversation/viewerProtocol.ts"
+    ]
+  },
+  {
+    "id": "PROJECT-COMMENTS-PERSISTENCE-001",
+    "domain": "persistence",
+    "title": "Project notes persist in extension-private host storage keyed by projectId alone, isolated across projects and tolerant of malformed snapshots",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/projectCommentStore.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/projectCommentStore.ts",
+      "src/aiSessions/conversation/viewer.ts",
+      "src/dashboard.ts"
+    ]
+  },
+  {
+    "id": "PROJECT-COMMENTS-UI-001",
+    "domain": "webview",
+    "title": "The Comments side panel splits into a project section with quick capture, tag editing and tag filtering, and an untouched session section, sharing the correlated Host-authoritative mutation protocol",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/browser/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/webview/conversationCommentsScripts.js",
+      "src/aiSessions/conversation/viewerDocument.ts",
+      "media/conversationViewer.scss"
     ]
   },
   {

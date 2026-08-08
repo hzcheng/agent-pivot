@@ -6550,6 +6550,7 @@ test('CONVERSATION-PLAN-QUESTION-VISIBILITY-001 keeps plan and question cards vi
 
 test('CONVERSATION-DIFF-VISIBILITY-001 renders diff cards with sanitized markup inside the collapsible tool entry', async t => {
     const page = await openViewerPage(t, {});
+    await page.addStyleTag({ content: viewerCss });
     const toolArticle = `<article class="conversation-message conversation-message-tool"
             data-message-id="input-4:tool:0"
             data-conversation-message-id="input-4%3Atool%3A0"
@@ -6624,6 +6625,43 @@ test('CONVERSATION-DIFF-VISIBILITY-001 renders diff cards with sanitized markup 
     assert.match(
         await page.locator('.conversation-diff-line-hunk').innerText(),
         /@@ -3 \+3 @@/
+    );
+    const addStyle = await addLine.evaluate(element => {
+        const style = getComputedStyle(element);
+        return {
+            color: style.color,
+            background: style.backgroundColor,
+            borderLeft: style.borderLeftColor,
+        };
+    });
+    const delStyle = await page.locator('.conversation-diff-line-del')
+        .evaluate(element => {
+            const style = getComputedStyle(element);
+            return {
+                color: style.color,
+                background: style.backgroundColor,
+                borderLeft: style.borderLeftColor,
+            };
+        });
+    assert.notEqual(
+        addStyle.color,
+        'rgba(0, 0, 0, 0)',
+        'added lines get visible text color'
+    );
+    assert.notEqual(
+        addStyle.borderLeft,
+        'rgba(0, 0, 0, 0)',
+        'added lines get an accent bar'
+    );
+    assert.notEqual(
+        addStyle.color,
+        delStyle.color,
+        'add and del lines use different colors'
+    );
+    assert.notEqual(
+        addStyle.background,
+        delStyle.background,
+        'add and del lines use different backgrounds'
     );
 });
 

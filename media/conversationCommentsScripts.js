@@ -13,7 +13,6 @@
         var telemetrySection = options.telemetrySection;
         var commentsRoot = options.commentsRoot;
         var commentCount = options.commentCount;
-        var commentSummary = options.commentSummary;
         var commentComposer = options.commentComposer;
         var commentSelection = options.commentSelection;
         var commentInput = options.commentInput;
@@ -28,6 +27,7 @@
         var post = options.post;
         var projectCommentsAvailable = options.projectCommentsAvailable;
         var projectCommentsRoot = options.projectCommentsRoot;
+        var projectCommentComposer = options.projectCommentComposer;
         var projectCommentSource = options.projectCommentSource;
         var projectCommentSourceLabel = options.projectCommentSourceLabel;
         var projectCommentSourceQuote = options.projectCommentSourceQuote;
@@ -228,20 +228,6 @@
             var counts = commentStatusCounts();
             var pending = !!state.pendingCommentRequest
                 || !!state.pendingLocateRequest;
-            var summary = [];
-            if (projectCommentsAvailable && state.projectComments.length) {
-                summary.push(
-                    state.projectComments.length
-                        + (state.projectComments.length === 1
-                            ? ' project note'
-                            : ' project notes')
-                );
-            }
-            if (counts.open) summary.push(counts.open + ' open');
-            if (counts.done) summary.push(counts.done + ' done');
-            commentSummary.textContent = summary.length
-                ? summary.join(' · ')
-                : 'No comments yet';
             if (commentCount) {
                 commentCount.textContent = String(state.comments.length);
                 commentCount.setAttribute(
@@ -1624,6 +1610,20 @@
             updateProjectComposerControls();
         }
 
+        function openProjectCommentComposer() {
+            if (!projectCommentsAvailable
+                || state.pendingProjectCommentRequest) return;
+            projectCommentComposer.hidden = false;
+            updateProjectComposerControls();
+            projectCommentInput.focus();
+        }
+
+        function closeProjectCommentComposer() {
+            if (!projectCommentsAvailable) return;
+            projectCommentComposer.hidden = true;
+            resetProjectComposer();
+        }
+
         function saveSelectionAsProjectNote() {
             if (!projectCommentsAvailable
                 || !state.selectedCommentText
@@ -1644,7 +1644,7 @@
             }
             setSidebarView('comments', true, true);
             updateProjectSourcePreview();
-            projectCommentInput.focus();
+            openProjectCommentComposer();
         }
 
         function postProjectCommentOperation(operation, payload) {
@@ -1692,7 +1692,7 @@
                     state.projectPendingSource
                 );
             }
-            resetProjectComposer();
+            closeProjectCommentComposer();
             postProjectCommentOperation('add', payload);
         }
 
@@ -1995,8 +1995,7 @@
             });
             projectCommentEmpty.hidden = state.projectComments.length > 0;
             if (!projectCommentEmpty.hidden) {
-                projectCommentEmpty.textContent = 'No project notes yet.'
-                    + ' Jot down a bug, idea, or todo above.';
+                projectCommentEmpty.textContent = 'No project notes yet.';
             }
             if (state.projectComments.length > 0 && visible.length === 0) {
                 projectCommentEmpty.hidden = false;
@@ -2376,6 +2375,10 @@
                     var action = button.getAttribute(
                         'data-project-comment-action'
                     );
+                    if (action === 'open-composer') {
+                        openProjectCommentComposer();
+                        return;
+                    }
                     if (action === 'add') {
                         addProjectCommentFromComposer();
                         return;
@@ -2589,6 +2592,15 @@
                 closeProjectDraftTagInput();
                 return true;
             }
+            if (projectCommentsAvailable
+                && !state.editingProjectComment
+                && !state.projectTagEditor
+                && !projectCommentComposer.hidden
+                && !state.pendingProjectCommentRequest) {
+                event.preventDefault();
+                closeProjectCommentComposer();
+                return true;
+            }
             if (projectCommentsAvailable && state.projectTagEditor) {
                 event.preventDefault();
                 if (!state.pendingProjectCommentRequest) {
@@ -2692,7 +2704,7 @@
                         target.provider
                     );
                 }
-                resetProjectComposer();
+                closeProjectCommentComposer();
                 renderProjectComments();
             }
             if (!commentUiAvailable) {

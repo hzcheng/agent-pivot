@@ -106,7 +106,6 @@
         '[data-action="close-subagent"]'
     );
     var commentCount = document.querySelector('[data-comment-count]');
-    var commentSummary = document.querySelector('[data-comment-summary]');
     var commentComposer = document.querySelector('[data-comment-composer]');
     var commentSelection = document.querySelector('[data-comment-selection]');
     var commentInput = document.querySelector('[data-comment-input]');
@@ -134,6 +133,9 @@
         '[data-telemetry-comments]'
     );
     var projectCommentsRoot = document.querySelector('[data-project-comments]');
+    var projectCommentComposer = document.querySelector(
+        '[data-project-comment-composer]'
+    );
     var projectCommentSource = document.querySelector(
         '[data-project-comment-source]'
     );
@@ -181,7 +183,6 @@
         && validCommentTarget(commentTarget);
     var commentUiAvailable = sidebarUiAvailable
         && !!commentsRoot
-        && !!commentSummary
         && !!commentComposer && !!commentSelection && !!commentInput
         && !!commentList && !!commentEmpty && !!commentFilterEmpty
         && !!commentNew
@@ -196,7 +197,8 @@
         && !!telemetrySubagents && !!telemetrySection
         && !!window.__agentPivotConversationSubagents;
     var projectCommentUiAvailable = commentUiAvailable
-        && !!projectCommentsRoot && !!projectCommentSource
+        && !!projectCommentsRoot && !!projectCommentComposer
+        && !!projectCommentSource
         && !!projectCommentSourceLabel && !!projectCommentSourceQuote
         && !!projectCommentInput && !!projectCommentDraftTags
         && !!projectCommentAddTag && !!projectCommentAdd
@@ -362,7 +364,6 @@
         addComment: addComment,
         commentsRoot: commentsRoot,
         commentCount: commentCount,
-        commentSummary: commentSummary,
         commentComposer: commentComposer,
         commentSelection: commentSelection,
         commentInput: commentInput,
@@ -378,6 +379,7 @@
         telemetrySection: telemetrySection,
         projectCommentsAvailable: projectCommentUiAvailable,
         projectCommentsRoot: projectCommentsRoot,
+        projectCommentComposer: projectCommentComposer,
         projectCommentSource: projectCommentSource,
         projectCommentSourceLabel: projectCommentSourceLabel,
         projectCommentSourceQuote: projectCommentSourceQuote,

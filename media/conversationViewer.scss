@@ -1161,34 +1161,6 @@ button {
     }
 }
 
-.conversation-comments-panelbar {
-    display: flex;
-    flex: 0 0 auto;
-    min-width: 0;
-    gap: 0.5rem;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0.4rem 0.5rem 0.25rem;
-
-    [data-comment-action="new"] {
-        min-width: 0;
-        padding: 0.18rem 0.45rem;
-        border-color: var(--vscode-button-secondaryBackground);
-        color: var(--vscode-button-secondaryForeground);
-        background: var(--vscode-button-secondaryBackground);
-        font-size: 0.75rem;
-        white-space: nowrap;
-    }
-}
-
-.conversation-comments-summary {
-    overflow: hidden;
-    color: var(--vscode-descriptionForeground);
-    font-size: 0.78rem;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
 .conversation-comments-toolbar {
     display: flex;
     flex: 0 0 auto;
@@ -1542,15 +1514,23 @@ button {
     flex: 0 0 auto;
     min-width: 0;
     gap: 0.4rem;
-    align-items: baseline;
-    padding: 0.15rem 0.1rem 0;
+    align-items: center;
+    margin-bottom: 0.1rem;
+    padding: 0.25rem 0.2rem 0.3rem;
+    border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+.conversation-comments-section-header-session {
+    margin-top: 0.7rem;
+    padding-top: 0.6rem;
+    border-top: 2px solid var(--vscode-panel-border);
 }
 
 .conversation-comments-section-title {
     flex: 0 0 auto;
-    color: var(--vscode-descriptionForeground);
-    font-size: 0.68rem;
-    font-weight: 600;
+    color: var(--vscode-foreground);
+    font-size: 0.72rem;
+    font-weight: 700;
     letter-spacing: 0.06em;
     text-transform: uppercase;
 }
@@ -1563,6 +1543,15 @@ button {
     text-align: right;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.conversation-comments-section-add {
+    flex: 0 0 auto;
+}
+
+.conversation-comments-section-header-session
+.conversation-comments-section-chip {
+    margin-right: auto;
 }
 
 .conversation-comments-section-chip {

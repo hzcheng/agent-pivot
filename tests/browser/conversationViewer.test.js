@@ -739,6 +739,7 @@ async function renderHostViewerDocument(options = {}) {
         submitPrompt: options.submitPrompt || (async () => {}),
         bookmarkStore: options.bookmarkStore,
         commentStore: options.commentStore,
+        projectCommentStore: options.projectCommentStore,
     });
     await viewer.open({
         projectId: 'project-a',
@@ -3486,6 +3487,14 @@ test('PROJECT-COMMENTS-UI-001 captures, tags, filters, and dispatches project no
         'Codex'
     );
 
+    // The composer stays tucked away until the section's + button opens it.
+    const composer = projectSection.locator('[data-project-comment-composer]');
+    assert.equal(await composer.isVisible(), false);
+    await projectSection.locator(
+        '[data-project-comment-action="open-composer"]'
+    ).click();
+    assert.equal(await composer.isVisible(), true);
+
     // Quick capture with a draft tag, submitted via Ctrl+Enter.
     const input = projectSection.locator('[data-project-comment-input]');
     const addButton = projectSection.locator(
@@ -3545,10 +3554,7 @@ test('PROJECT-COMMENTS-UI-001 captures, tags, filters, and dispatches project no
         'Open'
     );
     assert.equal(await input.inputValue(), '');
-    assert.equal(
-        await page.locator('[data-comment-summary]').innerText(),
-        '1 project note'
-    );
+    assert.equal(await composer.isVisible(), false);
     const filterChips = projectSection.locator(
         '[data-project-comment-tag-filter] button'
     );
@@ -3558,6 +3564,9 @@ test('PROJECT-COMMENTS-UI-001 captures, tags, filters, and dispatches project no
     );
 
     // A second, untagged note lands on top (newest first).
+    await projectSection.locator(
+        '[data-project-comment-action="open-composer"]'
+    ).click();
     await input.fill('支持一键 spawn 新 session');
     await addButton.click();
     const addSecond = (await postedMessages(page)).at(-1);
@@ -3658,6 +3667,9 @@ test('PROJECT-COMMENTS-UI-001 toggles, edits, and deletes notes with source snap
     });
 
     const projectSection = page.locator('[data-project-comments]');
+    await projectSection.locator(
+        '[data-project-comment-action="open-composer"]'
+    ).click();
     const input = projectSection.locator('[data-project-comment-input]');
     await input.fill('浏览器测试要跑全量');
     await projectSection.locator(
@@ -5372,11 +5384,12 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-BULK-001 CONVERSATION-C
     assert.equal(
         await page.locator('[data-comment-count]').count(),
         0,
-        'the redundant count badge stays removed; the summary carries counts'
+        'the redundant count badge stays removed'
     );
     assert.equal(
-        await page.locator('[data-comment-summary]').textContent(),
-        '2 open'
+        await page.locator('[data-telemetry-comments]').innerText(),
+        '2/2',
+        'the telemetry pill carries the open/total counts'
     );
     const commentToolbar = page.locator('[data-comments-toolbar]');
     assert.equal(await commentToolbar.count(), 1);
@@ -5645,9 +5658,10 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-BULK-001 CONVERSATION-C
             .getAttribute('data-comment-status'),
         'open'
     );
-    assert.ok(
-        (await page.locator('[data-comment-summary]').textContent())
-            .includes('1 open')
+    assert.equal(
+        await page.locator('[data-telemetry-comments]').innerText(),
+        '1/2',
+        'the telemetry pill reflects the reopened comment'
     );
     assert.equal(
         await page.locator('[data-comment-action="send"]').isEnabled(),
@@ -8910,3 +8924,4 @@ test('CONVERSATION-NAVIGATION-STATE-001 keeps controls, status, focus, and scrol
         'navigation must remain inside the message viewport'
     );
 });
+

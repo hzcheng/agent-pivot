@@ -10,6 +10,10 @@ const test = require('node:test');
 const { chromium } = require('playwright-chromium');
 
 const styles = fs.readFileSync(path.join(__dirname, '../../media/styles.css'), 'utf8');
+const scrollStateScript = fs.readFileSync(
+    path.join(__dirname, '../../media/webviewScrollStateScripts.js'),
+    'utf8'
+);
 const skillPanelScript = fs.readFileSync(
     path.join(__dirname, '../../media/webviewSkillPanelScripts.js'),
     'utf8'
@@ -77,8 +81,9 @@ function makeSplitRecords() {
     return records;
 }
 
-// Same initSkillPanel factory technique as skillPanelFilter.test.js.
-async function openSkillsPage(browser, records) {
+// Same initSkillPanel factory technique as skillPanelFilter.test.js; the
+// harness also loads the scroll-state helper like the real bundle does.
+async function openSkillsPage(browser, records, harnessOptions = {}) {
     const { getSkillsPanelContent } = loadSkillContent();
     const page = await browser.newPage({ viewport: { width: 340, height: 600 } });
     await page.setContent(`<!doctype html>
@@ -88,20 +93,32 @@ async function openSkillsPage(browser, records) {
                 <section role="tabpanel" id="ai-panel-skills">${getSkillsPanelContent(records || makeSplitRecords(), { hasWorkspace: true })}</section>
             </body>
         </html>`);
-    await page.evaluate(skillPanelSource => {
+    await page.evaluate(payload => {
         (function () {
+            if (payload.withVscodeState) {
+                window.vscode = {
+                    _state: {},
+                    getState() { return this._state; },
+                    setState(next) { this._state = next; },
+                };
+            }
             var options = {
                 postMessage(message) {
                     (window.__skillMessages = window.__skillMessages || []).push(message);
                     return Promise.resolve(true);
                 },
             };
-            eval(skillPanelSource);
+            eval(payload.scrollStateSource);
+            eval(payload.panelSource);
             var skillPanel = initSkillPanel(options);
             window.__layoutSkillsSplit = skillPanel.layoutSkillsSplit;
             window.__replaceSkillsHtml = skillPanel.replaceSkillsHtml;
         })();
-    }, skillPanelScript);
+    }, {
+        panelSource: skillPanelScript,
+        scrollStateSource: scrollStateScript,
+        withVscodeState: Boolean(harnessOptions.withVscodeState),
+    });
     await page.evaluate('window.__layoutSkillsSplit()');
     return page;
 }
@@ -256,6 +273,131 @@ test('SKILLS-SPLIT-003 keyboard resize and collapse hand the space to the other 
         assert.ok(collapsed.user.height > shrunk.user.height + 100,
             'global pane absorbs the collapsed project pane space');
         assert.equal(collapsed.resizerHidden, true, 'resizer hides while a pane is collapsed');
+    } finally {
+        await browser.close();
+    }
+});
+
+function centralRecord(overrides = {}) {
+    const dirPath = overrides.dirPath || '/home/dev/.skills/pack/demo';
+    const name = overrides.name || 'demo';
+    return makeRecord({
+        name,
+        source: 'central',
+        dirPath,
+        skillFilePath: `${dirPath}/SKILL.md`,
+        folder: 'pack',
+        central: { dirPath, links: { user: {}, project: {} } },
+        visibility: { kimi: 'absent', claude: 'absent', codex: 'absent' },
+        ...overrides,
+    });
+}
+
+test('SKILLS-SPLIT-004 pane list scroll positions survive authoritative HTML replacement', async () => {
+    const browser = await chromium.launch();
+    try {
+        const page = await openSkillsPage(browser);
+        const before = await page.evaluate(() => {
+            const userList = document.querySelector('[data-skills-pane="user"] > .group.steward-section > .group-list');
+            const projectList = document.querySelector('[data-skills-pane="project"] > .group.steward-section > .group-list');
+            userList.scrollTop = 150;
+            projectList.scrollTop = 260;
+            return { user: userList.scrollTop, project: projectList.scrollTop };
+        });
+        assert.equal(before.user, 150);
+        assert.equal(before.project, 260);
+
+        const { getSkillsPanelContent } = loadSkillContent();
+        const replacement = getSkillsPanelContent(makeSplitRecords(), { hasWorkspace: true });
+        const after = await page.evaluate(({ html }) => {
+            window.__replaceSkillsHtml(html);
+            return {
+                user: document.querySelector('[data-skills-pane="user"] > .group.steward-section > .group-list').scrollTop,
+                project: document.querySelector('[data-skills-pane="project"] > .group.steward-section > .group-list').scrollTop,
+            };
+        }, { html: replacement });
+        assert.ok(Math.abs(after.user - 150) <= 2,
+            `global list keeps its scroll anchor (got ${after.user})`);
+        assert.ok(Math.abs(after.project - 260) <= 2,
+            `project list keeps its scroll anchor (got ${after.project})`);
+    } finally {
+        await browser.close();
+    }
+});
+
+test('SKILLS-SPLIT-005 folder headers stick to the pane list top while scrolling', async () => {
+    const browser = await chromium.launch();
+    try {
+        const records = [];
+        for (let index = 0; index < 10; index += 1) {
+            records.push(centralRecord({
+                name: `filed-${index}`,
+                dirPath: `/home/dev/.skills/pack/filed-${index}`,
+                skillFilePath: `/home/dev/.skills/pack/filed-${index}/SKILL.md`,
+            }));
+        }
+        for (let index = 0; index < 8; index += 1) {
+            records.push(makeRecord({
+                name: `project-${index}`,
+                scope: 'project',
+                dirPath: `/work/app/.kimi/skills/project-${index}`,
+                skillFilePath: `/work/app/.kimi/skills/project-${index}/SKILL.md`,
+            }));
+        }
+        const page = await openSkillsPage(browser, records);
+        const geometry = await page.evaluate(() => {
+            const list = document.querySelector('[data-skills-pane="user"] > .group.steward-section > .group-list');
+            const folder = document.querySelector('.skill-folder[data-skill-folder="pack"]');
+            const header = folder.querySelector(':scope > .group-title.skill-folder-header');
+            const before = {
+                position: getComputedStyle(header).position,
+                headerTop: header.getBoundingClientRect().top,
+                listTop: list.getBoundingClientRect().top,
+            };
+            list.scrollTop = 300;
+            return {
+                before,
+                after: {
+                    headerTop: header.getBoundingClientRect().top,
+                    listTop: list.getBoundingClientRect().top,
+                },
+                folderBottom: folder.getBoundingClientRect().bottom,
+            };
+        });
+        assert.equal(geometry.before.position, 'sticky', 'folder header participates in sticky positioning');
+        assert.ok(geometry.before.headerTop >= geometry.before.listTop, 'header starts below the list top');
+        assert.ok(Math.abs(geometry.after.headerTop - geometry.after.listTop) <= 2,
+            `folder header stays pinned at the list top (header ${geometry.after.headerTop}, list ${geometry.after.listTop})`);
+        assert.ok(geometry.folderBottom > geometry.after.listTop + 40,
+            'folder content still visible below its pinned header');
+    } finally {
+        await browser.close();
+    }
+});
+
+test('SKILLS-SPLIT-006 the dragged project pane share persists in webview view state', async () => {
+    const browser = await chromium.launch();
+    try {
+        const page = await openSkillsPage(browser, undefined, { withVscodeState: true });
+        await page.locator('[data-skills-pane-resizer]').focus();
+        await page.keyboard.press('ArrowUp');
+        const saved = await page.evaluate(() => (window.vscode.getState() || {}).skillsPanel);
+        assert.ok(saved && typeof saved.projectPaneRatio === 'number'
+            && saved.projectPaneRatio > 0 && saved.projectPaneRatio < 1,
+            `keyboard resize persists the ratio (got ${JSON.stringify(saved)})`);
+
+        // A fresh panel instance (new closure, same view state) must honor it.
+        const after = await page.evaluate(panelSource => {
+            eval(panelSource);
+            var skillPanel = initSkillPanel({ postMessage: () => Promise.resolve(true) });
+            skillPanel.layoutSkillsSplit();
+            var split = document.querySelector('[data-skills-split]').getBoundingClientRect().height;
+            var resizer = document.querySelector('[data-skills-pane-resizer]').getBoundingClientRect().height;
+            var project = document.querySelector('[data-skills-pane="project"]').getBoundingClientRect().height;
+            return { project, inner: split - resizer };
+        }, skillPanelScript);
+        assert.ok(Math.abs(after.project - after.inner * saved.projectPaneRatio) <= 3,
+            `fresh mount restores the persisted share (expected ~${Math.round(after.inner * saved.projectPaneRatio)}, got ${after.project})`);
     } finally {
         await browser.close();
     }

@@ -435,6 +435,9 @@ function runSkillStyleChecks() {
     assert.ok(styles.includes('.skills-pane-grow'), 'growing pane styles');
     assert.ok(styles.includes('.skills-pane-sized > .group.steward-section > .group-list'),
         'only the section list scrolls, the section header stays put');
+    assert.ok(styles.includes('.skill-folder > .group-title.skill-folder-header'),
+        'folder headers stick inside the scrolling list');
+    assert.ok(compiled.includes('.skill-folder-header'), 'sticky folder header styles compiled');
     assert.ok(compiled.includes('.skills-split'));
     assert.ok(compiled.includes('.skills-pane-resizer'));
     assert.ok(compiled.includes('.skills-pane-grow'));
@@ -511,6 +514,10 @@ function runSkillWebviewScriptChecks() {
     assert.ok(script.includes('data-skills-pane-resizer'), 'pane resizer wiring present');
     assert.ok(script.includes('onSkillsPaneResizerPointerDown'), 'resizer pointer drag wiring present');
     assert.ok(script.includes('onSkillsPaneResizerKeydown'), 'resizer keyboard wiring present');
+    assert.ok(script.includes('captureSkillsListScroll'), 'list scroll captured across skills-updated');
+    assert.ok(script.includes('restoreSkillsListScroll'), 'list scroll restored after replacement');
+    assert.ok(script.includes('__agentPivotScrollState'), 'shared scroll anchor helper wired');
+    assert.ok(script.includes('persistSkillsProjectPaneRatio'), 'project pane share persists in view state');
     const aiPanelScript = fs.readFileSync(
         path.join(__dirname, '..', 'media', 'webviewDashboardAiPanelScripts.js'), 'utf8'
     );

@@ -4747,6 +4747,22 @@ body.steward-sidebar {
         overflow-y: auto;
     }
 
+    // Folder headers stick to the scrolling list's top edge while their
+    // subtree scrolls; nested headers stack iOS-style (deepest paints last).
+    // The layered background stays opaque without changing the resting tone:
+    // the header's translucent list tint composited over the editor color.
+    .skills-pane.skills-pane-sized .skill-folder > .group-title.skill-folder-header {
+        position: sticky;
+        top: 0;
+        z-index: 5;
+        background:
+            linear-gradient(
+                var(--vscode-list-inactiveSelectionBackground, transparent),
+                var(--vscode-list-inactiveSelectionBackground, transparent)
+            ),
+            var(--vscode-editor-background, #1e1e1e);
+    }
+
     .skills-pane-resizer {
         position: relative;
         flex: 0 0 auto;

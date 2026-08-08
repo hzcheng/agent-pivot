@@ -1411,6 +1411,137 @@ test('CONVERSATION-PLAN-QUESTION-VISIBILITY-001 Claude marks a dismissed AskUser
     });
 });
 
+test('CONVERSATION-DIFF-VISIBILITY-001 Claude synthesizes fragment diffs for Edit and Write tool calls', async t => {
+    const source = await createFixture(t);
+    await fs.promises.writeFile(source.sourcePath, [
+        {
+            type: 'user',
+            uuid: 'edit-user-1',
+            timestamp: '2025-01-02T03:04:05.000Z',
+            message: { role: 'user', content: 'Patch the files' },
+        },
+        {
+            type: 'assistant',
+            uuid: 'edit-assistant-1',
+            timestamp: '2025-01-02T03:04:06.000Z',
+            message: {
+                role: 'assistant',
+                content: [
+                    {
+                        type: 'tool_use',
+                        id: 'toolu_edit_1',
+                        name: 'Edit',
+                        input: {
+                            replace_all: false,
+                            file_path: '/work/src/a.ts',
+                            old_string: 'const a = 1;\nconst b = 2;',
+                            new_string: 'const a = 1;\nconst b = 3;\nconst c = 4;',
+                        },
+                    },
+                    {
+                        type: 'tool_use',
+                        id: 'toolu_write_1',
+                        name: 'Write',
+                        input: {
+                            file_path: '/work/src/new.ts',
+                            content: 'export const x = 1;\nexport const y = 2;\n',
+                        },
+                    },
+                    {
+                        type: 'tool_use',
+                        id: 'toolu_edit_bad',
+                        name: 'Edit',
+                        input: { file_path: '/work/src/b.ts' },
+                    },
+                ],
+            },
+        },
+    ].map(record => `${JSON.stringify(record)}\n`).join(''));
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+
+    const { page } = await readWholeConversation(adapter);
+    const tools = page.messages.filter(message => message.role === 'tool');
+    assert.equal(tools.length, 3);
+
+    assert.equal(tools[0].tool.name, 'Edit');
+    assert.equal(tools[0].tool.detail, undefined);
+    assert.deepEqual(tools[0].tool.diffs, [{
+        path: '/work/src/a.ts',
+        kind: 'update',
+        additions: 2,
+        deletions: 1,
+        hunks: [{
+            lines: [
+                { type: 'context', text: 'const a = 1;' },
+                { type: 'del', text: 'const b = 2;' },
+                { type: 'add', text: 'const b = 3;' },
+                { type: 'add', text: 'const c = 4;' },
+            ],
+        }],
+    }]);
+
+    assert.equal(tools[1].tool.name, 'Write');
+    assert.deepEqual(tools[1].tool.diffs, [{
+        path: '/work/src/new.ts',
+        kind: 'add',
+        additions: 2,
+        deletions: 0,
+        hunks: [{
+            lines: [
+                { type: 'add', text: 'export const x = 1;' },
+                { type: 'add', text: 'export const y = 2;' },
+            ],
+        }],
+    }]);
+
+    // Shape mismatch keeps the generic raw-JSON rendering.
+    assert.equal(tools[2].tool.name, 'Edit');
+    assert.equal(tools[2].tool.diffs, undefined);
+    assert.match(tools[2].tool.detail, /src\/b\.ts/);
+});
+
+test('CONVERSATION-DIFF-VISIBILITY-001 Claude marks replace-all edits in the tool summary', async t => {
+    const source = await createFixture(t);
+    await fs.promises.writeFile(source.sourcePath, [
+        {
+            type: 'user',
+            uuid: 'replace-user-1',
+            timestamp: '2025-01-02T03:04:05.000Z',
+            message: { role: 'user', content: 'Rename everywhere' },
+        },
+        {
+            type: 'assistant',
+            uuid: 'replace-assistant-1',
+            timestamp: '2025-01-02T03:04:06.000Z',
+            message: {
+                role: 'assistant',
+                content: [{
+                    type: 'tool_use',
+                    id: 'toolu_replace_1',
+                    name: 'Edit',
+                    input: {
+                        replace_all: true,
+                        file_path: '/work/src/c.ts',
+                        old_string: 'foo',
+                        new_string: 'bar',
+                    },
+                }],
+            },
+        },
+    ].map(record => `${JSON.stringify(record)}\n`).join(''));
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+
+    const { page } = await readWholeConversation(adapter);
+    const tool = page.messages.find(message => message.role === 'tool');
+    assert.match(tool.tool.summary, /\(replace all\)$/);
+    assert.deepEqual(tool.tool.diffs[0].hunks[0].lines, [
+        { type: 'del', text: 'foo' },
+        { type: 'add', text: 'bar' },
+    ]);
+});
+
 test('CONVERSATION-THINKING-VISIBILITY-001 Claude interleaves thinking blocks with text in arrival order', async t => {
     const source = await createFixture(t);
     await fs.promises.appendFile(source.sourcePath, [

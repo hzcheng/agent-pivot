@@ -33,10 +33,12 @@ import {
     boundQuestionOptions,
     splitSettledAnswers,
 } from './questions';
+import { synthesizeFragmentDiff } from './diffs';
 import {
     CONVERSATION_LIMITS,
     ConversationAbortSignal,
     ConversationError,
+    ConversationFileDiff,
     ConversationInteraction,
     ConversationOutline,
     ConversationPage,
@@ -281,6 +283,42 @@ function claudeQuestionItems(
             multiSelect: record?.multiSelect === true,
         };
     }));
+}
+
+/**
+ * Synthesizes fragment diffs for Claude edit tools. Shapes probed from real
+ * transcripts: Edit carries file_path/old_string/new_string, Write carries
+ * file_path/content. Returns undefined for any other shape so the caller
+ * keeps the generic raw-JSON rendering.
+ */
+function claudeToolDiffs(
+    name: string,
+    input: Record<string, any> | undefined
+): ConversationFileDiff[] | undefined {
+    if (!input
+        || typeof input.file_path !== 'string'
+        || !input.file_path) {
+        return undefined;
+    }
+    if (name === 'Edit'
+        && typeof input.old_string === 'string'
+        && typeof input.new_string === 'string') {
+        return [synthesizeFragmentDiff(
+            input.file_path,
+            'update',
+            input.old_string,
+            input.new_string
+        )];
+    }
+    if (name === 'Write' && typeof input.content === 'string') {
+        return [synthesizeFragmentDiff(
+            input.file_path,
+            'add',
+            '',
+            input.content
+        )];
+    }
+    return undefined;
 }
 
 function settleClaudeQuestion(
@@ -773,16 +811,31 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
                                 questionTracker.set(toolUseId, questionBlock);
                                 return;
                             }
+                            const editDiffs = claudeToolDiffs(block.name, input);
+                            const baseSummary = buildToolCallSummary(
+                                block.name,
+                                input
+                            );
                             toolTracker.begin(
                                 interactions[openInteractionIndex],
                                 typeof block.id === 'string'
                                     ? block.id
                                     : undefined,
                                 block.name,
-                                buildToolCallSummary(block.name, input),
-                                capToolCallDetail(
-                                    JSON.stringify(input ?? {}, null, 2)
-                                )
+                                editDiffs && block.name === 'Edit'
+                                    && input?.replace_all === true
+                                    ? truncateGraphemes(
+                                        `${baseSummary} (replace all)`,
+                                        CONVERSATION_LIMITS
+                                            .toolCallSummaryGraphemes - 1
+                                    )
+                                    : baseSummary,
+                                editDiffs
+                                    ? undefined
+                                    : capToolCallDetail(
+                                        JSON.stringify(input ?? {}, null, 2)
+                                    ),
+                                editDiffs
                             );
                         });
                     }

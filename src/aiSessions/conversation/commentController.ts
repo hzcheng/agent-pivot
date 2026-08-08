@@ -1,7 +1,6 @@
 'use strict';
 
 import { randomBytes } from 'crypto';
-import * as vscode from 'vscode';
 import {
     addConversationCommentTag,
     buildConversationCommentsPrompt,
@@ -23,11 +22,16 @@ import {
     validateConversationComments,
 } from './comments';
 import type { CommentErrorCode } from './commentPrimitives';
-import { CommentError } from './commentPrimitives';
 import type {
     ConversationCommentSnapshot,
     ConversationCommentStore,
 } from './commentStore';
+import {
+    QueuedCommentController,
+    QueuedCommentControllerOptions,
+    QueuedCommentRequestBase,
+    QueuedCommentResultBase,
+} from './queuedCommentController';
 import type { ConversationMessage } from './types';
 import type { ConversationViewerTarget } from './viewerTarget';
 import {
@@ -51,70 +55,38 @@ interface ConversationViewerLocateCommentResultMessage {
     error?: 'stale';
 }
 
-interface ConversationViewerCommentsResultMessage {
+interface ConversationViewerCommentsResultMessage
+    extends QueuedCommentResultBase<ConversationCommentDraft> {
     type: 'conversation-viewer-comments-result';
-    version: 1;
-    requestId: string;
-    subscriptionGeneration: number;
-    projectId: string;
-    provider: ConversationViewerTarget['provider'];
-    sessionId: string;
     operation: ConversationCommentOperation;
-    success: boolean;
-    revision: number;
-    comments: ConversationCommentDraft[];
-    error?: ConversationCommentError['code'];
 }
 
-export interface ConversationCommentControllerOptions {
+type ConversationCommentRequest = ConversationViewerCommentMutationMessage
+    | ConversationViewerSendCommentsMessage;
+
+export interface ConversationCommentControllerOptions
+    extends QueuedCommentControllerOptions {
     commentStore?: ConversationCommentStore;
-    now?: () => number;
-    submitPrompt: (
-        target: ConversationViewerTarget,
-        prompt: string
-    ) => PromiseLike<void> | Promise<void>;
-    focusSession?: (
-        target: Pick<
-            ConversationViewerTarget,
-            'projectId' | 'provider' | 'sessionId'
-        >
-    ) => PromiseLike<void> | Promise<void>;
-    getTarget: () => ConversationViewerTarget | undefined;
-    getSubscriptionGeneration: () => number;
-    getPanel: () => vscode.WebviewPanel | undefined;
     getMessages: () => ConversationMessage[];
     navigateToInteraction: (interactionId: string) => Promise<boolean>;
-    rebuildLatestDocument: () => void;
 }
 
-export class ConversationCommentController {
-    private comments: ConversationCommentDraft[] = [];
-    private revision = 0;
-    private operationQueue: Promise<void> = Promise.resolve();
+export class ConversationCommentController extends QueuedCommentController<
+    ConversationCommentDraft,
+    ConversationCommentTarget,
+    ConversationCommentRequest,
+    ConversationViewerCommentsResultMessage
+> {
+    protected readonly options: ConversationCommentControllerOptions;
     private mutationsFrozen = false;
-    private readonly settlements =
-        new Map<string, ConversationViewerCommentsResultMessage>();
 
-    constructor(
-        private readonly options: ConversationCommentControllerOptions
-    ) {}
-
-    private now(): number {
-        return this.options.now?.() ?? Date.now();
+    constructor(options: ConversationCommentControllerOptions) {
+        super(options);
+        this.options = options;
     }
 
-    get snapshot(): ConversationCommentSnapshot {
-        return {
-            revision: this.revision,
-            comments: cloneConversationComments(this.comments),
-        };
-    }
-
-    reset(): void {
+    protected onReset(): void {
         this.mutationsFrozen = false;
-        this.comments = [];
-        this.revision = 0;
-        this.settlements.clear();
     }
 
     async freezeMutations(): Promise<void> {
@@ -122,53 +94,23 @@ export class ConversationCommentController {
         await this.drainMutations();
     }
 
-    async drainMutations(): Promise<void> {
-        await this.operationQueue;
-    }
-
-    enqueue(
-        request: ConversationViewerCommentMutationMessage
-            | ConversationViewerSendCommentsMessage
-    ): Promise<void> {
-        const operation = () => this.handleOperation(request);
-        const queued = this.operationQueue.then(operation, operation);
-        this.operationQueue = queued.catch(() => undefined);
-        return queued;
-    }
-
-    async restore(
-        target: ConversationViewerTarget,
-        generation: number
-    ): Promise<void> {
-        if (!this.options.commentStore) {
-            return;
-        }
-        let snapshot: ConversationCommentSnapshot;
-        try {
-            snapshot = await this.options.commentStore.load(
-                toCommentTarget(target)
-            );
-            validateConversationComments(snapshot.comments);
-            if (!Number.isSafeInteger(snapshot.revision)
-                || snapshot.revision < 0) {
-                throw new ConversationCommentError('invalid');
-            }
-        } catch (_error) {
-            return;
-        }
-        if (this.options.getTarget() !== target
-            || this.options.getSubscriptionGeneration() !== generation) {
-            return;
-        }
-        this.comments = cloneConversationComments(snapshot.comments);
-        this.revision = snapshot.revision;
+    protected isMutationsFrozen(): boolean {
+        return this.mutationsFrozen;
     }
 
     async locate(
         request: ConversationViewerLocateCommentMessage
     ): Promise<void> {
+        // Locate reads the comment list, so it joins the mutation queue
+        // instead of racing an in-flight mutation.
+        return this.enqueueTask(() => this.performLocate(request));
+    }
+
+    private async performLocate(
+        request: ConversationViewerLocateCommentMessage
+    ): Promise<void> {
         const target = this.options.getTarget();
-        const comment = this.comments.find(
+        const comment = this.currentComments.find(
             candidate => candidate.id === request.commentId
         );
         const targetMatches = Boolean(target)
@@ -190,95 +132,60 @@ export class ConversationCommentController {
             sessionId: request.sessionId,
             commentId: request.commentId,
             success,
-            ...(success ? {} : { error: 'stale' }),
+            ...(success ? {} : { error: 'stale' as const }),
         }, true);
     }
 
-    private async handleOperation(
-        request: ConversationViewerCommentMutationMessage
-            | ConversationViewerSendCommentsMessage
-    ): Promise<void> {
-        const target = this.options.getTarget();
-        if (!target || !this.options.getPanel()) {
-            return;
-        }
-        const settlementKey = getSettlementKey(request);
-        const settled = this.settlements.get(settlementKey);
-        if (settled) {
-            await this.publishSettlement(
-                settled.operation === request.operation
-                    ? settled
-                    : {
-                        ...settled,
-                        operation: request.operation,
-                        success: false,
-                        revision: this.revision,
-                        comments: cloneConversationComments(this.comments),
-                        error: 'invalid',
-                    },
-                false
-            );
-            return;
-        }
-        if (this.mutationsFrozen || !requestTargetsViewer(
-            request,
-            target,
-            this.options.getSubscriptionGeneration()
-        ) || request.expectedRevision !== this.revision) {
-            await this.settleRequest(request, false, 'stale');
-            return;
-        }
-        try {
-            if (request.type === 'conversation-viewer-send-comments') {
-                await this.sendComments(
-                    target,
-                    this.options.getSubscriptionGeneration(),
-                    request.operation === 'sendComment'
-                        ? (request.payload as { commentId: string }).commentId
-                        : undefined
-                );
-            } else {
-                await this.mutateComments(
-                    request,
-                    target,
-                    this.options.getSubscriptionGeneration()
-                );
-            }
-            await this.settleRequest(request, true);
-            if (request.type === 'conversation-viewer-send-comments') {
-                await this.focusSessionAfterSend(target);
-            }
-        } catch (error) {
-            await this.settleRequest(
-                request,
-                false,
-                toCommentErrorCode(error)
-            );
-        }
+    protected readonly resultType: 'conversation-viewer-comments-result'
+        = 'conversation-viewer-comments-result';
+
+    protected getStore(): ConversationCommentStore | undefined {
+        return this.options.commentStore;
     }
 
-    private async focusSessionAfterSend(
+    protected toStoreTarget(
         target: ConversationViewerTarget
-    ): Promise<void> {
-        try {
-            await Promise.resolve(this.options.focusSession?.({
-                projectId: target.projectId,
-                provider: target.provider,
-                sessionId: target.sessionId,
-            }));
-        } catch (_error) {
-            // The prompt is already staged and settled. Focus failure must not
-            // encourage a retry that stages the same batch twice.
-        }
+    ): ConversationCommentTarget {
+        return {
+            projectId: target.projectId,
+            provider: target.provider,
+            sessionId: target.sessionId,
+        };
     }
 
-    private async mutateComments(
-        request: ConversationViewerCommentMutationMessage,
-        target: ConversationViewerTarget,
-        generation: number
-    ): Promise<void> {
-        let comments = cloneConversationComments(this.comments);
-        let revision = this.revision;
+    protected cloneComments(
+        comments: readonly ConversationCommentDraft[]
+    ): ConversationCommentDraft[] {
+        return cloneConversationComments(comments);
+    }
+
+    protected validateComments(
+        comments: readonly ConversationCommentDraft[]
+    ): void {
+        validateConversationComments(comments);
+    }
+
+    protected makeError(code: CommentErrorCode): ConversationCommentError {
+        return new ConversationCommentError(code);
+    }
+
+    protected isSendRequest(request: ConversationCommentRequest): boolean {
+        return request.type === 'conversation-viewer-send-comments';
+    }
+
+    protected sendCommentId(
+        request: ConversationCommentRequest
+    ): string | undefined {
+        return request.type === 'conversation-viewer-send-comments'
+            && request.operation === 'sendComment'
+            ? (request.payload as { commentId: string }).commentId
+            : undefined;
+    }
+
+    protected applyMutation(
+        request: ConversationViewerCommentMutationMessage
+    ): { comments: ConversationCommentDraft[]; changed: boolean } {
+        let comments = cloneConversationComments(this.currentComments);
         if (request.operation === 'add') {
             if (comments.length >= CONVERSATION_COMMENT_LIMITS.maxComments) {
                 throw new ConversationCommentError('limit');
@@ -309,20 +216,20 @@ export class ConversationCommentController {
                     createdAt: this.now(),
                 });
             }
-            revision += 1;
-        } else if (request.operation === 'reorder') {
+            return { comments, changed: true };
+        }
+        if (request.operation === 'reorder') {
             const orderedCommentIds = parseReorderPayload(request.payload);
             const reordered = reorderConversationComments(
                 comments,
                 orderedCommentIds
             );
-            if (reordered.some(
+            const changed = reordered.some(
                 (comment, index) => comment.id !== comments[index]?.id
-            )) {
-                comments = reordered;
-                revision += 1;
-            }
-        } else if (request.operation === 'clearDone'
+            );
+            return { comments: changed ? reordered : comments, changed };
+        }
+        if (request.operation === 'clearDone'
             || request.operation === 'clearAll') {
             if (!hasExactKeys(request.payload as object, [])) {
                 throw new ConversationCommentError('invalid');
@@ -331,11 +238,10 @@ export class ConversationCommentController {
                 comments,
                 request.operation
             );
-            if (remainingComments.length !== comments.length) {
-                comments = remainingComments;
-                revision += 1;
-            }
-        } else if (request.operation === 'addTag'
+            const changed = remainingComments.length !== comments.length;
+            return { comments: changed ? remainingComments : comments, changed };
+        }
+        if (request.operation === 'addTag'
             || request.operation === 'removeTag') {
             const payload = parseCommentTagPayload(request.payload);
             const index = comments.findIndex(
@@ -347,234 +253,49 @@ export class ConversationCommentController {
             const next = request.operation === 'addTag'
                 ? addConversationCommentTag(comments[index], payload.tag)
                 : removeConversationCommentTag(comments[index], payload.tag);
-            if (JSON.stringify(next) !== JSON.stringify(comments[index])) {
-                comments[index] = next;
-                revision += 1;
+            if (JSON.stringify(next) === JSON.stringify(comments[index])) {
+                return { comments, changed: false };
             }
+            comments[index] = next;
+            return { comments, changed: true };
+        }
+        const payload = parseExistingCommentPayload(
+            request.operation,
+            request.payload
+        );
+        const index = comments.findIndex(
+            comment => comment.id === payload.commentId
+        );
+        if (index < 0) {
+            throw new ConversationCommentError('stale');
+        }
+        if (request.operation === 'delete') {
+            comments.splice(index, 1);
         } else {
-            const payload = parseExistingCommentPayload(
-                request.operation,
-                request.payload
+            comments[index] = updateConversationComment(
+                comments[index],
+                payload.comment
             );
-            const index = comments.findIndex(
-                comment => comment.id === payload.commentId
-            );
-            if (index < 0) {
-                throw new ConversationCommentError('stale');
-            }
-            if (request.operation === 'delete') {
-                comments.splice(index, 1);
-            } else {
-                comments[index] = updateConversationComment(
-                    comments[index],
-                    payload.comment
-                );
-            }
-            revision += 1;
         }
-        if (revision === this.revision) {
-            // A no-op mutation (e.g. adding a duplicate tag) still settles
-            // successfully, just without touching the persisted snapshot.
-            return;
-        }
-        const snapshot = { revision, comments };
-        const previousSnapshot = this.snapshot;
-        await this.persist(target, snapshot);
-        try {
-            this.commitPersisted(
-                target,
-                generation,
-                request.expectedRevision,
-                snapshot
-            );
-        } catch (error) {
-            await this.persist(target, previousSnapshot);
-            throw error;
-        }
+        return { comments, changed: true };
     }
 
-    private async sendComments(
-        target: ConversationViewerTarget,
-        generation: number,
-        commentId?: string
-    ): Promise<void> {
-        const openComments = this.comments.filter(
-            comment => comment.status === 'open'
-        );
-        const targetComments = commentId
-            ? openComments.filter(comment => comment.id === commentId)
-            : openComments;
-        if (commentId && targetComments.length !== 1) {
-            // The card no longer exists or is no longer open.
-            throw new ConversationCommentError('stale');
-        }
-        const prompt = buildConversationCommentsPrompt(targetComments);
-        const previousSnapshot = this.snapshot;
-        const sentSnapshot = {
-            revision: this.revision + 1,
-            comments: this.markDone(commentId ? new Set([commentId]) : null),
-        };
-        await this.persist(target, sentSnapshot);
-        if (this.options.getTarget() !== target
-            || this.options.getSubscriptionGeneration() !== generation
-            || this.revision !== previousSnapshot.revision) {
-            await this.persist(target, previousSnapshot);
-            throw new ConversationCommentError('stale');
-        }
-        try {
-            await Promise.resolve(this.options.submitPrompt(
-                { ...target },
-                prompt
-            ));
-        } catch (error) {
-            await this.persist(target, previousSnapshot);
-            if (error instanceof ConversationCommentError) {
-                throw error;
-            }
-            throw new ConversationCommentError('failed');
-        }
-        if (this.options.getTarget() !== target) {
-            throw new ConversationCommentError('stale');
-        }
-        this.comments = sentSnapshot.comments;
-        this.revision = sentSnapshot.revision;
+    protected buildSendPrompt(
+        targetComments: readonly ConversationCommentDraft[]
+    ): string {
+        return buildConversationCommentsPrompt(targetComments);
     }
 
-    private markDone(
-        ids: Set<string> | null
+    protected buildSendComments(
+        targetComments: readonly ConversationCommentDraft[]
     ): ConversationCommentDraft[] {
+        const sentIds = new Set(targetComments.map(comment => comment.id));
         return markConversationCommentsDone(
-            this.comments,
+            this.currentComments,
             this.now(),
-            ids ?? undefined
+            sentIds
         );
     }
-
-    private async persist(
-        target: ConversationViewerTarget,
-        snapshot: ConversationCommentSnapshot
-    ): Promise<void> {
-        if (!this.options.commentStore) {
-            return;
-        }
-        try {
-            await this.options.commentStore.save(
-                toCommentTarget(target),
-                snapshot
-            );
-        } catch (_error) {
-            throw new ConversationCommentError('failed');
-        }
-    }
-
-    private commitPersisted(
-        target: ConversationViewerTarget,
-        generation: number,
-        expectedRevision: number,
-        snapshot: ConversationCommentSnapshot
-    ): void {
-        if (this.options.getTarget() !== target
-            || this.options.getSubscriptionGeneration() !== generation
-            || this.revision !== expectedRevision) {
-            throw new ConversationCommentError('stale');
-        }
-        this.comments = snapshot.comments;
-        this.revision = snapshot.revision;
-    }
-
-    private async settleRequest(
-        request: ConversationViewerCommentMutationMessage
-            | ConversationViewerSendCommentsMessage,
-        success: boolean,
-        error?: ConversationCommentError['code']
-    ): Promise<void> {
-        const settlement: ConversationViewerCommentsResultMessage = {
-            type: 'conversation-viewer-comments-result',
-            version: 1,
-            requestId: request.requestId,
-            subscriptionGeneration: request.subscriptionGeneration,
-            projectId: request.projectId,
-            provider: request.provider,
-            sessionId: request.sessionId,
-            operation: request.operation,
-            success,
-            revision: this.revision,
-            comments: cloneConversationComments(this.comments),
-            ...(error ? { error } : {}),
-        };
-        this.rememberSettlement(getSettlementKey(request), settlement);
-        await this.publishSettlement(settlement, true);
-    }
-
-    private rememberSettlement(
-        key: string,
-        settlement: ConversationViewerCommentsResultMessage
-    ): void {
-        this.settlements.set(key, settlement);
-        while (this.settlements.size > 100) {
-            const oldest = this.settlements.keys().next().value;
-            if (typeof oldest !== 'string') {
-                break;
-            }
-            this.settlements.delete(oldest);
-        }
-    }
-
-    private async publishSettlement(
-        settlement: ConversationViewerCommentsResultMessage
-            | ConversationViewerLocateCommentResultMessage,
-        rebuildOnFailure: boolean
-    ): Promise<void> {
-        const panel = this.options.getPanel();
-        if (!panel) {
-            return;
-        }
-        let delivered = false;
-        try {
-            delivered = await panel.webview.postMessage(settlement);
-        } catch (_error) {
-            delivered = false;
-        }
-        if (!delivered
-            && rebuildOnFailure
-            && this.options.getPanel() === panel) {
-            this.options.rebuildLatestDocument();
-        }
-    }
-}
-
-function toCommentTarget(
-    target: ConversationViewerTarget
-): ConversationCommentTarget {
-    return {
-        projectId: target.projectId,
-        provider: target.provider,
-        sessionId: target.sessionId,
-    };
-}
-
-function requestTargetsViewer(
-    request: ConversationViewerCommentMutationMessage
-        | ConversationViewerSendCommentsMessage,
-    target: ConversationViewerTarget,
-    subscriptionGeneration: number
-): boolean {
-    return request.subscriptionGeneration === subscriptionGeneration
-        && request.projectId === target.projectId
-        && request.provider === target.provider
-        && request.sessionId === target.sessionId;
-}
-
-function getSettlementKey(
-    request: ConversationViewerCommentMutationMessage
-        | ConversationViewerSendCommentsMessage
-): string {
-    return JSON.stringify([
-        request.projectId,
-        request.provider,
-        request.sessionId,
-        request.requestId,
-    ]);
 }
 
 function parseCommentInput(
@@ -663,12 +384,4 @@ function parseReorderPayload(payload: unknown): string[] {
         throw new ConversationCommentError('invalid');
     }
     return [...value.orderedCommentIds];
-}
-
-function toCommentErrorCode(
-    error: unknown
-): CommentErrorCode {
-    return error instanceof CommentError
-        ? error.code
-        : 'failed';
 }

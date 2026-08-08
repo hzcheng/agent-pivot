@@ -36,10 +36,12 @@ import {
     deriveQuestionSource,
     splitSettledAnswers,
 } from './questions';
+import { synthesizeFragmentDiff } from './diffs';
 import {
     CONVERSATION_LIMITS,
     ConversationAbortSignal,
     ConversationError,
+    ConversationFileDiff,
     ConversationInteraction,
     ConversationOutline,
     ConversationPage,
@@ -110,6 +112,8 @@ interface KimiConversationIndex extends AiSessionDisposable {
     toolTracker?: ToolCallTracker;
     /** tool_call_id → question block, for QuestionRequest/ToolResult pairing. */
     questionTracker?: Map<string, ConversationQuestionBlock>;
+    /** approval request id → gated tool_call_id, for ApprovalResponse. */
+    approvalTracker?: Map<string, string>;
     pendingThinking?: { position: number; text: string } | null;
     revision: number;
     partial: boolean;
@@ -582,6 +586,8 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
             // or ToolResult can land in a later incremental load.
             const questionTracker = (continuing && previous?.questionTracker)
                 || new Map<string, ConversationQuestionBlock>();
+            const approvalTracker = (continuing && previous?.approvalTracker)
+                || new Map<string, string>();
             // Consecutive think deltas merge into one block per run.
             let pendingThinking: { position: number; text: string } | null =
                 (continuing && previous?.pendingThinking) || null;
@@ -767,6 +773,95 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                                 }
                             }
                         }
+                    }
+                } else if (event.type === 'ApprovalRequest') {
+                    flushThinking();
+                    stampActivity(envelope);
+                    const payload = asRecord(event.payload);
+                    if (openInteractionIndex !== undefined) {
+                        const toolCallId =
+                            typeof payload?.tool_call_id === 'string'
+                                ? payload.tool_call_id
+                                : '';
+                        const requestId = typeof payload?.id === 'string'
+                            ? payload.id
+                            : '';
+                        const display = Array.isArray(payload?.display)
+                            ? payload.display
+                            : [];
+                        const diffs: ConversationFileDiff[] = [];
+                        for (const rawBlock of display) {
+                            const block = asRecord(rawBlock);
+                            if (diffs.length
+                                >= CONVERSATION_LIMITS.maxDiffsPerToolCall) {
+                                break;
+                            }
+                            if (block?.type !== 'diff'
+                                || typeof block.path !== 'string'
+                                || !block.path
+                                || typeof block.old_text !== 'string'
+                                || typeof block.new_text !== 'string') {
+                                continue;
+                            }
+                            diffs.push(synthesizeFragmentDiff(
+                                block.path,
+                                'update',
+                                block.old_text,
+                                block.new_text
+                            ));
+                        }
+                        const sender = typeof payload?.sender === 'string'
+                            && payload.sender
+                            ? payload.sender
+                            : 'Approval';
+                        const description =
+                            typeof payload?.description === 'string'
+                                ? payload.description
+                                : '';
+                        const attached = diffs.length > 0
+                            && toolCallId !== ''
+                            && toolTracker.attachDiffs(toolCallId, diffs);
+                        if (!attached && (diffs.length || description)) {
+                            // The gated call is not pending (older wire
+                            // shapes): the approval becomes its own entry.
+                            const summary = truncateGraphemes(
+                                `${sender}: ${description}`.trim(),
+                                CONVERSATION_LIMITS.toolCallSummaryGraphemes - 1
+                            );
+                            toolTracker.begin(
+                                interactions[openInteractionIndex],
+                                toolCallId || undefined,
+                                sender,
+                                summary,
+                                undefined,
+                                diffs.length ? diffs : undefined
+                            );
+                        }
+                        if (requestId && toolCallId) {
+                            approvalTracker.set(requestId, toolCallId);
+                        }
+                    }
+                } else if (event.type === 'ApprovalResponse') {
+                    stampActivity(envelope);
+                    const payload = asRecord(event.payload);
+                    const requestId = typeof payload?.request_id === 'string'
+                        ? payload.request_id
+                        : '';
+                    const response = typeof payload?.response === 'string'
+                        ? payload.response
+                        : '';
+                    const feedback = typeof payload?.feedback === 'string'
+                        && payload.feedback.trim()
+                        ? ` — ${payload.feedback.trim()}`
+                        : '';
+                    const toolCallId = requestId
+                        ? approvalTracker.get(requestId)
+                        : undefined;
+                    if (toolCallId && response) {
+                        toolTracker.appendDetail(
+                            toolCallId,
+                            `Approval: ${response}${feedback}`
+                        );
                     }
                 } else if (event.type === 'StatusUpdate') {
                     const payload = asRecord(event.payload);
@@ -963,6 +1058,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                 previous.telemetryPaths = telemetryPaths;
                 previous.toolTracker = toolTracker;
                 previous.questionTracker = questionTracker;
+                previous.approvalTracker = approvalTracker;
                 previous.pendingThinking = pendingThinking;
                 previous.revision = revision;
                 previous.partial = partial;
@@ -976,6 +1072,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                     telemetryPaths,
                     toolTracker,
                     questionTracker,
+                    approvalTracker,
                     pendingThinking,
                     revision,
                     partial,

@@ -615,6 +615,176 @@ test('CONVERSATION-PLAN-QUESTION-VISIBILITY-001 Kimi keeps a generic tool call w
     });
 });
 
+test('CONVERSATION-DIFF-VISIBILITY-001 Kimi attaches approval preview diffs to the gated tool call and records the decision', async t => {
+    const source = await createFixture(t);
+    await fs.promises.writeFile(source.sourcePath, [
+        {
+            timestamp: 1000,
+            message: {
+                type: 'TurnBegin',
+                payload: { user_input: 'Patch the config' },
+            },
+        },
+        {
+            timestamp: 1001,
+            message: {
+                type: 'ToolCall',
+                payload: {
+                    id: 'tool_edit_1',
+                    function: {
+                        name: 'WriteFile',
+                        arguments: JSON.stringify({ path: '/work/config.toml' }),
+                    },
+                },
+            },
+        },
+        {
+            timestamp: 1002,
+            message: {
+                type: 'ApprovalRequest',
+                payload: {
+                    id: 'approval-1',
+                    tool_call_id: 'tool_edit_1',
+                    sender: 'WriteFile',
+                    action: 'edit file',
+                    description: 'Edit /work/config.toml',
+                    display: [{
+                        type: 'diff',
+                        path: '/work/config.toml',
+                        old_text: 'level = "info"',
+                        new_text: 'level = "debug"',
+                    }],
+                },
+            },
+        },
+        {
+            timestamp: 1003,
+            message: {
+                type: 'ApprovalResponse',
+                payload: {
+                    request_id: 'approval-1',
+                    response: 'approve_for_session',
+                },
+            },
+        },
+        {
+            timestamp: 1004,
+            message: {
+                type: 'ToolResult',
+                payload: {
+                    tool_call_id: 'tool_edit_1',
+                    return_value: { is_error: false, output: 'written' },
+                },
+            },
+        },
+        {
+            timestamp: 1005,
+            message: { type: 'TurnEnd', payload: {} },
+        },
+    ].map(record => JSON.stringify(record)).join('\n') + '\n');
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+
+    const outline = await adapter.readOutline(sessionId);
+    const page = await adapter.readPage({
+        provider: 'kimi',
+        sessionId,
+        anchorInteractionId: outline.interactions[0].id,
+        direction: 'around',
+        expectedRevision: outline.sourceRevision,
+    });
+    const tools = page.messages.filter(message => message.role === 'tool');
+    assert.equal(tools.length, 1, 'approval must not duplicate the gated call');
+    assert.equal(tools[0].tool.name, 'WriteFile');
+    assert.deepEqual(tools[0].tool.diffs, [{
+        path: '/work/config.toml',
+        kind: 'update',
+        additions: 1,
+        deletions: 1,
+        hunks: [{
+            lines: [
+                { type: 'del', text: 'level = "info"' },
+                { type: 'add', text: 'level = "debug"' },
+            ],
+        }],
+    }]);
+    assert.match(tools[0].tool.detail, /Approval: approve_for_session/);
+    assert.match(tools[0].tool.detail, /written/);
+});
+
+test('CONVERSATION-DIFF-VISIBILITY-001 Kimi renders an orphan approval as its own entry and settles it in a later incremental load', async t => {
+    const source = await createFixture(t);
+    await fs.promises.writeFile(source.sourcePath, [
+        {
+            timestamp: 1000,
+            message: {
+                type: 'TurnBegin',
+                payload: { user_input: 'Delete the cache' },
+            },
+        },
+        {
+            timestamp: 1001,
+            message: {
+                type: 'ApprovalRequest',
+                payload: {
+                    id: 'approval-2',
+                    tool_call_id: 'tool_shell_9',
+                    sender: 'Shell',
+                    action: 'run command',
+                    description: 'Run command `rm -rf .cache`',
+                    display: [{
+                        type: 'diff',
+                        path: '/work/.cache/entries',
+                        old_text: 'a\nb',
+                        new_text: '',
+                    }],
+                },
+            },
+        },
+    ].map(record => JSON.stringify(record)).join('\n') + '\n');
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+
+    const outline = await adapter.readOutline(sessionId);
+    const first = await adapter.readPage({
+        provider: 'kimi',
+        sessionId,
+        anchorInteractionId: outline.interactions[0].id,
+        direction: 'around',
+        expectedRevision: outline.sourceRevision,
+    });
+    const orphan = first.messages.find(message => message.role === 'tool');
+    assert.equal(orphan.tool.name, 'Shell');
+    assert.match(orphan.tool.summary, /rm -rf \.cache/);
+    assert.equal(orphan.tool.diffs.length, 1);
+    assert.equal(orphan.tool.diffs[0].deletions, 2);
+    assert.equal(orphan.tool.detail, undefined);
+
+    await fs.promises.appendFile(source.sourcePath, [
+        {
+            timestamp: 1002,
+            message: {
+                type: 'ApprovalResponse',
+                payload: { request_id: 'approval-2', response: 'reject', feedback: 'too risky' },
+            },
+        },
+        {
+            timestamp: 1003,
+            message: { type: 'TurnEnd', payload: {} },
+        },
+    ].map(record => JSON.stringify(record)).join('\n') + '\n');
+    const updated = await adapter.readOutline(sessionId);
+    const second = await adapter.readPage({
+        provider: 'kimi',
+        sessionId,
+        anchorInteractionId: updated.interactions[0].id,
+        direction: 'around',
+        expectedRevision: updated.sourceRevision,
+    });
+    const settled = second.messages.find(message => message.role === 'tool');
+    assert.match(settled.tool.detail, /Approval: reject — too risky/);
+});
+
 test('SESSION-AI-SESSION-KIMI-CONVERSATION-002 deduplicates a reread and changes offset identity after source reset', async t => {
     const source = await createFixture(t);
     const adapter = createAdapter(source);

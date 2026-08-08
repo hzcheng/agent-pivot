@@ -1,6 +1,7 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const Module = require('node:module');
 const os = require('node:os');
@@ -795,7 +796,8 @@ async function openHostViewerDocument(t, options = {}) {
         if (pathname === '/conversationOutlineScripts.js') {
             await route.fulfill({
                 contentType: 'text/javascript',
-                body: conversationOutlineScript,
+                body: options.outlineScriptSource
+                    || conversationOutlineScript,
             });
             return;
         }
@@ -2818,20 +2820,77 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
         );
     }
 
-    const currentScriptWithPreviousSummaryGuard = viewerScript
+    const previousViewerScript = viewerScript
         .replace(
             "    var outlineRoot = document.querySelector('[data-conversation-outline]');\n",
             "    var outlineRoot = document.querySelector('[data-conversation-outline]');\n"
+                + "    var outlineCount = document.querySelector('[data-outline-count]');\n"
                 + "    var outlineSummary = document.querySelector('[data-outline-summary]');\n"
+        )
+        .replace(
+            "    var outlineSort = document.querySelector('[data-outline-sort]');\n",
+            ''
         )
         .replace(
             '        && !!outlineSearch\n',
             '        && !!outlineSummary && !!outlineSearch\n'
+        )
+        .replace(
+            '        outlineSearch: outlineSearch,\n',
+            '        outlineCount: outlineCount,\n'
+                + '        outlineSummary: outlineSummary,\n'
+                + '        outlineSearch: outlineSearch,\n'
+        )
+        .replace(
+            '        outlineSort: outlineSort,\n',
+            ''
         );
-    assert.notEqual(
-        currentScriptWithPreviousSummaryGuard,
-        viewerScript,
-        'the previous-generation summary guard fixture must be active'
+    const previousOutlineScript = conversationOutlineScript
+        .replace(
+            '        var outlineSearch = options.outlineSearch;\n',
+            '        var outlineCount = options.outlineCount;\n'
+                + '        var outlineSummary = options.outlineSummary;\n'
+                + '        var outlineSearch = options.outlineSearch;\n'
+        )
+        .replace('        var outlineSort = options.outlineSort;\n', '')
+        .replace('            newestFirst: true,\n', '')
+        .replace(
+            /\n        function renderSortState\(\) \{[\s\S]*?\n        \}\n\n        function buildOutlineList\(\) \{\n            var fragment = document.createDocumentFragment\(\);\n            var entries = state.newestFirst\n                \? state.outline.slice\(\).reverse\(\)\n                : state.outline;\n            entries.forEach\(function \(entry\) \{/,
+            '\n        function buildOutlineList() {\n'
+                + '            var fragment = document.createDocumentFragment();\n'
+                + '            state.outline.forEach(function (entry) {'
+        )
+        .replace(
+            '            outlinePartial.hidden = !message.partial;\n',
+            '            if (outlineCount) {\n'
+                + '                outlineCount.textContent = String(message.outline.length);\n'
+                + '                outlineCount.setAttribute(\n'
+                + "                    'aria-label',\n"
+                + "                    message.outline.length + ' inputs'\n"
+                + '                );\n'
+                + '            }\n'
+                + '            outlineSummary.textContent = message.partial\n'
+                + "                ? message.outline.length.toLocaleString() + '+ latest inputs'\n"
+                + "                : message.outline.length.toLocaleString() + ' inputs';\n"
+                + '            outlinePartial.hidden = !message.partial;\n'
+        )
+        .replace('            renderSortState();\n', '')
+        .replace(
+            /            if \(outlineSort\) \{\n                outlineSort.addEventListener\('click', function \(\) \{\n                    state.newestFirst = !state.newestFirst;\n                    renderSortState\(\);\n                    buildOutlineList\(\);\n                    filterOutline\(\);\n                \}\);\n            \}\n/,
+            ''
+        );
+    const sha256 = source => crypto.createHash('sha256')
+        .update(source)
+        .digest('hex');
+    assert.equal(
+        sha256(previousViewerScript),
+        '9bdd3c6cdad7fc465fa80babaa7f5237955265bab604bad1afe71c7916103412',
+        'the previous Viewer fixture must stay byte-exact'
+    );
+    assert.equal(
+        sha256(previousOutlineScript),
+        'ce8a54a5657c344b37d709fece61cf05af18cc4e2ab55c1e418b386b46e127b3',
+        'the previous Outline fixture must stay byte-exact'
     );
 
     const previousScriptErrors = [];
@@ -2839,9 +2898,10 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
         interactionIds: ['input-1'],
         interactionId: 'input-1',
         pageErrors: previousScriptErrors,
-        viewerScriptSource: currentScriptWithPreviousSummaryGuard,
+        viewerScriptSource: previousViewerScript,
+        outlineScriptSource: previousOutlineScript,
     });
-    await assertPanelViews(previousScript.page, 'previous script');
+    await assertPanelViews(previousScript.page, 'previous scripts');
     assert.deepEqual(previousScriptErrors, []);
 
     const previousDocumentErrors = [];
@@ -2851,11 +2911,23 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
         pageErrors: previousDocumentErrors,
         transformHostDocument(html) {
             return html.replace(
-                /\s*<button type="button"\s+class="conversation-outline-sort"[\s\S]*?<\/button>/,
-                ''
+                /                    <button type="button"\s+                        class="conversation-outline-sort"[\s\S]*?                    <span data-outline-summary hidden aria-hidden="true"><\/span>/,
+                '                    <span class="conversation-outline-summary"\n'
+                    + '                        data-outline-summary>No inputs yet</span>'
             );
         },
     });
+    assert.equal(
+        await previousDocument.page.locator('[data-outline-sort]').count(),
+        0,
+        'the previous document fixture must not expose the sort control'
+    );
+    assert.equal(
+        await previousDocument.page.locator('[data-outline-summary]')
+            .getAttribute('class'),
+        'conversation-outline-summary',
+        'the previous document fixture must expose its visible summary marker'
+    );
     await assertPanelViews(previousDocument.page, 'previous document');
     assert.deepEqual(previousDocumentErrors, []);
 });

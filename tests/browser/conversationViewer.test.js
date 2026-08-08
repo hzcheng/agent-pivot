@@ -3548,6 +3548,14 @@ test('PROJECT-COMMENTS-UI-001 captures, tags, filters, and dispatches project no
         ).first().innerText(),
         'bug\n×'
     );
+    // Tags live on their own row at the bottom of the card, keeping the
+    // heading row to status + icon actions like Session cards.
+    assert.equal(
+        await cards.first().evaluate(element =>
+            element.lastElementChild.className
+        ),
+        'conversation-project-comment-tags-row'
+    );
     assert.equal(
         await cards.first().locator(
             '.conversation-project-comment-status'
@@ -9015,3 +9023,4 @@ test('TMP repro add flow from closed sidebar', async t => {
     console.log('TMP last request:', JSON.stringify(requests.at(-1)));
     console.log('TMP pageErrors:', JSON.stringify(pageErrors));
 });
+

@@ -1638,16 +1638,20 @@ button {
 }
 
 .conversation-project-comment-draft-tags,
-.conversation-project-comment-tags {
-    display: inline-flex;
+.conversation-project-comment-tags-row {
+    display: flex;
     min-width: 0;
     gap: 0.25rem;
     align-items: center;
     flex-wrap: wrap;
 }
 
-.conversation-project-comment-tags {
-    flex: 1 1 auto;
+.conversation-project-comment-tags-row {
+    margin-top: 0.4rem;
+}
+
+.conversation-project-comment-tags-row:empty {
+    display: none;
 }
 
 .conversation-project-comment-tag {

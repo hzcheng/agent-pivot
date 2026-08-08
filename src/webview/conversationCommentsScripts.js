@@ -1827,21 +1827,11 @@
             return chip;
         }
 
-        function buildProjectCommentCard(comment, index) {
-            var item = document.createElement('article');
-            item.className = 'conversation-comment conversation-project-comment';
-            item.setAttribute('data-project-comment-id', comment.id);
-            item.setAttribute('data-comment-status', comment.status);
-
-            var editing = !!state.editingProjectComment
-                && state.editingProjectComment.commentId === comment.id;
-
-            var heading = document.createElement('div');
-            heading.className = 'conversation-comment-heading';
-            var tags = document.createElement('span');
-            tags.className = 'conversation-project-comment-tags';
+        function buildProjectCommentTagsRow(comment) {
+            var row = document.createElement('div');
+            row.className = 'conversation-project-comment-tags-row';
             comment.tags.forEach(function (tag) {
-                tags.appendChild(projectTagElement(comment, tag, true));
+                row.appendChild(projectTagElement(comment, tag, true));
             });
             if (state.projectTagEditor
                 && state.projectTagEditor.commentId === comment.id) {
@@ -1853,7 +1843,7 @@
                 tagInput.setAttribute('aria-label', 'New tag');
                 tagInput.placeholder = 'tag';
                 tagInput.value = state.projectTagEditor.draft;
-                tags.appendChild(tagInput);
+                row.appendChild(tagInput);
             } else if (comment.tags.length < 5) {
                 var addTag = document.createElement('button');
                 addTag.type = 'button';
@@ -1865,9 +1855,22 @@
                 addTag.title = 'Add tag';
                 addTag.setAttribute('aria-label', 'Add tag');
                 addTag.textContent = '+';
-                tags.appendChild(addTag);
+                row.appendChild(addTag);
             }
-            heading.appendChild(tags);
+            return row;
+        }
+
+        function buildProjectCommentCard(comment, index) {
+            var item = document.createElement('article');
+            item.className = 'conversation-comment conversation-project-comment';
+            item.setAttribute('data-project-comment-id', comment.id);
+            item.setAttribute('data-comment-status', comment.status);
+
+            var editing = !!state.editingProjectComment
+                && state.editingProjectComment.commentId === comment.id;
+
+            var heading = document.createElement('div');
+            heading.className = 'conversation-comment-heading';
             var statusToggle = document.createElement('button');
             statusToggle.type = 'button';
             statusToggle.className = 'conversation-comment-status'
@@ -1911,7 +1914,7 @@
                 input.rows = 1;
                 input.maxLength = 4000;
                 input.value = state.editingProjectComment.draft;
-                input.setAttribute('aria-label', 'Project note ' + (index + 1));
+                input.setAttribute('aria-label', 'Workspace note ' + (index + 1));
                 input.setAttribute(
                     'aria-keyshortcuts',
                     'Control+Enter Meta+Enter'
@@ -1921,6 +1924,7 @@
                 hint.className = 'conversation-comment-edit-hint';
                 hint.textContent = 'Ctrl+Enter to save · Esc to cancel';
                 item.append(input, hint);
+                item.appendChild(buildProjectCommentTagsRow(comment));
                 window.setTimeout(function () {
                     autosizeCommentInput(input);
                     input.focus();
@@ -1958,6 +1962,7 @@
                 );
                 collapsedBody.textContent = comment.text;
                 item.appendChild(collapsedBody);
+                item.appendChild(buildProjectCommentTagsRow(comment));
                 return item;
             }
 
@@ -2030,6 +2035,7 @@
                 meta.appendChild(dispatch);
             }
             item.appendChild(meta);
+            item.appendChild(buildProjectCommentTagsRow(comment));
             return item;
         }
 

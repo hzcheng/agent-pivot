@@ -404,7 +404,7 @@ export function renderConversationViewerDocument(
                             aria-label="Collapse section"
                             aria-expanded="true">${CONVERSATION_COMMENT_ICON_CHEVRON}</button>
                         <span class="conversation-comments-section-title"
-                            role="heading" aria-level="2">This Session</span>
+                            role="heading" aria-level="2">Session</span>
                         <button class="conversation-comment-icon-button conversation-comments-section-add"
                             type="button" data-comment-action="new"
                             title="Add a note about this Session"

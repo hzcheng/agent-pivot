@@ -14,18 +14,19 @@ const workflowPath = path.join(repositoryRoot, '.github', 'workflows', 'release-
 function validateReleaseContent({ readme, changelog, packageMetadata }) {
     assert.strictEqual(packageMetadata.displayName, 'Agent Pivot',
         'release metadata must use the Agent Pivot display name');
-    assert.strictEqual(packageMetadata.version, '1.0.4',
-        'the current Agent Pivot release must be version 1.0.4');
+    assert.strictEqual(packageMetadata.version, '1.1.0',
+        'the current Agent Pivot release must be version 1.1.0');
     const currentRelease = extractReleaseNotes(changelog, packageMetadata.version);
     const requiredReleaseFacts = [
-        ['window switching command', /Switch to Open Window/i],
-        ['comment card states', /comment cards were redesigned/i],
-        ['tmux restoration', /tmux session restoration/i],
-        ['durable attention acknowledgement', /stable event acknowledgements/i],
+        ['sponsor entry points', /Agent Pivot: Sponsor/i],
+        ['marketplace discoverability', /discoverability/i],
+        ['workspace conversation comments', /Workspace section/i],
+        ['custom running animation', /aiSessionRunningCardCustomImage/i],
     ];
 
     for (const [label, pattern] of requiredReleaseFacts) {
-        assert.match(currentRelease, pattern, `1.0.4 CHANGELOG release must document ${label}`);
+        assert.match(currentRelease, pattern,
+            `${packageMetadata.version} CHANGELOG release must document ${label}`);
     }
     assert.match(readme, /Agent Pivot/i, 'README must document the current product name');
     assert.match(packageMetadata.description, /workspace/i,

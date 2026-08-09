@@ -414,6 +414,55 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 warms adjacent Codex, Kimi, and
     harness.capability.dispose();
 });
 
+test('CONVERSATION-OPEN-LATEST-001 retries an empty speculative snapshot before reporting an active session empty', async () => {
+    const sessions = ['codex', 'kimi'].map((provider, index) => makeSession({
+        key: `${provider}:session-${index}`,
+        provider,
+        sessionId: `session-${index}`,
+        name: `${provider} Session`,
+    }));
+    let kimiReads = 0;
+    const harness = createHarness({
+        enableSnapshots: true,
+        requireSnapshot: true,
+        viewerOpen: true,
+        session: sessions[0],
+        resolveTarget: (_projectId, provider, sessionId) =>
+            sessions.find(session => session.provider === provider
+                && session.sessionId === sessionId) || null,
+        resolveActiveTargets: () => sessions,
+        readSnapshot: async (provider, sessionId) => {
+            if (provider === 'kimi' && ++kimiReads === 1) {
+                return {
+                    outline: makeOutline(provider, sessionId, []),
+                };
+            }
+            return {
+                outline: makeOutline(provider, sessionId, ['input-a']),
+                page: makePage(provider, sessionId, 'input-a'),
+            };
+        },
+    });
+
+    assert.equal(await harness.capability.openLatestConversation({
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-0',
+    }), 'opened');
+    while (!harness.snapshotReadTargets.includes('kimi:session-1')) {
+        await new Promise(resolve => setImmediate(resolve));
+    }
+
+    assert.equal(await harness.capability.openLatestConversation({
+        projectId: 'project-a',
+        provider: 'kimi',
+        sessionId: 'session-1',
+    }), 'opened');
+    assert.equal(kimiReads, 2,
+        'an empty warm snapshot must be confirmed by an authoritative read');
+    harness.capability.dispose();
+});
+
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 shares a slow in-flight warmup instead of starting a duplicate provider read', async () => {
     const sessions = ['codex', 'kimi'].map((provider, index) => makeSession({
         key: `${provider}:slow-${index}`,

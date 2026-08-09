@@ -1209,8 +1209,16 @@ async function resolveLatestConversationTarget(
             && snapshotWarmup?.isDisposed()) {
             return { result: 'unavailable' };
         }
-        prefetchedSnapshot = Boolean(resolvedWarmSnapshot);
-        snapshot = resolvedWarmSnapshot || (
+        // A speculative read can finish before a newly started provider has
+        // persisted its first user turn. Never let that empty warm snapshot
+        // authoritatively report a live Session as conversation-less: confirm
+        // it against the provider when the user actually navigates there.
+        const usableWarmSnapshot = resolvedWarmSnapshot
+            && resolvedWarmSnapshot.outline.interactions.length
+            ? resolvedWarmSnapshot
+            : undefined;
+        prefetchedSnapshot = Boolean(usableWarmSnapshot);
+        snapshot = usableWarmSnapshot || (
             typeof coordinator.readSnapshot === 'function'
             ? await coordinator.readSnapshot(
                 target.provider,

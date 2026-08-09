@@ -34,6 +34,7 @@ export interface DashboardMessageHandlersOptions {
     postAiSessionAttentionState: () => void;
     showAgentPivotSettings: () => Promise<void>;
     showBridgeExtension: () => Thenable<unknown>;
+    showSponsorOptions: () => Promise<void>;
     showWarningMessage: (message: string) => void;
 }
 
@@ -68,6 +69,7 @@ export function createDashboardMessageHandlers(
     const postAiSessionAttentionState = options.postAiSessionAttentionState;
     const showAgentPivotSettings = options.showAgentPivotSettings;
     const showBridgeExtension = options.showBridgeExtension;
+    const showSponsorOptions = options.showSponsorOptions;
     const showWarningMessage = options.showWarningMessage;
 
     return {
@@ -238,6 +240,9 @@ export function createDashboardMessageHandlers(
         },
         'open-bridge-extension': async () => {
             await showBridgeExtension();
+        },
+        'sponsor': async () => {
+            await showSponsorOptions();
         },
         'archive-ai-sessions': async e => {
             await aiSessionArchiveController.archiveSessions(

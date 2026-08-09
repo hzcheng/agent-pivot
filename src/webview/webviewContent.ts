@@ -141,6 +141,9 @@ export function getStewardContent(
                     <input type="search" id="filter" aria-label="Filter Projects">
                     <span id="clear" class="clear-search-icon">${Icons.remove}</span>
                 </div>
+                <button type="button" class="sponsor-button" data-action="sponsor" title="Support Agent Pivot" aria-label="Support Agent Pivot">
+                    ${Icons.heart}
+                </button>
                 <button type="button" class="toggle-all-groups-button" data-action="toggle-all-groups" title="${allGroupsCollapsed ? 'Expand All Groups' : 'Collapse All Groups'}" aria-label="${allGroupsCollapsed ? 'Expand All Groups' : 'Collapse All Groups'}">
                     <span class="toggle-all-groups-collapse-icon">${Icons.collapseAll}</span>
                     <span class="toggle-all-groups-expand-icon">${Icons.expandAll}</span>
@@ -588,6 +591,7 @@ function criticalStartupStyle(): string {
         .search-icon,
         .clear-search-icon,
         .settings-button,
+        .sponsor-button,
         .toggle-all-groups-button,
         .toggle-all-groups-collapse-icon,
         .toggle-all-groups-expand-icon {
@@ -611,6 +615,7 @@ function criticalStartupStyle(): string {
             visibility: hidden;
         }
         .settings-button,
+        .sponsor-button,
         .toggle-all-groups-button {
             width: 30px;
             height: 30px;
@@ -618,6 +623,7 @@ function criticalStartupStyle(): string {
             overflow: hidden;
         }
         .settings-button svg,
+        .sponsor-button svg,
         .toggle-all-groups-button svg {
             width: 18px;
             height: 18px;

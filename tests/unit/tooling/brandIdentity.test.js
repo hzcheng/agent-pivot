@@ -63,8 +63,15 @@ function manifests() {
             license: 'MIT',
             categories: ['Other'],
             keywords: [
-                'agent', 'codex', 'claude', 'kimi',
-                'session manager', 'workspace', 'tmux',
+                'agent', 'ai',
+                'codex', 'codex cli',
+                'claude', 'claude code',
+                'kimi', 'kimi cli',
+                'ai sessions', 'session manager',
+                'project manager', 'projects',
+                'todo', 'todo list',
+                'prompts', 'prompt library',
+                'workspace', 'tmux', 'dashboard',
             ],
             extensionDependencies: [
                 'hzcheng.agent-pivot-attention-ui-bridge',

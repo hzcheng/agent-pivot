@@ -68,6 +68,7 @@ function createFixture(overrides = {}) {
         onOpenWorkspacesRendererReady: () => calls.push(['openWorkspacesRendererReady']),
         showAgentPivotSettings: async () => { calls.push(['showSettings']); },
         showBridgeExtension: async () => { calls.push(['showBridgeExtension']); },
+        showSponsorOptions: async () => { calls.push(['showSponsorOptions']); },
         showWarningMessage: message => calls.push(['showWarningMessage', message]),
     });
     return { handlers, calls, posted };
@@ -99,6 +100,7 @@ test('WEBVIEW-DASHBOARD-MESSAGE-ROUTER-001 exposes every extracted handler key',
         'request-ai-session-attention-state',
         'open-settings',
         'open-bridge-extension',
+        'sponsor',
         'archive-ai-sessions',
     ]);
 });
@@ -200,6 +202,8 @@ test('WEBVIEW-DASHBOARD-MESSAGE-ROUTER-001 delegates the simple openers and stat
     });
     await handlers['open-settings']({});
     await handlers['open-bridge-extension']({});
+    // WEBVIEW-SPONSOR-ENTRY-001 the toolbar sponsor button delegates to the sponsor picker.
+    await handlers['sponsor']({});
     await handlers['acknowledge-ai-session-attention']({ eventIds: ['a', 1, 'b'] });
 
     assert.deepEqual(calls, [
@@ -211,6 +215,7 @@ test('WEBVIEW-DASHBOARD-MESSAGE-ROUTER-001 delegates the simple openers and stat
         ['openWorkspacesRendererReady'],
         ['showSettings'],
         ['showBridgeExtension'],
+        ['showSponsorOptions'],
         ['acknowledgeAttention', ['a', 'b']],
     ], 'non-string attention event ids are filtered before acknowledgement');
 });

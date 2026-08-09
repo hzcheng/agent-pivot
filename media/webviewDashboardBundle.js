@@ -2861,6 +2861,13 @@ function initProjects() {
             return;
         }
 
+        if (e.target.closest('[data-action="sponsor"]')) {
+            window.vscode.postMessage({
+                type: 'sponsor'
+            });
+            return;
+        }
+
         if (e.target.closest('[data-action="open-settings"]')) {
             window.vscode.postMessage({
                 type: 'open-settings'

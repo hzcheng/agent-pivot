@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "1cd090c4fcd84dd94b28f5a26117c6525958572c",
+        "head": "26fb48d07086ecf8ebfe4a70d854cb7166204665",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -241,7 +241,8 @@
             "b8a863f10a32baef04c4b916d3e08c6b70799657",
             "23e1655906f8fabb83019d5772ae8e714e67a952",
             "4aede6f792e9348697acfea174e308368f7157f7",
-            "2c5f31a95dbd671b637cf5013789826ed1bedb10"
+            "2c5f31a95dbd671b637cf5013789826ed1bedb10",
+            "a760309127206890f64a3fa5e1439e75261f067e"
         ]
     },
     "capabilities": [
@@ -1736,7 +1737,10 @@
             "requirement": "The Switch to AI Session picker lists every live local session most-recently-focused first plus one entry per other window with running sessions, jumping locally with terminal focus and conversation open or handing off through the focus mailbox with plain-navigation degradation, and Toggle Last AI Session alternates the two most recently focused local sessions from a terminal-focus-fed MRU that prunes dead sessions.",
             "commits": [
                 "4b7095d337d022973fa0d90926ae1ba6f795eca1",
-                "0eec5f1fdac5105b1a6139eb2125d565860ec16f"
+                "0eec5f1fdac5105b1a6139eb2125d565860ec16f",
+                "cc2e6152fa07e584611251ec3a984a13c3e0e95c",
+                "91984761d09cb71eabd73a5d33455f2f3bba6e73",
+                "26fb48d07086ecf8ebfe4a70d854cb7166204665"
             ],
             "behaviors": [
                 "AI-SESSION-QUICK-SWITCH-COMMANDS-001"

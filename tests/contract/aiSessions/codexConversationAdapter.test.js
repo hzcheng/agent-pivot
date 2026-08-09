@@ -1387,6 +1387,81 @@ test('CONVERSATION-TELEMETRY-001 Codex prefers the latest exec workdir and falls
     });
 });
 
+test('CONVERSATION-TELEMETRY-001 Codex refreshes the latest exec workdir inside the telemetry cache window', async t => {
+    let currentWorkdir;
+    let requestCount = 0;
+    const telemetryClient = {
+        async request(method) {
+            requestCount += 1;
+            if (method === 'thread/resume') {
+                return { model: 'gpt-5.6-sol', cwd: '/launch/repo' };
+            }
+            return {};
+        },
+        dispose() {},
+    };
+    const harness = createAdapter(fixture, {
+        client: telemetryClient,
+        readCurrentWorkdir: () => currentWorkdir,
+        resolveWorktree: async candidate => ({
+            branch: candidate.endsWith('/feature-x') ? 'feature-x' : 'main',
+            worktreeRoot: candidate,
+            repoRoot: '/launch/repo',
+        }),
+    });
+    t.after(() => harness.adapter.dispose());
+
+    const initial = await harness.adapter.readTelemetry(sessionId);
+    assert.equal(initial.worktree.branch, 'main');
+    currentWorkdir = '/launch/repo/.worktree/feature-x';
+
+    const refreshed = await harness.adapter.readTelemetry(sessionId);
+    assert.deepEqual(refreshed.worktree, {
+        branch: 'feature-x',
+        worktreeRoot: '/launch/repo/.worktree/feature-x',
+        repoRoot: '/launch/repo',
+    });
+    assert.equal(requestCount, 2,
+        'a worktree-only refresh must reuse cached app-server telemetry');
+});
+
+test('CONVERSATION-TELEMETRY-001 Codex discovers a worktree after an empty telemetry result was cached', async t => {
+    let currentWorkdir;
+    let requestCount = 0;
+    const harness = createAdapter(fixture, {
+        client: {
+            async request() {
+                requestCount += 1;
+                throw new Error('telemetry unavailable');
+            },
+            dispose() {},
+        },
+        readCurrentWorkdir: () => currentWorkdir,
+        resolveWorktree: async candidate => ({
+            branch: 'feature-x',
+            worktreeRoot: candidate,
+            repoRoot: '/launch/repo',
+        }),
+    });
+    t.after(() => harness.adapter.dispose());
+
+    assert.equal(await harness.adapter.readTelemetry(sessionId), undefined);
+    currentWorkdir = '/launch/repo/.worktree/feature-x';
+
+    assert.deepEqual(await harness.adapter.readTelemetry(sessionId), {
+        provider: 'codex',
+        sessionId,
+        worktree: {
+            branch: 'feature-x',
+            worktreeRoot: '/launch/repo/.worktree/feature-x',
+            repoRoot: '/launch/repo',
+        },
+        rateLimits: [],
+    });
+    assert.equal(requestCount, 2,
+        'discovering the worktree must not repeat failed app-server reads');
+});
+
 const childThreadId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const otherChildThreadId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const thirdChildThreadId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';

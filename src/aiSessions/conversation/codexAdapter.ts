@@ -733,6 +733,10 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         if (cached
             && Date.now() - cached.readAt
             < CONVERSATION_LIMITS.telemetryRefreshMs) {
+            cached.value = await this.refreshCachedWorktree(
+                sessionId,
+                cached.value
+            );
             return cached.value;
         }
         const existing = this.telemetryReads.get(sessionId);
@@ -847,6 +851,35 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
             ? response.cwd
             : undefined;
         return cwd ? this.options.resolveWorktree(cwd) : undefined;
+    }
+
+    private async refreshCachedWorktree(
+        sessionId: string,
+        telemetry: ConversationTelemetry | undefined
+    ): Promise<ConversationTelemetry | undefined> {
+        const currentWorkdir = this.options.readCurrentWorkdir?.(sessionId);
+        if (!currentWorkdir || !this.options.resolveWorktree) {
+            return telemetry;
+        }
+        let worktree: ConversationWorktreeInfo | undefined;
+        try {
+            worktree = await this.options.resolveWorktree(currentWorkdir);
+        } catch (_error) {
+            return telemetry;
+        }
+        if (!worktree) {
+            return telemetry;
+        }
+        if (telemetry) {
+            telemetry.worktree = worktree;
+            return telemetry;
+        }
+        return {
+            provider: 'codex',
+            sessionId,
+            worktree,
+            rateLimits: [],
+        };
     }
 
     watch(sessionId: string, onChange: () => void): AiSessionDisposable {

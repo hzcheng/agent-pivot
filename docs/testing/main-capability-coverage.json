@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "e3bbf75c4999c83b4c775cc317f9f6b1d180e9a1",
+        "head": "17cf2c716dbf8b28e2f95c5f6a5de1dc14452c68",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -217,7 +217,10 @@
             "3d7f71f3683aa7608f8180e8cf68766a16a7b23d",
             "160b46b2f8686f4a36817b97a15291ee23c0e226",
             "58c5275d06effcf3088c87eb0934fed80c7d0af1",
-            "fc2b8cc3ee49ac2d7f16c61155cdb40310a6e0a0"
+            "fc2b8cc3ee49ac2d7f16c61155cdb40310a6e0a0",
+            "88cfcc74c32df5df8f48ee7b1a6e9f5bdd53d72f",
+            "3f4a0156aac342b9602427fa40113d067012f54c",
+            "fa9df64a1fce021e5c49516c40213c63c7fa01f7"
         ]
     },
     "capabilities": [
@@ -1454,7 +1457,9 @@
                 "c7bf0efc7972f6b7ebf55888c2353f9cef162e76",
                 "58d8ce053961e9897b25bb389e66e04ff46b4a9a",
                 "710fc3d55d5221efd9b54119d578acbee5bce268",
-                "b012cd88e557d70cc0d459727c71cccbc4acc3f8"
+                "b012cd88e557d70cc0d459727c71cccbc4acc3f8",
+                "2390fc13ca86aeadd6c470a92bbff673855f4310",
+                "17cf2c716dbf8b28e2f95c5f6a5de1dc14452c68"
             ],
             "behaviors": [
                 "SESSION-AI-SESSION-CONVERSATION-ADAPTER-001",
@@ -1667,6 +1672,23 @@
                 "OPEN-WORKSPACE-RUNNING-FOCUS-STORE-001",
                 "OPEN-WORKSPACE-RUNNING-FOCUS-COORDINATOR-001",
                 "OPEN-WORKSPACE-RUNNING-FOCUS-CLIENT-001"
+            ],
+            "prGates": [
+                "test:deterministic:run"
+            ],
+            "scheduledJobs": [],
+            "realEnvironmentRequired": false
+        },
+        {
+            "id": "MAIN-AI-SESSION-QUICK-SWITCH",
+            "title": "AI session quick switch and MRU toggle",
+            "requirement": "The Switch to AI Session picker lists every live local session most-recently-focused first plus one entry per other window with running sessions, jumping locally with terminal focus and conversation open or handing off through the focus mailbox with plain-navigation degradation, and Toggle Last AI Session alternates the two most recently focused local sessions from a terminal-focus-fed MRU that prunes dead sessions.",
+            "commits": [
+                "4b7095d337d022973fa0d90926ae1ba6f795eca1",
+                "0eec5f1fdac5105b1a6139eb2125d565860ec16f"
+            ],
+            "behaviors": [
+                "AI-SESSION-QUICK-SWITCH-COMMANDS-001"
             ],
             "prGates": [
                 "test:deterministic:run"

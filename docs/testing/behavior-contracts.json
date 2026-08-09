@@ -755,17 +755,25 @@
   {
     "id": "ATTENTION-STATUS-BAR-QUEUE-001",
     "domain": "attention",
-    "title": "A right-aligned status bar entry surfaces the cross-window attention count with a per-session tooltip and cycles an independent cursor through the oldest-first queue on click: local sessions focus their terminal and open their conversation while staying unread by default, an opt-in setting acknowledges only after both actions succeed, session-card clicks still acknowledge, unfocusable sessions warn and stay unread without trapping the cursor, remote sessions switch to the owning window without acknowledging, and the entry hides while the queue is empty or attention is disabled",
+    "title": "A right-aligned status bar entry surfaces the cross-window attention count with a per-session tooltip and serially cycles a resilient cursor through the oldest-first queue on click: manual focus changes re-anchor the cursor, local sessions focus their terminal and open their conversation while staying unread by default, an opt-in setting acknowledges only after the conversation really opens, unfocusable sessions warn and stay unread without trapping the cursor, and remote sessions use an exact-target delivered mailbox hand-off before switching to the owning window",
     "priority": "P1",
     "status": "automated",
     "owners": [
       "tests/contract/aiSessions/attentionStatusBar.test.js",
+      "tests/contract/openProjects/attentionFocus.test.js",
+      "tests/contract/openProjects/bridgeClient.test.js",
       "tests/contract/dashboardBoundaries.test.js"
     ],
     "evidence": [
       "src/aiSessions/attentionQueue.ts",
       "src/aiSessions/attentionStatusBarController.ts",
       "src/dashboard/attentionQueueJump.ts",
+      "src/openWorkspaces/attentionFocusProtocol.ts",
+      "src/openWorkspaces/bridgeClient.ts",
+      "src/openWorkspaces/earlyBridge.ts",
+      "extensions/attention-ui-bridge/src/openWorkspaceAttentionFocusStore.ts",
+      "extensions/attention-ui-bridge/src/openWorkspaceAttentionFocusCoordinator.ts",
+      "extensions/attention-ui-bridge/src/extension.ts",
       "src/dashboard.ts",
       "src/dashboard/commandRegistration.ts",
       "package.json"
@@ -774,11 +782,12 @@
   {
     "id": "AI-SESSION-NEXT-RUNNING-COMMAND-001",
     "domain": "session",
-    "title": "The Next Running Session command cycles running AI sessions one jump per invocation with a stable local-first queue and a resilient cursor: local jumps focus the session terminal and open its conversation, sessions that ended mid-cycle are skipped with a warning, remote jumps hand a focus request through the Open Windows bridge mailbox so the owning window lands directly on a running session, the hand-off degrades to a plain window switch when the bridge predates the mailbox channel, and the command is contributed without a default keybinding",
+    "title": "The Next Running Session command serially cycles running AI sessions one jump per invocation with a stable local-first queue and a resilient cursor: manual focus changes re-anchor the cursor, local jumps focus the session terminal and open its conversation, sessions that ended mid-cycle are skipped with a warning, and remote jumps switch windows only after a v2 delivered mailbox hand-off is accepted so stale Running requests cannot steal focus from newer Attention navigation",
     "priority": "P1",
     "status": "automated",
     "owners": [
       "tests/contract/aiSessions/runningSessionJump.test.js",
+      "tests/contract/openProjects/runningFocus.test.js",
       "tests/contract/dashboardBoundaries.test.js"
     ],
     "evidence": [
@@ -817,7 +826,7 @@
   {
     "id": "OPEN-WORKSPACE-RUNNING-FOCUS-PROTOCOL-001",
     "domain": "open-project",
-    "title": "Running focus hand-off requests are strictly validated one-shot mailbox records with bounded leases and correlated outcomes",
+    "title": "Running focus hand-off protocol v2 rejects legacy early-acceptance peers and strictly validates bounded requests with correlated delivered outcomes",
     "priority": "P1",
     "status": "automated",
     "owners": [
@@ -830,7 +839,7 @@
   {
     "id": "OPEN-WORKSPACE-RUNNING-FOCUS-STORE-001",
     "domain": "persistence",
-    "title": "The running focus mailbox stores one atomically renamed file per request, sweeps expired leases on scan, ignores malformed files, and caps pending requests",
+    "title": "The running focus mailbox atomically submits, claims, receipts, restores, and cancels bounded requests while sweeping expired leases and ignoring malformed files",
     "priority": "P1",
     "status": "automated",
     "owners": [
@@ -843,7 +852,7 @@
   {
     "id": "OPEN-WORKSPACE-RUNNING-FOCUS-COORDINATOR-001",
     "domain": "open-project",
-    "title": "The bridge running focus coordinator delivers mailbox requests only from the navigation-winning window, consumes them after delivery, retries failed deliveries until the lease sweeps them, and rejects malformed submissions",
+    "title": "The bridge running focus coordinator reports success only after the navigation-winning window accepts delivery, retries failed delivery, and cancels timed-out requests so Running hand-offs cannot arrive during newer Attention navigation",
     "priority": "P1",
     "status": "automated",
     "owners": [
@@ -858,7 +867,7 @@
   {
     "id": "OPEN-WORKSPACE-RUNNING-FOCUS-CLIENT-001",
     "domain": "open-project",
-    "title": "The main-extension bridge client sends correlated running focus requests, degrades to false when the hand-off channel is unavailable, and delivers received requests exactly once while acknowledging malformed payloads",
+    "title": "The main-extension bridge client sends correlated running focus v2 requests, degrades safely when delivery is unavailable or legacy, and delivers received requests exactly once while rejecting malformed payloads",
     "priority": "P1",
     "status": "automated",
     "owners": [
@@ -2048,16 +2057,18 @@
   {
     "id": "OPEN-DASHBOARD-BRIDGE-LIFECYCLE-001",
     "domain": "open-project",
-    "title": "Dashboard Bridge Lifecycle behavior",
+    "title": "The Dashboard bridge buffers authoritative state across bootstrap generations while action requests reject before handler adoption so mailbox delivery can retry",
     "priority": "P1",
     "status": "automated",
     "owners": [
       "tests/contract/openProjects/bridgeClient.test.js",
+      "tests/contract/openProjects/earlyBridge.test.js",
       "tests/contract/openProjects/dashboardConnectingStatus.test.js",
       "tests/integration/dashboard/openWorkspacesConnecting.test.js"
     ],
     "evidence": [
       "scripts/run-open-project-safety-checks.js",
+      "src/openWorkspaces/earlyBridge.ts",
       "src/openWorkspaces/dashboardController.ts",
       "src/webview/webviewContent.ts"
     ]
@@ -3986,15 +3997,17 @@
   {
     "id": "ACTIVE-SESSION-FOCUS-REVEAL-001",
     "domain": "webview",
-    "title": "Sidebar reveals the focused Active Session card whenever session focus changes",
+    "title": "Sidebar reveals and marks the focused Active Session card after terminal focus settles, including Next Attention Session jumps",
     "priority": "P0",
     "status": "automated",
     "owners": [
-      "tests/browser/activeSessionCardInteraction.test.js"
+      "tests/browser/activeSessionCardInteraction.test.js",
+      "tests/contract/aiSessions/sessionControllers.test.js"
     ],
     "evidence": [
       "src/webview/webviewAiSessionViewStateScripts.js",
-      "src/webview/webviewWorkspaceUpdateScripts.js"
+      "src/webview/webviewWorkspaceUpdateScripts.js",
+      "src/aiSessions/terminalCommandController.ts"
     ]
   },
   {

@@ -16,6 +16,8 @@ export interface RunningSessionJumpOptions {
     openNavigationCard: (cardId: string) => Promise<void>;
     showInformationMessage: (message: string) => void;
     showWarningMessage: (message: string) => void;
+    /** Key of the session the user is currently looking at, when known. */
+    getCurrentKey?: () => string | null;
 }
 
 export interface RunningSessionJumpHandler {
@@ -40,6 +42,14 @@ export function createRunningSessionJumpHandler(
     options: RunningSessionJumpOptions
 ): RunningSessionJumpHandler {
     let lastKey: string | null = null;
+    let lastObservedCurrentKey: string | null = null;
+    let tail: Promise<void> = Promise.resolve();
+
+    function enqueue(task: () => Promise<void>): Promise<void> {
+        const result = tail.then(task, task);
+        tail = result.then(() => undefined, () => undefined);
+        return result;
+    }
 
     async function jumpToLocal(item: RunningSessionQueueLocalItem): Promise<void> {
         const focused = await options.focusSession(item);
@@ -50,6 +60,7 @@ export function createRunningSessionJumpHandler(
             );
             return;
         }
+        lastObservedCurrentKey = item.key;
         await options.openConversation(item);
     }
 
@@ -85,7 +96,20 @@ export function createRunningSessionJumpHandler(
             );
             return;
         }
-        const next = getNextRunningSessionQueueItem(items, lastKey);
+        const currentKey = options.getCurrentKey ? options.getCurrentKey() : null;
+        const current = currentKey
+            ? items.find(item => item.key === currentKey) || null
+            : null;
+        const currentChanged = current !== null
+            && current.key !== lastObservedCurrentKey;
+        lastObservedCurrentKey = current?.key || null;
+        const cursorKey = scope === 'all'
+            && currentChanged
+            ? null
+            : lastKey;
+        const next = scope === 'local' && current?.kind === 'local'
+            ? current
+            : getNextRunningSessionQueueItem(items, cursorKey, currentKey);
         if (!next) {
             return;
         }
@@ -97,7 +121,7 @@ export function createRunningSessionJumpHandler(
     }
 
     return {
-        jumpToNextRunningSession: () => jump('all'),
-        jumpToNextLocalRunningSession: () => jump('local'),
+        jumpToNextRunningSession: () => enqueue(() => jump('all')),
+        jumpToNextLocalRunningSession: () => enqueue(() => jump('local')),
     };
 }

@@ -1,10 +1,10 @@
 'use strict';
 
-export const OPEN_WORKSPACE_RUNNING_FOCUS_PROTOCOL_VERSION = 1;
+export const OPEN_WORKSPACE_RUNNING_FOCUS_PROTOCOL_VERSION = 2;
 export const OPEN_WORKSPACE_RUNNING_FOCUS_REQUEST_COMMAND =
-    '_agentPivotOpenWorkspaces.bridge.requestRunningFocus';
+    '_agentPivotOpenWorkspaces.bridge.requestRunningFocusV2';
 export const OPEN_WORKSPACE_RUNNING_FOCUS_DELIVER_COMMAND =
-    '_agentPivotOpenWorkspaces.workspace.runningFocusRequested';
+    '_agentPivotOpenWorkspaces.workspace.runningFocusRequestedV2';
 export const OPEN_WORKSPACE_RUNNING_FOCUS_LEASE_MS = 60_000;
 export const MAX_OPEN_WORKSPACE_RUNNING_FOCUS_REQUESTS = 100;
 
@@ -12,7 +12,7 @@ const REQUEST_ID_PATTERN = /^[a-f0-9]{32}$/;
 const NAVIGATION_IDENTITY_PATTERN = /^[a-f0-9]{64}$/;
 
 export interface OpenWorkspaceRunningFocusRequest {
-    protocolVersion: 1;
+    protocolVersion: 2;
     requestId: string;
     targetNavigationIdentity: string;
     createdAtMs: number;
@@ -20,10 +20,10 @@ export interface OpenWorkspaceRunningFocusRequest {
 }
 
 export interface OpenWorkspaceRunningFocusOutcome {
-    protocolVersion: 1;
+    protocolVersion: 2;
     requestId: string;
     targetNavigationIdentity: string;
-    accepted: true;
+    delivered: true;
 }
 
 function requireObject(value: unknown, label: string): Record<string, unknown> {
@@ -46,7 +46,7 @@ function requireExactKeys(
     }
 }
 
-function requireProtocolVersion(value: unknown): 1 {
+function requireProtocolVersion(value: unknown): 2 {
     if (value !== OPEN_WORKSPACE_RUNNING_FOCUS_PROTOCOL_VERSION) {
         throw new Error('open workspace running focus protocol version is incompatible');
     }
@@ -124,16 +124,16 @@ export function validateOpenWorkspaceRunningFocusOutcome(
     const outcome = requireObject(raw, 'open workspace running focus outcome');
     requireExactKeys(
         outcome,
-        ['protocolVersion', 'requestId', 'targetNavigationIdentity', 'accepted'],
+        ['protocolVersion', 'requestId', 'targetNavigationIdentity', 'delivered'],
         'open workspace running focus outcome',
     );
-    if (outcome.accepted !== true) {
-        throw new Error('open workspace running focus outcome must be accepted');
+    if (outcome.delivered !== true) {
+        throw new Error('open workspace running focus outcome must be delivered');
     }
     return {
         protocolVersion: requireProtocolVersion(outcome.protocolVersion),
         requestId: requireRequestId(outcome.requestId),
         targetNavigationIdentity: requireNavigationIdentity(outcome.targetNavigationIdentity),
-        accepted: true,
+        delivered: true,
     };
 }

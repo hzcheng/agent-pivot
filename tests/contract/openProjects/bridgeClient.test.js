@@ -192,7 +192,8 @@ test('OPEN-BRIDGE-CLIENT-001 rolls back partial constructor registrations before
     );
     assert.deepEqual([...activeRegistrations.keys()], []);
     assert.deepEqual(disposedRegistrations, [
-        '_agentPivotOpenWorkspaces.workspace.runningFocusRequested',
+        '_agentPivotOpenWorkspaces.workspace.attentionFocusRequested',
+        '_agentPivotOpenWorkspaces.workspace.runningFocusRequestedV2',
         '_agentPivotOpenWorkspaces.workspace.pinSnapshot',
         '_agentPivotOpenWorkspaces.workspace.aggregate',
     ]);
@@ -210,9 +211,10 @@ test('OPEN-BRIDGE-CLIENT-001 rolls back partial constructor registrations before
 
     assert.deepEqual([...activeRegistrations.keys()].sort(), [
         '_agentPivotOpenWorkspaces.workspace.aggregate',
+        '_agentPivotOpenWorkspaces.workspace.attentionFocusRequested',
         '_agentPivotOpenWorkspaces.workspace.diagnostic',
         '_agentPivotOpenWorkspaces.workspace.pinSnapshot',
-        '_agentPivotOpenWorkspaces.workspace.runningFocusRequested',
+        '_agentPivotOpenWorkspaces.workspace.runningFocusRequestedV2',
     ]);
     assert.equal(heartbeatStarts, 1);
 
@@ -228,16 +230,16 @@ test('OPEN-WORKSPACE-RUNNING-FOCUS-CLIENT-001 sends correlated focus requests an
     commands.register('_agentPivotOpenWorkspaces.bridge.unregister', () => undefined);
     const requests = [];
     let rejectRequests = false;
-    commands.register('_agentPivotOpenWorkspaces.bridge.requestRunningFocus', request => {
+    commands.register('_agentPivotOpenWorkspaces.bridge.requestRunningFocusV2', request => {
         if (rejectRequests) {
             throw new Error('command is not registered: simulated legacy bridge');
         }
         requests.push(request);
         return {
-            protocolVersion: 1,
+            protocolVersion: 2,
             requestId: request.requestId,
             targetNavigationIdentity: request.targetNavigationIdentity,
-            accepted: true,
+            delivered: true,
         };
     });
     const errors = [];
@@ -260,7 +262,7 @@ test('OPEN-WORKSPACE-RUNNING-FOCUS-CLIENT-001 sends correlated focus requests an
     const identity = 'f'.repeat(64);
     assert.equal(await client.requestRunningFocus(identity), true);
     assert.equal(requests.length, 1);
-    assert.equal(requests[0].protocolVersion, 1);
+    assert.equal(requests[0].protocolVersion, 2);
     assert.match(requests[0].requestId, /^[a-f0-9]{32}$/);
     assert.equal(requests[0].targetNavigationIdentity, identity);
     assert.equal(requests[0].createdAtMs, 5000);
@@ -280,6 +282,7 @@ test('OPEN-WORKSPACE-RUNNING-FOCUS-CLIENT-001 delivers focus requests exactly on
     commands.register('_agentPivotOpenWorkspaces.bridge.unregister', () => undefined);
     const received = [];
     const errors = [];
+    let adopted = false;
     const client = new OpenWorkspaceBridgeClient(
         makeRecord(),
         () => undefined,
@@ -291,32 +294,165 @@ test('OPEN-WORKSPACE-RUNNING-FOCUS-CLIENT-001 delivers focus requests exactly on
             executeCommand: commands.execute,
             setInterval: () => 'heartbeat',
             clearInterval: () => undefined,
-            onRunningFocusRequest: request => received.push(request),
+            onRunningFocusRequest: request => {
+                if (!adopted) {
+                    throw new Error('not adopted');
+                }
+                received.push(request);
+            },
         },
     );
     t.after(() => client.dispose());
     await flushAsync();
 
-    const deliver = commands.handlers.get('_agentPivotOpenWorkspaces.workspace.runningFocusRequested');
+    const deliver = commands.handlers.get(
+        '_agentPivotOpenWorkspaces.workspace.runningFocusRequestedV2'
+    );
     assert.ok(deliver, 'the client must register the running focus delivery command');
     const request = {
-        protocolVersion: 1,
+        protocolVersion: 2,
         requestId: 'a'.repeat(32),
         targetNavigationIdentity: 'f'.repeat(64),
         createdAtMs: 4000,
         expiresAtMs: 64_000,
     };
+    await assert.rejects(
+        Promise.resolve().then(() => deliver(request)),
+        /not adopted/,
+    );
+    adopted = true;
     await deliver(request);
     await deliver(request);
     assert.deepEqual(received, [request]);
+    assert.equal(errors.length, 1);
 
     await deliver({ ...request, requestId: 'b'.repeat(32), extra: true });
     assert.equal(received.length, 1);
-    assert.equal(errors.length, 1);
+    assert.equal(errors.length, 2);
 
     client.dispose();
     await deliver({ ...request, requestId: 'c'.repeat(32) });
     assert.equal(received.length, 1);
+});
+
+test('ATTENTION-STATUS-BAR-QUEUE-001 sends and receives exact cross-window attention focus requests', async t => {
+    const commands = createCommandRegistry();
+    commands.register('_agentPivotOpenWorkspaces.bridge.handshake', handshakeResponse);
+    commands.register('_agentPivotOpenWorkspaces.bridge.publish', () => undefined);
+    commands.register('_agentPivotOpenWorkspaces.bridge.unregister', () => undefined);
+    const submitted = [];
+    commands.register('_agentPivotOpenWorkspaces.bridge.requestAttentionFocus', request => {
+        submitted.push(request);
+        return {
+            protocolVersion: 1,
+            requestId: request.requestId,
+            targetNavigationIdentity: request.targetNavigationIdentity,
+            delivered: true,
+        };
+    });
+    const received = [];
+    const errors = [];
+    const client = new OpenWorkspaceBridgeClient(
+        makeRecord(),
+        () => undefined,
+        error => errors.push(error),
+        {
+            instanceId: SELF,
+            now: () => 5000,
+            registerCommand: commands.register,
+            executeCommand: commands.execute,
+            setInterval: () => 'heartbeat',
+            clearInterval: () => undefined,
+            onAttentionFocusRequest: request => received.push(request),
+        },
+    );
+    t.after(() => client.dispose());
+    await flushAsync();
+
+    const identity = 'f'.repeat(64);
+    const target = {
+        projectId: 'e'.repeat(64),
+        provider: 'codex',
+        sessionId: 'session-1',
+    };
+    assert.equal(await client.requestAttentionFocus(identity, target), true);
+    assert.equal(submitted.length, 1);
+    assert.deepEqual(
+        {
+            targetNavigationIdentity: submitted[0].targetNavigationIdentity,
+            projectId: submitted[0].projectId,
+            provider: submitted[0].provider,
+            sessionId: submitted[0].sessionId,
+            createdAtMs: submitted[0].createdAtMs,
+            expiresAtMs: submitted[0].expiresAtMs,
+        },
+        {
+            targetNavigationIdentity: identity,
+            ...target,
+            createdAtMs: 5000,
+            expiresAtMs: 65_000,
+        },
+    );
+
+    const deliver = commands.handlers.get(
+        '_agentPivotOpenWorkspaces.workspace.attentionFocusRequested'
+    );
+    assert.ok(deliver);
+    await deliver(submitted[0]);
+    await deliver(submitted[0]);
+    assert.deepEqual(received, [submitted[0]], 'delivery is accepted exactly once');
+    assert.deepEqual(errors, []);
+});
+
+test('ATTENTION-STATUS-BAR-QUEUE-001 retries an attention delivery rejected before handler adoption', async t => {
+    const commands = createCommandRegistry();
+    commands.register('_agentPivotOpenWorkspaces.bridge.handshake', handshakeResponse);
+    commands.register('_agentPivotOpenWorkspaces.bridge.publish', () => undefined);
+    commands.register('_agentPivotOpenWorkspaces.bridge.unregister', () => undefined);
+    let adopted = false;
+    const received = [];
+    const errors = [];
+    const client = new OpenWorkspaceBridgeClient(
+        makeRecord(),
+        () => undefined,
+        error => errors.push(error),
+        {
+            instanceId: SELF,
+            now: () => 5000,
+            registerCommand: commands.register,
+            executeCommand: commands.execute,
+            setInterval: () => 'heartbeat',
+            clearInterval: () => undefined,
+            onAttentionFocusRequest: request => {
+                if (!adopted) {
+                    throw new Error('not adopted');
+                }
+                received.push(request);
+            },
+        },
+    );
+    t.after(() => client.dispose());
+    await flushAsync();
+
+    const deliver = commands.handlers.get(
+        '_agentPivotOpenWorkspaces.workspace.attentionFocusRequested'
+    );
+    const request = {
+        protocolVersion: 1,
+        requestId: 'a'.repeat(32),
+        targetNavigationIdentity: 'f'.repeat(64),
+        projectId: 'e'.repeat(64),
+        provider: 'claude',
+        sessionId: 'session-1',
+        createdAtMs: 4000,
+        expiresAtMs: 64_000,
+    };
+    assert.throws(() => deliver(request), /not adopted/);
+    adopted = true;
+    deliver(request);
+
+    assert.deepEqual(received, [request]);
+    assert.equal(errors.length, 1);
 });
 
 test('OPEN-WORKSPACE-PIN-CLIENT-001 applies authoritative pin snapshots and validates correlated mutation results', async t => {

@@ -260,3 +260,196 @@ test('AI-SESSION-NEXT-RUNNING-COMMAND-001 restarts at the head when the cursor s
         ['open', 'kimi', 'k1'],
     ]);
 });
+
+test('AI-SESSION-NEXT-RUNNING-COMMAND-001 rotates remote windows to continue the cycle after the current window', () => {
+    const WINDOW_C = 'c'.repeat(64);
+    const rotate = (selfIdentity, sessionId) => buildRunningSessionQueue({
+        localSessions: [local('codex', sessionId)],
+        remoteWindows: [WINDOW_A, WINDOW_B, WINDOW_C]
+            .filter(identity => identity !== selfIdentity)
+            .map(identity => remote(identity)),
+        selfNavigationIdentity: selfIdentity,
+    }).items.map(item => item.key);
+
+    assert.deepEqual(rotate(WINDOW_A, 'sa'), [
+        'session:codex:sa', `window:${WINDOW_B}`, `window:${WINDOW_C}`,
+    ]);
+    assert.deepEqual(rotate(WINDOW_B, 'sb'), [
+        'session:codex:sb', `window:${WINDOW_C}`, `window:${WINDOW_A}`,
+    ]);
+    assert.deepEqual(rotate(WINDOW_C, 'sc'), [
+        'session:codex:sc', `window:${WINDOW_A}`, `window:${WINDOW_B}`,
+    ]);
+});
+
+test('AI-SESSION-NEXT-RUNNING-COMMAND-001 continues after the focused session instead of re-landing on it', () => {
+    const items = buildRunningSessionQueue({
+        localSessions: [local('codex', 'c1'), local('kimi', 'k1')],
+        remoteWindows: [remote(WINDOW_A)],
+    }).items;
+
+    assert.equal(
+        getNextRunningSessionQueueItem(items, null, 'session:kimi:k1').key,
+        `window:${WINDOW_A}`,
+    );
+    assert.equal(
+        getNextRunningSessionQueueItem(items, null, 'session:codex:c1').key,
+        'session:kimi:k1',
+    );
+    assert.equal(
+        getNextRunningSessionQueueItem(items, 'session:codex:gone', 'session:kimi:k1').key,
+        `window:${WINDOW_A}`,
+    );
+    assert.equal(
+        getNextRunningSessionQueueItem(items, `window:${WINDOW_A}`, 'session:codex:c1').key,
+        'session:kimi:k1',
+    );
+
+    const single = buildRunningSessionQueue({
+        localSessions: [local('codex', 'c1')],
+        remoteWindows: [],
+    }).items;
+    assert.equal(
+        getNextRunningSessionQueueItem(single, null, 'session:codex:c1').key,
+        'session:codex:c1',
+    );
+});
+
+test('AI-SESSION-NEXT-RUNNING-COMMAND-001 cycles three single-session windows in a stable rotation', async () => {
+    const WINDOW_C = 'c'.repeat(64);
+    const identities = [WINDOW_A, WINDOW_B, WINDOW_C];
+    const sessionOf = identity => `s-${identity[0]}`;
+    const cardOf = identity => `card-${identity[0]}`;
+    const world = {
+        activeWindow: WINDOW_A,
+        focused: new Map([[WINDOW_A, sessionOf(WINDOW_A)]]),
+    };
+    const handlers = new Map();
+    for (const identity of identities) {
+        const others = identities.filter(candidate => candidate !== identity);
+        handlers.set(identity, createRunningSessionJumpHandler({
+            buildQueue: () => buildRunningSessionQueue({
+                localSessions: [local('codex', sessionOf(identity))],
+                remoteWindows: others.map(other => remote(other, 1, cardOf(other))),
+                selfNavigationIdentity: identity,
+            }),
+            focusSession: item => {
+                world.focused.set(identity, item.sessionId);
+                return Promise.resolve(true);
+            },
+            openConversation: () => Promise.resolve(),
+            requestRemoteFocus: item => {
+                world.activeWindow = item.navigationIdentity;
+                return handlers.get(item.navigationIdentity)
+                    .jumpToNextLocalRunningSession()
+                    .then(() => true);
+            },
+            openNavigationCard: cardId => {
+                world.activeWindow = identities
+                    .find(candidate => cardOf(candidate) === cardId);
+                return Promise.resolve();
+            },
+            showInformationMessage: () => {},
+            showWarningMessage: () => {},
+            getCurrentKey: () => {
+                const focused = world.focused.get(identity);
+                return focused ? `session:codex:${focused}` : null;
+            },
+        }));
+    }
+
+    const visited = [];
+    for (let press = 0; press < 6; press += 1) {
+        await handlers.get(world.activeWindow).jumpToNextRunningSession();
+        visited.push(`${world.activeWindow}:${world.focused.get(world.activeWindow)}`);
+    }
+
+    assert.deepEqual(visited, [
+        `${WINDOW_B}:s-b`,
+        `${WINDOW_C}:s-c`,
+        `${WINDOW_A}:s-a`,
+        `${WINDOW_B}:s-b`,
+        `${WINDOW_C}:s-c`,
+        `${WINDOW_A}:s-a`,
+    ]);
+});
+
+test('AI-SESSION-NEXT-RUNNING-COMMAND-001 re-anchors after a manual detour with three local sessions', async () => {
+    const queue = buildRunningSessionQueue({
+        localSessions: ['a', 'b', 'c'].map(sessionId => local('codex', sessionId)),
+        remoteWindows: [],
+    });
+    let focused = 'a';
+    const picked = [];
+    const { options } = makeJumpOptions({ queue });
+    options.focusSession = item => {
+        focused = item.sessionId;
+        picked.push(item.sessionId);
+        return Promise.resolve(true);
+    };
+    options.getCurrentKey = () => `session:codex:${focused}`;
+    const handler = createRunningSessionJumpHandler(options);
+
+    await handler.jumpToNextRunningSession();
+    focused = 'a';
+    await handler.jumpToNextRunningSession();
+
+    assert.deepEqual(picked, ['b', 'b'],
+        'manual focus changes must re-anchor the next press regardless of queue length');
+});
+
+test('AI-SESSION-NEXT-RUNNING-COMMAND-001 serializes rapid invocations without duplicating a target', async () => {
+    const queue = buildRunningSessionQueue({
+        localSessions: ['a', 'b', 'c'].map(sessionId => local('codex', sessionId)),
+        remoteWindows: [],
+    });
+    let focused = 'a';
+    const picked = [];
+    const releases = [];
+    const { options } = makeJumpOptions({ queue });
+    options.focusSession = item => new Promise(resolve => {
+        picked.push(item.sessionId);
+        releases.push(() => {
+            focused = item.sessionId;
+            resolve(true);
+        });
+    });
+    options.getCurrentKey = () => `session:codex:${focused}`;
+    const handler = createRunningSessionJumpHandler(options);
+
+    const first = handler.jumpToNextRunningSession();
+    const second = handler.jumpToNextRunningSession();
+    await Promise.resolve();
+    assert.deepEqual(picked, ['b'], 'the second invocation waits for the first focus');
+    releases.shift()();
+    await Promise.resolve();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(picked, ['b', 'c']);
+    releases.shift()();
+    await Promise.all([first, second]);
+    assert.equal(focused, 'c');
+});
+
+test('AI-SESSION-NEXT-RUNNING-COMMAND-001 makes a late handoff idempotent with a newer local jump', async () => {
+    const queue = buildRunningSessionQueue({
+        localSessions: [local('codex', 'b1'), local('codex', 'b2')],
+        remoteWindows: [],
+    });
+    let focused = 'b1';
+    const picked = [];
+    const { options } = makeJumpOptions({ queue });
+    options.focusSession = item => {
+        focused = item.sessionId;
+        picked.push(item.sessionId);
+        return Promise.resolve(true);
+    };
+    options.getCurrentKey = () => `session:codex:${focused}`;
+    const handler = createRunningSessionJumpHandler(options);
+
+    await handler.jumpToNextRunningSession();
+    await handler.jumpToNextLocalRunningSession();
+
+    assert.deepEqual(picked, ['b2', 'b2'],
+        'a handoff delivered after a user jump may reaffirm, but never reverse, that jump');
+    assert.equal(focused, 'b2');
+});

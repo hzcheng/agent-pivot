@@ -299,13 +299,61 @@ test('SESSION-AI-SESSION-TERMINAL-COMMAND-CONTROLLER-001 ATTENTION-EXPLICIT-SESS
     assert.deepEqual(
         effects.slice(0, 7),
         [
-            'show', 'refresh', 'focus-terminal-view',
+            'show', 'focus-terminal-view', 'refresh',
             'close-start:1', 'dispose', 'close-end:1:true', 'refresh',
         ]
     );
     assert.equal(effects.length, before);
     assert.equal(focused, true);
     assert.equal(missing, false);
+});
+
+test('ATTENTION-STATUS-BAR-QUEUE-001 ACTIVE-SESSION-FOCUS-REVEAL-001 refreshes the sidebar after terminal focus settles', async () => {
+    const projectedSessions = [];
+    let activeTerminalSessionId = 'previous';
+    const identity = {
+        provider: 'codex',
+        sessionId: 'target',
+        workspaceScopeIdentity: 'scope:fixture',
+        workspaceNavigationIdentity: 'navigation:fixture',
+        workspaceRootHostPaths: ['/work'],
+        cwd: '/work',
+    };
+    const runtime = {
+        backend: 'tmux',
+        state: 'active',
+        identity,
+        terminal: { show() {}, dispose() {} },
+        attached: true,
+        stale: false,
+        runStartedAtMs: 1,
+        tmux: { layout: 'project', sessionName: 'project', windowName: 'target' },
+    };
+    const controller = new AiSessionTerminalCommandController({
+        isProviderId: value => value === 'codex',
+        getWorkspaceTarget: () => makeWorkspaceTarget([{ id: 'target' }]),
+        showErrorMessage: async () => undefined,
+        getProviderLabel: () => 'Codex',
+        refresh: () => projectedSessions.push(activeTerminalSessionId),
+        runtimeCoordinator: {
+            getById: () => runtime,
+            getPending: () => [],
+            focus: async () => undefined,
+            detach: async () => undefined,
+            terminate: async () => undefined,
+        },
+        confirmRuntimeClose: async () => undefined,
+        announceStatus: async () => undefined,
+        focusTerminalView: async () => {
+            // VS Code publishes activeTerminal only after the workbench focus
+            // transition. A refresh before this point projects the old card.
+            activeTerminalSessionId = 'target';
+        },
+    });
+
+    assert.equal(await controller.focusActive('p', 'codex', 'target'), true);
+    assert.deepEqual(projectedSessions, ['target'],
+        'the final sidebar projection must agree with the terminal and tmux target');
 });
 
 test('CONVERSATION-ACTIVE-SESSION-NAVIGATION-COMMANDS-001 can synchronize an active runtime without moving keyboard focus to the Terminal view', async () => {
@@ -624,7 +672,7 @@ test('SESSION-AI-SESSION-TERMINAL-COMMAND-CONTROLLER-001 focuses the workbench o
 
     effects.length = 0;
     await controller.focusActive('p', 'codex', 's');
-    assert.deepEqual(effects, ['focus-selected-runtime', 'refresh', 'focus-terminal-view']);
+    assert.deepEqual(effects, ['focus-selected-runtime', 'focus-terminal-view', 'refresh']);
 
     effects.length = 0;
     rejectFocus = true;

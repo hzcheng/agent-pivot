@@ -29,6 +29,7 @@ function makeHandlers(log) {
         onStatusChange: status => log.push(['status', status]),
         onPinSnapshot: snapshot => log.push(['pin', snapshot]),
         onRunningFocusRequest: request => log.push(['running-focus', request]),
+        onAttentionFocusRequest: request => log.push(['attention-focus', request]),
         onError: error => log.push(['error', error]),
     };
 }
@@ -59,20 +60,42 @@ test('OPEN-DASHBOARD-BRIDGE-LIFECYCLE-001 replays the latest pre-adoption state 
     ]);
 });
 
-test('OPEN-DASHBOARD-BRIDGE-LIFECYCLE-001 drops pre-adoption running focus requests and forwards live ones', () => {
+test('OPEN-DASHBOARD-BRIDGE-LIFECYCLE-001 rejects pre-adoption running focus requests for retry and forwards live ones', () => {
     const { bridge, created, errors } = makeBridge();
     const log = [];
 
-    created[0].handlers.onRunningFocusRequest({ requestId: 'early' });
+    assert.throws(
+        () => created[0].handlers.onRunningFocusRequest({ requestId: 'early' }),
+        /cannot be delivered before adoption/,
+    );
     assert.deepEqual(log, []);
     assert.deepEqual(errors, [[
-        'Agent Pivot open workspace bridge delivered a running focus request before adoption.',
-        'running focus request dropped before adoption',
+        'Agent Pivot open workspace bridge received a running focus request before adoption.',
+        'running focus request cannot be delivered before adoption',
     ]]);
 
     bridge.adopt(makeHandlers(log));
     created[0].handlers.onRunningFocusRequest({ requestId: 'live' });
     assert.deepEqual(log, [['running-focus', { requestId: 'live' }]]);
+});
+
+test('OPEN-DASHBOARD-BRIDGE-LIFECYCLE-001 drops pre-adoption attention focus requests and forwards live ones', () => {
+    const { bridge, created, errors } = makeBridge();
+    const log = [];
+
+    assert.throws(
+        () => created[0].handlers.onAttentionFocusRequest({ requestId: 'early' }),
+        /cannot be delivered before adoption/,
+    );
+    assert.deepEqual(log, []);
+    assert.deepEqual(errors, [[
+        'Agent Pivot open workspace bridge received an attention focus request before adoption.',
+        'attention focus request cannot be delivered before adoption',
+    ]]);
+
+    bridge.adopt(makeHandlers(log));
+    created[0].handlers.onAttentionFocusRequest({ requestId: 'live' });
+    assert.deepEqual(log, [['attention-focus', { requestId: 'live' }]]);
 });
 
 test('OPEN-DASHBOARD-BRIDGE-LIFECYCLE-001 forwards live callbacks straight to the adopted handlers', () => {

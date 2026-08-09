@@ -4,12 +4,14 @@ import type { OpenWorkspaceAggregate } from './protocol';
 import type { OpenWorkspaceBridgeStatus } from './bridgeClient';
 import type { OpenWorkspacePinSnapshot } from './pinProtocol';
 import type { OpenWorkspaceRunningFocusRequest } from './runningFocusProtocol';
+import type { OpenWorkspaceAttentionFocusRequest } from './attentionFocusProtocol';
 
 export interface OpenWorkspaceBridgeHandlers {
     onAggregate: (aggregate: OpenWorkspaceAggregate) => unknown;
     onStatusChange: (status: OpenWorkspaceBridgeStatus) => void;
     onPinSnapshot: (snapshot: OpenWorkspacePinSnapshot) => unknown;
     onRunningFocusRequest: (request: OpenWorkspaceRunningFocusRequest) => unknown;
+    onAttentionFocusRequest: (request: OpenWorkspaceAttentionFocusRequest) => unknown;
     onError: (error: unknown) => void;
 }
 
@@ -68,6 +70,20 @@ export class EarlyOpenWorkspaceBridge<TClient> {
                     'Agent Pivot open workspace bridge delivered a running focus request before adoption.',
                     new Error('running focus request dropped before adoption'),
                 ),
+            ),
+            onAttentionFocusRequest: request => this.deliver(
+                'attention focus request',
+                handlers => handlers.onAttentionFocusRequest(request),
+                () => {
+                    const error = new Error(
+                        'attention focus request cannot be delivered before adoption',
+                    );
+                    this.options.logError(
+                        'Agent Pivot open workspace bridge received an attention focus request before adoption.',
+                        error,
+                    );
+                    throw error;
+                },
             ),
             // Errors are diagnostics about a moment that has passed. Replaying
             // them later would report a stale outage as a fresh one.

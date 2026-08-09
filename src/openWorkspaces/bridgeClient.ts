@@ -30,6 +30,15 @@ import {
     validateOpenWorkspaceRunningFocusOutcome,
     validateOpenWorkspaceRunningFocusRequest,
 } from './runningFocusProtocol';
+import {
+    createOpenWorkspaceAttentionFocusRequest,
+    OPEN_WORKSPACE_ATTENTION_FOCUS_DELIVER_COMMAND,
+    OPEN_WORKSPACE_ATTENTION_FOCUS_REQUEST_COMMAND,
+    OpenWorkspaceAttentionFocusRequest,
+    OpenWorkspaceAttentionFocusTarget,
+    validateOpenWorkspaceAttentionFocusOutcome,
+    validateOpenWorkspaceAttentionFocusRequest,
+} from './attentionFocusProtocol';
 
 export const OPEN_WORKSPACE_PUBLISH_COMMAND = '_agentPivotOpenWorkspaces.bridge.publish';
 export const OPEN_WORKSPACE_UNREGISTER_COMMAND = '_agentPivotOpenWorkspaces.bridge.unregister';
@@ -52,6 +61,7 @@ export type OpenWorkspaceBridgeStatus =
 const RETRY_DELAYS_MS = [100, 500, 2_000, 10_000, 30_000];
 const MAX_FORWARDED_DIAGNOSTIC_BYTES = 64 * 1024;
 const MAX_REMEMBERED_RUNNING_FOCUS_REQUESTS = 100;
+const MAX_REMEMBERED_ATTENTION_FOCUS_REQUESTS = 100;
 
 interface DisposableLike {
     dispose(): void;
@@ -79,6 +89,7 @@ export interface OpenWorkspaceBridgeClientDependencies {
     onStatusChange?: (status: OpenWorkspaceBridgeStatus) => void;
     onPinSnapshot?: (snapshot: OpenWorkspacePinSnapshot) => unknown;
     onRunningFocusRequest?: (request: OpenWorkspaceRunningFocusRequest) => unknown;
+    onAttentionFocusRequest?: (request: OpenWorkspaceAttentionFocusRequest) => unknown;
 }
 
 export interface OpenWorkspaceClientDiagnosticEvent {
@@ -184,10 +195,15 @@ export default class OpenWorkspaceBridgeClient implements vscode.Disposable {
     private readonly onRunningFocusRequest: (
         request: OpenWorkspaceRunningFocusRequest
     ) => unknown;
+    private readonly onAttentionFocusRequest: (
+        request: OpenWorkspaceAttentionFocusRequest
+    ) => unknown;
     private readonly deliveredRunningFocusRequestIds = new Set<string>();
+    private readonly deliveredAttentionFocusRequestIds = new Set<string>();
     private readonly aggregateRegistration: DisposableLike;
     private readonly pinSnapshotRegistration: DisposableLike;
     private readonly runningFocusRegistration: DisposableLike;
+    private readonly attentionFocusRegistration: DisposableLike;
     private readonly diagnosticRegistration: DisposableLike;
     private readonly heartbeatHandle: unknown;
 
@@ -218,9 +234,11 @@ export default class OpenWorkspaceBridgeClient implements vscode.Disposable {
         this.onStatusChange = dependencies.onStatusChange || (() => undefined);
         this.onPinSnapshot = dependencies.onPinSnapshot || (() => undefined);
         this.onRunningFocusRequest = dependencies.onRunningFocusRequest || (() => undefined);
+        this.onAttentionFocusRequest = dependencies.onAttentionFocusRequest || (() => undefined);
         let aggregateRegistration: DisposableLike | undefined;
         let pinSnapshotRegistration: DisposableLike | undefined;
         let runningFocusRegistration: DisposableLike | undefined;
+        let attentionFocusRegistration: DisposableLike | undefined;
         let diagnosticRegistration: DisposableLike | undefined;
         let heartbeatHandle: unknown;
         let heartbeatStarted = false;
@@ -236,6 +254,10 @@ export default class OpenWorkspaceBridgeClient implements vscode.Disposable {
             runningFocusRegistration = registerCommand(
                 OPEN_WORKSPACE_RUNNING_FOCUS_DELIVER_COMMAND,
                 raw => this.receiveRunningFocusRequest(raw),
+            );
+            attentionFocusRegistration = registerCommand(
+                OPEN_WORKSPACE_ATTENTION_FOCUS_DELIVER_COMMAND,
+                raw => this.receiveAttentionFocusRequest(raw),
             );
             diagnosticRegistration = registerCommand(
                 OPEN_WORKSPACE_DIAGNOSTIC_COMMAND,
@@ -268,6 +290,11 @@ export default class OpenWorkspaceBridgeClient implements vscode.Disposable {
                 // Continue releasing earlier constructor acquisitions.
             }
             try {
+                attentionFocusRegistration?.dispose();
+            } catch (_disposeError) {
+                // Continue releasing earlier constructor acquisitions.
+            }
+            try {
                 runningFocusRegistration?.dispose();
             } catch (_disposeError) {
                 // Continue releasing earlier constructor acquisitions.
@@ -287,6 +314,7 @@ export default class OpenWorkspaceBridgeClient implements vscode.Disposable {
         this.aggregateRegistration = aggregateRegistration;
         this.pinSnapshotRegistration = pinSnapshotRegistration;
         this.runningFocusRegistration = runningFocusRegistration;
+        this.attentionFocusRegistration = attentionFocusRegistration;
         this.diagnosticRegistration = diagnosticRegistration;
         this.heartbeatHandle = heartbeatHandle;
         this.emitDiagnostic({ event: 'activate', workspaceCount: this.latestWorkspace ? 1 : 0 });
@@ -440,6 +468,81 @@ export default class OpenWorkspaceBridgeClient implements vscode.Disposable {
         }
     }
 
+    receiveAttentionFocusRequest(raw: unknown): void {
+        if (this.disposed) { return; }
+        let request: OpenWorkspaceAttentionFocusRequest;
+        try {
+            request = validateOpenWorkspaceAttentionFocusRequest(raw);
+        } catch (error) {
+            try {
+                this.onError(error);
+            } catch (_reportError) {
+                // Diagnostics must never change delivery behavior.
+            }
+            return;
+        }
+        if (this.deliveredAttentionFocusRequestIds.has(request.requestId)) { return; }
+        if (this.deliveredAttentionFocusRequestIds.size
+            >= MAX_REMEMBERED_ATTENTION_FOCUS_REQUESTS) {
+            const oldest = this.deliveredAttentionFocusRequestIds.values().next();
+            if (!oldest.done) {
+                this.deliveredAttentionFocusRequestIds.delete(oldest.value);
+            }
+        }
+        this.deliveredAttentionFocusRequestIds.add(request.requestId);
+        try {
+            const task = this.onAttentionFocusRequest(request);
+            void Promise.resolve(task).catch(error => {
+                try {
+                    this.onError(error);
+                } catch (_reportError) {
+                    // Diagnostics must never change delivery behavior.
+                }
+            });
+        } catch (error) {
+            this.deliveredAttentionFocusRequestIds.delete(request.requestId);
+            try {
+                this.onError(error);
+            } catch (_reportError) {
+                // Diagnostics must never change delivery behavior.
+            }
+            throw error;
+        }
+    }
+
+    async requestAttentionFocus(
+        targetNavigationIdentity: string,
+        target: OpenWorkspaceAttentionFocusTarget,
+    ): Promise<boolean> {
+        if (this.disposed || !await this.ensureHandshake() || this.disposed) {
+            return false;
+        }
+        let request: OpenWorkspaceAttentionFocusRequest;
+        try {
+            request = createOpenWorkspaceAttentionFocusRequest({
+                requestId: crypto.randomBytes(16).toString('hex'),
+                targetNavigationIdentity,
+                target,
+                nowMs: this.safeNow(),
+            });
+        } catch (error) {
+            this.onError(error);
+            return false;
+        }
+        try {
+            const outcome = validateOpenWorkspaceAttentionFocusOutcome(
+                await this.executeCommand(OPEN_WORKSPACE_ATTENTION_FOCUS_REQUEST_COMMAND, request),
+            );
+            return outcome.requestId === request.requestId
+                && outcome.targetNavigationIdentity === request.targetNavigationIdentity;
+        } catch (error) {
+            if (!this.disposed) {
+                this.onError(error);
+            }
+            return false;
+        }
+    }
+
     dispose(): void {
         void this.shutdown();
     }
@@ -451,6 +554,7 @@ export default class OpenWorkspaceBridgeClient implements vscode.Disposable {
         this.aggregateRegistration.dispose();
         this.pinSnapshotRegistration.dispose();
         this.runningFocusRegistration.dispose();
+        this.attentionFocusRegistration.dispose();
         this.diagnosticRegistration.dispose();
         this.clearInterval(this.heartbeatHandle);
         if (this.retryTimer !== null) { this.cancelTimeout(this.retryTimer); }

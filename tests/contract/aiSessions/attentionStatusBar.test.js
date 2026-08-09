@@ -242,6 +242,7 @@ function makeJumpOptions(queue, clearOnNextSession = false) {
             },
             openConversation: async item => {
                 calls.push(['openConversation', `${item.provider}:${item.sessionId}`]);
+                return queue.openSucceeds !== false;
             },
             acknowledge: async eventIds => {
                 calls.push(['acknowledge', eventIds]);
@@ -290,6 +291,19 @@ test('ATTENTION-STATUS-BAR-QUEUE-001 jump acknowledges after focus and open when
         ['openConversation', 'kimi:sess-1'],
         ['acknowledge', ['e-1']],
     ], 'the opt-in setting drains the queue only after focus and open succeed');
+});
+
+test('ATTENTION-STATUS-BAR-QUEUE-001 keeps attention unread when the conversation does not open', async () => {
+    const queue = buildAttentionQueue(makeQueueInput());
+    queue.openSucceeds = false;
+    const { calls, options } = makeJumpOptions(queue, true);
+
+    await options();
+
+    assert.deepEqual(calls, [
+        ['focusSession', 'kimi:sess-1'],
+        ['openConversation', 'kimi:sess-1'],
+    ], 'a failed or superseded conversation open must not clear the unread event');
 });
 
 test('ATTENTION-STATUS-BAR-QUEUE-001 jump keeps an unfocusable session unread and warns', async () => {
@@ -356,6 +370,7 @@ function makeFocusContinuityJump(queue, state) {
         },
         openConversation: async item => {
             calls.push(['openConversation', `${item.provider}:${item.sessionId}`]);
+            return true;
         },
         acknowledge: async () => {},
         shouldAcknowledge: () => false,
@@ -405,7 +420,7 @@ test('ATTENTION-STATUS-BAR-QUEUE-001 jump re-anchors to the watched session inst
     ], 'a manual detour must re-anchor the cycle where the user is');
 });
 
-test('ATTENTION-STATUS-BAR-QUEUE-001 jump keeps the global cycle moving after a manual detour', async () => {
+test('ATTENTION-STATUS-BAR-QUEUE-001 jump re-anchors a manual detour with three candidates', async () => {
     const queue = buildAttentionQueue(makeQueueInput());
     const state = { focused: 'kimi:sess-1' };
     const { calls, jump } = makeFocusContinuityJump(queue, state);
@@ -417,8 +432,9 @@ test('ATTENTION-STATUS-BAR-QUEUE-001 jump keeps the global cycle moving after a 
     assert.deepEqual(calls, [
         ['focusSession', 'codex:sess-2'],
         ['openConversation', 'codex:sess-2'],
-        ['openNavigationCard', 'card-remote'],
-    ], 'a manual detour home must not trap the cycle; the press continues after the last jump target');
+        ['focusSession', 'codex:sess-2'],
+        ['openConversation', 'codex:sess-2'],
+    ], 'the watched session must re-anchor the next press regardless of queue length');
 });
 
 test('ATTENTION-STATUS-BAR-QUEUE-001 jump starts at the oldest local session when nothing anchors the cycle', async () => {
@@ -487,4 +503,109 @@ test('ATTENTION-STATUS-BAR-QUEUE-001 jump cycle eventually focuses every waiting
         'codex:sess-2',
         'kimi:sess-1',
     ], 'a stale watched anchor must not starve a waiting session out of the cycle');
+});
+
+test('ATTENTION-STATUS-BAR-QUEUE-001 hands a remote target to its owning window even when it is already focused', async () => {
+    const globalItems = [
+        {
+            provider: 'codex', sessionId: 'a', projectId: 'A', eventIds: ['ea'],
+            reasons: ['completed'], observedAtMs: 1,
+        },
+        {
+            provider: 'codex', sessionId: 'b', projectId: 'B', eventIds: ['eb'],
+            reasons: ['completed'], observedAtMs: 2,
+        },
+    ];
+    const world = { active: 'A', focused: { A: 'a', B: 'b' } };
+    const calls = [];
+    const windows = {};
+    for (const name of ['A', 'B']) {
+        const items = globalItems.map(item => ({ ...item, local: item.projectId === name }));
+        const queue = { items, localCount: 1, remoteCount: 1, total: 2 };
+        windows[name] = createAttentionQueueJumpHandler({
+            buildQueue: () => queue,
+            focusSession: async item => {
+                world.focused[name] = item.sessionId;
+                calls.push(['focus', name, item.sessionId]);
+                return true;
+            },
+            openConversation: async item => {
+                calls.push(['open', name, item.sessionId]);
+                return true;
+            },
+            acknowledge: async eventIds => calls.push(['ack', name, eventIds]),
+            shouldAcknowledge: () => true,
+            requestRemoteFocus: async item => {
+                const target = item.projectId;
+                await windows[target].jumpToAttentionSession(item);
+                return true;
+            },
+            findNavigationCardId: projectId => projectId,
+            openNavigationCard: async cardId => {
+                calls.push(['switch', name, cardId]);
+                world.active = cardId;
+            },
+            showInformationMessage: () => {},
+            showWarningMessage: () => {},
+            getCurrentIdentity: () => ({
+                provider: 'codex',
+                sessionId: world.focused[name],
+            }),
+        });
+    }
+
+    await windows.A();
+    await windows.B();
+
+    assert.deepEqual(calls, [
+        ['focus', 'B', 'b'],
+        ['open', 'B', 'b'],
+        ['ack', 'B', ['eb']],
+        ['switch', 'A', 'B'],
+        ['focus', 'A', 'a'],
+        ['open', 'A', 'a'],
+        ['ack', 'A', ['ea']],
+        ['switch', 'B', 'A'],
+    ], 'each remote press must complete the exact target before switching windows');
+});
+
+test('ATTENTION-STATUS-BAR-QUEUE-001 serializes rapid invocations so the last press wins', async () => {
+    const items = ['a', 'b', 'c'].map((sessionId, index) => ({
+        provider: 'codex', sessionId, projectId: 'A', eventIds: [`e${index}`],
+        reasons: ['completed'], observedAtMs: index, local: true,
+    }));
+    const queue = { items, localCount: 3, remoteCount: 0, total: 3 };
+    const releases = [];
+    const picked = [];
+    let focused = 'a';
+    const jump = createAttentionQueueJumpHandler({
+        buildQueue: () => queue,
+        focusSession: item => new Promise(resolve => {
+            picked.push(item.sessionId);
+            releases.push(() => {
+                focused = item.sessionId;
+                resolve(true);
+            });
+        }),
+        openConversation: async () => true,
+        acknowledge: async () => {},
+        shouldAcknowledge: () => false,
+        findNavigationCardId: () => null,
+        openNavigationCard: async () => {},
+        showInformationMessage: () => {},
+        showWarningMessage: () => {},
+        getCurrentIdentity: () => ({ provider: 'codex', sessionId: focused }),
+    });
+
+    const first = jump();
+    const second = jump();
+    await Promise.resolve();
+    assert.deepEqual(picked, ['b'], 'the second invocation waits for the first focus');
+    releases.shift()();
+    await Promise.resolve();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(picked, ['b', 'c']);
+    releases.shift()();
+    await Promise.all([first, second]);
+    assert.equal(focused, 'c');
 });

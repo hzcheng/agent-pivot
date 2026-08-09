@@ -375,6 +375,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                 onStatusChange: handlers.onStatusChange,
                 onPinSnapshot: handlers.onPinSnapshot,
                 onRunningFocusRequest: handlers.onRunningFocusRequest,
+                onAttentionFocusRequest: handlers.onAttentionFocusRequest,
             },
         ),
         logError: (message, error) => dashboardDiagnostics.logError(message, error),
@@ -1773,6 +1774,20 @@ async function initializeDashboard(
             nowMs: () => Date.now(),
         })
     );
+    const findAttentionNavigationCardId = (projectId: string): string | null => {
+        for (const card of openWorkspaceDashboardController.getCards()) {
+            if (card.kind !== 'navigation') {
+                continue;
+            }
+            const record = openWorkspaceDashboardController
+                .getNavigationWorkspace(card.id);
+            if (record && record.roots.some(root =>
+                getAttentionProjectKey(getAttentionProjectPath(root.uri)) === projectId)) {
+                return card.id;
+            }
+        }
+        return null;
+    };
     const jumpToNextAttentionSession = createAttentionQueueJumpHandler({
         buildQueue: buildCurrentAttentionQueue,
         focusSession: item => {
@@ -1793,33 +1808,35 @@ async function initializeDashboard(
                     provider: item.provider,
                     sessionId: item.sessionId,
                 })
-                : Promise.resolve();
+                : Promise.resolve(false);
         },
         acknowledge: eventIds =>
             acknowledgeAiSessionAttentionEventIds(eventIds),
         shouldAcknowledge: () => getAgentPivotConfiguration()
             .get<boolean>('aiSessionAttention.clearOnNextSession', false) === true,
+        requestRemoteFocus: item => {
+            const cardId = findAttentionNavigationCardId(item.projectId);
+            const record = cardId
+                ? openWorkspaceDashboardController.getNavigationWorkspace(cardId)
+                : null;
+            return record
+                ? openWorkspaceBridgeClient.requestAttentionFocus(
+                    record.navigationIdentity,
+                    {
+                        projectId: item.projectId,
+                        provider: item.provider,
+                        sessionId: item.sessionId,
+                    },
+                )
+                : Promise.resolve(false);
+        },
         getCurrentIdentity: () => {
             const identity = getFocusedAiSessionIdentity();
             return identity?.sessionId
                 ? { provider: identity.provider, sessionId: identity.sessionId }
                 : null;
         },
-        findNavigationCardId: projectId => {
-            for (const card of openWorkspaceDashboardController.getCards()) {
-                if (card.kind !== 'navigation') {
-                    continue;
-                }
-                const record = openWorkspaceDashboardController
-                    .getNavigationWorkspace(card.id);
-                if (record && record.roots.some(root =>
-                    getAttentionProjectKey(getAttentionProjectPath(root.uri))
-                        === projectId)) {
-                    return card.id;
-                }
-            }
-            return null;
-        },
+        findNavigationCardId: findAttentionNavigationCardId,
         openNavigationCard: cardId =>
             workspaceNavigationController.open(cardId),
         showInformationMessage: message =>
@@ -1877,7 +1894,7 @@ async function initializeDashboard(
                 projectId: cardId,
                 provider: target.provider,
                 sessionId: target.sessionId,
-            })
+            }).then(() => undefined)
             : Promise.resolve();
     };
     const requestRemoteAiSessionFocus = (navigationIdentity: string): Promise<boolean> =>
@@ -2012,6 +2029,12 @@ async function initializeDashboard(
         },
         onRunningFocusRequest: () =>
             runningSessionJumpHandler.jumpToNextLocalRunningSession(),
+        onAttentionFocusRequest: request =>
+            jumpToNextAttentionSession.jumpToAttentionSession({
+                projectId: request.projectId,
+                provider: request.provider,
+                sessionId: request.sessionId,
+            }),
     });
     // The client outlives this generation, so a disposed bootstrap only stops
     // delivery to these handlers; it must not shut the bridge down.
@@ -2425,7 +2448,7 @@ async function initializeDashboard(
         projectId: string;
         provider: AiSessionProviderId;
         sessionId: string;
-    }, terminalAuthoritative = false): Promise<void> {
+    }, terminalAuthoritative = false): Promise<boolean> {
         const result = terminalAuthoritative
             ? await conversationCapability.openLatestActiveConversation(target)
             : await conversationCapability.openLatestConversation(target);
@@ -2442,6 +2465,7 @@ async function initializeDashboard(
                 'Agent Pivot: unable to read the AI session conversation.'
             );
         }
+        return result === 'opened';
     }
 
     async function followAdjacentActiveConversationWithFeedback(

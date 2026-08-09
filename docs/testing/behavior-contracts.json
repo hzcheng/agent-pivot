@@ -755,17 +755,25 @@
   {
     "id": "ATTENTION-STATUS-BAR-QUEUE-001",
     "domain": "attention",
-    "title": "A right-aligned status bar entry surfaces the cross-window attention count with a per-session tooltip and cycles an independent cursor through the oldest-first queue on click: local sessions focus their terminal and open their conversation while staying unread by default, an opt-in setting acknowledges only after both actions succeed, session-card clicks still acknowledge, unfocusable sessions warn and stay unread without trapping the cursor, remote sessions switch to the owning window without acknowledging, and the entry hides while the queue is empty or attention is disabled",
+    "title": "A right-aligned status bar entry surfaces the cross-window attention count with a per-session tooltip and serially cycles a resilient cursor through the oldest-first queue on click: manual focus changes re-anchor the cursor, local sessions focus their terminal and open their conversation while staying unread by default, an opt-in setting acknowledges only after the conversation really opens, unfocusable sessions warn and stay unread without trapping the cursor, and remote sessions use an exact-target delivered mailbox hand-off before switching to the owning window",
     "priority": "P1",
     "status": "automated",
     "owners": [
       "tests/contract/aiSessions/attentionStatusBar.test.js",
+      "tests/contract/openProjects/attentionFocus.test.js",
+      "tests/contract/openProjects/bridgeClient.test.js",
       "tests/contract/dashboardBoundaries.test.js"
     ],
     "evidence": [
       "src/aiSessions/attentionQueue.ts",
       "src/aiSessions/attentionStatusBarController.ts",
       "src/dashboard/attentionQueueJump.ts",
+      "src/openWorkspaces/attentionFocusProtocol.ts",
+      "src/openWorkspaces/bridgeClient.ts",
+      "src/openWorkspaces/earlyBridge.ts",
+      "extensions/attention-ui-bridge/src/openWorkspaceAttentionFocusStore.ts",
+      "extensions/attention-ui-bridge/src/openWorkspaceAttentionFocusCoordinator.ts",
+      "extensions/attention-ui-bridge/src/extension.ts",
       "src/dashboard.ts",
       "src/dashboard/commandRegistration.ts",
       "package.json"

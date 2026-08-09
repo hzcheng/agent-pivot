@@ -29,6 +29,12 @@ const {
 const {
     createAttentionQueueJumpHandler,
 } = require('../../../out/dashboard/attentionQueueJump');
+const {
+    createRunningSessionJumpHandler,
+} = require('../../../out/dashboard/runningSessionJump');
+const {
+    createSessionNavigationCoordinator,
+} = require('../../../out/dashboard/sessionNavigationCoordinator');
 
 function projectKeyOf(uri) {
     return getAttentionProjectKey(getAttentionProjectPath(uri));
@@ -608,4 +614,84 @@ test('ATTENTION-STATUS-BAR-QUEUE-001 serializes rapid invocations so the last pr
     releases.shift()();
     await Promise.all([first, second]);
     assert.equal(focused, 'c');
+});
+
+test('ATTENTION-STATUS-BAR-QUEUE-001 AI-SESSION-NEXT-RUNNING-COMMAND-001 serializes interleaved navigation commands so the last invocation wins', async () => {
+    const navigationCoordinator = createSessionNavigationCoordinator();
+    let releaseRunningFocus;
+    let focused = 'running-a';
+    const calls = [];
+    const running = createRunningSessionJumpHandler({
+        navigationCoordinator,
+        buildQueue: () => ({
+            items: [
+                { kind: 'local', key: 'session:codex:running-a', provider: 'codex', sessionId: 'running-a' },
+                { kind: 'local', key: 'session:codex:running-b', provider: 'codex', sessionId: 'running-b' },
+            ],
+            localCount: 2,
+            remoteCount: 0,
+            total: 2,
+        }),
+        focusSession: item => new Promise(resolve => {
+            calls.push(['running-focus-start', item.sessionId]);
+            releaseRunningFocus = () => {
+                focused = item.sessionId;
+                calls.push(['running-focus-end', item.sessionId]);
+                resolve(true);
+            };
+        }),
+        openConversation: async item => calls.push(['running-open', item.sessionId]),
+        requestRemoteFocus: async () => true,
+        openNavigationCard: async () => {},
+        showInformationMessage: () => {},
+        showWarningMessage: () => {},
+        getCurrentKey: () => `session:codex:${focused}`,
+    });
+    const attention = createAttentionQueueJumpHandler({
+        navigationCoordinator,
+        buildQueue: () => ({
+            items: [{
+                provider: 'codex', sessionId: 'attention', projectId: 'A',
+                eventIds: ['event'], reasons: ['completed'], observedAtMs: 1, local: true,
+            }],
+            localCount: 1,
+            remoteCount: 0,
+            total: 1,
+        }),
+        focusSession: async item => {
+            focused = item.sessionId;
+            calls.push(['attention-focus', item.sessionId]);
+            return true;
+        },
+        openConversation: async item => {
+            calls.push(['attention-open', item.sessionId]);
+            return true;
+        },
+        acknowledge: async () => {},
+        shouldAcknowledge: () => false,
+        findNavigationCardId: () => null,
+        openNavigationCard: async () => {},
+        showInformationMessage: () => {},
+        showWarningMessage: () => {},
+        getCurrentIdentity: () => null,
+    });
+
+    const runningJump = running.jumpToNextRunningSession();
+    await Promise.resolve();
+    const attentionJump = attention();
+    await Promise.resolve();
+
+    assert.deepEqual(calls, [['running-focus-start', 'running-b']],
+        'Attention must wait for the earlier Running focus transaction');
+    releaseRunningFocus();
+    await Promise.all([runningJump, attentionJump]);
+
+    assert.deepEqual(calls, [
+        ['running-focus-start', 'running-b'],
+        ['running-focus-end', 'running-b'],
+        ['running-open', 'running-b'],
+        ['attention-focus', 'attention'],
+        ['attention-open', 'attention'],
+    ]);
+    assert.equal(focused, 'attention', 'the latest navigation invocation must own final focus');
 });

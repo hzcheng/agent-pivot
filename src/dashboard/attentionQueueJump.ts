@@ -5,11 +5,18 @@ import type {
     AttentionQueueItem,
 } from '../aiSessions/attentionQueue';
 import type { AiSessionProviderId } from '../models';
+import {
+    createSessionNavigationCoordinator,
+    SessionNavigationCoordinator,
+} from './sessionNavigationCoordinator';
+import type {
+    SessionNavigationFocusExecutionOptions,
+    SessionNavigationFocusResult,
+} from './sessionNavigationFocusExecutor';
 
-export interface AttentionQueueJumpOptions {
+interface AttentionQueueJumpBaseOptions {
+    navigationCoordinator?: SessionNavigationCoordinator;
     buildQueue: () => AttentionQueue;
-    focusSession: (item: AttentionQueueItem) => Promise<boolean>;
-    openConversation: (item: AttentionQueueItem) => Promise<boolean>;
     acknowledge: (eventIds: string[]) => Promise<void>;
     shouldAcknowledge: () => boolean;
     requestRemoteFocus?: (item: AttentionQueueItem) => Promise<boolean>;
@@ -20,6 +27,22 @@ export interface AttentionQueueJumpOptions {
     /** The session the user is currently watching, when it is a known AI session. */
     getCurrentIdentity?: () => { provider: AiSessionProviderId; sessionId: string } | null;
 }
+
+export type AttentionQueueJumpOptions = AttentionQueueJumpBaseOptions & (
+    {
+        navigateSession: (
+            item: AttentionQueueItem,
+            executionOptions: SessionNavigationFocusExecutionOptions,
+        ) => Promise<SessionNavigationFocusResult>;
+        focusSession?: never;
+        openConversation?: never;
+    }
+    | {
+        navigateSession?: never;
+        focusSession: (item: AttentionQueueItem) => Promise<boolean>;
+        openConversation: (item: AttentionQueueItem) => Promise<boolean>;
+    }
+);
 
 export interface AttentionQueueJumpHandler {
     (): Promise<void>;
@@ -45,29 +68,46 @@ export function createAttentionQueueJumpHandler(
 ): AttentionQueueJumpHandler {
     let lastKey: string | null = null;
     let lastObservedCurrentKey: string | null = null;
-    let tail: Promise<void> = Promise.resolve();
-
-    function enqueue(task: () => Promise<void>): Promise<void> {
-        const result = tail.then(task, task);
-        tail = result.then(() => undefined, () => undefined);
-        return result;
-    }
+    const navigationCoordinator = options.navigationCoordinator
+        || createSessionNavigationCoordinator();
 
     async function jumpToLocal(item: AttentionQueueItem): Promise<void> {
         const key = attentionQueueItemKey(item);
         lastKey = key;
-        const focused = await options.focusSession(item);
-        if (!focused) {
+        const result = options.navigateSession
+            ? await options.navigateSession(item, {
+                onFocused: () => { lastObservedCurrentKey = key; },
+            })
+            : await navigateWithLegacyCallbacks(item, {
+                onFocused: () => { lastObservedCurrentKey = key; },
+            });
+        if (!result.focused) {
             options.showWarningMessage(
                 'Agent Pivot: the selected AI session is no longer active.'
             );
             return;
         }
-        lastObservedCurrentKey = key;
-        const opened = await options.openConversation(item);
-        if (opened && options.shouldAcknowledge()) {
+        if (result.conversationOpened && options.shouldAcknowledge()) {
             await options.acknowledge(item.eventIds);
         }
+    }
+
+    async function navigateWithLegacyCallbacks(
+        item: AttentionQueueItem,
+        executionOptions: SessionNavigationFocusExecutionOptions,
+    ): Promise<SessionNavigationFocusResult> {
+        if (!options.focusSession || !options.openConversation) {
+            throw new Error('Attention navigation requires one local execution strategy');
+        }
+        const focused = await options.focusSession(item);
+        if (!focused) {
+            return { focused: false, conversationOpened: false };
+        }
+        executionOptions.onFocused?.();
+        return {
+            focused: true,
+            conversationOpened: await options.openConversation(item),
+        };
     }
 
     async function jumpToNextAttentionSession(): Promise<void> {
@@ -167,8 +207,12 @@ export function createAttentionQueueJumpHandler(
         await jumpToLocal(local);
     }
 
-    const handler = (() => enqueue(jumpToNextAttentionSession)) as AttentionQueueJumpHandler;
-    handler.jumpToAttentionSession = item => enqueue(() => jumpToAttentionSession(item));
+    const handler = (() => navigationCoordinator.enqueue(
+        jumpToNextAttentionSession
+    )) as AttentionQueueJumpHandler;
+    handler.jumpToAttentionSession = item => navigationCoordinator.enqueue(
+        () => jumpToAttentionSession(item)
+    );
     return handler;
 }
 

@@ -290,6 +290,25 @@ for (const [label, reExport] of [
 
 for (const mutation of [
     {
+        id: 'ARCH-AI-SESSION-NAVIGATION-OWNERSHIP-001',
+        file: 'src/dashboard.ts',
+        expectedDetail: 'both session commands must use the shared navigation coordinator',
+        mutate: source => source.replace(
+            'navigationCoordinator: sessionNavigationCoordinator,',
+            'navigationCoordinator: createSessionNavigationCoordinator(),',
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-NAVIGATION-OWNERSHIP-001',
+        file: 'src/dashboard.ts',
+        expectedDetail: 'both session commands must use the shared local focus executor',
+        mutate: source => source.replace(
+            'navigateSession: (item, executionOptions) =>\n'
+                + '            sessionNavigationFocusExecutor.execute(item, executionOptions),',
+            'navigateSession: async () => ({ focused: false, conversationOpened: false }),',
+        ),
+    },
+    {
         id: 'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001',
         file: 'src/aiSessions/conversation/codexAdapter.ts',
         expectedDetail: 'Codex conversation adapter must not import filesystem or transcript JSONL readers',

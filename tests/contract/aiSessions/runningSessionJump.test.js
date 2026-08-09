@@ -10,6 +10,12 @@ const {
 const {
     createRunningSessionJumpHandler,
 } = require('../../../out/dashboard/runningSessionJump');
+const {
+    createSessionNavigationCoordinator,
+} = require('../../../out/dashboard/sessionNavigationCoordinator');
+const {
+    createSessionNavigationFocusExecutor,
+} = require('../../../out/dashboard/sessionNavigationFocusExecutor');
 
 const WINDOW_A = 'a'.repeat(64);
 const WINDOW_B = 'b'.repeat(64);
@@ -452,4 +458,116 @@ test('AI-SESSION-NEXT-RUNNING-COMMAND-001 makes a late handoff idempotent with a
     assert.deepEqual(picked, ['b2', 'b2'],
         'a handoff delivered after a user jump may reaffirm, but never reverse, that jump');
     assert.equal(focused, 'b2');
+});
+
+test('AI-SESSION-NEXT-RUNNING-COMMAND-001 keeps the shared navigation queue usable after a failed transaction', async () => {
+    const coordinator = createSessionNavigationCoordinator();
+    const calls = [];
+
+    const failed = coordinator.enqueue(async () => {
+        calls.push('failed');
+        throw new Error('focus failed');
+    });
+    const recovered = coordinator.enqueue(async () => {
+        calls.push('recovered');
+    });
+
+    await assert.rejects(failed, /focus failed/);
+    await recovered;
+    assert.deepEqual(calls, ['failed', 'recovered']);
+});
+
+test('AI-SESSION-NEXT-RUNNING-COMMAND-001 executes terminal focus and conversation open against one project snapshot', async () => {
+    let projectId = 'project-before-focus';
+    const calls = [];
+    const executor = createSessionNavigationFocusExecutor({
+        getProjectId: () => projectId,
+        focusActive: async (capturedProjectId, provider, sessionId) => {
+            calls.push(['focus', capturedProjectId, provider, sessionId]);
+            projectId = 'project-after-focus';
+            return true;
+        },
+        openConversation: async request => {
+            calls.push(['open', request.projectId, request.provider, request.sessionId]);
+            return true;
+        },
+    });
+
+    assert.deepEqual(await executor.execute({ provider: 'codex', sessionId: 'target' }), {
+        focused: true,
+        conversationOpened: true,
+    });
+    assert.deepEqual(calls, [
+        ['focus', 'project-before-focus', 'codex', 'target'],
+        ['open', 'project-before-focus', 'codex', 'target'],
+    ], 'one transaction cannot focus and open against different workspace cards');
+});
+
+test('AI-SESSION-NEXT-RUNNING-COMMAND-001 does not open a conversation when local focus cannot be established', async () => {
+    let opens = 0;
+    const executor = createSessionNavigationFocusExecutor({
+        getProjectId: () => 'project',
+        focusActive: async () => false,
+        openConversation: async () => {
+            opens += 1;
+            return true;
+        },
+    });
+
+    assert.deepEqual(await executor.execute({ provider: 'codex', sessionId: 'gone' }), {
+        focused: false,
+        conversationOpened: false,
+    });
+    assert.equal(opens, 0);
+});
+
+test('AI-SESSION-NEXT-RUNNING-COMMAND-001 records focus before opening the conversation', async () => {
+    const calls = [];
+    const executor = createSessionNavigationFocusExecutor({
+        getProjectId: () => 'project',
+        focusActive: async () => {
+            calls.push('focus');
+            return true;
+        },
+        openConversation: async () => {
+            calls.push('open');
+            return true;
+        },
+    });
+
+    await executor.execute(
+        { provider: 'codex', sessionId: 'target' },
+        { onFocused: () => calls.push('record-mru') },
+    );
+    assert.deepEqual(calls, ['focus', 'record-mru', 'open']);
+});
+
+test('AI-SESSION-NEXT-RUNNING-COMMAND-001 advances after conversation open fails post-focus', async () => {
+    const queue = buildRunningSessionQueue({
+        localSessions: ['a', 'b', 'c'].map(sessionId => local('codex', sessionId)),
+        remoteWindows: [],
+    });
+    let focused = 'a';
+    const picked = [];
+    const { options } = makeJumpOptions({ queue });
+    options.focusSession = async item => {
+        focused = item.sessionId;
+        picked.push(item.sessionId);
+        return true;
+    };
+    let opens = 0;
+    options.openConversation = async () => {
+        opens += 1;
+        if (opens === 1) {
+            throw new Error('conversation unavailable');
+        }
+    };
+    options.getCurrentKey = () => `session:codex:${focused}`;
+    const handler = createRunningSessionJumpHandler(options);
+
+    await assert.rejects(handler.jumpToNextRunningSession(), /conversation unavailable/);
+    await handler.jumpToNextRunningSession();
+
+    assert.deepEqual(picked, ['b', 'c'],
+        'a post-focus open failure must not make the next command repeat the focused session');
 });

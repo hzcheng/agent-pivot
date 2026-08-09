@@ -83,6 +83,8 @@ import {
 import {
     createRunningSessionJumpHandler,
 } from './dashboard/runningSessionJump';
+import { createSessionNavigationCoordinator } from './dashboard/sessionNavigationCoordinator';
+import { createSessionNavigationFocusExecutor } from './dashboard/sessionNavigationFocusExecutor';
 import {
     createAiSessionQuickSwitchHandlers,
 } from './dashboard/sessionQuickSwitch';
@@ -1788,28 +1790,22 @@ async function initializeDashboard(
         }
         return null;
     };
+    const sessionNavigationCoordinator = createSessionNavigationCoordinator();
+    const sessionNavigationFocusExecutor = createSessionNavigationFocusExecutor({
+        getProjectId: () => getCurrentWorkspaceActionTargetWithoutCardId()?.cardId || null,
+        focusActive: (projectId, provider, sessionId) =>
+            aiSessionTerminalCommandController.focusActive(
+                projectId,
+                provider,
+                sessionId,
+            ),
+        openConversation: request => openAiSessionConversationWithFeedback(request),
+    });
     const jumpToNextAttentionSession = createAttentionQueueJumpHandler({
+        navigationCoordinator: sessionNavigationCoordinator,
         buildQueue: buildCurrentAttentionQueue,
-        focusSession: item => {
-            const cardId = getCurrentWorkspaceActionTargetWithoutCardId()?.cardId;
-            return cardId
-                ? aiSessionTerminalCommandController.focusActive(
-                    cardId,
-                    item.provider,
-                    item.sessionId
-                )
-                : Promise.resolve(false);
-        },
-        openConversation: item => {
-            const cardId = getCurrentWorkspaceActionTargetWithoutCardId()?.cardId;
-            return cardId
-                ? openAiSessionConversationWithFeedback({
-                    projectId: cardId,
-                    provider: item.provider,
-                    sessionId: item.sessionId,
-                })
-                : Promise.resolve(false);
-        },
+        navigateSession: (item, executionOptions) =>
+            sessionNavigationFocusExecutor.execute(item, executionOptions),
         acknowledge: eventIds =>
             acknowledgeAiSessionAttentionEventIds(eventIds),
         shouldAcknowledge: () => getAgentPivotConfiguration()
@@ -1863,7 +1859,7 @@ async function initializeDashboard(
                 && Boolean(candidate.identity.sessionId));
         return direct?.identity || null;
     };
-    const focusAiSessionForJump = (target: {
+    const focusAiSessionForQuickSwitch = (target: {
         provider: AiSessionProviderId;
         sessionId: string;
     }): Promise<boolean> => {
@@ -1876,15 +1872,13 @@ async function initializeDashboard(
             target.provider,
             target.sessionId
         ).then(focused => {
-            // Re-showing an already-active terminal fires no focus event, so
-            // successful command jumps record into the MRU directly.
             if (focused) {
                 aiSessionMru.record(target.provider, target.sessionId);
             }
             return focused;
         });
     };
-    const openAiSessionConversationForJump = (target: {
+    const openAiSessionConversationForQuickSwitch = (target: {
         provider: AiSessionProviderId;
         sessionId: string;
     }): Promise<void> => {
@@ -1900,6 +1894,7 @@ async function initializeDashboard(
     const requestRemoteAiSessionFocus = (navigationIdentity: string): Promise<boolean> =>
         openWorkspaceBridgeClient.requestRunningFocus(navigationIdentity);
     const runningSessionJumpHandler = createRunningSessionJumpHandler({
+        navigationCoordinator: sessionNavigationCoordinator,
         buildQueue: () => buildRunningSessionQueue({
             localSessions: (getCurrentWorkspaceActionTargetWithoutCardId()
                 ?.sessions.activeSessions || [])
@@ -1921,8 +1916,15 @@ async function initializeDashboard(
                 })),
             selfNavigationIdentity: getCurrentOpenWorkspace()?.navigationIdentity,
         }),
-        focusSession: focusAiSessionForJump,
-        openConversation: openAiSessionConversationForJump,
+        navigateSession: (item, executionOptions) =>
+            sessionNavigationFocusExecutor.execute(item, {
+            onFocused: () => {
+                executionOptions.onFocused?.();
+                // Re-showing an already-active terminal fires no focus event,
+                // so successful Running jumps record into the MRU directly.
+                aiSessionMru.record(item.provider, item.sessionId);
+            },
+            }),
         requestRemoteFocus: item =>
             requestRemoteAiSessionFocus(item.navigationIdentity),
         openNavigationCard: cardId =>
@@ -1982,8 +1984,8 @@ async function initializeDashboard(
             placeHolder,
             matchOnDescription: true,
         }),
-        focusSession: focusAiSessionForJump,
-        openConversation: openAiSessionConversationForJump,
+        focusSession: focusAiSessionForQuickSwitch,
+        openConversation: openAiSessionConversationForQuickSwitch,
         requestRemoteFocus: target =>
             requestRemoteAiSessionFocus(target.navigationIdentity),
         openNavigationCard: cardId =>

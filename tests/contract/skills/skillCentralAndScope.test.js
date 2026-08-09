@@ -277,3 +277,25 @@ test('PERSIST-AI-SKILL-DISCOVERY-001 fixSkillDiagnostic repairs fixable diagnost
     assert.strictEqual(fixService.fixSkillDiagnostic(record(), 'body-too-long').ok, false,
         'non-fixable diagnostics are refused');
 });
+
+
+test('PERSIST-AI-SKILL-DISCOVERY-001 discovers skills nested inside another skill directory', () => {
+    const home = makeTempDir('skills-contract-nested-');
+    writeSkill(path.join(home, '.skills/dms/dms-assistant/SKILL.md'), '---\nname: dms-assistant\ndescription: D\n---\n');
+    writeSkill(path.join(home, '.skills/dms/dms-assistant/mysql/SKILL.md'), '---\nname: mysql\ndescription: M\n---\n');
+    writeSkill(path.join(home, '.skills/dms/dms-assistant/scripts/helper.py'), '# helper\n');
+    fs.mkdirSync(path.join(home, '.skills/dms/dms-assistant/references'), { recursive: true });
+
+    const result = discovery.scanSkillsDetailed({ homeDir: home });
+    const byName = new Map(result.records.map(record => [record.name, record]));
+    assert.ok(byName.get('dms-assistant'), 'parent skill still discovered');
+    assert.strictEqual(byName.get('dms-assistant').folder, 'dms');
+    assert.ok(byName.get('mysql'), 'nested sub-skill is discovered');
+    assert.strictEqual(byName.get('mysql').folder, 'dms/dms-assistant',
+        'sub-skill nests under the parent skill folder');
+    assert.ok(!result.storeFolders.user.includes('dms/dms-assistant/scripts')
+        && !result.storeFolders.user.includes('dms/dms-assistant/references'),
+        'helper dirs inside a skill never become folder nodes');
+    assert.ok(!result.storeFolders.user.includes('dms/dms-assistant'),
+        'a skill directory itself is not listed as an empty folder');
+});

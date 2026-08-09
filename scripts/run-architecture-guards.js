@@ -610,6 +610,100 @@ const guards = {
         }
     },
 
+    // ARCH-OPEN-WORKSPACE-FOCUS-TRANSPORT-OWNERSHIP-001
+    'ARCH-OPEN-WORKSPACE-FOCUS-TRANSPORT-OWNERSHIP-001'(root) {
+        const risk = 'Running and Attention focus transports can drift into incompatible delivery state machines';
+        const sharedStore = parseTypescript(
+            root,
+            'extensions/attention-ui-bridge/src/openWorkspaceFocusMailboxStore.ts',
+            this.id,
+            risk,
+        );
+        const sharedCoordinator = parseTypescript(
+            root,
+            'extensions/attention-ui-bridge/src/openWorkspaceFocusMailboxCoordinator.ts',
+            this.id,
+            risk,
+        );
+
+        for (const methodName of [
+            'submit', 'scan', 'claim', 'restore', 'complete', 'waitForDelivery', 'cancel',
+        ]) {
+            classMethod(
+                sharedStore,
+                'OpenWorkspaceFocusMailboxStore',
+                methodName,
+                this.id,
+                risk,
+            );
+        }
+        for (const methodName of ['submit', 'requestDelivery', 'scanAndDeliver', 'scanOnce']) {
+            classMethod(
+                sharedCoordinator,
+                'OpenWorkspaceFocusMailboxCoordinator',
+                methodName,
+                this.id,
+                risk,
+            );
+        }
+
+        for (const protocol of ['Attention', 'Running']) {
+            const storePath = `extensions/attention-ui-bridge/src/openWorkspace${protocol}FocusStore.ts`;
+            const storeSource = parseTypescript(root, storePath, this.id, risk);
+            const storeClass = uniqueAstNode(
+                storeSource,
+                node => ts.isClassDeclaration(node)
+                    && node.name?.text === `OpenWorkspace${protocol}FocusStore`,
+                this.id,
+                risk,
+                `${protocol} focus store wrapper`,
+            );
+            const extendsSharedStore = storeClass.heritageClauses?.some(clause =>
+                clause.token === ts.SyntaxKind.ExtendsKeyword
+                && clause.types.length === 1
+                && clause.types[0].expression.getText(storeSource)
+                    === 'OpenWorkspaceFocusMailboxStore');
+            if (!extendsSharedStore) {
+                fail(this.id, risk,
+                    `${protocol} focus store must extend the shared mailbox store`);
+            }
+            if (protocol === 'Running') {
+                const superCalls = callArguments(storeClass, 'super');
+                const storeOptions = superCalls.length === 1 ? superCalls[0][1] : undefined;
+                const temporaryFileStem = storeOptions && ts.isObjectLiteralExpression(storeOptions)
+                    ? storeOptions.properties.find(property =>
+                        property.name?.getText(storeSource) === 'temporaryFileStem')
+                    : undefined;
+                if (!temporaryFileStem || !ts.isPropertyAssignment(temporaryFileStem)
+                    || !ts.isArrowFunction(temporaryFileStem.initializer)
+                    || temporaryFileStem.initializer.getText(storeSource) !== 'requestId => requestId') {
+                    fail(this.id, risk,
+                        'Running focus store must preserve its v2 temporary-file naming');
+                }
+            }
+
+            const coordinatorPath =
+                `extensions/attention-ui-bridge/src/openWorkspace${protocol}FocusCoordinator.ts`;
+            const coordinatorSource = parseTypescript(root, coordinatorPath, this.id, risk);
+            const sharedCoordinatorConstructions = nodesMatching(coordinatorSource, node =>
+                ts.isNewExpression(node)
+                && node.expression.getText(coordinatorSource)
+                    === 'OpenWorkspaceFocusMailboxCoordinator');
+            if (sharedCoordinatorConstructions.length !== 1) {
+                fail(this.id, risk,
+                    `${protocol} focus coordinator must delegate to one shared mailbox coordinator`);
+            }
+            for (const forbiddenMethod of ['scanAndDeliver', 'runQueuedScans', 'scanOnce']) {
+                if (nodesMatching(coordinatorSource, node =>
+                    ts.isMethodDeclaration(node)
+                    && node.name.getText(coordinatorSource) === forbiddenMethod).length) {
+                    fail(this.id, risk,
+                        `${protocol} focus coordinator must not duplicate ${forbiddenMethod}`);
+                }
+            }
+        }
+    },
+
     // ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001
     'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001'(root) {
         const risk = 'conversation history can expose private content or exhaust the extension host';

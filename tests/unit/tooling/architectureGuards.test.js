@@ -72,6 +72,12 @@ function copyGuardFixture(t, mutationPath, mutate = source => source) {
         'src/aiSessions/attentionBridgeClient.ts',
         'src/services/codexSessionService.ts',
         'extensions/attention-ui-bridge/src/openWorkspaceCoordinator.ts',
+        'extensions/attention-ui-bridge/src/openWorkspaceFocusMailboxStore.ts',
+        'extensions/attention-ui-bridge/src/openWorkspaceFocusMailboxCoordinator.ts',
+        'extensions/attention-ui-bridge/src/openWorkspaceAttentionFocusStore.ts',
+        'extensions/attention-ui-bridge/src/openWorkspaceAttentionFocusCoordinator.ts',
+        'extensions/attention-ui-bridge/src/openWorkspaceRunningFocusStore.ts',
+        'extensions/attention-ui-bridge/src/openWorkspaceRunningFocusCoordinator.ts',
         'extensions/attention-ui-bridge/src/extension.ts',
         'scripts/lib/brandIdentity.js',
         'package.json',
@@ -289,6 +295,33 @@ for (const [label, reExport] of [
 }
 
 for (const mutation of [
+    {
+        id: 'ARCH-OPEN-WORKSPACE-FOCUS-TRANSPORT-OWNERSHIP-001',
+        file: 'extensions/attention-ui-bridge/src/openWorkspaceAttentionFocusStore.ts',
+        expectedDetail: 'Attention focus store must extend the shared mailbox store',
+        mutate: source => source.replace(
+            'extends OpenWorkspaceFocusMailboxStore<OpenWorkspaceAttentionFocusRequest>',
+            'extends LegacyAttentionFocusStore<OpenWorkspaceAttentionFocusRequest>',
+        ),
+    },
+    {
+        id: 'ARCH-OPEN-WORKSPACE-FOCUS-TRANSPORT-OWNERSHIP-001',
+        file: 'extensions/attention-ui-bridge/src/openWorkspaceRunningFocusCoordinator.ts',
+        expectedDetail: 'Running focus coordinator must delegate to one shared mailbox coordinator',
+        mutate: source => source.replace(
+            'this.coordinator = new OpenWorkspaceFocusMailboxCoordinator({',
+            'this.coordinator = new LegacyRunningFocusCoordinator({',
+        ),
+    },
+    {
+        id: 'ARCH-OPEN-WORKSPACE-FOCUS-TRANSPORT-OWNERSHIP-001',
+        file: 'extensions/attention-ui-bridge/src/openWorkspaceRunningFocusStore.ts',
+        expectedDetail: 'Running focus store must preserve its v2 temporary-file naming',
+        mutate: source => source.replace(
+            'temporaryFileStem: requestId => requestId,',
+            'temporaryFileStem: requestId => `${requestId}.request.json`,',
+        ),
+    },
     {
         id: 'ARCH-AI-SESSION-NAVIGATION-OWNERSHIP-001',
         file: 'src/dashboard.ts',

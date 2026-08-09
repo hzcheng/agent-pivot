@@ -704,6 +704,66 @@ const guards = {
         }
     },
 
+    // ARCH-OPEN-WORKSPACE-FOCUS-CLIENT-OWNERSHIP-001
+    'ARCH-OPEN-WORKSPACE-FOCUS-CLIENT-OWNERSHIP-001'(root) {
+        const risk = 'Running and Attention client channels can drift on correlation, de-duplication, and retry semantics';
+        const channel = parseTypescript(
+            root,
+            'src/openWorkspaces/focusBridgeChannel.ts',
+            this.id,
+            risk,
+        );
+        for (const methodName of ['receive', 'request']) {
+            classMethod(
+                channel,
+                'OpenWorkspaceFocusBridgeChannel',
+                methodName,
+                this.id,
+                risk,
+            );
+        }
+        const bridgeClient = parseTypescript(
+            root,
+            'src/openWorkspaces/bridgeClient.ts',
+            this.id,
+            risk,
+        );
+        const channelConstructions = nodesMatching(bridgeClient, node =>
+            ts.isNewExpression(node)
+            && node.expression.getText(bridgeClient) === 'OpenWorkspaceFocusBridgeChannel');
+        if (channelConstructions.length !== 2) {
+            fail(this.id, risk,
+                'bridge client must configure exactly two shared focus channels');
+        }
+        const delegations = [
+            ['receiveRunningFocusRequest', 'this.runningFocusChannel.receive(raw);'],
+            [
+                'requestRunningFocus',
+                'return this.runningFocusChannel.request(targetNavigationIdentity, undefined);',
+            ],
+            ['receiveAttentionFocusRequest', 'this.attentionFocusChannel.receive(raw);'],
+            [
+                'requestAttentionFocus',
+                'return this.attentionFocusChannel.request(targetNavigationIdentity, target);',
+            ],
+        ];
+        for (const [methodName, expectedStatement] of delegations) {
+            const method = classMethod(
+                bridgeClient,
+                'OpenWorkspaceBridgeClient',
+                methodName,
+                this.id,
+                risk,
+            );
+            const statements = method.body?.statements || [];
+            if (statements.length !== 1
+                || normalizedAstText(statements[0], bridgeClient) !== expectedStatement) {
+                fail(this.id, risk,
+                    `${methodName} must remain a thin shared-channel delegate`);
+            }
+        }
+    },
+
     // ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001
     'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001'(root) {
         const risk = 'conversation history can expose private content or exhaust the extension host';

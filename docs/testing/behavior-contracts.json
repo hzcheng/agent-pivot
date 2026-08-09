@@ -952,6 +952,21 @@
     ]
   },
   {
+    "id": "ARCH-OPEN-WORKSPACE-FOCUS-CLIENT-OWNERSHIP-001",
+    "domain": "architecture",
+    "title": "Running and Attention focus requests share one main-extension client channel state machine",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "scripts/run-architecture-guards.js",
+      "tests/contract/openProjects/bridgeClient.test.js"
+    ],
+    "evidence": [
+      "src/openWorkspaces/focusBridgeChannel.ts",
+      "src/openWorkspaces/bridgeClient.ts"
+    ]
+  },
+  {
     "id": "ARCH-AI-SESSION-INCREMENTAL-REFRESH-SOURCE-001",
     "domain": "architecture",
     "title": "AI Session Incremental Refresh Source behavior",

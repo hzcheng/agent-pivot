@@ -494,7 +494,7 @@ test('ATTENTION-STATUS-BAR-QUEUE-001 retries an attention delivery rejected befo
 });
 
 for (const channel of FOCUS_CHANNELS) {
-    test(`OPEN-WORKSPACE-RUNNING-FOCUS-CLIENT-001 ATTENTION-STATUS-BAR-QUEUE-001 ${channel.label} keeps mismatched outcomes and async delivery failures non-retryable`, async t => {
+    test(`ARCH-OPEN-WORKSPACE-FOCUS-CLIENT-OWNERSHIP-001 OPEN-WORKSPACE-RUNNING-FOCUS-CLIENT-001 ATTENTION-STATUS-BAR-QUEUE-001 ${channel.label} keeps mismatched outcomes and async delivery failures non-retryable`, async t => {
         const commands = createCommandRegistry();
         commands.register('_agentPivotOpenWorkspaces.bridge.handshake', handshakeResponse);
         commands.register('_agentPivotOpenWorkspaces.bridge.publish', () => undefined);
@@ -543,7 +543,7 @@ for (const channel of FOCUS_CHANNELS) {
         assert.match(errors[0].message, /async delivery failed/);
     });
 
-    test(`OPEN-WORKSPACE-RUNNING-FOCUS-CLIENT-001 ATTENTION-STATUS-BAR-QUEUE-001 ${channel.label} bounds delivered request memory and evicts the oldest ID`, async t => {
+    test(`ARCH-OPEN-WORKSPACE-FOCUS-CLIENT-OWNERSHIP-001 OPEN-WORKSPACE-RUNNING-FOCUS-CLIENT-001 ATTENTION-STATUS-BAR-QUEUE-001 ${channel.label} bounds delivered request memory and evicts the oldest ID`, async t => {
         const commands = createCommandRegistry();
         commands.register('_agentPivotOpenWorkspaces.bridge.handshake', handshakeResponse);
         commands.register('_agentPivotOpenWorkspaces.bridge.publish', () => undefined);

@@ -57,6 +57,7 @@ function applyWorkspaceUpdate(message, options) {
             && options.canRestoreAiSessionProviderMenu(projectId)
     );
     restoreCurrentWorkspaceAiSessionAnchorsAndFocus(replacement, aiSessionStates);
+    revealChangedFocusedAiSessionCard(replacement, aiSessionStates);
     if (typeof window.__agentPivotSyncCollapseButton === 'function') {
         window.__agentPivotSyncCollapseButton();
     }
@@ -243,6 +244,7 @@ function applyOpenWorkspacesUpdate(message) {
     }
     restoreCurrentWorkspaceAiSessionViewStates(wrapper, aiSessionStates);
     restoreCurrentWorkspaceAiSessionAnchorsAndFocus(wrapper, aiSessionStates);
+    revealChangedFocusedAiSessionCard(wrapper, aiSessionStates);
     reconcilePendingOpenWorkspacePins(wrapper);
     var restoredPinButton = focusedPinButton
         ? findOpenWorkspacePinButton(focusedPinButton, wrapper)

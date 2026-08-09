@@ -125,5 +125,6 @@ Always tell the user:
 - Do not claim that the current VSIX was installed without ID/version and
   representative hash comparison against the active Server installation.
 - Do not claim install success from packaging success alone.
+- Parallel agent sessions installing the same extension version race on the live extensions directory: an `install-local` from another worktree can overwrite every installed byte seconds after a verified install, and each installer's own byte verification still passes. Immediately before reporting an install as ready for user verification, re-hash the task-critical installed files (the changed runtime or webview bundle) against the VSIX; on mismatch, reinstall and re-verify instead of trusting the earlier success.
 - Do not skip the repo's packaging script in favor of a generic VSIX command unless the repo lacks one.
 - Do not run bare `npx gulp` to rebuild webview assets (SCSS or `src/webview` copies): the default development mode starts watchers and never exits. Use `npx gulp --production` for one-shot builds, matching `vscode:prepublish`.

@@ -3952,6 +3952,20 @@
     ]
   },
   {
+    "id": "ACTIVE-SESSION-FOCUS-REVEAL-001",
+    "domain": "webview",
+    "title": "Sidebar reveals the focused Active Session card whenever session focus changes",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/browser/activeSessionCardInteraction.test.js"
+    ],
+    "evidence": [
+      "src/webview/webviewAiSessionViewStateScripts.js",
+      "src/webview/webviewWorkspaceUpdateScripts.js"
+    ]
+  },
+  {
     "id": "WEBVIEW-PROJECTS-PANEL-SCROLL-001",
     "domain": "webview",
     "title": "Required Projects panel replacement preserves semantic group-list and Dashboard positions",

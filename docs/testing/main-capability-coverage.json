@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "9217c9f1d43c84bde18849cf6bf12d8836c589c3",
+        "head": "680cda193f6fb74064502fe463da5fb9b5154251",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -215,7 +215,8 @@
             "bf0633a753faa53f9e4fef4367f79c3d6298ae4b",
             "faad172f4700a6bc0620533b7b4f45a51f95bfd9",
             "3d7f71f3683aa7608f8180e8cf68766a16a7b23d",
-            "160b46b2f8686f4a36817b97a15291ee23c0e226"
+            "160b46b2f8686f4a36817b97a15291ee23c0e226",
+            "58c5275d06effcf3088c87eb0934fed80c7d0af1"
         ]
     },
     "capabilities": [
@@ -460,14 +461,16 @@
                 "6ac51dfaaa47830413615bc260b6c39840c8dd96",
                 "edf561e5d8404b0620e9b744c6d5b0bbb48ba936",
                 "6b1d7d6b074fef459a085181c4cc5f16b955831b",
-                "d2b9b3ad677d546a781265603fad088101616133"
+                "d2b9b3ad677d546a781265603fad088101616133",
+                "680cda193f6fb74064502fe463da5fb9b5154251"
             ],
             "behaviors": [
                 "WEBVIEW-CURRENT-WORKSPACE-RENDERING-001",
                 "WEBVIEW-SHARED-CARD-STATE-001",
                 "CUSTOM-RUNNING-IMAGE-001",
                 "CUSTOM-RUNNING-IMAGE-RESOLVER-001",
-                "WEBVIEW-AI-SESSION-LIST-SCROLL-001"
+                "WEBVIEW-AI-SESSION-LIST-SCROLL-001",
+                "ACTIVE-SESSION-FOCUS-REVEAL-001"
             ],
             "prGates": [
                 "test:deterministic:run",

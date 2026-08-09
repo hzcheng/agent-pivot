@@ -578,7 +578,7 @@ const guards = {
             || coordinator.initializer.expression.getText(dashboard)
                 !== 'createSessionNavigationCoordinator') {
             fail(this.id, risk,
-                'the Dashboard must create exactly one session navigation coordinator');
+                'dashboard composition must create exactly one session navigation coordinator');
         }
         for (const factoryName of [
             'createAttentionQueueJumpHandler',

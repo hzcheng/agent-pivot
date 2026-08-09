@@ -594,6 +594,26 @@ test('AI-SESSION-QUICK-SWITCH-COMMANDS-001 contributes the session switch and to
     );
 });
 
+test('AI-SESSION-QUICK-SWITCH-COMMANDS-001 CONVERSATION-ACTIVE-SESSION-NAVIGATION-COMMANDS-001 routes every terminal-moving command through the shared navigation transaction', () => {
+    const source = fs.readFileSync(
+        path.resolve(__dirname, '../../src/dashboard.ts'),
+        'utf8'
+    );
+    assert.match(
+        source,
+        /createAiSessionQuickSwitchHandlers\(\{[\s\S]*?navigationCoordinator: sessionNavigationCoordinator,[\s\S]*?navigateSession: \(target, executionOptions\) =>\s*sessionNavigationFocusExecutor\.execute\(target, executionOptions\)/
+    );
+    for (const direction of ['previous', 'next']) {
+        assert.match(
+            source,
+            new RegExp(
+                `${direction}ActiveSession: \\(\\) => sessionNavigationCoordinator\\.enqueue\\(`
+                    + `[\\s\\S]*?\\(\\) => followAdjacentActiveConversationWithFeedback\\('${direction}'\\)`
+            )
+        );
+    }
+});
+
 test('CONVERSATION-ACTIVE-SESSION-NAVIGATION-COMMANDS-001 marks only an actually focused Open Current selection as terminal-authoritative', () => {
     const source = fs.readFileSync(
         path.resolve(__dirname, '../../src/dashboard.ts'),

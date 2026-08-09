@@ -7,6 +7,14 @@ import type {
 } from '../aiSessions/types';
 import { getAiSessionKey } from '../aiSessions/sessionHelpers';
 import type { AiSessionMruTracker } from '../aiSessions/sessionMru';
+import {
+    createSessionNavigationCoordinator,
+    SessionNavigationCoordinator,
+} from './sessionNavigationCoordinator';
+import type {
+    SessionNavigationFocusExecutionOptions,
+    SessionNavigationFocusResult,
+} from './sessionNavigationFocusExecutor';
 
 export interface AiSessionSwitchRemoteWindow {
     cardId: string;
@@ -135,6 +143,7 @@ export function buildAiSessionSwitchItems(input: {
 }
 
 export interface AiSessionQuickSwitchOptions {
+    navigationCoordinator?: SessionNavigationCoordinator;
     getLocalSessions: () => readonly ActiveAiSessionViewModel[];
     getRemoteWindows: () => readonly AiSessionSwitchRemoteWindow[];
     getFocusedSessionKey: () => string | null;
@@ -143,14 +152,13 @@ export interface AiSessionQuickSwitchOptions {
         items: readonly AiSessionSwitchPickItem[],
         placeHolder: string
     ) => Promise<AiSessionSwitchPickItem | undefined>;
-    focusSession: (target: {
-        provider: AiSessionProviderId;
-        sessionId: string;
-    }) => Promise<boolean>;
-    openConversation: (target: {
-        provider: AiSessionProviderId;
-        sessionId: string;
-    }) => Promise<void>;
+    navigateSession: (
+        target: {
+            provider: AiSessionProviderId;
+            sessionId: string;
+        },
+        executionOptions: SessionNavigationFocusExecutionOptions,
+    ) => Promise<SessionNavigationFocusResult>;
     requestRemoteFocus: (target: AiSessionSwitchRemoteWindow) => Promise<boolean>;
     openNavigationCard: (cardId: string) => Promise<void>;
     showInformationMessage: (message: string) => void;
@@ -172,18 +180,39 @@ export interface AiSessionQuickSwitchHandlers {
 export function createAiSessionQuickSwitchHandlers(
     options: AiSessionQuickSwitchOptions
 ): AiSessionQuickSwitchHandlers {
+    const navigationCoordinator = options.navigationCoordinator
+        || createSessionNavigationCoordinator();
+
     async function jumpToLocal(target: {
         provider: AiSessionProviderId;
         sessionId: string;
     }): Promise<void> {
-        const focused = await options.focusSession(target);
-        if (!focused) {
+        const result = await options.navigateSession(target, {
+            onFocused: () => options.mru.record(target.provider, target.sessionId),
+        });
+        if (!result.focused) {
             options.showWarningMessage(
                 'Agent Pivot: the selected AI session is no longer active.'
             );
-            return;
         }
-        await options.openConversation(target);
+    }
+
+    async function jumpToRemote(target: AiSessionSwitchRemoteWindow): Promise<void> {
+        let handedOff = false;
+        try {
+            handedOff = await options.requestRemoteFocus(target);
+        } catch (_error) {
+            // A missing or failing handoff channel degrades to a plain window
+            // switch; navigation below still moves the user closer.
+            handedOff = false;
+        }
+        await options.openNavigationCard(target.cardId);
+        if (!handedOff) {
+            options.showInformationMessage(
+                `Agent Pivot: switched to ${target.displayName || 'the other window'};`
+                    + ' run Next Running Session there to focus a session.'
+            );
+        }
     }
 
     async function switchToAiSession(): Promise<void> {
@@ -204,27 +233,15 @@ export function createAiSessionQuickSwitchHandlers(
             return;
         }
         if (picked.target.kind === 'local') {
-            await jumpToLocal(picked.target);
+            const target = picked.target;
+            await navigationCoordinator.enqueue(() => jumpToLocal(target));
             return;
         }
-        let handedOff = false;
-        try {
-            handedOff = await options.requestRemoteFocus(picked.target);
-        } catch (_error) {
-            // A missing or failing handoff channel degrades to a plain window
-            // switch; navigation below still moves the user closer.
-            handedOff = false;
-        }
-        await options.openNavigationCard(picked.target.cardId);
-        if (!handedOff) {
-            options.showInformationMessage(
-                `Agent Pivot: switched to ${picked.target.displayName || 'the other window'};`
-                    + ' run Next Running Session there to focus a session.'
-            );
-        }
+        const target = picked.target;
+        await navigationCoordinator.enqueue(() => jumpToRemote(target));
     }
 
-    async function toggleLastAiSession(): Promise<void> {
+    async function toggleLastAiSessionTransaction(): Promise<void> {
         const liveByKey = new Map<string, ActiveAiSessionViewModel & { sessionId: string }>();
         for (const session of options.getLocalSessions()) {
             if (session && typeof session.sessionId === 'string' && session.sessionId) {
@@ -247,6 +264,10 @@ export function createAiSessionQuickSwitchHandlers(
             provider: target.provider,
             sessionId: target.sessionId,
         });
+    }
+
+    async function toggleLastAiSession(): Promise<void> {
+        await navigationCoordinator.enqueue(toggleLastAiSessionTransaction);
     }
 
     return {

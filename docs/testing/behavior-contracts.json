@@ -812,7 +812,7 @@
   {
     "id": "AI-SESSION-QUICK-SWITCH-COMMANDS-001",
     "domain": "session",
-    "title": "The Switch to AI Session picker lists every live local session most-recently-focused first plus one entry per other window with running sessions, jumping locally with terminal focus and conversation open or handing off through the focus mailbox with plain-navigation degradation, while Toggle Last AI Session alternates the two most recently focused local sessions from a terminal-focus-fed MRU that prunes dead sessions, and both commands are contributed without default keybindings",
+    "title": "The Switch to AI Session picker lists every live local session most-recently-focused first plus one entry per other window with running sessions, jumping locally with terminal focus and conversation open or handing off through the focus mailbox with plain-navigation degradation, while Toggle Last AI Session alternates the two most recently focused local sessions from a terminal-focus-fed MRU that prunes dead sessions, and both commands share the global navigation transaction, use one workspace snapshot, and are contributed without default keybindings",
     "priority": "P1",
     "status": "automated",
     "owners": [
@@ -822,6 +822,8 @@
     "evidence": [
       "src/aiSessions/sessionMru.ts",
       "src/dashboard/sessionQuickSwitch.ts",
+      "src/dashboard/sessionNavigationCoordinator.ts",
+      "src/dashboard/sessionNavigationFocusExecutor.ts",
       "src/dashboard.ts",
       "src/dashboard/commandRegistration.ts",
       "package.json"
@@ -924,7 +926,7 @@
   {
     "id": "ARCH-AI-SESSION-NAVIGATION-OWNERSHIP-001",
     "domain": "architecture",
-    "title": "Running and Attention session commands share one navigation coordinator and one local focus executor",
+    "title": "Every AI Session command that moves terminal authority shares one navigation coordinator, while direct local jumps share one focus executor",
     "priority": "P1",
     "status": "automated",
     "owners": [
@@ -4997,7 +4999,7 @@
   {
     "id": "CONVERSATION-ACTIVE-SESSION-NAVIGATION-COMMANDS-001",
     "domain": "session",
-    "title": "Previous and Next Active Session commands remain globally available, synchronize the authoritative active terminal and card, and restore keyboard focus to AI Conversation",
+    "title": "Previous and Next Active Session commands remain globally available, join the global navigation transaction, synchronize the authoritative active terminal and card, and restore keyboard focus to AI Conversation",
     "priority": "P1",
     "status": "automated",
     "owners": [
@@ -5010,6 +5012,7 @@
       "package.json",
       "src/dashboard/commandRegistration.ts",
       "src/dashboard.ts",
+      "src/dashboard/sessionNavigationCoordinator.ts",
       "src/aiSessions/conversation/composition.ts",
       "src/aiSessions/conversation/viewer.ts"
     ]

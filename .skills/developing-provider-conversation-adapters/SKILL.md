@@ -30,7 +30,12 @@ Green self-authored fixtures alone are not evidence.
 3. **Verify against real data before commit** — point a throwaway script at
    the compiled `out/` adapter with `resolveSource` returning a real session,
    run the new read path, and eyeball the results against the files on disk.
-4. Then the standard gates: focused owner tests,
+4. **Preserve the Codex adapter boundary** — its full relative-import graph,
+   including type-only imports, is architecture-guarded. Inject filesystem or
+   rollout telemetry readers through `composition.ts`; keep the adapter option
+   as a local structural type. After changing this import graph, run
+   `npm run test:architecture-guards` before the full gate.
+5. Then the standard gates: focused owner tests,
    `npm run test:behavior-contracts`, `npm run test:ci:linux`.
 
 ## Current On-Disk Layouts (re-probe before relying)

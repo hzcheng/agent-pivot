@@ -51,7 +51,7 @@ function createAdapter(result = fixture, overrides = {}) {
         setCacheTimeout: overrides.setCacheTimeout || (() => 2),
         clearCacheTimeout: overrides.clearCacheTimeout || (() => undefined),
         resolveWorktree: overrides.resolveWorktree,
-        readCurrentWorkdir: overrides.readCurrentWorkdir,
+        readRolloutTelemetry: overrides.readRolloutTelemetry,
         readLifecycleSignal: overrides.readLifecycleSignal,
         listSubagentThreads: overrides.listSubagentThreads,
         now: overrides.now,
@@ -568,29 +568,12 @@ test('CONVERSATION-DIFF-VISIBILITY-001 Codex renders every changed file with par
     assert.equal(tool.tool.detail, 'not a diff at all');
 });
 
-test('CONVERSATION-TELEMETRY-001 reads model, context, and quota windows from structured Codex protocol data', async t => {
-    let notificationListener;
+test('CONVERSATION-TELEMETRY-001 reads model, context, and quota windows from Codex rollout and protocol data', async t => {
     const harness = createAdapter(fixture, {
         client: {
-            watchNotifications(listener) {
-                notificationListener = listener;
-                return { dispose() {} };
-            },
             async request(method) {
-                if (method === 'thread/resume') {
-                    notificationListener('thread/tokenUsage/updated', {
-                        threadId: sessionId,
-                        turnId: 'turn-telemetry',
-                        tokenUsage: {
-                            total: { totalTokens: 88_000 },
-                            last: { totalTokens: 32_000 },
-                            modelContextWindow: 128_000,
-                        },
-                    });
-                    return {
-                        model: 'gpt-5.6-sol',
-                        modelProvider: 'openai',
-                    };
+                if (method === 'thread/read') {
+                    return { thread: { cwd: '/repo' } };
                 }
                 assert.equal(method, 'account/rateLimits/read');
                 return {
@@ -612,6 +595,13 @@ test('CONVERSATION-TELEMETRY-001 reads model, context, and quota windows from st
             },
             dispose() {},
         },
+        readRolloutTelemetry: () => ({
+            model: 'gpt-5.6-sol',
+            context: {
+                usedTokens: 32_000,
+                maxTokens: 128_000,
+            },
+        }),
     });
     t.after(() => harness.adapter.dispose());
 
@@ -639,6 +629,66 @@ test('CONVERSATION-TELEMETRY-001 reads model, context, and quota windows from st
     });
 });
 
+test('CONVERSATION-TELEMETRY-001 keeps live branch and context telemetry without resuming an active-writer thread', async t => {
+    const requests = [];
+    const harness = createAdapter(fixture, {
+        client: {
+            async request(method, params) {
+                requests.push([method, params]);
+                if (method === 'thread/read') {
+                    return { thread: { cwd: '/launch/repo' } };
+                }
+                if (method === 'account/rateLimits/read') {
+                    return { rateLimits: null, rateLimitsByLimitId: null };
+                }
+                if (method === 'thread/resume') {
+                    throw new Error(`thread ${sessionId} already has an active writer`);
+                }
+                throw new Error(`unexpected method ${method}`);
+            },
+            dispose() {},
+        },
+        readRolloutTelemetry: () => ({
+            model: 'gpt-5.6-sol',
+            context: {
+                usedTokens: 54_297,
+                maxTokens: 258_400,
+            },
+        }),
+        resolveWorktree: async candidate => candidate === '/launch/repo'
+            ? {
+                branch: 'main',
+                worktreeRoot: candidate,
+                repoRoot: candidate,
+            }
+            : undefined,
+    });
+    t.after(() => harness.adapter.dispose());
+
+    assert.deepEqual(await harness.adapter.readTelemetry(sessionId), {
+        provider: 'codex',
+        sessionId,
+        model: 'gpt-5.6-sol',
+        context: {
+            usedTokens: 54_297,
+            maxTokens: 258_400,
+        },
+        worktree: {
+            branch: 'main',
+            worktreeRoot: '/launch/repo',
+            repoRoot: '/launch/repo',
+        },
+        rateLimits: [],
+    });
+    assert.deepEqual(requests, [[
+        'thread/read',
+        { threadId: sessionId, includeTurns: false },
+    ], [
+        'account/rateLimits/read',
+        undefined,
+    ]]);
+});
+
 test('CONVERSATION-TELEMETRY-001 prefers the canonical Codex quota over same-window named limits', async t => {
     const canonical = {
         limitId: 'codex',
@@ -652,8 +702,8 @@ test('CONVERSATION-TELEMETRY-001 prefers the canonical Codex quota over same-win
     const harness = createAdapter(fixture, {
         client: {
             async request(method) {
-                if (method === 'thread/resume') {
-                    return { model: 'gpt-5.6-sol' };
+                if (method === 'thread/read') {
+                    return { thread: { cwd: '/repo' } };
                 }
                 assert.equal(method, 'account/rateLimits/read');
                 return {
@@ -689,7 +739,51 @@ test('CONVERSATION-TELEMETRY-001 prefers the canonical Codex quota over same-win
     }]);
 });
 
-test('CONVERSATION-TELEMETRY-001 waits for token usage emitted after the resume response', async t => {
+test('CONVERSATION-TELEMETRY-001 refreshes cached model and context from the newest rollout tail', async t => {
+    let rollout = {
+        model: 'gpt-5.5',
+        context: { usedTokens: 12_000, maxTokens: 128_000 },
+    };
+    let requestCount = 0;
+    const harness = createAdapter(fixture, {
+        client: {
+            async request(method) {
+                requestCount += 1;
+                if (method === 'thread/read') {
+                    return { thread: { cwd: '/repo' } };
+                }
+                assert.equal(method, 'account/rateLimits/read');
+                return { rateLimits: null, rateLimitsByLimitId: null };
+            },
+            dispose() {},
+        },
+        readRolloutTelemetry: () => rollout,
+    });
+    t.after(() => harness.adapter.dispose());
+
+    const initial = await harness.adapter.readTelemetry(sessionId);
+    assert.equal(initial.model, 'gpt-5.5');
+    assert.deepEqual(initial.context, {
+        usedTokens: 12_000,
+        maxTokens: 128_000,
+    });
+
+    rollout = {
+        model: 'gpt-5.6-sol',
+        context: { usedTokens: 48_000, maxTokens: 258_400 },
+    };
+    const refreshed = await harness.adapter.readTelemetry(sessionId);
+
+    assert.equal(refreshed.model, 'gpt-5.6-sol');
+    assert.deepEqual(refreshed.context, {
+        usedTokens: 48_000,
+        maxTokens: 258_400,
+    });
+    assert.equal(requestCount, 2,
+        'rollout-only refreshes must reuse cached app-server telemetry');
+});
+
+test('CONVERSATION-TELEMETRY-001 keeps an observed token notification when the rollout tail is unavailable', async t => {
     let notificationListener;
     const harness = createAdapter(fixture, {
         client: {
@@ -698,93 +792,16 @@ test('CONVERSATION-TELEMETRY-001 waits for token usage emitted after the resume 
                 return { dispose() {} };
             },
             async request(method) {
-                if (method === 'thread/resume') {
-                    setImmediate(() => {
-                        notificationListener('thread/tokenUsage/updated', {
-                            threadId: sessionId,
-                            turnId: 'turn-delayed-telemetry',
-                            tokenUsage: {
-                                total: { totalTokens: 96_000 },
-                                last: { totalTokens: 48_000 },
-                                modelContextWindow: 128_000,
-                            },
-                        });
-                    });
-                    return { model: 'gpt-5.6-sol' };
+                if (method === 'thread/read') {
+                    return { thread: { cwd: '/repo' } };
                 }
                 assert.equal(method, 'account/rateLimits/read');
                 return { rateLimits: null, rateLimitsByLimitId: null };
             },
             dispose() {},
         },
-        setTimeout: (callback, delayMs) => setTimeout(callback, delayMs),
-        clearTimeout: handle => clearTimeout(handle),
     });
     t.after(() => harness.adapter.dispose());
-
-    const telemetry = await harness.adapter.readTelemetry(sessionId);
-
-    assert.deepEqual(telemetry.context, {
-        usedTokens: 48_000,
-        maxTokens: 128_000,
-    });
-});
-
-test('CONVERSATION-TELEMETRY-001 isolates delayed token usage by session', async t => {
-    const secondSessionId = '44444444-4444-4444-8444-444444444444';
-    let notificationListener;
-    let nextTimer = 1;
-    const timers = new Map();
-    const harness = createAdapter(fixture, {
-        client: {
-            watchNotifications(listener) {
-                notificationListener = listener;
-                return { dispose() {} };
-            },
-            async request(method, params) {
-                if (method === 'thread/resume') {
-                    return { model: `model-${params.threadId}` };
-                }
-                assert.equal(method, 'account/rateLimits/read');
-                return { rateLimits: null, rateLimitsByLimitId: null };
-            },
-            dispose() {},
-        },
-        setTimeout(callback) {
-            const handle = nextTimer++;
-            timers.set(handle, callback);
-            return handle;
-        },
-        clearTimeout(handle) {
-            timers.delete(handle);
-        },
-    });
-    t.after(() => harness.adapter.dispose());
-
-    let firstSettled = false;
-    const firstRead = harness.adapter.readTelemetry(sessionId)
-        .then(value => {
-            firstSettled = true;
-            return value;
-        });
-    const secondRead = harness.adapter.readTelemetry(secondSessionId);
-    await new Promise(resolve => setImmediate(resolve));
-
-    notificationListener('thread/tokenUsage/updated', {
-        threadId: secondSessionId,
-        tokenUsage: {
-            last: { totalTokens: 22_000 },
-            modelContextWindow: 64_000,
-        },
-    });
-
-    const secondTelemetry = await secondRead;
-    await new Promise(resolve => setImmediate(resolve));
-    assert.equal(firstSettled, false);
-    assert.deepEqual(secondTelemetry.context, {
-        usedTokens: 22_000,
-        maxTokens: 64_000,
-    });
 
     notificationListener('thread/tokenUsage/updated', {
         threadId: sessionId,
@@ -794,89 +811,71 @@ test('CONVERSATION-TELEMETRY-001 isolates delayed token usage by session', async
         },
     });
 
-    const firstTelemetry = await firstRead;
-    assert.deepEqual(firstTelemetry.context, {
+    const telemetry = await harness.adapter.readTelemetry(sessionId);
+    assert.deepEqual(telemetry.context, {
         usedTokens: 33_000,
         maxTokens: 128_000,
     });
-    assert.equal(timers.size, 0);
 });
 
-test('CONVERSATION-TELEMETRY-001 clears a delayed token usage waiter after timeout', async t => {
-    let nextTimer = 1;
-    const timers = new Map();
-    const cleared = [];
+test('CONVERSATION-TELEMETRY-001 isolates rollout telemetry reads by session', async t => {
+    const secondSessionId = '44444444-4444-4444-8444-444444444444';
     const harness = createAdapter(fixture, {
         client: {
             async request(method) {
-                if (method === 'thread/resume') {
-                    return { model: 'gpt-5.6-sol' };
+                if (method === 'thread/read') {
+                    return { thread: { cwd: '/repo' } };
                 }
                 assert.equal(method, 'account/rateLimits/read');
                 return { rateLimits: null, rateLimitsByLimitId: null };
             },
             dispose() {},
         },
-        setTimeout(callback, delayMs) {
-            assert.equal(delayMs, 250);
-            const handle = nextTimer++;
-            timers.set(handle, callback);
-            return handle;
-        },
-        clearTimeout(handle) {
-            cleared.push(handle);
-            timers.delete(handle);
-        },
+        readRolloutTelemetry: id => ({
+            model: `model-${id}`,
+            context: {
+                usedTokens: id === sessionId ? 11_000 : 22_000,
+                maxTokens: 64_000,
+            },
+        }),
     });
     t.after(() => harness.adapter.dispose());
 
-    const read = harness.adapter.readTelemetry(sessionId);
-    await new Promise(resolve => setImmediate(resolve));
-    assert.equal(timers.size, 1);
-    const [handle, fireTimeout] = timers.entries().next().value;
-    fireTimeout();
-
-    const telemetry = await read;
-    assert.equal(telemetry.context, undefined);
-    assert.deepEqual(cleared, [handle]);
-    assert.equal(timers.size, 0);
-    assert.equal(harness.adapter.tokenUsageWaiters.size, 0);
+    const [first, second] = await Promise.all([
+        harness.adapter.readTelemetry(sessionId),
+        harness.adapter.readTelemetry(secondSessionId),
+    ]);
+    assert.equal(first.model, `model-${sessionId}`);
+    assert.equal(second.model, `model-${secondSessionId}`);
+    assert.equal(first.context.usedTokens, 11_000);
+    assert.equal(second.context.usedTokens, 22_000);
 });
 
-test('CONVERSATION-TELEMETRY-001 dispose releases pending token usage reads without repopulating caches', async () => {
-    let nextTimer = 1;
-    const timers = new Map();
+test('CONVERSATION-TELEMETRY-001 dispose prevents a pending read-only telemetry request from repopulating caches', async () => {
+    let resolveThreadRead;
     const harness = createAdapter(fixture, {
         client: {
             async request(method) {
-                if (method === 'thread/resume') {
-                    return { model: 'gpt-5.6-sol' };
+                if (method === 'thread/read') {
+                    return new Promise(resolve => {
+                        resolveThreadRead = resolve;
+                    });
                 }
                 assert.equal(method, 'account/rateLimits/read');
                 return { rateLimits: null, rateLimitsByLimitId: null };
             },
             dispose() {},
         },
-        setTimeout(callback) {
-            const handle = nextTimer++;
-            timers.set(handle, callback);
-            return handle;
-        },
-        clearTimeout(handle) {
-            timers.delete(handle);
-        },
+        readRolloutTelemetry: () => ({ model: 'gpt-5.6-sol' }),
     });
 
     const read = harness.adapter.readTelemetry(sessionId);
     await new Promise(resolve => setImmediate(resolve));
-    assert.equal(timers.size, 1);
-
     harness.adapter.dispose();
+    resolveThreadRead({ thread: { cwd: '/repo' } });
     const telemetry = await read;
 
     assert.equal(telemetry.model, 'gpt-5.6-sol');
-    assert.equal(timers.size, 0);
-    assert.equal(harness.adapter.tokenUsageWaiters.size, 0);
     assert.equal(harness.adapter.telemetryCache.size, 0);
 });
 
@@ -1327,8 +1326,8 @@ test('SESSION-AI-SESSION-CODEX-CONVERSATION-007 keeps revisions stable until nor
 test('CONVERSATION-TELEMETRY-001 Codex prefers the latest exec workdir and falls back to the launch cwd', async t => {
     const telemetryClient = {
         async request(method) {
-            if (method === 'thread/resume') {
-                return { model: 'gpt-5.6-sol', cwd: '/launch/repo' };
+            if (method === 'thread/read') {
+                return { thread: { cwd: '/launch/repo' } };
             }
             return {};
         },
@@ -1336,8 +1335,12 @@ test('CONVERSATION-TELEMETRY-001 Codex prefers the latest exec workdir and falls
     };
     const rolloutAdapter = createAdapter(fixture, {
         client: telemetryClient,
-        readCurrentWorkdir: id =>
-            id === sessionId ? '/launch/repo/.worktree/feature-x' : undefined,
+        readRolloutTelemetry: id => id === sessionId
+            ? {
+                model: 'gpt-5.6-sol',
+                currentWorkdir: '/launch/repo/.worktree/feature-x',
+            }
+            : undefined,
         resolveWorktree: async candidate => {
             if (candidate === '/launch/repo/.worktree/feature-x') {
                 return {
@@ -1367,7 +1370,7 @@ test('CONVERSATION-TELEMETRY-001 Codex prefers the latest exec workdir and falls
 
     const fallbackAdapter = createAdapter(fixture, {
         client: telemetryClient,
-        readCurrentWorkdir: () => undefined,
+        readRolloutTelemetry: () => ({ model: 'gpt-5.6-sol' }),
         resolveWorktree: async candidate =>
             candidate === '/launch/repo'
                 ? {
@@ -1393,8 +1396,8 @@ test('CONVERSATION-TELEMETRY-001 Codex refreshes the latest exec workdir inside 
     const telemetryClient = {
         async request(method) {
             requestCount += 1;
-            if (method === 'thread/resume') {
-                return { model: 'gpt-5.6-sol', cwd: '/launch/repo' };
+            if (method === 'thread/read') {
+                return { thread: { cwd: '/launch/repo' } };
             }
             return {};
         },
@@ -1402,7 +1405,10 @@ test('CONVERSATION-TELEMETRY-001 Codex refreshes the latest exec workdir inside 
     };
     const harness = createAdapter(fixture, {
         client: telemetryClient,
-        readCurrentWorkdir: () => currentWorkdir,
+        readRolloutTelemetry: () => ({
+            model: 'gpt-5.6-sol',
+            currentWorkdir,
+        }),
         resolveWorktree: async candidate => ({
             branch: candidate.endsWith('/feature-x') ? 'feature-x' : 'main',
             worktreeRoot: candidate,
@@ -1436,7 +1442,9 @@ test('CONVERSATION-TELEMETRY-001 Codex discovers a worktree after an empty telem
             },
             dispose() {},
         },
-        readCurrentWorkdir: () => currentWorkdir,
+        readRolloutTelemetry: () => currentWorkdir
+            ? { currentWorkdir }
+            : undefined,
         resolveWorktree: async candidate => ({
             branch: 'feature-x',
             worktreeRoot: candidate,

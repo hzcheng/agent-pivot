@@ -406,3 +406,62 @@ test('SKILLS-SPLIT-006 the dragged project pane share persists in webview view s
         await browser.close();
     }
 });
+
+test('SKILLS-SPLIT-007 deep folder headers stop pinning past the sticky level cap', async () => {
+    const browser = await chromium.launch();
+    try {
+        const records = [];
+        // depth-0 folder with a depth-1 child with a depth-2 child, each with cards
+        for (let index = 0; index < 6; index += 1) {
+            records.push(centralRecord({
+                name: `top-${index}`,
+                dirPath: `/home/dev/.skills/pack/top-${index}`,
+                skillFilePath: `/home/dev/.skills/pack/top-${index}/SKILL.md`,
+                folder: 'pack',
+                central: { dirPath: `/home/dev/.skills/pack/top-${index}`, links: {} },
+            }));
+            records.push(centralRecord({
+                name: `mid-${index}`,
+                dirPath: `/home/dev/.skills/pack/sub/mid-${index}`,
+                skillFilePath: `/home/dev/.skills/pack/sub/mid-${index}/SKILL.md`,
+                folder: 'pack/sub',
+                central: { dirPath: `/home/dev/.skills/pack/sub/mid-${index}`, links: {} },
+            }));
+            records.push(centralRecord({
+                name: `deep-${index}`,
+                dirPath: `/home/dev/.skills/pack/sub/deep/deep-${index}`,
+                skillFilePath: `/home/dev/.skills/pack/sub/deep/deep-${index}/SKILL.md`,
+                folder: 'pack/sub/deep',
+                central: { dirPath: `/home/dev/.skills/pack/sub/deep/deep-${index}`, links: {} },
+            }));
+        }
+        for (let index = 0; index < 6; index += 1) {
+            records.push(makeRecord({
+                name: `project-${index}`,
+                scope: 'project',
+                dirPath: `/work/app/.kimi/skills/project-${index}`,
+                skillFilePath: `/work/app/.kimi/skills/project-${index}/SKILL.md`,
+            }));
+        }
+        const page = await openSkillsPage(browser, records);
+        const geometry = await page.evaluate(() => {
+            const headerOf = folder => document
+                .querySelector(`.skill-folder[data-skill-folder="${folder}"] > .group-title.skill-folder-header`);
+            const list = document.querySelector('[data-skills-pane="user"] > .group.steward-section > .group-list');
+            list.scrollTop = 400;
+            return {
+                listTop: list.getBoundingClientRect().top,
+                top: { position: getComputedStyle(headerOf('pack')).position, top: headerOf('pack').getBoundingClientRect().top },
+                mid: { position: getComputedStyle(headerOf('pack/sub')).position, top: headerOf('pack/sub').getBoundingClientRect().top },
+                deep: { position: getComputedStyle(headerOf('pack/sub/deep')).position },
+            };
+        });
+        assert.equal(geometry.top.position, 'sticky', 'depth-0 folder header pins');
+        assert.equal(geometry.mid.position, 'sticky', 'depth-1 folder header pins');
+        assert.ok(Math.abs(geometry.top.top - geometry.listTop) <= 2, 'depth-0 header pinned at list top');
+        assert.ok(Math.abs(geometry.mid.top - (geometry.listTop + 24)) <= 2, 'depth-1 header stacks one header lower');
+        assert.equal(geometry.deep.position, 'static', 'depth-2 header no longer pins (capped)');
+    } finally {
+        await browser.close();
+    }
+});

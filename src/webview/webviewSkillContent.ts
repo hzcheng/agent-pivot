@@ -307,6 +307,43 @@ function collectFolderMembers(node: SkillFolderNode, into: SkillRecord[] = []): 
     return into;
 }
 
+function folderPhysicalDepth(folderPath: string): number {
+    return folderPath.split('/').filter(Boolean).length - 1;
+}
+
+// Vendored stores drop whole repos into ~/.skills, leaving deep chains of
+// folders that hold no skills at all. An empty folder (no skills anywhere in
+// its subtree) renders only at shallow depth or directly inside a folder that
+// holds skills — deep empty chains stay out of the tree.
+function shouldRenderFolderNode(node: SkillFolderNode, parentDirectItems: number): boolean {
+    if (collectFolderMembers(node).length > 0) {
+        return true;
+    }
+    return folderPhysicalDepth(node.path) <= 1 || parentDirectItems > 0;
+}
+
+function renderableFolderChildren(node: SkillFolderNode): SkillFolderNode[] {
+    return [...node.children.values()].filter(child => shouldRenderFolderNode(child, node.items.length));
+}
+
+// Explorer-style compact folders: a folder with no direct skills and exactly
+// one renderable child collapses into a single "a/b" row whose path (menus,
+// moves, collapse state) is the deepest real directory. Chains that end in an
+// empty folder stay unmerged so freshly created folders keep their own row.
+function compactFolderChain(node: SkillFolderNode): { displayName: string; target: SkillFolderNode } {
+    let displayName = node.name;
+    let target = node;
+    while (target.items.length === 0) {
+        const renderable = renderableFolderChildren(target);
+        if (renderable.length !== 1 || collectFolderMembers(renderable[0]).length === 0) {
+            break;
+        }
+        displayName = `${displayName}/${renderable[0].name}`;
+        target = renderable[0];
+    }
+    return { displayName, target };
+}
+
 type SkillFolderLinkState = 'on' | 'off' | 'indeterminate';
 
 /** Per-agent link state of a folder subtree at the section scope. */
@@ -343,6 +380,9 @@ function getCentralStoreRoot(record: SkillRecord): string {
 }
 
 const SKILL_FOLDER_HEADER_PX = 24;
+// Only the top two folder levels pin while scrolling; deeper headers scroll
+// away — in deep vendored trees a taller pinned stack collapses into noise.
+const SKILL_FOLDER_STICKY_LEVELS = 2;
 
 function renderFolderNode(
     node: SkillFolderNode,
@@ -353,20 +393,24 @@ function renderFolderNode(
 ): string {
     // Scope is positional: global-section folders act on user-level agent roots,
     // project-section folders on the current project's agent roots.
-    const count = collectFolderMembers(node).length;
-    const children = [...node.children.values()].sort((a, b) => a.name.localeCompare(b.name));
-    const items = node.items.slice().sort((a, b) => a.name.localeCompare(b.name));
-    const pathAttr = escapeAttribute(node.path);
-    const agentStates = AGENTS.map(agent => ({ agent, state: folderAgentState(node, sectionScope, agent) }));
+    const { displayName, target } = compactFolderChain(node);
+    const count = collectFolderMembers(target).length;
+    const children = renderableFolderChildren(target).sort((a, b) => a.name.localeCompare(b.name));
+    const items = target.items.slice().sort((a, b) => a.name.localeCompare(b.name));
+    const pathAttr = escapeAttribute(target.path);
+    const agentStates = AGENTS.map(agent => ({ agent, state: folderAgentState(target, sectionScope, agent) }));
     const stateAttrs = agentStates.map(({ agent, state }) => ` data-state-${agent}="${state}"`).join('');
     const dots = `<span class="skill-agent-dots">${agentStates.map(({ agent, state }) =>
         agentDot(state, `${agent}: ${state === 'on' ? 'all linked' : state === 'indeterminate' ? 'some linked' : 'off'}`)).join('')}</span>`;
     // Fixed 24px header rhythm lets nested sticky headers stack with an exact
     // per-depth offset (top: depth × 24px) inside the scrolling section list.
-    return `<div class="group steward-section skill-folder" data-group-id="skill-folder-${sectionScope}-${encodeURIComponent(node.path)}" data-skill-folder="${pathAttr}" data-skill-store="${escapeAttribute(storeRoot)}" data-skill-folder-scope="${sectionScope}">
-    <div class="group-title skill-folder-header" style="top: ${depth * SKILL_FOLDER_HEADER_PX}px">
+    const sticky = depth < SKILL_FOLDER_STICKY_LEVELS;
+    const headerClass = sticky ? 'skill-folder-header skill-folder-header-sticky' : 'skill-folder-header';
+    const headerStyle = sticky ? ` style="top: ${depth * SKILL_FOLDER_HEADER_PX}px"` : '';
+    return `<div class="group steward-section skill-folder" data-group-id="skill-folder-${sectionScope}-${encodeURIComponent(target.path)}" data-skill-folder="${pathAttr}" data-skill-store="${escapeAttribute(storeRoot)}" data-skill-folder-scope="${sectionScope}">
+    <div class="group-title ${headerClass}"${headerStyle}>
         <span class="group-title-text skill-folder-title" data-action="collapse">
-            <span class="collapse-icon" title="Open/Collapse Group">${collapseIcon}</span><span class="skill-folder-icon" aria-hidden="true">${folderIcon}</span><span class="skill-folder-name">${escapeAttribute(node.name)}</span>
+            <span class="collapse-icon" title="Open/Collapse Group">${collapseIcon}</span><span class="skill-folder-icon" aria-hidden="true">${folderIcon}</span><span class="skill-folder-name">${escapeAttribute(displayName)}</span>
         </span>
         ${dots}
         <span class="group-title-badge">${count}</span>
@@ -410,6 +454,7 @@ function renderScopeSection(scope: SkillScope, items: SkillRecord[], view: Skill
     const viewStoreRoot = scope === 'user' ? view.storeRoots?.user : view.storeRoots?.project;
     const storeRoot = viewStoreRoot || (central.length ? getCentralStoreRoot(central[0]) : '');
     const folders = [...tree.children.values()]
+        .filter(node => shouldRenderFolderNode(node, tree.items.length))
         .sort((a, b) => a.name.localeCompare(b.name))
         .map(node => renderFolderNode(node, storeRoot, scope, view));
     const rootItems = tree.items.slice()

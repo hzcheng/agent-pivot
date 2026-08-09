@@ -109,12 +109,19 @@ function richFixture() {
         folder: '',
         central: { dirPath: '/work/app/.skills/proj', links: { project: { kimi: '/work/app/.kimi/skills/proj' } } },
     });
-    const records = [central, driftTwin, shadowed, broken, plain, project];
+    const deep = centralRecord({
+        name: 'deep',
+        dirPath: '/home/dev/.skills/superpowers/nested/deep/deep',
+        skillFilePath: '/home/dev/.skills/superpowers/nested/deep/deep/SKILL.md',
+        folder: 'superpowers/nested/deep',
+        central: { dirPath: '/home/dev/.skills/superpowers/nested/deep/deep', links: {} },
+    });
+    const records = [central, driftTwin, shadowed, broken, plain, project, deep];
     const { getSkillStableKey } = loadSkillContent();
     const view = {
         hasWorkspace: true,
         storeRoots: { user: '/home/dev/.skills', project: '/work/app/.skills' },
-        storeFolders: { user: ['superpowers', 'superpowers/nested', 'emptypack'], project: [] },
+        storeFolders: { user: ['superpowers', 'superpowers/nested', 'superpowers/nested/deep', 'emptypack'], project: [] },
         conflicts: new Set([central.dirPath]),
         copyTargets: new Map([[getSkillStableKey(driftTwin), [{ source: 'claude', rootDir: '/home/dev/.claude/skills' }]]]),
     };
@@ -132,14 +139,20 @@ test('WEBVIEW-AI-SKILL-PANEL-001 renders every warn-glyph and row branch', () =>
     assert.ok(html.includes('aria-valuemax="100"'));
     assert.ok(html.includes('data-skills-pane="project"'));
 
-    // nested sticky folder headers carry the exact per-depth offset
-    assert.ok(html.includes('data-skill-folder="superpowers"'), 'top-level folder renders');
+    // nested sticky folder headers carry the exact per-depth offset; the
+    // superpowers → nested single-child chain compacts into one row
+    assert.ok(html.includes('data-skill-folder="superpowers/nested"'), 'single-child chain compacts to the deepest directory');
+    assert.ok(!html.includes('data-skill-folder="superpowers"'), 'no intermediate row for the chain head');
     assert.ok(html.includes('data-skill-folder="emptypack"'), 'empty folder node renders from the store listing');
-    const nestedStart = html.indexOf('data-skill-folder="superpowers/nested"');
-    assert.ok(nestedStart > 0);
-    assert.ok(html.slice(0, nestedStart).includes('style="top: 0px"'), 'depth-0 folder sticks at the list top');
-    assert.ok(html.slice(nestedStart).includes('style="top: 24px"'), 'depth-1 folder stacks one header lower');
+    const nestedHeader = html.slice(html.indexOf('data-skill-folder="superpowers/nested"'));
+    assert.ok(nestedHeader.includes('style="top: 0px"'), 'compacted row sticks at the list top (visual depth 0)');
     assert.ok(html.includes('skill-folder-icon'), 'folder icon renders');
+    // deep headers pin by their visual (post-compaction) depth
+    const deepStart = html.indexOf('data-skill-folder="superpowers/nested/deep"');
+    assert.ok(deepStart > 0, 'deeper folder nests inside the compacted row');
+    const deepHeader = html.slice(deepStart, html.indexOf('</div>', deepStart));
+    assert.ok(deepHeader.includes('skill-folder-header-sticky'), 'visual depth-1 header pins');
+    assert.ok(deepHeader.includes('style="top: 24px"'), 'visual depth-1 header stacks one header lower');
 
     // warn glyphs: conflict wins over drift, shadowed and diagnostics variants
     assert.ok(html.includes('title="Name conflict: another central skill links the same agent slot"'));
@@ -183,4 +196,50 @@ test('WEBVIEW-AI-SKILL-PANEL-001 renders the no-workspace scope action state', (
     assert.ok(html.includes('title="Open a project to apply this global skill" disabled'));
     assert.ok(!html.includes('data-skills-pane="project"'), 'no project pane without a workspace');
     assert.ok(!html.includes('data-skills-pane-resizer'), 'single pane renders no resizer');
+});
+
+test('WEBVIEW-AI-SKILL-PANEL-001 compacts single-child chains and prunes deep empty subtrees', () => {
+    const { getSkillsPanelContent } = loadSkillContent();
+    const gke = centralRecord({
+        name: 'gke-basics',
+        dirPath: '/home/dev/.skills/google/skills/skills/cloud/gke-basics',
+        skillFilePath: '/home/dev/.skills/google/skills/skills/cloud/gke-basics/SKILL.md',
+        folder: 'google/skills/skills/cloud',
+        central: { dirPath: '/home/dev/.skills/google/skills/skills/cloud/gke-basics', links: {} },
+    });
+    const superpower = centralRecord({
+        name: 'tdd',
+        dirPath: '/home/dev/.skills/superpowers/tdd',
+        skillFilePath: '/home/dev/.skills/superpowers/tdd/SKILL.md',
+        folder: 'superpowers',
+        central: { dirPath: '/home/dev/.skills/superpowers/tdd', links: {} },
+    });
+    const html = getSkillsPanelContent([gke, superpower], {
+        hasWorkspace: true,
+        storeRoots: { user: '/home/dev/.skills' },
+        storeFolders: {
+            user: [
+                'google/skills/plugins/cloud/data-agent-kit',
+                'mattpocock/docs',
+                'newpack',
+                'newpack/nested',
+            ],
+        },
+    });
+
+    // google(0 items) → skills(0 items) → skills → cloud merges into one
+    // compacted row whose identity is the deepest real directory
+    assert.ok(html.includes('data-skill-folder="google/skills/skills/cloud"'), 'chain compacts to the deepest skill-bearing directory');
+    assert.ok(html.includes('<span class="skill-folder-name">google/skills/skills/cloud</span>'), 'compacted row shows the combined label');
+    assert.ok(html.includes('data-folder-menu="google/skills/skills/cloud"'), 'compacted row actions target the deepest directory');
+    assert.ok(!html.includes('data-skill-folder="google"'), 'no intermediate row for the chain head');
+    assert.ok(!html.includes('data-skill-folder="google/skills"'), 'no intermediate row for the chain middle');
+
+    // deep empty vendored subtrees stay out of the tree
+    assert.ok(!html.includes('plugins'), 'deep empty plugin subtree is pruned');
+
+    // shallow empty folders (panel-created) still render, unmerged
+    assert.ok(html.includes('data-skill-folder="newpack"'), 'empty top-level folder renders');
+    assert.ok(html.includes('data-skill-folder="newpack/nested"'), 'empty depth-1 folder renders unmerged');
+    assert.ok(html.includes('data-skill-folder="mattpocock/docs"'), 'depth-1 empty folder renders');
 });

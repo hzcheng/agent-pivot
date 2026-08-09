@@ -95,22 +95,22 @@ function makeQueueInput() {
     };
 }
 
-test('ATTENTION-STATUS-BAR-QUEUE-001 builds a local-first, oldest-first queue with parsed identities', () => {
+test('ATTENTION-STATUS-BAR-QUEUE-001 builds a global oldest-first queue with parsed identities', () => {
     const queue = buildAttentionQueue(makeQueueInput());
 
     assert.equal(queue.total, 3);
     assert.equal(queue.localCount, 2);
     assert.equal(queue.remoteCount, 1);
     assert.deepEqual(queue.items.map(item => `${item.provider}:${item.sessionId}`), [
+        'claude:sess-9',
         'kimi:sess-1',
         'codex:sess-2',
-        'claude:sess-9',
-    ], 'local sessions lead (oldest first), remotes trail');
-    assert.deepEqual(queue.items.map(item => item.local), [true, true, false]);
-    assert.equal(queue.items[0].sessionName, 'reminder feature');
-    assert.deepEqual(queue.items[0].eventIds, ['e-1']);
-    assert.deepEqual(queue.items[1].reasons, ['input-required']);
-    assert.equal(queue.items[2].sessionName, undefined,
+    ], 'one oldest-first cycle shared by every window; locality only flags jump mechanics');
+    assert.deepEqual(queue.items.map(item => item.local), [false, true, true]);
+    assert.equal(queue.items[1].sessionName, 'reminder feature');
+    assert.deepEqual(queue.items[1].eventIds, ['e-1']);
+    assert.deepEqual(queue.items[2].reasons, ['input-required']);
+    assert.equal(queue.items[0].sessionName, undefined,
         'remote sessions carry no local display name');
 });
 
@@ -386,7 +386,7 @@ test('ATTENTION-STATUS-BAR-QUEUE-001 jump continues after the focused session in
     ], 'a press while watching the queue head must move to the next waiting session');
 });
 
-test('ATTENTION-STATUS-BAR-QUEUE-001 jump skips the focused session when the cursor wraps onto it', async () => {
+test('ATTENTION-STATUS-BAR-QUEUE-001 jump re-anchors to the watched session instead of following a stale cursor', async () => {
     const input = makeQueueInput();
     input.aggregate.sessions = input.aggregate.sessions.slice(0, 2);
     const queue = buildAttentionQueue(input);
@@ -402,5 +402,34 @@ test('ATTENTION-STATUS-BAR-QUEUE-001 jump skips the focused session when the cur
         ['openConversation', 'codex:sess-2'],
         ['focusSession', 'codex:sess-2'],
         ['openConversation', 'codex:sess-2'],
-    ], 'wrapping onto the watched session must skip ahead instead of spending a press on it');
+    ], 'a manual detour must re-anchor the cycle where the user is');
+});
+
+test('ATTENTION-STATUS-BAR-QUEUE-001 jump re-anchors to the watched session instead of wrapping to a remote cursor successor', async () => {
+    const queue = buildAttentionQueue(makeQueueInput());
+    const state = { focused: 'kimi:sess-1' };
+    const { calls, jump } = makeFocusContinuityJump(queue, state);
+
+    await jump();
+    state.focused = 'kimi:sess-1';
+    await jump();
+
+    assert.deepEqual(calls, [
+        ['focusSession', 'codex:sess-2'],
+        ['openConversation', 'codex:sess-2'],
+        ['focusSession', 'codex:sess-2'],
+        ['openConversation', 'codex:sess-2'],
+    ], 'a manual detour must re-anchor the cycle, not jump away from the stale cursor successor');
+});
+
+test('ATTENTION-STATUS-BAR-QUEUE-001 jump starts at the oldest local session when nothing anchors the cycle', async () => {
+    const queue = buildAttentionQueue(makeQueueInput());
+    const { calls, options } = makeJumpOptions(queue);
+
+    await options();
+
+    assert.deepEqual(calls, [
+        ['focusSession', 'kimi:sess-1'],
+        ['openConversation', 'kimi:sess-1'],
+    ], 'a fresh press stays home first even when the globally oldest session is remote');
 });

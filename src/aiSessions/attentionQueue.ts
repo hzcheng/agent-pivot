@@ -55,8 +55,9 @@ const ATTENTION_LOGICAL_KEY_PATTERN = /^(codex|kimi|claude):(.+)$/;
  * aggregate. A session is "local" when it matches a session listed in this
  * window's workspace — the same (projectKey, provider:sessionId) pairing the
  * sidebar uses to paint attention dots, so the queue mirrors exactly what the
- * user sees. Local entries lead and each group sorts oldest-first so repeated
- * jumps drain the longest-waiting session next.
+ * user sees. Every window shares one oldest-first order so a jump chain
+ * continues around a single global cycle instead of bouncing back to the
+ * window it came from; locality only flags the jump mechanics.
  */
 export function buildAttentionQueue(input: {
     aggregate: AttentionAggregate | null;
@@ -116,8 +117,7 @@ export function buildAttentionQueue(input: {
         });
     }
     items.sort((left, right) =>
-        (left.local === right.local ? 0 : left.local ? -1 : 1)
-        || left.observedAtMs - right.observedAtMs
+        left.observedAtMs - right.observedAtMs
         || left.sessionId.localeCompare(right.sessionId));
     const localCount = items.filter(item => item.local).length;
     return {

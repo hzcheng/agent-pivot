@@ -263,7 +263,7 @@ test('marketplace notices name every required dependency', () => {
         'dom-autoscroller 2.3.4',
         'dragula 3.7.3',
         'fitty 2.3.5',
-        'DOMPurify 3.4.12',
+        'DOMPurify 3.4.13',
     ]) {
         assert.match(read('THIRD_PARTY_NOTICES.md'), new RegExp(dependency));
     }

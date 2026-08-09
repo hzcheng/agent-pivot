@@ -2346,6 +2346,20 @@
     ]
   },
   {
+    "id": "WEBVIEW-SIDEBAR-HEADER-LAYOUT-001",
+    "domain": "webview",
+    "title": "Sidebar header buttons keep uniform gaps and the tab strip spans the header on a single separator line",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/browser/dashboardHeaderLayout.test.js"
+    ],
+    "evidence": [
+      "media/styles.scss",
+      "src/webview/webviewContent.ts"
+    ]
+  },
+  {
     "id": "WEBVIEW-NONBLOCKING-FIRST-PAINT-001",
     "domain": "webview",
     "title": "Visible Agent Pivot views paint cached HTML before background runtime enrichment settles",

@@ -68,6 +68,7 @@ function copyGuardFixture(t, mutationPath, mutate = source => source) {
         'src/aiSessions/attentionAggregate.ts',
         'src/openWorkspaces/protocol.ts',
         'src/openWorkspaces/bridgeClient.ts',
+        'src/openWorkspaces/focusBridgeChannel.ts',
         'src/aiSessions/attentionPayload.ts',
         'src/aiSessions/attentionBridgeClient.ts',
         'src/services/codexSessionService.ts',
@@ -295,6 +296,24 @@ for (const [label, reExport] of [
 }
 
 for (const mutation of [
+    {
+        id: 'ARCH-OPEN-WORKSPACE-FOCUS-CLIENT-OWNERSHIP-001',
+        file: 'src/openWorkspaces/bridgeClient.ts',
+        expectedDetail: 'bridge client must configure exactly two shared focus channels',
+        mutate: source => source.replace(
+            'this.attentionFocusChannel = new OpenWorkspaceFocusBridgeChannel({',
+            'this.attentionFocusChannel = new LegacyAttentionFocusChannel({',
+        ),
+    },
+    {
+        id: 'ARCH-OPEN-WORKSPACE-FOCUS-CLIENT-OWNERSHIP-001',
+        file: 'src/openWorkspaces/bridgeClient.ts',
+        expectedDetail: 'receiveRunningFocusRequest must remain a thin shared-channel delegate',
+        mutate: source => source.replace(
+            'this.runningFocusChannel.receive(raw);',
+            'this.receiveLegacyRunningFocusRequest(raw);',
+        ),
+    },
     {
         id: 'ARCH-OPEN-WORKSPACE-FOCUS-TRANSPORT-OWNERSHIP-001',
         file: 'extensions/attention-ui-bridge/src/openWorkspaceAttentionFocusStore.ts',

@@ -26,6 +26,7 @@ import {
     createOpenWorkspaceRunningFocusRequest,
     OPEN_WORKSPACE_RUNNING_FOCUS_DELIVER_COMMAND,
     OPEN_WORKSPACE_RUNNING_FOCUS_REQUEST_COMMAND,
+    OpenWorkspaceRunningFocusOutcome,
     OpenWorkspaceRunningFocusRequest,
     validateOpenWorkspaceRunningFocusOutcome,
     validateOpenWorkspaceRunningFocusRequest,
@@ -34,11 +35,13 @@ import {
     createOpenWorkspaceAttentionFocusRequest,
     OPEN_WORKSPACE_ATTENTION_FOCUS_DELIVER_COMMAND,
     OPEN_WORKSPACE_ATTENTION_FOCUS_REQUEST_COMMAND,
+    OpenWorkspaceAttentionFocusOutcome,
     OpenWorkspaceAttentionFocusRequest,
     OpenWorkspaceAttentionFocusTarget,
     validateOpenWorkspaceAttentionFocusOutcome,
     validateOpenWorkspaceAttentionFocusRequest,
 } from './attentionFocusProtocol';
+import { OpenWorkspaceFocusBridgeChannel } from './focusBridgeChannel';
 
 export const OPEN_WORKSPACE_PUBLISH_COMMAND = '_agentPivotOpenWorkspaces.bridge.publish';
 export const OPEN_WORKSPACE_UNREGISTER_COMMAND = '_agentPivotOpenWorkspaces.bridge.unregister';
@@ -60,9 +63,6 @@ export type OpenWorkspaceBridgeStatus =
 
 const RETRY_DELAYS_MS = [100, 500, 2_000, 10_000, 30_000];
 const MAX_FORWARDED_DIAGNOSTIC_BYTES = 64 * 1024;
-const MAX_REMEMBERED_RUNNING_FOCUS_REQUESTS = 100;
-const MAX_REMEMBERED_ATTENTION_FOCUS_REQUESTS = 100;
-
 interface DisposableLike {
     dispose(): void;
 }
@@ -192,14 +192,16 @@ export default class OpenWorkspaceBridgeClient implements vscode.Disposable {
     private readonly reportBridgeDiagnostic: (event: unknown) => void;
     private readonly onStatusChange: (status: OpenWorkspaceBridgeStatus) => void;
     private readonly onPinSnapshot: (snapshot: OpenWorkspacePinSnapshot) => unknown;
-    private readonly onRunningFocusRequest: (
-        request: OpenWorkspaceRunningFocusRequest
-    ) => unknown;
-    private readonly onAttentionFocusRequest: (
-        request: OpenWorkspaceAttentionFocusRequest
-    ) => unknown;
-    private readonly deliveredRunningFocusRequestIds = new Set<string>();
-    private readonly deliveredAttentionFocusRequestIds = new Set<string>();
+    private readonly runningFocusChannel: OpenWorkspaceFocusBridgeChannel<
+        undefined,
+        OpenWorkspaceRunningFocusRequest,
+        OpenWorkspaceRunningFocusOutcome
+    >;
+    private readonly attentionFocusChannel: OpenWorkspaceFocusBridgeChannel<
+        OpenWorkspaceAttentionFocusTarget,
+        OpenWorkspaceAttentionFocusRequest,
+        OpenWorkspaceAttentionFocusOutcome
+    >;
     private readonly aggregateRegistration: DisposableLike;
     private readonly pinSnapshotRegistration: DisposableLike;
     private readonly runningFocusRegistration: DisposableLike;
@@ -233,8 +235,43 @@ export default class OpenWorkspaceBridgeClient implements vscode.Disposable {
         this.reportBridgeDiagnostic = dependencies.reportBridgeDiagnostic || (() => undefined);
         this.onStatusChange = dependencies.onStatusChange || (() => undefined);
         this.onPinSnapshot = dependencies.onPinSnapshot || (() => undefined);
-        this.onRunningFocusRequest = dependencies.onRunningFocusRequest || (() => undefined);
-        this.onAttentionFocusRequest = dependencies.onAttentionFocusRequest || (() => undefined);
+        const prepareFocusRequest = async (): Promise<boolean> =>
+            !this.disposed && await this.ensureHandshake() && !this.disposed;
+        const createFocusRequestId = (): string =>
+            crypto.randomBytes(16).toString('hex');
+        const focusChannelDependencies = {
+            prepareRequest: prepareFocusRequest,
+            isDisposed: () => this.disposed,
+            createRequestId: createFocusRequestId,
+            now: () => this.safeNow(),
+            executeCommand: this.executeCommand,
+            reportError: this.onError,
+        };
+        this.runningFocusChannel = new OpenWorkspaceFocusBridgeChannel({
+            ...focusChannelDependencies,
+            requestCommand: OPEN_WORKSPACE_RUNNING_FOCUS_REQUEST_COMMAND,
+            validateRequest: validateOpenWorkspaceRunningFocusRequest,
+            createRequest: input => createOpenWorkspaceRunningFocusRequest({
+                requestId: input.requestId,
+                targetNavigationIdentity: input.targetNavigationIdentity,
+                nowMs: input.nowMs,
+            }),
+            validateOutcome: validateOpenWorkspaceRunningFocusOutcome,
+            deliverRequest: dependencies.onRunningFocusRequest || (() => undefined),
+        });
+        this.attentionFocusChannel = new OpenWorkspaceFocusBridgeChannel({
+            ...focusChannelDependencies,
+            requestCommand: OPEN_WORKSPACE_ATTENTION_FOCUS_REQUEST_COMMAND,
+            validateRequest: validateOpenWorkspaceAttentionFocusRequest,
+            createRequest: input => createOpenWorkspaceAttentionFocusRequest({
+                requestId: input.requestId,
+                targetNavigationIdentity: input.targetNavigationIdentity,
+                target: input.target,
+                nowMs: input.nowMs,
+            }),
+            validateOutcome: validateOpenWorkspaceAttentionFocusOutcome,
+            deliverRequest: dependencies.onAttentionFocusRequest || (() => undefined),
+        });
         let aggregateRegistration: DisposableLike | undefined;
         let pinSnapshotRegistration: DisposableLike | undefined;
         let runningFocusRegistration: DisposableLike | undefined;
@@ -400,49 +437,7 @@ export default class OpenWorkspaceBridgeClient implements vscode.Disposable {
     }
 
     receiveRunningFocusRequest(raw: unknown): void {
-        if (this.disposed) { return; }
-        let request: OpenWorkspaceRunningFocusRequest;
-        try {
-            request = validateOpenWorkspaceRunningFocusRequest(raw);
-        } catch (error) {
-            // A malformed request can never become deliverable on retry, so it
-            // is acknowledged here and the bridge consumes its mailbox file.
-            try {
-                this.onError(error);
-            } catch (_reportError) {
-                // Diagnostics must never change delivery behavior.
-            }
-            return;
-        }
-        if (this.deliveredRunningFocusRequestIds.has(request.requestId)) { return; }
-        if (this.deliveredRunningFocusRequestIds.size >= MAX_REMEMBERED_RUNNING_FOCUS_REQUESTS) {
-            const oldest = this.deliveredRunningFocusRequestIds.values().next();
-            if (!oldest.done) { this.deliveredRunningFocusRequestIds.delete(oldest.value); }
-        }
-        this.deliveredRunningFocusRequestIds.add(request.requestId);
-        try {
-            const task = this.onRunningFocusRequest(request);
-            // Delivery means the target handler accepted the action into its
-            // own serialized queue. Later task failures are diagnostic only:
-            // retrying after a partial focus could repeat a user-visible jump.
-            void Promise.resolve(task).catch(error => {
-                try {
-                    this.onError(error);
-                } catch (_reportError) {
-                    // Diagnostics must never change delivery behavior.
-                }
-            });
-        } catch (error) {
-            // A synchronous rejection means the handler was not ready and no
-            // action was queued. Let the mailbox restore and retry this ID.
-            this.deliveredRunningFocusRequestIds.delete(request.requestId);
-            try {
-                this.onError(error);
-            } catch (_reportError) {
-                // Diagnostics must never change delivery behavior.
-            }
-            throw error;
-        }
+        this.runningFocusChannel.receive(raw);
     }
 
     /**
@@ -452,107 +447,18 @@ export default class OpenWorkspaceBridgeClient implements vscode.Disposable {
      * to a plain window switch.
      */
     async requestRunningFocus(targetNavigationIdentity: string): Promise<boolean> {
-        if (this.disposed || !await this.ensureHandshake() || this.disposed) {
-            return false;
-        }
-        let request: OpenWorkspaceRunningFocusRequest;
-        try {
-            request = createOpenWorkspaceRunningFocusRequest({
-                requestId: crypto.randomBytes(16).toString('hex'),
-                targetNavigationIdentity,
-                nowMs: this.safeNow(),
-            });
-        } catch (error) {
-            this.onError(error);
-            return false;
-        }
-        try {
-            const outcome = validateOpenWorkspaceRunningFocusOutcome(
-                await this.executeCommand(OPEN_WORKSPACE_RUNNING_FOCUS_REQUEST_COMMAND, request),
-            );
-            return outcome.requestId === request.requestId
-                && outcome.targetNavigationIdentity === request.targetNavigationIdentity;
-        } catch (error) {
-            if (!this.disposed) {
-                this.onError(error);
-            }
-            return false;
-        }
+        return this.runningFocusChannel.request(targetNavigationIdentity, undefined);
     }
 
     receiveAttentionFocusRequest(raw: unknown): void {
-        if (this.disposed) { return; }
-        let request: OpenWorkspaceAttentionFocusRequest;
-        try {
-            request = validateOpenWorkspaceAttentionFocusRequest(raw);
-        } catch (error) {
-            try {
-                this.onError(error);
-            } catch (_reportError) {
-                // Diagnostics must never change delivery behavior.
-            }
-            return;
-        }
-        if (this.deliveredAttentionFocusRequestIds.has(request.requestId)) { return; }
-        if (this.deliveredAttentionFocusRequestIds.size
-            >= MAX_REMEMBERED_ATTENTION_FOCUS_REQUESTS) {
-            const oldest = this.deliveredAttentionFocusRequestIds.values().next();
-            if (!oldest.done) {
-                this.deliveredAttentionFocusRequestIds.delete(oldest.value);
-            }
-        }
-        this.deliveredAttentionFocusRequestIds.add(request.requestId);
-        try {
-            const task = this.onAttentionFocusRequest(request);
-            void Promise.resolve(task).catch(error => {
-                try {
-                    this.onError(error);
-                } catch (_reportError) {
-                    // Diagnostics must never change delivery behavior.
-                }
-            });
-        } catch (error) {
-            this.deliveredAttentionFocusRequestIds.delete(request.requestId);
-            try {
-                this.onError(error);
-            } catch (_reportError) {
-                // Diagnostics must never change delivery behavior.
-            }
-            throw error;
-        }
+        this.attentionFocusChannel.receive(raw);
     }
 
     async requestAttentionFocus(
         targetNavigationIdentity: string,
         target: OpenWorkspaceAttentionFocusTarget,
     ): Promise<boolean> {
-        if (this.disposed || !await this.ensureHandshake() || this.disposed) {
-            return false;
-        }
-        let request: OpenWorkspaceAttentionFocusRequest;
-        try {
-            request = createOpenWorkspaceAttentionFocusRequest({
-                requestId: crypto.randomBytes(16).toString('hex'),
-                targetNavigationIdentity,
-                target,
-                nowMs: this.safeNow(),
-            });
-        } catch (error) {
-            this.onError(error);
-            return false;
-        }
-        try {
-            const outcome = validateOpenWorkspaceAttentionFocusOutcome(
-                await this.executeCommand(OPEN_WORKSPACE_ATTENTION_FOCUS_REQUEST_COMMAND, request),
-            );
-            return outcome.requestId === request.requestId
-                && outcome.targetNavigationIdentity === request.targetNavigationIdentity;
-        } catch (error) {
-            if (!this.disposed) {
-                this.onError(error);
-            }
-            return false;
-        }
+        return this.attentionFocusChannel.request(targetNavigationIdentity, target);
     }
 
     dispose(): void {

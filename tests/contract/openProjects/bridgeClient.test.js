@@ -19,6 +19,44 @@ const {
     createOpenWorkspacePinSnapshot,
 } = require('../../../out/openWorkspaces/pinProtocol');
 
+const FOCUS_CHANNELS = [
+    {
+        label: 'Running',
+        requestCommand: '_agentPivotOpenWorkspaces.bridge.requestRunningFocusV2',
+        deliverCommand: '_agentPivotOpenWorkspaces.workspace.runningFocusRequestedV2',
+        dependency: 'onRunningFocusRequest',
+        request: (client, identity) => client.requestRunningFocus(identity),
+        makeRequest: requestId => ({
+            protocolVersion: 2,
+            requestId,
+            targetNavigationIdentity: 'f'.repeat(64),
+            createdAtMs: 4000,
+            expiresAtMs: 64_000,
+        }),
+    },
+    {
+        label: 'Attention',
+        requestCommand: '_agentPivotOpenWorkspaces.bridge.requestAttentionFocus',
+        deliverCommand: '_agentPivotOpenWorkspaces.workspace.attentionFocusRequested',
+        dependency: 'onAttentionFocusRequest',
+        request: (client, identity) => client.requestAttentionFocus(identity, {
+            projectId: 'e'.repeat(64),
+            provider: 'codex',
+            sessionId: 'session-1',
+        }),
+        makeRequest: requestId => ({
+            protocolVersion: 1,
+            requestId,
+            targetNavigationIdentity: 'f'.repeat(64),
+            projectId: 'e'.repeat(64),
+            provider: 'codex',
+            sessionId: 'session-1',
+            createdAtMs: 4000,
+            expiresAtMs: 64_000,
+        }),
+    },
+];
+
 function handshakeResponse() {
     return {
         accepted: true,
@@ -454,6 +492,91 @@ test('ATTENTION-STATUS-BAR-QUEUE-001 retries an attention delivery rejected befo
     assert.deepEqual(received, [request]);
     assert.equal(errors.length, 1);
 });
+
+for (const channel of FOCUS_CHANNELS) {
+    test(`ARCH-OPEN-WORKSPACE-FOCUS-CLIENT-OWNERSHIP-001 OPEN-WORKSPACE-RUNNING-FOCUS-CLIENT-001 ATTENTION-STATUS-BAR-QUEUE-001 ${channel.label} keeps mismatched outcomes and async delivery failures non-retryable`, async t => {
+        const commands = createCommandRegistry();
+        commands.register('_agentPivotOpenWorkspaces.bridge.handshake', handshakeResponse);
+        commands.register('_agentPivotOpenWorkspaces.bridge.publish', () => undefined);
+        commands.register('_agentPivotOpenWorkspaces.bridge.unregister', () => undefined);
+        commands.register(channel.requestCommand, request => ({
+            protocolVersion: request.protocolVersion,
+            requestId: 'd'.repeat(32),
+            targetNavigationIdentity: request.targetNavigationIdentity,
+            delivered: true,
+        }));
+        const deliveries = [];
+        const errors = [];
+        const client = new OpenWorkspaceBridgeClient(
+            makeRecord(),
+            () => undefined,
+            error => errors.push(error),
+            {
+                instanceId: SELF,
+                now: () => 5000,
+                registerCommand: commands.register,
+                executeCommand: commands.execute,
+                setInterval: () => 'heartbeat',
+                clearInterval: () => undefined,
+                [channel.dependency]: request => {
+                    deliveries.push(request.requestId);
+                    return Promise.reject(new Error(`${channel.label} async delivery failed`));
+                },
+            },
+        );
+        t.after(() => client.dispose());
+        await flushAsync();
+
+        assert.equal(await channel.request(client, 'f'.repeat(64)), false,
+            'a valid but uncorrelated outcome is a failed hand-off');
+        assert.deepEqual(errors, [], 'an uncorrelated outcome is not a transport exception');
+
+        const deliver = commands.handlers.get(channel.deliverCommand);
+        const request = channel.makeRequest('a'.repeat(32));
+        deliver(request);
+        deliver(request);
+        await flushAsync();
+
+        assert.deepEqual(deliveries, [request.requestId],
+            'an accepted async delivery stays de-duplicated after its task rejects');
+        assert.equal(errors.length, 1);
+        assert.match(errors[0].message, /async delivery failed/);
+    });
+
+    test(`ARCH-OPEN-WORKSPACE-FOCUS-CLIENT-OWNERSHIP-001 OPEN-WORKSPACE-RUNNING-FOCUS-CLIENT-001 ATTENTION-STATUS-BAR-QUEUE-001 ${channel.label} bounds delivered request memory and evicts the oldest ID`, async t => {
+        const commands = createCommandRegistry();
+        commands.register('_agentPivotOpenWorkspaces.bridge.handshake', handshakeResponse);
+        commands.register('_agentPivotOpenWorkspaces.bridge.publish', () => undefined);
+        commands.register('_agentPivotOpenWorkspaces.bridge.unregister', () => undefined);
+        const deliveries = [];
+        const client = new OpenWorkspaceBridgeClient(
+            makeRecord(),
+            () => undefined,
+            error => { throw error; },
+            {
+                instanceId: SELF,
+                now: () => 5000,
+                registerCommand: commands.register,
+                executeCommand: commands.execute,
+                setInterval: () => 'heartbeat',
+                clearInterval: () => undefined,
+                [channel.dependency]: request => deliveries.push(request.requestId),
+            },
+        );
+        t.after(() => client.dispose());
+        await flushAsync();
+
+        const deliver = commands.handlers.get(channel.deliverCommand);
+        for (let index = 0; index <= 100; index += 1) {
+            deliver(channel.makeRequest(index.toString(16).padStart(32, '0')));
+        }
+        deliver(channel.makeRequest('0'.repeat(32)));
+
+        assert.equal(deliveries.length, 102);
+        assert.equal(deliveries.filter(requestId => requestId === '0'.repeat(32)).length, 2,
+            'the oldest ID becomes deliverable again after the bounded window evicts it');
+    });
+}
 
 test('OPEN-WORKSPACE-PIN-CLIENT-001 applies authoritative pin snapshots and validates correlated mutation results', async t => {
     const commands = createCommandRegistry();

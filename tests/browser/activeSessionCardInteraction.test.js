@@ -209,6 +209,18 @@ async function relativeTop(locator) {
     }, '.codex-sessions-list');
 }
 
+async function isRowFullyVisibleInList(rowLocator) {
+    return rowLocator.evaluate(node => {
+        const list = node.closest('.codex-sessions-list');
+        if (!list || node.offsetParent === null) return false;
+        const listRect = list.getBoundingClientRect();
+        const rowRect = node.getBoundingClientRect();
+        return rowRect.height > 0
+            && rowRect.top >= listRect.top - 1
+            && rowRect.bottom <= listRect.bottom + 1;
+    });
+}
+
 function documentMarkup(activeAiSessions) {
     return `<!doctype html>
         <html>
@@ -360,6 +372,66 @@ test('WEBVIEW-AI-SESSION-LIST-SCROLL-001 preserves semantic Active and History a
     assert.ok(Math.abs((await relativeTop(historyRestored)) - historyBefore) <= 1);
     assert.equal(await page.locator('[data-ai-session-tab="sessions"]').getAttribute('aria-selected'), 'true');
     assert.equal(await historyRestored.locator('.ai-session-primary-action').evaluate(node => document.activeElement === node), true);
+});
+
+test('ACTIVE-SESSION-FOCUS-REVEAL-001 reveals the newly focused card when a workspace or open-workspaces refresh moves focus', async t => {
+    const active = Array.from({ length: 8 }, (_, index) => session(
+        'codex', `active-${index + 1}`, index === 0
+    ));
+    const history = Array.from({ length: 8 }, (_, index) =>
+        historySession('codex', `history-${index + 1}`)
+    );
+    const page = await openListPage(t, active, history);
+    await waitForPageCondition(page, () => {
+        const list = document.querySelector('[data-ai-session-panel="active"] .codex-sessions-list');
+        return list && list.scrollHeight > list.clientHeight;
+    });
+    assert.equal(await isRowFullyVisibleInList(row(page, 'codex', 'active-7')), false);
+
+    await postListWorkspaceUpdate(page, active.map((entry, index) => ({
+        ...entry,
+        focused: index === 6,
+    })), history);
+    assert.equal(await isRowFullyVisibleInList(row(page, 'codex', 'active-7')), true);
+
+    await page.locator('[data-ai-session-tab="sessions"]').click();
+    assert.equal(
+        await page.locator('[data-ai-session-tab="sessions"]').getAttribute('aria-selected'),
+        'true'
+    );
+    await postListOpenWorkspacesUpdate(page, active.map((entry, index) => ({
+        ...entry,
+        focused: index === 1,
+    })), history);
+    assert.equal(
+        await page.locator('[data-ai-session-tab="active"]').getAttribute('aria-selected'),
+        'true'
+    );
+    assert.equal(await isRowFullyVisibleInList(row(page, 'codex', 'active-2')), true);
+});
+
+test('ACTIVE-SESSION-FOCUS-REVEAL-001 scrolls the origin card into view when conversation focus returns to the sidebar', async t => {
+    const active = Array.from({ length: 8 }, (_, index) => session(
+        'codex', `active-${index + 1}`, index === 6
+    ));
+    const history = Array.from({ length: 8 }, (_, index) =>
+        historySession('codex', `history-${index + 1}`)
+    );
+    const page = await openListPage(t, active, history);
+    await waitForPageCondition(page, () => {
+        const list = document.querySelector('[data-ai-session-panel="active"] .codex-sessions-list');
+        return list && list.scrollHeight > list.clientHeight;
+    });
+    assert.equal(await isRowFullyVisibleInList(row(page, 'codex', 'active-7')), false);
+
+    await postHostMessage(page, focusOrigin({ sessionId: 'active-7' }));
+    assert.equal(
+        await row(page, 'codex', 'active-7')
+            .locator('.ai-session-primary-action')
+            .evaluate(header => document.activeElement === header),
+        true
+    );
+    assert.equal(await isRowFullyVisibleInList(row(page, 'codex', 'active-7')), true);
 });
 
 test('ACTIVE-SESSION-CONVERSATION-OPEN-001 click focuses an unfocused card and opens the conversation for a focused card', async t => {

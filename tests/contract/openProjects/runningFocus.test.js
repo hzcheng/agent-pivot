@@ -34,7 +34,7 @@ const TARGET_IDENTITY = 'f'.repeat(64);
 
 function makeRequest(overrides = {}) {
     return {
-        protocolVersion: 1,
+        protocolVersion: 2,
         requestId: 'a'.repeat(32),
         targetNavigationIdentity: TARGET_IDENTITY,
         createdAtMs: 1000,
@@ -75,20 +75,20 @@ test('OPEN-WORKSPACE-RUNNING-FOCUS-PROTOCOL-001 strictly validates focus request
         /within its lease/,
     );
     assert.throws(
-        () => validateOpenWorkspaceRunningFocusRequest({ ...request, protocolVersion: 2 }),
+        () => validateOpenWorkspaceRunningFocusRequest({ ...request, protocolVersion: 1 }),
         /protocol version/,
     );
 
     const outcome = {
-        protocolVersion: 1,
+        protocolVersion: 2,
         requestId: request.requestId,
         targetNavigationIdentity: TARGET_IDENTITY,
-        accepted: true,
+        delivered: true,
     };
     assert.deepEqual(validateOpenWorkspaceRunningFocusOutcome(outcome), outcome);
     assert.throws(
-        () => validateOpenWorkspaceRunningFocusOutcome({ ...outcome, accepted: false }),
-        /must be accepted/,
+        () => validateOpenWorkspaceRunningFocusOutcome({ ...outcome, delivered: false }),
+        /must be delivered/,
     );
 });
 
@@ -115,9 +115,22 @@ test('OPEN-WORKSPACE-RUNNING-FOCUS-STORE-001 submits, scans, consumes, and sweep
     pending = await store.scan(1000);
     assert.equal(pending.length, 2);
 
-    await store.remove('a'.repeat(32));
+    assert.equal(await store.claim('a'.repeat(32)), true);
+    assert.deepEqual((await store.scan(1000)).map(request => request.requestId), [
+        'b'.repeat(32),
+    ]);
+    await store.restore('a'.repeat(32));
+    assert.equal(await store.claim('a'.repeat(32)), true);
+    await store.complete('a'.repeat(32));
+    assert.equal(await store.waitForDelivery('a'.repeat(32), 50), true);
     pending = await store.scan(1000);
     assert.deepEqual(pending.map(request => request.requestId), ['b'.repeat(32)]);
+
+    assert.equal(await store.claim('b'.repeat(32)), true);
+    await store.cancel('b'.repeat(32));
+    await store.complete('b'.repeat(32));
+    assert.equal(await store.waitForDelivery('b'.repeat(32), 20), false,
+        'a timed-out claim cannot leave a receipt that a later request consumes');
 });
 
 test('OPEN-WORKSPACE-RUNNING-FOCUS-STORE-001 refuses submissions beyond the pending cap', async t => {
@@ -139,6 +152,9 @@ test('OPEN-WORKSPACE-RUNNING-FOCUS-STORE-001 refuses submissions beyond the pend
 function createFocusCoordinator(t, overrides = {}) {
     const root = makeTempDirectory(t, 'running-focus-coordinator-');
     const mailbox = new Map();
+    const claims = new Map();
+    const receipts = new Set();
+    const waiters = new Map();
     const deliveries = [];
     const errors = [];
     const winners = overrides.winners || new Set();
@@ -161,8 +177,49 @@ function createFocusCoordinator(t, overrides = {}) {
                 .filter(request => request.expiresAtMs > nowMs)
                 .sort((left, right) => left.createdAtMs - right.createdAtMs
                     || left.requestId.localeCompare(right.requestId)),
-            remove: async requestId => {
+            claim: async requestId => {
+                const request = mailbox.get(requestId);
+                if (!request) {
+                    return false;
+                }
                 mailbox.delete(requestId);
+                claims.set(requestId, request);
+                return true;
+            },
+            restore: async requestId => {
+                const request = claims.get(requestId);
+                if (request) {
+                    claims.delete(requestId);
+                    mailbox.set(requestId, request);
+                }
+            },
+            complete: async requestId => {
+                if (!claims.delete(requestId)) {
+                    return;
+                }
+                const waiter = waiters.get(requestId);
+                if (waiter) {
+                    waiters.delete(requestId);
+                    waiter(true);
+                } else {
+                    receipts.add(requestId);
+                }
+            },
+            waitForDelivery: async requestId => {
+                if (receipts.delete(requestId)) {
+                    return true;
+                }
+                return new Promise(resolve => waiters.set(requestId, resolve));
+            },
+            cancel: async requestId => {
+                mailbox.delete(requestId);
+                claims.delete(requestId);
+                receipts.delete(requestId);
+                const waiter = waiters.get(requestId);
+                if (waiter) {
+                    waiters.delete(requestId);
+                    waiter(false);
+                }
             },
         }),
         deliverRequest: request => {
@@ -189,20 +246,20 @@ test('OPEN-WORKSPACE-RUNNING-FOCUS-COORDINATOR-001 delivers mailbox requests onl
     const { coordinator, deliveries, errors, mailbox } = createFocusCoordinator(t, { winners });
     t.after(() => coordinator.dispose());
 
-    const outcome = await coordinator.submit(makeRequest());
-    assert.deepEqual(outcome, {
-        protocolVersion: 1,
-        requestId: 'a'.repeat(32),
-        targetNavigationIdentity: TARGET_IDENTITY,
-        accepted: true,
-    });
+    const submission = coordinator.submit(makeRequest());
     await flushAsync();
     assert.deepEqual(deliveries, [], 'a non-winning window must not deliver');
     assert.equal(mailbox.size, 1);
 
     winners.add(TARGET_IDENTITY);
     coordinator.requestDelivery();
-    await flushAsync();
+    const outcome = await submission;
+    assert.deepEqual(outcome, {
+        protocolVersion: 2,
+        requestId: 'a'.repeat(32),
+        targetNavigationIdentity: TARGET_IDENTITY,
+        delivered: true,
+    });
     assert.deepEqual(deliveries, ['a'.repeat(32)]);
     assert.equal(mailbox.size, 0, 'a delivered request is consumed');
 
@@ -210,6 +267,74 @@ test('OPEN-WORKSPACE-RUNNING-FOCUS-COORDINATOR-001 delivers mailbox requests onl
     await flushAsync();
     assert.equal(deliveries.length, 1, 'a consumed request must not redeliver');
     assert.deepEqual(errors, []);
+});
+
+test('AI-SESSION-NEXT-RUNNING-COMMAND-001 OPEN-WORKSPACE-RUNNING-FOCUS-COORDINATOR-001 settles only after the winning window accepts delivery', async t => {
+    const root = makeTempDirectory(t, 'running-focus-delivery-receipt-');
+    const deliveries = [];
+    const makeCoordinator = winner => new OpenWorkspaceRunningFocusCoordinator(root, {
+        now: () => 5000,
+        setInterval: () => `running-focus-${winner}`,
+        clearInterval: () => undefined,
+        createWatcher: () => ({ close: () => undefined }),
+        deliverRequest: request => deliveries.push(request.requestId),
+        isNavigationWinner: () => Promise.resolve(winner),
+        reportError: error => { throw error; },
+        deliveryWaitMs: 500,
+    });
+    const source = makeCoordinator(false);
+    const target = makeCoordinator(true);
+    t.after(() => {
+        source.dispose();
+        target.dispose();
+    });
+
+    const submission = source.submit(makeRequest({
+        createdAtMs: 5000,
+        expiresAtMs: 65_000,
+    }));
+    const settledBeforeDelivery = await Promise.race([
+        submission.then(() => true),
+        new Promise(resolve => setTimeout(() => resolve(false), 100)),
+    ]);
+
+    assert.equal(settledBeforeDelivery, false,
+        'the source must not switch windows while an old Running handoff can still arrive');
+    target.requestDelivery();
+    await submission;
+    assert.deepEqual(deliveries, ['a'.repeat(32)]);
+});
+
+test('AI-SESSION-NEXT-RUNNING-COMMAND-001 OPEN-WORKSPACE-RUNNING-FOCUS-COORDINATOR-001 cancels an unclaimed timeout before later navigation', async t => {
+    const root = makeTempDirectory(t, 'running-focus-timeout-cancel-');
+    const deliveries = [];
+    const makeCoordinator = (winner, deliveryWaitMs) =>
+        new OpenWorkspaceRunningFocusCoordinator(root, {
+            now: () => 5000,
+            setInterval: () => `running-focus-timeout-${winner}`,
+            clearInterval: () => undefined,
+            createWatcher: () => ({ close: () => undefined }),
+            deliverRequest: request => deliveries.push(request.requestId),
+            isNavigationWinner: () => Promise.resolve(winner),
+            reportError: error => { throw error; },
+            deliveryWaitMs,
+        });
+    const source = makeCoordinator(false, 20);
+    const target = makeCoordinator(true, 200);
+    t.after(() => {
+        source.dispose();
+        target.dispose();
+    });
+
+    await assert.rejects(
+        source.submit(makeRequest({ createdAtMs: 5000, expiresAtMs: 65_000 })),
+        /not delivered in time/,
+    );
+    target.requestDelivery();
+    await flushAsync();
+
+    assert.deepEqual(deliveries, [],
+        'a timed-out Running request cannot arrive after a newer navigation command');
 });
 
 test('OPEN-WORKSPACE-RUNNING-FOCUS-COORDINATOR-001 keeps undeliverable requests for retry until consumed', async t => {
@@ -220,7 +345,7 @@ test('OPEN-WORKSPACE-RUNNING-FOCUS-COORDINATOR-001 keeps undeliverable requests 
     });
     t.after(() => coordinator.dispose());
 
-    await coordinator.submit(makeRequest());
+    const submission = coordinator.submit(makeRequest());
     await flushAsync();
     assert.deepEqual(deliveries, ['a'.repeat(32)]);
     assert.equal(errors.length, 1);
@@ -228,7 +353,7 @@ test('OPEN-WORKSPACE-RUNNING-FOCUS-COORDINATOR-001 keeps undeliverable requests 
 
     failures.clear();
     coordinator.requestDelivery();
-    await flushAsync();
+    await submission;
     assert.deepEqual(deliveries, ['a'.repeat(32), 'a'.repeat(32)]);
     assert.equal(mailbox.size, 0);
 
@@ -246,6 +371,10 @@ test('OPEN-WORKSPACE-RUNNING-FOCUS-COORDINATOR-001 rejects malformed submissions
     await assert.rejects(
         coordinator.submit({ ...makeRequest(), requestId: 'bad' }),
         /requestId/,
+    );
+    await assert.rejects(
+        coordinator.submit({ ...makeRequest(), protocolVersion: 1 }),
+        /protocol version/,
     );
     assert.equal(mailbox.size, 0);
 });

@@ -782,11 +782,12 @@
   {
     "id": "AI-SESSION-NEXT-RUNNING-COMMAND-001",
     "domain": "session",
-    "title": "The Next Running Session command serially cycles running AI sessions one jump per invocation with a stable local-first queue and a resilient cursor: manual focus changes re-anchor the cursor, local jumps focus the session terminal and open its conversation, sessions that ended mid-cycle are skipped with a warning, remote jumps hand an idempotent focus request through the Open Windows bridge mailbox so a late delivery cannot reverse a newer local jump, and the hand-off degrades to a plain window switch when the bridge predates the mailbox channel",
+    "title": "The Next Running Session command serially cycles running AI sessions one jump per invocation with a stable local-first queue and a resilient cursor: manual focus changes re-anchor the cursor, local jumps focus the session terminal and open its conversation, sessions that ended mid-cycle are skipped with a warning, and remote jumps switch windows only after a v2 delivered mailbox hand-off is accepted so stale Running requests cannot steal focus from newer Attention navigation",
     "priority": "P1",
     "status": "automated",
     "owners": [
       "tests/contract/aiSessions/runningSessionJump.test.js",
+      "tests/contract/openProjects/runningFocus.test.js",
       "tests/contract/dashboardBoundaries.test.js"
     ],
     "evidence": [
@@ -825,7 +826,7 @@
   {
     "id": "OPEN-WORKSPACE-RUNNING-FOCUS-PROTOCOL-001",
     "domain": "open-project",
-    "title": "Running focus hand-off requests are strictly validated one-shot mailbox records with bounded leases and correlated outcomes",
+    "title": "Running focus hand-off protocol v2 rejects legacy early-acceptance peers and strictly validates bounded requests with correlated delivered outcomes",
     "priority": "P1",
     "status": "automated",
     "owners": [
@@ -838,7 +839,7 @@
   {
     "id": "OPEN-WORKSPACE-RUNNING-FOCUS-STORE-001",
     "domain": "persistence",
-    "title": "The running focus mailbox stores one atomically renamed file per request, sweeps expired leases on scan, ignores malformed files, and caps pending requests",
+    "title": "The running focus mailbox atomically submits, claims, receipts, restores, and cancels bounded requests while sweeping expired leases and ignoring malformed files",
     "priority": "P1",
     "status": "automated",
     "owners": [
@@ -851,7 +852,7 @@
   {
     "id": "OPEN-WORKSPACE-RUNNING-FOCUS-COORDINATOR-001",
     "domain": "open-project",
-    "title": "The bridge running focus coordinator delivers mailbox requests only from the navigation-winning window, consumes them after delivery, retries failed deliveries until the lease sweeps them, and rejects malformed submissions",
+    "title": "The bridge running focus coordinator reports success only after the navigation-winning window accepts delivery, retries failed delivery, and cancels timed-out requests so Running hand-offs cannot arrive during newer Attention navigation",
     "priority": "P1",
     "status": "automated",
     "owners": [
@@ -866,7 +867,7 @@
   {
     "id": "OPEN-WORKSPACE-RUNNING-FOCUS-CLIENT-001",
     "domain": "open-project",
-    "title": "The main-extension bridge client sends correlated running focus requests, degrades to false when the hand-off channel is unavailable, and delivers received requests exactly once while acknowledging malformed payloads",
+    "title": "The main-extension bridge client sends correlated running focus v2 requests, degrades safely when delivery is unavailable or legacy, and delivers received requests exactly once while rejecting malformed payloads",
     "priority": "P1",
     "status": "automated",
     "owners": [
@@ -2056,16 +2057,18 @@
   {
     "id": "OPEN-DASHBOARD-BRIDGE-LIFECYCLE-001",
     "domain": "open-project",
-    "title": "Dashboard Bridge Lifecycle behavior",
+    "title": "The Dashboard bridge buffers authoritative state across bootstrap generations while action requests reject before handler adoption so mailbox delivery can retry",
     "priority": "P1",
     "status": "automated",
     "owners": [
       "tests/contract/openProjects/bridgeClient.test.js",
+      "tests/contract/openProjects/earlyBridge.test.js",
       "tests/contract/openProjects/dashboardConnectingStatus.test.js",
       "tests/integration/dashboard/openWorkspacesConnecting.test.js"
     ],
     "evidence": [
       "scripts/run-open-project-safety-checks.js",
+      "src/openWorkspaces/earlyBridge.ts",
       "src/openWorkspaces/dashboardController.ts",
       "src/webview/webviewContent.ts"
     ]

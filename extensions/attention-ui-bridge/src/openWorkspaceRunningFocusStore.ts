@@ -14,6 +14,7 @@ const REQUEST_FILE_SUFFIX = '.request.json';
 const REQUEST_FILE_PATTERN = /^[a-f0-9]{32}\.request\.json$/;
 const MAX_REQUEST_FILE_BYTES = 4 * 1024;
 const MAX_REQUEST_SCAN_ENTRIES = 1_000;
+const DELIVERY_POLL_MS = 10;
 
 function hasErrorCode(error: unknown, code: string): boolean {
     return typeof error === 'object'
@@ -25,14 +26,15 @@ function hasErrorCode(error: unknown, code: string): boolean {
 /**
  * Durable one-shot mailbox for cross-window running-session focus requests.
  * Requests are individual atomic files (temp file + rename), so a submitter
- * never needs a lock; the winning window deletes the file on delivery and the
- * sweeper deletes whatever outlives its lease.
+ * never needs a lock. The winning window atomically claims a request and
+ * promotes that claim into a delivery receipt; the submitter consumes the
+ * receipt before reporting success.
  */
 export class OpenWorkspaceRunningFocusStore {
     public readonly directoryPath: string;
 
     constructor(private readonly rootDirectory: string) {
-        this.directoryPath = path.join(rootDirectory, 'open-workspaces', 'running-focus', 'v1');
+        this.directoryPath = path.join(rootDirectory, 'open-workspaces', 'running-focus', 'v2');
     }
 
     async submit(raw: unknown): Promise<OpenWorkspaceRunningFocusRequest> {
@@ -97,7 +99,7 @@ export class OpenWorkspaceRunningFocusStore {
                     continue;
                 }
                 if (request.expiresAtMs <= nowMs) {
-                    await this.remove(request.requestId);
+                    await this.cancel(request.requestId);
                     continue;
                 }
                 requests.push(request);
@@ -111,9 +113,71 @@ export class OpenWorkspaceRunningFocusStore {
         return requests;
     }
 
-    async remove(requestId: string): Promise<void> {
+    async claim(requestId: string): Promise<boolean> {
         try {
-            await fs.promises.unlink(this.requestPath(requestId));
+            await fs.promises.rename(this.requestPath(requestId), this.claimPath(requestId));
+            return true;
+        } catch (error) {
+            if (hasErrorCode(error, 'ENOENT')) {
+                return false;
+            }
+            throw error;
+        }
+    }
+
+    async restore(requestId: string): Promise<void> {
+        try {
+            await fs.promises.rename(this.claimPath(requestId), this.requestPath(requestId));
+        } catch (error) {
+            if (!hasErrorCode(error, 'ENOENT')) {
+                throw error;
+            }
+        }
+    }
+
+    async complete(requestId: string): Promise<void> {
+        try {
+            // Atomic promotion prevents timeout cancellation from racing with
+            // receipt creation and leaving a stale success marker behind.
+            await fs.promises.rename(this.claimPath(requestId), this.receiptPath(requestId));
+        } catch (error) {
+            if (!hasErrorCode(error, 'ENOENT')) {
+                throw error;
+            }
+        }
+    }
+
+    async waitForDelivery(requestId: string, timeoutMs: number): Promise<boolean> {
+        const deadline = Date.now() + timeoutMs;
+        do {
+            try {
+                const raw = JSON.parse(await fs.promises.readFile(
+                    this.receiptPath(requestId),
+                    'utf8',
+                )) as { requestId?: unknown };
+                if (raw.requestId === requestId) {
+                    await this.unlinkIfPresent(this.receiptPath(requestId));
+                    return true;
+                }
+            } catch (error) {
+                if (!hasErrorCode(error, 'ENOENT') && !(error instanceof SyntaxError)) {
+                    throw error;
+                }
+            }
+            await new Promise(resolve => setTimeout(resolve, DELIVERY_POLL_MS));
+        } while (Date.now() < deadline);
+        return false;
+    }
+
+    async cancel(requestId: string): Promise<void> {
+        await this.unlinkIfPresent(this.requestPath(requestId));
+        await this.unlinkIfPresent(this.claimPath(requestId));
+        await this.unlinkIfPresent(this.receiptPath(requestId));
+    }
+
+    private async unlinkIfPresent(filePath: string): Promise<void> {
+        try {
+            await fs.promises.unlink(filePath);
         } catch (error) {
             if (!hasErrorCode(error, 'ENOENT')) {
                 throw error;
@@ -123,5 +187,13 @@ export class OpenWorkspaceRunningFocusStore {
 
     private requestPath(requestId: string): string {
         return path.join(this.directoryPath, `${requestId}${REQUEST_FILE_SUFFIX}`);
+    }
+
+    private claimPath(requestId: string): string {
+        return path.join(this.directoryPath, `${requestId}.claim.json`);
+    }
+
+    private receiptPath(requestId: string): string {
+        return path.join(this.directoryPath, `${requestId}.delivered.json`);
     }
 }

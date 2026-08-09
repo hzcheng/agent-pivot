@@ -60,15 +60,18 @@ test('OPEN-DASHBOARD-BRIDGE-LIFECYCLE-001 replays the latest pre-adoption state 
     ]);
 });
 
-test('OPEN-DASHBOARD-BRIDGE-LIFECYCLE-001 drops pre-adoption running focus requests and forwards live ones', () => {
+test('OPEN-DASHBOARD-BRIDGE-LIFECYCLE-001 rejects pre-adoption running focus requests for retry and forwards live ones', () => {
     const { bridge, created, errors } = makeBridge();
     const log = [];
 
-    created[0].handlers.onRunningFocusRequest({ requestId: 'early' });
+    assert.throws(
+        () => created[0].handlers.onRunningFocusRequest({ requestId: 'early' }),
+        /cannot be delivered before adoption/,
+    );
     assert.deepEqual(log, []);
     assert.deepEqual(errors, [[
-        'Agent Pivot open workspace bridge delivered a running focus request before adoption.',
-        'running focus request dropped before adoption',
+        'Agent Pivot open workspace bridge received a running focus request before adoption.',
+        'running focus request cannot be delivered before adoption',
     ]]);
 
     bridge.adopt(makeHandlers(log));

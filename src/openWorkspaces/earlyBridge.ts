@@ -60,16 +60,22 @@ export class EarlyOpenWorkspaceBridge<TClient> {
                 handlers => handlers.onPinSnapshot(snapshot),
                 () => { this.pendingPinSnapshot = snapshot; },
             ),
-            // A focus hand-off is an action trigger, not state: replaying it
-            // after adoption would jump seconds after the moment passed, so a
-            // pre-adoption request is logged and dropped like an error.
+            // Focus hand-offs are mailbox actions. Rejecting before adoption
+            // keeps the claim retryable; acknowledging a drop would let the
+            // source switch windows before any local jump was queued.
             onRunningFocusRequest: request => this.deliver(
                 'running focus request',
                 handlers => handlers.onRunningFocusRequest(request),
-                () => this.options.logError(
-                    'Agent Pivot open workspace bridge delivered a running focus request before adoption.',
-                    new Error('running focus request dropped before adoption'),
-                ),
+                () => {
+                    const error = new Error(
+                        'running focus request cannot be delivered before adoption',
+                    );
+                    this.options.logError(
+                        'Agent Pivot open workspace bridge received a running focus request before adoption.',
+                        error,
+                    );
+                    throw error;
+                },
             ),
             onAttentionFocusRequest: request => this.deliver(
                 'attention focus request',

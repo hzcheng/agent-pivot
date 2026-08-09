@@ -11,6 +11,7 @@ import {
 import { OpenWorkspaceRunningFocusStore } from './openWorkspaceRunningFocusStore';
 
 const RUNNING_FOCUS_SCAN_INTERVAL_MS = 2_000;
+const RUNNING_FOCUS_DELIVERY_WAIT_MS = 5_000;
 
 interface OpenWorkspaceRunningFocusWatcher {
     close(): void;
@@ -25,6 +26,7 @@ export interface OpenWorkspaceRunningFocusCoordinatorDependencies {
     clearInterval(handle: unknown): void;
     createWatcher(directoryPath: string, onDidChange: () => void): OpenWorkspaceRunningFocusWatcher;
     createStore?(rootDirectory: string): OpenWorkspaceRunningFocusStore;
+    deliveryWaitMs?: number;
 }
 
 /**
@@ -32,8 +34,9 @@ export interface OpenWorkspaceRunningFocusCoordinatorDependencies {
  * window's main extension only when this window is the navigation winner for
  * the request's target workspace — the same priority order direct navigation
  * uses, so the focus handoff lands in the window the user was switched to.
- * Delivered requests are consumed; failed deliveries stay in the mailbox and
- * are retried until the lease sweeps them.
+ * The winning window claims each request before delivery and receipts it only
+ * after the main extension has accepted the handoff. Failed deliveries are
+ * restored for retry until the submitter times out and cancels them.
  */
 export class OpenWorkspaceRunningFocusCoordinator {
     private readonly store: OpenWorkspaceRunningFocusStore;
@@ -67,11 +70,19 @@ export class OpenWorkspaceRunningFocusCoordinator {
             validateOpenWorkspaceRunningFocusRequest(raw),
         );
         this.requestDelivery();
+        const delivered = await this.store.waitForDelivery(
+            request.requestId,
+            this.dependencies.deliveryWaitMs ?? RUNNING_FOCUS_DELIVERY_WAIT_MS,
+        );
+        if (!delivered) {
+            await this.store.cancel(request.requestId);
+            throw new Error('open workspace running focus request was not delivered in time');
+        }
         return {
             protocolVersion: OPEN_WORKSPACE_RUNNING_FOCUS_PROTOCOL_VERSION,
             requestId: request.requestId,
             targetNavigationIdentity: request.targetNavigationIdentity,
-            accepted: true,
+            delivered: true,
         };
     }
 
@@ -126,21 +137,15 @@ export class OpenWorkspaceRunningFocusCoordinator {
                 this.dependencies.reportError(error);
                 continue;
             }
-            if (!winner) {
+            if (!winner || !await this.store.claim(request.requestId)) {
                 continue;
             }
             try {
                 await this.dependencies.deliverRequest(request);
-            } catch (error) {
-                // The request stays in the mailbox for the next scan until its
-                // lease expires (e.g. a main extension that predates delivery).
-                this.dependencies.reportError(error);
-                continue;
-            }
-            try {
-                await this.store.remove(request.requestId);
+                await this.store.complete(request.requestId);
             } catch (error) {
                 this.dependencies.reportError(error);
+                await this.store.restore(request.requestId);
             }
         }
     }

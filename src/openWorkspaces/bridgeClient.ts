@@ -399,7 +399,7 @@ export default class OpenWorkspaceBridgeClient implements vscode.Disposable {
         return outcome;
     }
 
-    async receiveRunningFocusRequest(raw: unknown): Promise<void> {
+    receiveRunningFocusRequest(raw: unknown): void {
         if (this.disposed) { return; }
         let request: OpenWorkspaceRunningFocusRequest;
         try {
@@ -421,15 +421,27 @@ export default class OpenWorkspaceBridgeClient implements vscode.Disposable {
         }
         this.deliveredRunningFocusRequestIds.add(request.requestId);
         try {
-            await this.onRunningFocusRequest(request);
+            const task = this.onRunningFocusRequest(request);
+            // Delivery means the target handler accepted the action into its
+            // own serialized queue. Later task failures are diagnostic only:
+            // retrying after a partial focus could repeat a user-visible jump.
+            void Promise.resolve(task).catch(error => {
+                try {
+                    this.onError(error);
+                } catch (_reportError) {
+                    // Diagnostics must never change delivery behavior.
+                }
+            });
         } catch (error) {
-            // The jump was attempted; a retry would repeat a user-visible
-            // focus change, so failures are reported but still acknowledged.
+            // A synchronous rejection means the handler was not ready and no
+            // action was queued. Let the mailbox restore and retry this ID.
+            this.deliveredRunningFocusRequestIds.delete(request.requestId);
             try {
                 this.onError(error);
             } catch (_reportError) {
                 // Diagnostics must never change delivery behavior.
             }
+            throw error;
         }
     }
 

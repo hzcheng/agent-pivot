@@ -689,10 +689,6 @@ body .project {
         }
     }
 
-    .settings-button {
-        margin-left: 1px;
-    }
-
     /* clears the 'X' from Chrome */
     input[type="search"]::-webkit-search-decoration,
     input[type="search"]::-webkit-search-cancel-button,
@@ -2109,10 +2105,25 @@ body.steward-sidebar {
         z-index: 300;
         width: 100%;
         box-sizing: border-box;
-        padding-top: 8px;
-        padding-bottom: 8px;
+        // Float the header content off the panel edges; the bottom shadow
+        // stays full-width as the single separator line.
+        padding: 12px 6px 0;
         background: var(--vscode-editor-background);
         box-shadow: 0 1px 0 var(--vscode-panel-border);
+    }
+
+    .dashboard-tab-list {
+        // The strip spans the full header width so its cells share the search
+        // row's edges; the header's bottom shadow is the single separator, so
+        // the strip's own border and highlight hairline are dropped to avoid a
+        // doubled line below the tabs.
+        padding-right: 0;
+        padding-left: 0;
+        border-bottom: none;
+
+        &::before {
+            content: none;
+        }
     }
 
     .sticky-groups-wrapper {
@@ -2148,10 +2159,6 @@ body.steward-sidebar {
                 width: 17px;
                 height: 17px;
             }
-        }
-
-        .settings-button {
-            margin-left: 0;
         }
     }
 

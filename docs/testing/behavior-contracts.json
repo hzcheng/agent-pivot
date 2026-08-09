@@ -5410,15 +5410,19 @@
   {
     "id": "WEBVIEW-SPONSOR-ENTRY-001",
     "domain": "webview",
-    "title": "Dashboard view title sponsor command offers the Ko-fi and Afdian sponsorship links",
+    "title": "Dashboard toolbar sponsor button offers GitHub star, Ko-fi, and Afdian links",
     "priority": "P2",
     "status": "automated",
     "owners": [
       "tests/unit/sponsor/sponsor.test.js",
-      "tests/contract/dashboardBoundaries.test.js"
+      "tests/contract/dashboardBoundaries.test.js",
+      "tests/contract/dashboard/messageHandlers.test.js"
     ],
     "evidence": [
       "src/sponsor.ts",
+      "src/webview/webviewContent.ts",
+      "src/webview/webviewProjectScripts.js",
+      "src/dashboard/messageHandlers.ts",
       "package.json"
     ]
   }

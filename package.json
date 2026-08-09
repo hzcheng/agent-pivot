@@ -140,8 +140,7 @@
             },
             {
                 "command": "agentPivot.sponsor",
-                "title": "Agent Pivot: Sponsor",
-                "icon": "$(heart)"
+                "title": "Agent Pivot: Sponsor"
             }
         ],
         "keybindings": [
@@ -156,15 +155,6 @@
                 "mac": "cmd+alt+a"
             }
         ],
-        "menus": {
-            "view/title": [
-                {
-                    "command": "agentPivot.sponsor",
-                    "when": "view == agentPivot.dashboard",
-                    "group": "navigation@99"
-                }
-            ]
-        },
         "configuration": {
             "type": "object",
             "title": "Agent Pivot",

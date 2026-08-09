@@ -651,7 +651,8 @@ body .project {
     }
 
     .toggle-all-groups-button,
-    .settings-button {
+    .settings-button,
+    .sponsor-button {
         display: inline-flex;
         align-items: center;
         justify-content: center;
@@ -2137,7 +2138,8 @@ body.steward-sidebar {
         }
 
         .toggle-all-groups-button,
-        .settings-button {
+        .settings-button,
+        .sponsor-button {
             width: 26px;
             height: 26px;
             margin-left: 4px;

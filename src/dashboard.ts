@@ -146,7 +146,7 @@ import { createAiSessionStatusCapability } from './aiSessions/statusCapability';
 import { createAiSessionRuntimeSettlementCapability } from './aiSessions/runtimeSettlementCapability';
 import { createAiSessionAttentionEventCapability } from './aiSessions/attentionEventCapability';
 import { createNotifyConfiguration } from './aiSessions/notifyConfiguration';
-import { registerSponsorCommand } from './sponsor';
+import { registerSponsorCommand, showSponsorOptions } from './sponsor';
 import { buildNotifyPayload } from './aiSessions/notifyIntegration/notifier';
 import {
     getLastPartOfPath,
@@ -1603,6 +1603,7 @@ async function initializeDashboard(
             'workbench.extensions.action.showExtensionsWithIds',
             ['hzcheng.agent-pivot-attention-ui-bridge'],
         ),
+        showSponsorOptions,
         showWarningMessage: message => vscode.window.showWarningMessage(message),
     });
 

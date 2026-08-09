@@ -330,6 +330,7 @@ features. If it saves you time, you can buy the author a coffee — sponsorships
 fund upcoming Pro features such as one-click phone push and remote session
 reply.
 
+- [Star on GitHub](https://github.com/hzcheng/agent-pivot) — free, and it helps others discover the project
 - [Ko-fi](https://ko-fi.com/hongzecheng) — PayPal / card, from anywhere
 - [爱发电 (Afdian)](https://afdian.com/a/YOUR_AFDIAN_ID) — 微信 / 支付宝
 

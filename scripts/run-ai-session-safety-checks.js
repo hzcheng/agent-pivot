@@ -5179,7 +5179,9 @@ function runWebviewContentChecks() {
     assert.ok(!webviewContent.includes('getAddProjectDiv(group.id)'));
     assert.ok(!webviewContent.includes('function getAddProjectDiv'));
     assert.ok(webviewContent.includes('class="settings-button" data-action="open-settings"'));
+    assert.ok(webviewContent.includes('class="sponsor-button" data-action="sponsor"'));
     assert.ok(webviewProjectScripts.includes("type: 'open-settings'"));
+    assert.ok(webviewProjectScripts.includes("type: 'sponsor'"));
     assert.ok(webviewProjectScripts.includes('projectId,'));
     assert.ok(!webviewProjectScripts.includes('projectUri'));
     assert.ok(insideProjectClick.includes('projectDiv.hasAttribute("data-current-workspace")'));
@@ -5247,6 +5249,7 @@ function runWebviewContentChecks() {
     ), 'the dashboard aliases the extracted incremental refresh');
     assert.ok(attentionEvents.includes('async function evaluateAiSessionAttention('));
     assert.ok(messageHandlersSource.includes("'open-settings': async () =>"));
+    assert.ok(messageHandlersSource.includes("'sponsor': async () =>"));
     assert.ok(settingsFunction.includes('dashboardRuntimeController.openSettings()'));
     assert.ok(dashboardRuntimeControllerSource.includes("executeCommand('workbench.action.openSettings', query)"));
     assert.ok(!settingsFunction.includes('showQuickPick'));

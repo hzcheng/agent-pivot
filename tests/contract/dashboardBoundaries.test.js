@@ -470,25 +470,21 @@ test('WEBVIEW-DASHBOARD-COMMAND-REGISTRATION-001 contributes the Prompt terminal
     ), false);
 });
 
-test('WEBVIEW-SPONSOR-ENTRY-001 contributes the sponsor command with a dashboard view title entry and no default keybinding', () => {
+test('WEBVIEW-SPONSOR-ENTRY-001 contributes the sponsor command without a default keybinding or a view title entry', () => {
     const manifest = require('../../package.json');
     assert.deepEqual(
         manifest.contributes.commands.filter(command => command.command === 'agentPivot.sponsor'),
         [{
             command: 'agentPivot.sponsor',
             title: 'Agent Pivot: Sponsor',
-            icon: '$(heart)',
         }]
     );
-    assert.deepEqual(
-        ((manifest.contributes.menus || {})['view/title'] || []).filter(
+    assert.equal(
+        ((manifest.contributes.menus || {})['view/title'] || []).some(
             entry => entry.command === 'agentPivot.sponsor'
         ),
-        [{
-            command: 'agentPivot.sponsor',
-            when: 'view == agentPivot.dashboard',
-            group: 'navigation@99',
-        }]
+        false,
+        'the sponsor entry lives in the dashboard toolbar row, not the view title'
     );
     assert.equal(
         (manifest.contributes.keybindings || []).some(

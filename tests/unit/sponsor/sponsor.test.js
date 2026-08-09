@@ -65,16 +65,26 @@ test('WEBVIEW-SPONSOR-ENTRY-001 registers the sponsor command exactly once', () 
     assert.equal(sponsor.SPONSOR_COMMAND_ID, 'agentPivot.sponsor');
 });
 
-test('WEBVIEW-SPONSOR-ENTRY-001 picking Ko-fi opens the Ko-fi page', async () => {
+test('WEBVIEW-SPONSOR-ENTRY-001 the picker leads with the GitHub star, then the funding platforms', async () => {
     const fixture = createVscodeFixture(0);
     const sponsor = loadSponsor(fixture.vscode);
-    sponsor.registerSponsorCommand();
-    await fixture.registered[0][1]();
+    await sponsor.showSponsorOptions();
     assert.equal(fixture.picks.length, 1);
     assert.deepEqual(
         fixture.picks[0].items.map(item => item.link.id),
-        sponsor.SPONSOR_LINKS.map(link => link.id)
+        ['github', 'ko-fi', 'afdian']
     );
+    assert.deepEqual(
+        fixture.opened.map(uri => uri.value),
+        ['https://github.com/hzcheng/agent-pivot']
+    );
+});
+
+test('WEBVIEW-SPONSOR-ENTRY-001 the command delegates to the shared picker', async () => {
+    const fixture = createVscodeFixture(1);
+    const sponsor = loadSponsor(fixture.vscode);
+    sponsor.registerSponsorCommand();
+    await fixture.registered[0][1]();
     assert.deepEqual(
         fixture.opened.map(uri => uri.value),
         ['https://ko-fi.com/hongzecheng']
@@ -82,10 +92,9 @@ test('WEBVIEW-SPONSOR-ENTRY-001 picking Ko-fi opens the Ko-fi page', async () =>
 });
 
 test('WEBVIEW-SPONSOR-ENTRY-001 picking Afdian opens the Afdian page', async () => {
-    const fixture = createVscodeFixture(1);
+    const fixture = createVscodeFixture(2);
     const sponsor = loadSponsor(fixture.vscode);
-    sponsor.registerSponsorCommand();
-    await fixture.registered[0][1]();
+    await sponsor.showSponsorOptions();
     assert.deepEqual(
         fixture.opened.map(uri => uri.value),
         ['https://afdian.com/a/YOUR_AFDIAN_ID']
@@ -118,4 +127,13 @@ test('WEBVIEW-SPONSOR-ENTRY-001 sponsor links stay in sync with .github/FUNDING.
             );
         }
     }
+});
+
+test('WEBVIEW-SPONSOR-ENTRY-001 the GitHub star link matches package.json repository.url', () => {
+    const manifest = JSON.parse(fs.readFileSync(
+        path.resolve(__dirname, '../../../package.json'), 'utf8'
+    ));
+    const sponsor = loadSponsor(createVscodeFixture().vscode);
+    const repositoryUrl = manifest.repository.url.replace(/\.git$/, '');
+    assert.equal(sponsor.GITHUB_REPOSITORY_URL, repositoryUrl);
 });

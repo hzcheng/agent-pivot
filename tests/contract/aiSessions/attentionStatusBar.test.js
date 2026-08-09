@@ -344,3 +344,63 @@ test('ATTENTION-STATUS-BAR-QUEUE-001 jump reports an unmatchable remote session 
         ['info', 'Agent Pivot: no AI sessions need attention.'],
     ]);
 });
+
+function makeFocusContinuityJump(queue, state) {
+    const calls = [];
+    const jump = createAttentionQueueJumpHandler({
+        buildQueue: () => queue,
+        focusSession: async item => {
+            state.focused = `${item.provider}:${item.sessionId}`;
+            calls.push(['focusSession', state.focused]);
+            return true;
+        },
+        openConversation: async item => {
+            calls.push(['openConversation', `${item.provider}:${item.sessionId}`]);
+        },
+        acknowledge: async () => {},
+        shouldAcknowledge: () => false,
+        findNavigationCardId: () => 'card-remote',
+        openNavigationCard: async cardId => {
+            calls.push(['openNavigationCard', cardId]);
+        },
+        showInformationMessage: () => {},
+        showWarningMessage: () => {},
+        getCurrentIdentity: () => {
+            const [provider, sessionId] = state.focused.split(':');
+            return { provider, sessionId };
+        },
+    });
+    return { calls, jump };
+}
+
+test('ATTENTION-STATUS-BAR-QUEUE-001 jump continues after the focused session instead of re-landing on it', async () => {
+    const queue = buildAttentionQueue(makeQueueInput());
+    const state = { focused: 'kimi:sess-1' };
+    const { calls, jump } = makeFocusContinuityJump(queue, state);
+
+    await jump();
+
+    assert.deepEqual(calls, [
+        ['focusSession', 'codex:sess-2'],
+        ['openConversation', 'codex:sess-2'],
+    ], 'a press while watching the queue head must move to the next waiting session');
+});
+
+test('ATTENTION-STATUS-BAR-QUEUE-001 jump skips the focused session when the cursor wraps onto it', async () => {
+    const input = makeQueueInput();
+    input.aggregate.sessions = input.aggregate.sessions.slice(0, 2);
+    const queue = buildAttentionQueue(input);
+    const state = { focused: 'kimi:sess-1' };
+    const { calls, jump } = makeFocusContinuityJump(queue, state);
+
+    await jump();
+    state.focused = 'kimi:sess-1';
+    await jump();
+
+    assert.deepEqual(calls, [
+        ['focusSession', 'codex:sess-2'],
+        ['openConversation', 'codex:sess-2'],
+        ['focusSession', 'codex:sess-2'],
+        ['openConversation', 'codex:sess-2'],
+    ], 'wrapping onto the watched session must skip ahead instead of spending a press on it');
+});

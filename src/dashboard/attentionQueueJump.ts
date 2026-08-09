@@ -4,6 +4,7 @@ import type {
     AttentionQueue,
     AttentionQueueItem,
 } from '../aiSessions/attentionQueue';
+import type { AiSessionProviderId } from '../models';
 
 export interface AttentionQueueJumpOptions {
     buildQueue: () => AttentionQueue;
@@ -15,6 +16,8 @@ export interface AttentionQueueJumpOptions {
     openNavigationCard: (cardId: string) => Promise<void>;
     showInformationMessage: (message: string) => void;
     showWarningMessage: (message: string) => void;
+    /** The session the user is currently watching, when it is a known AI session. */
+    getCurrentIdentity?: () => { provider: AiSessionProviderId; sessionId: string } | null;
 }
 
 /**
@@ -37,12 +40,34 @@ export function createAttentionQueueJumpHandler(
             );
             return;
         }
+        const currentIdentity = options.getCurrentIdentity
+            ? options.getCurrentIdentity()
+            : null;
+        const currentIndex = currentIdentity
+            ? items.findIndex(item => item.local
+                && item.provider === currentIdentity.provider
+                && item.sessionId === currentIdentity.sessionId)
+            : -1;
         const previousIndex = lastKey === null
             ? -1
             : items.findIndex(item => attentionQueueItemKey(item) === lastKey);
-        const next = previousIndex < 0
-            ? items[0]
-            : items[(previousIndex + 1) % items.length];
+        let next: AttentionQueueItem;
+        if (previousIndex >= 0) {
+            next = items[(previousIndex + 1) % items.length];
+            if (currentIndex >= 0
+                && items.length > 1
+                && attentionQueueItemKey(next) === attentionQueueItemKey(items[currentIndex])) {
+                // The wrap would re-land on the session the user is already
+                // watching; spend the press on the following entry instead.
+                next = items[(previousIndex + 2) % items.length];
+            }
+        } else if (currentIndex >= 0) {
+            // A fresh or stale cursor continues after the session the user is
+            // looking at rather than restarting at the queue head.
+            next = items[(currentIndex + 1) % items.length];
+        } else {
+            next = items[0];
+        }
         lastKey = attentionQueueItemKey(next);
         if (next.local) {
             const focused = await options.focusSession(next);

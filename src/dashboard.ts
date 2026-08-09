@@ -112,6 +112,7 @@ import { AiSessionRuntimeCoordinator } from './aiSessions/runtimeCoordinator';
 import type { AiSessionTmuxFallbackContext } from './aiSessions/runtimeCoordinator';
 import type { AiSessionRuntimeSnapshot } from './aiSessions/runtimeTypes';
 import { cloneAiSessionRuntimeIdentity, TmuxRuntimeUnavailableError } from './aiSessions/runtimeTypes';
+import type { AiSessionRuntimeIdentity } from './aiSessions/runtimeTypes';
 import { TmuxClient, TmuxClientError } from './aiSessions/tmuxClient';
 import { TmuxRuntimeBindingStore } from './aiSessions/tmuxRuntimeBindingStore';
 import { TmuxAttachBindingStore } from './aiSessions/tmuxAttachBindingStore';
@@ -1815,18 +1816,45 @@ async function initializeDashboard(
         showWarningMessage: message =>
             vscode.window.showWarningMessage(message),
     });
+    // MRU focus resolution must be completion- and visibility-independent:
+    // the attention highlighter clears its identity when a turn completes or
+    // the dashboard hides, which would starve the tracker. Resolve the active
+    // terminal straight from the tmux focus binding and the runtime registry.
+    const getFocusedAiSessionIdentity = (): AiSessionRuntimeIdentity | null => {
+        const activeTerminal = vscode.window.activeTerminal;
+        if (!activeTerminal) {
+            return null;
+        }
+        const tmuxRuntime = tmuxRuntimeBackend.getFocusedRuntime(activeTerminal);
+        if (tmuxRuntime?.identity.sessionId) {
+            return tmuxRuntime.identity;
+        }
+        const direct = aiSessionRuntimeCoordinator.getActive().find(candidate =>
+            candidate.backend === 'vscode'
+                && candidate.terminal === activeTerminal
+                && Boolean(candidate.identity.sessionId));
+        return direct?.identity || null;
+    };
     const focusAiSessionForJump = (target: {
         provider: AiSessionProviderId;
         sessionId: string;
     }): Promise<boolean> => {
         const cardId = getCurrentWorkspaceActionTargetWithoutCardId()?.cardId;
-        return cardId
-            ? aiSessionTerminalCommandController.focusActive(
-                cardId,
-                target.provider,
-                target.sessionId
-            )
-            : Promise.resolve(false);
+        if (!cardId) {
+            return Promise.resolve(false);
+        }
+        return aiSessionTerminalCommandController.focusActive(
+            cardId,
+            target.provider,
+            target.sessionId
+        ).then(focused => {
+            // Re-showing an already-active terminal fires no focus event, so
+            // successful command jumps record into the MRU directly.
+            if (focused) {
+                aiSessionMru.record(target.provider, target.sessionId);
+            }
+            return focused;
+        });
     };
     const openAiSessionConversationForJump = (target: {
         provider: AiSessionProviderId;
@@ -1875,15 +1903,27 @@ async function initializeDashboard(
         showWarningMessage: message =>
             vscode.window.showWarningMessage(message),
     });
-    // Every jump path focuses a terminal, so this single listener keeps the
-    // MRU truthful for command jumps and manual terminal clicks alike.
+    // Tmux window switches inside one attach terminal never fire VS Code
+    // terminal focus events, so event-driven recording starves the tracker.
+    // Sample the resolved focus instead: the tmux focused-runtime monitor
+    // already polls every second, keeping this resolution fresh.
     const aiSessionMru = createAiSessionMruTracker({ now: () => Date.now() });
-    ownResource(() => vscode.window.onDidChangeActiveTerminal(() => {
-        const identity = getFocusedAiSessionRuntimeIdentity();
-        if (identity?.sessionId) {
-            aiSessionMru.record(identity.provider, identity.sessionId);
-        }
-    }));
+    ownResource(() => {
+        let lastSampledKey: string | null = null;
+        const handle = setInterval(() => {
+            const identity = getFocusedAiSessionIdentity();
+            const key = identity?.sessionId
+                ? getAiSessionKey(identity.provider, identity.sessionId)
+                : null;
+            if (key !== lastSampledKey) {
+                lastSampledKey = key;
+                if (identity?.sessionId) {
+                    aiSessionMru.record(identity.provider, identity.sessionId);
+                }
+            }
+        }, 1000);
+        return { dispose: () => clearInterval(handle) };
+    });
     const aiSessionQuickSwitchHandlers = createAiSessionQuickSwitchHandlers({
         getLocalSessions: () => getCurrentWorkspaceActionTargetWithoutCardId()
             ?.sessions.activeSessions || [],
@@ -1897,7 +1937,7 @@ async function initializeDashboard(
                 runningSessionCount: card.runningSessionCount,
             })),
         getFocusedSessionKey: () => {
-            const identity = getFocusedAiSessionRuntimeIdentity();
+            const identity = getFocusedAiSessionIdentity();
             return identity?.sessionId
                 ? getAiSessionKey(identity.provider, identity.sessionId)
                 : null;

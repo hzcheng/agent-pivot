@@ -1,6 +1,8 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const test = require('node:test');
 
 const {
@@ -87,6 +89,30 @@ function makeOptions(overrides = {}) {
     };
     return { calls, options };
 }
+
+test('AI-SESSION-QUICK-SWITCH-COMMANDS-001 wires the MRU to a completion-independent focus resolver', () => {
+    // Regression: the first wiring read the attention highlighter's focused
+    // identity, which is cleared when a turn completes or the dashboard
+    // hides, and waited for onDidChangeActiveTerminal, which tmux window
+    // switches inside one attach terminal never fire — so the tracker
+    // starved and the toggle always reported no previous session. The MRU
+    // must sample a completion-independent terminal resolution instead.
+    const source = fs.readFileSync(
+        path.resolve(__dirname, '../../../src/dashboard.ts'),
+        'utf8'
+    );
+    const resolver = /const getFocusedAiSessionIdentity = [\s\S]*?\n    \};/;
+    assert.match(source, resolver);
+    const resolverBody = source.match(resolver)[0];
+    assert.match(resolverBody, /tmuxRuntimeBackend\.getFocusedRuntime\(activeTerminal\)/);
+    assert.match(resolverBody, /candidate\.terminal === activeTerminal/);
+    assert.doesNotMatch(resolverBody, /getFocusedAiSessionRuntimeIdentity/);
+
+    const sampler = /setInterval\(\(\) => \{\s*const identity = getFocusedAiSessionIdentity\(\);[\s\S]*?aiSessionMru\.record\(/;
+    assert.match(source, sampler);
+    assert.match(source, /aiSessionMru\.record\(target\.provider, target\.sessionId\)/);
+    assert.match(source, /getFocusedSessionKey: \(\) => \{\s*const identity = getFocusedAiSessionIdentity\(\);/);
+});
 
 test('AI-SESSION-QUICK-SWITCH-COMMANDS-001 tracker keeps a bounded deduplicated newest-first order', () => {
     const tracker = createAiSessionMruTracker({ now: () => 1000, maxEntries: 3 });

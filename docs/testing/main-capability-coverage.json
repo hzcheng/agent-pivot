@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "b388dee9464be7e0ac6850cd12c3a943b5868f3b",
+        "head": "8e52aa457221dec03adea53f6147bf06f43ec752",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -225,7 +225,8 @@
             "6eb07444bf9dd9346b257e68ca19280e06d851d5",
             "141522b97549e11c99cd3234e9b43f3ed91e55c3",
             "17f35696c9f896aae55b18b67c390b3cc162e8ef",
-            "0a632f3705805af9c1b2397da2f2304aa6b698cf"
+            "0a632f3705805af9c1b2397da2f2304aa6b698cf",
+            "ec705188907457b9948481d0142b5255fd7ad103"
         ]
     },
     "capabilities": [
@@ -1048,7 +1049,8 @@
                 "98b73a4dc087b0c0a71554036bb988b00226abe6",
                 "6f22284edc8b8e3b4e71dcf8abb5b46569164abc",
                 "94c139ff153d9c39e809814de35605d62b44e363",
-                "1432fa2bd99d405c9660ecabc7fb93e4d78525a9"
+                "1432fa2bd99d405c9660ecabc7fb93e4d78525a9",
+                "8e52aa457221dec03adea53f6147bf06f43ec752"
             ],
             "behaviors": [
                 "RUNTIME-BOOTSTRAP-TMUX-RESTORE-DEFERRAL-001",
@@ -1062,7 +1064,8 @@
                 "WEBVIEW-SIDEBAR-VISIBILITY-RETENTION-001",
                 "WEBVIEW-SINGLE-BOOT-ASSET-001",
                 "WEBVIEW-STYLESHEET-FIRST-PAINT-001",
-                "WEBVIEW-WEBVIEW-REFRESH-FOCUS-001"
+                "WEBVIEW-WEBVIEW-REFRESH-FOCUS-001",
+                "WEBVIEW-SIDEBAR-HEADER-LAYOUT-001"
             ],
             "prGates": [
                 "test:deterministic:run",

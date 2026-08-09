@@ -30,6 +30,9 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
 - Workspace note status messages are now prefixed (`Workspace: ...`), so a
   note operation and a Session comment operation running at the same time
   no longer overwrite each other's status text.
+- Upgraded the bundled Mermaid diagram renderer from 11.16.0 to 11.16.1 and
+  DOMPurify from 3.4.12 to 3.4.13 to pick up upstream security fixes
+  (GHSA-6x64-9x62-f2gx, GHSA-3rrr-jr9j-h3q3, GHSA-55q2-fjhq-7xh7).
 
 ### Removed
 

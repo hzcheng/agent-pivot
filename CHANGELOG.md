@@ -4,6 +4,8 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-08-09
+
 ### Added
 
 - New `Agent Pivot: Sponsor` command and a heart button in the dashboard

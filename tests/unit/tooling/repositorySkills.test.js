@@ -144,6 +144,9 @@ test('ARCH-REPOSITORY-SKILL-GUIDANCE-001 verifies provider adapters against real
         ['probe before assuming', /probe real data first/i],
         ['layout mirroring', /mirror the real layout/i],
         ['status inference guidance', /no status[\s\S]*transcript tail/i],
+        ['type imports remain inside the Codex boundary', /full relative-import graph[\s\S]*type-only imports[\s\S]*architecture-guarded/i],
+        ['rollout readers are injected at composition', /rollout telemetry readers[\s\S]*composition\.ts[\s\S]*local structural type/i],
+        ['focused architecture verification', /npm run test:architecture-guards[\s\S]*before the full gate/i],
     ]);
 });
 

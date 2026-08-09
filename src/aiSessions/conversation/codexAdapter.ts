@@ -61,6 +61,15 @@ export interface CodexConversationClient extends AiSessionDisposable {
     ): AiSessionDisposable;
 }
 
+interface CodexRolloutTelemetrySnapshot {
+    model?: string;
+    context?: {
+        usedTokens: number;
+        maxTokens: number;
+    };
+    currentWorkdir?: string;
+}
+
 export interface CodexConversationAdapterOptions {
     client: CodexConversationClient;
     watchSessionChanges(onDidChange: () => void): AiSessionDisposable;
@@ -69,7 +78,9 @@ export interface CodexConversationAdapterOptions {
     setCacheTimeout?(callback: () => void, delayMs: number): TimerHandle;
     clearCacheTimeout?(handle: TimerHandle): void;
     resolveWorktree?: ResolveWorktree;
-    readCurrentWorkdir?(sessionId: string): string | undefined;
+    readRolloutTelemetry?(
+        sessionId: string
+    ): CodexRolloutTelemetrySnapshot | undefined;
     readLifecycleSignal?(
         sessionId: string
     ): AiSessionLifecycleSignal | undefined;
@@ -84,7 +95,6 @@ const SUBAGENT_RUNNING_FRESHNESS_MS = 5 * 60 * 1000;
 const LARGE_CONVERSATION_CACHE_CHARS = 512 * 1024;
 const LARGE_CONVERSATION_CACHE_TTL_MS = 15_000;
 const LARGE_CONVERSATION_CACHE_ENTRIES = 2;
-const TOKEN_USAGE_NOTIFICATION_WAIT_MS = 250;
 
 interface LoadedConversation {
     interactions: ConversationInteraction[];
@@ -607,7 +617,6 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         string,
         Promise<ConversationTelemetry | undefined>
     >();
-    private readonly tokenUsageWaiters = new Map<string, Set<() => void>>();
     private readonly loadedConversationCache = new Map<
         string,
         CachedLoadedConversation
@@ -733,7 +742,7 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         if (cached
             && Date.now() - cached.readAt
             < CONVERSATION_LIMITS.telemetryRefreshMs) {
-            cached.value = await this.refreshCachedWorktree(
+            cached.value = await this.refreshCachedTelemetry(
                 sessionId,
                 cached.value
             );
@@ -766,39 +775,25 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         sessionId: string,
         signal?: ConversationAbortSignal
     ): Promise<ConversationTelemetry | undefined> {
-        const contextBeforeRead = this.tokenUsageBySession.get(sessionId);
-        const tokenUsageWaiter = this.createTokenUsageWaiter(sessionId);
-        let resumeResult: { fulfilled: true; value: unknown }
-            | { fulfilled: false };
-        let limitsResult: { fulfilled: true; value: unknown }
-            | { fulfilled: false };
-        try {
-            [resumeResult, limitsResult] = await Promise.all([
-                this.options.client.request(
-                    'thread/resume',
-                    { threadId: sessionId },
-                    signal
-                ).then(
-                    value => ({ fulfilled: true as const, value }),
-                    () => ({ fulfilled: false as const })
-                ),
-                this.options.client.request(
-                    'account/rateLimits/read',
-                    undefined,
-                    signal
-                ).then(
-                    value => ({ fulfilled: true as const, value }),
-                    () => ({ fulfilled: false as const })
-                ),
-            ]);
-            if (resumeResult.fulfilled
-                && this.tokenUsageBySession.get(sessionId)
-                === contextBeforeRead) {
-                await this.waitForTokenUsageOrTimeout(tokenUsageWaiter.promise);
-            }
-        } finally {
-            tokenUsageWaiter.dispose();
-        }
+        const rollout = this.readRolloutTelemetrySnapshot(sessionId);
+        const [threadReadResult, limitsResult] = await Promise.all([
+            this.options.client.request(
+                'thread/read',
+                { threadId: sessionId, includeTurns: false },
+                signal
+            ).then(
+                value => ({ fulfilled: true as const, value }),
+                () => ({ fulfilled: false as const })
+            ),
+            this.options.client.request(
+                'account/rateLimits/read',
+                undefined,
+                signal
+            ).then(
+                value => ({ fulfilled: true as const, value }),
+                () => ({ fulfilled: false as const })
+            ),
+        ]);
         const telemetry: ConversationTelemetry = {
             provider: 'codex',
             sessionId,
@@ -806,18 +801,18 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
                 ? normalizeRateLimits(limitsResult.value)
                 : [],
         };
-        if (resumeResult.fulfilled) {
-            const response = asRecord(resumeResult.value);
-            if (typeof response?.model === 'string'
-                && response.model.trim()) {
-                telemetry.model = response.model.trim().slice(0, 128);
-            }
+        if (rollout?.model) {
+            telemetry.model = rollout.model;
         }
-        const worktree = await this.readWorktree(sessionId, resumeResult);
+        const worktree = await this.readWorktree(
+            threadReadResult,
+            rollout?.currentWorkdir
+        );
         if (worktree) {
             telemetry.worktree = worktree;
         }
-        const context = this.tokenUsageBySession.get(sessionId);
+        const context = rollout?.context
+            || this.tokenUsageBySession.get(sessionId);
         if (context) {
             telemetry.context = { ...context };
         }
@@ -828,8 +823,9 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
     }
 
     private async readWorktree(
-        sessionId: string,
-        resumeResult: { fulfilled: true; value: unknown } | { fulfilled: false }
+        threadReadResult: { fulfilled: true; value: unknown }
+            | { fulfilled: false },
+        currentWorkdir: string | undefined
     ): Promise<ConversationWorktreeInfo | undefined> {
         if (!this.options.resolveWorktree) {
             return undefined;
@@ -837,33 +833,58 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         // The current operating directory wins over the launch directory:
         // app-server exposes no exec items, so composition injects a
         // telemetry-only probe for the latest exec workdir.
-        const currentWorkdir = this.options.readCurrentWorkdir?.(sessionId);
         if (currentWorkdir) {
             const resolved = await this.options.resolveWorktree(currentWorkdir);
             if (resolved) {
                 return resolved;
             }
         }
-        const response = resumeResult.fulfilled
-            ? asRecord(resumeResult.value)
+        const response = threadReadResult.fulfilled
+            ? asRecord(threadReadResult.value)
             : undefined;
-        const cwd = typeof response?.cwd === 'string' && response.cwd
-            ? response.cwd
+        const thread = asRecord(response?.thread);
+        const cwd = typeof thread?.cwd === 'string' && thread.cwd
+            ? thread.cwd
             : undefined;
         return cwd ? this.options.resolveWorktree(cwd) : undefined;
     }
 
-    private async refreshCachedWorktree(
+    private readRolloutTelemetrySnapshot(
+        sessionId: string
+    ): CodexRolloutTelemetrySnapshot | undefined {
+        try {
+            return this.options.readRolloutTelemetry?.(sessionId);
+        } catch (_error) {
+            return undefined;
+        }
+    }
+
+    private async refreshCachedTelemetry(
         sessionId: string,
         telemetry: ConversationTelemetry | undefined
     ): Promise<ConversationTelemetry | undefined> {
-        const currentWorkdir = this.options.readCurrentWorkdir?.(sessionId);
-        if (!currentWorkdir || !this.options.resolveWorktree) {
+        const rollout = this.readRolloutTelemetrySnapshot(sessionId);
+        if (rollout?.model || rollout?.context) {
+            telemetry = telemetry || {
+                provider: 'codex',
+                sessionId,
+                rateLimits: [],
+            };
+            if (rollout.model) {
+                telemetry.model = rollout.model;
+            }
+            if (rollout.context) {
+                telemetry.context = { ...rollout.context };
+            }
+        }
+        if (!rollout?.currentWorkdir || !this.options.resolveWorktree) {
             return telemetry;
         }
         let worktree: ConversationWorktreeInfo | undefined;
         try {
-            worktree = await this.options.resolveWorktree(currentWorkdir);
+            worktree = await this.options.resolveWorktree(
+                rollout.currentWorkdir
+            );
         } catch (_error) {
             return telemetry;
         }
@@ -930,10 +951,6 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         this.providerWatch?.dispose();
         this.providerWatch = undefined;
         this.notificationWatch?.dispose();
-        this.tokenUsageWaiters.forEach(waiters => {
-            waiters.forEach(resolve => resolve());
-        });
-        this.tokenUsageWaiters.clear();
         this.tokenUsageBySession.clear();
         this.telemetryCache.clear();
         this.telemetryReads.clear();
@@ -964,70 +981,10 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         };
         this.makeRoomForTelemetrySession(params.threadId);
         this.tokenUsageBySession.set(params.threadId, context);
-        const waiters = this.tokenUsageWaiters.get(params.threadId);
-        if (waiters) {
-            this.tokenUsageWaiters.delete(params.threadId);
-            waiters.forEach(resolve => resolve());
-        }
         const cached = this.telemetryCache.get(params.threadId);
         if (cached?.value) {
             cached.value.context = { ...context };
         }
-    }
-
-    private createTokenUsageWaiter(sessionId: string): {
-        promise: Promise<void>;
-        dispose(): void;
-    } {
-        let resolvePromise = (): void => undefined;
-        const promise = new Promise<void>(resolve => {
-            resolvePromise = resolve;
-        });
-        let waiters = this.tokenUsageWaiters.get(sessionId);
-        if (!waiters) {
-            waiters = new Set();
-            this.tokenUsageWaiters.set(sessionId, waiters);
-        }
-        waiters.add(resolvePromise);
-        return {
-            promise,
-            dispose: () => {
-                const current = this.tokenUsageWaiters.get(sessionId);
-                current?.delete(resolvePromise);
-                if (!current?.size) {
-                    this.tokenUsageWaiters.delete(sessionId);
-                }
-            },
-        };
-    }
-
-    private waitForTokenUsageOrTimeout(notification: Promise<void>): Promise<void> {
-        return new Promise(resolve => {
-            let settled = false;
-            let timeoutHandle: TimerHandle | undefined;
-            const finish = (): void => {
-                if (settled) {
-                    return;
-                }
-                settled = true;
-                if (timeoutHandle !== undefined) {
-                    this.options.clearTimeout(timeoutHandle);
-                    timeoutHandle = undefined;
-                }
-                resolve();
-            };
-            notification.then(finish);
-            let timeoutFiredSynchronously = false;
-            const handle = this.options.setTimeout(() => {
-                timeoutFiredSynchronously = true;
-                finish();
-            }, TOKEN_USAGE_NOTIFICATION_WAIT_MS);
-            if (!timeoutFiredSynchronously && !settled) {
-                timeoutHandle = handle;
-            } else {
-                this.options.clearTimeout(handle);
-            }
-        });
     }
 
     private makeRoomForTelemetrySession(sessionId: string): void {

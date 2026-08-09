@@ -1794,6 +1794,8 @@ async function initializeDashboard(
         },
         acknowledge: eventIds =>
             acknowledgeAiSessionAttentionEventIds(eventIds),
+        shouldAcknowledge: () => getAgentPivotConfiguration()
+            .get<boolean>('aiSessionAttention.clearOnNextSession', false) === true,
         findNavigationCardId: projectId => {
             for (const card of openWorkspaceDashboardController.getCards()) {
                 if (card.kind !== 'navigation') {

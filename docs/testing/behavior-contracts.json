@@ -755,7 +755,7 @@
   {
     "id": "ATTENTION-STATUS-BAR-QUEUE-001",
     "domain": "attention",
-    "title": "A right-aligned status bar entry surfaces the cross-window attention count with a per-session tooltip and drains the queue oldest-first on click: local sessions focus their terminal, open their conversation, and acknowledge only after both succeed, unfocusable sessions warn and stay unread, remote sessions switch to the owning window without acknowledging, and the entry hides while the queue is empty or attention is disabled",
+    "title": "A right-aligned status bar entry surfaces the cross-window attention count with a per-session tooltip and cycles an independent cursor through the oldest-first queue on click: local sessions focus their terminal and open their conversation while staying unread by default, an opt-in setting acknowledges only after both actions succeed, session-card clicks still acknowledge, unfocusable sessions warn and stay unread without trapping the cursor, remote sessions switch to the owning window without acknowledging, and the entry hides while the queue is empty or attention is disabled",
     "priority": "P1",
     "status": "automated",
     "owners": [

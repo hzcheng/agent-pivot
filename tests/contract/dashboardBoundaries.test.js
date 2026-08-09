@@ -492,6 +492,16 @@ test('CONVERSATION-ACTIVE-SESSION-NAVIGATION-COMMANDS-001 contributes globally a
 test('ATTENTION-STATUS-BAR-QUEUE-001 contributes the next-attention command with exactly one global keybinding', () => {
     const manifest = require('../../package.json');
     assert.deepEqual(
+        manifest.contributes.configuration.properties[
+            'agentPivot.aiSessionAttention.clearOnNextSession'
+        ],
+        {
+            type: 'boolean',
+            default: false,
+            description: 'Automatically clear a session\'s attention indicator after Next Attention Session successfully switches to it. When disabled, clicking the session card still clears the indicator.',
+        }
+    );
+    assert.deepEqual(
         manifest.contributes.commands.filter(
             command => command.command === 'agentPivot.nextAttentionSession'
         ),

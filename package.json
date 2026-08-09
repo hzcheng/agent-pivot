@@ -382,6 +382,11 @@
                     "default": true,
                     "description": "Show attention indicators when Agent Pivot AI sessions finish or may need input."
                 },
+                "agentPivot.aiSessionAttention.clearOnNextSession": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Automatically clear a session's attention indicator after Next Attention Session successfully switches to it. When disabled, clicking the session card still clears the indicator."
+                },
                 "agentPivot.notify.enabled": {
                     "type": "boolean",
                     "default": false,

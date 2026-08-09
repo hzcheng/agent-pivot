@@ -40,6 +40,7 @@ function copyGuardFixture(t, mutationPath, mutate = source => source) {
         'src/aiSessions/launchSpec.ts',
         'src/aiSessions/lifecycle.ts',
         'src/aiSessions/runtimeTypes.ts',
+        'src/dashboard/sessionQuickSwitch.ts',
         'src/constants.ts',
         'src/models.ts',
         'src/todos/types.ts',
@@ -344,7 +345,7 @@ for (const mutation of [
     {
         id: 'ARCH-AI-SESSION-NAVIGATION-OWNERSHIP-001',
         file: 'src/dashboard.ts',
-        expectedDetail: 'both session commands must use the shared navigation coordinator',
+        expectedDetail: 'every direct session command must use the shared navigation coordinator',
         mutate: source => source.replace(
             'navigationCoordinator: sessionNavigationCoordinator,',
             'navigationCoordinator: createSessionNavigationCoordinator(),',
@@ -353,11 +354,31 @@ for (const mutation of [
     {
         id: 'ARCH-AI-SESSION-NAVIGATION-OWNERSHIP-001',
         file: 'src/dashboard.ts',
-        expectedDetail: 'both session commands must use the shared local focus executor',
+        expectedDetail: 'every direct session command must use the shared local focus executor',
         mutate: source => source.replace(
             'navigateSession: (item, executionOptions) =>\n'
                 + '            sessionNavigationFocusExecutor.execute(item, executionOptions),',
             'navigateSession: async () => ({ focused: false, conversationOpened: false }),',
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-NAVIGATION-OWNERSHIP-001',
+        file: 'src/dashboard/sessionQuickSwitch.ts',
+        expectedDetail: 'Quick Switch and Toggle must own no navigation path outside the shared transaction',
+        mutate: source => source.replace(
+            'await navigationCoordinator.enqueue(() => jumpToLocal(target));',
+            'await jumpToLocal(target);',
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-NAVIGATION-OWNERSHIP-001',
+        file: 'src/dashboard.ts',
+        expectedDetail: 'Previous and Next Active Session commands must use the shared navigation coordinator',
+        mutate: source => source.replace(
+            "previousActiveSession: () => sessionNavigationCoordinator.enqueue(\n"
+                + "            () => followAdjacentActiveConversationWithFeedback('previous')\n"
+                + '        ),',
+            "previousActiveSession: () => followAdjacentActiveConversationWithFeedback('previous'),",
         ),
     },
     {

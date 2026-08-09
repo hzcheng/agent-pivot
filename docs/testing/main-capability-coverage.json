@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "8e52aa457221dec03adea53f6147bf06f43ec752",
+        "head": "1c7e5e619b7e04500254308973ba0430e77e10ed",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -226,7 +226,8 @@
             "141522b97549e11c99cd3234e9b43f3ed91e55c3",
             "17f35696c9f896aae55b18b67c390b3cc162e8ef",
             "0a632f3705805af9c1b2397da2f2304aa6b698cf",
-            "ec705188907457b9948481d0142b5255fd7ad103"
+            "ec705188907457b9948481d0142b5255fd7ad103",
+            "e7240827ebe5d21c9c145f22d9739b90bae549d0"
         ]
     },
     "capabilities": [
@@ -1595,7 +1596,8 @@
                 "e7f06c45dc9bf94a755e2ebeb96490f54dd1cedd",
                 "d15ce8e058be474b52a5c9d4c9e8b0b19bcdd5a7",
                 "30e69cf8ca7ee7e1a0b474fa26bd053a4aa77f14",
-                "93b70821dc5f30706ac5cd480d871a79ad635533"
+                "93b70821dc5f30706ac5cd480d871a79ad635533",
+                "1c7e5e619b7e04500254308973ba0430e77e10ed"
             ],
             "behaviors": [
                 "PERSIST-AI-SKILL-CENTRAL-STORE-001",

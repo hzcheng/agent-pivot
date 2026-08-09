@@ -12,22 +12,65 @@ const MAX_DESCRIPTION_LENGTH = 1024;
 const MAX_BODY_LINES = 500;
 
 export function parseSkillFrontmatter(content: string): SkillFrontmatter | null {
-    const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n/.exec(content || '');
+    // Tolerate a UTF-8 BOM before the opening fence.
+    const text = (content || '').replace(/^\uFEFF/, '');
+    const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(text);
     if (!match) {
         return null;
     }
+    const lines = match[1].split(/\r?\n/);
     const result: SkillFrontmatter = {};
-    for (const line of match[1].split(/\r?\n/)) {
-        const field = /^([A-Za-z][A-Za-z0-9_-]*):\s*(.*)$/.exec(line);
-        if (!field) {
+    for (let index = 0; index < lines.length; index++) {
+        const field = /^([A-Za-z][A-Za-z0-9_-]*):\s*(.*)$/.exec(lines[index]);
+        if (!field || (field[1] !== 'name' && field[1] !== 'description')) {
             continue;
         }
-        const value = field[2].trim().replace(/^["']|["']$/g, '');
-        if (field[1] === 'name') {
-            result.name = value;
-        } else if (field[1] === 'description') {
-            result.description = value;
+        const key = field[1];
+        const raw = field[2].trim();
+        if (!/^[>|][+-]?$/.test(raw)) {
+            result[key] = raw.replace(/^["']|["']$/g, '');
+            continue;
         }
+        // YAML block scalar (`>`, `>-`, `|`, `|-`, …): consume the following
+        // blank or more-indented lines, then fold/literal-join per the indicator.
+        const block: string[] = [];
+        while (index + 1 < lines.length
+            && (lines[index + 1].trim() === '' || /^\s+\S/.test(lines[index + 1]))) {
+            index++;
+            block.push(lines[index]);
+        }
+        while (block.length && block[block.length - 1].trim() === '') {
+            block.pop();
+        }
+        const nonBlank = block.filter(line => line.trim() !== '');
+        if (!nonBlank.length) {
+            result[key] = '';
+            continue;
+        }
+        const minIndent = Math.min(...nonBlank.map(line => line.length - line.trimStart().length));
+        const stripped = block.map(line => (line.trim() === '' ? '' : line.slice(minIndent).trimEnd()));
+        if (raw.startsWith('|')) {
+            result[key] = stripped.join('\n').trim();
+            continue;
+        }
+        // Folded: lines within a paragraph join with a space, blank-line
+        // separated paragraphs keep a single newline.
+        const paragraphs: string[] = [];
+        let current: string[] = [];
+        for (const line of stripped) {
+            if (line === '') {
+                if (current.length) {
+                    paragraphs.push(current.join(' '));
+                    current = [];
+                }
+            } else {
+                current.push(line.trim());
+            }
+        }
+        if (current.length) {
+            paragraphs.push(current.join(' '));
+        }
+        result[key] = paragraphs.join('\n').trim();
     }
     return result;
 }

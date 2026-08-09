@@ -62,7 +62,10 @@ on-disk folder tree of the
 shared stores (`~/.skills` globally by default, configurable from Settings or the
 Global section menu; `<project>/.skills` per project) —
 folders are real directories you can also manage with shell or git, never
-extension state. Scope is positional: skills in the global store are enabled
+extension state. Single-child folder chains collapse into one compact row
+(`google/skills/skills`), deeply nested empty folders stay hidden, and
+skills bundled inside another skill's directory are discovered as their own
+entries. Scope is positional: skills in the global store are enabled
 into the user-level agent directories (`~/.kimi/skills` and friends), skills
 in a project's store into that project's agent directories. Each skill is
 enabled per agent (Kimi, Claude, Codex) through iOS-style switches that

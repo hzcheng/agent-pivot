@@ -4816,11 +4816,11 @@ body.steward-sidebar {
     }
 
     // Folder headers stick to the scrolling list's top edge while their
-    // subtree scrolls; the inline per-depth `top` stacks nested headers like
-    // iOS section indices. The layered background stays opaque without
-    // changing the resting tone: the header's translucent list tint
-    // composited over the editor color.
-    .skills-pane.skills-pane-sized .skill-folder > .group-title.skill-folder-header {
+    // subtree scrolls — only the shallowest levels (skill-folder-header-sticky)
+    // pin, stacked by the inline per-depth `top` like index bars. The layered
+    // background stays opaque without changing the resting tone: the header's
+    // translucent list tint composited over the editor color.
+    .skills-pane.skills-pane-sized .skill-folder > .group-title.skill-folder-header-sticky {
         position: sticky;
         z-index: 5;
         background:

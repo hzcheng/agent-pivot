@@ -4,6 +4,27 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
 
 ## [Unreleased]
 
+### Changed
+
+- The AI tab's SKILLS subtab is reworked into a quiet list surface: Global
+  and Project sections sit in independently scrolling panes with a draggable
+  (and keyboard-accessible) separator whose share persists across reloads;
+  skill rows show actions only on hover/focus; folder headers pin while
+  their lists scroll; and scope headers render as full-width section bars so
+  pane boundaries read at a glance.
+- Skills panel folder trees compact single-child chains into one row (like
+  `google/skills/skills`) and keep deeply nested empty folders out of view,
+  so vendored skill repositories no longer flood the panel with structural
+  noise; skills bundled inside another skill's directory (sub-skills) are
+  now discovered as well.
+
+### Fixed
+
+- SKILL.md frontmatter parsing understands YAML block scalars
+  (`description: >-` folded and `|` literal) and a UTF-8 BOM, so vendored
+  skills with multi-line descriptions show their real summary instead of
+  the raw `>-` indicator.
+
 ## [1.1.0] - 2026-08-09
 
 ### Added

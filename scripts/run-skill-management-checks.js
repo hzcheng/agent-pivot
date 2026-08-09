@@ -52,6 +52,32 @@ function runFrontmatterChecks() {
         frontmatter.parseSkillFrontmatter('---\ndescription: "quoted: value"\n---\nx\n'),
         { description: 'quoted: value' }
     );
+    // YAML block scalars (real-world vendored skills use folded descriptions)
+    assert.deepStrictEqual(
+        frontmatter.parseSkillFrontmatter('---\nname: gke-basics\nmetadata:\n  category: Containers\ndescription: >-\n  Manages core GKE cluster provisioning,\n  credentials, and workload deployment.\n  Don\'t use for upgrades.\n---\nbody\n'),
+        { name: 'gke-basics', description: "Manages core GKE cluster provisioning, credentials, and workload deployment. Don't use for upgrades." },
+        'folded scalar joins lines with spaces and skips nested map entries'
+    );
+    assert.deepStrictEqual(
+        frontmatter.parseSkillFrontmatter('---\ndescription: |\n  line one\n  line two\nlicense: MIT\n---\n'),
+        { description: 'line one\nline two' },
+        'literal scalar keeps newlines and stops at the next top-level field'
+    );
+    assert.deepStrictEqual(
+        frontmatter.parseSkillFrontmatter('---\ndescription: >\n  para one\n\n  para two\n---\n'),
+        { description: 'para one\npara two' },
+        'folded scalar keeps blank-line paragraph breaks'
+    );
+    assert.deepStrictEqual(
+        frontmatter.parseSkillFrontmatter('\uFEFF---\nname: bom\ndescription: x\n---\n'),
+        { name: 'bom', description: 'x' },
+        'UTF-8 BOM before the fence is tolerated'
+    );
+    assert.deepStrictEqual(
+        frontmatter.parseSkillFrontmatter('---\nname: demo\ndescription: >-\n---\n'),
+        { name: 'demo', description: '' },
+        'empty block scalar yields an empty description (missing-description fires)'
+    );
 
     const d = frontmatter.getSkillDiagnostics;
     assert.deepStrictEqual(d({ dirName: 'demo', fileName: 'SKILL.md', frontmatter: { name: 'demo', description: 'x' }, bodyLineCount: 10 }), []);
@@ -2370,6 +2396,25 @@ function runSkillFolderDiscoveryChecks() {
     write(path.join(home, '.skills', '.disabled', 'parked-central', 'SKILL.md'), '---\nname: parked-central\ndescription: P\n---\n');
     assert.ok(!discovery.scanSkills({ homeDir: home, workspaceRoot: ws })
         .some(record => record.name === 'parked-central'), 'store `.disabled` content is never scanned');
+
+    // Nested skills: a skill directory may bundle more skills (dms-assistant/mysql);
+    // helper dirs inside a skill (scripts/, references/) never become folder nodes.
+    write(path.join(home, '.skills/dms/dms-assistant/SKILL.md'), '---\nname: dms-assistant\ndescription: D\n---\n');
+    write(path.join(home, '.skills/dms/dms-assistant/mysql/SKILL.md'), '---\nname: mysql\ndescription: M\n---\n');
+    write(path.join(home, '.skills/dms/dms-assistant/scripts/helper.py'), '# helper\n');
+    fs.mkdirSync(path.join(home, '.skills/dms/dms-assistant/references'), { recursive: true });
+    const nested = discovery.scanSkillsDetailed({ homeDir: home, workspaceRoot: ws });
+    const parentSkill = nested.records.find(record => record.name === 'dms-assistant');
+    assert.ok(parentSkill, 'parent skill still discovered');
+    assert.strictEqual(parentSkill.folder, 'dms');
+    const childSkill = nested.records.find(record => record.name === 'mysql');
+    assert.ok(childSkill, 'nested sub-skill is discovered');
+    assert.strictEqual(childSkill.folder, 'dms/dms-assistant', 'sub-skill nests under the parent skill folder');
+    assert.ok(!nested.storeFolders.user.includes('dms/dms-assistant/scripts')
+        && !nested.storeFolders.user.includes('dms/dms-assistant/references'),
+        'helper dirs inside a skill never become folder nodes');
+    assert.ok(!nested.storeFolders.user.includes('dms/dms-assistant'),
+        'a skill directory itself is not listed as an empty folder');
 }
 
 function runSkillMigrationChecks() {

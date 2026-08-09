@@ -123,13 +123,14 @@ function scanRoot(root: SkillsRoot, links: SkillLink[], input: ScanSkillsInput):
 }
 
 function scanCentralStore(root: SkillsRoot, records: SkillRecord[], folders: string[]): void {
-    const walk = (dirPath: string, folder: string): void => {
+    const listDirs = (dirPath: string): { name: string; realPath: string }[] => {
         let entries: fs.Dirent[];
         try {
             entries = fs.readdirSync(dirPath, { withFileTypes: true });
         } catch (_error) {
-            return;
+            return [];
         }
+        const dirs: { name: string; realPath: string }[] = [];
         for (const entry of entries) {
             if (entry.name.startsWith('.')) {
                 continue;
@@ -145,20 +146,47 @@ function scanCentralStore(root: SkillsRoot, records: SkillRecord[], folders: str
                     continue;
                 }
             }
-            if (!isDirectory) {
-                continue;
+            if (isDirectory) {
+                dirs.push({ name: entry.name, realPath });
             }
-            if (readSkillFile(realPath)) {
-                const record = createRecord(root, entry.name, realPath);
+        }
+        return dirs;
+    };
+    // A skill directory may itself bundle nested skills (e.g.
+    // dms-assistant/mysql/SKILL.md beside dms-assistant/SKILL.md). Descend past
+    // a skill directory only into subtrees that hold more skills — helper
+    // dirs like scripts/ or references/ never become folder nodes.
+    const subtreeHasSkill = (dirPath: string): boolean =>
+        listDirs(dirPath).some(dir => Boolean(readSkillFile(dir.realPath)) || subtreeHasSkill(dir.realPath));
+    const walkSkillChildren = (dirPath: string, folder: string): void => {
+        for (const dir of listDirs(dirPath)) {
+            const childFolder = folder ? `${folder}/${dir.name}` : dir.name;
+            if (readSkillFile(dir.realPath)) {
+                const record = createRecord(root, dir.name, dir.realPath);
                 if (record) {
                     record.folder = folder;
                     records.push(record);
                 }
+                walkSkillChildren(dir.realPath, childFolder);
+            } else if (subtreeHasSkill(dir.realPath)) {
+                walkSkillChildren(dir.realPath, childFolder);
+            }
+        }
+    };
+    const walk = (dirPath: string, folder: string): void => {
+        for (const dir of listDirs(dirPath)) {
+            if (readSkillFile(dir.realPath)) {
+                const record = createRecord(root, dir.name, dir.realPath);
+                if (record) {
+                    record.folder = folder;
+                    records.push(record);
+                }
+                walkSkillChildren(dir.realPath, folder ? `${folder}/${dir.name}` : dir.name);
             } else {
-                const childFolder = folder ? `${folder}/${entry.name}` : entry.name;
+                const childFolder = folder ? `${folder}/${dir.name}` : dir.name;
                 // Folder nodes exist even when empty (e.g. created via the panel "+").
                 folders.push(childFolder);
-                walk(realPath, childFolder);
+                walk(dir.realPath, childFolder);
             }
         }
     };

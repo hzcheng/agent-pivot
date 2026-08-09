@@ -5014,11 +5014,13 @@
     "status": "automated",
     "owners": [
       "scripts/run-skill-management-checks.js",
+      "tests/contract/skills/frontmatter.test.js",
       "tests/contract/skills/skillScanCache.test.js"
     ],
     "evidence": [
       "src/skills/discovery.ts",
-      "src/skills/effectiveness.ts"
+      "src/skills/effectiveness.ts",
+      "src/skills/frontmatter.ts"
     ]
   },
   {

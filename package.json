@@ -1,7 +1,7 @@
 {
     "name": "agent-pivot",
     "displayName": "Agent Pivot",
-    "description": "Switch, monitor, and resume Codex, Claude, and Kimi sessions across VS Code workspaces.",
+    "description": "Switch, monitor, and resume Codex, Claude, and Kimi sessions across VS Code workspaces. Project manager, prompt library, and todos for AI coding agents.",
     "version": "1.0.4",
     "publisher": "hzcheng",
     "license": "MIT",
@@ -32,12 +32,24 @@
     },
     "keywords": [
         "agent",
+        "ai",
         "codex",
+        "codex cli",
         "claude",
+        "claude code",
         "kimi",
+        "kimi cli",
+        "ai sessions",
         "session manager",
+        "project manager",
+        "projects",
+        "todo",
+        "todo list",
+        "prompts",
+        "prompt library",
         "workspace",
-        "tmux"
+        "tmux",
+        "dashboard"
     ],
     "capabilities": {
         "untrustedWorkspaces": {

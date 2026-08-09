@@ -113,7 +113,15 @@ function validateManifestPair(mainManifest, bridgeManifest) {
     assert.deepEqual(mainManifest.categories, ['Other'],
         `Main manifest categories are invalid: ${formatValue(mainManifest.categories)}`);
     assert.deepEqual(mainManifest.keywords, [
-        'agent', 'codex', 'claude', 'kimi', 'session manager', 'workspace', 'tmux',
+        'agent', 'ai',
+        'codex', 'codex cli',
+        'claude', 'claude code',
+        'kimi', 'kimi cli',
+        'ai sessions', 'session manager',
+        'project manager', 'projects',
+        'todo', 'todo list',
+        'prompts', 'prompt library',
+        'workspace', 'tmux', 'dashboard',
     ], `Main manifest keywords are invalid: ${formatValue(mainManifest.keywords)}`);
     assert.deepEqual(mainManifest.extensionDependencies, [BRAND_IDENTITY.bridgeExtensionId],
         `Main manifest extension dependencies are invalid: ${formatValue(mainManifest.extensionDependencies)}`);

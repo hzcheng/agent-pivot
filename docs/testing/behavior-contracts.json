@@ -5425,5 +5425,18 @@
       "src/dashboard/messageHandlers.ts",
       "package.json"
     ]
+  },
+  {
+    "id": "RELEASE-MARKETPLACE-DISCOVERABILITY-001",
+    "domain": "release",
+    "title": "Marketplace description and keywords keep the provider and feature search terms discoverable",
+    "priority": "P2",
+    "status": "automated",
+    "owners": [
+      "tests/unit/tooling/marketplaceDiscoverability.test.js"
+    ],
+    "evidence": [
+      "package.json"
+    ]
   }
 ]

@@ -11,6 +11,11 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
   picker with a GitHub star link and the project's sponsorship pages (Ko-fi
   for PayPal/card, Afdian for WeChat Pay/Alipay); the repository now carries
   `.github/FUNDING.yml` and README sponsor badges.
+- Marketplace discoverability metadata: the description now also names the
+  project manager, prompt library, and todo surfaces, and the keyword list
+  covers the agent/AI provider search terms (`codex cli`, `claude code`,
+  `kimi cli`, `ai sessions`, `session manager`, `project manager`, `todo`,
+  `prompts`, and more).
 
 - AI Conversation Comments now open with a Workspace section above the
   Session list: quick-capture notes with free-form tags, tag filtering, and

@@ -138,10 +138,14 @@ export class AiSessionTerminalCommandController<
                     { ...runtime.identity },
                     runtimeFocusOptions(focusOptions)
                 );
-                this.options.refresh();
                 if (focusOptions.revealTerminal !== false) {
                     await this.options.focusTerminalView?.();
                 }
+                // Terminal.show() and workbench terminal focus can update
+                // vscode.window.activeTerminal asynchronously. Hydrate only
+                // after that transition settles so the sidebar projects the
+                // same session that tmux and the Terminal UI now display.
+                this.options.refresh();
                 return true;
             } catch (error) {
                 await this.handleRuntimeActionFailure(
@@ -200,10 +204,10 @@ export class AiSessionTerminalCommandController<
                 );
                 return false;
             }
-            options.refresh();
             if (focusOptions.revealTerminal !== false) {
                 await options.focusTerminalView?.();
             }
+            options.refresh();
             return true;
         } catch (error) {
             await this.handleRuntimeActionFailure(

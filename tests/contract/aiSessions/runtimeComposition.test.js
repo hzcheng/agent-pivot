@@ -172,6 +172,7 @@ test('WEBVIEW-DASHBOARD-COMMAND-AVAILABILITY-001 production activation exposes c
         'agentPivot.notify.setWebhook',
         'agentPivot.notify.showOutput',
         'agentPivot.notify.sendTest',
+        'agentPivot.sponsor',
     ]);
     assert.equal(result.dashboardCommandRegistrationInvocations, 1);
     assert.equal(result.pendingOpenRevealedBootShell, true);

@@ -6,6 +6,11 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
 
 ### Added
 
+- New `Agent Pivot: Sponsor` command and a heart button in the dashboard view
+  title open the project's sponsorship pages (Ko-fi for PayPal/card, Afdian
+  for WeChat Pay/Alipay); the repository now carries `.github/FUNDING.yml`
+  and README sponsor badges.
+
 - AI Conversation Comments now open with a Workspace section above the
   Session list: quick-capture notes with free-form tags, tag filtering, and
   one-click dispatch into the current Session's input. Project notes are

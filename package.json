@@ -137,6 +137,11 @@
             {
                 "command": "agentPivot.switchToOpenWindow",
                 "title": "Agent Pivot: Switch to Open Window"
+            },
+            {
+                "command": "agentPivot.sponsor",
+                "title": "Agent Pivot: Sponsor",
+                "icon": "$(heart)"
             }
         ],
         "keybindings": [
@@ -151,6 +156,15 @@
                 "mac": "cmd+alt+a"
             }
         ],
+        "menus": {
+            "view/title": [
+                {
+                    "command": "agentPivot.sponsor",
+                    "when": "view == agentPivot.dashboard",
+                    "group": "navigation@99"
+                }
+            ]
+        },
         "configuration": {
             "type": "object",
             "title": "Agent Pivot",

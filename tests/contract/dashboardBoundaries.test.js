@@ -386,6 +386,11 @@ const NOTIFY_COMMANDS = [
     'agentPivot.notify.sendTest',
 ];
 
+// Registered directly from initializeDashboard, outside the dashboard command facade.
+const SPONSOR_COMMANDS = [
+    'agentPivot.sponsor',
+];
+
 test('WEBVIEW-DASHBOARD-COMMAND-REGISTRATION-001 WEBVIEW-DASHBOARD-COMMAND-AVAILABILITY-001 registers once and switches generation handlers safely', async () => {
     const registered = new Map();
     const subscriptions = [];
@@ -463,6 +468,34 @@ test('WEBVIEW-DASHBOARD-COMMAND-REGISTRATION-001 contributes the Prompt terminal
     assert.equal(manifest.contributes.keybindings.some(
         keybinding => keybinding.command === 'agentPivot.insertPromptToActiveTerminal'
     ), false);
+});
+
+test('WEBVIEW-SPONSOR-ENTRY-001 contributes the sponsor command with a dashboard view title entry and no default keybinding', () => {
+    const manifest = require('../../package.json');
+    assert.deepEqual(
+        manifest.contributes.commands.filter(command => command.command === 'agentPivot.sponsor'),
+        [{
+            command: 'agentPivot.sponsor',
+            title: 'Agent Pivot: Sponsor',
+            icon: '$(heart)',
+        }]
+    );
+    assert.deepEqual(
+        ((manifest.contributes.menus || {})['view/title'] || []).filter(
+            entry => entry.command === 'agentPivot.sponsor'
+        ),
+        [{
+            command: 'agentPivot.sponsor',
+            when: 'view == agentPivot.dashboard',
+            group: 'navigation@99',
+        }]
+    );
+    assert.equal(
+        (manifest.contributes.keybindings || []).some(
+            keybinding => keybinding.command === 'agentPivot.sponsor'
+        ),
+        false
+    );
 });
 
 test('CONVERSATION-ACTIVE-SESSION-NAVIGATION-COMMANDS-001 contributes globally available Conversation navigation commands without taking global shortcuts', () => {
@@ -596,7 +629,7 @@ test('WEBVIEW-DASHBOARD-COMMAND-REGISTRATION-001 production activation installs 
     assert.deepEqual(activation.synchronizedGlobalStateKeySets, [['promptData.v1']]);
     assert.deepEqual(
         activation.registeredCommands.filter(command => command.startsWith('agentPivot.')),
-        [...DASHBOARD_COMMANDS, ...NOTIFY_COMMANDS]
+        [...DASHBOARD_COMMANDS, ...NOTIFY_COMMANDS, ...SPONSOR_COMMANDS]
     );
     assert.deepEqual(
         (activation.statusBarItems || []).map(item => [item.alignment, item.command]),

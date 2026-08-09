@@ -146,6 +146,7 @@ import { createAiSessionStatusCapability } from './aiSessions/statusCapability';
 import { createAiSessionRuntimeSettlementCapability } from './aiSessions/runtimeSettlementCapability';
 import { createAiSessionAttentionEventCapability } from './aiSessions/attentionEventCapability';
 import { createNotifyConfiguration } from './aiSessions/notifyConfiguration';
+import { registerSponsorCommand } from './sponsor';
 import { buildNotifyPayload } from './aiSessions/notifyIntegration/notifier';
 import {
     getLastPartOfPath,
@@ -1254,6 +1255,7 @@ async function initializeDashboard(
     const notifyOutput = notifyConfiguration.output;
     const notifyDispatcher = notifyConfiguration.dispatcher;
     await notifyConfiguration.refresh();
+    ownResource(() => registerSponsorCommand());
     const locateAttentionSession = (key: string) => {
         const target = getCurrentWorkspaceActionTargetWithoutCardId();
         if (!target) {

@@ -5406,5 +5406,20 @@
     "evidence": [
       "src/aiSessions/conversation/worktreeResolver.ts"
     ]
+  },
+  {
+    "id": "WEBVIEW-SPONSOR-ENTRY-001",
+    "domain": "webview",
+    "title": "Dashboard view title sponsor command offers the Ko-fi and Afdian sponsorship links",
+    "priority": "P2",
+    "status": "automated",
+    "owners": [
+      "tests/unit/sponsor/sponsor.test.js",
+      "tests/contract/dashboardBoundaries.test.js"
+    ],
+    "evidence": [
+      "src/sponsor.ts",
+      "package.json"
+    ]
   }
 ]

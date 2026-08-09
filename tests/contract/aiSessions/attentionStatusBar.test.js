@@ -230,7 +230,7 @@ test('ATTENTION-STATUS-BAR-QUEUE-001 drives the status bar item visibility and c
     assert.equal(item.disposed, true);
 });
 
-function makeJumpOptions(queue) {
+function makeJumpOptions(queue, clearOnNextSession = false) {
     const calls = [];
     return {
         calls,
@@ -246,6 +246,7 @@ function makeJumpOptions(queue) {
             acknowledge: async eventIds => {
                 calls.push(['acknowledge', eventIds]);
             },
+            shouldAcknowledge: () => clearOnNextSession,
             findNavigationCardId: projectId => {
                 calls.push(['findNavigationCardId', projectId]);
                 return queue.navigationCardId || null;
@@ -263,9 +264,24 @@ function makeJumpOptions(queue) {
     };
 }
 
-test('ATTENTION-STATUS-BAR-QUEUE-001 jump focuses, opens, and acknowledges the oldest local session', async () => {
+test('ATTENTION-STATUS-BAR-QUEUE-001 jump cycles local sessions while keeping them unread by default', async () => {
     const queue = buildAttentionQueue(makeQueueInput());
     const { calls, options } = makeJumpOptions(queue);
+
+    await options();
+    await options();
+
+    assert.deepEqual(calls, [
+        ['focusSession', 'kimi:sess-1'],
+        ['openConversation', 'kimi:sess-1'],
+        ['focusSession', 'codex:sess-2'],
+        ['openConversation', 'codex:sess-2'],
+    ], 'navigation advances without clearing attention unless the setting opts in');
+});
+
+test('ATTENTION-STATUS-BAR-QUEUE-001 jump acknowledges after focus and open when enabled', async () => {
+    const queue = buildAttentionQueue(makeQueueInput());
+    const { calls, options } = makeJumpOptions(queue, true);
 
     await options();
 
@@ -273,7 +289,7 @@ test('ATTENTION-STATUS-BAR-QUEUE-001 jump focuses, opens, and acknowledges the o
         ['focusSession', 'kimi:sess-1'],
         ['openConversation', 'kimi:sess-1'],
         ['acknowledge', ['e-1']],
-    ], 'a local jump drains the queue entry only after focus and open succeed');
+    ], 'the opt-in setting drains the queue only after focus and open succeed');
 });
 
 test('ATTENTION-STATUS-BAR-QUEUE-001 jump keeps an unfocusable session unread and warns', async () => {
@@ -282,9 +298,12 @@ test('ATTENTION-STATUS-BAR-QUEUE-001 jump keeps an unfocusable session unread an
     const { calls, options } = makeJumpOptions(queue);
 
     await options();
+    await options();
 
     assert.deepEqual(calls, [
         ['focusSession', 'kimi:sess-1'],
+        ['warning', 'Agent Pivot: the selected AI session is no longer active.'],
+        ['focusSession', 'codex:sess-2'],
         ['warning', 'Agent Pivot: the selected AI session is no longer active.'],
     ]);
 });

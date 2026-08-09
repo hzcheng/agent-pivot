@@ -10,6 +10,7 @@ export interface AttentionQueueJumpOptions {
     focusSession: (item: AttentionQueueItem) => Promise<boolean>;
     openConversation: (item: AttentionQueueItem) => Promise<void>;
     acknowledge: (eventIds: string[]) => Promise<void>;
+    shouldAcknowledge: () => boolean;
     findNavigationCardId: (projectId: string) => string | null;
     openNavigationCard: (cardId: string) => Promise<void>;
     showInformationMessage: (message: string) => void;
@@ -17,22 +18,32 @@ export interface AttentionQueueJumpOptions {
 }
 
 /**
- * Drains the attention queue one entry per invocation. A local jump only
- * acknowledges after the terminal focus and the conversation open both
- * succeeded; a remote jump switches windows and deliberately leaves the
- * entry unread so the destination window drains it from its own queue.
+ * Advances a cursor through the oldest-first attention queue independently
+ * from acknowledgement. A local jump acknowledges only when the user setting
+ * opts in and after terminal focus and conversation open both succeed.
+ * Otherwise it stays unread until the session card is clicked, while the next
+ * invocation can still advance. A remote jump switches windows and
+ * deliberately leaves the entry unread.
  */
 export function createAttentionQueueJumpHandler(
     options: AttentionQueueJumpOptions
 ): () => Promise<void> {
+    let lastKey: string | null = null;
     return async function jumpToNextAttentionSession(): Promise<void> {
-        const next = options.buildQueue().items[0];
-        if (!next) {
+        const items = options.buildQueue().items;
+        if (!items.length) {
             options.showInformationMessage(
                 'Agent Pivot: no AI sessions need attention.'
             );
             return;
         }
+        const previousIndex = lastKey === null
+            ? -1
+            : items.findIndex(item => attentionQueueItemKey(item) === lastKey);
+        const next = previousIndex < 0
+            ? items[0]
+            : items[(previousIndex + 1) % items.length];
+        lastKey = attentionQueueItemKey(next);
         if (next.local) {
             const focused = await options.focusSession(next);
             if (!focused) {
@@ -42,7 +53,9 @@ export function createAttentionQueueJumpHandler(
                 return;
             }
             await options.openConversation(next);
-            await options.acknowledge(next.eventIds);
+            if (options.shouldAcknowledge()) {
+                await options.acknowledge(next.eventIds);
+            }
             return;
         }
         const cardId = options.findNavigationCardId(next.projectId);
@@ -55,4 +68,8 @@ export function createAttentionQueueJumpHandler(
         }
         await options.openNavigationCard(cardId);
     };
+}
+
+function attentionQueueItemKey(item: AttentionQueueItem): string {
+    return JSON.stringify([item.projectId, item.provider, item.sessionId]);
 }

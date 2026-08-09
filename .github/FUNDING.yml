@@ -1,6 +1,5 @@
 # GitHub renders a Sponsor button on the repository page from this file.
 # Ko-fi handles PayPal/card for international supporters; Afdian (爱发电)
 # handles WeChat Pay / Alipay for supporters in mainland China.
-# TODO: replace YOUR_AFDIAN_ID with the real Afdian creator id once available.
 ko_fi: hongzecheng
-custom: 'https://afdian.com/a/YOUR_AFDIAN_ID'
+custom: 'https://afdian.com/a/hzcheng'

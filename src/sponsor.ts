@@ -26,7 +26,7 @@ export const SPONSOR_LINKS: readonly SponsorLink[] = [
         id: 'afdian',
         label: '$(zap) 爱发电 Afdian',
         description: '微信 / 支付宝 — 请作者喝杯咖啡',
-        url: 'https://afdian.com/a/YOUR_AFDIAN_ID',
+        url: 'https://afdian.com/a/hzcheng',
     },
 ];
 

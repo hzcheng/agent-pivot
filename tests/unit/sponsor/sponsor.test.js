@@ -97,7 +97,7 @@ test('WEBVIEW-SPONSOR-ENTRY-001 picking Afdian opens the Afdian page', async () 
     await sponsor.showSponsorOptions();
     assert.deepEqual(
         fixture.opened.map(uri => uri.value),
-        ['https://afdian.com/a/YOUR_AFDIAN_ID']
+        ['https://afdian.com/a/hzcheng']
     );
 });
 

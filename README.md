@@ -8,7 +8,7 @@ sessions are active, switching to them, reviewing user-input conversation
 outlines, and returning to projects without losing context.
 
 [![Ko-fi](https://img.shields.io/badge/Ko--fi-buy%20me%20a%20coffee-ff5e5b?logo=ko-fi&logoColor=white)](https://ko-fi.com/hongzecheng)
-[![爱发电](https://img.shields.io/badge/%E7%88%B1%E5%8F%91%E7%94%B5-%E8%B5%9E%E5%8A%A9-946ce6)](https://afdian.com/a/YOUR_AFDIAN_ID)
+[![爱发电](https://img.shields.io/badge/%E7%88%B1%E5%8F%91%E7%94%B5-%E8%B5%9E%E5%8A%A9-946ce6)](https://afdian.com/a/hzcheng)
 
 ## What Agent Pivot does
 
@@ -332,7 +332,7 @@ reply.
 
 - [Star on GitHub](https://github.com/hzcheng/agent-pivot) — free, and it helps others discover the project
 - [Ko-fi](https://ko-fi.com/hongzecheng) — PayPal / card, from anywhere
-- [爱发电 (Afdian)](https://afdian.com/a/YOUR_AFDIAN_ID) — 微信 / 支付宝
+- [爱发电 (Afdian)](https://afdian.com/a/hzcheng) — 微信 / 支付宝
 
 ## Attribution
 

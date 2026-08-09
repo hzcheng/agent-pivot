@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "fcc2af40ea5c3a4941dfe13be97e16c9a0c10b20",
+        "head": "8010c90f2bff40c726844e83851252b4dbd74138",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -222,7 +222,8 @@
             "3f4a0156aac342b9602427fa40113d067012f54c",
             "fa9df64a1fce021e5c49516c40213c63c7fa01f7",
             "2c1d16c63cab58bdfa75dc41f8d095e0a4e3bf84",
-            "6eb07444bf9dd9346b257e68ca19280e06d851d5"
+            "6eb07444bf9dd9346b257e68ca19280e06d851d5",
+            "141522b97549e11c99cd3234e9b43f3ed91e55c3"
         ]
     },
     "capabilities": [
@@ -1707,7 +1708,8 @@
             "requirement": "The sponsor command, the dashboard toolbar heart button, FUNDING.yml, and the README badges keep offering the same GitHub star, Ko-fi, and Afdian destinations without interrupting the user.",
             "commits": [
                 "b38e19c4a96d8f21afb7e0df84c9aa24c5d9c940",
-                "dc3797f81d37b0bf6a7f09def076a1fb8611eeb0"
+                "dc3797f81d37b0bf6a7f09def076a1fb8611eeb0",
+                "8010c90f2bff40c726844e83851252b4dbd74138"
             ],
             "behaviors": [
                 "WEBVIEW-SPONSOR-ENTRY-001"

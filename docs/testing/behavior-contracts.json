@@ -937,6 +937,21 @@
     ]
   },
   {
+    "id": "ARCH-OPEN-WORKSPACE-FOCUS-TRANSPORT-OWNERSHIP-001",
+    "domain": "architecture",
+    "title": "Running and Attention cross-window focus share one mailbox and delivery state machine",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "scripts/run-architecture-guards.js",
+      "tests/contract/openProjects/attentionFocus.test.js"
+    ],
+    "evidence": [
+      "extensions/attention-ui-bridge/src/openWorkspaceFocusMailboxStore.ts",
+      "extensions/attention-ui-bridge/src/openWorkspaceFocusMailboxCoordinator.ts"
+    ]
+  },
+  {
     "id": "ARCH-AI-SESSION-INCREMENTAL-REFRESH-SOURCE-001",
     "domain": "architecture",
     "title": "AI Session Incremental Refresh Source behavior",

@@ -1,6 +1,7 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const path = require('node:path');
 const test = require('node:test');
 
 const { makeTempDirectory } = require('../../helpers/tempDirectory');
@@ -15,6 +16,9 @@ const {
 const {
     OpenWorkspaceAttentionFocusCoordinator,
 } = require('../../../extensions/attention-ui-bridge/out/extensions/attention-ui-bridge/src/openWorkspaceAttentionFocusCoordinator');
+const {
+    OpenWorkspaceRunningFocusStore,
+} = require('../../../extensions/attention-ui-bridge/out/extensions/attention-ui-bridge/src/openWorkspaceRunningFocusStore');
 
 const TARGET_IDENTITY = 'f'.repeat(64);
 const PROJECT_ID = 'e'.repeat(64);
@@ -107,6 +111,29 @@ test('ATTENTION-STATUS-BAR-QUEUE-001 claims and receipts attention focus mailbox
     await store.complete('b'.repeat(32));
     assert.equal(await store.waitForDelivery('b'.repeat(32), 20), false,
         'a completion that lost its claim after timeout must not leave an orphan receipt');
+});
+
+test('ARCH-OPEN-WORKSPACE-FOCUS-TRANSPORT-OWNERSHIP-001 keeps protocol mailboxes isolated', async t => {
+    const root = makeTempDirectory(t, 'focus-mailbox-isolation-');
+    const attentionStore = new OpenWorkspaceAttentionFocusStore(root);
+    const runningStore = new OpenWorkspaceRunningFocusStore(root);
+
+    assert.equal(attentionStore.directoryPath,
+        path.join(root, 'open-workspaces', 'attention-focus', 'v1'));
+    assert.equal(runningStore.directoryPath,
+        path.join(root, 'open-workspaces', 'running-focus', 'v2'));
+
+    await attentionStore.submit(makeRequest());
+    await runningStore.submit({
+        protocolVersion: 2,
+        requestId: 'a'.repeat(32),
+        targetNavigationIdentity: TARGET_IDENTITY,
+        createdAtMs: 1000,
+        expiresAtMs: 61_000,
+    });
+
+    assert.equal((await attentionStore.scan(1000))[0].sessionId, 'session-1');
+    assert.equal((await runningStore.scan(1000))[0].protocolVersion, 2);
 });
 
 test('ATTENTION-STATUS-BAR-QUEUE-001 reports delivery only after the target queues the exact focus', async t => {

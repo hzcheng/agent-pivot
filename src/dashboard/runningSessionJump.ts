@@ -16,6 +16,8 @@ export interface RunningSessionJumpOptions {
     openNavigationCard: (cardId: string) => Promise<void>;
     showInformationMessage: (message: string) => void;
     showWarningMessage: (message: string) => void;
+    /** Key of the session the user is currently looking at, when known. */
+    getCurrentKey?: () => string | null;
 }
 
 export interface RunningSessionJumpHandler {
@@ -85,7 +87,8 @@ export function createRunningSessionJumpHandler(
             );
             return;
         }
-        const next = getNextRunningSessionQueueItem(items, lastKey);
+        const currentKey = options.getCurrentKey ? options.getCurrentKey() : null;
+        const next = getNextRunningSessionQueueItem(items, lastKey, currentKey);
         if (!next) {
             return;
         }

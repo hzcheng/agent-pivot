@@ -1896,6 +1896,7 @@ async function initializeDashboard(
                     displayName: card.name,
                     runningSessionCount: card.runningSessionCount,
                 })),
+            selfNavigationIdentity: getCurrentOpenWorkspace()?.navigationIdentity,
         }),
         focusSession: focusAiSessionForJump,
         openConversation: openAiSessionConversationForJump,
@@ -1907,6 +1908,12 @@ async function initializeDashboard(
             vscode.window.showInformationMessage(message),
         showWarningMessage: message =>
             vscode.window.showWarningMessage(message),
+        getCurrentKey: () => {
+            const identity = getFocusedAiSessionIdentity();
+            return identity?.sessionId
+                ? `session:${identity.provider}:${identity.sessionId}`
+                : null;
+        },
     });
     // Tmux window switches inside one attach terminal never fire VS Code
     // terminal focus events, so event-driven recording starves the tracker.

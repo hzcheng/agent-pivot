@@ -373,6 +373,27 @@ for (const mutation of [
     {
         id: 'ARCH-AI-SESSION-NAVIGATION-OWNERSHIP-001',
         file: 'src/dashboard.ts',
+        expectedDetail: 'every direct session command must use the shared navigation coordinator',
+        mutate: source => source.replace(
+            'const aiSessionQuickSwitchHandlers = createAiSessionQuickSwitchHandlers({\n'
+                + '        navigationCoordinator: sessionNavigationCoordinator,',
+            'const aiSessionQuickSwitchHandlers = createAiSessionQuickSwitchHandlers({\n'
+                + '        navigationCoordinator: createSessionNavigationCoordinator(),',
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-NAVIGATION-OWNERSHIP-001',
+        file: 'src/dashboard.ts',
+        expectedDetail: 'every direct session command must use the shared local focus executor',
+        mutate: source => source.replace(
+            'navigateSession: (target, executionOptions) =>\n'
+                + '            sessionNavigationFocusExecutor.execute(target, executionOptions),',
+            'navigateSession: async () => ({ focused: false, conversationOpened: false }),',
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-NAVIGATION-OWNERSHIP-001',
+        file: 'src/dashboard.ts',
         expectedDetail: 'Previous and Next Active Session commands must use the shared navigation coordinator',
         mutate: source => source.replace(
             "previousActiveSession: () => sessionNavigationCoordinator.enqueue(\n"

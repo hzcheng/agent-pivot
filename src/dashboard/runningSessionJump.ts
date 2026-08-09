@@ -7,11 +7,15 @@ import {
     RunningSessionQueueLocalItem,
     RunningSessionQueueRemoteItem,
 } from '../aiSessions/runningQueue';
+import {
+    createSessionNavigationCoordinator,
+    SessionNavigationCoordinator,
+} from './sessionNavigationCoordinator';
+import type { SessionNavigationFocusResult } from './sessionNavigationFocusExecutor';
 
-export interface RunningSessionJumpOptions {
+interface RunningSessionJumpBaseOptions {
+    navigationCoordinator?: SessionNavigationCoordinator;
     buildQueue: () => RunningSessionQueue;
-    focusSession: (item: RunningSessionQueueLocalItem) => Promise<boolean>;
-    openConversation: (item: RunningSessionQueueLocalItem) => Promise<void>;
     requestRemoteFocus: (item: RunningSessionQueueRemoteItem) => Promise<boolean>;
     openNavigationCard: (cardId: string) => Promise<void>;
     showInformationMessage: (message: string) => void;
@@ -19,6 +23,21 @@ export interface RunningSessionJumpOptions {
     /** Key of the session the user is currently looking at, when known. */
     getCurrentKey?: () => string | null;
 }
+
+export type RunningSessionJumpOptions = RunningSessionJumpBaseOptions & (
+    {
+        navigateSession: (
+            item: RunningSessionQueueLocalItem
+        ) => Promise<SessionNavigationFocusResult>;
+        focusSession?: never;
+        openConversation?: never;
+    }
+    | {
+        navigateSession?: never;
+        focusSession: (item: RunningSessionQueueLocalItem) => Promise<boolean>;
+        openConversation: (item: RunningSessionQueueLocalItem) => Promise<void>;
+    }
+);
 
 export interface RunningSessionJumpHandler {
     jumpToNextRunningSession(): Promise<void>;
@@ -43,25 +62,35 @@ export function createRunningSessionJumpHandler(
 ): RunningSessionJumpHandler {
     let lastKey: string | null = null;
     let lastObservedCurrentKey: string | null = null;
-    let tail: Promise<void> = Promise.resolve();
-
-    function enqueue(task: () => Promise<void>): Promise<void> {
-        const result = tail.then(task, task);
-        tail = result.then(() => undefined, () => undefined);
-        return result;
-    }
+    const navigationCoordinator = options.navigationCoordinator
+        || createSessionNavigationCoordinator();
 
     async function jumpToLocal(item: RunningSessionQueueLocalItem): Promise<void> {
-        const focused = await options.focusSession(item);
+        const result = options.navigateSession
+            ? await options.navigateSession(item)
+            : await navigateWithLegacyCallbacks(item);
         lastKey = item.key;
-        if (!focused) {
+        if (!result.focused) {
             options.showWarningMessage(
                 'Agent Pivot: the selected AI session is no longer active.'
             );
             return;
         }
         lastObservedCurrentKey = item.key;
+    }
+
+    async function navigateWithLegacyCallbacks(
+        item: RunningSessionQueueLocalItem,
+    ): Promise<SessionNavigationFocusResult> {
+        if (!options.focusSession || !options.openConversation) {
+            throw new Error('Running navigation requires one local execution strategy');
+        }
+        const focused = await options.focusSession(item);
+        if (!focused) {
+            return { focused: false, conversationOpened: false };
+        }
         await options.openConversation(item);
+        return { focused: true, conversationOpened: true };
     }
 
     async function jumpToRemote(item: RunningSessionQueueRemoteItem): Promise<void> {
@@ -121,7 +150,7 @@ export function createRunningSessionJumpHandler(
     }
 
     return {
-        jumpToNextRunningSession: () => enqueue(() => jump('all')),
-        jumpToNextLocalRunningSession: () => enqueue(() => jump('local')),
+        jumpToNextRunningSession: () => navigationCoordinator.enqueue(() => jump('all')),
+        jumpToNextLocalRunningSession: () => navigationCoordinator.enqueue(() => jump('local')),
     };
 }

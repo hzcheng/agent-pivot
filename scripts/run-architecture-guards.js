@@ -563,6 +563,53 @@ function objectFreezeProperties(sourceFile, variableName, id, risk) {
 }
 
 const guards = {
+    // ARCH-AI-SESSION-NAVIGATION-OWNERSHIP-001
+    'ARCH-AI-SESSION-NAVIGATION-OWNERSHIP-001'(root) {
+        const risk = 'independent session navigation pipelines can race and project different targets';
+        const dashboard = parseTypescript(root, 'src/dashboard.ts', this.id, risk);
+        const coordinator = findVariable(
+            dashboard,
+            'sessionNavigationCoordinator',
+            this.id,
+            risk,
+        );
+        if (!coordinator.initializer
+            || !ts.isCallExpression(coordinator.initializer)
+            || coordinator.initializer.expression.getText(dashboard)
+                !== 'createSessionNavigationCoordinator') {
+            fail(this.id, risk,
+                'the Dashboard must create exactly one session navigation coordinator');
+        }
+        for (const factoryName of [
+            'createAttentionQueueJumpHandler',
+            'createRunningSessionJumpHandler',
+        ]) {
+            const calls = callArguments(dashboard, factoryName);
+            const options = calls.length === 1 ? calls[0][0] : null;
+            if (!options || !ts.isObjectLiteralExpression(options)) {
+                fail(this.id, risk, `${factoryName} must have one options object`);
+            }
+            const navigationOwner = options.properties.find(property =>
+                property.name?.getText(dashboard) === 'navigationCoordinator');
+            if (!navigationOwner || !ts.isPropertyAssignment(navigationOwner)
+                || navigationOwner.initializer.getText(dashboard)
+                    !== 'sessionNavigationCoordinator') {
+                fail(this.id, risk,
+                    'both session commands must use the shared navigation coordinator');
+            }
+            const localNavigator = options.properties.find(property =>
+                property.name?.getText(dashboard) === 'navigateSession');
+            if (!localNavigator || !ts.isPropertyAssignment(localNavigator)
+                || callArguments(
+                    localNavigator.initializer,
+                    'sessionNavigationFocusExecutor.execute',
+                ).length !== 1) {
+                fail(this.id, risk,
+                    'both session commands must use the shared local focus executor');
+            }
+        }
+    },
+
     // ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001
     'ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001'(root) {
         const risk = 'conversation history can expose private content or exhaust the extension host';

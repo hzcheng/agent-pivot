@@ -755,7 +755,7 @@
   {
     "id": "ATTENTION-STATUS-BAR-QUEUE-001",
     "domain": "attention",
-    "title": "A right-aligned status bar entry surfaces the cross-window attention count with a per-session tooltip and serially cycles a resilient cursor through the oldest-first queue on click: manual focus changes re-anchor the cursor, local sessions focus their terminal and open their conversation while staying unread by default, an opt-in setting acknowledges only after the conversation really opens, unfocusable sessions warn and stay unread without trapping the cursor, and remote sessions use an exact-target delivered mailbox hand-off before switching to the owning window",
+    "title": "A right-aligned status bar entry surfaces the cross-window attention count with a per-session tooltip and serially cycles a resilient cursor through the oldest-first queue on click: manual focus changes re-anchor the cursor, local sessions use the shared navigation transaction to focus their terminal and open their conversation while staying unread by default, interleaved Running and Attention commands settle in invocation order, an opt-in setting acknowledges only after the conversation really opens, unfocusable sessions warn and stay unread without trapping the cursor, and remote sessions use an exact-target delivered mailbox hand-off before switching to the owning window",
     "priority": "P1",
     "status": "automated",
     "owners": [
@@ -768,6 +768,8 @@
       "src/aiSessions/attentionQueue.ts",
       "src/aiSessions/attentionStatusBarController.ts",
       "src/dashboard/attentionQueueJump.ts",
+      "src/dashboard/sessionNavigationCoordinator.ts",
+      "src/dashboard/sessionNavigationFocusExecutor.ts",
       "src/openWorkspaces/attentionFocusProtocol.ts",
       "src/openWorkspaces/bridgeClient.ts",
       "src/openWorkspaces/earlyBridge.ts",
@@ -782,7 +784,7 @@
   {
     "id": "AI-SESSION-NEXT-RUNNING-COMMAND-001",
     "domain": "session",
-    "title": "The Next Running Session command serially cycles running AI sessions one jump per invocation with a stable local-first queue and a resilient cursor: manual focus changes re-anchor the cursor, local jumps focus the session terminal and open its conversation, sessions that ended mid-cycle are skipped with a warning, and remote jumps switch windows only after a v2 delivered mailbox hand-off is accepted so stale Running requests cannot steal focus from newer Attention navigation",
+    "title": "The Next Running Session command cycles running AI sessions one jump per invocation with a stable local-first queue and a resilient cursor: manual focus changes re-anchor the cursor, local jumps use the shared navigation transaction to focus the session terminal and open its conversation, interleaved Running and Attention commands settle in invocation order, sessions that ended mid-cycle are skipped with a warning, and remote jumps switch windows only after a v2 delivered mailbox hand-off is accepted so stale requests cannot steal focus from newer navigation",
     "priority": "P1",
     "status": "automated",
     "owners": [
@@ -793,6 +795,8 @@
     "evidence": [
       "src/aiSessions/runningQueue.ts",
       "src/dashboard/runningSessionJump.ts",
+      "src/dashboard/sessionNavigationCoordinator.ts",
+      "src/dashboard/sessionNavigationFocusExecutor.ts",
       "src/openWorkspaces/runningFocusProtocol.ts",
       "src/openWorkspaces/bridgeClient.ts",
       "src/openWorkspaces/earlyBridge.ts",
@@ -915,6 +919,21 @@
     ],
     "evidence": [
       "src/webview/webviewProjectScripts.js"
+    ]
+  },
+  {
+    "id": "ARCH-AI-SESSION-NAVIGATION-OWNERSHIP-001",
+    "domain": "architecture",
+    "title": "Running and Attention session commands share one navigation coordinator and one local focus executor",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "scripts/run-architecture-guards.js"
+    ],
+    "evidence": [
+      "src/dashboard.ts",
+      "src/dashboard/sessionNavigationCoordinator.ts",
+      "src/dashboard/sessionNavigationFocusExecutor.ts"
     ]
   },
   {

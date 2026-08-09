@@ -405,7 +405,7 @@ test('ATTENTION-STATUS-BAR-QUEUE-001 jump re-anchors to the watched session inst
     ], 'a manual detour must re-anchor the cycle where the user is');
 });
 
-test('ATTENTION-STATUS-BAR-QUEUE-001 jump re-anchors to the watched session instead of wrapping to a remote cursor successor', async () => {
+test('ATTENTION-STATUS-BAR-QUEUE-001 jump keeps the global cycle moving after a manual detour', async () => {
     const queue = buildAttentionQueue(makeQueueInput());
     const state = { focused: 'kimi:sess-1' };
     const { calls, jump } = makeFocusContinuityJump(queue, state);
@@ -417,9 +417,8 @@ test('ATTENTION-STATUS-BAR-QUEUE-001 jump re-anchors to the watched session inst
     assert.deepEqual(calls, [
         ['focusSession', 'codex:sess-2'],
         ['openConversation', 'codex:sess-2'],
-        ['focusSession', 'codex:sess-2'],
-        ['openConversation', 'codex:sess-2'],
-    ], 'a manual detour must re-anchor the cycle, not jump away from the stale cursor successor');
+        ['openNavigationCard', 'card-remote'],
+    ], 'a manual detour home must not trap the cycle; the press continues after the last jump target');
 });
 
 test('ATTENTION-STATUS-BAR-QUEUE-001 jump starts at the oldest local session when nothing anchors the cycle', async () => {
@@ -432,4 +431,60 @@ test('ATTENTION-STATUS-BAR-QUEUE-001 jump starts at the oldest local session whe
         ['focusSession', 'kimi:sess-1'],
         ['openConversation', 'kimi:sess-1'],
     ], 'a fresh press stays home first even when the globally oldest session is remote');
+});
+
+test('ATTENTION-STATUS-BAR-QUEUE-001 jump cycle eventually focuses every waiting session across windows', async () => {
+    const aggregate = makeQueueInput().aggregate;
+    const queueA = buildAttentionQueue({ aggregate, workspace: makeWorkspace() });
+    const queueB = buildAttentionQueue({
+        aggregate,
+        workspace: {
+            roots: [{ id: 'root-b', uri: 'file:///work/other' }],
+            sessions: [{ provider: 'claude', id: 'sess-9', name: 'other project', primaryRootId: 'root-b' }],
+        },
+    });
+    const world = {
+        active: 'A',
+        // A's focused terminal lingers on codex:sess-2; remote jumps never move it.
+        focused: { A: 'codex:sess-2', B: null },
+    };
+    const focusedByJumps = new Set();
+    const windows = {};
+    for (const [name, queue] of [['A', queueA], ['B', queueB]]) {
+        windows[name] = createAttentionQueueJumpHandler({
+            buildQueue: () => queue,
+            focusSession: async item => {
+                world.focused[name] = `${item.provider}:${item.sessionId}`;
+                focusedByJumps.add(world.focused[name]);
+                return true;
+            },
+            openConversation: async () => {},
+            acknowledge: async () => {},
+            shouldAcknowledge: () => false,
+            findNavigationCardId: () => 'card-remote',
+            openNavigationCard: async () => {
+                world.active = name === 'A' ? 'B' : 'A';
+            },
+            showInformationMessage: () => {},
+            showWarningMessage: () => {},
+            getCurrentIdentity: () => {
+                const focused = world.focused[name];
+                if (!focused) {
+                    return null;
+                }
+                const [provider, sessionId] = focused.split(':');
+                return { provider, sessionId };
+            },
+        });
+    }
+
+    for (let press = 0; press < 6; press += 1) {
+        await windows[world.active]();
+    }
+
+    assert.deepEqual([...focusedByJumps].sort(), [
+        'claude:sess-9',
+        'codex:sess-2',
+        'kimi:sess-1',
+    ], 'a stale watched anchor must not starve a waiting session out of the cycle');
 });

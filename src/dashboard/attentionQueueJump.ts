@@ -52,14 +52,22 @@ export function createAttentionQueueJumpHandler(
             ? -1
             : items.findIndex(item => attentionQueueItemKey(item) === lastKey);
         let next: AttentionQueueItem;
-        if (currentIndex >= 0) {
-            // The live anchor leads: continue the shared oldest-first cycle
-            // after the session the user is watching, which re-anchors the
-            // cycle automatically after manual detours and keeps every press
-            // moving while another session waits.
-            next = items[(currentIndex + 1) % items.length];
-        } else if (previousIndex >= 0) {
+        if (previousIndex >= 0) {
+            // The cursor leads while it survives: only it walks the whole
+            // cycle, because a lingering focused terminal makes the watched
+            // anchor stale after every remote hop and starves the sessions
+            // between them.
             next = items[(previousIndex + 1) % items.length];
+            if (currentIndex >= 0
+                && items.length > 1
+                && attentionQueueItemKey(next) === attentionQueueItemKey(items[currentIndex])) {
+                // Never spend a press re-landing on the watched session.
+                next = items[(previousIndex + 2) % items.length];
+            }
+        } else if (currentIndex >= 0) {
+            // A fresh or stale cursor continues after the session the user is
+            // looking at rather than restarting at the queue head.
+            next = items[(currentIndex + 1) % items.length];
         } else {
             // Nothing anchors the cycle: start at this window's oldest waiting
             // session before hopping to another window.

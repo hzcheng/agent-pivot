@@ -774,7 +774,7 @@
   {
     "id": "AI-SESSION-NEXT-RUNNING-COMMAND-001",
     "domain": "session",
-    "title": "The Next Running Session command cycles running AI sessions one jump per invocation with a stable local-first queue and a resilient cursor: local jumps focus the session terminal and open its conversation, sessions that ended mid-cycle are skipped with a warning, remote jumps hand a focus request through the Open Windows bridge mailbox so the owning window lands directly on a running session, the hand-off degrades to a plain window switch when the bridge predates the mailbox channel, and the command is contributed without a default keybinding",
+    "title": "The Next Running Session command serially cycles running AI sessions one jump per invocation with a stable local-first queue and a resilient cursor: manual focus changes re-anchor the cursor, local jumps focus the session terminal and open its conversation, sessions that ended mid-cycle are skipped with a warning, remote jumps hand an idempotent focus request through the Open Windows bridge mailbox so a late delivery cannot reverse a newer local jump, and the hand-off degrades to a plain window switch when the bridge predates the mailbox channel",
     "priority": "P1",
     "status": "automated",
     "owners": [

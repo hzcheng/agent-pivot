@@ -373,3 +373,83 @@ test('AI-SESSION-NEXT-RUNNING-COMMAND-001 cycles three single-session windows in
         `${WINDOW_A}:s-a`,
     ]);
 });
+
+test('AI-SESSION-NEXT-RUNNING-COMMAND-001 re-anchors after a manual detour with three local sessions', async () => {
+    const queue = buildRunningSessionQueue({
+        localSessions: ['a', 'b', 'c'].map(sessionId => local('codex', sessionId)),
+        remoteWindows: [],
+    });
+    let focused = 'a';
+    const picked = [];
+    const { options } = makeJumpOptions({ queue });
+    options.focusSession = item => {
+        focused = item.sessionId;
+        picked.push(item.sessionId);
+        return Promise.resolve(true);
+    };
+    options.getCurrentKey = () => `session:codex:${focused}`;
+    const handler = createRunningSessionJumpHandler(options);
+
+    await handler.jumpToNextRunningSession();
+    focused = 'a';
+    await handler.jumpToNextRunningSession();
+
+    assert.deepEqual(picked, ['b', 'b'],
+        'manual focus changes must re-anchor the next press regardless of queue length');
+});
+
+test('AI-SESSION-NEXT-RUNNING-COMMAND-001 serializes rapid invocations without duplicating a target', async () => {
+    const queue = buildRunningSessionQueue({
+        localSessions: ['a', 'b', 'c'].map(sessionId => local('codex', sessionId)),
+        remoteWindows: [],
+    });
+    let focused = 'a';
+    const picked = [];
+    const releases = [];
+    const { options } = makeJumpOptions({ queue });
+    options.focusSession = item => new Promise(resolve => {
+        picked.push(item.sessionId);
+        releases.push(() => {
+            focused = item.sessionId;
+            resolve(true);
+        });
+    });
+    options.getCurrentKey = () => `session:codex:${focused}`;
+    const handler = createRunningSessionJumpHandler(options);
+
+    const first = handler.jumpToNextRunningSession();
+    const second = handler.jumpToNextRunningSession();
+    await Promise.resolve();
+    assert.deepEqual(picked, ['b'], 'the second invocation waits for the first focus');
+    releases.shift()();
+    await Promise.resolve();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(picked, ['b', 'c']);
+    releases.shift()();
+    await Promise.all([first, second]);
+    assert.equal(focused, 'c');
+});
+
+test('AI-SESSION-NEXT-RUNNING-COMMAND-001 makes a late handoff idempotent with a newer local jump', async () => {
+    const queue = buildRunningSessionQueue({
+        localSessions: [local('codex', 'b1'), local('codex', 'b2')],
+        remoteWindows: [],
+    });
+    let focused = 'b1';
+    const picked = [];
+    const { options } = makeJumpOptions({ queue });
+    options.focusSession = item => {
+        focused = item.sessionId;
+        picked.push(item.sessionId);
+        return Promise.resolve(true);
+    };
+    options.getCurrentKey = () => `session:codex:${focused}`;
+    const handler = createRunningSessionJumpHandler(options);
+
+    await handler.jumpToNextRunningSession();
+    await handler.jumpToNextLocalRunningSession();
+
+    assert.deepEqual(picked, ['b2', 'b2'],
+        'a handoff delivered after a user jump may reaffirm, but never reverse, that jump');
+    assert.equal(focused, 'b2');
+});

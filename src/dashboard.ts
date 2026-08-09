@@ -1804,7 +1804,8 @@ async function initializeDashboard(
     const jumpToNextAttentionSession = createAttentionQueueJumpHandler({
         navigationCoordinator: sessionNavigationCoordinator,
         buildQueue: buildCurrentAttentionQueue,
-        navigateSession: item => sessionNavigationFocusExecutor.execute(item),
+        navigateSession: (item, executionOptions) =>
+            sessionNavigationFocusExecutor.execute(item, executionOptions),
         acknowledge: eventIds =>
             acknowledgeAiSessionAttentionEventIds(eventIds),
         shouldAcknowledge: () => getAgentPivotConfiguration()
@@ -1915,13 +1916,15 @@ async function initializeDashboard(
                 })),
             selfNavigationIdentity: getCurrentOpenWorkspace()?.navigationIdentity,
         }),
-        navigateSession: item => sessionNavigationFocusExecutor.execute(item, {
+        navigateSession: (item, executionOptions) =>
+            sessionNavigationFocusExecutor.execute(item, {
             onFocused: () => {
+                executionOptions.onFocused?.();
                 // Re-showing an already-active terminal fires no focus event,
                 // so successful Running jumps record into the MRU directly.
                 aiSessionMru.record(item.provider, item.sessionId);
             },
-        }),
+            }),
         requestRemoteFocus: item =>
             requestRemoteAiSessionFocus(item.navigationIdentity),
         openNavigationCard: cardId =>

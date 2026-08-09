@@ -541,3 +541,33 @@ test('AI-SESSION-NEXT-RUNNING-COMMAND-001 records focus before opening the conve
     );
     assert.deepEqual(calls, ['focus', 'record-mru', 'open']);
 });
+
+test('AI-SESSION-NEXT-RUNNING-COMMAND-001 advances after conversation open fails post-focus', async () => {
+    const queue = buildRunningSessionQueue({
+        localSessions: ['a', 'b', 'c'].map(sessionId => local('codex', sessionId)),
+        remoteWindows: [],
+    });
+    let focused = 'a';
+    const picked = [];
+    const { options } = makeJumpOptions({ queue });
+    options.focusSession = async item => {
+        focused = item.sessionId;
+        picked.push(item.sessionId);
+        return true;
+    };
+    let opens = 0;
+    options.openConversation = async () => {
+        opens += 1;
+        if (opens === 1) {
+            throw new Error('conversation unavailable');
+        }
+    };
+    options.getCurrentKey = () => `session:codex:${focused}`;
+    const handler = createRunningSessionJumpHandler(options);
+
+    await assert.rejects(handler.jumpToNextRunningSession(), /conversation unavailable/);
+    await handler.jumpToNextRunningSession();
+
+    assert.deepEqual(picked, ['b', 'c'],
+        'a post-focus open failure must not make the next command repeat the focused session');
+});

@@ -9,7 +9,10 @@ import {
     createSessionNavigationCoordinator,
     SessionNavigationCoordinator,
 } from './sessionNavigationCoordinator';
-import type { SessionNavigationFocusResult } from './sessionNavigationFocusExecutor';
+import type {
+    SessionNavigationFocusExecutionOptions,
+    SessionNavigationFocusResult,
+} from './sessionNavigationFocusExecutor';
 
 interface AttentionQueueJumpBaseOptions {
     navigationCoordinator?: SessionNavigationCoordinator;
@@ -27,7 +30,10 @@ interface AttentionQueueJumpBaseOptions {
 
 export type AttentionQueueJumpOptions = AttentionQueueJumpBaseOptions & (
     {
-        navigateSession: (item: AttentionQueueItem) => Promise<SessionNavigationFocusResult>;
+        navigateSession: (
+            item: AttentionQueueItem,
+            executionOptions: SessionNavigationFocusExecutionOptions,
+        ) => Promise<SessionNavigationFocusResult>;
         focusSession?: never;
         openConversation?: never;
     }
@@ -69,15 +75,18 @@ export function createAttentionQueueJumpHandler(
         const key = attentionQueueItemKey(item);
         lastKey = key;
         const result = options.navigateSession
-            ? await options.navigateSession(item)
-            : await navigateWithLegacyCallbacks(item);
+            ? await options.navigateSession(item, {
+                onFocused: () => { lastObservedCurrentKey = key; },
+            })
+            : await navigateWithLegacyCallbacks(item, {
+                onFocused: () => { lastObservedCurrentKey = key; },
+            });
         if (!result.focused) {
             options.showWarningMessage(
                 'Agent Pivot: the selected AI session is no longer active.'
             );
             return;
         }
-        lastObservedCurrentKey = key;
         if (result.conversationOpened && options.shouldAcknowledge()) {
             await options.acknowledge(item.eventIds);
         }
@@ -85,6 +94,7 @@ export function createAttentionQueueJumpHandler(
 
     async function navigateWithLegacyCallbacks(
         item: AttentionQueueItem,
+        executionOptions: SessionNavigationFocusExecutionOptions,
     ): Promise<SessionNavigationFocusResult> {
         if (!options.focusSession || !options.openConversation) {
             throw new Error('Attention navigation requires one local execution strategy');
@@ -93,6 +103,7 @@ export function createAttentionQueueJumpHandler(
         if (!focused) {
             return { focused: false, conversationOpened: false };
         }
+        executionOptions.onFocused?.();
         return {
             focused: true,
             conversationOpened: await options.openConversation(item),

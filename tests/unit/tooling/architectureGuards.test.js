@@ -303,7 +303,8 @@ for (const mutation of [
         file: 'src/dashboard.ts',
         expectedDetail: 'both session commands must use the shared local focus executor',
         mutate: source => source.replace(
-            'navigateSession: item => sessionNavigationFocusExecutor.execute(item),',
+            'navigateSession: (item, executionOptions) =>\n'
+                + '            sessionNavigationFocusExecutor.execute(item, executionOptions),',
             'navigateSession: async () => ({ focused: false, conversationOpened: false }),',
         ),
     },

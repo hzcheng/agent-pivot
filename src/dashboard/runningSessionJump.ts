@@ -11,7 +11,10 @@ import {
     createSessionNavigationCoordinator,
     SessionNavigationCoordinator,
 } from './sessionNavigationCoordinator';
-import type { SessionNavigationFocusResult } from './sessionNavigationFocusExecutor';
+import type {
+    SessionNavigationFocusExecutionOptions,
+    SessionNavigationFocusResult,
+} from './sessionNavigationFocusExecutor';
 
 interface RunningSessionJumpBaseOptions {
     navigationCoordinator?: SessionNavigationCoordinator;
@@ -27,7 +30,8 @@ interface RunningSessionJumpBaseOptions {
 export type RunningSessionJumpOptions = RunningSessionJumpBaseOptions & (
     {
         navigateSession: (
-            item: RunningSessionQueueLocalItem
+            item: RunningSessionQueueLocalItem,
+            executionOptions: SessionNavigationFocusExecutionOptions,
         ) => Promise<SessionNavigationFocusResult>;
         focusSession?: never;
         openConversation?: never;
@@ -67,20 +71,30 @@ export function createRunningSessionJumpHandler(
 
     async function jumpToLocal(item: RunningSessionQueueLocalItem): Promise<void> {
         const result = options.navigateSession
-            ? await options.navigateSession(item)
-            : await navigateWithLegacyCallbacks(item);
-        lastKey = item.key;
+            ? await options.navigateSession(item, {
+                onFocused: () => {
+                    lastKey = item.key;
+                    lastObservedCurrentKey = item.key;
+                },
+            })
+            : await navigateWithLegacyCallbacks(item, {
+                onFocused: () => {
+                    lastKey = item.key;
+                    lastObservedCurrentKey = item.key;
+                },
+            });
         if (!result.focused) {
+            lastKey = item.key;
             options.showWarningMessage(
                 'Agent Pivot: the selected AI session is no longer active.'
             );
             return;
         }
-        lastObservedCurrentKey = item.key;
     }
 
     async function navigateWithLegacyCallbacks(
         item: RunningSessionQueueLocalItem,
+        executionOptions: SessionNavigationFocusExecutionOptions,
     ): Promise<SessionNavigationFocusResult> {
         if (!options.focusSession || !options.openConversation) {
             throw new Error('Running navigation requires one local execution strategy');
@@ -89,6 +103,7 @@ export function createRunningSessionJumpHandler(
         if (!focused) {
             return { focused: false, conversationOpened: false };
         }
+        executionOptions.onFocused?.();
         await options.openConversation(item);
         return { focused: true, conversationOpened: true };
     }

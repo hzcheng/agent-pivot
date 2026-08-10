@@ -1186,6 +1186,45 @@ test('CONVERSATION-VIEWER-NAVIGATION-002 moves within a loaded page without read
     assert.equal(reads, 1);
 });
 
+test('CONVERSATION-SEEK-LATEST-COMMAND-001 exposes Latest navigation on the viewer API for the seek command', async () => {
+    const requests = [];
+    const responses = [
+        page('session-a', 'input-1', 'visible-1', {
+            nextCursor: 'cursor-1',
+        }),
+        page('session-a', 'input-3', 'visible-3', {
+            previousCursor: 'back-3',
+        }),
+    ];
+    const { viewer, panel } = createViewer({
+        readOutline: async (_provider, sessionId) => outline(
+            sessionId,
+            ['input-1', 'input-2', 'input-3']
+        ),
+        readPage: request => {
+            requests.push(request);
+            return Promise.resolve(responses.shift());
+        },
+    });
+
+    await viewer.open(target('session-a', 'input-1'));
+    await viewer.navigateLatest();
+
+    assert.deepEqual(requests.map(request => ({
+        anchorInteractionId: request.anchorInteractionId,
+        direction: request.direction,
+        cursor: request.cursor,
+    })), [
+        { anchorInteractionId: 'input-1', direction: 'around', cursor: undefined },
+        { anchorInteractionId: 'input-3', direction: 'around', cursor: undefined },
+    ]);
+    const publication = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page').at(-1);
+    assert.equal(publication.updateKind, 'navigation');
+    assert.equal(publication.selectedInteractionId, 'input-3');
+    assert.equal(publication.atLatest, true);
+});
+
 test('CONVERSATION-OUTLINE-NAVIGATION-001 CONVERSATION-OUTLINE-CONTROLLER-001 publishes the current Session outline and loads an exact selected input', async () => {
     const requests = [];
     const interactionIds = ['input-1', 'input-2', 'input-3'];

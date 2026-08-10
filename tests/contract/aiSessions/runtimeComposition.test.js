@@ -162,6 +162,7 @@ test('WEBVIEW-DASHBOARD-COMMAND-AVAILABILITY-001 production activation exposes c
         'agentPivot.migrateSkillsToCentral',
         'agentPivot.changeGlobalSkillsLocation',
         'agentPivot.openCurrentAiSessionConversation',
+        'agentPivot.seekLatestConversationInteraction',
         'agentPivot.previousActiveSession',
         'agentPivot.nextActiveSession',
         'agentPivot.nextAttentionSession',

@@ -111,6 +111,10 @@
                 "title": "Agent Pivot: Open Current AI Session Conversation"
             },
             {
+                "command": "agentPivot.seekLatestConversationInteraction",
+                "title": "Agent Pivot: Seek to Latest Conversation Interaction"
+            },
+            {
                 "command": "agentPivot.previousActiveSession",
                 "title": "Agent Pivot: Previous Active Session"
             },

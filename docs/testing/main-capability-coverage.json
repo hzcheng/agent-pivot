@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "8f158765b41ad3ea5ff862e885ccdd052cb570aa",
+        "head": "7b72e2b4b30a3e6ec72f51cde609a95471b9cd8d",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -257,7 +257,8 @@
             "ed622f02fb6d6a352d954c46c45003e1bb30ff75",
             "69238185ffd3617c9ce247520e8a6da0d4c0366c",
             "e2f2356d250624dfedf359e34375933b03589dcd",
-            "790c4275073bd2be05735c12fe714b9bee27e231"
+            "790c4275073bd2be05735c12fe714b9bee27e231",
+            "f2e803793868d93772ddd3a78c8bb3f00fc00e99"
         ]
     },
     "capabilities": [
@@ -1748,7 +1749,8 @@
                 "858736b4bbe4543033fce1b5c9e7e88b6223ed9a",
                 "3f912d7a2300db39d98c62c41f4cbb4c0eddc908",
                 "fee9ab8a22adbfa55f0bcef2aca42b7458203d91",
-                "8f158765b41ad3ea5ff862e885ccdd052cb570aa"
+                "8f158765b41ad3ea5ff862e885ccdd052cb570aa",
+                "7b72e2b4b30a3e6ec72f51cde609a95471b9cd8d"
             ],
             "behaviors": [
                 "AI-SESSION-NEXT-RUNNING-COMMAND-001",
